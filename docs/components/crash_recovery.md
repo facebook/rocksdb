@@ -18,7 +18,9 @@ The recovery process ensures data durability guarantees specified by `WALRecover
 | File | Responsibility |
 |------|---------------|
 | `db/db_impl/db_impl_open.cc` | Main recovery orchestration: `DBImpl::Recover()`, `RecoverLogFiles()` |
-| `db/version_set.cc` | MANIFEST recovery: `VersionSet::Recover()` |
+| `db/version_set.cc` | MANIFEST recovery: `VersionSet::Recover()`, `VersionSet::TryRecover()` (BER) |
+| `db/version_edit_handler.h` | `VersionEditHandler`: processes VersionEdits during MANIFEST replay |
+| `db/manifest_ops.h` | `GetCurrentManifestPath()`: reads CURRENT file to find active MANIFEST |
 | `db/log_reader.cc` | WAL reading during recovery |
 | `db/repair.cc` | `RepairDB()` for manual database repair |
 | `include/rocksdb/options.h` | `WALRecoveryMode`, `best_efforts_recovery` option definitions |
@@ -70,7 +72,7 @@ Return DB handle (ready for reads/writes)
 
 **⚠️ INVARIANT:** Recovery is atomic from the user's perspective. Either the database opens successfully with a consistent state, or `DB::Open()` returns an error and the database remains unopened.
 
-**⚠️ INVARIANT:** After successful recovery, all committed writes (those for which `Write()` returned OK) are visible, unless using a recovery mode that tolerates data loss (e.g., `kSkipAnyCorruptedRecords`).
+**⚠️ INVARIANT:** After successful recovery, all committed writes (those for which `Write()` returned OK) are visible, unless using a recovery mode that tolerates data loss (e.g., `kPointInTimeRecovery` or `kSkipAnyCorruptedRecords`). Note that the default mode (`kPointInTimeRecovery`) stops at the first corruption, so writes after the corruption point may be lost.
 
 ---
 
@@ -89,7 +91,7 @@ CURRENT file contents: "MANIFEST-000123\n"
                     Read MANIFEST-000123
 ```
 
-**File:** `file/filename.h:kCurrentFileName`, `db/version_set.cc:GetCurrentManifestPath()`
+**File:** `file/filename.h:kCurrentFileName`, `db/manifest_ops.h:GetCurrentManifestPath()`
 
 **⚠️ INVARIANT:** The `CURRENT` file always points to a valid MANIFEST file. Updating `CURRENT` is the final step when creating a new MANIFEST (atomic rename operation).
 
@@ -100,9 +102,10 @@ CURRENT file contents: "MANIFEST-000123\n"
 ```cpp
 Status VersionSet::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
-    bool read_only, std::string* db_id, ...) {
+    bool read_only, std::string* db_id, bool no_error_if_files_missing,
+    bool is_retry, Status* log_status) {
   // 1. Read CURRENT file to find MANIFEST path
-  GetCurrentManifestPath(dbname_, fs_.get(), &manifest_path, &manifest_file_number_);
+  GetCurrentManifestPath(dbname_, fs_.get(), is_retry, &manifest_path, &manifest_file_number_);
 
   // 2. Open MANIFEST file for sequential reading
   SequentialFileReader manifest_file_reader;
@@ -150,23 +153,29 @@ With `best_efforts_recovery = true`, RocksDB can recover even if:
 if (!immutable_db_options_.best_efforts_recovery) {
   s = env_->FileExists(current_fname);  // Require CURRENT file
 } else {
-  // Scan directory for any MANIFEST-* file, even if CURRENT is missing
+  // Scan directory for any non-empty MANIFEST-* file, even if CURRENT is missing
   for (const std::string& file : files_in_dbname) {
+    uint64_t number = 0;
+    FileType type = kWalFile;
     if (ParseFileName(file, &number, &type) && type == kDescriptorFile) {
-      // Found a MANIFEST, use it even if CURRENT is missing
-      manifest_path = dbname_ + "/" + file;
-      break;
+      uint64_t bytes;
+      s = env_->GetFileSize(DescriptorFileName(dbname_, number), &bytes);
+      if (s.ok() && bytes != 0) {
+        // Found non-empty MANIFEST, use it
+        manifest_path = dbname_ + "/" + file;
+        break;
+      }
     }
   }
 }
 ```
 
 Best-efforts recovery tries to find the most recent valid "point in time" by:
-- Scanning for any MANIFEST files in the directory
-- Accepting missing SST files and recovering to the last consistent state where all files exist
-- Recovering a suffix of L0 files (most recent writes) may be missing, recovering to an earlier consistent point
+- Scanning for any non-empty MANIFEST files in the directory (skipping empty ones)
+- Using `VersionSet::TryRecover()` (instead of the normal `VersionSet::Recover()`) which accepts missing SST files and recovers to the last consistent state where all files exist
+- Recovering an incomplete version with only a suffix of L0 files missing (recent writes lost), but only when `atomic_flush` is not enabled (atomic flush requires consistent cross-CF recovery)
 
-See `include/rocksdb/options.h:1570-1608` for full `best_efforts_recovery` documentation.
+See `include/rocksdb/options.h:1561-1608` for full `best_efforts_recovery` documentation.
 
 ---
 
@@ -215,7 +224,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers, ...) {
 }
 ```
 
-**ProcessLogFiles() processes each WAL sequentially:**
+**ProcessLogFiles() (line 1185-1229) loops over WAL files and calls ProcessLogFile() (singular) for each:**
 
 ```
 For each WAL file:
@@ -238,13 +247,14 @@ For each WAL file:
   Post-WAL-replay flush (if needed)
 ```
 
-**File:** `db/db_impl/db_impl_open.cc:1231-1327`
+**File:** `db/db_impl/db_impl_open.cc:1231+` (ProcessLogFile, singular - processes one WAL)
 
 Key aspects:
 - **Sequential replay**: WAL records are replayed in order
 - **WriteBatch replay**: Each WAL record is a `WriteBatch` that gets inserted into the appropriate column family's memtable
 - **Sequence number tracking**: Recovery tracks `next_sequence` to detect gaps or inconsistencies
 - **Corruption detection**: `log::Reader` reports checksum failures, truncation, or invalid records via a `Reporter`
+- **WAL filtering**: If a `WalFilter` is configured (`immutable_db_options_.wal_filter`), it is invoked during recovery to allow the application to inspect, modify, or skip WAL records. The filter's `ColumnFamilyLogNumberMap()` is called before replay, and each record passes through the filter during replay. See `db/db_impl/db_impl_open.cc:995-1012` for `InvokeWalFilterIfNeededOnColumnFamilyToWalNumberMap()` and `db/db_impl/db_impl_open.cc:1015+` for per-record filtering.
 
 **⚠️ INVARIANT:** WAL records are replayed in the order they were written. This ensures writes appear in the same order after recovery as before the crash.
 
@@ -262,12 +272,12 @@ Key aspects:
 
 | Mode | Behavior | Use Case |
 |------|----------|----------|
-| **kTolerateCorruptedTailRecords** | Tolerate incomplete records at the end of WAL (from crash during write). Zero-padding from preallocation is also tolerated. **Fails on any other corruption.** | Default. Applications that require durability: once `Write()` returns OK, the data must not be lost. |
+| **kTolerateCorruptedTailRecords** | Tolerate incomplete records at the end of WAL (from crash during write). Zero-padding from preallocation is also tolerated. **Fails on any other corruption.** | Applications that require durability: once `Write()` returns OK and `WritableFile::Append()` is durable, the data must not be lost. |
 | **kAbsoluteConsistency** | Fail recovery if **any** corruption is detected in WAL. | Unit tests, applications requiring absolute consistency (no tolerance for corruption). |
-| **kPointInTimeRecovery** | Stop WAL replay at the first corruption. Recovers to a valid point-in-time before the corruption. | Systems with disk controller caches (SSDs without supercapacitors) where partial writes can occur. |
+| **kPointInTimeRecovery** | Stop WAL replay at the first corruption. Recovers to a valid point-in-time before the corruption. | **Default.** Systems with disk controller caches (SSDs without supercapacitors) where partial writes can occur. |
 | **kSkipAnyCorruptedRecords** | Skip **all** corrupted records and continue recovery. Salvages as much data as possible. | Disaster recovery, low-grade data where some loss is acceptable to maximize recovery. |
 
-### kTolerateCorruptedTailRecords (Default)
+### kTolerateCorruptedTailRecords
 
 ```
 WAL file: [Record 1][Record 2][Record 3][Incomplete Record 4 (crash during write)]
@@ -278,18 +288,13 @@ WAL file: [Record 1][Record 2][Record 3][Incomplete Record 4 (crash during write
 ```
 
 **Guarantees:**
-- All writes for which `Write()` returned OK are recovered
+- All writes for which `Write()` returned OK are recovered, provided `WritableFile::Append()` writes are durable (e.g., via `fsync`). Without explicit sync, RocksDB offers mechanisms such as `WriteOptions::sync` or `FlushWAL(true)` to strengthen this guarantee.
 - Corruption in the middle of the WAL (not at tail) causes recovery failure
 - Distinguishes between crash-during-write (acceptable) and data corruption (unacceptable)
 
-**⚠️ INVARIANT:** With `kTolerateCorruptedTailRecords`, if `Write(batch)` returned `Status::OK()`, then after recovery, all keys in `batch` are present in the database (unless overwritten by a later write).
+**⚠️ INVARIANT:** With `kTolerateCorruptedTailRecords`, if `Write(batch)` returned `Status::OK()` and the underlying `WritableFile::Append()` was durable, then after recovery, all keys in `batch` are present in the database (unless overwritten by a later write).
 
-**Incompatibility with WAL recycling:** When `recycle_log_file_num = true`, old WAL data remains at the tail of recycled files. Corruption detection cannot distinguish between:
-- Corruption from crash-during-write (acceptable)
-- Actual data corruption (unacceptable)
-- Old recycled data (expected)
-
-RocksDB disables `recycle_log_file_num` when using `kTolerateCorruptedTailRecords` to avoid this ambiguity.
+**Incompatibility with WAL recycling:** When `recycle_log_file_num > 0`, old WAL data remains at the tail of recycled files. With `kTolerateCorruptedTailRecords`, corruption detection cannot distinguish between crash-during-write corruption (acceptable) and old recycled data (expected). Additionally, `kAbsoluteConsistency` (and `kPointInTimeRecovery`) have a known bug with recycled logs that can introduce holes in recovered data ([PR #7252](https://github.com/facebook/rocksdb/pull/7252#issuecomment-673766236)). RocksDB therefore disables `recycle_log_file_num` when using either `kTolerateCorruptedTailRecords` or `kAbsoluteConsistency`.
 
 **File:** `db/db_impl/db_impl_open.cc:105-122`
 
@@ -305,7 +310,7 @@ WAL file: [Record 1][Record 2][Corrupted Record 3]
 
 Use for: Unit tests, systems where any WAL corruption is unacceptable.
 
-### kPointInTimeRecovery
+### kPointInTimeRecovery (Default)
 
 ```
 WAL file: [Record 1][Record 2][Record 3][Corrupted Record 4][Record 5]
@@ -406,8 +411,8 @@ After a crash, RocksDB must:
 
 ```cpp
 // Force flush on DB open if 2PC is enabled, since with 2PC we have no
-// guarantee that consecutive log files have consecutive sequence numbers,
-// which makes recovery complicated.
+// guarantee that consecutive log files have consecutive sequence id, which
+// make recovery complicated.
 if (result.allow_2pc) {
   result.avoid_flush_during_recovery = false;
 }
@@ -428,7 +433,7 @@ Recovery:
   |
   +-- Replay all WAL records
   |     +-- [Write 1] -> Insert into memtable
-  |     +-- [Prepare T1] -> Mark T1 as prepared (store in DBImpl::transactions_)
+  |     +-- [Prepare T1] -> Mark T1 as prepared (store in DBImpl::recovered_transactions_)
   |     +-- [Write 2] -> Insert into memtable
   |     +-- [Commit T1] -> Commit T1 (now visible)
   |     +-- [Prepare T2] -> Mark T2 as prepared (NOT visible)
@@ -436,7 +441,7 @@ Recovery:
   +-- After recovery:
         +-- T1 is committed (visible)
         +-- T2 is prepared but not committed (NOT visible)
-        +-- Application can call DB::GetTransactionByName("T2") and commit or rollback
+        +-- Application can call TransactionDB::GetTransactionByName("T2") and commit or rollback
 ```
 
 **⚠️ INVARIANT:** Prepared transactions survive crash recovery. After `DB::Open()`, the application can query prepared transactions and decide to commit or rollback.
@@ -446,7 +451,7 @@ Recovery:
 - Flushing during recovery ensures all memtable data is persisted before creating new WAL files
 - This simplifies subsequent recovery by ensuring WAL files have predictable sequence number ranges
 
-**File:** `db/db_impl/db_impl_open.cc:2515-2525`
+**File:** `db/db_impl/db_impl_open.cc:148-153`
 
 ---
 
@@ -456,17 +461,17 @@ After MANIFEST and WAL recovery, RocksDB verifies that the recovered state is va
 
 ### SST File Existence
 
-**File:** `db/db_impl/db_impl_open.cc:531-562` (in `DBImpl::Recover()`)
+**File:** `db/db_impl/db_impl_open.cc:530-573` (in `DBImpl::Recover()`)
 
 ```cpp
 if (!immutable_db_options_.best_efforts_recovery) {
   s = versions_->Recover(column_families, read_only, &db_id_,
                          /*no_error_if_files_missing=*/false, ...);
   // Recover() verifies all SST files referenced by MANIFEST exist
-  if (s.IsNotFound()) {
-    // SST file missing -> Recovery fails
-    return s;
-  }
+} else {
+  // BER uses TryRecover() which tolerates missing files
+  s = versions_->TryRecover(column_families, read_only, files_in_dbname,
+                            &db_id_, &missing_table_file);
 }
 ```
 
@@ -478,7 +483,7 @@ RocksDB can track unique IDs for SST files in the MANIFEST. During recovery, it 
 
 **Purpose:** Detect if an SST file was replaced with a different file of the same number (e.g., from restoring a bad backup).
 
-**File:** `db/version_set.cc:6657-6658`, `include/rocksdb/options.h:1584`
+**File:** `include/rocksdb/options.h:1583-1584`
 
 ```cpp
 // In best_efforts_recovery mode:
@@ -488,7 +493,7 @@ RocksDB can track unique IDs for SST files in the MANIFEST. During recovery, it 
 
 ### Sequence Number Consistency
 
-Recovery verifies that sequence numbers in WAL are monotonically increasing (no gaps except in 2PC mode).
+Recovery verifies that sequence numbers across WAL files never decrease. After processing each WAL file, `CheckSeqnoNotSetBackDuringRecovery()` confirms the next sequence number has not gone backwards (equal values are permitted for empty WAL files).
 
 **File:** `db/db_impl/db_impl_open.cc:1214-1216`
 
@@ -498,7 +503,7 @@ if (status.ok()) {
 }
 ```
 
-**⚠️ INVARIANT:** Sequence numbers must increase monotonically during WAL replay (except in 2PC where prepared transactions can create gaps).
+**⚠️ INVARIANT:** Sequence numbers must not decrease during WAL replay. `CheckSeqnoNotSetBackDuringRecovery()` returns `Status::Corruption` if the next sequence number goes backwards between WAL files.
 
 ---
 
@@ -506,7 +511,7 @@ if (status.ok()) {
 
 `best_efforts_recovery = true` enables aggressive recovery when files are missing or corrupt. Designed for recovering from incomplete physical copies (e.g., partial `rsync`, interrupted backup restore).
 
-**File:** `include/rocksdb/options.h:1570-1608`
+**File:** `include/rocksdb/options.h:1561-1608`
 
 ### What BER Handles
 
@@ -514,7 +519,7 @@ if (status.ok()) {
 |----------|--------------|
 | `CURRENT` file missing | Scan directory for any `MANIFEST-*` file, use the latest |
 | SST files missing | Recover to an earlier point-in-time where all files exist |
-| Suffix of L0 files missing | Accept missing recent L0 files (recent writes lost) |
+| Suffix of L0 files missing | Accept missing recent L0 files (recent writes lost), only when `atomic_flush` is disabled |
 | MANIFEST truncated | Use the last valid VersionEdit |
 | SST file replaced (detected via unique ID) | Treat as missing, recover to earlier point |
 
@@ -533,7 +538,7 @@ best_efforts_recovery = true:
     |     +-- YES: Scan for any MANIFEST-* file, use latest
     |     +-- NO: Use CURRENT
     |
-    +-- MANIFEST recovery:
+    +-- MANIFEST recovery (uses VersionSet::TryRecover() instead of Recover()):
     |     +-- Read MANIFEST records
     |     +-- Apply VersionEdits
     |     +-- If SST file missing:
@@ -588,8 +593,10 @@ RocksDB can retry recovery if the underlying filesystem supports verification an
 
 ```cpp
 if (can_retry) {
-  if (!is_retry && desc_status.IsCorruption() &&
-      CheckFSFeatureSupport(fs_.get(), kVerifyAndReconstructRead)) {
+  if (!is_retry &&
+      (desc_status.IsCorruption() || s.IsNotFound() || s.IsCorruption()) &&
+      CheckFSFeatureSupport(fs_.get(),
+                            FSSupportedOps::kVerifyAndReconstructRead)) {
     *can_retry = true;  // Retry recovery with FS-level error correction
     ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                     "Possible corruption detected while replaying MANIFEST. "
@@ -598,7 +605,7 @@ if (can_retry) {
 }
 ```
 
-If the first recovery attempt encounters corruption in the MANIFEST, and the filesystem supports `kVerifyAndReconstructRead` (e.g., RAID with parity checking), RocksDB retries the recovery with filesystem-level error correction enabled.
+If the first recovery attempt encounters corruption in the MANIFEST (or missing SST files as a consequence of corrupt MANIFEST records), and the filesystem supports `FSSupportedOps::kVerifyAndReconstructRead` (e.g., RAID with parity checking), RocksDB retries the recovery with filesystem-level error correction enabled.
 
 ---
 
@@ -658,6 +665,10 @@ After WAL recovery, RocksDB optionally flushes recovered memtables to SST files.
 - Faster open time: Recovery completes sooner
 - Reduced write amplification: Avoid flushing small amounts of recovered data
 
+**Note:** Even with `avoid_flush_during_recovery = true`, flushes may still occur during recovery if `enforce_write_buffer_manager_during_recovery = true` (the default) and a `WriteBufferManager` is configured. When the global memory limit is reached during WAL replay, a flush is triggered. Once any such WBM-triggered flush occurs, all remaining non-empty memtables will also be flushed at the end of recovery.
+
+**File:** `include/rocksdb/options.h:1415-1443`
+
 **⚠️ INVARIANT:** With `allow_2pc = true`, `avoid_flush_during_recovery` is forced to `false`. This ensures prepared transactions are flushed and WAL sequence numbers are consecutive.
 
 ---
@@ -675,14 +686,14 @@ Crash recovery ensures RocksDB can restore a consistent database state after une
 7. **Post-recovery flush** optionally persists recovered data immediately
 
 **Key invariants:**
-- ⚠️ All committed writes (with `Write()` returning OK) are recovered (unless using lossy recovery modes)
+- ⚠️ All committed writes (with `Write()` returning OK) are recovered (unless using lossy recovery modes like `kPointInTimeRecovery` or `kSkipAnyCorruptedRecords`)
 - ⚠️ MANIFEST recovery always precedes WAL recovery
-- ⚠️ Sequence numbers increase monotonically (except 2PC gaps)
+- ⚠️ Sequence numbers never decrease across WAL files during replay
 - ⚠️ Atomic flush groups are recovered atomically (all-or-nothing)
 - ⚠️ Recovery is atomic: either `DB::Open()` succeeds with a consistent DB, or fails with no side effects
 
 For more details, see:
 - [ARCHITECTURE.md](../../ARCHITECTURE.md) for the overall database structure
-- [write_path.md](write_path.md) for WAL write mechanics
+- [write_flow.md](write_flow.md) for WAL write mechanics
 - [version_management.md](version_management.md) for MANIFEST and VersionEdit details
 - [transaction.md](transaction.md) for 2PC transaction implementation

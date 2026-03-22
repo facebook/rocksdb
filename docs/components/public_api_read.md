@@ -20,11 +20,13 @@ This document provides a deep dive into RocksDB's public read APIs, covering poi
 4. [DB::NewIterator - Range Scans](#dbnewiterator---range-scans)
 5. [Iterator Operations](#iterator-operations)
 6. [DB::GetMergeOperands](#dbgetmergeoperands)
-7. [Async I/O](#async-io)
-8. [Scan Patterns](#scan-patterns)
-9. [ReadOptions Reference](#readoptions-reference)
-10. [PinnableSlice - Zero-Copy Values](#pinnableslice---zero-copy-values)
-11. [Column Family Reads](#column-family-reads)
+7. [DB::GetEntity / DB::MultiGetEntity](#dbgetentity--dbmultigetentity---wide-column-reads)
+8. [DB::KeyMayExist](#dbkeymayexist---lightweight-existence-check)
+9. [Async I/O](#async-io)
+10. [Scan Patterns](#scan-patterns)
+11. [ReadOptions Reference](#readoptions-reference)
+12. [PinnableSlice - Zero-Copy Values](#pinnableslice---zero-copy-values)
+13. [Column Family Reads](#column-family-reads)
 
 ---
 
@@ -40,15 +42,22 @@ Both patterns share the same `ReadOptions` configuration and can operate on spec
 ```
 Read Path Decision Tree:
 
-Single key? ──yes──> Get()
-   │
+Single key? ──yes──> Need wide columns? ──yes──> GetEntity()
+   │                        │
+   │                        no
+   │                        │
+   │                 Need existence only? ──yes──> KeyMayExist()
+   │                        │
+   │                        no ──> Get()
    no
    │
-Multiple specific keys? ──yes──> MultiGet()
+Multiple specific keys? ──yes──> MultiGet() / MultiGetEntity()
    │
    no
    │
 Range/prefix scan? ──yes──> NewIterator() + Seek/Next/Prev
+   │
+Multiple ranges? ──yes──> NewMultiScan()
 ```
 
 ⚠️ **INVARIANT**: All reads see a consistent snapshot of the database. If `ReadOptions::snapshot` is nullptr, an implicit snapshot is created at the start of the read operation.
@@ -68,10 +77,14 @@ virtual Status Get(const ReadOptions& options,
                    std::string* timestamp) = 0;
 ```
 
-**Overloads** (defined in `include/rocksdb/db.h:621-656`):
-- `Get(options, column_family, key, value)` - No timestamp
-- `Get(options, key, value)` - Default column family
-- `Get(options, key, value, timestamp)` - Default column family with timestamp
+**Overloads** (defined in `include/rocksdb/db.h:606-656`):
+- `Get(options, column_family, key, PinnableSlice* value)` - No timestamp
+- `Get(options, column_family, key, std::string* value, timestamp)` - std::string with timestamp
+- `Get(options, column_family, key, std::string* value)` - std::string, no timestamp
+- `Get(options, key, std::string* value)` - Default column family
+- `Get(options, key, std::string* value, timestamp)` - Default column family with timestamp
+
+Note: There is no default-column-family convenience overload for `PinnableSlice*`. Use `Get(options, db->DefaultColumnFamily(), key, &pinnable_val)` explicitly.
 
 ### Parameters
 
@@ -91,7 +104,7 @@ virtual Status Get(const ReadOptions& options,
 | `OK` (subcode `kMergeOperandThresholdExceeded`) | Key found, but `merge_operand_count_threshold` was exceeded |
 | `NotFound` | Key does not exist |
 | `Corruption` | Data corruption detected (if `verify_checksums=true`) |
-| `IOError` | I/O failure reading SST file or memtable |
+| `IOError` | I/O failure reading SST file |
 | `Incomplete` | Deadline/timeout exceeded or `read_tier` restriction |
 
 ### Behavior
@@ -179,7 +192,7 @@ virtual void MultiGet(const ReadOptions& options,
 ```
 MultiGet(keys[])
     ↓
-Sort keys by (CF, sequence) if sorted_input=false
+Sort keys by (CF ID, user key) if sorted_input=false
     ↓
 For each level (memtable → L0 → L1 → ...):
     ↓
@@ -275,8 +288,8 @@ Iterators support querying runtime properties via `GetProperty()`:
 | `rocksdb.iterator.is-key-pinned` | "1" if `key()` remains valid until iterator deletion |
 | `rocksdb.iterator.is-value-pinned` | "1" if `value()` remains valid until iterator deletion |
 | `rocksdb.iterator.super-version-number` | LSM version used by iterator |
-| `rocksdb.iterator.internal-key` | Internal key (user key + seqno + type) |
-| `rocksdb.iterator.write-time` | Estimated write time (Unix timestamp) |
+| `rocksdb.iterator.internal-key` | User-key portion of the internal key at which iteration stopped |
+| `rocksdb.iterator.write-time` | Best estimate of write time as 64-bit raw value (8 bytes, decode with `DecodeU64Ts`); returns `std::numeric_limits<uint64_t>::max()` if unknown, 0 if seqno zeroed out |
 
 **Pinning**: Keys/values are pinned when `ReadOptions::pin_data=true` and `BlockBasedTableOptions::use_delta_encoding=false`.
 
@@ -403,6 +416,18 @@ delete it;
 
 **Use cases**: BlobDB with large values, multi-CF iterators, filtering by key before loading value.
 
+### Refresh() - Update Iterator View
+
+`Refresh()` updates the iterator to see the latest DB state without creating a new iterator:
+
+```cpp
+// include/rocksdb/iterator_base.h:69-75
+virtual Status Refresh();                       // Latest DB state
+virtual Status Refresh(const class Snapshot*);  // Latest state under snapshot
+```
+
+After `Refresh()`, the iterator is invalidated and must be repositioned with a `Seek*()` call. This is more efficient than deleting and recreating the iterator.
+
 ---
 
 ## DB::GetMergeOperands
@@ -446,7 +471,7 @@ struct GetMergeOperandsOptions {
 
 ### Operand Order
 
-⚠️ **INVARIANT**: Merge operands are returned **newest to oldest** (reverse chronological).
+⚠️ **INVARIANT**: Merge operands are returned **oldest to newest** (chronological order, in order of insertion).
 
 ### Example
 
@@ -470,6 +495,110 @@ if (s.ok()) {
   }
 } else if (s.IsIncomplete()) {
   LOG(WARN) << "More than 10 operands exist";
+}
+```
+
+---
+
+## DB::GetEntity / DB::MultiGetEntity - Wide Column Reads
+
+For wide-column entities, `GetEntity()` and `MultiGetEntity()` return all columns without requiring the caller to deserialize from a plain value.
+
+### GetEntity API
+
+```cpp
+// include/rocksdb/db.h:667-672
+virtual Status GetEntity(const ReadOptions& options,
+                         ColumnFamilyHandle* column_family,
+                         const Slice& key,
+                         PinnableWideColumns* columns);
+
+// include/rocksdb/db.h:678-682 - Multi-CF for single key
+virtual Status GetEntity(const ReadOptions& options,
+                         const Slice& key,
+                         PinnableAttributeGroups* result);
+```
+
+### MultiGetEntity API
+
+```cpp
+// include/rocksdb/db.h:876-885 - Single CF
+virtual void MultiGetEntity(const ReadOptions& options,
+                            ColumnFamilyHandle* column_family,
+                            size_t num_keys, const Slice* keys,
+                            PinnableWideColumns* results,
+                            Status* statuses,
+                            bool sorted_input = false);
+
+// include/rocksdb/db.h:908-917 - Multi-CF
+virtual void MultiGetEntity(const ReadOptions& options,
+                            size_t num_keys,
+                            ColumnFamilyHandle** column_families,
+                            const Slice* keys,
+                            PinnableWideColumns* results,
+                            Status* statuses,
+                            bool sorted_input = false);
+```
+
+Both have default implementations returning `Status::NotSupported`.
+
+See `docs/components/wide_column.md` for full wide-column documentation.
+
+---
+
+## DB::KeyMayExist - Lightweight Existence Check
+
+A bloom-filter-based existence check that can avoid I/O. Returns `false` if the key definitely does not exist; returns `true` if it may exist (can be a false positive).
+
+### API Signature
+
+```cpp
+// include/rocksdb/db.h:954-958
+virtual bool KeyMayExist(const ReadOptions& options,
+                         ColumnFamilyHandle* column_family,
+                         const Slice& key, std::string* value,
+                         std::string* timestamp,
+                         bool* value_found = nullptr);
+```
+
+**Overloads**:
+- `KeyMayExist(options, column_family, key, value, value_found)` - No timestamp
+- `KeyMayExist(options, key, value, value_found)` - Default column family
+- `KeyMayExist(options, key, value, timestamp, value_found)` - Default CF with timestamp
+
+### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | `std::string*` | Output value (populated if found in memory) |
+| `value_found` | `bool*` | If non-null, set to true when value was found in memory without I/O |
+
+### Return Values
+
+| Return | Meaning |
+|--------|---------|
+| `false` | Key definitely does not exist (bloom filter miss) |
+| `true` | Key may exist (could be false positive); check `*value_found` for value availability |
+
+### Use Case
+
+Use when you need a fast "likely not found" check before committing to a full `Get()`:
+
+```cpp
+std::string value;
+bool value_found = false;
+if (db->KeyMayExist(read_opts, cf, key, &value, &value_found)) {
+  if (value_found) {
+    // Value was found in memtable, no I/O needed
+    ProcessValue(value);
+  } else {
+    // Key might exist -- do a full Get() to confirm
+    PinnableSlice pval;
+    Status s = db->Get(read_opts, cf, key, &pval);
+    // ...
+  }
+} else {
+  // Key definitely does not exist
 }
 ```
 
@@ -549,9 +678,10 @@ Iterator* it = db->NewIterator(opts);
 ```
 
 RocksDB auto-readahead (see `include/rocksdb/options.h:2102-2104`):
-- Starts at 8KB after detecting 2 sequential reads
-- Doubles on each read up to 256KB
-- `readahead_size` overrides auto-readahead
+- Starts at 8KB after detecting more than two sequential reads
+- Doubles on each additional read up to `BlockBasedTableOptions::max_auto_readahead_size` (default 256KB)
+- Resets back to 8KB at each level when the iterator moves to a new file
+- `readahead_size` overrides auto-readahead with a fixed size
 
 ---
 
@@ -676,7 +806,7 @@ std::chrono::microseconds io_timeout = std::chrono::microseconds::zero();
 - `io_timeout`: Per-file-read timeout
 
 ```cpp
-opts.deadline = env->NowMicros() + 100'000; // 100ms total deadline
+opts.deadline = std::chrono::microseconds(env->NowMicros() + 100'000); // 100ms total deadline
 opts.io_timeout = std::chrono::milliseconds(50); // 50ms per I/O
 ```
 
@@ -689,7 +819,9 @@ ReadTier read_tier = kReadAllTier;
 ```
 
 - `kReadAllTier`: Read from all storage tiers (default)
-- `kBlockCacheTier`: Only read data already in block cache (return `Incomplete` otherwise)
+- `kBlockCacheTier`: Only read data already in memtable or block cache (return `Incomplete` otherwise)
+- `kPersistedTier`: Read persisted data only; skips memtable when WAL is disabled (Get/MultiGet only, not iterators)
+- `kMemtableTier`: Read from memtable only; used for memtable-only iterators
 
 ```cpp
 bool fill_cache = true;
@@ -879,6 +1011,39 @@ for (auto* it : iters) {
 }
 ```
 
+### Cross-CF Iterators
+
+**NewCoalescingIterator** merges wide columns from multiple CFs. When a key exists in multiple CFs, columns are coalesced with later CFs shadowing earlier ones:
+
+```cpp
+// include/rocksdb/db.h:1016-1018
+virtual std::unique_ptr<Iterator> NewCoalescingIterator(
+    const ReadOptions& options,
+    const std::vector<ColumnFamilyHandle*>& column_families) = 0;
+```
+
+**NewAttributeGroupIterator** returns per-CF wide columns separately (as `IteratorAttributeGroups`):
+
+```cpp
+// include/rocksdb/db.h:1022-1024
+virtual std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
+    const ReadOptions& options,
+    const std::vector<ColumnFamilyHandle*>& column_families) = 0;
+```
+
+### NewMultiScan - Multi-Range Scan
+
+Scans multiple disjoint key ranges in a single pass. Ranges should be in increasing order of start key:
+
+```cpp
+// include/rocksdb/db.h:1055-1057
+virtual std::unique_ptr<MultiScan> NewMultiScan(
+    const ReadOptions& options, ColumnFamilyHandle* column_family,
+    const MultiScanArgs& scan_opts);
+```
+
+See `include/rocksdb/multi_scan_iterator.h` for `MultiScanArgs` and usage details.
+
 ---
 
 ## Best Practices
@@ -933,7 +1098,7 @@ for (auto* it : iters) {
 
 ⚠️ **Pinned PinnableSlice holds block cache reference** (until Reset/destruction).
 
-⚠️ **GetMergeOperands returns newest-to-oldest operands**.
+⚠️ **GetMergeOperands returns oldest-to-newest operands** (chronological order).
 
 ⚠️ **MultiGet array sizes must match num_keys** (keys, values, statuses).
 

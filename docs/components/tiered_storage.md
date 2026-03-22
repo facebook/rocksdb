@@ -31,13 +31,13 @@ enum class Temperature : uint8_t {
   kCool = 0x0A,    // Rarely accessed data
   kCold = 0x0C,    // Very rarely accessed data
   kIce = 0x10,     // Archival data
-  kLastTemperature // Sentinel value (invalid)
+  kLastTemperature // Sentinel value (not a valid temperature)
 };
 ```
 
-**⚠️ INVARIANT**: Temperature values are sparse (gaps between values) to allow future insertion of intermediate tiers without breaking compatibility.
+**INVARIANT**: Temperature values are sparse (gaps between values) to allow future insertion of intermediate tiers without breaking compatibility.
 
-**⚠️ INVARIANT**: `kUnknown` means "no explicit temperature", not "unknown temperature". Files with `kUnknown` temperature use default placement policies.
+**INVARIANT**: `kUnknown` means "no explicit temperature", not "unknown temperature". Files with `kUnknown` temperature use default placement policies.
 
 ### Temperature Semantics
 
@@ -55,26 +55,32 @@ Temperature is a **hint**, not a strict guarantee. The FileSystem implementation
 
 ### Configuration Options
 
-Three main options control temperature assignment (`include/rocksdb/advanced_options.h:956-989`):
+Four main options control temperature assignment (`include/rocksdb/advanced_options.h:956-989`):
 
 1. **`last_level_temperature`** (default: `Temperature::kUnknown`)
    - Temperature for files in the last level (bottommost level)
    - When set (not `kUnknown`), all files compacted to the last level get this temperature
+   - The source comment says "Currently only compatible with universal compaction", but the implementation (`Compaction::GetOutputTemperature()`) applies to all compaction styles
    - Dynamically changeable via `SetOptions()`
 
 2. **`default_write_temperature`** (default: `Temperature::kUnknown`)
    - Fallback temperature when no other option determines temperature
-   - Used for flush output and non-last-level compaction output
+   - Used for flush output (see `db/flush_job.cc:861`) and non-last-level compaction output
    - Dynamically changeable via `SetOptions()`
 
-3. **`level_compaction_dynamic_level_bytes`** (default: `false`)
+3. **`default_temperature`** (default: `Temperature::kUnknown`)
+   - When set, all SST files without an explicitly set temperature will be treated as if they have this temperature for file reading accounting purposes (I/O statistics, I/O perf context)
+   - This does **not** affect actual file placement -- only read-path accounting
+   - **Not** dynamically changeable; requires DB restart
+
+4. **`level_compaction_dynamic_level_bytes`** (default: `true`)
    - When enabled, RocksDB uses dynamic leveling: levels grow dynamically, and the "last level" can shift
    - Affects which level is considered "last" for `last_level_temperature` assignment
 
 ### Temperature Assignment Rules
 
 **Flush Output**:
-- Flushed SST files get `default_write_temperature`
+- Flushed SST files get `default_write_temperature` (set in `FlushJob::WriteLevel0Table()`)
 - Never get `last_level_temperature` (flush always produces L0 files)
 
 **Compaction Output** (see `db/compaction/compaction.cc:1132-1143`):
@@ -97,7 +103,7 @@ Temperature Compaction::GetOutputTemperature(bool is_proximal_level) const {
 }
 ```
 
-**⚠️ INVARIANT**: Temperature assignment follows strict precedence: override > last_level > default_write.
+**INVARIANT**: Temperature assignment follows strict precedence: override > last_level > default_write.
 
 **Example Configuration**:
 ```cpp
@@ -125,19 +131,25 @@ options.preclude_last_level_data_seconds = 7 * 24 * 3600;
 - When data ages beyond the threshold, it migrates to the last level during compaction
 - The last level gets `last_level_temperature` (typically `kCold`)
 
-**⚠️ INVARIANT**: When `preclude_last_level_data_seconds > 0`, the last level contains **only** data older than the threshold (barring clock skew).
+**INVARIANT**: When `preclude_last_level_data_seconds > 0`, the last level contains **only** data older than the threshold (barring clock skew).
+
+**Note**: When `preclude_last_level_data_seconds > 0`, universal compaction size amplification calculation (`max_size_amplification_percent`) excludes the last level, since it is typically on cheaper, less size-constrained storage.
 
 **Use Case**: Separate hot recent data (in penultimate level, fast storage) from cold historical data (in last level, slow/cheap storage).
+
+### Related Option: `preserve_internal_time_seconds`
+
+The `preserve_internal_time_seconds` option (`include/rocksdb/advanced_options.h:1012`) preserves internal time information (sequence-number-to-time mapping) for data up to the specified age. Unlike `preclude_last_level_data_seconds`, it does **not** preclude data from the last level -- it only preserves time metadata. If both options are set, the maximum of the two durations is used for time preservation, and `preclude_last_level_data_seconds` still controls last-level preclusion.
 
 ### Per-Key Placement (Advanced)
 
 RocksDB can split a single compaction's output into two levels based on per-key age:
-- Keys newer than threshold → penultimate level (non-last-level temperature)
-- Keys older than threshold → last level (`last_level_temperature`)
+- Keys newer than threshold -> penultimate level (non-last-level temperature)
+- Keys older than threshold -> last level (`last_level_temperature`)
 
 This is called **per-key placement** or **tiered compaction**.
 
-**⚠️ INVARIANT**: Per-key placement requires `SupportsPerKeyPlacement()` to return true (controlled by `preclude_last_level_data_seconds` and other conditions).
+**INVARIANT**: Per-key placement requires `SupportsPerKeyPlacement()` to return true (controlled by `preclude_last_level_data_seconds` and other conditions).
 
 ---
 
@@ -145,7 +157,7 @@ This is called **per-key placement** or **tiered compaction**.
 
 ### FileMetaData Structure
 
-Each SST file's temperature is stored in `FileMetaData` (`db/version_edit.h:244-280`):
+Each SST file's temperature is stored in `FileMetaData` (`db/version_edit.h:280`):
 
 ```cpp
 struct FileMetaData {
@@ -162,7 +174,7 @@ struct FileMetaData {
 
 **Key Points**:
 - Temperature is immutable after file creation (set once during flush/compaction)
-- Stored in MANIFEST via `VersionEdit` (tag `kTemperature`, see `db/version_edit.h:106`)
+- Stored in MANIFEST via `VersionEdit` (tag `kTemperature`, see `db/version_edit.h:107`)
 - Survives DB restart (persisted in MANIFEST)
 
 ### Temperature Persistence
@@ -171,14 +183,14 @@ Temperature is encoded in MANIFEST as a custom field in `NewFile` records:
 
 ```cpp
 enum NewFileCustomTag : uint32_t {
-  kTemperature = 9,  // db/version_edit.h:106
+  kTemperature = 9,  // db/version_edit.h:107
   // ...
 };
 ```
 
 **Encoding**: Serialized as a uint8_t (1 byte) in the MANIFEST.
 
-**⚠️ INVARIANT**: A file's temperature is immutable. Changing temperature requires rewriting the file (via `kChangeTemperature` compaction).
+**INVARIANT**: A file's temperature is immutable. Changing temperature requires rewriting the file (via `kChangeTemperature` compaction).
 
 ---
 
@@ -186,11 +198,11 @@ enum NewFileCustomTag : uint32_t {
 
 ### FileSystem Integration
 
-RocksDB passes temperature hints to the FileSystem layer via `FileOperationInfo` (`include/rocksdb/listener.h:260-273`):
+RocksDB passes temperature hints to the FileSystem layer via `IOOptions` and `FileOptions`. The `FileOperationInfo` struct used by EventListener callbacks also carries temperature (`include/rocksdb/listener.h:260-273`):
 
 ```cpp
 struct FileOperationInfo {
-  FileOperationType type;
+  FileOperationType type;  // kRead, kWrite, kOpen, kSync, etc.
   const std::string& path;
   Temperature temperature;  // Line 273: temperature hint
   uint64_t offset;
@@ -200,19 +212,19 @@ struct FileOperationInfo {
 ```
 
 **File Operations with Temperature**:
-- **File creation** (flush, compaction output): FileSystem knows temperature at creation time
-- **File reads**: Temperature passed to `Read()`, `RandomAccessFile::Prefetch()`, etc.
-- **File writes**: Temperature passed to `WritableFile::Append()`
+- **File creation** (flush, compaction output): FileSystem knows temperature at creation time via `FileOptions::temperature`
+- **File reads**: Temperature passed via `IOOptions` and `ReadOptions`
+- **File writes**: Temperature passed via `FileOptions` at file creation
 
 ### Temperature-Aware Policies
 
 FileSystem implementations can use temperature to:
 
 1. **Storage Placement**:
-   - `kHot` → fast local SSD
-   - `kWarm` → standard SSD
-   - `kCold` → HDD or cold cloud storage (e.g., S3 Glacier)
-   - `kIce` → archival tier (e.g., tape, S3 Deep Archive)
+   - `kHot` -> fast local SSD
+   - `kWarm` -> standard SSD
+   - `kCold` -> HDD or cold cloud storage (e.g., S3 Glacier)
+   - `kIce` -> archival tier (e.g., tape, S3 Deep Archive)
 
 2. **Caching**:
    - `kHot` files: high cache priority, prefetch aggressively
@@ -231,10 +243,12 @@ FileSystem implementations can use temperature to:
 ```cpp
 Status FileSystemImpl::NewRandomAccessFile(
     const std::string& fname,
-    Temperature temperature,
-    std::unique_ptr<FSRandomAccessFile>* result) {
+    const FileOptions& file_opts,
+    std::unique_ptr<FSRandomAccessFile>* result,
+    IODebugContext* dbg) {
 
-  if (temperature == Temperature::kCold || temperature == Temperature::kIce) {
+  if (file_opts.temperature == Temperature::kCold ||
+      file_opts.temperature == Temperature::kIce) {
     // Route to S3 or HDD
     return OpenColdStorageFile(fname, result);
   } else {
@@ -256,17 +270,16 @@ Compaction output temperature follows the precedence defined in `Compaction::Get
 
 **Decision Tree**:
 ```
-┌─────────────────────────────────────┐
-│ Compaction Output Temperature       │
-└─────────────────────────────────────┘
-              │
-              ├─ output_temperature_override != kUnknown?
-              │  └─ YES → return output_temperature_override
-              │
-              ├─ is_last_level() && last_level_temperature != kUnknown?
-              │  └─ YES → return last_level_temperature
-              │
-              └─ return default_write_temperature
+Compaction Output Temperature
+              |
+              +-- output_temperature_override != kUnknown?
+              |   YES -> return output_temperature_override
+              |
+              +-- is_last_level() && !is_proximal_level &&
+              |   last_level_temperature != kUnknown?
+              |   YES -> return last_level_temperature
+              |
+              +-- return default_write_temperature
 ```
 
 ### Manual Compaction Override
@@ -283,7 +296,7 @@ db->CompactFiles(opts, input_files, output_level);
 
 **Use Case**: Explicitly migrate specific files to a different temperature tier (e.g., archive old data).
 
-**⚠️ INVARIANT**: Override temperature takes precedence over all other rules (highest priority).
+**INVARIANT**: Override temperature takes precedence over all other rules (highest priority).
 
 **Note**: `CompactRange()` does not support temperature override. Use `CompactFiles()` for explicit temperature control on manual compactions.
 
@@ -294,9 +307,9 @@ When `SupportsPerKeyPlacement()` is true, compaction can produce output at **two
 - **Last level output**: Gets `last_level_temperature` (e.g., `kCold`)
 - **Penultimate level output**: Gets `default_write_temperature` (e.g., `kWarm`)
 
-Keys are routed to the appropriate level based on age (via `preclude_last_level_data_seconds` threshold).
+The `is_proximal_level` parameter to `GetOutputTemperature()` controls this: when `true`, the last-level temperature is not applied, and `default_write_temperature` is used instead. Keys are routed to the appropriate level based on age (via `preclude_last_level_data_seconds` threshold).
 
-**Code Reference**: `db/compaction/compaction_job.cc` (see `CompactionJob::ProcessKeyValueCompaction()` for per-key routing logic).
+**Code Reference**: `db/compaction/compaction_job.cc:2410` (per-key temperature selection via `GetOutputTemperature(outputs.IsProximalLevel())`).
 
 ---
 
@@ -306,9 +319,9 @@ Keys are routed to the appropriate level based on age (via `preclude_last_level_
 
 Temperature assignment in level-based compaction:
 
-- **L0 → L1 compaction**: Output gets `default_write_temperature`
-- **L1 → L2, ..., Ln-1 → Ln compaction**: Output gets `default_write_temperature`
-- **Ln-1 → Ln (last level) compaction**: Output gets `last_level_temperature`
+- **L0 -> L1 compaction**: Output gets `default_write_temperature`
+- **L1 -> L2, ..., Ln-1 -> Ln compaction**: Output gets `default_write_temperature`
+- **Ln-1 -> Ln (last level) compaction**: Output gets `last_level_temperature`
 
 **With `level_compaction_dynamic_level_bytes=true`**:
 - The "last level" can shift as data grows (e.g., from L5 to L6)
@@ -317,11 +330,12 @@ Temperature assignment in level-based compaction:
 ### Universal Compaction
 
 Temperature in universal compaction:
-- All files stay in L0 until final compaction to L1 (last level)
-- L0 files: `default_write_temperature`
-- L1 files (last level): `last_level_temperature`
+- The "last level" for universal compaction output is `num_levels - 1` (determined by `VersionStorageInfo::MaxOutputLevel()`)
+- With the default `num_levels = 7`, the last level is L6
+- Files in levels below the last level: `default_write_temperature`
+- Files in the last level: `last_level_temperature`
 
-**⚠️ INVARIANT**: In universal compaction, L1 is always the last level (receives `last_level_temperature`).
+**INVARIANT**: In universal compaction, the last level is `num_levels - 1` (or `num_levels - 2` with `allow_ingest_behind`), same as level-based compaction.
 
 ### FIFO Compaction with Temperature
 
@@ -330,21 +344,23 @@ FIFO compaction supports age-based temperature migration via `file_temperature_a
 ```cpp
 CompactionOptionsFIFO fifo_opts;
 fifo_opts.file_temperature_age_thresholds = {
-  {Temperature::kWarm, 3600},      // 1 hour old → kWarm
-  {Temperature::kCold, 86400},     // 1 day old → kCold
-  {Temperature::kIce, 7 * 86400}   // 7 days old → kIce
+  {Temperature::kWarm, 3600},      // 1 hour old -> kWarm
+  {Temperature::kCold, 86400},     // 1 day old -> kCold
+  {Temperature::kIce, 7 * 86400}   // 7 days old -> kIce
 };
 options.compaction_options_fifo = fifo_opts;
 ```
 
 **How It Works**:
-1. RocksDB checks file age (based on `file_creation_time` or `oldest_ancester_time`)
-2. If file is older than a threshold, trigger `kChangeTemperature` compaction
-3. Compaction rewrites the file with the new temperature (can be trivial copy if `allow_trivial_copy_when_change_temperature=true`)
+1. The FIFO compaction picker checks file age using table properties (`oldest_ancester_time`, `file_creation_time`)
+2. If a file is older than a threshold and its current temperature differs from the target, trigger `kChangeTemperature` compaction
+3. The compaction rewrites the file with the new temperature (can be trivial copy if `allow_trivial_copy_when_change_temperature=true`)
 
-**⚠️ INVARIANT**: Temperature migration happens one file at a time (oldest first) to avoid I/O spikes.
+**Note**: Flushed files in FIFO always start with `kUnknown` temperature for threshold purposes -- only temperatures other than `kUnknown` need to be specified in thresholds.
 
-**Code Reference**: `db/compaction/compaction_picker.cc` (search for `kChangeTemperature` compaction reason).
+**INVARIANT**: Thresholds must be in ascending age order. Each temperature change compaction handles one file at a time to avoid I/O spikes.
+
+**Code Reference**: `db/compaction/compaction_picker_fifo.cc` (see `PickTemperatureChangeCompaction()` for `kChangeTemperature` compaction selection).
 
 ---
 
@@ -368,7 +384,7 @@ if (block_temperature == Temperature::kCold) {
 }
 ```
 
-**⚠️ INVARIANT**: Temperature hints do not guarantee cache behavior; the cache implementation decides actual policy.
+**INVARIANT**: Temperature hints do not guarantee cache behavior; the cache implementation decides actual policy.
 
 ### Cache Priority
 
@@ -396,14 +412,13 @@ Cache::Priority GetCachePriority(Temperature temp) {
 
 ## 9. BlobDB Temperature
 
-**⚠️ EXPERIMENTAL / LIMITED SUPPORT**: Temperature support for BlobDB is limited. Blob files do not currently expose temperature metadata in the same way as SST files. The FileSystem layer receives temperature hints during blob file creation (inherited from the SST context), but explicit per-blob-file temperature tracking is not implemented.
+Blob files (`BlobFileMetaData` in `db/blob/blob_file_meta.h`) do **not** have a temperature field. Temperature tracking is only available for SST files via `FileMetaData::temperature`.
 
 **Current Behavior**:
-- Blob file creation receives temperature hints from the creating SST context
-- FileSystem implementations can use these hints for placement decisions
-- No explicit blob file temperature metadata is persisted in MANIFEST or blob file headers
-
-**Future Work**: Full temperature support for blob files (explicit metadata, temperature changes, monitoring) may be added in future RocksDB versions.
+- Blob file creation receives temperature hints from `FileOptions` (inherited from the compaction/flush context), so the FileSystem can use the hint for placement
+- `BlobFileMetaData` and `SharedBlobFileMetaData` track blob file number, blob counts, sizes, and checksums -- but not temperature
+- No per-blob-file temperature metadata is persisted in MANIFEST
+- `BlobMetaData` (the public API struct in `include/rocksdb/metadata.h`) also does not expose a temperature field
 
 ---
 
@@ -418,7 +433,8 @@ RocksDB exposes temperature information via:
    std::vector<LiveFileMetaData> metadata;
    db->GetLiveFilesMetaData(&metadata);
    for (const auto& file : metadata) {
-     std::cout << "File " << file.name
+     std::cout << "File " << file.relative_filename
+               << " level: " << file.level
                << " temperature: " << static_cast<int>(file.temperature)
                << std::endl;
    }
@@ -428,7 +444,7 @@ RocksDB exposes temperature information via:
    ```cpp
    std::vector<LiveFileStorageInfo> storage_info;
    db->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(), &storage_info);
-   // Contains per-file temperature and storage location
+   // Each entry has .temperature from FileStorageInfo base class
    ```
 
 3. **`DB::GetColumnFamilyMetaData()`**:
@@ -437,7 +453,8 @@ RocksDB exposes temperature information via:
    db->GetColumnFamilyMetaData(&cf_meta);
    for (const auto& level : cf_meta.levels) {
      for (const auto& file : level.files) {
-       // file.temperature available (if exposed by API)
+       // file.temperature is available (inherited from SstFileMetaData
+       // which inherits from FileStorageInfo)
      }
    }
    ```
@@ -446,34 +463,38 @@ RocksDB exposes temperature information via:
 
 Temperature-related compaction reasons (`include/rocksdb/listener.h:151`):
 
-- **`kChangeTemperature`**: Compaction triggered to change file temperature (e.g., age-based migration)
+- **`kChangeTemperature`**: Compaction triggered to change file temperature (e.g., age-based migration in FIFO)
 - Tracked in `DB::GetProperty("rocksdb.stats")` under compaction reasons
-
-**Example Output**:
-```
-Compaction Reason:
-  kChangeTemperature: 42 compactions
-```
 
 ### EventListener Hooks
 
-Temperature information can be accessed through `FileOperationInfo` callbacks, which include temperature hints for file operations:
+Temperature information is available through per-operation `FileOperationInfo` callbacks. These require `ShouldBeNotifiedOnFileIO()` to return `true`:
 
 ```cpp
 class MyListener : public EventListener {
-  void OnFileOperation(const FileOperationInfo& info) override {
-    if (info.type == FileOperationType::kCreate) {
-      std::cout << "Created file " << info.path
-                << " with temperature: "
-                << static_cast<int>(info.temperature) << std::endl;
-    }
+  bool ShouldBeNotifiedOnFileIO() override { return true; }
+
+  void OnFileWriteFinish(const FileOperationInfo& info) override {
+    std::cout << "Wrote to " << info.path
+              << " temperature: " << static_cast<int>(info.temperature)
+              << std::endl;
   }
+
+  void OnFileReadFinish(const FileOperationInfo& info) override {
+    // Temperature available in info.temperature
+  }
+
+  // Other available callbacks with FileOperationInfo:
+  // OnFileFlushFinish, OnFileSyncFinish, OnFileRangeSyncFinish,
+  // OnFileTruncateFinish, OnFileCloseFinish
 };
 ```
 
-**Note**: `FlushJobInfo` and `CompactionJobInfo` do not currently expose per-file temperature fields. To monitor output file temperatures, use `FileOperationInfo` callbacks or query file metadata via `GetLiveFilesMetaData()` after flush/compaction completes.
+**Note**: There is no generic `OnFileOperation` callback -- each operation type has its own callback (e.g., `OnFileReadFinish`, `OnFileWriteFinish`). The `FileOperationType` enum includes: `kRead`, `kWrite`, `kTruncate`, `kClose`, `kFlush`, `kSync`, `kFsync`, `kRangeSync`, `kAppend`, `kPositionedAppend`, `kOpen`, `kVerify`.
 
-**Code Reference**: `include/rocksdb/listener.h:260-290` (FileOperationInfo structure).
+**Note**: `FlushJobInfo` and `CompactionJobInfo` do not expose per-file temperature fields. To monitor output file temperatures, use `FileOperationInfo` callbacks or query file metadata via `GetLiveFilesMetaData()` after flush/compaction completes.
+
+**Code Reference**: `include/rocksdb/listener.h:260-296` (FileOperationInfo structure), lines 813-841 (per-operation callbacks).
 
 ---
 
@@ -485,7 +506,7 @@ class MyListener : public EventListener {
 
 3. **Precluded last-level guarantee**: When `preclude_last_level_data_seconds > 0`, the last level contains only data older than the threshold.
 
-4. **Universal compaction last level**: In universal compaction, L1 is always the last level (gets `last_level_temperature`).
+4. **Universal compaction last level**: In universal compaction, the last level is `num_levels - 1` (same as level-based), not L1.
 
 5. **FIFO temperature migration**: Temperature changes in FIFO compaction happen one file at a time (oldest first).
 
@@ -533,9 +554,9 @@ options.compaction_style = kCompactionStyleFIFO;
 CompactionOptionsFIFO fifo_opts;
 fifo_opts.max_table_files_size = 100ULL << 30;  // 100GB
 fifo_opts.file_temperature_age_thresholds = {
-  {Temperature::kWarm, 3600},          // 1 hour → kWarm
-  {Temperature::kCold, 86400},         // 1 day → kCold
-  {Temperature::kIce, 7 * 86400}       // 7 days → kIce
+  {Temperature::kWarm, 3600},          // 1 hour -> kWarm
+  {Temperature::kCold, 86400},         // 1 day -> kCold
+  {Temperature::kIce, 7 * 86400}       // 7 days -> kIce
 };
 fifo_opts.allow_trivial_copy_when_change_temperature = true;
 
@@ -560,15 +581,18 @@ opts.output_temperature_override = Temperature::kCold;
 std::vector<LiveFileMetaData> metadata;
 db->GetLiveFilesMetaData(&metadata);
 std::vector<std::string> files_to_compact;
+int target_level = -1;
 for (const auto& file : metadata) {
   if (file.temperature != Temperature::kCold) {
-    files_to_compact.push_back(file.name);
+    files_to_compact.push_back(file.relative_filename);
+    target_level = file.level;
   }
 }
 
 // Compact files to cold storage
-db->CompactFiles(opts, files_to_compact, file.level);
-// Specified files now have kCold temperature (migrated to cold storage)
+if (!files_to_compact.empty()) {
+  db->CompactFiles(opts, files_to_compact, target_level);
+}
 ```
 
 ---
@@ -576,25 +600,30 @@ db->CompactFiles(opts, files_to_compact, file.level);
 ## Implementation Files
 
 **Key Source Files**:
-- `include/rocksdb/types.h:118` — `Temperature` enum definition
-- `include/rocksdb/advanced_options.h:956-989` — Temperature options (`last_level_temperature`, `default_write_temperature`, `preclude_last_level_data_seconds`)
-- `include/rocksdb/advanced_options.h:114` — FIFO temperature options (`file_temperature_age_thresholds`)
-- `include/rocksdb/options.h:2481` — `CompactionOptions::output_temperature_override` for manual compaction
-- `db/version_edit.h:280` — `FileMetaData::temperature` field
-- `db/version_edit.h:107` — `kTemperature` MANIFEST encoding tag
-- `db/compaction/compaction.h` — `Compaction::GetOutputTemperature()` declaration
-- `db/compaction/compaction.cc:1132-1143` — `GetOutputTemperature()` implementation
-- `db/compaction/compaction_picker.cc` — Temperature-aware compaction picking (search for `kChangeTemperature`)
-- `db/compaction/compaction_picker_fifo.cc` — FIFO age-based temperature migration
-- `db/compaction/compaction_job.cc` — Compaction output temperature assignment
-- `include/rocksdb/listener.h:273` — `FileOperationInfo::temperature` field
-- `include/rocksdb/listener.h:151` — `CompactionReason::kChangeTemperature` enum value
-- `include/rocksdb/file_system.h` — FileSystem interface (temperature hints in file operations)
+- `include/rocksdb/types.h:118` -- `Temperature` enum definition
+- `include/rocksdb/advanced_options.h:956-989` -- Temperature options (`last_level_temperature`, `default_write_temperature`, `preclude_last_level_data_seconds`)
+- `include/rocksdb/advanced_options.h:972` -- `default_temperature` (read-path accounting only)
+- `include/rocksdb/advanced_options.h:114` -- FIFO temperature options (`file_temperature_age_thresholds`)
+- `include/rocksdb/options.h:2481` -- `CompactionOptions::output_temperature_override` for manual compaction
+- `db/version_edit.h:280` -- `FileMetaData::temperature` field
+- `db/version_edit.h:107` -- `kTemperature` MANIFEST encoding tag
+- `db/compaction/compaction.h:421` -- `Compaction::GetOutputTemperature()` declaration
+- `db/compaction/compaction.cc:1132-1143` -- `GetOutputTemperature()` implementation
+- `db/compaction/compaction_picker_fifo.cc` -- FIFO age-based temperature migration (`PickTemperatureChangeCompaction()`)
+- `db/compaction/compaction_job.cc:2410` -- Compaction output temperature assignment (per-key placement)
+- `db/flush_job.cc:861` -- Flush output temperature assignment
+- `include/rocksdb/listener.h:273` -- `FileOperationInfo::temperature` field
+- `include/rocksdb/listener.h:151` -- `CompactionReason::kChangeTemperature` enum value
+- `include/rocksdb/listener.h:245-258` -- `FileOperationType` enum (kRead, kWrite, kOpen, etc.)
+- `include/rocksdb/file_system.h` -- FileSystem interface (temperature hints via `FileOptions`)
+- `db/blob/blob_file_meta.h` -- `BlobFileMetaData` (no temperature field)
 
 **Related Options**:
 - `ColumnFamilyOptions::last_level_temperature`
 - `ColumnFamilyOptions::default_write_temperature`
+- `ColumnFamilyOptions::default_temperature`
 - `ColumnFamilyOptions::preclude_last_level_data_seconds`
+- `ColumnFamilyOptions::preserve_internal_time_seconds`
 - `CompactionOptionsFIFO::file_temperature_age_thresholds`
 - `CompactionOptionsFIFO::allow_trivial_copy_when_change_temperature`
 - `CompactionOptions::output_temperature_override`
@@ -606,81 +635,49 @@ db->CompactFiles(opts, files_to_compact, file.level);
 ### Temperature Flow Through Compaction
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Write Path                               │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-                    ┌───────────────┐
-                    │   MemTable    │
-                    └───────────────┘
-                            │ Flush
-                            ▼
-                    ┌───────────────┐
-                    │ L0 SST Files  │ ← default_write_temperature (e.g., kWarm)
-                    └───────────────┘
-                            │ Compaction
-                            ▼
-                    ┌───────────────┐
-                    │ L1-L5 Files   │ ← default_write_temperature (e.g., kWarm)
-                    └───────────────┘
-                            │ Compaction (to last level)
-                            ▼
-                    ┌───────────────┐
-                    │  L6 Files     │ ← last_level_temperature (e.g., kCold)
-                    │  (Last Level) │
-                    └───────────────┘
+Write Path
+    |
+    v
+MemTable
+    | Flush
+    v
+L0 SST Files  <-- default_write_temperature (e.g., kWarm)
+    | Compaction
+    v
+L1-L5 Files   <-- default_write_temperature (e.g., kWarm)
+    | Compaction (to last level)
+    v
+L6 Files      <-- last_level_temperature (e.g., kCold)
+(Last Level)
 ```
 
 ### Temperature Precedence in Compaction Output
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│        Compaction Output Temperature Decision Tree           │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-        ┌───────────────────────────────────────┐
-        │ output_temperature_override set?      │
-        └───────────────────────────────────────┘
-                  │                    │
-                YES│                   │NO
-                  │                    │
-                  ▼                    ▼
-        ┌──────────────────┐  ┌─────────────────────────┐
-        │ Return override  │  │ Is last level output?   │
-        │  temperature     │  └─────────────────────────┘
-        └──────────────────┘            │              │
-                                      YES│             │NO
-                                        │              │
-                                        ▼              ▼
-                        ┌──────────────────────┐  ┌───────────────────┐
-                        │ last_level_temp set? │  │ Return default_   │
-                        └──────────────────────┘  │ write_temperature │
-                                  │              └───────────────────┘
-                                YES│    │NO
-                                  │    │
-                                  ▼    ▼
-                        ┌──────────────────────┐
-                        │ Return last_level_   │
-                        │ temperature          │
-                        └──────────────────────┘
+Compaction Output Temperature Decision:
+
+1. output_temperature_override set?
+   YES -> return override temperature
+   NO  -> continue
+
+2. is_last_level() && !is_proximal_level && last_level_temperature set?
+   YES -> return last_level_temperature
+   NO  -> continue
+
+3. return default_write_temperature
 ```
 
 ### FIFO Age-Based Temperature Migration
 
 ```
-Time ────────────────────────────────────────────────────────────►
+Time ----->
 
 File Age:    0 hr        1 hr         1 day         7 days
-             │           │            │             │
 Temperature: kUnknown    kWarm        kCold         kIce
-             │           │            │             │
-Storage:     [SSD]  ───► [Warm SSD] ─► [HDD/Cloud] ─► [Archival]
-             │           │            │             │
-             └───────────┴────────────┴─────────────┘
-                      Triggered by kChangeTemperature compaction
-                      (based on file_temperature_age_thresholds)
+Storage:     [SSD]  -->  [Warm SSD] -> [HDD/Cloud] -> [Archival]
+
+Triggered by kChangeTemperature compaction
+(based on file_temperature_age_thresholds)
 ```
 
 ---
@@ -702,9 +699,10 @@ Storage:     [SSD]  ───► [Warm SSD] ─► [HDD/Cloud] ─► [Archival]
 
 3. **Verify manual override**:
    ```cpp
-   CompactRangeOptions opts;
+   CompactionOptions opts;
    opts.output_temperature_override = Temperature::kIce;
-   db->CompactRange(opts, nullptr, nullptr);
+   std::vector<std::string> input_files = {/* file names */};
+   db->CompactFiles(opts, input_files, output_level);
    ASSERT_EQ(GetAllFileTemperatures(), std::vector{Temperature::kIce});
    ```
 
@@ -774,11 +772,13 @@ ASSERT_EQ(GetLastLevelFileTemperature(), Temperature::kCold);
 
 4. **FIFO age threshold sort order**: Thresholds must be in ascending age order. Violating this causes undefined behavior.
 
+5. **`default_temperature` vs `default_write_temperature`**: These are different options. `default_write_temperature` sets the temperature for new files. `default_temperature` only affects read-path I/O accounting for files that have no explicit temperature set.
+
 ---
 
 ## Further Reading
 
 - [Blog Post: Time-Aware Tiered Storage](https://rocksdb.org/blog/2022/11/09/time-aware-tiered-storage.html)
-- [FileSystem API](../include/rocksdb/file_system.h) — Temperature hints in file operations
-- [Compaction Overview](./compaction.md) — How compaction uses temperature
-- [Advanced Options Reference](../include/rocksdb/advanced_options.h) — Temperature configuration options
+- [FileSystem API](../include/rocksdb/file_system.h) -- Temperature hints in file operations
+- [Compaction Overview](./compaction.md) -- How compaction uses temperature
+- [Advanced Options Reference](../include/rocksdb/advanced_options.h) -- Temperature configuration options

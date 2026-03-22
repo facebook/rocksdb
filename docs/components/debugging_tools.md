@@ -17,7 +17,7 @@ RocksDB provides a suite of command-line debugging tools for inspecting database
 
 **Files:** `tools/ldb_tool.cc`, `tools/ldb_cmd.cc`, `include/rocksdb/utilities/ldb_cmd.h`
 
-The `ldb` (LevelDB tool, inherited from LevelDB ancestry) is the primary debugging interface. It provides ~30 subcommands organized by function.
+The `ldb` (LevelDB tool, inherited from LevelDB ancestry) is the primary debugging interface. It provides ~39 subcommands organized by function.
 
 ### Architecture
 
@@ -43,7 +43,7 @@ The `ldb` (LevelDB tool, inherited from LevelDB ancestry) is the primary debuggi
 
 ⚠️ **INVARIANT:** All ldb commands share a common argument parsing framework. Global options (`--db`, `--column_family`, `--hex`) are parsed by `LDBCommand::InitFromCmdLineArgs`, command-specific options are handled in each subclass constructor.
 
-**Files:** `tools/ldb_cmd.cc:2683-2786`
+**Files:** `tools/ldb_cmd.cc:299-439`
 
 ### Core Subcommands
 
@@ -61,10 +61,10 @@ ldb --db=/path/to/db get mykey
 ldb --db=/path/to/db --key_hex --value_hex get 0x6D796B6579
 
 # Get from specific column family
-ldb --db=/path/to/db --cf_name=cf1 get mykey
+ldb --db=/path/to/db --column_family=cf1 get mykey
 
-# Get with timestamp (for user-defined timestamp DBs)
-ldb --db=/path/to/db --timestamp=123456789 get mykey
+# Get with read timestamp (for user-defined timestamp DBs)
+ldb --db=/path/to/db --read_timestamp=123456789 get mykey
 ```
 
 **Implementation:** `tools/ldb_cmd_impl.h:393-407`, uses `DB::Get()` API
@@ -106,7 +106,7 @@ ldb --db=/path/to/db put mykey myvalue
 ldb --db=/path/to/db --key_hex --value_hex put 0x6B6579 0x76616C7565
 
 # Put to specific column family
-ldb --db=/path/to/db --cf_name=cf1 put mykey myvalue
+ldb --db=/path/to/db --column_family=cf1 put mykey myvalue
 
 # Put with TTL (requires --ttl flag at DB open)
 ldb --db=/path/to/db --ttl put tempkey tempvalue
@@ -129,7 +129,7 @@ ldb --db=/path/to/db singledelete mykey
 ldb --db=/path/to/db deleterange start_key end_key
 ```
 
-**Files:** `tools/ldb_cmd_impl.h:517-564`
+**Files:** `tools/ldb_cmd_impl.h:517-531` (DeleteCommand), `tools/ldb_cmd_impl.h:533-547` (SingleDeleteCommand), `tools/ldb_cmd_impl.h:549-564` (DeleteRangeCommand)
 
 ⚠️ **INVARIANT:** `single_delete` requires the key was never overwritten (written exactly once). Violating this causes undefined behavior (typically read-after-delete or space amplification).
 
@@ -156,7 +156,6 @@ ldb --db=/path/to/db manifest_dump --path=/path/to/db/MANIFEST-000042
 **Output includes:**
 - Column family metadata (name, ID, comparator)
 - VersionEdit sequence: file additions/deletions, level assignments
-- Compaction pointers
 - Log numbers, sequence numbers
 - Table file properties (size, key range, entries)
 
@@ -173,10 +172,10 @@ Parse and display WAL file contents.
 ldb --db=/path/to/db dump_wal
 
 # Dump specific WAL file
-ldb --db=/path/to/db dump_wal --wal_file=/path/to/000123.log
+ldb --db=/path/to/db dump_wal --walfile=/path/to/000123.log
 
 # Print WriteBatch headers only (no key-value data)
-ldb dump_wal --print_header
+ldb dump_wal --header
 
 # Print full key-value data
 ldb dump_wal --print_value
@@ -194,7 +193,7 @@ Sequence,Count,ByteSize,Physical Offset,Key(s)
 
 **Implementation:** `tools/ldb_cmd_impl.h:364-390`, uses `log::Reader`
 
-**Files:** `tools/ldb_cmd.cc:188-200` (DumpWalFile declaration), `tools/ldb_cmd.cc:3165+` (DumpWalFile implementation)
+**Files:** `tools/ldb_cmd.cc:3165-3346` (DumpWalFile definition), `tools/ldb_cmd.cc:3405-3410` (WALDumperCommand::DoCommand)
 
 ⚠️ **INVARIANT:** WAL records are always read in chronological order (sorted by log file number). This matches recovery replay order.
 
@@ -236,7 +235,7 @@ ldb --db=/path/to/db compact
 ldb --db=/path/to/db compact --from=start_key --to=end_key
 
 # Compact specific column family
-ldb --db=/path/to/db --cf_name=cf1 compact
+ldb --db=/path/to/db --column_family=cf1 compact
 ```
 
 **Implementation:** `tools/ldb_cmd_impl.h:17-34`, calls `DB::CompactRange()`
@@ -255,23 +254,23 @@ Checks:
 - Key ranges within/across levels are correct
 - File sizes match metadata
 
-**Implementation:** `tools/ldb_cmd_impl.h:629-644`
+**Implementation:** `tools/ldb_cmd_impl.h:629-642`
 
 #### Batch Operations
 
 ##### `ldb batchput`
 
-Write multiple key-value pairs from stdin.
+Write multiple key-value pairs from command line arguments.
 
 ```bash
-# Read "key value" pairs from stdin (one per line)
-ldb --db=/path/to/db batchput < input.txt
+# Write key-value pairs (positional args, must be even count)
+ldb --db=/path/to/db batchput key1 val1 key2 val2 key3 val3
 
 # With hex encoding
-ldb --db=/path/to/db --key_hex --value_hex batchput < hex_input.txt
+ldb --db=/path/to/db --key_hex --value_hex batchput 0x6B31 0x7631 0x6B32 0x7632
 ```
 
-**Input format:** `<key> <value>` per line, space-separated
+**Input format:** Positional arguments as `<key1> <val1> [<key2> <val2> ...]` pairs on the command line
 
 **Implementation:** `tools/ldb_cmd_impl.h:474-493`
 
@@ -310,13 +309,14 @@ ldb --db=/path/to/db reduce_levels --new_levels=3 --print_old_levels
 
 **Files:** `tools/ldb_cmd_impl.h:310-339`
 
-⚠️ **INVARIANT:** Cannot be used on live database. Must close DB, run `reduce_levels`, then reopen with new level configuration.
+⚠️ **INVARIANT:** Requires exclusive access to the database. No other process should have the DB open.
 
 **Implementation flow:**
-1. Open DB read-only
-2. Check if reduction is possible (no overlapping ranges in target level)
-3. Move files from higher levels to target level via VersionEdit
-4. Write new MANIFEST
+1. Read current MANIFEST to get old level count via `VersionSet::Recover()`
+2. If old level count <= new level count, exit (no work needed)
+3. Open DB and compact all data to the highest level
+4. Close DB
+5. Rewrite MANIFEST with reduced level count via `VersionSet::ReduceNumberOfLevels()`
 
 ##### `ldb approxsize`
 
@@ -332,22 +332,53 @@ ldb --db=/path/to/db approxsize --from=key1 --to=key1000
 
 ##### `ldb dump`
 
-Export database to text dump format.
+Export database contents to stdout, or dump a specific file (SST/WAL/MANIFEST).
 
 ```bash
-# Dump entire DB
-ldb --db=/path/to/db dump --path=output.txt
+# Dump entire DB to stdout
+ldb --db=/path/to/db dump
 
 # Dump specific range
-ldb --db=/path/to/db dump --path=output.txt --from=key1 --to=key100
+ldb --db=/path/to/db dump --from=key1 --to=key100
 
 # Dump with hex encoding
-ldb --db=/path/to/db dump --path=output.txt --hex
+ldb --db=/path/to/db dump --hex
+
+# Dump a specific SST/WAL/MANIFEST file
+ldb --db=/path/to/db dump --path=/path/to/db/000123.sst
 ```
 
-**Output format:** `<key> ==> <value>` per line
+**Output format:** `<key> ==> <value>` per line (to stdout)
 
 **Implementation:** `tools/ldb_cmd_impl.h:72-118`
+
+#### Additional Commands
+
+The following ldb commands are also available but not covered in detail above:
+
+| Command | Description | Implementation |
+|---------|-------------|----------------|
+| `multi_get` | Retrieve multiple keys at once | `tools/ldb_cmd_impl.h:409-423` |
+| `get_entity` | Get wide-column entity for a key | `tools/ldb_cmd_impl.h:425-439` |
+| `multi_get_entity` | Get wide-column entities for multiple keys | `tools/ldb_cmd_impl.h:441-455` |
+| `put_entity` | Write a wide-column entity | `tools/ldb_cmd_impl.h:585-603` |
+| `query` | Interactive query mode (get/put/delete) | `tools/ldb_cmd_impl.h:605-627` |
+| `dump_live_files` | Dump live SST/blob file info | `tools/ldb_cmd_impl.h:36-51` |
+| `list_live_files_metadata` | List metadata of live SST files | `tools/ldb_cmd_impl.h:53-70` |
+| `idump` | Dump internal keys (with sequence numbers) | `tools/ldb_cmd_impl.h:120-150` |
+| `update_manifest` | Update MANIFEST (e.g., set comparator) | `tools/ldb_cmd_impl.h:202-222` |
+| `get_property` | Get DB property value | `tools/ldb_cmd_impl.h:244-257` |
+| `create_column_family` | Create a new column family | `tools/ldb_cmd_impl.h:274-290` |
+| `drop_column_family` | Drop an existing column family | `tools/ldb_cmd_impl.h:292-308` |
+| `change_compaction_style` | Change between leveled/universal compaction | `tools/ldb_cmd_impl.h:341-362` |
+| `checkpoint` | Create a database checkpoint | `tools/ldb_cmd_impl.h:644-660` |
+| `backup` | Create a backup using BackupEngine | `tools/ldb_cmd_impl.h:708-716` |
+| `restore` | Restore from BackupEngine backup | `tools/ldb_cmd_impl.h:718-727` |
+| `write_extern_sst` | Write an external SST file | `tools/ldb_cmd_impl.h:729-747` |
+| `ingest_extern_sst` | Ingest external SST files | `tools/ldb_cmd_impl.h:749-780` |
+| `list_file_range_deletes` | List range deletions in SST files | `tools/ldb_cmd_impl.h:782-796` |
+| `unsafe_remove_sst_file` | Remove SST file from MANIFEST (data loss!) | `tools/ldb_cmd_impl.h:798-815` |
+| `compaction_progress_dump` | Show progress of running compactions | `tools/ldb_cmd_impl.h:817-836` |
 
 ### Global Options
 
@@ -356,7 +387,7 @@ All commands accept these options:
 | Option | Description | Example |
 |--------|-------------|---------|
 | `--db=<path>` | Database directory path | `--db=/tmp/rocksdb` |
-| `--cf_name=<name>` | Target column family (default: `default`) | `--cf_name=metadata` |
+| `--column_family=<name>` | Target column family (default: `default`) | `--column_family=metadata` |
 | `--hex` | Both keys and values in hex | `--hex` |
 | `--key_hex` | Keys in hex encoding | `--key_hex` |
 | `--value_hex` | Values in hex encoding | `--value_hex` |
@@ -448,7 +479,7 @@ sst_dump --file=/path/to/123456.sst --command=raw --show_sequence_number_type
 - Meta blocks (properties, compression dictionaries)
 - Footer
 
-**Files:** `table/sst_file_dumper.cc:245-384` (DumpTable implementation)
+**Files:** `table/sst_file_dumper.cc:219-232` (DumpTable implementation)
 
 #### `--command=verify`
 
@@ -464,7 +495,7 @@ sst_dump --file=/path/to/123456.sst --command=verify
 - Compare against stored checksum in block trailer
 - Report first mismatch or success
 
-**Implementation:** `table/sst_file_dumper.cc:153-183` (VerifyChecksum)
+**Implementation:** `table/sst_file_dumper.cc:212-217` (VerifyChecksum)
 
 ⚠️ **INVARIANT:** Checksum verification requires reading entire block into memory. For large blocks (>1GB), this may cause OOM. Use `--read_num` to limit blocks read.
 
@@ -497,7 +528,7 @@ Compression: kSnappyCompression  Size: 8901234 bytes  Read: 67ms  Write: 156ms
 Compression: kZSTD (level 3)     Size: 7654321 bytes  Read: 89ms  Write: 234ms
 ```
 
-**Implementation:** `table/sst_file_dumper.cc:100-151` (ShowAllCompressionSizes)
+**Implementation:** `table/sst_file_dumper.cc:309-350` (ShowAllCompressionSizes)
 
 **Use case:** Evaluate compression trade-offs before changing `compression` or `compression_per_level` options.
 
@@ -556,7 +587,7 @@ Table Properties:
   column family name: default
 ```
 
-**Files:** `table/sst_file_dumper.cc:57-98` (ShowAllCompressionSizes output)
+**Files:** `table/sst_file_dumper.cc:352-438` (ShowCompressionSize output formatting)
 
 ---
 
@@ -584,17 +615,16 @@ db_dump --db=/path/to/db --dump_location=backup.dump --anonymous
 [8 bytes: version (0x0000000000000001)]
 [4 bytes: metadata JSON size]
 [N bytes: metadata JSON {"database-path": ..., "hostname": ..., "creation-time": ...}]
-[4 bytes: key size]
-[N bytes: key]
-[4 bytes: value size]
-[M bytes: value]
-...
-[4 bytes: 0 (end marker)]
+Repeated entries:
+  [4 bytes: key size]
+  [N bytes: key]
+  [4 bytes: value size]
+  [M bytes: value]
 ```
 
 **Files:** `tools/dump/db_dump_tool.cc:17+` (DbDumpTool::Run)
 
-⚠️ **INVARIANT:** Dump includes ALL column families. To dump a subset, use `ldb dump` with `--cf_name` filter.
+⚠️ **INVARIANT:** Dump only includes the default column family (uses `DB::OpenForReadOnly` without specifying column families). To dump a specific column family, use `ldb dump` with `--column_family` filter.
 
 ### db_undump
 
@@ -612,10 +642,10 @@ db_undump --db_path=/path/to/restored_db --dump_location=backup.dump \
 **Files:** `tools/dump/db_dump_tool.cc:130+` (DbUndumpTool::Run)
 
 **Restoration process:**
-1. Parse dump header
-2. Create WriteBatch for each key-value pair
-3. Write batches to DB
-4. Sync and close
+1. Parse dump header (magic, version, metadata JSON)
+2. Read key-value pairs and write each via `DB::Put()`
+3. Optionally compact database (if `compact_db` option set)
+4. Close DB
 
 ⚠️ **INVARIANT:** Restored database will have different SST file structure (determined by compaction) than original. Use db_dump for logical backup, not physical file-level backup.
 
@@ -623,7 +653,7 @@ db_undump --db_path=/path/to/restored_db --dump_location=backup.dump \
 
 ## 4. MANIFEST Inspection Details
 
-**Files:** `db/version_set.cc:5764-5990`
+**Files:** `db/version_set.cc:7089-7142`
 
 MANIFEST files contain the database schema evolution: all VersionEdits (file additions/deletions, level changes, column family operations).
 
@@ -651,10 +681,9 @@ AddFile: Level=0 File=456 Size=1234567 Entries=10000
   SmallestKey='user_1000' @ 100:1
   LargestKey='user_9999' @ 200:1
 DeleteFile: Level=1 File=123
-CompactionPointer: Level=2 Key='user_5000'
 ```
 
-**Files:** `db/version_edit.cc:688-943` (DebugString implementation)
+**Files:** `db/version_edit.cc:892+` (DebugString implementation)
 
 #### Column Family Metadata
 
@@ -692,7 +721,7 @@ Actual files in directory: 123457.sst, 123458.sst
 
 ## 5. WAL Inspection Details
 
-**Files:** `tools/ldb_cmd.cc:188-373`, `db/log_reader.h`
+**Files:** `tools/ldb_cmd.cc:3108-3410`, `db/log_reader.h`
 
 WAL files contain write-ahead log records: serialized WriteBatches with sequence numbers.
 
@@ -720,7 +749,7 @@ DELETE(key3)
 MERGE(key4) : delta1
 ```
 
-**Files:** `db/write_batch.cc:2074-2332` (WriteBatch::Data() format, iteration)
+**Files:** `db/write_batch.cc` (WriteBatch format and Handler interface for iterating operations)
 
 ### Detecting Corruption
 
@@ -754,7 +783,7 @@ Corruption: checksum mismatch in record at offset 12345
 Skipping corrupted record
 ```
 
-**Files:** `db/log_reader.cc:250-397` (ReadPhysicalRecord)
+**Files:** `db/log_reader.cc:552-660` (ReadPhysicalRecord)
 
 ⚠️ **INVARIANT:** WAL corruption only affects uncommitted writes (after last flush). Use `RepairDB` to recover committed data from SST files.
 
@@ -779,7 +808,7 @@ sst_dump --file=/path/to/123456.sst --verify_checksum
 - Meta blocks
 - Footer
 
-**Files:** `table/block_based/block_based_table_reader.cc:458-523` (VerifyChecksum)
+**Files:** `table/block_based/block_based_table_reader.cc:2747-2783` (VerifyChecksum)
 
 ### Database-Level Checksum
 
@@ -797,7 +826,7 @@ File 123458: crc32c 0xCDEF3456
 
 **Use case:** Detect silent data corruption (bit flips) by comparing checksums over time.
 
-**Files:** `db/db_impl/db_impl_files.cc:315-402` (GetLiveFilesChecksumInfo)
+**Files:** `db/db_impl/db_impl.cc:5171-5174` (GetLiveFilesChecksumInfo)
 
 ---
 
@@ -820,8 +849,13 @@ if (!s.ok()) {
 
 Command-line (via ldb):
 ```bash
-# No direct ldb command; use C++ API or write small program
+ldb repair --db=/path/to/db
+
+# With verbose output
+ldb repair --db=/path/to/db --verbose
 ```
+
+**Implementation:** `tools/ldb_cmd_impl.h:662-683` (RepairCommand class), calls `RepairDB()` internally
 
 ### Repair Process
 
@@ -869,9 +903,8 @@ Generate new MANIFEST:
 - Set next file number = 1 + max file number found
 - Set last sequence number = max sequence across all SST files
 - Place all SST files at L0 (no level structure assumed)
-- Clear compaction pointers
 
-**Files:** `db/repair.cc:669+` (AddTables - generates new MANIFEST via VersionEdit)
+**Files:** `db/repair.cc:669+` (AddTables - generates new MANIFEST via VersionEdit and `VersionSet::LogAndApply()`)
 
 ⚠️ **INVARIANT:** Repaired database has all data in L0. Compaction will reorganize levels on next open.
 
@@ -917,19 +950,15 @@ ldb --db=/path/to/db reduce_levels --new_levels=3 --print_old_levels
 
 ### Algorithm
 
-1. Open DB read-only
+1. Open DB
 2. Check if reduction is possible:
-   - No overlapping ranges in target level
-   - All files in levels ≥ new_levels can fit in new_levels-1
-3. Create VersionEdit to move files:
-   ```
-   DeleteFile: Level=6 File=123
-   AddFile: Level=2 File=123
-   ```
-4. Write new MANIFEST
-5. Close DB
+   - If current level count <= new_levels, no work needed
+3. Compact entire database to push all files to the highest level
+4. Close DB
+5. Call `VersionSet::ReduceNumberOfLevels()` to rewrite MANIFEST with fewer levels
+6. All files end up in the bottom level of the new level structure
 
-**Files:** `tools/ldb_cmd.cc:2301-2447` (ReduceDBLevelsCommand::DoCommand)
+**Files:** `tools/ldb_cmd.cc:2757-2804` (ReduceDBLevelsCommand::DoCommand)
 
 ⚠️ **INVARIANT:** Cannot reduce levels if it would violate key ordering invariants (overlapping ranges at same level). Command fails with error in this case.
 
@@ -979,7 +1008,7 @@ ldb --db=/path/to/db reduce_levels --new_levels=3 --print_old_levels
      ```bash
      rm /path/to/db/123456.sst
      # Repair to rebuild MANIFEST
-     # (Use C++ RepairDB API)
+     ldb repair --db=/path/to/db
      ```
    - **Option B:** Restore from backup (if available)
 
@@ -1073,6 +1102,8 @@ ldb --db=/path/to/db reduce_levels --new_levels=3 --print_old_levels
    # WAL file lost - data since last flush gone
    # Disable WAL requirement (loses durability guarantee)
    # options.wal_recovery_mode = kTolerateCorruptedTailRecords;
+   # Or repair the DB:
+   ldb repair --db=/path/to/db
    ```
 
    **Error:** `Corruption: bad magic number in MANIFEST-000042`
@@ -1080,7 +1111,7 @@ ldb --db=/path/to/db reduce_levels --new_levels=3 --print_old_levels
    **Solution:**
    ```bash
    # MANIFEST corrupted - repair
-   # (Use RepairDB C++ API)
+   ldb repair --db=/path/to/db
    ```
 
    **Error:** `IO error: No such file: 123456.sst`
@@ -1088,7 +1119,7 @@ ldb --db=/path/to/db reduce_levels --new_levels=3 --print_old_levels
    **Solution:**
    ```bash
    # SST file missing - repair
-   # (Use RepairDB C++ API)
+   ldb repair --db=/path/to/db
    # Data in that file lost
    ```
 
@@ -1137,7 +1168,7 @@ ldb --db=/path/to/db reduce_levels --new_levels=3 --print_old_levels
 
 ### LDBCommand Architecture
 
-**Files:** `include/rocksdb/utilities/ldb_cmd.h:31-603`
+**Files:** `include/rocksdb/utilities/ldb_cmd.h:31-337`
 
 All commands inherit from `LDBCommand` base class:
 
@@ -1158,9 +1189,9 @@ class LDBCommand {
 
  protected:
   std::string db_path_;
-  DB* db_;
-  std::map<std::string, std::string> option_map_;
-  std::vector<std::string> flags_;
+  std::unique_ptr<DB> db_;
+  const std::map<std::string, std::string> option_map_;
+  const std::vector<std::string> flags_;
 };
 ```
 
@@ -1182,11 +1213,11 @@ main() → LDBCommand::InitFromCmdLineArgs()
   Run() → OpenDB() → DoCommand() → CloseDB()
 ```
 
-**Files:** `tools/ldb_cmd.cc:2683-2786` (SelectCommand), `tools/ldb_cmd.cc:2788-2939` (InitFromCmdLineArgs)
+**Files:** `tools/ldb_cmd.cc:299-439` (SelectCommand), `tools/ldb_cmd.cc:261-297` (InitFromCmdLineArgs)
 
 ### SstFileDumper Architecture
 
-**Files:** `table/sst_file_dumper.h:17-103`
+**Files:** `table/sst_file_dumper.h:17-101`
 
 ```cpp
 class SstFileDumper {
@@ -1224,11 +1255,11 @@ SstFileDumper::ReadSequential()
   }
 ```
 
-**Files:** `table/sst_file_dumper.cc:184-245` (ReadSequential)
+**Files:** `table/sst_file_dumper.cc:526+` (ReadSequential)
 
 ### WAL Dumper Architecture
 
-**Files:** `tools/ldb_cmd.cc:188-373`
+**Files:** `tools/ldb_cmd.cc:3165-3346`
 
 ```cpp
 void DumpWalFile(Options options, const std::string& wal_file, ...) {
@@ -1280,17 +1311,17 @@ RocksDB's debugging tools provide comprehensive inspection and recovery capabili
 
 | Tool | Primary Use | Key Commands |
 |------|-------------|--------------|
-| **ldb** | Database inspection/modification | `get`, `scan`, `put`, `manifest_dump`, `dump_wal`, `compact` |
+| **ldb** | Database inspection/modification | `get`, `multi_get`, `scan`, `put`, `delete`, `manifest_dump`, `dump_wal`, `compact`, `repair`, `checkpoint`, `backup`, `restore`, `list_column_families`, `file_checksum_dump` |
 | **sst_dump** | SST file analysis | `check`, `scan`, `raw`, `verify`, `recompress` |
 | **db_dump/undump** | Backup/restore | Binary dump format |
-| **RepairDB** | Corruption recovery | Reconstruct from SST files |
+| **RepairDB** | Corruption recovery | Reconstruct from SST files (also available via `ldb repair`) |
 | **reduce_levels** | Schema migration | Change level count |
 
 **Key invariants to remember:**
 
 ⚠️ **INVARIANT:** ldb commands auto-detect OPTIONS file if `--try_load_options` specified. Otherwise use default options.
 
-⚠️ **INVARIANT:** sst_dump operates on closed SST files. Do not run on files in active database (may read stale/corrupted blocks).
+⚠️ **INVARIANT:** sst_dump operates on individual SST files. SST files are immutable once written, but files in an active database may be deleted by compaction while sst_dump is reading them.
 
 ⚠️ **INVARIANT:** RepairDB is best-effort recovery. Always maintain external backups for critical data.
 

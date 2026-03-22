@@ -54,6 +54,7 @@ db->ReleaseSnapshot(snapshot);
 class ManagedSnapshot {
  public:
   explicit ManagedSnapshot(DB* db);  // Acquires snapshot
+  ManagedSnapshot(DB* db, const Snapshot* _snapshot);  // Takes ownership
   ~ManagedSnapshot();                 // Releases snapshot automatically
   const Snapshot* snapshot();
 };
@@ -157,16 +158,21 @@ void SnapshotList::Delete(const SnapshotImpl* s) {
 
 **⚠️ INVARIANT:** `list_.next_` always points to the **oldest** snapshot, `list_.prev_` to the **newest**.
 
-**⚠️ INVARIANT:** All operations on `SnapshotList` must be protected by **DB mutex** (db/snapshot_impl.h:187).
+**⚠️ INVARIANT:** All operations on `SnapshotList` must be protected by **DB mutex** (enforced in `GetSnapshotImpl` and `ReleaseSnapshot` in db/db_impl/db_impl.cc).
 
 ### Retrieving All Snapshots
 
-**db/snapshot_impl.h:110-153:**
+**db/snapshot_impl.h:118-153:**
 ```cpp
 void SnapshotList::GetAll(
     std::vector<SequenceNumber>* snap_vector,
     SequenceNumber* oldest_write_conflict_snapshot,
     const SequenceNumber& max_seq) const {
+  std::vector<SequenceNumber>& ret = *snap_vector;
+
+  if (oldest_write_conflict_snapshot != nullptr) {
+    *oldest_write_conflict_snapshot = kMaxSequenceNumber;
+  }
 
   if (empty()) return;
 
@@ -183,6 +189,8 @@ void SnapshotList::GetAll(
     if (oldest_write_conflict_snapshot != nullptr &&
         *oldest_write_conflict_snapshot == kMaxSequenceNumber &&
         s->next_->is_write_conflict_boundary_) {
+      // If this is the first write-conflict boundary snapshot in the list,
+      // it is the oldest
       *oldest_write_conflict_snapshot = s->next_->number_;
     }
 
@@ -199,13 +207,15 @@ void SnapshotList::GetAll(
 
 When a snapshot is used in a read operation, only data with **sequence numbers ≤ snapshot's sequence number** is visible.
 
-**DBIter Constructor (db/db_iter.cc:39-87):**
+**DBIter Constructor (db/db_iter.cc:40-46):**
 ```cpp
 DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                const ImmutableOptions& ioptions,
                const MutableCFOptions& mutable_cf_options,
                const Comparator* cmp, InternalIterator* iter,
-               const Version* version, SequenceNumber s, ...)
+               const Version* version, SequenceNumber s, bool arena_mode,
+               ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
+               bool expose_blob_index, ReadOnlyMemTable* active_mem)
     : ...
       sequence_(s),  // Snapshot's sequence number
       ... {
@@ -245,7 +255,7 @@ db->ReleaseSnapshot(s1);
 
 Compaction uses the **oldest snapshot's sequence number** to determine which old key versions can be safely deleted.
 
-**CompactionIterator (db/compaction/compaction_iterator.cc:51-107):**
+**CompactionIterator (db/compaction/compaction_iterator.cc:52-127):**
 ```cpp
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -269,7 +279,7 @@ CompactionIterator::CompactionIterator(
 
 **Garbage Collection Rules:**
 
-**findEarliestVisibleSnapshot (db/compaction/compaction_iterator.cc:1341-1366):**
+**findEarliestVisibleSnapshot (db/compaction/compaction_iterator.cc:1341-1390):**
 ```cpp
 // Given a sequence number, return the sequence number of the
 // earliest snapshot that this sequence number is visible in.
@@ -303,16 +313,18 @@ Compaction processing key "foo":
   - foo@seqno=250 (newest)
   - foo@seqno=180
   - foo@seqno=120
+  - foo@seqno=90
   - foo@seqno=80
 
 Outcome:
-  - foo@250: KEEP (visible at tip)
-  - foo@180: KEEP (visible to snapshot 200)
-  - foo@120: KEEP (visible to snapshot 150)
-  - foo@80:  DELETE (< oldest snapshot 100, no longer needed)
+  - foo@250: KEEP (latest version, visible at tip)
+  - foo@180: KEEP (latest version visible to snapshot 200)
+  - foo@120: KEEP (latest version visible to snapshot 150)
+  - foo@90:  KEEP (latest version visible to snapshot 100)
+  - foo@80:  DELETE (same snapshot boundary as foo@90; shadowed by newer version)
 ```
 
-**⚠️ INVARIANT:** Compaction **cannot** delete any key version with `seqno >= oldest_snapshot_seqno`.
+**⚠️ INVARIANT:** For each user key, compaction keeps the **latest version visible at each snapshot boundary**, plus the latest version overall. A version is dropped only if a newer version exists in the same snapshot boundary (see `last_snapshot == current_user_key_snapshot_` check in compaction_iterator.cc).
 
 **⚠️ INVARIANT:** Without snapshots, compaction only keeps the **most recent** version of each key.
 
@@ -393,7 +405,7 @@ db->Put(WriteOptions(), "key", "v2");  // seqno = 101
 
 Transactions use snapshots to implement **snapshot isolation**, ensuring consistent reads even with concurrent transactions.
 
-**utilities/transactions/transaction_base.h:255-272:**
+**Public methods (utilities/transactions/transaction_base.h:255-272):**
 ```cpp
 class TransactionBaseImpl : public Transaction {
  public:
@@ -415,8 +427,12 @@ class TransactionBaseImpl : public Transaction {
     snapshot_needed_ = false;
     snapshot_notifier_ = nullptr;
   }
+  // ...
+};
+```
 
- private:
+**Protected/private members (utilities/transactions/transaction_base.h:392-394, 463, 467):**
+```cpp
   // Stores the current snapshot that was set by SetSnapshot or null if
   // no snapshot is currently set.
   std::shared_ptr<const Snapshot> snapshot_;
@@ -428,11 +444,10 @@ class TransactionBaseImpl : public Transaction {
   // SetSnapshotOnNextOperation() has been called and the caller would like
   // a notification through the TransactionNotifier interface
   std::shared_ptr<TransactionNotifier> snapshot_notifier_ = nullptr;
-};
 ```
 
 **Write-Conflict Detection:**
-- `is_write_conflict_boundary_`: Marks snapshots used for conflict detection (db/snapshot_impl.h:51)
+- `is_write_conflict_boundary_`: Marks snapshots used for conflict detection (db/snapshot_impl.h:50-51)
 - Transaction reads use snapshot to check if keys have been modified since transaction start
 - If a key was updated after transaction's snapshot, write-conflict occurs
 
@@ -504,9 +519,9 @@ WITH snapshots S1@100, S2@5000:
 
 ### Concurrent Access and Locking
 
-**⚠️ INVARIANT:** All `SnapshotList` operations **require holding DB mutex** (db/snapshot_impl.h:187).
+**⚠️ INVARIANT:** All `SnapshotList` operations **require holding DB mutex** (enforced in `GetSnapshotImpl` via `mutex_.Lock()`/`mutex_.AssertHeld()` and in `ReleaseSnapshot` via `InstrumentedMutexLock`).
 
-**GetSnapshot Implementation (db/db_impl/db_impl.cc:4324-4360):**
+**GetSnapshot Implementation (db/db_impl/db_impl.cc:4324-4351):**
 ```cpp
 SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary, bool lock) {
   int64_t unix_time = 0;
@@ -538,7 +553,7 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary, bool lock
 }
 ```
 
-**ReleaseSnapshot (db/db_impl/db_impl.cc:4474-4505):**
+**ReleaseSnapshot (db/db_impl/db_impl.cc:4474-4546):**
 ```cpp
 void DBImpl::ReleaseSnapshot(const Snapshot* s) {
   if (s == nullptr) {
@@ -553,6 +568,12 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
   {
     InstrumentedMutexLock l(&mutex_);  // Acquire DB mutex
     snapshots_.Delete(casted_s);       // Remove from list
+
+    // After removing a snapshot, update the oldest snapshot for each
+    // column family and potentially schedule compaction/flush to
+    // reclaim space that was pinned by the released snapshot.
+    // ... (iterates column families, calls UpdateOldestSnapshot,
+    //      EnqueuePendingCompaction, MaybeScheduleFlushOrCompaction) ...
   }
 
   delete casted_s;  // Free memory (outside mutex)
@@ -601,7 +622,7 @@ class TimestampedSnapshotList {
 };
 ```
 
-**Usage (db/db_impl/db_impl.cc:4282-4322):**
+**Usage (db/db_impl/db_impl.cc:4283-4322):**
 ```cpp
 // Create timestamped snapshot
 auto [status, snapshot] = db->CreateTimestampedSnapshot(snapshot_seq, ts);
@@ -632,7 +653,7 @@ db->ReleaseTimestampedSnapshotsOlderThan(ts);
 │     ↓                                                                │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │ new SnapshotImpl()                                           │   │
-│  │ number_ = LastSequence()                                     │   │
+│  │ number_ = GetLastPublishedSequence()                   │   │
 │  │ snapshots_.New(s, ...)  // Insert into doubly-linked list   │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │     ↓                                                                │
@@ -713,7 +734,7 @@ s = nullptr;  // Prevent accidental reuse
 | Operation | Time Complexity | Lock Held | Notes |
 |-----------|----------------|-----------|-------|
 | `GetSnapshot()` | O(1) | DB mutex | Inserts at end of list |
-| `ReleaseSnapshot()` | O(1) | DB mutex | Unlinks from list |
+| `ReleaseSnapshot()` | O(CF) worst | DB mutex | Unlinks from list; conditionally iterates column families to trigger bottommost compaction |
 | `snapshots_.GetAll()` | O(n) | DB mutex | n = number of snapshots |
 | Reading with snapshot | O(1) | None | Just seqno comparison in iterator |
 | Compaction GC decision | O(log n) | None | Binary search via `findEarliestVisibleSnapshot()` |

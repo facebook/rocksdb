@@ -48,7 +48,7 @@
 │  │ BlobSource::GetBlob(file_num, offset, size)          │          │
 │  │   ├─ Check blob_cache                                │          │
 │  │   ├─ Get BlobFileReader from blob_file_cache         │          │
-│  │   ├─ Read record: verify header_crc, blob_crc        │          │
+│  │   ├─ Read record: verify CRCs (if verify_checksums)  │          │
 │  │   ├─ Decompress if needed                            │          │
 │  │   └─ Populate blob_cache                             │          │
 │  └──────────────────────────────────────────────────────┘          │
@@ -98,36 +98,35 @@ A blob file consists of a header, variable number of records, and an optional fo
 
 ### BlobLogHeader (30 bytes)
 
-**File:** `db/blob/blob_log_format.h:27-92`
+**File:** `db/blob/blob_log_format.h:43-63`
 
 ```cpp
 struct BlobLogHeader {
-  uint32_t magic_number;      // 0x00248f37 (2395959)
   uint32_t version;           // kVersion1 = 1
   uint32_t column_family_id;  // Which CF this file belongs to
-  uint8_t  flags;             // has_ttl (unused in integrated mode)
-  uint8_t  compression_type;  // Applied to ALL blobs in this file
-  uint64_t expiration_range_min;  // Unused in integrated BlobDB
-  uint64_t expiration_range_max;  // Unused in integrated BlobDB
+  CompressionType compression;  // Applied to ALL blobs in this file
+  bool has_ttl;               // Whether file contains TTL data (unused in integrated mode)
+  ExpirationRange expiration_range;  // Pair<uint64_t, uint64_t> (unused in integrated BlobDB)
 };
+// Note: magic_number (0x00248f37 = 2395959) is encoded in header but not a struct field
 ```
 
 **Key Fields:**
-- **`magic_number`**: File type identifier (validates format)
-- **`compression_type`**: Applies uniformly to all blobs in file (can't mix compression types)
+- **`compression`**: Applies uniformly to all blobs in file (can't mix compression types)
 - **`column_family_id`**: Required for crash recovery (maps blob files to CFs)
+- **`version`**: Format version (currently kVersion1 = 1)
 
 ### BlobLogRecord (32-byte header + variable data)
 
-**File:** `db/blob/blob_log_format.h:96-147`
+**File:** `db/blob/blob_log_format.h:118-147`
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ key_length (varint64, typically 8 bytes)                    │
-│ value_length (varint64, compressed size if compressed)      │
-│ expiration (uint64_t, 8 bytes, 0 in integrated mode)        │
-│ header_crc (uint32_t, 4 bytes)                              │
-│ blob_crc (uint32_t, 4 bytes)                                │
+│ key_size (Fixed64, 8 bytes)                                 │
+│ value_size (Fixed64, 8 bytes, compressed size if compressed)│
+│ expiration (Fixed64, 8 bytes, 0 in integrated mode)         │
+│ header_crc (Fixed32, 4 bytes)                               │
+│ blob_crc (Fixed32, 4 bytes)                                 │
 ├─────────────────────────────────────────────────────────────┤
 │ key (variable, full user key)                               │
 │ value (variable, potentially compressed)                    │
@@ -135,14 +134,15 @@ struct BlobLogHeader {
 ```
 
 **CRC Coverage** (`blob_log_format.h:110-111`):
-- **`header_crc`**: Covers `(key_length, value_length, expiration)` — detects header corruption
-- **`blob_crc`**: Covers `(key + value)` — detects data corruption
+- **`header_crc`**: Covers first 24 bytes `(key_size, value_size, expiration)` — detects header corruption. Uses `crc32c::Mask()`.
+- **`blob_crc`**: Covers `(key + value)` — computed via `crc32c::Extend` over key then value, then masked. Detects data corruption.
 
 **⚠️ CRITICAL INVARIANT:** `BlobIndex.offset` points to the **value start**, not the record start. To read a full record given a BlobIndex:
 
 ```cpp
-// blob_log_format.h:122-128
-uint64_t adjustment = BlobLogRecord::kHeaderSize + key_size;  // 32 + key_size
+// blob_log_format.h:125-128
+uint64_t adjustment = BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size);
+// Returns kHeaderSize + key_size = 32 + key_size
 uint64_t record_offset = blob_index.offset() - adjustment;
 ```
 
@@ -150,16 +150,15 @@ This design enables **zero-copy value reads** when the key is already known (no 
 
 ### BlobLogFooter (32 bytes, optional)
 
-**File:** `db/blob/blob_log_format.h:75-92`
+**File:** `db/blob/blob_log_format.h:82-92`
 
 ```cpp
 struct BlobLogFooter {
-  uint32_t magic_number;      // 0x00248f37 (same as header)
   uint64_t blob_count;        // Total number of blobs in file
-  uint64_t expiration_range_min;  // Actual min expiration (not rough)
-  uint64_t expiration_range_max;  // Actual max expiration
-  uint32_t footer_crc;        // CRC of footer fields
+  ExpirationRange expiration_range;  // Actual min/max expiration (pair of uint64_t)
+  uint32_t crc;               // CRC of footer fields
 };
+// Note: magic_number (0x00248f37) is encoded in footer but not a struct field
 ```
 
 **Usage:** Footer enables fast metadata queries (blob count) without scanning the entire file. Present only when `BlobFileBuilder::Finish()` is called successfully.
@@ -181,7 +180,7 @@ Instead of storing large values in SST files, RocksDB stores a **BlobIndex** (a 
 │ type: 1 byte (kBlob = 1)                                 │
 │ file_number: varint64 (blob file number, e.g., 000123)   │
 │ offset: varint64 (points to VALUE START in blob file)    │
-│ size: varint64 (uncompressed blob size)                  │
+│ size: varint64 (compressed blob size, as stored on disk) │
 │ compression: 1 byte (CompressionType of the blob)        │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -195,7 +194,7 @@ static void EncodeBlob(std::string* dst, uint64_t file_number,
 
 **Decoding** (`blob_index.h:94-120`):
 ```cpp
-Status DecodeFrom(Slice* input);  // Parses type, fields
+Status DecodeFrom(Slice slice);  // Parses type, fields (takes Slice by value)
 ```
 
 **⚠️ INVARIANT:** `offset` always points to **value start**, not record start. This is critical for read path correctness.
@@ -255,9 +254,7 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
   }
 
   // 2. Open blob file if needed (first Add or after size limit)
-  if (!writer_) {
-    OpenBlobFile();  // Creates <cf_path>/<file_number>.blob
-  }
+  OpenBlobFileIfNeeded();  // Creates <cf_path>/<file_number>.blob
 
   // 3. Compression
   Slice blob = value;
@@ -274,7 +271,7 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
 
   // 5. Encode BlobIndex (points to value start)
   BlobIndex::EncodeBlob(blob_index, blob_file_number_, blob_offset,
-                        value.size(), blob_compression_type_);
+                        blob.size(), blob_compression_type_);
 
   // 6. Check file size limit
   if (file_writer->GetFileSize() >= blob_file_size_) {
@@ -333,19 +330,19 @@ BlobSource
 
 ### BlobSource::GetBlob() Flow
 
-**File:** `db/blob/blob_source.cc:158-250`
+**File:** `db/blob/blob_source.cc:158-258`
 
 ```cpp
 Status BlobSource::GetBlob(const ReadOptions& read_options,
                             const Slice& user_key,
                             uint64_t file_number, uint64_t offset,
+                            uint64_t file_size,
                             uint64_t value_size,
                             CompressionType compression_type,
                             FilePrefetchBuffer* prefetch_buffer,
-                            MemoryAllocator* allocator,
                             PinnableSlice* value,
                             uint64_t* bytes_read) {
-  // 1. Build cache key
+  // 1. Build cache key (file_size accepted but unused)
   CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
   // Uses: OffsetableCacheKey(db_id, db_session_id, file_number).WithOffset(offset)
 
@@ -370,7 +367,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
                                           &blob_file_reader);
 
   // 5. Read from file
-  BlobContents blob_contents;
+  std::unique_ptr<BlobContents> blob_contents;
   uint64_t read_size;
   s = blob_file_reader.GetValue()->GetBlob(
       read_options, user_key, offset, value_size, compression_type,
@@ -409,7 +406,7 @@ Instead of copying blob data from cache to output:
 
 ### BlobFileReader::GetBlob()
 
-**File:** `db/blob/blob_file_reader.cc:28-84`
+**File:** `db/blob/blob_file_reader.cc:306-400`
 
 ```cpp
 Status BlobFileReader::GetBlob(const ReadOptions& read_options,
@@ -418,49 +415,37 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
                                 CompressionType compression_type,
                                 FilePrefetchBuffer* prefetch_buffer,
                                 MemoryAllocator* allocator,
-                                BlobContents* blob_contents,
-                                uint64_t* bytes_read) {
-  // 1. Calculate record offset (BlobIndex offset points to value start)
+                                std::unique_ptr<BlobContents>* result,
+                                uint64_t* bytes_read) const {
+  // 1. Calculate read offset and size
+  // BlobIndex offset points to value start; if verify_checksums is set,
+  // we need to read the full record (header + key + value) to verify CRCs.
+  // Otherwise, we read just the value.
   uint64_t key_size = user_key.size();
-  uint64_t adjustment = BlobLogRecord::kHeaderSize + key_size;  // 32 + key_size
+  uint64_t adjustment = read_options.verify_checksums
+      ? BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size)  // 32 + key_size
+      : 0;
   uint64_t record_offset = offset - adjustment;
+  uint64_t record_size = value_size + adjustment;
 
-  // 2. Read record header (32 bytes)
-  Slice header;
-  file_reader_->Read(record_offset, BlobLogRecord::kHeaderSize, &header);
+  // 2. Read data (via prefetch buffer or direct I/O)
+  Slice record_slice;
+  // ... read record_size bytes starting at record_offset ...
 
-  // 3. Parse and verify header_crc
-  BlobLogRecord record;
-  record.DecodeHeaderFrom(header);
-  uint32_t expected_header_crc = crc32c(header.data(), header.size());
-  if (record.header_crc != expected_header_crc) {
-    return Status::Corruption("Blob header CRC mismatch");
+  // 3. Verify CRCs (only when verify_checksums is true)
+  if (read_options.verify_checksums) {
+    VerifyBlob(record_slice, user_key, value_size);
+    // VerifyBlob checks:
+    //   - header_crc via DecodeHeaderFrom (covers key_size, value_size, expiration)
+    //   - blob_crc via CheckBlobCRC (covers key + value)
+    //   - key_size match, value_size match, key content match
   }
 
-  // 4. Read key + value
-  Slice blob_data;
-  file_reader_->Read(record_offset + BlobLogRecord::kHeaderSize,
-                     record.key_length + record.value_length, &blob_data);
+  // 4. Extract value slice and decompress if needed
+  Slice value_slice(record_slice.data() + adjustment, value_size);
+  UncompressBlobIfNeeded(value_slice, compression_type, allocator, result);
 
-  // 5. Verify blob_crc
-  uint32_t expected_blob_crc = crc32c(blob_data.data(), blob_data.size());
-  if (record.blob_crc != expected_blob_crc) {
-    return Status::Corruption("Blob data CRC mismatch");
-  }
-
-  // 6. Decompress if needed
-  Slice value = blob_data.substr(record.key_length);  // Skip key
-  if (compression_type != kNoCompression) {
-    UncompressionContext context(compression_type);
-    UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
-                           compression_type);
-    s = UncompressData(info, value, blob_contents->allocation.get(),
-                       value_size, allocator);
-  } else {
-    blob_contents->data = Slice(value.data(), value.size());
-  }
-
-  *bytes_read = record.key_length + record.value_length + BlobLogRecord::kHeaderSize;
+  *bytes_read = record_size;
   return Status::OK();
 }
 ```
@@ -493,20 +478,21 @@ class BlobGarbageMeter {
   // Per-file inflow/outflow tracking
   std::unordered_map<uint64_t, BlobInOutFlow> flows_;
 
-  void ProcessInFlow(const ParsedInternalKey& ikey, const Slice& value);
-  void ProcessOutFlow(const ParsedInternalKey& ikey, const Slice& value);
+  Status ProcessInFlow(const Slice& key, const Slice& value);
+  Status ProcessOutFlow(const Slice& key, const Slice& value);
 };
 
-struct BlobInOutFlow {
-  uint64_t in_flow_;   // Blob bytes referenced by compaction input
-  uint64_t out_flow_;  // Blob bytes referenced by compaction output
+class BlobInOutFlow {
+  BlobStats in_flow_;   // Blobs referenced by compaction input (count + bytes)
+  BlobStats out_flow_;  // Blobs referenced by compaction output (count + bytes)
   // Garbage = in_flow - out_flow
 };
 ```
 
 **Garbage Calculation:**
 ```cpp
-uint64_t garbage_bytes = flow.in_flow_ - flow.out_flow_;
+uint64_t garbage_bytes = flow.GetGarbageBytes();  // in_flow.bytes - out_flow.bytes
+uint64_t garbage_count = flow.GetGarbageCount();  // in_flow.count - out_flow.count
 ```
 
 **Size Includes Full Record** (`blob_garbage_meter.cc:93-95`):
@@ -524,51 +510,60 @@ uint64_t garbage_bytes = flow.in_flow_ - flow.out_flow_;
 
 ```cpp
 void CompactionIterator::GarbageCollectBlobIfNeeded() {
-  // 1. Prerequisites
-  if (!compaction_) return;
-  if (!compaction_->enable_blob_garbage_collection()) return;
-  if (ikey_.type != kTypeBlobIndex) return;
+  // Precondition: assert(ikey_.type == kTypeBlobIndex)
 
-  // 2. Parse BlobIndex
-  BlobIndex blob_index;
-  blob_index.DecodeFrom(value_);
+  // Path 1: Integrated BlobDB GC
+  if (compaction_->enable_blob_garbage_collection()) {
+    // 1. Parse BlobIndex
+    BlobIndex blob_index;
+    blob_index.DecodeFrom(value_);
 
-  // 3. Age cutoff check
-  uint64_t cutoff = blob_garbage_collection_cutoff_file_number_;
-  if (blob_index.file_number() >= cutoff) {
-    return;  // Blob file is too new, skip GC
+    // 2. Age cutoff check
+    if (blob_index.file_number() >= blob_garbage_collection_cutoff_file_number_) {
+      return;  // Blob file is too new, skip GC
+    }
+
+    // 3. Fetch blob from old file
+    PinnableSlice blob_value;
+    uint64_t bytes_read;
+    Status s = blob_fetcher_->FetchBlob(user_key(), blob_index, prefetch_buffer,
+                                         &blob_value, &bytes_read);
+    if (!s.ok()) {
+      status_ = s;  // Set error status (not validity_info_)
+      return;
+    }
+
+    // 4. Update stats
+    ++iter_stats_.num_blobs_read;
+    iter_stats_.total_blob_bytes_read += bytes_read;
+    ++iter_stats_.num_blobs_relocated;
+    iter_stats_.total_blob_bytes_relocated += blob_index.size();
+
+    // 5. Try to re-extract into new blob file immediately
+    value_ = blob_value;
+    if (ExtractLargeValueIfNeededImpl()) {
+      return;  // Value re-extracted to new blob file, type stays kTypeBlobIndex
+    }
+
+    // 6. If not re-extracted (value < min_blob_size), convert to inline value
+    ikey_.type = kTypeValue;
+    // Update internal key to reflect type change
   }
 
-  // 4. Fetch blob from old file
-  PinnableSlice blob_value;
-  uint64_t bytes_read;
-  Status s = blob_fetcher_->FetchBlob(user_key(), blob_index, prefetch_buffer,
-                                       &blob_value, &bytes_read);
-  if (!s.ok()) {
-    // Error: Mark key for skipping
-    validity_info_.SetValid(false);
-    return;
-  }
-
-  // 5. Relocate: Convert to inline value temporarily
-  ikey_.type = kTypeValue;
-  value_ = blob_value;  // BlobFileBuilder will re-extract to new blob file
-
-  // 6. Statistics
-  ++iter_stats_.num_blobs_read;
-  iter_stats_.total_blob_bytes_read += bytes_read;
-  ++iter_stats_.num_blobs_relocated;
-  iter_stats_.total_blob_bytes_relocated += blob_index.size();
+  // Path 2: Stacked BlobDB GC (legacy, via compaction_filter_)
+  // ...
 }
 ```
 
 **GC Cutoff Calculation:**
 ```cpp
-// File: db/compaction/compaction_job.cc
-uint64_t cutoff_file_number =
-    (1.0 - blob_garbage_collection_age_cutoff) * num_blob_files;
-// Example: age_cutoff = 0.25, num_files = 100 → cutoff = 75
-// Only blobs in files 0-74 (oldest 25%) are eligible for GC
+// File: db/compaction/compaction_iterator.cc (ComputeBlobGarbageCollectionCutoffFileNumber)
+const auto& blob_files = storage_info->GetBlobFiles();  // sorted by file number
+size_t cutoff_index = blob_garbage_collection_age_cutoff * blob_files.size();
+uint64_t cutoff_file_number = blob_files[cutoff_index]->GetBlobFileNumber();
+// Example: age_cutoff = 0.25, num_files = 100 → cutoff_index = 25
+// Blobs in files at indices 0-24 (oldest 25%) are eligible for GC
+// (i.e., file_number < cutoff_file_number)
 ```
 
 **⚠️ INVARIANT:** Relocated blobs get new BlobIndex (new file number + offset). Old blob becomes garbage.
@@ -578,11 +573,11 @@ uint64_t cutoff_file_number =
 **File:** `db/blob/blob_file_meta.h:94-167`
 
 ```cpp
-struct BlobFileMetaData {
-  SharedBlobFileMetaData* shared_meta_;  // Immutable metadata
+class BlobFileMetaData {
+  std::shared_ptr<SharedBlobFileMetaData> shared_meta_;  // Immutable metadata (shared across versions)
   uint64_t garbage_blob_count_;          // Mutable, updated by GC
   uint64_t garbage_blob_bytes_;          // Mutable, updated by GC
-  std::unordered_set<uint64_t> linked_ssts_;  // SSTs referencing this blob file
+  LinkedSsts linked_ssts_;  // = std::unordered_set<uint64_t>, SSTs referencing this blob file
 };
 ```
 
@@ -606,23 +601,25 @@ assert(garbage_blob_bytes_ <= shared_meta_->GetTotalBlobBytes());
 ### Blob Handling in CompactionIterator
 
 ```
-CompactionIterator::Next()
+CompactionIterator::PrepareOutput()
   │
   ├─ ikey_.type == kTypeValue?
   │    └─ ExtractLargeValueIfNeeded()
-  │         ├─ if (value.size() >= min_blob_size)
-  │         │    ├─ blob_file_builder_->Add(key, value, &blob_index)
-  │         │    ├─ ikey_.type = kTypeBlobIndex
-  │         │    └─ value_ = blob_index
-  │         └─ else: keep inline
+  │         ├─ Calls ExtractLargeValueIfNeededImpl()
+  │         │    ├─ if (value.size() >= min_blob_size)
+  │         │    │    ├─ blob_file_builder_->Add(key, value, &blob_index)
+  │         │    │    └─ value_ = blob_index
+  │         │    └─ else: returns false (keep inline)
+  │         └─ If extracted: ikey_.type = kTypeBlobIndex
   │
   ├─ ikey_.type == kTypeBlobIndex?
   │    └─ GarbageCollectBlobIfNeeded()
   │         ├─ if (file_number < cutoff)
   │         │    ├─ Fetch blob from old file
-  │         │    ├─ ikey_.type = kTypeValue
-  │         │    └─ ExtractLargeValueIfNeeded() [next iteration]
-  │         └─ else: keep BlobIndex as-is
+  │         │    ├─ Try ExtractLargeValueIfNeededImpl() [within same call]
+  │         │    │    ├─ Success: re-extracted to new blob file, stays kTypeBlobIndex
+  │         │    │    └─ Failure (too small): ikey_.type = kTypeValue (inlined)
+  │         └─ else: keep BlobIndex as-is (passthrough)
 ```
 
 **Key Points:**
@@ -652,7 +649,7 @@ CompactionIterator::Next()
 | `blob_cache` | std::shared_ptr<Cache> | `nullptr` | Dedicated cache for uncompressed blobs |
 | `prepopulate_blob_cache` | PrepopulateBlobCache | `kDisable` | Warm cache on flush (kFlushOnly) |
 
-**All options are dynamically changeable via `SetOptions()` API.**
+**All options except `blob_cache` are dynamically changeable via `SetOptions()` API.** `blob_cache` must be set before `DB::Open()`.
 
 ### Configuration Examples
 
@@ -764,7 +761,7 @@ Better key density → higher block cache hit rate → fewer SST reads.
 | ⚠️ Integrated BlobDB doesn't use TTL | `blob_file_reader.cc:186-188` | Simplifies format, expiration = 0 |
 | ⚠️ Blob cache key = `(db_id, db_session_id, file_number, offset)` | `blob_source.h:141-145` | Cache uniqueness |
 | ⚠️ Relocated blobs get new BlobIndex | `compaction_iterator.cc:1201-1237` | GC correctness |
-| ⚠️ `BlobFileBuilder::Finish()` must be called explicitly | `blob_file_builder.h:85-88` | Crash recovery |
+| ⚠️ `BlobFileBuilder::Finish()` must be called explicitly | `blob_file_builder.h:75` | Crash recovery |
 
 ---
 
@@ -791,4 +788,4 @@ Better key density → higher block cache hit rate → fewer SST reads.
 - **[Compaction](compaction.md)**: CompactionIterator integration, GC logic
 - **[SST Table Format](sst_table_format.md)**: How BlobIndex is stored in SST data blocks
 - **[Cache](cache.md)**: BlobCache implementation, zero-copy pinning
-- **[File I/O](file_io_and_blob.md)**: FileSystem, WritableFileWriter, RandomAccessFile usage
+- **[File I/O](file_io.md)**: FileSystem, WritableFileWriter, RandomAccessFile usage

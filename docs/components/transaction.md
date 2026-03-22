@@ -38,7 +38,8 @@ RocksDB supports two transaction models with three write policies:
 
 **Key Files:**
 - `include/rocksdb/utilities/transaction.h` - Transaction API
-- `include/rocksdb/utilities/transaction_db.h` - TransactionDB API
+- `include/rocksdb/utilities/transaction_db.h` - TransactionDB API and TransactionOptions
+- `include/rocksdb/utilities/optimistic_transaction_db.h` - OptimisticTransactionDB API and OptimisticTransactionOptions
 - `utilities/transactions/pessimistic_transaction_db.{h,cc}` - Pessimistic TransactionDB implementation
 - `utilities/transactions/optimistic_transaction_db_impl.{h,cc}` - Optimistic TransactionDB implementation
 - `utilities/transactions/pessimistic_transaction.{h,cc}` - Lock-based transactions
@@ -46,6 +47,7 @@ RocksDB supports two transaction models with three write policies:
 - `utilities/transactions/write_prepared_txn.{h,cc}` - WritePrepared implementation
 - `utilities/transactions/write_unprepared_txn.{h,cc}` - WriteUnprepared implementation
 - `utilities/transactions/lock/point/point_lock_manager.{h,cc}` - Point lock manager
+- `utilities/transactions/lock/range/range_tree/` - Range lock manager
 
 ---
 
@@ -99,14 +101,14 @@ Optimistic transactions do not acquire locks during execution. Instead, they val
 - Best for workloads with infrequent conflicts
 
 **Conflict Detection:**
-At commit time, the transaction checks if any key it wrote was modified by another transaction since the snapshot was taken. Implementation uses tracked keys in `tracked_keys_` and sequence number comparison.
+At commit time, the transaction checks if any key it wrote was modified by another transaction since the snapshot was taken. Implementation uses `tracked_locks_` (a `LockTracker`) and sequence number comparison via `TransactionUtil::CheckKeysForConflicts()`.
 
 **Example Usage:**
 ```cpp
 OptimisticTransactionDB* txn_db;
 Status s = OptimisticTransactionDB::Open(options, path, &txn_db);
 
-OptimisticTransaction* txn = txn_db->BeginTransaction(write_options);
+Transaction* txn = txn_db->BeginTransaction(write_options);
 txn->Put("key1", "value1");  // No lock acquired
 s = txn->Commit();  // Validates no conflicts occurred
 if (s.IsBusy()) {
@@ -118,6 +120,8 @@ if (s.IsBusy()) {
 delete txn;
 ```
 
+Note: `OptimisticTransactionDB::BeginTransaction()` takes `OptimisticTransactionOptions` (not `TransactionOptions`). This struct has `set_snapshot` and `cmp` fields. The validation policy is configured via `OptimisticTransactionDBOptions::validate_policy` (`kValidateSerial` or `kValidateParallel`).
+
 ⚠️ **INVARIANT:** Optimistic transactions require that all writes go through the transaction API. Direct writes to the underlying DB can bypass conflict detection.
 
 ---
@@ -126,7 +130,7 @@ delete txn;
 
 ### WriteCommitted (Default)
 
-**File:** `utilities/transactions/pessimistic_transaction_db.h:267-290`
+**File:** `utilities/transactions/pessimistic_transaction_db.h` (class `WriteCommittedTxnDB`)
 
 In WriteCommitted mode, transaction data is buffered in memory and written to the memtable only at `Commit()` time.
 
@@ -158,59 +162,72 @@ WritePrepared writes data to the memtable at `Prepare()` time, while `Commit()` 
 
 **Key Data Structures:**
 
-1. **PreparedHeap** (`utilities/transactions/write_prepared_txn_db.h`):
-   - Min-heap of prepared but not-yet-committed sequence numbers
-   - Used to determine visibility: `seq <= snapshot < min(PreparedHeap)` → visible
+1. **PreparedHeap** (`utilities/transactions/write_prepared_txn_db.h`, class `PreparedHeap`):
+   - Deque-based structure with an auxiliary min-heap for amortized O(1) erase
+   - Tracks prepared but not-yet-committed sequence numbers
+   - `top()` returns the smallest prepared sequence number
+   - Stored in `prepared_txns_` member of `WritePreparedTxnDB`
 
-2. **CommitCache** (`utilities/transactions/write_prepared_txn_db.h`):
-   - Maps `prepare_seq → commit_seq` for recently committed transactions
+2. **CommitCache** (`utilities/transactions/write_prepared_txn_db.h`, member `commit_cache_`):
+   - Array of `std::atomic<CommitEntry64b>` indexed by `prep_seq % COMMIT_CACHE_SIZE`
+   - Each `CommitEntry` stores `{prep_seq, commit_seq}` pair
    - Fast lookup to determine if a prepared entry is committed
-   - Evicts old entries assuming they've been compacted
+   - Evicts old entries when slot is reused by a newer transaction
 
 3. **old_commit_map_** (`utilities/transactions/write_prepared_txn_db.h`):
-   - Fallback for commit entries evicted from CommitCache
-   - Checked during reads if CommitCache miss
-   - Returns `Status::TryAgain()` if entry not found (caller must reseek)
+   - Maps `snapshot_seq -> vector<prep_seq>`: for each snapshot, stores prep_seqs that committed between `max_evicted_seq_` and `snapshot_seq`
+   - Fallback for commit entries evicted from CommitCache that overlap with live snapshots
+   - If snapshot is no longer found in old_commit_map_, the snapshot is considered released (sets `snap_released=true`)
 
 **Write Flow:**
 ```
 Prepare():
-  1. Write data to WAL with kTypeBeginPrepare marker
+  1. Write data to WAL with kTypeBeginPersistedPrepareXID marker
+     (distinct from WriteCommitted's kTypeBeginPrepareXID)
   2. Apply data to memtable
-  3. Add prepare_seq to PreparedHeap
-  4. Write kTypeEndPrepare marker
+  3. Add prepare_seq to PreparedHeap (prepared_txns_)
+  4. Write kTypeEndPrepareXID marker
 
 Commit():
-  1. Write commit marker to WAL
+  1. Write kTypeCommitXID marker to WAL
   2. Add (prepare_seq → commit_seq) to CommitCache
   3. Remove prepare_seq from PreparedHeap
 ```
 
 **Visibility Rules:**
 ```cpp
-// When reading a key with sequence number `seq` at snapshot `snap_seq`:
-bool IsInSnapshot(SequenceNumber seq, SequenceNumber snap_seq) {
-  if (seq <= snap_seq) {
-    // Might be a prepared entry, check PreparedHeap and CommitCache
-    if (seq in PreparedHeap) return false;  // Still prepared, not committed
+// Simplified logic of WritePreparedTxnDB::IsInSnapshot()
+// Returns true if the transaction that wrote prep_seq is committed
+// and visible at snapshot_seq.
+bool IsInSnapshot(uint64_t prep_seq, uint64_t snapshot_seq,
+                  uint64_t min_uncommitted, bool* snap_released) {
+  if (snapshot_seq < prep_seq) return false;  // Written after snapshot
+  if (prep_seq < min_uncommitted) return true;  // Known committed
 
-    SequenceNumber commit_seq = CommitCache.Get(seq);
-    if (commit_seq == kMaxSequenceNumber) {
-      // Not in cache, check OldCommitMap
-      commit_seq = OldCommitMap.Get(seq);
-      if (commit_seq == kMaxSequenceNumber) {
-        return Status::TryAgain();  // Unknown, must reseek
-      }
-    }
-    return commit_seq <= snap_seq;
+  // Check commit cache (array indexed by prep_seq % COMMIT_CACHE_SIZE)
+  CommitEntry cached;
+  if (GetCommitEntry(prep_seq % COMMIT_CACHE_SIZE, &cached) &&
+      cached.prep_seq == prep_seq) {
+    return cached.commit_seq <= snapshot_seq;
   }
-  return false;
+
+  // If prep_seq > max_evicted_seq_, it's not in cache and not evicted,
+  // so it must still be prepared (not yet committed)
+  if (max_evicted_seq_ < prep_seq) return false;
+
+  // Check delayed_prepared_ set (for txns moved from PreparedHeap)
+  // If found there and not in delayed_prepared_commits_, still uncommitted
+
+  // Finally check old_commit_map_ for evicted entries overlapping snapshots
+  // If snapshot not found in old_commit_map_, snapshot was released:
+  //   sets *snap_released = true, returns true
+  // If found, checks if prep_seq is in the snapshot's prep set
 }
 ```
 
 ⚠️ **INVARIANT:** `prepare_seq < commit_seq` always. The commit sequence number is always strictly greater than the prepare sequence number.
 
-⚠️ **INVARIANT:** Reads may return `Status::TryAgain()` if commit status unknown (CommitCache evicted). Caller must retry the read operation.
+⚠️ **INVARIANT:** If a snapshot has been released (evicted from old_commit_map_), `IsInSnapshot` sets `*snap_released = true` and returns `true`. The caller (e.g., compaction) must handle this case by re-checking with a newer snapshot.
 
 **Optimization: Dual Write Queues**
 - Main queue: processes Prepare() writes
@@ -230,29 +247,30 @@ WriteUnprepared allows transactions to write data to the database before `Prepar
 
 **Key Data Structures:**
 
-**`unprep_seqs_`** (map of CF ID → vector of sequence numbers):
-- Tracks all sequence numbers of unprepared writes
-- Updated each time transaction data is flushed to DB
-- Used during recovery to identify uncommitted data
+**`unprep_seqs_`** (`std::map<SequenceNumber, size_t>`):
+- Maps each unprepared batch's sequence number to its sub-batch count
+- Updated each time transaction data is flushed to DB via `FlushWriteBatchToDB()`
+- Used during recovery to identify uncommitted data and for visibility tracking
 
 **Write Flow:**
 ```
 Put("k1", "v1"):
   if (write_batch_size > threshold):
     FlushWriteBatchToDBImpl():
-      1. Write batch to WAL without kTypeBeginPrepare
+      1. Write batch to WAL with kTypeBeginUnprepareXID marker
+         (marks it as unprepared data, distinct from prepared batches)
       2. Apply to memtable
-      3. Record sequence number in unprep_seqs_
+      3. Record sequence number and batch count in unprep_seqs_
       4. Create new WriteBatch for subsequent writes
 
 Prepare():
-  1. Flush remaining batch (if any)
-  2. Write kTypeBeginPrepare marker
-  3. Write kTypeEndPrepare marker
+  1. Flush remaining batch (if any) with kTypeBeginPersistedPrepareXID
+  2. Write kTypeEndPrepareXID marker
 
 Commit():
-  1. Write commit marker with all unprep_seqs_
-  2. Release locks
+  1. Write kTypeCommitXID marker (contains only the transaction name/XID)
+  2. Pre-release callback updates CommitCache with all unprep_seqs_ entries
+  3. Release locks
 ```
 
 **Visibility:**
@@ -261,7 +279,7 @@ WriteUnprepared data is visible to the transaction itself but hidden from other 
 - External readers skip unprepared entries using `unprep_seqs_` tracking
 
 **Recovery:**
-During recovery (`utilities/transactions/pessimistic_transaction_db.cc:95-178`):
+During recovery (`utilities/transactions/pessimistic_transaction_db.cc:124-178`):
 1. Scan WAL for unprepared writes and prepare markers
 2. Recreate transaction object with `unprep_seqs_` populated
 3. Application responsible for committing or rolling back recovered transactions
@@ -285,11 +303,11 @@ struct SavePoint {
 WriteUnpreparedTxn maintains three separate data structures for savepoints:
 1. `TransactionBaseImpl::save_points_` - tracks which keys modified in each savepoint
 2. `WriteUnpreparedTxn::flushed_save_points_` - savepoints on already-flushed batches (with snapshot and unprep_seqs)
-3. `WriteUnpreparecTxn::unflushed_save_points_` - savepoints on current in-memory write_batch_
+3. `WriteUnpreparedTxn::unflushed_save_points_` - savepoints on current in-memory write_batch_
 
 Rollback to savepoint must:
 1. Rollback unflushed data (discard WriteBatch entries)
-2. Mark flushed data as rolled back in `rollback_seqs_`
+2. Write rollback keys for flushed data using `WriteRollbackKeys()`
 3. Restore snapshot and `unprep_seqs_` state
 
 ---
@@ -306,15 +324,17 @@ The Point Lock Manager handles locks on individual keys using a striped hash tab
 ```
 PointLockManager
     │
-    ├─ lock_maps_cache_ (thread-local cache)
+    ├─ lock_maps_cache_ (thread-local cache of lock_maps_)
     │
-    └─ lock_map_[num_stripes]  (striped by key hash)
+    └─ lock_maps_ : UnorderedMap<ColumnFamilyId, shared_ptr<LockMap>>
            │
-           └─ LockMap (per stripe)
+           └─ LockMap (per column family)
                   │
-                  └─ map<column_family, map<key, LockInfo>>
+                  └─ stripes[num_stripes]  (key hashed to stripe)
                          │
-                         └─ LockInfo (granted + waiting locks)
+                         └─ LockMapStripe
+                                │
+                                └─ map<key, LockInfo>
 ```
 
 **Striping:**
@@ -323,7 +343,7 @@ PointLockManager
 - Reduces contention by partitioning lock table
 
 **LockInfo Structure:**
-From `utilities/transactions/lock/point/point_lock_manager.cc:107`:
+From `utilities/transactions/lock/point/point_lock_manager.cc`:
 ```cpp
 struct LockInfo {
   bool exclusive;  // True if exclusive lock, false if shared
@@ -332,6 +352,8 @@ struct LockInfo {
   std::unique_ptr<std::list<KeyLockWaiter*>> waiter_queue;  // Waiting transactions
 };
 ```
+
+`KeyLockWaiter` (same file) contains a `TransactionDBCondVar` for blocking, the waiter's `TransactionID`, and lock type (`exclusive`).
 
 **Lock Acquisition:**
 ```
@@ -350,7 +372,7 @@ AcquireLocked():
      - When woken, recheck availability (may loop)
 ```
 
-⚠️ **INVARIANT:** A transaction cannot hold both shared and exclusive locks on the same key. Upgrading shared to exclusive requires releasing and reacquiring.
+⚠️ **INVARIANT:** Lock upgrades (shared to exclusive) and downgrades (exclusive to shared) are supported in-place. The lock manager handles upgrade/downgrade without requiring the caller to release and reacquire. However, lock upgrade attempts may still result in deadlock if two transactions both hold shared locks and try to upgrade simultaneously.
 
 **Lock Release:**
 ```
@@ -383,15 +405,15 @@ When too many range locks are held, escalate to coarser-grained locks:
 [a, b), [b, c), [c, d) → [a, d)
 ```
 
-Escalation policy controlled by `TransactionDBOptions::max_num_locks`:
-- If the number of locked keys exceeds `max_num_locks`, transaction writes will return an error
-- Default is -1 (no limit)
+Range lock escalation is triggered by memory limits (configured via `LockManager::SetMaxLockMemory()`), not by `max_num_locks`. The escalation count is tracked in `TransactionDB::LockManager::Counters::escalation_count`.
+
+Note: `TransactionDBOptions::max_num_locks` applies to the **point lock manager** only. If the number of point-locked keys exceeds `max_num_locks`, lock acquisition returns `Status::Busy()`. Default is -1 (no limit).
 
 ⚠️ **INVARIANT:** Range locks must maintain non-overlapping invariant for exclusive locks. Overlapping exclusive ranges cause conflict.
 
 ### Deadlock Detection
 
-**File:** `utilities/transactions/lock/point/point_lock_manager.h:31-99, 194-225`
+**File:** `utilities/transactions/lock/point/point_lock_manager.h:31-101, 191-198`
 
 Deadlock detection identifies circular wait dependencies among transactions.
 
@@ -402,30 +424,34 @@ Deadlock detection identifies circular wait dependencies among transactions.
    - Limited size (default 5 entries)
    - Used for debugging and monitoring
 
-2. **wait_txn_map_** (map: waiting txn → set of blocking txns):
-   - Tracks which transactions are blocking each waiter
+2. **wait_txn_map_** (`HashMap<TransactionID, TrackedTrxInfo>`):
+   - Maps each waiting transaction to a `TrackedTrxInfo` containing the blocking transaction IDs (`m_neighbors`), column family, exclusivity flag, and waiting key
 
-3. **rev_wait_txn_map_** (map: blocking txn → set of waiting txns):
-   - Reverse index for efficient cycle detection
+3. **rev_wait_txn_map_** (`HashMap<TransactionID, int>`):
+   - Maps each blocking transaction to the count of transactions waiting on it
+   - Used for efficient cleanup when a transaction releases locks
 
 **Cycle Detection Algorithm:**
 ```
-IncrementWaiters(waiting_txn, blocking_txn):
-  1. Add blocking_txn to wait_txn_map_[waiting_txn]
-  2. Add waiting_txn to rev_wait_txn_map_[blocking_txn]
+IncrementWaiters(waiting_txn, wait_ids):
+  1. Add wait_ids to wait_txn_map_[waiting_txn]
+  2. Increment rev_wait_txn_map_ count for each blocking txn
   3. Perform DFS from waiting_txn:
      - Follow edges in wait_txn_map_
      - If cycle detected (revisit waiting_txn), deadlock found
+     - Bounded by deadlock_detect_depth (default 50)
   4. If deadlock:
      - Record in DeadlockInfoBuffer
-     - Return Status::Busy(DeadlockInfo)
+     - Call DecrementWaiters() to clean up
+     - Return true (caller returns Status::Busy)
 ```
 
-**Configuration:**
-- `deadlock_detect`: enable/disable detection
-- `deadlock_detect_depth`: max DFS depth (prevent expensive searches)
+**Configuration (in `TransactionOptions`):**
+- `deadlock_detect`: enable/disable detection (default `false`)
+- `deadlock_detect_depth`: max DFS depth (default 50, prevents expensive searches)
+- `deadlock_timeout_us`: microseconds to wait before performing deadlock detection (default 500)
 
-⚠️ **INVARIANT:** Deadlock detection must hold both `wait_txn_map_mutex_` and stripe mutexes to prevent race conditions during cycle detection.
+⚠️ **INVARIANT:** Lock ordering must be respected to avoid internal deadlocks: `lock_map_mutex_` > stripe mutexes (ascending CF ID, ascending stripe order) > `wait_txn_map_mutex_`. Deadlock detection acquires `wait_txn_map_mutex_` after releasing stripe mutexes.
 
 **Lock Timeout vs. Deadlock Detection:**
 - Lock timeout: wait for `lock_timeout` ms, then return `Status::TimedOut()`
@@ -447,9 +473,10 @@ Two-Phase Commit enables distributed transaction coordination across multiple Ro
 Status Transaction::Prepare() {
   1. Validate transaction is in STARTED state
   2. Write data to WAL with markers:
-     - kTypeBeginPrepare(XID)
+     - kTypeBeginPrepareXID (WriteCommitted) or
+       kTypeBeginPersistedPrepareXID (WritePrepared/WriteUnprepared)
      - <transaction writes>
-     - kTypeEndPrepare(XID)
+     - kTypeEndPrepareXID
   3. Mark log file containing prepare
   4. Transition state to PREPARED
   5. Return OK
@@ -461,7 +488,7 @@ Status Transaction::Prepare() {
 Status Transaction::Commit() {
   1. If not prepared, call Prepare() first
   2. Write commit marker to WAL:
-     - kTypeCommit(XID)
+     - kTypeCommitXID
   3. Apply to memtable (if WriteCommitted)
   4. Update commit cache (if WritePrepared)
   5. Release locks
@@ -470,37 +497,36 @@ Status Transaction::Commit() {
 }
 ```
 
-**WAL Structure for 2PC:**
+**WAL Structure for 2PC (WriteCommitted):**
 ```
 ┌─────────────────────────────────────────────────────┐
-│ kTypeBeginPrepare("txn_name")                       │
-│ kTypePut(cf, "key1", "value1")                      │
-│ kTypeDelete(cf, "key2")                             │
-│ kTypeEndPrepare("txn_name")                         │
-│ ... other transactions ...                          │
-│ kTypeCommit("txn_name")                             │
+│ kTypeBeginPrepareXID("txn_name")                     │
+│ kTypePut(cf, "key1", "value1")                       │
+│ kTypeDelete(cf, "key2")                              │
+│ kTypeEndPrepareXID("txn_name")                       │
+│ ... other transactions ...                           │
+│ kTypeCommitXID("txn_name")                           │
 └─────────────────────────────────────────────────────┘
 ```
 
-⚠️ **INVARIANT:** Named transactions required for 2PC. Transaction name (XID) must be unique and provided at `BeginTransaction()`.
+⚠️ **INVARIANT:** Named transactions required for 2PC. Transaction name (XID) must be unique and set via `Transaction::SetName()` after `BeginTransaction()`.
 
 ⚠️ **INVARIANT:** Once `Prepare()` succeeds, the transaction MUST be either committed or rolled back. The WAL entry persists across restarts.
 
 **Recovery:**
-During DB open (`utilities/transactions/pessimistic_transaction_db.cc:95-178`):
-1. Scan all WAL files for prepare markers
+During DB open (`utilities/transactions/pessimistic_transaction_db.cc:124-178`):
+1. Iterate recovered transactions from WAL replay
 2. For each prepared transaction without corresponding commit:
-   - Recreate `Transaction` object
-   - Set state to PREPARED
+   - Recreate `Transaction` object via `BeginTransaction()`
+   - Rebuild from write batch and set state to PREPARED
    - Add to `transactions_` map (accessible via `GetTransactionByName()`)
 3. Application calls `Commit()` or `Rollback()` on recovered transactions
 
 **Example 2PC Usage:**
 ```cpp
 // Coordinator
-TransactionOptions txn_options;
-txn_options.name = "dist_txn_123";  // Unique XID
-Transaction* txn = txn_db->BeginTransaction(write_options, txn_options);
+Transaction* txn = txn_db->BeginTransaction(write_options);
+txn->SetName("dist_txn_123");  // Unique XID (required for 2PC)
 
 txn->Put("key", "value");
 Status s = txn->Prepare();  // Phase 1
@@ -531,7 +557,7 @@ if (recovered) {
 
 ### Lifecycle
 
-**Transaction States** (`transaction.h:725-738`):
+**TransactionState enum** (`transaction.h:725-735`):
 ```
 STARTED           → Initial state after BeginTransaction()
 AWAITING_PREPARE  → Prepare() called, waiting for completion
@@ -554,9 +580,12 @@ Transaction* txn_db->BeginTransaction(
 );
 ```
 - `old_txn`: reuse transaction object (clears state)
-- `txn_options.name`: XID for 2PC transactions
-- `txn_options.expiration`: auto-rollback timeout (milliseconds)
-- `txn_options.deadlock_detect`: enable deadlock detection for this txn
+- `txn_options.set_snapshot`: equivalent to calling `SetSnapshot()` at creation
+- `txn_options.expiration`: auto-expire timeout (milliseconds, default -1 = no expiration)
+- `txn_options.deadlock_detect`: enable deadlock detection for this txn (default `false`)
+- `txn_options.lock_timeout`: per-transaction lock wait timeout in ms (default -1, uses `TransactionDBOptions::transaction_lock_timeout`)
+- `txn_options.skip_prepare`: if true, can commit without calling Prepare (default `true`)
+- Transaction name for 2PC is set via `txn->SetName("xid")` after creation
 
 **Put / Delete:**
 ```cpp
@@ -579,10 +608,12 @@ Status Get(const ReadOptions& options, ColumnFamilyHandle* cf,
 ```cpp
 Status GetForUpdate(const ReadOptions& options, ColumnFamilyHandle* cf,
                     const Slice& key, std::string* value,
-                    bool exclusive = true);
+                    bool exclusive = true,
+                    const bool do_validate = true);
 ```
 - Acquires lock (shared or exclusive) before reading
 - Prevents other transactions from modifying key
+- `do_validate`: if true (default), validates snapshot to detect conflicts
 - Use when read-modify-write atomicity required
 
 ⚠️ **INVARIANT:** `GetForUpdate()` must be used instead of `Get()` if the application will later write the key based on the read value. Otherwise, lost update anomaly can occur.
@@ -606,7 +637,7 @@ Status Rollback();
 
 ### SavePoints
 
-**File:** `include/rocksdb/utilities/transaction.h:400-430`
+**File:** `include/rocksdb/utilities/transaction.h:265-280`
 
 SavePoints enable nested transaction semantics with partial rollback.
 
@@ -634,7 +665,7 @@ Rollback restores captured state and releases locks acquired after savepoint.
 
 ## Snapshot Isolation
 
-**File:** `utilities/transactions/pessimistic_transaction.cc:200-250`
+**File:** `utilities/transactions/transaction_base.cc:125` (SetSnapshot), `utilities/transactions/pessimistic_transaction.cc:1277` (ValidateSnapshot)
 
 Snapshot isolation ensures transactions read a consistent view of the database as of a specific point in time.
 
@@ -650,43 +681,44 @@ txn->SetSnapshot();
 
 **SetSnapshotOnNextOperation:**
 ```cpp
-TransactionOptions txn_options;
-txn_options.set_snapshot = true;
-Transaction* txn = txn_db->BeginTransaction(write_options, txn_options);
-// Snapshot taken at first Put/GetForUpdate/Get
+txn->SetSnapshotOnNextOperation();
+// Snapshot will be taken at the next write or GetForUpdate operation
+// (regular Get() does NOT trigger snapshot creation)
 ```
-- Delays snapshot until first operation
+- Delays snapshot until next write or `GetForUpdate()` operation
+- `TransactionOptions::set_snapshot = true` is equivalent to calling `SetSnapshot()` at transaction creation (not `SetSnapshotOnNextOperation`)
 - Reduces snapshot holding time
 - Useful when transaction start time is unpredictable
 
 ### Snapshot Validation
 
-**File:** `utilities/transactions/pessimistic_transaction.cc:440-480`
+**File:** `utilities/transactions/pessimistic_transaction.cc:1277`
 
 Validation ensures no conflicting writes occurred since snapshot:
 
 ```cpp
-// Read-write conflict detection
-Status ValidateSnapshot(ColumnFamilyHandle* cf, const Slice& key) {
+// Simplified logic of ValidateSnapshot (pessimistic_transaction.cc:1277)
+Status PessimisticTransaction::ValidateSnapshot(
+    ColumnFamilyHandle* column_family, const Slice& key,
+    SequenceNumber* tracked_at_seq) {
   SequenceNumber snap_seq = snapshot_->GetSequenceNumber();
-  SequenceNumber current_seq = db_->GetLatestSequenceNumber();
 
-  if (current_seq > snap_seq) {
-    // Check if key was modified
-    Iterator* iter = db_->NewIterator(ReadOptions(), cf);
-    iter->Seek(key);
-    if (iter->Valid() && iter->key() == key) {
-      SequenceNumber key_seq = iter->GetSequenceNumber();
-      if (key_seq > snap_seq) {
-        return Status::Busy();  // Conflict: key modified since snapshot
-      }
-    }
+  if (*tracked_at_seq <= snap_seq) {
+    // Already validated at or before snapshot - no conflict possible
+    return Status::OK();
   }
-  return Status::OK();
+
+  *tracked_at_seq = snap_seq;
+
+  // Delegates to TransactionUtil::CheckKeyForConflicts() which uses
+  // GetLatestSequenceForKey() to check if the key was modified
+  // after snap_seq. Returns Status::Busy() on conflict.
+  return TransactionUtil::CheckKeyForConflicts(
+      db_impl_, column_family, key.ToString(), snap_seq, ...);
 }
 ```
 
-⚠️ **INVARIANT:** WritePrepared transactions use `LastPublishedSequence` instead of memtable sequence for snapshot consistency. This accounts for out-of-order commit sequence numbers.
+⚠️ **INVARIANT:** WritePrepared transactions use `GetSnapshotForWriteConflictBoundary()` (which may differ from the latest memtable sequence) for snapshot consistency. When `last_seq_same_as_publish_seq_` is false, this accounts for out-of-order sequence number publishing.
 
 ---
 
@@ -750,9 +782,9 @@ txn->Commit();
 - WritePrepared: commit status unknown (cache evicted)
 - Application must reseek/reread to retry
 
-**`Status::TxnNotPrepared()`:**
-- Attempted `Commit()` on 2PC transaction without `Prepare()`
-- Must call `Prepare()` first for named transactions
+**`Status::TxnNotPrepared()`** (subcode of `InvalidArgument`):
+- Attempted `Commit()` on a transaction with `skip_prepare=false` without calling `Prepare()` first
+- Named transactions (those with a name set via `SetName()`) require `Prepare()` before `Commit()` unless `skip_prepare` is true (default)
 
 ### Recovery Guarantees
 
@@ -904,7 +936,7 @@ Transaction* txn = txn_db->BeginTransaction(write_options, txn_options);
 
 ### Skip Concurrency Control
 
-**File:** `utilities/transactions/pessimistic_transaction_db.cc:95-178`
+**File:** `utilities/transactions/pessimistic_transaction_db.cc:124-178`
 
 During recovery, prepared transactions are recreated with `skip_concurrency_control=true`:
 
@@ -937,17 +969,20 @@ TransactionDB::Open(options, txn_db_options, path, &txn_db);
 
 ### User-Defined Timestamps
 
-**File:** `include/rocksdb/utilities/transaction_db.h:400-450`
+**File:** `include/rocksdb/utilities/transaction.h` (methods), `utilities/transactions/pessimistic_transaction.cc` (validation)
 
-WriteCommitted transactions support user-defined timestamps:
+WriteCommitted transactions support user-defined timestamps. Timestamps are set on the transaction object (not in `TransactionOptions`):
 
 ```cpp
-TransactionOptions txn_options;
-txn_options.timestamp = &user_timestamp;  // User-provided timestamp
-Transaction* txn = txn_db->BeginTransaction(write_options, txn_options);
+Transaction* txn = txn_db->BeginTransaction(write_options);
+// Set read timestamp for conflict validation
+txn->SetReadTimestampForValidation(read_ts);
+// Set commit timestamp before committing
+txn->SetCommitTimestamp(commit_ts);
+txn->Commit();
 ```
 
-⚠️ **LIMITATION:** WritePrepared and WriteUnprepared do NOT support user-defined timestamps as of RocksDB 7.x. Attempting to use them returns `Status::NotSupported()`.
+⚠️ **LIMITATION:** WritePrepared and WriteUnprepared do NOT support user-defined timestamps. Attempting to use them returns `Status::NotSupported()`.
 
 ---
 
@@ -986,8 +1021,8 @@ Use `db_bench` with transaction options:
 ```bash
 ./db_bench \
   --benchmarks=randomtransaction \
-  --use_txn=1 \
-  --txn_write_policy=0  # 0=WriteCommitted, 1=WritePrepared, 2=WriteUnprepared
+  --transaction_db  # Use TransactionDB (pessimistic)
+  # OR --optimistic_transaction_db  # Use OptimisticTransactionDB
 ```
 
 ---

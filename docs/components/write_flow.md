@@ -70,7 +70,7 @@ This document traces the complete lifecycle of a write operation from applicatio
 
 ## 1. Application Write APIs
 
-**Files:** `db/db_impl/db_impl_write.cc:23-144`
+**Files:** `db/db_impl/db_impl_write.cc:23-163`
 
 ### Entry Points
 
@@ -84,6 +84,7 @@ RocksDB provides multiple write operations, all funneling through `DBImpl::Write
 | `DeleteRange(start, end)` | `kTypeRangeDeletion` | Tombstone covering `[start, end)` |
 | `Merge(key, operand)` | `kTypeMerge` | Apply merge operator |
 | `PutEntity(key, columns)` | `kTypeWideColumnEntity` | Wide-column insert |
+| `TimedPut(key, value, write_unix_time)` | `kTypeValuePreferredSeqno` | Put with explicit write time for compaction |
 | `Write(WriteBatch)` | Mixed | Atomic batch of operations |
 
 All single-operation APIs (`Put`, `Delete`, etc.) construct a `WriteBatch` internally and call `DB::Write()` → `DBImpl::WriteImpl()`.
@@ -126,7 +127,7 @@ varstring := length: varint32 || data: uint8[length]
 
 ### Write Options Validation
 
-Before entering the write path, `DBImpl::WriteImpl` validates options (`db/db_impl/db_impl_write.cc:370-493`):
+Before entering the write path, `DBImpl::WriteImpl` validates options (starting at `db/db_impl/db_impl_write.cc:370`):
 
 - **Batch non-null**: `my_batch != nullptr`
 - **Timestamps set**: If writing to memtable, `!WriteBatchInternal::TimestampsUpdateNeeded(*my_batch)`
@@ -137,7 +138,10 @@ Before entering the write path, `DBImpl::WriteImpl` validates options (`db/db_im
   - `two_write_queues && enable_pipelined_write` ❌
   - `unordered_write && enable_pipelined_write` ❌
   - `seq_per_batch && enable_pipelined_write` ❌
-  - `disableWAL && recycle_log_file_num > 0` ❌ (recycled WALs need sequential seqnos)
+  - `enable_pipelined_write && post_memtable_callback` ❌
+  - `seq_per_batch && post_memtable_callback` ❌
+  - `HasDeleteRange() && row_cache` ❌
+  - `disableWAL && recycle_log_file_num > 0` ❌ (unless `two_write_queues && disable_memtable`, for WritePreparedTxnDB split writes)
 
 ---
 
@@ -158,7 +162,8 @@ STATE_INIT (1)
     ├─→ STATE_COMPLETED (16)                ← Follower: done
     ├─→ STATE_PARALLEL_MEMTABLE_WRITER (8)  ← Parallel memtable insert
     ├─→ STATE_MEMTABLE_WRITER_LEADER (4)    ← Pipelined memtable leader
-    └─→ STATE_LOCKED_WAITING (32)           ← Blocked on condvar
+    ├─→ STATE_LOCKED_WAITING (32)           ← Blocked on condvar
+    └─→ STATE_PARALLEL_MEMTABLE_CALLER (64) ← Stride leader in large parallel groups
 ```
 
 **Writer struct** (`db/write_thread.h:124-288`):
@@ -169,7 +174,9 @@ STATE_INIT (1)
 | `sync` | `bool` | Requires `fsync()` after WAL |
 | `no_slowdown` | `bool` | Fail immediately if stalled |
 | `disable_wal` | `bool` | Skip WAL (non-durable) |
+| `rate_limiter_priority` | `Env::IOPriority` | Rate limiter priority |
 | `disable_memtable` | `bool` | WAL-only write (2PC prepare) |
+| `protection_bytes_per_key` | `size_t` | Per-key integrity bytes |
 | `state` | `atomic<uint8_t>` | Current state |
 | `sequence` | `SequenceNumber` | Assigned sequence number |
 | `status` | `Status` | Result |
@@ -199,7 +206,7 @@ CAS loop on `newest_writer_`. If the queue was empty (`writers == nullptr`), the
 
 1. Call `LinkOne(w, &newest_writer_)`.
 2. If `LinkOne` returns `true`, `w` is the leader → return immediately.
-3. Otherwise, wait via `AwaitState(w, STATE_GROUP_LEADER | STATE_MEMTABLE_WRITER_LEADER | STATE_PARALLEL_MEMTABLE_WRITER | STATE_COMPLETED)`.
+3. Otherwise, wait via `AwaitState(w, STATE_GROUP_LEADER | STATE_MEMTABLE_WRITER_LEADER | STATE_PARALLEL_MEMTABLE_CALLER | STATE_PARALLEL_MEMTABLE_WRITER | STATE_COMPLETED)`.
 
 ### Group Formation
 
@@ -208,9 +215,12 @@ CAS loop on `newest_writer_`. If the queue was empty (`writers == nullptr`), the
 The leader walks from itself (oldest enqueued) to `newest_writer_` (snapshot at entry), collecting compatible writers into a `WriteGroup`.
 
 **Compatibility criteria:**
-- Same `sync`, `disable_wal`, `disable_memtable`, `protection_bytes_per_key`
+- Sync compatibility: a sync follower cannot join a non-sync leader (`w->sync && !leader->sync`)
+- Same `disable_wal`, `protection_bytes_per_key`, `rate_limiter_priority`
+- Same `no_slowdown` setting
+- Batch must be non-null (`w->batch != nullptr`)
 - No callback that disallows batching (`AllowWriteBatching() == false`)
-- Not an unbatched `WriteBatchWithIndex` ingest
+- Not an unbatched `WriteBatchWithIndex` ingest (`ingest_wbwi`)
 - Total size does not exceed `max_write_batch_group_size_bytes`
 
 **Size limiting heuristic**: If the leader's batch is small (`<= max_size/8`), cap the group at `leader_size + max_size/8` to avoid penalizing small writes.
@@ -224,7 +234,7 @@ Incompatible writers are spliced out and re-linked after the group for the next 
 Three-phase wait to minimize latency:
 
 1. **Spin (200 iterations)**: `AsmVolatilePause()` (CPU pause instruction, ~1.4 µs total)
-2. **Yield (adaptive)**: `std::this_thread::yield()` for up to `max_yield_usec_` (default 3000 µs). `AdaptationContext` tracks yield effectiveness; after 3 slow yields, escalates to blocking.
+2. **Yield (adaptive)**: `std::this_thread::yield()` for up to `max_yield_usec_` (default 100 µs). `AdaptationContext` tracks yield effectiveness; after 3 slow yields, escalates to blocking.
 3. **Block**: Create mutex+condvar, CAS state to `STATE_LOCKED_WAITING`, wait on condvar.
 
 **⚠️ INVARIANT:** `SetState(w, state)` checks if `w->state == STATE_LOCKED_WAITING` and uses mutex+notify. This prevents lost wakeups.
@@ -303,19 +313,21 @@ The log number in recyclable headers detects stale data from previous file incar
 | `kRecyclable{Full,First,Middle,Last}Type` | 5-8 | Same, but for recycled files |
 | `kSetCompressionType` | 9 | Meta-record: compression algorithm |
 | `kUserDefinedTimestampSizeType` | 10 | Meta-record: CF timestamp sizes |
+| `kRecyclableUserDefinedTimestampSizeType` | 11 | Recyclable variant of above |
 | `kPredecessorWALInfoType` | 130 | WAL chain verification |
+| `kRecyclePredecessorWALInfoType` | 131 | Recyclable variant of above |
 
 Types ≥ 10 use bit 0 to distinguish recyclable (odd) from non-recyclable (even). Types with bit 7 set (`kRecordTypeSafeIgnoreMask = 0x80`) may be safely skipped by older readers.
 
 ### log::Writer
 
-**`log::Writer::AddRecord(const Slice& slice)`** (`db/log_writer.cc`):
+**`log::Writer::AddRecord(const WriteOptions&, const Slice& slice, const SequenceNumber& seqno = 0)`** (`db/log_writer.cc`, returns `IOStatus`):
 
-1. **Compression** (if enabled): compress payload via `compression_ctx_->Compress()`.
+1. **Compression** (if enabled): compress payload via `compress_->Compress()`.
 2. **Fragmentation**: split into blocks of `kBlockSize - header_size`.
 3. **Per-fragment**:
    - Determine type (`kFull` / `kFirst` / `kMiddle` / `kLast`).
-   - Compute CRC: `crc32c::Extend(type_crc_[type], fragment.data(), fragment.size())`.
+   - Compute CRC: start with `type_crc_[type]`, then for recyclable types `crc32c::Extend(crc, log_number, 4)`, compute payload CRC via `crc32c::Value(ptr, n)`, combine via `crc32c::Crc32cCombine(crc, payload_crc, n)`, then `crc32c::Mask()`.
    - Write header + payload via `EmitPhysicalRecord()`.
 4. **Padding**: zero-fill remaining block space if next header won't fit.
 
@@ -347,7 +359,7 @@ Created → Written (AddRecord) → Synced (fsync)
   Purged (TTL/size limit exceeded)
 ```
 
-**WalSet** (`db/version_edit.h`, tracked in `VersionSet`):
+**WalSet** (`db/wal_edit.h`, tracked in `VersionSet`):
 - Tracks live WALs via MANIFEST: `WalAddition` (created/synced size) and `WalDeletion` (obsolete).
 - **⚠️ INVARIANT:** At most one WAL may be open (unknown synced size) at a time.
 - WALs transition from unknown-size to known-size after flush; never reverse.
@@ -412,8 +424,8 @@ Every memtable entry is encoded as:
 |-------|------|---------|
 | `first_seqno_` | `atomic<SequenceNumber>` | Seqno of first inserted key (0 if empty) |
 | `earliest_seqno_` | `atomic<SequenceNumber>` | Lower bound on all seqnos |
-| `data_size_` | `RelaxedAtomic<size_t>` | Total encoded bytes |
-| `num_entries_` | `RelaxedAtomic<size_t>` | Entry count |
+| `data_size_` | `RelaxedAtomic<uint64_t>` | Total encoded bytes |
+| `num_entries_` | `RelaxedAtomic<uint64_t>` | Entry count |
 | `flush_state_` | `atomic<FlushStateEnum>` | NOT_REQUESTED → REQUESTED → SCHEDULED |
 
 ### Insertion
@@ -421,11 +433,11 @@ Every memtable entry is encoded as:
 **`MemTable::Add(SequenceNumber seq, ValueType type, const Slice& key, const Slice& value, ...)`** (`db/memtable.cc`):
 
 1. **Compute size**: `encoded_len = varint(ikey_size) + ikey_size + varint(val_size) + val_size + protection_bytes`.
-2. **Allocate**: `table_->Allocate(encoded_len, &buf)` (from `arena_`).
-3. **Encode**: Write length-prefixed internal key (user_key + packed tag), length-prefixed value, optional checksum.
-4. **Bloom update**: Add prefix and/or whole key (timestamp stripped) to bloom filter.
-5. **Route**: `kTypeRangeDeletion` → `range_del_table_`, others → `table_`.
-6. **Insert**: `table_->InsertKey(handle)` (skiplist insert, O(log n) expected).
+2. **Route**: Select target table — `kTypeRangeDeletion` → `range_del_table_`, others → `table_`.
+3. **Allocate**: `table->Allocate(encoded_len, &buf)` (from `arena_`).
+4. **Encode**: Write length-prefixed internal key (user_key + packed tag), length-prefixed value, optional checksum.
+5. **Bloom update**: Add prefix and/or whole key (timestamp stripped) to bloom filter.
+6. **Insert**: `table->InsertKey(handle)` or `InsertKeyWithHint(handle, &hint)` (skiplist insert, O(log n) expected).
 
 **Serial vs. concurrent**:
 - **Serial**: Direct `InsertKey()` + atomic counter updates.
@@ -437,16 +449,16 @@ Every memtable entry is encoded as:
 
 **`MemTable::Get(const LookupKey& key, std::string* value, ...)`** (`db/memtable.cc`):
 
-1. If `num_entries_ == 0`, return `false`.
-2. **Bloom filter check** (prefix or whole-key). On miss: return `false` immediately.
-3. **Range tombstone check**: `MaxCoveringTombstoneSeqnum(user_key)` from `range_del_table_`.
-4. **Table lookup**: `table_->Get(key, &saver, SaveValue)`.
+1. If `IsEmpty()` (i.e. `first_seqno_ == 0`), return `false`.
+2. **Range tombstone check**: `MaxCoveringTombstoneSeqnum(user_key)` from `range_del_table_`.
+3. **Bloom filter check** (prefix or whole-key). On miss: return `false` immediately.
+4. **Table lookup**: `table_->Get(key, &saver, SaveValue)` (via `GetFromTable()`).
    - `SaveValue` callback is invoked for each entry with matching `user_key`, newest first.
    - Dispatch on `ValueType`:
      - `kTypeValue`: copy value, return `true`.
-     - `kTypeDeletion`: return `NotFound`.
+     - `kTypeDeletion` / `kTypeSingleDeletion`: return `NotFound`.
      - `kTypeMerge`: accumulate operands via `MergeHelper`.
-     - `kTypeRangeDeletion`: covered by range tombstone, return `NotFound`.
+     - `kTypeWideColumnEntity`: parse wide columns, return `true`.
 
 ### Flush Trigger
 
@@ -454,8 +466,11 @@ Every memtable entry is encoded as:
 
 Returns `true` if:
 - External signal (`IsMarkedForFlush()`), or
-- Range deletion count ≥ limit, or
-- Arena allocation ≥ `write_buffer_size` **and** last allocated block > 75% used.
+- Range deletion count ≥ `memtable_max_range_deletions_`, or
+- Arena allocation check (three-stage):
+  1. If `allocated + kArenaBlockSize < write_buffer_size + kArenaBlockSize * 0.6` → room for another block, return `false`.
+  2. If `allocated > write_buffer_size + kArenaBlockSize * 0.6` → over-allocated, return `true`.
+  3. Otherwise (boundary zone): return `true` only if last block > 75% used (`AllocatedAndUnused() < kArenaBlockSize / 4`).
 
 Called at the end of every `Add()` or `BatchPostProcess()`. On `true`, transitions `flush_state_` from `FLUSH_NOT_REQUESTED` → `FLUSH_REQUESTED`.
 
@@ -467,7 +482,7 @@ Called at the end of every `Add()` or `BatchPostProcess()`. On `true`, transitio
 
 ### Sequence Number Invariants
 
-**⚠️ INVARIANT:** Sequence numbers are **monotonically increasing** per column family. They serve multiple purposes:
+**⚠️ INVARIANT:** Sequence numbers are **monotonically increasing** globally per DB (shared across all column families). They serve multiple purposes:
 1. **Snapshot isolation**: Readers see consistent point-in-time views.
 2. **Write ordering**: Determines which version of a key is visible.
 3. **Merge ordering**: Merge operands are applied newest-to-oldest by sequence number.
@@ -481,16 +496,23 @@ Called at the end of every `Add()` or `BatchPostProcess()`. On `true`, transitio
 
 **Normal write path** (`enable_pipelined_write == false`, `two_write_queues == false`):
 
-```cpp
-// db/db_impl/db_impl_write.cc
-SequenceNumber current_sequence = versions_->LastSequence() + 1;
-for (Writer* w : write_group) {
-  w->sequence = current_sequence;
-  current_sequence += WriteBatchInternal::Count(w->batch);
-  WriteBatchInternal::SetSequence(w->batch, w->sequence);
-}
-versions_->SetLastSequence(current_sequence - 1);
-```
+1. Fetch `last_sequence = versions_->LastSequence()`.
+2. Compute `seq_inc` (total sequence numbers consumed by the group).
+3. Set `current_sequence = last_sequence + 1`, advance `last_sequence += seq_inc`.
+4. Assign per-writer sequences:
+   ```cpp
+   SequenceNumber next_sequence = current_sequence;
+   for (auto* writer : write_group) {
+     if (writer->CallbackFailed()) continue;
+     writer->sequence = next_sequence;
+     if (seq_per_batch_) {
+       next_sequence += writer->batch_cnt;
+     } else if (writer->ShouldWriteToMemtable()) {
+       next_sequence += WriteBatchInternal::Count(writer->batch);
+     }
+   }
+   ```
+5. After memtable insertion: `versions_->SetLastSequence(last_sequence)`.
 
 **Two-queue / unordered paths**: Use `versions_->FetchAddLastAllocatedSequence(total_count)` atomically under `wal_write_mutex_`.
 
@@ -503,7 +525,7 @@ versions_->SetLastSequence(current_sequence - 1);
 | **Sequence per key** | `false` | Each key in batch consumes one sequence |
 | **Sequence per batch** | `true` | Entire batch shares one sequence |
 
-Sequence-per-batch mode is used for optimistic transactions to detect write conflicts at batch granularity.
+Sequence-per-batch mode is used for WritePrepared and WriteUnprepared transactions (pessimistic transaction policies) to detect write conflicts at batch granularity.
 
 ---
 
@@ -581,19 +603,28 @@ WriteBufferManager::FreeMem(size)
 **`MemTableList::TryInstallMemtableFlushResults()`** (`db/memtable_list.cc`):
 
 ```cpp
-// Wait until the oldest memtable (back of memlist_) is flush_completed_
-while (!memlist_.empty() && !memlist_.back()->flush_completed_) {
-  return false;  // Retry later
+// Mark memtables as flush_completed_ = true
+for (auto& m : mems) {
+  m->flush_completed_ = true;
 }
 
-// Collect contiguous completed memtables from back
-while (!memlist_.empty() && memlist_.back()->flush_completed_) {
-  mems_to_commit.push_back(memlist_.back());
-  memlist_.pop_back();
+// Single-writer gate
+if (commit_in_progress_) return;
+commit_in_progress_ = true;
+
+// Scan from oldest (back) to find contiguous completed memtables
+auto& memlist = current_->memlist_;
+if (memlist.empty() || !memlist.back()->flush_completed_) {
+  break;  // Oldest not yet done; retry later
+}
+for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
+  if (!(*it)->flush_completed_) break;
+  memtables_to_flush.push_back(*it);
 }
 
-// Apply VersionEdit atomically
-Status s = vset_->LogAndApply(cfd, mutable_cf_options, edit_list, ...);
+// Apply VersionEdits atomically, then remove committed memtables
+Status s = vset->LogAndApply(cfd, ..., edit_list, ...);
+RemoveMemTablesOrRestoreFlags(s, cfd, num_mem_to_flush, ...);
 ```
 
 Even if memtable N+1 finishes flushing before memtable N, its result is **not installed** until N completes.
@@ -707,11 +738,11 @@ if (mem->Get(lkey, &value, &seq, &type)) {
 
 ### Tombstone Cleanup: When Can We Drop Them?
 
-**CompactionIterator** (`db/compaction/compaction_iterator.cc`) drops tombstones when **all three conditions** hold:
+**CompactionIterator** (`db/compaction/compaction_iterator.cc`) drops tombstones (`kTypeDeletion`) when **all conditions** hold:
 
-1. **Bottommost level**: No data exists below `output_level`.
-2. **No snapshots need it**: `sequence < earliest_snapshot`.
-3. **Key doesn't exist in lower levels**: Verified via `KeyNotExistsBeyondOutputLevel()`.
+1. **No ingest behind**: `!compaction_->allow_ingest_behind()`.
+2. **No snapshots need it**: `DefinitelyInSnapshot(sequence, earliest_snapshot_)`.
+3. **Key doesn't exist in lower levels**: `compaction_->KeyNotExistsBeyondOutputLevel(user_key, &level_ptrs_)` (this implies bottommost or no overlapping files below).
 
 **For `kTypeSingleDeletion`:**
 
@@ -790,8 +821,8 @@ std::unique_ptr<WriteControllerToken> token =
 
 ```cpp
 uint64_t WriteController::GetDelay(SystemClock* clock, uint64_t num_bytes) {
-  if (IsStopped()) return 0;  // Stop handled separately
-  if (!NeedsDelay()) return 0;
+  if (total_stopped_.load(std::memory_order_relaxed) > 0) return 0;
+  if (total_delayed_.load(std::memory_order_relaxed) == 0) return 0;
 
   // Fast path: enough credit
   if (credit_in_bytes_ >= num_bytes) {
@@ -799,22 +830,31 @@ uint64_t WriteController::GetDelay(SystemClock* clock, uint64_t num_bytes) {
     return 0;
   }
 
-  // Refill credit based on elapsed time
-  uint64_t now = clock->NowMicrosMonotonic();
-  if (now >= next_refill_time_) {
-    uint64_t elapsed_us = now - next_refill_time_ + 1000;  // +1ms
-    credit_in_bytes_ += elapsed_us * delayed_write_rate_ / 1000000;
-    next_refill_time_ = now + 1000;
+  // Refill credit based on elapsed time (every 1ms)
+  auto time_now = NowMicrosMonotonic(clock);  // private member, wraps clock->NowNanos()
+  const uint64_t kMicrosPerRefill = 1000;
+  if (next_refill_time_ == 0) {
+    next_refill_time_ = time_now;  // first-time initialization
+  }
+  if (next_refill_time_ <= time_now) {
+    uint64_t elapsed = time_now - next_refill_time_ + kMicrosPerRefill;
+    credit_in_bytes_ += static_cast<uint64_t>(
+        1.0 * elapsed / 1000000 * delayed_write_rate_ + 0.999999);
+    next_refill_time_ = time_now + kMicrosPerRefill;
   }
 
-  // Still not enough? Compute delay
   if (credit_in_bytes_ >= num_bytes) {
     credit_in_bytes_ -= num_bytes;
     return 0;
   }
 
-  uint64_t needed = num_bytes - credit_in_bytes_;
-  return std::max(1000ULL, needed * 1000000 / delayed_write_rate_);
+  // Compute delay to avoid exceeding write rate
+  uint64_t bytes_over_budget = num_bytes - credit_in_bytes_;
+  uint64_t needed_delay = static_cast<uint64_t>(
+      1.0 * bytes_over_budget / delayed_write_rate_ * 1000000);
+  credit_in_bytes_ = 0;
+  next_refill_time_ += needed_delay;
+  return std::max(next_refill_time_ - time_now, kMicrosPerRefill);
 }
 ```
 
@@ -835,22 +875,39 @@ uint64_t WriteController::GetDelay(SystemClock* clock, uint64_t num_bytes) {
 
 ```cpp
 bool WriteBufferManager::ShouldFlush() const {
-  return (memory_active_ > buffer_size_ * 7 / 8) ||
-         (memory_used_ >= buffer_size_ && memory_active_ >= buffer_size_ / 2);
+  if (enabled()) {
+    if (mutable_memtable_memory_usage() >
+        mutable_limit_.load(std::memory_order_relaxed)) {
+      return true;
+    }
+    size_t local_size = buffer_size();
+    if (memory_usage() >= local_size &&
+        mutable_memtable_memory_usage() >= local_size / 2) {
+      return true;
+    }
+  }
+  return false;
 }
 ```
+
+(where `mutable_limit_` is set to `buffer_size_ * 7 / 8` and `mutable_memtable_memory_usage()` returns `memory_active_`)
 
 **Stall trigger** (`ShouldStall()`):
 
 ```cpp
 bool WriteBufferManager::ShouldStall() const {
-  return enabled() && allow_stall_ && memory_used_ >= buffer_size_;
+  if (!allow_stall_.load(std::memory_order_relaxed) || !enabled()) {
+    return false;
+  }
+  return IsStallActive() || IsStallThresholdExceeded();
 }
 ```
 
+(where `IsStallThresholdExceeded()` returns `memory_usage() >= buffer_size_`)
+
 When stall triggers:
 
-1. `PreprocessWrite()` calls `BeginWriteStall(&write_thread_)`.
+1. `PreprocessWrite()` calls `WriteBufferManagerStallWrites()`, which calls `write_thread_.BeginWriteStall()`.
 2. Writers block on `stall_interface->Block()`.
 3. `FreeMem()` drops `memory_used_` below threshold → `MaybeEndWriteStall()` signals blocked writers.
 
@@ -865,8 +922,8 @@ ColumnFamilyData::RecalculateWriteStallConditions()
     │
     v
 PreprocessWrite() checks IsStopped() / NeedsDelay()
-    │  ├─ Stopped? BeginWriteStall() + wait on bg_cv_
-    │  └─ Delayed? GetDelay(num_bytes) → sleep outside mutex
+    │  ├─ Stopped? DelayWrite() → wait on bg_cv_
+    │  └─ Delayed? DelayWrite() → GetDelay(num_bytes) → sleep outside mutex
     │
     v
 Compaction catches up
@@ -880,8 +937,8 @@ WriteBufferManager::ShouldFlush() → HandleWriteBufferManagerFlush()
     │  └─ SwitchMemtable() on oldest CF
     │
     v
-WriteBufferManager::ShouldStall() → BeginWriteStall()
-    │  └─ Writers block
+WriteBufferManager::ShouldStall() → WriteBufferManagerStallWrites()
+    │  └─ Writers block via write_thread_.BeginWriteStall()
     │
     v
 FlushJob completes → FreeMem() → MaybeEndWriteStall()
@@ -901,10 +958,14 @@ DB::Open()
     │
     v
 Read MANIFEST → recover VersionSet
-    │  └─ WalSet (live WAL list from VersionEdit)
     │
     v
-For each WAL in WalSet (sorted by log_number):
+Scan WAL directory for .log files
+    │  └─ Sort by log number, filter out stale WALs
+    │  └─ WalSet used for integrity verification (if track_and_verify_wals_in_manifest)
+    │
+    v
+For each WAL (sorted by log_number):
     │  1. log::Reader::ReadRecord() → reassemble WriteBatch
     │  2. Verify CRC, handle recyclable headers
     │  3. Decompress if needed
@@ -922,7 +983,7 @@ Delete obsolete WALs (flushed to SST)
 
 ### WAL Truncation on Corruption
 
-If memtable insertion fails during recovery, `SetAttemptTruncateSize()` records the pre-write WAL file size. On next recovery attempt, the WAL is truncated to this size, discarding the corrupted tail.
+If memtable insertion fails during normal write (after WAL write succeeds), `SetAttemptTruncateSize()` records the pre-write WAL file size. On next recovery attempt, the WAL is truncated to this size, discarding the record that could not be applied to the memtable.
 
 ---
 
@@ -931,11 +992,11 @@ If memtable insertion fails during recovery, `SetAttemptTruncateSize()` records 
 | Invariant | Why It Matters | Enforced By |
 |-----------|----------------|-------------|
 | **WAL before MemTable** | Crash recovery can replay WAL to restore un-flushed writes | `WriteToWAL()` called before `WriteBatchInternal::InsertInto()` |
-| **Sequence number monotonicity** | Snapshot isolation, merge ordering | `versions_->SetLastSequence()` increments atomically |
+| **Sequence number monotonicity** | Snapshot isolation, merge ordering | `versions_->SetLastSequence()` increments atomically (per-DB, shared across all CFs) |
 | **Flush FIFO ordering** | Prevents data loss (older data cannot overwrite newer) | `MemTableList::TryInstallMemtableFlushResults()` waits for oldest |
 | **mutex_ before wal_write_mutex_** | Deadlock avoidance | Lock order documented in `DBImpl` |
 | **LogAndApply serialized per CF** | MANIFEST consistency | `commit_in_progress_` gate in `MemTableList` |
-| **pending_outputs_ tracks live files** | Prevents deletion of files in use by compaction | `RegisterCompaction()` / `UnregisterCompaction()` |
+| **pending_outputs_ tracks live files** | Prevents deletion of files in use by compaction | `CaptureCurrentFileNumberInPendingOutputs()` / `ReleaseFileNumberFromPendingOutputs()` |
 | **Sequence assignment after WAL** | WAL contains correct seqnos for recovery | Leader assigns sequences between WAL write and memtable insert |
 | **Range tombstone truncation at file boundaries** | Tombstones don't leak beyond file scope | `TruncatedRangeDelIterator` |
 | **Bottommost compaction for tombstone cleanup** | Space reclamation | `CompactionIterator` checks `bottommost_level_` |
@@ -976,7 +1037,7 @@ Write amplification = `(bytes written to storage) / (bytes written by app)`.
 
 **Mitigation:**
 - `enable_pipelined_write`: Overlap WAL and memtable phases.
-- `unordered_write`: Skip WAL ordering overhead (non-durable until flush).
+- `unordered_write`: Skip ordering guarantees between writers (WAL still used, but relaxed consistency).
 - `level_compaction_dynamic_level_bytes`: Dynamically adjust level sizes.
 - Larger memtable (`write_buffer_size`): Fewer L0 flushes.
 
@@ -1027,9 +1088,9 @@ Write amplification = `(bytes written to storage) / (bytes written by app)`.
 ## Related Documentation
 
 - **[ARCHITECTURE.md](../../ARCHITECTURE.md)**: High-level RocksDB architecture overview
-- **[write_path.md](write_path.md)**: Write path components (WriteBatch, WriteThread, WAL, MemTable, WriteController) — superseded by this document for write flow
 - **[version_management.md](version_management.md)**: VersionEdit, VersionSet, MANIFEST, LogAndApply
-- **[flush_and_read_path.md](flush_and_read_path.md)**: FlushJob details and read path (Get, DBIter, RangeDelAggregator)
+- **[flush.md](flush.md)**: FlushJob details, atomic flush, MemPurge
+- **[read_flow.md](read_flow.md)**: Read path (Get, MultiGet, Iterator, RangeDelAggregator)
 - **[compaction.md](compaction.md)**: Compaction strategies, CompactionPicker, CompactionJob, CompactionIterator
 - **[sst_table_format.md](sst_table_format.md)**: SST file format, BlockBasedTable, filters, indexes
 - **[db_impl.md](db_impl.md)**: DBImpl, DB open, background threads, error handling

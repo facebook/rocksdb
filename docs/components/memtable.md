@@ -11,75 +11,76 @@ MemTable is RocksDB's in-memory write buffer that accepts all incoming writes (P
 - **Pluggable representations**: SkipList (default), HashSkipList, HashLinkList, Vector
 - **Bloom filter acceleration**: Optional prefix/whole-key bloom filter for negative lookups
 - **Arena allocation**: All memory allocated from arena/concurrent_arena for cache locality
-- **Reference counted**: Transitions from mutable → immutable → flushed with refcount management
+- **Reference counted**: Transitions from mutable -> immutable -> flushed with refcount management
 
 ### High-Level Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  WRITE PATH (DBImpl::WriteImpl)                                │
-│  WriteBatch → MemTable::Add                                    │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-                         v
-┌─────────────────────────────────────────────────────────────────┐
-│  MEMTABLE (db/memtable.h)                                      │
-│  ┌──────────────────────────────────────────────────────┐     │
-│  │ Active MemTable (mutable, accepts writes)            │     │
-│  │  ├─ table_: MemTableRep (point key/value pairs)     │     │
-│  │  ├─ range_del_table_: MemTableRep (range deletes)   │     │
-│  │  ├─ bloom_filter_: DynamicBloom (optional)          │     │
-│  │  ├─ arena_: Arena (memory allocation)               │     │
-│  │  └─ flush_state_: FLUSH_NOT_REQUESTED/REQUESTED     │     │
-│  └──────────────────────────────────────────────────────┘     │
-│                                                                 │
-│  Flush Triggers:                                               │
-│   • ApproximateMemoryUsage() ≥ write_buffer_size              │
-│   • NumRangeDeletion() ≥ memtable_max_range_deletions         │
-│   • Marked for flush (manual/error recovery)                  │
-└────────────────────────┬───────────────────────────────────────┘
-                         │
-                         v
-┌─────────────────────────────────────────────────────────────────┐
-│  MEMTABLE REPRESENTATION (include/rocksdb/memtablerep.h)      │
-│  ┌──────────────────────────────────────────────────────┐     │
-│  │ SkipList (default) - InlineSkipList                  │     │
-│  │  • Lock-free concurrent insert via CAS               │     │
-│  │  • 12 levels by default, max 32 levels               │     │
-│  │  • O(log N) insert/lookup, O(log D) sequential insert│     │
-│  │  • Nodes stored inline with key data                 │     │
-│  └──────────────────────────────────────────────────────┘     │
-│  ┌──────────────────────────────────────────────────────┐     │
-│  │ HashSkipList - prefix hash + skiplist per bucket     │     │
-│  │  • Optimized for prefix seek                         │     │
-│  │  • Requires prefix extractor                         │     │
-│  └──────────────────────────────────────────────────────┘     │
-│  ┌──────────────────────────────────────────────────────┐     │
-│  │ HashLinkList - prefix hash + sorted linked list      │     │
-│  │  • Memory efficient for small datasets               │     │
-│  └──────────────────────────────────────────────────────┘     │
-│  ┌──────────────────────────────────────────────────────┐     │
-│  │ Vector - unsorted vector, sorted on MarkReadOnly()   │     │
-│  │  • Bulk load optimization                            │     │
-│  └──────────────────────────────────────────────────────┘     │
-└─────────────────────────────────────────────────────────────────┘
-                         │
-                         v
-┌─────────────────────────────────────────────────────────────────┐
-│  IMMUTABLE MEMTABLE LIST (db/memtable_list.h)                 │
-│  ┌──────────────────────────────────────────────────────┐     │
-│  │ MemTableListVersion                                  │     │
-│  │  memlist_ = [imm3, imm2, imm1]  (FIFO order)        │     │
-│  │  ↓ Get() searches newest → oldest                   │     │
-│  │  ↓ FlushJob flushes oldest first                    │     │
-│  └──────────────────────────────────────────────────────┘     │
-└────────────────────────┬───────────────────────────────────────┘
-                         │
-                         v
-┌─────────────────────────────────────────────────────────────────┐
-│  FLUSH TO SST (db/flush_job.cc)                                │
-│  FlushJob iterates immutable memtable → writes L0 SST         │
-└─────────────────────────────────────────────────────────────────┘
++------------------------------------------------------------------+
+|  WRITE PATH (DBImpl::WriteImpl)                                  |
+|  WriteBatch -> MemTable::Add                                     |
++-----------------------------+------------------------------------+
+                              |
+                              v
++------------------------------------------------------------------+
+|  MEMTABLE (db/memtable.h)                                        |
+|  +--------------------------------------------------------+      |
+|  | Active MemTable (mutable, accepts writes)              |      |
+|  |  +- table_: MemTableRep (point key/value pairs)        |      |
+|  |  +- range_del_table_: MemTableRep (range deletes)      |      |
+|  |  +- bloom_filter_: DynamicBloom (optional)             |      |
+|  |  +- arena_: ConcurrentArena (memory allocation)        |      |
+|  |  +- flush_state_: FLUSH_NOT_REQUESTED/REQUESTED/       |      |
+|  |  |                 FLUSH_SCHEDULED                      |      |
+|  +--------------------------------------------------------+      |
+|                                                                    |
+|  Flush Triggers:                                                  |
+|   - MarkForFlush() (manual/error recovery)                        |
+|   - num_range_deletes >= memtable_max_range_deletions             |
+|   - Memory heuristic exceeds write_buffer_size                    |
++-----------------------------+------------------------------------+
+                              |
+                              v
++------------------------------------------------------------------+
+|  MEMTABLE REPRESENTATION (include/rocksdb/memtablerep.h)         |
+|  +--------------------------------------------------------+      |
+|  | SkipList (default) - InlineSkipList                    |      |
+|  |  - Lock-free concurrent insert via CAS                 |      |
+|  |  - 12 levels by default, max 32 levels                 |      |
+|  |  - O(log N) insert/lookup, O(log D) sequential insert  |      |
+|  |  - Nodes stored inline with key data                   |      |
+|  +--------------------------------------------------------+      |
+|  +--------------------------------------------------------+      |
+|  | HashSkipList - prefix hash + skiplist per bucket       |      |
+|  |  - Optimized for prefix seek                           |      |
+|  |  - Requires prefix extractor                           |      |
+|  +--------------------------------------------------------+      |
+|  +--------------------------------------------------------+      |
+|  | HashLinkList - prefix hash + sorted linked list        |      |
+|  |  - Memory efficient for small datasets                 |      |
+|  +--------------------------------------------------------+      |
+|  +--------------------------------------------------------+      |
+|  | Vector - unsorted vector, sorted on MarkReadOnly()     |      |
+|  |  - Bulk load optimization                              |      |
+|  +--------------------------------------------------------+      |
++------------------------------------------------------------------+
+                              |
+                              v
++------------------------------------------------------------------+
+|  IMMUTABLE MEMTABLE LIST (db/memtable_list.h)                    |
+|  +--------------------------------------------------------+      |
+|  | MemTableListVersion                                    |      |
+|  |  memlist_ = [imm3, imm2, imm1]  (newest first)        |      |
+|  |  -> Get() searches newest -> oldest                    |      |
+|  |  -> FlushJob flushes oldest first                      |      |
+|  +--------------------------------------------------------+      |
++-----------------------------+------------------------------------+
+                              |
+                              v
++------------------------------------------------------------------+
+|  FLUSH TO SST (db/flush_job.cc)                                  |
+|  FlushJob iterates immutable memtable -> writes L0 SST           |
++------------------------------------------------------------------+
 ```
 
 ---
@@ -92,7 +93,7 @@ MemTable is RocksDB's in-memory write buffer that accepts all incoming writes (P
 
 `MemTableRep` is the abstract interface that all memtable representations must implement. It defines a sorted, concurrent-readable, single-writer (or lock-free multi-writer) container.
 
-**Interface contract** (`include/rocksdb/memtablerep.h:62`):
+**Interface contract** (`include/rocksdb/memtablerep.h`):
 
 | Property | Description |
 |----------|-------------|
@@ -106,13 +107,17 @@ MemTable is RocksDB's in-memory write buffer that accepts all incoming writes (P
 ```cpp
 class MemTableRep {
   virtual KeyHandle Allocate(size_t len, char** buf);
-  virtual void Insert(KeyHandle handle) = 0;
-  virtual void InsertConcurrently(KeyHandle handle) = 0;  // Lock-free
+  virtual void Insert(KeyHandle handle) = 0;        // Pure virtual
+  virtual bool InsertKey(KeyHandle handle);           // Returns false on dup
+  virtual void InsertConcurrently(KeyHandle handle);  // Lock-free (virtual, not pure)
+  virtual bool InsertKeyConcurrently(KeyHandle handle); // Lock-free, dup detection
   virtual void InsertWithHint(KeyHandle handle, void** hint);
   virtual Iterator* GetIterator(Arena* arena = nullptr) = 0;
   // ...
 };
 ```
+
+Note: `InsertConcurrently()` is a virtual method with a default implementation (not pure virtual). The `InsertKey*` variants return `false` when `CanHandleDuplicatedKey()` is true and the `<key, seq>` already exists.
 
 ### 1.1 SkipList (Default) - InlineSkipList
 
@@ -120,9 +125,9 @@ class MemTableRep {
 
 InlineSkipList is the default memtable representation, optimized for concurrent reads and lock-free concurrent writes via CAS.
 
-**Properties** (`memtable/inlineskiplist.h:70-78`):
+**Properties** (`memtable/inlineskiplist.h`):
 
-- **Max height**: 32 levels (configurable, default 12)
+- **Max height**: `kMaxPossibleHeight = 32` (configurable default 12 via constructor)
 - **Branching factor**: 4 (1/4 probability of growing each level)
 - **Complexity**: O(log N) insert/lookup, O(log D) for sequential inserts with finger search
 - **Memory layout**: Node header + key inlined, next pointers stored **below** Node struct
@@ -130,10 +135,10 @@ InlineSkipList is the default memtable representation, optimized for concurrent 
 **Thread safety** (`memtable/inlineskiplist.h:20-27`):
 
 ```
-⚠️ INVARIANT: Writes via Insert() require external synchronization (write thread).
-⚠️ INVARIANT: InsertConcurrently() is lock-free, safe with concurrent reads/inserts.
-⚠️ INVARIANT: Allocated nodes never deleted until InlineSkipList destroyed.
-⚠️ INVARIANT: Node contents (except next pointers) immutable after linking.
+INVARIANT: Writes via Insert() require external synchronization (write thread).
+INVARIANT: InsertConcurrently() is lock-free, safe with concurrent reads/inserts.
+INVARIANT: Allocated nodes never deleted until InlineSkipList destroyed.
+INVARIANT: Node contents (except next/prev pointers) immutable after linking.
 ```
 
 **Advantages:**
@@ -143,7 +148,7 @@ InlineSkipList is the default memtable representation, optimized for concurrent 
 - Well-suited for random write workloads
 
 **Disadvantages:**
-- Higher memory overhead per node (~24 bytes overhead for 12-level average)
+- Higher memory overhead per node
 - Poor prefix locality (keys with same prefix scattered across skiplist)
 
 ### 1.2 HashSkipList
@@ -198,9 +203,10 @@ Unsorted `std::vector`, sorted once on `MarkReadOnly()`.
 **Advantages:**
 - Fastest inserts (append-only)
 - Minimal memory overhead
+- Supports concurrent inserts (via thread-local buffering)
 
 **Disadvantages:**
-- Cannot serve reads during writes
+- Cannot serve reads during writes (until sorted)
 - O(N log N) sort penalty on `MarkReadOnly()`
 
 ---
@@ -213,28 +219,28 @@ Unsorted `std::vector`, sorted once on `MarkReadOnly()`.
 
 InlineSkipList uses a custom memory layout to save space. Instead of storing the key as a pointer, the key is stored **inline** immediately after the Node header.
 
-**Memory layout** (`memtable/inlineskiplist.h:352-374`):
+**Memory layout** (`memtable/inlineskiplist.h`):
 
 ```
 For a node with height H storing key K:
 
-Memory layout (addresses grow downward → upward):
-┌─────────────────────────────────────────┐ ← AllocateNode return address
-│  next_[H-1] (AtomicPointer)             │
-│  next_[H-2]                             │
-│  ...                                     │
-│  next_[1]                               │
-├─────────────────────────────────────────┤ ← Node* (struct base)
-│  next_[0]   (AtomicPointer)             │ ← Node::next_[0]
-├─────────────────────────────────────────┤ ← Node::Key()
-│  Key data:                              │
-│    varint32(internal_key_size)          │
-│    user_key bytes                       │
-│    8-byte packed(seq, type)             │
-│    varint32(value_size)                 │
-│    value bytes                          │
-│    checksum (if enabled)                │
-└─────────────────────────────────────────┘
+Memory layout (addresses grow downward -> upward):
++------------------------------------------+ <-- AllocateNode return address
+|  next_[H-1] (AtomicPointer)              |
+|  next_[H-2]                              |
+|  ...                                      |
+|  next_[1]                                |
++------------------------------------------+ <-- Node* (struct base)
+|  next_[0]   (AtomicPointer)              | <-- Node::next_[0]
++------------------------------------------+ <-- Node::Key()
+|  Key data:                               |
+|    varint32(internal_key_size)            |
+|    user_key bytes                        |
+|    8-byte packed(seq, type)              |
+|    varint32(value_size)                  |
+|    value bytes                           |
+|    checksum (if enabled)                 |
++------------------------------------------+
 
 Accessing next_[n]:  (&next_[0] - n)  (pointer arithmetic)
 Accessing key:       &next_[1]        (immediately after next_[0])
@@ -242,7 +248,7 @@ Accessing key:       &next_[1]        (immediately after next_[0])
 
 **Key insight**: `next_[1..H-1]` are stored **before** the Node struct. This avoids wasting a pointer in the Node struct for the key, saving `sizeof(void*)` bytes per node.
 
-**Node methods** (`memtable/inlineskiplist.h:358-405`):
+**Node methods** (`memtable/inlineskiplist.h`):
 
 ```cpp
 struct Node {
@@ -261,8 +267,8 @@ struct Node {
   }
 
   // "Stash" height in next_[0] before node is linked
-  void StashHeight(int height) {
-    memcpy(&next_[0], &height, sizeof(int));
+  void StashHeight(const int height) {
+    memcpy(static_cast<void*>(&next_[0]), &height, sizeof(int));
   }
   int UnstashHeight() const { /* inverse */ }
 };
@@ -270,7 +276,7 @@ struct Node {
 
 ### 2.2 Concurrent Insert via CAS
 
-**Files:** `memtable/inlineskiplist.h:119-138`
+**Files:** `memtable/inlineskiplist.h`
 
 When `allow_concurrent_memtable_write=true`, RocksDB uses `InsertConcurrently()`, which performs lock-free insertion using Compare-And-Swap (CAS) operations.
 
@@ -312,38 +318,38 @@ bool Insert(const char* key, Splice* splice, bool allow_partial_splice_fix) {
 }
 ```
 
-**Memory ordering** (`memtable/inlineskiplist.h:376-395`):
+**Memory ordering** (`memtable/inlineskiplist.h`):
 
 ```
-⚠️ INVARIANT: SetNext() uses release-store so readers see fully initialized node.
-⚠️ INVARIANT: Next() uses acquire-load to observe initialization.
-⚠️ INVARIANT: CASNext() provides acquire-release semantics for linearizability.
+INVARIANT: SetNext() uses release-store so readers see fully initialized node.
+INVARIANT: Next() uses acquire-load to observe initialization.
+INVARIANT: CASNext() provides acquire-release semantics for linearizability.
 ```
 
 ### 2.3 Finger Search Optimization
 
-**Files:** `memtable/inlineskiplist.h:143-150`
+**Files:** `memtable/inlineskiplist.h`
 
 For sequential insertions (common pattern in WriteBatch), InlineSkipList uses **finger search** to reduce cost from O(log N) to **O(log D)** where D = distance from last insert position.
 
-**Splice structure** (`memtable/inlineskiplist.h:340-350`):
+**Splice structure** (`memtable/inlineskiplist.h`):
 
 ```cpp
 struct Splice {
-  int height_;
+  int height_ = 0;
   Node** prev_;  // prev_[i] < key for all levels i
   Node** next_;  // next_[i] >= key for all levels i
-  // INVARIANT: prev_[i].key < prev_[i-1].key < ... < key <= ... < next_[i-1].key < next_[i].key
+  // INVARIANT: prev_[i+1].key <= prev_[i].key < next_[i].key <= next_[i+1].key
 };
 ```
 
 **Usage:**
 
 ```cpp
-void* hint = nullptr;  // Splice cached across InsertWithHint calls
-table_->InsertWithHint(handle1, &hint);  // O(log N) first insert
-table_->InsertWithHint(handle2, &hint);  // O(log D) if handle2 near handle1
-table_->InsertWithHint(handle3, &hint);  // O(log D) sequential pattern
+void* hint = nullptr;  // Splice cached across InsertKeyWithHint calls
+table_->InsertKeyWithHint(handle1, &hint);  // O(log N) first insert
+table_->InsertKeyWithHint(handle2, &hint);  // O(log D) if handle2 near handle1
+table_->InsertKeyWithHint(handle3, &hint);  // O(log D) sequential pattern
 ```
 
 **When finger search helps:**
@@ -367,126 +373,137 @@ MemTable uses arena allocation to:
 
 ### 3.2 Arena
 
-**Files:** `memory/arena.h:31-100`
+**Files:** `memory/arena.h`, `memory/arena.cc`
 
-Arena is a simple bump-pointer allocator that carves out memory from fixed-size blocks.
+Arena is a bump-pointer allocator that carves out memory from fixed-size blocks. It has an inline block (`kInlineSize = 2048` bytes) that avoids heap allocation for small/empty memtables, plus dynamically allocated blocks.
 
 **Allocation strategy:**
 
 ```cpp
 char* Arena::Allocate(size_t bytes) {
   if (bytes <= alloc_bytes_remaining_) {
-    char* result = alloc_ptr_;
-    alloc_ptr_ += bytes;
+    unaligned_alloc_ptr_ -= bytes;
     alloc_bytes_remaining_ -= bytes;
-    return result;
+    return unaligned_alloc_ptr_;
   }
-  return AllocateFallback(bytes);  // New block needed
+  return AllocateFallback(bytes, false);
 }
 
-char* AllocateFallback(size_t bytes) {
+char* AllocateFallback(size_t bytes, bool aligned) {
   if (bytes > kBlockSize / 4) {
-    // Large allocation: dedicated block
+    // Large allocation: dedicated block (irregular)
     return AllocateNewBlock(bytes);
   }
   // Small allocation: waste remaining space, allocate new block
-  alloc_ptr_ = AllocateNewBlock(kBlockSize);
-  alloc_bytes_remaining_ = kBlockSize;
-  return Allocate(bytes);
+  block_head = AllocateNewBlock(kBlockSize);
+  alloc_bytes_remaining_ = kBlockSize - bytes;
+  // ...
 }
 ```
 
-**Memory overhead:**
-- Fragmentation: Up to `kBlockSize` wasted per arena (last block may be partially full)
-- Default `kBlockSize` = 4 KB (configurable via `arena_block_size`)
+**Memory accounting:**
+
+```cpp
+size_t Arena::ApproximateMemoryUsage() const {
+  return blocks_memory_ + blocks_.size() * sizeof(char*) - alloc_bytes_remaining_;
+}
+
+size_t Arena::MemoryAllocatedBytes() const { return blocks_memory_; }
+```
+
+**Key constants:**
+- `kMinBlockSize` = 4096 (minimum, also the default if no `arena_block_size` specified)
+- `kMaxBlockSize` = 2 GB
+- `kInlineSize` = 2048 (inline block avoids heap allocation for empty memtables)
+- Actual `kBlockSize` is set from `arena_block_size` option (typically `write_buffer_size / 8`)
 
 ### 3.3 ConcurrentArena
 
-**Files:** `memory/concurrent_arena.h:35-100`
+**Files:** `memory/concurrent_arena.h`, `memory/concurrent_arena.cc`
 
 ConcurrentArena wraps Arena with:
 1. **Spinlock protection** on main arena
-2. **Per-core shards** for small allocations (<= 2KB default) to reduce contention
+2. **Per-core shards** for allocations that fit within `shard_block_size_ / 4` to reduce contention
 
-**Allocation path** (`memory/concurrent_arena.h:52-68`):
+**Shard structure:**
 
 ```cpp
-char* ConcurrentArena::Allocate(size_t bytes) {
-  return AllocateImpl(bytes, false,
-    [this, bytes] { return arena_.Allocate(bytes); });
-}
+struct Shard {
+  char padding[40];
+  mutable SpinMutex mutex;
+  char* free_begin_;
+  std::atomic<size_t> allocated_and_unused_;
+};
+```
 
+**Allocation path** (`memory/concurrent_arena.h`):
+
+```cpp
 template <typename Func>
-char* AllocateImpl(size_t bytes, bool force_arena, Func allocate_from_arena) {
-  size_t cpu = port::PhysicalCoreID();  // Current CPU core
-
-  // Try per-core shard first (lock-free fast path)
-  if (!force_arena && bytes <= shard_block_size_) {
-    Shard* shard = &shards_[cpu % num_cpus];
-    SpinMutexLock lock(&shard->mutex);
-    if (bytes <= shard->allocated_and_unused_) {
-      shard->allocated_and_unused_ -= bytes;
-      char* result = shard->free_begin_;
-      shard->free_begin_ += bytes;
-      return result;  // Fast path: no main arena lock
-    }
+char* AllocateImpl(size_t bytes, bool force_arena, const Func& func) {
+  // Go directly to arena if allocation is too large for shard
+  if (bytes > shard_block_size_ / 4 || force_arena || ...) {
+    arena_lock.lock();
+    return func();  // Allocate from main arena
   }
 
-  // Fallback to main arena (spinlock required)
-  SpinMutexLock lock(&arena_mutex_);
-  return allocate_from_arena();
+  // Pick a shard (per-core)
+  Shard* s = shards_.AccessAtCore(cpu & (shards_.Size() - 1));
+  // ... lock shard, allocate from shard, refill from arena if needed
 }
 ```
 
-**Shard refill** (`memory/concurrent_arena.cc`):
+**Shard refill** (`memory/concurrent_arena.h`):
 
-When a shard runs out of space, it allocates a new `shard_block_size_` chunk from the main arena.
+When a shard runs out of space, it allocates a new chunk (approximately `shard_block_size_` bytes) from the main arena. The shard block size is computed as a fraction of the arena block size based on hardware concurrency.
 
 ```
-⚠️ INVARIANT: Per-core shards never freed until MemTable destroyed.
-⚠️ INVARIANT: Shard block size chosen to evenly divide arena block size (no cross-block fragments).
+INVARIANT: Per-core shards never freed until MemTable destroyed.
+INVARIANT: Shard block size adjusts to match arena block boundaries to avoid fragmentation.
 ```
 
 ---
 
 ## 4. Insert Path: Put/Delete/Merge to MemTable
 
-**Files:** `db/memtable.cc:950-1060`
+**Files:** `db/memtable.cc`
 
 ### 4.1 Entry Encoding
 
 Every key-value pair is encoded into a self-contained binary format before insertion.
 
-**Format** (`db/memtable.cc:956-961`):
+**Format** (`db/memtable.cc`):
 
 ```
-┌────────────────────────────────────────────────────────────┐
-│ varint32(internal_key_size)                                │  internal_key_size = user_key.size() + 8
-│ user_key bytes                                             │  Raw user key
-│ uint64 packed(sequence_number, ValueType)                 │  seq (56 bits) | type (8 bits)
-│ varint32(value_size)                                       │
-│ value bytes                                                │  Raw value (empty for Delete)
-│ [optional] checksum                                        │  protection_bytes_per_key (0, 1, 2, 4, or 8)
-└────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------+
+| varint32(internal_key_size)                                  |  internal_key_size = user_key.size() + 8
+| user_key bytes                                               |  Raw user key
+| uint64 packed(sequence_number, ValueType)                    |  seq (56 bits) | type (8 bits)
+| varint32(value_size)                                         |
+| value bytes                                                  |  Raw value (empty for Delete)
+| [optional] checksum                                          |  protection_bytes_per_key (0, 1, 2, 4, or 8)
++-------------------------------------------------------------+
 ```
 
 **ValueType encoding** (`db/dbformat.h`):
 
 ```cpp
-enum ValueType : uint8_t {
-  kTypeDeletion         = 0x0,  // Delete
-  kTypeValue            = 0x1,  // Put
-  kTypeMerge            = 0x2,  // Merge
-  kTypeRangeDeletion    = 0xF,  // DeleteRange
-  kTypeSingleDeletion   = 0x7,  // SingleDelete
-  kTypeWideColumnEntity = 0x12, // PutEntity (wide columns)
+enum ValueType : unsigned char {
+  kTypeDeletion              = 0x0,   // Delete
+  kTypeValue                 = 0x1,   // Put
+  kTypeMerge                 = 0x2,   // Merge
+  kTypeSingleDeletion        = 0x7,   // SingleDelete
+  kTypeRangeDeletion         = 0xF,   // DeleteRange
+  kTypeDeletionWithTimestamp = 0x14,  // Delete with UDT
+  kTypeWideColumnEntity      = 0x16,  // PutEntity (wide columns)
+  kTypeValuePreferredSeqno   = 0x18,  // Value with write time
   // ...
 };
 ```
 
 ### 4.2 MemTable::Add() Flow
 
-**Files:** `db/memtable.cc:950-1060`
+**Files:** `db/memtable.cc` (line ~950)
 
 ```cpp
 Status MemTable::Add(SequenceNumber s, ValueType type,
@@ -497,58 +514,86 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
                      MemTablePostProcessInfo* post_process_info,
                      void** hint) {
   // 1. Encode entry
-  uint32_t internal_key_size = key.size() + 8;
+  uint32_t key_size = static_cast<uint32_t>(key.size());
+  uint32_t val_size = static_cast<uint32_t>(value.size());
+  uint32_t internal_key_size = key_size + 8;
   uint32_t encoded_len = VarintLength(internal_key_size) + internal_key_size
-                       + VarintLength(value.size()) + value.size()
+                       + VarintLength(val_size) + val_size
                        + moptions_.protection_bytes_per_key;
 
+  // 2. Select table: range deletions go to range_del_table_
+  std::unique_ptr<MemTableRep>& table =
+      type == kTypeRangeDeletion ? range_del_table_ : table_;
   char* buf = nullptr;
-  KeyHandle handle = table_->Allocate(encoded_len, &buf);  // Arena allocation
+  KeyHandle handle = table->Allocate(encoded_len, &buf);  // Arena allocation
 
+  // 3. Write encoded entry to buf
   char* p = EncodeVarint32(buf, internal_key_size);
-  memcpy(p, key.data(), key.size());
-  p += key.size();
-  EncodeFixed64(p, PackSequenceAndType(s, type));  // Pack seq + type
+  memcpy(p, key.data(), key_size);
+  p += key_size;
+  EncodeFixed64(p, PackSequenceAndType(s, type));
   p += 8;
-  p = EncodeVarint32(p, value.size());
-  memcpy(p, value.data(), value.size());
+  p = EncodeVarint32(p, val_size);
+  memcpy(p, value.data(), val_size);
 
-  // 2. Optional checksum
+  // 4. Optional checksum
   UpdateEntryChecksum(kv_prot_info, key, value, type, s,
                       buf + encoded_len - moptions_.protection_bytes_per_key);
 
-  // 3. Insert into memtable
-  if (allow_concurrent) {
-    table_->InsertConcurrently(handle);  // Lock-free CAS insert
-  } else {
-    if (hint && insert_with_hint_prefix_extractor_) {
-      table_->InsertWithHint(handle, hint);  // Finger search optimization
-    } else {
-      table_->Insert(handle);  // Single-writer insert
-    }
-  }
-
-  // 4. Update bloom filter
-  if (bloom_filter_) {
-    bloom_filter_->Add(ExtractUserKey(Slice(buf, encoded_len)));
-  }
-
-  // 5. Update metadata
+  // 5. Insert into memtable representation
   if (!allow_concurrent) {
-    data_size_ += encoded_len;
-    num_entries_++;
-    if (type == kTypeDeletion || type == kTypeSingleDeletion) {
-      num_deletes_++;
+    // Sequential path: use InsertKey or InsertKeyWithHint
+    if (table == table_ && insert_with_hint_prefix_extractor_ != nullptr &&
+        insert_with_hint_prefix_extractor_->InDomain(key_slice)) {
+      table->InsertKeyWithHint(handle, &insert_hints_[prefix]);
+    } else {
+      table->InsertKey(handle);
     }
-  } else {
-    // Batch update via post_process_info for concurrent case
-    post_process_info->data_size += encoded_len;
-    post_process_info->num_entries++;
-    // ...
-  }
 
-  // 6. Update flush state
-  UpdateFlushState();
+    // Update metadata immediately (relaxed store, no atomics needed)
+    num_entries_.StoreRelaxed(num_entries_.LoadRelaxed() + 1);
+    data_size_.StoreRelaxed(data_size_.LoadRelaxed() + encoded_len);
+    if (type == kTypeDeletion || type == kTypeSingleDeletion ||
+        type == kTypeDeletionWithTimestamp) {
+      num_deletes_.StoreRelaxed(num_deletes_.LoadRelaxed() + 1);
+    } else if (type == kTypeRangeDeletion) {
+      num_range_deletes_.StoreRelaxed(num_range_deletes_.LoadRelaxed() + 1);
+    }
+
+    // Update bloom filter (prefix and/or whole key separately)
+    if (bloom_filter_ && prefix_extractor_ &&
+        prefix_extractor_->InDomain(key_without_ts)) {
+      bloom_filter_->Add(prefix_extractor_->Transform(key_without_ts));
+    }
+    if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
+      bloom_filter_->Add(key_without_ts);
+    }
+
+    UpdateFlushState();
+  } else {
+    // Concurrent path: use InsertKeyConcurrently (or with hint)
+    bool res = (hint == nullptr)
+                   ? table->InsertKeyConcurrently(handle)
+                   : table->InsertKeyWithHintConcurrently(handle, hint);
+
+    // Defer metadata to post_process_info (batched later via BatchPostProcess)
+    post_process_info->num_entries++;
+    post_process_info->data_size += encoded_len;
+    if (type == kTypeDeletion) {
+      post_process_info->num_deletes++;
+    }
+    // Range deletions tracked separately after the if/else block
+
+    // Use AddConcurrently for bloom filter (thread-safe variant)
+    if (bloom_filter_ && prefix_extractor_ &&
+        prefix_extractor_->InDomain(key_without_ts)) {
+      bloom_filter_->AddConcurrently(
+          prefix_extractor_->Transform(key_without_ts));
+    }
+    if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
+      bloom_filter_->AddConcurrently(key_without_ts);
+    }
+  }
 
   return Status::OK();
 }
@@ -558,20 +603,21 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
 
 | Mode | When | Insert method | Metadata update |
 |------|------|---------------|-----------------|
-| Sequential | `allow_concurrent_memtable_write=false` | `Insert()` or `InsertWithHint()` | Immediate `data_size_++`, `num_entries_++` |
-| Concurrent | `allow_concurrent_memtable_write=true` | `InsertConcurrently()` | Deferred via `MemTablePostProcessInfo` batch update |
+| Sequential | `allow_concurrent_memtable_write=false` | `InsertKey()` or `InsertKeyWithHint()` | Immediate relaxed store |
+| Concurrent | `allow_concurrent_memtable_write=true` | `InsertKeyConcurrently()` or `InsertKeyWithHintConcurrently()` | Deferred via `MemTablePostProcessInfo`, then `BatchPostProcess` |
 
 ```
-⚠️ INVARIANT: Sequential inserts acquire write thread lock (single writer).
-⚠️ INVARIANT: Concurrent inserts use CAS, no external lock required.
-⚠️ INVARIANT: Metadata (data_size_, num_entries_) updated atomically in batches for concurrent writes.
+INVARIANT: Sequential inserts acquire write thread lock (single writer).
+INVARIANT: Concurrent inserts use CAS, no external lock required.
+INVARIANT: Metadata (data_size_, num_entries_) updated via BatchPostProcess for concurrent writes.
+INVARIANT: Range deletions always go to range_del_table_, not table_.
 ```
 
 ---
 
 ## 5. Lookup Path: Get and MultiGet
 
-**Files:** `db/memtable.cc:1405-1550`
+**Files:** `db/memtable.cc` (line ~1405)
 
 ### 5.1 MemTable::Get() Flow
 
@@ -587,7 +633,9 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
 
   // 1. Check range tombstones first
   std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-      NewRangeTombstoneIterator(read_opts, key.sequence(), immutable_memtable));
+      NewRangeTombstoneIterator(read_opts,
+                                GetInternalKeySeqno(key.internal_key()),
+                                immutable_memtable));
   if (range_del_iter) {
     SequenceNumber covering_seq =
         range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key());
@@ -597,32 +645,35 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
   }
 
   // 2. Bloom filter check (negative lookup optimization)
+  bool may_contain = true;
   if (bloom_filter_) {
-    bool may_contain = false;
-    if (prefix_extractor_ && prefix_extractor_->InDomain(key.user_key())) {
-      may_contain = bloom_filter_->MayContain(
-          prefix_extractor_->Transform(key.user_key()));
-    } else if (moptions_.memtable_whole_key_filtering) {
-      may_contain = bloom_filter_->MayContain(key.user_key());
+    if (moptions_.memtable_whole_key_filtering) {
+      // Whole key filtering takes priority when enabled
+      may_contain = bloom_filter_->MayContain(user_key_without_ts);
     } else {
-      may_contain = true;  // Bloom filter disabled for this key
+      // Prefix filtering only
+      assert(prefix_extractor_);
+      if (prefix_extractor_->InDomain(user_key_without_ts)) {
+        may_contain = bloom_filter_->MayContain(
+            prefix_extractor_->Transform(user_key_without_ts));
+      }
     }
-
-    if (!may_contain) {
-      PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
-      return false;  // Definitely not present
-    }
-    PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
   }
 
-  // 3. Search memtable representation
-  MemTableRep::Iterator* iter = table_->GetDynamicPrefixIterator();
-  iter->Seek(key.internal_key().data());
+  if (bloom_filter_ && !may_contain) {
+    PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
+    *seq = kMaxSequenceNumber;
+    return false;  // Definitely not present
+  }
 
-  // 4. Process result (call SaveValue to handle merges, deletes, etc.)
-  bool found = SaveValue(...);  // Handles ValueType logic
+  // 3. Search memtable via GetFromTable
+  //    Calls table_->Get(key, &saver, SaveValue), or
+  //    table_->GetAndValidate() when paranoid_memory_checks enabled
+  GetFromTable(key, *max_covering_tombstone_seq, do_merge, callback,
+               is_blob_index, value, columns, timestamp, s, merge_context,
+               seq, &found_final_value, &merge_in_progress);
 
-  return found;
+  return found_final_value;
 }
 ```
 
@@ -632,14 +683,14 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
 
 MemTable optionally uses a prefix bloom filter to accelerate negative lookups (key definitely not present).
 
-**Configuration** (`db/memtable.cc:133-140`):
+**Configuration** (`db/memtable.cc`):
 
 ```cpp
 if ((prefix_extractor_ || moptions_.memtable_whole_key_filtering) &&
     moptions_.memtable_prefix_bloom_bits > 0) {
   bloom_filter_.reset(
       new DynamicBloom(&arena_, moptions_.memtable_prefix_bloom_bits,
-                       6 /* hard coded 6 hash probes */,
+                       6 /* hard coded 6 probes */,
                        moptions_.memtable_huge_page_size, ioptions.logger));
 }
 ```
@@ -660,24 +711,24 @@ memtable_prefix_bloom_bits = write_buffer_size * memtable_prefix_bloom_size_rati
 **Example:**
 - `write_buffer_size = 64 MB`
 - `memtable_prefix_bloom_size_ratio = 0.125`
-- → Bloom filter size = `64 MB * 0.125 = 8 MB = 67M bits`
+- -> Bloom filter size = `64 MB * 0.125 = 8 MB = 67M bits`
 
 **False positive rate** (6 hash functions):
 
 ```
-FPR ≈ (1 - e^(-6*N/M))^6  where N = num_keys, M = num_bits
+FPR ~ (1 - e^(-6*N/M))^6  where N = num_keys, M = num_bits
 ```
 
-For 1M keys with 67M bits: `FPR ≈ 0.4%` (very low)
+For 1M keys with 67M bits: `FPR ~ 0.4%` (very low)
 
 ```
-⚠️ INVARIANT: Bloom filter has false positives but never false negatives.
-⚠️ INVARIANT: Bloom filter memory allocated from arena, freed with MemTable.
+INVARIANT: Bloom filter has false positives but never false negatives.
+INVARIANT: Bloom filter memory allocated from arena, freed with MemTable.
 ```
 
 ### 5.3 MultiGet Optimization
 
-**Files:** `db/memtable.cc:1550-1650`, `memtable/inlineskiplist.h:143-160`
+**Files:** `db/memtable.cc`, `memtable/inlineskiplist.h`
 
 For batched lookups of sorted keys, MemTable uses **finger search** to reduce per-key cost from O(log N) to **O(log D)**.
 
@@ -687,37 +738,22 @@ For batched lookups of sorted keys, MemTable uses **finger search** to reduce pe
 void MemTable::MultiGet(const ReadOptions& read_options,
                         MultiGetRange* range,
                         ReadCallback* callback,
-                        bool immutable_memtable) {
-  // Sort keys in range
-  range->Sort();
-
-  // Use InlineSkipList::MultiGet with finger search
-  table_->MultiGet(..., callback_func);
-}
+                        bool immutable_memtable);
 ```
 
-**InlineSkipList::MultiGet** (`memtable/inlineskiplist.h:155-160`):
+**InlineSkipList::MultiGet** (`memtable/inlineskiplist.h`):
 
 ```cpp
 Status MultiGet(size_t num_keys, const char* const* keys,
                 void** callback_args,
-                bool (*callback_func)(void* arg, const char* entry), ...) {
-  Splice finger;  // Cached search path
-  finger.height_ = 0;
-
-  for (size_t i = 0; i < num_keys; i++) {
-    Node* node = nullptr;
-    // Finger search: O(log D) where D = distance from previous key
-    FindGreaterOrEqualWithFinger(keys[i], &node, &finger, ...);
-
-    // Invoke callback for all matching entries
-    while (node && callback_func(callback_args[i], node->Key())) {
-      node = node->Next(0);
-    }
-  }
-  return Status::OK();
-}
+                bool (*callback_func)(void* arg, const char* entry),
+                bool allow_data_in_errors = false,
+                bool detect_key_out_of_order = false,
+                const std::function<Status(const char*, bool)>&
+                    key_validation_callback = nullptr) const;
 ```
+
+Uses a cached search path ("finger") that carries forward between consecutive key lookups, reducing the search from the top of the skiplist each time.
 
 **Complexity:**
 - Without finger: `O(K * log N)` for K keys
@@ -728,13 +764,13 @@ Status MultiGet(size_t num_keys, const char* const* keys,
 
 ## 6. MemTable Flush Triggers
 
-**Files:** `db/memtable.cc:197-280`
+**Files:** `db/memtable.cc`
 
-MemTable transitions from mutable → immutable when flush is triggered. Flush triggers are checked in `UpdateFlushState()` after each write.
+MemTable transitions from mutable -> immutable when flush is triggered. Flush triggers are checked in `UpdateFlushState()` after each write.
 
 ### 6.1 Flush Trigger Conditions
 
-**Files:** `db/memtable.cc:197-230`
+**Files:** `db/memtable.cc` (line ~197)
 
 ```cpp
 bool MemTable::ShouldFlushNow() {
@@ -745,19 +781,32 @@ bool MemTable::ShouldFlushNow() {
 
   // 2. Too many range deletions
   if (memtable_max_range_deletions_ > 0 &&
-      num_range_deletes_.LoadRelaxed() >= memtable_max_range_deletions_) {
+      num_range_deletes_.LoadRelaxed() >=
+          static_cast<uint64_t>(memtable_max_range_deletions_)) {
     return true;
   }
 
-  // 3. Memory usage exceeds write_buffer_size
+  // 3. Memory usage heuristic
   size_t write_buffer_size = write_buffer_size_.LoadRelaxed();
-  if (arena_.ApproximateMemoryUsage() >= write_buffer_size) {
-    return true;
+  const double kAllowOverAllocationRatio = 0.6;
+
+  auto allocated_memory =
+      table_->ApproximateMemoryUsage() + arena_.MemoryAllocatedBytes();
+
+  // Allow one more block if within over-allocation ratio
+  if (allocated_memory + kArenaBlockSize <
+      write_buffer_size + kArenaBlockSize * kAllowOverAllocationRatio) {
+    return false;
   }
 
-  return false;
+  // Additional heuristic: if in last block, stop at 75% full
+  // to avoid excessive over-allocation
+  // ...
+  return arena_.AllocatedAndUnused() < kArenaBlockSize / 4;
 }
 ```
+
+Note: The memory check is **not** a simple `ApproximateMemoryUsage() >= write_buffer_size` comparison. It uses a heuristic that considers arena block sizes and an over-allocation ratio (0.6) to avoid unnecessary fragmentation while staying close to the target size.
 
 **Trigger summary:**
 
@@ -765,31 +814,41 @@ bool MemTable::ShouldFlushNow() {
 |---------|-----------|-----------|
 | **Manual flush** | `MarkForFlush()` called | User request or error recovery |
 | **Range delete limit** | `num_range_deletes >= memtable_max_range_deletions` | Prevent excessive range tombstones in memory |
-| **Memory limit** | `ApproximateMemoryUsage() >= write_buffer_size` | Primary trigger: MemTable full |
+| **Memory heuristic** | allocated_memory approaches write_buffer_size | Primary trigger: MemTable full |
 
 ### 6.2 write_buffer_size
 
 **Option:** `write_buffer_size` (default: 64 MB)
 
-Defines the target size of a single MemTable. When exceeded, the MemTable is marked for flush.
+Defines the target size of a single MemTable. When the memory heuristic determines the memtable is approximately full, it is marked for flush.
 
-**Calculation:**
+**ApproximateMemoryUsage** (`db/memtable.cc`):
 
 ```cpp
-size_t ApproximateMemoryUsage() {
-  return arena_.ApproximateMemoryUsage()        // Key-value data + skiplist nodes
-       + table_->ApproximateMemoryUsage()       // Skiplist overhead
-       + range_del_table_->ApproximateMemoryUsage()
-       + bloom_filter_->ApproximateMemoryUsage();  // If enabled
+size_t MemTable::ApproximateMemoryUsage() {
+  autovector<size_t> usages = {
+      arena_.ApproximateMemoryUsage(),
+      table_->ApproximateMemoryUsage(),
+      range_del_table_->ApproximateMemoryUsage(),
+      ROCKSDB_NAMESPACE::ApproximateMemoryUsage(insert_hints_)};
+  size_t total_usage = 0;
+  for (size_t usage : usages) {
+    if (usage >= std::numeric_limits<size_t>::max() - total_usage) {
+      return std::numeric_limits<size_t>::max();
+    }
+    total_usage += usage;
+  }
+  return total_usage;
 }
 ```
 
-**Arena memory accounting** (`memory/arena.cc`):
+Note: `ShouldFlushNow()` uses `table_->ApproximateMemoryUsage() + arena_.MemoryAllocatedBytes()` (not `ApproximateMemoryUsage()`) for its memory check, which is a different calculation.
+
+**Arena memory accounting** (`memory/arena.h`):
 
 ```cpp
 size_t Arena::ApproximateMemoryUsage() const {
-  return blocks_memory_ + blocks_.capacity() * sizeof(char*);
-  // blocks_memory_ = sum of all block allocations
+  return blocks_memory_ + blocks_.size() * sizeof(char*) - alloc_bytes_remaining_;
 }
 ```
 
@@ -799,33 +858,23 @@ size_t Arena::ApproximateMemoryUsage() const {
 
 Limits the total number of memtables (1 mutable + N immutable) in memory before writes are blocked.
 
-**Write stall logic** (`db/db_impl/db_impl_write.cc`):
-
-```cpp
-// PreprocessWrite checks:
-if (num_unflushed_memtables >= max_write_buffer_number) {
-  // Block writes until flush completes
-  write_stall_condition = true;
-}
-```
-
 **Flush state transition:**
 
 ```
 [Mutable MemTable]
-   ↓ ApproximateMemoryUsage() >= write_buffer_size
+   | memory heuristic triggers flush
 [Immutable MemTable #1] + [New Mutable MemTable]
-   ↓ Another write_buffer_size exceeded
+   | Another write_buffer_size exceeded
 [Immutable #2] + [Immutable #1] + [New Mutable]
-   ↓ num_unflushed >= max_write_buffer_number → WRITE STALL
-   ↓ FlushJob completes for Immutable #1
-[Immutable #2] + [Mutable] → Writes unblocked
+   | num_unflushed >= max_write_buffer_number -> WRITE STALL
+   | FlushJob completes for Immutable #1
+[Immutable #2] + [Mutable] -> Writes unblocked
 ```
 
 ```
-⚠️ INVARIANT: At most 1 mutable MemTable per column family at any time.
-⚠️ INVARIANT: Immutable MemTables are read-only, never modified.
-⚠️ INVARIANT: Flush processes immutable MemTables in FIFO order (oldest first).
+INVARIANT: At most 1 mutable MemTable per column family at any time.
+INVARIANT: Immutable MemTables are read-only, never modified.
+INVARIANT: Flush processes immutable MemTables in FIFO order (oldest first).
 ```
 
 ### 6.4 memtable_max_range_deletions
@@ -837,7 +886,7 @@ Triggers flush when MemTable accumulates too many range deletions (`DeleteRange`
 **Rationale:**
 - Range deletes stored separately in `range_del_table_`
 - Each range delete can cover millions of keys
-- Too many range deletes → expensive iteration and memory overhead
+- Too many range deletes -> expensive iteration and memory overhead
 - Flushing converts range deletes to more efficient SST format
 
 ---
@@ -848,16 +897,17 @@ Triggers flush when MemTable accumulates too many range deletions (`DeleteRange`
 
 ### 7.1 MemTableListVersion
 
-`MemTableListVersion` is a snapshot of the list of immutable memtables. It's reference counted and used by reads/iterators to ensure consistent view.
+`MemTableListVersion` is a snapshot of the list of immutable memtables. It's reference counted and used by reads/iterators to ensure a consistent view.
 
-**Structure** (`db/memtable_list.h:43-150`):
+**Structure** (`db/memtable_list.h`):
 
 ```cpp
 class MemTableListVersion {
-  std::list<ReadOnlyMemTable*> memlist_;           // Immutable MemTables (newest → oldest)
-  std::list<ReadOnlyMemTable*> memlist_history_;  // Flushed MemTables (history)
-  int refs_;                                       // Reference count
-  size_t* parent_memtable_list_memory_usage_;     // Memory tracking
+  std::list<ReadOnlyMemTable*> memlist_;           // Immutable MemTables (newest -> oldest)
+  std::list<ReadOnlyMemTable*> memlist_history_;   // Flushed MemTables (for transaction validation)
+  int refs_ = 0;                                   // Reference count
+  size_t* parent_memtable_list_memory_usage_;      // Memory tracking
+  const int64_t max_write_buffer_size_to_maintain_; // History retention limit
 };
 ```
 
@@ -865,7 +915,7 @@ class MemTableListVersion {
 
 ```
 memlist_ = [imm_newest, imm_2, imm_1, imm_oldest]
-           ↑ newest                     ↑ oldest (next to flush)
+            ^ newest                    ^ oldest (next to flush)
 ```
 
 ### 7.2 MemTableList Operations
@@ -875,53 +925,64 @@ memlist_ = [imm_newest, imm_2, imm_1, imm_oldest]
 **Add new immutable MemTable:**
 
 ```cpp
-void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete) {
-  // Create new version with m prepended to memlist_
-  MemTableListVersion* new_version = new MemTableListVersion(*current_);
-  new_version->memlist_.push_front(m);  // Add to front (newest)
-  current_->Unref(to_delete);
-  current_ = new_version;
+void MemTableList::Add(ReadOnlyMemTable* m,
+                       autovector<ReadOnlyMemTable*>* to_delete) {
+  InstallNewVersion();  // Creates new MemTableListVersion
+  current_->Add(m, to_delete);  // Calls AddMemTable -> memlist_.push_front(m)
+  m->MarkImmutable();
+  num_flush_not_started_++;
+}
+
+void MemTableListVersion::AddMemTable(ReadOnlyMemTable* m) {
+  memlist_.push_front(m);  // Add to front (newest)
+  *parent_memtable_list_memory_usage_ += m->ApproximateMemoryUsage();
 }
 ```
 
 **Remove flushed MemTable:**
 
 ```cpp
-void MemTableList::RemoveOldMemTable(MemTable* m, autovector<MemTable*>* to_delete) {
-  // Create new version without m
-  MemTableListVersion* new_version = new MemTableListVersion(*current_);
-  new_version->memlist_.remove(m);  // Remove from list
-  if (m->Unref()) {
-    to_delete->push_back(m);  // Schedule destruction
+void MemTableListVersion::Remove(ReadOnlyMemTable* m,
+                                 autovector<ReadOnlyMemTable*>* to_delete) {
+  assert(refs_ == 1);  // Only mutable when refs_ == 1
+  memlist_.remove(m);
+  m->MarkFlushed();
+  if (max_write_buffer_size_to_maintain_ > 0) {
+    memlist_history_.push_front(m);  // Keep for transaction validation
+    TrimHistory(to_delete, 0);
+  } else {
+    UnrefMemTable(to_delete, m);    // Schedule destruction
   }
-  current_->Unref(to_delete);
-  current_ = new_version;
 }
 ```
 
 ### 7.3 Read Path (Get)
 
-**Files:** `db/memtable_list.cc:120-200`
+**Files:** `db/memtable_list.cc`
 
 ```cpp
 bool MemTableListVersion::Get(const LookupKey& key, ...) {
-  // Search newest → oldest
-  for (auto it = memlist_.begin(); it != memlist_.end(); ++it) {
-    ReadOnlyMemTable* mem = *it;
-    bool found = mem->Get(key, value, ...);
-    if (found) {
-      return true;  // Stop at first match (newest version)
+  return GetFromList(&memlist_, key, ...);
+}
+
+bool MemTableListVersion::GetFromList(
+    std::list<ReadOnlyMemTable*>* list, const LookupKey& key, ...) {
+  // Search newest -> oldest
+  for (auto& memtable : *list) {
+    bool done = memtable->Get(key, value, ..., true /* immutable_memtable */);
+    if (done) {
+      return true;  // Stop at first definitive result
     }
   }
-  return false;  // Not found in any memtable
+  return false;
 }
 ```
 
 **Ordering guarantee:**
 
 ```
-⚠️ INVARIANT: memlist_ ordered newest → oldest ensures most recent value found first.
-⚠️ INVARIANT: MemTableListVersion is immutable once created (new versions for updates).
+INVARIANT: memlist_ ordered newest -> oldest ensures most recent value found first.
+INVARIANT: MemTableListVersion is immutable once created (new versions for updates).
 ```
 
 ### 7.4 FlushJob Interaction
@@ -930,25 +991,10 @@ bool MemTableListVersion::Get(const LookupKey& key, ...) {
 
 FlushJob flushes **oldest** immutable MemTable first (FIFO order):
 
-```cpp
-void FlushJob::Run() {
-  // Pick oldest memtable from memlist_
-  MemTable* m = memlist_->PickMemtableToFlush();  // Returns oldest
-
-  // Build iterator over m
-  InternalIterator* iter = m->NewIterator(...);
-
-  // Write to SST
-  TableBuilder* builder = ...;
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    builder->Add(iter->key(), iter->value());
-  }
-  builder->Finish();
-
-  // Remove m from MemTableList
-  memlist_->RemoveOldMemTable(m, &to_delete);
-}
-```
+1. Pick oldest memtable(s) from `memlist_`
+2. Build iterator over the memtable
+3. Write sorted entries to L0 SST file
+4. Call `RemoveMemTablesOrRestoreFlags()` to update the list
 
 **FIFO rationale:**
 - Oldest MemTable has highest probability of containing obsolete keys (later versions in newer MemTables)
@@ -959,7 +1005,7 @@ void FlushJob::Run() {
 
 ## 8. Concurrent MemTable Writes
 
-**Files:** `db/memtable.cc:950-1060`, `db/db_impl/db_impl_write.cc`
+**Files:** `db/memtable.cc`, `db/db_impl/db_impl_write.cc`
 
 ### 8.1 allow_concurrent_memtable_write
 
@@ -970,29 +1016,27 @@ When enabled, multiple threads can insert into MemTable concurrently without hol
 **Architecture:**
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  WriteThread (db/write_thread.h)                           │
-│  ┌────────────────────────────────────────────────┐        │
-│  │ Leader election: one thread becomes leader     │        │
-│  │  ├─ Leader performs WAL write (serialized)     │        │
-│  │  ├─ Leader assigns sequence numbers to batch   │        │
-│  │  └─ Leader signals followers to proceed        │        │
-│  └────────────────────────────────────────────────┘        │
-└───────────────────────┬─────────────────────────────────────┘
-                        │
-       ┌────────────────┴─────────────────┐
-       │                                  │
-       v                                  v
-┌──────────────────┐            ┌──────────────────┐
-│ Leader Thread    │            │ Follower Thread  │
-│ InsertInto()     │            │ InsertInto()     │
-│   ↓              │            │   ↓              │
-│ MemTable::Add    │            │ MemTable::Add    │
-│   ↓              │            │   ↓              │
-│ InsertConcurrently│            │ InsertConcurrently│
-│   (CAS-based)    │            │   (CAS-based)    │
-└──────────────────┘            └──────────────────┘
-      Concurrent insertion into InlineSkipList
++--------------------------------------------------------------+
+|  WriteThread (db/write_thread.h)                             |
+|  +------------------------------------------------------+    |
+|  | Leader election: one thread becomes leader           |    |
+|  |  +- Leader performs WAL write (serialized)           |    |
+|  |  +- Leader assigns sequence numbers to batch         |    |
+|  |  +- Leader signals followers to proceed              |    |
+|  +------------------------------------------------------+    |
++----------------------------+---------------------------------+
+                             |
+            +----------------+------------------+
+            |                                   |
+            v                                   v
++-----------------------+            +-----------------------+
+| Leader Thread         |            | Follower Thread       |
+|   MemTable::Add       |            |   MemTable::Add       |
+|     |                 |            |     |                 |
+|   InsertKeyConcurrently|            |   InsertKeyConcurrently|
+|     (CAS-based)       |            |     (CAS-based)       |
++-----------------------+            +-----------------------+
+       Concurrent insertion into InlineSkipList
 ```
 
 **Write flow with concurrent memtable write:**
@@ -1003,9 +1047,9 @@ When enabled, multiple threads can insert into MemTable concurrently without hol
 4. **Parallel MemTable insertion**: Leader + followers insert concurrently via CAS
 5. **Publish sequence**: Leader publishes last sequence number when all done
 
-### 8.2 MemTablePostProcessInfo
+### 8.2 MemTablePostProcessInfo and BatchPostProcess
 
-**Files:** `db/memtable.h:74-79`
+**Files:** `db/memtable.h`
 
 For concurrent writes, metadata updates (data_size, num_entries) are deferred and batched to avoid contention.
 
@@ -1022,17 +1066,23 @@ MemTablePostProcessInfo post_process_info;
 memtable->Add(..., allow_concurrent=true, &post_process_info, ...);
 
 // After all inserts, batch update MemTable metadata
-memtable->BatchedUpdateMetadata(&post_process_info);
+memtable->BatchPostProcess(post_process_info);
 ```
 
-**Atomic batch update** (`db/memtable.cc`):
+**BatchPostProcess** (`db/memtable.h`):
 
 ```cpp
-void MemTable::BatchedUpdateMetadata(MemTablePostProcessInfo* info) {
-  data_size_.FetchAdd(info->data_size);
-  num_entries_.FetchAdd(info->num_entries);
-  num_deletes_.FetchAdd(info->num_deletes);
-  num_range_deletes_.FetchAdd(info->num_range_deletes);
+void MemTable::BatchPostProcess(const MemTablePostProcessInfo& update_counters) {
+  table_->BatchPostProcess();  // Notify memtable rep
+  num_entries_.FetchAddRelaxed(update_counters.num_entries);
+  data_size_.FetchAddRelaxed(update_counters.data_size);
+  if (update_counters.num_deletes != 0) {
+    num_deletes_.FetchAddRelaxed(update_counters.num_deletes);
+  }
+  if (update_counters.num_range_deletes > 0) {
+    num_range_deletes_.FetchAddRelaxed(update_counters.num_range_deletes);
+  }
+  UpdateFlushState();
 }
 ```
 
@@ -1040,23 +1090,16 @@ void MemTable::BatchedUpdateMetadata(MemTablePostProcessInfo* info) {
 
 **Concurrent writes** (`allow_concurrent_memtable_write=true`):
 - **Pros**: Higher write throughput (parallel MemTable insertion)
-- **Cons**: CAS contention on skiplist pointers, bloom filter contention
+- **Cons**: CAS contention on skiplist pointers, bloom filter uses `AddConcurrently()`
 
 **Sequential writes** (`allow_concurrent_memtable_write=false`):
 - **Pros**: Simpler, no CAS overhead, better for single-threaded workloads
 - **Cons**: Lower write throughput (serialized MemTable insertion)
 
-**Benchmark results** (example):
-
-| Workload | Sequential | Concurrent | Speedup |
-|----------|------------|------------|---------|
-| Single thread | 100K ops/sec | 95K ops/sec | 0.95x (CAS overhead) |
-| 4 threads | 110K ops/sec | 320K ops/sec | 2.9x |
-| 16 threads | 120K ops/sec | 800K ops/sec | 6.7x |
-
 ```
-⚠️ INVARIANT: Concurrent writes require MemTableRep that supports InsertConcurrently().
-⚠️ INVARIANT: Only InlineSkipList and its derivatives support concurrent insert.
+INVARIANT: Concurrent writes require MemTableRepFactory::IsInsertConcurrentlySupported() == true.
+INVARIANT: SkipListFactory and VectorRepFactory support concurrent insert.
+INVARIANT: HashSkipList and HashLinkList do NOT support concurrent insert by default.
 ```
 
 ---
@@ -1067,17 +1110,18 @@ MemTable is RocksDB's in-memory write buffer with these key characteristics:
 
 1. **Pluggable representations**: SkipList (default lock-free), HashSkipList, HashLinkList, Vector
 2. **InlineSkipList**: CAS-based lock-free concurrent insert, O(log D) finger search for sequential inserts
-3. **Arena allocation**: Bump-pointer allocator with per-core shards for low contention
-4. **Insert path**: Encode `(user_key, seq, type, value)` → arena allocate → insert → bloom filter add
-5. **Lookup path**: Bloom filter negative check → skiplist seek → process result (merge, delete, etc.)
-6. **Flush triggers**: `write_buffer_size` exceeded, range delete limit, manual flush
-7. **MemTableList**: FIFO list of immutable MemTables, flushed oldest-first, versioned for consistent reads
-8. **Concurrent writes**: Lock-free CAS insertion when `allow_concurrent_memtable_write=true`, batched metadata updates
+3. **Arena allocation**: Bump-pointer allocator with inline block and per-core shards for low contention
+4. **Insert path**: Encode `(user_key, seq, type, value)` -> arena allocate -> InsertKey/InsertKeyConcurrently -> bloom filter add
+5. **Lookup path**: Bloom filter negative check -> table_->Get()/GetAndValidate() -> SaveValue callback
+6. **Flush triggers**: Memory heuristic based on write_buffer_size, range delete limit, manual flush
+7. **MemTableList**: List of ReadOnlyMemTable objects, flushed oldest-first, versioned for consistent reads
+8. **Concurrent writes**: Lock-free CAS insertion when `allow_concurrent_memtable_write=true`, batched metadata via `BatchPostProcess`
 
 **Key files:**
-- `db/memtable.h`, `db/memtable.cc` — MemTable core
-- `memtable/inlineskiplist.h` — Lock-free skiplist
-- `memtable/skiplistrep.cc`, `memtable/hash_skiplist_rep.cc` — MemTableRep implementations
-- `memory/arena.cc`, `memory/concurrent_arena.cc` — Arena allocators
-- `db/memtable_list.h`, `db/memtable_list.cc` — Immutable MemTable management
-- `include/rocksdb/memtablerep.h` — MemTableRep interface
+- `db/memtable.h`, `db/memtable.cc` -- MemTable core (inherits ReadOnlyMemTable)
+- `memtable/inlineskiplist.h` -- Lock-free skiplist
+- `memtable/skiplistrep.cc`, `memtable/hash_skiplist_rep.cc` -- MemTableRep implementations
+- `memory/arena.h`, `memory/arena.cc` -- Arena allocator (bump-pointer with inline block)
+- `memory/concurrent_arena.h`, `memory/concurrent_arena.cc` -- Thread-safe arena with per-core shards
+- `db/memtable_list.h`, `db/memtable_list.cc` -- Immutable MemTable management
+- `include/rocksdb/memtablerep.h` -- MemTableRep interface

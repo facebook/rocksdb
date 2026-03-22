@@ -57,7 +57,7 @@ RocksDB uses three priority-based thread pools for background work, implemented 
 Each thread pool maintains:
 
 ```cpp
-// util/threadpool_imp.cc:45-159
+// util/threadpool_imp.cc:45-159 (key fields, simplified)
 struct ThreadPoolImpl::Impl {
   Env::Priority priority_;          // Pool priority level
   int total_threads_limit_;         // Max threads
@@ -188,7 +188,7 @@ void Submit(std::function<void()>&& schedule,
 **max_background_jobs** — Total concurrency budget
 - Controls combined flush + compaction parallelism
 - Split internally between pools
-- Default: typically based on CPU cores
+- Default: 2
 
 **max_background_flushes** (deprecated) — Flush limit
 - Prefer `max_background_jobs` for new code
@@ -266,7 +266,7 @@ Writer enters
                     Wake followers / hand off
 ```
 
-**⚠️ INVARIANT**: Writers link into `newest_writer_` via **atomic CAS**. First writer becomes leader. Leader scans the linked list **backwards** (newest to oldest) to build the write group.
+**⚠️ INVARIANT**: Writers link into `newest_writer_` via **atomic CAS**. First writer becomes leader. Leader scans the linked list **forwards** (oldest to newest via `link_newer`) to build the write group. Incompatible writers are unlinked into a temporary list and grafted back after the group.
 
 ### Group Building Logic
 
@@ -279,6 +279,10 @@ size_t WriteThread::EnterAsBatchGroupLeader(
 
   CreateMissingNewerLinks(newest_writer);
 
+  // Incompatible writers are unlinked into a separate r_list
+  Writer* rb = nullptr;  // r_list begin
+  Writer* re = nullptr;  // r_list end
+
   Writer* w = leader;
   while (w != newest_writer) {
     w = w->link_newer;
@@ -287,24 +291,35 @@ size_t WriteThread::EnterAsBatchGroupLeader(
     if ((w->sync && !leader->sync) ||
         (w->no_slowdown != leader->no_slowdown) ||
         (w->disable_wal != leader->disable_wal) ||
-        (size + WriteBatchInternal::ByteSize(w->batch) > max_size)) {
-      // Skip incompatible writers
-      continue;
+        (w->protection_bytes_per_key != leader->protection_bytes_per_key) ||
+        (w->rate_limiter_priority != leader->rate_limiter_priority) ||
+        (w->batch == nullptr) ||
+        (w->callback != nullptr && !w->callback->AllowWriteBatching()) ||
+        (size + WriteBatchInternal::ByteSize(w->batch) > max_size) ||
+        (leader->ingest_wbwi || w->ingest_wbwi)) {
+      // Unlink from main list and append to r_list
+      w->link_older->link_newer = w->link_newer;
+      if (w->link_newer) w->link_newer->link_older = w->link_older;
+      // ... insert into r_list ...
+    } else {
+      // Add to write group
+      w->write_group = write_group;
+      size += WriteBatchInternal::ByteSize(w->batch);
+      write_group->last_writer = w;
+      write_group->size++;
     }
-
-    // Add to write group
-    w->write_group = write_group;
-    size += WriteBatchInternal::ByteSize(w->batch);
-    write_group->last_writer = w;
-    write_group->size++;
   }
+
+  // Graft r_list back after write_group end (preserves arrival order
+  // for incompatible writers so they can become next leader)
+  if (rb != nullptr) { /* ... CAS to re-attach ... */ }
 
   return size;
 }
 ```
 
 **Compatibility criteria**:
-- `sync` flag must match (all or none)
+- `sync`: a sync writer cannot join a non-sync leader's group (but non-sync writers can join a sync group)
 - `no_slowdown` must match
 - `disable_wal` must match
 - `protection_bytes_per_key` must match
@@ -334,19 +349,23 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
     auto spin_begin = std::chrono::steady_clock::now();
     size_t slow_yield_count = 0;
 
-    while ((now - spin_begin) <=
+    auto iter_begin = spin_begin;
+
+    while ((iter_begin - spin_begin) <=
            std::chrono::microseconds(max_yield_usec_)) {
       std::this_thread::yield();
       state = w->state.load(std::memory_order_acquire);
       if ((state & goal_mask) != 0) return state;
 
       // Track slow yields (involuntary context switch)
-      auto iter_end = std::chrono::steady_clock::now();
-      if (iter_end - iter_begin >=
+      auto now = std::chrono::steady_clock::now();
+      if (now == iter_begin ||
+          now - iter_begin >=
           std::chrono::microseconds(slow_yield_usec_)) {
         if (++slow_yield_count >= kMaxSlowYieldsWhileSpinning)
           break;
       }
+      iter_begin = now;
     }
 
     // Update yield_credit with exponential decay
@@ -370,7 +389,7 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
 Pipelined write separates WAL write from memtable write to increase throughput:
 
 ```cpp
-// db/write_thread.h:420-424
+// db/write_thread.h:424,433,437
 const bool enable_pipelined_write_;
 
 std::atomic<Writer*> newest_writer_;           // WAL queue
@@ -384,7 +403,7 @@ std::atomic<Writer*> newest_memtable_writer_;  // Memtable queue
 4. **Leader continues** to memtable write (pipelining)
 
 ```cpp
-// db/write_thread.cc:751-890
+// db/write_thread.cc:771-843
 if (enable_pipelined_write_) {
   // Complete writers that don't need memtable writes
   for (Writer* w = last_writer; w != leader;) {
@@ -405,6 +424,7 @@ if (enable_pipelined_write_) {
 
   // Current leader continues to memtable write
   AwaitState(leader, STATE_MEMTABLE_WRITER_LEADER |
+                     STATE_PARALLEL_MEMTABLE_CALLER |
                      STATE_PARALLEL_MEMTABLE_WRITER |
                      STATE_COMPLETED, ...);
 }
@@ -480,9 +500,11 @@ Protects:
 - Memtable lists
 - MANIFEST updates
 
-**WAL Mutexes**:
-- `wal_write_mutex_`: Protects WAL file writes
-- `log_write_mutex_`: Additional WAL synchronization
+**WAL Mutex**:
+- `wal_write_mutex_`: Protects writes to WAL (`logs_` and `cur_wal_number_`). With `two_write_queues` it also protects `alive_wal_files_` and `wal_empty_`
+
+**Options Mutex**:
+- `options_mutex_`: Protects `SetOptions`/`SetDBOptions`/`CreateColumnFamily` calls, serializing option changes and OPTIONS file writes
 
 **Writer State Mutex** (`db/write_thread.h:278-287`):
 ```cpp
@@ -531,12 +553,19 @@ struct SuperVersion {
   MutableCFOptions mutable_cf_options;
   uint64_t version_number;
   WriteStallCondition write_stall_condition;
+  std::string full_history_ts_low; // Effective UDT ts low for this SV
+  std::shared_ptr<const SeqnoToTimeMapping> seqno_to_time_mapping;
 
+  SuperVersion* Ref();             // Increment refs
+  bool Unref();                    // Decrement, returns true if cleanup needed
+  void Cleanup();                  // Unref mem/imm/current
+
+ private:
   std::atomic<uint32_t> refs;      // Reference count
 
-  SuperVersion* Ref();             // Increment
-  bool Unref();                    // Decrement, returns true if cleanup needed
-  void Cleanup();                  // Unref mem/imm/current (under mutex_)
+  // Sentinel values for thread-local cache
+  static void* const kSVInUse;     // = &dummy (thread using SuperVersion)
+  static void* const kSVObsolete;  // = nullptr (SuperVersion outdated)
 };
 ```
 
@@ -559,9 +588,9 @@ bool ReturnThreadLocalSuperVersion(SuperVersion* sv);
 - Each thread caches its SuperVersion pointer
 - Cache hit: reuse without atomic ref-count operation
 - Cache miss: acquire reference to current SuperVersion
-- Sentinel values mark cache state:
-  - `kSVInUse`: Thread using SuperVersion
-  - `kSVObsolete`: SuperVersion outdated, refresh needed
+- Sentinel values mark cache state (defined in `SuperVersion` as static members):
+  - `kSVInUse` (`= &dummy`): Thread using SuperVersion
+  - `kSVObsolete` (`= nullptr`): SuperVersion outdated, refresh needed
 
 **Performance benefit**: Thread-local cache eliminates atomic ref-count operations on read path under steady state.
 
@@ -649,7 +678,7 @@ void WriteThread::LaunchParallelMemTableWriters(WriteGroup* write_group) {
 ### Completion Barrier
 
 ```cpp
-// db/write_thread.cc:717-737
+// db/write_thread.cc:720-737
 bool WriteThread::CompleteParallelMemTableWriter(Writer* w) {
   auto* write_group = w->write_group;
 
@@ -736,14 +765,18 @@ CompactionJob
 - **ColumnFamilyData::GetReferencedSuperVersion()**: Thread-safe acquisition
 - **Env methods**: All thread-safe
 
-### NOT Thread-Safe (Require External Synchronization or DB Mutex)
+### NOT Thread-Safe (Require External Synchronization)
 
-- **SetOptions()**: Requires DB `mutex_`
-- **DropColumnFamily()**: Requires DB `mutex_`
-- **CreateColumnFamily()**: Requires DB `mutex_`
-- **CompactRange()**: Manual compaction, external coordination recommended
-- **ColumnFamilyData::current()**: Requires DB `mutex_` (use `GetReferencedSuperVersion()` instead)
-- **DisableFileDeletions/EnableFileDeletions**: Not thread-safe with concurrent `CompactRange`
+- **Close()**: Must not be called concurrently with other operations
+- **DestroyDB()**: Must not be called while DB is open
+
+### Thread-Safe but Require Care
+
+- **SetOptions() / SetDBOptions()**: Acquires `options_mutex_` and `mutex_` internally; thread-safe but slow (serializes OPTIONS file) and not fully stress-tested
+- **CreateColumnFamily()**: Acquires `options_mutex_` internally; thread-safe
+- **DropColumnFamily()**: Acquires `mutex_` internally; thread-safe
+- **CompactRange()**: Acquires `mutex_` internally; thread-safe. Multiple concurrent manual compactions are coordinated via `manual_compaction_paused_` and internal state
+- **DisableFileDeletions/EnableFileDeletions**: Acquires `mutex_` internally; thread-safe (uses ref-counted `disable_delete_obsolete_files_` counter)
 
 ### Internal Thread Safety Mechanisms
 
@@ -766,8 +799,10 @@ CompactionJob
 ### CancelAllBackgroundWork
 
 ```cpp
-// db/db_impl/db_impl.cc:481-500
+// db/db_impl/db_impl.cc:481-506
 void DBImpl::CancelAllBackgroundWork(bool wait) {
+  CancelPeriodicTaskScheduler();
+
   InstrumentedMutexLock l(&mutex_);
 
   // Optional flush before shutdown
@@ -778,16 +813,16 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
                                     FlushReason::kShutDown);
   }
 
-  shutting_down_.store(true, std::memory_order_release);
-
-  if (wait) {
-    // Wait for background jobs to drain
-    while (bg_bottom_compaction_scheduled_ ||
-           bg_compaction_scheduled_ ||
-           bg_flush_scheduled_) {
-      bg_cv_.Wait();
-    }
+  // Cancel awaiting remote compactions
+  if (immutable_db_options_.compaction_service) {
+    immutable_db_options_.compaction_service->CancelAwaitingJobs();
   }
+
+  shutting_down_.store(true, std::memory_order_release);
+  bg_cv_.SignalAll();
+
+  if (!wait) return;
+  WaitForBackgroundWork();  // Waits on bg_cv_ for all bg counters to reach 0
 }
 ```
 

@@ -4,11 +4,14 @@
 
 **Key Files**:
 - `db_stress_tool/db_stress_test_base.{h,cc}` — Base `StressTest` class
+- `db_stress_tool/db_stress_tool.cc` — Test mode selection and entry point
+- `db_stress_tool/db_stress_driver.cc` — Thread orchestration and run loop
 - `db_stress_tool/no_batched_ops_stress.cc` — Non-batched operations mode
 - `db_stress_tool/batched_ops_stress.cc` — Batched operations mode
 - `db_stress_tool/expected_state.{h,cc}` — Expected value tracking
 - `db_stress_tool/expected_value.{h,cc}` — Expected value encoding
-- `db_stress_tool/db_stress_shared_state.{h,cc}` — Thread coordination
+- `db_stress_tool/db_stress_shared_state.h` — Thread coordination (`SharedState`, `ThreadState`)
+- `db_stress_tool/db_stress_stat.h` — Per-thread statistics (`Stats`)
 - `db_stress_tool/db_stress_gflags.cc` — Configuration flags
 - `tools/db_crashtest.py` — Crash test orchestration script
 
@@ -48,7 +51,7 @@ All stress tests inherit from `StressTest` (defined in `db_stress_tool/db_stress
 - Expected state tracking (`TrackExpectedState`)
 - Transaction support (`NewTxn`, `CommitTxn`, `ExecuteTransaction`)
 
-**⚠️ INVARIANT**: All subclasses must implement `VerifyDb()`, `ContinuouslyVerifyDb()`, `TestGet()`, and `IsStateTracked()`.
+**⚠️ INVARIANT**: All subclasses must implement these pure virtual methods: `VerifyDb()`, `ContinuouslyVerifyDb()`, `IsStateTracked()`, `TestGet()`, `TestMultiGet()`, `TestGetEntity()`, `TestMultiGetEntity()`, `TestPrefixScan()`, `TestPut()`, `TestDelete()`, `TestDeleteRange()`, and `TestIngestExternalFile()`.
 
 ### Test Modes
 
@@ -75,6 +78,8 @@ Standard stress test mode where each operation (Put/Get/Delete) is performed ind
 
 #### 2.2 BatchedOpsStressTest
 
+**Enabled with**: `--test_batches_snapshots=1`
+
 **Source**: `db_stress_tool/batched_ops_stress.cc`
 
 Tests atomicity of WriteBatch operations. For a base key `K` and value `V`:
@@ -90,7 +95,7 @@ Tests atomicity of WriteBatch operations. For a base key `K` and value `V`:
 - Does not support `TestDeleteRange()` or `TestIngestExternalFile()`
 - Cannot use expected state verification
 
-#### 2.3 CF Consistency Test
+#### 2.3 CfConsistency Test
 
 **Enabled with**: `--test_cf_consistency=1`
 
@@ -130,11 +135,11 @@ Simulates a relational table with primary and secondary indexes, testing multi-o
 
 **How it works**:
 1. Start `db_stress` in background
-2. Let it run for `--interval` seconds (default: 600)
-3. Kill `db_stress` with SIGKILL (simulates crash)
+2. Let it run for `--interval` seconds (default: 120)
+3. Kill `db_stress` with SIGTERM (falls back to SIGKILL if unresponsive)
 4. Restart `db_stress` with same config
 5. DB recovers from WAL and validates expected state
-6. Repeat for `--max_batches` iterations
+6. Repeat until total `--duration` seconds elapsed (default: 6000)
 
 **Verification**: After recovery, `db_stress` runs `VerifyDb()` to compare DB state against expected state persisted in `FLAGS_expected_values_dir`.
 
@@ -142,24 +147,31 @@ Simulates a relational table with primary and secondary indexes, testing multi-o
 
 **Example**:
 ```bash
-python3 tools/db_crashtest.py blackbox --interval=600 --max_batches=10
+python3 tools/db_crashtest.py blackbox --duration=6000 --interval=120
 ```
 
 #### Whitebox Mode
 
 **How it works**:
-1. Start `db_stress` with random kill enabled (`--kill_random_test` flag)
-2. db_stress randomly calls `db_->Pause()`, crashes itself, and calls `db_->Resume()` after recovery
-3. Uses `FaultInjectionTestFS` to inject I/O errors during normal operation
-4. Validates recovery at each crash point
+1. Start `db_stress` with `--kill_random_test=N` flag
+2. db_stress inserts "kill points" at various code locations (write paths, flush, compaction)
+3. At each kill point, db_stress calls `exit()` with probability `1/N`, simulating a crash
+4. `db_crashtest.py` detects the exit, then restarts `db_stress` which recovers the DB
+5. Validates recovery at each crash point
 
-**Key difference from blackbox**: Crashes are triggered from within `db_stress` itself, allowing precise control over crash timing (e.g., mid-flush, mid-compaction).
+Additionally, whitebox mode cycles through multiple `check_mode` values:
+- **Mode 0**: Runs with `kill_random_test` enabled (crash mode)
+- **Mode 1**: Normal run with universal compaction
+- **Mode 2**: Normal run with FIFO compaction
+- **Mode 3**: Normal run with default compaction
+
+**Key difference from blackbox**: Crashes are triggered from within `db_stress` itself via kill points, allowing precise control over crash timing (e.g., mid-flush, mid-compaction).
 
 **Verification**: Continuous verification thread (`ContinuouslyVerifyDb()`) runs in parallel, periodically checking DB state.
 
 **Example**:
 ```bash
-python3 tools/db_crashtest.py whitebox --interval=600 --max_batches=10
+python3 tools/db_crashtest.py whitebox --duration=10000
 ```
 
 ### 3.2 Parameter Randomization
@@ -231,9 +243,9 @@ Bit layout:
 ```
 
 **Operations**:
-- `Put(pending)`: Sets value base, clears deletion marker, optionally sets pending bit
-- `Delete(pending)`: Sets deletion marker, optionally sets pending bit
-- `Exists()`: Returns true if deletion marker is not set
+- `Put(bool pending)`: When `pending=true`, only sets the pending write flag. When `pending=false`, advances value base to next value, clears deleted flag, clears pending write flag.
+- `Delete(bool pending)`: When `pending=true`, sets pending delete flag (returns `false` if key doesn't exist). When `pending=false`, advances deletion counter, sets deleted flag, clears pending delete flag. Returns `bool` indicating whether the key existed.
+- `Exists()`: Returns true if key is not deleted (asserts no pending operations)
 - `Read()`: Returns raw uint32_t encoding
 
 **⚠️ INVARIANT**: All updates to `ExpectedState` must use atomic operations to prevent data races in multi-threaded scenarios.
@@ -258,15 +270,15 @@ PendingExpectedValue pending = expected_state->PreparePut(cf, key);
 // Phase 2: Perform DB operation
 Status s = db_->Put(write_opts, key, value);
 
-// Phase 3: Commit or Rollback
+// Phase 3: Commit or Rollback (one MUST be called before destruction)
 if (s.ok()) {
-  pending.Commit();  // Clears pending bit, keeps value
+  pending.Commit();  // Clears pending bit, stores final value
 } else {
   pending.Rollback();  // Reverts to original state
 }
 ```
 
-**⚠️ INVARIANT**: `PendingExpectedValue` uses RAII. If `Commit()` is not called, the destructor automatically calls `Rollback()` to prevent inconsistent state.
+**⚠️ INVARIANT**: `PendingExpectedValue` requires explicit closure. Either `Commit()` or `Rollback()` must be called before destruction — the destructor asserts `pending_state_closed_` and aborts if neither was called. For cases where no pending state was introduced, `PermitUnclosedPendingState()` must be called explicitly.
 
 ### 4.4 Verification Logic
 
@@ -307,14 +319,14 @@ DEFINE_int32(iterpercent, 10, "");
 DEFINE_int32(customopspercent, 0, "");  // Custom operations
 ```
 
-**Operation selection** (from `db_stress_tool/db_stress_driver.cc`):
+**Operation selection** (from `db_stress_tool/db_stress_test_base.cc:OperateDb()`):
 ```cpp
-int rand = thread->rand.Uniform(100);
-if (rand < FLAGS_readpercent) {
+int prob_op = thread->rand.Uniform(100);
+if (prob_op >= 0 && prob_op < static_cast<int>(FLAGS_readpercent)) {
   TestGet(thread);
-} else if (rand < FLAGS_readpercent + FLAGS_prefixpercent) {
+} else if (prob_op < prefix_bound) {
   TestPrefixScan(thread);
-} else if (rand < FLAGS_readpercent + FLAGS_prefixpercent + FLAGS_writepercent) {
+} else if (prob_op < write_bound) {
   TestPut(thread);
 } // ... etc
 ```
@@ -370,10 +382,11 @@ std::unordered_map<std::string, std::vector<std::string>> options_tbl = {
 
 When `SetOptions()` is called, a random option is selected from the table and applied.
 
-**Sanitization** (from `db_crashtest.py:finalize_and_sanitize()`):
+**Sanitization** (from `db_crashtest.py:finalize_and_sanitize()` and feature param dicts):
 - If `inplace_update_support=1`, disable delete range (`delrangepercent=0`)
-- If `enable_blob_files=1`, disable certain compaction filters
-- If `user_timestamp_size > 0`, disable merge operations
+- If `test_batches_snapshots=1`, disable compaction filter, inplace update, fault injection
+- If `disable_wal=1`, enable `atomic_flush`, disable `sync`
+- In `ts_params`: if `user_timestamp_size > 0`, disable merge operations (`use_merge=0`)
 
 ---
 
@@ -413,17 +426,15 @@ Simulates power failure by:
 
 ### 7.3 Error Severity Levels
 
-**Flag**: `--inject_error_severity` (0-2)
+**Flag**: `--inject_error_severity` (default: 1)
 
 Controls whether injected errors are **retryable** or **permanent**:
-- **0**: Soft errors (e.g., `IOStatus::IOError()` with retryable bit set)
-- **1**: Hard errors (permanent failures, DB may need to stop)
-- **2**: Data loss errors (e.g., `IOStatus::DataLoss()`)
+- **1** (default): Soft errors (retryable, e.g., `IOStatus::IOError()` with retryable bit set)
+- **2**: Fatal errors (permanent failures, DB may need to stop)
 
 **Recovery behavior**:
 - Retryable errors → DB retries operation
-- Permanent errors → DB may enter read-only mode or crash
-- Data loss errors → DB must abort and refuse to open
+- Fatal errors → DB may enter read-only mode or crash
 
 **⚠️ INVARIANT**: DB must not lose data on retryable errors. Only data-loss-flagged errors are allowed to cause data loss.
 
@@ -441,24 +452,25 @@ Controls whether injected errors are **retryable** or **permanent**:
 class SharedState {
   port::Mutex mu_;                     // Protects shared state
   port::CondVar cv_;                   // Thread synchronization
-  uint32_t num_threads_;               // Total threads
-  uint32_t num_initialized_;           // Threads that finished initialization
-  uint32_t num_populated_;             // Threads that finished preload
-  uint32_t num_done_;                  // Threads that finished stress test
+  int num_threads_;                    // Total threads
+  long num_initialized_;               // Threads that finished initialization
+  long num_populated_;                 // Threads that finished preload
+  long num_done_;                      // Threads that finished stress test
   bool start_;                         // Signal to start stress test
   std::atomic<bool> verification_failure_;  // Any thread failed verification
 
-  ExpectedStateManager* expected_state_manager_;  // Expected value tracking
+  std::unique_ptr<ExpectedStateManager> expected_state_manager_;  // Expected value tracking
   std::vector<std::unique_ptr<port::Mutex[]>> key_locks_;  // Per-key locks
 };
 ```
 
-**Thread lifecycle**:
-1. Thread starts → `IncInitialized()`
+**Thread lifecycle** (see `db_stress_driver.cc:ThreadBody()`):
+1. Thread runs initial `VerifyDb()` (if crash-recovery verification enabled) → `IncInitialized()`
 2. Wait on `cv_` until `start_ == true`
-3. Run operations → `IncOperated()`
-4. Finish → `IncDone()`
-5. All threads done → `AllDone() == true` → Verification starts
+3. Run operations via `OperateDb()` → `IncOperated()`
+4. Wait until `AllOperated()` and `VerifyStarted()`, then run `VerifyDb()`
+5. After verification → `IncDone()`
+6. All threads done → `AllDone() == true` → Main thread proceeds
 
 **⚠️ INVARIANT**: All threads must call `IncInitialized()` before stress test starts. Otherwise, `AllInitialized()` will never be true and threads will deadlock waiting on `cv_`.
 
@@ -471,7 +483,7 @@ class SharedState {
 - Lock 1 covers keys [1024, 2047]
 - ...
 
-**Lock acquisition** (source: `db_stress_tool/db_stress_test_base.h:GetMutexForKey()`):
+**Lock acquisition** (source: `db_stress_tool/db_stress_shared_state.h:SharedState::GetMutexForKey()`):
 ```cpp
 port::Mutex* GetMutexForKey(int cf, int64_t key) {
   return &key_locks_[cf][key >> log2_keys_per_lock_];
@@ -511,18 +523,29 @@ struct ThreadState {
 ```
 
 **Thread-local random number generator**:
-- Seeded with `FLAGS_seed + tid`
+- Seeded with `1000 + tid + FLAGS_seed`
 - Ensures reproducible operation sequences per thread (for debugging)
 
 **Per-thread stats**:
 ```cpp
-struct Stats {
-  uint64_t gets_;
-  uint64_t puts_;
-  uint64_t deletes_;
-  uint64_t errors_;
-  uint64_t bytes_read_;
-  uint64_t bytes_written_;
+class Stats {
+  long done_;
+  long gets_;
+  long prefixes_;
+  long writes_;
+  long deletes_;
+  size_t single_deletes_;
+  long iterator_size_sums_;
+  long founds_;
+  long iterations_;
+  long range_deletions_;
+  long covered_by_range_deletions_;
+  long errors_;
+  long verified_errors_;
+  long num_compact_files_succeed_;
+  long num_compact_files_failed_;
+  size_t bytes_;
+  // ... plus timing and histogram fields
 };
 ```
 
@@ -593,7 +616,7 @@ Aggregated at the end and printed by `StressTest::PrintStatistics()`.
    }
    ```
 
-3. **Add to operation selection in `OperateDb()`**:
+3. **Add to operation selection in `OperateDb()` (in `db_stress_test_base.cc`)**:
    ```cpp
    int sum = FLAGS_readpercent + FLAGS_writepercent + ... + FLAGS_my_op_percent;
    assert(sum == 100);  // Must sum to 100
@@ -642,10 +665,10 @@ Aggregated at the end and printed by `StressTest::PrintStatistics()`.
    }
    ```
 
-3. **Add to `db_stress_tool/db_stress_driver.cc`**:
+3. **Add to `db_stress_tool/db_stress_tool.cc`** (test selection logic):
    ```cpp
    if (FLAGS_test_my_new_mode) {
-     stress_test = CreateMyNewStressTest();
+     stress.reset(CreateMyNewStressTest());
    } else if (...) {
      // ...
    }
@@ -752,8 +775,8 @@ No progress: All threads blocked
 3. Look for threads waiting on mutexes or condition variables
 
 **How stress test detects this**:
-- Timeout in `db_crashtest.py` (default 10 minutes per interval)
-- If timeout exceeded, kills db_stress with SIGKILL
+- Timeout in `db_crashtest.py` (blackbox default: 120 seconds per interval)
+- If timeout exceeded, kills db_stress with SIGTERM (then SIGKILL if unresponsive)
 
 ### 10.5 Debugging Tips
 
@@ -779,7 +802,7 @@ git bisect start
 git bisect bad HEAD
 git bisect good <last-known-good-commit>
 make clean && make db_stress
-python3 tools/db_crashtest.py blackbox --interval=600
+python3 tools/db_crashtest.py blackbox --interval=120
 # ... mark good/bad until culprit found
 ```
 
