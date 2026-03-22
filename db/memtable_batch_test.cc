@@ -61,7 +61,7 @@ TEST_F(MemTableBatchTest, BasicBatchAdd) {
     entry.type = kTypeValue;
     entry.key = Slice(key_strs[i]);
     entry.value = Slice(val_strs[i]);
-    entry.kv_prot_info = nullptr;
+    entry.has_kv_prot_info = false;
     entries.push_back(entry);
   }
 
@@ -91,7 +91,7 @@ TEST_F(MemTableBatchTest, SingleEntry) {
   entry.type = kTypeValue;
   entry.key = Slice(key_str);
   entry.value = Slice(val_str);
-  entry.kv_prot_info = nullptr;
+  entry.has_kv_prot_info = false;
 
   Status s = memtable_->BatchAdd(&entry, 1);
   ASSERT_OK(s);
@@ -117,7 +117,7 @@ TEST_F(MemTableBatchTest, BatchVsSingleInsert) {
     entry.type = kTypeValue;
     entry.key = Slice(bkey_strs[i]);
     entry.value = Slice(bval_strs[i]);
-    entry.kv_prot_info = nullptr;
+    entry.has_kv_prot_info = false;
     batch_entries.push_back(entry);
   }
   ASSERT_OK(memtable_->BatchAdd(batch_entries.data(), kNumEntries));

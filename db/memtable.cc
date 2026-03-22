@@ -1177,13 +1177,15 @@ Status MemTable::BatchAdd(const MemTableEntry* entries, size_t num_entries,
         (unsigned)(p + val_size - buf + moptions_.protection_bytes_per_key) ==
         (unsigned)encoded_len);
 
-    UpdateEntryChecksum(entry.kv_prot_info, entry.key, entry.value, entry.type,
+    const ProtectionInfoKVOS64* prot_info =
+        entry.has_kv_prot_info ? &entry.kv_prot_info : nullptr;
+    UpdateEntryChecksum(prot_info, entry.key, entry.value, entry.type,
                         entry.seq,
                         buf + encoded_len - moptions_.protection_bytes_per_key);
 
     Slice encoded(buf, encoded_len - moptions_.protection_bytes_per_key);
-    if (entry.kv_prot_info != nullptr) {
-      Status status = VerifyEncodedEntry(encoded, *entry.kv_prot_info);
+    if (prot_info != nullptr) {
+      Status status = VerifyEncodedEntry(encoded, *prot_info);
       if (!status.ok()) {
         return status;
       }

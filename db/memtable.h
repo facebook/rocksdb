@@ -648,7 +648,11 @@ class MemTable final : public ReadOnlyMemTable {
     ValueType type;
     Slice key;
     Slice value;
-    const ProtectionInfoKVOS64* kv_prot_info;
+    // Stored by value to avoid dangling pointer when entries are batched
+    // across multiple PutCFImpl calls (where the caller's ProtectionInfo
+    // is a stack local).
+    bool has_kv_prot_info;
+    ProtectionInfoKVOS64 kv_prot_info;
   };
 
   // Batch add multiple entries into memtable at once.

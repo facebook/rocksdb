@@ -750,6 +750,160 @@ TEST_F(DBMemTableTest, WriteBatchWithBatchAddMultipleBatches) {
   }
 }
 
+TEST_F(DBMemTableTest, BatchAddMixedPutDeleteMerge) {
+  // Test that a single WriteBatch mixing Put, Delete, SingleDelete, and Merge
+  // operations works correctly with use_batch_add=true.
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.allow_concurrent_memtable_write = false;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+
+  WriteOptions wopts;
+  wopts.use_batch_add = true;
+
+  // First, populate some keys
+  {
+    WriteBatch batch;
+    for (int i = 0; i < 100; i++) {
+      ASSERT_OK(
+          batch.Put("key" + std::to_string(i), "value" + std::to_string(i)));
+    }
+    ASSERT_OK(db_->Write(wopts, &batch));
+  }
+
+  // Now write a mixed batch: Put new keys, Delete some, SingleDelete some,
+  // Merge some
+  {
+    WriteBatch batch;
+    // Put new keys
+    for (int i = 100; i < 150; i++) {
+      ASSERT_OK(
+          batch.Put("key" + std::to_string(i), "new" + std::to_string(i)));
+    }
+    // Delete some existing keys
+    for (int i = 0; i < 20; i++) {
+      ASSERT_OK(batch.Delete("key" + std::to_string(i)));
+    }
+    // SingleDelete some existing keys
+    for (int i = 20; i < 40; i++) {
+      ASSERT_OK(batch.SingleDelete("key" + std::to_string(i)));
+    }
+    // Merge on some existing keys
+    for (int i = 40; i < 60; i++) {
+      ASSERT_OK(
+          batch.Merge("key" + std::to_string(i), "merged" + std::to_string(i)));
+    }
+    ASSERT_OK(db_->Write(wopts, &batch));
+  }
+
+  // Verify deleted keys are gone
+  for (int i = 0; i < 40; i++) {
+    std::string value;
+    Status s = db_->Get(ReadOptions(), "key" + std::to_string(i), &value);
+    ASSERT_TRUE(s.IsNotFound()) << "key" << i << " should be deleted";
+  }
+
+  // Verify merged keys
+  for (int i = 40; i < 60; i++) {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), "key" + std::to_string(i), &value));
+    std::string expected =
+        "value" + std::to_string(i) + ",merged" + std::to_string(i);
+    ASSERT_EQ(value, expected);
+  }
+
+  // Verify untouched keys
+  for (int i = 60; i < 100; i++) {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), "key" + std::to_string(i), &value));
+    ASSERT_EQ(value, "value" + std::to_string(i));
+  }
+
+  // Verify new keys
+  for (int i = 100; i < 150; i++) {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), "key" + std::to_string(i), &value));
+    ASSERT_EQ(value, "new" + std::to_string(i));
+  }
+}
+
+TEST_F(DBMemTableTest, BatchAddWithProtectionBytes) {
+  // Test that batch_add works correctly with protection_bytes_per_key > 0,
+  // which exercises the kv_prot_info code path to catch dangling pointer bugs.
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.allow_concurrent_memtable_write = false;
+  DestroyAndReopen(options);
+
+  WriteOptions wopts;
+  wopts.use_batch_add = true;
+  wopts.protection_bytes_per_key = 8;
+
+  // Write a batch with protection bytes enabled
+  const int kNumEntries = 200;
+  {
+    WriteBatch batch;
+    for (int i = 0; i < kNumEntries; i++) {
+      ASSERT_OK(
+          batch.Put("key" + std::to_string(i), "value" + std::to_string(i)));
+    }
+    ASSERT_OK(db_->Write(wopts, &batch));
+  }
+
+  // Verify all entries
+  for (int i = 0; i < kNumEntries; i++) {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), "key" + std::to_string(i), &value));
+    ASSERT_EQ(value, "value" + std::to_string(i));
+  }
+
+  // Write a second batch to trigger flush of first batch entries
+  {
+    WriteBatch batch;
+    for (int i = kNumEntries; i < kNumEntries + 50; i++) {
+      ASSERT_OK(
+          batch.Put("key" + std::to_string(i), "value" + std::to_string(i)));
+    }
+    ASSERT_OK(db_->Write(wopts, &batch));
+  }
+
+  // Verify all entries including second batch
+  for (int i = 0; i < kNumEntries + 50; i++) {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), "key" + std::to_string(i), &value));
+    ASSERT_EQ(value, "value" + std::to_string(i));
+  }
+}
+
+TEST_F(DBMemTableTest, BatchAddConcurrentWriteIgnored) {
+  // When allow_concurrent_memtable_write=true, use_batch_add should be
+  // silently ignored and writes should still work correctly.
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.allow_concurrent_memtable_write = true;
+  DestroyAndReopen(options);
+
+  WriteOptions wopts;
+  wopts.use_batch_add = true;
+
+  const int kNumEntries = 100;
+  {
+    WriteBatch batch;
+    for (int i = 0; i < kNumEntries; i++) {
+      ASSERT_OK(
+          batch.Put("key" + std::to_string(i), "value" + std::to_string(i)));
+    }
+    ASSERT_OK(db_->Write(wopts, &batch));
+  }
+
+  for (int i = 0; i < kNumEntries; i++) {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), "key" + std::to_string(i), &value));
+    ASSERT_EQ(value, "value" + std::to_string(i));
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

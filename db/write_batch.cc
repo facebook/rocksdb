@@ -2298,7 +2298,10 @@ class MemTableInserter : public WriteBatch::Handler {
         entry.type = value_type;
         entry.key = key;
         entry.value = value;
-        entry.kv_prot_info = kv_prot_info;
+        entry.has_kv_prot_info = (kv_prot_info != nullptr);
+        if (kv_prot_info != nullptr) {
+          entry.kv_prot_info = *kv_prot_info;
+        }
         pending_batch_entries_.push_back(entry);
 
         if (pending_batch_entries_.size() >= kBatchAddFlushThreshold) {
