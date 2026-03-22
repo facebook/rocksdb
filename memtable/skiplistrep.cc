@@ -72,6 +72,14 @@ class SkipListRep : public MemTableRep {
     return skip_list_.InsertConcurrently(static_cast<char*>(handle));
   }
 
+  size_t InsertBatch(KeyHandle* handles, size_t batch_size) override {
+    std::vector<const char*> keys(batch_size);
+    for (size_t i = 0; i < batch_size; ++i) {
+      keys[i] = static_cast<const char*>(handles[i]);
+    }
+    return skip_list_.InsertBatch(keys.data(), batch_size);
+  }
+
   // Returns true iff an entry that compares equal to key is in the list.
   bool Contains(const char* key) const override {
     return skip_list_.Contains(key);

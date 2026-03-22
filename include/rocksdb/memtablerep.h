@@ -163,6 +163,22 @@ class MemTableRep {
     return true;
   }
 
+  // Batch insert multiple keys at once with prefetching optimization.
+  // Returns the number of keys successfully inserted.
+  // Default implementation falls back to inserting keys one by one.
+  //
+  // REQUIRES: nothing that compares equal to any key is currently in the list.
+  // REQUIRES: no concurrent calls to any of inserts.
+  virtual size_t InsertBatch(KeyHandle* handles, size_t batch_size) {
+    size_t inserted_count = 0;
+    for (size_t i = 0; i < batch_size; ++i) {
+      if (InsertKey(handles[i])) {
+        inserted_count++;
+      }
+    }
+    return inserted_count;
+  }
+
   // Only used after concurrent memtable inserts.
   // This function will be called by each writer after all writes are done
   // through InsertConcurrently().

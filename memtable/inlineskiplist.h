@@ -46,6 +46,7 @@
 
 #include <functional>
 #include <type_traits>
+#include <vector>
 
 #include "memory/allocator.h"
 #include "port/likely.h"
@@ -119,6 +120,15 @@ class InlineSkipList {
   // Like Insert, but external synchronization is not required.
   bool InsertConcurrently(const char* key);
 
+  // Batch insert multiple keys at once with prefetching to hide memory latency.
+  // keys must have been allocated by AllocateKey and then filled in by caller.
+  // batch_size should be the number of keys in the array.
+  // Returns the number of keys successfully inserted.
+  //
+  // REQUIRES: nothing that compares equal to any key is currently in the list.
+  // REQUIRES: no concurrent calls to any of inserts.
+  size_t InsertBatch(const char** keys, size_t batch_size);
+
   // Inserts a node into the skip list.  key must have been allocated by
   // AllocateKey and then filled in by the caller.  If UseCAS is true,
   // then external synchronization is not required, otherwise this method
@@ -165,6 +175,10 @@ class InlineSkipList {
 
   // Validate correctness of the skip-list.
   void TEST_Validate() const;
+
+  // Get the number of nodes at each level (for testing/verification).
+  // Returns a vector where index i contains the count of nodes at level i.
+  std::vector<int> TEST_GetLevelNodeCounts() const;
 
   // Iteration over the contents of a skip list
   class Iterator {
@@ -943,6 +957,234 @@ bool InlineSkipList<Comparator>::InsertWithHintConcurrently(const char* key,
 }
 
 template <class Comparator>
+size_t InlineSkipList<Comparator>::InsertBatch(const char** keys,
+                                               size_t batch_size) {
+  if (batch_size == 0) {
+    return 0;
+  }
+
+  // Per-key state for interleaved search and insertion
+  struct KeyInfo {
+    const char* key;
+    DecodedKey key_decoded;
+    Node* x;
+    int height;
+    Node* prev[kMaxPossibleHeight];
+    Node* next[kMaxPossibleHeight];
+
+    // State tracking for interleaved search
+    int current_level;
+    Node* current_before;
+    Node* current_after;
+    Node* prefetched_next;
+    bool done;
+  };
+
+  // Thread-local reusable buffer to avoid repeated allocations
+  static thread_local std::vector<KeyInfo> tls_key_info_buffer;
+  if (tls_key_info_buffer.size() < batch_size) {
+    tls_key_info_buffer.resize(batch_size);
+  }
+  KeyInfo* key_infos = tls_key_info_buffer.data();
+
+  // Initialize key infos: decode keys, get heights
+  int max_key_height = 0;
+  for (size_t i = 0; i < batch_size; ++i) {
+    key_infos[i].key = keys[i];
+    key_infos[i].key_decoded = compare_.decode_key(keys[i]);
+    key_infos[i].x = reinterpret_cast<Node*>(const_cast<char*>(keys[i])) - 1;
+    key_infos[i].height = key_infos[i].x->UnstashHeight();
+    assert(key_infos[i].height >= 1 && key_infos[i].height <= kMaxHeight_);
+    if (key_infos[i].height > max_key_height) {
+      max_key_height = key_infos[i].height;
+    }
+  }
+
+  // Update max_height if necessary
+  int max_height = max_height_.LoadRelaxed();
+  while (max_key_height > max_height) {
+    if (max_height_.CasWeakRelaxed(max_height, max_key_height)) {
+      max_height = max_key_height;
+      break;
+    }
+  }
+  assert(max_height <= kMaxPossibleHeight);
+
+  // Phase 1: Find splice positions using interleaved prefetching
+  // Initialize all keys to start searching from the top level
+  for (size_t i = 0; i < batch_size; ++i) {
+    key_infos[i].current_level = max_height - 1;
+    key_infos[i].current_before = head_;
+    key_infos[i].current_after = nullptr;
+    key_infos[i].prefetched_next = nullptr;
+    key_infos[i].done = false;
+  }
+
+  // Initial prefetch round: issue prefetches for all keys
+  for (size_t i = 0; i < batch_size; ++i) {
+    int level = key_infos[i].current_level;
+    Node* before = key_infos[i].current_before;
+    Node* next = before->Next(level);
+    key_infos[i].prefetched_next = next;
+
+    if (next != nullptr) {
+      PREFETCH(next->Next(level), 0, 1);
+      PREFETCH(next->Key(), 0, 0);
+      if (level > 0) {
+        PREFETCH(next->Next(level - 1), 0, 1);
+      }
+    }
+  }
+
+  // Round-robin processing: each iteration processes the prefetched data
+  // for one key and immediately issues prefetches for its next step
+  bool any_active = true;
+  while (any_active) {
+    any_active = false;
+
+    for (size_t i = 0; i < batch_size; ++i) {
+      KeyInfo& ki = key_infos[i];
+      if (ki.done) {
+        continue;
+      }
+
+      int level = ki.current_level;
+      Node* before = ki.current_before;
+      Node* after = ki.current_after;
+      Node* next = ki.prefetched_next;
+
+      assert(before == head_ || next == nullptr ||
+             KeyIsAfterNode(next->Key(), before));
+      assert(before == head_ || KeyIsAfterNode(ki.key_decoded, before));
+
+      if (next == after || !KeyIsAfterNode(ki.key_decoded, next)) {
+        // Found splice position at this level
+        ki.prev[level] = before;
+        ki.next[level] = next;
+
+        if (level > 0) {
+          // Descend to next level
+          ki.current_level = level - 1;
+          ki.current_before = before;
+          ki.current_after = next;
+
+          // Prefetch for the descent
+          Node* next_lower = before->Next(level - 1);
+          if (next_lower != nullptr) {
+            PREFETCH(next_lower->Next(level - 1), 0, 1);
+            PREFETCH(next_lower->Key(), 0, 0);
+            if (level > 1) {
+              PREFETCH(next_lower->Next(level - 2), 0, 1);
+            }
+          }
+
+          // Copy splice down for levels above key height
+          if (level - 1 >= ki.height) {
+            ki.prev[level - 1] = before;
+            ki.next[level - 1] = next;
+          }
+        } else {
+          // Reached level 0, done
+          ki.done = true;
+        }
+      } else {
+        // Advance forward at this level
+        ki.current_before = next;
+      }
+
+      // Issue prefetch for next iteration if still active
+      if (!ki.done) {
+        any_active = true;
+
+        int new_level = ki.current_level;
+        Node* new_before = ki.current_before;
+        Node* new_next = new_before->Next(new_level);
+        ki.prefetched_next = new_next;
+
+        if (new_next != nullptr) {
+          PREFETCH(new_next->Next(new_level), 0, 1);
+          PREFETCH(new_next->Key(), 0, 0);
+          if (new_level > 0) {
+            PREFETCH(new_next->Next(new_level - 1), 0, 1);
+          }
+        }
+      }
+    }
+  }
+
+  // Phase 2: Insert all keys, checking for duplicates
+  size_t inserted_count = 0;
+  for (size_t i = 0; i < batch_size; ++i) {
+    bool is_duplicate = false;
+
+    // Check for duplicates at level 0
+    if (key_infos[i].next[0] != nullptr &&
+        compare_(key_infos[i].next[0]->Key(), key_infos[i].key_decoded) <= 0) {
+      is_duplicate = true;
+    }
+    if (key_infos[i].prev[0] != head_ &&
+        compare_(key_infos[i].prev[0]->Key(), key_infos[i].key_decoded) >= 0) {
+      is_duplicate = true;
+    }
+
+    if (is_duplicate) {
+      continue;
+    }
+
+    // Insert at all levels
+    for (int level = 0; level < key_infos[i].height; ++level) {
+      // Re-validate splice if invalidated by previous inserts in this batch
+      if (key_infos[i].prev[level]->Next(level) != key_infos[i].next[level]) {
+        Node* before = key_infos[i].prev[level];
+        while (true) {
+          Node* next = before->Next(level);
+          if (next == key_infos[i].next[level] ||
+              !KeyIsAfterNode(key_infos[i].key_decoded, next)) {
+            key_infos[i].prev[level] = before;
+            key_infos[i].next[level] = next;
+            break;
+          }
+          before = next;
+        }
+      }
+
+      // Re-check for duplicates after splice re-validation at level 0
+      if (level == 0) {
+        if (key_infos[i].next[0] != nullptr &&
+            compare_(key_infos[i].next[0]->Key(), key_infos[i].key_decoded) <=
+                0) {
+          is_duplicate = true;
+          break;
+        }
+        if (key_infos[i].prev[0] != head_ &&
+            compare_(key_infos[i].prev[0]->Key(), key_infos[i].key_decoded) >=
+                0) {
+          is_duplicate = true;
+          break;
+        }
+      }
+
+      assert(key_infos[i].next[level] == nullptr ||
+             compare_(key_infos[i].x->Key(), key_infos[i].next[level]->Key()) <
+                 0);
+      assert(key_infos[i].prev[level] == head_ ||
+             compare_(key_infos[i].prev[level]->Key(), key_infos[i].x->Key()) <
+                 0);
+      assert(key_infos[i].prev[level]->Next(level) == key_infos[i].next[level]);
+
+      key_infos[i].x->NoBarrier_SetNext(level, key_infos[i].next[level]);
+      key_infos[i].prev[level]->SetNext(level, key_infos[i].x);
+    }
+
+    if (!is_duplicate) {
+      inserted_count++;
+    }
+  }
+
+  return inserted_count;
+}
+
+template <class Comparator>
 template <bool prefetch_before>
 void InlineSkipList<Comparator>::FindSpliceForLevel(const DecodedKey& key,
                                                     Node* before, Node* after,
@@ -1407,6 +1649,27 @@ void InlineSkipList<Comparator>::TEST_Validate() const {
   for (int i = 1; i < max_height; i++) {
     assert(nodes[i] != nullptr && nodes[i]->Next(i) == nullptr);
   }
+}
+
+template <class Comparator>
+std::vector<int> InlineSkipList<Comparator>::TEST_GetLevelNodeCounts() const {
+  int max_height = GetMaxHeight();
+  std::vector<int> level_counts(max_height, 0);
+
+  for (int level = 0; level < max_height; ++level) {
+    Node* node = head_;
+    int count = 0;
+    while (true) {
+      node = node->Next(level);
+      if (node == nullptr) {
+        break;
+      }
+      count++;
+    }
+    level_counts[level] = count;
+  }
+
+  return level_counts;
 }
 
 template <class Comparator>

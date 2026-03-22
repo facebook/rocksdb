@@ -642,6 +642,25 @@ class MemTable final : public ReadOnlyMemTable {
              MemTablePostProcessInfo* post_process_info = nullptr,
              void** hint = nullptr);
 
+  // Entry for batch insertion into memtable.
+  struct MemTableEntry {
+    SequenceNumber seq;
+    ValueType type;
+    Slice key;
+    Slice value;
+    const ProtectionInfoKVOS64* kv_prot_info;
+  };
+
+  // Batch add multiple entries into memtable at once.
+  // Uses the optimized InsertBatch API for better performance by reducing
+  // cache misses through prefetching.
+  //
+  // REQUIRES: external synchronization (allow_concurrent not supported yet)
+  // REQUIRES: all entries must be for the same table type (point keys only,
+  //           not mixed with range deletions)
+  Status BatchAdd(const MemTableEntry* entries, size_t num_entries,
+                  MemTablePostProcessInfo* post_process_info = nullptr);
+
   using ReadOnlyMemTable::Get;
   bool Get(const LookupKey& key, std::string* value,
            PinnableWideColumns* columns, std::string* timestamp, Status* s,

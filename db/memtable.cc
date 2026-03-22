@@ -1127,6 +1127,166 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
   return Status::OK();
 }
 
+Status MemTable::BatchAdd(const MemTableEntry* entries, size_t num_entries,
+                          MemTablePostProcessInfo* post_process_info) {
+  if (num_entries == 0) {
+    return Status::OK();
+  }
+
+  // Allocate and encode all entries
+  std::vector<KeyHandle> handles;
+  handles.reserve(num_entries);
+
+  std::unique_ptr<MemTableRep>* table = nullptr;
+  uint64_t total_encoded_len = 0;
+  uint64_t num_del = 0;
+  uint64_t num_range_del = 0;
+
+  for (size_t i = 0; i < num_entries; ++i) {
+    const MemTableEntry& entry = entries[i];
+
+    std::unique_ptr<MemTableRep>* current_table =
+        (entry.type == kTypeRangeDeletion) ? &range_del_table_ : &table_;
+
+    if (table == nullptr) {
+      table = current_table;
+    } else if (table != current_table) {
+      return Status::InvalidArgument(
+          "BatchAdd does not support mixing point keys and range deletions");
+    }
+
+    uint32_t key_size = static_cast<uint32_t>(entry.key.size());
+    uint32_t val_size = static_cast<uint32_t>(entry.value.size());
+    uint32_t internal_key_size = key_size + 8;
+    const uint32_t encoded_len = VarintLength(internal_key_size) +
+                                 internal_key_size + VarintLength(val_size) +
+                                 val_size + moptions_.protection_bytes_per_key;
+
+    char* buf = nullptr;
+    KeyHandle handle = (*table)->Allocate(encoded_len, &buf);
+
+    char* p = EncodeVarint32(buf, internal_key_size);
+    memcpy(p, entry.key.data(), key_size);
+    p += key_size;
+    uint64_t packed = PackSequenceAndType(entry.seq, entry.type);
+    EncodeFixed64(p, packed);
+    p += 8;
+    p = EncodeVarint32(p, val_size);
+    memcpy(p, entry.value.data(), val_size);
+    assert(
+        (unsigned)(p + val_size - buf + moptions_.protection_bytes_per_key) ==
+        (unsigned)encoded_len);
+
+    UpdateEntryChecksum(entry.kv_prot_info, entry.key, entry.value, entry.type,
+                        entry.seq,
+                        buf + encoded_len - moptions_.protection_bytes_per_key);
+
+    Slice encoded(buf, encoded_len - moptions_.protection_bytes_per_key);
+    if (entry.kv_prot_info != nullptr) {
+      Status status = VerifyEncodedEntry(encoded, *entry.kv_prot_info);
+      if (!status.ok()) {
+        return status;
+      }
+    }
+
+    handles.push_back(handle);
+    total_encoded_len += encoded_len;
+
+    if (entry.type == kTypeDeletion || entry.type == kTypeSingleDeletion ||
+        entry.type == kTypeDeletionWithTimestamp) {
+      num_del++;
+    } else if (entry.type == kTypeRangeDeletion) {
+      num_range_del++;
+    }
+  }
+
+  // Batch insert all entries
+  size_t inserted_count = (*table)->InsertBatch(handles.data(), num_entries);
+  if (inserted_count != num_entries) {
+    return Status::TryAgain("Some key+seq combinations already exist");
+  }
+
+  // Update counters
+  if (post_process_info == nullptr) {
+    num_entries_.StoreRelaxed(num_entries_.LoadRelaxed() + num_entries);
+    data_size_.StoreRelaxed(data_size_.LoadRelaxed() + total_encoded_len);
+    if (num_del > 0) {
+      num_deletes_.StoreRelaxed(num_deletes_.LoadRelaxed() + num_del);
+    }
+    if (num_range_del > 0) {
+      num_range_deletes_.StoreRelaxed(num_range_deletes_.LoadRelaxed() +
+                                      num_range_del);
+    }
+  } else {
+    post_process_info->num_entries += num_entries;
+    post_process_info->data_size += total_encoded_len;
+    post_process_info->num_deletes += num_del;
+    post_process_info->num_range_deletes += num_range_del;
+  }
+
+  // Update bloom filters and sequence numbers
+  for (size_t i = 0; i < num_entries; ++i) {
+    const MemTableEntry& entry = entries[i];
+    Slice key_without_ts = StripTimestampFromUserKey(entry.key, ts_sz_);
+
+    if (bloom_filter_ && prefix_extractor_ &&
+        prefix_extractor_->InDomain(key_without_ts)) {
+      bloom_filter_->Add(prefix_extractor_->Transform(key_without_ts));
+    }
+    if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
+      bloom_filter_->Add(key_without_ts);
+    }
+
+    assert(first_seqno_ == 0 || entry.seq >= first_seqno_);
+    if (first_seqno_ == 0) {
+      first_seqno_.store(entry.seq, std::memory_order_relaxed);
+      if (earliest_seqno_ == kMaxSequenceNumber) {
+        earliest_seqno_.store(GetFirstSequenceNumber(),
+                              std::memory_order_relaxed);
+      }
+      assert(first_seqno_.load() >= earliest_seqno_.load());
+    }
+
+    Slice key_slice(entry.key.data(), entry.key.size());
+    MaybeUpdateNewestUDT(key_slice);
+  }
+
+  // Handle range deletion cache invalidation
+  if (num_range_del > 0) {
+    auto new_cache = std::make_shared<FragmentedRangeTombstoneListCache>();
+    size_t size = cached_range_tombstone_.Size();
+    range_del_mutex_.lock();
+    for (size_t i = 0; i < size; ++i) {
+#if defined(__cpp_lib_atomic_shared_ptr)
+      std::atomic<std::shared_ptr<FragmentedRangeTombstoneListCache>>*
+          local_cache_ref_ptr = cached_range_tombstone_.AccessAtCore(i);
+      auto new_local_cache_ref = std::make_shared<
+          const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
+      std::shared_ptr<FragmentedRangeTombstoneListCache> aliased_ptr(
+          new_local_cache_ref, new_cache.get());
+      local_cache_ref_ptr->store(std::move(aliased_ptr),
+                                 std::memory_order_relaxed);
+#else
+      std::shared_ptr<FragmentedRangeTombstoneListCache>* local_cache_ref_ptr =
+          cached_range_tombstone_.AccessAtCore(i);
+      auto new_local_cache_ref = std::make_shared<
+          const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
+      std::atomic_store_explicit(
+          local_cache_ref_ptr,
+          std::shared_ptr<FragmentedRangeTombstoneListCache>(
+              new_local_cache_ref, new_cache.get()),
+          std::memory_order_release);
+#endif
+    }
+    range_del_mutex_.unlock();
+    is_range_del_table_empty_.StoreRelaxed(false);
+  }
+
+  UpdateOldestKeyTime();
+  UpdateFlushState();
+  return Status::OK();
+}
+
 // Callback from MemTable::Get()
 namespace {
 
