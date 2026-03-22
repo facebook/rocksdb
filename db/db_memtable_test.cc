@@ -904,6 +904,64 @@ TEST_F(DBMemTableTest, BatchAddConcurrentWriteIgnored) {
   }
 }
 
+TEST_F(DBMemTableTest, BatchAddTimedPutNoUseAfterFree) {
+  // Regression test: TimedPut creates a stack-local value_buf whose Slice
+  // must be flushed before the stack frame returns. Verify that batch add
+  // with TimedPut doesn't cause use-after-free.
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.allow_concurrent_memtable_write = false;
+  DestroyAndReopen(options);
+
+  WriteOptions wopts;
+  wopts.use_batch_add = true;
+
+  const int kNumEntries = 100;
+  {
+    WriteBatch batch;
+    for (int i = 0; i < kNumEntries; i++) {
+      ASSERT_OK(batch.TimedPut(db_->DefaultColumnFamily(),
+                               "tkey" + std::to_string(i),
+                               "tval" + std::to_string(i),
+                               /*write_unix_time=*/1000 + i));
+    }
+    ASSERT_OK(db_->Write(wopts, &batch));
+  }
+
+  for (int i = 0; i < kNumEntries; i++) {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), "tkey" + std::to_string(i), &value));
+    // TimedPut packs value with write time, so just verify the key is found.
+    ASSERT_FALSE(value.empty());
+  }
+}
+
+TEST_F(DBMemTableTest, BatchAddWithDuplicateKeysInBatch) {
+  // Test that batch add handles duplicate user keys correctly. Each Put gets
+  // a different sequence number, so they should all be inserted.
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.allow_concurrent_memtable_write = false;
+  DestroyAndReopen(options);
+
+  WriteOptions wopts;
+  wopts.use_batch_add = true;
+
+  {
+    WriteBatch batch;
+    // Put the same key multiple times with different values
+    for (int i = 0; i < 10; i++) {
+      ASSERT_OK(batch.Put("dup_key", "value" + std::to_string(i)));
+    }
+    ASSERT_OK(db_->Write(wopts, &batch));
+  }
+
+  // The last value should be visible (highest sequence number)
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "dup_key", &value));
+  ASSERT_EQ(value, "value9");
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

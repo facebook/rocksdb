@@ -2283,9 +2283,13 @@ class MemTableInserter : public WriteBatch::Handler {
     // any kind of transactions including the ones that use seq_per_batch
     assert(!seq_per_batch_ || !moptions->inplace_update_support);
     if (!moptions->inplace_update_support) {
-      if (use_batch_add_ && !concurrent_memtable_writes_) {
+      if (use_batch_add_ && !concurrent_memtable_writes_ && !seq_per_batch_) {
         // Batch mode: collect entries and flush when threshold reached
-        // or when column family changes
+        // or when column family changes.
+        // Disabled for seq_per_batch_ because all entries share the same
+        // sequence number, so duplicate user keys produce identical internal
+        // keys. InsertBatch would insert some and skip others, but BatchAdd
+        // returns TryAgain before updating counters/bloom for any of them.
         if (batch_add_mem_ != nullptr && batch_add_mem_ != mem) {
           ret_status = FlushPendingBatch();
           if (!ret_status.ok()) {
