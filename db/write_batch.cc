@@ -2021,6 +2021,12 @@ class MemTableInserter : public WriteBatch::Handler {
   using HintMapType = aligned_storage<HintMap>::type;
   HintMapType hint_;
 
+  // Batch add support
+  bool use_batch_add_;
+  MemTable* batch_add_mem_;  // Current memtable for pending batch entries
+  std::vector<MemTable::MemTableEntry> pending_batch_entries_;
+  static constexpr size_t kBatchAddFlushThreshold = 64;
+
   HintMap& GetHintMap() {
     assert(hint_per_batch_);
     if (!hint_created_) {
@@ -2091,7 +2097,8 @@ class MemTableInserter : public WriteBatch::Handler {
                    bool concurrent_memtable_writes,
                    const WriteBatch::ProtectionInfo* prot_info,
                    bool* has_valid_writes = nullptr, bool seq_per_batch = false,
-                   bool batch_per_txn = true, bool hint_per_batch = false)
+                   bool batch_per_txn = true, bool hint_per_batch = false,
+                   bool use_batch_add = false)
       : sequence_(_sequence),
         cf_mems_(cf_mems),
         flush_scheduler_(flush_scheduler),
@@ -2119,7 +2126,9 @@ class MemTableInserter : public WriteBatch::Handler {
         duplicate_detector_(),
         dup_dectector_on_(false),
         hint_per_batch_(hint_per_batch),
-        hint_created_(false) {
+        hint_created_(false),
+        use_batch_add_(use_batch_add),
+        batch_add_mem_(nullptr) {
     assert(cf_mems_);
   }
 
@@ -2142,6 +2151,19 @@ class MemTableInserter : public WriteBatch::Handler {
 
   MemTableInserter(const MemTableInserter&) = delete;
   MemTableInserter& operator=(const MemTableInserter&) = delete;
+
+  Status FlushPendingBatch() {
+    if (pending_batch_entries_.empty() || batch_add_mem_ == nullptr) {
+      return Status::OK();
+    }
+    Status s = batch_add_mem_->BatchAdd(
+        pending_batch_entries_.data(), pending_batch_entries_.size(),
+        concurrent_memtable_writes_ ? get_post_process_info(batch_add_mem_)
+                                    : nullptr);
+    pending_batch_entries_.clear();
+    batch_add_mem_ = nullptr;
+    return s;
+  }
 
   // The batch seq is regularly restarted; In normal mode it is set when
   // MemTableInserter is constructed in the write thread and in recovery mode it
@@ -2261,10 +2283,33 @@ class MemTableInserter : public WriteBatch::Handler {
     // any kind of transactions including the ones that use seq_per_batch
     assert(!seq_per_batch_ || !moptions->inplace_update_support);
     if (!moptions->inplace_update_support) {
-      ret_status =
-          mem->Add(sequence_, value_type, key, value, kv_prot_info,
-                   concurrent_memtable_writes_, get_post_process_info(mem),
-                   hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
+      if (use_batch_add_ && !concurrent_memtable_writes_) {
+        // Batch mode: collect entries and flush when threshold reached
+        // or when column family changes
+        if (batch_add_mem_ != nullptr && batch_add_mem_ != mem) {
+          ret_status = FlushPendingBatch();
+          if (!ret_status.ok()) {
+            return ret_status;
+          }
+        }
+        batch_add_mem_ = mem;
+        MemTable::MemTableEntry entry;
+        entry.seq = sequence_;
+        entry.type = value_type;
+        entry.key = key;
+        entry.value = value;
+        entry.kv_prot_info = kv_prot_info;
+        pending_batch_entries_.push_back(entry);
+
+        if (pending_batch_entries_.size() >= kBatchAddFlushThreshold) {
+          ret_status = FlushPendingBatch();
+        }
+      } else {
+        ret_status =
+            mem->Add(sequence_, value_type, key, value, kv_prot_info,
+                     concurrent_memtable_writes_, get_post_process_info(mem),
+                     hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
+      }
     } else if (moptions->inplace_callback == nullptr ||
                value_type != kTypeValue) {
       assert(!concurrent_memtable_writes_);
@@ -3245,7 +3290,7 @@ Status WriteBatchInternal::InsertInto(
     TrimHistoryScheduler* trim_history_scheduler,
     bool ignore_missing_column_families, uint64_t log_number, DB* db,
     bool concurrent_memtable_writes, bool seq_per_batch, size_t batch_cnt,
-    bool batch_per_txn, bool hint_per_batch) {
+    bool batch_per_txn, bool hint_per_batch, bool use_batch_add) {
 #ifdef NDEBUG
   (void)batch_cnt;
 #endif
@@ -3255,11 +3300,14 @@ Status WriteBatchInternal::InsertInto(
                             ignore_missing_column_families, log_number, db,
                             concurrent_memtable_writes, nullptr /* prot_info */,
                             nullptr /*has_valid_writes*/, seq_per_batch,
-                            batch_per_txn, hint_per_batch);
+                            batch_per_txn, hint_per_batch, use_batch_add);
   SetSequence(writer->batch, sequence);
   inserter.set_log_number_ref(writer->log_ref);
   inserter.set_prot_info(writer->batch->prot_info_.get());
   Status s = writer->batch->Iterate(&inserter);
+  if (s.ok() && use_batch_add) {
+    s = inserter.FlushPendingBatch();
+  }
   assert(!seq_per_batch || batch_cnt != 0);
   assert(!seq_per_batch || inserter.sequence() - sequence == batch_cnt);
   if (concurrent_memtable_writes) {

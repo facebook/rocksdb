@@ -216,7 +216,8 @@ class WriteBatchInternal {
                            bool concurrent_memtable_writes = false,
                            bool seq_per_batch = false, size_t batch_cnt = 0,
                            bool batch_per_txn = true,
-                           bool hint_per_batch = false);
+                           bool hint_per_batch = false,
+                           bool use_batch_add = false);
 
   // Appends src write batch to dst write batch and updates count in dst
   // write batch. Returns OK if the append is successful. Checks number of
