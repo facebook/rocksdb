@@ -7,7 +7,7 @@ This document describes RocksDB's secondary cache tier and row cache mechanisms.
 RocksDB supports multiple caching mechanisms beyond the primary block cache:
 
 1. **Secondary Cache**: A second-tier cache behind the primary block cache, typically storing compressed blocks or using non-volatile storage
-2. **Row Cache**: A per-row cache for point lookups that stores entire key-value pairs
+2. **Row Cache**: A per-row cache for point lookups that stores serialized `GetContext` replay logs (sequences of `ValueType` + length-prefixed values, with optional timestamps)
 
 ## Secondary Cache Architecture
 
@@ -59,6 +59,15 @@ class SecondaryCache {
 
   // Wait for multiple lookups to complete
   virtual void WaitAll(std::vector<SecondaryCacheResultHandle*> handles) = 0;
+
+  // Whether the secondary cache supports force-erase (dummy entry promotion)
+  virtual bool SupportForceErase() const = 0;
+
+  // Capacity management (default: NotSupported)
+  virtual Status SetCapacity(size_t capacity);
+  virtual Status GetCapacity(size_t& capacity);
+  virtual Status Deflate(size_t decrease);  // Reduce capacity
+  virtual Status Inflate(size_t increase);  // Increase capacity
 };
 ```
 
@@ -71,6 +80,12 @@ class SecondaryCache {
 - **`Lookup()`**: Looks up a key. Returns a handle that may not be ready immediately if `wait=false`. The `advise_erase` parameter hints that the primary cache will store this entry, so the secondary cache can optionally erase it.
 
 - **`WaitAll()`**: Efficiently waits for multiple async lookups to complete, used for batch operations like MultiGet.
+
+- **`SupportForceErase()`**: Returns whether this cache supports force-erase semantics, enabling the dummy-entry promotion strategy in `CacheWithSecondaryAdapter`.
+
+- **`SetCapacity()`/`GetCapacity()`**: Get or set the secondary cache capacity. Default implementation returns `NotSupported`.
+
+- **`Deflate()`/`Inflate()`**: Decrease or increase the secondary cache capacity by a given amount. Used by `CacheWithSecondaryAdapter` for memory budget distribution when `distribute_cache_res=true`. Default implementation returns `NotSupported`.
 
 **⚠️ INVARIANT**: `Insert()` returning `Status::OK()` does NOT guarantee the item was cached. The secondary cache may reject insertions based on admission policy or capacity constraints.
 
@@ -193,20 +208,22 @@ class CompressedSecondaryCache : public SecondaryCache {
 
 ### Data Format
 
-Compressed entries are stored with a 2-byte header (tag):
+Entries are stored as a **tagged value** with a 2-byte header followed by the saved block data (which may or may not be compressed):
 
 ```
-┌──────────────┬──────────────┬─────────────────────┐
-│ Source (1B)  │ Type (1B)    │  Compressed Data    │
-└──────────────┴──────────────┴─────────────────────┘
+┌──────────────┬──────────────┬──────────────────────────────┐
+│ Source (1B)  │ Type (1B)    │  Saved/Compressed Block Data │
+└──────────────┴──────────────┴──────────────────────────────┘
 ```
 
 - **Source (`CacheTier`)**: Which tier is responsible for compression/decompression
   - `kVolatileCompressedTier`: Compressed by CompressedSecondaryCache
   - `kVolatileTier`: Already compressed from primary cache
-- **Type (`CompressionType`)**: Compression algorithm used
+- **Type (`CompressionType`)**: Compression algorithm used (`kNoCompression` when data is uncompressed — e.g., compression was disabled, rejected, or skipped for a specific role)
 
-When `enable_custom_split_merge=true`, data is split into chunks (`CacheValueChunk`) to reduce internal fragmentation.
+The tagged value is stored differently depending on `enable_custom_split_merge`:
+- **`enable_custom_split_merge=false`** (default): Stored as a `LengthPrefixedSlice` (varint64 size prefix + tagged value)
+- **`enable_custom_split_merge=true`**: Stored as a chain of `CacheValueChunk` objects (linked list of fixed-size chunks) to reduce internal fragmentation in the allocator
 
 ### Insertion Flow
 
@@ -293,9 +310,11 @@ std::unique_ptr<SecondaryCacheResultHandle> Lookup(...) {
 
 ### Statistics
 
-Tracked in `Statistics`:
+Tracked in `Statistics` (Tickers):
 - `COMPRESSED_SECONDARY_CACHE_HITS`: Successful lookups
 - `COMPRESSED_SECONDARY_CACHE_DUMMY_HITS`: Lookups that hit dummy entries
+
+Tracked in `PerfContext` (per-thread counters):
 - `compressed_sec_cache_insert_real_count`: Real entries inserted
 - `compressed_sec_cache_insert_dummy_count`: Dummy entries inserted
 - `compressed_sec_cache_uncompressed_bytes`: Total uncompressed data size
@@ -379,10 +398,10 @@ std::unique_ptr<SecondaryCacheResultHandle> Lookup(...) {
 
 **Promotion from NVM tier:**
 - Uses `MaybeInsertAndCreate()` callback to intercept object creation
-- On successful NVM hit with compressed data, optionally inserts into compressed tier
-- Decision based on `advise_erase` and compression type
+- On NVM hit, promotion to compressed tier only occurs when `!advise_erase && type != kNoCompression`
+- Even when promotion is attempted, `CompressedSecondaryCache::InsertSaved()` applies its own admission logic: it silently skips insertion when `type == kNoCompression` or `enable_custom_split_merge == true`, and uses dummy-on-first-insert admission (first promotion creates only a placeholder; subsequent promotions insert real data)
 
-**⚠️ INVARIANT**: TieredSecondaryCache does not support `Insert()` from the primary cache (returns OK but does nothing). Demotion only happens from primary → compressed tier via CacheWithSecondaryAdapter.
+**⚠️ INVARIANT**: `TieredSecondaryCache::Insert()` is a no-op (returns OK but does nothing). With `kAdmPolicyThreeQueue`, `CacheWithSecondaryAdapter::EvictionHandler()` also skips calling `Insert()`, so no demotion happens from primary cache at all. With other admission policies, demotion from primary to compressed tier happens via `CacheWithSecondaryAdapter::EvictionHandler()` calling `CompressedSecondaryCache::Insert()` directly.
 
 ### Admission Policies
 
@@ -409,9 +428,13 @@ Defined in `TieredAdmissionPolicy`:
 
 2. Later access (miss in primary, hit in NVM)
    → Decompress and promote to primary
-   → Insert compressed block into compressed tier (if not advise_erase)
+   → If !advise_erase and data is compressed: attempt InsertSaved() into compressed tier
+     (first hit typically creates only a dummy placeholder due to admission policy)
 
-3. Future access (hit in compressed tier)
+3. Another NVM hit for same key (dummy exists in compressed tier)
+   → InsertSaved() inserts real compressed data into compressed tier
+
+4. Future access (hit in compressed tier)
    → Decompress and promote to primary
 ```
 
@@ -419,7 +442,7 @@ Defined in `TieredAdmissionPolicy`:
 
 ## Row Cache
 
-Row cache is a separate cache for storing entire key-value pairs (rows) to speed up point lookups (Get operations).
+Row cache is a separate cache for storing serialized `GetContext` replay logs to speed up point lookups (`Get` and `MultiGet` operations). Each cached entry is a sequence of `ValueType` bytes plus length-prefixed values (and optional timestamps for user-defined timestamp columns), which captures merge operations and other `GetContext` state.
 
 ### Purpose
 
@@ -434,13 +457,14 @@ Get(key) → Lookup in row cache → If hit, return value immediately
 
 **Benefits:**
 - Bypasses block cache lookup, block decompression, and binary search within blocks
-- Stores the exact key-value pair, not the entire block
+- Stores the serialized result for a specific key, not the entire block
 - Useful for workloads with high point lookup rate and small values
 
 **Tradeoffs:**
 - Duplicates data between row cache and block cache
 - Less efficient for range scans (block cache is better)
 - Incompatible with certain features (e.g., DeleteRange, bloom filters benefit is reduced)
+- Disabled when the caller needs the returned sequence number (`NeedToReadSequence()` returns true), since row cache does not currently store sequence numbers
 
 ### Configuration
 
@@ -592,19 +616,20 @@ Status TableCache::Get(...) {
 - High rate of Get() operations for the same hot keys
 - Small to medium-sized values (large values waste cache capacity)
 - Workloads with high temporal locality
-- Applications that can tolerate some staleness (entries not actively invalidated)
+- Applications that can tolerate some staleness (entries keyed by file number become stale after compaction, though this does not affect correctness — stale entries simply miss and get repopulated)
 
 **Poor use cases:**
 - Range scans (use block cache instead)
 - Large values (row cache not size-efficient)
 - Workloads using DeleteRange() (not supported)
 - Applications requiring strong consistency (snapshot sequence numbers add overhead)
+- Workloads that need returned sequence numbers (row cache is bypassed when `NeedToReadSequence()` is true)
 
 ### Row Cache vs Block Cache
 
 | Aspect | Row Cache | Block Cache |
 |--------|-----------|-------------|
-| **Granularity** | Individual key-value pairs | Entire data blocks (~4-32 KB) |
+| **Granularity** | Serialized per-key replay logs | Entire data blocks (~4-32 KB) |
 | **Lookup cost** | Direct hash lookup | Block lookup + binary search in block |
 | **Space efficiency** | Lower (stores individual rows) | Higher (multiple rows per block) |
 | **Range scan support** | No (must look up each key) | Yes (entire block cached) |
@@ -647,6 +672,7 @@ COMPRESSED_SECONDARY_CACHE_PROMOTION_SKIPS // Skipped promotions
 ```cpp
 secondary_cache_hit_count                     // Total secondary cache hits
 block_cache_standalone_handle_count           // Standalone handles created
+block_cache_real_handle_count                 // Real handles inserted into primary cache
 compressed_sec_cache_insert_real_count        // Real entries inserted
 compressed_sec_cache_insert_dummy_count       // Dummy entries inserted
 compressed_sec_cache_uncompressed_bytes       // Bytes before compression
@@ -656,10 +682,7 @@ compressed_sec_cache_compressed_bytes         // Bytes after compression
 **Calculating metrics:**
 
 ```cpp
-// Secondary cache hit rate
-sec_hit_rate = SECONDARY_CACHE_HITS / (SECONDARY_CACHE_HITS + SECONDARY_CACHE_MISSES)
-
-// Compressed secondary cache compression ratio
+// Compressed secondary cache compression ratio (from PerfContext)
 compression_ratio = compressed_sec_cache_compressed_bytes /
                     compressed_sec_cache_uncompressed_bytes
 
@@ -706,7 +729,8 @@ row_cache_hit_rate = ROW_CACHE_HIT / (ROW_CACHE_HIT + ROW_CACHE_MISS)
 - `kAdmPolicyThreeQueue`: For NVM tier, balances memory and flash wear
 
 **Async lookups:**
-- Always use `StartAsyncLookup()` + `WaitAll()` for MultiGet to parallelize decompression
+- Use `StartAsyncLookup()` + `WaitAll()` for MultiGet when using secondary caches that actually defer lookup work (e.g., NVM-backed caches)
+- Note: `CompressedSecondaryCache` ignores the `wait` parameter, returns always-ready handles, and its `WaitAll()` is a no-op — async patterns provide no benefit for the built-in compressed cache alone
 - Sync lookups (`wait=true`) block the calling thread
 
 ### Row Cache
@@ -739,7 +763,10 @@ sec_cache_opts.capacity = 2ULL << 30;  // 2 GB compressed secondary
 sec_cache_opts.compression_type = kLZ4Compression;
 
 cache_opts.secondary_cache = NewCompressedSecondaryCache(sec_cache_opts);
-options.block_cache = cache_opts.MakeSharedCache();
+
+BlockBasedTableOptions table_options;
+table_options.block_cache = cache_opts.MakeSharedCache();
+options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 ```
 
 ### Tiered Cache (Three-Tier)
@@ -751,7 +778,8 @@ tiered_opts.compressed_secondary_ratio = 0.3;  // 30% for compressed tier
 tiered_opts.cache_type = PrimaryCacheType::kCacheTypeHCC;  // HyperClockCache
 tiered_opts.adm_policy = TieredAdmissionPolicy::kAdmPolicyThreeQueue;
 
-LRUCacheOptions primary_opts;
+HyperClockCacheOptions primary_opts(0 /* capacity, overridden by total_capacity */,
+                                     0 /* estimated_entry_charge */);
 tiered_opts.cache_opts = &primary_opts;
 
 tiered_opts.comp_cache_opts.compression_type = kZSTD;
@@ -759,7 +787,9 @@ tiered_opts.comp_cache_opts.compression_type = kZSTD;
 // Optional: Add NVM tier (e.g., local flash cache)
 tiered_opts.nvm_sec_cache = my_nvm_cache;
 
-options.block_cache = NewTieredCache(tiered_opts);
+BlockBasedTableOptions table_options;
+table_options.block_cache = NewTieredCache(tiered_opts);
+options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 ```
 
 ### Row Cache
@@ -771,7 +801,10 @@ options.row_cache = row_cache_opts.MakeSharedRowCache();
 
 LRUCacheOptions block_cache_opts;
 block_cache_opts.capacity = 8ULL << 30;  // 8 GB block cache
-options.block_cache = block_cache_opts.MakeSharedCache();
+
+BlockBasedTableOptions table_options;
+table_options.block_cache = block_cache_opts.MakeSharedCache();
+options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 ```
 
 ### Combined: Tiered Block Cache + Row Cache
@@ -783,7 +816,10 @@ tiered_opts.total_capacity = 8ULL << 30;
 tiered_opts.compressed_secondary_ratio = 0.25;
 LRUCacheOptions primary_opts;
 tiered_opts.cache_opts = &primary_opts;
-options.block_cache = NewTieredCache(tiered_opts);
+
+BlockBasedTableOptions table_options;
+table_options.block_cache = NewTieredCache(tiered_opts);
+options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
 // Row cache
 LRUCacheOptions row_cache_opts;
@@ -811,7 +847,7 @@ options.row_cache = row_cache_opts.MakeSharedRowCache();
 
 ### Cache Statistics
 - `include/rocksdb/statistics.h` - Ticker definitions (SECONDARY_CACHE_*, ROW_CACHE_*, COMPRESSED_SECONDARY_CACHE_*)
-- `monitoring/perf_context_imp.h` - PerfContext counters
+- `include/rocksdb/perf_context.h` - PerfContext counter field definitions
 
 ### Tiered Cache Configuration
 - `include/rocksdb/cache.h` - TieredCacheOptions, TieredAdmissionPolicy, NewTieredCache(), UpdateTieredCache()

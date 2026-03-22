@@ -15,16 +15,21 @@ RocksDB protects data integrity through several independent mechanisms:
 │                     Data Integrity Layers                    │
 ├─────────────────────────────────────────────────────────────┤
 │  1. Block Checksum (SST data/index/filter blocks)           │
-│  2. WAL Record Checksum (per-record CRC32c)                 │
-│  3. MANIFEST Record Checksum (VersionEdit integrity)        │
-│  4. Handoff Checksum (writer → filesystem)                  │
-│  5. File Checksum (full-file verification)                  │
-│  6. MemTable Protection (per-key checksums)                 │
-│  7. Paranoid Verification (extra checks at runtime)         │
+│  2. SST Footer Checksum (format version ≥ 6)                │
+│  3. WAL Record Checksum (per-record CRC32c)                 │
+│  4. WAL Tracking & Verification (MANIFEST/predecessor WAL)  │
+│  5. MANIFEST Record Checksum (VersionEdit integrity)        │
+│  6. Handoff Checksum (writer → filesystem)                  │
+│  7. File Checksum (full-file verification)                  │
+│  8. Blob File Checksums (header/blob/footer CRCs)           │
+│  9. WriteBatch Protection (per-key checksums in write path) │
+│ 10. MemTable Protection (per-key checksums)                 │
+│ 11. Block Protection (in-memory per-key checksums)          │
+│ 12. Paranoid Verification (extra checks at runtime)         │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**⚠️ INVARIANT**: All checksums use big-endian encoding for cross-platform consistency, except block-level CRC32c which uses `crc32c::Mask()` to prevent all-zeros checksums from silent corruption.
+**⚠️ INVARIANT**: Most on-disk checksums (SST block trailers, WAL headers, SST footer checksums) use little-endian encoding via `EncodeFixed32`/`DecodeFixed32`. The exception is the built-in full-file checksum generator (`FileChecksumGenCrc32c`), which explicitly stores big-endian raw bytes via `EndianSwapValue`. Block-level CRC32c uses `crc32c::Mask()` to prevent all-zeros checksums from silent corruption.
 
 **⚠️ INVARIANT**: Corruption detected during read operations returns `Status::Corruption()` rather than crashing, allowing applications to implement recovery strategies.
 
@@ -81,18 +86,18 @@ Every block in an SST file (data, index, filter, compression dictionary) has a 5
 ### Block Trailer Format
 
 ```
-┌──────────────────┬─────────────┬──────────────┐
-│   Block Data     │  Checksum   │ Compression  │
-│   (variable)     │  (4 bytes)  │   (1 byte)   │
-└──────────────────┴─────────────┴──────────────┘
+┌──────────────────┬──────────────┬─────────────┐
+│   Block Data     │ Compression  │  Checksum   │
+│   (variable)     │   (1 byte)   │  (4 bytes)  │
+└──────────────────┴──────────────┴─────────────┘
                     └── 5-byte Block Trailer ──┘
 ```
 
-**Trailer Layout**:
-- **Checksum (4 bytes)**: Computed over `compression_type + block_data`
-- **Compression Type (1 byte)**: `kNoCompression`, `kSnappyCompression`, `kZSTD`, etc.
+**Trailer Layout** (offset within trailer):
+- **Compression Type (1 byte, offset 0)**: `kNoCompression`, `kSnappyCompression`, `kZSTD`, etc.
+- **Checksum (4 bytes, offset 1)**: Computed over `block_data + compression_type_byte`
 
-**⚠️ INVARIANT**: The checksum covers BOTH the compression type byte AND the compressed/uncompressed block data. This prevents compression type corruption from going undetected.
+**⚠️ INVARIANT**: The checksum covers BOTH the compressed/uncompressed block data AND the compression type byte (trailer[0]). This prevents compression type corruption from going undetected.
 
 ### Writing Checksums
 
@@ -106,7 +111,7 @@ Status WriteBlock(const Slice& block_contents,
   // 1. Compress block if needed
   Slice compressed = MaybeCompress(block_contents, compression_type);
 
-  // 2. Compute checksum over compression_type + data
+  // 2. Compute checksum over block_data + compression_type
   char trailer[kBlockTrailerSize];
   trailer[0] = static_cast<char>(compression_type);
   uint32_t checksum = ComputeBuiltinChecksum(
@@ -116,9 +121,12 @@ Status WriteBlock(const Slice& block_contents,
       /*include_trailer_byte=*/true,
       trailer[0]);
 
-  EncodeFixed32(trailer + 1, checksum);
+  // Context checksum modifier (format version >= 6)
+  checksum += ChecksumModifierForContext(...);
 
-  // 3. Write: [block_data][5-byte trailer]
+  EncodeFixed32(trailer + 1, checksum);  // little-endian at trailer[1..4]
+
+  // 3. Write: [block_data][compression_type(1)][checksum(4)]
   file_->Append(compressed);
   file_->Append(Slice(trailer, kBlockTrailerSize));
 }
@@ -128,21 +136,28 @@ Status WriteBlock(const Slice& block_contents,
 For format version 6+, RocksDB adds context to checksums to prevent cross-file and cross-block corruption:
 
 ```cpp
+// table/block_based/block_based_table_builder.cc
+// base_context_checksum is a random non-zero 32-bit value chosen at
+// table-build time and stored in the SST footer.
+base_context_checksum_ = Random::GetTLSInstance()->Next() | 1;
+
 // table/format.h:136
 inline uint32_t ChecksumModifierForContext(uint32_t base_context_checksum,
                                            uint64_t offset) {
-  // Mix base checksum (derived from unique_id) with block offset
+  // Mix base checksum with block offset
   uint32_t modifier =
       base_context_checksum ^ (Lower32of64(offset) + Upper32of64(offset));
-  return modifier;  // XORed with raw checksum
+  return modifier;  // Added to checksum on write, subtracted on read
 }
 ```
+
+The modifier is **added** to the raw checksum during writes and **subtracted** during reads (not XORed). `base_context_checksum` is stored in the SST footer via `EncodeFixed32`.
 
 This prevents:
 - Blocks from different files appearing valid if copied incorrectly
 - Blocks from the same file being swapped without detection
 
-**⚠️ INVARIANT**: Format version ≥ 6 files MUST have a unique ID in the footer. Context checksums are derived from `unique_id ⊕ block_offset`.
+**Note**: `base_context_checksum` is a random value, unrelated to the SST unique ID mechanism (which is derived from table properties).
 
 ### Reading and Verifying Checksums
 
@@ -170,7 +185,8 @@ if (read_options_.verify_checksums) {
 ```cpp
 ReadOptions read_opts;
 read_opts.verify_checksums = true;  // Default: true
-// Checksum verification happens on every Get(), Iterator operation
+// Checksum verification happens when blocks are read from underlying storage.
+// Blocks served from the block cache are NOT re-verified on each read.
 ```
 
 **Performance**: With `verify_checksums = true` and XXH3, checksum overhead is ~1-2% on typical workloads.
@@ -194,7 +210,7 @@ The Write-Ahead Log (WAL) uses per-record CRC32c checksums to detect corruption 
  └─────────── kHeaderSize = 7 bytes ────────────────┘
 ```
 
-**Checksum Coverage**: Covers `Type + Length + Payload` (NOT the checksum field itself).
+**Checksum Coverage**: Covers `Type + Payload` only. The length bytes are NOT included in the CRC. The writer precomputes CRC over the record type byte, then combines it with the payload CRC using `crc32c::Crc32cCombine()`. For recyclable records, the 4-byte log number is also included in the CRC.
 
 **Recyclable WAL Format** (recycled log files add 4 more bytes):
 ```
@@ -232,12 +248,12 @@ if (checksum_) {
 **Recovery Modes**:
 ```cpp
 DBOptions options;
-options.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
+options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
 // Options:
+// - kTolerateCorruptedTailRecords: Tolerates incomplete tail records/trailing zeros
 // - kAbsoluteConsistency: Any corruption is fatal
-// - kPointInTimeRecovery: Tolerates incomplete tail records
+// - kPointInTimeRecovery: Default. Stops replay before corruption point
 // - kSkipAnyCorruptedRecords: Skips all corrupted records (data loss risk)
-// - kTolerateCorruptedTailRecords: Default, tolerates incomplete writes
 ```
 
 **Corruption Handling**:
@@ -251,26 +267,25 @@ case kBadRecordChecksum:
   // 3. Replay up to corruption point
 ```
 
-**⚠️ INVARIANT**: WAL corruption during recovery is ONLY tolerated for the last record in the last WAL file (incomplete write). Corruption in the middle triggers `Status::Corruption()`.
+**⚠️ INVARIANT**: Corruption tolerance depends on the recovery mode. `kTolerateCorruptedTailRecords` tolerates incomplete tail records and trailing zeros. `kPointInTimeRecovery` (default) stops replaying before the first corruption. `kSkipAnyCorruptedRecords` can skip corrupted records anywhere. The reader also has special handling for recycled log files.
 
 ### WAL Handoff Checksums (End-to-End)
 
-When `checksum_handoff_file_types` includes WAL files, RocksDB computes XXH3 checksums during writes and passes them to the filesystem for verification.
+When `checksum_handoff_file_types` includes WAL files, RocksDB computes CRC32c checksums during writes and passes them to the filesystem for verification.
 
 ```cpp
-// file/writable_file_writer.cc
-Status WritableFileWriter::Append(const Slice& data) {
-  if (checksum_generator_) {
-    // Update end-to-end checksum
-    checksum_generator_->Update(data.data(), data.size());
-  }
+// file/writable_file_writer.h
+// Handoff is always CRC32c regardless of SST checksum type.
+IOStatus Append(const IOOptions& opts, const Slice& data,
+                uint32_t crc32c_checksum = 0);
 
-  // Pass checksum to filesystem
-  DataVerificationInfo verify_info;
-  verify_info.checksum = Slice(reinterpret_cast<char*>(&checksum),
-                               sizeof(checksum));
-  return writable_file_->Append(data, io_options, verify_info, io_dbg);
-}
+// file/writable_file_writer.cc
+// When perform_data_verification_ is true, CRC32c is computed and
+// passed to the filesystem via DataVerificationInfo.
+DataVerificationInfo verify_info;
+verify_info.checksum = Slice(reinterpret_cast<char*>(&checksum),
+                             sizeof(checksum));
+return writable_file_->Append(data, io_options, verify_info, io_dbg);
 ```
 
 This protects against corruption in the I/O path between RocksDB and disk.
@@ -290,17 +305,17 @@ MANIFEST-XXXXXX
     └── LogNumber: Current WAL number
 ```
 
-**⚠️ INVARIANT**: MANIFEST corruption is ALWAYS fatal. RocksDB cannot open a DB with a corrupted MANIFEST (no recovery mode).
+**⚠️ INVARIANT**: MANIFEST corruption is fatal by default. However, with `best_efforts_recovery = true`, RocksDB can try older MANIFEST files in reverse chronological order and recover to the most recent consistent point-in-time state.
 
 **VersionEdit Integrity**:
 Each `VersionEdit` record stores SST file checksums:
 ```cpp
 // db/version_edit.h
 struct FileMetaData {
-  uint64_t file_number;
-  std::string file_checksum;        // Full-file checksum (if enabled)
-  std::string file_checksum_func_name;  // e.g., "FileChecksumCrc32c"
-  std::string unique_id;            // 192-bit unique ID
+  FileDescriptor fd;                      // Contains file number, path, size
+  std::string file_checksum;              // Full-file checksum (if enabled)
+  std::string file_checksum_func_name;    // e.g., "FileChecksumCrc32c"
+  UniqueId64x2 unique_id{};              // 128-bit unique ID
   // ...
 };
 ```
@@ -320,12 +335,12 @@ Handoff checksums provide end-to-end data integrity from RocksDB's write buffer 
 
 ```cpp
 DBOptions options;
-options.checksum_handoff_file_types = {kWALFile, kTableFile, kDescriptorFile};
+options.checksum_handoff_file_types = {kWalFile, kTableFile, kDescriptorFile};
 // Default: empty set (disabled)
-// Types: kWALFile, kTableFile, kDescriptorFile, kTempFile, kBlobFile
+// Types: kWalFile, kTableFile, kDescriptorFile, kTempFile, kBlobFile
 ```
 
-**Checksum Type**: Always `ChecksumType::kCRC32c` (matches filesystem support).
+**Checksum Type**: Always CRC32c for handoff (see `options.h`: "currently RocksDB only generates crc32c based checksum for the handoff").
 
 ### Write Path
 
@@ -339,12 +354,16 @@ options.checksum_handoff_file_types = {kWALFile, kTableFile, kDescriptorFile};
 **Implementation**:
 ```cpp
 // file/writable_file_writer.cc
-IOStatus WritableFileWriter::Append(const Slice& data) {
+// WritableFileWriter::Append computes CRC32c and passes it to the
+// filesystem via DataVerificationInfo for end-to-end verification.
+IOStatus WritableFileWriter::Append(const IOOptions& opts,
+                                    const Slice& data,
+                                    uint32_t crc32c_checksum) {
   DataVerificationInfo verify_info;
 
-  if (perform_checksum_handoff_) {
-    // Compute checksum for this write
-    verify_info.checksum = crc32c::Value(data.data(), data.size());
+  if (perform_data_verification_) {
+    // Compute or use provided CRC32c checksum
+    verify_info.checksum = ...;
   }
 
   // Filesystem can verify checksum before persisting
@@ -401,28 +420,26 @@ class MyFileChecksumGenerator : public FileChecksumGenerator {
 
 **Write Time**:
 ```cpp
-// table/table_builder.cc
-TableBuilder::Finish() {
-  if (file_checksum_generator) {
-    // Called for every write to the file
-    file_checksum_generator->Update(data, size);
+// file/writable_file_writer.cc
+// The full-file checksum generator (checksum_generator_) is updated on
+// every Append() call. On Close(), the generator is finalized:
+WritableFileWriter::Close() {
+  if (checksum_generator_ != nullptr && !checksum_finalized_) {
+    checksum_generator_->Finalize();
+    checksum_finalized_ = true;
   }
-
-  // At file close:
-  file_checksum_generator->Finalize();
-  std::string checksum = file_checksum_generator->GetChecksum();
-
-  // Store in TableProperties
-  table_properties.file_checksum = checksum;
-  table_properties.file_checksum_func_name =
-      file_checksum_generator->Name();
 }
+
+// db/builder.cc
+// After file close, the checksum is copied into FileMetaData:
+meta->file_checksum = file_writer->GetFileChecksum();
+meta->file_checksum_func_name = file_writer->GetFileChecksumFuncName();
 ```
 
 **Metadata Storage**:
 File checksums are stored in:
-1. **SST TableProperties** (inside the file)
-2. **MANIFEST** (VersionEdit::AddFile record)
+1. **MANIFEST** (VersionEdit::AddFile record, in `FileMetaData`)
+2. Note: Full-file checksums are NOT stored inside the SST file itself (not in `TableProperties`)
 
 **Verification**:
 ```cpp
@@ -430,13 +447,14 @@ File checksums are stored in:
 IngestExternalFileOptions ingest_opts;
 ingest_opts.verify_file_checksum = true;  // Default: true
 
-// Verify existing files
+// Verify existing files (SST and blob files)
 ReadOptions read_opts;
 Status s = db->VerifyFileChecksums(read_opts);
-// Iterates all SST files, recomputes checksums, compares with metadata
+// Iterates all live SST and blob files, recomputes checksums, compares with MANIFEST metadata
+// Returns InvalidArgument if file_checksum_gen_factory is not configured
 ```
 
-**⚠️ INVARIANT**: File checksums stored in MANIFEST are treated as ground truth. If SST's embedded checksum disagrees with MANIFEST, MANIFEST wins.
+**⚠️ INVARIANT**: File checksums stored in MANIFEST are treated as ground truth. However, during external SST ingestion with `verify_file_checksum=false`, caller-supplied checksum metadata may be accepted without recomputation (only the checksum function name is validated).
 
 ---
 
@@ -467,9 +485,9 @@ cf_options.paranoid_file_checks = false;  // Default: false
 ```
 
 **Effects when enabled**:
-1. **After Flush**: Reads all blocks of newly created SST file to verify checksums
-2. **After Compaction**: Reads all blocks of compaction outputs
-3. **During DB::Open**: Optionally verifies SST files (controlled by `verify_sst_unique_id_in_manifest`)
+1. **After Flush**: Reopens the newly created SST file, reads all keys, and compares a rolling key/value hash against what was computed during the write (`OutputValidator`)
+2. **After Compaction**: Maps to `VerifyOutputFlags::kVerifyIteration` for local/remote compaction
+3. **Purpose**: Detects data loss or corruption by verifying every key/value survives the write path
 
 **Performance Impact**: Doubles I/O for flushes/compactions (write + verify read).
 
@@ -483,16 +501,20 @@ options.verify_sst_unique_id_in_manifest = true;  // Default: true
 ```
 
 **Effects**:
-- During DB::Open(), verifies that each SST's `unique_id` (read from file footer) matches the `unique_id` stored in MANIFEST
+- Each time an SST file is opened, RocksDB verifies that the file's unique ID (recomputed from table properties) matches the `unique_id` stored in MANIFEST
 - Detects if SST files were swapped, copied from another DB, or corrupted
+- Note: an early version opened all SST files at `DB::Open()` time; this is no longer guaranteed (depends on `max_open_files`)
 
 **Unique ID Generation**:
 ```cpp
-// table/unique_id_impl.h
-// Unique ID = 192 bits derived from:
-// - DB session ID (120 bits)
-// - File number (64 bits, truncated to fit)
-// Encoded as: session_lower64 ^ file_number, session_upper64, session_mid64
+// table/unique_id.cc
+// Unique ID is derived from three table properties:
+// - db_id (hashed)
+// - db_session_id (decoded from base-36)
+// - orig_file_number (XORed in)
+// Verification recomputes the ID from these properties each time an SST is opened:
+//   GetSstInternalUniqueId(props->db_id, props->db_session_id,
+//                          props->orig_file_number, &actual_unique_id);
 ```
 
 **⚠️ INVARIANT**: SST files copied between databases will have mismatched unique IDs, causing DB::Open() to fail with `Status::Corruption()`.
@@ -505,11 +527,15 @@ cf_options.paranoid_memory_checks = false;  // Default: false
 ```
 
 **Effects**:
-- Enables per-key checksum validation during MemTable seeks (requires `memtable_protection_bytes_per_key > 0`)
-- Validates KV checksum consistency before writes
+- Enables key-ordering validation during MemTable reads/scans on skiplist-based memtables
+- Uses `GetAndValidate()` / `NextAndValidate()` / `PrevAndValidate()` on the skiplist iterator
 
-**Related Option**:
+**Related Options**:
 ```cpp
+// Per-key checksum verification during seek (separate from paranoid_memory_checks)
+cf_options.memtable_veirfy_per_key_checksum_on_seek = false;  // Default: false
+// Requires memtable_protection_bytes_per_key > 0
+
 cf_options.memtable_protection_bytes_per_key = 8;  // 0 = disabled (default)
 // Adds per-key checksums in MemTable (8 bytes overhead per key)
 ```
@@ -526,33 +552,37 @@ Compaction jobs can optionally verify the integrity of output SST files.
 
 Already covered in Section 7. When enabled, compaction outputs are read and checksummed before being added to the version.
 
-### verify_table_property_collectors (Advanced)
+### Compaction/Flush Output Verification
+
+RocksDB provides several knobs for verifying output file integrity:
 
 ```cpp
-// Not a user option; always enabled
-// During compaction, RocksDB verifies:
-// 1. Output file statistics match TablePropertiesCollector aggregates
-// 2. No data loss during compaction (entry count consistency)
+// include/rocksdb/options.h
+DBOptions options;
+options.flush_verify_memtable_count = true;     // Default: true
+options.compaction_verify_record_count = true;   // Default: true
+
+// include/rocksdb/advanced_options.h
+// Bitmask controlling post-compaction verification:
+enum class VerifyOutputFlags : uint32_t {
+  kVerifyNone = 0,
+  kVerifyBlockChecksum = 1 << 0,   // Verify block checksums
+  kVerifyIteration = 1 << 1,       // Reopen and iterate all keys (rolling hash)
+  kVerifyFileChecksum = 1 << 2,    // Verify full-file checksum
+  kEnableForLocalCompaction = 1 << 3,
+  kEnableForRemoteCompaction = 1 << 4,
+};
+ColumnFamilyOptions cf_opts;
+cf_opts.verify_output_flags = VerifyOutputFlags::kVerifyNone;  // Default
 ```
 
 **Implementation**:
 ```cpp
 // db/compaction/compaction_job.cc
-Status CompactionJob::FinishCompactionOutputFile() {
-  if (paranoid_file_checks_) {
-    // Read entire file to verify
-    std::unique_ptr<Iterator> iter(
-        table_cache_->NewIterator(read_options, ...));
-
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      // Checksum verification happens automatically via ReadOptions
-    }
-
-    if (!iter->status().ok()) {
-      return Status::Corruption("Compaction output verification failed");
-    }
-  }
-}
+// CompactionJob::VerifyOutputFiles() performs post-compaction verification
+// based on verify_output_flags. When kVerifyIteration is set, it reopens
+// the output file, iterates all keys, and compares a rolling key/value
+// hash against what was computed during the write (OutputValidator).
 ```
 
 ---
@@ -662,7 +692,7 @@ DBOptions db_opts;
 db_opts.paranoid_checks = true;
 db_opts.verify_sst_unique_id_in_manifest = true;
 db_opts.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
-db_opts.checksum_handoff_file_types = {kWALFile, kTableFile};
+db_opts.checksum_handoff_file_types = {kWalFile, kTableFile};
 
 ColumnFamilyOptions cf_opts;
 cf_opts.paranoid_file_checks = true;
@@ -700,16 +730,18 @@ Status::Corruption: "log::Reader 000123.log EOF encountered in middle of record"
 ```
 Status::Corruption: "MANIFEST checksum mismatch"
 ```
-→ FATAL: Cannot open DB
-→ Restore from backup or attempt `RepairDB()`
+→ Fatal by default: Cannot open DB
+→ With `best_efforts_recovery = true`: may recover from older MANIFEST files
+→ Otherwise restore from backup or attempt `RepairDB()`
 
 ### Reproducing Corruption
 
 **Inject Block Corruption** (testing):
 ```cpp
-// test_util/fault_injection_test_fs.h
+// utilities/fault_injection_fs.h
 FaultInjectionTestFS fault_fs(base_fs);
-fault_fs.InjectCorruption(file_name, offset, num_bytes);
+fault_fs.IngestDataCorruptionBeforeWrite();
+// Other fault APIs: SetFilesystemActive(), DropUnsyncedFileData()
 ```
 
 **Stress Testing**:
@@ -743,7 +775,7 @@ fault_fs.InjectCorruption(file_name, offset, num_bytes);
 | `table/format.h` | Footer format, checksum types, context checksums |
 | `db/log_reader.cc` | WAL record checksum verification |
 | `db/log_writer.cc` | WAL record checksum computation |
-| `file/file_checksum_helper.cc` | File-level checksum generators |
+| `util/file_checksum_helper.cc` | File-level checksum generators |
 | `include/rocksdb/file_checksum.h` | FileChecksumGen* interfaces |
 | `include/rocksdb/options.h` | paranoid_checks, verify_sst_unique_id_in_manifest |
 | `include/rocksdb/advanced_options.h` | paranoid_file_checks, paranoid_memory_checks |

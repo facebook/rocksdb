@@ -250,8 +250,7 @@ This naming prevents:
    └─ WAL files (if backup_log_files=true):
       └─ Copy to private/<backup_id>/
 4. Write metadata file: meta/<backup_id>
-5. Update LATEST_BACKUP
-6. Fsync directory (if sync=true)
+5. Fsync directory (if sync=true)
 ```
 
 **Rate limiting** applies to writes during file copy. To also limit reads, use `backup_rate_limiter`/`restore_rate_limiter` with `kAllIo` mode.
@@ -777,10 +776,11 @@ DB::Open(options, "/path/to/db", &restored_db);
 5. BackupEngine uses **content-based deduplication** for incremental backups
 6. **Session ID naming** (`kUseDbSessionId`) avoids re-reading files for checksums
 7. Restore modes offer trade-offs: **kPurgeAllFiles** (safe), **kVerifyChecksum** (efficient), **kKeepLatestDbSessionIdFiles** (fastest)
-8. Both mechanisms are **atomic**: incomplete operations leave DB/backup directory in consistent state
+8. Both mechanisms handle failures gracefully: checkpoint cleanup is best-effort, backup cleanup is deferred to subsequent operations
 
 **Related Documentation**:
 - `ARCHITECTURE.md`: High-level RocksDB architecture
 - `write_flow.md`: WAL and memtable lifecycle
-- `flush_and_read_path.md`: FlushJob and file generation
+- `flush.md`: FlushJob and file generation
+- `read_flow.md`: Read path and data retrieval
 - `version_management.md`: Version, MANIFEST, and file tracking

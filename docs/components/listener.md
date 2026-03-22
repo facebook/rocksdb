@@ -323,6 +323,8 @@ struct TableFileCreationInfo : public TableFileCreationBriefInfo {
 
 **⚠️ NOTE:** Historically `OnTableFileCreated` was called only on success. Now it's called on both success and failure. Check `info.status` to determine outcome.
 
+**⚠️ NOTE:** FIFO `kChangeTemperature` trivial-copy compactions explicitly skip both `NotifyTableFileCreationStarted()` and `LogAndNotifyTableFileCreationFinished()`. SST files copied during temperature changes will not trigger these callbacks.
+
 ### OnTableFileDeleted
 
 **Triggered when:** An SST file is deleted (after compaction or deletion)
@@ -532,6 +534,8 @@ for (auto& listener : listeners) {
 db_mutex->Lock();  // Re-acquire lock
 ```
 
+**⚠️ WARNING:** The `Status* bg_error` and `bool* auto_recovery` pointers are shared across the entire listener chain. Earlier listeners can modify `*bg_error` or `*auto_recovery`, affecting what later listeners observe. Setting `*auto_recovery = false` in `OnBackgroundError` also suppresses the `OnErrorRecoveryBegin` callback for all subsequent listeners in the chain.
+
 ### OnExternalFileIngested
 
 **Triggered when:** An external SST file is ingested via `IngestExternalFile`
@@ -556,7 +560,7 @@ struct ExternalFileIngestionInfo {
 - Track bulk load operations
 - Monitor ingestion frequency and volume
 
-### OnErrorRecoveryBegin
+**⚠️ NOTE:** This callback only fires when the overall ingestion succeeds (`status.ok()`). Failed ingestions do not trigger the callback. Additionally, the callback fires once per ingested file, not once per `IngestExternalFile()` call — if multiple files are ingested in a single call, each file gets a separate notification.
 
 **Triggered when:** Automatic error recovery is about to start (for recoverable errors like `NoSpace`)
 
@@ -589,7 +593,7 @@ struct BackgroundErrorRecoveryInfo {
 - Log recovery outcomes
 - Trigger actions based on recovery result
 
-**⚠️ NOTE:** `OnErrorRecoveryCompleted(Status old_bg_error)` is DEPRECATED. Use `OnErrorRecoveryEnd` instead.
+**⚠️ NOTE:** `OnErrorRecoveryCompleted(Status old_bg_error)` is DEPRECATED. Use `OnErrorRecoveryEnd` instead. However, RocksDB still invokes both callbacks for every listener during recovery-end dispatch — both `OnErrorRecoveryCompleted` and `OnErrorRecoveryEnd` are called unconditionally.
 
 ### File I/O Events (Opt-in)
 
@@ -610,8 +614,8 @@ struct FileOperationInfo {
   FileOperationType type;              // kRead, kWrite, kSync, kFlush, kClose, etc.
   const std::string& path;             // File path
   Temperature temperature;             // File temperature hint (if available)
-  uint64_t offset;                     // Offset (for read/write)
-  size_t length;                       // Length (for read/write)
+  uint64_t offset;                     // Offset (for read/write/range-sync only)
+  size_t length;                       // Length (for read/write/range-sync only)
   Duration duration;                   // Operation duration (nanoseconds)
   const SystemTimePoint& start_ts;     // Start timestamp
   Status status;                       // Operation status

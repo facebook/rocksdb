@@ -35,13 +35,14 @@ RocksDB uses two abstraction layers for OS interaction:
 │                        RocksDB Core                         │
 ├─────────────────────────────────────────────────────────────┤
 │                    File Readers/Writers                     │
-│  WritableFileWriter  RandomAccessFileReader  SequentialFile │
+│  WritableFileWriter  RandomAccessFileReader                │
+│  SequentialFileReader                                      │
 ├─────────────────────────────────────────────────────────────┤
 │                     FileSystem Layer                        │
 │  FSWritableFile  FSRandomAccessFile  FSSequentialFile       │
 ├─────────────────────────────────────────────────────────────┤
 │              Platform-Specific Implementation               │
-│         PosixFileSystem  WinFileSystem  MemFileSystem       │
+│       PosixFileSystem  WinFileSystem  MockFileSystem        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -83,11 +84,13 @@ IOStatus NewWritableFile(const std::string& fname,
 
 ### IOOptions
 
-**`IOOptions`** (`file_system.h:100-149`) are per-request hints:
+**`IOOptions`** (`file_system.h:100-157`) are per-request hints:
 - `timeout`: Operation timeout in microseconds
 - `prio`: I/O priority (deprecated, use `rate_limiter_priority`)
-- `type`: IOType (kData, kFilter, kIndex, kMetadata, kWAL, kManifest, kLog)
-- `force_dir_fsync`: Force directory fsync (for btrfs and similar)
+- `type`: IOType (kData, kFilter, kIndex, kMetadata, kWAL, kManifest, kLog, kUnknown, kInvalid)
+- `property_bag`: Opaque option map for custom FileSystem contracts
+- `force_dir_fsync`: Force directory fsync (field exists but not consulted by current implementations; `PosixDirectory::FsyncWithDirOptions()` uses `DirFsyncOptions::reason` instead)
+- `do_not_recurse`: Skip recursing through subdirectories in `GetChildren`
 - `verify_and_reconstruct_read`: Request data reconstruction from redundancy on error
 - `io_activity`: Activity classification for statistics
 
@@ -147,9 +150,9 @@ Calculate checksum (if enabled)
     ↓
 Try to fit data in buffer
     ↓
-Buffer full? → Flush() → Clear buffer
+Buffer full? → Flush() → Write buffer contents
     ↓
-Append to buffer or write directly
+Append to buffer
     ↓
 Update filesize_
 ```
@@ -159,27 +162,43 @@ Update filesize_
 2. Calculate file checksum (via `UpdateFileChecksum`)
 3. Call `writable_file_->PrepareWrite()` for preparation
 4. Enlarge buffer if needed (up to `max_buffer_size_`)
-5. For buffered I/O: flush if buffer can't fit data
-6. Append data to buffer or write directly if buffer is full
+5. For buffered I/O: flush if buffer can't fit data, then either append to buffer or write directly (bypassing buffer only when buffer is empty and payload exceeds buffer capacity)
+6. For direct I/O: always accumulate data in buffer, flushing when full
 7. Update `filesize_` atomically
 
 **Flush** (`writable_file_writer.cc` - writes buffer contents):
 - For buffered I/O: calls `WriteBuffered()` or `WriteBufferedWithChecksum()`
 - For direct I/O: calls `WriteDirect()` or `WriteDirectWithChecksum()`
 - Updates `flushed_size_` after successful flush
-- Clears buffer after flush
+- For buffered I/O: clears buffer after flush
+- For direct I/O: retains partial tail via `buf_.RefitTail()` (partial blocks are re-written with the next batch)
 
 **Sync** (`writable_file_writer.h:266`):
+- Signature: `IOStatus Sync(const IOOptions& opts, bool use_fsync)`
 - Flushes buffer first
-- Calls `SyncInternal()` which invokes `writable_file_->Sync()` or `Fsync()`
-- Updates `last_sync_size_`
+- Calls `SyncInternal()` which invokes `writable_file_->Sync()` or `Fsync()` based on the `use_fsync` parameter
+- Clears `pending_sync_` after successful sync
+
+**SyncWithoutFlush** (`writable_file_writer.h:268-271`):
+- Syncs only data already `Flush()`ed, without flushing the buffer
+- Safe to call concurrently with `Append()` and `Flush()` only if `writable_file_->IsSyncThreadSafe()` returns true
+- Returns `NotSupported` if `IsSyncThreadSafe()` is false
 
 **RangeSync** (`writable_file_writer.h:366`):
 - Used for `bytes_per_sync` incremental sync
-- Calls `sync_file_range()` on Linux (if supported) or falls back to full sync
-- Does NOT guarantee metadata sync (uses `SYNC_FILE_RANGE_WRITE`)
+- Delegates to `writable_file_->RangeSync()`
+- Default `FSWritableFile::RangeSync()` is a no-op unless `strict_bytes_per_sync_` is true, in which case it calls `Sync()`
+- On POSIX with `sync_file_range()` available: uses `SYNC_FILE_RANGE_WRITE` in normal mode; in strict mode uses `SYNC_FILE_RANGE_WAIT_BEFORE | SYNC_FILE_RANGE_WRITE`
+- Falls back to `FSWritableFile::RangeSync()` default when `sync_file_range()` is unavailable
 
 **⚠️ INVARIANT**: Once `seen_error_` is set, all subsequent operations return error until `reset_seen_error()` is called (`writable_file_writer.h:308-327`).
+
+### Data Verification (Checksum Handoff)
+
+WritableFileWriter supports checksum handoff to the underlying `FSWritableFile` via `DataVerificationInfo` (`file_system.h:1088-1093`):
+- When `perform_data_verification_` is true, CRC32c checksums are computed for each write and passed to `FSWritableFile::Append()` / `PositionedAppend()` via `DataVerificationInfo`
+- When `buffered_data_with_checksum_` is additionally true, checksums are accumulated across buffer fills and verified as a batch
+- The underlying `FSWritableFile` can verify the checksum against the data received, detecting corruption in transit
 
 ### Rate Limiter Integration
 
@@ -202,8 +221,9 @@ Env::IOPriority DecideRateLimiterPriority(
 
 **`WriteDirect()`** (`writable_file_writer.h:356-358`):
 1. Pads buffer to alignment boundary
-2. Writes entire buffer to file at `next_write_offset_`
-3. If unflushed data remains (partial block), rewinds `next_write_offset_` to overwrite it next time
+2. Writes entire buffer to file at `next_write_offset_` via `PositionedAppend()`
+3. Retains partial tail (leftover data past the last page boundary) via `buf_.RefitTail()`, moving it to the start of the buffer for re-writing with the next batch
+4. Advances `next_write_offset_` by the whole-page portion only
 
 **⚠️ INVARIANT**: For direct I/O, writes are always aligned. Partial blocks at the end are retained in the buffer and re-written with the next batch (`writable_file_writer.h:150-152`).
 
@@ -249,10 +269,12 @@ IOStatus MultiRead(const IOOptions& opts, FSReadRequest* reqs,
                    IODebugContext* dbg = nullptr) const;
 ```
 
-**Requirements** (`random_access_file_reader.h:170-171`):
+**Requirements** (`random_access_file_reader.h:170-174`):
 - `num_reqs > 0`
 - Requests must NOT overlap
 - Offsets must be increasing
+- In non-direct I/O mode, `aligned_buf` should be null
+- In direct I/O mode, `aligned_buf` stores the aligned buffer allocated inside `MultiRead`; result Slices in reqs refer to `aligned_buf`
 
 **Merging and Alignment**: The implementation uses helper functions:
 - `Align()` (`random_access_file_reader.h:31`): Aligns read request to buffer alignment
@@ -261,7 +283,16 @@ IOStatus MultiRead(const IOOptions& opts, FSReadRequest* reqs,
 ### Async Reads
 
 **`ReadAsync()`** (`random_access_file_reader.h:193-196`):
-Submits asynchronous read request with callback. The callback is invoked when I/O completes:
+Submits asynchronous read request with callback:
+
+```cpp
+IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                   std::function<void(FSReadRequest&, void*)> cb,
+                   void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
+                   AlignedBuf* aligned_buf, IODebugContext* dbg = nullptr);
+```
+
+The callback is invoked when I/O completes:
 
 ```cpp
 void ReadAsyncCallback(FSReadRequest& req, void* cb_arg);
@@ -277,7 +308,7 @@ void ReadAsyncCallback(FSReadRequest& req, void* cb_arg);
 
 ## 4. SequentialFileReader
 
-**`SequentialFileReader`** (`file/sequence_file_reader.h`) wraps `FSSequentialFile` for sequential reads (used in WAL replay, compaction input).
+**`SequentialFileReader`** (`file/sequence_file_reader.h`) wraps `FSSequentialFile` for sequential reads (used in WAL replay, MANIFEST reading, and log reading).
 
 ### Key Responsibilities
 
@@ -298,7 +329,7 @@ RateLimiter* rate_limiter_;
 bool verify_and_reconstruct_read_;
 ```
 
-**⚠️ INVARIANT**: `offset_` is atomically updated to track the current position in the file (`sequence_file_reader.h:56`).
+**⚠️ INVARIANT**: `offset_` tracking is not fully reliable: in direct I/O mode, `offset_` is incremented by `n` before the read completes (`sequence_file_reader.cc:53`); in non-direct I/O, `Skip()` delegates to `file_->Skip(n)` without updating `offset_` (`sequence_file_reader.cc:144-149`). Non-direct `Read()` updates `offset_` only inside the notification path.
 
 ### Read Operations
 
@@ -308,7 +339,7 @@ IOStatus Read(size_t n, Slice* result, char* scratch,
               Env::IOPriority rate_limiter_priority);
 ```
 
-Reads up to `n` bytes into `scratch`, returning actual data via `result`. Updates `offset_` after successful read.
+Reads up to `n` bytes into `scratch`, returning actual data via `result`.
 
 **Rate limiter charging** (`sequence_file_reader.h:100-106`):
 - Charges rate limiter for `n` bytes even if fewer bytes are read (e.g., at EOF)
@@ -316,18 +347,20 @@ Reads up to `n` bytes into `scratch`, returning actual data via `result`. Update
 - `Env::IO_TOTAL` priority bypasses rate limiting
 
 **`Skip()`** (`sequence_file_reader.h:113`):
-Advances position by `n` bytes without reading data.
+Advances position by `n` bytes without reading data. In direct I/O mode, updates `offset_` directly. In non-direct mode, delegates to `file_->Skip(n)` without updating `offset_`.
 
 ### Readahead Wrapper
 
 **`NewReadaheadSequentialFile()`** (`sequence_file_reader.h:124-125`):
-Creates a wrapper that prefetches additional data with every read. Useful for streaming scenarios like log replay.
+Creates a wrapper that prefetches additional data with every read. Returns the original file unchanged when `readahead_size <= GetRequiredBufferAlignment()` (i.e., readahead too small to be useful). Useful for streaming scenarios like log replay.
 
 ---
 
 ## 5. FilePrefetchBuffer
 
 **`FilePrefetchBuffer`** (`file/file_prefetch_buffer.h`) is a smart buffer that implements adaptive readahead for sequential and semi-random access patterns.
+
+**⚠️ INVARIANT**: `FilePrefetchBuffer` is incompatible with prefetching from mmap-backed `RandomAccessFileReader`s. Callers commonly gate it with `!use_mmap_reads` for the `enable` parameter (`file_prefetch_buffer.h:184-186`).
 
 ### Architecture
 
@@ -429,7 +462,8 @@ Main API for retrieving data. Handles:
 ### Async I/O Lifecycle
 
 1. **Submit**: `ReadAsync()` calls `reader->ReadAsync()`, stores `io_handle_` in `BufferInfo`
-2. **Poll**: `PollIfNeeded()` calls `fs_->Poll()` to check completion
+2. **Fallback**: If `ReadAsync()` returns `NotSupported` (e.g., io_uring failed to initialize), transparently falls back to a synchronous `Read()` so the buffer is populated inline (`file_prefetch_buffer.cc:163-175`)
+3. **Poll**: `PollIfNeeded()` calls `fs_->Poll()` to check completion
 3. **Complete**: Callback `PrefetchAsyncCallback()` is invoked, buffer is filled
 4. **Cleanup**: `DestroyAndClearIOHandle()` releases `io_handle_`
 
@@ -441,7 +475,12 @@ Destructor aborts pending async I/O via `fs_->AbortIO()` to avoid use-after-free
 ### FS Buffer Reuse Optimization
 
 **`UseFSBuffer()`** (`file_prefetch_buffer.h:505-510`):
-When FileSystem supports `kFSBuffer`, avoid copying by reusing the buffer allocated by the FS:
+When FileSystem supports `kFSBuffer`, avoid copying by reusing the buffer allocated by the FS. This optimization is only enabled when all of the following conditions are met (`file_prefetch_buffer.h:505-509`):
+- `reader->file() != nullptr`
+- `!reader->use_direct_io()` (not direct I/O)
+- `fs_ != nullptr`
+- FileSystem supports `kFSBuffer`
+- `num_buffers_ == 1` (synchronous mode only)
 
 ```cpp
 // file_prefetch_buffer.h:523-543
@@ -470,6 +509,11 @@ class RateLimiter {
   void SetBytesPerSecond(int64_t bytes_per_second);
   void Request(int64_t bytes, Env::IOPriority pri, Statistics* stats,
                OpType op_type);
+  // Caps bytes to GetSingleBurstBytes(), adjusts for alignment, then calls Request().
+  // This is the API actually used by WritableFileWriter and RandomAccessFileReader.
+  size_t RequestToken(size_t bytes, size_t alignment,
+                      Env::IOPriority io_priority, Statistics* stats,
+                      OpType op_type);
   int64_t GetSingleBurstBytes() const;
   int64_t GetTotalBytesThrough(Env::IOPriority pri) const;
 };
@@ -496,9 +540,9 @@ bool auto_tuned_;                              // Auto-tuning enabled (line 150)
 - If tokens unavailable, request blocks until refill
 
 **Fairness** (field at line 143):
-After granting `fairness_` requests from one priority queue, switch to next priority to prevent starvation.
+`Env::IO_USER` is always iterated first. For the remaining priorities (HIGH, MID, LOW), iteration order is randomized using `rnd_.OneIn(fairness_)` to probabilistically prevent starvation (`rate_limiter.cc:234-270`).
 
-**⚠️ INVARIANT**: Requests must satisfy `bytes <= GetSingleBurstBytes()` (typically `refill_bytes_per_period_`). Larger requests are rejected (`rate_limiter.h:59-60, 80-81`).
+**⚠️ INVARIANT**: `Request()` asserts `bytes <= GetSingleBurstBytes()` in debug builds only (`rate_limiter.cc:124`). Callers should use `RequestToken()` which caps the request to `GetSingleBurstBytes()` and adjusts for alignment before calling `Request()` (`rate_limiter.cc:20-35`).
 
 ### Rate Limiter Modes
 
@@ -534,25 +578,27 @@ struct FileDescriptor {
 ```
 
 **File Number** (`version_edit.h:126`):
-- 58-bit file number (low bits)
-- 6-bit path ID (high bits)
+- 62-bit file number (low bits, masked by `kFileNumberMask = 0x3FFFFFFFFFFFFFFF`)
+- 2-bit path ID (high bits)
 - Encoded via `PackFileNumberAndPathId()` (`version_edit.h:135`)
 
 **⚠️ INVARIANT**: File numbers are globally unique within a RocksDB instance. They are assigned via `VersionSet::next_file_number_` and never reused.
 
 ### File Naming
 
-SST files are named: `{file_number}.sst` or `{file_number}_{path_id}.sst` (when using multiple paths).
+SST files are named: `{file_number:06d}.sst` (zero-padded to 6 digits, e.g., `000042.sst`). The `path_id` selects which directory from `db_paths`/`cf_paths` to place the file in, but is NOT encoded in the filename (`file/filename.cc:66-75,141-151`).
 
-BLOB files: `{file_number}.blob`
+BLOB files: `{file_number:06d}.blob` (same zero-padded format)
 
 ### File Paths
 
-RocksDB supports multiple data directories via `DBOptions::db_paths`:
+RocksDB supports multiple data directories via `DBOptions::db_paths` and per-column-family `ColumnFamilyOptions::cf_paths`:
 ```cpp
 DBOptions options;
 options.db_paths = {{"/fast_ssd", 100GB}, {"/slow_hdd", 1TB}};
 ```
+
+`cf_paths` controls SST placement per column family and falls back to `db_paths` when empty (`options.h:320-332`).
 
 Files are placed based on level and size policies.
 
@@ -582,8 +628,21 @@ class FSDirectory {
 3. Close file
 4. **Fsync directory** (ensures directory entry is persistent)
 
-**`force_dir_fsync`** (`file_system.h:127`):
-Some filesystems (e.g., btrfs) may skip directory fsync. Set `IOOptions::force_dir_fsync = true` to force it.
+**`DirFsyncOptions`** (`file_system.h:160-177`):
+Directory fsync behavior is controlled by `DirFsyncOptions::reason`:
+- `kNewFileSynced`: New file created and synced
+- `kFileRenamed`: File was renamed (e.g., CURRENT, IDENTITY, options files)
+- `kDirRenamed`: Directory was renamed
+- `kFileDeleted`: File was deleted
+- `kDefault`: Default behavior
+
+**Btrfs-specific optimizations** (`env/io_posix.cc:1946-1970`):
+- `kNewFileSynced`: Directory fsync skipped (not needed on btrfs)
+- `kFileRenamed`: Instead of dir fsync, opens and fsyncs the renamed file directly
+- Other reasons: Fall back to standard directory fsync
+
+**`force_dir_fsync`** (`file_system.h:125-127`):
+The `IOOptions::force_dir_fsync` field exists but is not consulted by current `PosixDirectory` implementation; `DirFsyncOptions::reason` is used instead.
 
 **⚠️ INVARIANT**: Directory fsync must be performed AFTER file creation and sync for crash consistency. Failure to do so may result in the file "disappearing" after crash, even if the file data was synced.
 
@@ -593,7 +652,7 @@ Some filesystems (e.g., btrfs) may skip directory fsync. Set `IOOptions::force_d
 
 **Problem**: Legacy code uses monolithic `Env` API, but modern code uses separate `Env` (for threading/time) and `FileSystem` (for file I/O).
 
-**Solution**: **`CompositeEnv`** (`env/composite_env.cc`) adapts `FileSystem` to the old `Env` interface.
+**Solution**: **`CompositeEnv`** (`env/composite_env_wrapper.h:21-27`) delegates file ops to `FileSystem` and time ops to `SystemClock`. Subclasses provide thread-management APIs. **`CompositeEnvWrapper`** extends this by forwarding thread-management methods to a target `Env` (`composite_env_wrapper.h:327-340`).
 
 ### Architecture
 
@@ -604,11 +663,23 @@ Some filesystems (e.g., btrfs) may skip directory fsync. Set `IOOptions::force_d
 ├─────────────────────────────────────────────────────────┤
 │                     CompositeEnv                        │
 │  Forwards file ops → FileSystem                        │
-│  Forwards thread/time ops → Base Env                   │
+│  Forwards time ops → SystemClock                       │
+│  Thread management → subclass or target Env            │
 ├──────────────────────┬──────────────────────────────────┤
-│    FileSystem        │         Env (thread/time)        │
-│  (file operations)   │       (threading, clock)         │
+│    FileSystem        │      SystemClock / Env           │
+│  (file operations)   │  (time, threading)               │
 └──────────────────────┴──────────────────────────────────┘
+```
+
+### Configuration
+
+There is no public `Options::file_system` field. The public API is `DBOptions::env` (`options.h:716-719`). To use a custom `FileSystem`, compose it into an `Env` via `NewCompositeEnv()` (`env.h:2064-2066`):
+
+```cpp
+auto fs = std::make_shared<MyCustomFileSystem>();
+std::unique_ptr<Env> env = NewCompositeEnv(fs);
+DBOptions options;
+options.env = env.get();
 ```
 
 ### Wrapper Pattern

@@ -460,8 +460,10 @@ const bool logical_strip_timestamp =
 // ValidateUserDefinedTimestampsOptions enforces:
 // 1. Can enable UDT if persist_user_defined_timestamps = false initially
 // 2. Can disable UDT if persist_user_defined_timestamps was already false
-// 3. Cannot change persist_user_defined_timestamps from true -> false
-//    or false -> true without full compaction
+// 3. Cannot toggle persist_user_defined_timestamps while UDT is enabled
+//    (returns InvalidArgument; the option is immutable at runtime)
+// 4. Cannot enable UDT with persist_user_defined_timestamps = true
+//    (returns InvalidArgument)
 ```
 
 **Restrictions:**

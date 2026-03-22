@@ -548,7 +548,7 @@ struct DBOptions {
 
 ## 8. Crash Recovery
 
-**Files:** `db/db_impl/db_impl_open.cc:1128-1277`
+**Files:** `db/db_impl/db_impl_open.cc:1128-1800`
 
 ### Recovery Flow
 
@@ -566,7 +566,7 @@ DB::Open()
             └─ Flush final memtable (if needed)
 ```
 
-**Files:** `db/db_impl/db_impl_open.cc:1128-1277`
+**Files:** `db/db_impl/db_impl_open.cc:1128-1800`
 
 ### Recovery Modes
 
@@ -754,7 +754,7 @@ During recovery:
 | `db/write_batch.cc:432-503` | WriteBatch parser tag handling |
 | `db/wal_manager.h` | WAL archival and purging |
 | `db/wal_manager.cc` | `ArchiveWALFile`, `PurgeObsoleteWALFiles` |
-| `db/db_impl/db_impl_open.cc:1128-1277` | Crash recovery (`RecoverLogFiles`) |
+| `db/db_impl/db_impl_open.cc:1128-1800` | Crash recovery (`RecoverLogFiles`) |
 | `db/db_impl/db_impl_write.cc` | Write path integration |
 | `include/rocksdb/options.h:414-451` | `WALRecoveryMode` enum |
 | `include/rocksdb/options.h:976-1067` | WAL options (`recycle_log_file_num`, `WAL_ttl_seconds`, etc.) |
