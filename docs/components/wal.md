@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Write-Ahead Log (WAL) is RocksDB's **durability mechanism** that ensures committed writes survive process crashes and power failures. Every write operation is first appended to the WAL before being inserted into the MemTable. During crash recovery, RocksDB replays WAL records to reconstruct in-memory state.
+The Write-Ahead Log (WAL) is RocksDB's **durability mechanism** that ensures committed writes survive process crashes and power failures. By default, each write operation is first appended to the WAL before being inserted into the MemTable. Writes with `WriteOptions::disableWAL=true` skip the WAL entirely. In 2PC transactions, the prepare phase writes only to the WAL (`disable_memtable=true`), deferring MemTable insertion to the commit phase. During crash recovery, RocksDB replays WAL records to reconstruct in-memory state.
 
 ### Purpose
 
@@ -68,10 +68,12 @@ Each WAL record has a **7-byte legacy header** or **11-byte recyclable header** 
 
 | Field | Size | Description |
 |-------|------|-------------|
-| CRC | 4B | CRC32C checksum over `Type + Payload` |
+| CRC | 4B | CRC32C checksum over `Type + Payload` (legacy) or `Type + Log Number + Payload` (recyclable) |
 | Size | 2B | Payload length (≤ 65535 bytes) |
 | Type | 1B | Record type (see below) |
-| Payload | variable | WriteBatch binary data |
+| Payload | variable | Record data (see below) |
+
+**Note:** While most records contain serialized `WriteBatch` data, the WAL also contains non-WriteBatch metadata records: `kSetCompressionType` (WAL compression marker), `kUserDefinedTimestampSizeType` / `kRecyclableUserDefinedTimestampSizeType` (UDT size records), and `kPredecessorWALInfoType` / `kRecyclePredecessorWALInfoType` (WAL verification records). These are emitted by `Writer::AddCompressionTypeRecord()`, `Writer::MaybeAddUserDefinedTimestampSizeRecord()`, and `Writer::MaybeAddPredecessorWALInfo()` (`db/log_writer.cc:193-306`) and handled by the reader (`db/log_reader.cc:176-238`).
 
 **Files:** `db/log_format.h:56-57`, `db/log_writer.cc:311-328`
 
@@ -126,7 +128,7 @@ enum RecordType : uint8_t {
 
 The **Payload** field contains a serialized `WriteBatch` with the following structure:
 
-**Files:** `db/write_batch.cc:9-36`
+**Files:** `db/write_batch.cc:432-503`, `db/dbformat.h:41-78`
 
 ```
 WriteBatch::rep_ :=
@@ -145,6 +147,10 @@ record :=
   kTypeColumnFamilySingleDeletion varint32 varstring      // CF SingleDelete
   kTypeColumnFamilyRangeDeletion varint32 varstring varstring  // CF DeleteRange
   kTypeColumnFamilyMerge varint32 varstring varstring     // CF Merge
+  kTypeLogData varstring                                  // Arbitrary log data blob
+  kTypeBlobIndex varstring varstring                      // Blob DB index
+  kTypeColumnFamilyBlobIndex varint32 varstring varstring // CF Blob DB index
+  kTypeDeletionWithTimestamp varstring                    // Delete with timestamp
   kTypeBeginPrepareXID                                    // 2PC prepare start
   kTypeEndPrepareXID varstring                            // 2PC prepare end (XID)
   kTypeCommitXID varstring                                // 2PC commit
@@ -154,6 +160,8 @@ record :=
   kTypeBeginUnprepareXID                                  // 2PC unprepare start
   kTypeWideColumnEntity varstring varstring               // Wide column entity
   kTypeColumnFamilyWideColumnEntity varint32 varstring varstring  // CF wide column
+  kTypeValuePreferredSeqno varstring varstring            // TimedPut (value + write time)
+  kTypeColumnFamilyValuePreferredSeqno varint32 varstring varstring  // CF TimedPut
   kTypeNoop                                               // No-op marker
 
 varstring :=
@@ -287,13 +295,16 @@ IOStatus Writer::EmitPhysicalRecord(const WriteOptions& write_options,
 1. **Format header:**
    - Bytes 4-5: Payload length (little-endian 16-bit)
    - Byte 6: Record type
-   - Bytes 0-3: CRC32C checksum (over type + payload)
+   - Bytes 0-3: CRC32C checksum (over type + payload for legacy; type + log number + payload for recyclable)
    - Bytes 7-10 (recyclable only): Log number
 
 2. **Compute CRC:**
    ```cpp
    uint32_t crc = type_crc_[type];  // Pre-computed type CRC
-   crc = crc32c::Extend(crc, ptr, n);  // Extend with payload
+   // For recyclable records, extend with 4-byte log number:
+   // crc = crc32c::Extend(crc, log_number_buf, 4);
+   uint32_t payload_crc = crc32c::Value(ptr, n);
+   crc = crc32c::Crc32cCombine(crc, payload_crc, n);
    crc = crc32c::Mask(crc);  // Mask for storage
    ```
 
@@ -380,11 +391,11 @@ enum : uint8_t {
 
 ### WriteOptions::sync
 
-**Files:** `include/rocksdb/options.h:1862-1869`, `include/rocksdb/write_batch.h`
+**Files:** `include/rocksdb/options.h:2330-2344`, `include/rocksdb/write_batch.h`
 
 ```cpp
 struct WriteOptions {
-  bool sync = false;  // Call fsync() after write
+  bool sync = false;  // fdatasync() after write (or fsync() if use_fsync=true)
   bool disableWAL = false;  // Skip WAL entirely (lose durability)
   ...
 };
@@ -393,10 +404,12 @@ struct WriteOptions {
 | Mode | Behavior | Durability | Performance |
 |------|----------|------------|-------------|
 | `sync=false` | Write to OS page cache, periodic background sync | Weak (survives process crash, not power loss) | Fast |
-| `sync=true` | `fsync()` after each write | Strong (survives power loss) | Slow (~1ms per write) |
+| `sync=true` | `fdatasync()` after each write (or `fsync()` if `DBOptions::use_fsync=true`) | Strong (survives power loss) | Slow (~1ms per write) |
 | `disableWAL=true` | Skip WAL, only MemTable | None (data lost on crash before flush) | Fastest |
 
-⚠️ **INVARIANT:** `disableWAL=true` is **incompatible** with `recycle_log_file_num > 0`. Returns `Status::InvalidArgument()` if both are set.
+**Note:** `sync=true` combined with `disableWAL=true` is rejected with `Status::InvalidArgument("Sync writes has to enable WAL.")` (`db/db_impl/db_impl_write.cc:436-437`).
+
+⚠️ **INVARIANT:** `disableWAL=true` is **incompatible** with `recycle_log_file_num > 0`, **except** when using two write queues with `disable_memtable=true` (internal 2PC split writes). Returns `Status::InvalidArgument()` otherwise.
 
 **Files:** `HISTORY.md:526`
 
@@ -439,7 +452,7 @@ WAL files are named: `<wal_dir>/<log_number>.log`
 A new WAL is created when:
 - **MemTable is full** and switches to immutable
 - **Manual memtable switch** via `DB::Flush()`
-- **Column family drop** (rotate to clean up obsolete CFs)
+- **`max_total_wal_size` exceeded** in multi-CF databases (forces `SwitchWAL()` to flush column families backed by the oldest live WAL)
 
 **Files:** `db/db_impl/db_impl_write.cc` (SwitchMemtable logic)
 
@@ -486,9 +499,9 @@ struct DBOptions {
 | Condition | Action |
 |-----------|--------|
 | `WAL_ttl_seconds > 0` | Delete WALs older than TTL (checked every `TTL/2` seconds) |
-| `WAL_size_limit_MB > 0` | Delete oldest WALs when total size exceeds limit (checked every 10 minutes) |
+| `WAL_size_limit_MB > 0` | Delete oldest WALs when approximate total archive size exceeds limit (approximated using max non-empty WAL size × file count; checked every 10 minutes) |
 | Both set | Delete if **either** condition is met |
-| Both unset (default) | Delete immediately after archival (no retention) |
+| Both unset (default) | Obsolete WALs are not archived; they are deleted directly from the live WAL directory |
 
 **Files:** `db/wal_manager.cc:140-286`
 
@@ -510,8 +523,8 @@ struct DBOptions {
 
 ### How It Works
 
-1. When a WAL is no longer needed, instead of deleting it, **rename** it to the next WAL number
-2. The recycled file is **truncated** and reused
+1. When a WAL is no longer needed, instead of deleting it, it is kept for recycling
+2. `DBImpl::CreateWAL()` calls `FileSystem::ReuseWritableFile(new_log_fname, old_log_fname, ...)` to reuse the file (`db/db_impl/db_impl_open.cc:2359-2367`)
 3. **Recyclable record types** include a `log_number` field to distinguish old vs. new data
 
 **Files:** `db/log_format.h:33-36`, `db/log_writer.cc:29-32`
@@ -527,7 +540,7 @@ struct DBOptions {
 
 ### Compatibility
 
-⚠️ **WARNING:** `recycle_log_file_num > 0` is **incompatible** with `WriteOptions::disableWAL`. Attempting both returns `Status::InvalidArgument()`.
+⚠️ **WARNING:** `recycle_log_file_num > 0` is **incompatible** with `WriteOptions::disableWAL`, **except** when using two write queues with `disable_memtable=true` (internal 2PC split writes). Returns `Status::InvalidArgument()` otherwise.
 
 **Files:** `HISTORY.md:526`
 
@@ -619,8 +632,11 @@ Two-phase commit transactions write special markers to the WAL:
 ```
 WriteBatch record types for 2PC:
   kTypeBeginPrepareXID         // Start of prepare phase
+  kTypeBeginPersistedPrepareXID // Start of persisted prepare (WritePrepared)
+  kTypeBeginUnprepareXID       // Start of unprepare (WriteUnprepared)
   kTypeEndPrepareXID varstring // End of prepare (XID = transaction ID)
   kTypeCommitXID varstring     // Commit phase
+  kTypeCommitXIDAndTimestamp varstring varstring // Commit with timestamp
   kTypeRollbackXID varstring   // Rollback phase
 ```
 
@@ -629,18 +645,25 @@ WriteBatch record types for 2PC:
 1. **Prepare Phase:**
    ```
    Transaction::Prepare()
-     └─> WriteBatch::MarkBeginPrepare()
-          WriteBatch::Put(key, value)
-          WriteBatch::MarkEndPrepare(xid)
-     └─> WriteImpl(batch, sync=true)  // Write to WAL
+     └─> PrepareInternal()
+          // WriteBatch was initialized with kTypeNoop at position 0.
+          // MarkEndPrepare() rewrites the initial Noop into
+          // kTypeBeginPrepareXID, kTypeBeginPersistedPrepareXID,
+          // or kTypeBeginUnprepareXID (depending on write policy),
+          // then appends kTypeEndPrepareXID(xid).
+          WriteBatchInternal::MarkEndPrepare(batch, xid)
+     └─> WriteImpl(batch, disableWAL=false, disable_memtable=true)
    ```
 
 2. **Commit Phase:**
    ```
    Transaction::Commit()
-     └─> WriteBatch::MarkCommit(xid)
-     └─> WriteImpl(batch, sync=true)
+     └─> CommitInternal()
+          WriteBatchInternal::MarkCommit(batch, xid)
+     └─> WriteImpl(batch, write_options_)  // Uses caller's write_options
    ```
+
+**Note:** Neither prepare nor commit forces `sync=true`. The prepare phase forces `disableWAL=false` but uses the caller's `write_options_` for sync behavior. The commit phase also uses the caller's `write_options_` as-is.
 
 ### Recovery with 2PC
 
@@ -668,17 +691,21 @@ During recovery:
 |--------|---------|-------------|
 | `wal_dir` | `""` (use `db_name`) | Directory for WAL files |
 | `WAL_ttl_seconds` | `0` (disabled) | Delete archived WALs older than TTL |
-| `WAL_size_limit_MB` | `0` (disabled) | Delete oldest archived WALs when total size exceeds limit |
+| `WAL_size_limit_MB` | `0` (disabled) | Delete oldest archived WALs when approximate total size exceeds limit |
+| `max_total_wal_size` | `0` (auto) | Force WAL rotation when total WAL size exceeds limit (multi-CF) |
 | `recycle_log_file_num` | `0` (disabled) | Number of WALs to recycle instead of delete |
 | `manual_wal_flush` | `false` | Manual WAL buffer flush via `FlushWAL()` |
 | `wal_recovery_mode` | `kPointInTimeRecovery` | WAL corruption handling during recovery |
+| `wal_compression` | `kNoCompression` | WAL record compression (only ZSTD supported) |
 | `allow_2pc` | `false` | Enable two-phase commit recovery |
+| `track_and_verify_wals_in_manifest` | `false` | Track synced WAL sizes in MANIFEST for verification |
+| `avoid_flush_during_recovery` | `false` | Try to avoid flushing during WAL recovery |
 
 ### WriteOptions (Per-Write Durability)
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `sync` | `false` | Call `fsync()` after write |
+| `sync` | `false` | Call `fdatasync()` after write (or `fsync()` if `use_fsync=true`) |
 | `disableWAL` | `false` | Skip WAL entirely (no durability) |
 
 ---
@@ -688,7 +715,7 @@ During recovery:
 ⚠️ **INVARIANT:** Writer never leaves `< header_size` bytes in a block. Remaining space is zero-padded.
 - **Files:** `db/log_writer.cc:113-133`
 
-⚠️ **INVARIANT:** CRC checksum covers `RecordType + Payload` (not the CRC field itself).
+⚠️ **INVARIANT:** CRC checksum covers `RecordType + Payload` for legacy records, and `RecordType + LogNumber + Payload` for recyclable records (not the CRC field itself).
 - **Files:** `db/log_writer.cc:323-340`
 
 ⚠️ **INVARIANT:** When `recycle_log_files=true`, reader skips records with `log_number != expected_log_number`.
@@ -702,7 +729,7 @@ During recovery:
   - Minimum WAL number of prepared 2PC transactions (if `allow_2pc=true`)
 - **Files:** `db/db_impl/db_impl_open.cc:1177-1182`
 
-⚠️ **INVARIANT:** `recycle_log_file_num > 0` is incompatible with `WriteOptions::disableWAL`. Attempting both returns `Status::InvalidArgument()`.
+⚠️ **INVARIANT:** `recycle_log_file_num > 0` is incompatible with `WriteOptions::disableWAL`, except when using two write queues with `disable_memtable=true` (internal 2PC split writes). Returns `Status::InvalidArgument()` otherwise.
 - **Files:** `HISTORY.md:526`
 
 ⚠️ **INVARIANT:** Sequence numbers in a single WriteBatch form a contiguous range `[seq, seq + count)`.
@@ -724,7 +751,7 @@ During recovery:
 | `db/log_writer.cc` | Writer implementation (`AddRecord`, `EmitPhysicalRecord`) |
 | `db/log_reader.h` | Reader interface, corruption reporting |
 | `db/log_reader.cc` | Reader implementation (`ReadRecord`, `ReadPhysicalRecord`) |
-| `db/write_batch.cc:9-36` | WriteBatch serialization format |
+| `db/write_batch.cc:432-503` | WriteBatch parser tag handling |
 | `db/wal_manager.h` | WAL archival and purging |
 | `db/wal_manager.cc` | `ArchiveWALFile`, `PurgeObsoleteWALFiles` |
 | `db/db_impl/db_impl_open.cc:1128-1277` | Crash recovery (`RecoverLogFiles`) |
@@ -812,9 +839,11 @@ For high throughput, use **group commit** (default in RocksDB): multiple threads
 ### Recycling vs. Allocation
 
 Recycling WALs avoids:
-- `open()` + `truncate()` syscalls
+- `open()` syscalls for new files
 - Filesystem metadata updates
 - Disk space allocation
+
+The reuse is delegated to `FileSystem::ReuseWritableFile()`, so the exact mechanism depends on the filesystem implementation.
 
 Trade-off: **4 bytes per record** overhead (log number field).
 
@@ -831,7 +860,7 @@ Trade-off: **4 bytes per record** overhead (log number field).
    - Replication tools may tail WALs in `archive/` directory
 
 3. **Recycling with `disableWAL`**
-   - `recycle_log_file_num > 0` and `WriteOptions::disableWAL=true` are incompatible
+   - `recycle_log_file_num > 0` and `WriteOptions::disableWAL=true` are generally incompatible (exception: internal 2PC split writes with two write queues)
    - Returns `Status::InvalidArgument()`
 
 4. **Ignoring 2PC prepared transactions**
@@ -844,9 +873,36 @@ Trade-off: **4 bytes per record** overhead (log number field).
 
 ---
 
-## 16. Future Work and Extensions
+## 16. Additional Features
 
-- **WAL Compression:** Experimental support via `compression_type` parameter (reduces disk I/O, increases CPU)
+### WAL Compression
+
+WAL compression is controlled via `DBOptions::wal_compression` (`include/rocksdb/options.h:1476-1481`). Currently only ZSTD (`kZSTD`) is supported; unsupported types are sanitized to `kNoCompression` at open time (`db/db_impl/db_impl_open.cc:188-193`). When enabled, `CreateWAL()` writes a `kSetCompressionType` record before user data (`db/db_impl/db_impl_open.cc:2391`, `db/log_writer.cc:193-235`). The Writer constructor parameter is `CompressionType compressionType` (`db/log_writer.h:82-86`). Compressed WAL records are readable in RocksDB >= 7.4.0 regardless of the writer's setting.
+
+### Option Sanitization at Open Time
+
+During `DB::Open()`, several sanitizations affect WAL recycling (`db/db_impl/db_impl_open.cc:101-121`):
+- WAL recycling is disabled when WAL archival retention is enabled (`WAL_ttl_seconds > 0` or `WAL_size_limit_MB > 0`)
+- WAL recycling is disabled for `kTolerateCorruptedTailRecords` and `kAbsoluteConsistency` recovery modes
+
+### track_and_verify_wals_in_manifest
+
+When `DBOptions::track_and_verify_wals_in_manifest=true` (`include/rocksdb/options.h:660-674`), the log numbers and sizes of synced closed WALs are recorded in MANIFEST (`db/db_impl/db_impl.cc:1952-1957`). During `DB::Open()`, these are verified against actual WAL files on disk (`db/db_impl/db_impl_open.cc:761-779`). This is an additional protection against WAL corruption beyond the per-WAL-entry checksum.
+
+### User-Defined Timestamp Size Records
+
+The WAL format includes sideband records for user-defined timestamp sizes. Writers emit `kUserDefinedTimestampSizeType` / `kRecyclableUserDefinedTimestampSizeType` records (`db/log_writer.cc:276-306`) when column families use non-zero timestamp sizes. Readers track and validate these (`db/log_reader.cc:215-237`), and recovery can rebuild a `WriteBatch` to reconcile recorded timestamp sizes with the running CF configuration (`db/db_impl/db_impl_open.cc`, `util/udt_util.h`).
+
+### Replication via GetUpdatesSince
+
+Replication is supported through `DB::GetUpdatesSince(seq_number)` (`include/rocksdb/db.h:1880-1887`), which returns a `TransactionLogIterator` (`include/rocksdb/transaction_log.h`). This is implemented through `WalManager::GetUpdatesSince()` (`db/wal_manager.cc:103-129`). **Important:** `WAL_ttl_seconds` or `WAL_size_limit_MB` must be set to large values to retain WALs long enough for the iterator to read them.
+
+### avoid_flush_during_recovery
+
+When `DBOptions::avoid_flush_during_recovery=true` (`include/rocksdb/options.h:1415-1429`), RocksDB tries to avoid flushing during recovery, keeping recovered state backed by live WALs instead of flushing final memtables (`db/db_impl/db_impl_open.cc`). Note that `allow_2pc=true` forces this option off during sanitization (`db/db_impl/db_impl_open.cc:148-153`).
+
+### Other Notes
+
 - **Remote WAL:** Write WAL to remote storage (e.g., S3) for disaster recovery
 - **Asynchronous WAL writes:** Decouple WAL write latency from user-facing latency (research)
 - **WAL pipelining:** Overlap WAL write with MemTable insertion (requires careful ordering)

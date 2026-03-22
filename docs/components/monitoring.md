@@ -72,13 +72,16 @@ Defined in `include/rocksdb/statistics.h:Tickers`:
 | **WAL** | `WAL_FILE_SYNCED` | Number of WAL syncs |
 | | `WAL_FILE_BYTES` | Bytes written to WAL |
 | **Stalls** | `STALL_MICROS` | Time writers waited for compaction/flush |
-| | `DB_MUTEX_WAIT_MICROS` | Time waiting for DB mutex (requires `StatsLevel::kAll`) |
+| | `DB_MUTEX_WAIT_MICROS` | Time waiting for DB mutex and condition variables (requires `StatsLevel::kAll`) |
 
-**⚠️ INVARIANT:** Ticker relationships must hold:
+**⚠️ INVARIANT:** Ticker relationships:
 ```
 BLOCK_CACHE_HIT == BLOCK_CACHE_INDEX_HIT + BLOCK_CACHE_FILTER_HIT + BLOCK_CACHE_DATA_HIT
+                   + BLOCK_CACHE_COMPRESSION_DICT_HIT
 BLOCK_CACHE_MISS == BLOCK_CACHE_INDEX_MISS + BLOCK_CACHE_FILTER_MISS + BLOCK_CACHE_DATA_MISS
+                    + BLOCK_CACHE_COMPRESSION_DICT_MISS
 ```
+Note: Compression dictionary accesses also increment the aggregate `BLOCK_CACHE_HIT`/`BLOCK_CACHE_MISS` counters.
 
 See `include/rocksdb/statistics.h:31-587` for the complete list of 200+ tickers.
 
@@ -213,10 +216,10 @@ uint64_t block_cache_index_hit_count;     // Index block cache hits
 uint64_t block_cache_filter_hit_count;    // Filter block cache hits
 ```
 
-**Read path metrics (kEnableTime):**
+**Read path metrics (kEnableTimeExceptForMutex for time, kEnableCount for counts):**
 ```cpp
-uint64_t get_from_memtable_time;          // Time querying memtables
-uint64_t get_from_memtable_count;         // # memtables queried
+uint64_t get_from_memtable_time;          // Time querying memtables (kEnableTimeExceptForMutex)
+uint64_t get_from_memtable_count;         // # memtables queried (kEnableCount)
 uint64_t get_from_output_files_time;      // Time reading from SST files
 uint64_t get_post_process_time;           // Time after finding key
 uint64_t block_read_time;                 // Time reading blocks
@@ -225,25 +228,25 @@ uint64_t block_checksum_time;             // Time verifying checksums
 uint64_t block_decompress_time;           // Time decompressing blocks
 ```
 
-**Iterator metrics:**
+**Iterator metrics (kEnableCount for counts, kEnableTimeExceptForMutex for time):**
 ```cpp
-uint64_t internal_key_skipped_count;      // Internal keys skipped during iteration
-uint64_t internal_delete_skipped_count;   // Tombstones skipped
-uint64_t internal_recent_skipped_count;   // Keys skipped due to snapshot
-uint64_t seek_on_memtable_time;           // Time seeking in memtable
-uint64_t seek_on_memtable_count;          // # seeks on memtable
-uint64_t next_on_memtable_count;          // # Next() calls on memtable
-uint64_t prev_on_memtable_count;          // # Prev() calls on memtable
+uint64_t internal_key_skipped_count;      // Internal keys skipped during iteration (kEnableCount)
+uint64_t internal_delete_skipped_count;   // Tombstones skipped (kEnableCount)
+uint64_t internal_recent_skipped_count;   // Keys skipped due to snapshot (kEnableCount)
+uint64_t seek_on_memtable_time;           // Time seeking in memtable (kEnableTimeExceptForMutex)
+uint64_t seek_on_memtable_count;          // # seeks on memtable (kEnableCount)
+uint64_t next_on_memtable_count;          // # Next() calls on memtable (kEnableCount)
+uint64_t prev_on_memtable_count;          // # Prev() calls on memtable (kEnableCount)
 ```
 
-**Write path metrics (kEnableWait):**
+**Write path metrics (kEnableTimeExceptForMutex for timers, kEnableWait for wait times):**
 ```cpp
-uint64_t write_wal_time;                  // Time writing to WAL
-uint64_t write_memtable_time;             // Time writing to memtable
-uint64_t write_delay_time;                // Time delayed/throttled by write controller
-uint64_t write_scheduling_flushes_compactions_time; // Time scheduling background work
-uint64_t write_pre_and_post_process_time; // Other write overhead
-uint64_t write_thread_wait_nanos;         // Time waiting for batch group
+uint64_t write_wal_time;                  // Time writing to WAL (kEnableTimeExceptForMutex)
+uint64_t write_memtable_time;             // Time writing to memtable (kEnableTimeExceptForMutex)
+uint64_t write_delay_time;                // Time delayed/throttled by write controller (kEnableWait)
+uint64_t write_scheduling_flushes_compactions_time; // Time scheduling background work (kEnableTimeExceptForMutex)
+uint64_t write_pre_and_post_process_time; // Other write overhead (kEnableTimeExceptForMutex)
+uint64_t write_thread_wait_nanos;         // Time waiting for batch group (kEnableWait)
 ```
 
 **Bloom filter stats (kEnableCount):**
@@ -254,12 +257,12 @@ uint64_t bloom_sst_hit_count;             // SST bloom hits
 uint64_t bloom_sst_miss_count;            // SST bloom misses
 ```
 
-**Mutex metrics (kEnableTime):**
+**Mutex metrics (kEnableTime for mutex/condvar, kEnableTimeExceptForMutex for key locks):**
 ```cpp
-uint64_t db_mutex_lock_nanos;             // Time acquiring DB mutex
-uint64_t db_condition_wait_nanos;         // Time waiting on condition variable
+uint64_t db_mutex_lock_nanos;             // Time acquiring DB mutex (kEnableTime)
+uint64_t db_condition_wait_nanos;         // Time waiting on condition variable (kEnableTime)
 uint64_t key_lock_wait_time;              // Time waiting on transaction locks (kEnableTimeExceptForMutex)
-uint64_t key_lock_wait_count;             // # times blocked by transaction lock
+uint64_t key_lock_wait_count;             // # times blocked by transaction lock (kEnableCount)
 ```
 
 **BlobDB metrics:**
@@ -299,8 +302,8 @@ perf->ClearPerLevelPerfContext();    // Free memory and disable
 
 From `include/rocksdb/perf_context.h:33-63`, per-level metrics include:
 - `bloom_filter_useful` - Bloom filter prevented reads
-- `bloom_filter_full_positive` - Bloom false positives
-- `bloom_filter_full_true_positive` - Bloom true positives
+- `bloom_filter_full_positive` - Bloom returned positive (all positives, including true and false)
+- `bloom_filter_full_true_positive` - Bloom positive and data actually existed
 - `user_key_return_count` - Keys found and returned
 - `get_from_table_nanos` - Time reading from SST files
 - `block_cache_hit_count` / `block_cache_miss_count`
@@ -355,7 +358,7 @@ uint64_t bytes_written;        // Total bytes written
 uint64_t bytes_read;           // Total bytes read
 ```
 
-**I/O operation timing:**
+**I/O operation timing (wall-clock: kEnableTimeExceptForMutex):**
 ```cpp
 uint64_t open_nanos;           // Time in open() and fopen()
 uint64_t allocate_nanos;       // Time in fallocate()
@@ -367,7 +370,7 @@ uint64_t prepare_write_nanos;  // Time preparing writes (fallocate, etc.)
 uint64_t logger_nanos;         // Time in Logger::Logv()
 ```
 
-**CPU time (separate from wall clock time):**
+**CPU time (kEnableTimeAndCPUTimeExceptForMutex, separate from wall clock time):**
 ```cpp
 uint64_t cpu_write_nanos;      // CPU time in write/pwrite
 uint64_t cpu_read_nanos;       // CPU time in read/pread
@@ -400,7 +403,7 @@ printf("Hot file reads: %llu bytes in %llu operations\n",
        io->file_io_stats_by_temperature.hot_file_read_count);
 ```
 
-**⚠️ INVARIANT:** Temperature-based I/O stats are only populated when using tiered storage with `Temperature` annotations on SST files.
+**⚠️ NOTE:** Temperature-based I/O stats are populated for all files based on their `Temperature` annotation. Files with `Temperature::kUnknown` record to `unknown_non_last_level_*` or `unknown_last_level_*` counters depending on whether the file is on the last level. The hot/warm/cool/cold/ice counters are keyed off each file's temperature, not a separate "tiered storage mode" switch.
 
 ### Disabling IOStatsContext Selectively
 
@@ -411,7 +414,7 @@ io->disable_iostats = true;  // Temporarily disable collection
 io->disable_iostats = false;
 ```
 
-**Use case:** `disable_iostats` prevents background operations like logging or stats dumping from polluting I/O metrics. From `include/rocksdb/iostats_context.h:116-121`, BackupEngine and other tools rely on this to avoid counting their own I/O.
+**Use case:** `disable_iostats` gates the `IOSTATS_*` macros (counter increments and timer guards) to prevent background operations from polluting I/O metrics. From `include/rocksdb/iostats_context.h:116-121`, BackupEngine relies on counter metrics always being active (independent of PerfLevel), so `disable_iostats` provides a backdoor to suppress them. Note that `disable_iostats` does not suppress Statistics tickers such as `HOT_FILE_READ_BYTES` or `LAST_LEVEL_READ_BYTES`.
 
 ---
 
@@ -487,7 +490,7 @@ printf("%s\n", hist_str.c_str());
 
 From `monitoring/histogram.h:21-86`:
 
-**Bucket mapping:** Histograms use `HistogramBucketMapper` with 109 buckets covering range [0, ~1.8e14) with increasing granularity. Small values get finer buckets, large values get coarser buckets.
+**Bucket mapping:** Histograms use `HistogramBucketMapper` with 109 buckets covering range [0, ~1.3e19) with increasing granularity. Small values get finer buckets, large values get coarser buckets. Buckets are generated by repeatedly multiplying by 1.5, then rounding to two significant digits.
 
 **Thread safety:** `HistogramImpl` uses a mutex for merge operations. For core-local histograms in `StatisticsImpl`, each core has its own histogram to avoid contention.
 
@@ -546,11 +549,13 @@ uint64_t wait_time = statistics->getTickerCount(DB_MUTEX_WAIT_MICROS);
 InstrumentedCondVar cv(&instrumented_mutex);
 
 // Wait and signal work like std::condition_variable
-cv.Wait();           // Releases mutex, waits, reacquires (records time)
-cv.TimedWait(abs_time_us);  // Wait with timeout
+cv.Wait();           // Releases mutex, waits, reacquires (records time to DB_MUTEX_WAIT_MICROS)
+cv.TimedWait(abs_time_us);  // Wait with timeout (records time to DB_MUTEX_WAIT_MICROS)
 cv.Signal();         // Wake one waiter
 cv.SignalAll();      // Wake all waiters
 ```
+
+**⚠️ NOTE:** Both `InstrumentedMutex::Lock()` and `InstrumentedCondVar::Wait()`/`TimedWait()` record timing to `DB_MUTEX_WAIT_MICROS` when the stats code matches. PerfContext separately tracks `db_mutex_lock_nanos` for mutex acquisition and `db_condition_wait_nanos` for condition variable waits.
 
 **⚠️ INVARIANT:** `InstrumentedMutex` only records timing when:
 1. `Statistics` object is provided (not nullptr)
@@ -628,10 +633,10 @@ From `db/internal_stats.cc` and `db/internal_stats.h:64-101`:
 - `rocksdb.cfstats-no-file-histogram` - CF stats without file size histogram
 - `rocksdb.cf-file-histogram` - File size histogram for the CF
 
-**Per-level stats (`rocksdb.num-files-at-levelN` where N=0..6):**
+**Per-level stats (`rocksdb.num-files-at-levelN` where N=0..num_levels-1):**
 - `rocksdb.num-files-at-level0` - # of files in L0
 - `rocksdb.num-files-at-level1` - # of files in L1
-- ... etc
+- ... etc (valid range depends on the DB's configured `num_levels`, not a hard-coded limit)
 
 **Compression stats:**
 - `rocksdb.compression-ratio-at-levelN` - Compression ratio at level N
@@ -668,11 +673,10 @@ options.stats_dump_period_sec = 600;  // Dump stats every 10 minutes (default: 6
 ```
 
 When enabled, RocksDB periodically calls `DBImpl::DumpStats()` which writes:
-- `rocksdb.stats` - Overall stats
-- `rocksdb.cfstats` for each column family
 - `rocksdb.dbstats` - DB-wide statistics
+- `rocksdb.cfstats.periodic` for each column family (an internal property with periodic formatting)
 
-The output is logged to the RocksDB LOG file for monitoring and debugging.
+Note: `rocksdb.stats` is a separate public property that combines `HandleCFStats()` + `HandleDBStats()`. The periodic dump uses the internal `kPeriodicCFStats` property instead.
 
 **⚠️ INVARIANT:** Stats dumping happens on a background thread managed by `PeriodicTaskScheduler`. Setting `stats_dump_period_sec = 0` disables periodic dumping.
 
@@ -682,7 +686,7 @@ The output is logged to the RocksDB LOG file for monitoring and debugging.
 
 ### Overview
 
-`EventLogger` logs important database events (flush, compaction, recovery) as JSON to the LOG file. Useful for debugging, monitoring, and post-mortem analysis.
+`EventLogger` logs important database events (flush, compaction, recovery) as JSON to the LOG file. It writes synchronously via `Logger` (not asynchronously). Some call sites use `LogToBuffer` to batch log writes, but the `EventLogger` interface itself is synchronous. Useful for debugging, monitoring, and post-mortem analysis.
 
 **Source files:**
 - `logging/event_logger.h` - EventLogger class
@@ -698,19 +702,21 @@ Common events logged by RocksDB:
   "time_micros": 1234567890,
   "job": 123,
   "event": "flush_started",
-  "column_family": "default",
-  "reason": "Write Buffer Full"
+  "num_memtables": 1,
+  "total_num_input_entries": 10000,
+  "num_deletes": 500,
+  "total_data_size": 1048576,
+  "memory_usage": 2097152,
+  "num_range_deletes": 10,
+  "flush_reason": "Write Buffer Full"
 }
 {
   "time_micros": 1234567950,
   "job": 123,
   "event": "flush_finished",
-  "column_family": "default",
-  "output_level": 0,
-  "num_output_files": 1,
-  "total_output_size": 1048576,
-  "num_entries": 10000,
-  "write_rate_bytes_per_sec": 10485760
+  "output_compression": "Snappy",
+  "lsm_state": [1, 5, 20, 100, 0, 0, 0],
+  "immutable_memtables": 0
 }
 ```
 
@@ -720,11 +726,13 @@ Common events logged by RocksDB:
   "time_micros": 1234568000,
   "job": 456,
   "event": "compaction_started",
+  "cf_name": "default",
   "compaction_reason": "LevelL0FilesNum",
   "files_L0": [1, 2, 3],
   "files_L1": [10, 11],
   "score": 4.5,
-  "input_data_size": 41943040
+  "input_data_size": 41943040,
+  "oldest_snapshot_seqno": 12345
 }
 {
   "time_micros": 1234578000,
@@ -738,9 +746,10 @@ Common events logged by RocksDB:
   "num_input_records": 100000,
   "num_output_records": 95000,
   "num_subcompactions": 4,
-  "bytes_read": 41943040,
-  "bytes_written": 39845888,
-  "write_amplification": 0.95
+  "output_compression": "Snappy",
+  "num_single_delete_mismatches": 0,
+  "num_single_delete_fallthrough": 0,
+  "lsm_state": [0, 5, 20, 100, 0, 0, 0]
 }
 ```
 
@@ -748,25 +757,20 @@ Common events logged by RocksDB:
 ```json
 {
   "time_micros": 1234560000,
+  "job": 1,
   "event": "recovery_started",
   "wal_files": [1, 2, 3]
 }
 {
   "time_micros": 1234562000,
+  "job": 1,
   "event": "recovery_finished",
-  "wal_recovery_time_micros": 2000000
+  "status": "OK"
 }
 ```
+Note: If recovery fails, the event is `"recovery_failed"` with the error status.
 
-**Error events:**
-```json
-{
-  "time_micros": 1234590000,
-  "event": "background_error",
-  "error": "Corruption: block checksum mismatch",
-  "file": "/path/to/000123.sst"
-}
-```
+**⚠️ NOTE:** Background errors are **not** surfaced through EventLogger. They are exposed through the `EventListener::OnBackgroundError()` callback instead (see `include/rocksdb/listener.h`).
 
 ### Using EventLogger
 
@@ -774,14 +778,17 @@ EventLogger is created internally by RocksDB and writes to the same LOG file. To
 
 ```bash
 # Extract all JSON events from LOG file
-grep '^\*\*JSON:' LOG | sed 's/^\*\*JSON: //' > events.json
+grep 'EVENT_LOG_v1' LOG | sed 's/.*EVENT_LOG_v1 //' > events.json
 
 # Parse with jq
 jq 'select(.event == "compaction_finished")' events.json
-jq 'select(.event == "flush_finished") | {time_micros, num_entries, total_output_size}' events.json
+jq 'select(.event == "flush_finished") | {time_micros, lsm_state}' events.json
 ```
 
-**Format:** Each event is prefixed with `**JSON: ` in the LOG file for easy extraction.
+**Format:** Each event line contains the prefix `EVENT_LOG_v1` followed by a JSON object. Example log line:
+```
+2015/01/15-14:13:25.788019 1105ef000 EVENT_LOG_v1 {"time_micros": 1421360005788015, "event": "table_file_creation", ...}
+```
 
 **⚠️ INVARIANT:** EventLogger output is intended for machine parsing. The JSON format is stable across versions (new fields may be added, but existing fields won't change type).
 
@@ -825,10 +832,10 @@ IOStatsContext* get_iostats_context();
 ```
 
 **Implementation:**
-- C++11 `thread_local` storage (when available)
-- If RocksDB is compiled with `-DNPERF_CONTEXT` or `-DNIOSTATS_CONTEXT`, returns a global dummy object (no-op)
+- C++11 `thread_local` storage (required; platforms without `thread_local` support will fail to compile)
+- If RocksDB is compiled with `-DNPERF_CONTEXT` or `-DNIOSTATS_CONTEXT`, a global non-thread-local object is used instead; updates to it are ignored and reads return no-op values
 
-**⚠️ INVARIANT:** These functions never return nullptr. If thread-local is disabled, they return a read-only global object that ignores updates.
+**⚠️ INVARIANT:** These functions never return nullptr. When compiled with `NPERF_CONTEXT`/`NIOSTATS_CONTEXT`, they return a global object that ignores updates.
 
 ### Ticker/Histogram Name Mapping
 
@@ -848,7 +855,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
 };
 ```
 
-**⚠️ INVARIANT:** The order in these vectors **must** match the order in the enum definitions. This is enforced by assertions at startup.
+**⚠️ INVARIANT:** The order in these vectors **must** match the order in the enum definitions. This is enforced by unit tests (`StatisticsTest::SanityTickers` and `StatisticsTest::SanityHistograms` in `monitoring/statistics_test.cc`).
 
 ### Recording Metrics (Internal Helpers)
 
@@ -886,11 +893,13 @@ RecordInHistogram(statistics, READ_BLOCK_GET_MICROS, elapsed_us);
 
 ```cpp
 // Disable PerfContext (all operations become no-ops)
-cmake .. -DNPERF_CONTEXT
+cmake .. -DWITH_PERF_CONTEXT=OFF
 
 // Disable IOStatsContext (all operations become no-ops)
-cmake .. -DNIOSTATS_CONTEXT
+cmake .. -DWITH_IOSTATS_CONTEXT=OFF
 ```
+
+These CMake options internally add `-DNPERF_CONTEXT` and `-DNIOSTATS_CONTEXT` compile definitions respectively.
 
 When disabled, `get_perf_context()` and `get_iostats_context()` return pointers to global dummy objects that ignore all updates and always return zeros.
 
@@ -902,15 +911,17 @@ When disabled, `get_perf_context()` and `get_iostats_context()` return pointers 
 
 From least to most expensive:
 
-1. **Statistics tickers** (`StatsLevel::kExceptDetailedTimers`): ~1-2 atomic increments per operation. Core-local reduces contention.
+1. **PerfContext counters** (`kEnableCount`): Thread-local increments, no contention or atomics. Minimal overhead (~1 increment per tracked event).
 
-2. **Histograms** (`StatsLevel::kExceptHistogramOrTimers` or higher): Additional atomic operations for buckets, min/max, sum, sum_squares. Slightly more expensive than tickers.
+2. **Statistics tickers** (`StatsLevel::kExceptDetailedTimers`): Core-local `atomic_uint_fast64_t` with `fetch_add(relaxed)`. Slightly more expensive than PerfContext due to atomic operations, but contention is minimized by core-local storage.
 
-3. **PerfContext counters** (`kEnableCount`): Thread-local, no contention. Minimal overhead (~1 increment per tracked event).
+3. **Histograms** (enabled above `StatsLevel::kExceptHistogramOrTimers`): Additional atomic operations for buckets, min/max, sum, sum_squares. Note: histograms are disabled at `kExceptHistogramOrTimers` and below (the check is `<=`).
 
-4. **PerfContext/IOStatsContext timing** (`kEnableTime`): Requires `clock_gettime()` calls. Can be 10-100ns per call depending on platform.
+4. **PerfContext/IOStatsContext timing** (`kEnableTimeExceptForMutex`): Requires `clock_gettime()` calls. Can be 10-100ns per call depending on platform. Wall-clock IOStats timers (`IOSTATS_TIMER_GUARD`) start at `kEnableTimeExceptForMutex`; CPU I/O timers (`IOSTATS_CPU_TIMER_GUARD`) start at `kEnableTimeAndCPUTimeExceptForMutex`.
 
 5. **InstrumentedMutex** (`StatsLevel::kAll`): Adds `clock_gettime()` calls **inside the mutex critical path**. Can reduce throughput by 10-20% in mutex-heavy workloads on some platforms.
+
+Note: The exact overhead depends on platform, workload, and access patterns. The ordering above reflects the typical relative cost, not absolute measurements.
 
 **Recommendation:**
 - **Production**: `StatsLevel::kExceptDetailedTimers` + `PerfLevel::kDisable`
@@ -934,16 +945,126 @@ From least to most expensive:
 
 ---
 
+## Stats History and Persistence
+
+RocksDB can persist statistics snapshots for historical analysis, managed by `PeriodicTaskScheduler`.
+
+**Source files:**
+- `include/rocksdb/options.h` - Configuration options
+- `include/rocksdb/db.h` - `GetStatsHistory()` API
+- `include/rocksdb/stats_history.h` - `StatsHistoryIterator`
+- `monitoring/in_memory_stats_history.h` - In-memory implementation
+- `monitoring/persistent_stats_history.h` - On-disk implementation
+
+**Configuration:**
+```cpp
+options.stats_persist_period_sec = 600;    // Persist stats every 10 minutes (default: 600)
+options.persist_stats_to_disk = false;     // If true, persist to a dedicated CF; otherwise in-memory
+options.stats_history_buffer_size = 1024 * 1024;  // Memory cap for in-memory stats snapshots
+```
+
+**Querying history:**
+```cpp
+std::unique_ptr<StatsHistoryIterator> stats_iter;
+Status s = db->GetStatsHistory(start_time, end_time, &stats_iter);
+if (s.ok()) {
+  for (; stats_iter->Valid(); stats_iter->Next()) {
+    uint64_t timestamp = stats_iter->GetStatsTime();
+    const auto& stats_map = stats_iter->GetStatsMap();
+    // stats_map is a map<string, uint64_t> of ticker names to values
+  }
+}
+```
+
+**⚠️ NOTE:** When `persist_stats_to_disk` is true, RocksDB creates an internal column family to store stats. Changing this option on an existing DB that previously used it may trigger warnings about unknown column families.
+
+---
+
+## Thread Status Monitoring
+
+RocksDB provides thread-level status monitoring to track what each background thread is doing.
+
+**Source files:**
+- `include/rocksdb/thread_status.h` - `ThreadStatus` struct
+- `include/rocksdb/env.h` - `Env::GetThreadList()` API
+- `monitoring/thread_status_util.h` - Utility functions
+- `monitoring/thread_status_updater.h` - Thread status updater
+
+**Configuration:**
+```cpp
+options.enable_thread_tracking = false;  // Default: disabled (has some overhead)
+```
+
+**Querying thread status:**
+```cpp
+std::vector<ThreadStatus> thread_list;
+db->GetEnv()->GetThreadList(&thread_list);
+for (const auto& ts : thread_list) {
+  printf("Thread %llu: type=%s, operation=%s, state=%s\n",
+         ts.thread_id,
+         ThreadStatus::GetThreadTypeName(ts.thread_type).c_str(),
+         ThreadStatus::GetOperationName(ts.operation_type).c_str(),
+         ThreadStatus::GetStateName(ts.state_type).c_str());
+}
+```
+
+`ThreadStatus` provides: thread type (high/low priority, user), operation type (flush, compaction), operation stage, state (running, mutex wait), and operation properties (e.g., compaction input/output sizes).
+
+---
+
+## EventListener: Callback-Based Monitoring
+
+`EventListener` is the public callback interface for reacting to database events. It provides hooks for flush, compaction, table file operations, background errors, and more.
+
+**Source files:**
+- `include/rocksdb/listener.h` - `EventListener` class and event info structs
+- `include/rocksdb/options.h` - `listeners` option
+
+**Configuration:**
+```cpp
+class MyListener : public EventListener {
+ public:
+  void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
+    printf("Flush completed: CF=%s, file=%s, entries=%llu\n",
+           info.cf_name.c_str(), info.file_path.c_str(), info.table_properties.num_entries);
+  }
+  void OnCompactionCompleted(DB* db, const CompactionJobInfo& info) override {
+    printf("Compaction completed: CF=%s, status=%s\n",
+           info.cf_name.c_str(), info.status.ToString().c_str());
+  }
+  void OnBackgroundError(BackgroundErrorReason reason, Status* error) override {
+    printf("Background error: reason=%d, error=%s\n",
+           static_cast<int>(reason), error->ToString().c_str());
+  }
+};
+
+options.listeners.push_back(std::make_shared<MyListener>());
+```
+
+**Key callbacks (from `include/rocksdb/listener.h`):**
+- `OnFlushBegin()` / `OnFlushCompleted()` - Flush lifecycle
+- `OnCompactionBegin()` / `OnCompactionCompleted()` - Compaction lifecycle
+- `OnTableFileCreated()` / `OnTableFileDeleted()` - SST file operations
+- `OnBlobFileCreated()` / `OnBlobFileDeleted()` - Blob file operations
+- `OnBackgroundError()` - Background errors (the primary way to observe background errors; EventLogger does not emit background error events)
+- `OnStallConditionsChanged()` - Write stall changes
+- `OnFileReadFinish()` / `OnFileWriteFinish()` - File I/O notifications
+- `OnErrorRecoveryBegin()` / `OnErrorRecoveryCompleted()` - Error recovery lifecycle
+
+**⚠️ NOTE:** `EventListener` callbacks execute on the thread that triggers the event (e.g., flush thread, compaction thread). Keep callbacks lightweight to avoid blocking database operations.
+
+---
+
 ## Summary
 
 | Component | Scope | Use Case | Overhead | When to Use |
 |-----------|-------|----------|----------|-------------|
-| **Statistics** | Global, cumulative | Production monitoring, long-term trends | Low (core-local atomics) | Always enabled with `StatsLevel::kExceptDetailedTimers` |
-| **PerfContext** | Thread-local, resettable | Per-request debugging, profiling specific operations | Low-Medium (depends on PerfLevel) | Enable temporarily for debugging |
+| **Statistics** | Global, cumulative | Production monitoring, long-term trends | Low (core-local atomics) | Must be explicitly enabled by setting `Options::statistics` (defaults to `nullptr`) |
+| **PerfContext** | Thread-local, resettable | Per-request debugging, profiling specific operations | Low-Medium (depends on PerfLevel) | Default PerfLevel is `kEnableCount` (counts enabled, timing disabled). Set higher for timing. |
 | **IOStatsContext** | Thread-local, resettable | I/O bottleneck diagnosis | Low-Medium (depends on PerfLevel) | Enable temporarily for I/O profiling |
-| **Histograms** | Global, distributions | Latency analysis (P50/P95/P99) | Low-Medium | Enabled by StatsLevel |
+| **Histograms** | Global, distributions | Latency analysis (P50/P95/P99) | Low-Medium | Enabled above `StatsLevel::kExceptHistogramOrTimers` |
 | **InstrumentedMutex** | Specific mutexes | Mutex contention debugging | Medium-High (if timing enabled) | Only enable with `StatsLevel::kAll` when debugging |
 | **DB Properties** | Real-time DB state | Runtime introspection, health checks | Negligible (read-only) | Use as needed |
-| **EventLogger** | Async JSON logging | Post-mortem analysis, monitoring | Very low (async) | Always enabled (automatic) |
+| **EventLogger** | Synchronous JSON logging | Post-mortem analysis, monitoring | Very low | Always enabled (automatic) |
 
 **⚠️ CRITICAL:** Always measure the performance impact of monitoring in your workload before deploying to production. The overhead varies significantly depending on platform, CPU, and access patterns.

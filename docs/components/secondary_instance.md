@@ -36,7 +36,7 @@ Secondary instances are useful for:
 └───────────────────────────────────────────────────────────┘
          ▲            ▲              ▲              ▲
          │            │              │              │
-         │(no access) │(optional)    │(always)      │(always)
+         │(no access) │(always)    │(always)      │(always)
          │            │Tail WAL      │Tail MANIFEST │Read SSTs
          │            │              │              │
 ┌────────┼────────────┼──────────────┼──────────────┼─────────┐
@@ -94,27 +94,29 @@ Status DB::OpenAsSecondary(
 |-----------|-------------|
 | `name` | Path to the **primary** database directory |
 | `secondary_path` | Path where secondary stores its **own info log** |
-| `options.max_open_files` | **Must be set to -1** to keep all table files open (see File Deletion Coordination below) |
+| `options.max_open_files` | **Recommended to be set to -1** to keep all table files open (see File Deletion Coordination below) |
 | `column_families` | Must include at least the default CF; subset of primary's CFs allowed |
 
-⚠️ **INVARIANT:** `Options.max_open_files` should be set to `-1` when opening a secondary instance. This prevents `IOError` when the primary deletes files that the secondary is still reading (via open file descriptors, the secondary can access deleted files on POSIX systems).
+⚠️ **RECOMMENDATION:** `Options.max_open_files` should be set to `-1` when opening a secondary instance. This prevents `IOError` when the primary deletes files that the secondary is still reading (via open file descriptors, the secondary can access deleted files on POSIX systems). Note: the secondary will still open successfully without this setting (only a warning is logged), and this workaround only covers table files — it does not eliminate MANIFEST/WAL race conditions.
 
 ### Opening Process
 
 ```
 db/db_impl/db_impl_secondary.cc:OpenAsSecondaryImpl
-  ├─ Create DBImplSecondary instance (db_impl_secondary.cc:27)
+  ├─ Create DBImplSecondary instance (db_impl_secondary.cc:776)
   │   └─ Initialize secondary_path_ for metadata
   │
+  ├─ Create ReactiveVersionSet and ColumnFamilyMemTablesImpl (db_impl_secondary.cc:777-782)
+  │   └─ versions_ and column_family_memtables_ initialized before Recover()
+  │
   ├─ Recover() (db_impl_secondary.cc:39-56)
-  │   ├─ Create ReactiveVersionSet
-  │   ├─ Call ReactiveVersionSet::Recover()
+  │   ├─ Call ReactiveVersionSet::Recover() on the already-created versions_
   │   │   └─ Read MANIFEST, create manifest_reader_ (version_set.cc:8007)
   │   └─ Initialize manifest_reader_ for future tailing
   │
-  └─ (Optional) Recover WAL logs (if recover_wal=true)
-      └─ RecoverLogFiles() (db_impl_secondary.cc:176-329)
-          └─ Create log_readers_ for tailing
+  └─ Recover WAL logs (always for public API, skipped by OpenAndCompact)
+      └─ FindAndRecoverLogFiles() (db_impl_secondary.cc:73-87)
+          └─ RecoverLogFiles() creates log_readers_ for tailing
 ```
 
 ⚠️ **INVARIANT:** During recovery, the secondary only replays the MANIFEST. WAL recovery happens separately if needed. The secondary **never locks** the primary's database directory.
@@ -182,7 +184,7 @@ The secondary uses `ReactiveVersionSet::ReadAndApply()` to tail the MANIFEST:
 
 ### WAL Tailing Details
 
-WAL tailing is **optional** and provides fresher data:
+WAL tailing is **always enabled** for the public `DB::OpenAsSecondary()` API (which passes `recover_wal=true` internally) and provides fresher data by replaying in-flight WAL records into in-memory memtables. The only code path that skips WAL recovery is the internal `OpenAndCompact()` helper used for remote compaction.
 
 ```cpp
 // db/db_impl/db_impl_secondary.cc:176-329
@@ -221,11 +223,21 @@ Status DBImplSecondary::RecoverLogFiles(
 
 | Operation | Support | Notes |
 |-----------|---------|-------|
-| `Get()` | ✅ Yes | `db_impl_secondary.cc:331-421` |
+| `Get()` | ✅ Yes | `db_impl_secondary.cc:331-486` |
 | `MultiGet()` | ✅ Yes | Inherited from DBImpl |
-| `NewIterator()` | ✅ Yes | `db_impl_secondary.cc:423-484` |
-| `GetSnapshot()` | ✅ Yes | Implicit snapshot at LastSequence |
+| `NewIterator()` | ✅ Yes | `db_impl_secondary.cc:488-545` |
+| `GetSnapshot()` | ⚠️ Limited | Inherited from DBImpl, but explicit snapshots are **not supported** in iterators or `Get()` (see below) |
 | `GetProperty()` | ✅ Yes | Read-only properties |
+
+**Snapshot limitations:** While `GetSnapshot()` is inherited and callable, secondary mode does not honor explicit snapshots:
+- `NewIterator()` and `NewIterators()` return `NotSupported("snapshot not supported in secondary mode")` when `ReadOptions.snapshot` is set.
+- `Get()` always reads at `versions_->LastSequence()`, ignoring any snapshot.
+- All reads implicitly use the sequence number from the last `TryCatchUpWithPrimary()` call.
+
+**Iterator restrictions:**
+- `ReadOptions.tailing` returns `NotSupported("tailing iterator not supported in secondary mode")`
+- `ReadOptions.read_tier == kPersistedTier` returns `NotSupported`
+- Iterators created before a `TryCatchUpWithPrimary()` call retain their old view; call `Refresh()` or create a new iterator to see updated data
 
 ### Read Flow
 
@@ -245,6 +257,13 @@ Get/Iterator
 ```
 
 ⚠️ **INVARIANT:** All reads operate on the `SuperVersion` at the time of `TryCatchUpWithPrimary()`. Reads do **not** reflect primary's writes until the next catch-up call.
+
+### Timestamp-Aware Reads
+
+Secondary instances fully participate in user-defined timestamp validation:
+- `GetImpl()`, `NewIterator()`, and `NewIterators()` all validate `ReadOptions.timestamp` against the column family's timestamp size (`FailIfTsMismatchCf`) and reject reads on timestamp-enabled CFs without a timestamp (`FailIfCfHasTs`).
+- `FailIfReadCollapsedHistory()` checks are applied when timestamps are provided.
+- See `DBSecondaryTestWithTimestamp` in `db/db_secondary_test.cc` for test coverage.
 
 ### File Deletion Coordination
 
@@ -301,7 +320,8 @@ The secondary provides **eventual consistency** with bounded staleness:
 
 | Aspect | Guarantee |
 |--------|-----------|
-| Snapshot isolation | ✅ Yes, at `TryCatchUpWithPrimary()` time |
+| Implicit snapshot isolation | ✅ Yes, at `TryCatchUpWithPrimary()` time (via `LastSequence`) |
+| Explicit snapshot (`ReadOptions.snapshot`) | ❌ No (`NotSupported` for iterators, ignored by `Get`) |
 | Read-your-writes | ❌ No (reads may lag behind primary writes) |
 | Monotonic reads | ✅ Yes (within same SuperVersion) |
 | Cross-CF consistency | ✅ Yes (all CFs updated atomically in `TryCatchUpWithPrimary`) |
@@ -349,9 +369,13 @@ OpenAndCompact
   │       └─ Read MANIFEST only (not WAL)
   │
   ├─ 2. Deserialize CompactionServiceInput
+  │   ├─ Column family name, snapshots, db_id
   │   ├─ Input files to compact
-  │   ├─ Output level
-  │   └─ Compaction options
+  │   ├─ Output level, subcompaction bounds
+  │   └─ options_file_number (reference to OPTIONS file)
+  │
+  ├─ 3. Load DB/CF options from OPTIONS-<options_file_number> file
+  │   └─ Apply CompactionServiceOptionsOverride on top
   │
   ├─ 3. Run CompactWithoutInstallation()
   │   ├─ Create CompactionJob (db_impl_secondary.cc:1293)
@@ -388,6 +412,12 @@ struct CompactionProgressFilesScan {
 - **Progress files:** Track which files have been compacted (for resumption)
 - **Cleanup:** Old/temporary progress files are deleted
 - **Resumption:** `allow_resumption=true` in `OpenAndCompactOptions`
+
+**Resumable compaction constraints:**
+- When `allow_resumption=false`, `output_directory` **must** already be empty; existing files may cause correctness errors.
+- When `allow_resumption=true` but the progress file is missing or corrupt, the system cleans up and attempts a fresh compaction as a best-effort fallback.
+- Resumption is **disabled** when `paranoid_file_checks=true` or `verify_output_flags` contains `kVerifyIteration` (output hash verification is incompatible with resumption).
+- Resumption currently only supports a **single subcompaction** (`db_impl_secondary.cc:993-994, 1638-1640`).
 
 ---
 
@@ -440,7 +470,7 @@ for (ColumnFamilyData* cfd : cfds_changed) {
 
 ### Read Performance
 
-- **Same as primary** for reads (same TableCache, block cache)
+- **Similar to primary** for reads, but each secondary has its own `TableCache`. Block cache sharing only happens if the caller intentionally passes a shared block cache object in the options.
 - **No write overhead** (no WAL sync, no memtable flushing)
 - **Potential IOError** if files deleted by primary (mitigated by max_open_files=-1)
 
@@ -451,12 +481,12 @@ for (ColumnFamilyData* cfd : cfds_changed) {
 | Limitation | Impact | Mitigation |
 |------------|--------|------------|
 | **Stale reads** | Secondary lags behind primary | Call `TryCatchUpWithPrimary()` more frequently |
-| **File deletion races** | IOError if primary deletes files | Set `max_open_files=-1` |
+| **File deletion races** | IOError if primary deletes files | Set `max_open_files=-1` (recommended) |
 | **No dynamic CF discovery** | New CFs invisible until restart | Restart secondary when primary adds CFs |
 | **MANIFEST rotation race** | `TryAgain` error if MANIFEST switches | Retry `TryCatchUpWithPrimary()` |
 | **WAL deletion** | `PathNotFound` when tailing WAL | Tolerated (returns OK, `db_impl_secondary.cc:676`) |
 | **No write coordination** | Cannot prevent primary from advancing | Use read-only snapshots in primary |
-| **Memory overhead** | Each secondary has own memtables from WAL | Limit WAL tailing or disable it |
+| **Memory overhead** | Each secondary has own memtables from WAL | WAL replay always happens; memtables freed when WAL is consumed |
 
 ---
 
@@ -472,7 +502,7 @@ Status s = DB::Open(options, "/data/primary", &primary);
 
 // Open secondary (read instance)
 Options secondary_options = options;
-secondary_options.max_open_files = -1;  // Critical!
+secondary_options.max_open_files = -1;  // Recommended
 std::unique_ptr<DB> secondary;
 s = DB::OpenAsSecondary(secondary_options,
                         "/data/primary",      // Primary's path
@@ -523,9 +553,9 @@ result.Read(output_serialized, &result);
 
 | Feature | Secondary | ReadOnly (`OpenForReadOnly`) | Follower (`OpenAsFollower`) |
 |---------|-----------|------------------------------|------------------------------|
-| Dynamic catch-up | ✅ Manual (`TryCatchUpWithPrimary`) | ❌ No (static snapshot) | ✅ Automatic (periodic tailing) |
+| Dynamic catch-up | ✅ Manual (`TryCatchUpWithPrimary`) | ❌ No (static snapshot) | ✅ Automatic (periodic MANIFEST tailing) |
 | Multiple instances | ✅ Yes | ⚠️ Undefined with concurrent primary | ✅ Yes |
-| WAL tailing | ✅ Optional | ❌ No | ✅ Yes (automatic) |
+| WAL tailing | ✅ Yes (always enabled) | ❌ No | ❌ No (MANIFEST only; memtable updates planned for future) |
 | File deletion tolerance | ⚠️ Requires `max_open_files=-1` | ❌ No | ✅ Yes (uses links) |
 | Own directory | ✅ Yes (`secondary_path`) | ❌ No | ✅ Yes |
 | EXPERIMENTAL | ❌ Stable | ❌ Stable | ⚠️ **EXPERIMENTAL** |
@@ -552,18 +582,19 @@ ROCKS_LOG_DEBUG(info_log, "[%s] is dropped\n", cfd->GetName().c_str());
 
 | Symptom | Cause | Solution |
 |---------|-------|----------|
-| `IOError: No such file` on read | Primary deleted SST | Set `max_open_files=-1` |
+| `IOError: No such file` on read | Primary deleted SST | Set `max_open_files=-1` (recommended) |
 | `TryAgain` in `TryCatchUpWithPrimary` | MANIFEST rotation race | Retry the call |
 | Stale reads | Haven't called `TryCatchUpWithPrimary` | Call more frequently |
-| High `TryCatchUpWithPrimary` latency | Large WAL/MANIFEST backlog | Reduce catch-up frequency or disable WAL tailing |
+| High `TryCatchUpWithPrimary` latency | Large WAL/MANIFEST backlog | Reduce catch-up frequency |
 
 ---
 
 ## Key Takeaways
 
-1. **Secondary instances are read-only followers** that tail MANIFEST and optionally WAL.
-2. **Set `max_open_files=-1`** to avoid IOError from file deletions.
+1. **Secondary instances are read-only followers** that tail MANIFEST and WAL (WAL tailing is always enabled for the public API).
+2. **Set `max_open_files=-1`** (recommended) to avoid IOError from file deletions (warning-only if not set).
 3. **Call `TryCatchUpWithPrimary()` manually** to catch up with primary (not automatic).
 4. **Reads are eventually consistent**, reflecting state at last catch-up.
-5. **Remote compaction** uses `OpenAndCompact()` to run compaction without modifying primary.
-6. **Cannot dynamically discover new CFs**—must restart secondary to access them.
+5. **Explicit snapshots are not supported** in iterators or `Get()`; reads always use `LastSequence`.
+6. **Remote compaction** uses `OpenAndCompact()` to run compaction without modifying primary.
+7. **Cannot dynamically discover new CFs**—must restart secondary to access them.

@@ -17,9 +17,10 @@ Key → { Column1: Value1, Column2: Value2, ... }
 ```
 
 This eliminates the need to:
-- Serialize/deserialize entire structures when accessing a single field
 - Use multiple keys for related attributes
 - Parse JSON or protocol buffers just to read one column
+
+**Note**: While wide columns avoid application-level deserialization of formats like JSON/protobuf, the current API does **not** support selective retrieval of individual columns. `GetEntity()` returns the entire entity; `Get()` returns only the default column. V1 decoding still parses the full column index. Wide columns provide a structured storage format with typed column access, not columnar projection.
 
 ## Core Data Structures
 
@@ -82,11 +83,11 @@ WideColumns columns{
   {"city", "San Francisco"},
   {"name", "Alice"}
 };
-// Columns will be sorted by name during serialization
+// Columns will be sorted by the write API before serialization
 Status s = db->PutEntity(WriteOptions(), cf, "user:123", columns);
 ```
 
-**⚠️ INVARIANT**: User-provided columns need **not be pre-sorted**. Serialization sorts them internally. However, deserialization **requires** sorted columns and rejects unsorted data.
+**⚠️ INVARIANT**: User-provided columns need **not be pre-sorted**. The write APIs (`WriteBatchInternal::PutEntity` in `db/write_batch.cc` and `SstFileWriter::PutEntity` in `table/sst_file_writer.cc`) sort them before calling `Serialize()`. The `Serialize()` function itself only **validates** strict ordering and returns `Status::Corruption` if the input is unordered or contains duplicates. Deserialization also **requires** sorted columns and rejects unsorted data.
 
 **AttributeGroups** — store an entity across multiple column families (include/rocksdb/db.h:454):
 ```cpp
@@ -96,6 +97,14 @@ Status PutEntity(const WriteOptions& options,
 ```
 
 This splits a logical entity into multiple physical column families for schema isolation or independent TTL/compaction policies.
+
+**⚠️ RESTRICTION**: `PutEntity()` and `WriteBatch::PutEntity()` are **rejected on timestamp-enabled column families** with `Status::InvalidArgument` (`db/write_batch.cc`). Wide-column entities and user-defined timestamps are currently incompatible.
+
+**SstFileWriter::PutEntity** — write wide-column entities to external SST files (include/rocksdb/sst_file_writer.h:119):
+```cpp
+Status PutEntity(const Slice& user_key, const WideColumns& columns);
+```
+Columns are sorted internally before serialization, same as `WriteBatch::PutEntity`.
 
 ### Read Operations
 
@@ -116,6 +125,33 @@ void MultiGetEntity(const ReadOptions& options,
                     PinnableWideColumns* results,
                     Status* statuses,
                     bool sorted_input = false);
+```
+
+**⚠️ RESTRICTION**: `GetEntity()` only accepts `ReadOptions::io_activity` set to `kUnknown` or `kGetEntity`. `MultiGetEntity()` only accepts `kUnknown` or `kMultiGetEntity`. Other values return `Status::InvalidArgument`.
+
+**Attribute-Group Reads** — retrieve entity across multiple column families (include/rocksdb/db.h:678):
+```cpp
+Status GetEntity(const ReadOptions& options,
+                 const Slice& key,
+                 PinnableAttributeGroups* result);
+
+void MultiGetEntity(const ReadOptions& options,
+                    size_t num_keys,
+                    const Slice* keys,
+                    PinnableAttributeGroups* results);
+```
+
+**Cross-CF Iterators** (include/rocksdb/db.h:1016):
+```cpp
+// Coalescing iterator: merges columns from multiple CFs into single entity
+std::unique_ptr<Iterator> NewCoalescingIterator(
+    const ReadOptions& options,
+    const std::vector<ColumnFamilyHandle*>& column_families);
+
+// Attribute-group iterator: yields per-CF attribute groups
+std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
+    const ReadOptions& options,
+    const std::vector<ColumnFamilyHandle*>& column_families);
 ```
 
 **Iterators** — access columns via `columns()` method (include/rocksdb/iterator.h:54):
@@ -148,6 +184,32 @@ WriteBatch batch;
 batch.PutEntity(cf, key, columns);
 batch.Delete(cf, another_key);
 db->Write(WriteOptions(), &batch);
+```
+
+### Transaction Support
+
+Wide columns are fully integrated with RocksDB transactions (include/rocksdb/utilities/transaction.h):
+```cpp
+Transaction* txn = txn_db->BeginTransaction(WriteOptions());
+
+// Write entity in transaction
+txn->PutEntity(cf, key, columns);
+
+// Read entity (with snapshot isolation)
+PinnableWideColumns result;
+txn->GetEntity(ReadOptions(), cf, key, &result);
+
+// Read-for-update (acquire lock)
+txn->GetEntityForUpdate(ReadOptions(), cf, key, &result);
+
+// Batch read
+txn->MultiGetEntity(ReadOptions(), cf, num_keys, keys, results, statuses);
+
+// Cross-CF iterators in transaction context
+auto coalescing_it = txn->GetCoalescingIterator(ReadOptions(), cfs);
+auto attr_group_it = txn->GetAttributeGroupIterator(ReadOptions(), cfs);
+
+txn->Commit();
 ```
 
 ## Serialization Format
@@ -302,11 +364,7 @@ V2 fast path leverages skip info to extract default column without full deserial
 ```cpp
 db->Put(WriteOptions(), cf, key, "plain_value");
 ```
-Internally equivalent to:
-```cpp
-WideColumns cols{{kDefaultWideColumnName, "plain_value"}};
-db->PutEntity(WriteOptions(), cf, key, cols);
-```
+This stores a `kTypeValue` record via `WriteBatch::Put()`. It does **not** call `PutEntity` internally. The equivalence to a single-column entity is a **read-time compatibility mapping**: `GetEntity()` on a plain value maps it to a single default column, and `Get()` on a wide-column entity extracts the default column's value.
 
 **Reading**:
 ```cpp
@@ -354,21 +412,21 @@ Compaction treats wide-column entities similarly to plain values:
 - **Merging duplicates**: Newer entity replaces older entity (same as kTypeValue)
 - **Deletion**: `kTypeDeletion` removes entire entity, not individual columns
 - **Single deletion**: `kTypeSingleDeletion` deletes entire entity
-- **Compaction filters**: Receive serialized entity value, can inspect/modify via deserialization
+- **Compaction filters**: `CompactionIterator` **deserializes** wide-column entities and passes them to `CompactionFilter::FilterV3()` as `const WideColumns* existing_columns` (not raw serialized bytes). Filters can also convert entities to plain values via `kChangeValue`, or convert plain values to entities via `kChangeWideColumnEntity` (`include/rocksdb/compaction_filter.h`, `db/compaction/compaction_iterator.cc`)
 
 **Future extension**: Per-column deletion types (`kTypeColumnDeletion`) would enable granular column removal.
 
 ### Merge Operators
 
-Merge operators interact with wide-column entities through serialized format.
+Merge operators interact with wide-column entities through deserialized `WideColumns`, not raw serialized format. When the base value is a wide-column entity, RocksDB deserializes it before invoking the merge operator.
 
 **Full merge with entities** (db/merge_helper.cc):
 ```cpp
 merge_operator->FullMergeV3(merge_in, merge_out);
 ```
-- `merge_in.existing_value`: Either `std::monostate`, `Slice` (plain value), or `WideColumns` (entity)
+- `merge_in.existing_value`: `std::variant<std::monostate, Slice, WideColumns>` — deserialized entity columns, plain value, or absent
 - `merge_in.operand_list`: Merge operand values
-- `merge_out->new_value`: Output — can be plain value or `NewColumns` (for entity output)
+- `merge_out->new_value`: `std::variant<std::string, NewColumns, Slice>` — can be a plain value (`std::string`), entity columns (`NewColumns`), or a `Slice` reusing an existing operand/value without copying
 
 **Example use case**: Combining columns from base and operands
 ```cpp
@@ -406,12 +464,7 @@ class WideColumnMergeOperator : public MergeOperator {
                               ParseColumnValue(operand));
     }
 
-    // Ensure columns are sorted by name
-    std::sort(new_columns.begin(), new_columns.end(),
-              [](const auto& a, const auto& b) {
-                return a.first < b.first;
-              });
-
+    // No need to sort — MergeHelper sorts the output automatically
     return true;
   }
 
@@ -421,9 +474,16 @@ class WideColumnMergeOperator : public MergeOperator {
 };
 ```
 
-**⚠️ INVARIANT**: Merge operators must **preserve column ordering** when creating entities. The `MergeOperationOutputV3::NewColumns` output will be serialized with the columns in the order provided, so ensure they are sorted by name.
+**⚠️ INVARIANT**: Merge operators need **not** sort `NewColumns` output. `MergeHelper::TimedFullMergeImpl()` sorts the returned columns via `WideColumnsHelper::SortColumns()` before serialization (`db/merge_helper.cc`). However, column names must still be unique — duplicates will cause `Status::Corruption` during serialization.
+
+**Default FullMergeV3 fallback** (include/rocksdb/merge_operator.h, db/merge_operator.cc):
+If a merge operator only implements `FullMergeV2()`, the default `FullMergeV3()` provides backward-compatible wide-column support:
+- If the base value is a plain key-value or absent: falls back to `FullMergeV2()` directly
+- If the base value is a wide-column entity: invokes `FullMergeV2()` on the **default column only**, preserves all non-default columns unchanged, and inserts a default column if the base entity did not have one
 
 ## Blob Integration (V2 Format)
+
+**⚠️ NOTE**: The V2 format and blob column support described below is **not yet wired into production write/read paths**. Current public write paths (`WriteBatchInternal::PutEntity`, `SstFileWriter::PutEntity`) use V1 serialization only. Current read paths (`db_iter.cc`, `get_context.cc`) use V1-oriented `Deserialize()` and `GetValueOfDefaultColumn()`, not `ResolveEntityBlobColumns()` or `GetValueOfDefaultColumnResolvingBlobs()`. The code exists as infrastructure for future blob offloading of wide-column values.
 
 ### Blob Column References
 
@@ -490,7 +550,7 @@ Fast check without full deserialization:
 
 **Good fit**:
 - Structured data with multiple attributes (user profiles, product metadata)
-- Selective column access (read only `name` and `age`, skip `bio`)
+- Typed column access without application-level parsing (columns are named and directly accessible after `GetEntity`)
 - Schema evolution (add new columns without rewriting existing data)
 - Related attributes with shared lifecycle (same TTL, compaction policy)
 
@@ -593,20 +653,29 @@ static Iterator Find(Iterator begin, Iterator end, const Slice& column_name) {
 | Component | File | Description |
 |-----------|------|-------------|
 | Public API | `include/rocksdb/db.h:449,667,876` | PutEntity, GetEntity, MultiGetEntity |
+| Attribute Groups | `include/rocksdb/db.h:678,936` | GetEntity/MultiGetEntity with PinnableAttributeGroups |
+| Cross-CF Iterators | `include/rocksdb/db.h:1016,1022` | NewCoalescingIterator, NewAttributeGroupIterator |
 | Core Types | `include/rocksdb/wide_columns.h` | WideColumn, PinnableWideColumns |
+| Attribute Group Types | `include/rocksdb/attribute_groups.h` | AttributeGroups, PinnableAttributeGroups |
 | Serialization | `db/wide/wide_column_serialization.h` | V1/V2 encoding, blob support |
 | Serialization Impl | `db/wide/wide_column_serialization.cc` | Serialize, Deserialize, ResolveEntityBlobColumns |
 | Helpers | `db/wide/wide_columns_helper.h` | HasDefaultColumn, SortColumns, Find |
 | WriteBatch | `include/rocksdb/write_batch.h` | WriteBatch::PutEntity |
+| SST Writer | `include/rocksdb/sst_file_writer.h:119` | SstFileWriter::PutEntity |
+| Transactions | `include/rocksdb/utilities/transaction.h` | PutEntity, GetEntity, GetEntityForUpdate |
 | Iterator | `include/rocksdb/iterator.h:54` | Iterator::columns() |
+| Merge Operator | `include/rocksdb/merge_operator.h:164` | FullMergeV3 with WideColumns support |
+| Merge Fallback | `db/merge_operator.cc:66` | Default FullMergeV3 fallback to FullMergeV2 |
+| Compaction Filter | `include/rocksdb/compaction_filter.h:281` | FilterV3 with WideColumns* |
 | DB Implementation | `db/db_impl/db_impl.cc:2357` | DBImpl::GetEntity |
 | DB Write Path | `db/db_impl/db_impl_write.cc:41,2808` | DBImpl::PutEntity, DB::PutEntity |
 | Compaction | `db/compaction/compaction_iterator.cc` | kTypeWideColumnEntity handling |
-| Value Type | `db/dbformat.h` | kTypeWideColumnEntity (0x13) |
+| Value Type | `db/dbformat.h` | kTypeWideColumnEntity (0x16) |
 
 ## Limitations and Future Work
 
 **Current limitations**:
+- No column projection (`GetEntity` returns entire entity; no API to fetch specific columns by name)
 - No per-column deletion (must rewrite entire entity minus column)
 - No partial column updates (must read-modify-write entire entity)
 - No column-level TTL (entity-level only)

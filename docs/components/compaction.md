@@ -17,7 +17,7 @@ CompactionJob::Prepare()       -- divide into SubcompactionStates
     |
     v
 CompactionJob::Run()           -- per subcompaction:
-    |   MergingIterator         -- heap-merge sorted input files
+    |   CompactionMergingIterator -- heap-merge sorted input files + range tombstone start keys
     |       |
     |       v
     |   CompactionIterator      -- dedup, delete, merge, filter, blob GC
@@ -58,8 +58,9 @@ Additional methods:
 Standard leveled compaction. Selects the level with the highest compaction score (from `VersionStorageInfo::CompactionScore()`), picks files from that level and overlapping files from the next level.
 
 **Score calculation** (in `VersionStorageInfo::ComputeCompactionScore()`):
-- L0: `num_files / l0_compaction_trigger`
-- L1+: `level_bytes / target_bytes`
+- L0: `num_files / l0_compaction_trigger` (also considers L0 size vs base level size for leveled compaction)
+- L1+: `level_bytes / target_bytes` (with dynamic-level-bytes scaling when enabled)
+- Additional triggers: TTL-based compaction, temperature-change compaction, blob-aware FIFO sizing, universal-specific handling
 
 Supports round-robin file selection via compact cursors.
 
@@ -69,18 +70,21 @@ Size-tiered compaction. Triggers based on:
 - **Size ratio**: Adjacent sorted runs exceed `size_ratio` threshold
 - **Space amplification**: Total size / last level size exceeds `max_size_amplification_percent`
 - **File count**: Number of sorted runs exceeds `level0_file_num_compaction_trigger`
+- **Periodic compaction**: Files older than `periodic_compaction_seconds`
+- **Delete-triggered / marked-for-compaction**: Files flagged for compaction by other subsystems
 
-Supports `require_max_output_level` flag to force output to the last level (for deletion-triggered compaction).
+Uses `require_max_output_level` flag via `MeetsOutputLevelRequirements()` to force output to the last level. Applied generically (not only for deletion-triggered compaction), including for bottom-priority background compactions.
 
 ### FIFOCompactionPicker
 
-Oldest-first deletion. Operates in L0 only (`MaxOutputLevel() = 0`). Strategies:
+Oldest-first deletion. Primarily targets L0, but during migration from level/universal compaction to FIFO, `PickSizeCompaction()` can select the last non-empty level (which may be non-L0) and build a deletion compaction there. Strategies:
 
 | Strategy | Description |
 |----------|-------------|
 | TTL compaction | Delete files older than TTL threshold |
 | Size compaction | Delete oldest files when total size exceeds `max_table_files_size` |
-| Intra-L0 compaction | Merge small L0 files to reduce file count |
+| Intra-L0 compaction (cost-based) | Merge small L0 files to reduce file count |
+| Intra-L0 compaction (kv-ratio) | `PickRatioBasedIntraL0Compaction()` controlled by `compaction_options_fifo.use_kv_ratio_compaction` |
 | Temperature change | Move files between temperature tiers |
 
 ### NullCompactionPicker
@@ -90,8 +94,8 @@ No-op picker used when compaction is disabled. All methods return nullptr/false.
 ### Tracking Running Compactions
 
 `RegisterCompaction()` / `UnregisterCompaction()` track running compactions to avoid conflicts:
-- `level0_compactions_in_progress_` -- ordered set for L0
-- `compactions_in_progress_` -- unordered set for all levels
+- `level0_compactions_in_progress_` -- ordered set for L0 compactions and all universal compactions (regardless of start level)
+- `compactions_in_progress_` -- unordered set for all compactions
 
 ---
 
@@ -113,7 +117,7 @@ A `Compaction` object is a metadata container describing one compaction operatio
 | `target_output_file_size_` | `uint64_t` | Target size per output file |
 | `max_compaction_bytes_` | `uint64_t` | Max total input bytes |
 | `grandparents_` | `vector<FileMetaData*>` | Files at output_level+1 for output splitting |
-| `bottommost_level_` | `bool` | No data exists below output level |
+| `bottommost_level_` | `bool` | No data in the compaction key range exists after the output sorted run (checked via `RangeMightExistAfterSortedRun()`) |
 | `deletion_compaction_` | `bool` | Just delete input files, no merge |
 | `proximal_level_` | `int` | For per-key-placement: `last_level - 1` |
 | `compaction_reason_` | `CompactionReason` | Why this compaction was triggered |
@@ -134,12 +138,12 @@ struct CompactionInputFiles {
 
 | Method | Description |
 |--------|-------------|
-| `IsTrivialMove()` | True if compaction = move one file (no merge needed) |
+| `IsTrivialMove()` | True if compaction can move files without merging (may include multiple files in leveled/universal) |
 | `ShouldFormSubcompactions()` | Whether to parallelize into subcompactions |
 | `KeyNotExistsBeyondOutputLevel()` | Can sequence numbers be zeroed for this key? |
 | `AddInputDeletions()` | Adds all input files as deletes to a VersionEdit |
 | `SupportsPerKeyPlacement()` | Whether per-key-placement is active |
-| `FilterInputsForCompactionIterator()` | Removes files fully shadowed by standalone range deletion files |
+| `FilterInputsForCompactionIterator()` | Removes files fully covered by a standalone range deletion file (only applies when `earliest_snapshot_` exists, user-defined timestamps are disabled, and the start-level candidate is a standalone range tombstone whose seqno is in a snapshot) |
 
 ### Per-Key Placement
 
@@ -147,7 +151,9 @@ When enabled (`SupportsPerKeyPlacement() == true`), compaction can output keys t
 - **Output level** (last level): cold data
 - **Proximal level** (`last_level - 1`): recent data
 
-The decision is per-key, based on sequence numbers and snapshot boundaries. See `CompactionIterator::PrepareOutput()`.
+Enablement requires: the compaction `output_level` is the last level, `preclude_last_level_data_seconds > 0`, a valid proximal level, and a computed proximal output key range. A `keep_in_last_level_through_seqno_` guard prevents data from being moved up prematurely.
+
+The per-key placement decision happens in `CompactionJob::ProcessKeyValue()` via `ikey.sequence > proximal_after_seqno_`, where the threshold is computed in `CompactionJob::Prepare()`. `CompactionIterator::PrepareOutput()` handles blob extraction/GC and sequence number zeroing but not placement.
 
 ---
 
@@ -176,9 +182,9 @@ Executes a compaction. Three-phase lifecycle:
 ### Core Processing Loop
 
 `ProcessKeyValueCompaction()` (per subcompaction):
-1. Create input iterator (MergingIterator over input SST files)
+1. Create input iterator (`CompactionMergingIterator` via `VersionSet::MakeInputIterator()`, which has compaction-specific behavior: emits range tombstone start keys, skips file-boundary sentinel keys)
 2. Wrap in `CompactionIterator` (handles dedup, deletion, merge, filter)
-3. For each output key: `SubcompactionState::AddToOutput()` -> `CompactionOutputs::AddToOutput()`
+3. For each output key: determine placement via `proximal_after_seqno_`, then `SubcompactionState::AddToOutput()` -> `CompactionOutputs::AddToOutput()`
 4. Split output files based on size, grandparent overlap, partitioner
 
 ### Output File Lifecycle
@@ -191,10 +197,12 @@ Executes a compaction. Three-phase lifecycle:
 
 ### Compaction Resumption
 
-Compactions can be resumed after interruption:
+Compaction resumption is currently narrowly scoped to secondary/remote compaction flows:
 - `Prepare()` accepts `CompactionProgress` from a previous run
 - `MaybeResumeSubcompactionProgressOnInputIterator()` seeks past completed work
-- Progress is persisted to MANIFEST via `CompactionJob::PersistSubcompactionProgress()`
+- Progress is persisted to a separate compaction-progress log (not the MANIFEST) via `CompactionJob::PersistSubcompactionProgress()`, which encodes a `VersionEdit` and writes it through `compaction_progress_writer_->AddRecord()`
+- Regular background compactions call `Prepare(std::nullopt)` with no progress writer
+- Persistence is limited to a single subcompaction and disabled for timestamps, file-boundary/range-delete cases, adjacent output tables sharing a user key, and some lookahead states
 
 ### Remote Compaction
 
@@ -221,7 +229,6 @@ The core merging/deduplication engine. Transforms a merged sorted stream of inpu
 7. **Compaction filter**: Invokes user-defined filter to drop/modify keys
 8. **Timestamp GC**: Drops old timestamp versions when `full_history_ts_low` is set
 9. **Sequence number zeroing**: At bottommost level, zeros seqnums when no snapshot needs them
-10. **Per-key placement**: Decides output level (normal vs proximal) for each key
 
 ### Key State
 
@@ -238,8 +245,8 @@ The core merging/deduplication engine. Transforms a merged sorted stream of inpu
 | Method | Description |
 |--------|-------------|
 | `NextFromInput()` | Main state machine: reads from input, handles dedup/deletion/merge/SingleDelete logic |
-| `PrepareOutput()` | Final preparation: blob extraction, seqnum zeroing, per-key placement |
-| `InvokeFilterIfNeeded()` | Calls CompactionFilter (kRemove/kKeep/kChangeValue/kRemoveAndSkipUntil) |
+| `PrepareOutput()` | Final preparation: blob extraction, seqnum zeroing |
+| `InvokeFilterIfNeeded()` | Calls CompactionFilter (kRemove/kKeep/kChangeValue/kRemoveAndSkipUntil/kPurge/kChangeBlobIndex/kIOError/kChangeWideColumnEntity) |
 | `findEarliestVisibleSnapshot()` | Scans snapshot list to find visibility boundary |
 
 ### Snapshot Interaction
@@ -265,11 +272,13 @@ Manages the output SST files produced by a subcompaction. Each subcompaction has
 
 | Criterion | Description |
 |-----------|-------------|
-| Target file size | `current_size >= target_output_file_size_` |
-| Grandparent overlap | Prevents excessive overlap with output_level+1 files |
-| Round-robin split key | `local_output_split_key_` from compaction |
+| Target file size | `estimated_file_size >= max_output_file_size()` |
 | TTL-based cutting | `files_to_cut_for_ttl_` isolates ranges for TTL merge-down |
 | SST partitioner | User-provided `SstPartitioner` callback |
+| Round-robin split key | `local_output_split_key_` from compaction |
+| Grandparent + max_compaction_bytes | `grandparent_overlapped_bytes_ + current_output_file_size_ > max_compaction_bytes()` |
+| Grandparent skippable boundary | For leveled: cuts when crossing grandparent boundaries that would create a skippable file > 1/8 target size |
+| Grandparent pre-cut heuristic | For leveled: dynamic threshold (50-90% of target size) based on number of grandparent boundaries seen |
 
 ### Grandparent Overlap Tracking
 
@@ -278,7 +287,7 @@ Tracks overlap with files at `output_level + 1` to prevent read amplification in
 - `grandparent_overlapped_bytes_` -- accumulated overlap
 - `grandparent_boundary_switched_num_` -- number of boundary crossings
 
-When overlap exceeds `MaxGrandParentOverlapBytes()` (typically `target_file_size * expanded_compaction_factor`), the output file is cut.
+File cuts at grandparent boundaries use `max_compaction_bytes()` and adaptive heuristics (see `ShouldStopBefore()` above) rather than a fixed overlap threshold.
 
 ### Key Methods
 
@@ -291,13 +300,23 @@ When overlap exceeds `MaxGrandParentOverlapBytes()` (typically `target_file_size
 
 ---
 
-## 6. MergingIterator
+## 6. CompactionMergingIterator
 
-**Files:** `table/merging_iterator.h`, `table/merging_iterator.cc`
+**Files:** `table/compaction_merging_iterator.h`, `table/compaction_merging_iterator.cc`
 
 ### What It Does
 
-Provides the sorted union of N child iterators using a min-heap. Used as the input to `CompactionIterator` and as the basis for `DBIter`.
+A specialized merging iterator used specifically for compaction, created via `NewCompactionMergingIterator()` through `VersionSet::MakeInputIterator()`. Unlike the general `MergingIterator`, it has compaction-specific behavior:
+
+- **Emits range tombstone start keys**: For each range tombstone `[start,end)@seqno`, emits `start@seqno` with op_type `kTypeRangeDeletion` to prevent oversize compactions from overlapping wide key ranges
+- **Skips file-boundary sentinel keys**: Filters out internal sentinel keys used for file boundary tracking
+- **`IsDeleteRangeSentinelKey()`**: Caller uses this to check if the current key is a range tombstone start key
+
+### MergingIterator (for reads)
+
+**Files:** `table/merging_iterator.h`, `table/merging_iterator.cc`
+
+The general-purpose merging iterator provides the sorted union of N child iterators using a min-heap. Used as the basis for `DBIter` (reads) but **not** for compaction (which uses `CompactionMergingIterator` above).
 
 ### Creation
 
@@ -345,7 +364,7 @@ Each `SubcompactionState` contains two `CompactionOutputs`:
 | Field | Description |
 |-------|-------------|
 | `compaction` | Parent `Compaction*` |
-| `start` / `end` | Key range boundaries (optional, nullptr = unbounded) |
+| `start` / `end` | Key range boundaries (`const std::optional<Slice>`, `std::nullopt` = unbounded) |
 | `status` / `io_status` | Result status |
 | `compaction_job_stats` | Per-subcompaction stats |
 | `range_del_agg_` | `CompactionRangeDelAggregator`, shared between both output groups |
@@ -367,15 +386,15 @@ Each `SubcompactionState` contains two `CompactionOutputs`:
 | Input files locked during compaction | `FileMetaData::being_compacted = true` prevents concurrent compaction of same files |
 | Atomic compaction unit boundaries respected | Range tombstones are not truncated at SST boundaries that share user keys |
 | Snapshot versions preserved | CompactionIterator keeps key versions visible to any live snapshot |
-| Output level >= start level | Compaction never moves data to a higher (lower-numbered) level |
+| Output level >= start level (with exceptions) | Compaction generally outputs to the same or lower level, but per-key placement can route keys to the proximal level (`last_level - 1`) |
 | Grandparent overlap bounded | Output file splitting prevents unbounded read amplification at grandparent level |
-| Trivial move is atomic | Single-file move requires no merge; just updates file metadata in VersionEdit |
+| Trivial move is atomic | File move(s) require no merge; just updates file metadata in VersionEdit. May include multiple files in leveled and universal compaction. |
 | Subcompaction ranges are disjoint | Parallel subcompactions have non-overlapping key ranges |
 
 ## Interactions With Other Components
 
 - **Version Management** (see [version_management.md](version_management.md)): Compaction reads from a `Version`, produces `VersionEdit`s, installs new Version via `LogAndApply()`.
-- **SST Format** (see [sst_table_format.md](sst_table_format.md)): `CompactionJob` reads SST files via `TableReader` iterators and writes new ones via `BlockBasedTableBuilder`.
-- **Write Path** (see [write_path.md](write_path.md)): Write stalls occur when compaction falls behind. `WriteController` throttles writes based on compaction pressure.
-- **Flush** (see [flush_and_read_path.md](flush_and_read_path.md)): Flush produces L0 files that trigger compaction. Compaction scores are recomputed after each flush.
+- **SST Format** (see [sst_table_format.md](sst_table_format.md)): `CompactionJob` reads SST files via `TableReader` iterators and writes new ones via the configured `table_factory` (dispatched through `NewTableBuilder()`).
+- **Write Flow** (see [write_flow.md](write_flow.md)): Write stalls occur when compaction falls behind. `WriteController` throttles writes based on compaction pressure.
+- **Flush** (see [flush.md](flush.md)): Flush produces L0 files that trigger compaction. Compaction scores are recomputed after each flush.
 - **Cache** (see [cache.md](cache.md)): Compaction may bypass block cache (`fill_cache=false`) to avoid polluting the cache with cold data.

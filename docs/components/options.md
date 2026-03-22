@@ -174,7 +174,7 @@ struct ImmutableCFOptions {
 };
 ```
 
-⚠️ **INVARIANT**: Changing immutable options requires closing the database, modifying the OPTIONS file, and reopening. Attempting to set immutable options via `SetOptions()` or `SetDBOptions()` returns an error.
+⚠️ **INVARIANT**: Changing immutable options requires closing the database, and reopening with the desired options. Applications can use `LoadLatestOptions()` to load persisted options, modify them, and pass them to `DB::Open()`. Attempting to set immutable options via `SetOptions()` or `SetDBOptions()` returns an error.
 
 ### Mutable Options
 
@@ -243,7 +243,9 @@ new_options["level0_file_num_compaction_trigger"] = "2";
 Status s = db->SetOptions(cf_handle, new_options);
 ```
 
-⚠️ **INVARIANT**: `SetOptions()` validates that all provided options are mutable. If any immutable option is included, the entire operation fails and no options are changed.
+⚠️ **INVARIANT**: `SetOptions()` validates that all provided options are mutable. If any immutable option is included, the operation fails. However, when applied to multiple column families, updates are applied sequentially without rollback — if a later CF fails, earlier CFs already have the new options. Also, both `SetOptions()` and `SetDBOptions()` can return an error after live state has already changed if persisting the new OPTIONS file fails.
+
+**Caveats:** `SetOptions()` is not fully stress-tested for reliability, and is a slow call because a new OPTIONS file is serialized and persisted for each call. Use only infrequently.
 
 **Implementation:** `db/db_impl/db_impl.cc` - `DBImpl::SetOptions()` and `DBImpl::SetDBOptions()`
 
@@ -260,12 +262,13 @@ RocksDB automatically persists options to disk in OPTIONS-XXXXXX files in the da
 **Generated during:**
 - DB::Open() - Creates initial OPTIONS file
 - Option changes via SetOptions() - Creates new OPTIONS file
-- DB recovery - Preserves options from MANIFEST
+- SetDBOptions() - Creates new OPTIONS file
+- CreateColumnFamily() / DropColumnFamily() - Creates new OPTIONS file
 
 **Format structure:**
 ```ini
 [Version]
-  rocksdb_version=9.8.0
+  rocksdb_version=11.1.0
   options_file_version=1.1
 
 [DBOptions]
@@ -287,26 +290,28 @@ RocksDB automatically persists options to disk in OPTIONS-XXXXXX files in the da
 
 [TableOptions/BlockBasedTable "default"]
   block_size=4096
-  block_cache=0x7f8a9c000000
   filter_policy=nullptr
   cache_index_and_filter_blocks=false
-  # ... table options
+  format_version=7
+  # ... table options (note: block_cache is not serialized)
 ```
 
 **Reading OPTIONS files:**
 ```cpp
+ConfigOptions config_options;
+config_options.ignore_unknown_options = true;  // for forward compatibility
 DBOptions db_options;
 std::vector<ColumnFamilyDescriptor> cf_descs;
-Status s = LoadLatestOptions("/path/to/db", Env::Default(),
+Status s = LoadLatestOptions(config_options, "/path/to/db",
                              &db_options, &cf_descs);
+// Note: pointer-based options (env, memtable_factory, comparator,
+// merge_operator, compaction_filter, prefix_extractor, block_cache)
+// are defaulted and must be manually restored after loading.
 ```
 
-**Writing OPTIONS files manually:**
-```cpp
-std::string options_str;
-Status s = GetStringFromDBOptions(&options_str, db_options);
-// Write options_str to file
-```
+**Writing OPTIONS files programmatically:**
+
+OPTIONS files are written internally by `PersistRocksDBOptions()`, which emits `[Version]`, `[DBOptions]`, `[CFOptions ...]`, and `[TableOptions/... ...]` sections. Using `GetStringFromDBOptions()` alone does not produce a valid OPTIONS file. Applications should rely on the automatic OPTIONS file persistence rather than writing them manually.
 
 ### GetStringFromDBOptions / GetStringFromColumnFamilyOptions
 
@@ -337,40 +342,61 @@ GetStringFromColumnFamilyOptions(&cf_opts_str, cf_options);
 
 ### Options Parsing from Strings
 
-Parse option strings back into options structs.
+Parse option strings back into options structs. All parsing functions require a `ConfigOptions` parameter that controls unknown-option handling, mutable-only parsing, escaping, and the object registry.
+
+**ConfigOptions** (`include/rocksdb/convenience.h`):
+```cpp
+struct ConfigOptions {
+  bool ignore_unknown_options = false;   // Ignore options from newer versions
+  bool ignore_unsupported_options = true;
+  bool input_strings_escaped = true;
+  bool mutable_options_only = false;     // Only accept mutable options
+  std::string delimiter = ";";
+  Env* env = Env::Default();
+  std::shared_ptr<ObjectRegistry> registry;
+  // ... more fields
+};
+```
 
 **Defined in:** `include/rocksdb/convenience.h`
 
 ```cpp
-Status GetDBOptionsFromString(const DBOptions& base_options,
+Status GetDBOptionsFromString(const ConfigOptions& config_options,
+                              const DBOptions& base_options,
                               const std::string& opts_str,
                               DBOptions* new_options);
 
-Status GetColumnFamilyOptionsFromString(const ColumnFamilyOptions& base_options,
-                                       const std::string& opts_str,
-                                       ColumnFamilyOptions* new_options);
+Status GetColumnFamilyOptionsFromString(const ConfigOptions& config_options,
+                                        const ColumnFamilyOptions& base_options,
+                                        const std::string& opts_str,
+                                        ColumnFamilyOptions* new_options);
 ```
 
 **Example:**
 ```cpp
+ConfigOptions config_options;
 DBOptions base_options;
 DBOptions new_options;
 std::string opts = "max_background_jobs=6;bytes_per_sync=1048576";
-Status s = GetDBOptionsFromString(base_options, opts, &new_options);
+Status s = GetDBOptionsFromString(config_options, base_options, opts,
+                                  &new_options);
 
 ColumnFamilyOptions base_cf;
 ColumnFamilyOptions new_cf;
 std::string cf_opts = "write_buffer_size=134217728;compression=kZSTD";
-s = GetColumnFamilyOptionsFromString(base_cf, cf_opts, &new_cf);
+s = GetColumnFamilyOptionsFromString(config_options, base_cf, cf_opts,
+                                     &new_cf);
 ```
 
 **Parsing from map:**
 ```cpp
-Status GetDBOptionsFromMap(const DBOptions& base_options,
+Status GetDBOptionsFromMap(const ConfigOptions& config_options,
+                           const DBOptions& base_options,
                            const std::unordered_map<std::string, std::string>& opts_map,
                            DBOptions* new_options);
 
 Status GetColumnFamilyOptionsFromMap(
+    const ConfigOptions& config_options,
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     ColumnFamilyOptions* new_options);
@@ -471,26 +497,34 @@ The OptionTypeInfo framework enables automatic conversion:
 
 ## Options Validation
 
-### SanitizeOptions
+### SanitizeCfOptions
 
-Validates and adjusts options for consistency before use. Called automatically during DB::Open().
+Validates and adjusts column family options for consistency before use. Called automatically during DB::Open().
 
 **Defined in:** `db/column_family.cc`, `db/db_impl/db_impl_open.cc`
 
 **Column family sanitization:**
 ```cpp
-ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
-                                   const ColumnFamilyOptions& src) {
+ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
+                                      bool read_only,
+                                      const ColumnFamilyOptions& src) {
   ColumnFamilyOptions result = src;
 
-  // Ensure write_buffer_size is reasonable
-  if (result.write_buffer_size < 1024) {
-    result.write_buffer_size = 1024;
+  // Clamp write_buffer_size to at least 64KB
+  ClipToRange(&result.write_buffer_size, (static_cast<size_t>(64)) << 10,
+              clamp_max);
+
+  // Adjust min_write_buffer_number_to_merge
+  result.min_write_buffer_number_to_merge =
+      std::min(result.min_write_buffer_number_to_merge,
+               result.max_write_buffer_number - 1);
+  if (result.min_write_buffer_number_to_merge < 1) {
+    result.min_write_buffer_number_to_merge = 1;
   }
 
-  // Adjust max_write_buffer_number_to_merge
-  if (result.max_write_buffer_number_to_merge < 1) {
-    result.max_write_buffer_number_to_merge = 1;
+  // Ensure max_write_buffer_number >= 2
+  if (result.max_write_buffer_number < 2) {
+    result.max_write_buffer_number = 2;
   }
 
   // Ensure num_levels is valid
@@ -498,22 +532,24 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     result.num_levels = 1;
   }
 
-  // Set default table factory if missing
-  if (result.table_factory == nullptr) {
-    result.table_factory.reset(new BlockBasedTableFactory());
-  }
+  // Sanitize L0 trigger relationships
+  // level0_stop >= level0_slowdown >= level0_compaction_trigger
 
   // More validation...
   return result;
 }
 ```
 
-**Key validations:**
-- Enforces minimum values (write_buffer_size >= 1KB)
-- Sets defaults for nullptr shared_ptrs (table_factory, merge_operator)
-- Adjusts derived values (max_bytes_for_level_multiplier_additional)
-- Validates compression settings
-- Ensures comparator and merge operator are non-null if needed
+**Key sanitizations:**
+- Enforces minimum values (write_buffer_size >= 64KB)
+- Ensures max_write_buffer_number >= 2
+- Adjusts min_write_buffer_number_to_merge to be at most max_write_buffer_number - 1
+- Sanitizes L0 trigger relationships (stop >= slowdown >= compaction trigger)
+- Validates compression settings and memtable configurations
+
+Note: The default `table_factory` (BlockBasedTableFactory) is set in the `ColumnFamilyOptions` constructor (`options/options.cc`), not in `SanitizeCfOptions`.
+
+⚠️ **INVARIANT**: `SanitizeCfOptions` runs automatically on DB::Open(). However, live `SetOptions()` does **not** run sanitization today (there is a FIXME to consolidate it with `ValidateOptions()`). Users should not call it directly.
 
 ### Consistency Checks
 
@@ -533,11 +569,13 @@ Status ValidateOptions(const DBOptions& db_opts,
 }
 ```
 
-**Common validation errors:**
-- Incompatible compaction_style and compaction_pri
-- Invalid level0_file_num_compaction_trigger values
-- Conflicting prefix_extractor and comparator
-- Invalid table factory configurations
+**Common validation errors** (from `ColumnFamilyData::ValidateOptions` in `db/column_family.cc` and `DBImpl::ValidateOptions` in `db/db_impl/db_impl_open.cc`):
+- FIFO compaction with TTL requires `max_open_files = -1`
+- `open_files_async` requires `skip_stats_update_on_db_open = true` and is incompatible with FIFO compaction
+- Blob GC thresholds must be in [0.0, 1.0]
+- UDT (user-defined timestamps) has constraints with atomic_flush and concurrent memtable writes
+- More than four `db_paths` not supported
+- Memory-mapped reads incompatible with direct I/O reads
 
 ⚠️ **INVARIANT**: SanitizeOptions runs automatically on DB::Open(). Users should not call it directly. Manually sanitized options may be overwritten.
 
@@ -602,10 +640,10 @@ Configuration for the block-based table format (default SST format).
 **Key settings:**
 
 **Block cache:**
-- `block_cache` - Shared cache for data blocks
-- `block_cache_compressed` - Cache for compressed blocks
+- `block_cache` - Shared cache for data blocks (not settable via SetOptions)
+- `persistent_cache` - Cache for pages read from device
 - `cache_index_and_filter_blocks` - Cache index/filter in block cache
-- `pin_l0_filter_and_index_blocks_in_cache` - Pin L0 metadata
+- `pin_l0_filter_and_index_blocks_in_cache` - Pin L0 metadata (DEPRECATED, use MetadataCacheOptions)
 
 **Block configuration:**
 - `block_size` - Target size for data blocks (default 4KB)
@@ -621,7 +659,7 @@ Configuration for the block-based table format (default SST format).
 
 **Checksum and compression:**
 - `checksum` - Checksum type (kCRC32c, kxxHash, kXXH3)
-- `format_version` - Block format version (0-5)
+- `format_version` - Block format version (2-7, default 7; versions 0-1 no longer supported)
 - `enable_index_compression` - Compress index blocks
 - `data_block_hash_table_util_ratio` - Hash table load factor
 
@@ -651,7 +689,14 @@ ColumnFamilyOptions cf_options;
 cf_options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 ```
 
-⚠️ **INVARIANT**: BlockBasedTableOptions must be set before DB::Open(). They cannot be changed dynamically via SetOptions().
+⚠️ **INVARIANT**: Except as specifically noted (e.g. `block_cache`, `no_block_cache`), BlockBasedTableOptions are "mutable" via `SetOptions()`, with the caveat that only new table builders and new table readers pick up the new options. This means changes take effect nearly immediately for new SST file creation, but existing table readers continue using old settings until the SST file is closed and reopened.
+
+**Example:**
+```cpp
+// Change block size and prepopulate behavior dynamically
+db->SetOptions({{"block_based_table_factory",
+                 "{block_size=8192;prepopulate_block_cache=kFlushOnly;}"}});
+```
 
 ---
 
@@ -711,13 +756,14 @@ table_options.pin_l0_filter_and_index_blocks_in_cache = true;
 // Bloom filter for point lookups
 table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
 table_options.whole_key_filtering = true;
+
+// Smaller blocks for better cache efficiency
+table_options.block_size = 4 * 1024;  // 4KB
+
 options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
 // Optimize filters for Get() hit rate
 options.optimize_filters_for_hits = true;
-
-// Smaller blocks for better cache efficiency
-table_options.block_size = 4 * 1024;  // 4KB
 
 // More aggressive compaction to reduce read amplification
 options.level0_file_num_compaction_trigger = 2;
@@ -851,8 +897,8 @@ options.OptimizeForSmallDb();
         │            │            │
         ▼            ▼            ▼
   ┌──────────┐ ┌──────────┐ ┌──────────┐
-  │Immutable │ │ Mutable  │ │ MANIFEST │
-  │CFOptions │ │CFOptions │ │          │
+  │Immutable │ │ Mutable  │ │ OPTIONS  │
+  │CFOptions │ │CFOptions │ │  -XXXXXX │
   └──────────┘ └──────────┘ └──────────┘
                      │
                      ▼
@@ -869,13 +915,14 @@ options.OptimizeForSmallDb();
 
 ### options_settable_test.cc
 
-Comprehensive test ensuring all options can be set/get correctly via string API.
+Tests verifying that all options are settable from option strings. These tests depend on compiler/layout assumptions (implicit padding bytes) and only run on limited platforms (Linux, Windows, non-Clang).
 
 **Key tests:**
-- All registered options are parseable from strings
-- Parsed options serialize back to the same string
-- Mutable options can be changed via SetOptions()
-- Immutable options are rejected by SetOptions()
+- `BlockBasedTableOptionsAllFieldsSettable` - All block-based table option fields are parseable from strings
+- `DBOptionsAllFieldsSettable` - All DB option fields are parseable from strings
+- `ColumnFamilyOptionsAllFieldsSettable` - All CF option fields are parseable from strings
+
+Note: These tests verify string-to-options parsing roundtrips, not live `DB::SetOptions()` behavior. Immutable-option rejection by `SetOptions()` is exercised in `db/db_options_test.cc`.
 
 ### options_test.cc
 
@@ -900,13 +947,15 @@ Tests option parsing, validation, and special behaviors.
 ⚠️ **MUTABILITY**:
 - Immutable options: Fixed at DB/CF creation, require reopen to change
 - Mutable options: Can change via SetOptions() / SetDBOptions() at runtime
-- SetOptions() validates mutability and rejects immutable changes atomically
+- SetOptions() validates mutability and rejects immutable changes
+- Multi-CF SetOptions() applies sequentially without rollback; persist failure can return error after state is already changed
+- SetOptions() does not run SanitizeCfOptions(); only ValidateOptions() is called
 
 ⚠️ **PERSISTENCE**:
-- OPTIONS-XXXXXX files auto-generated on DB::Open() and option changes
+- OPTIONS-XXXXXX files auto-generated on DB::Open(), SetOptions(), SetDBOptions(), CreateColumnFamily(), and DropColumnFamily()
 - OPTIONS files are human-readable INI format
-- Latest OPTIONS file loaded automatically on recovery
-- Manual OPTIONS edits require DB reopen to take effect
+- Applications must explicitly call LoadLatestOptions() and pass loaded options to DB::Open() to use persisted options
+- Pointer-based options (env, comparator, merge_operator, block_cache, etc.) are defaulted by LoadLatestOptions() and must be manually restored
 
 ⚠️ **PARSING & SERIALIZATION**:
 - All dynamically settable options must be registered in OptionTypeInfo maps
@@ -915,15 +964,15 @@ Tests option parsing, validation, and special behaviors.
 - Option names are case-sensitive
 
 ⚠️ **VALIDATION**:
-- SanitizeOptions() runs automatically in DB::Open()
-- Enforces minimum values and sets missing defaults
+- SanitizeCfOptions() runs automatically in DB::Open() (but not via SetOptions())
+- Enforces minimum values (write_buffer_size >= 64KB, max_write_buffer_number >= 2)
 - ValidateOptions() checks cross-option consistency
 - Validation failures prevent DB from opening
 
 ⚠️ **TABLE OPTIONS**:
-- BlockBasedTableOptions cannot be changed dynamically
-- Table options set before DB::Open() are immutable
-- Changing table format requires closing DB, updating OPTIONS, and reopening
+- Most BlockBasedTableOptions are mutable via SetOptions() (e.g. block_size, filter_policy, prepopulate_block_cache)
+- Only new table builders/readers pick up new options; existing readers keep old settings
+- Exceptions: block_cache and no_block_cache should not be changed via SetOptions()
 
 ---
 

@@ -54,11 +54,18 @@ A VersionEdit can contain any combination of:
 | `deleted_files_` | SST files removed (level + file number) |
 | `blob_file_additions_` | New blob files |
 | `blob_file_garbages_` | Garbage tracked in existing blob files |
-| `wal_additions_` / `wal_deletion_` | WAL lifecycle tracking |
+| `wal_additions_` / `wal_deletion_` | WAL lifecycle tracking (serialized as `kWalAddition2` / `kWalDeletion2`) |
 | `compact_cursors_` | Round-robin compaction cursor positions |
 | `log_number_` | Minimum WAL number needed for this CF |
+| `prev_log_number_` | Previous WAL log number (legacy, still persisted) |
 | `next_file_number_` | Next available file number |
 | `last_sequence_` | Latest sequence number |
+| `min_log_number_to_keep_` | Minimum WAL number to preserve |
+| `max_column_family_` | Largest column family ID seen |
+| `db_id_` | Database identifier (persisted in first edit of new MANIFEST) |
+| `full_history_ts_low_` | Low watermark for user-defined timestamp history |
+| `persist_user_defined_timestamps_` | Whether UDTs are persisted in file keys |
+| `subcompaction_progress_` | Resumable subcompaction checkpoint state |
 | `column_family_` | Which CF this edit applies to (default = 0) |
 | `is_column_family_add_` / `is_column_family_drop_` | CF lifecycle |
 
@@ -70,8 +77,8 @@ Each SST file is described by `FileMetaData` (`db/version_edit.h:244`):
 |-------|------|-------------|
 | `fd` | `FileDescriptor` | File number, path ID, file size, smallest/largest sequence numbers |
 | `smallest` / `largest` | `InternalKey` | Key range boundaries |
-| `num_entries` | `uint64_t` | Total entries including deletions |
-| `num_deletions` | `uint64_t` | Deletion entries count |
+| `num_entries` | `uint64_t` | Total entries, including point deletions and range deletions |
+| `num_deletions` | `uint64_t` | Deletion entries count, including range deletions |
 | `compensated_file_size` | `uint64_t` | Size adjusted for deletions (compaction priority) |
 | `compensated_range_deletion_size` | `uint64_t` | Estimated impact of range tombstones on next level |
 | `being_compacted` | `bool` | Currently involved in a compaction |
@@ -84,7 +91,7 @@ Each SST file is described by `FileMetaData` (`db/version_edit.h:244`):
 
 ### Serialization Format (MANIFEST records)
 
-VersionEdit uses a tag-length-value encoding. Each field is preceded by a varint32 tag from the `Tag` enum:
+VersionEdit uses a mixed encoding scheme. Most top-level fields use a varint32 tag followed by a varint value or length-prefixed payload. The `kNewFile4` tag has its own nested custom-tag encoding (`NewFileCustomTag`) for extensible per-file fields, including compatibility hacks like `kMinLogNumberToKeepHack` (encoding `min_log_number_to_keep` inside the file record because the top-level MANIFEST format was not originally forward-compatible).
 
 ```
 VersionEdit on disk :=
@@ -111,7 +118,7 @@ Tags with `kTagSafeIgnoreMask` (bit 13) set are forward-compatible and can be sk
 
 ### Atomic Groups
 
-Multiple VersionEdits can be grouped atomically using `MarkAtomicGroup(remaining_entries)`. All edits in the group must be successfully written before any take effect during recovery. This is used for cross-CF operations like bulk ingestion.
+Multiple VersionEdits can be grouped atomically using `MarkAtomicGroup(remaining_entries)`. All edits in the group must be successfully written before any take effect during recovery. This is used for cross-CF operations like multi-CF flushes and bulk ingestion.
 
 ---
 
@@ -128,7 +135,7 @@ VersionStorageInfo holds the complete set of SST files and blob files for one co
 | Field | Description |
 |-------|-------------|
 | `files_[level]` | `vector<FileMetaData*>` per level -- the SST files at each level |
-| `blob_files_` | Map of blob file number to `BlobFileMetaData` |
+| `blob_files_` | `vector<shared_ptr<BlobFileMetaData>>` sorted by blob file number (searched via `lower_bound`) |
 | `level_files_brief_[level]` | `LevelFilesBrief` -- compact array of `FdWithKeyRange` for fast lookup |
 | `compaction_score_[i]` | Compaction urgency scores, sorted descending |
 | `compaction_level_[i]` | Which level corresponds to score `i` |
@@ -139,15 +146,15 @@ VersionStorageInfo holds the complete set of SST files and blob files for one co
 
 ### Key Operations
 
-**`ComputeCompactionScore()`** (REQUIRES: `db_mutex` held): Calculates compaction urgency for each level. For L0, score = num_files / L0_compaction_trigger. For L1+, score = level_size / target_size. Also calls `ComputeFilesMarkedForCompaction()`, `ComputeExpiredTtlFiles()`, `ComputeBottommostFilesMarkedForCompaction()`, and `ComputeFilesMarkedForForcedBlobGC()`.
+**`ComputeCompactionScore()`** (REQUIRES: `db_mutex` held): Calculates compaction urgency for each level. Scoring depends on compaction style: for L0, score considers both file count vs `level0_compaction_trigger` and total size; for L1+, score = level_size / target_size with adjustments for dynamic-level-bytes, unnecessary-level draining, and total down-compaction bytes. Also calls `ComputeFilesMarkedForCompaction()`, `ComputeFilesMarkedForPeriodicCompaction()`, `ComputeExpiredTtlFiles()`, `ComputeBottommostFilesMarkedForCompaction()`, `ComputeFilesMarkedForForcedBlobGC()`, and `EstimateCompactionBytesNeeded()`.
 
-**`PrepareForVersionAppend()`**: Called before a new Version is finalized. Generates `LevelFilesBrief` arrays, sorts L0 files by epoch_number, and computes compaction scores.
+**`PrepareForVersionAppend()`**: Called before a new Version is finalized. Generates derived structures: `ComputeCompensatedSizes()`, `UpdateNumNonEmptyLevels()`, `CalculateBaseBytes()`, `UpdateFilesByCompactionPri()`, `GenerateFileIndexer()`, `GenerateLevelFilesBrief()`, `GenerateLevel0NonOverlapping()`, `GenerateBottommostFiles()`, and `GenerateFileLocationIndex()`. Note: compaction scores are computed separately in `VersionSet::AppendVersion()`.
 
 **`SetFinalized()`**: Marks the storage info as immutable. REQUIRES: `PrepareForVersionAppend()` was called.
 
 ### L0 Ordering
 
-L0 files can have overlapping key ranges (unlike L1+). They are sorted by `epoch_number` (descending = newest first) for correct read ordering. The `epoch_number` is assigned at flush time and tracks the creation order of files.
+L0 files can have overlapping key ranges (unlike L1+). They are sorted by `epoch_number` (descending = newest first) for correct read ordering. Epoch numbers are assigned as follows: flush assigns a new epoch from `ColumnFamilyData::NewEpochNumber()`, ingestion/import can assign a new epoch or the reserved `kReservedEpochNumberForFileIngestedBehind = 1`, and compaction outputs inherit the minimum input epoch number (`MinInputFileEpochNumber()`). During recovery, if epoch numbers are missing from older MANIFEST entries, `VersionBuilder` temporarily sorts L0 by sequence number, and `RecoverEpochNumbers()` later infers epoch numbers from file ordering.
 
 ### File Lookup
 
@@ -175,7 +182,7 @@ Version
   +-- uint64_t version_number_         (monotonically increasing)
 ```
 
-Versions for each column family form a **circular doubly-linked list** anchored by a dummy head (`ColumnFamilyData::dummy_versions_`). The newest Version is `ColumnFamilyData::current_` (i.e., `dummy_versions_->prev_`). Older Versions are kept alive only if referenced by iterators or snapshots.
+Versions for each column family form a **circular doubly-linked list** anchored by a dummy head (`ColumnFamilyData::dummy_versions_`). The newest Version is `ColumnFamilyData::current_` (i.e., `dummy_versions_->prev_`). Older Versions are kept alive while referenced by `SuperVersion`s, iterators, or compaction jobs (all via `Version::Ref()`). Snapshots affect read semantics but do not directly hold a reference to a `Version`.
 
 ### Key Methods
 
@@ -242,15 +249,13 @@ Record := checksum (4B) | length (2B) | type (1B) | data
 Type := kFullType | kFirstType | kMiddleType | kLastType
 ```
 
-Each logical record contains one serialized VersionEdit. Large edits are split across multiple physical records using the First/Middle/Last fragmentation scheme.
-
-The recyclable variants (`kRecyclableFullType`, etc.) add a 4-byte log number to the header, enabling log file reuse.
+Each logical record contains one serialized VersionEdit. Large edits are split across multiple physical records using the First/Middle/Last fragmentation scheme. (The log format also defines recyclable record variants used by WAL files, but MANIFEST writers are always created with `recycle_log_files=false`, so MANIFEST files only use the standard record types.)
 
 ### MANIFEST Lifecycle
 
 1. **Current MANIFEST** is identified by the `CURRENT` file, which contains the MANIFEST filename (e.g., `MANIFEST-000004`).
 2. **Recovery** replays all VersionEdits from the MANIFEST to reconstruct the latest Version for each column family.
-3. **Rolling**: When `new_descriptor_log=true` is passed to `LogAndApply()`, a new MANIFEST file is created with a snapshot of the current state, avoiding unbounded growth.
+3. **Rolling**: A new MANIFEST file is created (with a snapshot of current state) when: (a) `new_descriptor_log=true` is passed to `LogAndApply()`, (b) no MANIFEST is currently open, or (c) the current MANIFEST exceeds a tuned size threshold (`tuned_max_manifest_file_size_`). This prevents unbounded growth.
 4. **Atomic update**: `LogAndApply()` writes the VersionEdit to MANIFEST, then atomically updates the `CURRENT` file pointer (only when rolling to a new MANIFEST).
 
 ### Recovery Process
@@ -270,8 +275,31 @@ For each VersionEdit record:
     v
 For each column family:
     VersionBuilder::SaveTo(new_vstorage)
+    -> RecoverEpochNumbers() (infer missing epochs)
     -> Install as current Version
 ```
+
+### Recovery Handlers
+
+Recovery is driven by handler classes in `db/version_edit_handler.h`:
+
+| Class | Purpose |
+|-------|---------|
+| `VersionEditHandler` | Normal recovery: replays all MANIFEST edits, fails on missing files |
+| `VersionEditHandlerPointInTime` | Best-effort / point-in-time recovery (`TryRecover()`): buffers edits and rolls back to the last consistent state if files are missing. Maintains save points via `VersionBuilder::CreateOrReplaceSavePoint()` |
+| `ManifestTailer` | Tails the MANIFEST for secondary/follower instances, processing new edits as they appear |
+
+### Atomic Group Replay
+
+During recovery, atomic groups (edits marked with `kInAtomicGroup`) are buffered until the entire group is available. Only when all edits in the group have been read are they applied as a batch. `VersionEditHandlerPointInTime` additionally maintains `atomic_update_versions_` barriers to ensure all-or-nothing installation of atomic groups during best-effort recovery.
+
+### Epoch Number Recovery
+
+MANIFEST files from older RocksDB versions may contain files with missing epoch numbers (`kUnknownEpochNumber`). `VersionStorageInfo::RecoverEpochNumbers()` handles this by inferring epoch numbers from existing L0 file ordering, reserving epoch 1 for ingest-behind files (`kReservedEpochNumberForFileIngestedBehind`), and advancing `ColumnFamilyData::next_epoch_number_` accordingly. During recovery before epoch inference, `VersionBuilder` temporarily sorts L0 files by sequence number.
+
+### MANIFEST WAL Tracking
+
+The MANIFEST tracks WAL lifecycle when WAL tracking is enabled (`track_and_verify_wals_in_manifest` option). `VersionEdit` persists WAL state via `kWalAddition2` / `kWalDeletion2` tags. `VersionSet` maintains a `wals_` structure with the set of tracked WALs. When rolling to a new MANIFEST, `WriteCurrentStateToManifest()` snapshots the current WAL state into the new MANIFEST file.
 
 ---
 
@@ -329,7 +357,7 @@ struct SuperVersion {
 
 **Purpose**: Bundles all three data sources (active memtable, immutable memtables, SST files) into a single ref-counted object. Readers acquire a SuperVersion to get a consistent view without holding the DB mutex.
 
-**Thread-local caching**: `ColumnFamilyData::GetThreadLocalSuperVersion()` caches the current SuperVersion in thread-local storage for fast access. If the cached version is stale (version number mismatch), a new reference is acquired.
+**Thread-local caching**: `ColumnFamilyData::GetThreadLocalSuperVersion()` caches the current SuperVersion in thread-local storage for fast access. The mechanism uses sentinel pointers: on access, the TLS slot is atomically swapped to `kSVInUse`; if the previous value was `kSVObsolete` (installed by the background thread when a new SuperVersion is installed), a fresh reference is acquired under the mutex. On return, `ReturnThreadLocalSuperVersion()` uses `CompareAndSwap()` to restore the pointer only if the slot still contains `kSVInUse`.
 
 **Lifecycle**:
 1. Created by `ColumnFamilyData::InstallSuperVersion()` whenever memtable, imm list, or Version changes.
@@ -355,20 +383,20 @@ User-facing handle (`db/column_family.h:165`). Holds a pointer to `ColumnFamilyD
 
 | Invariant | Details |
 |-----------|---------|
-| LogAndApply is serialized | REQUIRES: `*mu` is held, no concurrent `LogAndApply()`. Ensures MANIFEST consistency. |
+| LogAndApply uses group commit | REQUIRES: `*mu` is held. Concurrent callers are queued in `manifest_writers_`; one leader batches and serializes them via `ProcessManifestWrites()`. |
 | MANIFEST is append-only | VersionEdits are only appended, never modified. Recovery replays the full log. |
 | Older Versions stay alive while referenced | Ref-counting on Version prevents file deletion while iterators use them. |
 | SuperVersion is immutable once installed | A new SuperVersion is created for every change; existing ones are never modified. |
-| CF in flush_queue iff pending_flush_ is true | Queue membership is tracked by a boolean flag to prevent double-scheduling. |
-| CF in compaction_queue iff pending_compaction_ is true | Same pattern for compaction scheduling. |
+| CF in flush_queue iff queued_for_flush_ is true | Queue membership is tracked by a boolean flag to prevent double-scheduling. |
+| CF in compaction_queue iff queued_for_compaction_ is true | Same pattern for compaction scheduling. |
 | Files in pending_outputs_ are protected from deletion | File numbers registered during background jobs are not deleted until the job completes. |
-| epoch_number increases monotonically per CF | Ensures correct L0 ordering (newer files have higher epoch numbers). |
+| `next_epoch_number_` increases monotonically per CF | The epoch number allocator is monotonic. Individual file epoch numbers may not be strictly increasing: compaction outputs inherit the minimum input epoch, and ingest-behind uses the reserved epoch `kReservedEpochNumberForFileIngestedBehind = 1`. |
 | SetFinalized() requires PrepareForVersionAppend() | Storage info must be fully computed before being marked immutable. |
 
 ## Interactions With Other Components
 
-- **Write Path** (see [write_path.md](write_path.md)): After flush, the write path creates a VersionEdit adding the new L0 file and calls `LogAndApply()`.
+- **Write Path** (see [write_flow.md](write_flow.md)): After flush, the write path creates a VersionEdit adding the new L0 file and calls `LogAndApply()`.
 - **Compaction** (see [compaction.md](compaction.md)): CompactionJob creates VersionEdits that add output files and delete input files, then calls `LogAndApply()`.
-- **Read Path** (see [flush_and_read_path.md](flush_and_read_path.md)): Readers acquire a SuperVersion to access memtables and Version. `Version::Get()` searches SST files.
+- **Read Path** (see [read_flow.md](read_flow.md)): Readers acquire a SuperVersion to access memtables and Version. `Version::Get()` searches SST files.
 - **DB Open** (see [db_impl.md](db_impl.md)): Recovery replays MANIFEST using VersionBuilder to reconstruct current Versions.
 - **SST Format** (see [sst_table_format.md](sst_table_format.md)): Version holds FileMetaData for each SST; TableCache opens table readers on demand.

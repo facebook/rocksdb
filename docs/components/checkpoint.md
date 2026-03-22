@@ -62,9 +62,11 @@ class Checkpoint {
 
 ⚠️ **INVARIANT**: Checkpoint directory must NOT exist before creation. The API returns `Status::InvalidArgument("Directory exists")` if it already exists.
 
+⚠️ **INVARIANT**: `checkpoint_dir` should be an **absolute path** as stated in the public header contract.
+
 ⚠️ **INVARIANT**: `db_paths` and `cf_paths` are NOT supported. Using multiple directories for DB data (excluding WAL) will return `Status::NotSupported`.
 
-⚠️ **INVARIANT**: File deletions remain disabled during the entire hard-linking/copying phase to ensure files don't disappear mid-checkpoint.
+⚠️ **INVARIANT**: File deletions are disabled during the hard-linking/copying phase when supported. The implementation tolerates `NotSupported` from `DisableFileDeletions()` (e.g., on read-only DBs) and proceeds with the checkpoint.
 
 ### Hard Link vs Copy Strategy
 
@@ -87,7 +89,7 @@ if (!same_fs || info.trim_to_size) {
 
 - **Hard link**: Fast, no data copy, same inode
 - **Copy**: Used when destination is on different filesystem or when file needs trimming (WAL tail)
-- **Decision point**: First file determines strategy for all remaining files (except when `trim_to_size=true`)
+- **Decision point**: `same_fs` starts true and flips to false if any hard-link attempt returns `NotSupported` (cross-device). Files with `trim_to_size=true` are always copied regardless.
 
 ### WAL Handling and `log_size_for_flush`
 
@@ -103,13 +105,15 @@ if (!same_fs || info.trim_to_size) {
 - **log_size_for_flush>0**: Flush only if WAL size exceeds threshold → faster checkpoint, but larger WAL in snapshot
 - **2PC mode**: Always flushes regardless of setting to ensure transaction consistency
 
-WAL tail (unflushed portion) is always **copied** (never hard-linked) and may be **trimmed** to the exact sequence number.
+**LockWAL interaction**: If `DB::LockWAL()` is held, the flush step in `GetLiveFilesStorageInfo()` is skipped. This allows taking a checkpoint at a known WAL state without flushing, but means the checkpoint will contain more WAL data.
+
+WAL tail (unflushed portion) is always **copied** (never hard-linked) and may be **trimmed** to a byte-size boundary (not a sequence number).
 
 ### ExportColumnFamily
 
 **utilities/checkpoint/checkpoint_impl.cc:312-449**
 
-Exports a single column family's SST files to a directory:
+Exports a single column family's SST files to a directory (blob files are NOT included):
 
 ```
 1. Verify export_dir doesn't exist
@@ -123,7 +127,7 @@ Exports a single column family's SST files to a directory:
 9. Return metadata with file info (sequence numbers, key ranges)
 ```
 
-**Use case**: Migrating a single column family to another database instance.
+**Use case**: Migrating a single column family's SST files to another database instance. For blob-backed column families, this is NOT a complete CF snapshot — blob files are excluded.
 
 ⚠️ **INVARIANT**: Always triggers a flush. Unlike `CreateCheckpoint`, there's no option to skip flushing.
 
@@ -171,14 +175,14 @@ class BackupEngine {
 | `backup_env` | nullptr | Separate Env for backup I/O (enables remote storage) |
 | `share_table_files` | true | Share SST/blob files across backups (incremental) |
 | `share_files_with_checksum` | true | Use content-based naming for shared files |
-| `backup_rate_limit` | 0 | Max bytes/sec during backup (0=unlimited) |
-| `restore_rate_limit` | 0 | Max bytes/sec during restore (0=unlimited) |
+| `backup_rate_limit` | 0 | Max bytes/sec for writes during backup (0=unlimited). To also limit reads, use `backup_rate_limiter` with `kAllIo` mode |
+| `restore_rate_limit` | 0 | Max bytes/sec for writes during restore (0=unlimited). To also limit reads, use `restore_rate_limiter` with `kAllIo` mode |
 | `max_background_operations` | 1 | Thread pool size for parallel file operations |
 | `sync` | true | Fsync after each file write for durability |
 | `backup_log_files` | true | Include WAL files in backup |
 | `schema_version` | 1 | Metadata format version (2 for temperature support) |
 
-⚠️ **INVARIANT**: `share_files_with_checksum` must be true when `share_table_files=true`. Setting it to false is DEPRECATED and can lose data if backing up DBs with divergent history.
+⚠️ **WARNING**: `share_files_with_checksum=false` with `share_table_files=true` is DEPRECATED and potentially dangerous (can lose data if backing up DBs with divergent history). The code logs a warning but still permits this combination. The default (`share_files_with_checksum=true`) should always be used.
 
 ### Backup Directory Structure
 
@@ -188,19 +192,21 @@ backup_dir/
 │   ├── 1              # Backup #1 metadata
 │   ├── 2              # Backup #2 metadata
 │   └── 3              # Backup #3 metadata
-├── shared/            # Shared files (when share_table_files=false)
-│   ├── 000001.sst
-│   └── 000002.sst
 ├── shared_checksum/   # Content-addressed shared files (share_files_with_checksum=true)
 │   ├── 000123_s<session_id>_<size>.sst
 │   ├── 000456_s<session_id>_<size>.sst
 │   └── 000789_<crc32c>_<size>.blob    # Blob files use legacy naming
+├── shared/            # Legacy shared files (share_files_with_checksum=false, deprecated)
+│   ├── 000001.sst
+│   └── 000002.sst
 ├── private/
 │   ├── 1/             # Private files for backup #1 (e.g., MANIFEST, CURRENT, OPTIONS)
 │   ├── 2/
 │   └── 3/
-└── LATEST_BACKUP      # Points to latest valid backup ID
+└── .latest_backup     # Internal tracking (latest_valid_backup_id_)
 ```
+
+Note: `shared/` and `shared_checksum/` directories are only created when `share_table_files=true`. Only one is used per BackupEngine instance depending on `share_files_with_checksum`.
 
 ### Shared File Naming
 
@@ -248,9 +254,9 @@ This naming prevents:
 6. Fsync directory (if sync=true)
 ```
 
-**Rate limiting** applies during file copy to avoid overwhelming network/disk I/O.
+**Rate limiting** applies to writes during file copy. To also limit reads, use `backup_rate_limiter`/`restore_rate_limiter` with `kAllIo` mode.
 
-⚠️ **INVARIANT**: Backup metadata is written **atomically** only after all files are successfully copied. Incomplete backups are detected and cleaned up on next BackupEngine open.
+⚠️ **INVARIANT**: Backup metadata is written **atomically** only after all files are successfully copied. Incomplete backups are detected on `Open()` (setting `might_need_garbage_collect_` flag) and cleaned up during subsequent `CreateNewBackup()`, `PurgeOldBackups()`, `DeleteBackup()`, or explicit `GarbageCollect()` calls — NOT automatically at `Open()` time.
 
 ### CreateBackupOptions
 
@@ -301,20 +307,24 @@ struct RestoreOptions {
 };
 ```
 
+**Restore mode limitations**:
+- `kKeepLatestDbSessionIdFiles`: Only effective for SST files with modern session-ID-based naming. Blob files are not optimized in this mode.
+- `kVerifyChecksum`: Supports both SST and blob file optimization. Can reuse existing on-disk DB files that pass checksum verification.
+- Both non-purge modes exclude WAL files from optimization (WALs are always re-copied).
+
 **RestoreDBFromBackup workflow**:
 
 ```
-1. Lock db_dir and wal_dir
+1. Acquire BackupEngine read lock (prevents concurrent backup writes/deletes)
 2. Based on mode:
    ├─ kPurgeAllFiles: Delete all files in db_dir/wal_dir
    ├─ kVerifyChecksum: Scan existing files, keep if checksum matches
    └─ kKeepLatestDbSessionIdFiles: Keep files with matching session ID
-3. Copy/link files from backup_dir to db_dir/wal_dir
+3. Copy files from backup_dir to db_dir/wal_dir
    ├─ Shared files: Copy from shared_checksum/
    ├─ Private files: Copy from private/<backup_id>/
    └─ If exclude_files_callback was used: Search alternate_dirs
 4. Fsync directories
-5. Verify DB can open (optional sanity check)
 ```
 
 ⚠️ **INVARIANT**: Restored DB directory must be **quiesced** (no active DB instance) before restore. Restoring over a live DB will corrupt it.
@@ -327,9 +337,10 @@ struct RestoreOptions {
 - `GetBackupInfo()` excludes incomplete/corrupt backups
 
 **Checksums**: Each file's checksum is stored in metadata and verified during:
-- **Backup creation**: After copying, compare checksum
-- **Restore**: Optionally verify checksums if `verify_with_checksum=true` in `VerifyBackup()`
-- **Incremental backup**: Shared files reused only if checksum matches
+- **Backup creation**: After copying, compare checksum (skipped when DB session ID is available for naming)
+- **VerifyBackup()**: Separate API that checks file sizes and optionally recomputes checksums against stored metadata
+- **Restore with kVerifyChecksum mode**: Checks existing DB files' checksums to determine which need replacing
+- **Incremental backup**: Shared files with session-ID-based naming can be reused without re-reading for checksum comparison
 
 **Consistency point**: The sequence number stored in backup metadata corresponds to a consistent DB state. For 2PC, this includes all prepared transactions.
 
@@ -339,14 +350,14 @@ struct RestoreOptions {
 
 | Aspect | Checkpoint | BackupEngine |
 |--------|-----------|--------------|
-| **Speed** | Very fast (hard links, no data copy for SSTs) | Slower (always copies data) |
+| **Speed** | Very fast (hard links, no data copy for SSTs) | Slower (copies data, but skips already-present shared files) |
 | **Durability** | Local filesystem only | Supports remote storage (S3, HDFS, etc.) |
 | **Incremental** | No (every checkpoint is full snapshot) | Yes (shared files reused across backups) |
 | **Rate limiting** | No | Yes (backup_rate_limit, restore_rate_limit) |
 | **Parallelism** | Single-threaded | Multi-threaded (max_background_operations) |
 | **Space efficiency** | Shared inodes (hard links) | Deduplicated by content (shared_checksum) |
 | **Remote access** | No | Yes (via backup_env) |
-| **WAL handling** | Copies tail, supports log_size_for_flush | Copies all WAL files |
+| **WAL handling** | Copies tail, supports log_size_for_flush | Copies WAL files when `backup_log_files=true` (default) |
 | **Metadata** | None (directory is the checkpoint) | Rich metadata (timestamps, size, checksums) |
 | **Atomicity** | Atomic directory rename | Atomic metadata write |
 | **Use case** | Local testing, point-in-time restore, replication | Disaster recovery, long-term archival, cloud backup |
@@ -424,10 +435,12 @@ Status open_s = DB::Open(db_options, "/mnt/nvme/db", &restored_db);
 
 ```cpp
 // Export a single column family for migration
+// Note: ExportColumnFamily exports SST files only (not blob files or WAL)
 Checkpoint* checkpoint;
 Checkpoint::Create(db, &checkpoint);
 
-ColumnFamilyHandle* cf_handle = db->GetColumnFamilyHandle("user_data");
+// Use the ColumnFamilyHandle* returned by DB::CreateColumnFamily() or DB::Open()
+ColumnFamilyHandle* cf_handle;  // Retained from CreateColumnFamily/Open
 ExportImportFilesMetaData* metadata;
 
 Status s = checkpoint->ExportColumnFamily(cf_handle, "/export/user_data", &metadata);
@@ -439,7 +452,7 @@ assert(s.ok());
 // - Key ranges (smallest, largest)
 // - Comparator name (for validation)
 
-// Import into another DB using ImportColumnFamily()
+// Import into another DB using DB::CreateColumnFamilyWithImport()
 ```
 
 ---
@@ -480,7 +493,7 @@ Status DBImpl::EnableFileDeletions() {
 Normal operation: Compaction generates new SST files, marks old ones obsolete
                  ↓
 DisableFileDeletions(): Obsolete files marked but NOT deleted
-                       (accumulate in pending_obsolete_files_)
+                       (tracked via pending_purge_obsolete_files_)
                  ↓
 Checkpoint/Backup: Safe to hard-link or copy files
                  ↓
@@ -518,14 +531,14 @@ Returns metadata for all live files:
 - **MANIFEST**: Current manifest file
 - **CURRENT**: Pointer to manifest
 - **OPTIONS**: Options file
-- **WAL files**: Active and archived WAL files
+- **WAL files**: Active WAL files (archived WALs are excluded)
 
 **LiveFileStorageInfo** includes:
-- `directory`: Absolute path to file directory
+- `directory`: Path to file directory (may be relative depending on how DB paths were configured)
 - `relative_filename`: Filename (e.g., "000123.sst")
 - `size`: File size in bytes
 - `file_type`: kTableFile, kWalFile, kDescriptorFile, etc.
-- `trim_to_size`: True for WAL tail that needs trimming
+- `trim_to_size`: True for MANIFEST (append-only, may be larger on disk) and active WAL files that need trimming
 - `replacement_contents`: For CURRENT file (needs updated MANIFEST pointer)
 - `file_checksum`: Checksum value (if requested)
 - `temperature`: Storage tier hint (hot/warm/cold)
@@ -571,11 +584,12 @@ BackupEngine uses read-write lock for thread safety:
 
 If checkpoint creation fails mid-operation:
 ```cpp
-// Clean all files and directory we might have created
+// Best-effort cleanup: attempt to remove files and temp directory
 Status del_s = CleanStagingDirectory(full_private_path, info_log);
+// del_s is logged but not propagated (PermitUncheckedError)
 ```
 
-Cleanup ensures no partial checkpoint left on disk. Temporary directory (.tmp) is removed.
+Cleanup is **best-effort** — if cleanup itself fails, the error is logged but not returned. A partial temporary directory (.tmp) may remain on disk in rare failure scenarios.
 
 **Common failures**:
 - `InvalidArgument`: checkpoint_dir already exists or invalid path
@@ -593,8 +607,9 @@ if (!s.ok()) {
   // Backup failed, but backup_dir is still consistent
   // Incomplete backup will be cleaned up on next:
   // - CreateNewBackup() attempt
-  // - GarbageCollect() call
-  // - BackupEngine::Open() with destroy_old_data=true
+  // - PurgeOldBackups() or DeleteBackup() call
+  // - Explicit GarbageCollect() call
+  // Note: Open() sets might_need_garbage_collect_ but does NOT run GC itself
 }
 ```
 
@@ -609,7 +624,7 @@ if (!s.ok()) {
 
 **include/rocksdb/utilities/backup_engine.h:169-181**
 
-With `kUseDbSessionId` naming, SST files are named `<number>_s<session_id>_<size>.sst`. Session IDs are globally unique (generated from timestamp + random), making collisions astronomically rare.
+With `kUseDbSessionId` naming, SST files are named `<number>_s<session_id>_<size>.sst`. Session IDs are generated using `SemiStructuredUniqueIdGen` (a 128-bit counter-based generator initialized from random state), providing strong uniqueness guarantees without requiring coordination.
 
 **Fallback**: SST files without session ID (old RocksDB versions) use legacy `kLegacyCrc32cAndFileSize` naming automatically.
 
@@ -715,8 +730,8 @@ DB* chk_db;
 Status s = DB::OpenForReadOnly(options, "/tmp/chk", &chk_db);
 assert(s.ok());
 
-// Verify sequence number
-assert(chk_db->GetLatestSequenceNumber() == checkpoint_seq);
+// Verify sequence number is part of the checkpoint (not necessarily the latest)
+assert(chk_db->GetLatestSequenceNumber() >= checkpoint_seq);
 
 // Spot-check key-value pairs
 std::string value;
@@ -746,7 +761,7 @@ DB::Open(options, "/path/to/db", &restored_db);
 
 ### Stress Testing
 
-- **db_stress**: Includes checkpoint and backup verification (--test_checkpoint, --test_backup)
+- **db_stress**: Includes checkpoint and backup verification (`--checkpoint_one_in`, `--backup_one_in`)
 - **Concurrent operations**: Multiple threads creating checkpoints/backups simultaneously
 - **Failure injection**: Simulate I/O errors, disk full, crashes mid-operation
 - **Cross-platform**: Test on Linux, Windows, macOS to verify filesystem assumptions

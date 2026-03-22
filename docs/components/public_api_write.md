@@ -157,10 +157,10 @@ Status Merge(const WriteOptions& options,
 
 **Behavior:**
 - Merges `value` with existing value for `key` using user-provided `merge_operator`
-- Deferred computation - merge not executed until read or compaction
-- Returns `Status::NotSupported` if no merge_operator configured
+- Computation is typically deferred until read or compaction. However, with `max_successive_merges > 0`, the merge may execute immediately during the write if a read from the memtable succeeds.
+- Returns `Status::NotSupported` if no merge_operator configured (non-timestamp overload)
 
-**⚠️ INVARIANT:** Column family MUST have a merge_operator configured. Otherwise all Merge calls return `Status::NotSupported`.
+**⚠️ INVARIANT:** Column family MUST have a merge_operator configured. The non-timestamp `DBImpl::Merge` overload returns `Status::NotSupported("Provide a merge_operator when opening DB")` immediately. The timestamp overload delegates to `DB::Merge` without this early check, and the write fails later during memtable insertion with `Status::InvalidArgument`.
 
 **Validation (db/db_impl/db_impl_write.cc:63-75):**
 ```cpp
@@ -188,6 +188,8 @@ virtual bool FullMergeV2(const MergeOperationInput& merge_in,
 - Complex data structures with incremental updates
 
 **Deferred Execution:**
+Merge is typically deferred - operands accumulate and are resolved during reads or compaction. However, with `max_successive_merges > 0`, if the maximum number of successive merge operands is reached in the memtable, RocksDB will attempt to read the existing value and perform a full merge during the write.
+
 ```
 User calls:    Merge(k, +1)  Merge(k, +5)  Merge(k, +3)
 Storage:       [+1]          [+1][+5]      [+1][+5][+3]
@@ -266,8 +268,8 @@ Status PopSavePoint();
 
 **Behavior:**
 - `SetSavePoint()`: Record current batch state
-- `RollbackToSavePoint()`: Remove all entries since last save point
-- `PopSavePoint()`: Remove save point without rollback
+- `RollbackToSavePoint()`: Remove all entries since last save point. Returns `Status::NotFound()` if no save point was set.
+- `PopSavePoint()`: Remove save point without rollback. Returns `Status::NotFound()` if no save point was set.
 
 **Use Case:** Transaction-like partial rollback within a batch.
 
@@ -356,12 +358,15 @@ Status PutEntity(const WriteOptions& options,
 **Wide Column Format:**
 ```cpp
 // include/rocksdb/wide_columns.h
-using WideColumns = std::vector<std::pair<std::string, std::string>>;
-// Each pair is (column_name, column_value)
+class WideColumn {
+  Slice name_;
+  Slice value_;
+};
+using WideColumns = std::vector<WideColumn>;
 ```
 
 **Default Column:**
-Wide-column entities have a special default anonymous column `kDefaultWideColumnName`. When reading with `Get()`, returns this column's value.
+Wide-column entities have a special default anonymous column `kDefaultWideColumnName` (empty Slice). When reading with `Get()`, returns the default column's value if present, or an empty value with `Status::OK()` otherwise.
 
 **Example:**
 ```cpp
@@ -370,11 +375,12 @@ WideColumns columns = {
   {"field1", "value1"},
   {"field2", "value2"}
 };
-db->PutEntity(write_opts, key, columns);
+db->PutEntity(write_opts, cf_handle, key, columns);
 
 // Later:
 std::string val;
 db->Get(read_opts, key, &val);  // Returns "default_value"
+// If no default column exists, Get() returns empty string with Status::OK()
 ```
 
 **⚠️ INVARIANT:** Wide-column entities must not be used with column families that enable user-defined timestamp (not yet supported).
@@ -395,6 +401,7 @@ struct WriteOptions {
   bool memtable_insert_hint_per_batch = false;
   Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
   size_t protection_bytes_per_key = 0;
+  Env::IOActivity io_activity = Env::IOActivity::kUnknown;  // Internal use
 };
 ```
 
@@ -515,30 +522,41 @@ Efficiently load externally-generated SST files into the database without going 
 **Steps (include/rocksdb/db.h:1972-2014):**
 
 1. **Preparation:** Validate files, check overlaps, copy/move/link files into DB directory
-2. **Assignment:** Assign global sequence numbers to keys in files
+2. **Assignment:** Assign global sequence numbers to keys in files (when `allow_global_seqno=true` and not using `allow_db_generated_files`; otherwise original sequence numbers are preserved)
 3. **Insertion:** Add files to appropriate LSM level without compaction
 
 **Options (include/rocksdb/options.h:2623+):**
 
 ```cpp
 struct IngestExternalFileOptions {
-  // Move files instead of copying
+  // Move files instead of copying (uses hard links)
   bool move_files = false;
-
+  // Hard-link files instead of copying (files NOT unlinked)
+  bool link_files = false;
+  // Fall back to copy when hard linking fails
+  bool failed_move_fall_back_to_copy = true;
+  // If false, ingested keys may appear in pre-existing snapshots
+  bool snapshot_consistency = true;
   // Allow global seqno assignment
   bool allow_global_seqno = true;
-
   // Allow blocking flush if memtable overlaps
   bool allow_blocking_flush = true;
-
   // Ingest to bottommost level (oldest data)
   bool ingest_behind = false;
-
-  // Verify file checksums
+  // DEPRECATED - Write global seqno to file (for pre-5.16 compat)
+  bool write_global_seqno = false;
+  // Verify block checksums before ingest
   bool verify_checksums_before_ingest = false;
-
-  // Write global seqno to file footer
-  bool write_global_seqno = true;
+  // Readahead size for checksum verification (0 = default)
+  size_t verify_checksums_readahead_size = 0;
+  // Verify file-level checksum against provided checksums
+  bool verify_file_checksum = true;
+  // Fail if file cannot be placed in last level
+  bool fail_if_not_bottommost_level = false;
+  // Allow ingestion of DB-generated files (preserves original seqnos)
+  bool allow_db_generated_files = false;
+  // Cache data/metadata blocks read during ingestion
+  bool fill_cache = true;
 };
 ```
 
@@ -564,8 +582,23 @@ if (!file_to_ingest.smallest_internal_key.Valid() ||
 - Ideal for bulk imports, database migration, data lake ingestion
 
 **Restrictions:**
-- Incompatible with `unordered_write`
-- Incompatible with `enable_pipelined_write`
+- Incompatible with `row_cache` (returns `Status::NotSupported`)
+
+**User-Defined Timestamp Limitations (include/rocksdb/db.h:1984-1991):**
+1. Ingested file's user key range (without timestamp) must not overlap with the DB's key range
+2. When ingesting multiple files, their key ranges must not overlap with each other
+3. `ingest_behind` mode is not supported
+4. When an ingested file contains point data and range deletion for the same key, the point data overrides the range deletion regardless of user-defined timestamps
+
+**IngestExternalFiles (multi-CF atomic ingestion):**
+```cpp
+Status IngestExternalFiles(const std::vector<IngestExternalFileArg>& args);
+```
+
+- Records result atomically to MANIFEST; if OK, all CFs succeed; on failure or crash, none are ingested after recovery
+- During execution, iterators on different CFs may observe a mixed state (use snapshots for consistency)
+- Each arg must correspond to a **distinct** column family
+- `IngestExternalFileArg` includes additional fields: `files_checksums`, `files_checksum_func_names`, `file_temperature`, and `atomic_replace_range`
 
 ---
 
@@ -587,7 +620,7 @@ db->Write(write_opts, &batch);
 ```
 
 **Default Column Family:**
-If no `ColumnFamilyHandle` specified, APIs use `DefaultColumnFamily()`.
+If no `ColumnFamilyHandle` specified, most APIs use `DefaultColumnFamily()`. Note that `PutEntity` with `WideColumns` always requires an explicit `ColumnFamilyHandle*` parameter.
 
 **⚠️ INVARIANT (include/rocksdb/options.h:2346-2350):** If `ignore_missing_column_families=true` and writing to dropped column families, the write is **silently ignored** (no error). Other writes in batch still succeed.
 
@@ -676,20 +709,22 @@ options.statistics->getHistogramData(WRITE_STALL, &data);
 
 **Query Current State:**
 ```cpp
-uint64_t cf_stats_value;
-db->GetIntProperty(cf_handle,
-                   "rocksdb.num-running-flushes",
-                   &cf_stats_value);
+// rocksdb.is-write-stopped returns "0" or "1"
+std::string stopped;
+db->GetProperty("rocksdb.is-write-stopped", &stopped);
 
-std::string stall_reason;
-db->GetProperty("rocksdb.is-write-stopped", &stall_reason);
+// Structured write stall stats (per-CF and per-DB):
+std::string cf_stall_stats;
+db->GetProperty(cf_handle, "rocksdb.cf-write-stall-stats", &cf_stall_stats);
+std::string db_stall_stats;
+db->GetProperty("rocksdb.db-write-stall-stats", &db_stall_stats);
 ```
 
-**Possible Reasons:**
-- `level0_slowdown`: L0 file count too high
-- `level0_stop`: L0 file count critical
-- `pending_compaction_bytes`: Too much compaction backlog
-- `memtable_compaction`: Memtable count too high
+**WriteStallCause values (include/rocksdb/types.h):**
+- `kMemtableLimit`: Memtable count too high (CF-scope)
+- `kL0FileCountLimit`: L0 file count too high (CF-scope)
+- `kPendingCompactionBytes`: Too much compaction backlog (CF-scope)
+- `kWriteBufferManagerLimit`: Write buffer manager limit (DB-scope)
 
 ### 11.4 Avoiding Stalls
 
@@ -718,6 +753,22 @@ db->GetProperty("rocksdb.is-write-stopped", &stall_reason);
 5. **Monitor and Alert:** Set up monitoring for write stalls before they become critical
 
 **⚠️ INVARIANT:** Write stalls are **necessary for correctness** - they prevent unbounded memory growth. Don't disable them; tune configuration instead.
+
+---
+
+## Additional Write APIs
+
+The following public write APIs are also available but less commonly used:
+
+**DB-level:**
+- `DB::WriteWithCallback(WriteOptions, WriteBatch*, UserWriteCallback*)` - Same as `DB::Write` but accepts a callback for custom logic during the write
+- `DB::IngestWriteBatchWithIndex(WriteOptions, shared_ptr<WriteBatchWithIndex>)` - EXPERIMENTAL: Ingest a `WriteBatchWithIndex` bypassing memtable writes. Requires `disableWAL=true`, `overwrite_key=true`. Incompatible with `unordered_write` and `enable_pipelined_write`.
+
+**WriteBatch-level:**
+- `WriteBatch::TimedPut(ColumnFamilyHandle*, key, value, write_unix_time)` - EXPERIMENTAL: Store key-value with a specified write time for data placement. Not compatible with user-defined timestamps or wide columns.
+- `WriteBatch::PutLogData(Slice blob)` - Append arbitrary data to WAL only (not persisted to SST files). Does not consume sequence numbers.
+- `WriteBatch::UpdateTimestamps(ts, ts_sz_func)` - Update timestamps for all keys in the batch.
+- Timestamp overloads: `Delete`, `SingleDelete`, `DeleteRange`, and `Merge` all have overloads accepting a `const Slice& ts` parameter for user-defined timestamp support.
 
 ---
 

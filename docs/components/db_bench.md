@@ -67,7 +67,7 @@ DEBUG_LEVEL=0 make db_bench      # Release build (required for accurate benchmar
 │  ├─ Calculate throughput: ops / elapsed_time            │
 │  ├─ Print: micros/op, ops/sec, MB/s                     │
 │  ├─ Print latency histogram (if --histogram=1)          │
-│  └─ Print perf_context (if --perf_level > 0)            │
+│  └─ Print perf_context (if --perf_level > kDisable)     │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -142,19 +142,19 @@ void ReadRandom(ThreadState* thread) {
 
 | Benchmark | Workload | Use Case |
 |-----------|----------|----------|
-| `readrandomwriterandom` | 50% reads, 50% writes | Balanced workload |
+| `readrandomwriterandom` | Configurable read/write mix (default 90% reads / 10% writes via `--readwritepercent`) | Mixed read/write workload. Total iterations = `max(reads, writes)` |
 | `updaterandom` | Read-modify-write | Measure RMW performance |
-| `xorupdaterandom` | Read-XOR-write | Tests merge operator performance |
-| `readrandommergerandom` | Random reads or merges | Tests GetMergeOperands() API |
+| `xorupdaterandom` | Read-XOR-write via Get+Put | Tests read-modify-write with XOR (uses `BytesXOROperator` in-process, not DB merge) |
+| `readrandommergerandom` | Random Get or Merge (default 70% merges via `--mergereadpercent`) | Tests mixed read/merge workload. Requires `--merge_operator` |
 
 ### Compaction Benchmarks
 
 | Benchmark | Operation | Use Case |
 |-----------|-----------|----------|
-| `compact` | Compact entire DB | Measure compaction throughput |
-| `compactall` | Compact all column families | Multi-CF compaction test |
-| `compact0` | Compact L0 → L1 | Measure L0 compaction cost |
-| `compact1` | Compact L1 → L2 | Measure Ln compaction cost |
+| `compact` | `CompactRange` on selected DB (default column family) | Measure full compaction throughput |
+| `compactall` | `CompactRange` on all DB instances (default column family each) | Multi-DB compaction test |
+| `compact0` | Compact from L0 to next populated level | Measure L0 compaction cost (adapts to dynamic leveling) |
+| `compact1` | Compact from first populated level above L0 to next | Measure upper-level compaction cost (adapts to dynamic leveling) |
 | `waitforcompaction` | Block until compaction finishes | Used in multi-phase benchmarks |
 
 ### Utility Benchmarks
@@ -177,22 +177,31 @@ void ReadRandom(ThreadState* thread) {
 | `--num` | 1000000 | Number of keys to operate on |
 | `--key_size` | 16 | Key size in bytes |
 | `--value_size` | 100 | Value size in bytes (fixed distribution) |
-| `--value_size_distribution_type` | `fixed` | Value size distribution: `fixed`, `uniform` |
+| `--value_size_distribution_type` | `fixed` | Value size distribution: `fixed`, `uniform`, `normal` |
 | `--compression_ratio` | 0.5 | Target compression ratio (0.5 = 50% size after compression) |
 
-**Key Generation:**
+**Key Generation (`GenerateKeyFromInt`):**
 ```
-Format: {prefix}{middle}{suffix}
-  prefix:  FLAGS_prefix_size bytes (for prefix filtering)
-  middle:  Encode key number
-  suffix:  Timestamp if user_timestamp_size > 0
+If --keys_per_prefix > 0:
+  ┌──────────────────────┬──────────────────────┐
+  │ prefix (prefix_size) │ key number + padding  │
+  └──────────────────────┴──────────────────────┘
+
+If --keys_per_prefix == 0 (default):
+  ┌──────────────────────────────────────────────┐
+  │          key number + zero padding            │
+  └──────────────────────────────────────────────┘
+
+Note: User timestamps are NOT appended to keys. They are passed
+separately via timestamp-aware DB APIs. Only 64-bit (8-byte)
+user timestamps are supported.
 ```
 
 ### Concurrency
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--threads` | 1 | Number of concurrent threads |
+| `--threads` | 1 | Number of concurrent threads. Note: some composite benchmarks (e.g., `readwhilewriting`, `readwhilemerging`) internally add +1 background thread |
 | `--duration` | 0 | Run for N seconds (0 = run for --num ops) |
 | `--benchmark_write_rate_limit` | 0 | Write rate limit in bytes/sec (0 = unlimited) |
 | `--benchmark_read_rate_limit` | 0 | Read rate limit in ops/sec |
@@ -211,8 +220,8 @@ Format: {prefix}{middle}{suffix}
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--compression_type` | `snappy` | Options: `none`, `snappy`, `zlib`, `lz4`, `zstd` |
-| `--compression_level` | -1 | Compression level (codec-specific) |
+| `--compression_type` | `snappy` | Options: `none`, `snappy`, `zlib`, `bzip2`, `lz4`, `lz4hc`, `xpress`, `zstd` |
+| `--compression_level` | `kDefaultCompressionLevel` (32767) | Compression level (codec-specific, 32767 = use library default) |
 | `--min_level_to_compress` | -1 | Apply compression from this level onwards |
 
 ### Block Format
@@ -227,14 +236,14 @@ Format: {prefix}{middle}{suffix}
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--bloom_bits` | -1 | Bits per key for bloom filter (negative = use default, 0 = disabled, 10 = ~1% FPR) |
+| `--bloom_bits` | -1 | Bits per key for bloom filter (negative = preserve table-factory default, 0 = disabled, positive = set explicitly) |
 | `--use_ribbon_filter` | false | Use Ribbon filter (lower memory) instead of Bloom |
 
 **False Positive Rate vs Bits Per Key:**
 | Bits/Key | FPR | Use Case |
 |----------|-----|----------|
 | 5 | ~6% | Low memory, high FPR acceptable |
-| 10 | ~1% | Standard (default) |
+| 10 | ~1% | Standard choice for point lookups |
 | 15 | ~0.1% | Lookup-heavy workloads |
 | 20 | ~0.01% | Very low FPR required |
 
@@ -293,7 +302,7 @@ Percentiles: P50: 1.02 P75: 1.45 P99: 4.23 P99.9: 12.45 P99.99: 45.67
 | P99.9 | Tail latency | Detect outliers, compaction pauses |
 | P99.99 | Extreme tail | Debugging rare stalls |
 
-**Implementation (from `Stats.h`):**
+**Implementation (from `Stats` class in `tools/db_bench_tool.cc`):**
 ```cpp
 void FinishedOps(..., OperationType op_type) {
   uint64_t now = clock_->NowMicros();
@@ -344,11 +353,13 @@ fillrandom [MEDIAN 3 runs] : 81200 ops/sec; 8.2 MB/sec
 
 **Key Statistics:**
 ```
-rocksdb.bloom.filter.useful COUNT : 9900000   # Negatives avoided
-rocksdb.bloom.filter.full.positive COUNT : 100000   # False positives
+rocksdb.bloom.filter.useful COUNT : 9900000   # Negatives avoided (filter returned false)
+rocksdb.bloom.filter.full.positive COUNT : 100000   # All positive results (includes true and false positives)
+rocksdb.bloom.filter.full.true.positive COUNT : 99000  # True positives (data actually exists)
 ```
 
-**Bloom Effectiveness Ratio:** `useful / (useful + full_positive)` → Target: >99%
+**False Positive Count:** `full_positive - full_true_positive`
+**False Positive Rate:** `(full_positive - full_true_positive) / full_positive`
 
 ### Compression
 
@@ -372,8 +383,10 @@ done
 
 **Expected Results:**
 - `none`: Fastest writes, slowest reads (more I/O), largest size
-- `lz4`: Balanced (default for L0-L1)
-- `zstd`: Slowest writes, best compression (default for L2+)
+- `lz4`: Balanced (fast compression/decompression)
+- `zstd`: Slowest writes, best compression ratio
+
+Note: `db_bench` defaults to `--compression_type=snappy` applied uniformly to all levels. Per-level compression (e.g., lz4 for L0-L1, zstd for L2+) must be configured separately via `--min_level_to_compress` or application-level `compression_per_level` settings.
 
 ### Compaction
 
@@ -386,7 +399,9 @@ done
            --disable_auto_compactions=1 --level0_file_num_compaction_trigger=1000
 
 # Manually trigger compaction and measure
-./db_bench --benchmarks=compact --use_existing_db=1 --stats_interval_seconds=1
+./db_bench --benchmarks=compact --use_existing_db=1
+# Note: --stats_interval_seconds does not provide per-second progress for
+# compact, because Compact() does not call FinishedOps() during compaction.
 ```
 
 **Key Metrics (from `stats` output):**
@@ -420,21 +435,23 @@ Compaction Stats:
 
 **Example:**
 ```bash
-# Baseline (main branch)
-for i in {1..5}; do
-  ./db_bench --benchmarks=fillrandom --num=10000000 | grep fillrandom
-done
-# Output: fillrandom [AVG 5 runs] : 81015 (± 523) ops/sec
+# Baseline (main branch) — use built-in repeat syntax for aggregation
+./db_bench --benchmarks=fillrandom[X5] --num=10000000
+# Output includes:
+# fillrandom [AVG    5 runs] : 81015 (± 523) ops/sec; ...
+# fillrandom [MEDIAN 5 runs] : 81200 ops/sec; ...
 
 # Experimental (feature branch)
 # ... rebuild with new code ...
-for i in {1..5}; do
-  ./db_bench --benchmarks=fillrandom --num=10000000 | grep fillrandom
-done
+./db_bench --benchmarks=fillrandom[X5] --num=10000000
 # Output: fillrandom [AVG 5 runs] : 85234 (± 612) ops/sec
 
 # Conclusion: 85234 - 81015 = 4219 ops/sec improvement (5.2%)
 # Non-overlapping CIs: [80492, 81538] vs [84622, 85846] → statistically significant
+
+# NOTE: The [AVG N runs] output requires the repeat syntax (e.g., fillrandom[X5])
+# within a single db_bench invocation. Running db_bench in a shell loop produces
+# N independent reports without aggregation.
 ```
 
 ### Statistical Significance
@@ -506,10 +523,10 @@ fillrandom : thread 0: (100000,200000) ops and (45123,50234) ops/second
 
 **Impact:** Reads appear faster than real-world (page cache hit instead of disk I/O).
 
-**Detection:** Compare `--mmap_read=0` vs `--mmap_read=1`
+**Detection:** Both `--mmap_read=0` and `--mmap_read=1` can still use the OS page cache.
 
 **Solution:**
-- Use `--use_direct_reads=1` to bypass OS page cache
+- Use `--use_direct_reads=1` to bypass OS page cache (the only reliable method)
 - Or clear page cache: `sync; echo 3 > /proc/sys/vm/drop_caches`
 
 ### 4. Small --num for Multi-Threaded Benchmarks
@@ -558,16 +575,21 @@ readrandom : ... (900000 NotFound, 100000 Found)
 ```cpp
 void MyCustomBenchmark(ThreadState* thread) {
   Duration duration(FLAGS_duration, reads_);
+  std::unique_ptr<const char[]> key_guard;
+  Slice key = AllocateKey(&key_guard);
+  std::string value;
+
   while (!duration.Done(1)) {
-    // 1. Generate key
+    // 1. Select DB and generate key
+    DB* db = SelectDB(thread);
     int64_t key_rand = GetRandomKey(&thread->rand);
     GenerateKeyFromInt(key_rand, FLAGS_num, &key);
 
     // 2. Execute operation
-    Status s = db_->db->Get(read_options_, key, &value);
+    Status s = db->Get(read_options_, key, &value);
 
-    // 3. Record latency
-    thread->stats.FinishedOps(db_, db_->db, 1, kRead);
+    // 3. Record latency (first arg is DBWithColumnFamilies* or nullptr)
+    thread->stats.FinishedOps(nullptr, db, 1, kRead);
 
     // 4. Update byte counter
     if (s.ok()) {
@@ -603,15 +625,16 @@ void DeleteRandom(ThreadState* thread) {
   Slice key = AllocateKey(&key_guard);
 
   while (!duration.Done(1)) {
+    DB* db = SelectDB(thread);
     int64_t key_rand = GetRandomKey(&thread->rand);
     GenerateKeyFromInt(key_rand, FLAGS_num, &key);
 
-    Status s = db_->db->Delete(write_options_, key);
+    Status s = db->Delete(write_options_, key);
     if (!s.ok()) {
       fprintf(stderr, "Delete failed: %s\n", s.ToString().c_str());
     }
 
-    thread->stats.FinishedOps(db_, db_->db, 1, kDelete);
+    thread->stats.FinishedOps(nullptr, db, 1, kDelete);
     thread->stats.AddBytes(key.size());
   }
 }
@@ -674,7 +697,7 @@ rocksdb.write.wal.time P50 : 1.234 P99 : 5.678
 
 **Enable:**
 ```bash
-./db_bench --benchmarks=readrandom --perf_level=2  # kEnableTime
+./db_bench --benchmarks=readrandom --perf_level=6  # kEnableTime
 ```
 
 **PerfLevel Options:**
@@ -696,8 +719,9 @@ get_perf_context()->Reset();
 
 // ... run benchmark operations ...
 
-if (FLAGS_perf_level > 0) {
-  thread->stats.AddMessage(get_perf_context()->ToString());
+if (FLAGS_perf_level > PerfLevel::kDisable) {
+  thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
+                           get_perf_context()->ToString());
 }
 ```
 
@@ -713,7 +737,7 @@ bloom_sst_hit_count = 543210
 
 **Key Metrics:**
 - `block_cache_hit_count / (block_cache_hit_count + block_read_count)` → Cache hit rate
-- `bloom_sst_hit_count` → Bloom filter avoided SST reads
+- `bloom_sst_hit_count` → Total SST bloom filter hits (positive results). The counter for reads *avoided* by bloom is `bloom_filter_useful` (a ticker stat, not perf context)
 - `get_from_memtable_time` → Time spent in memtable lookups
 
 ### IOStatsContext (I/O Statistics)
@@ -723,22 +747,19 @@ bloom_sst_hit_count = 543210
 struct IOStatsContext {
   uint64_t bytes_written;
   uint64_t bytes_read;
-  uint64_t write_nanos;
-  uint64_t read_nanos;
+  uint64_t write_nanos;     // time in write()/pwrite()
+  uint64_t read_nanos;      // time in read()/pread()
   uint64_t fsync_nanos;
   // ... temperature-based file I/O stats ...
 };
 ```
 
-**Usage:**
-```bash
-./db_bench --benchmarks=fillrandom --perf_level=2 --statistics=1
-```
+Note: `db_bench` does not print `IOStatsContext` directly. It only appends `PERF_CONTEXT` output (when `--perf_level > kDisable`) and optionally `Statistics::ToString()`. To examine I/O stats, use `get_iostats_context()` programmatically or add custom reporting.
 
 **Metric Interpretation:**
 - `write_nanos / bytes_written` → Write bandwidth
 - `fsync_nanos` → Time blocked on durable writes
-- `read_nanos / bytes_read` → Read bandwidth (includes decompression)
+- `read_nanos / bytes_read` → Read I/O bandwidth (raw I/O time, does not include decompression)
 
 ### Statistics (DB-Wide Aggregated Counters)
 
@@ -747,7 +768,7 @@ struct IOStatsContext {
 ./db_bench --statistics=1 --stats_interval_seconds=10
 ```
 
-**Real-Time Stats (during benchmark):**
+**Real-Time Stats (during benchmark, requires `--stats_per_interval > 0`):**
 ```
 thread 0: (100000,200000) ops and (50123,60234) ops/second in (2.0,3.3) seconds
 
@@ -772,7 +793,7 @@ Level  Files  Size(MB) Score ...
 | Write throughput (random) | `fillrandom` | `--num`, `--threads`, `--compression_type` |
 | Read latency (point lookup) | `readrandom` | `--reads`, `--cache_size`, `--bloom_bits` |
 | Read throughput (scan) | `readseq` | `--num`, `--threads` |
-| Mixed workload | `readrandomwriterandom` | `--num`, `--reads`, `--writes`, `--threads` |
+| Mixed workload | `readrandomwriterandom` | `--num`, `--readwritepercent`, `--threads` |
 | Compaction performance | `compact` | `--num`, `--max_background_compactions` |
 | Bloom filter effectiveness | `readrandom` + stats | `--bloom_bits`, `--statistics=1` |
 | Compression ratio | `fillrandom,stats` | `--compression_type`, `--compression_level` |
@@ -790,4 +811,4 @@ Level  Files  Size(MB) Score ...
 - **Histograms:** `monitoring/histogram.h`
 - **Statistics:** `monitoring/statistics_impl.h`
 
-⚠️ **INVARIANT:** This documentation reflects db_bench as of RocksDB 9.x. New benchmarks and flags are added regularly—consult `db_bench --help` for the authoritative flag list.
+⚠️ **INVARIANT:** This documentation reflects db_bench as of RocksDB 11.x. New benchmarks and flags are added regularly—consult `db_bench --help` for the authoritative flag list.

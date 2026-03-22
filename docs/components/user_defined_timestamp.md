@@ -183,23 +183,22 @@ Status DecodeU64Ts(const Slice& ts, uint64_t* int_ts); // Decode timestamp
 
 ### Put with Timestamp
 
-When writing with UDT enabled, timestamps are appended to keys:
+When writing with UDT enabled, use the timestamp-aware `Put` overload:
 
 ```cpp
-// User provides key WITHOUT timestamp
-Slice user_key_without_ts = "mykey";
+// User provides key WITHOUT timestamp, and timestamp separately
+Slice user_key = "mykey";
 uint64_t timestamp = 1234567890;
 
 // Encode timestamp
 std::string ts_buf;
 Slice ts = EncodeU64Ts(timestamp, &ts_buf);
 
-// Construct full user key with timestamp
-std::string user_key_with_ts = user_key_without_ts.ToString();
-user_key_with_ts.append(ts.data(), ts.size());
-
-// Write (internally stores: user_key_with_ts || seqno+type)
-db->Put(WriteOptions(), user_key_with_ts, value);
+// Write using the timestamp-aware Put overload:
+//   DB::Put(WriteOptions, key, ts, value)
+// The plain Put(options, key, value) will reject UDT-enabled CFs
+// with Status::InvalidArgument via FailIfCfHasTs().
+db->Put(WriteOptions(), user_key, ts, value);
 ```
 
 ### WAL Encoding with Timestamps
@@ -208,7 +207,7 @@ db->Put(WriteOptions(), user_key_with_ts, value);
 
 **Solution:** `UserDefinedTimestampSizeRecord` (`util/udt_util.h:24-83`)
 
-Before writing any `WriteBatch` with UDT keys, a special dummy record is logged to WAL:
+When a column family with non-zero timestamp size has not yet been recorded in the current WAL file, a `UserDefinedTimestampSizeRecord` is emitted via `MaybeAddUserDefinedTimestampSizeRecord()`. This record is written **once per column family per WAL file** (not before every `WriteBatch`), and applies to all subsequent records in that WAL.
 
 ```cpp
 class UserDefinedTimestampSizeRecord {
@@ -227,7 +226,7 @@ class UserDefinedTimestampSizeRecord {
 };
 ```
 
-**⚠️ INVARIANT:** WAL guarantees that timestamp size info is logged **before** any `WriteBatch` that needs it. Zero timestamp sizes are omitted (implicit).
+**⚠️ INVARIANT:** WAL guarantees that timestamp size info is logged **before** any `WriteBatch` that needs it (emitted once per CF per WAL file). Zero timestamp sizes are omitted (implicit).
 
 ### WriteBatch Encoding
 
@@ -254,7 +253,8 @@ The key includes the timestamp suffix. During recovery, RocksDB uses the earlier
 ReadOptions read_opts;
 uint64_t read_ts = 1000;
 std::string ts_buf;
-read_opts.timestamp = &EncodeU64Ts(read_ts, &ts_buf);
+Slice ts = EncodeU64Ts(read_ts, &ts_buf);
+read_opts.timestamp = &ts;
 
 std::string value;
 db->Get(read_opts, "key_without_ts", &value);
@@ -263,7 +263,7 @@ db->Get(read_opts, "key_without_ts", &value);
 
 **Behavior:**
 - For a given user key (without timestamp), returns the **most recent version** with `timestamp <= read_timestamp`
-- Internally, RocksDB seeks to `<key_without_ts | max_timestamp>` and iterates backward until finding a version with `timestamp <= read_timestamp`
+- Internally, `DBImpl::GetImpl()` constructs `LookupKey(key, snapshot, read_options.timestamp)`, which appends the caller-provided read timestamp to the key (not `max_timestamp`). Visibility is determined by comparing the read timestamp against each version's timestamp.
 
 **⚠️ INVARIANT:** `ReadOptions::timestamp` must be provided when reading from a UDT-enabled column family. Omitting it returns `Status::InvalidArgument`.
 
@@ -277,13 +277,17 @@ uint64_t start_ts = 500;
 uint64_t end_ts = 1000;
 
 std::string start_ts_buf, end_ts_buf;
-read_opts.iter_start_ts = &EncodeU64Ts(start_ts, &start_ts_buf);
-read_opts.timestamp = &EncodeU64Ts(end_ts, &end_ts_buf);
+Slice start_ts_slice = EncodeU64Ts(start_ts, &start_ts_buf);
+Slice end_ts_slice = EncodeU64Ts(end_ts, &end_ts_buf);
+read_opts.iter_start_ts = &start_ts_slice;
+read_opts.timestamp = &end_ts_slice;
 
 auto iter = db->NewIterator(read_opts);
 for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-  // Returns ALL versions of each key with start_ts <= timestamp <= end_ts
-  Slice key = iter->key();          // Includes timestamp
+  // When iter_start_ts is set, key() returns the full internal key
+  // (user_key + timestamp + seqno/type). Use timestamp() for the timestamp.
+  // When iter_start_ts is NOT set, key() returns user key WITHOUT timestamp.
+  Slice key = iter->key();
   Slice value = iter->value();
   Slice ts = iter->timestamp();     // Extracted timestamp
 }
@@ -297,7 +301,26 @@ virtual Slice timestamp() const;
 // timestamp extraction from the current key
 ```
 
-**⚠️ INVARIANT:** If `iter_start_ts == nullptr`, only the **most recent version** of each key (with `timestamp <= ReadOptions::timestamp`) is returned.
+**⚠️ INVARIANT:** If `iter_start_ts == nullptr`, only the **most recent version** of each key (with `timestamp <= ReadOptions::timestamp`) is returned. When `iter_start_ts != nullptr`, `key()` returns the full internal key (user key + timestamp + seqno/type); use `timestamp()` to extract the timestamp separately.
+
+### Key-Shape Invariants for UDT APIs
+
+When UDT is enabled, different APIs have different expectations for whether keys include timestamps:
+
+| API | Key format | Notes |
+|-----|-----------|-------|
+| `Put(opts, key, ts, value)` | Key **without** timestamp | Timestamp passed separately |
+| `Delete(opts, key, ts)` | Key **without** timestamp | Timestamp passed separately |
+| `WriteBatch::DeleteRange(cf, begin, end, ts)` | Begin/end keys **without** timestamp | Timestamp passed separately |
+| `Get(opts, key, &value)` | Key **without** timestamp | Read timestamp via `ReadOptions::timestamp` |
+| `Iterator::Seek(target)` | Target **without** timestamp | "Target does not contain timestamp" |
+| `Iterator::SeekForPrev(target)` | Target **without** timestamp | "Target does not contain timestamp" |
+| `ReadOptions::iterate_lower_bound` | Key **without** timestamp | |
+| `ReadOptions::iterate_upper_bound` | Key **without** timestamp | |
+| `Range` / `RangeOpt` endpoints | Keys **without** timestamp | |
+| `Iterator::key()` (no `iter_start_ts`) | Returns key **without** timestamp | Timestamp stripped |
+| `Iterator::key()` (with `iter_start_ts`) | Returns **internal key** (key + ts + seqno/type) | |
+| `Iterator::timestamp()` | Returns the timestamp | Always available |
 
 ### Timestamp Mismatch Validation
 
@@ -359,7 +382,7 @@ bool CompactionIterator::NextFromInput() {
         // Drop this version (garbage collect)
         return true;  // Skip to next key
       } else {
-        // Keep at least one version even if older than cutoff
+        // Keep this version (newest for this user key)
       }
     }
   }
@@ -367,14 +390,31 @@ bool CompactionIterator::NextFromInput() {
 }
 ```
 
-**⚠️ INVARIANT:** Compaction preserves **at least one version** of each user key (even if older than `full_history_ts_low`) to maintain database integrity. Use `DeleteRange` to completely remove keys.
+**⚠️ INVARIANT:** Compaction with `full_history_ts_low` **may GC** older versions of each user key (the option comment says "maybe GCed"). For Put/Merge entries, the newest version of a user key is generally retained even if older than `full_history_ts_low`. However, when the newest version is a `kTypeDeletionWithTimestamp` with timestamp below `full_history_ts_low`, compaction can drop the deletion marker **and all older versions**, removing all history for that key entirely.
 
 ### Dynamic full_history_ts_low
 
-From `db/column_family.h` and `db/version_set.h`:
-- Each `ColumnFamilyData` tracks `full_history_ts_low_` (can be updated via `IncreaseFullHistoryTsLow()`)
-- `VersionStorageInfo` records the effective `full_history_ts_low` for each LSM level
-- Compaction reads this value to determine which versions to garbage collect
+From `db/column_family.h`:
+- Each `ColumnFamilyData` tracks `full_history_ts_low_` (can be updated via `DB::IncreaseFullHistoryTsLow()`, monotonically increasing)
+- `SuperVersion::full_history_ts_low` snapshots the effective value at SuperVersion creation time (immutable per SuperVersion, used for read-side sanity checks)
+- `full_history_ts_low` is persisted to MANIFEST via `VersionEdit::SetFullHistoryTsLow()` and survives restarts
+- Compaction reads the `full_history_ts_low` value to determine which versions to garbage collect
+
+### Key Public APIs for Timestamp GC
+
+```cpp
+// Increase the full_history_ts_low cutoff (can only increase, never decrease)
+virtual Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                        std::string ts_low) = 0;
+
+// Get current full_history_ts_low value
+virtual Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                   std::string* ts_low) = 0;
+
+// Get the newest user-defined timestamp written to this column family
+virtual Status GetNewestUserDefinedTimestamp(
+    ColumnFamilyHandle* column_family, std::string* newest_timestamp) = 0;
+```
 
 ---
 
@@ -427,7 +467,8 @@ const bool logical_strip_timestamp =
 **Restrictions:**
 - **NOT compatible with atomic flush** (`options.atomic_flush = true`)
 - **NOT compatible with concurrent memtable writes** (`options.allow_concurrent_memtable_write = true`)
-- Requires `options.avoid_flush_during_shutdown = true` and `options.avoid_flush_during_recovery = true` to preserve WAL-based timestamp recovery
+- **Only supports builtin `.u64ts` comparators** (e.g., `BytewiseComparatorWithU64Ts()`, `ReverseBytewiseComparatorWithU64Ts()`). Custom comparators with arbitrary timestamp formats are not supported when `persist_user_defined_timestamps = false`.
+- **Recommended:** Set `options.avoid_flush_during_shutdown = true` and `options.avoid_flush_during_recovery = true` to preserve WAL-based timestamp recovery (e.g., for downgrade scenarios). These are not hard requirements but are strongly recommended when relying on WAL timestamps.
 
 ---
 
@@ -567,26 +608,29 @@ Status ValidateUserDefinedTimestampsOptions(
    - Old data remains readable without timestamps
 3. **Disable UDT if `persist_user_defined_timestamps` was already `false`**: ✅ Safe
    - No timestamps in SST files to clean up
-4. **Enable UDT with `persist_user_defined_timestamps = true`**: ⚠️ **Requires full compaction**
-   - Must rewrite all SST files to include timestamps
-5. **Change timestamp size**: ❌ **NOT supported**
+4. **Enable UDT with `persist_user_defined_timestamps = true`**: ❌ **Rejected**
+   - Returns `Status::InvalidArgument`; this transition is not supported
+5. **Toggle `persist_user_defined_timestamps` while UDT remains enabled**: ❌ **Rejected**
+   - The option is immutable (`persist_user_defined_timestamps` cannot be changed via `SetOptions()`)
+   - Returns `Status::InvalidArgument` if the flag differs between old and new config
+6. **Change timestamp size**: ❌ **NOT supported**
    - Cannot change from 8-byte to 16-byte timestamps
 
 **Migration procedure** (enable UDT on existing DB):
 
 ```cpp
-// Step 1: Enable UDT with persist = false
+// Enable UDT with persist = false (the only supported path for existing data)
+Options options;
 options.comparator = BytewiseComparatorWithU64Ts();
 options.persist_user_defined_timestamps = false;
-db->OpenColumnFamily(options, "cf_name", &handle);
 
-// Step 2: (Optional) Compact to uniform state
-db->CompactRange(CompactRangeOptions(), handle, nullptr, nullptr);
+DB* db;
+Status s = DB::Open(options, dbname, &db);
 
-// Step 3: (Optional) Switch to persist = true and re-compact
-options.persist_user_defined_timestamps = true;
-db->SetOptions(handle, {{"persist_user_defined_timestamps", "true"}});  // Requires restart
-db->CompactRange(CompactRangeOptions(), handle, nullptr, nullptr);
+// Write with timestamps (timestamps kept in memtable, stripped on flush)
+std::string ts_buf;
+Slice ts = EncodeU64Ts(1000, &ts_buf);
+db->Put(WriteOptions(), "mykey", ts, "value");
 ```
 
 ### VersionEdit Tracking
@@ -665,10 +709,13 @@ After Compaction (full_history_ts_low = 500):
 └──────────────────────────────────────┘
   key1|ts=200 is DELETED (ts < 500)
 
-Special case: If key1|ts=200 was the ONLY version:
+Special case: If key1|ts=200 was the ONLY Put version:
 ┌──────────────────────────────────────┐
-│ key1|ts=200   →  value_v1  (seqno=1) │  ← Kept (at least one version)
+│ key1|ts=200   →  value_v1  (seqno=1) │  ← Kept (newest Put for this key)
 └──────────────────────────────────────┘
+
+Special case: If a Delete(key1, ts=200) was the only entry and
+ts < full_history_ts_low, it may be dropped entirely (no versions remain).
 ```
 
 ### Read Path with Timestamp Bounds
@@ -707,11 +754,11 @@ Iterator output (in order):
 │   (seqno=2)     │
 └─────────────────┘
 
-Read with timestamp=150:
-  → Returns value from MemTable (key1|ts=100)
+Read with timestamp=150 (after flush, full_history_ts_low not set):
+  → Returns value from SST (key treated as having minimum timestamp)
 
-Read with timestamp=50:
-  → InvalidArgument (below full_history_ts_low)
+Read with timestamp=150 (after full_history_ts_low=200 set):
+  → InvalidArgument (read timestamp < full_history_ts_low)
 ```
 
 ---
@@ -729,28 +776,32 @@ options.comparator = BytewiseComparatorWithU64Ts();
 DB* db;
 Status s = DB::Open(options, dbname, &db);
 
-// 2. Write with timestamps
-std::string ts_buf;
+// 2. Write with timestamps (using the timestamp-aware Put overload)
 for (uint64_t ts = 100; ts <= 300; ts += 100) {
+  std::string ts_buf;
   Slice timestamp = EncodeU64Ts(ts, &ts_buf);
-  std::string key_with_ts = "mykey";
-  key_with_ts.append(timestamp.data(), timestamp.size());
 
-  db->Put(WriteOptions(), key_with_ts, "value_at_ts_" + std::to_string(ts));
+  s = db->Put(WriteOptions(), "mykey", timestamp,
+              "value_at_ts_" + std::to_string(ts));
 }
 
 // 3. Read latest version as of ts=250
 ReadOptions read_opts;
 uint64_t read_ts = 250;
 std::string read_ts_buf;
-read_opts.timestamp = &EncodeU64Ts(read_ts, &read_ts_buf);
+Slice read_ts_slice = EncodeU64Ts(read_ts, &read_ts_buf);
+read_opts.timestamp = &read_ts_slice;
 
 std::string value;
 db->Get(read_opts, "mykey", &value);  // Returns "value_at_ts_200"
 
 // 4. Scan all versions between ts=150 and ts=300
-read_opts.iter_start_ts = &EncodeU64Ts(150, &read_ts_buf);
-read_opts.timestamp = &EncodeU64Ts(300, &read_ts_buf);
+// Each Slice needs its own backing buffer to avoid aliasing
+std::string start_ts_buf, end_ts_buf;
+Slice start_ts_slice = EncodeU64Ts(150, &start_ts_buf);
+Slice end_ts_slice = EncodeU64Ts(300, &end_ts_buf);
+read_opts.iter_start_ts = &start_ts_slice;
+read_opts.timestamp = &end_ts_slice;
 
 auto iter = db->NewIterator(read_opts);
 for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -758,9 +809,9 @@ for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
   DecodeU64Ts(iter->timestamp(), &ts);
   std::cout << "ts=" << ts << " value=" << iter->value().ToString() << "\n";
 }
-// Output:
-//   ts=200 value=value_at_ts_200
+// Output (newer timestamps first for same user key):
 //   ts=300 value=value_at_ts_300
+//   ts=200 value=value_at_ts_200
 
 delete iter;
 delete db;
@@ -788,18 +839,18 @@ db->CompactRange(compact_opts, nullptr, nullptr);
 | **Key encoding** | `user_key_without_ts \|\| timestamp \|\| (seqno + type)` |
 | **Ordering** | user key → timestamp (desc) → seqno (desc) |
 | **Comparator** | `BytewiseComparatorWithU64Ts()` for uint64_t timestamps |
-| **Write** | Append timestamp to user key before `Put/Delete/Merge` |
+| **Write** | Use `Put(options, key, ts, value)` overload; plain `Put` rejects UDT CFs |
 | **Read (point)** | `ReadOptions::timestamp` = upper bound |
 | **Read (scan)** | `iter_start_ts` = lower bound, `timestamp` = upper bound |
 | **GC** | `CompactRangeOptions::full_history_ts_low` triggers version removal |
 | **Persistence** | `persist_user_defined_timestamps` controls SST storage |
 | **Recovery** | `TimestampRecoveryHandler` reconciles WAL mismatches |
-| **Migration** | Enable with `persist = false`, optionally compact to `persist = true` |
+| **Migration** | Enable with `persist = false` only; enabling with `persist = true` is rejected |
 
 **⚠️ CRITICAL INVARIANTS:**
 1. **Timestamp size must be uniform** across all keys in a column family
 2. **Larger (newer) timestamps come first** in iteration order
-3. **At least one version** of each key is retained during compaction (even if older than `full_history_ts_low`)
+3. **Older versions may be GCed** by compaction when older than `full_history_ts_low`; deletion markers can cause complete removal of a key's history
 4. **Changing timestamp size** (N → M, both non-zero) is **NOT supported**
 5. **`persist_user_defined_timestamps` flag** must match the SST file's creation-time setting when reading
 

@@ -36,11 +36,11 @@ This document provides a comprehensive end-to-end trace of read operations in Ro
                  │
                  v
 ┌───────────────────────────────────────────────────────────────┐
-│            Post-Processing & Resolution                       │
-│  - Range deletion tombstone check                            │
-│  - Merge operator resolution                                 │
-│  - Blob value retrieval                                      │
-│  - Snapshot visibility filtering                             │
+│            Resolution (during search above)                   │
+│  - Range deletion: max_covering_tombstone_seq check          │
+│  - Merge operator: operand collection across layers          │
+│  - Blob value: retrieved in Version::Get after kFound        │
+│  - Snapshot visibility: seq <= snapshot_seq filtering         │
 └────────────────┬──────────────────────────────────────────────┘
                  │
                  v
@@ -82,7 +82,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
    ```cpp
    LookupKey lkey(key, snapshot, read_options.timestamp);
    ```
-   Format: `klength (varint32) | userkey | tag (sequence + type, 8 bytes)`
+   Format: `klength (varint32) | userkey | [timestamp] | tag (sequence + type, 8 bytes)`
+   Note: When `ReadOptions::timestamp` is supplied, timestamp bytes are inserted between user key and tag
 
 4. **Search mutable memtable** (lines 2623-2631):
    ```cpp
@@ -107,9 +108,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
    ```
 
 7. **Post-processing** (lines 2696-2788):
-   - Merge operand resolution
-   - Blob value retrieval
-   - Statistics recording
+   - Merge operand threshold check and `GetMergeOperands` assembly
+   - Statistics recording (`RecordTick`, `RecordInHistogram`)
+   - Note: Blob retrieval happens earlier inside `Version::Get()`, not here
 
 8. **Release SuperVersion** (line 2785):
    ```cpp
@@ -155,13 +156,19 @@ MultiGet(keys[])
 
 ```cpp
 struct SuperVersion {
+  ColumnFamilyData* cfd;
   ReadOnlyMemTable* mem;              // Current mutable memtable
   MemTableListVersion* imm;           // Immutable memtables
   Version* current;                   // SST files (Version)
   MutableCFOptions mutable_cf_options;
+  uint64_t version_number;            // Monotonically increasing version
+  WriteStallCondition write_stall_condition;
+  std::string full_history_ts_low;    // Oldest readable timestamp
+  std::shared_ptr<const SeqnoToTimeMapping> seqno_to_time_mapping;
 
  private:
   std::atomic<uint32_t> refs;         // Reference count
+  autovector<ReadOnlyMemTable*> to_delete;  // Deferred cleanup
 };
 ```
 
@@ -213,10 +220,11 @@ db->mutex()->Unlock();
 ### Consistency Guarantee
 
 **How SuperVersion provides consistent snapshots:**
-1. `InstallSuperVersion()` atomically updates `super_version_` pointer (line 1443)
+1. `InstallSuperVersion()` updates `super_version_` pointer while holding the DB mutex (line 1443)
 2. Marks all thread-local copies as `kSVObsolete` via `ResetThreadLocalSuperVersions()` (line 1469)
 3. Old SuperVersion kept alive by existing references (refcount)
 4. Cleanup deferred until last reference released
+5. Safety comes from mutex + refcount + thread-local invalidation, not a lock-free atomic swap
 
 ⚠️ **INVARIANT:** Readers see a consistent point-in-time snapshot of mem + imm + Version without holding DB mutex.
 
@@ -279,10 +287,14 @@ if (max_covering_tombstone_seq > seq) {
 
 // 5. Type dispatch (lines 1260-1403)
 switch (type) {
-  case kTypeValue:       return value, stop;
-  case kTypeDeletion:    return NotFound, stop;
-  case kTypeMerge:       collect operand, continue if not done;
-  case kTypeBlobIndex:   return blob reference, stop;
+  case kTypeValue:              return value, stop;
+  case kTypeValuePreferredSeqno: return value (with preferred seqno), stop;
+  case kTypeDeletion:           return NotFound, stop;
+  case kTypeDeletionWithTimestamp: return NotFound, stop;
+  case kTypeSingleDeletion:     return NotFound, stop;
+  case kTypeMerge:              collect operand, continue if not done;
+  case kTypeBlobIndex:          return blob reference, stop;
+  case kTypeWideColumnEntity:   return wide-column entity, stop;
 }
 ```
 
@@ -358,7 +370,8 @@ RetrieveBlock(block_handle)
 OffsetableCacheKey base_cache_key(db_id, db_session_id, file_number);
 ```
 - Globally unique with high probability
-- Stable across DB open/close, backup/restore
+- Stable across DB open/close, backup/restore **only when SST has `db_session_id` and `orig_file_number`** (newer SSTs)
+- Old SSTs lacking these properties use a fallback key that is **not stable** across DB close/re-open or across different DBs
 
 **Per-block key derivation:**
 ```cpp
@@ -377,7 +390,7 @@ CacheKey GetCacheKey(const OffsetableCacheKey& base, const BlockHandle& handle) 
 
 **Detailed flow:**
 ```cpp
-// 1. Detect cache miss (lines 1873-1875)
+// 1. Detect cache miss — read and cache path (lines 1873-1875)
 if (block not in cache && !no_io && fill_cache) {
 
   // 2. Read from disk (lines 1888-1916)
@@ -400,6 +413,11 @@ if (block not in cache && !no_io && fill_cache) {
                       std::move(uncompressed_contents),
                       std::move(compressed_contents), ...);
 }
+
+// 5. Fallback: read without caching (RetrieveBlock lines 2100-2147)
+//    When fill_cache=false or block absent from cache, disk reads still
+//    happen via ReadAndParseBlockFromFile() — block returned directly
+//    without cache insertion.
 ```
 
 ### Cache Admission Policy
@@ -568,20 +586,21 @@ InternalKey = user_key | timestamp | (sequence << 8) | type
 **Comparison rules:**
 ```cpp
 int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
-  // 1. Compare user_key (ASC)
+  // 1. Compare user_key (ASC) — includes timestamp if UDT enabled
   int r = user_comparator_.Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
   if (r != 0) return r;
 
-  // 2. Compare sequence number (DESC - newer first)
-  uint64_t anum = ExtractInternalKeyFooter(akey) >> 8;
-  uint64_t bnum = ExtractInternalKeyFooter(bkey) >> 8;
-  if (anum > bnum) return -1;  // Newer (larger seq) comes first
+  // 2. Compare packed footer (sequence << 8 | type) as uint64_t (DESC)
+  //    This orders by sequence DESC, then type DESC as tie-breaker
+  uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8);
+  uint64_t bnum = DecodeFixed64(bkey.data() + bkey.size() - 8);
+  if (anum > bnum) return -1;  // Newer (larger seq or higher type) first
   else if (anum < bnum) return +1;
   else return 0;
 }
 ```
 
-⚠️ **INVARIANT:** Keys ordered by `user_key` ASC, then `sequence` DESC. Ensures newest version found first during forward iteration.
+⚠️ **INVARIANT:** Keys ordered by `user_key` ASC, then `sequence` DESC, then `type` DESC. Ensures newest version found first during forward iteration.
 
 ---
 
@@ -734,7 +753,8 @@ while (iter_.Valid()) {
 merge_context_.PushOperand(iter_.value(),
                           iter_.iter()->IsValuePinned());
 
-// 2. Iterate backward (newer → older sequence numbers)
+// 2. Advance forward via iter_.Next() (newer → older sequence numbers
+//    due to InternalKey ordering: same user_key sorted by descending seq)
 iter_.Next();
 while (iter_.Valid()) {
   ParsedInternalKey ikey;
@@ -866,8 +886,10 @@ void ReadRangeDelAggregator::AddTombstones(
 
 **TruncatedRangeDelIterator** (`range_del_aggregator.cc:23-80`):
 - **Purpose:** Ensures tombstones don't leak beyond SST file boundaries
-- **Boundary truncation:** Clamps `[start, end)` to `[smallest, largest]` of source file
-- **End key adjustment:** `largest.sequence -= 1` (line 73) to exclude next file's keys
+- **Boundary truncation:** Clamps to `[smallest_, largest_)` (half-open interval) of source file
+- **Sequence adjustment:** `largest.sequence -= 1` (line 73) in the general case, but skipped when:
+  - The file boundary was artificially extended by a range tombstone (`kTypeRangeDeletion` with `kMaxSequenceNumber`)
+  - `largest.sequence == 0` (no identical user key can exist in the next file)
 
 ⚠️ **INVARIANT:** Range tombstones truncated at file boundaries. Prevents deletion leakage across files.
 
@@ -928,31 +950,38 @@ bool ForwardRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
 
 ### Integration with Point Lookups
 
-**Typical pattern in Version::Get:**
+**Current mechanism:** Point lookups use `max_covering_tombstone_seq` rather than `RangeDelAggregator::ShouldDelete()`:
 ```cpp
-// Before returning found value:
-if (range_del_agg->ShouldDelete(parsed_ikey,
-                                 RangeDelPositioningMode::kForwardTraversal)) {
-  RecordTick(stats, NUMBER_DELETED_RECORDS_RANGE_DEL);
-  continue;  // Key is deleted, keep searching
+// In TableCache::Get() (table_cache.cc:511-528):
+// For each SST file, compute max covering tombstone sequence
+SequenceNumber max_tomb_seq = tombstone_iter->MaxCoveringTombstoneSeqnum(user_key);
+if (max_tomb_seq > *max_covering_tombstone_seq) {
+  *max_covering_tombstone_seq = max_tomb_seq;
+}
+
+// In GetContext::SaveValue() (get_context.cc:281-291):
+// If a point entry's sequence is below the covering tombstone, treat as deleted
+if (*max_covering_tombstone_seq_ > parsed_key.sequence) {
+  type = kTypeRangeDeletion;  // Convert to deletion semantics
 }
 ```
+This avoids building a full `RangeDelAggregator` for point lookups, using a simple sequence number comparison instead.
 
 ### Integration with Iterators
 
-**MergingIterator construction:**
+**MergingIterator construction** (using `AddPointAndTombstoneIterator`):
 ```cpp
-// Add memtable point iterator
-merge_iter_builder.AddIterator(mem_iter);
-// Add memtable range tombstone iterator
-AddRangeDelIterator(mem_range_del_iter, &read_range_del_agg);
+// Add memtable point + range tombstone iterators together
+auto mem_iter = super_version->mem->NewIterator(...);
+auto mem_tombstone_iter = super_version->mem->NewRangeTombstoneIterator(...);
+merge_iter_builder.AddPointAndTombstoneIterator(mem_iter, std::move(mem_tombstone_iter));
 
-// For each SST level:
-AddIterator(level_iter);
-AddRangeDelIterator(level_range_del_iter, &read_range_del_agg);
+// Immutable memtables and SST files added via AddIterators()
+super_version->imm->AddIterators(..., &merge_iter_builder, ...);
+super_version->current->AddIterators(..., &merge_iter_builder, ...);
 ```
 
-**DBIter::FindNextUserEntry():** Checks if point key covered by range tombstone before returning to user.
+**MergingIterator::SkipNextDeleted():** Filters out point keys covered by range tombstones before `DBIter` sees them. `DBIter::FindNextUserEntry()` consumes the already-filtered stream from the internal iterator.
 
 ---
 
@@ -965,11 +994,11 @@ AddRangeDelIterator(level_range_del_iter, &read_range_del_agg);
 **Structure:** `db/merge_context.h:23-149`
 ```cpp
 class MergeContext {
-  std::unique_ptr<std::deque<Slice>> operand_list_;
+  std::unique_ptr<std::vector<Slice>> operand_list_;
   bool operands_reversed_ = true;  // Newest first
 
   void PushOperand(const Slice& operand, bool pinned);
-  const std::deque<Slice>& GetOperands();  // Returns oldest→newest
+  const std::vector<Slice>& GetOperands();  // Returns oldest→newest
 };
 ```
 
@@ -1071,9 +1100,9 @@ if (merge_context_.GetNumOperands() >= 2 ||
 }
 ```
 
-**Threshold:** `max_successive_merges` option
-- Triggers partial merge attempts when operand count ≥ 2
-- Reduces memory pressure by combining operands before reaching base value
+**Threshold:** Partial merge is attempted when operand count >= 2 (or 1 if `MergeOperator::AllowSingleOperand()` returns true)
+- Triggered during compaction in `MergeHelper::MergeUntil()` when no base value is found
+- Note: `max_successive_merges` is a separate write-path optimization (in `write_batch.cc`) that eagerly merges during memtable insertion — it does not control compaction-side partial merges
 
 ### Snapshot Integration
 
@@ -1099,7 +1128,7 @@ if (stop_before > 0 && ikey.sequence <= stop_before &&
 
 ### Sequence Number Assignment
 
-**Location:** See [write_path.md](write_path.md) for sequence number assignment during writes
+**Location:** See [write_flow.md](write_flow.md) for sequence number assignment during writes
 
 **Key properties:**
 - Monotonically increasing (assigned by WriteThread leader)
@@ -1138,8 +1167,8 @@ Only yields keys with `seq <= sequence_` (snapshot seqno)
 | **Lookup order: mem → imm → SST** | Enforced in GetImpl/MultiGetImpl | Newest data found first |
 | **L0 epoch ordering** | Newest first by epoch_number | Correct read ordering despite overlapping ranges |
 | **L1+ non-overlapping** | Compaction maintains disjoint ranges | Binary search works, at most one file per level |
-| **InternalKey ordering** | user_key ASC, sequence DESC | Newest version found first during iteration |
-| **Range tombstone truncation** | Clamp to `[smallest, largest]` | Prevents deletion leakage across files |
+| **InternalKey ordering** | user_key ASC, sequence DESC, type DESC | Newest version found first during iteration |
+| **Range tombstone truncation** | Clamp to `[smallest, largest)` | Prevents deletion leakage across files |
 | **Merge operand order** | Collected newest→oldest | Correct merge operator semantics |
 | **Iterator stability** | SuperVersion ref held | Consistent view, files not deleted during iteration |
 | **Block pinning** | PinnedIteratorsManager | Zero-copy value access |
@@ -1166,12 +1195,13 @@ Only yields keys with `seq <= sequence_` (snapshot seqno)
 
 ## Interactions With Other Components
 
-- **Write Path** ([write_path.md](write_path.md)): Writes assign sequence numbers, populate memtables, trigger flushes when memtable full
+- **Write Path** ([write_flow.md](write_flow.md)): Writes assign sequence numbers, populate memtables, trigger flushes when memtable full
 - **Version Management** ([version_management.md](version_management.md)): SuperVersion refs Version (SST file set), LogAndApply atomically updates Version
 - **SST Table Format** ([sst_table_format.md](sst_table_format.md)): BlockBasedTable provides Get/MultiGet/NewIterator interfaces, block cache integration
 - **Compaction** ([compaction.md](compaction.md)): Maintains L1+ non-overlapping invariant, resolves merges permanently
 - **Cache** ([cache.md](cache.md)): LRUCache/HyperClockCache cache blocks, SecondaryCache provides compressed tier
-- **File I/O** ([file_io_and_blob.md](file_io_and_blob.md)): ReadBlockContents reads from disk, FilePrefetchBuffer optimizes sequential access
+- **File I/O** ([file_io.md](file_io.md)): ReadBlockContents reads from disk, FilePrefetchBuffer optimizes sequential access
+- **Blob DB** ([blob_db.md](blob_db.md)): BlobDB value retrieval for blob-separated storage
 
 ---
 
@@ -1230,10 +1260,11 @@ NewIterator() → SuperVersion → MergingIterator
 ## References
 
 - **Architecture Overview:** [ARCHITECTURE.md](../../ARCHITECTURE.md)
-- **Write Path:** [write_path.md](write_path.md)
+- **Write Path:** [write_flow.md](write_flow.md)
 - **Version Management:** [version_management.md](version_management.md)
 - **SST Table Format:** [sst_table_format.md](sst_table_format.md)
 - **Compaction:** [compaction.md](compaction.md)
 - **Cache:** [cache.md](cache.md)
-- **File I/O and Blob:** [file_io_and_blob.md](file_io_and_blob.md)
+- **File I/O:** [file_io.md](file_io.md)
+- **Blob DB:** [blob_db.md](blob_db.md)
 - **DB Impl:** [db_impl.md](db_impl.md)

@@ -6,7 +6,7 @@
 
 User Defined Index (UDI) is an experimental feature that allows users to plug custom index implementations into RocksDB's block-based table format. While RocksDB's default index uses binary search over separator keys, UDI enables alternative indexing strategies optimized for specific access patterns or data characteristics.
 
-UDI indexes are built alongside the internal index during SST file construction and stored as separate meta blocks in the SST file footer. At read time, users can choose to use the UDI instead of the internal index for forward iteration and point lookups.
+UDI indexes are built alongside the internal index during SST file construction and stored as separate meta blocks in the SST file (written before the metaindex block and footer; the footer only stores handles to the metaindex and index blocks). At read time, users can choose to use the UDI instead of the internal index for forward iteration and point lookups.
 
 ### Key Characteristics
 
@@ -127,7 +127,7 @@ Slice AddIndexEntry(...) override {
 
 #### OnKeyAdded
 
-Called for every key-value pair added to the SST file. UDI builders may override this to collect per-key information (e.g., for secondary indexes). Builders that only use separator keys from `AddIndexEntry()` (e.g., trie-based indexes) can leave this as a no-op.
+Called for every key-value pair added to the SST file, **except range tombstones** (`kTypeRangeDeletion`). Range tombstones are written to a separate range-deletion block and are never forwarded to UDI builders (`table/block_based/block_based_table_builder.cc:1531-1587`). UDI builders may override this to collect per-key information (e.g., for secondary indexes). Builders that only use separator keys from `AddIndexEntry()` (e.g., trie-based indexes) can leave this as a no-op.
 
 ```cpp
 virtual void OnKeyAdded(
@@ -138,6 +138,8 @@ virtual void OnKeyAdded(
 ```
 
 **⚠️ INVARIANT:** In SST files produced by flush or compaction, there may be **multiple entries for the same user key** with different sequence numbers (when snapshots are active). UDI builders that use `OnKeyAdded()` must handle this.
+
+**Thread Safety:** For a given builder instance, `OnKeyAdded()` and `AddIndexEntry()` are always called from a single thread. Builders do **not** need internal synchronization (`include/rocksdb/user_defined_index.h:114-116`).
 
 **Value Type Mapping:**
 
@@ -169,15 +171,33 @@ Block type: `BlockType::kUserDefinedIndex` (`table/block_based/block_type.h:30`)
 
 ### Reading a UDI
 
-At table open time, the `UserDefinedIndexFactory` creates a reader from the serialized UDI block:
+At table open time, the `UserDefinedIndexFactory` creates a reader from the serialized UDI block. The factory has two API layers:
 
+**Deprecated pure-virtual API** (must be overridden by all implementations):
 ```cpp
-virtual Status NewReader(
-    const UserDefinedIndexOption& option,  // Includes comparator
-    Slice& index_block,                    // Serialized UDI data from meta block
-    std::unique_ptr<UserDefinedIndexReader>& reader
-) const = 0;
+virtual UserDefinedIndexBuilder* NewBuilder() const = 0;
+virtual std::unique_ptr<UserDefinedIndexReader> NewReader(Slice& index_block) const = 0;
 ```
+
+**Option-aware virtual API** (default implementations delegate to the deprecated API):
+```cpp
+virtual Status NewBuilder(
+    const UserDefinedIndexOption& option,
+    std::unique_ptr<UserDefinedIndexBuilder>& builder) const {
+  builder.reset(NewBuilder());  // Delegates to deprecated pure-virtual
+  return Status::OK();
+}
+
+virtual Status NewReader(
+    const UserDefinedIndexOption& option,
+    Slice& index_block,
+    std::unique_ptr<UserDefinedIndexReader>& reader) const {
+  reader = NewReader(index_block);  // Delegates to deprecated pure-virtual
+  return Status::OK();
+}
+```
+
+The block-based table builder and reader always call the option-aware overloads (`include/rocksdb/user_defined_index.h:232-244`). Implementations that need the comparator (e.g., `TrieIndexFactory`) override the option-aware methods and provide stubs for the deprecated pure virtuals.
 
 The reader creates iterators for scans:
 
@@ -233,7 +253,7 @@ virtual Status SeekAndGetResult(
 
 - `kInbound`: Data block is definitely within bounds
 - `kOutOfBound`: No block satisfies the target (causes iteration to stop)
-- `kUnknown`: Partially within bounds (block must be scanned to determine)
+- `kUnknown`: Either partially within bounds (block must be scanned to determine), or no matching leaf exists in this SST (EOF). The `UserDefinedIndexIteratorWrapper` treats any non-`kInbound` result as invalid (`table/block_based/user_defined_index_wrapper.h:235-243, 266, 278`). Note: the trie iterator returns `kUnknown` (not `kOutOfBound`) when exhausted, because exhausting one SST's trie says nothing about whether the next SST on the level has in-bound keys.
 
 **⚠️ INVARIANT:** A UDI can only return `kOutOfBound` if it can **prove** the block is out of bounds. If a limit key is specified in `ScanOptions`, an implementation that does not store the first key in each block cannot reliably determine bounds. It must compare against the **previous** index key (not the current separator, which is an upper bound).
 
@@ -377,6 +397,16 @@ InternalIteratorBase<IndexValue>* NewIterator(
 }
 ```
 
+### Empty and Nullable UDI Cases
+
+The UDI integration handles several edge cases around empty or absent UDI:
+
+**Builder side:** `NewBuilder(option, builder)` may return `Status::OK()` with `builder == nullptr`. This simply leaves the internal index builder unwrapped — no UDI is built for this SST file (`table/block_based/block_based_table_builder.cc:1283-1288`).
+
+**Reader side:** `NewReader(option, ..., reader)` returning `Status::OK()` with `reader == nullptr` is treated as corruption — the UDI block exists but the factory failed to create a reader, which indicates a programming error (`table/block_based/block_based_table_reader.cc:1364-1372`).
+
+**Zero-size UDI block:** A UDI block handle with `size() == 0` is treated as "effectively no UDI" and skipped, even when `fail_if_no_udi_on_open=true` is set (`table/block_based/block_based_table_reader.cc:1343-1345`). This case is exercised by the `IngestEmptyUDI` test (`table/table_test.cc:8827`).
+
 ## UDI and Compaction
 
 ### Index Rebuilding
@@ -465,25 +495,42 @@ The trie UDI (`utilities/trie_index/`) uses a custom LOUDS-encoded trie format:
 ┌─────────────────────────────────────────────────────────────┐
 │                      Trie Index Block                        │
 ├─────────────────────────────────────────────────────────────┤
-│ Header (4 bytes):                                            │
-│   - Version (1 byte)                                         │
-│   - Flags (1 byte): has_seqno_encoding flag                 │
-│   - Reserved (2 bytes)                                       │
+│ Fixed Header (56 bytes):                                     │
+│   - Magic (4 bytes, uint32_t)                               │
+│   - Format Version (4 bytes, uint32_t)                      │
+│   - num_keys (8 bytes, uint64_t)                            │
+│   - cutoff_level (4 bytes, uint32_t)                        │
+│   - max_depth (4 bytes, uint32_t)                           │
+│   - dense_leaf_count (8 bytes, uint64_t)                    │
+│   - dense_node_count (8 bytes, uint64_t)                    │
+│   - dense_child_count (8 bytes, uint64_t)                   │
+│   - Flags (4 bytes, uint32_t): has_seqno_encoding flag      │
+│   - Reserved padding (4 bytes, for 8-byte alignment)        │
 ├─────────────────────────────────────────────────────────────┤
 │ LOUDS Trie:                                                  │
-│   - Bit vector for tree structure                           │
-│   - Edge labels (compressed)                                 │
-│   - Leaf block handles (offset + size varint encoded)       │
+│   - Dense section: bitvectors for labels, has_child,        │
+│     is_prefix_key, suffix labels/suffixes                   │
+│   - Sparse section: bitvectors for labels, has_child,       │
+│     is_prefix_key, chain suffixes                           │
 ├─────────────────────────────────────────────────────────────┤
-│ Sequence Number Side Tables (if has_seqno_encoding):        │
-│   - leaf_block_counts: blocks per leaf (varint array)       │
-│   - overflow_seqnos: seqnos for overflow blocks (varint)    │
-│   - overflow_handles: handles for overflow blocks           │
-│   - overflow_base_: prefix sum for overflow indexing        │
+│ Block Handles (fixed-width uint32_t arrays):                 │
+│   - offsets[num_keys] (uint32_t, padded to 8-byte)          │
+│   - sizes[num_keys] (uint32_t, padded to 8-byte)            │
+├─────────────────────────────────────────────────────────────┤
+│ Sequence Number Side Tables (if has_seqno_encoding flag):    │
+│   - num_overflow_blocks (uint32_t + 4-byte padding)         │
+│   - leaf_seqnos[num_keys] (uint64_t array)                  │
+│   - leaf_block_counts[num_keys] (uint32_t, padded to 8-byte)│
+│   - overflow_offsets[num_overflow] (uint32_t, padded)        │
+│   - overflow_sizes[num_overflow] (uint32_t, padded)          │
+│   - overflow_seqnos[num_overflow] (uint64_t array)           │
+│   Note: overflow_base_ is computed during deserialization    │
+│   as a prefix sum of (block_count-1), not serialized.       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-See implementation at `utilities/trie_index/louds_trie.h`.
+See serialization at `utilities/trie_index/louds_trie.cc:489-509` (header), `utilities/trie_index/louds_trie.cc:876-923` (handles), `utilities/trie_index/louds_trie.cc:924-` (seqno side-table).
+See deserialization at `utilities/trie_index/louds_trie.cc:1018-1089` (header), `utilities/trie_index/louds_trie.cc:1483-1494` (overflow_base_ computation).
 
 ## Configuration
 
@@ -497,9 +544,9 @@ std::shared_ptr<UserDefinedIndexFactory> user_defined_index_factory = nullptr;
 
 Location: `include/rocksdb/table.h:538`
 
-When set, RocksDB builds a UDI alongside the internal index during SST file construction. The UDI is stored as a meta block in the SST file footer.
+When set, RocksDB builds a UDI alongside the internal index during SST file construction. The UDI is stored as a meta block in the SST file (before the metaindex block and footer).
 
-**Parallel Compression Restriction:** UDI currently disables parallel compression. If `user_defined_index_factory` is set and `compression_opts.parallel_threads > 1`, table builder initialization fails with:
+**Parallel Compression Restriction:** UDI is incompatible with parallel compression. If `user_defined_index_factory` is set and `compression_opts.parallel_threads > 1` (or `bottommost_compression_opts.parallel_threads > 1`), option validation and table builder initialization fail with:
 ```
 Status::InvalidArgument("user_defined_index_factory not supported with parallel compression")
 ```
@@ -533,6 +580,8 @@ Location: `include/rocksdb/options.h:2289`
 
 When set, RocksDB uses the UDI (if present in the SST file) instead of the internal index for iteration. The factory name must match the UDI block name in the SST file; otherwise, an error iterator is returned.
 
+**⚠️ PREREQUISITE:** `ReadOptions::table_index_factory` alone is not sufficient. The SST file must have been opened with a matching `BlockBasedTableOptions::user_defined_index_factory` so that `BlockBasedTableReader` can locate the UDI meta block, create the `UserDefinedIndexReader`, and wrap the internal index reader (`table/block_based/block_based_table_reader.cc:1315-1376`). If the open-time factory is absent, `ReadOptions::table_index_factory` is effectively ignored because there is no UDI reader wrapper to consult.
+
 **⚠️ INVARIANT:** Forward scans (SeekToFirst, Seek, Next) and point lookups (Get) are supported. Reverse operations (SeekToLast, SeekForPrev, Prev) return `Status::NotSupported` when using UDI.
 
 ### Example: Trie Index Configuration
@@ -541,7 +590,7 @@ When set, RocksDB uses the UDI (if present in the SST file) instead of the inter
 // At table creation time (during DB open or ColumnFamily creation)
 #include "utilities/trie_index/trie_index_factory.h"
 
-auto trie_factory = std::make_shared<TrieIndexFactory>();
+auto trie_factory = std::make_shared<trie_index::TrieIndexFactory>();
 BlockBasedTableOptions table_options;
 table_options.user_defined_index_factory = trie_factory;
 
@@ -571,7 +620,7 @@ delete db;
 
 ### Supported Value Types
 
-UDI builders receive all key types via `OnKeyAdded`:
+UDI builders receive all value-type keys via `OnKeyAdded` (range tombstones are excluded — they go to the range-deletion block and are never forwarded to UDI):
 
 | Operation | Internal Type | UDI ValueType | Notes |
 |-----------|---------------|---------------|-------|
@@ -603,9 +652,14 @@ See mapping at `table/block_based/user_defined_index_wrapper.h:193-215`.
 
 ## Limitations and Constraints
 
-### 1. Parallel Compression Disabled
+### 1. Parallel Compression Incompatibility
 
-**Limitation:** When `user_defined_index_factory` is set, parallel compression is automatically disabled (`compression_opts.parallel_threads` is sanitized to 1).
+**Limitation:** When `user_defined_index_factory` is set, parallel compression (`compression_opts.parallel_threads > 1` or `bottommost_compression_opts.parallel_threads > 1`) is **rejected** with `Status::InvalidArgument`. This validation happens in two places:
+
+1. **Option validation:** `BlockBasedTableFactory::ValidateOptions()` returns `Status::InvalidArgument` if parallel threads > 1 with UDI configured (`table/block_based/block_based_table_factory.cc:760-764`).
+2. **Builder initialization:** The `Rep` constructor also checks and sets a failure status (`table/block_based/block_based_table_builder.cc:1269-1274`).
+
+Note: Internally, the builder's `compression_parallel_threads` member is sanitized to 1 when UDI is present (`table/block_based/block_based_table_builder.cc:1082-1087`), but this is a defense-in-depth measure — callers still receive the `InvalidArgument` error from validation.
 
 **Reason:** The `UserDefinedIndexBuilderWrapper` does not implement the `PrepareIndexEntry()`/`FinishIndexEntry()` split required for parallel compression. The stubs assert-fail if called (`table/block_based/user_defined_index_wrapper.h:89-107`).
 
@@ -623,15 +677,15 @@ See mapping at `table/block_based/user_defined_index_wrapper.h:193-215`.
 
 **Code Reference:** Error returns at `table/block_based/user_defined_index_wrapper.h:247-250, 303-311`.
 
-### 3. No Partitioned Index Support
+### 3. No Partitioned UDI Block Support
 
-**Limitation:** UDI currently only supports **monolithic index blocks** (no partitioned index).
+**Limitation:** The UDI block itself is always a **monolithic (single) meta block**. It cannot be partitioned into multiple sub-blocks with a top-level index.
 
-**Reason:** Partitioned indexes split the index into multiple blocks with a top-level index. UDI implementations would need to handle partitioning logic and multi-level lookups.
+**Clarification:** This limitation applies only to the UDI block, not to the internal index that UDI wraps. UDI works on top of a partitioned / two-level internal index (`BlockBasedTableOptions::kTwoLevelIndexSearch`). The code supports this combination (`table/block_based/block_based_table_builder.cc:1251-1264`), and tests exercise it (`table/table_test.cc:8109-8112`).
 
-**Workaround:** None currently. Monolithic UDI blocks may consume significant memory for very large SST files.
+**Impact:** For SST files with millions of keys, the UDI block is loaded entirely into memory (or block cache), which may be prohibitive even if the underlying internal index is partitioned.
 
-**Impact:** For SST files with millions of keys, the UDI block is loaded entirely into memory (or block cache), which may be prohibitive.
+**Workaround:** None currently for partitioning the UDI block itself.
 
 ### 4. Same-User-Key Boundaries Complexity
 
@@ -665,13 +719,13 @@ A snapshot at seq=75 reading "foo" should return "v1" (from Block N). Without se
 2. **Hard migration:** Set `fail_if_no_udi_on_open=true` only after full compaction completes.
 3. **Hybrid approach:** Support multiple UDI factories simultaneously (requires code changes to wrapper logic).
 
-### 6. Comparator Restrictions (Historical)
+### 6. Comparator Support
 
-**Historical Limitation (removed in RocksDB 10.8.0):** UDI initially required BytewiseComparator.
+**Framework:** The UDI framework supports custom comparators. The comparator is passed via `UserDefinedIndexOption` to both builder and reader (`include/rocksdb/user_defined_index.h:208-210`).
 
-**Current Status:** UDI now supports custom comparators. The comparator is passed via `UserDefinedIndexOption` to both builder and reader (`include/rocksdb/user_defined_index.h:208-210`).
+**Trie Implementation:** The bundled `TrieIndexFactory` still **requires `BytewiseComparator()`** and rejects any other comparator in both `NewBuilder()` and `NewReader()` with `Status::NotSupported` (`utilities/trie_index/trie_index_factory.cc:525-556`). This is because the trie traverses keys byte-by-byte in lexicographic order; non-bytewise comparators would produce separator keys in a different order than the trie's byte-level traversal.
 
-**Breaking Change:** HISTORY.md notes this change at 10.8.0: "Allow UDIs with a non BytewiseComparator" (`HISTORY.md:85`).
+**Breaking Change:** HISTORY.md notes at 10.8.0: "Allow UDIs with a non BytewiseComparator" (`HISTORY.md:85`) — this refers to the framework change, not the trie implementation. Custom UDI implementations can now use arbitrary comparators.
 
 ### 7. Memory Overhead
 
@@ -710,14 +764,14 @@ Trie structure:
 Space: ~25 bytes (compressed edge labels + LOUDS bit vector)
 ```
 
-**Tradeoff:** Trie UDI saves ~38% space for prefix-heavy key sets, at the cost of more complex seek logic.
+**Tradeoff:** Trie UDI can save significant space for prefix-heavy key sets (e.g., ~38% in external benchmarks from the SuRF paper), at the cost of more complex seek logic. Actual savings depend on workload and key distribution.
 
 ### Seek Performance
 
 - **Binary search index:** O(log N) comparisons, predictable performance
 - **Trie index:** O(M) where M is key length, but with better cache locality for prefix-similar keys
 
-Benchmark results (SuRF paper) show tries achieve comparable or better seek performance while using less space.
+Benchmark results from external research (SuRF paper, SIGMOD 2018) suggest tries can achieve comparable or better seek performance while using less space, though results vary by workload. These claims have not been independently validated against the current RocksDB trie implementation.
 
 ### Iteration Performance
 
@@ -739,71 +793,116 @@ The trie index (`utilities/trie_index/`) demonstrates a complete UDI implementat
 
 ### Implementation Highlights
 
-**Builder** (`utilities/trie_index/trie_index_factory.h:55-118`):
+**Builder** (`utilities/trie_index/trie_index_factory.cc:139-214`):
 
 ```cpp
-Slice AddIndexEntry(const Slice& last_key, const Slice* first_key,
-                    const BlockHandle& handle, std::string* separator_scratch,
-                    const IndexEntryContext& context) override {
-  // 1. Compute shortest separator between last_key and first_key
-  comparator_->FindShortestSeparator(separator_scratch, first_key);
-
-  // 2. Detect same-user-key boundary
-  if (first_key && comparator_->Compare(*separator_scratch, *first_key) >= 0) {
-    must_use_separator_with_seq_ = true;  // Sticky flag
-  }
-
-  // 3. Buffer entry for deferred trie construction
-  buffered_entries_.push_back({
-    .separator_key = *separator_scratch,
-    .seqno = (must_use_separator_with_seq_ ? context.last_key_seq : kMaxSequenceNumber),
-    .handle = {handle.offset, handle.size}
-  });
-
-  return Slice(*separator_scratch);
-}
-
 Status Finish(Slice* index_contents) override {
-  // 4. Build trie from buffered entries
-  if (must_use_separator_with_seq_) {
-    // Encode seqnos in side-tables for same-user-key disambiguation
-    trie_builder_.BuildWithSeqnos(buffered_entries_);
+  // 1. Use seqno side-table when any same-user-key block boundary was detected.
+  bool use_seqno = must_use_separator_with_seq_;
+  trie_builder_.SetHasSeqnoEncoding(use_seqno);
+
+  if (use_seqno) {
+    // Feed de-duplicated separators with seqno side-table metadata.
+    // Consecutive identical separators form a "run" — only the first
+    // occurrence goes into the trie (as the primary block). Remaining
+    // blocks in the run are stored as overflow blocks.
+    size_t i = 0;
+    while (i < buffered_entries_.size()) {
+      const auto& entry = buffered_entries_[i];
+
+      // Count consecutive entries sharing this separator key.
+      size_t run_end = i + 1;
+      while (run_end < buffered_entries_.size() &&
+             buffered_entries_[run_end].separator_key == entry.separator_key) {
+        run_end++;
+      }
+      uint32_t block_count = static_cast<uint32_t>(run_end - i);
+      uint64_t seqno = (entry.seqno == kMaxSequenceNumber) ? 0 : entry.seqno;
+
+      // Add primary block for this separator.
+      trie_builder_.AddKeyWithSeqno(Slice(entry.separator_key), entry.handle,
+                                    seqno, block_count);
+
+      // Add overflow blocks (2nd, 3rd, ... in the run).
+      for (size_t j = i + 1; j < run_end; j++) {
+        trie_builder_.AddOverflowBlock(buffered_entries_[j].handle,
+                                       buffered_entries_[j].seqno);
+      }
+      i = run_end;
+    }
   } else {
-    // User-key-only trie (common case, zero overhead)
-    trie_builder_.Build(buffered_entries_);
+    // Common case: no same-user-key boundaries, add separators directly.
+    for (const auto& entry : buffered_entries_) {
+      trie_builder_.AddKey(Slice(entry.separator_key), entry.handle);
+    }
   }
 
-  // 5. Serialize trie to byte array
-  std::string* serialized = trie_builder_.Serialize();
-  finished_ = true;
+  // 2. Finalize trie and get serialized data.
+  trie_builder_.Finish();
+  *index_contents = trie_builder_.GetSerializedData();
   return Status::OK();
 }
 ```
 
-**Iterator** (`utilities/trie_index/trie_index_factory.h:127-204`):
+**Iterator** (`utilities/trie_index/trie_index_factory.cc:276-401`):
 
 ```cpp
 Status SeekAndGetResult(const Slice& target, IterateResult* result,
                         const SeekContext& context) override {
-  // 1. Seek trie with user key
-  iter_.Seek(target);
+  // 1. Seek trie with user key only — trie stores user-key separators.
+  if (!iter_.Seek(target)) {
+    // No leaf has key >= target: past all blocks in this SST.
+    // Return kUnknown (not kOutOfBound) — exhausting this SST says nothing
+    // about upper bound; next SST on the level may still have in-bound keys.
+    result->bound_check_result = IterBoundCheck::kUnknown;
+    result->key = Slice();
+    return Status::OK();
+  }
 
-  // 2. Post-seek correction for seqno (if has_seqno_encoding_)
+  result->key = iter_.Key();
+
+  // 2. Post-seek correction for seqno side-table (if has_seqno_encoding_)
   if (has_seqno_encoding_ && iter_.Valid()) {
-    // Trie may land on a same-user-key leaf with multiple blocks.
-    // Advance within overflow run until we find the block with seqno <= target_seq.
-    while (overflow_run_index_ < overflow_run_size_ - 1) {
-      uint64_t next_seqno = trie_->overflow_seqnos_[overflow_base_idx_ + overflow_run_index_];
-      if (next_seqno <= context.target_seq) {
-        break;  // Found the right block
+    uint64_t leaf_idx = iter_.LeafIndex();
+    uint64_t leaf_seqno = trie_->GetLeafSeqno(leaf_idx);
+
+    if (leaf_seqno != 0 && context.target_seq < leaf_seqno) {
+      // Target's internal key is AFTER the separator. Advance through
+      // overflow blocks to find the right one.
+      uint32_t block_count = trie_->GetLeafBlockCount(leaf_idx);
+      uint32_t base = trie_->GetOverflowBase(leaf_idx);
+
+      bool found = false;
+      for (uint32_t oi = 0; oi < block_count - 1; oi++) {
+        uint64_t ov_seqno = trie_->GetOverflowSeqno(base + oi);
+        if (ov_seqno == 0 || context.target_seq >= ov_seqno) {
+          overflow_run_index_ = oi + 1;
+          overflow_run_size_ = block_count;
+          overflow_base_idx_ = base;
+          found = true;
+          break;
+        }
       }
-      overflow_run_index_++;  // Advance to next overflow block
+
+      if (!found) {
+        // target_seq below all seqnos in this run — advance to next leaf.
+        if (!iter_.Next()) {
+          result->bound_check_result = IterBoundCheck::kUnknown;
+          result->key = Slice();
+          return Status::OK();
+        }
+        result->key = iter_.Key();
+        // Reset overflow state for the new leaf...
+      }
+    } else {
+      // Right block (common path). Set overflow state for subsequent Next().
+      overflow_run_size_ = trie_->GetLeafBlockCount(leaf_idx);
+      overflow_base_idx_ = trie_->GetOverflowBase(leaf_idx);
     }
   }
 
-  // 3. Check bounds and set result
+  // 3. Check bounds and set result.
   result->bound_check_result = CheckBounds(target);
-  result->key = iter_.key();
   return Status::OK();
 }
 ```
@@ -832,7 +931,8 @@ See configuration example in Configuration section above.
 
 - **Block-Based Table Format:** `docs/components/sst_table_format.md` - UDI is stored as a meta block alongside filters and properties
 - **Version Management:** `docs/components/version_management.md` - UDI indexes are rebuilt during compaction
-- **Read Path:** `docs/components/flush_and_read_path.md` - UDI iterators integrate with DBIter and Get operations
+- **Read Path:** `docs/components/read_flow.md` - UDI iterators integrate with DBIter and Get operations
+- **Write Path:** `docs/components/write_flow.md` - UDI builders are invoked during flush and compaction
 
 ### External Resources
 

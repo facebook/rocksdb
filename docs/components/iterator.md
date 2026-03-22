@@ -12,15 +12,20 @@ Iterators form a tree structure where leaf iterators read actual data (memtables
 ```
                     DBIter (user-facing)
                         |
-                  MergingIterator (merge across sources)
-                    /    |    \
-                   /     |     \
-             MemTable  L0 Files  LevelIterators (L1-L6)
-                                    |
-                              BlockBasedTableIterator
-                                 /        \
-                            IndexIter   DataBlockIter
+              ┌─────────┴──────────┐
+              |                    |
+    MergingIterator           ForwardIterator
+    (normal iteration)        (tailing mode)
+      /    |    \
+     /     |     \
+MemTable  L0 Files  LevelIterators (L1-L6)
+                         |
+                   BlockBasedTableIterator
+                      /        \
+                 IndexIter   DataBlockIter
 ```
+
+**Note**: For tailing iterators (`ReadOptions::tailing = true`), the tree is `DBIter(ForwardIterator)` instead of `DBIter(MergingIterator)`. `ForwardIterator` only supports forward-only operations (`Seek`, `Next`); `SeekForPrev`, `SeekToLast`, and `Prev` return `NotSupported`.
 
 ## Iterator Hierarchy
 
@@ -32,7 +37,7 @@ The template base class for all internal iterators. Provides core navigation met
 
 ```cpp
 template <class TValue = Slice>
-class InternalIteratorBase : public Cleanupable {
+class InternalIteratorBase : public Cleanable {
  public:
   // Position methods
   virtual void SeekToFirst() = 0;
@@ -61,6 +66,21 @@ class InternalIteratorBase : public Cleanupable {
   virtual uint64_t write_unix_time() const {
     return std::numeric_limits<uint64_t>::max();
   }
+
+  // Range deletion support
+  virtual void SetRangeDelReadSeqno(SequenceNumber /* read_seqno */) {}
+  virtual bool IsDeleteRangeSentinelKey() const { return false; }
+
+  // Bound checking
+  virtual bool MayBeOutOfLowerBound() { return true; }
+  virtual IterBoundCheck UpperBoundCheckResult() { return IterBoundCheck::kUnknown; }
+
+  // Readahead state transfer (between files at same level)
+  virtual void GetReadaheadState(ReadaheadFileInfo* /*readahead_file_info*/) {}
+  virtual void SetReadaheadState(ReadaheadFileInfo* /*readahead_file_info*/) {}
+
+  // MultiScan preparation
+  virtual void Prepare(const MultiScanArgs* /*scan_opts*/) {}
 };
 
 using InternalIterator = InternalIteratorBase<Slice>;
@@ -104,11 +124,30 @@ class Iterator : public IteratorBase {
   // Properties: "rocksdb.iterator.is-key-pinned"
   //             "rocksdb.iterator.is-value-pinned"
   //             "rocksdb.iterator.write-time"
+  //             "rocksdb.iterator.super-version-number"
+  //             "rocksdb.iterator.internal-key"
 
   // Prepare support for multi-scan
   virtual void Prepare(const MultiScanArgs& scan_opts);
 };
 ```
+
+**Refresh API** (from `include/rocksdb/iterator_base.h`):
+
+The `IteratorBase` class provides `Refresh()` to update an existing iterator to the latest DB state without creating a new one:
+```cpp
+class IteratorBase {
+ public:
+  // Refresh the iterator to reflect the latest state of the DB.
+  // Iterator is invalidated after the call. Must call Seek*() to re-position.
+  virtual Status Refresh() { return Refresh(nullptr); }
+  virtual Status Refresh(const class Snapshot*) {
+    return Status::NotSupported("Refresh() is not supported");
+  }
+};
+```
+
+**ArenaWrappedDBIter** (`db/arena_wrapped_db_iter.h`) wraps `DBIter` with arena-allocated memory for cache-friendly access and implements `Refresh()` with auto-refresh semantics. It allocates the entire iterator hierarchy (DBIter + child iterators) inline in an `Arena`. On `Seek`/`SeekForPrev`, it calls `MaybeAutoRefresh()` before the operation; on `Next`/`Prev`, it calls `MaybeAutoRefresh()` after.
 
 **Thread Safety:**
 - Multiple threads can call const methods (e.g., `key()`, `value()`) concurrently if no thread calls non-const methods
@@ -147,8 +186,7 @@ class IteratorWrapperBase {
   Slice key() const { return result_.key; }
 
   void Next() {
-    iter_->Next();
-    Update();  // Update cached state
+    valid_ = iter_->NextAndGetResult(&result_);  // Combined next + state update
   }
 
   void Seek(const Slice& target) {
@@ -176,11 +214,11 @@ while (wrapper.Valid()) {         // Inline (cached)
 }
 ```
 
-This improves CPU cache locality and reduces instruction cache pressure, providing 5-10% performance improvement in scan-heavy workloads.
+This improves CPU cache locality and reduces instruction cache pressure in scan-heavy workloads.
 
 ## MemTable Iterators
 
-`db/memtable.h`, `memtable/skiplist.h`
+`db/memtable.h`, `memtable/skiplistrep.cc`
 
 MemTable iterators provide in-memory data access with no I/O overhead.
 
@@ -191,23 +229,24 @@ class MemTable {
       const ReadOptions& read_options,
       UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
       Arena* arena,
-      bool use_range_del_table = false);
+      const SliceTransform* prefix_extractor,
+      bool for_flush);
 };
 ```
 
-**Implementation**: Typically wraps `MemTableRep::Iterator`, which for the default SkipList implementation is a `SkipList<...>::Iterator`.
+**Implementation**: Wraps `MemTableRep::Iterator`, which for the default SkipList implementation is `SkipListRep::Iterator` backed by `InlineSkipList<const MemTableRep::KeyComparator&>::Iterator`. When `lookahead > 0`, uses `SkipListRep::LookaheadIterator` instead.
 
 **Key Characteristics:**
 - **No I/O**: All data is in memory
 - **Lock-free reads**: SkipList uses lock-free algorithms for concurrent reads
-- **Prefix bloom**: When `prefix_extractor` is configured, can skip entire memtable if prefix doesn't exist
-- **Snapshot support**: Returns keys visible to the specified snapshot sequence number
+- **Prefix bloom**: When `prefix_extractor` is configured and bloom filter is present, can skip entire memtable if prefix doesn't match (conditional on extractor identity and prefix-seek read options)
+- **Raw internal entries**: Exposes all internal entries (all sequence numbers, all value types including deletions and merges). Snapshot/timestamp visibility is enforced later by `DBIter`
 
-**SkipList Iterator**:
+**InlineSkipList Iterator**:
 ```cpp
 // Seek implementation (simplified)
 template <class Comparator>
-void SkipList<Key, Comparator>::Iterator::Seek(const Key& target) {
+void InlineSkipList<Key, Comparator>::Iterator::Seek(const Key& target) {
   node_ = list_->FindGreaterOrEqual(target);
 }
 
@@ -271,20 +310,30 @@ SeekToRestartPoint(left);
 while (ParseNextKey() && CompareCurrentKey(target) < 0) {}
 ```
 
-**Hash Index Optimization**: For prefix-seekable tables with `BlockBasedTableOptions::data_block_hash_index_enable = true`, the block includes a hash map for prefix seeks:
+**Hash Index Optimization**: When `BlockBasedTableOptions::data_block_index_type = kDataBlockBinaryAndHash`, the block includes a hash index for point lookups on full user keys via `DataBlockIter::SeekForGetImpl()`:
 
 ```cpp
-// Hash-based seek (when prefix matches)
-uint32_t* hash_map = GetHashMap();
-uint32_t hash = Hash(ExtractPrefix(target));
-uint32_t restart_idx = hash_map[hash % num_buckets];
-if (restart_idx != kNoEntry) {
-  SeekToRestartPoint(restart_idx);
-  // Linear scan within prefix
+// Hash-based seek for point lookups (SeekForGetImpl)
+bool DataBlockIter::SeekForGetImpl(const Slice& target) {
+  Slice user_key = ExtractUserKey(target);
+  uint8_t entry = data_block_hash_index_->Lookup(user_key);
+  if (entry == kCollision) {
+    // Hash collision, fall back to binary search
+    SeekImpl(target);
+    return true;
+  }
+  if (entry == kNoEntry) {
+    // Key not in this block (may be in next block)
+    SeekToRestartPoint(num_restarts_ - 1);
+    return true;
+  }
+  // Seek to restart point and linear scan within interval
+  SeekToRestartPoint(entry);
+  // ... scan for matching key ...
 }
 ```
 
-⚠️ **INVARIANT**: Block data must remain valid (pinned) for iterator lifetime. Managed by BlockBasedTableIterator via BlockContents pinning.
+⚠️ **INVARIANT**: Block data pinning is conditional. `IsKeyPinned()` returns true only when both `block_contents_pinned_` is true (block memory is externally pinned) AND `key_pinned_` is true (no prefix compression, so key points directly into block data). `IsValuePinned()` requires only `block_contents_pinned_`. The `BlockIter` can be invalidated/reset; without pinning, backing storage is not guaranteed for the full iterator lifetime.
 
 ### BlockBasedTableIterator
 
@@ -322,7 +371,7 @@ PrepareValue() ──> if (is_at_first_key_from_index_):
 value() ──> block_iter_.value()
 ```
 
-**Lazy Loading**: To avoid loading blocks when only checking keys or when upper bound check will skip the block, data block loading is deferred until `PrepareValue()`.
+**Lazy vs Eager Loading**: Data block loading is deferred only on a narrow path where ALL of these conditions hold: (1) `allow_unprepared_value_` is enabled, (2) the index entry contains a non-empty `first_internal_key`, (3) the first key already satisfies the seek target, and (4) it is a different block from the current one. In the **common case**, `Seek()` eagerly loads the data block via `InitDataBlock()` and seeks within it.
 
 **Seek Implementation (Simplified):**
 ```cpp
@@ -334,73 +383,97 @@ void BlockBasedTableIterator::Seek(const Slice& target) {
     return;
   }
 
-  // 2. Mark that we're at first key from index (lazy loading)
-  is_at_first_key_from_index_ = true;
-
-  // 3. Check prefix bloom filter if enabled
-  if (check_filter_ && !CheckPrefixMayMatch(target)) {
+  // 2. Lazy path (narrow conditions)
+  if (allow_unprepared_value_ && !first_internal_key.empty() &&
+      target <= first_internal_key) {
+    is_at_first_key_from_index_ = true;
     ResetDataIter();
     return;
   }
 
-  // 4. Data block will be loaded on first PrepareValue() call
+  // 3. Eager path (common case): load block immediately
+  InitDataBlock();
+  block_iter_.Seek(target);
+  FindKeyForward();
+  CheckOutOfBound();
 }
 
 bool BlockBasedTableIterator::PrepareValue() {
-  if (is_at_first_key_from_index_) {
-    InitDataBlock();  // Load block, seek to first key
-    if (!block_iter_.Valid()) return false;
-    is_at_first_key_from_index_ = false;
+  if (!is_at_first_key_from_index_) {
+    return true;  // Already materialized
   }
-  return block_iter_.PrepareValue();
+  return MaterializeCurrentBlock();
+}
+
+bool BlockBasedTableIterator::MaterializeCurrentBlock() {
+  is_at_first_key_from_index_ = false;
+  InitDataBlock();  // Load the data block
+  block_iter_.SeekToFirst();
+  // Verify first key matches index's first_internal_key
+  if (!block_iter_.Valid() ||
+      icomp_.Compare(block_iter_.key(), first_internal_key) != 0) {
+    block_iter_.Invalidate(Status::Corruption(...));
+    return false;
+  }
+  return true;
 }
 ```
 
-**Prefix Bloom Filter Check:**
-```cpp
-bool CheckPrefixMayMatch(const Slice& target) {
-  Slice prefix = prefix_extractor_->Transform(target);
-  BlockHandle filter_handle = index_iter_.GetCurrentFilterHandle();
-  FilterBlockReader* filter = GetFilterReader();
-  return filter->PrefixMayMatch(prefix, filter_handle);
-}
-```
+**Prefix Bloom Filter Check**: Prefix filtering is routed through `table_->PrefixRangeMayMatch(...)` which may disable prefix checks in some backward/upper-bound cases.
 
-**Upper Bound Optimization**: When `ReadOptions::iterate_upper_bound` is set, the iterator can skip entire data blocks:
+**Upper Bound Optimization**: When `ReadOptions::iterate_upper_bound` is set, the iterator checks bounds at two levels:
 
 ```cpp
-// In NextImpl()
-if (block_upper_bound_check_ &&
-    user_comparator_.Compare(index_iter_.key(), *upper_bound_) >= 0) {
-  // Current block's smallest key >= upper bound, we're done
-  ResetDataIter();
-  return;
+// Per-key check: CheckOutOfBound()
+void BlockBasedTableIterator::CheckOutOfBound() {
+  if (read_options_.iterate_upper_bound != nullptr &&
+      block_upper_bound_check_ != BlockUpperBound::kUpperBoundBeyondCurBlock &&
+      Valid()) {
+    is_out_of_bound_ =
+        user_comparator_.CompareWithoutTimestamp(
+            *read_options_.iterate_upper_bound, user_key()) <= 0;
+  }
 }
+
+// Block-level check: CheckDataBlockWithinUpperBound()
+// Compares upper_bound against index key to skip per-key checks
+// when the entire block is within bounds (kUpperBoundBeyondCurBlock)
 ```
 
 ⚠️ **INVARIANT**: `index_iter_` and `block_iter_` must be kept in sync. When `index_iter_` advances, `block_iter_` must be invalidated or updated.
 
-⚠️ **INVARIANT**: `is_at_first_key_from_index_` is true only when positioned at first key of a block that hasn't been loaded yet. Must be cleared by InitDataBlock().
+⚠️ **INVARIANT**: `is_at_first_key_from_index_` is true only when positioned at first key of a block that hasn't been loaded yet. Cleared by `MaterializeCurrentBlock()` before `InitDataBlock()` runs, and also cleared directly in `Prev()` and other paths.
 
 ## Two-Level Iterator
 
 `table/two_level_iterator.h`
 
-A general pattern where a first-level iterator yields handles/keys, and second-level iterators are created on-demand to iterate the referenced data.
+A general pattern where a first-level iterator yields handles/keys, and second-level iterators are created on-demand to iterate the referenced data. The exported API is a factory function returning `InternalIteratorBase<IndexValue>*`, implemented by the internal `TwoLevelIndexIterator` class.
 
 ```cpp
-class TwoLevelIterator : public InternalIterator {
- private:
-  std::unique_ptr<InternalIteratorBase<IndexValue>> first_level_iter_;
-  std::unique_ptr<InternalIterator> second_level_iter_;
-  TwoLevelIteratorState* state_;  // Factory for second-level iterators
-};
+// Factory function (public API)
+InternalIteratorBase<IndexValue>* NewTwoLevelIterator(
+    TwoLevelIteratorState* state,
+    InternalIteratorBase<IndexValue>* first_level_iter);
 
 class TwoLevelIteratorState {
  public:
-  virtual InternalIteratorBase<IndexValue>* NewSecondaryIterator(const BlockHandle& handle) = 0;
+  virtual InternalIteratorBase<IndexValue>* NewSecondaryIterator(
+      const BlockHandle& handle) = 0;
+};
+
+// Internal implementation (in anonymous namespace)
+class TwoLevelIndexIterator : public InternalIteratorBase<IndexValue> {
+ private:
+  TwoLevelIteratorState* state_;
+  IteratorWrapperBase<IndexValue> first_level_iter_;
+  IteratorWrapperBase<IndexValue> second_level_iter_;
+  Status status_;
+  BlockHandle data_block_handle_;
 };
 ```
+
+**Note**: Both levels iterate `IndexValue` (not `Slice`). This is specifically for index blocks in block-based tables.
 
 **Usage Examples:**
 1. **Partitioned Indexes**: First level iterates index partitions, second level reads each partition's index blocks
@@ -436,7 +509,7 @@ void InitDataBlock() {
 
 ## Level Iterator
 
-`table/block_based/block_based_table_reader.cc` (LevelIterator pattern)
+`db/version_set.cc` (LevelIterator, in anonymous namespace)
 
 Concatenates multiple SST file iterators within a single LSM level. Maintains current file iterator and switches files as iteration progresses.
 
@@ -490,19 +563,32 @@ void LevelIterator::Next() {
 }
 ```
 
-**Sentinel Keys for Range Tombstones**: To prevent premature file switching when range tombstones extend beyond file boundaries, special sentinel keys mark tombstone start/end:
+**Sentinel Keys for Range Tombstones**: To prevent premature file switching when range tombstones extend beyond file boundaries, `LevelIterator` uses an iterator-state based sentinel mechanism:
 
 ```cpp
-bool IsDeleteRangeSentinelKey(const Slice& ikey) {
-  // Check if key is a range tombstone boundary marker
-  ParsedInternalKey parsed;
-  ParseInternalKey(ikey, &parsed);
-  return parsed.type == kTypeRangeDeletion && IsMaxSequenceNumber(parsed.sequence);
+// LevelIterator has a third state beyond valid/invalid:
+// - file_iter_.Valid() == true: normal key from file iterator
+// - !file_iter_.Valid() && to_return_sentinel_ == true: sentinel key
+// - !file_iter_.Valid() && !to_return_sentinel_: exhausted/invalid
+
+bool LevelIterator::Valid() const override {
+  return file_iter_.Valid() || to_return_sentinel_;
 }
 
-// In Next(): Don't switch files on sentinel keys
-if (!file_iter_->Valid() && !IsDeleteRangeSentinelKey(file_iter_->key())) {
-  AdvanceToNextFile();
+Slice LevelIterator::key() const override {
+  if (to_return_sentinel_) return sentinel_;  // File boundary key
+  return file_iter_.key();
+}
+
+bool LevelIterator::IsDeleteRangeSentinelKey() const override {
+  return to_return_sentinel_;  // Pure state check, no parsing
+}
+
+void LevelIterator::TrySetDeleteRangeSentinel(const Slice& boundary_key) {
+  if (!file_iter_.Valid() && file_iter_.status().ok()) {
+    to_return_sentinel_ = true;
+    sentinel_ = boundary_key;
+  }
 }
 ```
 
@@ -541,17 +627,15 @@ class MergingIterator : public InternalIterator {
 ```cpp
 struct MinHeapItemComparator {
   bool operator()(const HeapItem* a, const HeapItem* b) const {
-    // First compare keys
-    int cmp = comparator_->Compare(a->iter.key(), b->iter.key());
-    if (cmp != 0) return cmp > 0;  // Min-heap: larger values at bottom
-
-    // Tie-break: prioritize point keys over range tombstone events
-    if (a->type != b->type) {
-      return a->type > b->type;  // ITERATOR < DELETE_RANGE_START < DELETE_RANGE_END
-    }
-
-    // Tie-break by level (lower levels win for same key)
-    return a->level > b->level;
+    // Select key based on type: iter.key() for ITERATOR,
+    // tombstone_pik for DELETE_RANGE_START/END
+    // Then compare using InternalKeyComparator::Compare()
+    // which orders by (user_key ASC, sequence DESC, type DESC)
+    //
+    // No explicit type/level tie-breaks: tombstone_pik has
+    // op_type set to kMaxValid which ensures distinct ordering
+    // from point keys at the same user_key and sequence.
+    return comparator_->Compare(GetKey(a), GetKey(b)) > 0;  // min-heap
   }
 };
 ```

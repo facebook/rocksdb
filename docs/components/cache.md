@@ -39,19 +39,27 @@ RocksDB's cache subsystem manages in-memory caching of SST file blocks (data, in
 
 ### Abstract Base
 
-`Cache` (extends `Customizable`) maps 16-byte keys to opaque objects (`ObjectPtr = void*`), tracks reference counts, and evicts unreferenced entries to stay within capacity.
+`Cache` (extends `Customizable`) maps variable-length `Slice` keys to opaque objects (`ObjectPtr = void*`), tracks reference counts, and evicts unreferenced entries to stay at or below a configured capacity target. Note: with `strict_capacity_limit=false` (the default), inserts may succeed even when the cache exceeds its target capacity. Only HyperClockCache restricts keys to exactly 16 bytes.
 
 ### Core Methods
 
 | Method | Description |
 |--------|-------------|
-| `Insert(key, obj, helper, charge, handle**, priority)` | Insert mapping; takes ownership of obj on success |
+| `Insert(key, obj, helper, charge, handle**, priority, compressed, type)` | Insert mapping; takes ownership of obj on success. Optional `compressed`/`type` allow also caching compressed data. |
+| `CreateStandalone(key, obj, helper, charge, allow_uncharged)` | Create an entry not findable via Lookup (e.g. for memory charging or secondary cache promotion) |
 | `Lookup(key, helper, create_context, priority, stats)` | Find entry; optionally queries secondary cache |
 | `Ref(handle)` | Increment reference count |
 | `Release(handle, erase_if_last_ref)` | Decrement refcount; optionally erase on last ref |
 | `Value(handle)` | Get object pointer from handle |
 | `Erase(key)` | Remove entry (deferred if still referenced) |
 | `SetCapacity(size_t)` | Dynamically change capacity |
+| `SetStrictCapacityLimit(bool)` | Set whether Insert fails when over capacity |
+| `HasStrictCapacityLimit()` | Query strict capacity limit setting |
+| `GetCapacity()` | Returns maximum configured capacity |
+| `GetUsage()` / `GetUsage(handle)` | Returns memory size for all entries or a specific entry |
+| `GetPinnedUsage()` | Returns memory size for entries in use by the system |
+| `GetCharge(handle)` | Returns the charge for a specific entry |
+| `GetCacheItemHelper(handle)` | Returns the helper for a specific entry |
 | `StartAsyncLookup(async_handle)` | Begin async lookup for secondary cache |
 | `WaitAll(handles, count)` | Wait for async lookups to complete |
 
@@ -62,6 +70,7 @@ Struct with function pointers for cache entry lifecycle:
 - `size_cb` / `saveto_cb` -- serialization for secondary cache
 - `create_cb` -- deserialization from secondary cache
 - `CacheEntryRole` -- classification for monitoring
+- `without_secondary_compat` -- pointer to an equivalent helper without secondary cache support; used to prevent re-insertion into secondary cache when a promoted entry's secondary copy is intentionally kept
 
 ### Priority Levels
 
@@ -69,7 +78,7 @@ Struct with function pointers for cache entry lifecycle:
 |----------|---------------|----------|
 | `HIGH` | Evicted last | Index blocks, filter blocks |
 | `LOW` | Default | Data blocks |
-| `BOTTOM` | Evicted first | Speculative prefetch |
+| `BOTTOM` | Evicted first | BlobDB blob values, compaction block cache warming |
 
 ### CacheEntryRole
 
@@ -98,6 +107,14 @@ Variable-length heap-allocated entry with embedded key data. State machine:
 
 Key fields: `value`, `helper`, `total_charge`, `hash`, `refs`, priority flags.
 
+### Standalone Handles
+
+`Cache::CreateStandalone()` creates entries that are **not** inserted into the hash table and thus cannot be found by `Lookup()`. They are used for:
+- **Memory charging**: reserving capacity without a findable entry (e.g. `CacheReservationManager`)
+- **Secondary cache promotion**: on the first secondary cache hit (no dummy in primary), the adapter creates a standalone handle to return to the caller while inserting a dummy to record recent use. This avoids evicting useful primary entries to make room for a potentially one-time access.
+
+In `LRUHandle`, the `IM_IS_STANDALONE` flag marks such entries.
+
 ### Three-Tier LRU List
 
 Single doubly-linked list with marker pointers dividing it into three priority regions:
@@ -109,9 +126,9 @@ Single doubly-linked list with marker pointers dividing it into three priority r
                                                   lru_.next (oldest, evicted first)
 ```
 
-- `EvictFromLRU()` removes entries from the tail (oldest) until enough space is freed
-- `MaintainPoolSize()` spills entries when high-pri pool ratio is exceeded
-- Entries with cache hits are promoted to high-pri pool on next insertion
+- `EvictFromLRU()` removes entries from the head (`lru_.next`, oldest) until enough space is freed
+- `MaintainPoolSize()` spills high-pri entries into the low-pri pool and low-pri entries into the bottom-pri pool when their respective pool ratios are exceeded
+- On `LRU_Insert`, entries with cache hits (`HasHit()`) are inserted into the highest available priority pool; entries without hits are inserted into the highest pool whose priority does not exceed the entry's own priority
 
 ### LRU Cache Options
 
@@ -132,14 +149,14 @@ Single doubly-linked list with marker pointers dividing it into three priority r
 
 ### Design
 
-Lock-free alternative to LRUCache, optimized for high-concurrency block cache workloads. **Now generally recommended over LRUCache.**
+Lock-free alternative to LRUCache, optimized for high-concurrency block cache workloads. **Now generally recommended over LRUCache.** Note: HyperClockCache is **not a general-purpose `Cache`** -- it can only be used for `BlockBasedTableOptions::block_cache`. It is not appropriate for row cache or table cache uses.
 
 ### Key Differences from LRU
 
 | Aspect | LRUCache | HyperClockCache |
 |--------|----------|-----------------|
-| Concurrency | Mutex per shard | Lock/wait-free (atomics) |
-| Lookup cost | Mutex + LRU list update | Single atomic fetch_add |
+| Concurrency | Mutex per shard | Fixed table: fully lock/wait-free; Auto table: rare waits on some insert/erase paths |
+| Lookup cost | Mutex + LRU list update | Most Lookup() and essentially all Release() are a single atomic fetch_add |
 | Eviction | Strict LRU (oldest first) | CLOCK with countdown aging |
 | Key size | Variable length | Fixed 16 bytes only |
 | Table resizing | Dynamic | Fixed (FixedHCC) or auto-grow (AutoHCC) |
@@ -158,7 +175,7 @@ All state encoded in a single atomic 64-bit `meta` word:
 
 ### Table Variants
 
-**FixedHyperClockTable**: Pre-allocated open-addressing hash table. Table size fixed at creation based on `estimated_entry_charge`. Load factor capped at 0.7.
+**FixedHyperClockTable**: Pre-allocated open-addressing hash table. Table size fixed at creation based on `estimated_entry_charge`. Target load factor is 0.7 (`kLoadFactor`), with a strict upper bound of 0.84 (`kStrictLoadFactor`) to avoid degenerate performance when actual entry sizes differ from estimates.
 
 **AutoHyperClockTable** (recommended): Uses anonymous mmap for dynamic growth. Chaining with interleaved head/entry slots. Linear hashing for growth without moving entries. Load factor up to 0.60.
 
@@ -191,20 +208,26 @@ Parallel CLOCK sweep: threads atomically increment `clock_pointer_` by 4 (batch)
 
 | Method | Description |
 |--------|-------------|
-| `Insert(key, obj, helper)` | Serialize and store evicted entry |
-| `Lookup(key, helper, create_context, wait)` | Async-capable lookup, returns `SecondaryCacheResultHandle` |
+| `Insert(key, obj, helper, force_insert)` | Serialize and store evicted entry; `force_insert` bypasses admission policy |
+| `InsertSaved(key, saved, type, source)` | Insert from saved/persistable data (e.g. for warming from compressed blocks) |
+| `Lookup(key, helper, create_context, wait, advise_erase, stats, kept_in_sec_cache)` | Async-capable lookup; `advise_erase` hints that primary will cache the entry; `kept_in_sec_cache` output indicates if entry remains in secondary |
+| `SupportForceErase()` | Whether the implementation supports advised erase on Lookup |
 | `Erase(key)` | Remove entry |
 | `WaitAll(handles)` | Batch wait for async lookups |
+| `SetCapacity(capacity)` / `GetCapacity(capacity)` | Dynamically adjust or query capacity |
+| `Deflate(decrease)` / `Inflate(increase)` | Lightweight temporary capacity adjustments (single-shard) |
 
 ### CacheWithSecondaryAdapter
 
 `CacheWrapper` that integrates primary + secondary cache:
 
-- **Insert**: primary cache; on eviction, demotes to secondary
+- **Insert**: primary cache; on eviction, demotes to secondary (except under `kAdmPolicyThreeQueue`, where evictions are not demoted)
 - **Lookup**: primary first; on miss, queries secondary and promotes result
 - **Admission policy** (`TieredAdmissionPolicy`):
+  - `kAdmPolicyAuto` -- automatically select the admission policy
   - `kAdmPolicyPlaceholder` -- insert placeholder on first eviction, full entry on second hit
   - `kAdmPolicyAllowCacheHits` -- also force-insert primary hits into secondary
+  - `kAdmPolicyThreeQueue` -- three independent tiers (primary, compressed, NVM); evictions are not demoted, lower tiers are warmed via `InsertSaved()`
   - `kAdmPolicyAllowAll` -- admit all evicted blocks
 
 ---
@@ -215,22 +238,29 @@ Parallel CLOCK sweep: threads atomically increment `clock_pointer_` by 4 (batch)
 
 ### What It Does
 
-Stores compressed blocks in memory using an internal LRU cache. Uses LZ4 compression by default.
+Stores blocks in memory using an internal LRU cache, compressing most entries with LZ4 by default. Entries in `do_not_compress_roles` (default: `{kFilterBlock}`) are stored uncompressed. Compression can also fall back to `kNoCompression` if the compressed output is not smaller than the original.
 
 ### Two-Hit Admission Protocol
 
 Prevents cache pollution from one-time accesses:
 
 1. **On primary eviction**: if no dummy in secondary -> insert dummy (size 0); if dummy exists -> insert compressed block
-2. **On secondary lookup hit**: if no dummy in primary -> insert dummy in primary, keep in secondary; if dummy in primary -> promote to primary, erase from secondary
+2. **On secondary lookup hit with `advise_erase`**: erases the real secondary entry and inserts a dummy placeholder in its place (not a plain erase)
+3. **On secondary hit with no dummy in primary** (`!found_dummy_entry`): the adapter creates a **standalone handle** (not inserted into the hash table) and inserts a dummy into primary cache to record recent use; the entry is kept in secondary cache
+4. **On secondary hit with dummy in primary** (`found_dummy_entry`): the adapter promotes the full entry into primary cache and erases it from secondary
 
 ### Options
+
+`CompressedSecondaryCacheOptions` inherits all `LRUCacheOptions` (capacity, sharding, strict capacity, allocator, metadata charging, etc.) plus:
 
 | Option | Description |
 |--------|-------------|
 | `compression_type` | Compression algorithm (default LZ4) |
+| `compression_opts` | Options specific to the compression algorithm |
 | `enable_custom_split_merge` | Split compressed values into jemalloc-friendly chunks |
 | `do_not_compress_roles` | Roles stored uncompressed (default: `{kFilterBlock}`) |
+
+Note: `InsertSaved()` is a no-op when `type == kNoCompression` or when `enable_custom_split_merge` is true.
 
 ---
 
@@ -240,15 +270,21 @@ Prevents cache pollution from one-time accesses:
 
 ### What It Does
 
-Allows non-block-cache memory consumers (WriteBufferManager, filter construction, compression dictionaries) to "reserve" capacity in the block cache by inserting dummy entries (256KB each). This ensures their memory is accounted for in the cache's capacity limit.
+Allows non-block-cache memory consumers (WriteBufferManager, filter construction, compression dictionaries, file metadata, table readers, blob cache) to "reserve" capacity in the block cache by inserting dummy entries (256KB each). This ensures their memory is accounted for in the cache's capacity limit. The tiered-cache adapter also uses reservations to distribute budget between primary and secondary caches.
 
 ### Key Methods
 
 | Method | Description |
 |--------|-------------|
 | `UpdateCacheReservation(new_size)` | Adjust dummy entries to match new total |
+| `UpdateCacheReservation(memory_used_delta, increase)` | Adjust by a delta (increase or decrease) |
 | `MakeCacheReservation(size, handle*)` | RAII-style reservation (released on handle destruction) |
 | `GetTotalReservedCacheSize()` | Actual reserved (multiple of 256KB) |
+| `GetTotalMemoryUsed()` | Latest total memory used as indicated by caller |
+
+### Thread Safety
+
+`CacheReservationManagerImpl<R>` is **not thread-safe**, except that `GetTotalReservedCacheSize()` can be called without external synchronization (it reads an atomic).
 
 ### Delayed Decrease
 
@@ -298,17 +334,24 @@ Extends `Cache::CreateContext` with block-specific parameters for reconstruction
 
 ## Tiered Cache
 
-**Files:** `include/rocksdb/cache.h`
+**Files:** `include/rocksdb/cache.h`, `cache/tiered_secondary_cache.h`, `cache/secondary_cache_adapter.cc`
 
-`NewTieredCache()` creates a 2-tier cache combining a primary (LRU or HCC) with a compressed secondary cache. Memory reservation is distributed proportionally between tiers.
+`NewTieredCache()` creates a 2-tier (or 3-tier) cache combining a primary (LRU or HCC) with a compressed secondary cache. Memory reservation is distributed proportionally between tiers. `UpdateTieredCache()` allows dynamically adjusting capacity and compressed secondary ratio.
 
 ```cpp
 TieredCacheOptions opts;
 opts.cache_type = PrimaryCacheType::kCacheTypeHCC;
 opts.capacity = total_capacity;
 opts.compressed_secondary_ratio = 0.3;  // 30% for compressed tier
+// Optional NVM tier:
+// opts.nvm_sec_cache = nvm_cache;
+// opts.adm_policy = TieredAdmissionPolicy::kAdmPolicyThreeQueue;
 auto cache = NewTieredCache(opts);
 ```
+
+### TieredSecondaryCache
+
+When `nvm_sec_cache` is provided with `kAdmPolicyThreeQueue`, a `TieredSecondaryCache` stacks a compressed secondary cache on top of a non-volatile (local flash) cache. The admission policy warms the NVM tier via `InsertSaved()` from compressed blocks read from SSTs. Evicted blocks from the primary are **not** demoted -- they are simply discarded. Promotion happens on hits in the NVM tier, flowing through the compressed tier and into the primary cache.
 
 ---
 

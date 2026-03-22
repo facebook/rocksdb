@@ -8,11 +8,11 @@ RocksDB supports multiple compression algorithms to reduce storage footprint and
 
 - **Multiple algorithms**: Snappy, Zlib, LZ4, LZ4HC, ZSTD, BZip2, Xpress (Windows), kNoCompression
 - **Per-level compression**: Different algorithms for L0-Ln and bottommost level
-- **Dictionary compression**: ZSTD dictionary training for improved ratios on repetitive data
-- **Block-level granularity**: Each data/index/filter block compressed independently
+- **Dictionary compression**: Dictionary training for improved ratios on repetitive data (ZSTD dictionary training; Zlib/LZ4/LZ4HC also support dictionary use)
+- **Block-level granularity**: Data blocks always compressed; filter blocks always uncompressed (`kNoCompression`); index blocks compressed only if `enable_index_compression=true` (default)
 - **Context reuse**: Compression/decompression contexts cached per-core for ZSTD
 - **Compressed secondary cache**: Optional caching of compressed blocks
-- **Parallel compression**: Multi-threaded compression during flush/compaction (ZSTD, Zlib)
+- **Parallel compression**: Multi-threaded compression during flush/compaction (not recommended for lightweight codecs like Snappy/LZ4)
 - **Adaptive compression**: Skip compression if ratio below threshold (`max_compressed_bytes_per_kb`)
 
 ### High-Level Architecture
@@ -22,7 +22,8 @@ RocksDB supports multiple compression algorithms to reduce storage footprint and
 │  COMPRESSION CONFIGURATION                                      │
 │  ┌──────────────────────────────────────────────────────┐     │
 │  │ ColumnFamilyOptions                                  │     │
-│  │  ├─ compression: CompressionType (default: Snappy)   │     │
+│  │  ├─ compression: CompressionType (default: Snappy    │     │
+│  │  │   if linked, otherwise kNoCompression)             │     │
 │  │  ├─ compression_per_level: vector<CompressionType>   │     │
 │  │  ├─ bottommost_compression: CompressionType          │     │
 │  │  ├─ compression_opts: CompressionOptions             │     │
@@ -54,7 +55,7 @@ RocksDB supports multiple compression algorithms to reduce storage footprint and
 │  │  4. CompressBlock() for each block:                  │     │
 │  │     ├─ Get Compressor from CompressionManager        │     │
 │  │     ├─ Parallel compression (if enabled)             │     │
-│  │     ├─ Apply dictionary (ZSTD only)                  │     │
+│  │     ├─ Apply dictionary (ZSTD, Zlib, LZ4, LZ4HC)      │     │
 │  │     └─ Check compression ratio threshold             │     │
 │  │  5. Compute checksum (after compression)             │     │
 │  │  6. Write compressed block + trailer to SST          │     │
@@ -65,7 +66,7 @@ RocksDB supports multiple compression algorithms to reduce storage footprint and
 ┌─────────────────────────────────────────────────────────────────┐
 │  COMPRESSION ALGORITHMS (util/compression.h, .cc)              │
 │  ┌──────────────────────────────────────────────────────┐     │
-│  │ Snappy (default)                                     │     │
+│  │ Snappy (default if linked, otherwise kNoCompression) │     │
 │  │  • Fast compression/decompression (~500 MB/s each)   │     │
 │  │  • Modest ratio (~2-3x for typical data)             │     │
 │  │  • No configuration (level ignored)                  │     │
@@ -157,11 +158,11 @@ std::vector<CompressionType> compression_per_level;
 CompressionType bottommost_compression = kDisableCompressionOption;
 ```
 
-**Compression selection logic** (`db/compaction/compaction.cc`):
+**Compression selection logic** (`db/compaction/compaction_picker.cc:GetCompressionType()`):
 
-1. **Bottommost level** (last level with data): Use `bottommost_compression` if set, otherwise `compression_per_level[last]`
-2. **Other levels**: Use `compression_per_level[level]`, or `compression` if vector is empty
-3. **Flush output (L0)**: Use `compression` or `compression_per_level[0]`
+1. **Bottommost level** (level >= num_non_empty_levels - 1): Use `bottommost_compression` if set (not `kDisableCompressionOption`), otherwise fall through
+2. **Per-level** (if `compression_per_level` non-empty): Index into vector with `idx = 0` for L0, `level - base_level + 1` for others, clamped to `[0, vec.size()-1]`
+3. **Fallback**: Use `compression` (the single global setting)
 
 ⚠️ **INVARIANT**: With `level_compaction_dynamic_level_bytes=true`, `compression_per_level[0]` determines L0 compression, but `compression_per_level[i]` (i>0) applies to base level + i - 1, **not** physical level i (`advanced_options.h:514`).
 
@@ -172,7 +173,10 @@ options.compression = kSnappyCompression;  // Default for all levels
 options.compression_per_level = {
   kNoCompression,      // L0: No compression (short-lived)
   kLZ4Compression,     // L1: Fast compression
-  kLZ4Compression,     // L2-L5: Fast compression
+  kLZ4Compression,     // L2: Fast compression
+  kLZ4Compression,     // L3: Fast compression (last entry repeats for L4-L5)
+  kLZ4Compression,     // L4: Fast compression
+  kLZ4Compression,     // L5: Fast compression
   kZSTD                // L6: High compression (last level)
 };
 options.bottommost_compression = kZSTD;  // Override last level
@@ -220,10 +224,10 @@ struct CompressionOptions {
 
 | Algorithm | level=kDefaultCompressionLevel | level > 0 | level < 0 |
 |-----------|-------------------------------|-----------|-----------|
-| ZSTD | 3 (ZSTD_CLEVEL_DEFAULT) | ZSTD level 1-22 | Invalid |
-| Zlib | 6 (Z_DEFAULT_COMPRESSION) | Zlib level 0-9 | Invalid |
-| LZ4 | 1 (default acceleration) | Invalid | acceleration = abs(level) |
-| LZ4HC | 9 (default) | LZ4HC level 1-12 | Invalid |
+| ZSTD | 3 (ZSTD_CLEVEL_DEFAULT) | ZSTD level 1-22 | Passed through to codec |
+| Zlib | Z_DEFAULT_COMPRESSION (-1) | Zlib level 0-9 | Passed through to codec |
+| LZ4 | acceleration=1 (equivalent to level=-1) | acceleration=1 (level ignored) | acceleration = abs(level) |
+| LZ4HC | 0 (sanitized to library default) | LZ4HC level 1-12 | Passed through to codec |
 | Snappy | Ignored | Ignored | Ignored |
 
 ⚠️ **INVARIANT**: For LZ4, negative `level` configures `acceleration`, where higher absolute value → faster but lower ratio. This negation ensures decreasing `level` favors speed (`compression_type.h:191`).
@@ -248,7 +252,7 @@ struct CompressionOptions {
 ```
 
 **Dictionary storage**:
-- Stored in SST file as `kCompressionDictionary` block (before index block)
+- Stored in SST file as `kCompressionDictionary` meta block (written after filter and index blocks, before range deletion and properties blocks)
 - Cached in block cache with `CacheEntryRole::kOtherBlock`
 - On read, dictionary loaded into `DecompressorDict` and cached
 
@@ -294,27 +298,30 @@ When limit hit → finalize dictionary with buffered data, stop buffering, compr
 
 ### Compression Write Path
 
-**BlockBasedTableBuilder::CompressBlock()** (`block_based_table_builder.cc`):
+**BlockBasedTableBuilder::CompressAndVerifyBlock()** (`block_based_table_builder.cc`):
 
 ```cpp
 // Simplified compression logic
-Status CompressBlock(Slice uncompressed_data,
-                     CompressionType compression_type,
-                     const CompressionDict& compression_dict,
-                     std::string* compressed_output,
-                     uint32_t* compression_format_version) {
-  // 1. Get Compressor from CompressionManager
-  Compressor* compressor = GetCompressor(compression_type);
+Status CompressAndVerifyBlock(const Slice& uncompressed_block_data,
+                              bool is_data_block,
+                              WorkingAreaPair& working_area,
+                              GrowableBuffer* compressed_output,
+                              CompressionType* result_compression_type) {
+  // 1. Select Compressor (data_block_compressor or index_block_compressor)
+  Compressor* compressor = is_data_block ? data_block_compressor
+                                         : index_block_compressor;
 
-  // 2. Parallel compression (if enabled and supported)
-  if (compression_opts.parallel_threads > 1 && SupportsParallelCompression(type)) {
-    return compressor->CompressBlockParallel(...);
+  // 2. Compress via Compressor::CompressBlock()
+  Status s = compressor->CompressBlock(uncompressed_data,
+                                       compressed_output, ...);
+
+  // 3. Optional: verify by decompressing and comparing
+  if (verify_compression && s.ok()) {
+    // Decompress and compare with original
   }
 
-  // 3. Serial compression with optional dictionary
-  return compressor->CompressBlock(uncompressed_data,
-                                   compressed_output,
-                                   compression_dict);
+  // 4. Record compression statistics
+  return s;
 }
 ```
 
@@ -336,9 +343,8 @@ Default `max_compressed_bytes_per_kb = 896` → minimum 1.14:1 ratio (12.5% savi
 
 Enabled when:
 - `compression_opts.parallel_threads > 1`
-- Compression type supports parallelization (ZSTD, Zlib)
-- BlockBasedTable with no user-defined index
-- `partition_filters=false` or `decouple_partitioned_filters=true`
+- Not disabled by table structure: requires no `user_defined_index_factory`, and either `partition_filters=false` or `decouple_partitioned_filters=true`
+- Not rejected by compression type (works with any codec, but not recommended for lightweight codecs like Snappy/LZ4 where throughput gain is unlikely)
 
 Parallel workers compress blocks concurrently using ring buffer coordination. SST size may inflate vs. target_file_size due to in-flight uncompressed data.
 
@@ -350,35 +356,37 @@ Each block ends with a 5-byte trailer (`table/format.h`):
 [compression_type: 1 byte][checksum: 4 bytes]
 ```
 
-⚠️ **INVARIANT**: Checksum is computed **after** compression on write, verified **before** decompression on read. This detects both storage corruption and decompression errors.
+⚠️ **INVARIANT**: Checksum is computed over `block_contents` (compressed data) plus the compression type byte on write, verified **before** decompression on read. This detects storage corruption but does not validate decompressor output.
 
 ### Decompression Read Path
 
-**UncompressBlockData()** (`table/block_based/block_based_table_reader.cc`):
+**DecompressBlockData()** (`table/format.cc`):
 
 ```cpp
 // Simplified decompression logic
-Status UncompressBlockData(const BlockContents& compressed_block,
-                           BlockContents* uncompressed_block,
-                           const UncompressionDict& dict) {
-  // 1. Get Decompressor from CompressionManager
-  Decompressor* decompressor = GetDecompressor(compression_type);
+Status DecompressBlockData(const UncompressionInfo& uncompression_info,
+                           const char* data, size_t size,
+                           BlockContents* out,
+                           uint32_t format_version,
+                           const ImmutableOptions& ioptions,
+                           MemoryAllocator* allocator) {
+  // 1. Decompressor selected during table open via GetDecompressor()
+  //    based on compression_name table property and CompressionManager
+  //    (see block_based_table_reader.cc)
 
-  // 2. Get cached ZSTD uncompression context (if ZSTD)
-  ZSTDUncompressCachedData zstd_ctx =
-      CompressionContextCache::Instance()->GetCachedZSTDUncompressData();
+  // 2. Extract uncompressed size from compressed data header
+  size_t uncompressed_size;
+  decompressor.ExtractUncompressedSize(data, size, &uncompressed_size);
 
-  // 3. Decompress
-  Status s = decompressor->DecompressBlock(compressed_data,
-                                           uncompressed_size,
-                                           uncompressed_output,
-                                           dict);
+  // 3. Allocate output buffer
+  CacheAllocationPtr ubuf = AllocateBlock(uncompressed_size, allocator);
 
-  // 4. Return context to cache
-  if (zstd_ctx.GetCacheIndex() >= 0) {
-    CompressionContextCache::Instance()->ReturnCachedZSTDUncompressData(idx);
-  }
+  // 4. Decompress
+  Status s = decompressor.DecompressBlock(data, size,
+                                          ubuf.get(), uncompressed_size);
 
+  // 5. Return uncompressed block contents
+  *out = BlockContents(std::move(ubuf), uncompressed_size);
   return s;
 }
 ```
@@ -471,30 +479,25 @@ Read path with compressed secondary cache:
 CompressedSecondaryCacheOptions opts;
 opts.capacity = 512 * 1024 * 1024;  // 512MB compressed cache
 opts.num_shard_bits = 6;
-opts.compression_type = kZSTD;      // Re-compress for cache (may differ from SST)
-opts.compress_format_version = 2;
+opts.compression_type = kLZ4Compression;  // Default; re-compress for cache
 
 std::shared_ptr<SecondaryCache> compressed_cache =
-    NewCompressedSecondaryCache(opts);
+    opts.MakeSharedSecondaryCache();
+
+LRUCacheOptions cache_opts;
+cache_opts.capacity = 1024 * 1024 * 1024;  // 1GB primary cache
+cache_opts.num_shard_bits = 6;
+cache_opts.secondary_cache = compressed_cache;  // Attach via secondary_cache field
 
 BlockBasedTableOptions table_opts;
-table_opts.block_cache = NewCache(
-    1024 * 1024 * 1024,  // 1GB primary cache
-    6,                   // num_shard_bits
-    false,               // strict_capacity_limit
-    0,                   // high_pri_pool_ratio
-    nullptr,
-    kDefaultToAdaptiveMutex,
-    kDontChargeCacheMetadata,
-    compressed_cache     // Attach compressed secondary cache
-);
+table_opts.block_cache = cache_opts.MakeSharedCache();
 ```
 
 **Insertion policy**:
 
 The `Insert` method accepts a `force_insert` boolean parameter that controls when blocks are inserted into the compressed secondary cache. The decision of when to set this flag is made by the caller based on caching policies.
 
-⚠️ **INVARIANT**: Compressed secondary cache stores blocks **already compressed** (from SST). RocksDB may re-compress with different `compression_type` for cache, independent of SST compression (`compressed_secondary_cache.h`).
+⚠️ **INVARIANT**: Compressed secondary cache supports two insertion modes: `Insert` re-compresses uncompressed primary-cache entries using the configured `compression_type`, while `InsertSaved` preserves already-compressed entries from another cache tier. The cache compression is independent of SST compression (`compressed_secondary_cache.cc`).
 
 **Performance tradeoff**:
 - **Pro**: Effective cache capacity increases 3-5x (typical compression ratio)
@@ -504,7 +507,7 @@ The `Insert` method accepts a `force_insert` boolean parameter that controls whe
 
 ## 6. WAL Compression
 
-**Files:** `include/rocksdb/options.h:1481`, `db/wal_manager.cc`
+**Files:** `include/rocksdb/options.h:1481`, `db/log_writer.cc`, `db/log_reader.cc`, `db/log_format.h`
 
 ### Write-Ahead Log Compression
 
@@ -516,23 +519,27 @@ RocksDB supports compressing WAL records to reduce write amplification and log s
 options.wal_compression = kZSTD;  // Default: kNoCompression
 ```
 
-**Supported algorithms**: ZSTD only (as of RocksDB 7.x).
+**Supported algorithms**: Any supported `CompressionType` that works with streaming compression.
 
-**WAL record format** with compression:
+**WAL compression format** (`db/log_format.h`):
+
+WAL compression uses standard WAL physical records. The first record in a compressed WAL file is a `kSetCompressionType` record (type=9) that declares the compression type used for subsequent records:
 
 ```
-[sequence_number: varint64][count: varint32]
-[compressed_batch: varint32 size + compressed WriteBatch]
-[checksum: 4 bytes]
+kSetCompressionType record:
+[header: checksum(4) + length(2) + type(1)][compression_type: Fixed32]
 ```
 
-**Compression workflow**:
-1. Serialize `WriteBatch` to uncompressed buffer
-2. Compress buffer with `StreamingCompress` (ZSTD)
-3. Write compressed record to WAL
-4. On recovery: Decompress each record with `StreamingUncompress`
+Subsequent logical records are fed through a `StreamingCompress` instance, and the compressed output is fragmented into normal WAL physical records (kFirst/kMiddle/kLast).
 
-⚠️ **INVARIANT**: WAL compression is **stateless** per record. Each WAL record is compressed independently (no dictionary, no inter-record dependencies) to ensure crash recovery can start from any valid record (`wal_manager.cc`).
+**Compression workflow** (`db/log_writer.cc`):
+1. Write `kSetCompressionType` record at file start (`AddCompressionTypeRecord`)
+2. Initialize `StreamingCompress` with the declared compression type
+3. For each `WriteBatch`: feed data through streaming compressor
+4. Fragment compressed output into standard WAL physical records
+5. On recovery (`db/log_reader.cc`): detect `kSetCompressionType`, initialize `StreamingUncompress`, decompress records
+
+⚠️ **INVARIANT**: WAL compression uses **streaming compression** per WAL file, not per-record compression. The compression type is declared once at file start. `db/wal_manager.cc` handles only bookkeeping (listing, archiving, purging WAL files), not compression logic.
 
 **Performance considerations**:
 - **Write latency**: +10-30% due to compression CPU cost (mitigated by batching)
@@ -559,22 +566,33 @@ options.min_blob_size = 4096;              // Values ≥4KB → blob files
 options.blob_compression_type = kZSTD;     // Default: kNoCompression
 ```
 
-**Blob record format**:
+**Blob file format** (`db/blob/blob_log_format.h`):
+
+Compression type is stored **once per blob file** in the blob file header, not per blob record:
 
 ```
-[key_size: varint32][key: bytes]
-[value_size: varint32][value: compressed bytes]
-[expiration: varint64][compression_type: 1 byte]
-[checksum: 4 bytes]
+Blob file header:
+[magic_number: Fixed32][version: Fixed32][cf_id: Fixed32]
+[flags: 1 byte][compression: 1 byte][expiration_range: Fixed64+Fixed64]
 ```
+
+Each blob record uses a 32-byte fixed-size header followed by key and value:
+
+```
+[key_length: Fixed64][value_length: Fixed64]
+[expiration: Fixed64][header_crc: Fixed32][blob_crc: Fixed32]
+[key: key_length bytes][value: value_length bytes]
+```
+
+Where `header_crc` covers key_len+value_len+expiration, and `blob_crc` covers key+value. If compression is enabled, `value` is the compressed value and `value_length` is the compressed length.
 
 **Compression workflow**:
 1. Check `value.size() >= min_blob_size`
 2. Compress value with `blob_compression_type`
-3. Write compressed blob record to blob file
-4. Write blob reference (file number + offset + size) to SST
+3. Write compressed blob record to blob file (note: compressed output is always stored even if it expands the value — this is a known wart in `blob_file_builder.cc`)
+4. Write blob reference to SST containing: file number, offset (points to the blob value, not the record header), size, and compression type
 
-⚠️ **INVARIANT**: Blob compression is **independent** of SST compression. A blob-ified value is compressed in the blob file, while its reference in the SST may be in a compressed data block (`blob_file_builder.cc`).
+⚠️ **INVARIANT**: Blob compression is **independent** of SST compression. A blob-ified value is compressed in the blob file, while its reference in the SST may be in a compressed data block. The `BlobIndex` stored in the SST includes the compression type (`db/blob/blob_index.h`).
 
 **Performance tradeoff**:
 - **Pro**: Reduced blob file size → lower storage cost, faster scans of blob files
@@ -590,30 +608,30 @@ options.blob_compression_type = kZSTD;     // Default: kNoCompression
 
 ### Checksum Order Invariants
 
-⚠️ **INVARIANT**: Checksums are **always** computed on compressed data, never uncompressed data.
+⚠️ **INVARIANT**: For SST blocks, checksums are computed on compressed data plus the compression type byte, and verified before decompression. Other subsystems use different checksum scopes.
 
-**Write path** (`block_based_table_builder.cc`):
+**SST write path** (`block_based_table_builder.cc`):
 
 ```
 1. Compress block → compressed_data
-2. Compute checksum on compressed_data → checksum
+2. Compute checksum on [compressed_data + compression_type byte] → checksum
 3. Write [compressed_data][compression_type: 1 byte][checksum: 4 bytes]
 ```
 
-**Read path** (`block_based_table_reader.cc`):
+**SST read path** (`reader_common.cc`, `table/format.cc`):
 
 ```
 1. Read [compressed_data][compression_type][checksum]
-2. Verify checksum on compressed_data
+2. Verify checksum on [compressed_data + compression_type]
    └─ If mismatch → return Status::Corruption
-3. Decompress compressed_data → uncompressed_data
+3. Decompress compressed_data → uncompressed_data (via DecompressBlockData)
 ```
 
-**Rationale**: Checksum on compressed data detects:
-- Storage corruption (bit flips, torn writes)
-- Decompression errors (buffer overruns, invalid compressed stream)
+**Other checksum scopes**:
+- **ZSTD frame checksum**: Computed from **uncompressed** data by the ZSTD library (`compression_type.h:301`)
+- **Blob record**: `blob_crc` covers key+value (uncompressed or compressed depending on config); `header_crc` covers key_len+val_len+expiration (`blob_log_format.h`)
 
-Checksum on uncompressed data would only detect storage corruption, missing decompression errors.
+**SST block checksum rationale**: Detects storage corruption (bit flips, torn writes). Does not validate decompressor output — use ZSTD frame checksum (`compression_opts.checksum=true`) for end-to-end verification.
 
 ### ZSTD Frame Checksum
 
@@ -664,7 +682,7 @@ options.compression_opts.checksum = true;  // Enable ZSTD frame checksum
 | Zlib (level 6) | 3.0x | 2.0x | 3-4x |
 | BZip2 | 20.0x | 10.0x | 4-5x |
 
-**Dictionary compression** (ZSTD only):
+**Dictionary compression** (ZSTD has dictionary training; Zlib/LZ4/LZ4HC support dictionary use):
 
 | Data Characteristics | Dictionary Benefit | Configuration |
 |---------------------|-------------------|---------------|
@@ -692,11 +710,10 @@ options.compression_opts.checksum = true;  // Enable ZSTD frame checksum
   --compression_zstd_max_train_bytes=104857600 \
   --num=10000000 --value_size=1024
 
-# Per-level compression
+# Per-level compression (via min_level_to_compress)
 ./db_bench --benchmarks=fillrandom,compact,readrandom \
-  --compression_type=lz4 \
-  --compression_per_level=none:lz4:lz4:lz4:lz4:lz4:zstd \
-  --bottommost_compression=zstd \
+  --compression_type=zstd \
+  --min_level_to_compress=2 \
   --num=100000000 --value_size=1024 --cache_size=1073741824
 
 # Parallel compression
@@ -705,9 +722,11 @@ options.compression_opts.checksum = true;  // Enable ZSTD frame checksum
   --num=10000000 --value_size=4096
 ```
 
-**Key metrics**:
-- `rocksdb.block.compression.bytes.total`: Total bytes compressed
-- `rocksdb.block.compression.bytes.after`: Compressed size
+**Key metrics** (`monitoring/statistics.cc`):
+- `rocksdb.bytes.compressed.from`: Original bytes before compression
+- `rocksdb.bytes.compressed.to`: Compressed output bytes
+- `rocksdb.bytes.decompressed.from`: Compressed bytes before decompression
+- `rocksdb.bytes.decompressed.to`: Decompressed output bytes
 - `rocksdb.compression.times.nanos`: Compression CPU time
 - `rocksdb.decompression.times.nanos`: Decompression CPU time
 - SST file sizes (from `ldb manifest_dump` or `sst_dump`)
@@ -737,8 +756,8 @@ Savings = 1 - (compressed_size / uncompressed_size)
 1. **Using ZSTD without dictionary for structured data**: Loses 20-50% compression potential
    - **Solution**: Enable dictionary with `max_dict_bytes=64KB`, `zstd_max_train_bytes=100MB`
 
-2. **Enabling parallel compression for Snappy/LZ4**: No throughput gain, wastes memory
-   - **Solution**: Only enable `parallel_threads > 1` for ZSTD/Zlib
+2. **Enabling parallel compression for Snappy/LZ4**: Unlikely throughput gain, wastes memory
+   - **Solution**: Only enable `parallel_threads > 1` for ZSTD/Zlib (lightweight codecs are not rejected but not recommended)
 
 3. **Setting `max_dict_buffer_bytes < max_dict_bytes`**: Dictionary too small or fails to build
    - **Solution**: Set `max_dict_buffer_bytes = 0` (unlimited) or `>> max_dict_bytes`
@@ -754,11 +773,11 @@ Savings = 1 - (compressed_size / uncompressed_size)
 
 ### Best Practices
 
-1. **Start with defaults**: `compression=kSnappyCompression`, then optimize if storage is bottleneck
+1. **Start with defaults**: `compression=kSnappyCompression` (if linked; `kNoCompression` otherwise), then optimize if storage is bottleneck
 2. **Use per-level compression**: `kNoCompression` or `kLZ4` for hot levels, `kZSTD` for bottommost
 3. **Enable ZSTD dictionary for structured data**: JSON, protobufs, logs with repetitive schemas
 4. **Monitor compression ratio**: If ratio < 1.5:1, compression may not be worth CPU cost
-5. **Tune `max_compressed_bytes_per_kb`**: Raise to 1024 (disable threshold) for testing, then lower to 800-900 if compression ratio inconsistent
+5. **Tune `max_compressed_bytes_per_kb`**: Note that the builder clamps this to max 1023, so compression always saves at least 1 byte per KB. Adjust to 800-900 for stricter thresholds
 6. **Profile decompression**: If >10% of read CPU, consider LZ4/Snappy for hot data
 7. **Test with production data**: Synthetic benchmarks may not reflect real compression ratios
 
@@ -796,7 +815,7 @@ du -sh /path/to/db/*.sst                # Get SST sizes
 
 RocksDB's compression system balances storage efficiency and CPU cost through:
 - **Per-level compression**: Optimize hot vs. cold data independently
-- **Dictionary compression**: Improve ratio for structured/repetitive data (ZSTD)
+- **Dictionary compression**: Improve ratio for structured/repetitive data (ZSTD training; Zlib/LZ4/LZ4HC also support dictionary use)
 - **Context caching**: Amortize ZSTD context allocation across operations
 - **Compressed secondary cache**: Extend effective cache capacity 3-5x
 - **Adaptive compression**: Skip compression for incompressible blocks

@@ -12,11 +12,11 @@ SST (Sorted String Table) files are the on-disk storage format for RocksDB. The 
 ...
 [data block N-1]
 [filter block]                   (full filter or partitioned filter + filter index)
-[meta block: properties]
+[index block]                    (binary search, hash, or partitioned index)
 [meta block: compression dictionary]
 [meta block: range deletions]
+[meta block: properties]
 [metaindex block]                (maps meta block names -> BlockHandles)
-[index block]                    (binary search, hash, or partitioned index)
 [Footer]                         (fixed size, at end of file)
 ```
 
@@ -50,8 +50,8 @@ Fixed-size structure at the tail of every SST file:
 | Field | Description |
 |-------|-------------|
 | `table_magic_number_` | Identifies table type (block-based, plain, cuckoo) |
-| `format_version_` | Wire format version (2-7 for read, 2-7 for write) |
-| `checksum_type_` | CRC32c, xxHash, xxHash64, or none |
+| `format_version_` | Wire format version: 0 for plain tables, 1 for cuckoo, 2-7 for block-based |
+| `checksum_type_` | CRC32c, xxHash, xxHash64, XXH3, or none |
 | `metaindex_handle_` | BlockHandle to metaindex block |
 | `index_handle_` | BlockHandle to top-level index (format_version < 6) |
 | `base_context_checksum_` | For context-aware checksums (format_version >= 6) |
@@ -67,8 +67,8 @@ Every block on disk has a trailer: `compression_type (1 byte) + checksum (4 byte
 | Version | Feature |
 |---------|---------|
 | < 6 | Index handle in footer |
-| >= 6 | Context-aware checksums, unique ID in footer, index handle moves to metaindex |
-| >= 7 | Compression manager name stored |
+| >= 6 | Context-aware checksums, footer checksum, index handle moves to metaindex, `base_context_checksum` and `metaindex_size` in footer |
+| >= 7 | `TableProperties::compression_name` format changed for `CompressionManager` compatibility |
 
 ---
 
@@ -80,9 +80,19 @@ Every block on disk has a trailer: `compression_type (1 byte) + checksum (4 byte
 
 ```
 [entry 0] [entry 1] ... [entry N-1]
-[restart_offset_0: uint32] [restart_offset_1: uint32] ... [restart_offset_M: uint32]
-[num_restarts: uint32]
+[values section]                     (optional, when separated KV enabled)
+[data block hash index]              (optional, when kDataBlockBinaryAndHash)
+[values_section_offset: uint32]      (optional, when separated KV enabled)
+[packed footer: uint32]              (num_restarts + feature bits)
 ```
+
+The packed footer uint32 encodes:
+- Low 28 bits: `num_restarts`
+- Bit 31: Hash index present (`kDataBlockBinaryAndHash`)
+- Bit 29: `is_uniform` flag (enables interpolation search via `kAuto`)
+- Bit 28: Separated KV storage enabled
+
+See `DataBlockFooter` in `table/block_based/data_block_footer.h`.
 
 Each entry uses prefix compression relative to the previous key:
 
@@ -133,11 +143,21 @@ Constructor parameters control: `block_restart_interval`, `use_delta_encoding`, 
 |----------|-----------|------------|------------------|
 | `DataBlockIter` | Data blocks | `Slice` | Hash index seek, read-amp bitmap |
 | `IndexBlockIter` | Index blocks | `IndexValue` | Delta-decoded handles, first_key support, interpolation search |
-| `MetaBlockIter` | Meta blocks | `Slice` | Bytewise comparator, restart interval = 1 |
+| `MetaBlockIter` | Meta blocks | `Slice` | Bytewise comparator. Metaindex uses restart interval = 1; properties block uses max int (no restart points). |
 
 **DataBlockIter** (`block.h:758`): Supports `SeekForGet()` using `DataBlockHashIndex` for O(1) point lookups within a block. Caches previous entries for efficient `Prev()`.
 
 **IndexBlockIter** (`block.h:904`): Handles delta-encoded index values where only the size portion of BlockHandle is stored for non-restart entries (offset computed by accumulation from previous handle).
+
+### Block Search Types
+
+The `BlockSearchType` enum (`include/rocksdb/table.h`) controls the search algorithm used when seeking within index blocks:
+
+| Type | Description |
+|------|-------------|
+| `kBinary` | Standard binary search (default) |
+| `kInterpolation` | Interpolation search, better for uniformly distributed keys. Requires bytewise comparator. |
+| `kAuto` | Uses interpolation search if the block's `is_uniform` footer flag is set, otherwise binary search. The `is_uniform` flag is set at write time when the block's key distribution satisfies `uniform_cv_threshold`. |
 
 ---
 
@@ -157,7 +177,7 @@ Builds a complete SST file by accumulating sorted key-value pairs into data bloc
 | `Finish()` | Finalize: flush last data block, write filter/index/properties/range-del/footer |
 | `Abandon()` | Discard without finishing |
 | `NumEntries()` | Count of Add() calls |
-| `FileSize()` | Actual file size (or estimate during parallel compression) |
+| `FileSize()` | Bytes written so far (actual offset in file) |
 | `GetTableProperties()` | Collected table properties |
 
 ### Build Workflow
@@ -169,15 +189,17 @@ Within Add():
   - Append to current BlockBuilder
   - If block size >= target: Flush() -> write data block to file
   - Add key to filter builder
-  - Add entry to index builder
+  - In unbuffered mode, call index_builder->OnKeyAdded()
+  - Note: index entry is NOT emitted here; it is emitted later in EmitBlock()
+    once the data block is written and the next block's first key is known
 
 Finish() sequence:
   1. Flush remaining data block
   2. WriteFilterBlock()
   3. WriteIndexBlock()
-  4. WritePropertiesBlock()
-  5. WriteCompressionDictBlock()
-  6. WriteRangeDelBlock()
+  4. WriteCompressionDictBlock()
+  5. WriteRangeDelBlock()
+  6. WritePropertiesBlock()
   7. Write metaindex block
   8. WriteFooter()
 ```
@@ -188,7 +210,7 @@ The builder starts in **buffered mode** (`kBuffered`) where KV pairs are held in
 
 ### Parallel Compression
 
-Optional: background workers (`BGWorker()`) compress and write blocks concurrently. `EstimatedFileSize()` provides size estimates when `FileSize()` is unreliable due to out-of-order block completion.
+Optional: background workers (`BGWorker()`) compress and write blocks concurrently. `EstimatedFileSize()` adds estimated in-flight data size to `FileSize()` when parallel compression is active, since `FileSize()` only reflects bytes already written.
 
 ---
 
@@ -206,8 +228,11 @@ Reads SST files. Provides point lookups, range iteration, bloom filter checks, a
 1. Read footer from end of file
 2. Read metaindex block
 3. Read table properties
-4. Optionally prefetch and cache index and filter blocks
-5. Create the appropriate `IndexReader` and `FilterBlockReader`
+4. Read range deletion block (`ReadRangeDelBlock()`)
+5. Read compression dictionary and construct `UncompressionDictReader` if present
+6. Prefetch and cache index and filter blocks (`PrefetchIndexAndFilterBlocks()`)
+7. Create the appropriate `IndexReader` and `FilterBlockReader`
+8. Optionally wrap index reader with `UserDefinedIndexReaderWrapper` if user-defined index is configured
 
 ### Point Lookup Flow
 
@@ -265,12 +290,13 @@ Internal state for an open table reader (`block_based_table_reader.h:604`):
 | Binary Search | `kBinarySearch` | Default. One index block with sorted separator keys. O(log N) seek. |
 | Hash Search | `kHashSearch` | Binary search + prefix hash for faster prefix-based seeks. Extra metablocks store prefix metadata. |
 | Partitioned (Two-Level) | `kTwoLevelIndexSearch` | Large SSTs. Multiple index partitions + a top-level index. Reduces memory for large files. |
+| Binary Search With First Key | `kBinarySearchWithFirstKey` | Like binary search, but index also contains each block's first key. Allows iterators to defer reading data blocks until actually needed. Reduces read amplification for short range scans. |
 
 ### ShortenedIndexBuilder (Binary Search)
 
 Default index builder. Key optimizations:
 - **Key shortening**: Computes the shortest separator between adjacent data blocks rather than storing the full last key. Reduces index size.
-- **Optional sequence number stripping**: Maintains two BlockBuilders (with/without seqnums). At `Finish()`, chooses the smaller one if seqnums were never needed for disambiguation.
+- **Optional sequence number stripping**: Maintains two BlockBuilders (with/without seqnums). Tracks `must_use_separator_with_seq_`: set to true if any separator requires the sequence number for correctness. At `Finish()`, chooses the matching builder (without-seq if seqnums were never needed).
 - **`include_first_key`**: Stores each data block's first internal key in the index value, enabling skip of data block reads when the key is outside the block's range.
 
 ### PartitionedIndexBuilder (Two-Level)
@@ -282,7 +308,7 @@ For large SSTs, the index is split into partitions:
 [top-level index]   <- maps separator keys to partition BlockHandles
 ```
 
-Each partition is built with `ShortenedIndexBuilder`. `ShouldCutFilterBlock()` signals aligned filter partitioning.
+Each partition is built with `ShortenedIndexBuilder`. With `decouple_partitioned_filters=true` (the default, now deprecated as the permanent behavior), filter partitions are cut independently based on `keys_per_partition_` rather than being aligned with index partitions.
 
 `Finish()` returns `Status::Incomplete()` for each partition, then `Status::OK()` for the top-level index. The caller writes each partition block and records its handle.
 
@@ -310,7 +336,7 @@ Each partition is built with `ShortenedIndexBuilder`. `ShouldCutFilterBlock()` s
 
 ### Partitioned Filter
 
-**Builder** (`PartitionedFilterBlockBuilder`): Extends `FullFilterBlockBuilder`. Cuts filter partitions aligned with index partitions. Each partition is a full filter block. A top-level index maps separator keys to filter partition handles.
+**Builder** (`PartitionedFilterBlockBuilder`): Extends `FullFilterBlockBuilder`. When decoupled (default), cuts filter partitions independently based on estimated entries. When coupled, filter partitions are aligned with index partitions via `ShouldCutFilterBlock()`. Each partition is a full filter block. A top-level index maps separator keys to filter partition handles.
 
 **Reader** (`PartitionedFilterBlockReader`): Two-level lookup:
 1. Seek top-level index to find filter partition
@@ -372,11 +398,12 @@ Defined in `table/block_based/block_type.h`:
 | `kRangeDeletion` | Range tombstone entries |
 | `kMetaIndex` | Maps meta block names to BlockHandles |
 | `kHashIndexPrefixes` / `kHashIndexMetadata` | Hash search support data |
+| `kUserDefinedIndex` | User-defined index block |
 
 ## Interactions With Other Components
 
-- **Write Path** (see [write_path.md](write_path.md)): FlushJob and CompactionJob use `BlockBasedTableBuilder` to create SST files.
-- **Read Path** (see [flush_and_read_path.md](flush_and_read_path.md)): `Version::Get()` uses `TableCache` to access `BlockBasedTable::Get()` for point lookups. Iterators use `BlockBasedTable::NewIterator()`.
-- **Cache** (see [cache.md](cache.md)): Data blocks, index blocks, and filter blocks are cached in the block cache. TableCache uses the block cache for table reader management.
+- **Write Path** (see [write_flow.md](write_flow.md)): FlushJob and CompactionJob use `BlockBasedTableBuilder` to create SST files.
+- **Read Path** (see [read_flow.md](read_flow.md)): `Version::Get()` uses `TableCache` to access `BlockBasedTable::Get()` for point lookups. Iterators use `BlockBasedTable::NewIterator()`.
+- **Cache** (see [cache.md](cache.md)): Data blocks, index blocks, and filter blocks are cached in the block cache. TableCache has its own separate `CacheInterface cache_` for managing `TableReader` objects (distinct from the block cache).
 - **Version Management** (see [version_management.md](version_management.md)): `FileMetaData` stores per-file metadata including pinned table reader references.
 - **Compaction** (see [compaction.md](compaction.md)): `MergingIterator` reads from multiple SST files via their iterators during compaction.

@@ -8,8 +8,8 @@ Filters are probabilistic data structures that reduce unnecessary disk reads for
 ┌─────────────────────────────────────────────────────────────┐
 │                     Filter Use Cases                         │
 ├─────────────────────────────────────────────────────────────┤
-│  SST File Filters:        Memtable Filters:                 │
-│  • Whole-key filtering    • Prefix-only filtering           │
+│  SST File Filters:        Memtable Filters (optional):     │
+│  • Whole-key filtering    • Prefix and/or whole-key        │
 │  • Prefix filtering        • DynamicBloom                   │
 │  • Full or partitioned     • Concurrent updates             │
 │  • Bloom or Ribbon         • Non-persistent                 │
@@ -49,7 +49,7 @@ table_options.filter_policy.reset(NewBloomFilterPolicy(10.0));
 table_options.filter_policy.reset(NewRibbonFilterPolicy(10.0));
 ```
 
-**⚠️ INVARIANT:** All built-in filter policies (Bloom, Ribbon) can read each other's filters via shared `CompatibilityName() == "rocksdb.BuiltinBloomFilter"`. This ensures forward compatibility.
+**⚠️ INVARIANT:** All built-in filter policies (Bloom, Ribbon) can read each other's filters via shared `CompatibilityName() == "rocksdb.BuiltinBloomFilter"`. However, this does not guarantee blanket cross-version forward compatibility: Ribbon filters are only readable by RocksDB >= 6.15.0. Older versions treat unknown filter types as always-true (no filtering, degraded performance until compaction rebuilds filters).
 
 ## Bloom Filter Implementations
 
@@ -86,13 +86,13 @@ for (int i = 0; i < num_probes; ++i, h *= 0x9e3779b9) {
 }
 ```
 
-**Query operation (AVX2 path):** Processes 8 probes per SIMD instruction, achieving ~0.9x latency vs. legacy Bloom with 1.1x FP rate tradeoff.
+**Query operation (AVX2 path):** Processes 8 probes per SIMD instruction for fast filter queries.
 
-**⚠️ INVARIANT:** Filter size must be aligned to 64 bytes (cache line size). Hash functions use golden ratio `0x9e3779b9` for uniform distribution.
+**⚠️ INVARIANT:** Filter payload size must be aligned to 64 bytes (cache line size); the total encoded filter is `aligned_payload + 5` bytes (trailer). Hash functions use golden ratio `0x9e3779b9` for uniform distribution.
 
 ### LegacyBloom (Deprecated)
 
-LegacyNoLocalityBloomImpl ([bloom_impl.h](../../util/bloom_impl.h:347-386)) scatters probes across the entire filter:
+LegacyLocalityBloomImpl ([bloom_impl.h](../../util/bloom_impl.h:388-449)) scatters probes across the filter with some locality via cache-line-sized blocks. `LegacyNoLocalityBloomImpl` ([bloom_impl.h](../../util/bloom_impl.h:347-386)) is only used for `ChooseNumProbes()` computation, not as the SST filter format:
 
 ```
 Filter (arbitrary size in bits)
@@ -104,7 +104,7 @@ Filter (arbitrary size in bits)
    Cache misses on every probe → slow
 ```
 
-**⚠️ DO NOT REUSE:** No cache locality, 10x+ slower than FastLocalBloom. Kept only for reading old SST files.
+**⚠️ DO NOT REUSE:** Much slower than FastLocalBloom. Still actively built by `NewBloomFilterPolicy()` when `BlockBasedTableOptions::format_version < 5`; only format_version >= 5 uses FastLocalBloom.
 
 ## Ribbon Filter (Space-Efficient Alternative)
 
@@ -196,8 +196,11 @@ SST File Layout
 BlockBasedTableOptions table_options;
 table_options.filter_policy.reset(NewBloomFilterPolicy(10.0));
 table_options.partition_filters = true;
+table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;  // Required
 table_options.metadata_block_size = 4096;  // Partition size target
 ```
+
+**⚠️ NOTE:** `partition_filters` requires `index_type = kTwoLevelIndexSearch`. If set with another index type (e.g., `kHashSearch`), `partition_filters` is silently sanitized to `false` ([block_based_table_factory.cc](../../table/block_based/block_based_table_factory.cc:489-494)).
 
 **⚠️ INVARIANT:** Partitioned filters must include the prefix of the first key in the next partition to support prefix `Seek` across partition boundaries ([partitioned_filter_block.cc](../../table/block_based/partitioned_filter_block.cc:103-125)).
 
@@ -263,12 +266,20 @@ void FullFilterBlockBuilder::Add(const Slice& key) {
 
 ### Partitioned Filter Construction
 
-`PartitionedFilterBlockBuilder` ([table/block_based/partitioned_filter_block.cc](../../table/block_based/partitioned_filter_block.cc:24-346)) cuts filter partitions based on key count:
+`PartitionedFilterBlockBuilder` ([table/block_based/partitioned_filter_block.cc](../../table/block_based/partitioned_filter_block.cc:24-346)) cuts filter partitions based on key count or index coordination:
 
 ```cpp
 bool PartitionedFilterBlockBuilder::DecideCutAFilterBlock() {
-  size_t added = filter_bits_builder_->EstimateEntriesAdded();
-  return added >= keys_per_partition_;
+  if (decouple_from_index_partitions_) {
+    // Independent size-driven partitioning (default)
+    return filter_bits_builder_->EstimateEntriesAdded() >= keys_per_partition_;
+  } else {
+    // Coupled: coordinate with index partition builder
+    if (added >= keys_per_partition_) {
+      p_index_builder_->RequestPartitionCut();
+    }
+    return p_index_builder_->ShouldCutFilterBlock();
+  }
 }
 
 void PartitionedFilterBlockBuilder::CutAFilterBlock(...) {
@@ -291,6 +302,8 @@ void PartitionedFilterBlockBuilder::CutAFilterBlock(...) {
 ```
 
 **⚠️ INVARIANT:** Each partition must include prefixes from adjacent partitions to ensure Seek/SeekForPrev correctness across partition boundaries.
+
+**Partition boundary control:** `BlockBasedTableOptions::decouple_partitioned_filters` (default `true`, deprecated) controls whether filter partitions are cut independently based on `metadata_block_size` or coupled to the partitioned index builder. When decoupled (default), each metadata block type hits its target size more accurately ([table.h](../../include/rocksdb/table.h:459-477)).
 
 ## Filter Querying
 
@@ -390,30 +403,52 @@ bool PartitionedFilterBlockReader::MayMatch(const Slice& key, ...) {
 Filters are stored as meta-blocks in the block-based table format (see [docs/components/sst_table_format.md](sst_table_format.md)):
 
 ```
-Block-Based Table File
+Block-Based Table File (Full Filter)
 ┌─────────────────────────────────────────┐
-│  Data Block 1                           │
-│  Data Block 2                           │
-│  ...                                    │
-│  Data Block N                           │
+│  Data Block 1 ... Data Block N          │
 ├─────────────────────────────────────────┤
-│  Meta Block: "filter.<policy_name>"    │ ◄─── Full filter or partition
-│  Meta Block: "filter.<policy_name>.1"  │ ◄─── Additional partitions
-│  Meta Block: "filter.<policy_name>.2"  │
+│  Meta Block: full filter data           │
 ├─────────────────────────────────────────┤
-│  Metaindex Block                        │ ──► Points to meta blocks by name
+│  Metaindex Block                        │ ──► "fullfilter.<CompatibilityName()>" → filter handle
 ├─────────────────────────────────────────┤
 │  Index Block                            │
 ├─────────────────────────────────────────┤
-│  Footer (BlockHandle to index/metaindex)│
+│  Footer                                 │
+└─────────────────────────────────────────┘
+
+Block-Based Table File (Partitioned Filter)
+┌─────────────────────────────────────────┐
+│  Data Block 1 ... Data Block N          │
+├─────────────────────────────────────────┤
+│  Filter Partition 1 (kFilter block)     │
+│  Filter Partition 2 (kFilter block)     │
+│  ...                                    │
+│  Top-level filter index                 │
+├─────────────────────────────────────────┤
+│  Metaindex Block                        │ ──► "partitionedfilter.<CompatibilityName()>" → top-level index handle
+├─────────────────────────────────────────┤
+│  Index Block                            │
+├─────────────────────────────────────────┤
+│  Footer                                 │
 └─────────────────────────────────────────┘
 ```
 
-**Filter metadata trailer** (5 bytes, [filter_policy.cc](../../table/block_based/filter_policy.cc:43-49)):
-- Byte 0: Implementation marker (e.g., `0x01` = FastLocalBloom)
-- Bytes 1-4: Format-specific metadata (e.g., num_probes for Bloom, unused for Ribbon)
+The metaindex entry names use distinct prefixes ([block_based_table_builder.cc](../../table/block_based/block_based_table_builder.cc:2355-2361)):
+- Full filter: `"fullfilter.<CompatibilityName()>"` (e.g., `"fullfilter.rocksdb.BuiltinBloomFilter"`)
+- Partitioned filter: `"partitionedfilter.<CompatibilityName()>"` — points to the top-level index; individual partitions are regular `kFilter` blocks behind this handle, not separately named meta blocks
+- Obsolete (old block-based filter): `"filter.<CompatibilityName()>"` — readers fall back to this for pre-full-filter SST files
 
-**⚠️ INVARIANT:** The meta-block name format is `"filter.<FilterPolicy::CompatibilityName()>"`. All built-in policies use `"filter.rocksdb.BuiltinBloomFilter"` for cross-compatibility.
+**Filter metadata trailer** (5 bytes appended after filter payload, [filter_policy.cc](../../table/block_based/filter_policy.cc:43-50)):
+
+| Filter Type | Byte 0 | Byte 1 | Byte 2 | Bytes 3-4 |
+|---|---|---|---|---|
+| Legacy Bloom (format_version < 5) | `num_probes` (1-127) | `num_lines` (uint32 LE, bytes 1-4) | ← | ← |
+| FastLocalBloom (format_version >= 5) | `-1` (0xFF) | sub-impl (`0` = FastLocalBloom) | block_and_probes (top 3 bits = log2(block_bytes)-6, bottom 5 bits = num_probes) | reserved (0) |
+| Ribbon | `-2` (0xFE) | seed (uint8) | `num_blocks` (24-bit LE, bytes 2-4) | ← |
+
+Byte 0 acts as a discriminator: positive = legacy Bloom, `-1` = newer Bloom, `-2` = Ribbon, `0` = always-FP, other negatives = reserved (treated as always-FP for forward compatibility).
+
+**⚠️ INVARIANT:** All built-in policies share `CompatibilityName() == "rocksdb.BuiltinBloomFilter"`. The reader dispatches on the trailer byte, not the meta-block name.
 
 ## Prefix Bloom Filtering
 
@@ -455,10 +490,10 @@ void FullFilterBlockBuilder::Add(const Slice& key) {
 ```
 
 **Query path:**
-- `Get(key)` → checks whole key via `KeyMayMatch()`
+- `Get(key)` → checks whole key via `KeyMayMatch()`; with `whole_key_filtering=false`, falls through to check prefix via `PrefixMayMatch()` for in-domain keys when the extractor matches
 - `Seek(prefix)` → checks prefix via `PrefixMayMatch()`
 
-**⚠️ INVARIANT:** `prefix_extractor` must be consistent across writes and reads. Changing it invalidates existing filters.
+**⚠️ INVARIANT:** RocksDB preserves correctness when `prefix_extractor` changes: on table open, it reconstructs the SST's original prefix extractor from table properties and only uses prefix filters when the current extractor is known compatible. When incompatible, filters are skipped (degraded performance, not incorrect results). Compaction rebuilds filters with the current extractor ([block_based_table_reader.cc](../../table/block_based/block_based_table_reader.cc:918-944)).
 
 ## Filter Caching
 
@@ -487,7 +522,7 @@ std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
 }
 ```
 
-**Pinning:** `pin=true` keeps the filter in memory for the table's lifetime, avoiding cache eviction. Enabled via `cache_index_and_filter_blocks_with_high_priority=true`.
+**Pinning:** `pin=true` keeps the filter in memory for the table's lifetime, avoiding cache eviction. Pinning is controlled by `MetadataCacheOptions` (modern) or the deprecated `pin_l0_filter_and_index_blocks_in_cache` / `pin_top_level_index_and_filter` booleans. Note: `cache_index_and_filter_blocks_with_high_priority` only affects cache eviction **priority** (not pinning) — it makes filters less likely to be evicted than data blocks but does not pin them.
 
 ### Partitioned Filter Caching
 
@@ -518,11 +553,25 @@ Status PartitionedFilterBlockReader::CacheDependencies(..., bool pin, ...) {
 }
 ```
 
-**⚠️ INVARIANT:** Pinned partitions are stored in `filter_map_` to prevent eviction. Unpinning on table close requires calling `EraseFromCacheBeforeDestruction()`.
+**⚠️ INVARIANT:** Pinned partitions are stored in `filter_map_` to prevent eviction. On table close, `CachableEntry` destructors release their cache handle references normally. `EraseFromCacheBeforeDestruction()` is only invoked when `uncache_aggressiveness > 0`, which aggressively erases (not just unpins) cache entries on table destruction ([partitioned_filter_block.cc](../../table/block_based/partitioned_filter_block.cc:686-729)).
 
 ## Memtable Bloom Filter (DynamicBloom)
 
-Memtables use `DynamicBloom` ([util/dynamic_bloom.h](../../util/dynamic_bloom.h:34-215)) for prefix-based filtering, reducing lookups in large memtables.
+Memtables can optionally use `DynamicBloom` ([util/dynamic_bloom.h](../../util/dynamic_bloom.h:34-215)) for filtering, reducing lookups in large memtables. This is **not enabled by default** — it requires setting `memtable_prefix_bloom_size_ratio > 0`.
+
+### Configuration
+
+```cpp
+Options options;
+// Enable memtable bloom (default 0.0 = disabled)
+options.memtable_prefix_bloom_size_ratio = 0.1;
+// Optional: enable whole-key filtering in memtable bloom (default false)
+options.memtable_whole_key_filtering = true;
+// prefix_extractor enables prefix-based filtering
+options.prefix_extractor.reset(NewFixedPrefixTransform(8));
+```
+
+The bloom includes prefixes (if `prefix_extractor` is set), whole keys (if `memtable_whole_key_filtering` is true), or both. If neither is set, the feature is disabled even with `memtable_prefix_bloom_size_ratio > 0`.
 
 ### Characteristics
 
@@ -542,8 +591,9 @@ class DynamicBloom {
 **Key differences from SST filters:**
 - **Concurrent writes:** Uses `std::atomic` with relaxed memory ordering
 - **Non-persistent:** Only in-memory, never serialized
-- **Prefix-only:** Memtables only filter by prefix, not whole key
+- **Prefix and/or whole-key:** Includes prefixes (if `prefix_extractor` set), whole keys (if `memtable_whole_key_filtering` true), or both
 - **Fixed size:** Allocated upfront based on memtable size
+- **Optional:** Disabled by default; requires `memtable_prefix_bloom_size_ratio > 0`
 
 ### Implementation Details
 
@@ -628,19 +678,34 @@ table_options.whole_key_filtering = true;
 options.prefix_extractor.reset(NewFixedPrefixTransform(8));
 ```
 
-**⚠️ INVARIANT:** Prefix-only filtering (`whole_key_filtering=false`) breaks point lookup correctness for keys outside `prefix_extractor->InDomain()`. Only use when all queries are prefix-based.
+**⚠️ INVARIANT:** With `whole_key_filtering=false`, `Get()` can still use prefix filters for in-domain keys when the prefix extractor matches the one used at SST build time. Out-of-domain keys will not benefit from filtering (no filter check, always reads SST).
+
+### Advanced Filter Options
+
+**`optimize_filters_for_memory`** (default `true`, [table.h](../../include/rocksdb/table.h:512)): Adjusts filter sizes to minimize internal memory fragmentation (using `malloc_usable_size`). Saves ~10% memory footprint at cost of ~1-2% more disk usage. Requires `format_version >= 5`. This changes filter sizing, which can slightly affect FP rate variance.
+
+**`detect_filter_construct_corruption`** (default `false`, [table.h](../../include/rocksdb/table.h:558)): Verifies filter construction integrity for Bloom (format_version >= 5) and Ribbon filters. Increases construction time by ~30%. Useful for detecting software bugs or hardware malfunctions during filter construction.
+
+**Ribbon fallback to Bloom:** Ribbon construction can fall back to FastLocalBloom under three conditions ([filter_policy.cc](../../table/block_based/filter_policy.cc:695-763)):
+1. Filter is too small for Ribbon (too few keys)
+2. Memory reservation fails (cache reservation limit exceeded)
+3. All 256 seed attempts fail to solve the linear system (~extremely rare)
+
+This fallback is transparent — the resulting filter is a valid FastLocalBloom and readers handle it automatically via the trailer byte discriminator.
 
 ## Filter Metrics and Monitoring
 
 RocksDB tracks filter performance through two systems: Statistics and PerfContext.
 
-### Statistics Counters ([monitoring/statistics.h](../../monitoring/statistics.h))
+### Statistics Counters ([include/rocksdb/statistics.h](../../include/rocksdb/statistics.h))
 
 ```cpp
-BLOOM_FILTER_USEFUL        // SST filters avoided disk read (true negative)
-BLOOM_FILTER_FULL_POSITIVE // Filter said "present" but key not found (false positive)
-MEMTABLE_HIT               // Key found in memtable
-MEMTABLE_MISS              // Key not in memtable
+BLOOM_FILTER_USEFUL             // SST filters avoided disk read (true negative)
+BLOOM_FILTER_FULL_POSITIVE      // Filter said "present" for whole-key check (ALL positives: true + false)
+BLOOM_FILTER_FULL_TRUE_POSITIVE // Filter said "present" AND key actually found (true positive only)
+BLOOM_FILTER_PREFIX_CHECKED     // Prefix filter checks
+BLOOM_FILTER_PREFIX_USEFUL      // Prefix filter avoided read (true negative)
+BLOOM_FILTER_PREFIX_TRUE_POSITIVE // Prefix filter true positive
 ```
 
 ### PerfContext Counters ([include/rocksdb/perf_context.h](../../include/rocksdb/perf_context.h))
@@ -654,7 +719,8 @@ bloom_memtable_miss_count    // Memtable filter said "definitely not present"
 
 **Monitoring effective FP rate:**
 ```
-Actual FP Rate = BLOOM_FILTER_FULL_POSITIVE / (BLOOM_FILTER_USEFUL + BLOOM_FILTER_FULL_POSITIVE)
+False Positives = BLOOM_FILTER_FULL_POSITIVE - BLOOM_FILTER_FULL_TRUE_POSITIVE
+Actual FP Rate = False Positives / (BLOOM_FILTER_USEFUL + BLOOM_FILTER_FULL_POSITIVE)
 Filter Efficiency = BLOOM_FILTER_USEFUL / total_Get_calls
 ```
 
@@ -662,7 +728,7 @@ Filter Efficiency = BLOOM_FILTER_USEFUL / total_Get_calls
 
 ### 1. Changing prefix_extractor
 
-**Problem:** Filters are built with one `prefix_extractor`, reads use another.
+**Problem:** Filters are built with one `prefix_extractor`, reads use another. RocksDB handles this safely by skipping filters when the extractor is incompatible, but this degrades performance.
 
 ```cpp
 // Build SSTs with prefix length 8
@@ -671,26 +737,28 @@ db->Open(...);
 db->Put("key12345678", "value");
 db->Flush();
 
-// Read with prefix length 4 (WRONG!)
+// Read with prefix length 4 — filter is skipped (no false negative),
+// but no filter benefit either until compaction rebuilds filters
 options.prefix_extractor.reset(NewFixedPrefixTransform(4));
-db->Get("key12345678");  // Filter miss, but key exists → false negative!
+db->Get("key12345678");  // Correct but slower — filter not used
 ```
 
-**Solution:** Never change `prefix_extractor` on existing data. Use compaction to rebuild filters.
+**Solution:** Use compaction to rebuild filters with the new extractor. Avoid changing `prefix_extractor` frequently.
 
 ### 2. Disabling whole_key_filtering with point queries
 
-**Problem:** Point lookups (`Get`) need whole-key filtering, but it's disabled.
+**Problem:** Point lookups (`Get`) with `whole_key_filtering=false` cannot use whole-key filter checks, but can still use prefix filters for in-domain keys. Out-of-domain keys get no filter benefit.
 
 ```cpp
 table_options.whole_key_filtering = false;  // Prefix-only
 options.prefix_extractor.reset(NewFixedPrefixTransform(8));
 
 db->Put("key00000000", "value");
-db->Get("key00000000");  // No filter check! Always reads SST.
+db->Get("key00000000");  // Uses prefix filter (key is in domain)
+db->Get("short", ...);   // No filter check (key not in prefix domain)
 ```
 
-**Solution:** Keep `whole_key_filtering=true` for mixed workloads.
+**Solution:** Keep `whole_key_filtering=true` for mixed workloads to benefit from both whole-key and prefix filtering.
 
 ### 3. Over-pinning filters
 
@@ -719,6 +787,7 @@ table_options.cache_index_and_filter_blocks = false;  // Pinned in table reader
 ## Related Documentation
 
 - [SST Table Format](sst_table_format.md) - How filters fit into block-based table structure
-- [Read Path](flush_and_read_path.md) - When and how filters are consulted during reads
+- [Read Path](read_flow.md) - When and how filters are consulted during reads
+- [Flush](flush.md) - How filters are built during flush
 - [Cache](cache.md) - Filter block caching and pinning strategies
 - [ARCHITECTURE.md](../../ARCHITECTURE.md) - High-level overview of RocksDB components

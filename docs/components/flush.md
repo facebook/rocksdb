@@ -2,7 +2,7 @@
 
 ## Overview
 
-The flush subsystem converts in-memory write buffers (MemTables) into persistent L0 SST files. This document describes flush triggers, memtable selection, the FlushJob lifecycle, atomic flush, pipelined write-flush concurrency, scheduling, commit protocol, and error handling.
+The flush subsystem converts in-memory write buffers (MemTables) into persistent L0 SST files (and optionally blob files). This document describes flush triggers, memtable selection, the FlushJob lifecycle, atomic flush, pipelined write-flush concurrency, scheduling, commit protocol, and error handling.
 
 ### High-Level Flush Flow
 
@@ -48,19 +48,27 @@ The flush subsystem converts in-memory write buffers (MemTables) into persistent
 │  │      - BuildTable() → output SST file      │           │
 │  │      - Re-acquire db_mutex                 │           │
 │  │      - TryInstallMemtableFlushResults()    │           │
+│  │        (called on MemTableList, not a     │           │
+│  │         FlushJob method)                  │           │
 │  └────────────────────────────────────────────┘           │
 │  ┌────────────────────────────────────────────┐           │
-│  │ 3. TryInstallMemtableFlushResults()        │           │
+│  │ 3. Caller: Install results                │           │
 │  │    • Commit VersionEdit to MANIFEST        │           │
 │  │    • Remove flushed memtables from imm     │           │
-│  │    • Install new SuperVersion              │           │
+│  │    • Install new SuperVersion (in caller   │           │
+│  │      FlushMemTableToOutputFile, not in     │           │
+│  │      TryInstallMemtableFlushResults)       │           │
 │  └────────────────────────────────────────────┘           │
 └────────────────┬───────────────────────────────────────────┘
                  │
                  v
 ┌────────────────────────────────────────────────────────────┐
-│  L0 SST FILES                                              │
-│  • Overlapping key ranges (within and across files)        │
+│  FLUSH OUTPUT                                              │
+│  • L0 SST files (overlapping key ranges within and across) │
+│  • Blob files (when BlobDB / integrated blob storage is    │
+│    enabled)                                                │
+│  • No output file if MemPurge succeeds or if flush output  │
+│    is empty (meta_.fd.GetFileSize() == 0)                  │
 │  • Triggers compaction when L0 file count is high          │
 └────────────────────────────────────────────────────────────┘
 ```
@@ -75,14 +83,18 @@ Flushes are triggered by multiple conditions, categorized by `FlushReason`:
 
 | FlushReason | Description | Trigger Condition |
 |-------------|-------------|-------------------|
-| `kWriteBufferFull` | MemTable size exceeds limit | Active memtable size ≥ `write_buffer_size` |
+| `kWriteBufferFull` | MemTable size exceeds limit | `ShouldFlushNow()` returns true: arena-allocation heuristic based on `write_buffer_size`, explicit `MarkForFlush()` (e.g., from iterators), or `memtable_max_range_deletions` exceeded |
 | `kWriteBufferManager` | Global memory limit | Total memory across all CFs ≥ `db_write_buffer_size` or `WriteBufferManager` limit |
 | `kWalFull` | WAL size limit | Total WAL size ≥ `max_total_wal_size` |
 | `kManualFlush` | User-initiated | `DB::Flush()` called |
 | `kShutDown` | Database closing | `DB::Close()` or destructor |
 | `kExternalFileIngestion` | Ingest files to L0 | Before ingesting external SST files |
 | `kErrorRecovery` | Recovering from error | ErrorHandler recovery sequence |
-| `kAutoCompaction` | Compaction needs flush | Compaction requires fresher L0 files |
+| `kGetLiveFiles` | Get live files snapshot | `DB::GetLiveFiles()` requires flushing |
+| `kManualCompaction` | Manual compaction needs flush | Before manual compaction if memtable has data |
+| `kDeleteFiles` | Delete files operation | `DB::DeleteFile()` requires flushing |
+| `kErrorRecoveryRetryFlush` | Retry flush during recovery | ErrorHandler retries failed flush |
+| `kCatchUpAfterErrorRecovery` | Catch up after recovery | Flush CFs that advanced during recovery |
 
 ### Key Configuration Parameters
 
@@ -92,17 +104,19 @@ Flushes are triggered by multiple conditions, categorized by `FlushReason`:
 // Per-CF limit: flush when active memtable exceeds this size
 size_t write_buffer_size = 64 << 20;  // 64 MB
 
-// Max number of immutable memtables before blocking writes
+// Max number of write buffers (active + immutable) in memory
 int max_write_buffer_number = 2;
 
 // Global limit: flush across all CFs when total exceeds this
 size_t db_write_buffer_size = 0;  // 0 = disabled
 
-// WAL size limit: flush oldest-WAL column families when exceeded
-uint64_t max_total_wal_size = 0;  // 0 = disabled
+// WAL size limit: flush oldest-WAL column families when exceeded.
+// Only takes effect with more than one column family.
+// 0 = dynamic limit (4 * total in-memory write buffer size)
+uint64_t max_total_wal_size = 0;
 ```
 
-⚠️ **INVARIANT:** `max_write_buffer_number` must be ≥ 2 to allow pipelined write and flush. With `max_write_buffer_number = 1`, writes would block during every flush.
+⚠️ **NOTE:** `max_write_buffer_number` is the total number of write buffers (active + immutable) allowed in memory. The default of 2 allows one active memtable and one immutable memtable being flushed concurrently. A value of 1 is accepted but means writes block during every flush.
 
 ### Flush Decision Logic
 
@@ -110,8 +124,8 @@ uint64_t max_total_wal_size = 0;  // 0 = disabled
 
 When a write triggers a flush:
 
-1. **MemTable full check:** After inserting into the active memtable, `PreprocessWrite()` checks if `mem->ShouldScheduleFlush()` returns true (memory usage ≥ `write_buffer_size`).
-2. **Schedule flush:** If triggered, `flush_scheduler_.ScheduleWork(cfd)` marks the CF for flush.
+1. **MemTable full check:** During memtable insertion, `MemTable::Add()` calls `UpdateFlushState()` which evaluates `ShouldFlushNow()`. Then `WriteBatchInternal::MemTableInserter::CheckMemtableFull()` checks `ShouldScheduleFlush()` and enqueues the CF to `flush_scheduler_`.
+2. **Drain scheduler:** In `PreprocessWrite()`, `flush_scheduler_` is drained if non-empty, calling `ScheduleFlushes()`.
 3. **Switch memtable:** `ScheduleFlushes()` calls `SwitchMemtable(cfd)` to freeze the active memtable and create a new one.
 4. **Enqueue flush request:** `GenerateFlushRequest()` + `EnqueuePendingFlush()` adds the flush to `unscheduled_flushes_`.
 5. **Schedule background work:** `MaybeScheduleFlushOrCompaction()` schedules `BGWorkFlush()` on the HIGH priority thread pool.
@@ -161,7 +175,7 @@ if (!atomic_flush || num_flush_not_started_ == 0) {
 }
 ```
 
-For atomic flush, the request is only considered complete when **all** column families have selected their memtables (i.e., `num_flush_not_started_ == 0` globally).
+For atomic flush, `flush_requested_` is only cleared for this CF's immutable list when `num_flush_not_started_ == 0` for that CF (it is a per-`MemTableList` counter, not a global check across all CFs).
 
 ---
 
@@ -175,7 +189,7 @@ A `FlushJob` instance handles flushing one column family. It has a three-phase l
 |-------|------------|-------------|
 | **PickMemTable()** | Yes | Select memtables, allocate file number, ref `Version` |
 | **Run()** | Yes (released during I/O) | Execute MemPurge or WriteLevel0Table, then install results |
-| **Cancel()** | Yes | Abort flush, unref `Version`, rollback memtable state |
+| **Cancel()** | Yes | Abort flush, unref `Version` (`base_->Unref()`). Does **not** rollback memtable flush flags; rollback is done by `RollbackMemtableFlush()` in `Run()` on error |
 
 ⚠️ **INVARIANT:** Once `PickMemTable()` is called, either `Run()` or `Cancel()` **must** be called. Failure to do so leaks the ref'd `Version` and leaves memtables in `flush_in_progress_` state.
 
@@ -241,11 +255,18 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
   db_mutex_->AssertHeld();
 
   // Try MemPurge (experimental in-memory GC)
-  if (ShouldAttemptMemPurge()) {
+  // Inline condition (no ShouldAttemptMemPurge() helper):
+  //   mempurge_threshold > 0.0 && flush_reason == kWriteBufferFull
+  //   && !mems_.empty() && !atomic_flush && MemPurgeDecider(threshold)
+  if (mempurge_eligible) {
     Status s = MemPurge();
     if (s.ok()) {
       *switched_to_mempurge = true;
-      return s;  // MemPurge succeeded, no SST file created
+      base_->Unref();
+      // Still calls TryInstallMemtableFlushResults(..., write_edits=false)
+      // to remove old memtables and install the mempurged memtable
+      s = cfd_->imm()->TryInstallMemtableFlushResults(..., write_edits=false);
+      return s;
     }
     // MemPurge failed, fall through to WriteLevel0Table
   }
@@ -300,22 +321,24 @@ WriteLevel0Table()
     1. Release db_mutex (I/O cannot hold mutex)
     |
     2. Create iterators:
-    |    • Point iterators (one per memtable via MemTableListVersion::AddIterators)
-    |    • Range tombstone iterators (via AddRangeTombstoneIterators)
+    |    • Point iterators (one per memtable via m->NewIterator())
+    |    • Range tombstone iterators (via m->NewRangeTombstoneIterator())
+    |    • (iterators created directly on each memtable, not via AddIterators helpers)
     |
     3. Merge via MergingIterator (memtables already sorted by key)
     |
     4. BuildTable(iterators, &meta_, ...)
-    |    • Opens TableBuilder (BlockBasedTableBuilder)
+    |    • Opens TableBuilder (via configured table_factory->NewTableBuilder())
     |    • Iterates merged stream, calls builder->Add(key, value)
     |    • Finalizes: builder->Finish(), file->Sync(), file->Close()
     |    • Populates meta_ with file size, key range, seqno range
+    |    • May also create blob files when BlobDB is enabled
     |
     5. Re-acquire db_mutex
     |
     6. Update edit_:
     |    • edit_->AddFile(level=0, meta_)
-    |    • edit_->SetLogNumber(max_next_log_number)
+    |    • (edit_->SetLogNumber() already set in PickMemTable(), not here)
 ```
 
 **Key concurrency detail:** The mutex is released during `BuildTable()` to allow concurrent writes. Other threads can:
@@ -323,6 +346,8 @@ WriteLevel0Table()
 - Insert into the active memtable
 - Switch memtables and create new immutable memtables
 - Schedule other flushes
+
+**WAL Sync Step:** For multi-CF DBs and/or 2PC, RocksDB syncs closed WALs before flush (`SyncClosedWals()`) and may apply WAL-tracking edits to the MANIFEST so persisted WAL state is at least as new as persisted SST state. This happens in `FlushMemTableToOutputFile()` / `AtomicFlushMemTablesToOutputFiles()` before `FlushJob::Run()` is called.
 
 ⚠️ **INVARIANT:** While the mutex is released during `WriteLevel0Table()`, the memtables in `mems_` are marked `flush_in_progress_ = true` and ref'd, preventing deletion or modification.
 
@@ -365,17 +390,18 @@ bool atomic_flush = false;
 
 When `atomic_flush = true`:
 
-- All CFs with pending immutable memtables are flushed together
+- `SelectColumnFamiliesForAtomicFlush()` selects CFs to flush, which can include CFs with non-empty mutable memtables (not just those with pending immutable memtables)
+- Each request captures a per-CF `max_memtable_id` so newer memtables created later are intentionally excluded
 - A single `VersionEdit` batch is written to the MANIFEST
 - Either all flushes succeed and are visible, or none are
 
 ### Atomic Flush Workflow
 
 ```cpp
-// db/db_impl/db_impl_compaction_flush.cc:BackgroundFlush()
+// db/db_impl/db_impl_compaction_flush.cc:AtomicFlushMemTablesToOutputFiles()
+// (NOT inlined in BackgroundFlush; called as a separate function)
 
-if (db_options_.atomic_flush) {
-  // Flush all CFs atomically
+Status DBImpl::AtomicFlushMemTablesToOutputFiles(...) {
   autovector<ColumnFamilyData*> cfds;
   autovector<FlushJob*> jobs;
 
@@ -385,16 +411,22 @@ if (db_options_.atomic_flush) {
     jobs.back()->PickMemTable();
   }
 
-  // Phase 2: Run all flush jobs (I/O happens concurrently)
+  // Phase 2: Run all flush jobs sequentially on one thread
+  // (TODO: parallelize jobs with threads -- not yet implemented)
   for (auto job : jobs) {
     s = job->Run(...);
     if (!s.ok()) break;
   }
 
-  // Phase 3: Install results atomically
+  // Phase 3: Wait for turn to commit (ordered by atomic_flush_install_cv_)
+  // then install results atomically
   if (s.ok()) {
-    s = InstallMemtableAtomicFlushResults(
-        lists, cfds, to_delete, db_directory_, log_buffer_);
+    s = InstallMemtableAtomicFlushResults(...);
+    // SuperVersion installation happens here in the caller,
+    // after InstallMemtableAtomicFlushResults() returns
+    for (auto cfd : cfds) {
+      InstallSuperVersionAndScheduleWork(cfd, ...);
+    }
   }
 }
 ```
@@ -422,11 +454,12 @@ Status InstallMemtableAtomicFlushResults(
 **Algorithm:**
 
 1. **Mark all memtables as `flush_completed_ = true`**
-2. **Check commit_in_progress:** If another thread is already committing, return (this thread's results will be picked up later)
-3. **Collect all completed flush edits:** Iterate all CFs and gather `VersionEdit`s from memtables where `flush_completed_ == true`
-4. **Single MANIFEST write:** Call `vset->LogAndApply(all_edits)` atomically
-5. **Remove flushed memtables:** For each CF, remove memtables from the immutable list and add to `to_delete`
-6. **Install new SuperVersion:** Call `InstallSuperVersionAndScheduleWork()` for each CF
+2. **Collect all completed flush edits:** Iterate all CFs and gather `VersionEdit`s from memtables where `flush_completed_ == true`
+3. **Single MANIFEST write:** Call `vset->LogAndApply(all_edits)` atomically
+4. **Remove flushed memtables:** For each CF, remove memtables from the immutable list and add to `to_delete`
+5. **Return to caller:** SuperVersion installation happens in the caller (`AtomicFlushMemTablesToOutputFiles`) via `InstallSuperVersionAndScheduleWork()` for each CF
+
+**Note:** Ordering for atomic install is handled by the caller waiting on `atomic_flush_install_cv_` until its batch is the oldest pending. `InstallMemtableAtomicFlushResults()` does **not** check `commit_in_progress` or install SuperVersions itself.
 
 ⚠️ **INVARIANT:** All CFs in an atomic flush must commit together via a single `LogAndApply()` call. Partial commits violate atomicity.
 
@@ -465,7 +498,7 @@ Time  │ Active MemTable │ Immutable MemTables │ Flush Job
 - At `t2`, the flush thread releases the mutex and performs I/O. Writes continue to `mem_B`
 - At `t3`, if `mem_B` fills, writes switch to `mem_C`. Now there are 2 immutable memtables: `mem_B` (pending flush) and `mem_A` (flushing)
 
-⚠️ **INVARIANT:** If `max_write_buffer_number = N`, then at most `N - 1` memtables can be immutable (flushing or pending flush) at any time. When `N` immutable memtables exist, writes **stall** until flush completes.
+⚠️ **INVARIANT:** If `max_write_buffer_number = N`, then at most `N - 1` memtables can be immutable (flushing or pending flush) at any time. Write stall checks count active (if non-empty) + immutable memtables via `GetUnflushedMemTableCountForWriteStallCheck()`. When this count reaches `N`, writes **stall** until flush completes.
 
 ### Write Stall Conditions
 
@@ -475,10 +508,12 @@ The `WriteController` enforces stalls and slowdowns when flush/compaction falls 
 
 | Condition | Action |
 |-----------|--------|
-| `num_unflushed_memtables ≥ max_write_buffer_number` | **STOP**: Block writes until flush completes |
+| `num_unflushed_memtables ≥ max_write_buffer_number` | **STOP**: Block writes until flush completes. `num_unflushed_memtables` = active (if non-empty) + immutable count via `GetUnflushedMemTableCountForWriteStallCheck()` |
 | `max_write_buffer_number > 3` AND<br>`num_unflushed_memtables ≥ max_write_buffer_number - 1` AND<br>`num_unflushed_memtables - 1 ≥ min_write_buffer_number_to_merge` | **DELAY**: Slow down writes to `delayed_write_rate` |
-| `num_l0_files ≥ level0_stop_writes_trigger` (default: 36) | **STOP**: Block writes until compaction reduces L0 files |
-| `num_l0_files ≥ level0_slowdown_writes_trigger` (default: 20) | **DELAY**: Slow down writes to `delayed_write_rate` |
+| `num_l0_files ≥ level0_stop_writes_trigger` (default: 36) | **STOP**: Block writes (only when `disable_auto_compactions` is false) |
+| `num_l0_files ≥ level0_slowdown_writes_trigger` (default: 20) | **DELAY**: Slow down writes (only when `disable_auto_compactions` is false) |
+| `pending_compaction_bytes ≥ hard_pending_compaction_bytes_limit` | **STOP**: Block writes (only when `disable_auto_compactions` is false) |
+| `pending_compaction_bytes ≥ soft_pending_compaction_bytes_limit` | **DELAY**: Slow down writes (only when `disable_auto_compactions` is false) |
 
 ⚠️ **NOTE:** Memtable-based write delay only activates when `max_write_buffer_number > 3`. With the default value of 2, only STOP occurs when both buffers are full.
 
@@ -531,6 +566,10 @@ MaybeScheduleFlushOrCompaction()
 ### Thread Pool Selection
 
 Flush threads are scheduled on the **HIGH priority** thread pool by default. If the HIGH pool is empty (size = 0), flushes fall back to the **LOW priority** pool (shared with compaction).
+
+### UDT Retention and Flush Rescheduling
+
+When user-defined timestamps (UDT) are enabled with retention, non-atomic flush requests may be rescheduled instead of executed immediately. If the background flush determines that flushing would violate UDT retention guarantees, it returns `Status::TryAgain()`, re-enqueues the flush request, and sleeps briefly to avoid a hot retry loop.
 
 ```cpp
 bool is_flush_pool_empty = env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
@@ -626,7 +665,7 @@ This writes a MANIFEST record containing:
 
 ## 8. SuperVersion Installation
 
-**Files:** `db/db_impl/db_impl.cc:InstallSuperVersionAndScheduleWork()`
+**Files:** `db/db_impl/db_impl_compaction_flush.cc:InstallSuperVersionAndScheduleWork()`
 
 After the flush commits, a new `SuperVersion` is installed to make the new L0 file visible to readers.
 
@@ -643,7 +682,7 @@ Readers acquire a ref to the `SuperVersion`, ensuring they see a consistent view
 ### Installation Sequence
 
 ```
-TryInstallMemtableFlushResults()
+TryInstallMemtableFlushResults()   // MemTableList method
     |
     v
 vset->LogAndApply()  // Update Version (add new L0 file)
@@ -652,7 +691,10 @@ vset->LogAndApply()  // Update Version (add new L0 file)
 VersionSet::AppendVersion(new_version)
     |
     v
-InstallSuperVersionAndScheduleWork(cfd, ...)
+Return to caller (FlushMemTableToOutputFile / AtomicFlushMemTablesToOutputFiles)
+    |
+    v
+InstallSuperVersionAndScheduleWork(cfd, ...)   // Called by the CALLER, not by TryInstall
     |
     +-- Create new SuperVersion:
     |     sv = new SuperVersion(mem, imm->current_, cfd->current())
@@ -678,10 +720,12 @@ The `WriteController` dynamically adjusts write throughput based on flush and co
 
 | Condition | Stall Type | Description |
 |-----------|------------|-------------|
-| `imm_size ≥ max_write_buffer_number` | **STOP** | All immutable slots full; writes blocked until flush completes |
-| `imm_size ≥ max_write_buffer_number - 1` | **DELAY** | One slot left; writes artificially delayed to slow ingestion |
-| `l0_files ≥ level0_stop_writes_trigger` | **STOP** | Too many L0 files; compaction cannot keep up |
-| `l0_files ≥ level0_slowdown_writes_trigger` | **DELAY** | L0 nearing limit; slow down to give compaction time |
+| `num_unflushed ≥ max_write_buffer_number` | **STOP** | All write buffer slots full; writes blocked until flush completes. Count uses `GetUnflushedMemTableCountForWriteStallCheck()` (active if non-empty + immutable) |
+| `num_unflushed ≥ max_write_buffer_number - 1` (when `max_write_buffer_number > 3`) | **DELAY** | One slot left; writes artificially delayed to slow ingestion |
+| `l0_files ≥ level0_stop_writes_trigger` | **STOP** | Too many L0 files; compaction cannot keep up (disabled when `disable_auto_compactions` is true) |
+| `l0_files ≥ level0_slowdown_writes_trigger` | **DELAY** | L0 nearing limit; slow down to give compaction time (disabled when `disable_auto_compactions` is true) |
+| `pending_compaction_bytes ≥ hard limit` | **STOP** | Too much pending compaction work (disabled when `disable_auto_compactions` is true) |
+| `pending_compaction_bytes ≥ soft limit` | **DELAY** | Approaching pending compaction limit (disabled when `disable_auto_compactions` is true) |
 
 ### Flush Urgency: Parallelizing Compaction
 
@@ -740,18 +784,18 @@ Hard errors (MANIFEST corruption, critical metadata loss) trigger:
 | **Single Committer** | Only one thread executes the commit loop in `TryInstallMemtableFlushResults()` at a time (`commit_in_progress_` serialization). |
 | **Flush Without Deletion** | On flush error, memtables are not deleted until successful retry. WAL segments are retained. |
 | **Mutex Release During I/O** | `db_mutex_` is released during `BuildTable()` I/O to allow concurrent writes. Memtables in `mems_` are ref'd and marked `flush_in_progress_` to prevent premature deletion. |
-| **max_write_buffer_number ≥ 2** | At least 2 write buffers required for pipelined write and flush. With 1 buffer, writes block during every flush. |
+| **max_write_buffer_number** | Total write buffers (active + immutable) allowed in memory. Default 2 allows pipelined write and flush. Value of 1 is accepted but writes block during every flush. |
 
 ---
 
 ## Interactions With Other Components
 
-- **Write Path** (see [write_path.md](write_path.md)): Writes trigger flush via `PreprocessWrite()` → `ScheduleFlushes()`. `WriteController` stalls writes when flush falls behind.
+- **Write Path** (see [write_flow.md](write_flow.md)): Writes trigger flush via `PreprocessWrite()` → `ScheduleFlushes()`. `WriteController` stalls writes when flush falls behind.
 - **Version Management** (see [version_management.md](version_management.md)): Flush creates `VersionEdit`, calls `LogAndApply()` to persist to MANIFEST. `SuperVersion` is installed to make new L0 file visible.
-- **SST Format** (see [sst_table_format.md](sst_table_format.md)): `BuildTable()` uses `BlockBasedTableBuilder` to write L0 SST files. Key range and seqno range are recorded in `FileMetaData`.
+- **SST Format** (see [sst_table_format.md](sst_table_format.md)): `BuildTable()` uses the configured `table_factory` (via `NewTableBuilder()`) to write L0 SST files. Key range and seqno range are recorded in `FileMetaData`.
 - **Compaction** (see [compaction.md](compaction.md)): Flush produces L0 files that trigger compaction. L0 → L1 compaction merges overlapping L0 files.
-- **WAL** (see [write_path.md](write_path.md)): Flush allows WAL segments to be deleted. `edit_->SetLogNumber(max_next_log_number)` marks the new min log to keep.
-- **MemTable** (see [write_path.md](write_path.md)): Flush iterates memtable via `MemTable::NewIterator()`. MemTable provides sorted key-value stream.
+- **WAL** (see [write_flow.md](write_flow.md)): Flush allows WAL segments to be deleted. `edit_->SetLogNumber(max_next_log_number)` marks the new min log to keep.
+- **MemTable** (see [write_flow.md](write_flow.md)): Flush iterates memtable via `MemTable::NewIterator()`. MemTable provides sorted key-value stream.
 - **Cache** (see [cache.md](cache.md)): After flush, new L0 file's data blocks are not yet cached. First reads will populate block cache.
 - **DBImpl** (see [db_impl.md](db_impl.md)): `DBImpl` owns flush scheduling, background thread pool, and `ErrorHandler` for flush failure recovery.
 
@@ -765,13 +809,13 @@ Key metrics for flush monitoring:
 
 | Metric | Description | Source |
 |--------|-------------|--------|
-| `rocksdb.num.immutable.mem.table` | Number of immutable memtables (pending flush) | `InternalStats` |
-| `rocksdb.mem.table.flush.pending` | Boolean: is flush pending? | `InternalStats` |
-| `rocksdb.cur.size.all.mem.tables` | Total memory used by active + immutable memtables | `InternalStats` |
+| `rocksdb.num-immutable-mem-table` | Number of immutable memtables (pending flush) | `InternalStats` |
+| `rocksdb.mem-table-flush-pending` | Boolean: is flush pending? | `InternalStats` |
+| `rocksdb.cur-size-all-mem-tables` | Total memory used by active + immutable memtables | `InternalStats` |
 | `FLUSH_WRITE_BYTES` | Total bytes written by flush jobs | `Statistics` |
 | `FLUSH_TIME` | Total time spent in flush jobs (microseconds) | `Statistics` |
-| `OnFlushBegin()` | EventListener callback before flush starts | `EventLogger` |
-| `OnFlushCompleted()` | EventListener callback after flush commits | `EventLogger` |
+| `OnFlushBegin()` | EventListener callback before flush starts | `EventListener` |
+| `OnFlushCompleted()` | EventListener callback after flush commits | `EventListener` |
 
 ---
 
@@ -784,7 +828,7 @@ Key metrics for flush monitoring:
 | Sync Point | Location | Purpose |
 |------------|----------|---------|
 | `FlushJob::FlushJob()` | Constructor | Pause before flush job starts |
-| `FlushJob::WriteLevel0Table:BeforeWaitForCommit` | Before waiting in commit loop | Test FIFO ordering |
+| `DBImpl::AtomicFlushMemTablesToOutputFiles:WaitToCommit` | Before waiting for atomic commit ordering | Test atomic flush commit ordering |
 | `MemTableList::TryInstallMemtableFlushResults:InProgress` | When another thread is committing | Test concurrent flush commit |
 | `MemTableList::TryInstallMemtableFlushResults:AfterComputeMinWalToKeep` | After determining min WAL to keep | Test WAL deletion logic |
 
@@ -821,13 +865,13 @@ MemPurge is under active development. Current limitations:
 - Not compatible with atomic flush
 - Only triggered by `kWriteBufferFull` (not manual flush, shutdown, etc.)
 - Heuristic (`MemPurgeDecider`) may not always predict GC benefit accurately
-- Incompatible with some iterators (ForwardIterator) and compaction filters
+- Compatible with Get/Put/Delete, Iterators, and CompactionFilters
+- Restriction: `CompactionFilter::IgnoreSnapshots() == false` is unsupported
 
 Future work:
 
 - Better heuristics for deciding when to purge
 - Support for atomic flush
-- Integration with compaction filter
 
 ### Tiering and Last-Level Optimization
 
@@ -843,7 +887,7 @@ The flush subsystem is the critical bridge between in-memory writes and durable 
 
 1. **Monitors triggers** (memtable size, global memory, WAL size) to decide when to flush
 2. **Selects memtables** via `PickMemtablesToFlush()` in FIFO order
-3. **Executes FlushJob** to build L0 SST files via `BuildTable()`
+3. **Executes FlushJob** to build L0 SST files (and optionally blob files) via `BuildTable()`
 4. **Commits atomically** via `TryInstallMemtableFlushResults()` → `LogAndApply()` → MANIFEST write
 5. **Supports atomic flush** across multiple column families for transactional consistency
 6. **Allows pipelined writes** during flush to avoid blocking ingestion

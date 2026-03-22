@@ -123,7 +123,7 @@ class EventListener : public Customizable {
 
 ### OnFlushCompleted
 
-**Triggered when:** A memtable flush completes successfully (or fails)
+**Triggered when:** A memtable flush completes successfully
 
 **Thread context:** RocksDB background flush thread
 
@@ -167,7 +167,7 @@ struct FlushJobInfo {
 
 ### OnFlushBegin
 
-**Triggered when:** RocksDB is about to start a flush job (before memtables are picked)
+**Triggered when:** RocksDB is about to start a flush job (after memtables are picked)
 
 **Thread context:** RocksDB background flush thread
 
@@ -179,11 +179,11 @@ struct FlushJobInfo {
 - Pre-flush logging or state preparation
 - Coordinating with external systems before flush starts
 
-**⚠️ INVARIANT:** This callback executes AFTER memtable picking (not before). Do not rely on it to prevent snapshot creation between memtable picking and flush execution.
+**⚠️ INVARIANT:** This callback executes AFTER `FlushJob::PickMemTable()` to prevent snapshot races. The code explicitly orders `NotifyOnFlushBegin()` after memtable picking so that no new snapshot can be taken between the two operations.
 
 ### OnManualFlushScheduled
 
-**Triggered when:** A manual flush is scheduled via `DB::Flush()` or `DB::FlushWAL()`
+**Triggered when:** A manual flush is scheduled via `DB::Flush()`
 
 **Thread context:** The thread calling the flush API (foreground thread)
 
@@ -201,7 +201,7 @@ struct ManualFlushInfo {
 - Monitor flush API usage patterns
 - Coordinate with external systems before manual flush begins
 
-**⚠️ NOTE:** The vector contains multiple entries only when atomic flush is enabled with more than one column family. Otherwise, it always contains exactly one entry.
+**⚠️ NOTE:** This callback is triggered by `DB::Flush()` (memtable flush), NOT by `DB::FlushWAL()` (WAL buffer flush). `FlushWAL()` has no listener notification. The vector contains multiple entries only when atomic flush is enabled with more than one column family. Otherwise, it always contains exactly one entry.
 
 ### OnCompactionCompleted
 
@@ -249,7 +249,7 @@ struct CompactionJobInfo {
 
 **Implementation location:** `db/db_impl/db_impl_compaction_flush.cc:1827` (`DBImpl::NotifyOnCompactionCompleted`)
 
-**⚠️ INVARIANT:** This callback is NOT invoked if `Compaction::ShouldNotifyOnCompactionCompleted()` returns false. Some internal compactions (e.g., file moves, trivial moves) may be skipped.
+**⚠️ INVARIANT:** `NotifyOnCompactionCompleted` is only called if `Compaction::ShouldNotifyOnCompactionCompleted()` returns true. This flag is a latch set by `NotifyOnCompactionBegin()` to ensure begin/completed counts stay matched. Since `NotifyOnCompactionBegin()` is called for all compaction types (FIFO deletion, FIFO trivial copy, trivial moves, and normal compactions), `OnCompactionCompleted` fires for all of them as well.
 
 ### OnCompactionBegin
 
@@ -295,7 +295,7 @@ struct SubcompactionJobInfo {
 
 **Purpose:** External logging service integration (no DB pointer provided)
 
-**Thread context:** Background flush or compaction thread
+**Thread context:** Background flush or compaction thread, or recovery/repair thread (during `DB::Open()` or `RepairDB()`)
 
 **Info structures:**
 ```cpp
@@ -345,7 +345,7 @@ struct TableFileDeletionInfo {
 
 **Purpose:** External logging service integration
 
-**Thread context:** Background flush or compaction thread
+**Thread context:** Background flush or compaction thread, or recovery/repair thread (during `DB::Open()` or `RepairDB()`)
 
 **Info structure:** `BlobFileCreationBriefInfo`
 ```cpp
@@ -367,7 +367,7 @@ struct BlobFileCreationBriefInfo : public FileCreationBriefInfo {
 
 **Triggered when:** A blob file creation completes (success or failure)
 
-**Thread context:** Background flush or compaction thread
+**Thread context:** Background flush or compaction thread, or recovery/repair thread (during `DB::Open()` or `RepairDB()`)
 
 **Info structure:** `BlobFileCreationInfo`
 ```cpp
@@ -391,7 +391,7 @@ struct BlobFileCreationInfo : public BlobFileCreationBriefInfo {
 
 **Triggered when:** A blob file is deleted (after garbage collection or database cleanup)
 
-**Thread context:** Background thread performing deletion
+**Thread context:** Background purge thread or user thread (e.g., during `ColumnFamilyHandleImpl` destruction when `job_id == 0`)
 
 **Info structure:** `BlobFileDeletionInfo`
 ```cpp
@@ -471,7 +471,7 @@ struct WriteStallInfo {
   } condition;
 };
 
-enum WriteStallCondition {
+enum class WriteStallCondition {
   kNormal,                             // No write stall
   kDelayed,                            // Writes are being slowed down
   kStopped                             // Writes are completely stopped
@@ -487,9 +487,9 @@ enum WriteStallCondition {
 
 ### OnBackgroundError
 
-**Triggered when:** A background operation (flush, compaction, MANIFEST write) encounters an error
+**Triggered when:** A background operation (flush, compaction, MANIFEST write) or user-write path (write callback failure, memtable insertion failure) encounters an error
 
-**Thread context:** The thread that encountered the error (flush, compaction, or WAL sync thread)
+**Thread context:** The thread that encountered the error (flush, compaction, WAL sync, user write, or DB open thread)
 
 **Locking:** Called WITHOUT `db_mutex_` held (mutex is explicitly unlocked before callback)
 
@@ -497,7 +497,7 @@ enum WriteStallCondition {
 ```cpp
 virtual void OnBackgroundError(BackgroundErrorReason reason, Status* bg_error);
 
-enum BackgroundErrorReason {
+enum class BackgroundErrorReason {
   kFlush,                              // Flush failed
   kCompaction,                         // Compaction failed
   kWriteCallback,                      // Write callback failed
@@ -509,7 +509,7 @@ enum BackgroundErrorReason {
 };
 ```
 
-**Special behavior:** Listeners can **suppress** background errors by resetting `*bg_error` to `Status::OK()`. This prevents the database from entering read-only mode. Use with extreme caution—suppressing errors without fixing the root cause can lead to data loss.
+**Special behavior:** Listeners can attempt to **suppress** background errors by resetting `*bg_error` to `Status::OK()`. However, this is NOT a blanket guarantee. In some code paths (unrecoverable data-loss errors, retryable I/O errors), `ErrorHandler::SetBGError()` records the error in `bg_error_` and may set `is_db_stopped_` BEFORE listeners are notified. In those cases, clearing the callback argument does not undo the already-recorded background error. Suppression is only effective in the `HandleKnownErrors` path where listeners are consulted before the error is committed. Use with extreme caution.
 
 **Use cases:**
 - Alert on background errors
@@ -623,13 +623,13 @@ struct FileOperationInfo {
 - Track slow I/O operations
 - Collect detailed I/O statistics
 
-**⚠️ WARNING:** These callbacks are invoked on EVERY file operation. They can significantly impact performance if not implemented carefully. Only enable if you need fine-grained I/O monitoring.
+**⚠️ WARNING:** These callbacks are invoked on file read, write, flush, sync, range-sync, truncate, and close operations. Not all `FileOperationType` values (e.g., `kOpen`, `kVerify`) have corresponding finish callbacks. Additionally, some read error paths (e.g., `SequentialFileReader`) do not emit `OnIOError`. These callbacks can impact performance if not implemented carefully. Only enable if you need fine-grained I/O monitoring.
 
 ### OnIOError
 
-**Triggered when:** An I/O error occurs during any file operation
+**Triggered when:** An I/O error occurs during a file operation that has `OnIOError` instrumentation (not all operations emit this callback; see warning above)
 
-**Opt-in requirement:** Override `ShouldBeNotifiedOnFileIO()` to return `true`
+**Opt-in requirement:** Override `ShouldBeNotifiedOnFileIO()` to return `true` for most I/O error paths. However, some internal paths (e.g., `VersionSet::Close()` manifest verification) invoke `OnIOError` on ALL registered listeners without checking `ShouldBeNotifiedOnFileIO()`.
 
 **Thread context:** The thread that encountered the I/O error
 
@@ -716,7 +716,7 @@ for (const auto& listener : immutable_db_options_.listeners) {
 class MetricsListener : public EventListener {
  public:
   void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
-    metrics_collector_->RecordFlush(info.cf_name, info.file_size);
+    metrics_collector_->RecordFlush(info.cf_name, info.table_properties.data_size);
     // Returns quickly — just updates in-memory counters
   }
 };
@@ -794,19 +794,21 @@ class StatisticsListener : public EventListener {
 
 ### Deadlock Prevention
 
-**DO NOT** acquire `db_mutex_` or any lock held by RocksDB from within listener callbacks. This causes deadlock:
+**DO NOT** call blocking write operations or operations that wait for background workers from within listener callbacks. The `db_mutex_` is intentionally released before calling listeners, so simple read-only operations like `db->GetProperty()` are safe (they will acquire and release `db_mutex_` normally). The real deadlock risks are:
+- Blocking writes (`DB::Put`, `DB::Write` with `no_slowdown=false`) from compaction callbacks — compaction is needed to resolve write stalls
+- `CompactRange()` or similar operations from callbacks — they wait for background workers that may be occupied executing the callback
+
 ```cpp
 // WRONG — DEADLOCK RISK
 class BadListener : public EventListener {
-  void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
-    db->GetProperty("rocksdb.num-files-at-level0", &value);  // May try to acquire db_mutex_
-    // Deadlock: RocksDB released db_mutex_ to call this callback,
-    // but GetProperty might try to acquire it again
+  void OnCompactionCompleted(DB* db, const CompactionJobInfo& info) override {
+    db->CompactRange(CompactRangeOptions(), nullptr, nullptr);  // Waits for background workers
+    // Deadlock: background workers are occupied executing this callback
   }
 };
 ```
 
-**Correct approach:** If you need DB properties, get them from the info struct or cache them before entering the callback.
+**Correct approach:** Offload blocking operations to a separate thread.
 
 ---
 
