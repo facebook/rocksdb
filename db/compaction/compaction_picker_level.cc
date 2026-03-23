@@ -141,7 +141,6 @@ class LevelCompactionBuilder {
       const autovector<std::pair<int, FileMetaData*>>& level_files,
       CompactToNextLevel compact_to_next_level);
 
-
   const std::string& cf_name_;
   VersionStorageInfo* vstorage_;
   CompactionPicker* compaction_picker_;
