@@ -2724,6 +2724,7 @@ bool LoudsTrieIterator::Retreat() {
       uint64_t cur_sparse_pos = cur.pos();
       if (!trie_->s_louds_.GetBit(cur_sparse_pos)) {
         // Previous sibling exists at cur.pos() - 1 — replace in-place.
+        assert(cur_sparse_pos > 0);
         uint64_t prev_pos = cur_sparse_pos - 1;
         cur = LevelPos::MakeSparse(prev_pos);
         key_buf_[key_len_ - 1] =
@@ -2769,15 +2770,10 @@ bool LoudsTrieIterator::Prev() {
   if (!valid_) {
     return false;
   }
-
-  if (is_at_prefix_key_) {
-    is_at_prefix_key_ = false;
-    // The prefix key is the smallest leaf at this node. The previous leaf
-    // is in the parent's subtree — Retreat() handles this by popping up
-    // to the parent level.
-    return Retreat();
-  }
-
+  // Clear prefix key flag before retreating. If we're at a prefix key, the
+  // previous leaf is in the parent's subtree — Retreat() handles this by
+  // popping up to the parent level.
+  is_at_prefix_key_ = false;
   return Retreat();
 }
 

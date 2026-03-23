@@ -5173,6 +5173,76 @@ TEST_F(TrieIndexFactoryTest, OverflowBfsReordering) {
   EXPECT_EQ(iter->value().offset, 500u) << "Seek(b,50): expected c (500)";
 }
 
+TEST_F(TrieIndexFactoryTest, SeekToLastPrefixKeyOnlyTrie) {
+  // Regression: DescendToRightmostLeaf skips prefix keys, so a trie where
+  // the only leaf is a prefix key at the root would return false from
+  // SeekToLast. The fix adds a fallback check for the root prefix key.
+  //
+  // This trie has separators "a" and "ab". Separator "a" is a prefix of "ab",
+  // creating a prefix key at the "a" node. When we SeekToLast, we should
+  // land on "ab" (the rightmost leaf), and Prev from there should land on
+  // "a" (the prefix key).
+  auto ctx = BuildTrieAndGetIterator({
+      {"a", "ab", 0, 500, 0, 0},
+      {"ab", "", 500, 500, 0, 0},
+  });
+
+  IterateResult result;
+
+  // SeekToLast should land on "ab".
+  ASSERT_OK(ctx.iter->SeekToLastAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(result.key.ToString(), "ab");
+
+  // Prev should land on "a" (the prefix key).
+  ASSERT_OK(ctx.iter->PrevAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(result.key.ToString(), "a");
+
+  // Prev again should be past the beginning.
+  ASSERT_OK(ctx.iter->PrevAndGetResult(&result));
+  ASSERT_NE(result.bound_check_result, IterBoundCheck::kInbound);
+}
+
+TEST_F(TrieIndexFactoryTest, SeekToLastAndPrevWithPrefixKeys) {
+  // Verifies SeekToLast and Prev correctly handle prefix keys in a trie
+  // with multiple levels. Separators "a", "ab", "abc", "b" create prefix
+  // keys at the "a" and "ab" nodes.
+  auto ctx = BuildTrieAndGetIterator({
+      {"a", "ab", 0, 500, 0, 0},
+      {"ab", "abc", 500, 500, 0, 0},
+      {"abc", "b", 1000, 500, 0, 0},
+      {"b", "", 1500, 500, 0, 0},
+  });
+
+  IterateResult result;
+
+  // SeekToLast should land on "b" (rightmost leaf).
+  ASSERT_OK(ctx.iter->SeekToLastAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(result.key.ToString(), "b");
+
+  // Full reverse scan. The trie stores shortened separators (via
+  // FindShortestSeparator), so the exact keys depend on the comparator.
+  std::vector<std::string> rev_keys;
+  ASSERT_OK(ctx.iter->SeekToLastAndGetResult(&result));
+  while (result.bound_check_result == IterBoundCheck::kInbound) {
+    rev_keys.push_back(result.key.ToString());
+    ASSERT_OK(ctx.iter->PrevAndGetResult(&result));
+  }
+  ASSERT_EQ(rev_keys.size(), 4u);
+
+  // Full forward scan should match.
+  std::vector<std::string> fwd_keys;
+  ASSERT_OK(ctx.iter->SeekToFirstAndGetResult(&result));
+  while (result.bound_check_result == IterBoundCheck::kInbound) {
+    fwd_keys.push_back(result.key.ToString());
+    ASSERT_OK(ctx.iter->NextAndGetResult(&result));
+  }
+  std::vector<std::string> expected_rev(fwd_keys.rbegin(), fwd_keys.rend());
+  ASSERT_EQ(rev_keys, expected_rev);
+}
+
 }  // namespace trie_index
 }  // namespace ROCKSDB_NAMESPACE
 
