@@ -1665,6 +1665,9 @@ io_posix_test: $(OBJ_DIR)/env/io_posix_test.o $(TEST_LIBRARY) $(LIBRARY)
 fault_injection_test: $(OBJ_DIR)/db/fault_injection_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+fault_injection_fs_test: $(OBJ_DIR)/utilities/fault_injection_fs_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 rate_limiter_test: $(OBJ_DIR)/util/rate_limiter_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 

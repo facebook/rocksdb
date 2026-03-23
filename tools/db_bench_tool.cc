@@ -456,6 +456,10 @@ DEFINE_int32(max_manifest_space_amp_pct,
              ROCKSDB_NAMESPACE::Options().max_manifest_space_amp_pct,
              "Max manifest space amp percentage for auto-tuning");
 
+DEFINE_bool(verify_manifest_content_on_close,
+            ROCKSDB_NAMESPACE::Options().verify_manifest_content_on_close,
+            "If true, verify MANIFEST content (CRC + decode) on DB close");
+
 DEFINE_bool(cost_write_buffer_to_cache, false,
             "The usage of memtable is costed to the block cache");
 
@@ -4452,6 +4456,8 @@ class Benchmark {
     }
     options.max_manifest_file_size = FLAGS_max_manifest_file_size;
     options.max_manifest_space_amp_pct = FLAGS_max_manifest_space_amp_pct;
+    options.verify_manifest_content_on_close =
+        FLAGS_verify_manifest_content_on_close;
     options.arena_block_size = FLAGS_arena_block_size;
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;

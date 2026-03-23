@@ -1343,9 +1343,13 @@ Status InlineSkipList<Comparator>::MultiGet(
           return Corruption(prev_node, node, allow_data_in_errors);
         }
       }
-      // Update finger to track walk-forward position so the next key's
-      // search starts from here rather than from the stale search result.
-      finger.prev_[0] = prev_node;
+      // Update finger.next_[0] to track walk-forward position so the next
+      // key's walk-up knows where the right bracket moved to. Do NOT update
+      // finger.prev_[0]: the callback walks through entries with the same
+      // user key (e.g., merge operands), and those entries sort AFTER the
+      // lookup key (which has kMaxSequenceNumber). If the next MultiGet key
+      // is a duplicate, its lookup key would sort BEFORE the advanced
+      // prev_[0], violating the FindSpliceForLevel precondition.
       finger.next_[0] = node;
     }
   }

@@ -281,6 +281,7 @@ default_params = {
     "max_manifest_file_size": lambda: random.choice(
         [t * 2048 if t < 5 else 1024 * 1024 * 1024 for t in range(1, 30)]
     ),
+    "verify_manifest_content_on_close": lambda: random.randint(0, 1),
     "max_manifest_space_amp_pct": lambda: random.choice([0, 10, 100, 1000]),
     # Sync mode might make test runs slower so running it in a smaller chance
     "sync": lambda: random.choice([1 if t == 0 else 0 for t in range(0, 20)]),
@@ -435,9 +436,7 @@ default_params = {
     # (block checksum, iteration, file checksum), bits 10-11 are when to
     # enable (local compaction, remote compaction). 0x407 = all types +
     # local, 0xC07 = all types + local + remote, 0xFFFFFFFF = all.
-    "verify_output_flags": lambda: random.choice(
-        [0] * 3 + [0x407, 0xC07, 0xFFFFFFFF]
-    ),
+    "verify_output_flags": lambda: random.choice([0] * 3 + [0x407, 0xC07, 0xFFFFFFFF]),
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
     "memtable_veirfy_per_key_checksum_on_seek": lambda: random.choice([0] * 7 + [1]),
     "memtable_batch_lookup_optimization": lambda: random.randint(0, 1),
@@ -879,8 +878,6 @@ def finalize_and_sanitize(src_params):
         dest_params["enable_blob_files"] = 0
         dest_params["enable_blob_garbage_collection"] = 0
         dest_params["allow_setting_blob_options_dynamically"] = 0
-        # TODO Fix - Remote worker shouldn't recover from WAL
-        dest_params["disable_wal"] = 1
         # Disable Incompatible Ones
         dest_params["inplace_update_support"] = 0
         dest_params["checkpoint_one_in"] = 0
@@ -902,8 +899,6 @@ def finalize_and_sanitize(src_params):
         dest_params["open_write_fault_one_in"] = 0
         dest_params["open_read_fault_one_in"] = 0
         dest_params["sync_fault_injection"] = 0
-    else:
-        dest_params["allow_resumption_one_in"] = 0
 
     # UDI now supports all operation types (Put, Delete, Merge, etc.).
     # Only parallel compression and mmap_read remain incompatible.
@@ -1186,9 +1181,6 @@ def finalize_and_sanitize(src_params):
             # have to disable metadata write fault injection to other file
             dest_params["exclude_wal_from_write_fault_injection"] = 1
             dest_params["metadata_write_fault_one_in"] = 0
-
-            # TODO Fix - Remote worker shouldn't recover from WAL
-            dest_params["remote_compaction_worker_threads"] = 0
     # Disabling block align if mixed manager is being used
     if dest_params.get("compression_manager") == "custom":
         if dest_params.get("block_align") == 1:
@@ -1292,6 +1284,10 @@ def finalize_and_sanitize(src_params):
     # Therefore, when inplace_update_support is enabled, disable memtable_veirfy_per_key_checksum_on_seek
     if dest_params["inplace_update_support"] == 1:
         dest_params["memtable_veirfy_per_key_checksum_on_seek"] = 0
+
+    # allow_resumption requires remote compaction
+    if dest_params.get("remote_compaction_worker_threads", 0) == 0:
+        dest_params["allow_resumption_one_in"] = 0
 
     # When read-triggered compaction is enabled, use a short periodic trigger
     # interval so that the feature gets exercised on a quiet DB.
@@ -1413,7 +1409,13 @@ def execute_cmd(cmd, timeout=None, timeout_pstack=False):
             print("KILLED %d (SIGTERM did not work)\n" % child.pid)
             outs, errs = child.communicate()
 
-    return hit_timeout, child.returncode, outs.decode("utf-8"), errs.decode("utf-8"), pid
+    return (
+        hit_timeout,
+        child.returncode,
+        outs.decode("utf-8"),
+        errs.decode("utf-8"),
+        pid,
+    )
 
 
 def print_output_and_exit_on_error(stdout, stderr, print_stderr_separately=False):

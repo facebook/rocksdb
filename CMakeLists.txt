@@ -1536,6 +1536,7 @@ if(WITH_TESTS)
         utilities/cassandra/cassandra_serialize_test.cc
         utilities/checkpoint/checkpoint_test.cc
         utilities/env_timed_test.cc
+        utilities/fault_injection_fs_test.cc
         utilities/memory/memory_test.cc
         utilities/merge_operators/string_append/stringappend_test.cc
         utilities/object_registry_test.cc

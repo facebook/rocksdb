@@ -3708,13 +3708,6 @@ void StressTest::Open(SharedState* shared, bool reopen) {
 
   // Remote Compaction
   if (FLAGS_remote_compaction_worker_threads > 0) {
-    // TODO(jaykorean) Remove this after fix - remote worker shouldn't recover
-    // from WAL
-    if (!FLAGS_disable_wal) {
-      fprintf(stderr,
-              "WAL is not compatible with Remote Compaction in Stress Test\n");
-      exit(1);
-    }
     if ((options_.enable_blob_files ||
          options_.enable_blob_garbage_collection ||
          FLAGS_allow_setting_blob_options_dynamically)) {
@@ -4495,6 +4488,8 @@ void InitializeOptionsFromFlags(
   }
   options.max_manifest_file_size = FLAGS_max_manifest_file_size;
   options.max_manifest_space_amp_pct = FLAGS_max_manifest_space_amp_pct;
+  options.verify_manifest_content_on_close =
+      FLAGS_verify_manifest_content_on_close;
   options.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
   options.allow_concurrent_memtable_write =
       FLAGS_allow_concurrent_memtable_write;

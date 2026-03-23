@@ -29,6 +29,33 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+
+inline void RecordBlockReadBytePerfCounter(BlockType block_type,
+                                           uint64_t block_size_with_trailer) {
+  switch (block_type) {
+    case BlockType::kData:
+      PERF_COUNTER_ADD(data_block_read_byte, block_size_with_trailer);
+      break;
+    case BlockType::kFilter:
+    case BlockType::kFilterPartitionIndex:
+      PERF_COUNTER_ADD(filter_block_read_byte, block_size_with_trailer);
+      break;
+    case BlockType::kCompressionDictionary:
+      PERF_COUNTER_ADD(compression_dict_block_read_byte,
+                       block_size_with_trailer);
+      break;
+    case BlockType::kIndex:
+      PERF_COUNTER_ADD(index_block_read_byte, block_size_with_trailer);
+      break;
+    default:
+      PERF_COUNTER_ADD(metadata_block_read_byte, block_size_with_trailer);
+      break;
+  }
+}
+
+}  // namespace
+
 inline void BlockFetcher::ProcessTrailerIfPresent() {
   if (footer_.GetBlockTrailerSize() > 0) {
     assert(footer_.GetBlockTrailerSize() == BlockBasedTable::kBlockTrailerSize);
@@ -324,6 +351,7 @@ void BlockFetcher::ReadBlock(bool retry) {
   }
 
   PERF_COUNTER_ADD(block_read_byte, block_size_with_trailer_);
+  RecordBlockReadBytePerfCounter(block_type_, block_size_with_trailer_);
   IGNORE_STATUS_IF_ERROR(io_status_);
   if (io_status_.ok()) {
     if (use_fs_scratch_ && !read_req.status.ok()) {

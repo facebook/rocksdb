@@ -226,6 +226,13 @@ class DbStressListener : public EventListener {
     RandomSleep();
   }
 
+  void OnBackgroundJobPressureChanged(
+      DB* /*db*/, const BackgroundJobPressure& pressure) override {
+    RandomSleep();
+    std::lock_guard<std::mutex> lk(bg_pressure_mu_);
+    last_bg_pressure_ = pressure;
+  }
+
   void OnFileReadFinish(const FileOperationInfo& info) override {
     // Even empty callback is valuable because sometimes some locks are
     // released in order to make the callback.
@@ -366,6 +373,8 @@ class DbStressListener : public EventListener {
   std::atomic<int> num_pending_file_creations_;
   UniqueIdVerifier unique_ids_;
   SharedState* shared_;
+  mutable std::mutex bg_pressure_mu_;
+  BackgroundJobPressure last_bg_pressure_;
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

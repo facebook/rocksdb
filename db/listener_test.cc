@@ -1643,6 +1643,129 @@ TEST_F(EventListenerTest, BlobDBFileTest) {
   blob_event_listener->CheckCounters();
 }
 
+class BackgroundJobPressureTestListener : public EventListener {
+ public:
+  void OnBackgroundJobPressureChanged(
+      DB* /*db*/, const BackgroundJobPressure& snapshot) override {
+    std::lock_guard<std::mutex> lock(mu_);
+    snapshots_.push_back(snapshot);
+  }
+
+  std::vector<BackgroundJobPressure> GetSnapshots() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return snapshots_;
+  }
+
+  void Reset() {
+    std::lock_guard<std::mutex> lock(mu_);
+    snapshots_.clear();
+  }
+
+ private:
+  std::mutex mu_;
+  std::vector<BackgroundJobPressure> snapshots_;
+};
+
+TEST_F(EventListenerTest, BackgroundJobPressure) {
+  auto listener = std::make_shared<BackgroundJobPressureTestListener>();
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.max_background_jobs = 8;
+  options.disable_auto_compactions = false;
+  options.level0_slowdown_writes_trigger = 4;
+  options.level0_stop_writes_trigger = 100;
+  options.level0_file_num_compaction_trigger = 4;
+  options.listeners.push_back(listener);
+  DestroyAndReopen(options);
+
+  // Structural invariant checked on every snapshot.
+  auto CheckInvariants = [](const std::vector<BackgroundJobPressure>& snaps) {
+    ASSERT_GT(snaps.size(), 0u);
+    for (const auto& s : snaps) {
+      ASSERT_EQ(s.compaction_scheduled,
+                s.compaction_low_scheduled + s.compaction_bottom_scheduled);
+      ASSERT_EQ(s.compaction_running,
+                s.compaction_low_running + s.compaction_bottom_running);
+    }
+  };
+
+  // Block compaction so L0 files accumulate.
+  env_->SetBackgroundThreads(1, Env::Priority::LOW);
+  test::SleepingBackgroundTask sleeping_task;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
+                 Env::Priority::LOW);
+  sleeping_task.WaitUntilSleeping();
+
+  // Phase 1: No pressure — 3 SST files (below slowdown trigger=4).
+  for (int i = 0; i < 3; i++) {
+    ASSERT_OK(Put("k" + std::to_string(i), std::string(100, 'x')));
+    ASSERT_OK(Flush());
+  }
+
+  auto snapshots = listener->GetSnapshots();
+  CheckInvariants(snapshots);
+  for (const auto& s : snapshots) {
+    ASSERT_EQ(s.compaction_running, 0);
+    ASSERT_EQ(s.compaction_scheduled, 0);
+    ASSERT_FALSE(s.compaction_speedup_active);
+    ASSERT_LT(s.write_stall_proximity_pct, 100);
+  }
+  // Note: we don't assert flush_running/flush_scheduled == 0 here because
+  // MaybeScheduleFlushOrCompaction() runs before the pressure callback and
+  // may schedule new flush work, making flush counts non-deterministic.
+
+  // Phase 2: Build pressure — flush past slowdown trigger (4 L0 SST files).
+  // Compaction is blocked, so L0 SST files pile up.
+  listener->Reset();
+  {
+    FlushOptions fo;
+    fo.allow_write_stall = true;
+    for (int i = 3; i < 10; i++) {
+      ASSERT_OK(Put("k" + std::to_string(i), std::string(100, 'x')));
+      ASSERT_OK(db_->Flush(fo));
+    }
+  }
+
+  snapshots = listener->GetSnapshots();
+  CheckInvariants(snapshots);
+  for (const auto& s : snapshots) {
+    ASSERT_EQ(s.compaction_running, 0);
+  }
+  // Scan history: pressure indicators appear as L0 SST files accumulate
+  bool found_speedup = false;
+  bool found_compaction_scheduled = false;
+  bool found_high_proximity = false;
+  for (const auto& s : snapshots) {
+    if (s.compaction_speedup_active) {
+      found_speedup = true;
+    }
+    if (s.compaction_scheduled > 0) {
+      found_compaction_scheduled = true;
+    }
+    if (s.write_stall_proximity_pct >= 100) {
+      found_high_proximity = true;
+    }
+  }
+  ASSERT_TRUE(found_speedup);
+  ASSERT_TRUE(found_compaction_scheduled);
+  ASSERT_TRUE(found_high_proximity);
+
+  // Phase 3: Relieve pressure — unblock compaction, wait for completion.
+  listener->Reset();
+  sleeping_task.WakeUp();
+  sleeping_task.WaitUntilDone();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  snapshots = listener->GetSnapshots();
+  CheckInvariants(snapshots);
+  // Latest: all compactions finished, healthy
+  const auto& latest3 = snapshots.back();
+  ASSERT_EQ(latest3.compaction_running, 0);
+  ASSERT_EQ(latest3.compaction_scheduled, 0);
+  ASSERT_FALSE(latest3.compaction_speedup_active);
+  ASSERT_LT(latest3.write_stall_proximity_pct, 100);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
