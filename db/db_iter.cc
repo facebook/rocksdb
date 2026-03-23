@@ -944,6 +944,9 @@ void DBIter::PrevInternal(const Slice* prefix) {
             saved_key_.GetUserKey(), /*a_has_ts=*/true, *iterate_lower_bound_,
             /*b_has_ts=*/false) < 0) {
       // We've iterated earlier than the user-specified lower bound.
+      if (contiguous_tombstone_count_ > 0) {
+        MaybeInsertRangeTombstone(range_tomb_end_key_.GetUserKey());
+      }
       valid_ = false;
       return;
     }
@@ -990,8 +993,7 @@ void DBIter::PrevInternal(const Slice* prefix) {
     }
   }
 
-  if (contiguous_tombstone_count_ > 0 &&
-      range_tomb_end_key_.GetUserKey().size() > 0) {
+  if (contiguous_tombstone_count_ > 0) {
     MaybeInsertRangeTombstone(range_tomb_end_key_.GetUserKey());
     ResetContiguousTombstoneTracking();
   }

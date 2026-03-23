@@ -5419,19 +5419,33 @@ class ReadPathRangeTombstoneTest : public DBIteratorBaseTest,
 
   void SetupTestData(char first_key, char last_key,
                      const std::vector<std::string>& flushed_point_dels,
-                     const std::vector<std::string>& memtable_point_dels) {
+                     const std::vector<std::string>& memtable_point_dels,
+                     const Slice* ts = nullptr) {
     for (char c = first_key; c <= last_key; c++) {
-      ASSERT_OK(Put(std::string(1, c), std::string("v") + c));
+      if (ts) {
+        ASSERT_OK(db_->Put(WriteOptions(), std::string(1, c), *ts,
+                           std::string("v") + c));
+      } else {
+        ASSERT_OK(Put(std::string(1, c), std::string("v") + c));
+      }
     }
     ASSERT_OK(Flush());
     for (const auto& key : flushed_point_dels) {
-      ASSERT_OK(Delete(key));
+      if (ts) {
+        ASSERT_OK(db_->Delete(WriteOptions(), key, *ts));
+      } else {
+        ASSERT_OK(Delete(key));
+      }
     }
     if (!flushed_point_dels.empty()) {
       ASSERT_OK(Flush());
     }
     for (const auto& key : memtable_point_dels) {
-      ASSERT_OK(Delete(key));
+      if (ts) {
+        ASSERT_OK(db_->Delete(WriteOptions(), key, *ts));
+      } else {
+        ASSERT_OK(Delete(key));
+      }
     }
   }
 
@@ -5901,7 +5915,12 @@ TEST_P(ReadPathRangeTombstoneTest, SkipInsertionWhenCoveredByExistingRange) {
   Slice upper("z");
   ro.iterate_upper_bound = &upper;
   auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+  if (Forward()) {
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    }
+  } else {
+    for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+    }
   }
   ASSERT_OK(iter->status());
 
@@ -5925,23 +5944,14 @@ TEST_P(ReadPathRangeTombstoneTest, UDTBasicScan) {
   options.comparator = test::BytewiseComparatorWithU64TsWrapper();
   DestroyAndReopen(options);
 
-  std::string ts1;
-  PutFixed64(&ts1, 1);
-  for (char c = 'a'; c <= 'h'; c++) {
-    ASSERT_OK(
-        db_->Put(WriteOptions(), std::string(1, c), ts1, std::string("v") + c));
-  }
-  ASSERT_OK(Flush());
-
-  std::string ts2;
-  PutFixed64(&ts2, 2);
-  for (char c = 'b'; c <= 'f'; c++) {
-    ASSERT_OK(db_->Delete(WriteOptions(), std::string(1, c), ts2));
-  }
+  std::string ts;
+  PutFixed64(&ts, 1);
+  Slice ts_slice(ts);
+  SetupTestData('a', 'h', /*flushed_point_dels=*/{},
+                /*memtable_point_dels=*/{"b", "c", "d", "e", "f"}, &ts_slice);
 
   ReadOptions ro;
-  Slice read_ts(ts2);
-  ro.timestamp = &read_ts;
+  ro.timestamp = &ts_slice;
   auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
   std::vector<std::string> keys;
   if (Forward()) {
@@ -5952,20 +5962,14 @@ TEST_P(ReadPathRangeTombstoneTest, UDTBasicScan) {
     for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
       keys.push_back(iter->key().ToString());
     }
+    std::reverse(keys.begin(), keys.end());
   }
   ASSERT_OK(iter->status());
-  ASSERT_EQ(keys.size(), 3);
-  if (Forward()) {
-    ASSERT_EQ(keys[0].substr(0, 1), "a");
-    ASSERT_EQ(keys[1].substr(0, 1), "g");
-    ASSERT_EQ(keys[2].substr(0, 1), "h");
-  } else {
-    ASSERT_EQ(keys[0].substr(0, 1), "h");
-    ASSERT_EQ(keys[1].substr(0, 1), "g");
-    ASSERT_EQ(keys[2].substr(0, 1), "a");
-  }
+  ASSERT_EQ(keys, (std::vector<std::string>{"a", "g", "h"}));
 
-  ASSERT_GE(inserted_ranges_.size(), 1);
+  // Range covers [b+ts, g+ts).
+  ASSERT_EQ(inserted_ranges_.size(), 1);
+  AssertRange(0, std::string("b") + ts, std::string("g") + ts);
   ASSERT_EQ(
       options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
       1);
@@ -5983,64 +5987,248 @@ TEST_P(ReadPathRangeTombstoneTest, ExhaustedWithUDT) {
   options.comparator = test::BytewiseComparatorWithU64TsWrapper();
   DestroyAndReopen(options);
 
-  std::string ts1;
-  PutFixed64(&ts1, 1);
-  for (char c = 'a'; c <= 'h'; c++) {
-    ASSERT_OK(
-        db_->Put(WriteOptions(), std::string(1, c), ts1, std::string("v") + c));
-  }
-  ASSERT_OK(Flush());
+  std::string ts;
+  PutFixed64(&ts, 1);
+  Slice ts_slice(ts);
+  std::string min_ts(sizeof(uint64_t), '\0');
 
-  std::string ts2;
-  PutFixed64(&ts2, 2);
-
+  // Forward: tombstones at end (e-h), needs upper bound for end key.
+  // Reverse: tombstones at start (a-d), end key from live key "e".
   if (Forward()) {
-    // Delete e-h so tombstones are at the end.
-    for (char c = 'e'; c <= 'h'; c++) {
-      ASSERT_OK(db_->Delete(WriteOptions(), std::string(1, c), ts2));
-    }
+    SetupTestData('a', 'h', /*flushed_point_dels=*/{},
+                  /*memtable_point_dels=*/{"e", "f", "g", "h"}, &ts_slice);
+  } else {
+    SetupTestData('a', 'h', /*flushed_point_dels=*/{},
+                  /*memtable_point_dels=*/{"a", "b", "c", "d"}, &ts_slice);
+  }
 
-    ReadOptions ro;
-    Slice read_ts(ts2);
-    ro.timestamp = &read_ts;
-    std::string upper_str = "z";
-    Slice upper(upper_str);
+  ReadOptions ro;
+  ro.timestamp = &ts_slice;
+  std::string upper_str = "z";
+  Slice upper(upper_str);
+  if (Forward()) {
     ro.iterate_upper_bound = &upper;
-    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
-    std::vector<std::string> keys;
+  }
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+  std::vector<std::string> keys;
+  if (Forward()) {
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       keys.push_back(iter->key().ToString());
     }
-    ASSERT_OK(iter->status());
-    ASSERT_EQ(keys.size(), 4);
-    ASSERT_EQ(keys[0].substr(0, 1), "a");
-
-    // Upper bound is padded with min timestamp to form a valid end key.
-    ASSERT_GE(inserted_ranges_.size(), 1);
-    ASSERT_EQ(
-        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
-        1);
   } else {
-    // Delete a-d so tombstones are at the start.
-    for (char c = 'a'; c <= 'd'; c++) {
-      ASSERT_OK(db_->Delete(WriteOptions(), std::string(1, c), ts2));
-    }
-
-    ReadOptions ro;
-    Slice read_ts(ts2);
-    ro.timestamp = &read_ts;
-    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
-    std::vector<std::string> keys;
     for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
       keys.push_back(iter->key().ToString());
     }
-    ASSERT_OK(iter->status());
-    ASSERT_EQ(keys.size(), 4);
-    ASSERT_EQ(keys[0].substr(0, 1), "h");
+    std::reverse(keys.begin(), keys.end());
+  }
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(keys.size(), 4);
 
-    // Reverse exhaustion succeeds: end key comes from the next live key
-    // which has a proper timestamp suffix.
-    ASSERT_GE(inserted_ranges_.size(), 1);
+  ASSERT_EQ(inserted_ranges_.size(), 1);
+  if (Forward()) {
+    // Forward exhaustion: range is [e+ts, z+min_ts).
+    AssertRange(0, std::string("e") + ts, std::string("z") + min_ts);
+  } else {
+    // Reverse exhaustion: range is [a+ts, e+ts).
+    AssertRange(0, std::string("a") + ts, std::string("e") + ts);
+  }
+  ASSERT_EQ(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+      1);
+}
+
+TEST_P(ReadPathRangeTombstoneTest, SeekForPrevTombstone) {
+  // SeekForPrev lands directly on tombstones. No upper bound, so forward
+  // exhaustion drops the trailing tombstone run (no end key available).
+  // Reverse: SeekForPrev("h") → Delete(h,g,f,e) → live "d" → range [e, h).
+  for (bool use_udt : {false, true}) {
+    SCOPED_TRACE(use_udt ? "with UDT" : "without UDT");
+    Options options = CurrentOptions();
+    options.min_tombstones_for_range_conversion = 4;
+    options.statistics = CreateDBStatistics();
+    if (use_udt) {
+      options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+    }
+    DestroyAndReopen(options);
+
+    std::string ts;
+    Slice ts_slice;
+    Slice* ts_ptr = nullptr;
+    if (use_udt) {
+      PutFixed64(&ts, 1);
+      ts_slice = Slice(ts);
+      ts_ptr = &ts_slice;
+    }
+    SetupTestData('a', 'h', /*flushed_point_dels=*/{},
+                  /*memtable_point_dels=*/{"e", "f", "g", "h"}, ts_ptr);
+    inserted_ranges_.clear();
+
+    ReadOptions ro;
+    if (use_udt) {
+      ro.timestamp = &ts_slice;
+    }
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+
+    std::vector<std::string> keys;
+    if (Forward()) {
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        keys.push_back(iter->key().ToString());
+      }
+    } else {
+      // SeekForPrev("h") lands on Delete(h), traverses g,f,e → finds "d".
+      for (iter->SeekForPrev("h"); iter->Valid(); iter->Prev()) {
+        keys.push_back(iter->key().ToString());
+      }
+      std::reverse(keys.begin(), keys.end());
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(keys, (std::vector<std::string>{"a", "b", "c", "d"}));
+
+    if (Forward()) {
+      // No upper bound → trailing tombstone run has no end key → dropped.
+      ASSERT_EQ(inserted_ranges_.size(), 0);
+    } else {
+      ASSERT_EQ(inserted_ranges_.size(), 1);
+      if (use_udt) {
+        std::string min_ts(sizeof(uint64_t), '\0');
+        AssertRange(0, std::string("e") + ts, std::string("h") + min_ts);
+      } else {
+        AssertRange(0, "e", "h");
+      }
+    }
+    ASSERT_EQ(
+        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+        Forward() ? 0 : 1);
+  }
+}
+
+TEST_P(ReadPathRangeTombstoneTest, UpperBoundTombstone) {
+  // iterate_upper_bound lands directly on tombstones. Both directions see
+  // tombstones e-h and use upper bound "i" as end key for the range.
+  // Forward: exhaustion at bound → [e, i). Reverse: SeekToLast delegates to
+  // SeekForPrev("i") → [e, i).
+  for (bool use_udt : {false, true}) {
+    SCOPED_TRACE(use_udt ? "with UDT" : "without UDT");
+    Options options = CurrentOptions();
+    options.min_tombstones_for_range_conversion = 4;
+    options.statistics = CreateDBStatistics();
+    if (use_udt) {
+      options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+    }
+    DestroyAndReopen(options);
+
+    std::string ts;
+    Slice ts_slice;
+    Slice* ts_ptr = nullptr;
+    if (use_udt) {
+      PutFixed64(&ts, 1);
+      ts_slice = Slice(ts);
+      ts_ptr = &ts_slice;
+    }
+    SetupTestData('a', 'h', /*flushed_point_dels=*/{},
+                  /*memtable_point_dels=*/{"e", "f", "g", "h"}, ts_ptr);
+    inserted_ranges_.clear();
+
+    ReadOptions ro;
+    if (use_udt) {
+      ro.timestamp = &ts_slice;
+    }
+    std::string upper_str = "i";
+    Slice upper(upper_str);
+    ro.iterate_upper_bound = &upper;
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+
+    std::vector<std::string> keys;
+    if (Forward()) {
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        keys.push_back(iter->key().ToString());
+      }
+    } else {
+      for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        keys.push_back(iter->key().ToString());
+      }
+      std::reverse(keys.begin(), keys.end());
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(keys, (std::vector<std::string>{"a", "b", "c", "d"}));
+
+    ASSERT_EQ(inserted_ranges_.size(), 1);
+    if (use_udt) {
+      // Forward end key: upper bound padded with min_ts.
+      // Reverse end key: upper bound padded with max_ts (via
+      // SetSavedKeyToSeekForPrevTarget).
+      std::string end_ts(sizeof(uint64_t), Forward() ? '\0' : '\xff');
+      AssertRange(0, std::string("e") + ts, std::string("i") + end_ts);
+    } else {
+      AssertRange(0, "e", "i");
+    }
+    ASSERT_EQ(
+        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+        1);
+  }
+}
+
+TEST_P(ReadPathRangeTombstoneTest, LowerBoundTruncatesReverse) {
+  // Keys a-j, delete a-h. Lower bound "e" truncates reverse iteration
+  // mid-tombstone-run. Forward: tombstones e-h ended by live key i → [e, i).
+  // Reverse: tombstones h,g,f,e then lower_bound hit → flush [e, i).
+  for (bool use_udt : {false, true}) {
+    SCOPED_TRACE(use_udt ? "with UDT" : "without UDT");
+    Options options = CurrentOptions();
+    options.min_tombstones_for_range_conversion = 4;
+    options.statistics = CreateDBStatistics();
+    if (use_udt) {
+      options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+    }
+    DestroyAndReopen(options);
+
+    std::string ts;
+    Slice ts_slice;
+    Slice* ts_ptr = nullptr;
+    if (use_udt) {
+      PutFixed64(&ts, 1);
+      ts_slice = Slice(ts);
+      ts_ptr = &ts_slice;
+    }
+    SetupTestData(
+        'a', 'j', /*flushed_point_dels=*/{},
+        /*memtable_point_dels=*/{"a", "b", "c", "d", "e", "f", "g", "h"},
+        ts_ptr);
+    inserted_ranges_.clear();
+
+    ReadOptions ro;
+    if (use_udt) {
+      ro.timestamp = &ts_slice;
+    }
+    std::string lower_str = "e";
+    Slice lower(lower_str);
+    ro.iterate_lower_bound = &lower;
+    std::string upper_str = "z";
+    Slice upper(upper_str);
+    ro.iterate_upper_bound = &upper;
+
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    std::vector<std::string> keys;
+    if (Forward()) {
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        keys.push_back(iter->key().ToString());
+      }
+    } else {
+      for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        keys.push_back(iter->key().ToString());
+      }
+      std::reverse(keys.begin(), keys.end());
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(keys, (std::vector<std::string>{"i", "j"}));
+
+    // Both directions produce one range covering tombstones e-h.
+    ASSERT_EQ(inserted_ranges_.size(), 1);
+    if (use_udt) {
+      AssertRange(0, std::string("e") + ts, std::string("i") + ts);
+    } else {
+      AssertRange(0, "e", "i");
+    }
     ASSERT_EQ(
         options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
         1);
