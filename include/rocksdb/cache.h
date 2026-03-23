@@ -549,12 +549,10 @@ std::shared_ptr<Cache> NewTieredCache(const TieredCacheOptions& cache_opts);
 // EXPERIMENTAL
 // Dynamically update some of the parameters of a TieredCache. The input
 // cache shared_ptr should have been allocated using NewTieredVolatileCache.
-// At the moment, there are a couple of limitations -
-// 1. The total_capacity should be > the WriteBufferManager max size, if
-//    using the block cache charging feature
-// 2. Once the compressed secondary cache is disabled by setting the
-//    compressed_secondary_ratio to 0.0, it cannot be dynamically re-enabled
-//    again
+// Limitation: the total_capacity should be > the WriteBufferManager max
+// size, if using the block cache charging feature.
+// Note: the compressed_secondary_ratio can be set to 0.0 to disable the
+// secondary cache and later increased to re-enable it.
 Status UpdateTieredCache(
     const std::shared_ptr<Cache>& cache, int64_t total_capacity = -1,
     double compressed_secondary_ratio = std::numeric_limits<double>::max(),
