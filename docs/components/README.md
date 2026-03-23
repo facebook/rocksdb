@@ -14,68 +14,68 @@ These trace data through the full system with invariants woven in.
 
 | Document | What It Covers |
 |----------|---------------|
-| [write_flow.md](write_flow.md) | Put/Delete/Merge → WAL → MemTable → Flush → Compaction → Delete cleanup → Flow control |
-| [read_flow.md](read_flow.md) | Get/MultiGet/Iterator → SuperVersion → MemTable → Block cache → SST (L0→Ln) → Bloom → Range deletions |
+| [write_flow/](write_flow/index.md) | Put/Delete/Merge → WAL → MemTable → Flush → Compaction → Delete cleanup → Flow control |
+| [read_flow/](read_flow/index.md) | Get/MultiGet/Iterator → SuperVersion → MemTable → Block cache → SST (L0→Ln) → Bloom → Range deletions → Prefetch → Async I/O |
 
 ## Layer 2: Component Deep-Dives
 
 ### Core Engine
 | Document | What It Covers |
 |----------|---------------|
-| [memtable.md](memtable.md) | SkipList internals, concurrent insert, arena allocation, flush triggers |
-| [wal.md](wal.md) | WAL record format, sync modes, recycling, lifecycle |
-| [flush.md](flush.md) | FlushJob, atomic flush, pipelined flush, scheduling |
-| [compaction.md](compaction.md) | CompactionPicker, CompactionJob, CompactionIterator, MergingIterator |
-| [sst_table_format.md](sst_table_format.md) | BlockBasedTable, block encoding, filters, index, TableCache |
-| [version_management.md](version_management.md) | VersionSet, Version, VersionBuilder, MANIFEST, ColumnFamily |
-| [iterator.md](iterator.md) | Block/Level/Merging/DB iterators, range deletion, compaction iterator |
+| [memtable/](memtable/index.md) | SkipList internals, concurrent insert, arena allocation, bloom filter, flush triggers, range tombstones, data integrity |
+| [wal/](wal/index.md) | WAL record format, writer/reader, sync modes, recycling, compression, recovery, lifecycle, 2PC, replication |
+| [flush/](flush/index.md) | FlushJob lifecycle, atomic flush, MemPurge, write stalls, scheduling, commit protocol |
+| [compaction/](compaction/index.md) | CompactionPicker, CompactionJob, CompactionIterator, leveled/universal/FIFO styles, subcompaction, remote compaction |
+| [sst_table_format/](sst_table_format/index.md) | BlockBasedTable, block encoding, filters, index, PlainTable, CuckooTable, table properties |
+| [version_management/](version_management/index.md) | VersionSet, Version, VersionBuilder, MANIFEST, ColumnFamily, SuperVersion |
+| [iterator/](iterator/index.md) | Iterator hierarchy, DBIter, MergingIterator, block/level iterators, prefix seek, readahead, pinning, range tombstones, multi-CF iterators, MultiScan |
 
 ### Storage & I/O
 | Document | What It Covers |
 |----------|---------------|
-| [file_io.md](file_io.md) | Env, FileSystem, WritableFileWriter, RateLimiter, FilePrefetchBuffer |
-| [blob_db.md](blob_db.md) | BlobDB architecture, blob file format, blob index, blob GC |
-| [compression.md](compression.md) | Snappy/LZ4/ZSTD, per-level compression, dictionary compression |
-| [tiered_storage.md](tiered_storage.md) | Data temperature, per-level temperature, tiered compaction |
+| [file_io/](file_io/index.md) | Env, FileSystem, WritableFileWriter, RateLimiter, FilePrefetchBuffer, Direct I/O, Async I/O, IO tagging |
+| [blob_db/](blob_db/index.md) | BlobDB architecture, blob file format, blob index, write/read paths, garbage collection, caching, statistics |
+| [compression/](compression/index.md) | Snappy/LZ4/ZSTD, per-level compression, dictionary compression, parallel compression |
+| [tiered_storage/](tiered_storage/index.md) | Temperature system, per-key placement, seqno-to-time mapping, FIFO temperature migration, TimedPut API |
 
 ### Caching
 | Document | What It Covers |
 |----------|---------------|
-| [cache.md](cache.md) | LRUCache, HyperClockCache, block cache internals |
-| [secondary_cache.md](secondary_cache.md) | Secondary cache tier, compressed secondary cache, row cache |
+| [cache/](cache/index.md) | LRUCache, HyperClockCache, secondary cache, tiered cache, cache reservation, block cache keys, monitoring |
+| [secondary_cache/](secondary_cache/index.md) | SecondaryCache interface, CacheWithSecondaryAdapter, compressed secondary cache, tiered cache, admission policies, proportional reservation |
 
 ### Features
 | Document | What It Covers |
 |----------|---------------|
-| [transaction.md](transaction.md) | Pessimistic/Optimistic/WritePrepared/WriteUnprepared transactions, 2PC |
-| [wide_column.md](wide_column.md) | WideColumn API, PutEntity/GetEntity, entity encoding |
-| [user_defined_timestamp.md](user_defined_timestamp.md) | UDT encoding, comparator integration, timestamp-aware compaction |
-| [user_defined_index.md](user_defined_index.md) | UDI interface, index creation, index-based lookups |
-| [snapshot.md](snapshot.md) | Snapshot implementation, sequence numbers, compaction interaction |
-| [filter.md](filter.md) | Bloom filter, Ribbon filter, partitioned filters, prefix bloom |
-| [secondary_instance.md](secondary_instance.md) | Secondary reader, TryCatchUpWithPrimary, remote compaction |
+| [transaction/](transaction/index.md) | Pessimistic/Optimistic/WritePrepared/WriteUnprepared transactions, 2PC, lock management, deadlock detection |
+| [wide_column/](wide_column/index.md) | WideColumn API, PutEntity/GetEntity, entity serialization, attribute groups, compaction/merge integration |
+| [user_defined_timestamp/](user_defined_timestamp/index.md) | UDT encoding, comparator integration, timestamp-aware compaction, persistence modes, recovery, migration |
+| [user_defined_index/](user_defined_index/index.md) | UDI framework, trie index (LOUDS-encoded FST), sequence number handling, table integration, configuration |
+| [snapshot/](snapshot/index.md) | Snapshot implementation, sequence numbers, compaction interaction, transaction integration |
+| [filter/](filter/index.md) | Bloom filter, Ribbon filter, partitioned filters, prefix bloom, memtable bloom, filter caching |
+| [secondary_instance/](secondary_instance/index.md) | Secondary reader, TryCatchUpWithPrimary, remote compaction, comparison with ReadOnly/Follower modes |
 
 ### Public API
 | Document | What It Covers |
 |----------|---------------|
-| [public_api_read.md](public_api_read.md) | Get, MultiGet, iterators, async I/O, ReadOptions |
-| [public_api_write.md](public_api_write.md) | Put, Delete, Merge, WriteBatch, WriteOptions, IngestExternalFile |
+| [public_api_read/](public_api_read/index.md) | Get, MultiGet, iterators, PinnableSlice, async I/O, ReadOptions, multi-range/cross-CF scans |
+| [public_api_write/](public_api_write/index.md) | Put, Delete, Merge, WriteBatch, SingleDelete, DeleteRange, MergeOperator, IngestExternalFile |
 
 ### Infrastructure
 | Document | What It Covers |
 |----------|---------------|
-| [db_impl.md](db_impl.md) | DBImpl, DB Open/Close, background ops, ErrorHandler |
-| [threading_model.md](threading_model.md) | Thread pools, WriteThread, mutex hierarchy, subcompactions |
-| [options.md](options.md) | Options hierarchy, mutable vs immutable, serialization, validation |
-| [crash_recovery.md](crash_recovery.md) | MANIFEST recovery, WAL replay, WALRecoveryMode, best-efforts recovery |
-| [data_integrity.md](data_integrity.md) | Checksums (CRC32c, xxHash), paranoid checks, handoff checksums |
-| [monitoring.md](monitoring.md) | Statistics, PerfContext, IOStatsContext, DB properties |
-| [listener.md](listener.md) | EventListener callbacks, flush/compaction/error notifications |
-| [checkpoint.md](checkpoint.md) | Checkpoint (hard-link snapshots), BackupEngine, ExportColumnFamily |
+| [db_impl/](db_impl/index.md) | DBImpl architecture, DB Open/Close, column families, write/read paths, background scheduling, error handling |
+| [threading_model/](threading_model/index.md) | Thread pools, WriteThread, group commit, write modes, mutex hierarchy, write stalls, subcompactions, lock-free reads |
+| [options/](options/index.md) | Options hierarchy, DBOptions, ColumnFamilyOptions, serialization, Customizable framework, tuning guide |
+| [crash_recovery/](crash_recovery/index.md) | MANIFEST recovery, WAL replay, WALRecoveryMode, best-efforts recovery, background error handling, repair |
+| [data_integrity/](data_integrity/index.md) | Checksums (CRC32c, xxHash, XXH3), block/WAL/file checksums, per-key protection, handoff checksums, output verification, unique ID, paranoid checks |
+| [monitoring/](monitoring/index.md) | Statistics, PerfContext, IOStatsContext, DB properties, compaction stats, event logging, thread status |
+| [listener/](listener/index.md) | EventListener callbacks, flush/compaction/error notifications |
+| [checkpoint/](checkpoint/index.md) | Checkpoint (hard-link snapshots), BackupEngine, ExportColumnFamily |
 
 ### Tools
 | Document | What It Covers |
 |----------|---------------|
-| [debugging_tools.md](debugging_tools.md) | ldb, sst_dump, manifest_dump, WAL dump, RepairDB |
-| [stress_test.md](stress_test.md) | db_stress, crash test, fault injection, expected state tracking |
-| [db_bench.md](db_bench.md) | Benchmarking tool, benchmark types, metrics, methodology |
+| [debugging_tools/](debugging_tools/index.md) | ldb, sst_dump, tracing (query/block cache/IO), PerfContext, Statistics, DB properties, Logger, thread status, RepairDB |
+| [stress_test/](stress_test/index.md) | db_stress, crash test, fault injection, expected state tracking, test modes, parameter randomization |
+| [db_bench/](db_bench/index.md) | Benchmarking tool, write/read/mixed benchmarks, metrics, methodology, MixGraph workload modeling |
