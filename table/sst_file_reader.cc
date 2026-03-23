@@ -83,15 +83,12 @@ Status SstFileReader::Open(const std::string& file_path) {
   return s;
 }
 
-std::vector<Status> SstFileReader::MultiGet(
-    const ReadOptions& roptions, const std::vector<Slice>& keys,
-    std::vector<PinnableSlice>* values) {
+std::vector<Status> SstFileReader::MultiGet(const ReadOptions& roptions,
+                                            const std::vector<Slice>& keys,
+                                            std::vector<std::string>* values) {
   const auto num_keys = keys.size();
   std::vector<Status> statuses(num_keys, Status::OK());
-  values->resize(num_keys);
-  for (size_t i = 0; i < num_keys; ++i) {
-    (*values)[i].Reset();
-  }
+  std::vector<PinnableSlice> pin_values(num_keys);
 
   auto r = rep_.get();
   const Comparator* user_comparator =
@@ -104,7 +101,8 @@ std::vector<Status> SstFileReader::MultiGet(
   autovector<MergeContext, MultiGetContext::MAX_BATCH_SIZE> merge_ctx;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    PinnableSlice* val = &(*values)[i];
+    PinnableSlice* val = &pin_values[i];
+    val->Reset();
     merge_ctx.emplace_back();
     key_context.emplace_back(nullptr, keys[i], val, nullptr,
                              nullptr /* timestamp */, &statuses[i]);
@@ -141,12 +139,14 @@ std::vector<Status> SstFileReader::MultiGet(
                             r->moptions.prefix_extractor.get(),
                             false /* skip filters */);
 
+  values->resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
     get_ctx[i].ReportCounters();
 
     if (statuses[i].ok()) {
       switch (get_ctx[i].State()) {
         case GetContext::kFound:
+          (*values)[i].assign(pin_values[i].data(), pin_values[i].size());
           break;
         case GetContext::kNotFound:
         case GetContext::kDeleted:
@@ -161,20 +161,6 @@ std::vector<Status> SstFileReader::MultiGet(
           statuses[i] = Status::Corruption();
           break;
       };
-    }
-  }
-  return statuses;
-}
-
-std::vector<Status> SstFileReader::MultiGet(const ReadOptions& roptions,
-                                            const std::vector<Slice>& keys,
-                                            std::vector<std::string>* values) {
-  std::vector<PinnableSlice> pin_values;
-  std::vector<Status> statuses = MultiGet(roptions, keys, &pin_values);
-  values->resize(keys.size());
-  for (size_t i = 0; i < keys.size(); ++i) {
-    if (statuses[i].ok()) {
-      (*values)[i].assign(pin_values[i].data(), pin_values[i].size());
     }
   }
   return statuses;

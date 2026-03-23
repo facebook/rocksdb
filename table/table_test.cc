@@ -7221,9 +7221,7 @@ class ExternalTableTest : public DBTestBase {
                                            /*support_property_block=*/true);
     }
 
-    PinnedDummyExternalTableReader* last_reader() const {
-      return last_reader_;
-    }
+    PinnedDummyExternalTableReader* last_reader() const { return last_reader_; }
 
    private:
     mutable PinnedDummyExternalTableReader* last_reader_ = nullptr;
@@ -7297,41 +7295,6 @@ TEST_F(ExternalTableTest, SstReaderTest) {
   std::unique_ptr<SstFileWriter> writer;
   writer.reset(new SstFileWriter(EnvOptions(), options));
   ASSERT_OK(writer->Open(ingest_file));
-  ASSERT_OK(writer->Put("foo", "bar"));
-  ASSERT_OK(writer->Finish());
-  writer.reset();
-
-  std::unique_ptr<SstFileReader> reader(new SstFileReader(options));
-  ASSERT_OK(reader->Open(ingest_file));
-
-  ReadOptions ro;
-  std::unique_ptr<Iterator> iter(reader->NewIterator(ro));
-  ASSERT_NE(iter, nullptr);
-  iter->Seek("foo");
-  ASSERT_TRUE(iter->Valid() && iter->status().ok());
-  ASSERT_EQ(iter->value(), "bar");
-  iter->Next();
-  ASSERT_FALSE(iter->Valid());
-  ASSERT_TRUE(iter->status().ok());
-}
-
-TEST_F(ExternalTableTest, SstReaderGetTest) {
-  if (encrypted_env_) {
-    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
-    return;
-  }
-  Options options = GetDefaultOptions();
-  std::string dbname = test::PerThreadDBPath("external_table_get_test");
-  std::string ingest_file = dbname + "test.immutabledb";
-
-  std::shared_ptr<ExternalTableFactory> factory =
-      std::make_shared<DummyExternalTableFactory>(
-          /*support_property_block=*/false);
-  options.table_factory = NewExternalTableFactory(factory);
-
-  std::unique_ptr<SstFileWriter> writer;
-  writer.reset(new SstFileWriter(EnvOptions(), options));
-  ASSERT_OK(writer->Open(ingest_file));
   ASSERT_OK(writer->Put("a", "val_a"));
   ASSERT_OK(writer->Put("b", "val_b"));
   ASSERT_OK(writer->Put("c", "val_c"));
@@ -7341,6 +7304,24 @@ TEST_F(ExternalTableTest, SstReaderGetTest) {
   std::unique_ptr<SstFileReader> reader(new SstFileReader(options));
   ASSERT_OK(reader->Open(ingest_file));
 
+  // Test iterator
+  ReadOptions ro;
+  std::unique_ptr<Iterator> iter(reader->NewIterator(ro));
+  ASSERT_NE(iter, nullptr);
+  iter->Seek("a");
+  ASSERT_TRUE(iter->Valid() && iter->status().ok());
+  ASSERT_EQ(iter->value(), "val_a");
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value(), "val_b");
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value(), "val_c");
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().ok());
+
+  // Test MultiGet
   std::vector<Slice> keys = {"a", "b", "missing", "c"};
   std::vector<std::string> values;
   std::vector<Status> statuses = reader->MultiGet(ReadOptions(), keys, &values);
@@ -7353,62 +7334,6 @@ TEST_F(ExternalTableTest, SstReaderGetTest) {
   ASSERT_TRUE(statuses[2].IsNotFound());
   ASSERT_OK(statuses[3]);
   ASSERT_EQ(values[3], "val_c");
-}
-
-TEST_F(ExternalTableTest, SstReaderPinnableMultiGetTest) {
-  if (encrypted_env_) {
-    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
-    return;
-  }
-  Options options = GetDefaultOptions();
-  std::string dbname =
-      test::PerThreadDBPath("external_table_pinnable_multiget_test");
-  std::string ingest_file = dbname + "test.immutabledb";
-
-  auto factory = std::make_shared<PinnedDummyExternalTableFactory>();
-  options.table_factory = NewExternalTableFactory(factory);
-
-  std::unique_ptr<SstFileWriter> writer;
-  writer.reset(new SstFileWriter(EnvOptions(), options));
-  ASSERT_OK(writer->Open(ingest_file));
-  ASSERT_OK(writer->Put("a", "val_a"));
-  ASSERT_OK(writer->Put("b", "val_b"));
-  ASSERT_OK(writer->Put("c", "val_c"));
-  ASSERT_OK(writer->Finish());
-  writer.reset();
-
-  std::unique_ptr<SstFileReader> reader(new SstFileReader(options));
-  ASSERT_OK(reader->Open(ingest_file));
-  ASSERT_NE(factory->last_reader(), nullptr);
-
-  factory->last_reader()->SetPinnedData(
-      {{"a", "pinned_a"}, {"b", "pinned_b"}, {"c", "pinned_c"}});
-
-  std::vector<Slice> keys = {"a", "b", "missing", "c"};
-  std::vector<PinnableSlice> values;
-  std::vector<Status> statuses = reader->MultiGet(ReadOptions(), keys, &values);
-  ASSERT_EQ(values.size(), keys.size());
-  ASSERT_EQ(statuses.size(), keys.size());
-
-  ASSERT_OK(statuses[0]);
-  ASSERT_EQ(values[0].ToString(), "pinned_a");
-  ASSERT_TRUE(values[0].IsPinned());
-
-  ASSERT_OK(statuses[1]);
-  ASSERT_EQ(values[1].ToString(), "pinned_b");
-  ASSERT_TRUE(values[1].IsPinned());
-
-  ASSERT_TRUE(statuses[2].IsNotFound());
-
-  ASSERT_OK(statuses[3]);
-  ASSERT_EQ(values[3].ToString(), "pinned_c");
-  ASSERT_TRUE(values[3].IsPinned());
-
-  // Reset PinnableSlices to trigger cleanups
-  for (auto& v : values) {
-    v.Reset();
-  }
-  ASSERT_EQ(factory->last_reader()->pin_cleanup_count(), 3);
 }
 
 TEST_F(ExternalTableTest, PinnedGetTest) {
@@ -7439,14 +7364,14 @@ TEST_F(ExternalTableTest, PinnedGetTest) {
       {{"key1", "pinned_val1"}, {"key2", "pinned_val2"}});
 
   PinnableSlice pinnable;
-  ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "key1",
-                     &pinnable));
+  ASSERT_OK(
+      db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "key1", &pinnable));
   ASSERT_EQ(pinnable.ToString(), "pinned_val1");
   ASSERT_TRUE(pinnable.IsPinned());
   pinnable.Reset();
 
-  ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "key2",
-                     &pinnable));
+  ASSERT_OK(
+      db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "key2", &pinnable));
   ASSERT_EQ(pinnable.ToString(), "pinned_val2");
   ASSERT_TRUE(pinnable.IsPinned());
   pinnable.Reset();
@@ -7455,8 +7380,8 @@ TEST_F(ExternalTableTest, PinnedGetTest) {
   ASSERT_EQ(factory->last_reader()->pin_cleanup_count(), 2);
 
   // Verify NotFound still works
-  Status s = db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "missing",
-                      &pinnable);
+  Status s =
+      db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "missing", &pinnable);
   ASSERT_TRUE(s.IsNotFound());
 
   // Test MultiGet with PinnableSlice to exercise the batched pin path
