@@ -46,7 +46,7 @@ Step 6: Insert into the internal LRU cache, either as a `CacheValueChunk` chain 
 
 ### From SST Block (`InsertSaved`)
 
-Step 1: Validate inputs: `InsertSaved` currently requires `type != kNoCompression` and `source != kVolatileCompressedTier` and `!enable_custom_split_merge`. If any condition fails, the call is silently a no-op.
+Step 1: Validate inputs: `InsertSaved` checks three conditions sequentially with early returns: (a) `source != kVolatileCompressedTier` -- this check includes a debug assertion, so in debug builds it will abort rather than silently returning; (b) `type != kNoCompression`; (c) `!enable_custom_split_merge`. If any condition fails, the call returns without inserting.
 
 Step 2: Apply two-hit admission via `MaybeInsertDummy()`.
 
@@ -89,6 +89,10 @@ Note: the split/merge mode is not compatible with `InsertSaved()` (tiered cache 
 - `Inflate(increase)`: restores capacity reduced by a prior `Deflate`.
 
 Both `Deflate` and `Inflate` are lighter-weight than `SetCapacity` because they operate via cache reservation rather than redistributing capacity across all shards.
+
+Note: when `ROCKSDB_MALLOC_USABLE_SIZE` is defined and `enable_custom_split_merge` is false, the charge for entries in the internal LRU is based on `malloc_usable_size()` rather than the logical data size. This can cause the cache to use slightly different effective capacity than expected, depending on the allocator's per-allocation overhead.
+
+When decompression fails during `Lookup`, the entry is erased from the internal LRU cache and `nullptr` is returned. The caller (adapter) treats this as a cache miss and falls back to reading from storage. The original compressed entry is lost. In debug builds, assertions will fire on decompression failure.
 
 ## Perf Context Counters
 

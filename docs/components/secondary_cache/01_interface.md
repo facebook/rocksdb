@@ -1,6 +1,6 @@
 # SecondaryCache Interface
 
-**Files:** `include/rocksdb/secondary_cache.h`, `include/rocksdb/advanced_cache.h`, `cache/secondary_cache.cc`
+**Files:** `include/rocksdb/secondary_cache.h`, `include/rocksdb/advanced_cache.h`, `cache/cache.cc`
 
 ## Overview
 

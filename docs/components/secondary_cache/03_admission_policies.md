@@ -14,7 +14,7 @@ RocksDB's secondary cache uses a layered admission model. The `TieredAdmissionPo
 |--------|------------------------------|-------------|
 | `kAdmPolicyAuto` | Selects `kAdmPolicyPlaceholder` for 2-tier setups, `kAdmPolicyThreeQueue` for 3-tier (NVM present) | Default; recommended for most users |
 | `kAdmPolicyPlaceholder` | Calls `SecondaryCache::Insert()` with `force_insert=false` | 2-tier setups; lets the secondary cache control its own admission |
-| `kAdmPolicyAllowCacheHits` | If the evicted entry had been hit (`was_hit`), uses `force_insert=true`; otherwise `force_insert=false` | Workloads where cache hits are strong predictors of future reuse |
+| `kAdmPolicyAllowCacheHits` | If the evicted entry had been hit (`was_hit`), uses `force_insert=true`; otherwise `force_insert=false`. When `force_insert=false`, the entry is still offered to the secondary cache, which applies its own admission policy (e.g., the two-hit dummy protocol in `CompressedSecondaryCache`) | Workloads where cache hits are strong predictors of future reuse |
 | `kAdmPolicyAllowAll` | Always uses `force_insert=true` | When all evicted blocks should enter secondary; higher CPU cost from compression |
 | `kAdmPolicyThreeQueue` | No demotion at all; evicted entries are discarded; NVM tier warmed via `InsertSaved()` | 3-tier setups with NVM secondary cache |
 

@@ -15,6 +15,10 @@
 - `InsertSaved` is a no-op (always returns `Status::OK()`)
 - `Erase`, `SetCapacity`, `GetCapacity`, and `SupportForceErase` forward directly to the base cache
 
+### Limitations
+
+`FaultInjectionSecondaryCache` extends `SecondaryCache` directly (not `SecondaryCacheWrapper`), so it does not override `Deflate()` or `Inflate()`. These methods return `Status::NotSupported()`, which means fault injection cannot be used with `distribute_cache_res=true` (proportional reservation) without breaking. Developers wrapping secondary caches for testing should be aware of this limitation.
+
 The fault injection is thread-local, using `ThreadLocalPtr` for the error context, ensuring no contention between threads.
 
 ### Special Handling

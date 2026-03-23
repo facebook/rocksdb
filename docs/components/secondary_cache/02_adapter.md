@@ -12,7 +12,7 @@ Step 1: Look up the key in the primary cache via `target_->Lookup()`.
 
 Step 2: If the primary returns a **dummy entry** (a placeholder with the sentinel `kDummyObj` value), erase the dummy and set `found_dummy_entry = true`. A dummy entry indicates the key was recently seen.
 
-Step 3: If primary miss (or only a dummy found) and the helper is secondary-cache-compatible, look up in the secondary cache with `secondary_cache_->Lookup()`.
+Step 3: If primary miss (or only a dummy found) and the helper is secondary-cache-compatible, look up in the secondary cache via `secondary_cache_->Lookup()`, passing `found_dummy_entry` as the `advise_erase` parameter. This tells the secondary cache whether to erase its copy (second access, dummy was found) or keep it (first access, no dummy).
 
 Step 4: On secondary cache hit, call `Promote()` to move the entry into the primary cache. The promotion strategy depends on whether a dummy was found (see Promotion Logic below).
 
@@ -26,7 +26,7 @@ When `SupportForceErase()` is true and no dummy entry was found in primary, this
 
 Step 1: Create a **standalone handle** via `CreateStandalone()`. This handle exists outside the cache's hash table -- it is owned by the caller but not discoverable by other lookups.
 
-Step 2: Insert a **dummy entry** (charge = 0) into the primary cache to record the access. If the same key is accessed again, the dummy will be found, triggering the full-insert path.
+Step 2: Insert a **dummy entry** (charge = 0) into the primary cache using `kNoopCacheItemHelper` (not secondary-cache-compatible) to record the access. Because the dummy uses `kNoopCacheItemHelper`, it is silently discarded on eviction rather than being demoted to the secondary cache. If the same key is accessed again, the dummy will be found, triggering the full-insert path.
 
 Step 3: The entry remains in the secondary cache. This avoids evicting useful primary entries for what might be a one-time access.
 

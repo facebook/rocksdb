@@ -45,6 +45,10 @@ Note: `LRUCacheOptions::secondary_cache` should not be set on `CompressedSeconda
 | `nvm_sec_cache` | `nullptr` | Optional NVM secondary cache for three-tier setup |
 | `adm_policy` | `kAdmPolicyAuto` | Admission policy (auto-selects based on NVM presence) |
 
+## DB-Level Options
+
+`DBOptions::lowest_used_cache_tier` (default `kNonVolatileBlockTier`) controls whether secondary cache is used for block cache lookups. Setting it to `kVolatileTier` disables secondary cache lookups entirely. This is the primary on/off switch for secondary cache at the DB options level.
+
 ## Dynamic Updates
 
 `UpdateTieredCache()` (see `include/rocksdb/cache.h`) allows runtime adjustment:
@@ -52,6 +56,8 @@ Note: `LRUCacheOptions::secondary_cache` should not be set on `CompressedSeconda
 - `total_capacity > 0`: resizes the total memory budget
 - `compressed_secondary_ratio` in `[0.0, 1.0]`: adjusts the primary/secondary split
 - `adm_policy < kAdmPolicyMax`: changes the admission policy
+
+Caveat: `UpdateTieredCache()` applies capacity, ratio, and policy changes as three independent operations. If the ratio update fails, the capacity change is not rolled back. The function returns only the last non-OK status, potentially hiding earlier errors. Callers should be aware that partial updates are possible.
 
 Limitations:
 - The total capacity should exceed `WriteBufferManager` max size when using block cache charging

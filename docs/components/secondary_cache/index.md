@@ -29,6 +29,7 @@ RocksDB's secondary cache subsystem provides a second tier of caching beyond the
 - **Async lookup**: secondary cache lookups can be non-blocking, batched via `WaitAll()`
 - **Dynamic updates**: capacity, compression ratio, and admission policy can be changed at runtime via `UpdateTieredCache()`
 - **Standalone handles**: on first secondary cache hit, a standalone handle (outside hash table) is returned to avoid evicting useful primary entries
+- **DB-level control**: `DBOptions::lowest_used_cache_tier` can disable secondary cache lookups entirely
 
 ## Key Invariants
 
@@ -36,3 +37,4 @@ RocksDB's secondary cache subsystem provides a second tier of caching beyond the
 - Entries promoted from secondary to primary with `kept_in_sec_cache=true` use `helper->without_secondary_compat` to prevent re-demotion on eviction
 - `Deflate`/`Inflate` adjustments are batched in 1MB (`kReservationChunkSize`) chunks to reduce mutex contention
 - Once `compressed_secondary_ratio` is set to 0.0, it cannot be dynamically re-enabled
+- Dummy entries in `CompressedSecondaryCache` use charge = 0, so they consume no cache capacity but occupy hash table slots
