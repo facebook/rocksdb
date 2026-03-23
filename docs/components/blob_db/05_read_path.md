@@ -8,8 +8,8 @@
 
 | Cache Layer | Class | Contents | Eviction |
 |-------------|-------|----------|----------|
-| Blob cache | `SharedCacheInterface` wrapping user-provided `Cache` | Uncompressed blob values (`BlobContents`) | LRU with `BOTTOM` priority |
-| File cache | `BlobFileCache` | Open `BlobFileReader` handles | LRU, explicit eviction on file obsolescence |
+| Blob cache | `SharedCacheInterface` wrapping user-provided `Cache` | Uncompressed blob values (`BlobContents`) | Depends on `Cache` implementation; inserted with `BOTTOM` priority |
+| File cache | `BlobFileCache` | Open `BlobFileReader` handles | Depends on table cache implementation; explicit eviction on file obsolescence |
 
 ## BlobSource::GetBlob() Workflow
 
@@ -25,7 +25,7 @@ Step 4: **Get file reader**. Obtain a `BlobFileReader` from `BlobFileCache`. The
 
 Step 5: **Read blob from file**. `BlobFileReader::GetBlob()` reads the blob record, verifies checksums if enabled, and decompresses if needed.
 
-Step 6: **Populate blob cache**. If a cache is configured and `fill_cache` is true, insert the uncompressed blob into the cache with `Cache::Priority::BOTTOM`.
+Step 6: **Populate blob cache**. If a cache is configured and `fill_cache` is true, insert the uncompressed blob into the cache with `Cache::Priority::BOTTOM`. Important: unlike flush-time cache prepopulation (which is best-effort), a cache insertion failure here causes `GetBlob()` to return an error to the caller.
 
 Step 7: **Transfer to PinnableSlice**. If the blob was cached, transfer the cache handle to the `PinnableSlice`. Otherwise, transfer ownership of the `BlobContents` directly.
 

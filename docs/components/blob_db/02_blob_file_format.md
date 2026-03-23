@@ -96,4 +96,7 @@ Step 4: Extract the compression type from the header and create a `Decompressor`
 If a crash occurs during blob file writing, the file will lack a footer. On recovery:
 
 - If the `BlobFileAddition` was **not** committed to the MANIFEST (the common case for mid-write crashes), the file is orphaned. It will be cleaned up during DB open since no version references it.
-- If the `BlobFileAddition` was committed but the footer is missing, `BlobFileReader::Create()` will fail the size check (file size < header + footer = 62 bytes for an incomplete file) and return `Status::Corruption`. The DB will refuse to open unless the corrupt blob file is addressed.
+- If the `BlobFileAddition` was committed but the file is incomplete or malformed, `BlobFileReader::Create()` will detect the problem and return `Status::Corruption`. The specific failure depends on how much data reached disk:
+  - Files smaller than 62 bytes (header + footer) fail the initial minimum size check.
+  - Larger files that pass the size check proceed to footer decoding, where they can fail on magic number validation, CRC verification, or expiration range checks.
+  - The DB will refuse to open unless the corrupt blob file is addressed.

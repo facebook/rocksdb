@@ -1,6 +1,6 @@
 # Metadata and Lifecycle
 
-**Files:** `db/blob/blob_file_meta.h`, `db/blob/blob_file_meta.cc`, `db/blob/blob_file_addition.h`, `db/blob/blob_file_garbage.h`, `db/blob/blob_file_completion_callback.h`, `db/blob/blob_constants.h`
+**Files:** `db/blob/blob_file_meta.h`, `db/blob/blob_file_meta.cc`, `db/blob/blob_file_addition.h`, `db/blob/blob_file_garbage.h`, `db/blob/blob_file_completion_callback.h`, `db/blob/blob_constants.h`, `db/version_builder.cc`
 
 ## Blob File Metadata Classes
 
@@ -39,11 +39,12 @@ The class enforces that `garbage_blob_count <= total_blob_count` and `garbage_bl
 
 ## Linked SSTs
 
-The `linked_ssts` set tracks which SST files contain BlobIndex references pointing to this blob file. This is maintained by `VersionBuilder` during version construction:
+The `linked_ssts` set is the inverse mapping of `FileMetaData::oldest_blob_file_number`. Each SST file tracks only the smallest (oldest) blob file number among all BlobIndex references it contains. `VersionBuilder` links that SST to the blob file with matching number. This means `linked_ssts` does NOT contain every SST that references a blob file -- only those whose `oldest_blob_file_number` equals this blob file's number.
 
-- When an SST file is added that references a blob file, the SST number is added to the blob file's `linked_ssts`.
-- When an SST file is removed, its number is removed from the `linked_ssts` of all blob files it referenced.
-- A blob file with an empty `linked_ssts` set and no surviving garbage-only references is a candidate for deletion.
+This mapping exists primarily for force GC scheduling: when the garbage threshold is exceeded, the system finds SSTs linked to the oldest blob file and schedules them for compaction. Since those SSTs have the oldest blob file as their minimum-referenced file, compacting them will eventually allow that blob file to be fully reclaimed.
+
+- When an SST file is added, `VersionBuilder` reads its `oldest_blob_file_number` and calls `LinkSst()` on the corresponding blob file metadata.
+- When an SST file is removed, `VersionBuilder` calls `UnlinkSst()` on the blob file it was linked to.
 
 ## MANIFEST Integration
 
@@ -82,8 +83,10 @@ These are accumulated by `BlobGarbageMeter` during compaction and applied to `Bl
 - `GetBlobFiles()` returns the sorted vector for iteration.
 - `GetBlobFileMetaDataLB()` provides lower-bound lookup by file number.
 - `GetBlobFileMetaData()` returns metadata for a specific file number.
-- `GetBlobStats()` aggregates total file count, total file size, total garbage bytes, and space amplification.
+- `GetBlobStats()` aggregates total file size, total garbage bytes, and space amplification.
 - `ComputeFilesMarkedForForcedBlobGC()` identifies SSTs to compact for force GC (see Garbage Collection chapter).
+
+Note: The blob file count is not part of `GetBlobStats()`. It is available separately from `GetBlobFiles().size()` or the `rocksdb.num-blob-files` DB property.
 
 ## File Lifecycle
 

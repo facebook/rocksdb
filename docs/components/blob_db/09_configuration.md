@@ -1,6 +1,6 @@
 # Configuration and Tuning
 
-**Files:** `include/rocksdb/advanced_options.h`
+**Files:** `include/rocksdb/advanced_options.h`, `db/column_family.cc`, `db/compaction/compaction_iterator.cc`
 
 ## All BlobDB Options
 
@@ -12,7 +12,7 @@ All BlobDB options are in `ColumnFamilyOptions` (see `include/rocksdb/advanced_o
 |--------|------|---------|-------------|
 | `enable_blob_files` | bool | `false` | Master switch for key-value separation |
 | `min_blob_size` | uint64_t | `0` | Minimum uncompressed value size to extract to blob file. `0` means all values are extracted when blob files are enabled |
-| `blob_file_size` | uint64_t | `268435456` (256 MB) | Maximum blob file size before rotating to a new file |
+| `blob_file_size` | uint64_t | `268435456` (256 MB) | Target blob file size before rotating to a new file. A file can exceed this by one blob record since the check occurs after writing |
 | `blob_compression_type` | CompressionType | `kNoCompression` | Compression algorithm for blob files |
 
 ### Garbage Collection Options
@@ -92,23 +92,25 @@ When blob files are stored on remote/distributed storage:
 
 All BlobDB options except `blob_cache` can be changed at runtime via `DB::SetOptions()`:
 
-- Changing `enable_blob_files` from false to true starts extracting new values to blob files. Existing inline values are not retroactively extracted.
-- Changing `min_blob_size` affects new writes only. Existing blob references remain valid even if the threshold changes.
+- Changing `enable_blob_files` from false to true starts extracting values to blob files in future flush and compaction outputs. Existing inline values may be extracted during subsequent compactions that rewrite those values.
+- Changing `min_blob_size` affects future flush and compaction outputs. During compaction, existing blob references to values smaller than the new threshold may be inlined back into SST files, and existing inline values larger than the new threshold may be extracted to blob files.
 - Increasing `blob_garbage_collection_age_cutoff` makes more files eligible for GC.
 - Changing `blob_compression_type` affects new blob files only. Existing blob files retain their original compression.
 
 ## Option Validation
 
-`ColumnFamilyOptions` validation in `db/column_family.cc` enforces:
+`ColumnFamilyOptions` validation in `db/column_family.cc` enforces the following checks when `enable_blob_garbage_collection` is true:
 
 - `blob_garbage_collection_age_cutoff` must be in `[0.0, 1.0]`
 - `blob_garbage_collection_force_threshold` must be in `[0.0, 1.0]`
+
+Note: With `enable_blob_garbage_collection` set to false, these range checks are not applied, and out-of-range values are accepted without error.
 
 ## Using Shared vs. Dedicated Blob Cache
 
 The `blob_cache` option accepts any `Cache` implementation:
 
-**Shared cache** (same as block cache): Simpler configuration. Blobs and blocks compete for the same cache capacity. Blobs use `Cache::Priority::BOTTOM`, so they are evicted before higher-priority block cache entries.
+**Shared cache** (same `Cache` object as block cache): Simpler configuration. Blobs and blocks compete for the same cache capacity. Blobs use `Cache::Priority::BOTTOM`, so they are evicted before higher-priority block cache entries. The blob path uses the generic `Cache` interface, so eviction behavior depends on the concrete cache implementation (e.g., LRU, HyperClockCache).
 
 **Dedicated cache**: Separate cache for blobs. Provides isolation so that large blobs don't evict frequently-accessed SST blocks. Useful when blob values are large and would dominate a shared cache.
 
@@ -118,7 +120,14 @@ When using a shared cache, blobs are inserted with `Cache::Priority::BOTTOM`. Th
 
 ## Manual Compaction GC Override
 
-When using `DB::CompactRange()`, it is possible to temporarily override the garbage collection options for that specific manual compaction. This is useful for one-time cleanup operations, such as running a full key-space compaction with `blob_garbage_collection_age_cutoff = 1.0` to eliminate all garbage without permanently changing the GC settings.
+When using `DB::CompactRange()`, it is possible to temporarily override certain garbage collection options for that specific manual compaction via `CompactRangeOptions`:
+
+- `blob_garbage_collection_policy`: Force-enable, force-disable, or use the default GC setting.
+- `blob_garbage_collection_age_cutoff`: Override the age cutoff (set to a value in `[0.0, 1.0]` to override; negative values use the default).
+
+Note: `blob_garbage_collection_force_threshold` cannot be overridden through `CompactRangeOptions`. Only the GC policy and age cutoff are overrideable.
+
+This is useful for one-time cleanup operations, such as running a full key-space compaction with `blob_garbage_collection_age_cutoff = 1.0` to eliminate all garbage without permanently changing the GC settings.
 
 ## SST File Sizing with BlobDB
 

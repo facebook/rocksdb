@@ -21,7 +21,7 @@ Step 3: **Compress**. `CompressBlobIfNeeded()` compresses the value if `blob_com
 
 Step 4: **Write record**. `WriteBlobToFile()` calls `BlobLogWriter::AddRecord()` to write the full blob record (header + key + value) and obtains the key offset and blob offset.
 
-Step 5: **Check file size**. `CloseBlobFileIfNeeded()` closes the current file and resets state if `file_writer->GetFileSize() >= blob_file_size_`.
+Step 5: **Check file size**. `CloseBlobFileIfNeeded()` closes the current file and resets state if `file_writer->GetFileSize() >= blob_file_size_`. Since this check happens after writing the current blob, a file can exceed the configured `blob_file_size` by one record before rotation.
 
 Step 6: **Prepopulate cache**. `PutBlobIntoCacheIfNeeded()` optionally inserts the uncompressed blob into the blob cache during flush.
 
@@ -95,5 +95,5 @@ If an error occurs during blob file writing:
 | Cache prepopulation | Yes (if `kFlushOnly`) | No |
 | Starting level check | Yes (`blob_file_starting_level`) | Yes (`blob_file_starting_level`) |
 | GC of existing blobs | No | Yes (if `enable_blob_garbage_collection`) |
-| Creation reason | `BlobFileCreationReason::kFlush` | `BlobFileCreationReason::kCompaction` |
+| Creation reason | `BlobFileCreationReason::kFlush` | `BlobFileCreationReason::kCompaction` (also `kRecovery` during crash recovery) |
 | Parallelism | One builder per flush | One builder per sub-compaction |

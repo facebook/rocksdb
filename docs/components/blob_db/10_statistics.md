@@ -1,10 +1,10 @@
 # Statistics and Monitoring
 
-**Files:** `include/rocksdb/statistics.h`, `monitoring/statistics_impl.h`
+**Files:** `include/rocksdb/statistics.h`, `monitoring/statistics_impl.h`, `db/blob/blob_source.cc`, `db/blob/blob_file_reader.cc`, `db/blob/blob_log_writer.cc`, `db/blob/blob_file_builder.cc`, `db/compaction/compaction_job.cc`, `include/rocksdb/listener.h`, `db/internal_stats.cc`
 
 ## Tickers (Counters)
 
-BlobDB exposes the following ticker statistics via `Statistics`:
+The following tickers are actively recorded by integrated BlobDB:
 
 ### Cache Statistics
 
@@ -25,7 +25,16 @@ BlobDB exposes the following ticker statistics via `Statistics`:
 | `BLOB_DB_BLOB_FILE_BYTES_READ` | Total bytes read from blob files |
 | `BLOB_DB_BLOB_FILE_SYNCED` | Number of blob file sync operations |
 
-### Operation Statistics
+### GC Statistics (Integrated BlobDB)
+
+| Ticker | Description |
+|--------|-------------|
+| `BLOB_DB_GC_NUM_KEYS_RELOCATED` | Number of keys relocated by GC during compaction |
+| `BLOB_DB_GC_BYTES_RELOCATED` | Bytes relocated by GC during compaction |
+
+### Legacy/Stacked BlobDB Only
+
+The following tickers are declared in the enum but only recorded by the legacy stacked BlobDB (`utilities/blob_db/`). They are NOT recorded by integrated BlobDB and will always be zero:
 
 | Ticker | Description |
 |--------|-------------|
@@ -41,22 +50,10 @@ BlobDB exposes the following ticker statistics via `Statistics`:
 | `BLOB_DB_BYTES_WRITTEN` | Total bytes written (keys + values) |
 | `BLOB_DB_BYTES_READ` | Total bytes read (keys + values) |
 | `BLOB_DB_WRITE_BLOB` | Number of blobs written to blob files |
-| `BLOB_DB_WRITE_BLOB_TTL` | Number of TTL blobs written (legacy) |
-
-### GC Statistics
-
-| Ticker | Description |
-|--------|-------------|
+| `BLOB_DB_WRITE_BLOB_TTL` | Number of TTL blobs written |
 | `BLOB_DB_GC_NUM_FILES` | Number of blob files processed by GC |
 | `BLOB_DB_GC_NUM_NEW_FILES` | Number of new blob files created by GC |
 | `BLOB_DB_GC_FAILURES` | Number of GC failures |
-| `BLOB_DB_GC_NUM_KEYS_RELOCATED` | Number of keys relocated by GC |
-| `BLOB_DB_GC_BYTES_RELOCATED` | Bytes relocated by GC |
-
-### Legacy Statistics (Stacked BlobDB)
-
-| Ticker | Description |
-|--------|-------------|
 | `BLOB_DB_BLOB_INDEX_EXPIRED_COUNT` | Expired blob index entries (TTL) |
 | `BLOB_DB_BLOB_INDEX_EXPIRED_SIZE` | Bytes of expired blob indices |
 | `BLOB_DB_BLOB_INDEX_EVICTED_COUNT` | Evicted blob index entries (FIFO) |
@@ -64,10 +61,22 @@ BlobDB exposes the following ticker statistics via `Statistics`:
 | `BLOB_DB_FIFO_NUM_FILES_EVICTED` | Blob files evicted by FIFO |
 | `BLOB_DB_FIFO_NUM_KEYS_EVICTED` | Keys evicted by FIFO |
 | `BLOB_DB_FIFO_BYTES_EVICTED` | Bytes evicted by FIFO |
-| `BLOB_DB_WRITE_INLINED_DEPRECATED` | Deprecated (was inline write count) |
-| `BLOB_DB_WRITE_INLINED_TTL_DEPRECATED` | Deprecated (was inline TTL write count) |
+| `BLOB_DB_WRITE_INLINED_DEPRECATED` | Deprecated |
+| `BLOB_DB_WRITE_INLINED_TTL_DEPRECATED` | Deprecated |
 
 ## Histograms (Latency Distributions)
+
+The following histograms are actively recorded by integrated BlobDB:
+
+| Histogram | Description |
+|-----------|-------------|
+| `BLOB_DB_BLOB_FILE_WRITE_MICROS` | Blob file write latency |
+| `BLOB_DB_BLOB_FILE_READ_MICROS` | Blob file read latency |
+| `BLOB_DB_BLOB_FILE_SYNC_MICROS` | Blob file sync latency |
+| `BLOB_DB_COMPRESSION_MICROS` | Blob compression latency |
+| `BLOB_DB_DECOMPRESSION_MICROS` | Blob decompression latency |
+
+The following histograms are declared but only recorded by the legacy stacked BlobDB:
 
 | Histogram | Description |
 |-----------|-------------|
@@ -79,11 +88,6 @@ BlobDB exposes the following ticker statistics via `Statistics`:
 | `BLOB_DB_SEEK_MICROS` | Seek operation latency |
 | `BLOB_DB_NEXT_MICROS` | Next operation latency |
 | `BLOB_DB_PREV_MICROS` | Prev operation latency |
-| `BLOB_DB_BLOB_FILE_WRITE_MICROS` | Blob file write latency |
-| `BLOB_DB_BLOB_FILE_READ_MICROS` | Blob file read latency |
-| `BLOB_DB_BLOB_FILE_SYNC_MICROS` | Blob file sync latency |
-| `BLOB_DB_COMPRESSION_MICROS` | Blob compression latency |
-| `BLOB_DB_DECOMPRESSION_MICROS` | Blob decompression latency |
 
 ## Perf Context Counters
 
@@ -117,10 +121,11 @@ These are reported in compaction logs and aggregated into the `InternalStats` fo
 
 | Metric | Description |
 |--------|-------------|
-| `total_file_count` | Number of blob files in the current version |
 | `total_file_size` | Total on-disk size of all blob files |
-| `garbage_size` | Total garbage bytes across all blob files |
-| `space_amp` | Ratio of `total_file_size / (total_file_size - garbage_size)` |
+| `total_garbage_size` | Total garbage bytes across all blob files |
+| `space_amp` | Ratio of `total_file_size / (total_file_size - total_garbage_size)` |
+
+Note: The blob file count is not part of `GetBlobStats()`. It is available from `GetBlobFiles().size()` or the `rocksdb.num-blob-files` DB property.
 
 These metrics are useful for monitoring garbage accumulation and tuning GC parameters. High space amplification suggests the GC cutoff should be increased or the force threshold should be lowered.
 
@@ -154,7 +159,7 @@ Note: When using a shared block/blob cache, the `blob-cache-capacity`, `blob-cac
 BlobDB provides lifecycle notifications via `EventListener` (see `include/rocksdb/listener.h`):
 
 - `OnBlobFileCreationStarted`: Called when a new blob file is about to be created.
-- `OnBlobFileCreated`: Called when a blob file has been successfully written.
+- `OnBlobFileCreated`: Called when a blob file creation attempt completes, whether the file was successfully created or not. Applications must inspect `info.status` to determine success or failure.
 - `OnBlobFileDeleted`: Called when a blob file is deleted.
-- `FlushJobInfo` and `CompactionJobInfo` include vectors of `BlobFileInfo` for newly created blob files.
+- `FlushJobInfo` and `CompactionJobInfo` include vectors of `BlobFileAdditionInfo` for newly created blob files.
 - `CompactionJobInfo` also includes `BlobFileGarbageInfo` structures describing garbage produced by the compaction.
