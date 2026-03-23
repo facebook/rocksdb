@@ -1,28 +1,28 @@
 # RepairDB and Recovery
 
-**Files:** `db/repair.cc`, `include/rocksdb/db.h` (RepairDB), `tools/ldb_cmd_impl.h` (RepairCommand, ReduceDBLevelsCommand), `tools/dump/db_dump_tool.cc`, `include/rocksdb/db_dump_tool.h`
+**Files:** db/repair.cc, include/rocksdb/db.h (RepairDB), tools/ldb_cmd_impl.h (RepairCommand, ReduceDBLevelsCommand), tools/dump/db_dump_tool.cc, tools/dump/rocksdb_dump.cc, tools/dump/rocksdb_undump.cc, include/rocksdb/db_dump_tool.h
 
 ## Overview
 
-RocksDB provides several recovery and migration tools: `RepairDB` for reconstructing corrupted databases, `reduce_levels` for level structure migration, and `db_dump`/`db_undump` for portable database serialization.
+RocksDB provides several recovery and migration tools: RepairDB for reconstructing corrupted databases, reduce_levels for level structure migration, and rocksdb_dump/rocksdb_undump for portable database serialization.
 
 ## RepairDB
 
-`RepairDB` recovers corrupted databases by reconstructing state from surviving SST files. It is available as a C++ API (`RepairDB()` in `include/rocksdb/db.h`) and via the `ldb repair` command.
+RepairDB recovers corrupted databases by reconstructing state from surviving SST files. It is available as a C++ API (RepairDB() in include/rocksdb/db.h) and via the ldb repair command.
 
 ### Repair Process
 
 The repair proceeds through four phases:
 
-**Phase 1 -- Find Files:** Scans the database directory and classifies files by type: SST files, WAL files, MANIFEST files, OPTIONS files, and other metadata. See `FindFiles()` in `db/repair.cc`.
+**Phase 1 -- Find Files:** Scans the database directory, archives old MANIFEST files, creates a fresh descriptor via DBImpl::NewDB(), and classifies files by type: SST files, WAL files, and other metadata. See FindFiles() in db/repair.cc.
 
-**Phase 2 -- Convert Logs to Tables:** Replays all WAL files, writing their contents to new SST files. Each WAL record is parsed, applied to a `MemTable`, and flushed to an L0 SST when the memtable fills. Corrupted WAL records are skipped with a warning. See `ConvertLogFilesToTables()` in `db/repair.cc`.
+**Phase 2 -- Convert Logs to Tables:** Replays each WAL file into per-column-family MemTable instances, then emits at most one SST per non-empty column family per WAL via BuildTable(). Corrupted WAL records are skipped with a warning. See ConvertLogToTable() in db/repair.cc.
 
 **Important:** WAL replay is best-effort. Corrupted records are skipped, which may result in data loss for uncommitted writes.
 
-**Phase 3 -- Extract Metadata:** Scans each SST file to extract the smallest and largest keys, largest sequence number, entry count, and oldest blob file reference (for BlobDB). If an SST file cannot be opened (e.g., corrupted header or footer), it is ignored and its data is lost. See `ScanTable()` in `db/repair.cc`.
+**Phase 3 -- Extract Metadata:** Scans each SST file to extract the smallest and largest keys, largest sequence number, entry count, and oldest blob file reference (for BlobDB). If an SST file cannot be opened (e.g., corrupted header or footer), it is ignored and its data is lost. See ScanTable() in db/repair.cc.
 
-**Phase 4 -- Write Descriptor:** Generates a new MANIFEST via `VersionEdit` and `VersionSet::LogAndApply()`. The new MANIFEST sets log number to 0, next file number to 1 + max file found, last sequence to max sequence across all SSTs, and places all SST files at L0. See `AddTables()` in `db/repair.cc`.
+**Phase 4 -- Write Descriptor:** Generates a new MANIFEST via VersionEdit and VersionSet::LogAndApply(). The new MANIFEST sets log number to 0, next file number to 1 + max file found (which may exceed the initial scan value due to WAL-to-SST conversion), last sequence to max sequence across all SSTs, and places all SST files at L0. See AddTables() in db/repair.cc.
 
 **Key Invariant:** After repair, all data resides in L0. The database will reorganize levels through normal compaction upon the next open.
 
@@ -38,9 +38,9 @@ The repair proceeds through four phases:
 
 ### Using RepairDB
 
-Via C++ API: Call `RepairDB(db_path, options)` (see `include/rocksdb/db.h`).
+Via C++ API: Call RepairDB(db_path, options) (see include/rocksdb/db.h).
 
-Via ldb: Run `ldb repair --db=/path/to/db`.
+Via ldb: Run ldb repair --db=/path/to/db.
 
 ## ReduceDBLevels
 
@@ -56,7 +56,7 @@ Step 3: Compact entire database to push all files to the highest level.
 
 Step 4: Close the database.
 
-Step 5: Call `VersionSet::ReduceNumberOfLevels()` to rewrite the MANIFEST with the new level count.
+Step 5: Call VersionSet::ReduceNumberOfLevels() to rewrite the MANIFEST with the new level count.
 
 Step 6: All files end up in the bottom level of the new structure.
 
@@ -64,32 +64,32 @@ Step 6: All files end up in the bottom level of the new structure.
 
 ### Usage
 
-Via ldb: `ldb --db=/path/to/db reduce_levels --new_levels=3`
+Via ldb: ldb --db=/path/to/db reduce_levels --new_levels=3
 
-Add `--print_old_levels` to see current level distribution without modifying.
+Add --print_old_levels to see current level distribution without modifying.
 
-## db_dump and db_undump
+## rocksdb_dump and rocksdb_undump
 
-Binary dump format for portable database backup/restore.
+Binary dump format for portable database backup/restore. These are standalone binaries (requiring GFLAGS) separate from the ldb tool.
 
-### db_dump
+### rocksdb_dump
 
-Exports database contents to a portable dump file. Uses `DB::OpenForReadOnly()` and iterates all key-value pairs in the default column family.
+Exports database contents to a portable dump file. Uses DB::OpenForReadOnly() and iterates all key-value pairs in the default column family.
 
 Dump file format: An 8-byte magic number ("ROCKDUMP"), 8-byte version, 4-byte metadata JSON size, metadata JSON (hostname, database path, creation time), followed by repeated entries of [4-byte key size][key][4-byte value size][value].
 
-**Note:** `db_dump` only exports the default column family. For other column families, use `ldb dump` with `--column_family`.
+**Note:** rocksdb_dump only exports the default column family. For other column families, use ldb dump with --column_family.
 
-### db_undump
+### rocksdb_undump
 
-Restores a database from a dump file. Parses the dump header, reads key-value pairs, writes each via `DB::Put()`, and optionally compacts the database.
+Restores a database from a dump file. Parses the dump header, reads key-value pairs, writes each via DB::Put(), and optionally compacts the database.
 
-**Note:** The restored database will have a different SST file structure than the original (determined by compaction during restore). Use `db_dump`/`db_undump` for logical backup, not physical file-level backup. For physical backups, use `BackupEngine` or `Checkpoint`.
+**Note:** The restored database will have a different SST file structure than the original (determined by compaction during restore). Use rocksdb_dump/rocksdb_undump for logical backup, not physical file-level backup. For physical backups, use BackupEngine or Checkpoint.
 
 ### Usage
 
-Dump: `db_dump --db=/path/to/db --dump_location=/path/to/backup.dump`
+Dump: rocksdb_dump --db_path=/path/to/db --dump_location=/path/to/backup.dump
 
-Restore: `db_undump --db_path=/path/to/restored --dump_location=/path/to/backup.dump`
+Restore: rocksdb_undump --db_path=/path/to/restored --dump_location=/path/to/backup.dump
 
-Add `--anonymous` to db_dump to exclude hostname and timestamp metadata.
+Add --anonymous to rocksdb_dump to exclude hostname and timestamp metadata.

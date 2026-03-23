@@ -1,6 +1,6 @@
 # Parameter Randomization
 
-**Files:** `tools/db_crashtest.py`, `db_stress_tool/db_stress_gflags.cc`, `db_stress_tool/db_stress_test_base.cc`
+**Files:** `tools/db_crashtest.py`, `db_stress_tool/db_stress_gflags.cc`, `db_stress_tool/db_stress_test_base.cc`, `db_stress_tool/db_stress_compaction_filter.h`
 
 ## Overview
 
@@ -15,7 +15,7 @@ Parameter randomization is central to the stress test's effectiveness. Each run 
 1. `default_params` -- Base configuration with hundreds of randomized options
 2. `blackbox_default_params` or `whitebox_default_params` -- Mode-specific overrides
 3. Feature-specific params (one of): `simple_default_params`, `cf_consistency_params`, `txn_params`, `optimistic_txn_params`, `best_efforts_recovery_params`, `ts_params`, `multiops_txn_params`, `tiered_params`
-4. `blob_params` (always merged for blob DB testing)
+4. `blob_params` (merged with ~10% probability when compatible with other test options)
 5. Command-line arguments (highest priority)
 
 ### Parameter Types
@@ -121,11 +121,18 @@ The `finalize_and_sanitize()` function (see `tools/db_crashtest.py`) resolves la
 
 - Disables mmap_read (incompatible with zero-copy pointers)
 - Disables parallel compression
+- Blocks TransactionDB (`use_txn=0`)
+- Disables prefix scanning (`prefix_size=0`)
+- Disables interpolation search
 
 ### Remote Compaction
 
 - Disables blob DB, inplace update, checkpoint, timed put, secondary instances, mmap
 - Disables DB-open fault injection (to avoid timeout waiting for remote compaction threads)
+
+### Compaction Filter
+
+When `--enable_compaction_filter=1`, `DbStressCompactionFilter` (see `db_stress_tool/db_stress_compaction_filter.h`) is installed. It coordinates with expected state using `TryLock()` (non-blocking) on key locks to avoid deadlocks with foreground threads. It distinguishes between Remove (SingleDelete-compatible) and Purge (for non-SD-compatible cases) to maintain expected state consistency.
 
 ## Dynamic Option Changes
 
@@ -135,8 +142,7 @@ The `finalize_and_sanitize()` function (see `tools/db_crashtest.py`) resolves la
 
 The table includes:
 - `write_buffer_size`: Original, 2x, and 4x values
-- `max_write_buffer_number`: Original and 2x values
-- `compression_type`: Various algorithms
+- `max_write_buffer_number`: Original, 2x, and 4x values
 - `level0_slowdown_writes_trigger` and `level0_stop_writes_trigger`: Various thresholds
 - `target_file_size_base`: Various sizes
 

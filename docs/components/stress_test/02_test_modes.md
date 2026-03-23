@@ -36,7 +36,7 @@ During `VerifyDb()`, the key space is partitioned among threads. Each thread ver
 | MultiGetEntity | Batches wide-column `GetEntity()` calls |
 | GetMergeOperands | Validates merge operand history (not available with user-defined timestamps) |
 
-Key Invariant: During iterator verification, if the iterator's key is less than the expected key, the test aborts with an out-of-range error, as this indicates key ordering corruption.
+Important: During iterator verification, if the iterator's key is less than the expected key, the test aborts with an out-of-range error, as this indicates key ordering corruption.
 
 ### Secondary Instance Validation
 

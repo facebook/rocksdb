@@ -40,7 +40,7 @@ Phase 4 -- Verification: After all threads finish operating, the main thread cal
 
 Phase 5 -- Completion: The main thread waits for `AllDone()`, then merges statistics and reports results.
 
-Key Invariant: All threads must call `IncInitialized()` before the stress test starts. If any thread fails to initialize, `AllInitialized()` will never be true and all threads will deadlock waiting on `cv_`.
+Important: All threads must call `IncInitialized()` before the stress test starts. If any thread fails to initialize, `AllInitialized()` will never be true and all threads will deadlock waiting on `cv_`.
 
 ### No-Overwrite Keys
 
@@ -54,7 +54,7 @@ Key locks prevent races between threads operating on the same key. The granulari
 
 - One lock covers `2^log2_keys_per_lock` consecutive keys
 - Total locks per CF = `max_key >> log2_keys_per_lock` (rounded up)
-- Default `log2_keys_per_lock = 10` means one lock per 1024 keys
+- Default gflag value is `log2_keys_per_lock = 2` (one lock per 4 keys). The whitebox crash test overrides this to 10 (one lock per 1024 keys)
 
 ### Lock Acquisition
 
@@ -69,7 +69,7 @@ For delete range operations, `GetLocksForKeyRange(cf, start, end)` acquires all 
 
 For column family clear operations, `LockColumnFamily(cf)` and `UnlockColumnFamily(cf)` acquire all locks in the column family.
 
-Key Invariant: In NonBatchedOps mode, the key lock must be held while both updating expected state and performing the DB operation. Releasing the lock between these steps allows another thread to interleave, causing expected state desynchronization.
+Important: In NonBatchedOps mode, the key lock must be held while both updating expected state and performing the DB operation. Releasing the lock between these steps allows another thread to interleave, causing expected state desynchronization.
 
 Note: In `BatchedOpsStressTest` mode (`--test_batches_snapshots=1`), key locks are not created because expected state is not tracked externally.
 
@@ -83,7 +83,7 @@ Each worker thread has a `ThreadState` struct (see `db_stress_tool/db_stress_sha
 | `rand` | `Random` | Thread-local PRNG, seeded with `1000 + tid + FLAGS_seed` |
 | `shared` | `SharedState*` | Pointer to shared coordination state |
 | `stats` | `Stats` | Per-thread operation statistics |
-| `snapshot_queue` | queue of `SnapshotState` | Snapshots acquired during operation for later release and verification |
+| `snapshot_queue` | queue of `(sequence_number, SnapshotState)` pairs | Snapshots acquired during operation for later release and verification |
 
 ### Deterministic Seeding
 

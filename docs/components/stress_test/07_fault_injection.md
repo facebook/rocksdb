@@ -13,7 +13,7 @@ The stress test framework uses `FaultInjectionTestFS` (see `utilities/fault_inje
 | Flag | Target | Description |
 |------|--------|-------------|
 | `--read_fault_one_in` | `Read()` calls | Fails read operations with probability 1/N |
-| `--metadata_read_fault_one_in` | `GetFileSize()`, `GetFileModificationTime()` | Fails metadata read operations |
+| `--metadata_read_fault_one_in` | `GetFileSize()`, `GetFileModificationTime()`, `FileExists()`, `GetChildren()`, `IsDirectory()`, and other metadata read operations | Fails metadata read operations |
 
 Important: Read fault injection requires debug builds because it relies on sync points (`IGNORE_STATUS_IF_ERROR`) to distinguish faults that are not expected to cause test failure. In release mode, the process exits if these flags are nonzero.
 
@@ -22,9 +22,9 @@ Important: Read fault injection requires debug builds because it relies on sync 
 | Flag | Target | Description |
 |------|--------|-------------|
 | `--write_fault_one_in` | `Write()` calls | Fails write operations with probability 1/N |
-| `--metadata_write_fault_one_in` | `Sync()`, `Fsync()`, directory operations | Fails metadata write operations |
+| `--metadata_write_fault_one_in` | `Close()`, `RenameFile()`, `LinkFile()`, `DeleteFile()`, directory `Fsync()` | Fails metadata write operations |
 
-The `--exclude_wal_from_write_fault_injection` flag (default: 0) can exclude WAL files from write fault injection, allowing SST write failures while keeping WAL writes reliable.
+The `--exclude_wal_from_write_fault_injection` flag (default: false) can exclude WAL files from write fault injection, allowing SST write failures while keeping WAL writes reliable.
 
 ### DB-Open Errors
 
@@ -48,7 +48,7 @@ Step 1: All write operations append data but mark it as "unsynced" internally. S
 The implementation uses two key methods in `FaultInjectionTestFS`:
 
 - `DropUnsyncedFileData()`: Truncates all files to their last synced offset, simulating data loss of unsynced writes.
-- `DeleteFilesCreatedAfterLastDirSync()`: Removes files whose creation was not followed by a directory sync, simulating file creation loss.
+- `DeleteFilesCreatedAfterLastDirSync()`: Removes files whose creation was not followed by a directory sync, simulating file creation loss. For files that overwrote existing files, the original content is restored rather than deleted.
 
 ### Interaction with Expected State
 
@@ -61,11 +61,11 @@ The `--inject_error_severity` flag (default: 1) controls whether injected errors
 | Value | Error Type | DB Behavior |
 |-------|-----------|-------------|
 | 1 | Retryable (soft error) | DB retries the operation and should eventually succeed |
-| 2 | Fatal (permanent error) | DB may enter read-only mode or stop processing |
+| 2 | Data loss (non-retryable with has_data_loss=true) | DB may enter read-only mode; data loss is expected |
 
 Key Invariant: The DB must not lose acknowledged data on retryable errors. Only errors with the data-loss flag set are allowed to cause data loss.
 
-Note: The stress test currently only injects retryable IO errors. Non-retryable hardware-induced corruption scenarios are not yet covered by the fault injection framework.
+Note: The stress test supports both retryable and data-loss error injection via `--inject_error_severity`. When severity is 2, injected errors set `has_data_loss=true`, and the DB is expected to handle data loss accordingly.
 
 ### Write Failure Visibility
 

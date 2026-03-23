@@ -21,7 +21,7 @@ Each key's expected state is encoded in a single `uint32_t` (see `ExpectedValue`
 ### Key Operations
 
 - **`Put(pending)`**: When `pending=true`, sets the pending write flag only. When `pending=false`, advances value base to the next value, clears the deleted flag, and clears the pending write flag.
-- **`Delete(pending)`**: When `pending=true`, sets the pending delete flag (returns false if key does not exist). When `pending=false`, advances the deletion counter, sets the deleted flag, and clears the pending delete flag.
+- **`Delete(pending)`**: When `pending=true`, sets the pending delete flag (returns false if the key is already marked as deleted in the expected state). When `pending=false`, advances the deletion counter, sets the deleted flag, and clears the pending delete flag.
 - **`Exists()`**: Returns true if the key is not deleted. Asserts that no pending operations are active.
 - **`GetValueBase()`**: Returns the current value base (bits 0-14).
 

@@ -24,7 +24,7 @@ Step 1: Generate parameters via `gen_cmd_params()`, which merges default params 
 | `--ops_per_thread` | 100000000 | Large value since process is killed externally |
 | `--reopen` | 0 | Disabled in blackbox mode |
 | `--set_options_one_in` | 1000 | Dynamic option changes during run |
-| `--disable_wal` | random (0 or 1) | WAL can be disabled to test non-WAL recovery |
+| `--disable_wal` | random (0 with 75% probability, 1 with 25% probability) | WAL can be disabled to test non-WAL recovery |
 
 ## Whitebox Mode
 
@@ -43,15 +43,15 @@ Whitebox mode cycles through four check modes:
 | 0 | Crash mode with `--kill_random_test` enabled. Cycles through three kill sub-modes varying kill odds and excluded prefixes. |
 | 1 | Normal run with universal compaction (`--compaction_style=1`). Sometimes tests single-level universal. |
 | 2 | Normal run with FIFO compaction (`--compaction_style=2`). Reduced ops (1/5) since FIFO is slower on reads. |
-| 3 | Normal run with default (level) compaction. |
+| 3 | Normal run with base-parameter compaction style (no override). |
 
 ### Kill Sub-Modes (within check mode 0)
 
 | Sub-Mode | Kill Odds | Excluded Prefixes |
 |----------|-----------|-------------------|
 | 0 | `random_kill_odd` (default: 888887) | None |
-| 1 | `kill_odds / 10` (or `/50` with WAL disabled) | `WritableFileWriter::Append`, `WritableFileWriter::WriteBuffered` |
-| 2 | `kill_odds / 5000` | Above plus `PosixMmapFile::Allocate`, `WritableFileWriter::Flush` |
+| 1 | `kill_odds // 10 + 1` (or `// 50 + 1` with WAL disabled) | `WritableFileWriter::Append`, `WritableFileWriter::WriteBuffered` |
+| 2 | `kill_odds // 5000 + 1` | Above plus `PosixMmapFile::Allocate`, `WritableFileWriter::Flush` |
 
 Higher sub-modes use lower odds (more frequent kills) but exclude common write paths, focusing crashes on less-frequent code paths.
 
@@ -84,10 +84,17 @@ When `--preserve_unverified_changes=1` is set, the test creates shadow copies of
 |--------|-------------|
 | `make crash_test` | Runs blackbox crash test with default params |
 | `make crash_test_with_atomic_flush` | Runs with `--atomic_flush=1` |
-| `make crash_test_with_txn` | Runs with `--use_txn=1` |
+| `make crash_test_with_wc_txn` | Runs with write-committed transactions |
+| `make crash_test_with_wp_txn` | Runs with write-prepared transactions |
+| `make crash_test_with_wup_txn` | Runs with write-unprepared transactions |
 | `make crash_test_with_best_efforts_recovery` | Runs with best-efforts recovery |
 | `make crash_test_with_ts` | Runs with user-defined timestamps |
 | `make crash_test_with_tiered_storage` | Runs with tiered storage |
+| `make crash_test_with_multiops_txn` | Runs with multi-operation transactions |
+| `make crash_test_with_multiops_wc_txn` | Runs with multi-ops write-committed transactions |
+| `make crash_test_with_multiops_wp_txn` | Runs with multi-ops write-prepared transactions |
+
+Note: `make crash_test_with_txn` is a deprecated alias for `crash_test_with_wc_txn`.
 
 ### Manual Execution
 

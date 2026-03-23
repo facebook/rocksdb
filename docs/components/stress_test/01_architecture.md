@@ -1,6 +1,6 @@
 # Architecture and Execution Flow
 
-**Files:** `db_stress_tool/db_stress_tool.cc`, `db_stress_tool/db_stress_driver.cc`, `db_stress_tool/db_stress_test_base.{h,cc}`, `tools/db_crashtest.py`
+**Files:** `db_stress_tool/db_stress_tool.cc`, `db_stress_tool/db_stress_driver.cc`, `db_stress_tool/db_stress_test_base.{h,cc}`, `db_stress_tool/db_stress_listener.h`, `db_stress_tool/db_stress_env_wrapper.h`, `tools/db_crashtest.py`
 
 ## Design Philosophy
 
@@ -62,9 +62,19 @@ Step 1: Register thread status. Step 2: If crash-recovery verification is enable
 |-------|-------|---------|
 | Base | `Env` / `FileSystem` | Platform filesystem (or custom via `--env_uri` / `--fs_uri`) |
 | Fault injection | `FaultInjectionTestFS` | Injects I/O errors and simulates power failures (when any fault injection flag is enabled) |
-| Stress wrapper | `DbStressFSWrapper` | Tracks filesystem operations for stress test diagnostics |
+| Stress wrapper | `DbStressFSWrapper` | Verifies IOActivity correctness and file checksum propagation for SST opens |
 
 The fault injection layer is set to "direct writable" (bypass faults) during DB open, then switched to active fault injection after initialization completes.
+
+## Event Listener
+
+`DbStressListener` (see `db_stress_tool/db_stress_listener.h`) implements `EventListener` to coordinate with the stress test framework:
+
+- **Fault injection on background threads**: Enables thread-local error injection context during flush and compaction callbacks (`OnFlushBegin`, `OnCompactionBegin`), ensuring background operations are also subject to fault injection.
+- **Sequence number tracking**: Records the latest sequence number after flush and compaction events for expected state synchronization.
+- **Unique ID validation**: Verifies that SST files report consistent unique IDs across the `GetUniqueId()` and `GetUniqueIdFromTableProperties()` APIs.
+
+This listener is critical because without it, fault injection would only affect foreground (worker thread) operations.
 
 ## Build Modes
 
