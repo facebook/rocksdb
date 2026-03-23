@@ -5,15 +5,13 @@ Filters are probabilistic data structures that reduce unnecessary disk reads for
 ## Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Filter Use Cases                         │
-├─────────────────────────────────────────────────────────────┤
-│  SST File Filters:        Memtable Filters (optional):     │
-│  • Whole-key filtering    • Prefix and/or whole-key        │
-│  • Prefix filtering        • DynamicBloom                   │
-│  • Full or partitioned     • Concurrent updates             │
-│  • Bloom or Ribbon         • Non-persistent                 │
-└─────────────────────────────────────────────────────────────┘
+Filter Use Cases:
+
+SST File Filters:              Memtable Filters (optional):
+  - Whole-key filtering          - Prefix and/or whole-key
+  - Prefix filtering             - DynamicBloom
+  - Full or partitioned          - Concurrent updates
+  - Bloom or Ribbon              - Non-persistent
 ```
 
 Filters avoid reading data blocks from disk when the key is not present. For example, a 10 bits-per-key Bloom filter achieves ~1% false positive rate, meaning 99% of reads for non-existent keys skip disk I/O entirely.
@@ -61,11 +59,9 @@ FastLocalBloom ([util/bloom_impl.h](../../util/bloom_impl.h:94-345)) is a cache-
 
 ```
 Cache Line (512 bits = 64 bytes)
-┌────────────────────────────────────────────┐
-│  All probes for one key happen here        │
-│  Probes: bit positions 0-511               │
-│  AVX2: 8 probes simultaneously checked     │
-└────────────────────────────────────────────┘
+  All probes for one key happen here
+  Probes: bit positions 0-511
+  AVX2: 8 probes simultaneously checked
 ```
 
 **Key characteristics:**
@@ -96,12 +92,10 @@ LegacyLocalityBloomImpl ([bloom_impl.h](../../util/bloom_impl.h:388-449)) scatte
 
 ```
 Filter (arbitrary size in bits)
-┌─────────────────────────────────────────────────────────┐
-│ Probe 1    Probe 3         Probe 2      Probe N        │
-│   ↓          ↓               ↓            ↓             │
-│   •          •               •            •             │
-└─────────────────────────────────────────────────────────┘
-   Cache misses on every probe → slow
+  Probe 1    Probe 3         Probe 2      Probe N
+    v          v               v            v
+    *          *               *            *
+  Cache misses on every probe -> slow
 ```
 
 **⚠️ DO NOT REUSE:** Much slower than FastLocalBloom. Still actively built by `NewBloomFilterPolicy()` when `BlockBasedTableOptions::format_version < 5`; only format_version >= 5 uses FastLocalBloom.
@@ -138,18 +132,12 @@ Filters can be structured as a single block or partitioned into smaller sub-filt
 A single filter block covering all keys in the SST file ([table/block_based/full_filter_block.h](../../table/block_based/full_filter_block.h:29-89)):
 
 ```
-SST File Layout
-┌──────────────────┐
-│  Data Blocks     │
-├──────────────────┤
-│  Meta Blocks     │
-├──────────────────┤
-│  Full Filter ◄───┼─── Single filter for entire SST
-├──────────────────┤
-│  Index Block     │
-├──────────────────┤
-│  Footer          │
-└──────────────────┘
+SST File Layout (Full Filter):
+  Data Blocks
+  Meta Blocks
+  Full Filter       <-- Single filter for entire SST
+  Index Block
+  Footer
 ```
 
 **Advantages:**
@@ -166,20 +154,14 @@ SST File Layout
 Filter split into multiple partitions with a top-level index ([table/block_based/partitioned_filter_block.h](../../table/block_based/partitioned_filter_block.h)):
 
 ```
-SST File Layout
-┌──────────────────┐
-│  Data Blocks     │
-├──────────────────┤
-│ Filter Part 1    │ ◄─┐
-│ Filter Part 2    │ ◄─┼── Multiple filter partitions
-│ Filter Part 3    │ ◄─┤
-├──────────────────┤   │
-│ Filter Index     │ ──┘ Top-level index mapping keys → partitions
-├──────────────────┤
-│  Index Block     │
-├──────────────────┤
-│  Footer          │
-└──────────────────┘
+SST File Layout (Partitioned Filter):
+  Data Blocks
+  Filter Part 1    <--+
+  Filter Part 2    <--+-- Multiple filter partitions
+  Filter Part 3    <--+
+  Filter Index     ----  Top-level index mapping keys -> partitions
+  Index Block
+  Footer
 ```
 
 **Advantages:**
@@ -403,34 +385,22 @@ bool PartitionedFilterBlockReader::MayMatch(const Slice& key, ...) {
 Filters are stored as meta-blocks in the block-based table format (see [docs/components/sst_table_format.md](sst_table_format.md)):
 
 ```
-Block-Based Table File (Full Filter)
-┌─────────────────────────────────────────┐
-│  Data Block 1 ... Data Block N          │
-├─────────────────────────────────────────┤
-│  Meta Block: full filter data           │
-├─────────────────────────────────────────┤
-│  Metaindex Block                        │ ──► "fullfilter.<CompatibilityName()>" → filter handle
-├─────────────────────────────────────────┤
-│  Index Block                            │
-├─────────────────────────────────────────┤
-│  Footer                                 │
-└─────────────────────────────────────────┘
+Block-Based Table File (Full Filter):
+  Data Block 1 ... Data Block N
+  Meta Block: full filter data
+  Metaindex Block       --> "fullfilter.<CompatibilityName()>" -> filter handle
+  Index Block
+  Footer
 
-Block-Based Table File (Partitioned Filter)
-┌─────────────────────────────────────────┐
-│  Data Block 1 ... Data Block N          │
-├─────────────────────────────────────────┤
-│  Filter Partition 1 (kFilter block)     │
-│  Filter Partition 2 (kFilter block)     │
-│  ...                                    │
-│  Top-level filter index                 │
-├─────────────────────────────────────────┤
-│  Metaindex Block                        │ ──► "partitionedfilter.<CompatibilityName()>" → top-level index handle
-├─────────────────────────────────────────┤
-│  Index Block                            │
-├─────────────────────────────────────────┤
-│  Footer                                 │
-└─────────────────────────────────────────┘
+Block-Based Table File (Partitioned Filter):
+  Data Block 1 ... Data Block N
+  Filter Partition 1 (kFilter block)
+  Filter Partition 2 (kFilter block)
+  ...
+  Top-level filter index
+  Metaindex Block       --> "partitionedfilter.<CompatibilityName()>" -> top-level index handle
+  Index Block
+  Footer
 ```
 
 The metaindex entry names use distinct prefixes ([block_based_table_builder.cc](../../table/block_based/block_based_table_builder.cc:2355-2361)):

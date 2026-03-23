@@ -816,97 +816,65 @@ python3 tools/db_crashtest.py blackbox --interval=120
 ## Stress Test Execution Flow Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      db_crashtest.py                            │
-│                                                                 │
-│  ┌──────────────┐         ┌──────────────┐                     │
-│  │  Blackbox    │         │  Whitebox    │                     │
-│  │   Mode       │         │    Mode      │                     │
-│  └──────┬───────┘         └──────┬───────┘                     │
-│         │                        │                              │
-│         │  Randomize params      │  Randomize params            │
-│         ▼                        ▼                              │
-│  ┌─────────────────────────────────────────┐                   │
-│  │  Generate db_stress command line        │                   │
-│  │  --max_key --threads --ops_per_thread   │                   │
-│  │  --cache_size --compression_type ...    │                   │
-│  └─────────────────┬───────────────────────┘                   │
-│                    │                                            │
-│                    ▼                                            │
-│         ┌──────────────────────┐                               │
-│         │  Execute db_stress   │◄────┐                         │
-│         └──────────┬───────────┘     │                         │
-│                    │                 │                         │
-│                    │                 │ Restart after crash     │
-│                    ▼                 │                         │
-│         ┌────────────────────────────┴──┐                      │
-│         │  Wait --interval seconds      │                      │
-│         │  (blackbox: external kill)    │                      │
-│         │  (whitebox: internal crash)   │                      │
-│         └────────────────────────────────┘                     │
-└─────────────────────────────────────────────────────────────────┘
+db_crashtest.py
+  |
+  +-- Blackbox Mode / Whitebox Mode
+  |     Randomize params
+  |     |
+  |     v
+  |   Generate db_stress command line
+  |     --max_key --threads --ops_per_thread
+  |     --cache_size --compression_type ...
+  |     |
+  |     v
+  |   Execute db_stress  <-- Restart after crash (loop)
+  |     |
+  |     v
+  |   Wait --interval seconds
+  |     (blackbox: external kill)
+  |     (whitebox: internal crash)
 
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                         db_stress                               │
-│                                                                 │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │               Main Thread                                │  │
-│  │  1. Parse FLAGS                                          │  │
-│  │  2. InitDb() - Open DB with randomized options          │  │
-│  │  3. Create SharedState and ThreadStates                 │  │
-│  │  4. Spawn worker threads                                │  │
-│  └────────────────┬─────────────────────────────────────────┘  │
-│                   │                                             │
-│                   ▼                                             │
-│  ┌────────────────────────────────────────────────────────┐    │
-│  │             Worker Threads (--threads=N)               │    │
-│  │                                                        │    │
-│  │  Loop for --ops_per_thread iterations:                │    │
-│  │    1. Select random operation (Get/Put/Delete/...)    │    │
-│  │    2. Select random key (GenerateOneKey)              │    │
-│  │    3. Acquire key lock (if state tracked)             │    │
-│  │    4. Update expected state (Precommit)               │    │
-│  │    5. Perform DB operation                            │    │
-│  │    6. Commit/Rollback expected state                  │    │
-│  │    7. Release lock                                     │    │
-│  │                                                        │    │
-│  │  Periodically:                                         │    │
-│  │    - Flush (--flush_one_in)                           │    │
-│  │    - Compact (--compact_range_one_in)                 │    │
-│  │    - Checkpoint (--checkpoint_one_in)                 │    │
-│  │    - SetOptions (--set_options_one_in)                │    │
-│  └────────────────┬───────────────────────────────────────┘    │
-│                   │                                             │
-│                   ▼                                             │
-│  ┌────────────────────────────────────────────────────────┐    │
-│  │         Verification (after all ops complete)          │    │
-│  │                                                        │    │
-│  │  VerifyDb():                                          │    │
-│  │    For each key in key space:                         │    │
-│  │      expected = ExpectedState.Get(cf, key)            │    │
-│  │      actual = db_->Get(key)                           │    │
-│  │      if (expected != actual) {                         │    │
-│  │        VerificationAbort()  // Print mismatch & exit  │    │
-│  │      }                                                 │    │
-│  └────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────┘
+db_stress
+  |
+  +-- Main Thread
+  |     1. Parse FLAGS
+  |     2. InitDb() - Open DB with randomized options
+  |     3. Create SharedState and ThreadStates
+  |     4. Spawn worker threads
+  |
+  +-- Worker Threads (--threads=N)
+  |     Loop for --ops_per_thread iterations:
+  |       1. Select random operation (Get/Put/Delete/...)
+  |       2. Select random key (GenerateOneKey)
+  |       3. Acquire key lock (if state tracked)
+  |       4. Update expected state (Precommit)
+  |       5. Perform DB operation
+  |       6. Commit/Rollback expected state
+  |       7. Release lock
+  |
+  |     Periodically:
+  |       - Flush (--flush_one_in)
+  |       - Compact (--compact_range_one_in)
+  |       - Checkpoint (--checkpoint_one_in)
+  |       - SetOptions (--set_options_one_in)
+  |
+  +-- Verification (after all ops complete)
+        VerifyDb():
+          For each key in key space:
+            expected = ExpectedState.Get(cf, key)
+            actual = db_->Get(key)
+            if (expected != actual):
+              VerificationAbort()  // Print mismatch & exit
 
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   FaultInjectionTestFS                          │
-│                                                                 │
-│  Intercepts FileSystem calls:                                  │
-│    - Read() → Inject error with probability 1/FLAGS_read_fault │
-│    - Write() → Inject error 1/FLAGS_write_fault                │
-│    - Sync() → Track synced data, inject metadata errors        │
-│                                                                 │
-│  On crash:                                                      │
-│    - DropUnsyncedFileData() → Simulate power failure           │
-│    - DeleteFilesCreatedAfterLastDirSync() → Orphan files       │
-└─────────────────────────────────────────────────────────────────┘
+FaultInjectionTestFS
+  Intercepts FileSystem calls:
+    - Read()  -> Inject error with probability 1/FLAGS_read_fault
+    - Write() -> Inject error 1/FLAGS_write_fault
+    - Sync()  -> Track synced data, inject metadata errors
+
+  On crash:
+    - DropUnsyncedFileData()                  -> Simulate power failure
+    - DeleteFilesCreatedAfterLastDirSync()    -> Orphan files
 ```
 
 ---

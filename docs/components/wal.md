@@ -14,37 +14,26 @@ The Write-Ahead Log (WAL) is RocksDB's **durability mechanism** that ensures com
 ### WAL in the Write Path
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  DBImpl::WriteImpl (db/db_impl/db_impl_write.cc)            │
-│  ┌──────────────────────────────────────────────┐           │
-│  │ 1. WriteThread (batch, elect leader)         │           │
-│  │ 2. WAL Write (log::Writer::AddRecord)  ◄──────────┐      │
-│  │ 3. MemTable insertion                         │   │      │
-│  │ 4. Publish sequence number                    │   │      │
-│  └──────────────────────────────────────────────┘   │      │
-└──────────────────────────────────────────────────────┼──────┘
-                                                       │
-                                                       v
-                              ┌────────────────────────────────┐
-                              │  WAL FILE (32KB blocks)        │
-                              │  ┌──────────────────────────┐  │
-                              │  │ Block 0 (32KB)           │  │
-                              │  │  ├─ Record (Full/First)  │  │
-                              │  │  ├─ Record (Middle)      │  │
-                              │  │  └─ Record (Last)        │  │
-                              │  ├──────────────────────────┤  │
-                              │  │ Block 1 (32KB)           │  │
-                              │  │  └─ ...                  │  │
-                              │  └──────────────────────────┘  │
-                              └────────────────────────────────┘
-                                           │
-                         Memtable full? ───┘
-                                           │
-                                           v
-                              ┌────────────────────────────────┐
-                              │  FLUSH → L0 SST                │
-                              │  WAL can be archived/deleted   │
-                              └────────────────────────────────┘
+DBImpl::WriteImpl (db/db_impl/db_impl_write.cc)
+  1. WriteThread (batch, elect leader)
+  2. WAL Write (log::Writer::AddRecord) ----+
+  3. MemTable insertion                      |
+  4. Publish sequence number                 |
+                                             |
+                                             v
+                          WAL FILE (32KB blocks)
+                            Block 0 (32KB)
+                              - Record (Full/First)
+                              - Record (Middle)
+                              - Record (Last)
+                            Block 1 (32KB)
+                              - ...
+                                    |
+               Memtable full? ------+
+                                    |
+                                    v
+                          FLUSH -> L0 SST
+                          WAL can be archived/deleted
 ```
 
 ---
@@ -60,10 +49,8 @@ Each WAL record has a **7-byte legacy header** or **11-byte recyclable header** 
 #### Legacy Record (default)
 
 ```
-┌─────────┬───────────┬───────────┬─────────────┐
-│ CRC (4B)│ Size (2B) │ Type (1B) │ Payload     │
-└─────────┴───────────┴───────────┴─────────────┘
-         └──────── 7 bytes header ────────┘
+CRC (4B) | Size (2B) | Type (1B) | Payload
+<-------- 7 bytes header -------->
 ```
 
 | Field | Size | Description |
@@ -80,10 +67,8 @@ Each WAL record has a **7-byte legacy header** or **11-byte recyclable header** 
 #### Recyclable Record (when `recycle_log_files=true`)
 
 ```
-┌─────────┬───────────┬───────────┬────────────────┬─────────────┐
-│ CRC (4B)│ Size (2B) │ Type (1B) │ Log Number (4B)│ Payload     │
-└─────────┴───────────┴───────────┴────────────────┴─────────────┘
-         └────────────── 11 bytes header ──────────────┘
+CRC (4B) | Size (2B) | Type (1B) | Log Number (4B) | Payload
+<-------------- 11 bytes header --------------->
 ```
 
 The **log number** field distinguishes records from the current writer vs. stale data from a recycled file.
@@ -184,26 +169,18 @@ constexpr unsigned int kBlockSize = 32768;  // 32KB
 ### Block Layout
 
 ```
-┌─────────────────────── WAL File ────────────────────────┐
-│                                                          │
-│  Block 0 (32768 bytes)                                  │
-│  ┌────────────────────────────────────────────────────┐ │
-│  │ Record 1 (Full)                     │ Record 2 ... │ │
-│  │ [7B header][payload]                │              │ │
-│  └────────────────────────────────────────────────────┘ │
-│                                                          │
-│  Block 1 (32768 bytes)                                  │
-│  ┌────────────────────────────────────────────────────┐ │
-│  │ ... Record 2 (Middle) ...                          │ │
-│  └────────────────────────────────────────────────────┘ │
-│                                                          │
-│  Block 2 (32768 bytes)                                  │
-│  ┌────────────────────────────────────────────────────┐ │
-│  │ ... Record 2 (Last) │ Padding (zeros)              │ │
-│  └────────────────────────────────────────────────────┘ │
-│                                                          │
-│  Block 3 ...                                            │
-└──────────────────────────────────────────────────────────┘
+WAL File:
+
+  Block 0 (32768 bytes)
+    Record 1 (Full) [7B header][payload] | Record 2 ...
+
+  Block 1 (32768 bytes)
+    ... Record 2 (Middle) ...
+
+  Block 2 (32768 bytes)
+    ... Record 2 (Last) | Padding (zeros)
+
+  Block 3 ...
 ```
 
 ⚠️ **INVARIANT:** Writer never leaves `< header_size` bytes in a block. If a record header doesn't fit, the remaining space is zero-padded and a new block starts.
@@ -556,14 +533,14 @@ During `DB::Open()`, if existing WAL files are found:
 
 ```
 DB::Open()
-  └─> DBImpl::Recover()
-       └─> DBImpl::RecoverLogFiles()
-            ├─ For each WAL file (in order):
-            │   ├─ Open log::Reader
-            │   ├─ ReadRecord() → WriteBatch
-            │   ├─ WriteBatchInternal::InsertInto(memtable)
-            │   └─ Update sequence number
-            └─ Flush final memtable (if needed)
+  -> DBImpl::Recover()
+       -> DBImpl::RecoverLogFiles()
+            - For each WAL file (in order):
+                - Open log::Reader
+                - ReadRecord() -> WriteBatch
+                - WriteBatchInternal::InsertInto(memtable)
+                - Update sequence number
+            - Flush final memtable (if needed)
 ```
 
 **Files:** `db/db_impl/db_impl_open.cc:1128-1800`
@@ -645,22 +622,22 @@ WriteBatch record types for 2PC:
 1. **Prepare Phase:**
    ```
    Transaction::Prepare()
-     └─> PrepareInternal()
+     -> PrepareInternal()
           // WriteBatch was initialized with kTypeNoop at position 0.
           // MarkEndPrepare() rewrites the initial Noop into
           // kTypeBeginPrepareXID, kTypeBeginPersistedPrepareXID,
           // or kTypeBeginUnprepareXID (depending on write policy),
           // then appends kTypeEndPrepareXID(xid).
           WriteBatchInternal::MarkEndPrepare(batch, xid)
-     └─> WriteImpl(batch, disableWAL=false, disable_memtable=true)
+     -> WriteImpl(batch, disableWAL=false, disable_memtable=true)
    ```
 
 2. **Commit Phase:**
    ```
    Transaction::Commit()
-     └─> CommitInternal()
+     -> CommitInternal()
           WriteBatchInternal::MarkCommit(batch, xid)
-     └─> WriteImpl(batch, write_options_)  // Uses caller's write_options
+     -> WriteImpl(batch, write_options_)  // Uses caller's write_options
    ```
 
 **Note:** Neither prepare nor commit forces `sync=true`. The prepare phase forces `disableWAL=false` but uses the caller's `write_options_` for sync behavior. The commit phase also uses the caller's `write_options_` as-is.
@@ -764,55 +741,41 @@ During recovery:
 ## 13. Diagram: Complete WAL Lifecycle
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  WRITE PATH                                                     │
-│  DBImpl::WriteImpl                                              │
-│    ├─ log::Writer::AddRecord(WriteBatch) ───────┐              │
-│    └─ MemTable::Insert(WriteBatch)              │              │
-└──────────────────────────────────────────────────┼──────────────┘
-                                                   │
-                                                   v
-                                    ┌──────────────────────────┐
-                                    │  ACTIVE WAL (000123.log) │
-                                    │  - Receives new writes   │
-                                    │  - Synced per WriteOpts  │
-                                    └──────────┬───────────────┘
-                                               │
-                             MemTable full? ───┘
-                                               │
-                                               v
-                                    ┌──────────────────────────┐
-                                    │  ROTATION                │
-                                    │  - MemTable → Immutable  │
-                                    │  - Create new WAL        │
-                                    │    (000124.log)          │
-                                    └──────────┬───────────────┘
-                                               │
-                                               v
-                                    ┌──────────────────────────┐
-                                    │  OLD WAL (000123.log)    │
-                                    │  - Backs immutable mem   │
-                                    │  - Cannot delete yet     │
-                                    └──────────┬───────────────┘
-                                               │
-                            Flush complete ────┘
-                                               │
-                                               v
-                                    ┌──────────────────────────┐
-                                    │  ARCHIVAL                │
-                                    │  mv 000123.log           │
-                                    │     archive/000123.log   │
-                                    └──────────┬───────────────┘
-                                               │
-                  WAL_ttl_seconds elapsed OR ──┘
-                  WAL_size_limit_MB exceeded
-                                               │
-                                               v
-                                    ┌──────────────────────────┐
-                                    │  DELETION / RECYCLING    │
-                                    │  - Delete (default)      │
-                                    │  - Or recycle if enabled │
-                                    └──────────────────────────┘
+WRITE PATH
+  DBImpl::WriteImpl
+    - log::Writer::AddRecord(WriteBatch) ----+
+    - MemTable::Insert(WriteBatch)           |
+                                             |
+                                             v
+                          ACTIVE WAL (000123.log)
+                            - Receives new writes
+                            - Synced per WriteOpts
+                                    |
+               MemTable full? ------+
+                                    |
+                                    v
+                          ROTATION
+                            - MemTable -> Immutable
+                            - Create new WAL (000124.log)
+                                    |
+                                    v
+                          OLD WAL (000123.log)
+                            - Backs immutable mem
+                            - Cannot delete yet
+                                    |
+                Flush complete -----+
+                                    |
+                                    v
+                          ARCHIVAL
+                            mv 000123.log -> archive/000123.log
+                                    |
+  WAL_ttl_seconds elapsed OR -------+
+  WAL_size_limit_MB exceeded
+                                    |
+                                    v
+                          DELETION / RECYCLING
+                            - Delete (default)
+                            - Or recycle if enabled
 ```
 
 ---

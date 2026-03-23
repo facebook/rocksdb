@@ -2,14 +2,10 @@
 
 RocksDB provides two mechanisms for creating consistent snapshots of a database: **Checkpoint** for fast, local, point-in-time snapshots, and **BackupEngine** for durable, incremental backups with remote storage support.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Snapshot Mechanisms                          │
-├──────────────────────────────┬──────────────────────────────────┤
-│        Checkpoint            │         BackupEngine             │
-│  (Local, Fast, Hard-link)    │  (Durable, Incremental, Remote)  │
-└──────────────────────────────┴──────────────────────────────────┘
-```
+| Snapshot Mechanism | Description |
+|--------------------|-------------|
+| Checkpoint | Local, Fast, Hard-link |
+| BackupEngine | Durable, Incremental, Remote |
 
 ---
 
@@ -48,13 +44,13 @@ class Checkpoint {
 1. Verify checkpoint_dir doesn't exist
 2. Create temporary directory (.tmp suffix)
 3. DisableFileDeletions()
-   └─> Increment disable_delete_obsolete_files_ counter
+     -> Increment disable_delete_obsolete_files_ counter
 4. GetLiveFilesStorageInfo()
-   └─> Captures all live SST, blob, MANIFEST, CURRENT, OPTIONS files
+     -> Captures all live SST, blob, MANIFEST, CURRENT, OPTIONS files
 5. For each file:
-   ├─ SST/blob files: Hard link (if same filesystem) or copy
-   ├─ MANIFEST/CURRENT: Always copy
-   └─ CURRENT file: Replace contents with correct MANIFEST pointer
+   - SST/blob files: Hard link (if same filesystem) or copy
+   - MANIFEST/CURRENT: Always copy
+   - CURRENT file: Replace contents with correct MANIFEST pointer
 6. EnableFileDeletions()
 7. Atomic rename: .tmp → checkpoint_dir
 8. Fsync directory for durability
@@ -188,22 +184,22 @@ class BackupEngine {
 
 ```
 backup_dir/
-├── meta/
-│   ├── 1              # Backup #1 metadata
-│   ├── 2              # Backup #2 metadata
-│   └── 3              # Backup #3 metadata
-├── shared_checksum/   # Content-addressed shared files (share_files_with_checksum=true)
-│   ├── 000123_s<session_id>_<size>.sst
-│   ├── 000456_s<session_id>_<size>.sst
-│   └── 000789_<crc32c>_<size>.blob    # Blob files use legacy naming
-├── shared/            # Legacy shared files (share_files_with_checksum=false, deprecated)
-│   ├── 000001.sst
-│   └── 000002.sst
-├── private/
-│   ├── 1/             # Private files for backup #1 (e.g., MANIFEST, CURRENT, OPTIONS)
-│   ├── 2/
-│   └── 3/
-└── .latest_backup     # Internal tracking (latest_valid_backup_id_)
+  meta/
+    1              # Backup #1 metadata
+    2              # Backup #2 metadata
+    3              # Backup #3 metadata
+  shared_checksum/   # Content-addressed shared files (share_files_with_checksum=true)
+    000123_s<session_id>_<size>.sst
+    000456_s<session_id>_<size>.sst
+    000789_<crc32c>_<size>.blob    # Blob files use legacy naming
+  shared/            # Legacy shared files (share_files_with_checksum=false, deprecated)
+    000001.sst
+    000002.sst
+  private/
+    1/             # Private files for backup #1 (e.g., MANIFEST, CURRENT, OPTIONS)
+    2/
+    3/
+  .latest_backup     # Internal tracking (latest_valid_backup_id_)
 ```
 
 Note: `shared/` and `shared_checksum/` directories are only created when `share_table_files=true`. Only one is used per BackupEngine instance depending on `share_files_with_checksum`.
@@ -241,14 +237,14 @@ This naming prevents:
 1. Lock backup directory (prevents concurrent backup writes)
 2. Get live files from DB via GetLiveFilesStorageInfo()
 3. For each file:
-   ├─ SST/blob (shared):
-   │  ├─ Compute name based on ShareFilesNaming scheme
-   │  ├─ If file exists in shared_checksum/ → reuse (incremental!)
-   │  └─ Else → copy with checksum verification
-   ├─ MANIFEST/CURRENT/OPTIONS (private):
-   │  └─ Always copy to private/<backup_id>/
-   └─ WAL files (if backup_log_files=true):
-      └─ Copy to private/<backup_id>/
+   - SST/blob (shared):
+     - Compute name based on ShareFilesNaming scheme
+     - If file exists in shared_checksum/ -> reuse (incremental!)
+     - Else -> copy with checksum verification
+   - MANIFEST/CURRENT/OPTIONS (private):
+     - Always copy to private/<backup_id>/
+   - WAL files (if backup_log_files=true):
+     - Copy to private/<backup_id>/
 4. Write metadata file: meta/<backup_id>
 5. Fsync directory (if sync=true)
 ```
@@ -316,13 +312,13 @@ struct RestoreOptions {
 ```
 1. Acquire BackupEngine read lock (prevents concurrent backup writes/deletes)
 2. Based on mode:
-   ├─ kPurgeAllFiles: Delete all files in db_dir/wal_dir
-   ├─ kVerifyChecksum: Scan existing files, keep if checksum matches
-   └─ kKeepLatestDbSessionIdFiles: Keep files with matching session ID
+   - kPurgeAllFiles: Delete all files in db_dir/wal_dir
+   - kVerifyChecksum: Scan existing files, keep if checksum matches
+   - kKeepLatestDbSessionIdFiles: Keep files with matching session ID
 3. Copy files from backup_dir to db_dir/wal_dir
-   ├─ Shared files: Copy from shared_checksum/
-   ├─ Private files: Copy from private/<backup_id>/
-   └─ If exclude_files_callback was used: Search alternate_dirs
+   - Shared files: Copy from shared_checksum/
+   - Private files: Copy from private/<backup_id>/
+   - If exclude_files_callback was used: Search alternate_dirs
 4. Fsync directories
 ```
 

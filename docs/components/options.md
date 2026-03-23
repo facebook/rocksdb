@@ -72,9 +72,9 @@ Convenience struct combining DBOptions and ColumnFamilyOptions.
 **Inheritance chain:**
 ```
 Options
-  ├─ DBOptions
-  └─ ColumnFamilyOptions
-       └─ AdvancedColumnFamilyOptions
+  - DBOptions
+  - ColumnFamilyOptions
+      - AdvancedColumnFamilyOptions
 ```
 
 **Usage:**
@@ -867,46 +867,22 @@ options.OptimizeForSmallDb();
 ## Options Change Workflow Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     User Application                        │
-└─────────────────────────────────────────────────────────────┘
-                            │
-        ┌───────────────────┼───────────────────┐
-        │                   │                   │
-        ▼                   ▼                   ▼
-  ┌──────────┐        ┌──────────┐       ┌──────────┐
-  │DB::Open()│        │SetOptions│       │LoadLatest│
-  │          │        │          │       │Options   │
-  └─────┬────┘        └─────┬────┘       └─────┬────┘
-        │                   │                   │
-        ▼                   ▼                   ▼
-  ┌─────────────────────────────────────────────────┐
-  │         Options Validation & Sanitization        │
-  │  - SanitizeOptions()                             │
-  │  - ValidateOptions()                             │
-  │  - Set defaults for nullptr                      │
-  └──────────────────┬──────────────────────────────┘
-                     │
-        ┌────────────┼────────────┐
-        │            │            │
-        ▼            ▼            ▼
-  ┌──────────┐ ┌──────────┐ ┌──────────┐
-  │Immutable │ │ Mutable  │ │ OPTIONS  │
-  │DBOptions │ │DBOptions │ │   File   │
-  └──────────┘ └──────────┘ └──────────┘
-        │            │            │
-        ▼            ▼            ▼
-  ┌──────────┐ ┌──────────┐ ┌──────────┐
-  │Immutable │ │ Mutable  │ │ OPTIONS  │
-  │CFOptions │ │CFOptions │ │  -XXXXXX │
-  └──────────┘ └──────────┘ └──────────┘
-                     │
-                     ▼
-        ┌────────────────────────────┐
-        │  Runtime Option Changes    │
-        │  via SetOptions() allowed  │
-        │  only for Mutable fields   │
-        └────────────────────────────┘
+User Application
+  |
+  +---> DB::Open()  --+
+  +---> SetOptions  --+--> Options Validation & Sanitization
+  +---> LoadLatest  --+      - SanitizeOptions()
+         Options               - ValidateOptions()
+                               - Set defaults for nullptr
+                               |
+                               +---> ImmutableDBOptions ---> ImmutableCFOptions
+                               +---> MutableDBOptions  ---> MutableCFOptions
+                               +---> OPTIONS File      ---> OPTIONS-XXXXXX
+                               |
+                               v
+                        Runtime Option Changes
+                        via SetOptions() allowed
+                        only for Mutable fields
 ```
 
 ---

@@ -42,22 +42,18 @@ Both patterns share the same `ReadOptions` configuration and can operate on spec
 ```
 Read Path Decision Tree:
 
-Single key? ──yes──> Need wide columns? ──yes──> GetEntity()
-   │                        │
-   │                        no
-   │                        │
-   │                 Need existence only? ──yes──> KeyMayExist()
-   │                        │
-   │                        no ──> Get()
-   no
-   │
-Multiple specific keys? ──yes──> MultiGet() / MultiGetEntity()
-   │
-   no
-   │
-Range/prefix scan? ──yes──> NewIterator() + Seek/Next/Prev
-   │
-Multiple ranges? ──yes──> NewMultiScan()
+Single key?
+  yes -> Need wide columns?
+           yes -> GetEntity()
+           no  -> Need existence only?
+                    yes -> KeyMayExist()
+                    no  -> Get()
+  no  -> Multiple specific keys?
+           yes -> MultiGet() / MultiGetEntity()
+           no  -> Range/prefix scan?
+                    yes -> NewIterator() + Seek/Next/Prev
+                    no  -> Multiple ranges?
+                             yes -> NewMultiScan()
 ```
 
 ⚠️ **INVARIANT**: All reads see a consistent snapshot of the database. If `ReadOptions::snapshot` is nullptr, an implicit snapshot is created at the start of the read operation.
@@ -198,12 +194,11 @@ For each level (memtable → L0 → L1 → ...):
     ↓
     Batch keys by SST file
     ↓
-    If async_io: ──yes──> Issue async reads for all files in parallel
-    │                         ↓
-    │                     Poll completion (io_uring or thread pool)
-    │                         ↓
-    no                    Merge results
-    │
+    If async_io:
+      yes -> Issue async reads for all files in parallel
+               -> Poll completion (io_uring or thread pool)
+               -> Merge results
+      no  -> (continue below)
     ↓
 Sequential read per file
     ↓
@@ -654,9 +649,9 @@ When available, RocksDB uses io_uring for efficient async I/O:
 With `async_io=true` and `optimize_multiget_for_io=true`, MultiGet issues reads for SST files across all levels simultaneously:
 
 ```
-Level 0: [SST1, SST2] ──async read──┐
-Level 1: [SST3]       ──async read──┼──> io_uring queue
-Level 2: [SST4, SST5] ──async read──┘
+Level 0: [SST1, SST2] --async read--> io_uring queue
+Level 1: [SST3]       --async read--> io_uring queue
+Level 2: [SST4, SST5] --async read--> io_uring queue
                           ↓
                     Parallel I/O
                           ↓

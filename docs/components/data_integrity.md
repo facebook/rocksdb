@@ -11,22 +11,19 @@
 RocksDB protects data integrity through several independent mechanisms:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Data Integrity Layers                    │
-├─────────────────────────────────────────────────────────────┤
-│  1. Block Checksum (SST data/index/filter blocks)           │
-│  2. SST Footer Checksum (format version ≥ 6)                │
-│  3. WAL Record Checksum (per-record CRC32c)                 │
-│  4. WAL Tracking & Verification (MANIFEST/predecessor WAL)  │
-│  5. MANIFEST Record Checksum (VersionEdit integrity)        │
-│  6. Handoff Checksum (writer → filesystem)                  │
-│  7. File Checksum (full-file verification)                  │
-│  8. Blob File Checksums (header/blob/footer CRCs)           │
-│  9. WriteBatch Protection (per-key checksums in write path) │
-│ 10. MemTable Protection (per-key checksums)                 │
-│ 11. Block Protection (in-memory per-key checksums)          │
-│ 12. Paranoid Verification (extra checks at runtime)         │
-└─────────────────────────────────────────────────────────────┘
+Data Integrity Layers:
+  1. Block Checksum (SST data/index/filter blocks)
+  2. SST Footer Checksum (format version >= 6)
+  3. WAL Record Checksum (per-record CRC32c)
+  4. WAL Tracking & Verification (MANIFEST/predecessor WAL)
+  5. MANIFEST Record Checksum (VersionEdit integrity)
+  6. Handoff Checksum (writer -> filesystem)
+  7. File Checksum (full-file verification)
+  8. Blob File Checksums (header/blob/footer CRCs)
+  9. WriteBatch Protection (per-key checksums in write path)
+ 10. MemTable Protection (per-key checksums)
+ 11. Block Protection (in-memory per-key checksums)
+ 12. Paranoid Verification (extra checks at runtime)
 ```
 
 **⚠️ INVARIANT**: Most on-disk checksums (SST block trailers, WAL headers, SST footer checksums) use little-endian encoding via `EncodeFixed32`/`DecodeFixed32`. The exception is the built-in full-file checksum generator (`FileChecksumGenCrc32c`), which explicitly stores big-endian raw bytes via `EndianSwapValue`. Block-level CRC32c uses `crc32c::Mask()` to prevent all-zeros checksums from silent corruption.
@@ -86,11 +83,8 @@ Every block in an SST file (data, index, filter, compression dictionary) has a 5
 ### Block Trailer Format
 
 ```
-┌──────────────────┬──────────────┬─────────────┐
-│   Block Data     │ Compression  │  Checksum   │
-│   (variable)     │   (1 byte)   │  (4 bytes)  │
-└──────────────────┴──────────────┴─────────────┘
-                    └── 5-byte Block Trailer ──┘
+Block Data (variable) | Compression (1 byte) | Checksum (4 bytes)
+                       <--- 5-byte Block Trailer --->
 ```
 
 **Trailer Layout** (offset within trailer):
@@ -202,23 +196,16 @@ The Write-Ahead Log (WAL) uses per-record CRC32c checksums to detect corruption 
 ### WAL Record Format
 
 ```
-┌───────────┬────────┬────────┬────────┬─────────────┐
-│ Checksum  │ Length │ Length │  Type  │   Payload   │
-│ (4 bytes) │  Low   │  High  │(1 byte)│  (variable) │
-│           │(1 byte)│(1 byte)│        │             │
-└───────────┴────────┴────────┴────────┴─────────────┘
- └─────────── kHeaderSize = 7 bytes ────────────────┘
+Checksum (4 bytes) | Length Low (1 byte) | Length High (1 byte) | Type (1 byte) | Payload (variable)
+<------------------------- kHeaderSize = 7 bytes --------------------------->
 ```
 
 **Checksum Coverage**: Covers `Type + Payload` only. The length bytes are NOT included in the CRC. The writer precomputes CRC over the record type byte, then combines it with the payload CRC using `crc32c::Crc32cCombine()`. For recyclable records, the 4-byte log number is also included in the CRC.
 
 **Recyclable WAL Format** (recycled log files add 4 more bytes):
 ```
-┌───────────┬────────┬────────┬────────┬────────────┬─────────────┐
-│ Checksum  │ Length │ Length │  Type  │ Log Number │   Payload   │
-│ (4 bytes) │  Low   │  High  │(1 byte)│  (4 bytes) │  (variable) │
-└───────────┴────────┴────────┴────────┴────────────┴─────────────┘
- └──────────── kRecyclableHeaderSize = 11 bytes ──────────────────┘
+Checksum (4 bytes) | Length Low (1 byte) | Length High (1 byte) | Type (1 byte) | Log Number (4 bytes) | Payload (variable)
+<------------------------------ kRecyclableHeaderSize = 11 bytes ------------------------------>
 ```
 
 **Record Types**:
@@ -298,11 +285,11 @@ The MANIFEST file (tracking SST file metadata via `VersionEdit` records) uses th
 
 ```
 MANIFEST-XXXXXX
-└── Sequence of VersionEdit records (each checksummed like WAL)
-    ├── AddFile: SST file metadata + checksum info
-    ├── DeleteFile: File deletions
-    ├── ColumnFamilyAdd/Drop: CF lifecycle
-    └── LogNumber: Current WAL number
+  Sequence of VersionEdit records (each checksummed like WAL):
+    - AddFile: SST file metadata + checksum info
+    - DeleteFile: File deletions
+    - ColumnFamilyAdd/Drop: CF lifecycle
+    - LogNumber: Current WAL number
 ```
 
 **⚠️ INVARIANT**: MANIFEST corruption is fatal by default. However, with `best_efforts_recovery = true`, RocksDB can try older MANIFEST files in reverse chronological order and recover to the most recent consistent point-in-time state.
@@ -345,10 +332,7 @@ options.checksum_handoff_file_types = {kWalFile, kTableFile, kDescriptorFile};
 ### Write Path
 
 ```
-┌─────────────┐   Compute CRC32c   ┌──────────────┐   Verify    ┌──────────┐
-│  RocksDB    │ ─────────────────> │  Filesystem  │ ─────────>  │   Disk   │
-│  (Writer)   │   DataVerificationInfo│  (Storage) │             │          │
-└─────────────┘                    └──────────────┘             └──────────┘
+RocksDB (Writer) --[Compute CRC32c, DataVerificationInfo]--> Filesystem (Storage) --[Verify]--> Disk
 ```
 
 **Implementation**:

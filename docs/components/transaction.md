@@ -16,24 +16,15 @@ RocksDB supports two transaction models with three write policies:
 - **WriteUnprepared**: Data written before prepare for large transactions
 
 ```
-                    ┌─────────────────────────────────┐
-                    │   Transaction Subsystem         │
-                    └─────────────────────────────────┘
-                                  │
-                ┌─────────────────┴─────────────────┐
-                │                                   │
-       ┌────────▼────────┐              ┌──────────▼─────────┐
-       │ TransactionDB   │              │OptimisticTxnDB     │
-       │ (Pessimistic)   │              │(No locking)        │
-       └────────┬────────┘              └──────────┬─────────┘
-                │                                  │
-    ┌───────────┼───────────┐                     │
-    │           │           │                     │
-┌───▼──┐  ┌────▼────┐  ┌───▼────┐           ┌────▼────┐
-│Write │  │Write    │  │Write   │           │Optimis  │
-│Commit│  │Prepared │  │Unpre-  │           │ticTxn   │
-│ted   │  │         │  │pared   │           │         │
-└──────┘  └─────────┘  └────────┘           └─────────┘
+Transaction Subsystem
+  |
+  +-- TransactionDB (Pessimistic)
+  |     +-- WriteCommitted
+  |     +-- WritePrepared
+  |     +-- WriteUnprepared
+  |
+  +-- OptimisticTxnDB (No locking)
+        +-- OptimisticTxn
 ```
 
 **Key Files:**
@@ -323,18 +314,12 @@ The Point Lock Manager handles locks on individual keys using a striped hash tab
 **Architecture:**
 ```
 PointLockManager
-    │
-    ├─ lock_maps_cache_ (thread-local cache of lock_maps_)
-    │
-    └─ lock_maps_ : UnorderedMap<ColumnFamilyId, shared_ptr<LockMap>>
-           │
-           └─ LockMap (per column family)
-                  │
-                  └─ stripes[num_stripes]  (key hashed to stripe)
-                         │
-                         └─ LockMapStripe
-                                │
-                                └─ map<key, LockInfo>
+  +-- lock_maps_cache_ (thread-local cache of lock_maps_)
+  +-- lock_maps_ : UnorderedMap<ColumnFamilyId, shared_ptr<LockMap>>
+        +-- LockMap (per column family)
+              +-- stripes[num_stripes]  (key hashed to stripe)
+                    +-- LockMapStripe
+                          +-- map<key, LockInfo>
 ```
 
 **Striping:**
@@ -499,14 +484,13 @@ Status Transaction::Commit() {
 
 **WAL Structure for 2PC (WriteCommitted):**
 ```
-┌─────────────────────────────────────────────────────┐
-│ kTypeBeginPrepareXID("txn_name")                     │
-│ kTypePut(cf, "key1", "value1")                       │
-│ kTypeDelete(cf, "key2")                              │
-│ kTypeEndPrepareXID("txn_name")                       │
-│ ... other transactions ...                           │
-│ kTypeCommitXID("txn_name")                           │
-└─────────────────────────────────────────────────────┘
+WAL record layout:
+  kTypeBeginPrepareXID("txn_name")
+  kTypePut(cf, "key1", "value1")
+  kTypeDelete(cf, "key2")
+  kTypeEndPrepareXID("txn_name")
+  ... other transactions ...
+  kTypeCommitXID("txn_name")
 ```
 
 ⚠️ **INVARIANT:** Named transactions required for 2PC. Transaction name (XID) must be unique and set via `Transaction::SetName()` after `BeginTransaction()`.

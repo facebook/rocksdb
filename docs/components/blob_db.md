@@ -12,60 +12,45 @@
 ### Architecture Diagram
 
 ```
-┌────────────────────────────────────────────────────────────────────┐
-│  APPLICATION: Put(key, large_value)                                │
-└──────────────────────────────────┬─────────────────────────────────┘
-                                   │
-                                   v
-┌────────────────────────────────────────────────────────────────────┐
-│  WRITE PATH (Flush/Compaction)                                     │
-│  ┌──────────────────────────────────────────────────────┐          │
-│  │ BlobFileBuilder::Add(key, value)                     │          │
-│  │   if (value.size() >= min_blob_size):                │          │
-│  │     ├─ Write to blob file: <key, compressed_value>   │          │
-│  │     ├─ Get blob_offset (points to value start)       │          │
-│  │     └─ Encode BlobIndex: [file_num|offset|size|comp] │          │
-│  └──────────────────────────────────────────────────────┘          │
-└──────────────────────────────────┬─────────────────────────────────┘
-                                   │
-                    ┌──────────────┴──────────────┐
-                    │                             │
-                    v                             v
-┌───────────────────────────┐   ┌──────────────────────────────────┐
-│  SST FILE (LSM TREE)      │   │  BLOB FILE (EXTERNAL)            │
-│  key1 → BlobIndex1        │   │  [Header: 30B]                   │
-│  key2 → BlobIndex2        │   │  [Record1: key1 + value1 + CRC]  │
-│  key3 → inline_value      │   │  [Record2: key2 + value2 + CRC]  │
-│  (BlobIndex = 30-40 bytes)│   │  [Footer: 32B]                   │
-└───────────────────────────┘   └──────────────────────────────────┘
-                    │                             │
-                    │  Read large_value           │
-                    └─────────────┬───────────────┘
-                                  v
-┌────────────────────────────────────────────────────────────────────┐
-│  READ PATH                                                         │
-│  ┌──────────────────────────────────────────────────────┐          │
-│  │ BlobSource::GetBlob(file_num, offset, size)          │          │
-│  │   ├─ Check blob_cache                                │          │
-│  │   ├─ Get BlobFileReader from blob_file_cache         │          │
-│  │   ├─ Read record: verify CRCs (if verify_checksums)  │          │
-│  │   ├─ Decompress if needed                            │          │
-│  │   └─ Populate blob_cache                             │          │
-│  └──────────────────────────────────────────────────────┘          │
-└────────────────────────────────────────────────────────────────────┘
-                                  │
-                    Compaction GC trigger
-                                  v
-┌────────────────────────────────────────────────────────────────────┐
-│  GARBAGE COLLECTION                                                │
-│  ┌──────────────────────────────────────────────────────┐          │
-│  │ CompactionIterator::GarbageCollectBlobIfNeeded()     │          │
-│  │   if (blob_file_num < cutoff_file_num):  // Old file │          │
-│  │     ├─ Fetch blob from old file                      │          │
-│  │     ├─ Write to new blob file via BlobFileBuilder    │          │
-│  │     └─ Update BlobIndex to new location              │          │
-│  └──────────────────────────────────────────────────────┘          │
-└────────────────────────────────────────────────────────────────────┘
+APPLICATION: Put(key, large_value)
+  |
+  v
+WRITE PATH (Flush/Compaction)
+  BlobFileBuilder::Add(key, value)
+    if (value.size() >= min_blob_size):
+      - Write to blob file: <key, compressed_value>
+      - Get blob_offset (points to value start)
+      - Encode BlobIndex: [file_num|offset|size|comp]
+  |
+  +---------------------------+
+  |                           |
+  v                           v
+SST FILE (LSM TREE)         BLOB FILE (EXTERNAL)
+  key1 -> BlobIndex1          [Header: 30B]
+  key2 -> BlobIndex2          [Record1: key1 + value1 + CRC]
+  key3 -> inline_value        [Record2: key2 + value2 + CRC]
+  (BlobIndex = 30-40 bytes)   [Footer: 32B]
+  |                           |
+  +------ Read large_value ---+
+  |
+  v
+READ PATH
+  BlobSource::GetBlob(file_num, offset, size)
+    - Check blob_cache
+    - Get BlobFileReader from blob_file_cache
+    - Read record: verify CRCs (if verify_checksums)
+    - Decompress if needed
+    - Populate blob_cache
+  |
+  Compaction GC trigger
+  |
+  v
+GARBAGE COLLECTION
+  CompactionIterator::GarbageCollectBlobIfNeeded()
+    if (blob_file_num < cutoff_file_num):  // Old file
+      - Fetch blob from old file
+      - Write to new blob file via BlobFileBuilder
+      - Update BlobIndex to new location
 ```
 
 ---
@@ -79,19 +64,13 @@
 A blob file consists of a header, variable number of records, and an optional footer:
 
 ```
-┌────────────────────────────────────────────────────────┐
-│ BlobLogHeader (30 bytes)                               │
-├────────────────────────────────────────────────────────┤
-│ BlobLogRecord 0 (header + key + value)                 │
-├────────────────────────────────────────────────────────┤
-│ BlobLogRecord 1 (header + key + value)                 │
-├────────────────────────────────────────────────────────┤
-│ ...                                                    │
-├────────────────────────────────────────────────────────┤
-│ BlobLogRecord N (header + key + value)                 │
-├────────────────────────────────────────────────────────┤
-│ BlobLogFooter (32 bytes) [OPTIONAL]                    │
-└────────────────────────────────────────────────────────┘
+Blob file layout:
+  BlobLogHeader (30 bytes)
+  BlobLogRecord 0 (header + key + value)
+  BlobLogRecord 1 (header + key + value)
+  ...
+  BlobLogRecord N (header + key + value)
+  BlobLogFooter (32 bytes) [OPTIONAL]
 ```
 
 **⚠️ INVARIANT:** Footer only present when blob file is properly closed. Incomplete files (crash during write) lack footer. (`blob_log_format.h:75`)
@@ -121,16 +100,15 @@ struct BlobLogHeader {
 **File:** `db/blob/blob_log_format.h:118-147`
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ key_size (Fixed64, 8 bytes)                                 │
-│ value_size (Fixed64, 8 bytes, compressed size if compressed)│
-│ expiration (Fixed64, 8 bytes, 0 in integrated mode)         │
-│ header_crc (Fixed32, 4 bytes)                               │
-│ blob_crc (Fixed32, 4 bytes)                                 │
-├─────────────────────────────────────────────────────────────┤
-│ key (variable, full user key)                               │
-│ value (variable, potentially compressed)                    │
-└─────────────────────────────────────────────────────────────┘
+BlobLogRecord layout:
+  key_size (Fixed64, 8 bytes)
+  value_size (Fixed64, 8 bytes, compressed size if compressed)
+  expiration (Fixed64, 8 bytes, 0 in integrated mode)
+  header_crc (Fixed32, 4 bytes)
+  blob_crc (Fixed32, 4 bytes)
+  ---
+  key (variable, full user key)
+  value (variable, potentially compressed)
 ```
 
 **CRC Coverage** (`blob_log_format.h:110-111`):
@@ -176,13 +154,12 @@ Instead of storing large values in SST files, RocksDB stores a **BlobIndex** (a 
 **File:** `db/blob/blob_index.h:162-173`
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│ type: 1 byte (kBlob = 1)                                 │
-│ file_number: varint64 (blob file number, e.g., 000123)   │
-│ offset: varint64 (points to VALUE START in blob file)    │
-│ size: varint64 (compressed blob size, as stored on disk) │
-│ compression: 1 byte (CompressionType of the blob)        │
-└──────────────────────────────────────────────────────────┘
+kBlob encoding:
+  type: 1 byte (kBlob = 1)
+  file_number: varint64 (blob file number, e.g., 000123)
+  offset: varint64 (points to VALUE START in blob file)
+  size: varint64 (compressed blob size, as stored on disk)
+  compression: 1 byte (CompressionType of the blob)
 ```
 
 **Encoding** (`blob_index.h:162`):
@@ -204,11 +181,10 @@ Status DecodeFrom(Slice slice);  // Parses type, fields (takes Slice by value)
 ### kInlinedTTL (type = 0) — Not Used in Integrated BlobDB
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│ type: 1 byte (kInlinedTTL = 0)                           │
-│ expiration: varint64                                     │
-│ value: variable (inline value, not externalized)         │
-└──────────────────────────────────────────────────────────┘
+kInlinedTTL encoding:
+  type: 1 byte (kInlinedTTL = 0)
+  expiration: varint64
+  value: variable (inline value, not externalized)
 ```
 
 Used only in legacy BlobDB for small values with TTL.
@@ -216,14 +192,13 @@ Used only in legacy BlobDB for small values with TTL.
 ### kBlobTTL (type = 2) — Not Used in Integrated BlobDB
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│ type: 1 byte (kBlobTTL = 2)                              │
-│ expiration: varint64                                     │
-│ file_number: varint64                                    │
-│ offset: varint64                                         │
-│ size: varint64                                           │
-│ compression: 1 byte                                      │
-└──────────────────────────────────────────────────────────┘
+kBlobTTL encoding:
+  type: 1 byte (kBlobTTL = 2)
+  expiration: varint64
+  file_number: varint64
+  offset: varint64
+  size: varint64
+  compression: 1 byte
 ```
 
 For externalized blobs with TTL (not used in integrated mode).
@@ -323,9 +298,9 @@ When `prepopulate_blob_cache == kFlushOnly` and flush is happening:
 
 ```
 BlobSource
-  ├── blob_cache         (TypedCache<BlobContents>)  [Uncompressed blobs]
-  ├── blob_file_cache    (Cache<BlobFileReader>)     [Open file handles]
-  └── lowest_used_cache_tier
+  - blob_cache         (TypedCache<BlobContents>)  [Uncompressed blobs]
+  - blob_file_cache    (Cache<BlobFileReader>)     [Open file handles]
+  - lowest_used_cache_tier
 ```
 
 ### BlobSource::GetBlob() Flow
@@ -602,24 +577,24 @@ assert(garbage_blob_bytes_ <= shared_meta_->GetTotalBlobBytes());
 
 ```
 CompactionIterator::PrepareOutput()
-  │
-  ├─ ikey_.type == kTypeValue?
-  │    └─ ExtractLargeValueIfNeeded()
-  │         ├─ Calls ExtractLargeValueIfNeededImpl()
-  │         │    ├─ if (value.size() >= min_blob_size)
-  │         │    │    ├─ blob_file_builder_->Add(key, value, &blob_index)
-  │         │    │    └─ value_ = blob_index
-  │         │    └─ else: returns false (keep inline)
-  │         └─ If extracted: ikey_.type = kTypeBlobIndex
-  │
-  ├─ ikey_.type == kTypeBlobIndex?
-  │    └─ GarbageCollectBlobIfNeeded()
-  │         ├─ if (file_number < cutoff)
-  │         │    ├─ Fetch blob from old file
-  │         │    ├─ Try ExtractLargeValueIfNeededImpl() [within same call]
-  │         │    │    ├─ Success: re-extracted to new blob file, stays kTypeBlobIndex
-  │         │    │    └─ Failure (too small): ikey_.type = kTypeValue (inlined)
-  │         └─ else: keep BlobIndex as-is (passthrough)
+  |
+  +-- ikey_.type == kTypeValue?
+  |     ExtractLargeValueIfNeeded()
+  |       Calls ExtractLargeValueIfNeededImpl()
+  |         if (value.size() >= min_blob_size)
+  |           - blob_file_builder_->Add(key, value, &blob_index)
+  |           - value_ = blob_index
+  |         else: returns false (keep inline)
+  |       If extracted: ikey_.type = kTypeBlobIndex
+  |
+  +-- ikey_.type == kTypeBlobIndex?
+        GarbageCollectBlobIfNeeded()
+          if (file_number < cutoff)
+            - Fetch blob from old file
+            - Try ExtractLargeValueIfNeededImpl() [within same call]
+                Success: re-extracted to new blob file, stays kTypeBlobIndex
+                Failure (too small): ikey_.type = kTypeValue (inlined)
+          else: keep BlobIndex as-is (passthrough)
 ```
 
 **Key Points:**

@@ -107,15 +107,14 @@ class SnapshotImpl : public Snapshot {
 
 **Data Structure:**
 ```
-         list_ (dummy head, seqno=0xFFFFFFFFL)
-           ↓
-    ┌─────────────────────────────────────┐
-    │     ↓                         ↑     │
-  ┌───┐ ┌───┐ ┌───┐ ┌───┐ ┌───┐  ┌───┐
-  │ h │→│ 10│→│ 15│→│ 20│→│ 30│→ │ h │
-  │   │←│   │←│   │←│   │←│   │← │   │
-  └───┘ └───┘ └───┘ └───┘ └───┘  └───┘
-   dummy  oldest          newest  dummy
+list_ (dummy head, seqno=0xFFFFFFFFL)
+
+  dummy <-> 10 <-> 15 <-> 20 <-> 30 <-> dummy
+  (oldest)                        (newest)
+
+  - Circular doubly-linked list
+  - list_.next_ points to oldest snapshot
+  - list_.prev_ points to newest snapshot
 ```
 
 **Operations:**
@@ -227,7 +226,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
 ```
 Key written at seqno 100
 Snapshot at seqno 150
-─────────────────────────────────────
+-------------------------------------
 Read with snapshot 150: VISIBLE   ✓ (100 <= 150)
 Read with snapshot 90:  INVISIBLE ✗ (100 > 90)
 ```
@@ -645,34 +644,29 @@ db->ReleaseTimestampedSnapshotsOlderThan(ts);
 ## Snapshot Lifecycle Diagram
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        DB Mutex Protected Zone                       │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  1. GetSnapshot()                                                    │
-│     ↓                                                                │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │ new SnapshotImpl()                                           │   │
-│  │ number_ = GetLastPublishedSequence()                   │   │
-│  │ snapshots_.New(s, ...)  // Insert into doubly-linked list   │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│     ↓                                                                │
-│                                                                      │
-│  2. Snapshot In Use (mutex NOT held)                                │
-│     - Reads use snapshot->GetSequenceNumber()                       │
-│     - Compaction checks earliest_snapshot                           │
-│     - Iterator uses snapshot for visibility                         │
-│                                                                      │
-│  3. ReleaseSnapshot(snapshot)                                        │
-│     ↓                                                                │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │ mutex_.Lock()                                                │   │
-│  │ snapshots_.Delete(s)  // Remove from doubly-linked list     │   │
-│  │ mutex_.Unlock()                                              │   │
-│  │ delete s              // Free memory                         │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
+DB Mutex Protected Zone:
+
+  1. GetSnapshot()
+       |
+       v
+     new SnapshotImpl()
+     number_ = GetLastPublishedSequence()
+     snapshots_.New(s, ...)  // Insert into doubly-linked list
+       |
+       v
+
+  2. Snapshot In Use (mutex NOT held)
+     - Reads use snapshot->GetSequenceNumber()
+     - Compaction checks earliest_snapshot
+     - Iterator uses snapshot for visibility
+
+  3. ReleaseSnapshot(snapshot)
+       |
+       v
+     mutex_.Lock()
+     snapshots_.Delete(s)  // Remove from doubly-linked list
+     mutex_.Unlock()
+     delete s              // Free memory
 ```
 
 ---

@@ -1,0 +1,5 @@
+The ```SstFileManager``` class manages the physical SST file disk space utilization and deletion. It can be configured by the user in ```Options::sst_file_manager```. This class, even though declared in a public header file, is not extensible and the only way to allocate a new instance is by calling ```NewSstFileManager()```. One ```SstFileManager``` object can be shared by multiple DB instances. The limits configured in the ```SstFileManager``` would be shared by all the DBs.
+
+```SstFileManager``` provides various options to control and limit the disk space utilization of SST files in the DB. See [[Managing Disk Space Utilization]] for more details.
+
+The other key functionality provided by ```SstFileManager``` is slow deletion (a.k.a rate limited deletion). On SSDs, enabling slow deletion helps reduce the rate of TRIM commands to the SSD, thereby improving read/write latencies. See [[Slow Deletion]] for more details.

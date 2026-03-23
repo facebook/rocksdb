@@ -26,26 +26,19 @@ RocksDB's threading architecture achieves high concurrency through:
 5. **Adaptive synchronization** (spin → yield → block) based on contention
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    FOREGROUND THREADS                       │
-│              (User threads: Put/Get/Scan)                   │
-└────┬────────────────────────────────────┬───────────────────┘
-     │                                    │
-     │ Writes                             │ Reads
-     ▼                                    ▼
-┌─────────────────────┐         ┌──────────────────────┐
-│    WriteThread      │         │    SuperVersion      │
-│  (Group Commit)     │         │   (Lock-Free Ref)    │
-└─────────┬───────────┘         └──────────────────────┘
-          │
-          │ WAL + Memtable
-          ▼
-┌─────────────────────────────────────────────────────────────┐
-│               BACKGROUND THREADS (3 pools)                  │
-├─────────────────────┬─────────────────────┬─────────────────┤
-│  HIGH_PRIORITY      │  LOW_PRIORITY       │ BOTTOM_PRIORITY │
-│  (Flush)            │  (Compaction)       │ (Bottom Compact)│
-└─────────────────────┴─────────────────────┴─────────────────┘
+FOREGROUND THREADS (User threads: Put/Get/Scan)
+  |                                    |
+  | Writes                             | Reads
+  v                                    v
+WriteThread                    SuperVersion
+(Group Commit)                 (Lock-Free Ref)
+  |
+  | WAL + Memtable
+  v
+BACKGROUND THREADS (3 pools)
+  - HIGH_PRIORITY (Flush)
+  - LOW_PRIORITY (Compaction)
+  - BOTTOM_PRIORITY (Bottom Compact)
 ```
 
 ## Thread Pools
@@ -244,26 +237,22 @@ enum State : uint8_t {
 
 ```
 Writer enters
-     │
-     ▼
-  CAS on newest_writer_   ◄───────┐
-     │                            │
-     ├─ First? ──► Become leader ─┘
-     │
-     └─ Not first ──► Wait for state change
-                           │
-                           ▼
-                    ┌─────────────────┐
-                    │ Leader scans    │
-                    │ linked list,    │
-                    │ builds group    │
-                    └─────────────────┘
-                           │
-                           ▼
-                    Leader executes WAL write
-                           │
-                           ▼
-                    Wake followers / hand off
+  |
+  v
+CAS on newest_writer_
+  |
+  +-- First? -> Become leader (loop back to CAS for next group)
+  |
+  +-- Not first -> Wait for state change
+                     |
+                     v
+                   Leader scans linked list, builds group
+                     |
+                     v
+                   Leader executes WAL write
+                     |
+                     v
+                   Wake followers / hand off
 ```
 
 **⚠️ INVARIANT**: Writers link into `newest_writer_` via **atomic CAS**. First writer becomes leader. Leader scans the linked list **forwards** (oldest to newest via `link_newer`) to build the write group. Incompatible writers are unlinked into a temporary list and grafted back after the group.
@@ -598,21 +587,21 @@ bool ReturnThreadLocalSuperVersion(SuperVersion* sv);
 
 ```
 Flush/Compaction completes
-     │
-     ▼
+  |
+  v
 New SuperVersion created (refs=1)
-     │
-     ▼
+  |
+  v
 Installed as cfd->super_version_ (under mutex_)
-     │
-     ▼
+  |
+  v
 Old SuperVersion->Unref()
-     │
-     ├─ refs > 0? ──► Kept alive (readers still using)
-     │
-     └─ refs == 0? ──► Cleanup queued
-                          │
-                          ▼
+  |
+  +-- refs > 0? -> Kept alive (readers still using)
+  |
+  +-- refs == 0? -> Cleanup queued
+                      |
+                      v
                     Unrefs mem/imm/current
                     (may trigger further cleanup)
 ```
@@ -720,24 +709,21 @@ Subcompactions divide a single compaction job into multiple **key-range sub-jobs
 
 ```
 CompactionJob
-     │
-     ├─ Divide input key range into N sub-ranges
-     │
-     ├─ Submit N sub-jobs to compaction thread pool
-     │
-     ▼
-┌──────────┬──────────┬──────────┬──────────┐
-│ Sub-job  │ Sub-job  │ Sub-job  │ Sub-job  │
-│ [a, m)   │ [m, r)   │ [r, u)   │ [u, z]   │
-└──────────┴──────────┴──────────┴──────────┘
-     │          │          │          │
-     └──────────┴──────────┴──────────┘
-                    │
-                    ▼
-            Merge output files
-                    │
-                    ▼
-              LogAndApply
+  |
+  +-- Divide input key range into N sub-ranges
+  |
+  +-- Submit N sub-jobs to compaction thread pool
+  |
+  v
+Sub-job [a, m)  |  Sub-job [m, r)  |  Sub-job [r, u)  |  Sub-job [u, z]
+  |                  |                  |                  |
+  +------------------+------------------+------------------+
+                     |
+                     v
+             Merge output files
+                     |
+                     v
+               LogAndApply
 ```
 
 **Each sub-job**:

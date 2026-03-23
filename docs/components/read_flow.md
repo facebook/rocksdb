@@ -7,47 +7,35 @@ This document provides a comprehensive end-to-end trace of read operations in Ro
 ### High-Level Read Flow
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│                    Application Layer                          │
-│  DB::Get() / DB::MultiGet() / DB::NewIterator()               │
-└────────────────┬──────────────────────────────────────────────┘
-                 │
-                 v
-┌───────────────────────────────────────────────────────────────┐
-│               SuperVersion Acquisition                        │
-│  GetAndRefSuperVersion() → consistent snapshot                │
-│  (mem + imm + Version, ref-counted)                          │
-└────────────────┬──────────────────────────────────────────────┘
-                 │
-                 v
-┌───────────────────────────────────────────────────────────────┐
-│                  Search Layers (ordered)                      │
-│  1. Mutable MemTable     → skiplist + bloom                  │
-│  2. Immutable MemTables  → newest to oldest                  │
-│  3. SST Files (Version)  → L0 all files, L1+ binary search   │
-└────────────────┬──────────────────────────────────────────────┘
-                 │
-                 v
-┌───────────────────────────────────────────────────────────────┐
-│              Block Cache / Disk I/O                           │
-│  Cache lookup → compressed cache → disk read → decompress    │
-│  Block types: data, index, filter                            │
-└────────────────┬──────────────────────────────────────────────┘
-                 │
-                 v
-┌───────────────────────────────────────────────────────────────┐
-│            Resolution (during search above)                   │
-│  - Range deletion: max_covering_tombstone_seq check          │
-│  - Merge operator: operand collection across layers          │
-│  - Blob value: retrieved in Version::Get after kFound        │
-│  - Snapshot visibility: seq <= snapshot_seq filtering         │
-└────────────────┬──────────────────────────────────────────────┘
-                 │
-                 v
-┌───────────────────────────────────────────────────────────────┐
-│            SuperVersion Release                               │
-│  ReturnAndCleanupSuperVersion() → cleanup if last ref        │
-└───────────────────────────────────────────────────────────────┘
+Application Layer
+  DB::Get() / DB::MultiGet() / DB::NewIterator()
+    |
+    v
+SuperVersion Acquisition
+  GetAndRefSuperVersion() -> consistent snapshot
+  (mem + imm + Version, ref-counted)
+    |
+    v
+Search Layers (ordered)
+  1. Mutable MemTable     -> skiplist + bloom
+  2. Immutable MemTables  -> newest to oldest
+  3. SST Files (Version)  -> L0 all files, L1+ binary search
+    |
+    v
+Block Cache / Disk I/O
+  Cache lookup -> compressed cache -> disk read -> decompress
+  Block types: data, index, filter
+    |
+    v
+Resolution (during search above)
+  - Range deletion: max_covering_tombstone_seq check
+  - Merge operator: operand collection across layers
+  - Blob value: retrieved in Version::Get after kFound
+  - Snapshot visibility: seq <= snapshot_seq filtering
+    |
+    v
+SuperVersion Release
+  ReturnAndCleanupSuperVersion() -> cleanup if last ref
 ```
 
 ---
@@ -335,29 +323,18 @@ for (auto& memtable : memlist_) {  // memlist_ ordered newest→oldest
 RetrieveBlock(block_handle)
   |
   v
-  ┌─────────────────────────────────┐
-  │ Uncompressed Block Cache        │
-  │ (LRUCache / HyperClockCache)   │
-  └───────┬─────────────────────────┘
-          │ miss
-          v
-  ┌─────────────────────────────────┐
-  │ Compressed Cache / Secondary    │
-  │ (CompressedSecondaryCache)     │
-  └───────┬─────────────────────────┘
-          │ miss
-          v
-  ┌─────────────────────────────────┐
-  │ Disk I/O                        │
-  │ ReadBlockContents() → decompress│
-  └───────┬─────────────────────────┘
-          │
-          v
-  ┌─────────────────────────────────┐
-  │ Insert into Cache(s)            │
-  │ Uncompressed → primary cache    │
-  │ Compressed → secondary cache    │
-  └─────────────────────────────────┘
+Uncompressed Block Cache (LRUCache / HyperClockCache)
+  | miss
+  v
+Compressed Cache / Secondary (CompressedSecondaryCache)
+  | miss
+  v
+Disk I/O: ReadBlockContents() -> decompress
+  |
+  v
+Insert into Cache(s)
+  - Uncompressed -> primary cache
+  - Compressed -> secondary cache
 ```
 
 ### Cache Key Construction
@@ -611,27 +588,20 @@ int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
 ### Iterator Stack Architecture
 
 ```
-┌──────────────────────────────────────┐
-│         DBIter (user-facing)         │
-│  Resolves internal keys → user keys │
-│  Handles merges, deletions, visibility│
-└─────────────┬────────────────────────┘
-              │
-              v
-┌──────────────────────────────────────┐
-│       MergingIterator                │
-│  Min/max heap merge, range tombstone │
-│  integration, multi-source iteration │
-└─────────────┬────────────────────────┘
-              │
-         ┌────┴─────────────────────┐
-         │                          │
-         v                          v
-┌────────────────┐        ┌────────────────┐
-│ MemTable iter  │        │ SST file iters │
-│ + range del    │        │ (L0...Ln)      │
-└────────────────┘        │ + range del    │
-                          └────────────────┘
+DBIter (user-facing)
+  - Resolves internal keys -> user keys
+  - Handles merges, deletions, visibility
+    |
+    v
+MergingIterator
+  - Min/max heap merge, range tombstone integration, multi-source iteration
+    |
+    +-----------+-----------+
+    |                       |
+    v                       v
+MemTable iter           SST file iters
+  + range del             (L0...Ln)
+                          + range del
 ```
 
 ### NewIterator() → MergingIterator Creation

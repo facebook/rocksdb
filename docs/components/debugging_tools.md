@@ -22,21 +22,17 @@ The `ldb` (LevelDB tool, inherited from LevelDB ancestry) is the primary debuggi
 ### Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  ldb [global-options] <subcommand> [command-specific-args]  │
-└──────────────────────┬──────────────────────────────────────┘
-                       │
-       ┌───────────────┴───────────────┬─────────────────┐
-       v                               v                 v
-┌──────────────┐              ┌─────────────────┐  ┌──────────────┐
-│ LDBCommand   │              │ Data Commands   │  │ Meta Commands│
-│ Base Class   │──────────────│ get, put, scan  │  │ manifest_dump│
-│              │              │ delete, compact │  │ dump_wal     │
-│ - ParseArgs  │              └─────────────────┘  │ file_checksum│
-│ - OpenDB     │                                   └──────────────┘
-│ - ValidateOpts│
-│ - DoCommand  │
-└──────────────┘
+ldb [global-options] <subcommand> [command-specific-args]
+  |
+  +-- LDBCommand Base Class
+  |     - ParseArgs
+  |     - OpenDB
+  |     - ValidateOpts
+  |     - DoCommand
+  |
+  +-- Data Commands: get, put, scan, delete, compact
+  |
+  +-- Meta Commands: manifest_dump, dump_wal, file_checksum
 ```
 
 **Files:** `include/rocksdb/utilities/ldb_cmd.h:31-144`

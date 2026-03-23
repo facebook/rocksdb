@@ -12,8 +12,8 @@ Iterators form a tree structure where leaf iterators read actual data (memtables
 ```
                     DBIter (user-facing)
                         |
-              ┌─────────┴──────────┐
-              |                    |
+              +---------+-----------+
+              |                     |
     MergingIterator           ForwardIterator
     (normal iteration)        (tailing mode)
       /    |    \
@@ -357,18 +357,18 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 [Initial State]
     |
     v
-Seek(target) ──> index_iter_.Seek(target)
+Seek(target) --> index_iter_.Seek(target)
                  is_at_first_key_from_index_ = true
                  block_iter_ NOT loaded yet
     |
     v
-PrepareValue() ──> if (is_at_first_key_from_index_):
+PrepareValue() --> if (is_at_first_key_from_index_):
                       InitDataBlock()  // Load block into cache/memory
                       block_iter_.SeekToFirst()
                       is_at_first_key_from_index_ = false
     |
     v
-value() ──> block_iter_.value()
+value() --> block_iter_.value()
 ```
 
 **Lazy vs Eager Loading**: Data block loading is deferred only on a narrow path where ALL of these conditions hold: (1) `allow_unprepared_value_` is enabled, (2) the index entry contains a non-empty `first_internal_key`, (3) the first key already satisfies the seek target, and (4) it is a different block from the current one. In the **common case**, `Seek()` eagerly loads the data block via `InitDataBlock()` and seeks within it.

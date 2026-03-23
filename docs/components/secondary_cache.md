@@ -16,16 +16,12 @@ RocksDB supports multiple caching mechanisms beyond the primary block cache:
 The secondary cache provides a second tier of caching behind the primary block cache. When a block is evicted from the primary cache, it can be demoted to the secondary cache. When a lookup misses in the primary cache but hits in the secondary cache, the block is promoted back to the primary cache.
 
 ```
-┌─────────────────────────────────────┐
-│      Primary Block Cache (LRU)     │  ← Fast, uncompressed
-│     (BlockBasedTableReader data)    │
-└──────────────┬──────────────────────┘
-               │ Evict/Promote
-               ▼
-┌─────────────────────────────────────┐
-│    Secondary Cache (Compressed)     │  ← Slower, compressed
-│   (Compressed blocks, may use NVM)  │
-└─────────────────────────────────────┘
+Primary Block Cache (LRU) -- Fast, uncompressed
+  (BlockBasedTableReader data)
+    | Evict/Promote
+    v
+Secondary Cache (Compressed) -- Slower, compressed
+  (Compressed blocks, may use NVM)
 ```
 
 **Key characteristics:**
@@ -135,14 +131,12 @@ class CacheWithSecondaryAdapter : public CacheWrapper {
 When promoting from secondary to primary cache:
 
 ```
-Secondary cache hit → Create object from saved data → Insert into primary cache
-                                                    ↓
-                                         ┌────────────────────────┐
-                                         │ Two promotion modes:   │
-                                         ├────────────────────────┤
-                                         │ 1. Regular insertion   │
-                                         │ 2. Standalone + dummy  │
-                                         └────────────────────────┘
+Secondary cache hit -> Create object from saved data -> Insert into primary cache
+                                                     |
+                                                     v
+                                        Two promotion modes:
+                                          1. Regular insertion
+                                          2. Standalone + dummy
 ```
 
 **Standalone + dummy mode** (when `SupportForceErase()` returns true):
@@ -161,8 +155,8 @@ Total Capacity = 100 MB
 compressed_secondary_ratio = 0.3 (30%)
 
 Primary cache capacity = 100 MB (total)
-├─ Reserved for secondary: 30 MB (via CacheReservationManager)
-└─ Usable for blocks: 70 MB
+  - Reserved for secondary: 30 MB (via CacheReservationManager)
+  - Usable for blocks: 70 MB
 
 Secondary cache capacity = 30 MB
 ```
@@ -211,9 +205,7 @@ class CompressedSecondaryCache : public SecondaryCache {
 Entries are stored as a **tagged value** with a 2-byte header followed by the saved block data (which may or may not be compressed):
 
 ```
-┌──────────────┬──────────────┬──────────────────────────────┐
-│ Source (1B)  │ Type (1B)    │  Saved/Compressed Block Data │
-└──────────────┴──────────────┴──────────────────────────────┘
+Source (1B) | Type (1B) | Saved/Compressed Block Data
 ```
 
 - **Source (`CacheTier`)**: Which tier is responsible for compression/decompression
@@ -332,19 +324,13 @@ Defined in `cache/tiered_secondary_cache.{h,cc}`, implements a three-tier cache 
 ### Architecture
 
 ```
-┌─────────────────────────────────────┐
-│   Primary Cache (Uncompressed)     │  ← Tier 1: Fast, in-memory
-└──────────────┬──────────────────────┘
-               │ Evict/Promote
-               ▼
-┌─────────────────────────────────────┐
-│ Compressed Secondary (CompressedSC) │  ← Tier 2: In-memory, compressed
-└──────────────┬──────────────────────┘
-               │ Promote only
-               ▼
-┌─────────────────────────────────────┐
-│   NVM Secondary (e.g., Flash)       │  ← Tier 3: Persistent, slower
-└─────────────────────────────────────┘
+Primary Cache (Uncompressed)    -- Tier 1: Fast, in-memory
+    | Evict/Promote
+    v
+Compressed Secondary (CompressedSC)  -- Tier 2: In-memory, compressed
+    | Promote only
+    v
+NVM Secondary (e.g., Flash)     -- Tier 3: Persistent, slower
 ```
 
 **Created via `NewTieredCache()`:**

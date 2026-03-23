@@ -1,0 +1,13 @@
+**Optimizing Space Amplification in RocksDB**, CIDR 2017, Siying Dong, Mark Callaghan, Leonidas Galanis, Dhruba Borthakur, Tony Savor, Michael Stumm [link](https://research.fb.com/publications/optimizing-space-amplification-in-rocksdb/)
+
+**Reducing DRAM footprint with NVM in Facebook**, Assaf Eisenman, Darryl Gardner, Islam AbdelRahman, Jens Axboe, Siying Dong, Kim Hazelwood, Chris Petersen, Asaf Cidon, and Sachin Katti. 2018. In Proceedings of the Thirteenth EuroSys Conference (EuroSys ’18). Association for Computing Machinery, New York, NY, USA, Article 42, 1–13. [link](https://research.fb.com/wp-content/uploads/2018/03/reducing-dram-footprint-with-nvm-in-facebook.pdf)
+
+**Who’s afraid of uncorrectable bit errors? online recovery of flash errors with distributed redundancy**, Amy Tai, Andrew Kryczka, Shobhit O. Kanaujia, Kyle Jamieson, Michael J. Freedman, and Asaf Cidon. 2019. In Proceedings of the 2019 USENIX Conference on Usenix Annual Technical Conference (USENIX ATC ’19). USENIX Association, USA, 977–991, [link](https://www.usenix.org/system/files/atc19-tai.pdf).
+
+**Characterizing, Modeling, and Benchmarking RocksDB Key-Value Workloads at Facebook**, Zhichao Cao, Siying Dong, Sagar Vemuri, and David H.C. Du, 18th USENIX Conference on File and Storage Technologies (FAST20), USA, 209--223. [link](https://www.usenix.org/system/files/fast20-cao_zhichao.pdf).
+
+**Evolution of Development Priorities in Key-value Stores Serving Large-scale Applications: The RocksDB Experience**, Siying Dong, Andrew Kryczka, and Yanqin Jin, Facebook Inc.; Michael Stumm, University of Toronto, 19th USENIX Conference on File and Storage Technologies (FAST 21). [link](https://www.usenix.org/conference/fast21/presentation/dong)
+
+**RocksDB: Evolution of Development Priorities in a Key-value Store Serving Large-scale Applications**, Siying Dong, Andrew Kryczka, and Yanqin Jin, Facebook Inc.; Michael Stumm, Priorities in a Key-value Store Serving Large-scale Applications. ACM Trans. Storage 17, 4, Article 26 (October 2021). [link](https://dl.acm.org/doi/pdf/10.1145/3483840) (Expanded version of the FAST21 paper)
+
+**Fast Succinct Retrieval and Approximate Membership using Ribbon**, Peter C. Dillinger, Lorenz Hübschle-Schneider, Peter Sanders and Stefan Walzer, 20th Symposium on Experimental Algorithms (Best Paper @ SEA 2022). [arXiv version](https://arxiv.org/abs/2109.01892), [earlier tech report](https://arxiv.org/abs/2103.02515), [engineering blog post](https://engineering.fb.com/2021/07/09/data-infrastructure/ribbon-filter/)

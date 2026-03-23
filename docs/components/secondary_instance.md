@@ -25,41 +25,22 @@ Secondary instances are useful for:
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Primary Instance                        │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
-│  │MemTable  │→ │   WAL    │  │ MANIFEST │  │ SST Files│   │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘   │
-│       │            │              │              │          │
-│       │Writes      │Writes        │Writes        │Creates   │
-│       ▼            ▼              ▼              ▼          │
-└───────────────────────────────────────────────────────────┘
-         ▲            ▲              ▲              ▲
-         │            │              │              │
-         │(no access) │(always)    │(always)      │(always)
-         │            │Tail WAL      │Tail MANIFEST │Read SSTs
-         │            │              │              │
-┌────────┼────────────┼──────────────┼──────────────┼─────────┐
-│        │            │              │              │          │
-│   Secondary Instance (Read-Only Follower)                   │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │
-│  │ ManifestReader│→│ LogReaders   │  │ TableCache   │     │
-│  │ (tails MANIFEST)│(tails WALs)   │  │ (reads SSTs) │     │
-│  └──────────────┘  └──────────────┘  └──────────────┘     │
-│         │                │                    │             │
-│         └────────────────┴────────────────────┘             │
-│                          │                                  │
-│                ┌─────────▼─────────┐                        │
-│                │ SuperVersion      │                        │
-│                │ (point-in-time    │                        │
-│                │  view of DB)      │                        │
-│                └─────────┬─────────┘                        │
-│                          │                                  │
-│                  ┌───────▼────────┐                         │
-│                  │   Get/Iterate  │                         │
-│                  │   (Read Ops)   │                         │
-│                  └────────────────┘                         │
-└─────────────────────────────────────────────────────────────┘
+Primary Instance:
+  MemTable -> WAL, MANIFEST, SST Files
+    (Writes)   (Writes)  (Writes)  (Creates)
+
+Secondary Instance (Read-Only Follower):
+  (no access    Tail WAL   Tail MANIFEST   Read SSTs
+   to MemTable)
+  ManifestReader -> LogReaders, TableCache
+         |              |            |
+         +--------------+------------+
+                        |
+                   SuperVersion
+                   (point-in-time view of DB)
+                        |
+                   Get/Iterate
+                   (Read Ops)
 ```
 
 ---
@@ -103,20 +84,17 @@ Status DB::OpenAsSecondary(
 
 ```
 db/db_impl/db_impl_secondary.cc:OpenAsSecondaryImpl
-  ├─ Create DBImplSecondary instance (db_impl_secondary.cc:776)
-  │   └─ Initialize secondary_path_ for metadata
-  │
-  ├─ Create ReactiveVersionSet and ColumnFamilyMemTablesImpl (db_impl_secondary.cc:777-782)
-  │   └─ versions_ and column_family_memtables_ initialized before Recover()
-  │
-  ├─ Recover() (db_impl_secondary.cc:39-56)
-  │   ├─ Call ReactiveVersionSet::Recover() on the already-created versions_
-  │   │   └─ Read MANIFEST, create manifest_reader_ (version_set.cc:8007)
-  │   └─ Initialize manifest_reader_ for future tailing
-  │
-  └─ Recover WAL logs (always for public API, skipped by OpenAndCompact)
-      └─ FindAndRecoverLogFiles() (db_impl_secondary.cc:73-87)
-          └─ RecoverLogFiles() creates log_readers_ for tailing
+  - Create DBImplSecondary instance (db_impl_secondary.cc:776)
+    - Initialize secondary_path_ for metadata
+  - Create ReactiveVersionSet and ColumnFamilyMemTablesImpl (db_impl_secondary.cc:777-782)
+    - versions_ and column_family_memtables_ initialized before Recover()
+  - Recover() (db_impl_secondary.cc:39-56)
+    - Call ReactiveVersionSet::Recover() on the already-created versions_
+      - Read MANIFEST, create manifest_reader_ (version_set.cc:8007)
+    - Initialize manifest_reader_ for future tailing
+  - Recover WAL logs (always for public API, skipped by OpenAndCompact)
+    - FindAndRecoverLogFiles() (db_impl_secondary.cc:73-87)
+      - RecoverLogFiles() creates log_readers_ for tailing
 ```
 
 ⚠️ **INVARIANT:** During recovery, the secondary only replays the MANIFEST. WAL recovery happens separately if needed. The secondary **never locks** the primary's database directory.
@@ -137,28 +115,24 @@ Status DB::TryCatchUpWithPrimary();
 
 ```
 TryCatchUpWithPrimary
-  │
-  ├─ 1. Tail MANIFEST (db_impl_secondary.cc:648-651)
-  │   └─ ReactiveVersionSet::ReadAndApply()
-  │       ├─ MaybeSwitchManifest() (version_set.cc:8069)
-  │       │   └─ Check if CURRENT points to new MANIFEST
-  │       ├─ Read new VersionEdits from manifest_reader_
-  │       └─ Apply edits → update LSM tree metadata
-  │
-  ├─ 2. Tail WAL (db_impl_secondary.cc:670)
-  │   └─ FindAndRecoverLogFiles()
-  │       ├─ List WAL directory for new log files
-  │       ├─ MaybeInitLogReader() for each new WAL
-  │       └─ RecoverLogFiles() (db_impl_secondary.cc:176)
-  │           ├─ Read WriteBatch records from log_readers_
-  │           ├─ Apply to in-memory memtables
-  │           └─ Update sequence numbers
-  │
-  ├─ 3. Install new SuperVersions (db_impl_secondary.cc:680-686)
-  │   └─ For each changed CF, create new point-in-time view
-  │
-  └─ 4. Cleanup (db_impl_secondary.cc:691-702)
-      └─ PurgeObsoleteFiles() (only file descriptors, not actual files)
+  - 1. Tail MANIFEST (db_impl_secondary.cc:648-651)
+    - ReactiveVersionSet::ReadAndApply()
+      - MaybeSwitchManifest() (version_set.cc:8069)
+        - Check if CURRENT points to new MANIFEST
+      - Read new VersionEdits from manifest_reader_
+      - Apply edits -> update LSM tree metadata
+  - 2. Tail WAL (db_impl_secondary.cc:670)
+    - FindAndRecoverLogFiles()
+      - List WAL directory for new log files
+      - MaybeInitLogReader() for each new WAL
+      - RecoverLogFiles() (db_impl_secondary.cc:176)
+        - Read WriteBatch records from log_readers_
+        - Apply to in-memory memtables
+        - Update sequence numbers
+  - 3. Install new SuperVersions (db_impl_secondary.cc:680-686)
+    - For each changed CF, create new point-in-time view
+  - 4. Cleanup (db_impl_secondary.cc:691-702)
+    - PurgeObsoleteFiles() (only file descriptors, not actual files)
 ```
 
 ### MANIFEST Tailing Details
@@ -243,17 +217,13 @@ Status DBImplSecondary::RecoverLogFiles(
 
 ```
 Get/Iterator
-  │
-  ├─ Acquire SuperVersion (db_impl_secondary.cc:381)
-  │   └─ Contains point-in-time view: Version + MemTables
-  │
-  ├─ Search in memtables (from WAL replay)
-  │   └─ Active memtable + immutable memtables
-  │
-  ├─ Search in SST files (via Version)
-  │   └─ TableCache reads from primary's SST files
-  │
-  └─ Release SuperVersion
+  - Acquire SuperVersion (db_impl_secondary.cc:381)
+    - Contains point-in-time view: Version + MemTables
+  - Search in memtables (from WAL replay)
+    - Active memtable + immutable memtables
+  - Search in SST files (via Version)
+    - TableCache reads from primary's SST files
+  - Release SuperVersion
 ```
 
 ⚠️ **INVARIANT:** All reads operate on the `SuperVersion` at the time of `TryCatchUpWithPrimary()`. Reads do **not** reflect primary's writes until the next catch-up call.
@@ -363,28 +333,23 @@ Status DB::OpenAndCompact(
 
 ```
 OpenAndCompact
-  │
-  ├─ 1. Open as secondary (WITHOUT WAL recovery)
-  │   └─ OpenAsSecondaryImpl(recover_wal=false)
-  │       └─ Read MANIFEST only (not WAL)
-  │
-  ├─ 2. Deserialize CompactionServiceInput
-  │   ├─ Column family name, snapshots, db_id
-  │   ├─ Input files to compact
-  │   ├─ Output level, subcompaction bounds
-  │   └─ options_file_number (reference to OPTIONS file)
-  │
-  ├─ 3. Load DB/CF options from OPTIONS-<options_file_number> file
-  │   └─ Apply CompactionServiceOptionsOverride on top
-  │
-  ├─ 3. Run CompactWithoutInstallation()
-  │   ├─ Create CompactionJob (db_impl_secondary.cc:1293)
-  │   ├─ Run compaction in output_directory
-  │   ├─ Write SST files to output_directory (not primary DB)
-  │   └─ NO installation into LSM tree
-  │
-  └─ 4. Serialize CompactionServiceResult
-      └─ Output file metadata, statistics
+  - 1. Open as secondary (WITHOUT WAL recovery)
+    - OpenAsSecondaryImpl(recover_wal=false)
+      - Read MANIFEST only (not WAL)
+  - 2. Deserialize CompactionServiceInput
+    - Column family name, snapshots, db_id
+    - Input files to compact
+    - Output level, subcompaction bounds
+    - options_file_number (reference to OPTIONS file)
+  - 3. Load DB/CF options from OPTIONS-<options_file_number> file
+    - Apply CompactionServiceOptionsOverride on top
+  - 3. Run CompactWithoutInstallation()
+    - Create CompactionJob (db_impl_secondary.cc:1293)
+    - Run compaction in output_directory
+    - Write SST files to output_directory (not primary DB)
+    - NO installation into LSM tree
+  - 4. Serialize CompactionServiceResult
+    - Output file metadata, statistics
 ```
 
 ### Use Cases

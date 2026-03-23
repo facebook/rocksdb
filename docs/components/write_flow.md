@@ -7,63 +7,47 @@ This document traces the complete lifecycle of a write operation from applicatio
 ### High-Level Write Flow
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  APPLICATION LAYER                                              │
-│  Put/Delete/SingleDelete/DeleteRange/Merge/WriteBatch          │
-└─────────────────┬───────────────────────────────────────────────┘
-                  │
-                  v
-┌─────────────────────────────────────────────────────────────────┐
-│  WRITE COORDINATION (db/db_impl/db_impl_write.cc)              │
-│  ┌──────────────────────────────────────────────────┐          │
-│  │ DBImpl::WriteImpl                                │          │
-│  │  ├─ PreprocessWrite (flow control, flush trigger)│          │
-│  │  ├─ WriteThread (leader election, batching)      │          │
-│  │  ├─ WAL write (log::Writer::AddRecord)           │          │
-│  │  ├─ Sequence number assignment                   │          │
-│  │  ├─ MemTable insertion                           │          │
-│  │  └─ Publish sequence (SetLastSequence)           │          │
-│  └──────────────────────────────────────────────────┘          │
-└─────────────────┬───────────────────────────────────────────────┘
-                  │
-    ┌─────────────┴─────────────┐
-    │                           │
-    v                           v
-┌───────────────────┐   ┌──────────────────────────────┐
-│  WAL (PERSISTENT) │   │  MEMTABLE (IN-MEMORY BUFFER) │
-│  32KB blocks      │   │  SkipList, sorted by         │
-│  CRC'd records    │   │  (user_key, seq_desc)        │
-└───────────────────┘   └──────────┬───────────────────┘
-                                   │
-                    MemTable full? │
-                                   v
-                        ┌──────────────────┐
-                        │  FLUSH TO L0 SST │
-                        │  (FlushJob)      │
-                        └──────────┬───────┘
-                                   │
-                                   v
-                        ┌──────────────────────────┐
-                        │  L0 SST FILES (SORTED)   │
-                        │  Overlapping key ranges  │
-                        └──────────┬───────────────┘
-                                   │
-                    Compaction trigger?
-                                   v
-                        ┌──────────────────────────┐
-                        │  COMPACTION              │
-                        │  (CompactionJob)         │
-                        │  └─ Merge sorted runs    │
-                        │  └─ Drop tombstones      │
-                        │  └─ Apply merges         │
-                        └──────────┬───────────────┘
-                                   │
-                                   v
-                        ┌──────────────────────────┐
-                        │  L1+ SST FILES           │
-                        │  Non-overlapping ranges  │
-                        │  Tiered by level         │
-                        └──────────────────────────┘
+APPLICATION LAYER
+  Put/Delete/SingleDelete/DeleteRange/Merge/WriteBatch
+    |
+    v
+WRITE COORDINATION (db/db_impl/db_impl_write.cc)
+  DBImpl::WriteImpl
+    - PreprocessWrite (flow control, flush trigger)
+    - WriteThread (leader election, batching)
+    - WAL write (log::Writer::AddRecord)
+    - Sequence number assignment
+    - MemTable insertion
+    - Publish sequence (SetLastSequence)
+    |
+    +----------------------------+
+    |                            |
+    v                            v
+WAL (PERSISTENT)           MEMTABLE (IN-MEMORY BUFFER)
+  32KB blocks                SkipList, sorted by
+  CRC'd records              (user_key, seq_desc)
+                               |
+                  MemTable full?
+                               v
+                       FLUSH TO L0 SST
+                         (FlushJob)
+                               |
+                               v
+                       L0 SST FILES (SORTED)
+                         Overlapping key ranges
+                               |
+                  Compaction trigger?
+                               v
+                       COMPACTION
+                         (CompactionJob)
+                           - Merge sorted runs
+                           - Drop tombstones
+                           - Apply merges
+                               |
+                               v
+                       L1+ SST FILES
+                         Non-overlapping ranges
+                         Tiered by level
 ```
 
 ---
@@ -98,18 +82,15 @@ A `WriteBatch` serializes multiple operations into a single binary buffer (`rep_
 **Binary format:**
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│  HEADER (12 bytes)                                       │
-│  ├─ sequence:    fixed64  (placeholder, filled later)    │
-│  └─ count:       fixed32  (number of ops)                │
-├──────────────────────────────────────────────────────────┤
-│  OPERATIONS (variable length)                            │
-│  ├─ tag:         uint8     (ValueType)                   │
-│  ├─ [cf_id]:     varint32  (only for CF-prefixed ops)    │
-│  ├─ key:         varstring (varint32 length + bytes)     │
-│  └─ value:       varstring (for Put/Merge/Range ops)     │
-│  ... (repeat for each operation)                         │
-└──────────────────────────────────────────────────────────┘
+HEADER (12 bytes)
+  - sequence:    fixed64  (placeholder, filled later)
+  - count:       fixed32  (number of ops)
+
+OPERATIONS (variable length, repeated for each operation)
+  - tag:         uint8     (ValueType)
+  - [cf_id]:     varint32  (only for CF-prefixed ops)
+  - key:         varstring (varint32 length + bytes)
+  - value:       varstring (for Put/Merge/Range ops)
 
 varstring := length: varint32 || data: uint8[length]
 ```
@@ -157,13 +138,13 @@ Before entering the write path, `DBImpl::WriteImpl` validates options (starting 
 
 ```
 STATE_INIT (1)
-    │
-    ├─→ STATE_GROUP_LEADER (2)              ← Leader: drives group
-    ├─→ STATE_COMPLETED (16)                ← Follower: done
-    ├─→ STATE_PARALLEL_MEMTABLE_WRITER (8)  ← Parallel memtable insert
-    ├─→ STATE_MEMTABLE_WRITER_LEADER (4)    ← Pipelined memtable leader
-    ├─→ STATE_LOCKED_WAITING (32)           ← Blocked on condvar
-    └─→ STATE_PARALLEL_MEMTABLE_CALLER (64) ← Stride leader in large parallel groups
+    |
+    +--> STATE_GROUP_LEADER (2)              -- Leader: drives group
+    +--> STATE_COMPLETED (16)                -- Follower: done
+    +--> STATE_PARALLEL_MEMTABLE_WRITER (8)  -- Parallel memtable insert
+    +--> STATE_MEMTABLE_WRITER_LEADER (4)    -- Pipelined memtable leader
+    +--> STATE_LOCKED_WAITING (32)           -- Blocked on condvar
+    +--> STATE_PARALLEL_MEMTABLE_CALLER (64) -- Stride leader in large parallel groups
 ```
 
 **Writer struct** (`db/write_thread.h:124-288`):
@@ -285,18 +266,14 @@ WAL files are divided into **32 KB blocks** (`kBlockSize = 32768`). Each block c
 **Legacy header (7 bytes):**
 
 ```
-┌───────────┬──────────┬──────────┐
-│ CRC (4B)  │ Size (2B)│ Type (1B)│
-└───────────┴──────────┴──────────┘
+[ CRC (4B) ][ Size (2B) ][ Type (1B) ]
 CRC = crc32c(type || payload)
 ```
 
 **Recyclable header (11 bytes):**
 
 ```
-┌───────────┬──────────┬──────────┬────────────────┐
-│ CRC (4B)  │ Size (2B)│ Type (1B)│ Log Number (4B)│
-└───────────┴──────────┴──────────┴────────────────┘
+[ CRC (4B) ][ Size (2B) ][ Type (1B) ][ Log Number (4B) ]
 ```
 
 The log number in recyclable headers detects stale data from previous file incarnations when `recycle_log_file_num > 0`.
@@ -352,10 +329,12 @@ Types ≥ 10 use bit 0 to distinguish recyclable (odd) from non-recyclable (even
 ### WAL File Lifecycle
 
 ```
-Created → Written (AddRecord) → Synced (fsync)
-    ↓
-  Memtable flushed → WAL archived or recycled
-    ↓
+Created -> Written (AddRecord) -> Synced (fsync)
+    |
+    v
+  Memtable flushed -> WAL archived or recycled
+    |
+    v
   Purged (TTL/size limit exceeded)
 ```
 
@@ -387,22 +366,15 @@ Created → Written (AddRecord) → Synced (fsync)
 Every memtable entry is encoded as:
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│  internal_key_size:  varint32   (user_key.size() + 8)   │
-├──────────────────────────────────────────────────────────┤
-│  user_key:           uint8[user_key.size()]              │
-│                      (may include user timestamp suffix) │
-├──────────────────────────────────────────────────────────┤
-│  packed_tag:         fixed64                             │
-│                      (sequence_number << 8) | value_type │
-├──────────────────────────────────────────────────────────┤
-│  value_size:         varint32                            │
-├──────────────────────────────────────────────────────────┤
-│  value:              uint8[value_size]                   │
-├──────────────────────────────────────────────────────────┤
-│  checksum:           uint8[0 or 8]                       │
-│                      (if protection_bytes_per_key == 8)  │
-└──────────────────────────────────────────────────────────┘
+[ internal_key_size:  varint32   (user_key.size() + 8)       ]
+[ user_key:           uint8[user_key.size()]                  ]
+[                     (may include user timestamp suffix)     ]
+[ packed_tag:         fixed64                                 ]
+[                     (sequence_number << 8) | value_type     ]
+[ value_size:         varint32                                ]
+[ value:              uint8[value_size]                       ]
+[ checksum:           uint8[0 or 8]                           ]
+[                     (if protection_bytes_per_key == 8)      ]
 ```
 
 **⚠️ INVARIANT:** Within the same `user_key`, entries are sorted by **descending sequence number** (newest first). This ensures point lookups find the latest version immediately.
@@ -551,49 +523,49 @@ When a memtable fills (`ShouldFlushNow() == true`), it transitions from mutable 
 
 ```
 MemTable::ShouldFlushNow() == true
-    │
+    |
     v
-MemTable::UpdateFlushState() → FLUSH_REQUESTED
-    │
+MemTable::UpdateFlushState() -> FLUSH_REQUESTED
+    |
     v
-DBImpl::ScheduleFlushes() → enqueue flush job
-    │
+DBImpl::ScheduleFlushes() -> enqueue flush job
+    |
     v
 MemTableList::PickMemtablesToFlush(max_id, mems)
-    │  ├─ Select oldest memtables not yet flushing
-    │  └─ Set flush_in_progress_ = true
-    │
+    - Select oldest memtables not yet flushing
+    - Set flush_in_progress_ = true
+    |
     v
 FlushJob::PickMemTable()
-    │  ├─ Allocate file number via versions_->NewFileNumber()
-    │  └─ Ref base_ = cfd->current() (Version at flush time)
-    │
+    - Allocate file number via versions_->NewFileNumber()
+    - Ref base_ = cfd->current() (Version at flush time)
+    |
     v
 FlushJob::Run()
-    │  ├─ Attempt MemPurge? (experimental in-memory GC)
-    │  │    └─ If success: replace immutable memtable, done
-    │  └─ Fall through: WriteLevel0Table()
-    │
+    - Attempt MemPurge? (experimental in-memory GC)
+        - If success: replace immutable memtable, done
+    - Fall through: WriteLevel0Table()
+    |
     v
 FlushJob::WriteLevel0Table()
-    │  1. Release db_mutex_
-    │  2. Create iterators over picked memtables (point + range-del)
-    │  3. MergingIterator(mem_iters, range_del_iters)
-    │  4. BuildTable() → write L0 SST
-    │  5. Re-acquire db_mutex_
-    │  6. Update VersionEdit (add L0 file metadata)
-    │
+    1. Release db_mutex_
+    2. Create iterators over picked memtables (point + range-del)
+    3. MergingIterator(mem_iters, range_del_iters)
+    4. BuildTable() -> write L0 SST
+    5. Re-acquire db_mutex_
+    6. Update VersionEdit (add L0 file metadata)
+    |
     v
 MemTableList::TryInstallMemtableFlushResults()
-    │  ├─ Single-writer gate (commit_in_progress_)
-    │  ├─ FIFO ordering: wait until oldest memtable completes
-    │  ├─ Collect contiguous completed memtables
-    │  ├─ LogAndApply() → commit to MANIFEST
-    │  └─ Remove from memlist_ (move to history or unref)
-    │
+    - Single-writer gate (commit_in_progress_)
+    - FIFO ordering: wait until oldest memtable completes
+    - Collect contiguous completed memtables
+    - LogAndApply() -> commit to MANIFEST
+    - Remove from memlist_ (move to history or unref)
+    |
     v
 WriteBufferManager::FreeMem(size)
-    │  └─ MaybeEndWriteStall() if memory usage drops below threshold
+    - MaybeEndWriteStall() if memory usage drops below threshold
 ```
 
 ### FIFO Flush Ordering
@@ -663,27 +635,27 @@ See [compaction.md](compaction.md) for detailed documentation.
 
 ```
 CompactionPicker::PickCompaction()
-    │  ├─ Examine VersionStorageInfo::CompactionScore()
-    │  └─ Return Compaction* (input files, levels, options)
-    │
+    - Examine VersionStorageInfo::CompactionScore()
+    - Return Compaction* (input files, levels, options)
+    |
     v
 CompactionJob::Prepare()
-    │  └─ Divide key range into subcompaction boundaries
-    │
+    - Divide key range into subcompaction boundaries
+    |
     v
 CompactionJob::Run()
-    │  For each subcompaction (parallel):
-    │      MergingIterator(input SST files)
-    │          │
-    │          v
-    │      CompactionIterator (dedup, delete, merge, filter)
-    │          │
-    │          v
-    │      CompactionOutputs (split into output SST files)
-    │
+    For each subcompaction (parallel):
+        MergingIterator(input SST files)
+            |
+            v
+        CompactionIterator (dedup, delete, merge, filter)
+            |
+            v
+        CompactionOutputs (split into output SST files)
+    |
     v
 CompactionJob::Install()
-    │  └─ VersionEdit (delete inputs, add outputs) → LogAndApply()
+    - VersionEdit (delete inputs, add outputs) -> LogAndApply()
 ```
 
 **⚠️ INVARIANT:** Compaction **never moves data to a higher (lower-numbered) level**. `output_level >= start_level` always.
@@ -760,22 +732,22 @@ Range tombstones are dropped per-level during compaction:
 ### Delete Flow Summary
 
 ```
-Delete(key) → WriteBatch(kTypeDeletion)
-    │
+Delete(key) -> WriteBatch(kTypeDeletion)
+    |
     v
 WAL (persisted tombstone)
-    │
+    |
     v
 MemTable (tombstone entry with seqno)
-    │
+    |
     v
-Flush → L0 SST (data block contains tombstone)
-    │
+Flush -> L0 SST (data block contains tombstone)
+    |
     v
-Compaction (Ln → Ln+1)
-    │  ├─ If older Put/Merge covered by tombstone: drop both
-    │  └─ If bottommost + no snapshots + key not below: drop tombstone
-    │
+Compaction (Ln -> Ln+1)
+    - If older Put/Merge covered by tombstone: drop both
+    - If bottommost + no snapshots + key not below: drop tombstone
+    |
     v
 Key fully reclaimed (space recovered)
 ```
@@ -914,35 +886,35 @@ When stall triggers:
 ### Flow Control Data Flow
 
 ```
-Compaction falls behind (L0 files ≥ threshold)
-    │
+Compaction falls behind (L0 files >= threshold)
+    |
     v
 ColumnFamilyData::RecalculateWriteStallConditions()
-    │  └─ WriteController::GetDelayToken() or GetStopToken()
-    │
+    - WriteController::GetDelayToken() or GetStopToken()
+    |
     v
 PreprocessWrite() checks IsStopped() / NeedsDelay()
-    │  ├─ Stopped? DelayWrite() → wait on bg_cv_
-    │  └─ Delayed? DelayWrite() → GetDelay(num_bytes) → sleep outside mutex
-    │
+    - Stopped? DelayWrite() -> wait on bg_cv_
+    - Delayed? DelayWrite() -> GetDelay(num_bytes) -> sleep outside mutex
+    |
     v
 Compaction catches up
-    │  └─ Token destroyed (RAII) → total_delayed_-- → writers resume
+    - Token destroyed (RAII) -> total_delayed_-- -> writers resume
 
 
 MemTable memory exceeds buffer_size
-    │
+    |
     v
-WriteBufferManager::ShouldFlush() → HandleWriteBufferManagerFlush()
-    │  └─ SwitchMemtable() on oldest CF
-    │
+WriteBufferManager::ShouldFlush() -> HandleWriteBufferManagerFlush()
+    - SwitchMemtable() on oldest CF
+    |
     v
-WriteBufferManager::ShouldStall() → WriteBufferManagerStallWrites()
-    │  └─ Writers block via write_thread_.BeginWriteStall()
-    │
+WriteBufferManager::ShouldStall() -> WriteBufferManagerStallWrites()
+    - Writers block via write_thread_.BeginWriteStall()
+    |
     v
-FlushJob completes → FreeMem() → MaybeEndWriteStall()
-    │  └─ Writers resume
+FlushJob completes -> FreeMem() -> MaybeEndWriteStall()
+    - Writers resume
 ```
 
 ---
@@ -955,26 +927,26 @@ FlushJob completes → FreeMem() → MaybeEndWriteStall()
 
 ```
 DB::Open()
-    │
+    |
     v
-Read MANIFEST → recover VersionSet
-    │
+Read MANIFEST -> recover VersionSet
+    |
     v
 Scan WAL directory for .log files
-    │  └─ Sort by log number, filter out stale WALs
-    │  └─ WalSet used for integrity verification (if track_and_verify_wals_in_manifest)
-    │
+    - Sort by log number, filter out stale WALs
+    - WalSet used for integrity verification (if track_and_verify_wals_in_manifest)
+    |
     v
 For each WAL (sorted by log_number):
-    │  1. log::Reader::ReadRecord() → reassemble WriteBatch
-    │  2. Verify CRC, handle recyclable headers
-    │  3. Decompress if needed
-    │  4. WriteBatchInternal::InsertInto(batch, memtable)
-    │      └─ Replay into fresh MemTable
-    │
+    1. log::Reader::ReadRecord() -> reassemble WriteBatch
+    2. Verify CRC, handle recyclable headers
+    3. Decompress if needed
+    4. WriteBatchInternal::InsertInto(batch, memtable)
+        - Replay into fresh MemTable
+    |
     v
-Flush recovered memtables → SST files
-    │
+Flush recovered memtables -> SST files
+    |
     v
 Delete obsolete WALs (flushed to SST)
 ```

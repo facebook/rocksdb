@@ -20,34 +20,18 @@ UDI indexes are built alongside the internal index during SST file construction 
 ### Component Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    SST File (on disk)                        │
-│                                                              │
-│  ┌────────────┐  ┌────────────┐  ┌──────────────────────┐  │
-│  │ Data Block │  │ Data Block │  │ ... (more blocks)    │  │
-│  │     0      │  │     1      │  │                      │  │
-│  └────────────┘  └────────────┘  └──────────────────────┘  │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │              Internal Index Block                     │  │
-│  │  (separator_0, handle_0), (separator_1, handle_1)... │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │    User Defined Index Block (optional meta block)    │  │
-│  │  Name: "rocksdb.user_defined_index.<factory_name>"   │  │
-│  │  Format: implementation-specific serialization       │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │              Meta Index Block                         │  │
-│  │  References: filter, properties, UDI block, etc.     │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │                    Footer                             │  │
-│  └──────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+SST File (on disk):
+  - Data Block 0
+  - Data Block 1
+  - ... (more blocks)
+  - Internal Index Block
+      (separator_0, handle_0), (separator_1, handle_1)...
+  - User Defined Index Block (optional meta block)
+      Name: "rocksdb.user_defined_index.<factory_name>"
+      Format: implementation-specific serialization
+  - Meta Index Block
+      References: filter, properties, UDI block, etc.
+  - Footer
 ```
 
 ### Key Classes
@@ -492,41 +476,39 @@ The serialization format is **entirely controlled by the UDI implementation**. R
 The trie UDI (`utilities/trie_index/`) uses a custom LOUDS-encoded trie format:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Trie Index Block                        │
-├─────────────────────────────────────────────────────────────┤
-│ Fixed Header (56 bytes):                                     │
-│   - Magic (4 bytes, uint32_t)                               │
-│   - Format Version (4 bytes, uint32_t)                      │
-│   - num_keys (8 bytes, uint64_t)                            │
-│   - cutoff_level (4 bytes, uint32_t)                        │
-│   - max_depth (4 bytes, uint32_t)                           │
-│   - dense_leaf_count (8 bytes, uint64_t)                    │
-│   - dense_node_count (8 bytes, uint64_t)                    │
-│   - dense_child_count (8 bytes, uint64_t)                   │
-│   - Flags (4 bytes, uint32_t): has_seqno_encoding flag      │
-│   - Reserved padding (4 bytes, for 8-byte alignment)        │
-├─────────────────────────────────────────────────────────────┤
-│ LOUDS Trie:                                                  │
-│   - Dense section: bitvectors for labels, has_child,        │
-│     is_prefix_key, suffix labels/suffixes                   │
-│   - Sparse section: bitvectors for labels, has_child,       │
-│     is_prefix_key, chain suffixes                           │
-├─────────────────────────────────────────────────────────────┤
-│ Block Handles (fixed-width uint32_t arrays):                 │
-│   - offsets[num_keys] (uint32_t, padded to 8-byte)          │
-│   - sizes[num_keys] (uint32_t, padded to 8-byte)            │
-├─────────────────────────────────────────────────────────────┤
-│ Sequence Number Side Tables (if has_seqno_encoding flag):    │
-│   - num_overflow_blocks (uint32_t + 4-byte padding)         │
-│   - leaf_seqnos[num_keys] (uint64_t array)                  │
-│   - leaf_block_counts[num_keys] (uint32_t, padded to 8-byte)│
-│   - overflow_offsets[num_overflow] (uint32_t, padded)        │
-│   - overflow_sizes[num_overflow] (uint32_t, padded)          │
-│   - overflow_seqnos[num_overflow] (uint64_t array)           │
-│   Note: overflow_base_ is computed during deserialization    │
-│   as a prefix sum of (block_count-1), not serialized.       │
-└─────────────────────────────────────────────────────────────┘
+Trie Index Block:
+
+Fixed Header (56 bytes):
+  - Magic (4 bytes, uint32_t)
+  - Format Version (4 bytes, uint32_t)
+  - num_keys (8 bytes, uint64_t)
+  - cutoff_level (4 bytes, uint32_t)
+  - max_depth (4 bytes, uint32_t)
+  - dense_leaf_count (8 bytes, uint64_t)
+  - dense_node_count (8 bytes, uint64_t)
+  - dense_child_count (8 bytes, uint64_t)
+  - Flags (4 bytes, uint32_t): has_seqno_encoding flag
+  - Reserved padding (4 bytes, for 8-byte alignment)
+
+LOUDS Trie:
+  - Dense section: bitvectors for labels, has_child,
+    is_prefix_key, suffix labels/suffixes
+  - Sparse section: bitvectors for labels, has_child,
+    is_prefix_key, chain suffixes
+
+Block Handles (fixed-width uint32_t arrays):
+  - offsets[num_keys] (uint32_t, padded to 8-byte)
+  - sizes[num_keys] (uint32_t, padded to 8-byte)
+
+Sequence Number Side Tables (if has_seqno_encoding flag):
+  - num_overflow_blocks (uint32_t + 4-byte padding)
+  - leaf_seqnos[num_keys] (uint64_t array)
+  - leaf_block_counts[num_keys] (uint32_t, padded to 8-byte)
+  - overflow_offsets[num_overflow] (uint32_t, padded)
+  - overflow_sizes[num_overflow] (uint32_t, padded)
+  - overflow_seqnos[num_overflow] (uint64_t array)
+  Note: overflow_base_ is computed during deserialization
+  as a prefix sum of (block_count-1), not serialized.
 ```
 
 See serialization at `utilities/trie_index/louds_trie.cc:489-509` (header), `utilities/trie_index/louds_trie.cc:876-923` (handles), `utilities/trie_index/louds_trie.cc:924-` (seqno side-table).
@@ -753,13 +735,13 @@ Space: ~40 bytes (assuming 8-byte average key length)
 ```
 Trie structure:
     a
-    ├─ p
-    │  ├─ p (le) -> block_0
-    │  │  └─ l (ication) -> block_1
-    │  └─ l (y) -> block_2
-    └─ b
-       ├─ a (nana) -> block_3
-       └─ a (ndana) -> block_4
+      p
+        p (le) -> block_0
+          l (ication) -> block_1
+        l (y) -> block_2
+      b
+        a (nana) -> block_3
+        a (ndana) -> block_4
 
 Space: ~25 bytes (compressed edge labels + LOUDS bit vector)
 ```

@@ -221,11 +221,8 @@ Wide columns are serialized into the value field of the underlying key-value pai
 **Used when**: All column values are inline (no blob references).
 
 ```
-┌──────────┬──────────────┬──────────┬───────┬──────────┬────────┬─────────────────┬────────┐
-│ version  │ # of columns │  cns_0   │ cn_0  │  cvs_0   │  ...   │     cv_0        │  ...   │
-│ varint32 │   varint32   │ varint32 │ bytes │ varint32 │        │     bytes       │        │
-└──────────┴──────────────┴──────────┴───────┴──────────┴────────┴─────────────────┴────────┘
-         Header                      Name/Size Pairs (sorted)      Column Values
+version (varint32) | # of columns (varint32) | cns_0 (varint32) | cn_0 (bytes) | cvs_0 (varint32) | ... | cv_0 (bytes) | ...
+[         Header         ]                    [     Name/Size Pairs (sorted)     ]                  [ Column Values ]
 ```
 
 **Layout**:
@@ -249,51 +246,30 @@ Wide columns are serialized into the value field of the underlying key-value pai
 
 ```
 Section 1: HEADER (2 varints)
-┌──────────┬──────────────┐
-│ version  │ # of columns │
-│ varint32 │   varint32   │
-└──────────┴──────────────┘
+  version (varint32) | # of columns (varint32)
 
 Section 2: SKIP INFO (3 varints)
-┌───────────────────┬─────────────────────┬──────────────────┐
-│ name_sizes_bytes  │ value_sizes_bytes   │ names_bytes      │
-│ varint32          │ varint32            │ varint32         │
-└───────────────────┴─────────────────────┴──────────────────┘
-  Byte size of       Byte size of         Byte size of
-  Section 4          Section 5            Section 6
+  name_sizes_bytes (varint32) | value_sizes_bytes (varint32) | names_bytes (varint32)
+  Byte size of                  Byte size of                   Byte size of
+  Section 4                     Section 5                      Section 6
 
 Section 3: COLUMN TYPES (N bytes, fixed-size)
-┌──────┬──────┬─────────┬────────┐
-│ ct_0 │ ct_1 │   ...   │ ct_N-1 │
-│ byte │ byte │         │  byte  │
-└──────┴──────┴─────────┴────────┘
+  ct_0 (byte) | ct_1 (byte) | ... | ct_N-1 (byte)
   ValueType for each column:
   - kTypeValue (0x01) = inline value
   - kTypeBlobIndex (0x11) = blob reference
 
 Section 4: NAME SIZES (N varints)
-┌──────────┬──────────┬─────────┬────────────┐
-│ cns_0    │ cns_1    │   ...   │ cns_{N-1}  │
-│ varint32 │ varint32 │         │ varint32   │
-└──────────┴──────────┴─────────┴────────────┘
+  cns_0 (varint32) | cns_1 (varint32) | ... | cns_{N-1} (varint32)
 
 Section 5: VALUE SIZES (N varints)
-┌──────────┬──────────┬─────────┬────────────┐
-│ cvs_0    │ cvs_1    │   ...   │ cvs_{N-1}  │
-│ varint32 │ varint32 │         │ varint32   │
-└──────────┴──────────┴─────────┴────────────┘
+  cvs_0 (varint32) | cvs_1 (varint32) | ... | cvs_{N-1} (varint32)
 
 Section 6: COLUMN NAMES (concatenated, sorted)
-┌──────┬──────┬─────────┬────────┐
-│ cn_0 │ cn_1 │   ...   │ cn_N-1 │
-│ bytes│ bytes│         │ bytes  │
-└──────┴──────┴─────────┴────────┘
+  cn_0 (bytes) | cn_1 (bytes) | ... | cn_N-1 (bytes)
 
 Section 7: COLUMN VALUES (concatenated)
-┌──────┬──────┬─────────┬────────┐
-│ cv_0 │ cv_1 │   ...   │ cv_N-1 │
-│ bytes│ bytes│         │ bytes  │
-└──────┴──────┴─────────┴────────┘
+  cv_0 (bytes) | cv_1 (bytes) | ... | cv_N-1 (bytes)
   For blob columns: cv = serialized BlobIndex
   For inline columns: cv = actual value
 ```

@@ -311,24 +311,12 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
 **Write Flow:**
 ```
 DB::Write()
-    ↓
-DBImpl::Write()
-    ↓
-DBImpl::WriteImpl()
-    ↓
-┌─────────────────────┐
-│ WriteThread Batching│ (Group commit)
-└─────────────────────┘
-    ↓
-┌─────────────────────┐
-│ WAL Write           │
-└─────────────────────┘
-    ↓
-┌─────────────────────┐
-│ Memtable Insert     │
-└─────────────────────┘
-    ↓
-Return Status
+  -> DBImpl::Write()
+    -> DBImpl::WriteImpl()
+      -> WriteThread Batching (Group commit)
+        -> WAL Write
+          -> Memtable Insert
+            -> Return Status
 ```
 
 **⚠️ INVARIANT:** Protection bytes per key (if enabled) must be 0 or 8. Other values return `Status::InvalidArgument`.
@@ -802,9 +790,9 @@ All write APIs convert to WriteBatch internally. Optimizations:
 Multiple concurrent writes are batched together automatically. This amortizes WAL sync cost:
 
 ```
-Thread 1: Write(batch1)  ─┐
-Thread 2: Write(batch2)  ─┼─> Single WAL sync
-Thread 3: Write(batch3)  ─┘
+Thread 1: Write(batch1)  -+
+Thread 2: Write(batch2)  -+-> Single WAL sync
+Thread 3: Write(batch3)  -+
 ```
 
 ### Write Amplification

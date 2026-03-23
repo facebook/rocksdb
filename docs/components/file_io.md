@@ -31,19 +31,16 @@ RocksDB uses two abstraction layers for OS interaction:
 ### Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        RocksDB Core                         │
-├─────────────────────────────────────────────────────────────┤
-│                    File Readers/Writers                     │
-│  WritableFileWriter  RandomAccessFileReader                │
-│  SequentialFileReader                                      │
-├─────────────────────────────────────────────────────────────┤
-│                     FileSystem Layer                        │
-│  FSWritableFile  FSRandomAccessFile  FSSequentialFile       │
-├─────────────────────────────────────────────────────────────┤
-│              Platform-Specific Implementation               │
-│       PosixFileSystem  WinFileSystem  MockFileSystem        │
-└─────────────────────────────────────────────────────────────┘
+RocksDB Core
+  |
+File Readers/Writers
+  - WritableFileWriter, RandomAccessFileReader, SequentialFileReader
+  |
+FileSystem Layer
+  - FSWritableFile, FSRandomAccessFile, FSSequentialFile
+  |
+Platform-Specific Implementation
+  - PosixFileSystem, WinFileSystem, MockFileSystem
 ```
 
 ### FileSystem Interface
@@ -370,13 +367,10 @@ Creates a wrapper that prefetches additional data with every read. Returns the o
 - `overlap_buf_`: Temporary buffer for handling data split across multiple buffers
 
 ```
-┌───────────────────────────────────────────────────────────┐
-│ FilePrefetchBuffer (num_buffers_ = 3)                    │
-├───────────────────────────────────────────────────────────┤
-│ bufs_:        [Buf0: 0-64KB]  [Buf1: 64KB-128KB]         │
-│ free_bufs_:   [Buf2: empty]                              │
-│ overlap_buf_: (temporary, used when request spans bufs)  │
-└───────────────────────────────────────────────────────────┘
+FilePrefetchBuffer (num_buffers_ = 3)
+  bufs_:        [Buf0: 0-64KB]  [Buf1: 64KB-128KB]
+  free_bufs_:   [Buf2: empty]
+  overlap_buf_: (temporary, used when request spans bufs)
 ```
 
 ### BufferInfo
@@ -657,18 +651,17 @@ The `IOOptions::force_dir_fsync` field exists but is not consulted by current `P
 ### Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Legacy RocksDB Code                  │
-│                  (uses Env interface)                   │
-├─────────────────────────────────────────────────────────┤
-│                     CompositeEnv                        │
-│  Forwards file ops → FileSystem                        │
-│  Forwards time ops → SystemClock                       │
-│  Thread management → subclass or target Env            │
-├──────────────────────┬──────────────────────────────────┤
-│    FileSystem        │      SystemClock / Env           │
-│  (file operations)   │  (time, threading)               │
-└──────────────────────┴──────────────────────────────────┘
+Legacy RocksDB Code (uses Env interface)
+  |
+CompositeEnv
+  - Forwards file ops -> FileSystem
+  - Forwards time ops -> SystemClock
+  - Thread management -> subclass or target Env
+  |
+  +---------------------+------------------------+
+  |                                               |
+  FileSystem                          SystemClock / Env
+  (file operations)                   (time, threading)
 ```
 
 ### Configuration

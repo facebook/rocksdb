@@ -31,44 +31,36 @@ DEBUG_LEVEL=0 make db_bench      # Release build (required for accurate benchmar
 ### Benchmark Execution Flow
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│ Benchmark::Run()                                         │
-│  ├─ Parse benchmarks from FLAGS_benchmarks              │
-│  ├─ Open DB with configured options                     │
-│  ├─ For each benchmark:                                 │
-│  │   ├─ Select method pointer (e.g., &ReadRandom)      │
-│  │   ├─ Determine num_threads                          │
-│  │   ├─ Launch ThreadState workers                     │
-│  │   └─ Collect Stats from all threads                 │
-│  └─ Report aggregated statistics                        │
-└──────────────────────────────────────────────────────────┘
-         │
-         ▼
-┌──────────────────────────────────────────────────────────┐
-│ ThreadState (per-thread execution context)              │
-│  ├─ Random number generator (thread-safe seed)          │
-│  ├─ Stats (latency histograms, throughput counters)     │
-│  └─ Shared state (rate limiters, barriers)              │
-└──────────────────────────────────────────────────────────┘
-         │
-         ▼
-┌──────────────────────────────────────────────────────────┐
-│ Benchmark Method (e.g., ReadRandom, DoWrite)            │
-│  ├─ Loop until duration expires or ops exhausted        │
-│  ├─ Generate key (sequential, random, unique_random)    │
-│  ├─ Execute DB operation (Get, Put, Seek, etc.)         │
-│  ├─ Record latency in histogram (FinishedOps)           │
-│  └─ Update byte counters (AddBytes)                     │
-└──────────────────────────────────────────────────────────┘
-         │
-         ▼
-┌──────────────────────────────────────────────────────────┐
-│ Stats::Report()                                          │
-│  ├─ Calculate throughput: ops / elapsed_time            │
-│  ├─ Print: micros/op, ops/sec, MB/s                     │
-│  ├─ Print latency histogram (if --histogram=1)          │
-│  └─ Print perf_context (if --perf_level > kDisable)     │
-└──────────────────────────────────────────────────────────┘
+Benchmark::Run()
+  - Parse benchmarks from FLAGS_benchmarks
+  - Open DB with configured options
+  - For each benchmark:
+      - Select method pointer (e.g., &ReadRandom)
+      - Determine num_threads
+      - Launch ThreadState workers
+      - Collect Stats from all threads
+  - Report aggregated statistics
+         |
+         v
+ThreadState (per-thread execution context)
+  - Random number generator (thread-safe seed)
+  - Stats (latency histograms, throughput counters)
+  - Shared state (rate limiters, barriers)
+         |
+         v
+Benchmark Method (e.g., ReadRandom, DoWrite)
+  - Loop until duration expires or ops exhausted
+  - Generate key (sequential, random, unique_random)
+  - Execute DB operation (Get, Put, Seek, etc.)
+  - Record latency in histogram (FinishedOps)
+  - Update byte counters (AddBytes)
+         |
+         v
+Stats::Report()
+  - Calculate throughput: ops / elapsed_time
+  - Print: micros/op, ops/sec, MB/s
+  - Print latency histogram (if --histogram=1)
+  - Print perf_context (if --perf_level > kDisable)
 ```
 
 ### Key Classes
@@ -183,14 +175,10 @@ void ReadRandom(ThreadState* thread) {
 **Key Generation (`GenerateKeyFromInt`):**
 ```
 If --keys_per_prefix > 0:
-  ┌──────────────────────┬──────────────────────┐
-  │ prefix (prefix_size) │ key number + padding  │
-  └──────────────────────┴──────────────────────┘
+  [ prefix (prefix_size) ][ key number + padding ]
 
 If --keys_per_prefix == 0 (default):
-  ┌──────────────────────────────────────────────┐
-  │          key number + zero padding            │
-  └──────────────────────────────────────────────┘
+  [ key number + zero padding ]
 
 Note: User timestamps are NOT appended to keys. They are passed
 separately via timestamp-aware DB APIs. Only 64-bit (8-byte)

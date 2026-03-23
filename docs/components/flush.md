@@ -7,70 +7,53 @@ The flush subsystem converts in-memory write buffers (MemTables) into persistent
 ### High-Level Flush Flow
 
 ```
-┌────────────────────────────────────────────────────────────┐
-│  FLUSH TRIGGERS                                            │
-│  • write_buffer_size exceeded                              │
-│  • max_write_buffer_number limit reached                   │
-│  • WriteBufferManager global memory limit                  │
-│  • WAL size exceeds max_total_wal_size                     │
-│  • Manual flush (DB::Flush)                                │
-│  • Shutdown, error recovery, external file ingestion       │
-└────────────────┬───────────────────────────────────────────┘
-                 │
-                 v
-┌────────────────────────────────────────────────────────────┐
-│  SCHEDULING (db_impl_compaction_flush.cc)                 │
-│  ScheduleFlushes() → SwitchMemtable()                     │
-│  EnqueuePendingFlush() → MaybeScheduleFlushOrCompaction() │
-└────────────────┬───────────────────────────────────────────┘
-                 │
-                 v
-┌────────────────────────────────────────────────────────────┐
-│  BACKGROUND FLUSH THREAD                                   │
-│  BGWorkFlush() → BackgroundCallFlush() → BackgroundFlush()│
-└────────────────┬───────────────────────────────────────────┘
-                 │
-                 v
-┌────────────────────────────────────────────────────────────┐
-│  FLUSHJOB (db/flush_job.h, db/flush_job.cc)               │
-│  ┌────────────────────────────────────────────┐           │
-│  │ 1. PickMemTable()                          │           │
-│  │    • PickMemtablesToFlush(max_memtable_id_)│           │
-│  │    • Select immutable memtables to flush   │           │
-│  │    • Mark flush_in_progress_ = true        │           │
-│  └────────────────────────────────────────────┘           │
-│  ┌────────────────────────────────────────────┐           │
-│  │ 2. Run()                                   │           │
-│  │    • Try MemPurge (experimental GC)        │           │
-│  │    • Fall back to WriteLevel0Table()       │           │
-│  │      - Release db_mutex                    │           │
-│  │      - Create iterators over memtables     │           │
-│  │      - BuildTable() → output SST file      │           │
-│  │      - Re-acquire db_mutex                 │           │
-│  │      - TryInstallMemtableFlushResults()    │           │
-│  │        (called on MemTableList, not a     │           │
-│  │         FlushJob method)                  │           │
-│  └────────────────────────────────────────────┘           │
-│  ┌────────────────────────────────────────────┐           │
-│  │ 3. Caller: Install results                │           │
-│  │    • Commit VersionEdit to MANIFEST        │           │
-│  │    • Remove flushed memtables from imm     │           │
-│  │    • Install new SuperVersion (in caller   │           │
-│  │      FlushMemTableToOutputFile, not in     │           │
-│  │      TryInstallMemtableFlushResults)       │           │
-│  └────────────────────────────────────────────┘           │
-└────────────────┬───────────────────────────────────────────┘
-                 │
-                 v
-┌────────────────────────────────────────────────────────────┐
-│  FLUSH OUTPUT                                              │
-│  • L0 SST files (overlapping key ranges within and across) │
-│  • Blob files (when BlobDB / integrated blob storage is    │
-│    enabled)                                                │
-│  • No output file if MemPurge succeeds or if flush output  │
-│    is empty (meta_.fd.GetFileSize() == 0)                  │
-│  • Triggers compaction when L0 file count is high          │
-└────────────────────────────────────────────────────────────┘
+FLUSH TRIGGERS
+  - write_buffer_size exceeded
+  - max_write_buffer_number limit reached
+  - WriteBufferManager global memory limit
+  - WAL size exceeds max_total_wal_size
+  - Manual flush (DB::Flush)
+  - Shutdown, error recovery, external file ingestion
+    |
+    v
+SCHEDULING (db_impl_compaction_flush.cc)
+  ScheduleFlushes() -> SwitchMemtable()
+  EnqueuePendingFlush() -> MaybeScheduleFlushOrCompaction()
+    |
+    v
+BACKGROUND FLUSH THREAD
+  BGWorkFlush() -> BackgroundCallFlush() -> BackgroundFlush()
+    |
+    v
+FLUSHJOB (db/flush_job.h, db/flush_job.cc)
+  1. PickMemTable()
+     - PickMemtablesToFlush(max_memtable_id_)
+     - Select immutable memtables to flush
+     - Mark flush_in_progress_ = true
+  2. Run()
+     - Try MemPurge (experimental GC)
+     - Fall back to WriteLevel0Table()
+       - Release db_mutex
+       - Create iterators over memtables
+       - BuildTable() -> output SST file
+       - Re-acquire db_mutex
+       - TryInstallMemtableFlushResults()
+         (called on MemTableList, not a
+          FlushJob method)
+  3. Caller: Install results
+     - Commit VersionEdit to MANIFEST
+     - Remove flushed memtables from imm
+     - Install new SuperVersion (in caller
+       FlushMemTableToOutputFile, not in
+       TryInstallMemtableFlushResults)
+    |
+    v
+FLUSH OUTPUT
+  - L0 SST files (overlapping key ranges within and across)
+  - Blob files (when BlobDB / integrated blob storage is enabled)
+  - No output file if MemPurge succeeds or if flush output
+    is empty (meta_.fd.GetFileSize() == 0)
+  - Triggers compaction when L0 file count is high
 ```
 
 ---
@@ -474,22 +457,22 @@ RocksDB allows **concurrent writes to the active memtable** while a flush is exe
 ### Pipeline Flow
 
 ```
-Time  │ Active MemTable │ Immutable MemTables │ Flush Job
-──────┼─────────────────┼────────────────────┼──────────────────
-  t0  │ mem_A (writing) │ -                  │ -
-      │                 │                    │
-  t1  │ mem_B (writing) │ mem_A (immutable)  │ FlushJob(mem_A) starting
-      │                 │                    │ • PickMemTable()
-      │                 │                    │ • Run() → release mutex
-  t2  │ mem_B (writing) │ mem_A              │ FlushJob(mem_A) in BuildTable()
-      │                 │                    │ • mutex released
-      │                 │                    │ • writing SST file
-  t3  │ mem_C (writing) │ mem_B, mem_A       │ FlushJob(mem_A) in BuildTable()
-      │                 │                    │
-  t4  │ mem_C (writing) │ mem_B              │ FlushJob(mem_A) completed
-      │                 │                    │ • mem_A deleted
-      │                 │                    │
-  t5  │ mem_C (writing) │ mem_B              │ FlushJob(mem_B) starting
+Time | Active MemTable | Immutable MemTables | Flush Job
+-----|-----------------|---------------------|------------------
+ t0  | mem_A (writing) | -                   | -
+     |                 |                     |
+ t1  | mem_B (writing) | mem_A (immutable)   | FlushJob(mem_A) starting
+     |                 |                     |   PickMemTable()
+     |                 |                     |   Run() -> release mutex
+ t2  | mem_B (writing) | mem_A               | FlushJob(mem_A) in BuildTable()
+     |                 |                     |   mutex released
+     |                 |                     |   writing SST file
+ t3  | mem_C (writing) | mem_B, mem_A        | FlushJob(mem_A) in BuildTable()
+     |                 |                     |
+ t4  | mem_C (writing) | mem_B               | FlushJob(mem_A) completed
+     |                 |                     |   mem_A deleted
+     |                 |                     |
+ t5  | mem_C (writing) | mem_B               | FlushJob(mem_B) starting
 ```
 
 **Key observations:**

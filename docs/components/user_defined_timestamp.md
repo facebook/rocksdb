@@ -45,13 +45,10 @@ In RocksDB without UDT, keys are ordered by user key, then by descending sequenc
 UDT modifies the internal key format by inserting the timestamp **between the user key and the internal footer**:
 
 ```
-┌─────────────────────┬──────────────┬─────────────────────┐
-│  User-provided key  │  Timestamp   │  Seqno + ValueType  │
-│     (variable)      │   (ts_sz)    │      (8 bytes)      │
-└─────────────────────┴──────────────┴─────────────────────┘
-                           ↑
-                    timestamp_size() bytes
-                    (e.g., 8 bytes for uint64_t)
+User-provided key (variable) | Timestamp (ts_sz) | Seqno + ValueType (8 bytes)
+                                    ^
+                             timestamp_size() bytes
+                             (e.g., 8 bytes for uint64_t)
 ```
 
 **Without UDT:**
@@ -233,10 +230,7 @@ class UserDefinedTimestampSizeRecord {
 From `db/write_batch.cc`, each entry in a `WriteBatch` is encoded as:
 
 ```
-┌──────┬───────────┬─────────────────────┬──────────┬────────┐
-│ Tag  │  CF ID    │  Key (with ts)      │ Val Len  │ Value  │
-│ (1B) │ (varint)  │   (varint + data)   │(varint)  │ (data) │
-└──────┴───────────┴─────────────────────┴──────────┴────────┘
+Tag (1B) | CF ID (varint) | Key with ts (varint + data) | Val Len (varint) | Value (data)
 ```
 
 The key includes the timestamp suffix. During recovery, RocksDB uses the earlier `UserDefinedTimestampSizeRecord` to correctly parse key boundaries.
@@ -676,45 +670,32 @@ bool GetPersistUserDefinedTimestamps() const;
 ### Key Format with UDT
 
 ```
-┌───────────────────────────────────────────────────────────┐
-│                    INTERNAL KEY                           │
-├───────────────────────────────┬──────────┬────────────────┤
-│     USER KEY (with ts)        │   TS     │  Seqno + Type  │
-│ ┌─────────────────┬─────────┐ │  (8B)    │     (8B)       │
-│ │  User Key w/o TS│   TS    │ │          │                │
-│ │   (variable)    │  (8B)   │ │          │                │
-│ └─────────────────┴─────────┘ │          │                │
-│  <─── Seen by user ───────>   │          │                │
-└───────────────────────────────┴──────────┴────────────────┘
-                                  ↑                ↑
-                          Duplicate for           Internal
-                          clarity (same           footer
-                          timestamp)
-```
+INTERNAL KEY:
+  USER KEY (with ts)         | TS (8B) | Seqno + Type (8B)
+    User Key w/o TS (variable) | TS (8B)
+  <--- Seen by user ------->
 
-**Note:** The timestamp appears to be duplicated but is only stored once. The diagram shows the logical structure where the user key includes the timestamp suffix.
+Note: The timestamp appears to be duplicated but is only stored once.
+The TS in "USER KEY (with ts)" IS the same TS shown separately --
+the diagram shows the logical structure where the user key includes
+the timestamp suffix.
+```
 
 ### Compaction with full_history_ts_low
 
 ```
 Before Compaction (3 versions of "key1"):
-┌──────────────────────────────────────┐
-│ key1|ts=1000  →  value_v3  (seqno=3) │  ← Newest
-│ key1|ts=600   →  value_v2  (seqno=2) │
-│ key1|ts=200   →  value_v1  (seqno=1) │  ← Oldest
-└──────────────────────────────────────┘
+  key1|ts=1000  ->  value_v3  (seqno=3)   <- Newest
+  key1|ts=600   ->  value_v2  (seqno=2)
+  key1|ts=200   ->  value_v1  (seqno=1)   <- Oldest
 
 After Compaction (full_history_ts_low = 500):
-┌──────────────────────────────────────┐
-│ key1|ts=1000  →  value_v3  (seqno=3) │  ← Kept (ts >= 500)
-│ key1|ts=600   →  value_v2  (seqno=2) │  ← Kept (ts >= 500)
-└──────────────────────────────────────┘
+  key1|ts=1000  ->  value_v3  (seqno=3)   <- Kept (ts >= 500)
+  key1|ts=600   ->  value_v2  (seqno=2)   <- Kept (ts >= 500)
   key1|ts=200 is DELETED (ts < 500)
 
 Special case: If key1|ts=200 was the ONLY Put version:
-┌──────────────────────────────────────┐
-│ key1|ts=200   →  value_v1  (seqno=1) │  ← Kept (newest Put for this key)
-└──────────────────────────────────────┘
+  key1|ts=200   ->  value_v1  (seqno=1)   <- Kept (newest Put for this key)
 
 Special case: If a Delete(key1, ts=200) was the only entry and
 ts < full_history_ts_low, it may be dropped entirely (no versions remain).
@@ -726,41 +707,36 @@ ts < full_history_ts_low, it may be dropped entirely (no versions remain).
 Iterator with iter_start_ts=400, timestamp=900:
 
 LSM State:
-┌──────────────────────────────────────┐
-│ key1|ts=1000  →  value_v4  (seqno=4) │  ← Filtered (ts > 900)
-│ key1|ts=800   →  value_v3  (seqno=3) │  ← RETURNED
-│ key1|ts=600   →  value_v2  (seqno=2) │  ← RETURNED
-│ key1|ts=300   →  value_v1  (seqno=1) │  ← Filtered (ts < 400)
-│ key2|ts=700   →  value_k2  (seqno=5) │  ← RETURNED
-└──────────────────────────────────────┘
+  key1|ts=1000  ->  value_v4  (seqno=4)   <- Filtered (ts > 900)
+  key1|ts=800   ->  value_v3  (seqno=3)   <- RETURNED
+  key1|ts=600   ->  value_v2  (seqno=2)   <- RETURNED
+  key1|ts=300   ->  value_v1  (seqno=1)   <- Filtered (ts < 400)
+  key2|ts=700   ->  value_k2  (seqno=5)   <- RETURNED
 
 Iterator output (in order):
-  key1|ts=800 → value_v3
-  key1|ts=600 → value_v2
-  key2|ts=700 → value_k2
+  key1|ts=800 -> value_v3
+  key1|ts=600 -> value_v2
+  key2|ts=700 -> value_k2
 ```
 
 ### persist_user_defined_timestamps = false
 
 ```
-┌─────────────────┐
-│    MemTable     │  Keys stored WITH timestamps
-│  key1|ts=100    │
-│  key1|ts=200    │
-└────────┬────────┘
-         │ Flush
-         ↓
-┌─────────────────┐
-│   SST File      │  Keys stored WITHOUT timestamps
-│     key1        │  (timestamps stripped)
-│   (seqno=2)     │
-└─────────────────┘
+MemTable (keys stored WITH timestamps):
+  key1|ts=100
+  key1|ts=200
+       |
+       | Flush
+       v
+SST File (keys stored WITHOUT timestamps):
+  key1 (timestamps stripped)
+  (seqno=2)
 
 Read with timestamp=150 (after flush, full_history_ts_low not set):
-  → Returns value from SST (key treated as having minimum timestamp)
+  -> Returns value from SST (key treated as having minimum timestamp)
 
 Read with timestamp=150 (after full_history_ts_low=200 set):
-  → InvalidArgument (read timestamp < full_history_ts_low)
+  -> InvalidArgument (read timestamp < full_history_ts_low)
 ```
 
 ---
