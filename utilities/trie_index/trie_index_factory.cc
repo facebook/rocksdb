@@ -138,6 +138,7 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
     entry.tag = NonBoundaryTag();
   }
   entry.handle = handle;
+  total_separator_bytes_ += entry.separator_key.size();
   buffered_entries_.push_back(std::move(entry));
 
   return separator;
@@ -239,6 +240,14 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
 // ============================================================================
 // TrieIndexIterator
 // ============================================================================
+
+uint64_t TrieIndexBuilder::EstimatedSize() const {
+  // Estimate the serialized trie size from the running counters. A LOUDS trie
+  // uses ~2.5 bits per node plus the label data, rank/select tables, and block
+  // handle arrays. For a rough estimate:
+  // ~3 bytes per unique key byte + 16 bytes per entry for handles/metadata.
+  return total_separator_bytes_ * 3 + buffered_entries_.size() * 16;
+}
 
 TrieIndexIterator::TrieIndexIterator(const LoudsTrie* trie,
                                      const Comparator* comparator,

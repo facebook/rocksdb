@@ -127,6 +127,15 @@ class UserDefinedIndexBuilder {
   // The memory backing the contents should not be freed until this builder
   // object is destructed.
   virtual Status Finish(Slice* index_contents) = 0;
+
+  // Returns an estimate of the current serialized index size in bytes.
+  // Used for compaction file size estimation when the UDI is the primary
+  // index (no standard index builder to delegate to).
+  //
+  // The default implementation returns 0. Concrete implementations should
+  // override this to provide a meaningful estimate for optimal compaction
+  // file sizing.
+  virtual uint64_t EstimatedSize() const { return 0; }
 };
 
 // The interface for iterating the user defined index. This will be

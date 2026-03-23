@@ -1002,10 +1002,9 @@ void StressTest::OperateDb(ThreadState* thread) {
   read_opts.allow_unprepared_value = FLAGS_allow_unprepared_value;
   read_opts.auto_refresh_iterator_with_snapshot =
       FLAGS_auto_refresh_iterator_with_snapshot;
-  if (FLAGS_use_trie_index && udi_factory_) {
+  if (FLAGS_use_trie_index && !FLAGS_use_udi_as_primary_index && udi_factory_) {
     read_opts.table_index_factory = udi_factory_.get();
   }
-
   WriteOptions write_opts;
   if (FLAGS_rate_limit_auto_wal_flush) {
     write_opts.rate_limiter_priority = Env::IO_USER;
@@ -4405,6 +4404,9 @@ void InitializeOptionsFromFlags(
       fLU64::FLAGS_super_block_alignment_space_overhead_ratio;
   if (udi_factory) {
     block_based_options.user_defined_index_factory = udi_factory;
+    if (FLAGS_use_udi_as_primary_index) {
+      block_based_options.use_udi_as_primary_index = true;
+    }
   }
   options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
   options.db_write_buffer_size = FLAGS_db_write_buffer_size;

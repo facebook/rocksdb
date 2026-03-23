@@ -1322,7 +1322,8 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     if (!s.ok()) {
       RecordTick(rep_->ioptions.statistics.get(),
                  SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT);
-      if (table_options.fail_if_no_udi_on_open) {
+      if (table_options.fail_if_no_udi_on_open ||
+          table_options.use_udi_as_primary_index) {
         ROCKS_LOG_ERROR(rep_->ioptions.logger,
                         "Failed to find the the UDI block %s in file %s; %s",
                         udi_name.c_str(), rep_->file->file_name().c_str(),
@@ -1363,8 +1364,20 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
             udi_option, rep_->udi_block.GetValue()->data, udi_reader);
         if (s.ok()) {
           if (udi_reader) {
+            // Determine primary UDI mode:
+            // - udi_written_as_primary: SST was built with UDI-primary (stub
+            //   standard index). Affects CacheDependencies/EraseFromCache.
+            // - udi_use_as_primary: Use UDI for reads by default. True if
+            //   the SST was written as primary OR the config says primary
+            //   (enables reading old dual-index SSTs through the UDI too).
+            bool udi_written_as_primary =
+                (rep_->table_properties &&
+                 rep_->table_properties->udi_is_primary_index != 0);
+            bool udi_is_primary = udi_written_as_primary ||
+                                  table_options.use_udi_as_primary_index;
             index_reader = std::make_unique<UserDefinedIndexReaderWrapper>(
-                udi_name, std::move(index_reader), std::move(udi_reader));
+                udi_name, std::move(index_reader), std::move(udi_reader),
+                udi_is_primary, udi_written_as_primary);
           } else {
             s = Status::Corruption("Failed to create UDI reader for " +
                                    udi_name + " in file " +

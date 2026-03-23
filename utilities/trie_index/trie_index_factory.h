@@ -79,6 +79,9 @@ class TrieIndexBuilder final : public UserDefinedIndexBuilder {
   // Finalize the trie and return the serialized index data.
   Status Finish(Slice* index_contents) override;
 
+  // Returns an estimate of the current serialized index size.
+  uint64_t EstimatedSize() const override;
+
  private:
   const Comparator* comparator_;
   LoudsTrieBuilder trie_builder_;
@@ -117,6 +120,8 @@ class TrieIndexBuilder final : public UserDefinedIndexBuilder {
     TrieBlockHandle handle;
   };
   std::vector<BufferedEntry> buffered_entries_;
+  // Running total of separator key bytes for O(1) EstimatedSize().
+  uint64_t total_separator_bytes_ = 0;
 };
 
 // ============================================================================

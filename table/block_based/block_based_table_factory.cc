@@ -430,6 +430,9 @@ static struct BlockBasedTableTypeInfo {
         {"fail_if_no_udi_on_open",
          {offsetof(struct BlockBasedTableOptions, fail_if_no_udi_on_open),
           OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"use_udi_as_primary_index",
+         {offsetof(struct BlockBasedTableOptions, use_udi_as_primary_index),
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
     };
   }
 } block_based_table_type_info;
@@ -938,6 +941,9 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
            table_options_.user_defined_index_factory == nullptr
                ? "nullptr"
                : table_options_.user_defined_index_factory->Name());
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  use_udi_as_primary_index: %d\n",
+           table_options_.use_udi_as_primary_index);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  fail_if_no_udi_on_open: %d\n",
            table_options_.fail_if_no_udi_on_open);
