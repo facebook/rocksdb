@@ -245,10 +245,15 @@ default_params = {
     "uncache_aggressiveness": lambda: int(math.pow(10, 4.0 * random.random()) - 1.0),
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
-    # use_trie_index must be the same across invocations so that all SSTs
-    # in a DB are opened with matching table options.
-    # Temporarily disabled due to trie UDI stress test failures.
-    "use_trie_index": 0,
+     # use_trie_index must be the same across invocations so that all SSTs
+     # in a DB are opened with matching table options.
+     "use_trie_index": random.choice([0, 0, 0, 0, 0, 0, 0, 1]),
+     # use_udi_as_primary_index must be the same across invocations (like
+     # use_trie_index) so that SSTs written in primary mode can be read on
+     # reopen. A lambda would re-randomize per invocation, potentially
+     # causing open failures when a primary-mode SST is opened without the
+     # primary flag.
+     "use_udi_as_primary_index": random.choice([0, 1]),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     "use_attribute_group": lambda: random.randint(0, 1),
@@ -1057,6 +1062,9 @@ def finalize_and_sanitize(src_params):
         dest_params["mmap_read"] = 0
         # Parallel compression is incompatible with UDI
         dest_params["compression_parallel_threads"] = 1
+    else:
+        # use_udi_as_primary_index requires use_trie_index
+        dest_params["use_udi_as_primary_index"] = 0
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.

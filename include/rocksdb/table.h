@@ -539,6 +539,54 @@ struct BlockBasedTableOptions {
 
   // EXPERIMENTAL
   //
+  // When true and user_defined_index_factory is set, the UDI becomes the
+  // primary index. The standard binary search index is not populated with
+  // real entries -- only a minimal stub is written to satisfy the SST footer
+  // format.
+  // This saves CPU during SST creation and space in every SST file.
+  //
+  // When the UDI is primary:
+  // - All reads automatically use the UDI (ReadOptions::table_index_factory
+  //   does not need to be set)
+  // - The standard index block contains only a stub -- it cannot be used for
+  //   reads. SST files written with this option can only be read by RocksDB
+  //   versions that support UDI-primary mode
+  // - Partitioned index (kTwoLevelIndexSearch) and partitioned filters are
+  //   incompatible with this option
+  // - fail_if_no_udi_on_open is automatically enforced to prevent silent
+  //   data loss if these SSTs are opened without UDI support
+  //
+  // Recommended migration path:
+  //
+  // 1. Deploy with user_defined_index_factory set but
+  //    use_udi_as_primary_index=false (secondary mode). New SSTs are written
+  //    with both indexes. Reads still use the standard index by default. This
+  //    is zero-risk -- rollback by removing user_defined_index_factory.
+  //
+  // 2. Validate reads through the UDI by setting
+  //    ReadOptions::table_index_factory on a subset of reads. Compare results
+  //    against the standard index to build confidence.
+  //
+  // 3. Compact the entire DB to rewrite all pre-existing SSTs (from before
+  //    step 1) into SSTs with both indexes. All SSTs must have a UDI block
+  //    before proceeding -- use_udi_as_primary_index will refuse to open
+  //    SSTs without one.
+  //
+  // 4. Enable use_udi_as_primary_index=true. New SSTs use UDI only. Old SSTs
+  //    (from step 1/3) still have both indexes and are read through the UDI
+  //    automatically.
+  //
+  // Rollback from step 4: you must compact the entire DB with
+  // use_udi_as_primary_index=false to rewrite all SSTs with both indexes
+  // before removing user_defined_index_factory. Without this, SSTs written
+  // in primary mode have a stub standard index and cannot be read without
+  // UDI support.
+  //
+  // Default: false (UDI is built alongside the standard index as a secondary)
+  bool use_udi_as_primary_index = false;
+
+  // EXPERIMENTAL
+  //
   // Return an error Status if a user_defined_index_factory is configured,
   // but there's no corresponding UDI block in the SST file being opened.
   bool fail_if_no_udi_on_open = false;
