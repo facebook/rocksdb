@@ -69,8 +69,12 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
       // cannot produce a separator that distinguishes the two blocks,
       // causing incorrect Seek results.
       UserDefinedIndexBuilder::IndexEntryContext ctx;
-      ctx.last_key_seq = pkey_last.sequence;
-      ctx.first_key_seq = first_key_in_next_block ? pkey_first.sequence : 0;
+      ctx.last_key_packed_trailer =
+          PackSequenceAndType(pkey_last.sequence, pkey_last.type);
+      ctx.first_key_packed_trailer =
+          first_key_in_next_block
+              ? PackSequenceAndType(pkey_first.sequence, pkey_first.type)
+              : 0;
       user_defined_index_builder_->AddIndexEntry(
           pkey_last.user_key,
           first_key_in_next_block ? &pkey_first.user_key : nullptr, handle,
@@ -252,7 +256,7 @@ class UserDefinedIndexIteratorWrapper
       // due to snapshots). Without it, the UDI cannot distinguish which
       // block to return for a given (user_key, seqno) target.
       UserDefinedIndexIterator::SeekContext ctx;
-      ctx.target_seq = pkey.sequence;
+      ctx.target_packed_trailer = PackSequenceAndType(pkey.sequence, pkey.type);
       status_ = udi_iter_->SeekAndGetResult(pkey.user_key, &result_, ctx);
     }
     UpdateValidAndKey();

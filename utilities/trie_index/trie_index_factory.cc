@@ -30,7 +30,7 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
                                       const BlockHandle& block_handle,
                                       std::string* separator_scratch,
                                       const IndexEntryContext& context) {
-  SequenceNumber last_key_seq = context.last_key_seq;
+  uint64_t last_key_packed_trailer = context.last_key_packed_trailer;
 
   // Compute a short separator between the two user keys using the
   // comparator. FindShortestSeparator takes `*start` as both input and output:
@@ -117,12 +117,16 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
   BufferedEntry entry;
   entry.separator_key = separator.ToString();
   // For same-user-key boundaries, use the actual seqno of the last key.
-  // For different-user-key boundaries, use kMaxSequenceNumber (sentinel
-  // meaning "this is not a same-key boundary, never advance past it").
+  // For different-user-key boundaries, use the maximum packed trailer as a
+  // sentinel meaning "this is not a same-key boundary, never advance past it".
   if (same_user_key) {
-    entry.seqno = last_key_seq;
+    entry.packed_trailer = last_key_packed_trailer;
   } else {
-    entry.seqno = kMaxSequenceNumber;
+    // Not a same-user-key boundary. Use a sentinel value that ensures
+    // the packed trailer comparison never triggers advancement.
+    // kMaxSequenceNumber << 8 | 0xFF is the maximum possible trailer.
+    entry.packed_trailer =
+        (static_cast<uint64_t>(kMaxSequenceNumber) << 8) | 0xFF;
   }
   entry.handle = handle;
   buffered_entries_.push_back(std::move(entry));
@@ -173,22 +177,26 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
       }
       uint32_t block_count = static_cast<uint32_t>(run_end - run_start);
 
-      // Map kMaxSequenceNumber (non-same-key boundary) to 0 (sentinel).
-      uint64_t seqno = (entry.seqno == kMaxSequenceNumber) ? 0 : entry.seqno;
+      // Map the max-packed-trailer sentinel to 0 (sentinel).
+      static constexpr uint64_t kMaxPackedTrailer =
+          (static_cast<uint64_t>(kMaxSequenceNumber) << 8) | 0xFF;
+      uint64_t trailer = (entry.packed_trailer == kMaxPackedTrailer)
+                             ? 0
+                             : entry.packed_trailer;
 
       // Add the primary (first) block for this separator.
       trie_builder_.AddKeyWithSeqno(Slice(entry.separator_key), entry.handle,
-                                    seqno, block_count);
+                                    trailer, block_count);
 
       // Add overflow blocks (2nd, 3rd, ... in the run).
-      // Overflow blocks only exist within same-key runs, so their seqnos
-      // come from last_key_seq in AddIndexEntry (never kMaxSequenceNumber).
-      // The seqno may be 0 when bottommost compaction zeroes all sequence
+      // Overflow blocks only exist within same-key runs, so their packed
+      // trailers come from last_key_packed_trailer in AddIndexEntry.
+      // The trailer may be 0 when bottommost compaction zeroes all sequence
       // numbers — this is valid; see AddOverflowBlock comment.
       for (size_t j = run_start + 1; j < run_end; j++) {
-        assert(buffered_entries_[j].seqno != kMaxSequenceNumber);
+        assert(buffered_entries_[j].packed_trailer != kMaxPackedTrailer);
         trie_builder_.AddOverflowBlock(buffered_entries_[j].handle,
-                                       buffered_entries_[j].seqno);
+                                       buffered_entries_[j].packed_trailer);
       }
 
       i = run_end;
@@ -304,7 +312,7 @@ Status TrieIndexIterator::PrevAndGetResult(IterateResult* result) {
 Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
                                            IterateResult* result,
                                            const SeekContext& context) {
-  SequenceNumber target_seq = context.target_seq;
+  uint64_t target_packed = context.target_packed_trailer;
 
   // Advance current_scan_idx_ past any scans whose limit <= target.
   // This handles the multi-scan case where the caller seeks into a later
@@ -348,7 +356,7 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
   //
   // When has_seqno_encoding_ is true, the leaf we landed on may have a
   // seqno side-table entry. We use it to determine if this is the right
-  // block for the given (target, target_seq).
+  // block for the given (target, target_packed).
   //
   // The trie stores separators that are upper bounds on block contents:
   //   separator_key >= all keys in the block
@@ -356,10 +364,10 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
   //
   // For same-user-key boundaries, the separator IS the user key. The seqno
   // determines which block within a run of same-key blocks is correct:
-  //   - If target_seq >= leaf_seqno: this is the right block (target's
-  //     internal key <= separator's internal key, because higher seqno means
-  //     "smaller" internal key for the same user key)
-  //   - If target_seq < leaf_seqno: target's internal key > separator,
+  //   - If target_packed >= leaf_packed: this is the right block (target's
+  //     internal key <= separator's internal key, because higher packed
+  //     trailer means "smaller" internal key for the same user key)
+  //   - If target_packed < leaf_packed: target's internal key > separator,
   //     so we need to advance to the next block in the run
   //
   // For non-boundary leaves (leaf_seqno == 0), the `leaf_seqno != 0` guard
@@ -369,17 +377,17 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
     uint64_t leaf_idx = iter_.LeafIndex();
     uint64_t leaf_seqno = trie_->GetLeafSeqno(leaf_idx);
 
-    if (leaf_seqno != 0 && target_seq < leaf_seqno) {
-      // Target's internal key is AFTER the separator (lower seqno = later
-      // in internal key order for same user key). Advance through overflow
-      // blocks.
+    if (leaf_seqno != 0 && target_packed < leaf_seqno) {
+      // Target's internal key is AFTER the separator (lower packed trailer =
+      // later in internal key order for same user key). Advance through
+      // overflow blocks.
       uint32_t block_count = trie_->GetLeafBlockCount(leaf_idx);
       uint32_t base = trie_->GetOverflowBase(leaf_idx);
 
       bool found = false;
       for (uint32_t oi = 0; oi < block_count - 1; oi++) {
         uint64_t ov_seqno = trie_->GetOverflowSeqno(base + oi);
-        if (ov_seqno == 0 || target_seq >= ov_seqno) {
+        if (ov_seqno == 0 || target_packed >= ov_seqno) {
           // This overflow block is the right one.
           overflow_run_index_ = oi + 1;  // 1-based (0 = primary)
           overflow_run_size_ = block_count;
@@ -390,8 +398,8 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
       }
 
       if (!found) {
-        // target_seq is below all seqnos in this run. Advance to the next
-        // trie leaf (the block after the run).
+        // target_packed is below all packed trailers in this run. Advance to
+        // the trie leaf (the block after the run).
         if (!iter_.Next()) {
           // Exhausted all blocks: target is past the end of this SST.
           // Return kUnknown — see comment in Seek path above.

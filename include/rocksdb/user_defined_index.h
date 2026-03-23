@@ -56,11 +56,16 @@ class UserDefinedIndexBuilder {
   // boundaries. Passed as a struct for forward-compatible extensibility
   // (new fields can be added without breaking existing implementations).
   struct IndexEntryContext {
-    // Sequence number of last_key_in_current_block.
-    SequenceNumber last_key_seq = 0;
-    // Sequence number of first_key_in_next_block (valid only when
-    // first_key_in_next_block != nullptr).
-    SequenceNumber first_key_seq = 0;
+    // Packed internal key trailer of last_key_in_current_block:
+    //   (sequence_number << 8) | value_type
+    // This is the same format used by InternalKeyComparator for ordering.
+    // UDI implementations that encode sequence numbers should store this
+    // packed trailer (not just the sequence number) to ensure correct block
+    // selection when the same user key spans multiple blocks.
+    uint64_t last_key_packed_trailer = 0;
+    // Packed internal key trailer of first_key_in_next_block (valid only
+    // when first_key_in_next_block != nullptr).
+    uint64_t first_key_packed_trailer = 0;
   };
 
   virtual ~UserDefinedIndexBuilder() = default;
@@ -138,10 +143,13 @@ class UserDefinedIndexIterator {
   // Optional context for SeekAndGetResult providing the target sequence
   // number. Passed as a struct for forward-compatible extensibility.
   struct SeekContext {
-    // Sequence number of the target key. Used by UDI implementations that
-    // encode sequence numbers (when the same user key spans multiple data
-    // blocks) to locate the correct block.
-    SequenceNumber target_seq = 0;
+    // Packed internal key trailer of the target key:
+    //   (sequence_number << 8) | value_type
+    // Used by UDI implementations that encode sequence numbers (when the
+    // same user key spans multiple data blocks) to locate the correct block.
+    // Must match the format stored in
+    // IndexEntryContext::last_key_packed_trailer.
+    uint64_t target_packed_trailer = 0;
   };
 
   // Position the index iterator at the very first index entry. The result
