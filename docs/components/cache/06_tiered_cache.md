@@ -77,7 +77,7 @@ Important: `SetCapacity()` on the adapter carefully orders operations to avoid t
 - When **shrinking**: lower secondary capacity first, credit primary, then shrink primary
 - When **expanding**: expand primary first, reserve for secondary, then expand secondary
 
-Limitation: once `compressed_secondary_ratio` is set to 0.0 (disabling secondary cache), it cannot be dynamically re-enabled.
+Note: an older code comment and API doc claim that once `compressed_secondary_ratio` is set to 0.0, the secondary cache cannot be re-enabled. This limitation was removed in PR #12059 (Nov 2023), which simplified the reservation accounting. The code and tests now support 0.0 → non-zero transitions. The stale comments remain in `cache/secondary_cache_adapter.cc` and `include/rocksdb/cache.h`.
 
 ## Configuration
 
