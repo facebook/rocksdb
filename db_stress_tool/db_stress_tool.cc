@@ -25,6 +25,7 @@
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "port/stack_trace.h"
+#include "monitoring/stress_trace.h"
 #include "rocksdb/convenience.h"
 #include "utilities/fault_injection_fs.h"
 
@@ -94,15 +95,32 @@ int db_stress_tool(int argc, char** argv) {
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();
 
-    // Register a crash callback so that recently injected errors are
-    // printed to stderr when the process crashes (SIGABRT, SIGSEGV, etc.).
-    // This helps diagnose stress test failures caused by fault injection.
-    port::RegisterCrashCallback([]() {
-      if (fault_fs_guard) {
-        fault_fs_guard->PrintRecentInjectedErrors();
-      }
-    });
+    // Crash callback is registered below (after stress trace setup),
+    // so that it can chain both fault injection + stress trace dumps.
   }
+
+  // Initialize stress trace with a dump path based on the DB path.
+  // Trace files will be written to <db>/../stress-trace-<pid>-thread-<tid>.txt
+  // on crash. If empty, traces go to stdout.
+  {
+    std::string trace_prefix;
+    if (!FLAGS_db.empty()) {
+      trace_prefix =
+          FLAGS_db + "/../stress-trace-" + std::to_string(getpid());
+    }
+    stress_trace::Install(trace_prefix);
+  }
+
+  // Register a unified crash callback that dumps both fault injection errors
+  // and execution traces. This is called on SIGABRT, SIGSEGV, etc.
+  port::RegisterCrashCallback([]() {
+    if (fault_fs_guard) {
+      fault_fs_guard->PrintRecentInjectedErrors();
+    }
+    // Dump per-thread execution traces (function calls + semantic events).
+    // No-op if ROCKSDB_STRESS_TRACE was not defined at build time.
+    stress_trace::DumpAll();
+  });
 
   auto db_stress_fs =
       std::make_shared<DbStressFSWrapper>(raw_env->GetFileSystem());

@@ -411,6 +411,19 @@ ifdef COMPILE_WITH_UBSAN
 	PLATFORM_CCFLAGS += -fsanitize=undefined -fno-sanitize-recover=all -DROCKSDB_UBSAN_RUN
 	PLATFORM_CXXFLAGS += -fsanitize=undefined -fno-sanitize-recover=all -DROCKSDB_UBSAN_RUN
 endif
+# Stress test execution tracing. Instruments every function entry with a
+# ring-buffer trace that is dumped on crash. Build with:
+#   STRESS_TRACE=1 make db_stress
+# Overhead: ~0% for functions doing real work; ~2x for trivial leaf functions.
+# The -finstrument-functions flag applies to ALL compilation units so that
+# library code (db/, table/, memtable/, etc.) is also traced. The ring buffer
+# and dump logic live in monitoring/stress_trace.{h,cc}.
+ifdef STRESS_TRACE
+	PLATFORM_CXXFLAGS += -DROCKSDB_STRESS_TRACE -finstrument-functions
+	PLATFORM_CCFLAGS += -finstrument-functions
+	EXEC_LDFLAGS += -ldl
+endif
+
 
 ifdef ROCKSDB_VALGRIND_RUN
 	PLATFORM_CCFLAGS += -DROCKSDB_VALGRIND_RUN
