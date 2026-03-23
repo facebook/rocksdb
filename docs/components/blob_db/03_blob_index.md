@@ -31,7 +31,7 @@ The `kBlob` BlobIndex is the only type produced by integrated BlobDB:
 | size | varint64 | Size of the blob as stored on disk (compressed size if compression is used) |
 | compression | 1 byte | `CompressionType` used for this blob |
 
-The total encoded size is typically 20-30 bytes, depending on the magnitudes of file_number, offset, and size (varint encoding).
+The total encoded size is typically 10-16 bytes, depending on the magnitudes of file_number, offset, and size (varint encoding).
 
 Important: The `offset` field points to the start of the blob **value**, not the start of the `BlobLogRecord`. This is intentional: when checksum verification is disabled, the reader can seek directly to the value without reading the record header or key. When checksums are enabled, the reader subtracts `BlobLogRecord::kHeaderSize + key_size` to find the record start.
 

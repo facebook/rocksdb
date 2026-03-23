@@ -90,3 +90,10 @@ Step 2: Read and decode the header. Verify the magic number, check that `has_ttl
 Step 3: Read and decode the footer. Verify the magic number and check that `expiration_range` is zero.
 
 Step 4: Extract the compression type from the header and create a `Decompressor` if compression is enabled.
+
+## Crash Recovery Behavior
+
+If a crash occurs during blob file writing, the file will lack a footer. On recovery:
+
+- If the `BlobFileAddition` was **not** committed to the MANIFEST (the common case for mid-write crashes), the file is orphaned. It will be cleaned up during DB open since no version references it.
+- If the `BlobFileAddition` was committed but the footer is missing, `BlobFileReader::Create()` will fail the size check (file size < header + footer = 62 bytes for an incomplete file) and return `Status::Corruption`. The DB will refuse to open unless the corrupt blob file is addressed.

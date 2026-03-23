@@ -66,6 +66,10 @@ Step 3: If `sum_garbage_blob_bytes >= force_threshold * sum_total_blob_bytes`, m
 
 Step 4: Specifically, the SSTs in the oldest blob file's `linked_ssts` set are added to `files_marked_for_forced_blob_gc_`. These SSTs are then prioritized for compaction by the compaction picker.
 
+Note: Although garbage is summed across all eligible blob files to determine whether the threshold is met, only SSTs linked to the single oldest blob file are scheduled for compaction. This iterative approach ensures that the oldest blob file is reclaimed first; subsequent version computations will then target the next-oldest file.
+
+INVARIANT: The oldest blob file must always have a non-empty `linked_ssts` set. This is verified by a debug assertion in `ComputeFilesMarkedForForcedBlobGC()`.
+
 Note: The force GC threshold defaults to `1.0`, which effectively disables force GC. Setting it to a lower value (e.g., `0.5`) means force GC triggers when 50% of the eligible blob data is garbage. This option is currently only supported with leveled compaction.
 
 ## Blob File Deletion
@@ -87,3 +91,4 @@ When `blob_compaction_readahead_size > 0` (see `ColumnFamilyOptions` in `include
 - `PrefetchBufferCollection` in `db/blob/prefetch_buffer_collection.h` maintains one `FilePrefetchBuffer` per blob file number.
 - Each sub-compaction has its own `PrefetchBufferCollection` since different sub-compactions read different ranges.
 - Readahead is beneficial because GC reads blobs roughly in key order, which often maps to sequential blob file offsets (especially for compaction-generated blob files where keys are sorted).
+- Note: Readahead effectiveness degrades when multiple concurrent flushes or compactions interleave writes to different blob files. In that scenario, blobs from the same key range may be scattered across multiple files, reducing sequential access patterns within any single file.

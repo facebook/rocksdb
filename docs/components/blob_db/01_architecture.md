@@ -4,7 +4,7 @@
 
 ## Design Motivation
 
-In a standard LSM tree, large values are copied during every compaction. For a 7-level tree, a 1 MB value may be rewritten 10+ times, resulting in significant write amplification. BlobDB addresses this by storing large values in separate blob files and keeping only small BlobIndex references (typically 30-40 bytes) in the LSM tree. This means compaction primarily moves small index entries rather than full values.
+In a standard LSM tree, large values are copied during every compaction. For a 7-level tree, a 1 MB value may be rewritten 10+ times, resulting in significant write amplification. BlobDB addresses this by storing large values in separate blob files and keeping only small BlobIndex references (typically 10-16 bytes) in the LSM tree. This means compaction primarily moves small index entries rather than full values.
 
 The trade-off is an additional I/O for reads: after looking up the BlobIndex in the SST file, a second read fetches the actual value from the blob file. This cost can be mitigated with blob caching.
 

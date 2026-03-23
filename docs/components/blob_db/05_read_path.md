@@ -39,7 +39,7 @@ Step 2: **Verify compression type**. The compression type from the BlobIndex mus
 
 Step 3: **Calculate read range**. If `verify_checksums` is enabled, the full record (header + key + value) is read. The adjustment is `BlobLogRecord::kHeaderSize + key_size = 32 + key_size` bytes before the value offset. If checksums are disabled, only the value portion is read.
 
-Step 4: **Read data**. Try the prefetch buffer first (used during compaction with `blob_compaction_readahead_size`). If not prefetched, read from the file directly, supporting both buffered and direct I/O.
+Step 4: **Read data**. Try the prefetch buffer first (used during compaction with `blob_compaction_readahead_size`). If not prefetched, read from the file directly, supporting both buffered and direct I/O. With direct I/O, aligned buffers (`AlignedBuf`) are used for reads.
 
 Step 5: **Verify checksums**. `VerifyBlob()` decodes the record header, checks `header_crc`, verifies key size/value size/key content match, then calls `CheckBlobCRC()` to verify the blob CRC over key + value.
 
@@ -83,7 +83,7 @@ BlobDB avoids copying large blob values through `PinnableSlice`:
 
 ## BlobFileCache Details
 
-`BlobFileCache` caches open `BlobFileReader` instances using the table cache (`Cache` provided at construction, typically the block cache):
+`BlobFileCache` caches open `BlobFileReader` instances using the table cache (the same cache that stores open SST file readers):
 
 - Cache entries use `CacheEntryRole::kMisc`.
 - Striped mutexes prevent races when multiple threads try to open the same blob file simultaneously.
@@ -93,6 +93,10 @@ BlobDB avoids copying large blob values through `PinnableSlice`:
 ## Charged Cache Support
 
 If the `BlockBasedTableOptions::cache_usage_options` has `CacheEntryRole::kBlobCache` charged enabled, `BlobSource` wraps the blob cache in a `ChargedCache`. This charges blob cache usage against the block cache capacity, enabling unified memory management when using the same cache for both blocks and blobs.
+
+## Cache Tier Support
+
+`BlobSource` respects the `lowest_used_cache_tier` setting from `ImmutableOptions`. This controls whether blob cache lookups and insertions also interact with secondary cache (e.g., a tiered caching configuration). The tier is passed to `blob_cache_.LookupFull()` and `blob_cache_.InsertFull()`.
 
 ## BlobContents
 

@@ -65,6 +65,7 @@ Blob compression uses the same compression framework as SST blocks but is config
 - A `Compressor` is obtained at builder construction time and reused for all blobs in the builder's lifetime.
 - A `Compressor::ManagedWorkingArea` is maintained to reuse compression buffers.
 - Compression uses `LegacyForceBuiltinCompression()`, which always stores the compressed output even if it is larger than the original. There is no compression ratio check for blobs (unlike SST blocks which have `max_compressed_bytes_per_kb`).
+- Blob compression always uses the V2 compression format (`GetBuiltinV2CompressionManager()`), which includes an uncompressed size prefix needed for decompression buffer allocation. This is the same format used by SST blocks. If decompressing blob data outside of RocksDB, the V2 format envelope must be accounted for.
 
 Note: Default `CompressionOptions` are used for blobs. There is currently no per-blob `CompressionOptions` configuration (this is a known limitation noted in the source code).
 

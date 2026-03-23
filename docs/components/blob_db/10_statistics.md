@@ -107,7 +107,7 @@ Per-request performance counters available via `get_perf_context()`:
 | `num_blobs_read` | Blobs read for GC relocation |
 | `total_blob_bytes_read` | Total bytes of blobs read for GC |
 | `num_blobs_relocated` | Blobs successfully relocated to new files |
-| `total_blob_bytes_relocated` | Total bytes of relocated blobs |
+| `total_blob_bytes_relocated` | Total bytes of source blobs relocated (original compressed size from old BlobIndex, not new file bytes written) |
 
 These are reported in compaction logs and aggregated into the `InternalStats` for monitoring.
 
