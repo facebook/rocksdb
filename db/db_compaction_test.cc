@@ -11882,6 +11882,12 @@ TEST_F(DBCompactionTest, VerifyFileChecksumOnCompactionOutput) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+// Regression test: verify_output_flags with kVerifyIteration should work
+// correctly even when paranoid_file_checks is false. Before the fix, the
+// OutputValidator hash was only computed during writing when
+// paranoid_file_checks was true, but the verification always computed the
+// hash, leading to a false positive "Key-value checksum of compaction output
+// doesn't match" error.
 TEST_F(DBCompactionTest, VerifyIterationWithoutParanoidFileChecks) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -11890,6 +11896,7 @@ TEST_F(DBCompactionTest, VerifyIterationWithoutParanoidFileChecks) {
                                 VerifyOutputFlags::kEnableForLocalCompaction;
   DestroyAndReopen(options);
 
+  // Create 2 L0 files to trigger compaction
   for (int i = 0; i < 10; i++) {
     ASSERT_OK(Put(Key(i), "value" + std::to_string(i)));
   }
@@ -11900,8 +11907,10 @@ TEST_F(DBCompactionTest, VerifyIterationWithoutParanoidFileChecks) {
   }
   ASSERT_OK(Flush());
 
+  // Compaction should succeed without false corruption errors
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
+  // Verify data is intact
   for (int i = 0; i < 15; i++) {
     std::string expected;
     if (i >= 5) {
@@ -11913,6 +11922,7 @@ TEST_F(DBCompactionTest, VerifyIterationWithoutParanoidFileChecks) {
   }
 }
 
+// Also test all verification types combined without paranoid_file_checks
 TEST_F(DBCompactionTest, VerifyAllOutputFlagsWithoutParanoidFileChecks) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -11934,6 +11944,7 @@ TEST_F(DBCompactionTest, VerifyAllOutputFlagsWithoutParanoidFileChecks) {
   }
   ASSERT_OK(Flush());
 
+  // Compaction should succeed with all verification types enabled
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   for (int i = 0; i < 15; i++) {
