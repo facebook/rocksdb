@@ -27,6 +27,18 @@ SuperVersion uses an `std::atomic<uint32_t> refs` field:
 
 **Key Invariant:** Every reader must acquire a SuperVersion reference before accessing any data and release it after the read completes. This prevents memtables and SST files from being deleted while in use.
 
+### Impact of Long-Lasting Snapshot Reads
+
+A SuperVersion reference pins `mem`, `imm`, and `current` (the Version containing SST file metadata). While this reference is held, none of those objects can be freed. This has two distinct resource implications:
+
+**Memtable retention:** When a reader holds a SuperVersion reference to an old SuperVersion, the memtable and immutable memtables in that SuperVersion cannot be deleted — even after they have been flushed to SST files. Normally, after flush, the immutable memtable is unreferenced by installing a new SuperVersion. But if a long-running iterator still holds a ref to the old SuperVersion, the flushed memtable stays in memory until the iterator is destroyed. In write-heavy workloads, this can cause memory to grow significantly: new memtables are created for incoming writes while old ones are pinned by slow readers.
+
+**SST file accumulation:** The `Version` pinned by a SuperVersion prevents the SST files it references from being deleted. When compaction produces new files and obsoletes old ones, the old files normally become candidates for deletion. But if a long-running read holds a reference to a Version that includes those old files, they remain on disk. Over time, this causes disk space to grow — the DB retains both the compacted output files and the pre-compaction input files. This is separate from snapshot-based key retention (described below) — even without explicit `DB::GetSnapshot()`, a slow iterator pins its Version's files.
+
+**Snapshot-based key retention in compaction:** Explicit snapshots (via `DB::GetSnapshot()`) affect compaction differently. `CompactionIterator` receives the list of live snapshot sequence numbers. When it encounters multiple versions of a key, it cannot drop any version whose sequence number is visible to a live snapshot — specifically, versions with sequence numbers between the snapshot's sequence and the next-newer snapshot. This means long-lived snapshots prevent key garbage collection: old Put/Delete pairs that would normally be collapsed during compaction are preserved, increasing SST file sizes and the number of levels. The `oldest_snapshot_sequence` used by `CompactionIterator` (see `earliest_snapshot_` in `db/compaction/compaction_iterator.cc`) determines the oldest point beyond which all versions can be safely dropped.
+
+The combined effect: a long-lasting snapshot read can simultaneously pin old memtables in memory, pin old SST files on disk (preventing space reclamation from compaction output), and prevent key-level garbage collection during compaction. This is why monitoring snapshot age (via `DB::GetSnapshotSequenceNumber()` and the `rocksdb.oldest-snapshot-time` DB property) is important in production.
+
 ## Thread-Local Caching
 
 To avoid contention on the DB mutex for every read, SuperVersion pointers are cached in thread-local storage via `ThreadLocalPtr` (`local_sv_`).
