@@ -19,29 +19,9 @@
 
 Each key's state is tracked in a `KeyContext` struct (see `KeyContext` in `table/multiget_context.h`) containing the key, column family, output value/status, merge context, and per-key metadata.
 
-### The Range Class: Zero-Allocation Key Narrowing
+`Range` (see `MultiGetContext::Range` in `table/multiget_context.h`) is a view over a slice of sorted keys combined with the three bitmasks above. Its Iterator skips any key whose bit is set in `value_mask_ | skip_mask_ | invalid_mask_`, so each lookup layer automatically sees only unresolved keys — no copying or allocation needed.
 
-`Range` (see `MultiGetContext::Range` in `table/multiget_context.h`) is the mechanism that allows each lookup layer (memtable, immutable memtables, SST files) to operate on only the unresolved keys — without copying or allocating. A `Range` is a view over a contiguous slice of `sorted_keys_` defined by `[start_, end_)` indices, combined with three bitmasks:
-
-- `value_mask_` (shared across all Ranges via `MultiGetContext`): bit set when a key's final value is found at any layer
-- `skip_mask_` (per-Range): bit set when a key should be skipped within this particular Range (e.g., filtered out by bloom)
-- `invalid_mask_` (per-Range): bit set when a key doesn't belong to this Range's scope (e.g., it maps to a different SST file)
-
-The `Range::Iterator` (a forward iterator) advances through keys by skipping any index whose bit is set in `value_mask_ | skip_mask_ | invalid_mask_`. This means when you iterate a Range, you automatically see only the keys that still need resolution in that context.
-
-**How Range flows through lookup layers:**
-
-Consider a batch of 8 keys (K0-K7). Initially all bits are clear — every key is unresolved:
-
-Step 1: **MemTable lookup** — `MultiGetImpl()` creates a `Range` covering all 8 keys and calls `super_version->mem->MultiGet(read_options, &range, ...)`. The memtable's `MultiGet` looks up each key; when it finds K2 and K5, it calls `range.MarkKeyDone(iter)` which sets bits 2 and 5 in the shared `value_mask_`. The `Range` is checked with `range.empty()` — if all keys are resolved, SST lookup is skipped entirely.
-
-Step 2: **Immutable memtable lookup** — If `!range.empty()`, the same `Range` is passed to `super_version->imm->MultiGet(read_options, &range, ...)`. The immutable memtable list iterates the same Range, but its Iterator now skips K2 and K5 (bits set in `value_mask_`). If it finds K0, bit 0 is set. Now 3 of 8 keys are resolved.
-
-Step 3: **SST file lookup** — If `!range.empty()`, `super_version->current->MultiGet(read_options, &range, ...)` is called. `Version::MultiGet()` uses `FilePickerMultiGet` to route keys to SST files level by level. For each SST file, `FilePickerMultiGet` produces a narrowed `current_file_range_` — a sub-Range where `invalid_mask_` marks keys that fall outside this file's key range. Within a file, the bloom filter check (`FullFilterKeysMayMatch`) may set `skip_mask_` bits for keys definitely absent from this file. Only keys surviving both masks reach the data block lookup.
-
-Step 4: **Level-by-level narrowing** — At L0, files overlap and must be checked individually. At L1+, files are sorted and non-overlapping, so `FilePickerMultiGet` efficiently maps sorted keys to files using binary search. As keys are resolved at each level (via `MarkKeyDone`), subsequent levels see fewer keys. If all keys are found before reaching the bottommost level, remaining levels are skipped.
-
-The key insight is that `Range` never copies or reallocates the key array — it only manipulates bitmasks. The shared `value_mask_` propagates resolved keys across all layers, while per-Range `skip_mask_` and `invalid_mask_` handle local filtering without affecting the global state. This is what makes MultiGet's batch processing efficient: a single 64-bit integer tracks the resolution state of up to 32 keys.
+The same `Range` flows through all lookup layers in `MultiGetImpl()`: first `mem->MultiGet()`, then `imm->MultiGet()`, then `Version::MultiGet()`. When a layer resolves a key, it calls `MarkKeyDone()` which sets that key's bit in the shared `value_mask_`. Subsequent layers skip it automatically. Within SST lookup, `FilePickerMultiGet` further narrows the Range per-file using `invalid_mask_` (keys outside the file's key range) and bloom filter checks set `skip_mask_` (keys definitely absent). If all keys are resolved before reaching lower levels, remaining levels are skipped entirely.
 
 ## Batching Strategy
 
