@@ -5074,8 +5074,8 @@ XXH3_initCustomSecret_scalar(void* XXH_RESTRICT customSecret, xxh_u64 seed64)
 
 static int XXH_sve_available(void)
 {
-    unsigned long hwcap = getauxval(AT_HWCAP);
-    return (hwcap & HWCAP_SVE) != 0;
+    static const int result = (getauxval(AT_HWCAP) & HWCAP_SVE) != 0;
+    return result;
 }
 #else
 static int XXH_sve_available(void) { return 0; }
