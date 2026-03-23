@@ -951,14 +951,40 @@ struct AdvancedColumnFamilyOptions {
   // final value and compaction would eliminate the wasted work.
   //
   // Choosing a value: the threshold balances read IO saved against the
-  // write amplification (WA) of an extra compaction. With typical settings
-  // (4 KB block size, level fanout ~10), the break-even point — where
-  // accumulated wasted read IO equals the compaction cost — is around
-  // 0.005 assuming no block cache. A higher block-cache hit rate lowers
-  // the effective read IO cost, pushing break-even higher. A recommended
-  // starting point is 0.01, which avoids triggering compactions that cost
-  // more IO than they save for most cache-friendly workloads, while still
-  // being responsive enough to compact files with significant wasted reads.
+  // write amplification (WA) of an extra compaction. This assumes the
+  // block-based table format is being used,
+  //
+  // Break-even derivation (no block cache):
+  //   Let r = sampled_reads / file_size  (the threshold)
+  //       S = file_size
+  //       B = block_size             (typically 4 KB)
+  //       F = level fanout           (typically ~10)
+  //
+  //   Each collapsible read wastes one data-block read = B bytes of IO.
+  //   Total wasted read IO for a file = r * S * B.
+  //
+  //   Compaction cost: one level-L file overlaps ~F files in level L+1,
+  //   so we read (1 + F) files and write (1 + F) files.
+  //   Total compaction IO = 2 * (1 + F) * S.
+  //
+  //   Break-even when wasted read IO equals compaction IO:
+  //     r * S * B = 2 * (1 + F) * S
+  //     r = 2 * (1 + F) / B
+  //
+  //   With F = 10, B = 4096:  r = 22 / 4096 ≈ 0.005.
+  //
+  // With a block-cache hit rate h (0 ≤ h < 1), each collapsible read
+  // only costs (1 - h) * B bytes of actual disk IO, so:
+  //     r = 2 * (1 + F) / ((1 - h) * B)
+  //
+  //   h = 0   → r ≈ 0.005
+  //   h = 0.5 → r ≈ 0.01
+  //   h = 0.9 → r ≈ 0.05
+  //
+  // A recommended starting point is 0.01, which avoids triggering
+  // compactions that cost more IO than they save for most cache-friendly
+  // workloads, while still being responsive enough to compact files with
+  // significant wasted reads.
   //
   // For this feature to take effect on a "quiet" DB (no writes), the DB-level
   // option `max_compaction_trigger_wakeup_seconds` must also be set to a

@@ -4215,8 +4215,8 @@ void VersionStorageInfo::ComputeFilesMarkedForReadTriggeredCompaction(
 
   // Skip files at the last non-empty level — there is no lower level to
   // compact into. Exception: L0 files are allowed even when L0 is the last
-  // non-empty level, because in single-level universal compaction, L0 files
-  // can be compacted together (L0 → L0).
+  // non-empty level, because in single-level universal or FIFO compaction, L0
+  // files can be compacted together (L0 → L0).
   int last_non_empty = num_non_empty_levels_ - 1;
 
   for (int level = 0; level < num_levels(); level++) {
@@ -4241,21 +4241,28 @@ void VersionStorageInfo::ComputeFilesMarkedForReadTriggeredCompaction(
     }
   }
 
+  // Snapshot reads_per_byte for each file so the sort comparator sees stable
+  // values.
+  std::unordered_map<const FileMetaData*, double> reads_per_byte_snapshot;
+  reads_per_byte_snapshot.reserve(read_triggered_compaction_files_.size());
+  for (const auto& entry : read_triggered_compaction_files_) {
+    const auto* f = entry.second;
+    uint64_t file_size = f->fd.GetFileSize();
+    reads_per_byte_snapshot[f] =
+        file_size > 0 ? static_cast<double>(
+                            f->stats.num_collapsible_entry_reads_sampled.load(
+                                std::memory_order_relaxed)) /
+                            static_cast<double>(file_size)
+                      : 0.0;
+  }
+
   // Sort by reads_per_byte descending so the hottest files are picked first
-  std::sort(
-      read_triggered_compaction_files_.begin(),
-      read_triggered_compaction_files_.end(), [](const auto& a, const auto& b) {
-        auto reads_per_byte = [](const FileMetaData* f) {
-          uint64_t file_size = f->fd.GetFileSize();
-          return file_size > 0
-                     ? static_cast<double>(
-                           f->stats.num_collapsible_entry_reads_sampled.load(
-                               std::memory_order_relaxed)) /
-                           static_cast<double>(file_size)
-                     : 0.0;
-        };
-        return reads_per_byte(a.second) > reads_per_byte(b.second);
-      });
+  std::sort(read_triggered_compaction_files_.begin(),
+            read_triggered_compaction_files_.end(),
+            [&reads_per_byte_snapshot](const auto& a, const auto& b) {
+              return reads_per_byte_snapshot.at(a.second) >
+                     reads_per_byte_snapshot.at(b.second);
+            });
 }
 
 namespace {
