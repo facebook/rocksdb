@@ -234,26 +234,12 @@ class UserDefinedIndexIteratorWrapper
 
   void SeekToFirst() override {
     status_ = udi_iter_->SeekToFirstAndGetResult(&result_);
-    if (status_.ok()) {
-      valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
-      if (valid_) {
-        SetInternalKeyFromUDIResult();
-      }
-    } else {
-      valid_ = false;
-    }
+    UpdateValidAndKey();
   }
 
   void SeekToLast() override {
     status_ = udi_iter_->SeekToLastAndGetResult(&result_);
-    if (status_.ok()) {
-      valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
-      if (valid_) {
-        SetInternalKeyFromUDIResult();
-      }
-    } else {
-      valid_ = false;
-    }
+    UpdateValidAndKey();
   }
 
   void Seek(const Slice& target) override {
@@ -269,40 +255,23 @@ class UserDefinedIndexIteratorWrapper
       ctx.target_seq = pkey.sequence;
       status_ = udi_iter_->SeekAndGetResult(pkey.user_key, &result_, ctx);
     }
-    if (status_.ok()) {
-      valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
-      if (valid_) {
-        SetInternalKeyFromUDIResult();
-      }
-    } else {
-      valid_ = false;
-    }
+    UpdateValidAndKey();
   }
 
   void Next() override {
     status_ = udi_iter_->NextAndGetResult(&result_);
-    if (status_.ok()) {
-      valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
-      if (valid_) {
-        SetInternalKeyFromUDIResult();
-      }
-    } else {
-      valid_ = false;
-    }
+    UpdateValidAndKey();
   }
 
   bool NextAndGetResult(IterateResult* result) override {
     status_ = udi_iter_->NextAndGetResult(&result_);
+    UpdateValidAndKey();
     if (status_.ok()) {
-      valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
       if (valid_) {
-        SetInternalKeyFromUDIResult();
         result->key = key();
       }
       result->bound_check_result = result_.bound_check_result;
       result->value_prepared = result_.value_prepared;
-    } else {
-      valid_ = false;
     }
     return valid_;
   }
@@ -318,14 +287,7 @@ class UserDefinedIndexIteratorWrapper
 
   void Prev() override {
     status_ = udi_iter_->PrevAndGetResult(&result_);
-    if (status_.ok()) {
-      valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
-      if (valid_) {
-        SetInternalKeyFromUDIResult();
-      }
-    } else {
-      valid_ = false;
-    }
+    UpdateValidAndKey();
   }
 
   Slice key() const override { return Slice(*ikey_.const_rep()); }
@@ -346,6 +308,19 @@ class UserDefinedIndexIteratorWrapper
   }
 
  private:
+  // Common logic after every UDI positioning operation: check status, update
+  // valid_, and build the internal key + cache the IndexValue if valid.
+  void UpdateValidAndKey() {
+    if (status_.ok()) {
+      valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
+      if (valid_) {
+        SetInternalKeyFromUDIResult();
+      }
+    } else {
+      valid_ = false;
+    }
+  }
+
   // Convert the UDI result's user key into an internal key for the index
   // iterator contract. UDI separators are user keys, but
   // InternalIteratorBase<IndexValue> must expose internal keys (user key +

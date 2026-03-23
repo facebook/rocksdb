@@ -243,11 +243,7 @@ void TrieIndexIterator::Prepare(const ScanOptions scan_opts[],
 }
 
 Status TrieIndexIterator::SeekToFirstAndGetResult(IterateResult* result) {
-  // Reset overflow state — SeekToFirst always lands on the primary block
-  // of the first trie leaf.
-  overflow_run_index_ = 0;
-  overflow_run_size_ = 1;
-  overflow_base_idx_ = 0;
+  ResetOverflowState();
 
   if (!iter_.SeekToFirst()) {
     result->bound_check_result = IterBoundCheck::kUnknown;
@@ -255,29 +251,14 @@ Status TrieIndexIterator::SeekToFirstAndGetResult(IterateResult* result) {
     return Status::OK();
   }
 
-  Slice trie_key = iter_.Key();
-  current_key_scratch_.assign(trie_key.data(), trie_key.size());
-  result->key = Slice(current_key_scratch_);
-
-  // Set up overflow state for the first leaf if seqno encoding is active.
-  if (has_seqno_encoding_) {
-    uint64_t leaf_idx = iter_.LeafIndex();
-    uint32_t block_count = trie_->GetLeafBlockCount(leaf_idx);
-    overflow_run_size_ = block_count;
-    overflow_base_idx_ = trie_->GetOverflowBase(leaf_idx);
-  }
-
-  // The very first entry is always in bounds (no target to compare against
-  // the limit, and the first block cannot precede any scan range).
+  CopyTrieKeyToResult(result);
+  SetupOverflowForCurrentLeaf(/*position_at_last=*/false);
   result->bound_check_result = IterBoundCheck::kInbound;
   return Status::OK();
 }
 
 Status TrieIndexIterator::SeekToLastAndGetResult(IterateResult* result) {
-  // Reset overflow state — SeekToLast lands on the rightmost leaf.
-  overflow_run_index_ = 0;
-  overflow_run_size_ = 1;
-  overflow_base_idx_ = 0;
+  ResetOverflowState();
 
   if (!iter_.SeekToLast()) {
     result->bound_check_result = IterBoundCheck::kUnknown;
@@ -285,22 +266,8 @@ Status TrieIndexIterator::SeekToLastAndGetResult(IterateResult* result) {
     return Status::OK();
   }
 
-  Slice trie_key = iter_.Key();
-  current_key_scratch_.assign(trie_key.data(), trie_key.size());
-  result->key = Slice(current_key_scratch_);
-
-  // Set up overflow state for the last leaf. For reverse iteration, position
-  // at the LAST overflow block in the run (the one with the lowest seqno,
-  // which is the earliest in internal key order for the same user key).
-  if (has_seqno_encoding_) {
-    uint64_t leaf_idx = iter_.LeafIndex();
-    uint32_t block_count = trie_->GetLeafBlockCount(leaf_idx);
-    overflow_run_size_ = block_count;
-    overflow_base_idx_ = trie_->GetOverflowBase(leaf_idx);
-    // Position at the last block in the run (highest overflow index).
-    overflow_run_index_ = block_count - 1;
-  }
-
+  CopyTrieKeyToResult(result);
+  SetupOverflowForCurrentLeaf(/*position_at_last=*/true);
   result->bound_check_result = IterBoundCheck::kInbound;
   return Status::OK();
 }
@@ -320,9 +287,7 @@ Status TrieIndexIterator::PrevAndGetResult(IterateResult* result) {
   std::swap(prev_key_scratch_, current_key_scratch_);
 
   // Move to the previous trie leaf.
-  overflow_run_index_ = 0;
-  overflow_run_size_ = 1;
-  overflow_base_idx_ = 0;
+  ResetOverflowState();
 
   if (!iter_.Prev()) {
     result->bound_check_result = IterBoundCheck::kUnknown;
@@ -330,20 +295,8 @@ Status TrieIndexIterator::PrevAndGetResult(IterateResult* result) {
     return Status::OK();
   }
 
-  // Reuse current_key_scratch_ capacity — avoids heap allocation after warmup.
-  Slice trie_key = iter_.Key();
-  current_key_scratch_.assign(trie_key.data(), trie_key.size());
-  result->key = Slice(current_key_scratch_);
-
-  // Set overflow state for the new leaf. Position at the LAST block in
-  // the run for reverse iteration.
-  if (has_seqno_encoding_ && iter_.Valid()) {
-    uint64_t leaf_idx = iter_.LeafIndex();
-    overflow_run_size_ = trie_->GetLeafBlockCount(leaf_idx);
-    overflow_base_idx_ = trie_->GetOverflowBase(leaf_idx);
-    overflow_run_index_ = overflow_run_size_ - 1;
-  }
-
+  CopyTrieKeyToResult(result);
+  SetupOverflowForCurrentLeaf(/*position_at_last=*/true);
   result->bound_check_result = CheckBounds(Slice(prev_key_scratch_));
   return Status::OK();
 }
@@ -368,10 +321,7 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
     }
   }
 
-  // Reset overflow state.
-  overflow_run_index_ = 0;
-  overflow_run_size_ = 1;
-  overflow_base_idx_ = 0;
+  ResetOverflowState();
 
   // Always seek with user key only — the trie stores user-key separators.
   // When seqno encoding is active, post-seek correction handles the seqno.
@@ -496,9 +446,7 @@ Status TrieIndexIterator::NextAndGetResult(IterateResult* result) {
   std::swap(prev_key_scratch_, current_key_scratch_);
 
   // Advance to the next trie leaf.
-  overflow_run_index_ = 0;
-  overflow_run_size_ = 1;
-  overflow_base_idx_ = 0;
+  ResetOverflowState();
 
   if (!iter_.Next()) {
     result->bound_check_result = IterBoundCheck::kUnknown;
@@ -506,17 +454,8 @@ Status TrieIndexIterator::NextAndGetResult(IterateResult* result) {
     return Status::OK();
   }
 
-  // Reuse current_key_scratch_ capacity — avoids heap allocation after warmup.
-  Slice trie_key = iter_.Key();
-  current_key_scratch_.assign(trie_key.data(), trie_key.size());
-  result->key = Slice(current_key_scratch_);
-
-  if (has_seqno_encoding_ && iter_.Valid()) {
-    uint64_t leaf_idx = iter_.LeafIndex();
-    overflow_run_size_ = trie_->GetLeafBlockCount(leaf_idx);
-    overflow_base_idx_ = trie_->GetOverflowBase(leaf_idx);
-  }
-
+  CopyTrieKeyToResult(result);
+  SetupOverflowForCurrentLeaf(/*position_at_last=*/false);
   result->bound_check_result = CheckBounds(Slice(prev_key_scratch_));
   return Status::OK();
 }

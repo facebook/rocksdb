@@ -195,6 +195,34 @@ class TrieIndexIterator final : public UserDefinedIndexIterator {
   //   - NextAndGetResult advances within overflow runs before trie leaves
   bool has_seqno_encoding_;
 
+  // Reset overflow state to the default single-block position.
+  void ResetOverflowState() {
+    overflow_run_index_ = 0;
+    overflow_run_size_ = 1;
+    overflow_base_idx_ = 0;
+  }
+
+  // Set up overflow state for the current trie leaf. When position_at_last
+  // is true (reverse iteration), positions at the last block in the run.
+  void SetupOverflowForCurrentLeaf(bool position_at_last) {
+    if (has_seqno_encoding_ && iter_.Valid()) {
+      uint64_t leaf_idx = iter_.LeafIndex();
+      uint32_t block_count = trie_->GetLeafBlockCount(leaf_idx);
+      overflow_run_size_ = block_count;
+      overflow_base_idx_ = trie_->GetOverflowBase(leaf_idx);
+      if (position_at_last) {
+        overflow_run_index_ = block_count - 1;
+      }
+    }
+  }
+
+  // Copy the current trie key into current_key_scratch_ and set the result.
+  void CopyTrieKeyToResult(IterateResult* result) {
+    Slice trie_key = iter_.Key();
+    current_key_scratch_.assign(trie_key.data(), trie_key.size());
+    result->key = Slice(current_key_scratch_);
+  }
+
   // ---- Overflow run state ----
   //
   // When the trie iterator lands on a leaf that has block_count > 1 (a
