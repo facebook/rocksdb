@@ -255,13 +255,9 @@ class ExternalTableReaderAdapter : public TableReader {
 
     ParsedInternalKey found_key(parsed_key.user_key, 0, ValueType::kTypeValue);
     bool matched = false;
-    Status read_status;
-    get_context->SaveValue(found_key, value, &matched, &read_status,
+    get_context->SaveValue(found_key, value, &matched, &s,
                            value.IsPinned() ? &value : nullptr);
-    if (!read_status.ok()) {
-      return read_status;
-    }
-    return Status::OK();
+    return s;
   }
 
   Status VerifyChecksum(const ReadOptions& /*ro*/, TableReaderCaller /*caller*/,
