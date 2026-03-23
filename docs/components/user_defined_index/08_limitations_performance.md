@@ -34,7 +34,11 @@ Note: This applies only to the UDI block itself. UDI works on top of partitioned
 
 ### Comparator Restrictions
 
-The UDI framework supports arbitrary comparators via `UserDefinedIndexOption`. However, the bundled `TrieIndexFactory` requires `BytewiseComparator` and returns `Status::NotSupported` for any other comparator. Custom UDI implementations can use any comparator.
+The UDI framework supports arbitrary comparators via `UserDefinedIndexOption`. However, the bundled `TrieIndexFactory` requires `BytewiseComparator` and returns `Status::NotSupported` for any other comparator. The comparator check uses **pointer identity** (not name comparison), so only the singleton `BytewiseComparator()` is accepted. Custom UDI implementations can use any comparator.
+
+### mmap_read Incompatibility
+
+The trie index is incompatible with `mmap_read` mode. The trie uses zero-copy pointers into block data, which assumes the data remains at a fixed address backed by block cache entries. With `mmap_read`, block data may reside at unaligned mmap offsets, and the trie's `aligned_copy_` mechanism was not designed for this mode. The crash test explicitly disables `mmap_read` when `use_trie_index` is set.
 
 ### Memory Overhead
 

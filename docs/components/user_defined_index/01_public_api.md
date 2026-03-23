@@ -28,7 +28,7 @@ The `IndexEntryContext` parameter provides sequence numbers for block boundary k
 
 ### OnKeyAdded
 
-Called for every key-value pair added to the SST file. Range tombstones (`kTypeRangeDeletion`) are excluded — they go to the range-deletion block and are never forwarded to UDI builders.
+Called for every key-value pair added to the SST file. Range tombstones (`kTypeRangeDeletion`) are never forwarded to UDI builders because `BlockBasedTableBuilder::Add()` routes them to a separate range-deletion meta block before calling the index builder. The wrapper's `MapToUDIValueType` does not handle `kTypeRangeDeletion` and will assert-fail if it encounters one (returning `kOther` in release mode).
 
 UDI builders may override this to collect per-key information (e.g., for secondary indexes). Builders that only use separator keys from `AddIndexEntry()` (e.g., trie-based indexes) can leave this as a no-op.
 
@@ -79,7 +79,7 @@ The result must set `bound_check_result`:
 
 Important: `kOutOfBound` should only be returned when the implementation can **prove** the block is out of bounds. For implementations that store separator keys (upper bounds) rather than first-in-block keys, bounds checking against a limit key requires comparing against the **previous** index key, not the current separator.
 
-The `UserDefinedIndexIteratorWrapper` treats any non-`kInbound` result as invalid, stopping iteration.
+The `UserDefinedIndexIteratorWrapper` treats any non-`kInbound` result as invalid for `Valid()` (both `kUnknown` and `kOutOfBound` set `valid_ = false`). However, `UpperBoundCheckResult()` returns the raw enum value, allowing callers to distinguish `kUnknown` (check manually) from `kOutOfBound` (definitely out of bounds).
 
 ### NextAndGetResult
 
@@ -118,7 +118,7 @@ The block-based table builder and reader always call the option-aware overloads.
 
 ### UserDefinedIndexOption
 
-Contains the `Comparator*` used by the column family. Passed to both builders and readers so implementations can use the correct key ordering.
+Contains the `Comparator*` used by the column family, defaulting to `BytewiseComparator()`. Passed to both builders and readers so implementations can use the correct key ordering. If `nullptr` is passed explicitly, factories default it back to `BytewiseComparator()`.
 
 ### CreateFromString
 

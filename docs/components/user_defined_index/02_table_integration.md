@@ -49,9 +49,9 @@ Since `AddIndexEntry` returns a `Slice` (not a `Status`), errors during key pars
 
 During `Finish()`:
 
-1. Call `user_defined_index_builder_->Finish()` to get serialized UDI contents
+1. Call `user_defined_index_builder_->Finish()` to get serialized UDI contents (guarded by `udi_finished_` flag -- only called once even if the wrapper's `Finish()` is invoked multiple times, as happens with partitioned indexes)
 2. Insert the UDI as a meta block with name `"rocksdb.user_defined_index.<name>"`  and type `BlockType::kUserDefinedIndex`
-3. Call `internal_index_builder_->Finish()` to finalize the internal index
+3. Call `internal_index_builder_->Finish()` to finalize the internal index (called unconditionally each time)
 
 The UDI block appears in the SST file before the metaindex block and footer.
 

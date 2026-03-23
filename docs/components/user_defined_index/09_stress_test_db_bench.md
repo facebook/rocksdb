@@ -66,3 +66,11 @@ make -j128 db_stress
 ```
 
 For crash test integration via `db_crashtest.py`, the `--use_trie_index` flag is propagated through the test harness.
+
+### Crash Test Details
+
+`use_trie_index` is enabled with ~12.5% probability (`random.choice([0,0,0,0,0,0,0,1])`). Unlike most random parameters in `db_crashtest.py` (which use lambdas to re-randomize per invocation), `use_trie_index` is evaluated once at import time. This is intentional: all invocations within a crash test series must use the same value so that all SST files in a DB are opened with matching table options.
+
+When `use_trie_index` is enabled, the test harness automatically sanitizes incompatible options:
+- `mmap_read` is forced to 0 (trie UDI uses zero-copy pointers into block data, incompatible with mmap)
+- `compression_parallel_threads` is forced to 1 (parallel compression is incompatible with UDI)

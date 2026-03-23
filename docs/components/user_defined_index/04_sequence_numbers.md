@@ -51,7 +51,8 @@ BufferedEntry {
   separator_key: string     // User-key-only separator
   seqno: SequenceNumber     // last_key_seq for same-key boundaries,
                             // kMaxSequenceNumber for different-key boundaries
-  handle: TrieBlockHandle   // Data block offset/size
+  handle: TrieBlockHandle   // Data block offset/size (uint64_t in memory,
+                            // serialized as packed uint32_t arrays, ~4 GB limit)
 }
 ```
 

@@ -68,19 +68,28 @@ The key buffer is truncated to match the new path depth, then extended as new le
 
 ## Leaf Index Computation
 
-Leaf ordinals are computed using SuRF's rank formulas:
+Leaf ordinals are computed using SuRF's rank formulas. The formulas differ for regular leaf labels vs prefix keys:
 
-**Dense leaf:**
+**Dense leaf (label):**
 ```
 leaf_idx = Rank1(d_labels_, pos+1) - Rank1(d_has_child_, Rank1(d_labels_, pos+1))
          + Rank1(d_is_prefix_key_, node_num+1) - 1
 ```
 
-**Sparse leaf:**
+**Dense prefix key:**
+```
+leaf_idx = prefix_keys_before + leaf_labels_before
+```
+where `leaf_labels_before = Rank1(d_labels_, node_num*256) - Rank1(d_has_child_, Rank1(d_labels_, node_num*256))`.
+
+**Sparse leaf (label):**
 ```
 leaf_idx = (pos + 1) - Rank1(s_has_child_, pos + 1)
          + Rank1(s_is_prefix_key_, sparse_node_num + 1) + dense_leaf_count_ - 1
 ```
+
+**Sparse prefix key:**
+Similar formula using the sparse node's position and prefix key rank, offset by `dense_leaf_count_`.
 
 Pre-computed rank values are passed between helper methods to avoid redundant bitvector scans.
 
@@ -105,7 +114,7 @@ Stores `ScanOptions` for later bounds checking. Supports batched multi-scan by t
 
 - If no limit key: return `kInbound`
 - Compare `reference_key` against the limit
-- If reference_key >= limit: return `kOutOfBound`
+- If `comparator_->Compare(reference_key, limit) >= 0`: return `kOutOfBound` (reference_key equal to limit is treated as out of bounds)
 - Otherwise: return `kInbound`
 
 Important: The reference key is the seek target (for Seek) or the previous separator (for Next), NOT the current separator. This is because separators are upper bounds on block contents — the current separator may exceed the limit even though the block's first key is within bounds.
