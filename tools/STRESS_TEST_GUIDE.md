@@ -360,3 +360,131 @@ stress_fix_loop.sh --repo ~/workspace/rocksdb --stop
 3. **`set -e` and stress test scripts don't mix.** The stress matrix returns non-zero on test failures — `set -e` treats this as fatal and kills your script.
 4. **Blanket `rm -rf /tmp/rocksdb_crashtest_*` during runs** will delete databases from concurrent tests. Use `--destroy_db_initially=1` instead.
 5. **Extra-flags can bypass `finalize_and_sanitize()`** — the most common source of "impossible" parameter combinations.
+
+
+## Execution Tracing for Debugging
+
+When a stress test failure is hard to reproduce or the root cause is unclear from
+logs alone, you can build `db_stress` with execution tracing enabled. This
+instruments every function entry with a lightweight ring-buffer trace that is
+dumped on crash, showing the exact sequence of function calls leading up to the
+failure.
+
+### Building with Trace Support
+
+```bash
+# Makefile
+STRESS_TRACE=1 DEBUG_LEVEL=0 make -j$(nproc) db_stress
+
+# CMake
+cmake -DWITH_STRESS_TRACE=ON -DCMAKE_BUILD_TYPE=Release ..
+make -j$(nproc) db_stress
+```
+
+The `STRESS_TRACE=1` flag adds `-DROCKSDB_STRESS_TRACE -finstrument-functions`
+to all compilation units. This inserts a call to a recording function at every
+function entry, which writes to a per-thread lock-free ring buffer.
+
+### What Gets Captured
+
+Two types of trace entries are interleaved by timestamp:
+
+1. **Function entries** (automatic): Every function call across all RocksDB code
+   is recorded with its address and an `rdtsc` timestamp. The ring buffer keeps
+   the last 8192 entries per thread (~128 KB per thread).
+
+2. **Semantic events** (manual): Code can call `STRESS_TRACE_EVENT("msg", ...)`
+   at key decision points to record human-readable context. These use a separate
+   ring buffer (last 256 entries per thread).
+
+### Crash Dump Output
+
+On crash (SIGABRT, SIGSEGV, SIGQUIT, etc.), per-thread trace files are written to:
+```
+<db_path>/../stress-trace-<pid>-thread-<tid>.txt
+```
+
+Each file contains an interleaved, time-ordered trace of function entries and
+semantic events for that thread. Example:
+
+```
+=== Stress Trace: thread 2533811810808473599 ===
+    func_entries=8192  event_entries=3
+  [4434887560583342] ENTER rocksdb::DBImpl::Write (0x936d15)
+  [4434887560583357] ENTER rocksdb::WriteBatchInternal::Count (0x92f368)
+  [4434887560583388] EVENT flush_reason=2 imm_count=3
+  [4434887560583404] ENTER rocksdb::WriteToWAL (0x936df0)
+  ...
+```
+
+### Resolving Addresses
+
+Function addresses in the trace can be resolved to symbols using `addr2line`:
+
+```bash
+# Single address
+addr2line -f -e db_stress 0x936d15
+
+# Batch resolve all addresses from a trace file
+grep "ENTER 0x" trace-file.txt |   sed 's/.*ENTER \(0x[0-9a-f]*\).*//' |   sort -u |   xargs -I{} sh -c 'echo -n "{} -> "; addr2line -f -e db_stress {}'
+```
+
+For binaries with debug info (`DEBUG_LEVEL=2`), `dladdr()` resolves symbols
+directly in the crash dump (no post-processing needed).
+
+### Adding Semantic Events
+
+To add context at key decision points, use the `STRESS_TRACE_EVENT` macro:
+
+```cpp
+#include "monitoring/stress_trace.h"
+
+// At a key decision point:
+STRESS_TRACE_EVENT("flush: reason=%d imm_count=%zu cf=%s",
+                   flush_reason, imm_count, cf_name.c_str());
+
+// In error handling:
+STRESS_TRACE_EVENT("write failed: %s key=%s", s.ToString().c_str(), key.c_str());
+```
+
+The macro is a no-op when `ROCKSDB_STRESS_TRACE` is not defined, so it has zero
+cost in normal builds.
+
+### Performance Overhead
+
+| Function type | Overhead |
+|---|---|
+| Real work (>= 1μs) | < 0.1% — indistinguishable from noise |
+| Trivial leaf functions | ~2x (dominated by ring buffer write) |
+
+For stress tests, the overhead is negligible because RocksDB functions do real
+work (I/O, memcpy, comparisons). To exclude specific hot leaf functions:
+
+```cpp
+ROCKSDB_NO_INSTRUMENT int MyHotFunction() { ... }
+```
+
+### Workflow: Debugging a Stress Test Failure
+
+1. Reproduce the failure with `STRESS_TRACE=1`:
+   ```bash
+   STRESS_TRACE=1 DEBUG_LEVEL=0 make -j$(nproc) db_stress
+   python3 tools/db_crashtest.py blackbox --simple ...
+   ```
+
+2. On failure, find the trace files:
+   ```bash
+   ls /tmp/rocksdb_crashtest_*/stress-trace-*.txt
+   ```
+
+3. Resolve addresses and examine the trace:
+   ```bash
+   # Find the thread that crashed (largest/most recent trace file)
+   ls -lS /tmp/rocksdb_crashtest_*/stress-trace-*.txt | head -1
+   
+   # Resolve and view
+   cat trace.txt | head -100
+   ```
+
+4. The trace shows the last ~8K function calls before the crash — usually enough
+   to reconstruct the exact code path and identify the race condition or logic error.

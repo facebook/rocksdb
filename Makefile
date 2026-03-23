@@ -86,6 +86,7 @@ else
 	LIB_MODE?=shared
 endif
 
+
 $(info $$DEBUG_LEVEL is $(DEBUG_LEVEL), $$LIB_MODE is $(LIB_MODE))
 
 # Detect what platform we're building on.
@@ -420,6 +421,13 @@ endif
 # and dump logic live in monitoring/stress_trace.{h,cc}.
 ifdef STRESS_TRACE
 	PLATFORM_CXXFLAGS += -DROCKSDB_STRESS_TRACE -finstrument-functions
+	# Exclude standard library headers from instrumentation. GCC's
+	# -finstrument-functions instruments ALL functions including inlined
+	# STL templates, which can reference symbols not present in the runtime
+	# library (e.g. _M_high_mark from a newer libstdc++ header with an older
+	# runtime). Excluding these paths avoids the ABI mismatch while still
+	# instrumenting all RocksDB code.
+	PLATFORM_CXXFLAGS += -finstrument-functions-exclude-file-list=/mnt/gvfs/third-party2/libgcc,/mnt/gvfs/third-party2/glibc,/usr/include/c++,/usr/local/include/c++
 	PLATFORM_CCFLAGS += -finstrument-functions
 	EXEC_LDFLAGS += -ldl
 endif
