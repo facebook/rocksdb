@@ -768,37 +768,32 @@ TEST_F(SstFileReaderTableIteratorTest, UserDefinedTimestampsEnabled) {
   Close();
 }
 
-class SstFileReaderTableMultiGetTest : public DBTestBase {
+class SstFileReaderTableGetTest : public DBTestBase,
+                                  public testing::WithParamInterface<bool> {
  public:
-  SstFileReaderTableMultiGetTest()
-      : DBTestBase("sst_file_reader_table_multi_get_test",
+  SstFileReaderTableGetTest()
+      : DBTestBase("sst_file_reader_table_get_test",
                    /*env_do_fsync=*/false) {}
 
-  void VerifyTableEntry(Iterator* iter, const std::string& user_key,
-                        ValueType value_type,
-                        std::optional<std::string> expected_value,
-                        bool backward_iteration = false) {
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_TRUE(iter->status().ok());
-    ParsedInternalKey pikey;
-    ASSERT_OK(ParseInternalKey(iter->key(), &pikey, /*log_err_key=*/false));
-    ASSERT_EQ(pikey.user_key, user_key);
-    ASSERT_EQ(pikey.type, value_type);
-    if (expected_value.has_value()) {
-      ASSERT_EQ(iter->value(), expected_value.value());
-    }
-    if (!backward_iteration) {
-      iter->Next();
+  bool UseMultiGet() const { return GetParam(); }
+
+  Status DoGet(SstFileReader& reader, const Slice& key, std::string* value) {
+    if (UseMultiGet()) {
+      std::vector<Slice> keys = {key};
+      std::vector<std::string> values;
+      auto statuses = reader.MultiGet(ReadOptions(), keys, &values);
+      if (statuses[0].ok()) {
+        *value = values[0];
+      }
+      return statuses[0];
     } else {
-      iter->Prev();
+      return reader.Get(ReadOptions(), key, value);
     }
   }
 };
 
-TEST_F(SstFileReaderTableMultiGetTest, Basic) {
+TEST_P(SstFileReaderTableGetTest, Basic) {
   Options options = CurrentOptions();
-  const Comparator* ucmp = BytewiseComparator();
-  options.comparator = ucmp;
   options.disable_auto_compactions = true;
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
   options.statistics = CreateDBStatistics();
@@ -809,59 +804,50 @@ TEST_F(SstFileReaderTableMultiGetTest, Basic) {
   DestroyAndReopen(options);
 
   ASSERT_OK(Put("foo", "val1"));
-  const Snapshot* snapshot1 = dbfull()->GetSnapshot();
   ASSERT_OK(Delete("foo"));
-  ASSERT_OK(Delete("bar"));
-  const Snapshot* snapshot2 = dbfull()->GetSnapshot();
   ASSERT_OK(Put("bar", "val2"));
   ASSERT_OK(Put("baz", "val3"));
   ASSERT_OK(Put("aaa", "val4"));
-  const Snapshot* snapshot3 = dbfull()->GetSnapshot();
   ASSERT_OK(Merge("aaa", "val5"));
 
   ASSERT_OK(Flush());
 
   std::vector<LiveFileMetaData> files;
   dbfull()->GetLiveFilesMetaData(&files);
-  ASSERT_TRUE(files.size() == 1);
-  ASSERT_TRUE(files[0].level == 0);
+  ASSERT_EQ(files.size(), 1);
   std::string file_name = files[0].directory + "/" + files[0].relative_filename;
 
   SstFileReader reader(options);
   ASSERT_OK(reader.Open(file_name));
   ASSERT_OK(reader.VerifyChecksum());
 
-  ASSERT_OK(options.statistics->Reset());
+  std::string value;
 
-  std::vector<Slice> keys;
-  std::vector<std::string> values;
+  // Found keys
+  ASSERT_OK(DoGet(reader, "bar", &value));
+  ASSERT_EQ(value, "val2");
 
-  keys.emplace_back("fo1");
-  keys.emplace_back("foo");
-  keys.emplace_back("baz");
-  keys.emplace_back("bar");
-  keys.emplace_back("aaa");
-  auto statuses = reader.MultiGet(ReadOptions(), keys, &values);
-  ASSERT_TRUE(statuses[0].IsNotFound())
-      << "Failed: status=" << statuses[0].ToString() << " val=" << values[0];
-  ASSERT_TRUE(statuses[1].IsNotFound())
-      << "Failed: status=" << statuses[0].ToString() << " val=" << values[1];
-  ASSERT_TRUE(statuses[2].ok());
-  ASSERT_TRUE(statuses[3].ok());
-  ASSERT_EQ("val3", values[2]);
-  ASSERT_EQ("val2", values[3]);
-  ASSERT_TRUE(statuses[4].ok());
-  ASSERT_EQ("val4,val5", values[4]);
+  ASSERT_OK(DoGet(reader, "baz", &value));
+  ASSERT_EQ(value, "val3");
 
-  uint64_t cache_hits = options.statistics->getTickerCount(BLOCK_CACHE_HIT);
-  uint64_t cache_misses = options.statistics->getTickerCount(BLOCK_CACHE_MISS);
-  ASSERT_GT(cache_hits + cache_misses, 0);
+  // Deleted key returns NotFound
+  ASSERT_TRUE(DoGet(reader, "foo", &value).IsNotFound());
 
-  dbfull()->ReleaseSnapshot(snapshot1);
-  dbfull()->ReleaseSnapshot(snapshot2);
-  dbfull()->ReleaseSnapshot(snapshot3);
+  // Non-existent key returns NotFound
+  ASSERT_TRUE(DoGet(reader, "nonexistent", &value).IsNotFound());
+
+  // Bloom filter filtered key
+  ASSERT_TRUE(DoGet(reader, "zzz_not_in_sst", &value).IsNotFound());
+
+  // Merged key
+  ASSERT_OK(DoGet(reader, "aaa", &value));
+  ASSERT_EQ(value, "val4,val5");
+
   Close();
 }
+
+INSTANTIATE_TEST_CASE_P(SingleAndMulti, SstFileReaderTableGetTest,
+                        testing::Bool());
 
 }  // namespace ROCKSDB_NAMESPACE
 

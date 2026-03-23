@@ -180,6 +180,59 @@ std::vector<Status> SstFileReader::MultiGet(const ReadOptions& roptions,
   return statuses;
 }
 
+Status SstFileReader::Get(const ReadOptions& roptions, const Slice& key,
+                          PinnableSlice* value) {
+  auto r = rep_.get();
+  value->Reset();
+
+  const Comparator* user_comparator =
+      r->ioptions.internal_comparator.user_comparator();
+  Statistics* statistics = r->ioptions.stats;
+
+  Status status;
+  MergeContext merge_context;
+  SequenceNumber max_covering_tombstone_seq = 0;
+  GetContext get_ctx(user_comparator, r->ioptions.merge_operator.get(),
+                     nullptr /* logger */, statistics, GetContext::kNotFound,
+                     key, value, nullptr /* columns */, nullptr /* timestamp */,
+                     nullptr /* value_found */, &merge_context, true,
+                     &max_covering_tombstone_seq, r->ioptions.clock);
+
+  status = r->table_reader->Get(
+      roptions, InternalKey(key, kMaxSequenceNumber, kTypeValue).Encode(),
+      &get_ctx, r->moptions.prefix_extractor.get(), false /* skip_filters */);
+
+  if (status.ok()) {
+    switch (get_ctx.State()) {
+      case GetContext::kFound:
+        break;
+      case GetContext::kNotFound:
+      case GetContext::kDeleted:
+        status = Status::NotFound();
+        break;
+      case GetContext::kMerge:
+        status = Status::MergeInProgress();
+        break;
+      case GetContext::kCorrupt:
+      case GetContext::kUnexpectedBlobIndex:
+      case GetContext::kMergeOperatorFailed:
+        status = Status::Corruption();
+        break;
+    }
+  }
+  return status;
+}
+
+Status SstFileReader::Get(const ReadOptions& roptions, const Slice& key,
+                          std::string* value) {
+  PinnableSlice pin_value;
+  Status s = Get(roptions, key, &pin_value);
+  if (s.ok()) {
+    value->assign(pin_value.data(), pin_value.size());
+  }
+  return s;
+}
+
 Iterator* SstFileReader::NewIterator(const ReadOptions& roptions) {
   assert(roptions.io_activity == Env::IOActivity::kUnknown);
   auto r = rep_.get();

@@ -36,10 +36,17 @@ class SstFileReader {
                                std::vector<std::string>* values);
 
   // MultiGet variant that returns PinnableSlice values, enabling zero-copy
-  // when the underlying TableReader supports pinning (e.g., from block cache).
+  // when the underlying TableReader supports pinning.
   std::vector<Status> MultiGet(const ReadOptions& options,
                                const std::vector<Slice>& keys,
                                std::vector<PinnableSlice>* values);
+
+  // Point lookup a single key from the SST.
+  Status Get(const ReadOptions& options, const Slice& key, std::string* value);
+
+  // Point lookup variant that returns a PinnableSlice.
+  Status Get(const ReadOptions& options, const Slice& key,
+             PinnableSlice* value);
 
   // Returns a new iterator over the table contents as a raw table iterator,
   // a.k.a a `TableIterator`that iterates all point data entries in the table
