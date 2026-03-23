@@ -20,6 +20,8 @@ RocksDB supports multiple compression algorithms to reduce storage footprint and
 | 8. Checksums | [08_checksums.md](08_checksums.md) | Checksum ordering invariants for SST blocks, ZSTD frame checksums, and blob record checksums. |
 | 9. Performance | [09_performance.md](09_performance.md) | Algorithm selection guide, CPU/storage tradeoffs, dictionary compression benefits, memory costs, and `db_bench` benchmarking examples. |
 | 10. Best Practices | [10_best_practices.md](10_best_practices.md) | Common pitfalls, recommended configurations, and debugging techniques for compression issues. |
+| 11. Parallel Compression | [11_parallel_compression.md](11_parallel_compression.md) | Lock-free ring buffer architecture, worker thread dispatch, ordering guarantees, configuration, and when to use parallel compression. |
+| 12. Compression Comparison | [12_compression_comparison.md](12_compression_comparison.md) | Side-by-side comparison of compression across WAL, blob files, and SST blocks: algorithm support, dictionary, parallelism, checksums, and configurability. |
 
 ## Key Characteristics
 
