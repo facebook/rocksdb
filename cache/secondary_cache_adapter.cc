@@ -569,11 +569,10 @@ Status CacheWithSecondaryAdapter::GetSecondaryCachePinnedUsage(
 // This is due to the rounding of the reservation amount.
 //
 // We rely on the current pri_cache_res_ total memory used to estimate the
-// new secondary cache reservation after the ratio change. For this reason,
-// once the ratio is lowered to 0.0 (effectively disabling the secondary
-// cache and pri_cache_res_ total mem used going down to 0), we cannot
-// increase the ratio and re-enable it, We might remove this limitation
-// in the future.
+// new secondary cache reservation after the ratio change. Since PR #12059
+// simplified reservation accounting to use a mutex and track reserved_usage_
+// independently of sec_cache_res_ratio_, the ratio can now be lowered to 0.0
+// and subsequently increased back to re-enable the secondary cache.
 Status CacheWithSecondaryAdapter::UpdateCacheReservationRatio(
     double compressed_secondary_ratio) {
   if (!distribute_cache_res_) {

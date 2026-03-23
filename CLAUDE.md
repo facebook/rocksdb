@@ -313,3 +313,31 @@ The following patterns emerged as frequent sources of review feedback:
 ### Formatting code
 * After making change, use `make format-auto` to auto-apply formatting without
     interactive prompts (Claude Code friendly).
+
+## Architecture & Component Documentation
+
+**Start here for codebase understanding:** Read `ARCHITECTURE.md` at the repo root for a high-level map of the entire codebase — data flows, directory layout, key invariants, and internal key format.
+
+For the full index of 30+ component docs, see `docs/components/README.md`.
+
+Key docs by area:
+- **Flow docs**: `write_flow.md` (end-to-end write path), `read_flow.md` (end-to-end read path)
+- **Core**: `memtable.md`, `wal.md`, `flush.md`, `compaction.md`, `sst_table_format.md`, `version_management.md`, `iterator.md`
+- **Storage**: `file_io.md`, `blob_db.md`, `compression.md`, `tiered_storage.md`
+- **Cache**: `cache.md`, `secondary_cache.md`
+- **Features**: `transaction.md`, `wide_column.md`, `user_defined_timestamp.md`, `user_defined_index.md`, `snapshot.md`, `filter.md`
+- **API**: `public_api_read.md`, `public_api_write.md`
+- **Infra**: `db_impl.md`, `threading_model.md`, `options.md`, `crash_recovery.md`, `data_integrity.md`, `monitoring.md`, `listener.md`
+- **Tools**: `debugging_tools.md`, `stress_test.md`, `db_bench.md`, `checkpoint.md`, `secondary_instance.md`
+
+These docs describe encoding formats, invariants, threading rules, and component interactions — use them to understand what you're changing before modifying code.
+
+## Documentation Maintenance
+
+When modifying any source file referenced in `docs/components/`, you MUST update the corresponding documentation. The CI job `doc-check` uses Claude AI to detect stale docs.
+
+When making changes:
+1. Check if your modified files are referenced in any doc: `grep -rl "your_file.h" docs/components/`
+2. If referenced, update the doc to reflect your changes
+3. If adding new components or major features, add them to the appropriate doc
+4. If adding a new subsystem, consider creating a new doc in `docs/components/` and updating `docs/components/README.md` and `ARCHITECTURE.md`
