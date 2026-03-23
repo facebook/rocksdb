@@ -42,6 +42,21 @@ Think like someone who needs to debug or modify this component:
 - Are there important options or configuration knobs not mentioned?
 - Are there deprecated features still documented, or new features not yet documented?
 
+### Step 4: Hunt for Undocumented Complexity
+Go beyond checking what the docs say — actively explore the codebase for things the docs SHOULD say but don't. This is the highest-value part of your review.
+
+1. Read the main header files for this component. For every public API, option, or type: is it documented? If not, is it important enough that it should be?
+2. Read the implementation files. Look for:
+   - Complex algorithms or non-trivial logic that a developer would need explained
+   - Subtle ordering dependencies or preconditions not obvious from the API
+   - Performance cliffs — configurations or usage patterns that cause dramatic slowdowns
+   - Common misconfiguration pitfalls you can infer from sanitization code, assertions, or error messages
+   - Internal state machines or multi-phase operations that are hard to follow without guidance
+3. Check recent git history (`git log --oneline --since="2024-01-01" -- <relevant paths>`). Are there new features, behavioral changes, or bug fixes that deserve documentation?
+4. Look at test files — what edge cases do tests exercise that the docs don't explain? Tests often encode important behavioral contracts.
+
+For each undocumented thing worth mentioning, report it in the "Undocumented Complexity" section of your review with enough detail that the fixer can write the documentation without re-doing your investigation.
+
 ## Review Criteria
 
 ### 1. Correctness (HIGHEST PRIORITY)
@@ -130,6 +145,15 @@ Format each issue as an actionable item with enough context that someone can fix
 ### <Issue>
 - **File:** <which file>
 - **Details:** <what's wrong>
+
+## Undocumented Complexity
+(Things NOT in the docs that SHOULD be — found by reading the code)
+
+### <Topic>
+- **What it is:** <description of the behavior/mechanism>
+- **Why it matters:** <who needs this, what goes wrong without it>
+- **Key source:** <file path + function/struct>
+- **Suggested placement:** <new chapter / add to existing chapter NN>
 
 ## Positive Notes
 (What's genuinely well done — be specific)

@@ -1,0 +1,96 @@
+{
+  "compaction": [
+    {
+      "name": "compaction_core_and_leveled",
+      "description": "Core compaction concepts, leveled compaction, file selection priority, dynamic levels, trivial move",
+      "chapters": "- `01_overview.md` \u2014 Compaction overview, LSM-tree maintenance, compaction triggers\n- `02_leveled_compaction.md` \u2014 Level-based compaction algorithm, file selection, scoring\n- `03_file_selection_and_priority.md` \u2014 File picking heuristics, compaction priority options\n- `04_dynamic_levels.md` \u2014 Dynamic level size calculation\n- `05_trivial_move.md` \u2014 Trivial move optimization, conditions and limitations",
+      "key_files": "db/compaction/compaction.h, db/compaction/compaction.cc, db/compaction/compaction_picker.h, db/compaction/compaction_picker.cc, db/compaction/compaction_picker_level.h, db/compaction/compaction_picker_level.cc, db/compaction/file_pri.h, include/rocksdb/advanced_options.h"
+    },
+    {
+      "name": "compaction_universal_and_fifo",
+      "description": "Universal compaction style and FIFO compaction style",
+      "chapters": "- `06_universal_compaction.md` \u2014 Universal compaction algorithm, size ratio, space amplification\n- `07_fifo_compaction.md` \u2014 FIFO compaction, TTL-based deletion, size limits",
+      "key_files": "db/compaction/compaction_picker_universal.h, db/compaction/compaction_picker_universal.cc, db/compaction/compaction_picker_fifo.h, db/compaction/compaction_picker_fifo.cc"
+    },
+    {
+      "name": "compaction_execution",
+      "description": "Compaction job execution, subcompaction parallelism, remote compaction, compaction iterator (key merging)",
+      "chapters": "- `08_compaction_job.md` \u2014 CompactionJob execution flow, input/output management\n- `09_subcompaction.md` \u2014 Subcompaction parallelism, key range splitting\n- `10_remote_compaction.md` \u2014 Remote/distributed compaction service architecture\n- `11_compaction_iterator.md` \u2014 CompactionIterator key merging, snapshot handling, GC",
+      "key_files": "db/compaction/compaction_job.h, db/compaction/compaction_job.cc, db/compaction/compaction_service_job.cc, db/compaction/compaction_outputs.h, db/compaction/compaction_outputs.cc, db/compaction/subcompaction_state.h, db/compaction/subcompaction_state.cc, db/compaction/compaction_iterator.h, db/compaction/compaction_iterator.cc, db/compaction/clipping_iterator.h"
+    },
+    {
+      "name": "compaction_filters_and_partitioning",
+      "description": "Compaction filters, SST partitioning, manual compaction, disk space management",
+      "chapters": "- `12_compaction_filter.md` \u2014 CompactionFilter and CompactionFilterFactory\n- `13_sst_partitioner.md` \u2014 SST output file partitioning, SstPartitioner interface\n- `14_manual_compaction.md` \u2014 Manual compaction API, CompactRange, CompactFiles\n- `15_disk_space_management.md` \u2014 SST file manager, rate limiting, delete scheduling",
+      "key_files": "include/rocksdb/compaction_filter.h, include/rocksdb/sst_partitioner.h, db/compaction/sst_partitioner.cc, db/db_impl/db_impl_compaction_flush.cc, include/rocksdb/sst_file_manager.h"
+    }
+  ],
+  "sst_table_format": [
+    {
+      "name": "sst_block_based_core",
+      "description": "Block-based table core: format, building, reading, block structure, block fetcher",
+      "chapters": "- `01_overview.md` \u2014 Table format overview, format versions, table factory\n- `02_block_based_format.md` \u2014 Block-based table file layout, metaindex, footer\n- `03_data_blocks.md` \u2014 Data block structure, restart points, block builder\n- `04_block_fetcher.md` \u2014 Block reading, caching, prefetching, compression handling\n- `05_table_builder.md` \u2014 Table building pipeline, flush integration",
+      "key_files": "table/block_based/block_based_table_builder.h, table/block_based/block_based_table_builder.cc, table/block_based/block_based_table_reader.h, table/block_based/block_based_table_reader.cc, table/block_based/block_based_table_factory.cc, table/format.h, table/format.cc, table/block_fetcher.h, table/block_fetcher.cc, table/block_based/block.h, table/block_based/block.cc, table/block_based/block_builder.h, table/block_based/block_builder.cc, include/rocksdb/table.h"
+    },
+    {
+      "name": "sst_index_and_filter",
+      "description": "Index block formats, filter blocks, partitioned index/filters, data block hash index",
+      "chapters": "- `06_index_formats.md` \u2014 Binary search index, hash index, two-level index\n- `07_filter_blocks.md` \u2014 Full filter, partitioned filter, filter policy\n- `08_partitioned_index_filter.md` \u2014 Partitioned index and filter blocks, two-level iteration\n- `09_data_block_hash_index.md` \u2014 Data block hash index for point lookup optimization",
+      "key_files": "table/block_based/index_builder.h, table/block_based/index_builder.cc, table/block_based/index_reader_common.h, table/block_based/index_reader_common.cc, table/block_based/filter_block.h, table/block_based/filter_policy.cc, table/block_based/filter_policy_internal.h, table/block_based/full_filter_block.h, table/block_based/full_filter_block.cc, table/block_based/partitioned_filter_block.h, table/block_based/partitioned_filter_block.cc, table/block_based/partitioned_index_reader.h, table/block_based/partitioned_index_reader.cc, table/block_based/data_block_hash_index.h, table/block_based/data_block_hash_index.cc"
+    },
+    {
+      "name": "sst_other_formats",
+      "description": "PlainTable, CuckooTable formats, table properties, SST file writer",
+      "chapters": "- `10_plain_table.md` \u2014 PlainTable format, hash-based index, limitations\n- `11_cuckoo_table.md` \u2014 CuckooTable format, hash function selection\n- `12_table_properties.md` \u2014 Table properties, user-collected properties, property collectors\n- `13_sst_file_writer.md` \u2014 SstFileWriter API, external SST file creation",
+      "key_files": "table/plain/plain_table_factory.h, table/plain/plain_table_factory.cc, table/plain/plain_table_builder.h, table/plain/plain_table_builder.cc, table/plain/plain_table_reader.h, table/plain/plain_table_reader.cc, table/cuckoo/cuckoo_table_factory.h, table/cuckoo/cuckoo_table_builder.h, table/cuckoo/cuckoo_table_builder.cc, table/cuckoo/cuckoo_table_reader.h, table/cuckoo/cuckoo_table_reader.cc, table/table_properties.cc, include/rocksdb/table_properties.h, table/sst_file_writer.cc, include/rocksdb/sst_file_writer.h"
+    }
+  ],
+  "options": [
+    {
+      "name": "options_structs_and_tuning",
+      "description": "Option structs, column family vs DB options, table options, tuning guidance, defaults and sanitization",
+      "chapters": "- `01_overview.md` \u2014 Options system overview, option hierarchy\n- `02_db_options.md` \u2014 DBOptions fields, global database settings\n- `03_cf_options.md` \u2014 ColumnFamilyOptions fields, per-CF settings\n- `04_table_options.md` \u2014 BlockBasedTableOptions and other table options\n- `05_tuning_guide.md` \u2014 Tuning recommendations, common configurations\n- `06_option_defaults_and_sanitization.md` \u2014 Default values, sanitization rules, option interactions",
+      "key_files": "include/rocksdb/options.h, include/rocksdb/advanced_options.h, include/rocksdb/table.h, options/cf_options.h, options/cf_options.cc, options/db_options.h, options/db_options.cc"
+    },
+    {
+      "name": "options_serialization_and_customizable",
+      "description": "Option serialization, parsing, option files, Customizable/Configurable framework",
+      "chapters": "- `07_option_string_parsing.md` \u2014 Option string format, option map, GetColumnFamilyOptionsFromString\n- `08_options_file.md` \u2014 OPTIONS file format, loading, saving, versioning\n- `09_customizable_framework.md` \u2014 Customizable and Configurable base classes, object registry\n- `10_option_change_migration.md` \u2014 Changing options on running DB, dynamic option updates",
+      "key_files": "options/options_helper.h, options/options_helper.cc, options/options_parser.h, options/options_parser.cc, options/options.cc, include/rocksdb/customizable.h, include/rocksdb/configurable.h, options/customizable.cc, options/configurable.cc"
+    }
+  ],
+  "public_api_write": [
+    {
+      "name": "write_batch_and_operations",
+      "description": "WriteBatch, basic write operations (Put, Delete, SingleDelete), WriteBatchWithIndex",
+      "chapters": "- `01_overview.md` \u2014 Write API overview, operation types\n- `02_write_batch.md` \u2014 WriteBatch format, encoding, handler pattern\n- `03_single_delete.md` \u2014 SingleDelete semantics, correctness requirements\n- `04_write_batch_with_index.md` \u2014 WriteBatchWithIndex for read-your-own-writes",
+      "key_files": "include/rocksdb/write_batch.h, db/write_batch.cc, db/write_batch_internal.h, include/rocksdb/utilities/write_batch_with_index.h"
+    },
+    {
+      "name": "merge_and_delete_range",
+      "description": "Merge operator, DeleteRange implementation and semantics",
+      "chapters": "- `05_merge_operator.md` \u2014 MergeOperator interface, full vs partial merge\n- `06_merge_implementation.md` \u2014 Merge operand stacking, merge during compaction and read\n- `07_delete_range.md` \u2014 DeleteRange API, range tombstone semantics\n- `08_delete_range_implementation.md` \u2014 Range tombstone storage, fragmentation, read-path integration",
+      "key_files": "include/rocksdb/merge_operator.h, db/merge_helper.h, db/merge_helper.cc, db/merge_operator.cc, db/range_del_aggregator.h, db/range_del_aggregator.cc, db/range_tombstone_fragmenter.h, db/range_tombstone_fragmenter.cc"
+    },
+    {
+      "name": "sst_ingestion_and_misc",
+      "description": "External SST file creation and ingestion, low-priority writes",
+      "chapters": "- `09_sst_file_writer.md` \u2014 SstFileWriter API, creating SST files externally\n- `10_external_file_ingestion.md` \u2014 IngestExternalFile, file validation, atomic ingestion\n- `11_low_priority_write.md` \u2014 Low-priority write support, rate limiting for bulk loading",
+      "key_files": "include/rocksdb/sst_file_writer.h, table/sst_file_writer.cc, db/external_sst_file_ingestion_job.h, db/external_sst_file_ingestion_job.cc"
+    }
+  ],
+  "db_impl": [
+    {
+      "name": "db_impl_core",
+      "description": "Core DB implementation, open/close lifecycle, column families, architecture overview",
+      "chapters": "- `01_overview.md` \u2014 DBImpl architecture, key abstractions\n- `02_db_open.md` \u2014 DB::Open flow, recovery, manifest replay\n- `03_db_close.md` \u2014 DB close and cleanup, resource release\n- `04_column_families.md` \u2014 Column family management, creation, dropping, lifecycle\n- `05_version_management.md` \u2014 SuperVersion, Version, VersionSet interaction",
+      "key_files": "db/db_impl/db_impl.h, db/db_impl/db_impl.cc, db/db_impl/db_impl_open.cc, db/column_family.h, db/column_family.cc, db/version_set.h"
+    },
+    {
+      "name": "db_impl_io_and_maintenance",
+      "description": "Write path, read path, flush/compaction scheduling, background threads, error handling",
+      "chapters": "- `06_write_path.md` \u2014 Write pipeline, WAL write, memtable insertion, write groups\n- `07_read_path.md` \u2014 Get/MultiGet implementation, snapshot management\n- `08_flush_compaction_scheduling.md` \u2014 Background job scheduling, MaybeScheduleFlushOrCompaction\n- `09_background_error_handling.md` \u2014 Error recovery, auto-resume, ErrorHandler\n- `10_secondary_and_readonly.md` \u2014 Read-only and secondary instance implementation",
+      "key_files": "db/db_impl/db_impl_write.cc, db/db_impl/db_impl_compaction_flush.cc, db/db_impl/db_impl_readonly.cc, db/db_impl/db_impl_secondary.cc, db/error_handler.h, db/error_handler.cc"
+    }
+  ]
+}
