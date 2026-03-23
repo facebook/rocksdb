@@ -56,7 +56,7 @@ Operands are returned in **oldest-to-newest** order (chronological insertion ord
 
 ### SuperVersion Optimization
 
-For `GetMergeOperands()` with many or large operands, `DBImpl::ShouldReferenceSuperVersion()` decides whether to keep the SuperVersion referenced to avoid large `memcpy` operations. The optimization triggers when cumulative operand bytes >= 32KB and average operand size >= 256 bytes.
+For `GetMergeOperands()` with many or large operands, `DBImpl::ShouldReferenceSuperVersion()` decides whether to keep the SuperVersion referenced to avoid large `memcpy` operations. When the cumulative operand size is large enough, the SuperVersion reference is held to allow zero-copy access to operands in memtables.
 
 ## GetApproximateSizes() -- Size Estimation
 
@@ -98,9 +98,17 @@ Output parameters:
 
 Note: This API is only supported for memtables created by `SkipListFactory`. The estimation uses the SkipList's hierarchical structure: for each boundary key, it estimates the number of keys smaller than it based on the levels of `Next()` calls during the binary search. The result is approximate but effective for distinguishing large ranges from small ones.
 
-## GetPropertiesOfAllTables() / GetPropertiesOfTablesInRange()
+## GetPropertiesOfAllTables() / GetPropertiesOfTablesInRange() / GetPropertiesOfTablesByLevel()
 
-Returns `TablePropertiesCollection` (a map from file name to `TableProperties`) for all SST files or SST files overlapping given ranges (see `DB::GetPropertiesOfAllTables()` and `DB::GetPropertiesOfTablesInRange()` in `include/rocksdb/db.h`).
+Returns `TablePropertiesCollection` (a map from file name to `TableProperties`) for all SST files, SST files overlapping given ranges, or SST files grouped by level (see `DB::GetPropertiesOfAllTables()`, `DB::GetPropertiesOfTablesInRange()`, and `DB::GetPropertiesOfTablesByLevel()` in `include/rocksdb/db.h`). `GetPropertiesOfTablesByLevel()` returns a `vector<unique_ptr<TablePropertiesCollection>>` with one entry per level.
+
+## GetIntProperty() / GetAggregatedIntProperty()
+
+`GetIntProperty()` is a more efficient alternative to `GetProperty()` for integer-valued properties, returning the value directly as `uint64_t` without string conversion (see `DB::GetIntProperty()` in `include/rocksdb/db.h`). `GetAggregatedIntProperty()` returns the sum of a property across all column families.
+
+## VerifyChecksum() / VerifyFileChecksums()
+
+`VerifyChecksum()` reads and verifies block checksums for all SST files (see `DB::VerifyChecksum()` in `include/rocksdb/db.h`). `VerifyFileChecksums()` verifies full-file checksums stored in the MANIFEST. Both accept `ReadOptions` for controlling I/O behavior.
 
 ## GetProperty() / GetMapProperty()
 

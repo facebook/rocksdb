@@ -35,11 +35,33 @@ Returns a `std::unique_ptr<AttributeGroupIterator>`.
 
 ### MultiScanArgs
 
-`MultiScanArgs` (see `include/rocksdb/options.h`) wraps a vector of `ScanOptions`, each specifying:
+`MultiScanArgs` (see `include/rocksdb/options.h`) manages a collection of `ScanOptions` for multi-range scans. It is constructed with a `Comparator*` which is used to maintain range ordering.
+
+**Construction and Range Insertion:**
+
+Ranges are added via `insert()` method overloads rather than direct vector construction:
+- `insert(const Comparator*, const Slice& start)` -- adds a range with start key only (no upper bound)
+- `insert(const Comparator*, const Slice& start, const Slice& limit)` -- adds a range with start key and upper bound
+
+Ranges should be inserted in increasing order of start key. For optimal performance, ensure either all ranges specify a limit or none do.
+
+**Configuration Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `io_coalesce_threshold` | `size_t` | Controls when adjacent I/O requests are merged |
+| `max_prefetch_size` | `size_t` | Caps prefetch buffer size |
+| `use_async_io` | `bool` | Enables async I/O for multi-range scans |
+| `io_dispatcher` | `IODispatcher*` | Optional custom I/O scheduling (null uses internal dispatcher) |
+
+`CopyConfigFrom(const MultiScanArgs&)` copies configuration fields from another `MultiScanArgs` without copying the ranges.
+
+**ScanOptions:**
+
+Each `ScanOptions` (see `include/rocksdb/options.h`) contains:
 - `range.start` -- start key for the range (required)
 - `range.limit` -- optional upper bound for the range (replaces `iterate_upper_bound`)
-
-Ranges should be in increasing order of start key. For optimal performance, ensure either all ranges specify a limit or none do.
+- `property_bag` -- `optional<unordered_map<string, string>>` for passing custom name/value pairs to external table readers (opaque to RocksDB)
 
 ### Usage Pattern
 

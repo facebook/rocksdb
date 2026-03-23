@@ -35,7 +35,7 @@ The implementation in `DBImpl::MultiGetCommon()` in `db/db_impl/db_impl.cc`:
 
 ### Consistent Snapshot Across Column Families
 
-`MultiCFSnapshot()` ensures all column families see the same sequence number. It acquires SuperVersion references for all CFs, then verifies the last published sequence hasn't changed. If it has, it retries. This guarantees cross-CF consistency without holding the DB mutex.
+`MultiCFSnapshot()` ensures all column families see the same sequence number. It acquires SuperVersion references for all CFs, then checks whether any memtable was sealed between snapshot capture and SuperVersion acquisition (by comparing `sv->mem->GetEarliestSequenceNumber()` against the snapshot). If a seal is detected, it retries. The retry is limited to 3 attempts (`constexpr int num_retries = 3`). On the last retry, the DB mutex is acquired to guarantee success. This guarantees cross-CF consistency without normally holding the DB mutex.
 
 ### Batched Block Reads
 

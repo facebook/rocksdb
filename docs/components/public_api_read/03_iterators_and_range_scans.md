@@ -96,7 +96,7 @@ This is more efficient than deleting and recreating the iterator because it reus
 
 `ReadOptions::auto_refresh_iterator_with_snapshot` (experimental) enables automatic refresh of long-running iterators to release resources (SuperVersion references, pinned memtables) from older LSM versions. This prevents long-running iterators from blocking compaction garbage collection.
 
-Note: Not compatible with `WRITE_PREPARED` or `WRITE_UNPREPARED` transaction policies.
+Note: Not compatible with `WRITE_PREPARED` or `WRITE_UNPREPARED` transaction policies. Also not recommended when using user-defined timestamps with `persist_user_defined_timestamps=false` and non-null `ReadOptions::timestamp` or `ReadOptions::iter_start_ts`, because auto-refreshing will not prevent user timestamp information from being dropped during iteration.
 
 ## Tailing Iterators
 
@@ -134,19 +134,20 @@ Key pinning is guaranteed when `ReadOptions::pin_data=true` and `BlockBasedTable
 
 Each `Next()` call performs approximately 2-3 key comparisons (assuming upper bound is set and no merge operator):
 
-1. **Heap merge** via `replace_top()`: In most workloads, data has good locality -- ~90% of keys are in the bottommost sorted run. When the top iterator stays on top after `Next()` (~81% of the time), only 1 comparison is needed.
+1. **Heap merge** via `replace_top()`: For typical leveled compaction workloads with default amplification factors, most keys reside in the bottommost sorted run. When the top iterator stays on top after `Next()` (the common case), only 1 comparison is needed.
 2. **Duplicate key check**: `DBIter` checks whether the current entry has the same user key as the previous entry (to skip older versions in the multi-version system). This rarely finds a duplicate since compaction collects garbage, but the comparison is always required.
 
 For most operations, CPU cache misses dominate the cost of comparisons, not the comparisons themselves. However, `Iterator::Next()` is simple enough that comparison cost becomes a non-trivial fraction, especially with very long keys or expensive custom comparators.
 
 ## Error Handling During Iteration
 
-When a data block is corrupted, the iterator sets `status()` to `Corruption` but may still return `Valid()=true` for entries in non-corrupted blocks. The correct iteration pattern must check `status()` within the loop body, not just after loop completion:
+At the public `Iterator` level (`DBIter`), when corruption or any error is detected, `Valid()` is always set to `false` immediately. The iterator guarantees that `Valid()=true` implies `status().ok()` -- these states never diverge. After any positioning operation, always check both `Valid()` and `status()`. If `Valid()` is `false`, check `status()` to distinguish "end of range" (status OK) from "error" (status non-OK).
+
+The correct iteration pattern:
 
 Step 1: Call `Seek*()` to position
-Step 2: Check `Valid()` and `status()` in the loop condition
-Step 3: Process `key()`/`value()`
-Step 4: Call `Next()`/`Prev()`
-Step 5: After loop, check `status()` for any final errors
+Step 2: Loop while `Valid()` is true, processing `key()`/`value()`
+Step 3: Call `Next()`/`Prev()` to advance
+Step 4: After the loop, check `status()` for errors
 
-Important: The common pattern `for (Seek; Valid && key < bound; Next)` with only a post-loop `status()` check is insufficient -- it will miss mid-iteration corruption.
+Example: `for (it->Seek(start); it->Valid(); it->Next()) { /* process */ } if (!it->status().ok()) { /* handle error */ }`

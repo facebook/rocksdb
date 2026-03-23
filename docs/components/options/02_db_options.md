@@ -145,7 +145,7 @@ When `delayed_write_rate = 0`, RocksDB infers the rate from `rate_limiter` if se
 | Option | Type | Default | Mutable | Description |
 |--------|------|---------|---------|-------------|
 | `paranoid_checks` | `bool` | `true` | No | Pro-active corruption detection; enters read-only mode on write failure |
-| `flush_verify_memtable_count` | `bool` | `true` | No | DEPRECATED: verify entry count during flush |
+| `flush_verify_memtable_count` | `bool` | `true` | No | Verify entry count during flush; may be removed once stable |
 | `compaction_verify_record_count` | `bool` | `true` | No | DEPRECATED: verify record count during compaction |
 | `verify_sst_unique_id_in_manifest` | `bool` | `true` | No | Verify SST file identity against MANIFEST |
 

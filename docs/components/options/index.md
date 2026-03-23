@@ -21,6 +21,10 @@ RocksDB's configuration system organizes hundreds of tunable parameters into a l
 | 9. Customizable Framework | [09_customizable_framework.md](09_customizable_framework.md) | `Configurable` and `Customizable` base classes, registration and configuration workflow, `ObjectRegistry` factory mechanism, serialization/comparison, and integration with the options system. |
 | 10. Dynamic Option Changes | [10_option_change_migration.md](10_option_change_migration.md) | `SetOptions()` and `SetDBOptions()` execution flow, caveats (no rollback, no sanitization), immediate vs gradual effect timing, immutable option change workflow, and OPTIONS file lifecycle. |
 
+## Key Invariants
+
+- The `comparator` must have the same name and produce the same key ordering across all opens of a database
+
 ## Key Characteristics
 
 - **Layered hierarchy**: `DBOptions` (database-wide), `ColumnFamilyOptions` (per-CF), `BlockBasedTableOptions` (table format), `ReadOptions`/`WriteOptions` (per-operation)
@@ -31,13 +35,6 @@ RocksDB's configuration system organizes hundreds of tunable parameters into a l
 - **OPTIONS file persistence**: Configuration automatically persisted to INI-format files on every configuration-changing event
 - **Configurable/Customizable framework**: Polymorphic components (caches, filters, table factories) participate in unified configuration via `ObjectRegistry`
 - **Convenience methods**: `OptimizeForSmallDb()`, `OptimizeForPointLookup()`, `PrepareForBulkLoad()`, `IncreaseParallelism()` for common tuning profiles
-
-## Key Invariants
-
-- The `comparator` must have the same name and produce the same key ordering across all opens of a database
-
-## Key Characteristics
-
 - `SetOptions()` runs only `ValidateOptions()`, not `SanitizeOptions()` -- sanitization rules do not apply to runtime changes
 - `max_write_buffer_number` is always sanitized to at least 2 (one active, one flushing)
 - L0 trigger ordering is enforced by sanitization: `level0_stop_writes_trigger >= level0_slowdown_writes_trigger >= level0_file_num_compaction_trigger`

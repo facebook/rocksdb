@@ -11,7 +11,7 @@ Complete field-by-field reference for `ReadOptions` (see `ReadOptions` in `inclu
 | `snapshot` | `const Snapshot*` | `nullptr` | Read as of this snapshot; `nullptr` uses implicit snapshot at read start |
 | `timestamp` | `const Slice*` | `nullptr` | Upper bound timestamp for user-defined timestamps (inclusive) |
 | `iter_start_ts` | `const Slice*` | `nullptr` | Lower bound timestamp for iterators; returns all versions in `[iter_start_ts, timestamp]` |
-| `deadline` | `chrono::microseconds` | `zero()` | Absolute deadline for the operation (microseconds since epoch); `zero()` = no deadline |
+| `deadline` | `chrono::microseconds` | `zero()` | Absolute deadline for the operation (microseconds since epoch); best set as `env->NowMicros() + timeout`; `zero()` = no deadline |
 | `io_timeout` | `chrono::microseconds` | `zero()` | Per-file-read timeout; `zero()` = no timeout |
 | `read_tier` | `ReadTier` | `kReadAllTier` | Restricts which storage tiers to read from |
 | `rate_limiter_priority` | `Env::IOPriority` | `IO_TOTAL` | Priority for rate limiter charging; `IO_TOTAL` disables |
@@ -29,7 +29,7 @@ Complete field-by-field reference for `ReadOptions` (see `ReadOptions` in `inclu
 |-------|----------|------------|
 | `kReadAllTier` | Read from all tiers (default) | All |
 | `kBlockCacheTier` | Memtable + block cache only; return `Incomplete` for cache misses | All |
-| `kPersistedTier` | SST files only; skip memtable when WAL disabled | Get/MultiGet only |
+| `kPersistedTier` | Persisted data only; skips memtable when WAL is disabled (memtable data is included when WAL is enabled since WAL makes it persisted). Iterators not supported | Get/MultiGet only |
 | `kMemtableTier` | Memtable only | Iterators |
 
 ## Options Only for Iterators/Scans

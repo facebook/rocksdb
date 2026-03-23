@@ -13,7 +13,7 @@ RocksDB automatically detects sequential access patterns in iterators and enable
 Step 1: Detect sequential access (more than two sequential reads from the same table file)
 Step 2: Start readahead at 8KB
 Step 3: Double the readahead size on each additional sequential read, up to `BlockBasedTableOptions::max_auto_readahead_size` (default 256KB)
-Step 4: Reset readahead to 8KB when moving to a new file (at each level boundary)
+Step 4: Reset readahead to 8KB when the iterator moves to a new SST file (within or across levels)
 
 ### Manual Readahead
 

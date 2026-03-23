@@ -52,7 +52,7 @@ Note: For memtable hits, the value is copied into `PinnableSlice`'s internal buf
 The search short-circuits on finding:
 - A `kTypeValue` (plain put) -- returns the value immediately
 - A `kTypeDeletion` or `kTypeSingleDeletion` -- returns `NotFound`
-- A `kTypeRangeDeletion` covering the key -- returns `NotFound`
+- A range tombstone covering the key at a higher sequence number -- the lookup checks the `FragmentedRangeTombstoneIterator` (a separate data structure from point keys) in each memtable and SST file, and if a covering tombstone exists with a higher sequence number, the key is treated as deleted and returns `NotFound`
 
 For merge operations, the search accumulates merge operands through all levels until finding a base value (put or deletion), then applies the merge operator to produce the final result.
 
