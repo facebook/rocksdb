@@ -38,11 +38,11 @@ OutputIterator SubcompactionState::GetOutputs() const {
                         compaction_outputs_.outputs_);
 }
 
-void SubcompactionState::Cleanup(Cache* cache) {
+void SubcompactionState::Cleanup(Cache* cache, const Status& overall_status) {
   proximal_level_outputs_.Cleanup();
   compaction_outputs_.Cleanup();
 
-  if (!status.ok()) {
+  if (!status.ok() || !overall_status.ok()) {
     for (const auto& out : GetOutputs()) {
       // If this file was inserted into the table cache then remove it here
       // because this compaction was not committed. This is not strictly

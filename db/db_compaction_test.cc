@@ -11746,6 +11746,90 @@ TEST_F(DBCompactionTest, RoundRobinCleanCutWithSharedBoundary) {
   }
 }
 
+// Regression test:
+// 1. Compaction succeeds at subcompaction level, VerifyOutputFiles adds cache
+//    entries for output files via table_cache()->NewIterator().
+// 2. A post-verification step fails (injected here via sync point), setting
+//    compact_->status to error while each subcompaction's status stays OK.
+// 3. SubcompactionState::Cleanup checks individual status (OK) and skips
+//    ReleaseObsolete — the cache entries leak.
+// 4. FaultInjectionTestFS injects metadata read errors, causing GetChildren
+//    to fail in FindObsoleteFiles.
+// 5. Close()'s FindObsoleteFiles also fails to find the orphan for the same
+//    reason. TEST_VerifyNoObsoleteFilesCached finds the leaked entry.
+TEST_F(DBCompactionTest, LeakedTableCacheEntryOnCompactionFailure) {
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> fault_env(NewCompositeEnv(fault_fs));
+
+  Options options = CurrentOptions();
+  options.env = fault_env.get();
+  options.paranoid_file_checks = true;
+  options.level0_file_num_compaction_trigger = 2;
+  options.disable_auto_compactions = true;
+  options.num_levels = 3;
+  DestroyAndReopen(options);
+
+  // Write overlapping data to force a real (non-trivial) compaction.
+  ASSERT_OK(Put("a", std::string(1024, 'x')));
+  ASSERT_OK(Put("z", std::string(1024, 'x')));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("a", std::string(1024, 'y')));
+  ASSERT_OK(Put("z", std::string(1024, 'y')));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+
+  // After VerifyOutputFiles succeeds (cache entries created), inject error
+  // and deactivate the filesystem. The error makes the overall compaction
+  // fail while individual subcompaction statuses stay OK (so Cleanup skips
+  // ReleaseObsolete). The filesystem deactivation makes GetChildren fail
+  // in FindObsoleteFiles, preventing the backstop from evicting the leaked
+  // cache entries — matching the crash test's metadata read fault injection.
+  std::atomic<bool> inject_error{true};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():AfterVerifyOutputFiles", [&](void* arg) {
+        if (inject_error.exchange(false)) {
+          *static_cast<Status*>(arg) = Status::Corruption("injected");
+        }
+      });
+
+  // Enable metadata read fault injection on the bg compaction thread after
+  // the compaction job finishes but before FindObsoleteFiles runs. This
+  // makes GetChildren fail (metadata read), matching crash test's
+  // --open_metadata_read_fault_one_in=8. Only metadata reads fail —
+  // logging and other IO operations continue normally.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BackgroundCallCompaction:1", [&](void*) {
+        fault_fs->SetThreadLocalErrorContext(
+            FaultInjectionIOType::kMetadataRead, /*seed=*/0, /*one_in=*/1,
+            /*retryable=*/false, /*has_data_loss=*/false);
+        fault_fs->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Trigger compaction — fails after VerifyOutputFiles.
+  Status s = dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  ASSERT_NOK(s);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Enable metadata read fault injection on the main thread too, so
+  // Close()'s FindObsoleteFiles also fails to find the orphan file.
+  fault_fs->SetThreadLocalErrorContext(
+      FaultInjectionIOType::kMetadataRead, /*seed=*/0, /*one_in=*/1,
+      /*retryable=*/false, /*has_data_loss=*/false);
+  fault_fs->EnableThreadLocalErrorInjection(
+      FaultInjectionIOType::kMetadataRead);
+
+  // TEST_VerifyNoObsoleteFilesCached asserted within Close on ASAN builds
+  s = db_->Close();
+  ASSERT_OK(s);
+  // Release DB before fault_env goes out of scope to avoid use-after-free.
+  db_ = nullptr;
+}
+
 TEST_F(DBCompactionTest, VerifyFileChecksumOnCompactionOutput) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
