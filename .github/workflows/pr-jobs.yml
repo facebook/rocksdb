@@ -190,7 +190,7 @@ jobs:
     - uses: "./.github/actions/build-folly"
       with:
         cache-hit: ${{ steps.cache-folly.outputs.cache-hit }}
-    - run: "(mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DPORTABLE=ON -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld .. && make VERBOSE=1 -j64 && ctest -j64)"
+    - run: "(mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 -DPORTABLE=ON .. && make VERBOSE=1 -j64 && ctest -j64)"
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
