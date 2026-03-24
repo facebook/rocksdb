@@ -100,13 +100,32 @@ int db_stress_tool(int argc, char** argv) {
   }
 
   // Initialize stress trace with a dump path based on the DB path.
-  // Trace files will be written to <db>/../stress-trace-<pid>-thread-<tid>.txt
-  // on crash. If empty, traces go to stdout.
+  // Trace files will be written to:
+  //   <parent-of-db>/stress-trace/trace-<pid>-thread-<tid>.txt
+  // The stress-trace/ subdirectory is a sibling of the db dir, created at
+  // startup. It survives DestroyDB (which only removes the db dir itself).
+  // If FLAGS_db is empty, traces go to stdout.
   {
     std::string trace_prefix;
     if (!FLAGS_db.empty()) {
-      trace_prefix =
-          FLAGS_db + "/../stress-trace-" + std::to_string(getpid());
+      // Put trace files in a sibling directory next to the db dir.
+      // Resolve FLAGS_db to an absolute path first to avoid "/../" issues,
+      // then take its parent directory.
+      std::string abs_db;
+      Status abs_s = Env::Default()->GetAbsolutePath(FLAGS_db, &abs_db);
+      std::string parent_dir;
+      if (abs_s.ok() && !abs_db.empty()) {
+        size_t pos = abs_db.rfind('/');
+        parent_dir = (pos != std::string::npos && pos > 0)
+                         ? abs_db.substr(0, pos)
+                         : abs_db;
+      } else {
+        // Fallback: use FLAGS_db with /../
+        parent_dir = FLAGS_db + "/..";
+      }
+      std::string trace_dir = parent_dir + "/stress-trace";
+      Env::Default()->CreateDirIfMissing(trace_dir);
+      trace_prefix = trace_dir + "/trace-" + std::to_string(getpid());
     }
     stress_trace::Install(trace_prefix);
   }

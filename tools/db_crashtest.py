@@ -1498,12 +1498,12 @@ def resolve_and_print_stress_trace(pid, dbname):
     """Resolve and print stress trace files produced by STRESS_TRACE builds.
 
     When db_stress is built with STRESS_TRACE=1, it writes per-thread trace
-    files on crash to <db>/../stress-trace-<pid>-thread-<tid>.txt. This
+    files on crash to <parent-of-db>/stress-trace/trace-<pid>-thread-<tid>.txt. This
     function finds those files, resolves hex addresses to symbols using
     tools/resolve_stress_trace.py, and prints a summary.
     """
     trace_dir = os.path.dirname(os.path.abspath(dbname))
-    pattern = os.path.join(trace_dir, "stress-trace-%d-*.txt" % pid)
+    pattern = os.path.join(trace_dir, "stress-trace", "trace-%d-*.txt" % pid)
     trace_files = sorted(glob.glob(pattern), key=os.path.getsize, reverse=True)
     if not trace_files:
         return
