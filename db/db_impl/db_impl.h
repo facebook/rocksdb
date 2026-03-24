@@ -1529,10 +1529,9 @@ class DBImpl : public DB {
       ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job);
 
   Status FlushAllColumnFamilies(const FlushOptions& flush_options,
-                                FlushReason flush_reason,
-                                bool force_atomic_flush);
+                                FlushReason flush_reason);
 
-  virtual Status FlushForGetLiveFiles(bool force_atomic_flush);
+  virtual Status FlushForGetLiveFiles(bool force_atomic_flush = false);
 
   void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;
 

@@ -1249,6 +1249,91 @@ TEST_F(CheckpointTest, CheckpointAtomicFlushOverrideWithDBAtomicFlush) {
   ASSERT_EQ("val2", Get(2, "key2"));
 }
 
+TEST_F(CheckpointTest, MixedAtomicAndNonAtomicFlushInQueue) {
+  // Test that both atomic and non-atomic flush requests can coexist in the
+  // flush queue. First enqueue a non-atomic flush, then an atomic flush.
+  Options options = CurrentOptions();
+  options.atomic_flush = false;
+  // Use multiple CFs so atomic flush is meaningful.
+  CreateAndReopenWithCF({"one", "two"}, options);
+
+  // Pause background flushes so requests queue up.
+  ASSERT_OK(dbfull()->PauseBackgroundWork());
+
+  // Write data to all CFs.
+  ASSERT_OK(Put(0, "k0", "v0"));
+  ASSERT_OK(Put(1, "k1", "v1"));
+  ASSERT_OK(Put(2, "k2", "v2"));
+
+  // Enqueue a non-atomic flush (default).
+  FlushOptions non_atomic_fo;
+  non_atomic_fo.wait = false;
+  non_atomic_fo.allow_write_stall = true;
+  ASSERT_OK(db_->Flush(non_atomic_fo, handles_[0]));
+
+  // Write more data so there's something new to flush atomically.
+  ASSERT_OK(Put(0, "k0_2", "v0_2"));
+  ASSERT_OK(Put(1, "k1_2", "v1_2"));
+  ASSERT_OK(Put(2, "k2_2", "v2_2"));
+
+  // Enqueue an atomic flush via force_atomic_flush.
+  FlushOptions atomic_fo;
+  atomic_fo.wait = false;
+  atomic_fo.allow_write_stall = true;
+  atomic_fo.force_atomic_flush = true;
+  ASSERT_OK(db_->Flush(atomic_fo, handles_));
+
+  // Resume and let both flushes execute.
+  ASSERT_OK(dbfull()->ContinueBackgroundWork());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // Verify all data is readable.
+  ASSERT_EQ("v0_2", Get(0, "k0_2"));
+  ASSERT_EQ("v1_2", Get(1, "k1_2"));
+  ASSERT_EQ("v2_2", Get(2, "k2_2"));
+}
+
+TEST_F(CheckpointTest, MixedAtomicThenNonAtomicFlushInQueue) {
+  // Reverse order: first enqueue an atomic flush, then a non-atomic flush.
+  Options options = CurrentOptions();
+  options.atomic_flush = false;
+  CreateAndReopenWithCF({"one", "two"}, options);
+
+  // Pause background flushes so requests queue up.
+  ASSERT_OK(dbfull()->PauseBackgroundWork());
+
+  // Write data to all CFs.
+  ASSERT_OK(Put(0, "k0", "v0"));
+  ASSERT_OK(Put(1, "k1", "v1"));
+  ASSERT_OK(Put(2, "k2", "v2"));
+
+  // Enqueue an atomic flush first.
+  FlushOptions atomic_fo;
+  atomic_fo.wait = false;
+  atomic_fo.allow_write_stall = true;
+  atomic_fo.force_atomic_flush = true;
+  ASSERT_OK(db_->Flush(atomic_fo, handles_));
+
+  // Write more data.
+  ASSERT_OK(Put(0, "k0_2", "v0_2"));
+  ASSERT_OK(Put(1, "k1_2", "v1_2"));
+
+  // Enqueue a non-atomic flush on a single CF.
+  FlushOptions non_atomic_fo;
+  non_atomic_fo.wait = false;
+  non_atomic_fo.allow_write_stall = true;
+  ASSERT_OK(db_->Flush(non_atomic_fo, handles_[1]));
+
+  // Resume and let both flushes execute.
+  ASSERT_OK(dbfull()->ContinueBackgroundWork());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // Verify all data is readable.
+  ASSERT_EQ("v0", Get(0, "k0"));
+  ASSERT_EQ("v0_2", Get(0, "k0_2"));
+  ASSERT_EQ("v1_2", Get(1, "k1_2"));
+  ASSERT_EQ("v2", Get(2, "k2"));
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

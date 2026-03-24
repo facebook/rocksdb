@@ -2417,8 +2417,15 @@ struct FlushOptions {
   // is performed by someone else (foreground call or background thread).
   // Default: false
   bool allow_write_stall;
+  // If true, use atomic flush to flush all column families atomically,
+  // regardless of the DBOptions::atomic_flush setting. When used with
+  // DB::Flush() or internally via GetLiveFilesStorageInfo(), this forces
+  // all column families to be flushed in a single atomic operation.
+  // Default: false (uses DBOptions::atomic_flush setting).
+  bool force_atomic_flush;
 
-  FlushOptions() : wait(true), allow_write_stall(false) {}
+  FlushOptions()
+      : wait(true), allow_write_stall(false), force_atomic_flush(false) {}
 };
 
 struct FlushWALOptions {

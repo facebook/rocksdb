@@ -29,8 +29,9 @@
 namespace ROCKSDB_NAMESPACE {
 
 Status DBImpl::FlushForGetLiveFiles(bool force_atomic_flush) {
-  return DBImpl::FlushAllColumnFamilies(
-      FlushOptions(), FlushReason::kGetLiveFiles, force_atomic_flush);
+  FlushOptions flush_opts;
+  flush_opts.force_atomic_flush = force_atomic_flush;
+  return DBImpl::FlushAllColumnFamilies(flush_opts, FlushReason::kGetLiveFiles);
 }
 
 Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
@@ -40,7 +41,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   mutex_.Lock();
 
   if (flush_memtable) {
-    Status status = FlushForGetLiveFiles(false /* force_atomic_flush */);
+    Status status = FlushForGetLiveFiles();
     if (!status.ok()) {
       mutex_.Unlock();
       ROCKS_LOG_ERROR(immutable_db_options_.info_log, "Cannot Flush data %s\n",

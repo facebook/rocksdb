@@ -2039,11 +2039,10 @@ int DBImpl::Level0StopWriteTrigger(ColumnFamilyHandle* column_family) {
 }
 
 Status DBImpl::FlushAllColumnFamilies(const FlushOptions& flush_options,
-                                      FlushReason flush_reason,
-                                      bool force_atomic_flush) {
+                                      FlushReason flush_reason) {
   mutex_.AssertHeld();
   Status status;
-  if (immutable_db_options_.atomic_flush || force_atomic_flush) {
+  if (immutable_db_options_.atomic_flush || flush_options.force_atomic_flush) {
     mutex_.Unlock();
     status = AtomicFlushMemTables(flush_options, flush_reason);
     if (status.IsColumnFamilyDropped()) {
@@ -2076,7 +2075,7 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "[%s] Manual flush start.",
                  cfh->GetName().c_str());
   Status s;
-  if (immutable_db_options_.atomic_flush) {
+  if (immutable_db_options_.atomic_flush || flush_options.force_atomic_flush) {
     s = AtomicFlushMemTables(flush_options, FlushReason::kManualFlush,
                              {cfh->cfd()});
   } else {
@@ -2092,7 +2091,8 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
 Status DBImpl::Flush(const FlushOptions& flush_options,
                      const std::vector<ColumnFamilyHandle*>& column_families) {
   Status s;
-  if (!immutable_db_options_.atomic_flush) {
+  if (!immutable_db_options_.atomic_flush &&
+      !flush_options.force_atomic_flush) {
     for (auto cfh : column_families) {
       s = Flush(flush_options, cfh);
       if (!s.ok()) {
@@ -5027,16 +5027,15 @@ Status DBImpl::WaitForCompact(
   InstrumentedMutexLock l(&mutex_);
   if (wait_for_compact_options.flush) {
     Status s = DBImpl::FlushAllColumnFamilies(FlushOptions(),
-                                              FlushReason::kManualFlush,
-                                              false /* force_atomic_flush */);
+                                              FlushReason::kManualFlush);
     if (!s.ok()) {
       return s;
     }
   } else if (wait_for_compact_options.close_db &&
              has_unpersisted_data_.load(std::memory_order_relaxed) &&
              !mutable_db_options_.avoid_flush_during_shutdown) {
-    Status s = DBImpl::FlushAllColumnFamilies(
-        FlushOptions(), FlushReason::kShutDown, false /* force_atomic_flush */);
+    Status s =
+        DBImpl::FlushAllColumnFamilies(FlushOptions(), FlushReason::kShutDown);
     if (!s.ok()) {
       return s;
     }

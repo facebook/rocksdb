@@ -393,8 +393,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
       FlushOptions flush_opts;
       // We allow flush to stall write since we are trying to resume from error.
       flush_opts.allow_write_stall = true;
-      s = FlushAllColumnFamilies(flush_opts, context.flush_reason,
-                                 false /* force_atomic_flush */);
+      s = FlushAllColumnFamilies(flush_opts, context.flush_reason);
     }
     if (!s.ok()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -489,8 +488,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
-    s = DBImpl::FlushAllColumnFamilies(FlushOptions(), FlushReason::kShutDown,
-                                       false /* force_atomic_flush */);
+    s = DBImpl::FlushAllColumnFamilies(FlushOptions(), FlushReason::kShutDown);
     s.PermitUncheckedError();  //**TODO: What to do on error?
   }
 
