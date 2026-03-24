@@ -408,7 +408,7 @@ jobs:
       run: .github/scripts/compute-test-shard.sh ${{ matrix.shard }} 3
     - run: COMPILE_WITH_ASAN=1 COMPILE_WITH_UBSAN=1 CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j40 check
       env:
-        EXCLUDE_TESTS_REGEX: ${{ steps.shard.outputs.exclude_regex }}
+        ROCKSDBTESTS_SUBSET: ${{ steps.shard.outputs.subset }}
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
@@ -437,7 +437,7 @@ jobs:
       run: .github/scripts/compute-test-shard.sh ${{ matrix.shard }} 3
     - run: COMPILE_WITH_TSAN=1 CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
       env:
-        EXCLUDE_TESTS_REGEX: ${{ steps.shard.outputs.exclude_regex }}
+        ROCKSDBTESTS_SUBSET: ${{ steps.shard.outputs.subset }}
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"

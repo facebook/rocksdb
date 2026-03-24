@@ -645,7 +645,7 @@ NON_PARALLEL_TEST = \
 	db_io_failure_test \
 	$(PLUGIN_TESTS) \
 
-PARALLEL_TEST = $(filter-out $(NON_PARALLEL_TEST), $(TESTS))
+PARALLEL_TEST = $(filter-out $(NON_PARALLEL_TEST), $(ROCKSDBTESTS_SUBSET))
 
 # Not necessarily well thought out or up-to-date, but matches old list
 TESTS_PLATFORM_DEPENDENT := \
@@ -975,7 +975,7 @@ check_0:
 	  'To monitor subtest <duration,pass/fail,name>,'		\
 	  '  run "make watch-log" in a separate window' '';		\
 	{ \
-		printf './%s\n' $(filter-out $(PARALLEL_TEST),$(TESTS)); \
+		printf './%s\n' $(filter-out $(PARALLEL_TEST),$(ROCKSDBTESTS_SUBSET)); \
 		find t -name 'run-*' -print; \
 	} \
 	  | $(prioritize_long_running_tests)				\
