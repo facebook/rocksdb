@@ -2859,9 +2859,17 @@ struct SizeApproximationOptions {
   // Defines whether the returned size should include data serialized to disk.
   // If set to false, include_memtables must be true.
   bool include_files = true;
-  // Defines whether the returned size should include the size of blob files
-  // referenced by SST files that overlap the key range. Blob files are used
-  // by BlobDB to store large values separately from the LSM tree.
+  // Defines whether the returned size should include an approximation of
+  // blob file data in the key range. When enabled, the total blob file size
+  // is prorated by the ratio of SST data in the range to the total SST data:
+  //
+  //   blob_size_in_range ≈ total_blob_size * (sst_in_range / total_sst)
+  //
+  // Limitations of this approximation:
+  // - Assumes blob data is distributed proportionally to SST data, which
+  //   may not hold if blob value sizes vary significantly across keys.
+  // - If there are no SST files (all data in memtables), the blob size
+  //   contribution will be 0 even if blob files exist on disk.
   // Default: false (for backward compatibility).
   bool include_blob_files = false;
   // When approximating the files total size that is used to store a keys range

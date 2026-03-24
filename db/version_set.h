@@ -1682,10 +1682,13 @@ class VersionSet {
                            const FdWithKeyRange& f, const Slice& start,
                            const Slice& end, TableReaderCaller caller);
 
-  // Returns the total size of blob files referenced by SST files that
-  // overlap the given key range [start, end] for a given version.
-  uint64_t ApproximateBlobSize(Version* v, const InternalKey& start,
-                               const InternalKey& end);
+  // Returns the approximate size of blob files in the given key range
+  // [start, end] for a given version. The approximation uses the ratio of
+  // SST data in the range to the total SST data to prorate the total blob
+  // file size.
+  uint64_t ApproximateBlobSize(const SizeApproximationOptions& options,
+                               const ReadOptions& read_options, Version* v,
+                               const Slice& start, const Slice& end);
 
   struct MutableCFState {
     uint64_t log_number;

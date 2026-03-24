@@ -7539,42 +7539,54 @@ uint64_t VersionSet::ApproximateSize(const ReadOptions& read_options,
                                       *f.file_metadata, caller, icmp, cf_opts);
 }
 
-uint64_t VersionSet::ApproximateBlobSize(Version* v, const InternalKey& start,
-                                         const InternalKey& end) {
+uint64_t VersionSet::ApproximateBlobSize(
+    const SizeApproximationOptions& options, const ReadOptions& read_options,
+    Version* v, const Slice& start, const Slice& end) {
   assert(v);
   const auto* vstorage = v->storage_info();
   const int num_non_empty_levels = vstorage->num_non_empty_levels();
 
-  // Collect the file numbers of all SST files that overlap [start, end].
-  std::unordered_set<uint64_t> overlapping_sst_numbers;
+  // Compute total SST size across all levels.
+  uint64_t total_sst_size = 0;
   for (int level = 0; level < num_non_empty_levels; ++level) {
-    std::vector<FileMetaData*> overlapping_files;
-    vstorage->GetOverlappingInputs(level, &start, &end, &overlapping_files,
-                                   /*hint_index=*/-1, /*file_index=*/nullptr,
-                                   /*expand_range=*/false);
-    for (const auto* file_meta : overlapping_files) {
-      overlapping_sst_numbers.insert(file_meta->fd.GetNumber());
-    }
+    total_sst_size += vstorage->NumLevelBytes(level);
   }
 
-  if (overlapping_sst_numbers.empty()) {
+  if (total_sst_size == 0) {
     return 0;
   }
 
-  // Sum up the sizes of blob files that are linked to any overlapping SST.
+  // Compute the approximate SST size in the [start, end] range using the
+  // existing SST approximation logic.
+  uint64_t sst_size_in_range =
+      ApproximateSize(options, read_options, v, start, end,
+                      /*start_level=*/0, /*end_level=*/-1,
+                      TableReaderCaller::kUserApproximateSize);
+
+  // Compute total blob file size.
   uint64_t total_blob_size = 0;
   const auto& blob_files = vstorage->GetBlobFiles();
   for (const auto& blob_file_meta : blob_files) {
     assert(blob_file_meta);
-    for (uint64_t linked_sst : blob_file_meta->GetLinkedSsts()) {
-      if (overlapping_sst_numbers.count(linked_sst) > 0) {
-        total_blob_size += blob_file_meta->GetBlobFileSize();
-        break;  // Count each blob file at most once
-      }
-    }
+    total_blob_size += blob_file_meta->GetBlobFileSize();
   }
 
-  return total_blob_size;
+  if (total_blob_size == 0) {
+    return 0;
+  }
+
+  // Approximate blob size in the range by prorating total blob size using the
+  // SST size ratio:
+  //   blob_contribution = total_blob_size * (sst_size_in_range /
+  //   total_sst_size)
+  //
+  // This assumes blob data is distributed proportionally to SST data across
+  // the key space. The approximation may be inaccurate if blob value sizes
+  // vary significantly across different key ranges (e.g., one range has large
+  // blobs while another has small ones).
+  return static_cast<uint64_t>(static_cast<double>(total_blob_size) *
+                               (static_cast<double>(sst_size_in_range) /
+                                static_cast<double>(total_sst_size)));
 }
 
 void VersionSet::RemoveLiveFiles(

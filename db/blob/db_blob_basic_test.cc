@@ -2459,7 +2459,6 @@ TEST_F(DBBlobWithTimestampTest, IterateBlobs) {
   }
 }
 
-
 TEST_F(DBBlobBasicTest, GetApproximateSizesIncludingBlobFiles) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
@@ -2468,7 +2467,7 @@ TEST_F(DBBlobBasicTest, GetApproximateSizesIncludingBlobFiles) {
   Reopen(options);
 
   // Write some key-value pairs with blob values and flush to create blob files.
-  constexpr int kNumKeys = 100;
+  constexpr int kNumKeys = 1000;
   constexpr int kValueSize = 1024;
 
   Random rnd(301);
@@ -2489,49 +2488,37 @@ TEST_F(DBBlobBasicTest, GetApproximateSizesIncludingBlobFiles) {
   }
   ASSERT_TRUE(has_blob_files);
 
+  // Query the full range - all keys are covered.
   std::string start = Key(0);
   std::string end = Key(kNumKeys);
   Range r(start, end);
 
   // Without include_blob_files (default behavior): should not include blob
   // file sizes.
+  uint64_t size_without_blobs = 0;
   {
     SizeApproximationOptions size_approx_options;
     size_approx_options.include_files = true;
     size_approx_options.include_blob_files = false;
-    uint64_t size_without_blobs = 0;
     ASSERT_OK(db_->GetApproximateSizes(size_approx_options,
                                        db_->DefaultColumnFamily(), &r, 1,
                                        &size_without_blobs));
+    ASSERT_GT(size_without_blobs, 0);
+  }
 
-    // With include_blob_files: should be strictly larger.
+  // With include_blob_files: should be strictly larger.
+  {
+    SizeApproximationOptions size_approx_options;
+    size_approx_options.include_files = true;
     size_approx_options.include_blob_files = true;
     uint64_t size_with_blobs = 0;
     ASSERT_OK(db_->GetApproximateSizes(size_approx_options,
                                        db_->DefaultColumnFamily(), &r, 1,
                                        &size_with_blobs));
     ASSERT_GT(size_with_blobs, size_without_blobs);
-    // The blob portion should be at least kNumKeys * kValueSize bytes
-    // (the actual blob file includes headers/footers/record headers so it will
-    // be larger).
-    uint64_t blob_portion = size_with_blobs - size_without_blobs;
-    ASSERT_GE(blob_portion, kNumKeys * kValueSize);
   }
 
-  // Blob files only (no SST files, no memtables).
-  {
-    SizeApproximationOptions size_approx_options;
-    size_approx_options.include_files = false;
-    size_approx_options.include_memtables = false;
-    size_approx_options.include_blob_files = true;
-    uint64_t blob_only_size = 0;
-    ASSERT_OK(db_->GetApproximateSizes(size_approx_options,
-                                       db_->DefaultColumnFamily(), &r, 1,
-                                       &blob_only_size));
-    ASSERT_GE(blob_only_size, kNumKeys * kValueSize);
-  }
-
-  // Range that doesn't overlap any data should return 0 for blob files.
+  // Range that doesn't overlap any data should return 0.
   {
     std::string no_start = Key(kNumKeys + 100);
     std::string no_end = Key(kNumKeys + 200);
@@ -2540,10 +2527,30 @@ TEST_F(DBBlobBasicTest, GetApproximateSizesIncludingBlobFiles) {
     size_approx_options.include_files = true;
     size_approx_options.include_blob_files = true;
     uint64_t no_size = 0;
-    ASSERT_OK(db_->GetApproximateSizes(size_approx_options,
-                                       db_->DefaultColumnFamily(), &no_r, 1,
-                                       &no_size));
+    ASSERT_OK(db_->GetApproximateSizes(
+        size_approx_options, db_->DefaultColumnFamily(), &no_r, 1, &no_size));
     ASSERT_EQ(no_size, 0);
+  }
+
+  // Partial range should return proportionally less blob size than full range.
+  {
+    SizeApproximationOptions size_approx_options;
+    size_approx_options.include_files = true;
+    size_approx_options.include_blob_files = true;
+
+    uint64_t full_size = 0;
+    ASSERT_OK(db_->GetApproximateSizes(
+        size_approx_options, db_->DefaultColumnFamily(), &r, 1, &full_size));
+
+    // Query roughly the first half of keys.
+    std::string half_end = Key(kNumKeys / 2);
+    Range half_r(start, half_end);
+    uint64_t half_size = 0;
+    ASSERT_OK(db_->GetApproximateSizes(size_approx_options,
+                                       db_->DefaultColumnFamily(), &half_r, 1,
+                                       &half_size));
+    ASSERT_GT(half_size, 0);
+    ASSERT_LT(half_size, full_size);
   }
 
   // Via SizeApproximationFlags API.
@@ -2553,7 +2560,7 @@ TEST_F(DBBlobBasicTest, GetApproximateSizesIncludingBlobFiles) {
         db_->DefaultColumnFamily(), &r, 1, &size_flags,
         DB::SizeApproximationFlags::INCLUDE_FILES |
             DB::SizeApproximationFlags::INCLUDE_BLOB_FILES));
-    ASSERT_GE(size_flags, kNumKeys * kValueSize);
+    ASSERT_GT(size_flags, size_without_blobs);
   }
 }
 

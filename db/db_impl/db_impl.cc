@@ -4991,7 +4991,8 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
       sizes[i] += sv->imm->ApproximateStats(k1.Encode(), k2.Encode()).size;
     }
     if (options.include_blob_files) {
-      sizes[i] += versions_->ApproximateBlobSize(v, k1, k2);
+      sizes[i] += versions_->ApproximateBlobSize(options, read_options, v,
+                                                 k1.Encode(), k2.Encode());
     }
   }
 
