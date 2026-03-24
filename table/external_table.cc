@@ -8,6 +8,7 @@
 #include "logging/logging.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block.h"
+#include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
@@ -233,10 +234,30 @@ class ExternalTableReaderAdapter : public TableReader {
 
   size_t ApproximateMemoryUsage() const override { return 0; }
 
-  Status Get(const ReadOptions&, const Slice&, GetContext*,
-             const SliceTransform*, bool = false) override {
-    return Status::NotSupported(
-        "Get() not supported on external file iterator");
+  Status Get(const ReadOptions& read_options, const Slice& key,
+             GetContext* get_context, const SliceTransform* prefix_extractor,
+             bool /*skip_filters*/ = false) override {
+    ParsedInternalKey parsed_key;
+    Status s = ParseInternalKey(key, &parsed_key, /*log_err_key=*/false);
+    if (!s.ok()) {
+      return s;
+    }
+
+    PinnableSlice value;
+    s = reader_->Get(read_options, parsed_key.user_key, prefix_extractor,
+                     &value);
+    if (!s.ok()) {
+      if (s.IsNotFound()) {
+        return Status::OK();
+      }
+      return s;
+    }
+
+    ParsedInternalKey found_key(parsed_key.user_key, 0, ValueType::kTypeValue);
+    bool matched = false;
+    get_context->SaveValue(found_key, value, &matched, &s,
+                           value.IsPinned() ? &value : nullptr);
+    return s;
   }
 
   Status VerifyChecksum(const ReadOptions& /*ro*/, TableReaderCaller /*caller*/,
