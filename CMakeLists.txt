@@ -82,10 +82,15 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 message(STATUS "CMAKE_BUILD_TYPE is set to ${CMAKE_BUILD_TYPE}")
 
+# Use ccache for compilation if available. Use CMAKE_C/CXX_COMPILER_LAUNCHER
+# instead of RULE_LAUNCH_COMPILE to avoid double-wrapping when ccache is also
+# injected via PATH (e.g., /usr/lib/ccache or brew --prefix ccache/libexec).
+# Note: we intentionally do NOT set RULE_LAUNCH_LINK because ccache cannot
+# cache link operations -- it only adds overhead.
 find_program(CCACHE_FOUND ccache)
 if(CCACHE_FOUND)
-  set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
-  set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
+  set(CMAKE_C_COMPILER_LAUNCHER ccache)
+  set(CMAKE_CXX_COMPILER_LAUNCHER ccache)
 endif(CCACHE_FOUND)
 
 option(WITH_JEMALLOC "build with JeMalloc" OFF)
@@ -515,6 +520,15 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "iOS")
   add_definitions(-DOS_MACOSX -DIOS_CROSS_COMPILE)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
   add_definitions(-DOS_LINUX)
+  # Use lld linker if available for faster linking (12x faster than ld.bfd)
+  if(NOT ROCKSDB_NO_FAST_LINKER)
+    execute_process(COMMAND ${CMAKE_CXX_COMPILER} -fuse-ld=lld -Wl,--version
+      OUTPUT_VARIABLE LLD_VERSION_OUTPUT ERROR_QUIET RESULT_VARIABLE LLD_RESULT)
+    if(LLD_RESULT EQUAL 0 AND LLD_VERSION_OUTPUT MATCHES "LLD")
+      set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld")
+      set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fuse-ld=lld")
+    endif()
+  endif()
 elseif(CMAKE_SYSTEM_NAME MATCHES "SunOS")
   add_definitions(-DOS_SOLARIS)
 elseif(CMAKE_SYSTEM_NAME MATCHES "kFreeBSD")
@@ -663,7 +677,10 @@ if(USE_FOLLY)
   add_compile_definitions(USE_FOLLY FOLLY_NO_CONFIG HAVE_CXX11_ATOMIC)
   list(APPEND THIRDPARTY_LIBS Folly::folly)
   set(FOLLY_LIBS Folly::folly)
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--copy-dt-needed-entries")
+  # --copy-dt-needed-entries is ld.bfd-specific; lld handles DT_NEEDED transitively
+  if(NOT CMAKE_EXE_LINKER_FLAGS MATCHES "fuse-ld=lld")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--copy-dt-needed-entries")
+  endif()
 endif()
 find_package(Threads REQUIRED)
 

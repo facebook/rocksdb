@@ -1913,7 +1913,7 @@ sub drain_job_queue {
                     }
                     $last_progress_time = time();
                     $ps_reported = 0;
-                } elsif (not $ps_reported and (time() - $last_progress_time) >= 60) {
+                } elsif (not $ps_reported and (time() - $last_progress_time) >= 300) {
                     # No progress in at least 60 seconds: run ps
                     print $Global::original_stderr "\n";
                     my $script_dir = ::dirname($0);
