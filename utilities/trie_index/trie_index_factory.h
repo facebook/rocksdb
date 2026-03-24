@@ -108,8 +108,9 @@ class TrieIndexBuilder final : public UserDefinedIndexBuilder {
   // FindShortestSeparator. The seqno field stores a packed internal key
   // trailer (sequence_number << 8 | value_type):
   //   - For same-user-key boundaries: the packed trailer of last_key
-  //   - For different-user-key boundaries: max sentinel (mapped to 0
-  //     at Finish() time meaning "never advance")
+  //   - For different-user-key boundaries:
+  //     PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek) --
+  //     the same trailer the standard index uses for these separators
   struct BufferedEntry {
     std::string separator_key;
     uint64_t packed_trailer{};

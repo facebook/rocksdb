@@ -2523,6 +2523,7 @@ bool LoudsTrieIterator::Advance() {
       uint64_t next = trie_->d_labels_.NextSetBit(cur_pos + 1);
 
       if (next < node_end && next < trie_->d_labels_.NumBits()) {
+        assert(key_len_ > 0);
         cur = LevelPos::MakeDense(next);
         key_buf_[key_len_ - 1] = static_cast<char>(next % 256);
 
@@ -2542,6 +2543,7 @@ bool LoudsTrieIterator::Advance() {
       uint64_t next_pos = cur.pos() + 1;
       if (next_pos < trie_->s_labels_size_ &&
           !trie_->s_louds_.GetBit(next_pos)) {
+        assert(key_len_ > 0);
         cur = LevelPos::MakeSparse(next_pos);
         key_buf_[key_len_ - 1] =
             static_cast<char>(trie_->s_labels_data_[next_pos]);
@@ -2685,7 +2687,8 @@ bool LoudsTrieIterator::Retreat() {
       // Find previous set bit within the same node's 256-bit bitmap.
       uint64_t prev = trie_->d_labels_.PrevSetBit(cur_pos);
       if (prev < trie_->d_labels_.NumBits() && prev >= node_base) {
-        // Found a previous sibling — replace in-place.
+        // Found a previous sibling -- replace in-place.
+        assert(key_len_ > 0);
         cur = LevelPos::MakeDense(prev);
         key_buf_[key_len_ - 1] = static_cast<char>(prev % 256);
 
@@ -2723,7 +2726,8 @@ bool LoudsTrieIterator::Retreat() {
       // Sparse: check if current position is the first label of its node.
       uint64_t cur_sparse_pos = cur.pos();
       if (!trie_->s_louds_.GetBit(cur_sparse_pos)) {
-        // Previous sibling exists at cur.pos() - 1 — replace in-place.
+        // Previous sibling exists at cur.pos() - 1 -- replace in-place.
+        assert(key_len_ > 0);
         assert(cur_sparse_pos > 0);
         uint64_t prev_pos = cur_sparse_pos - 1;
         cur = LevelPos::MakeSparse(prev_pos);
@@ -2771,8 +2775,8 @@ bool LoudsTrieIterator::Prev() {
     return false;
   }
   // Clear prefix key flag before retreating. If we're at a prefix key, the
-  // previous leaf is in the parent's subtree — Retreat() handles this by
-  // popping up to the parent level.
+  // path is already at the parent level (prefix keys don't have their own
+  // path entry), so Retreat() continues backtracking from there.
   is_at_prefix_key_ = false;
   return Retreat();
 }

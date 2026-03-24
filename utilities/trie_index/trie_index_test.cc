@@ -47,7 +47,7 @@ namespace trie_index {
 // Tests use plain sequence numbers for readability; these convert them to
 // the packed trailer format that IndexEntryContext and SeekContext expect.
 UserDefinedIndexIterator::SeekContext SeekCtx(SequenceNumber seq) {
-  return {(static_cast<uint64_t>(seq) << 8) | 1};
+  return {PackSequenceAndType(seq, kValueTypeForSeek)};
 }
 
 UserDefinedIndexBuilder::IndexEntryContext EntryCtx(SequenceNumber last_seq,
@@ -3198,7 +3198,7 @@ TEST_F(TrieIndexFactoryTest, SameUserKeyWithZeroSeqnos) {
   // multiple data blocks and all versions have seqno=0, the overflow entries
   // in the same-key run also have seqno=0. This is valid — the reader's
   // post-seek correction handles it correctly:
-  //   - Primary leaf seqno=0 triggers the "never advance" guard
+  //   - Primary leaf seqno=0, and target_packed >= 0 so no advancement
   //   - Next() iterates overflow blocks by index, not seqno
   auto ctx = BuildTrieAndGetIterator({
       {"key", "key", 0, 1000, 0, 0},
@@ -4024,8 +4024,8 @@ TEST_F(TrieIndexFactoryTest, PackedTrailerDistinguishesSameSeqDifferentType) {
 
   // Target: ("x", seqno=50, kTypeDeletion=0), packed=12800.
   // Separator packed=12801. 12800 < 12801 → advance to Block 1. Correct.
-  // Without packed trailer fix, seqno-only: 50 < 50 → false → stay on
-  // Block 0 (WRONG).
+  // With seqno-only comparison (without packed trailer): 50 < 50 → false →
+  // stay on Block 0 (WRONG).
   ASSERT_OK(iter->SeekAndGetResult(Slice("x"), &result, {(50ULL << 8) | 0}));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(iter->value().offset, 500u);
@@ -5261,9 +5261,10 @@ TEST_F(TrieIndexFactoryTest, OverflowBfsReordering) {
 }
 
 TEST_F(TrieIndexFactoryTest, SeekToLastPrefixKeyOnlyTrie) {
-  // Regression: DescendToRightmostLeaf skips prefix keys, so a trie where
-  // the only leaf is a prefix key at the root would return false from
-  // SeekToLast. The fix adds a fallback check for the root prefix key.
+  // DescendToRightmostLeaf skips prefix keys (they are the smallest leaf at
+  // a node). This test verifies that SeekToLast correctly lands on the
+  // rightmost regular leaf ("ab"), and Prev correctly visits the prefix key
+  // ("a") during backtracking.
   //
   // This trie has separators "a" and "ab". Separator "a" is a prefix of "ab",
   // creating a prefix key at the "a" node. When we SeekToLast, we should

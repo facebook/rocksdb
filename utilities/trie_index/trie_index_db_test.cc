@@ -3622,6 +3622,110 @@ TEST_F(TrieIndexDBTest, ScanWithSnapshots) {
   db_->ReleaseSnapshot(snap1);
 }
 
+TEST_F(TrieIndexDBTest, SeekForPrevVariableLengthKeys) {
+  // Verifies SeekForPrev with variable-length keys that mimic
+  // the stress test's key format: 8-byte big-endian key number followed by
+  // optional padding bytes (0x78 = 'x'). Variable lengths exercise the
+  // trie's handling of keys where one is a prefix of another.
+  // Use crash test parameters: block_size=16384, prefix_size=1.
+  options_.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  ASSERT_OK(OpenDB(/*block_size=*/16384));
+
+  std::vector<std::string> keys;
+  for (int key_num = 0; key_num < 100; key_num++) {
+    // Vary key length: 8, 16, or 24 bytes (like max_key_len=1,2,3)
+    for (int extra = 0; extra < 3; extra++) {
+      std::string key(8 + extra * 8, '\0');
+      // Big-endian key number in first 8 bytes
+      for (int b = 0; b < 8; b++) {
+        key[b] = static_cast<char>(
+            (static_cast<uint64_t>(key_num) >> (56 - b * 8)) & 0xFF);
+      }
+      // Fill remaining bytes with padding (0x78 = 'x') and a secondary
+      // number to ensure uniqueness
+      for (size_t b = 8; b < key.size(); b++) {
+        key[b] = (b < key.size() - 1) ? 0x78 : static_cast<char>(extra);
+      }
+      keys.push_back(key);
+      ASSERT_OK(db_->Put(WriteOptions(), key, "val"));
+    }
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Write more keys in a second flush to create overlapping L0 SSTs.
+  for (int key_num = 50; key_num < 150; key_num++) {
+    std::string key(8, '\0');
+    for (int b = 0; b < 8; b++) {
+      key[b] = static_cast<char>(
+          (static_cast<uint64_t>(key_num) >> (56 - b * 8)) & 0xFF);
+    }
+    // Overwrite with different padding length
+    key += "yy";
+    ASSERT_OK(db_->Put(WriteOptions(), key, "val2"));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Also delete some keys to create tombstones.
+  for (int key_num = 20; key_num < 40; key_num++) {
+    std::string key(8, '\0');
+    for (int b = 0; b < 8; b++) {
+      key[b] = static_cast<char>(
+          (static_cast<uint64_t>(key_num) >> (56 - b * 8)) & 0xFF);
+    }
+    ASSERT_OK(db_->Delete(WriteOptions(), key));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // SeekForPrev for every key — trie must match standard index.
+  for (const auto& key : keys) {
+    std::string std_result, trie_result;
+    {
+      std::unique_ptr<Iterator> iter(
+          db_->NewIterator(StandardIndexReadOptions()));
+      iter->SeekForPrev(key);
+      ASSERT_TRUE(iter->Valid());
+      std_result = iter->key().ToString();
+      ASSERT_OK(iter->status());
+    }
+    {
+      std::unique_ptr<Iterator> iter(db_->NewIterator(TrieIndexReadOptions()));
+      iter->SeekForPrev(key);
+      ASSERT_TRUE(iter->Valid());
+      trie_result = iter->key().ToString();
+      ASSERT_OK(iter->status());
+    }
+    ASSERT_EQ(std_result, trie_result) << "SeekForPrev(" << key << ") diverged";
+  }
+
+  // SeekForPrev for keys between existing keys.
+  for (int i = 0; i < 200; i++) {
+    char buf[32];
+    int len = snprintf(buf, sizeof(buf), "k%04da", i);
+    std::string target(buf, len);
+
+    std::string std_result, trie_result;
+    {
+      std::unique_ptr<Iterator> iter(
+          db_->NewIterator(StandardIndexReadOptions()));
+      iter->SeekForPrev(target);
+      if (iter->Valid()) {
+        std_result = iter->key().ToString();
+      }
+      ASSERT_OK(iter->status());
+    }
+    {
+      std::unique_ptr<Iterator> iter(db_->NewIterator(TrieIndexReadOptions()));
+      iter->SeekForPrev(target);
+      if (iter->Valid()) {
+        trie_result = iter->key().ToString();
+      }
+      ASSERT_OK(iter->status());
+    }
+    ASSERT_EQ(std_result, trie_result)
+        << "SeekForPrev(" << target << ") diverged";
+  }
+}
+
 }  // namespace trie_index
 }  // namespace ROCKSDB_NAMESPACE
 

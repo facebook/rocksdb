@@ -384,9 +384,10 @@ class LoudsTrie {
   // separator maps to multiple blocks.
   //
   // leaf_seqnos_[i]: seqno for the i-th leaf (BFS order).
-  //   Value 0 = sentinel meaning "never advance past this leaf" (used for
-  //   non-boundary leaves and for leaves where seqno=0 covers everything).
-  //   For boundary leaves, stores the packed internal key trailer
+  //   For non-boundary leaves: stores
+  //   PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek) -- the same
+  //   trailer the standard index uses for non-boundary separators.
+  //   For boundary leaves: stores the actual packed internal key trailer
   //   (sequence_number << 8 | value_type).
   //
   // leaf_block_counts_[i]: how many consecutive blocks share this separator.
