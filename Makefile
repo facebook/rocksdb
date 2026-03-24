@@ -966,10 +966,13 @@ check_0:
 	  'To monitor subtest <duration,pass/fail,name>,'		\
 	  '  run "make watch-log" in a separate window' '';		\
 	{ \
-		printf './%s\n' $(filter-out $(PARALLEL_TEST),$(ROCKSDBTESTS_SUBSET)) \
-		  | if [ -n "$(CI_TOTAL_SHARDS)" ]; then \
-		      awk -v s=$(CI_SHARD_INDEX) -v n=$(CI_TOTAL_SHARDS) '(NR-1)%n==s'; \
-		    else cat; fi; \
+		NON_PARALLEL_LIST="$(filter-out $(PARALLEL_TEST),$(ROCKSDBTESTS_SUBSET))"; \
+		if [ -n "$$NON_PARALLEL_LIST" ]; then \
+		  printf './%s\n' $$NON_PARALLEL_LIST \
+		    | if [ -n "$(CI_TOTAL_SHARDS)" ]; then \
+		        awk -v s=$(CI_SHARD_INDEX) -v n=$(CI_TOTAL_SHARDS) '(NR-1)%n==s'; \
+		      else cat; fi; \
+		fi; \
 		find t -name 'run-*' -print; \
 	} \
 	  | $(prioritize_long_running_tests)				\
