@@ -36,6 +36,7 @@ cmake_minimum_required(VERSION 3.12)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules/")
 include(ReadVersion)
+include(GoogleTest)
 get_rocksdb_version(rocksdb_VERSION)
 project(rocksdb
   VERSION ${rocksdb_VERSION}
@@ -1617,9 +1618,7 @@ if(WITH_TESTS)
       )
       target_link_libraries(${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${THIRDPARTY_LIBS} ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
-        file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_tmpdir/${exename})
-        add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
-        set_tests_properties(${exename} PROPERTIES ENVIRONMENT "TEST_TMPDIR=${CMAKE_BINARY_DIR}/test_tmpdir/${exename}")
+        gtest_discover_tests(${exename} DISCOVERY_TIMEOUT 120)
         add_dependencies(rocksdb_check ${exename}${ARTIFACT_SUFFIX})
       endif()
   endforeach(sourcefile ${TESTS})
