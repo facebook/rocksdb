@@ -2540,7 +2540,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   memtable_info.num_deletes = cfd->mem()->NumDeletion();
   if (!cfd->ioptions().persist_user_defined_timestamps &&
       cfd->user_comparator()->timestamp_size() > 0) {
-    const Slice& newest_udt = cfd->mem()->GetNewestUDT();
+    Slice newest_udt = cfd->mem()->GetNewestUDT();
     memtable_info.newest_udt.assign(newest_udt.data(), newest_udt.size());
   }
   // Log this later after lock release. It may be outdated, e.g., if background

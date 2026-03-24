@@ -374,17 +374,16 @@ bool MemTableListVersion::TrimHistory(autovector<ReadOnlyMemTable*>* to_delete,
   return ret;
 }
 
-const Slice& MemTableListVersion::GetNewestUDT() const {
-  static Slice kEmptySlice;
+Slice MemTableListVersion::GetNewestUDT() const {
   for (auto it = memlist_.begin(); it != memlist_.end(); ++it) {
     ReadOnlyMemTable* m = *it;
     Slice timestamp = m->GetNewestUDT();
     assert(!timestamp.empty() || m->IsEmpty());
     if (!timestamp.empty()) {
-      return m->GetNewestUDT();
+      return timestamp;
     }
   }
-  return kEmptySlice;
+  return Slice();
 }
 
 // Returns true if there is at least one memtable on which flush has
