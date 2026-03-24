@@ -73,16 +73,18 @@ Randomized params → finalize_and_sanitize() → db_stress CLI → extra-flags 
 
 **The problem:** If `finalize_and_sanitize()` sees `feature_X=0` and decides not to disable an incompatible `feature_Y`, then your extra-flag `--feature_X=1` re-enables X at the CLI level — but Y is still enabled. Now you have an incompatible combination.
 
-**Example (blob direct write + transactions):**
+**Concrete example** (blob direct write + transactions):
 1. Randomizer picks `use_txn=1`, `enable_blob_direct_write=0`
 2. `finalize_and_sanitize()` sees bdw=0, doesn't disable txn
 3. Extra-flags add `--enable_blob_direct_write=1` (last-one-wins)
 4. Now txn + bdw are both on — an incompatible combination
 
+This pattern applies to *any* pair of incompatible features where one is forced via extra-flags.
+
 **Solution:** Always pass ALL incompatible feature disables alongside your feature enable:
 ```bash
---extra-flags "--enable_blob_direct_write=1 --enable_blob_files=1 \
-  --use_txn=0 --use_optimistic_txn=0"
+--extra-flags "--enable_my_feature=1 \
+  --incompatible_feature_a=0 --incompatible_feature_b=0"
 ```
 
 ### Test Mode vs gflags Distinction
@@ -186,28 +188,28 @@ When a stress test fails, these artifacts are your evidence:
 
 The LOG file is the single most valuable artifact. Key things to extract:
 
-1. **File lifecycle** — when was each file opened, sealed, committed to MANIFEST, compacted, deleted? Search for file numbers mentioned in the error.
+1. **File lifecycle** — when was each file created, committed to MANIFEST, compacted, deleted? Search for file numbers mentioned in the error.
 2. **Recovery events** — what files were recovered after crash? Any "missing file" during recovery?
-3. **Purge events** — `PurgeObsoleteFiles` logs include `blob_live_set[size=N]` and `active_blob[size=N]`. These tell you exactly which files were protected and which were deleted — and why.
+3. **Purge events** — `PurgeObsoleteFiles` logs show which files were deleted and why. The log includes the live file sets used for protection — compare against the deleted file number to understand why it wasn't protected.
 4. **Timestamps** — correlate events across concurrent threads. Races show up as interleaved events within milliseconds.
 
-**Example timeline (from a real blob file deletion race):**
+**Concrete example** — a race condition caught via LOG timeline during blob direct write development:
 ```
-11:04:02.710130 — AddFilePartitionMapping: file 5498, map size=4
-11:04:02.714148 — Opened blob file 5498
-11:04:02.714430 — PurgeObsoleteFiles: DELETING blob file 5498
-                   (not in active_blob[size=3])
-11:04:02.733618 — blob_file_creation for 5498: "IO error: No such file"
+11:04:02.710  — File 5498 registered in tracking map (map size=4)
+11:04:02.714  — File 5498 created on disk
+11:04:02.714  — PurgeObsoleteFiles: DELETING file 5498
+                (not in snapshot, which only had 3 files)
+11:04:02.733  — Write fails: "IO error: No such file"
 ```
-This 4ms window between file creation and deletion revealed the exact race condition — `FindObsoleteFiles` had snapshotted the active file set *before* file 5498 was added, but the directory scan found it on disk *after* creation.
+A 4ms window between file creation and deletion. The obsolete file scan had snapshotted the file set *before* the new file was registered, but the directory scan found it on disk *after* creation. This kind of race is invisible from code reading alone — the timeline makes it obvious.
 
 #### Step 3: Classify the Failure
 
 Before diving into code, classify what you're seeing:
 
-- **Is the feature flag on or off?** Check the db_stress command line for your feature's flag. If bdw=0 and you're debugging a blob issue, the failure is pre-existing — not your bug.
+- **Is the feature flag on or off?** Check the db_stress command line for your feature's flag. If your feature was disabled (=0) in this particular run, the failure is pre-existing — not your bug.
 - **Is it a test bug or an engine bug?** Check if `MightHaveUnsyncedDataLoss()` accounts for your feature's durability semantics. False verification failures mean the *test* has wrong expectations, not that the engine is broken.
-- **Is it a known incompatibility?** Some features are fundamentally incompatible (e.g., remote compaction + blob files). The stress test may randomly combine them.
+- **Is it a known incompatibility?** Some features are fundamentally incompatible (e.g., remote compaction + blob files, best-efforts recovery + certain storage modes). The stress test may randomly combine them.
 
 #### Step 4: Run Parallel Investigations
 
@@ -220,7 +222,7 @@ Different approaches find different bugs. When triaging a hard failure:
 #### Step 5: Write a Regression Test
 
 Before fixing, write a test that reproduces the failure deterministically:
-- **For races:** Use SyncPoints to force the exact interleaving. If the race involves two mutexes (e.g., `db_mutex` vs `file_partition_mutex_`), you can pause one thread between operations to create the race window.
+- **For races:** Use SyncPoints to force the exact interleaving. If the race involves operations protected by different mutexes, you can pause one thread between operations to create the race window.
 - **For hard-to-reproduce races:** Simulate the end-state directly. Create the "phantom" artifact on disk and verify the protection mechanism handles it. Deterministic, no flakiness.
 - **Always verify the test fails without the fix.** A test that passes both with and without the fix proves nothing.
 
@@ -273,11 +275,10 @@ run_stress_matrix.sh --repo ~/workspace/rocksdb --modes core --batches 300
 # Full Sandcastle coverage — 3 variants × 22 modes = 66 tests per batch
 run_stress_matrix.sh --repo ~/workspace/rocksdb
 
-# Test a specific feature with extra flags
+# Test a specific feature — enable it and disable incompatible features
 run_stress_matrix.sh --repo ~/workspace/rocksdb \
-  --modes core,atomic_flush,best_efforts,ts,tiered_storage \
-  --extra-flags "--enable_blob_direct_write=1 --enable_blob_files=1 \
-    --use_txn=0 --use_optimistic_txn=0"
+  --modes core,atomic_flush \
+  --extra-flags "--enable_my_feature=1 --incompatible_feature=0"
 
 # Only ASAN, just transaction modes, 30-min batches
 run_stress_matrix.sh --variants asan --modes txn --batches 1800
@@ -311,12 +312,10 @@ Runs stress matrix → on failure, launches Claude Code (CC) to analyze and fix 
 # Fix loop until 1hr passes clean, then push
 stress_fix_loop.sh --repo ~/workspace/rocksdb --target-duration 3600 --push
 
-# Feature-specific: blob direct write with incompatible features disabled
+# Feature-specific: enable your feature, disable incompatible ones, skip irrelevant modes
 stress_fix_loop.sh --repo ~/workspace/rocksdb --parallel 4 \
   --modes core,atomic_flush,best_efforts,ts,tiered_storage \
-  --extra-flags "--enable_blob_direct_write=1 --enable_blob_files=1 \
-    --blob_direct_write_partitions=4 --blob_direct_write_buffer_size=1048576 \
-    --use_txn=0 --use_optimistic_txn=0"
+  --extra-flags "--enable_my_feature=1 --incompatible_feature_a=0"
 
 # Quick: 5-min target, debug only
 stress_fix_loop.sh --repo ~/workspace/rocksdb \
