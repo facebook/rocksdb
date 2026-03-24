@@ -902,6 +902,10 @@ $(parallel_tests):
 	echo "  Generating $$NUM_SHARDS shards for $$TEST_BINARY ($$TEST_COUNT tests)"; \
 	SHARD_IDX=0; \
 	while [ "$$SHARD_IDX" -lt "$$NUM_SHARDS" ]; do \
+		if [ -n "$(CI_TOTAL_SHARDS)" ] && [ $$(( $$SHARD_IDX % $(CI_TOTAL_SHARDS) )) -ne $(CI_SHARD_INDEX) ]; then \
+			SHARD_IDX=$$((SHARD_IDX + 1)); \
+			continue; \
+		fi; \
 		TEST_SCRIPT=t/run-$$TEST_BINARY-shard-$$SHARD_IDX; \
     printf '%s\n' \
       '#!/bin/sh' \

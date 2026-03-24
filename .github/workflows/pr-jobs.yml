@@ -403,12 +403,10 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: clang18-asan-ubsan
-    - name: Compute test shard
-      id: shard
-      run: .github/scripts/compute-test-shard.sh ${{ matrix.shard }} 3
     - run: COMPILE_WITH_ASAN=1 COMPILE_WITH_UBSAN=1 CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j40 check
       env:
-        ROCKSDBTESTS_SUBSET: ${{ steps.shard.outputs.subset }}
+        CI_SHARD_INDEX: ${{ matrix.shard }}
+        CI_TOTAL_SHARDS: 3
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
@@ -432,12 +430,10 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: clang18-tsan
-    - name: Compute test shard
-      id: shard
-      run: .github/scripts/compute-test-shard.sh ${{ matrix.shard }} 3
     - run: COMPILE_WITH_TSAN=1 CC=clang-18 CXX=clang++-18 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
       env:
-        ROCKSDBTESTS_SUBSET: ${{ steps.shard.outputs.subset }}
+        CI_SHARD_INDEX: ${{ matrix.shard }}
+        CI_TOTAL_SHARDS: 3
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
