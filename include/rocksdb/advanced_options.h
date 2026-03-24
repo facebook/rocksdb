@@ -941,8 +941,8 @@ struct AdvancedColumnFamilyOptions {
   uint64_t periodic_compaction_seconds = 0xfffffffffffffffe;
 
   // When set to a positive value, enables read-triggered compaction. An SST
-  // file is marked for compaction when its sampled read frequency
-  // (sampled_reads / file_size) exceeds this threshold. This helps reduce
+  // file is marked for compaction when its estimated read frequency
+  // (estimated_reads / file_size) exceeds this threshold. This helps reduce
   // read amplification for hot keys by compacting frequently-read files.
   //
   // Only "collapsible" reads are counted — lookups that return NotFound
@@ -955,7 +955,7 @@ struct AdvancedColumnFamilyOptions {
   // block-based table format is being used,
   //
   // Break-even derivation (no block cache):
-  //   Let r = sampled_reads / file_size  (the threshold)
+  //   Let r = estimated_reads / file_size  (the threshold)
   //       S = file_size
   //       B = block_size             (typically 4 KB)
   //       F = level fanout           (typically ~10)
