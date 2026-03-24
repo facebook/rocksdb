@@ -426,7 +426,16 @@ DEFINE_bool(fifo_allow_compaction, false,
 DEFINE_uint64(fifo_compaction_max_data_files_size_mb, 0,
               "If non-zero, set "
               "`Options::compaction_options_fifo.max_data_files_size` to this "
-              "value (in MB). Only takes effect with FIFO compaction.");
+              "value (in MB). Only takes effect with FIFO compaction. "
+              "When non-zero, overrides `max_table_files_size` for "
+              "determining when FIFO drops old SST files.");
+
+DEFINE_uint64(fifo_compaction_max_table_files_size_mb, 0,
+              "If non-zero, set "
+              "`Options::compaction_options_fifo.max_table_files_size` to this "
+              "value (in MB). Only takes effect with FIFO compaction. "
+              "When zero, uses the default (1GB). Ignored when "
+              "`fifo_compaction_max_data_files_size_mb` is non-zero.");
 
 DEFINE_bool(fifo_compaction_use_kv_ratio_compaction, false,
             "If true, set "
