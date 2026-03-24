@@ -132,6 +132,12 @@ void SyncPoint::Data::Process(const Slice& point, void* cb_arg) {
 
   while (!PredecessorsAllCleared(point_string)) {
     cv_.wait(lock);
+    // After waking, recheck if processing was disabled (e.g., by
+    // DisableProcessing() during test cleanup). Without this check,
+    // threads can wait forever for predecessors that will never fire.
+    if (!enabled_) {
+      return;
+    }
     if (DisabledByMarker(point_string, thread_id)) {
       return;
     }

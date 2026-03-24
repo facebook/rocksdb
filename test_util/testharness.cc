@@ -25,6 +25,12 @@ class SyncPointCleanupListener : public ::testing::EmptyTestEventListener {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
+    // LoadDependency({}) clears successors_, predecessors_, and
+    // cleared_points_ maps.  Without this, stale dependencies from a
+    // previous test can block SyncPoint::Process() in the next test
+    // (e.g. a background compaction thread hitting CompactFilesImpl:1
+    // whose predecessor was never fired).
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({});
   }
 };
 
