@@ -621,28 +621,15 @@ endif
 
 ROCKSDBTESTS_SUBSET ?= $(TESTS)
 
-# c_test - doesn't use gtest
-# env_test - suspicious use of test::TmpDir
-# deletefile_test - serial because it generates giant temporary files in
-#   its various tests. Parallel can fill up your /dev/shm
-# db_bloom_filter_test - serial because excessive space usage by instances
-#   of DBFilterConstructionReserveMemoryTestWithParam can fill up /dev/shm
-# perf_context_test - 1GB write_buffer_size default, parallel can fill /dev/shm
-# obsolete_files_test - ~1GB write_buffer_size/target_file_size_base
-# backup_engine_test - 1GB write_buffer_size in FailOverwritingBackups
-# prefetch_test - 1GB write_buffer_size in PrefetchWhenReseek parameterized test
-# db_io_failure_test - 256MB write_buffer_size in FlushSstRangeSyncError and
-#   CompactionSstRangeSyncError
+# c_test - doesn't use gtest, can't be sharded
+# Other tests previously listed here (backup_engine_test, db_bloom_filter_test,
+# perf_context_test, etc.) were NON_PARALLEL due to /dev/shm memory concerns
+# when the old per-test-case sharding spawned thousands of processes. With the
+# new gtest-based sharding (GTEST_SHARD_SIZE=10, max NCORES*8 shards), at most
+# ~4 shards run concurrently on CI (4 cores), so peak memory is manageable
+# (4 * 1GB = 4GB << 16GB shm).
 NON_PARALLEL_TEST = \
 	c_test \
-	env_test \
-	deletefile_test \
-	db_bloom_filter_test \
-	perf_context_test \
-	obsolete_files_test \
-	backup_engine_test \
-	prefetch_test \
-	db_io_failure_test \
 	$(PLUGIN_TESTS) \
 
 PARALLEL_TEST = $(filter-out $(NON_PARALLEL_TEST), $(ROCKSDBTESTS_SUBSET))
