@@ -245,6 +245,16 @@ int db_stress_tool(int argc, char** argv) {
     exit(1);
   }
 
+  // TrieIndexFactory requires plain BytewiseComparator, but timestamps use
+  // BytewiseComparator.u64ts.
+  if (FLAGS_use_trie_index && FLAGS_user_timestamp_size > 0) {
+    fprintf(stderr,
+            "Error: use_trie_index is incompatible with user-defined "
+            "timestamps. TrieIndexFactory requires BytewiseComparator "
+            "but timestamps use BytewiseComparator.u64ts.\n");
+    exit(1);
+  }
+
   if (FLAGS_read_only) {
     if (FLAGS_writepercent != 0 || FLAGS_delpercent != 0 ||
         FLAGS_delrangepercent != 0) {
