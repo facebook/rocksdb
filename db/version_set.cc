@@ -7539,10 +7539,13 @@ uint64_t VersionSet::ApproximateSize(const ReadOptions& read_options,
                                       *f.file_metadata, caller, icmp, cf_opts);
 }
 
-uint64_t VersionSet::ApproximateBlobSize(
-    const SizeApproximationOptions& options, const ReadOptions& read_options,
-    Version* v, const Slice& start, const Slice& end) {
+uint64_t VersionSet::ApproximateBlobSize(Version* v,
+                                         uint64_t sst_size_in_range) {
   assert(v);
+  if (sst_size_in_range == 0) {
+    return 0;
+  }
+
   const auto* vstorage = v->storage_info();
   const int num_non_empty_levels = vstorage->num_non_empty_levels();
 
@@ -7555,13 +7558,6 @@ uint64_t VersionSet::ApproximateBlobSize(
   if (total_sst_size == 0) {
     return 0;
   }
-
-  // Compute the approximate SST size in the [start, end] range using the
-  // existing SST approximation logic.
-  uint64_t sst_size_in_range =
-      ApproximateSize(options, read_options, v, start, end,
-                      /*start_level=*/0, /*end_level=*/-1,
-                      TableReaderCaller::kUserApproximateSize);
 
   // Compute total blob file size.
   uint64_t total_blob_size = 0;
