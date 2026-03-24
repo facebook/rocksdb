@@ -24,6 +24,7 @@ class SyncPointCleanupListener : public ::testing::EmptyTestEventListener {
   void OnTestEnd(const ::testing::TestInfo& /*test_info*/) override {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
   }
 };
 

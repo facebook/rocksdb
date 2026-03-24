@@ -449,8 +449,11 @@ ifndef USE_FOLLY
 	USE_FOLLY=0
 endif
 
+# Default to 0 so that test failures don't terminate the process.
+# With sharded execution (multiple tests per process), THROW_ON_FAILURE=1
+# would cause the first failure to skip all remaining tests in the shard.
 ifndef GTEST_THROW_ON_FAILURE
-	export GTEST_THROW_ON_FAILURE=1
+	export GTEST_THROW_ON_FAILURE=0
 endif
 ifndef GTEST_HAS_EXCEPTIONS
 	export GTEST_HAS_EXCEPTIONS=1

@@ -12,7 +12,7 @@ shard=${1:?Usage: compute-test-shard.sh <shard_index> <num_shards>}
 nshards=${2:?Usage: compute-test-shard.sh <shard_index> <num_shards>}
 
 # Get sorted test list matching Makefile order (db_test first, then alpha)
-make list_all_tests 2>/dev/null | tr ' ' '\n' | grep '_test$' | sort -u > /tmp/sorted.txt
+make -s list_all_tests 2>/dev/null | tr ' ' '\n' | grep '_test$' | sort -u > /tmp/sorted.txt
 (echo db_test; grep -v '^db_test$' /tmp/sorted.txt) > /tmp/all_tests.txt
 
 total=$(wc -l < /tmp/all_tests.txt)
