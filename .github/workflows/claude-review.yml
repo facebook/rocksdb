@@ -12,7 +12,8 @@
 # Security:
 #   - This job has contents:read ONLY (no PR write, no issue write)
 #   - ANTHROPIC_API_KEY is used here but never coexists with write tokens
-#   - Claude uses read-only tools (View, GlobTool, GrepTool)
+#   - Claude uses read-only tools (View, GlobTool, GrepTool) plus Write
+#     (only for incremental findings file, not repo modifications)
 #   - Review methodology: claude_md/code_review.md
 
 name: Claude Code Review
@@ -157,11 +158,7 @@ jobs:
             IS_TRUNCATED=true
           fi
 
-          cat > /tmp/prompt.txt << 'PROMPT_EOF'
-          Read claude_md/code_review.md for the full review methodology, then
-          review the pull request described below. Follow all perspectives and
-          the output format defined in that document.
-          PROMPT_EOF
+          cat claude_md/ci_review_prompt.md > /tmp/prompt.txt
 
           cat >> /tmp/prompt.txt << PROMPT_EOF
 
@@ -187,7 +184,37 @@ jobs:
         with:
           prompt_file: /tmp/prompt.txt
           model: claude-opus-4-6
-          max_turns: "30"
+          max_turns: "300"
+          allowed_tools: "View,GlobTool,GrepTool,Write,Task"
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Recover partial review on turn limit
+        if: steps.check_existing.outputs.skip != 'true'
+        id: recover
+        uses: actions/github-script@v7
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        with:
+          script: |
+            const fs = require('fs');
+            const log = JSON.parse(fs.readFileSync(process.env.EXECUTION_FILE, 'utf8'));
+            const result = log.find(m => m.type === 'result');
+            const hitLimit = result && result.subtype === 'error_max_turns';
+            const hasFindings = fs.existsSync('review-findings.md');
+            core.setOutput('hit_limit', hitLimit ? 'true' : 'false');
+            core.setOutput('has_findings', hasFindings ? 'true' : 'false');
+            core.setOutput('needs_recovery', (hitLimit && hasFindings) ? 'true' : 'false');
+
+      - name: Format partial findings
+        if: >-
+          steps.check_existing.outputs.skip != 'true' &&
+          steps.recover.outputs.needs_recovery == 'true'
+        id: format_recovery
+        uses: anthropics/claude-code-base-action@beta
+        with:
+          prompt_file: claude_md/ci_recovery_prompt.md
+          model: claude-sonnet-4-20250514
+          max_turns: "10"
           allowed_tools: "View,GlobTool,GrepTool"
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
@@ -196,21 +223,32 @@ jobs:
         uses: actions/github-script@v7
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          RECOVERY_FILE: ${{ steps.format_recovery.outputs.execution_file }}
           CONCLUSION: ${{ steps.claude.outputs.conclusion }}
           HEAD_SHA: ${{ steps.pr_info.outputs.head_sha }}
+          NEEDS_RECOVERY: ${{ steps.recover.outputs.needs_recovery }}
         with:
           script: |
             const parse = require('./.github/scripts/parse-claude-review.js');
+            const fs = require('fs');
+            let execFile = process.env.EXECUTION_FILE;
+            if (process.env.NEEDS_RECOVERY === 'true') {
+              const rf = process.env.RECOVERY_FILE;
+              if (rf && fs.existsSync(rf)) {
+                execFile = rf;
+              }
+            }
             const body = parse({
-              executionFile: process.env.EXECUTION_FILE,
+              executionFile: execFile,
               conclusion: process.env.CONCLUSION,
               meta: {
                 trigger: 'auto',
                 headSha: process.env.HEAD_SHA,
                 reviewer: '',
+                isQuery: false,
+                isPartial: process.env.NEEDS_RECOVERY === 'true',
               }
             });
-            const fs = require('fs');
             fs.writeFileSync('claude-review-comment.md', body);
 
       - name: Save PR number
@@ -241,6 +279,15 @@ jobs:
           path: ${{ steps.claude.outputs.execution_file }}
           retention-days: 7
           if-no-files-found: warn
+
+      - name: Upload recovery execution log
+        if: always() && steps.recover.outputs.needs_recovery == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-review-recovery-log
+          path: ${{ steps.format_recovery.outputs.execution_file }}
+          retention-days: 7
+          if-no-files-found: ignore
 
   # ======================== Manual Review ======================== #
   manual-review:
@@ -351,14 +398,8 @@ jobs:
 
           if [ "${COMMAND_TYPE}" = "query" ]; then
             # Query prompt
-            cat > /tmp/prompt.txt << 'PROMPT_EOF'
-          You are an expert C++ engineer for RocksDB.
-          Read CLAUDE.md in the repo root and claude_md/ files for project context.
-          Answer thoroughly with exact file paths and line numbers.
-
-          ---
-
-          PROMPT_EOF
+            cat claude_md/ci_query_prompt.md > /tmp/prompt.txt
+            printf '\n---\n\n' >> /tmp/prompt.txt
 
             cat >> /tmp/prompt.txt << PROMPT_EOF
           ## Pull Request Context
@@ -375,11 +416,7 @@ jobs:
             cat /tmp/pr.diff >> /tmp/prompt.txt
           else
             # Review prompt
-            cat > /tmp/prompt.txt << 'PROMPT_EOF'
-          Read claude_md/code_review.md for the full review methodology, then
-          review the pull request described below. Follow all perspectives and
-          the output format defined in that document.
-          PROMPT_EOF
+            cat claude_md/ci_review_prompt.md > /tmp/prompt.txt
 
             cat >> /tmp/prompt.txt << PROMPT_EOF
 
@@ -411,7 +448,40 @@ jobs:
         with:
           prompt_file: /tmp/prompt.txt
           model: ${{ github.event_name == 'workflow_dispatch' && inputs.model || 'claude-opus-4-6' }}
-          max_turns: "30"
+          max_turns: "300"
+          allowed_tools: "View,GlobTool,GrepTool,Write,Task"
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Recover partial review on turn limit
+        id: recover
+        uses: actions/github-script@v7
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          COMMAND_TYPE: ${{ steps.command.outputs.type }}
+        with:
+          script: |
+            const fs = require('fs');
+            // Skip recovery for queries — only reviews use incremental findings
+            if (process.env.COMMAND_TYPE === 'query') {
+              core.setOutput('needs_recovery', 'false');
+              return;
+            }
+            const log = JSON.parse(fs.readFileSync(process.env.EXECUTION_FILE, 'utf8'));
+            const result = log.find(m => m.type === 'result');
+            const hitLimit = result && result.subtype === 'error_max_turns';
+            const hasFindings = fs.existsSync('review-findings.md');
+            core.setOutput('hit_limit', hitLimit ? 'true' : 'false');
+            core.setOutput('has_findings', hasFindings ? 'true' : 'false');
+            core.setOutput('needs_recovery', (hitLimit && hasFindings) ? 'true' : 'false');
+
+      - name: Format partial findings
+        if: steps.recover.outputs.needs_recovery == 'true'
+        id: format_recovery
+        uses: anthropics/claude-code-base-action@beta
+        with:
+          prompt_file: claude_md/ci_recovery_prompt.md
+          model: claude-sonnet-4-20250514
+          max_turns: "10"
           allowed_tools: "View,GlobTool,GrepTool"
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
@@ -419,25 +489,35 @@ jobs:
         uses: actions/github-script@v7
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          RECOVERY_FILE: ${{ steps.format_recovery.outputs.execution_file }}
           CONCLUSION: ${{ steps.claude.outputs.conclusion }}
           HEAD_SHA: ${{ steps.pr_info.outputs.head_sha }}
           REVIEWER: ${{ github.event_name == 'workflow_dispatch' && github.actor || github.event.comment.user.login }}
           COMMAND_TYPE: ${{ steps.command.outputs.type }}
+          NEEDS_RECOVERY: ${{ steps.recover.outputs.needs_recovery }}
         with:
           script: |
             const parse = require('./.github/scripts/parse-claude-review.js');
+            const fs = require('fs');
             const isReview = process.env.COMMAND_TYPE === 'review';
+            let execFile = process.env.EXECUTION_FILE;
+            if (process.env.NEEDS_RECOVERY === 'true') {
+              const rf = process.env.RECOVERY_FILE;
+              if (rf && fs.existsSync(rf)) {
+                execFile = rf;
+              }
+            }
             const body = parse({
-              executionFile: process.env.EXECUTION_FILE,
+              executionFile: execFile,
               conclusion: process.env.CONCLUSION,
               meta: {
                 trigger: 'manual',
                 headSha: process.env.HEAD_SHA,
                 reviewer: process.env.REVIEWER,
                 isQuery: !isReview,
+                isPartial: process.env.NEEDS_RECOVERY === 'true',
               }
             });
-            const fs = require('fs');
             fs.writeFileSync('claude-review-comment.md', body);
 
       - name: Save PR number
@@ -474,3 +554,12 @@ jobs:
           path: ${{ steps.claude.outputs.execution_file }}
           retention-days: 7
           if-no-files-found: warn
+
+      - name: Upload recovery execution log
+        if: always() && steps.recover.outputs.needs_recovery == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-review-recovery-log
+          path: ${{ steps.format_recovery.outputs.execution_file }}
+          retention-days: 7
+          if-no-files-found: ignore
