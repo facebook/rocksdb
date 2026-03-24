@@ -914,7 +914,7 @@ class MemTable final : public ReadOnlyMemTable {
   // pointed-to memory lives in the arena and remains valid for the lifetime of
   // the memtable. Stored as an atomic pointer so that concurrent range
   // tombstone inserts from the read path can safely update it via CAS.
-  RelaxedAtomic<const char*> newest_udt_data_{nullptr};
+  Atomic<const char*> newest_udt_data_{nullptr};
 
   // Updates flush_state_ using ShouldFlushNow()
   void UpdateFlushState();

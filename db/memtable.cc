@@ -1012,10 +1012,6 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       }
     }
 
-    // Use atomic increments even in the non-concurrent writer path because
-    // concurrent range tombstone inserts from the read path (e.g.
-    // AddLogicallyRedundantRangeTombstone) call BatchPostProcess which uses
-    // FetchAddRelaxed on these same counters.
     num_entries_.FetchAddRelaxed(1);
     data_size_.FetchAddRelaxed(encoded_len);
     if (type == kTypeDeletion || type == kTypeSingleDeletion ||
@@ -2007,10 +2003,10 @@ void MemTable::MaybeUpdateNewestUDT(const Slice& user_key) {
   }
   const Comparator* ucmp = GetInternalKeyComparator().user_comparator();
   Slice udt = ExtractTimestampFromUserKey(user_key, ts_sz_);
-  const char* cur = newest_udt_data_.LoadRelaxed();
+  const char* cur = newest_udt_data_.Load();
   while (cur == nullptr ||
          ucmp->CompareTimestamp(udt, Slice(cur, ts_sz_)) > 0) {
-    if (newest_udt_data_.CasWeakRelaxed(cur, udt.data())) {
+    if (newest_udt_data_.CasWeak(cur, udt.data())) {
       break;
     }
   }
@@ -2018,7 +2014,7 @@ void MemTable::MaybeUpdateNewestUDT(const Slice& user_key) {
 
 Slice MemTable::GetNewestUDT() const {
   assert(ts_sz_ > 0);
-  const char* data = newest_udt_data_.LoadRelaxed();
+  const char* data = newest_udt_data_.Load();
   if (data == nullptr) {
     return Slice();
   }

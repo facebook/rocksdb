@@ -1175,10 +1175,10 @@ TEST_F(MemTableListWithTimestampTest, ConcurrentGetTableNewestUDT) {
 
   std::vector<port::Thread> threads;
   threads.reserve(num_threads);
-  std::vector<MemTablePostProcessInfo> post_process_infos(num_threads);
 
   for (int t = 0; t < num_threads; t++) {
     threads.emplace_back([&, t]() {
+      MemTablePostProcessInfo post_process_info;
       for (int j = 0; j < num_entries_per_thread; j++) {
         uint64_t ts = t * num_entries_per_thread + j;
         std::string key = "key" + std::to_string(ts);
@@ -1187,19 +1187,16 @@ TEST_F(MemTableListWithTimestampTest, ConcurrentGetTableNewestUDT) {
         key.append(write_ts);
 
         SequenceNumber seq = next_seq.fetch_add(1);
-        ASSERT_OK(
-            mem->Add(seq, kTypeValue, key, "val", nullptr /* kv_prot_info */,
-                     true /* allow_concurrent */, &post_process_infos[t]));
+        ASSERT_OK(mem->Add(seq, kTypeValue, key, "val",
+                           nullptr /* kv_prot_info */,
+                           true /* allow_concurrent */, &post_process_info));
       }
+      mem->BatchPostProcess(post_process_info);
     });
   }
 
   for (auto& thread : threads) {
     thread.join();
-  }
-
-  for (int t = 0; t < num_threads; t++) {
-    mem->BatchPostProcess(post_process_infos[t]);
   }
 
   ASSERT_EQ(num_threads * num_entries_per_thread, mem->NumEntries());

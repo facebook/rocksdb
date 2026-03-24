@@ -242,9 +242,8 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
   value.clear();
 
   // Write Merge concurrently
-  MemTablePostProcessInfo post_process_info1;
-  MemTablePostProcessInfo post_process_info2;
   ROCKSDB_NAMESPACE::port::Thread write_thread1([&]() {
+    MemTablePostProcessInfo post_process_info1;
     std::string v1;
     for (int seq = 1; seq < num_ops / 2; seq++) {
       PutFixed64(&v1, seq);
@@ -252,8 +251,10 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
                          true, &post_process_info1));
       v1.clear();
     }
+    mem->BatchPostProcess(post_process_info1);
   });
   ROCKSDB_NAMESPACE::port::Thread write_thread2([&]() {
+    MemTablePostProcessInfo post_process_info2;
     std::string v2;
     for (int seq = num_ops / 2; seq < num_ops; seq++) {
       PutFixed64(&v2, seq);
@@ -261,13 +262,10 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
                          true, &post_process_info2));
       v2.clear();
     }
+    mem->BatchPostProcess(post_process_info2);
   });
   write_thread1.join();
   write_thread2.join();
-
-  // Apply deferred counters and verify stat correctness
-  mem->BatchPostProcess(post_process_info1);
-  mem->BatchPostProcess(post_process_info2);
   // 1 non-concurrent Put + (num_ops - 1) concurrent Merges
   ASSERT_EQ(mem->NumEntries(), static_cast<uint64_t>(num_ops));
   ASSERT_EQ(mem->NumDeletion(), 0u);
