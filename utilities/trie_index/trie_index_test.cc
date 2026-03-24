@@ -43,9 +43,9 @@ namespace ROCKSDB_NAMESPACE {
 namespace trie_index {
 
 // ============================================================================
-// Helpers: pack sequence numbers with kTypeValue (1) into packed trailers.
+// Helpers: pack sequence numbers with kTypeValue (1) into tags.
 // Tests use plain sequence numbers for readability; these convert them to
-// the packed trailer format that IndexEntryContext and SeekContext expect.
+// the tag format that IndexEntryContext and SeekContext expect.
 UserDefinedIndexIterator::SeekContext SeekCtx(SequenceNumber seq) {
   return {PackSequenceAndType(seq, kValueTypeForSeek)};
 }
@@ -3235,7 +3235,7 @@ TEST_F(TrieIndexFactoryTest, SameUserKeyWithZeroSeqnos) {
 TEST_F(TrieIndexFactoryTest, SameUserKeyLastBlockZeroSeqno) {
   // Same user key spans blocks including the last block in the SST, with
   // all seqnos zeroed (bottommost compaction). The last block's AddIndexEntry
-  // call has first_key_in_next_block=nullptr and first_key_packed_trailer=0.
+  // call has first_key_in_next_block=nullptr and first_key_tag=0.
   auto ctx = BuildTrieAndGetIterator({
       {"key", "key", 0, 1000, 0, 0},
       {"key", "", 1000, 1000, 0, 0},  // last block
@@ -3975,21 +3975,21 @@ TEST_F(TrieIndexFactoryTest, SingleBlockWithSeqnoActive) {
   }
 }
 
-TEST_F(TrieIndexFactoryTest, PackedTrailerDistinguishesSameSeqDifferentType) {
-  // the trie must use the full packed trailer (seq << 8 |
+TEST_F(TrieIndexFactoryTest, TagDistinguishesSameSeqDifferentType) {
+  // the trie must use the full tag (seq << 8 |
   // type) for block selection, not just the sequence number. Without this,
   // when two blocks share the same user key and same seqno but differ in
   // value type, the trie could return the wrong block.
   //
-  // Scenario: separator has packed trailer (50 << 8) | 0 = 12800
-  // (kTypeDeletion) Target has packed trailer (50 << 8) | 1 = 12801
-  // (kTypeValue) In internal key order, higher packed trailer = smaller key, so
+  // Scenario: separator has tag (50 << 8) | 0 = 12800
+  // (kTypeDeletion) Target has tag (50 << 8) | 1 = 12801
+  // (kTypeValue) In internal key order, higher tag = smaller key, so
   // target (12801) < separator (12800). The trie should stay on Block 0.
   //
   // With seqno-only comparison: 50 < 50 is false → stay. Same result.
   // But the reverse case matters:
-  // Separator packed trailer (50 << 8) | 1 = 12801 (kTypeValue)
-  // Target packed trailer (50 << 8) | 0 = 12800 (kTypeDeletion)
+  // Separator tag (50 << 8) | 1 = 12801 (kTypeValue)
+  // Target tag (50 << 8) | 0 = 12800 (kTypeDeletion)
   // target (12800) < separator (12801) → advance to Block 1.
   // With seqno-only: 50 < 50 is false → stay (WRONG — should advance).
 
@@ -4024,7 +4024,7 @@ TEST_F(TrieIndexFactoryTest, PackedTrailerDistinguishesSameSeqDifferentType) {
 
   // Target: ("x", seqno=50, kTypeDeletion=0), packed=12800.
   // Separator packed=12801. 12800 < 12801 → advance to Block 1. Correct.
-  // With seqno-only comparison (without packed trailer): 50 < 50 → false →
+  // With seqno-only comparison (without tag): 50 < 50 → false →
   // stay on Block 0 (WRONG).
   ASSERT_OK(iter->SeekAndGetResult(Slice("x"), &result, {(50ULL << 8) | 0}));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);

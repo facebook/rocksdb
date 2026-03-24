@@ -56,23 +56,23 @@ class UserDefinedIndexBuilder {
   // boundaries. Passed as a struct for forward-compatible extensibility
   // (new fields can be added without breaking existing implementations).
   struct IndexEntryContext {
-    // Packed internal key trailer of last_key_in_current_block:
+    // Tag (packed sequence number and type) of last_key_in_current_block:
     //   (sequence_number << 8) | value_type
     // This is the same format used by InternalKeyComparator for ordering.
     // UDI implementations that encode sequence numbers should store this
-    // packed trailer (not just the sequence number) to ensure correct block
+    // tag (not just the sequence number) to ensure correct block
     // selection when the same user key spans multiple blocks.
-    uint64_t last_key_packed_trailer = 0;
-    // Packed internal key trailer of first_key_in_next_block (valid only
-    // when first_key_in_next_block != nullptr).
-    uint64_t first_key_packed_trailer = 0;
+    uint64_t last_key_tag = 0;
+    // Tag (packed sequence number and type) of first_key_in_next_block (valid
+    // only when first_key_in_next_block != nullptr).
+    uint64_t first_key_tag = 0;
   };
 
   virtual ~UserDefinedIndexBuilder() = default;
 
   // Add a new index entry for a data block boundary.
   //
-  // The keys are user keys (without the 8-byte internal key trailer).
+  // The keys are user keys (without the 8-byte tag).
   //
   // The UDI is free to compute a separator between the two user keys and
   // store it along with the block handle. The separator must satisfy:
@@ -143,13 +143,13 @@ class UserDefinedIndexIterator {
   // Optional context for SeekAndGetResult providing the target sequence
   // number. Passed as a struct for forward-compatible extensibility.
   struct SeekContext {
-    // Packed internal key trailer of the target key:
+    // Tag (packed sequence number and type) of the target key:
     //   (sequence_number << 8) | value_type
     // Used by UDI implementations that encode sequence numbers (when the
     // same user key spans multiple data blocks) to locate the correct block.
     // Must match the format stored in
-    // IndexEntryContext::last_key_packed_trailer.
-    uint64_t target_packed_trailer = 0;
+    // IndexEntryContext::last_key_tag.
+    uint64_t target_tag = 0;
   };
 
   // Position the index iterator at the very first index entry. The result

@@ -103,17 +103,17 @@ class TrieIndexBuilder final : public UserDefinedIndexBuilder {
   // Once set, never cleared (sticky flag, same as internal index).
   bool must_use_separator_with_seq_;
 
-  // Buffered separator entries: (separator_key, packed_trailer, handle).
+  // Buffered separator entries: (separator_key, tag, handle).
   // The separator_key is the user-key-only separator computed by
   // FindShortestSeparator. The seqno field stores a packed internal key
-  // trailer (sequence_number << 8 | value_type):
-  //   - For same-user-key boundaries: the packed trailer of last_key
+  // tag ((sequence_number << 8) | value_type):
+  //   - For same-user-key boundaries: the tag of last_key
   //   - For different-user-key boundaries:
   //     PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek) --
-  //     the same trailer the standard index uses for these separators
+  //     the same tag the standard index uses for these separators
   struct BufferedEntry {
     std::string separator_key;
-    uint64_t packed_trailer{};
+    uint64_t tag{};
     TrieBlockHandle handle;
   };
   std::vector<BufferedEntry> buffered_entries_;
@@ -152,7 +152,7 @@ class TrieIndexIterator final : public UserDefinedIndexIterator {
 
   // Seek to the first index entry >= target. When has_seqno_encoding_ is
   // true, the trie is searched with user_key only, then post-seek correction
-  // uses target_packed_trailer from context to advance through overflow blocks.
+  // uses target_tag from context to advance through overflow blocks.
   Status SeekAndGetResult(const Slice& target, IterateResult* result,
                           const SeekContext& context) override;
 

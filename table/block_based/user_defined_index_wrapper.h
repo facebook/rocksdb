@@ -69,9 +69,9 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
       // cannot produce a separator that distinguishes the two blocks,
       // causing incorrect Seek results.
       UserDefinedIndexBuilder::IndexEntryContext ctx;
-      ctx.last_key_packed_trailer =
+      ctx.last_key_tag =
           PackSequenceAndType(pkey_last.sequence, pkey_last.type);
-      ctx.first_key_packed_trailer =
+      ctx.first_key_tag =
           first_key_in_next_block
               ? PackSequenceAndType(pkey_first.sequence, pkey_first.type)
               : 0;
@@ -256,7 +256,7 @@ class UserDefinedIndexIteratorWrapper
       // due to snapshots). Without it, the UDI cannot distinguish which
       // block to return for a given (user_key, seqno) target.
       UserDefinedIndexIterator::SeekContext ctx;
-      ctx.target_packed_trailer = PackSequenceAndType(pkey.sequence, pkey.type);
+      ctx.target_tag = PackSequenceAndType(pkey.sequence, pkey.type);
       status_ = udi_iter_->SeekAndGetResult(pkey.user_key, &result_, ctx);
     }
     UpdateValidAndKey();
@@ -328,7 +328,7 @@ class UserDefinedIndexIteratorWrapper
   // Convert the UDI result's user key into an internal key for the index
   // iterator contract. UDI separators are user keys, but
   // InternalIteratorBase<IndexValue> must expose internal keys (user key +
-  // 8-byte trailer). We use seq=0 / kTypeValue so that the resulting
+  // 8-byte tag). We use seq=0 / kTypeValue so that the resulting
   // internal key compares as "greater than or equal to" any real data key
   // with the same user key (lower seqno = later in internal key order),
   // which is the correct upper-bound semantics for an index separator.
