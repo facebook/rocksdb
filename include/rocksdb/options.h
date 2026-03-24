@@ -2859,6 +2859,11 @@ struct SizeApproximationOptions {
   // Defines whether the returned size should include data serialized to disk.
   // If set to false, include_memtables must be true.
   bool include_files = true;
+  // Defines whether the returned size should include the size of blob files
+  // referenced by SST files that overlap the key range. Blob files are used
+  // by BlobDB to store large values separately from the LSM tree.
+  // Default: false (for backward compatibility).
+  bool include_blob_files = false;
   // When approximating the files total size that is used to store a keys range
   // using DB::GetApproximateSizes, allow approximation with an error margin of
   // up to total_files_size * files_size_error_margin. This allows to take some

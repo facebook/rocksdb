@@ -7539,6 +7539,44 @@ uint64_t VersionSet::ApproximateSize(const ReadOptions& read_options,
                                       *f.file_metadata, caller, icmp, cf_opts);
 }
 
+uint64_t VersionSet::ApproximateBlobSize(Version* v, const InternalKey& start,
+                                         const InternalKey& end) {
+  assert(v);
+  const auto* vstorage = v->storage_info();
+  const int num_non_empty_levels = vstorage->num_non_empty_levels();
+
+  // Collect the file numbers of all SST files that overlap [start, end].
+  std::unordered_set<uint64_t> overlapping_sst_numbers;
+  for (int level = 0; level < num_non_empty_levels; ++level) {
+    std::vector<FileMetaData*> overlapping_files;
+    vstorage->GetOverlappingInputs(level, &start, &end, &overlapping_files,
+                                   /*hint_index=*/-1, /*file_index=*/nullptr,
+                                   /*expand_range=*/false);
+    for (const auto* file_meta : overlapping_files) {
+      overlapping_sst_numbers.insert(file_meta->fd.GetNumber());
+    }
+  }
+
+  if (overlapping_sst_numbers.empty()) {
+    return 0;
+  }
+
+  // Sum up the sizes of blob files that are linked to any overlapping SST.
+  uint64_t total_blob_size = 0;
+  const auto& blob_files = vstorage->GetBlobFiles();
+  for (const auto& blob_file_meta : blob_files) {
+    assert(blob_file_meta);
+    for (uint64_t linked_sst : blob_file_meta->GetLinkedSsts()) {
+      if (overlapping_sst_numbers.count(linked_sst) > 0) {
+        total_blob_size += blob_file_meta->GetBlobFileSize();
+        break;  // Count each blob file at most once
+      }
+    }
+  }
+
+  return total_blob_size;
+}
+
 void VersionSet::RemoveLiveFiles(
     std::vector<ObsoleteFileInfo>& sst_delete_candidates,
     std::vector<ObsoleteBlobFileInfo>& blob_delete_candidates) const {

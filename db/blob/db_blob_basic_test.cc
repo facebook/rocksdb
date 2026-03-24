@@ -2459,6 +2459,104 @@ TEST_F(DBBlobWithTimestampTest, IterateBlobs) {
   }
 }
 
+
+TEST_F(DBBlobBasicTest, GetApproximateSizesIncludingBlobFiles) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  // Write some key-value pairs with blob values and flush to create blob files.
+  constexpr int kNumKeys = 100;
+  constexpr int kValueSize = 1024;
+
+  Random rnd(301);
+  for (int i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(kValueSize)));
+  }
+  ASSERT_OK(Flush());
+
+  // Verify blob files exist.
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  bool has_blob_files = false;
+  for (const auto& f : files) {
+    if (f.size() > 5 && f.substr(f.size() - 5) == ".blob") {
+      has_blob_files = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(has_blob_files);
+
+  std::string start = Key(0);
+  std::string end = Key(kNumKeys);
+  Range r(start, end);
+
+  // Without include_blob_files (default behavior): should not include blob
+  // file sizes.
+  {
+    SizeApproximationOptions size_approx_options;
+    size_approx_options.include_files = true;
+    size_approx_options.include_blob_files = false;
+    uint64_t size_without_blobs = 0;
+    ASSERT_OK(db_->GetApproximateSizes(size_approx_options,
+                                       db_->DefaultColumnFamily(), &r, 1,
+                                       &size_without_blobs));
+
+    // With include_blob_files: should be strictly larger.
+    size_approx_options.include_blob_files = true;
+    uint64_t size_with_blobs = 0;
+    ASSERT_OK(db_->GetApproximateSizes(size_approx_options,
+                                       db_->DefaultColumnFamily(), &r, 1,
+                                       &size_with_blobs));
+    ASSERT_GT(size_with_blobs, size_without_blobs);
+    // The blob portion should be at least kNumKeys * kValueSize bytes
+    // (the actual blob file includes headers/footers/record headers so it will
+    // be larger).
+    uint64_t blob_portion = size_with_blobs - size_without_blobs;
+    ASSERT_GE(blob_portion, kNumKeys * kValueSize);
+  }
+
+  // Blob files only (no SST files, no memtables).
+  {
+    SizeApproximationOptions size_approx_options;
+    size_approx_options.include_files = false;
+    size_approx_options.include_memtables = false;
+    size_approx_options.include_blob_files = true;
+    uint64_t blob_only_size = 0;
+    ASSERT_OK(db_->GetApproximateSizes(size_approx_options,
+                                       db_->DefaultColumnFamily(), &r, 1,
+                                       &blob_only_size));
+    ASSERT_GE(blob_only_size, kNumKeys * kValueSize);
+  }
+
+  // Range that doesn't overlap any data should return 0 for blob files.
+  {
+    std::string no_start = Key(kNumKeys + 100);
+    std::string no_end = Key(kNumKeys + 200);
+    Range no_r(no_start, no_end);
+    SizeApproximationOptions size_approx_options;
+    size_approx_options.include_files = true;
+    size_approx_options.include_blob_files = true;
+    uint64_t no_size = 0;
+    ASSERT_OK(db_->GetApproximateSizes(size_approx_options,
+                                       db_->DefaultColumnFamily(), &no_r, 1,
+                                       &no_size));
+    ASSERT_EQ(no_size, 0);
+  }
+
+  // Via SizeApproximationFlags API.
+  {
+    uint64_t size_flags = 0;
+    ASSERT_OK(db_->GetApproximateSizes(
+        db_->DefaultColumnFamily(), &r, 1, &size_flags,
+        DB::SizeApproximationFlags::INCLUDE_FILES |
+            DB::SizeApproximationFlags::INCLUDE_BLOB_FILES));
+    ASSERT_GE(size_flags, kNumKeys * kValueSize);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
