@@ -6,6 +6,7 @@
 #pragma once
 
 #include "monitoring/statistics_impl.h"
+#include "monitoring/stress_trace.h"
 #include "port/port.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/system_clock.h"
@@ -44,7 +45,10 @@ class InstrumentedMutex {
 
   void Lock();
 
-  void Unlock() { mutex_.Unlock(); }
+  void Unlock() {
+    STRESS_TRACE_EVENT("MUTEX_UNLOCK obj=%p", this);
+    mutex_.Unlock();
+  }
 
   void AssertHeld() const { mutex_.AssertHeld(); }
 
@@ -110,9 +114,15 @@ class InstrumentedCondVar {
 
   bool TimedWait(uint64_t abs_time_us);
 
-  void Signal() { cond_.Signal(); }
+  void Signal() {
+    STRESS_TRACE_EVENT("CV_SIGNAL obj=%p", this);
+    cond_.Signal();
+  }
 
-  void SignalAll() { cond_.SignalAll(); }
+  void SignalAll() {
+    STRESS_TRACE_EVENT("CV_SIGNAL_ALL obj=%p", this);
+    cond_.SignalAll();
+  }
 
  private:
   void WaitInternal();

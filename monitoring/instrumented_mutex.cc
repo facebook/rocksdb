@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "monitoring/instrumented_mutex.h"
+#include "monitoring/stress_trace.h"
 
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
@@ -53,6 +54,7 @@ void InstrumentedMutex::LockInternal() {
   }
 #endif
   mutex_.Lock();
+  STRESS_TRACE_EVENT("MUTEX_LOCK obj=%p", this);
 }
 
 void InstrumentedCondVar::Wait() {
@@ -66,7 +68,9 @@ void InstrumentedCondVar::WaitInternal() {
 #ifndef NDEBUG
   ThreadStatusUtil::TEST_StateDelay(ThreadStatus::STATE_MUTEX_WAIT);
 #endif
+  STRESS_TRACE_EVENT("CV_WAIT_BEGIN obj=%p", this);
   cond_.Wait();
+  STRESS_TRACE_EVENT("CV_WAIT_END obj=%p", this);
 }
 
 bool InstrumentedCondVar::TimedWait(uint64_t abs_time_us) {
@@ -84,7 +88,11 @@ bool InstrumentedCondVar::TimedWaitInternal(uint64_t abs_time_us) {
   TEST_SYNC_POINT_CALLBACK("InstrumentedCondVar::TimedWaitInternal",
                            &abs_time_us);
 
-  return cond_.TimedWait(abs_time_us);
+  STRESS_TRACE_EVENT("CV_TIMED_WAIT_BEGIN obj=%p timeout=%llu", this,
+                      (unsigned long long)abs_time_us);
+  bool result = cond_.TimedWait(abs_time_us);
+  STRESS_TRACE_EVENT("CV_TIMED_WAIT_END obj=%p timed_out=%d", this, !result);
+  return result;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

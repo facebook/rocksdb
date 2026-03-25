@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "test_util/sync_point_impl.h"
+#include "monitoring/stress_trace.h"
 
 #ifndef NDEBUG
 namespace ROCKSDB_NAMESPACE {
@@ -106,6 +107,7 @@ void SyncPoint::Data::Process(const Slice& point, void* cb_arg) {
   if (!enabled_) {
     return;
   }
+  STRESS_TRACE_EVENT("SYNCPOINT %.*s", (int)point.size(), point.data());
 
   // Use a filter to prevent mutex lock if possible.
   if (!point_filter_.MayContain(point)) {

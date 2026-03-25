@@ -430,6 +430,10 @@ ifdef STRESS_TRACE
 	PLATFORM_CXXFLAGS += -finstrument-functions-exclude-file-list=/mnt/gvfs/third-party2/libgcc,/mnt/gvfs/third-party2/glibc,/usr/include/c++,/usr/local/include/c++
 	PLATFORM_CCFLAGS += -finstrument-functions
 	EXEC_LDFLAGS += -ldl
+	# Force static library mode. -finstrument-functions can generate
+	# non-PIC code references that break shared library linking (PIC
+	# relocation errors from ld.lld on fbcode toolchains).
+	LIB_MODE = static
 endif
 
 
