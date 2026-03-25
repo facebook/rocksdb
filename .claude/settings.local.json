@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./ldb dump_wal:*)",
+      "Bash(for f in 949 951 955 957 960)",
+      "Bash(do echo \"=== WAL $f ===\")",
+      "Bash(done)"
+    ]
+  }
+}

@@ -266,7 +266,8 @@ for iteration in $(seq 1 $MAX_ITERATIONS); do
         has_error=false
         for pattern in "SUMMARY.*Sanitizer" "Corruption" "Invalid blob" \
                        "Verification failed" "No such file" "SafeTerminate" \
-                       "stack-use-after" "heap-use-after" "data race"; do
+                       "stack-use-after" "heap-use-after" "data race" \
+                       "Assertion" "SIGABRT\|SIGSEGV"; do
             if grep -q "$pattern" "$logfile" 2>/dev/null; then
                 has_error=true
                 break
@@ -275,9 +276,34 @@ for iteration in $(seq 1 $MAX_ITERATIONS); do
 
         if [ "$has_error" = true ] || [ "$exit_line" != "EXIT: 0" ]; then
             echo "=== $label ===" >> "$FAILURE_SUMMARY"
-            grep -m3 "SUMMARY\|Corruption\|Invalid blob\|Verification failed\|No such file\|SafeTerminate\|ERROR.*Sanitizer\|data race" "$logfile" >> "$FAILURE_SUMMARY" 2>/dev/null
+
+            # Categorize the failure
+            CATEGORY="unknown"
+            if grep -q "SUMMARY.*AddressSanitizer\|heap-use-after\|stack-use-after\|heap-buffer-overflow" "$logfile" 2>/dev/null; then
+                CATEGORY="sanitizer:asan"
+            elif grep -q "SUMMARY.*ThreadSanitizer\|data race" "$logfile" 2>/dev/null; then
+                CATEGORY="sanitizer:tsan"
+            elif grep -q "SUMMARY.*UndefinedBehaviorSanitizer\|runtime error:" "$logfile" 2>/dev/null; then
+                CATEGORY="sanitizer:ubsan"
+            elif grep -q "Assertion\|assert\|SIGABRT" "$logfile" 2>/dev/null; then
+                CATEGORY="assertion"
+            elif grep -q "Verification failed\|Corruption\|Invalid blob" "$logfile" 2>/dev/null; then
+                CATEGORY="verification"
+            elif grep -q "SIGSEGV\|SafeTerminate\|Killed" "$logfile" 2>/dev/null; then
+                CATEGORY="crash"
+            fi
+            echo "Category: $CATEGORY" >> "$FAILURE_SUMMARY"
+
+            # Extract the db_stress command line
+            CMD_LINE=$(grep -m1 "Running.*db_stress\|Executing.*db_stress\|db_stress " "$logfile" 2>/dev/null | head -1)
+            if [ -n "$CMD_LINE" ]; then
+                echo "Command: $CMD_LINE" >> "$FAILURE_SUMMARY"
+            fi
             echo "" >> "$FAILURE_SUMMARY"
-            grep -B 2 -A 10 "SUMMARY\|Corruption.*blob\|SafeTerminate" "$logfile" 2>/dev/null | head -30 >> "$FAILURE_SUMMARY"
+
+            grep -m3 "SUMMARY\|Corruption\|Invalid blob\|Verification failed\|No such file\|SafeTerminate\|ERROR.*Sanitizer\|data race\|Assertion" "$logfile" >> "$FAILURE_SUMMARY" 2>/dev/null
+            echo "" >> "$FAILURE_SUMMARY"
+            grep -B 2 -A 10 "SUMMARY\|Corruption.*blob\|SafeTerminate\|Assertion\|data race" "$logfile" 2>/dev/null | head -30 >> "$FAILURE_SUMMARY"
             echo "" >> "$FAILURE_SUMMARY"
         fi
     done
@@ -293,9 +319,18 @@ for iteration in $(seq 1 $MAX_ITERATIONS); do
     echo ""
     cat "$FAILURE_SUMMARY"
     echo ""
-    echo "Test logs in: $(dirname "$(ls /tmp/stress-results-*-*/batch-*/debug-blackbox.log 2>/dev/null | tail -1)" 2>/dev/null || echo '/tmp/stress-results-*/')"
+    echo "--- Artifacts ---"
+    echo "  Failure summary:  $FAILURE_SUMMARY"
+    echo "  Stress log:       $STRESS_LOG"
+    echo "  Results dir:      $RESULTS_DIR"
     echo ""
-    echo "Review the failures, decide on a fix, then re-run."
+    echo "--- Re-run commands ---"
+    # Build the re-run command with all current flags
+    RERUN_CMD="stress_fix_loop.sh --repo $REPO_DIR --skip-first-build --target-duration $TARGET_DURATION --parallel $PARALLEL --variants $VARIANTS --modes $MODES --jobs $JOBS --max-iterations $MAX_ITERATIONS"
+    [ -n "$EXTRA_FLAGS" ] && RERUN_CMD="$RERUN_CMD --extra-flags \"$EXTRA_FLAGS\""
+    echo "  Re-run:  $RERUN_CMD"
+    echo "  Stop:    stress_fix_loop.sh --repo $REPO_DIR --stop"
+    echo ""
     exit 1
 
 done

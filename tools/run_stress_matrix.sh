@@ -32,6 +32,7 @@
 #   --jobs N         Build parallelism (default: 128)
 #   --extra-flags F  Extra flags passed to db_crashtest.py
 #   --skip-build     Skip building, reuse existing worktree binaries
+#   --stop           Stop a running matrix for this repo (requires --repo)
 #   --help           Show this help
 #
 # Examples:
@@ -48,6 +49,7 @@ JOBS=128
 EXTRA_FLAGS=""
 SKIP_BUILD=false
 REPO_DIR=""
+STOP_MODE=false
 
 # Mode arrays
 CORE_MODES=("blackbox|blackbox" "simple-blackbox|--simple blackbox" "whitebox|whitebox" "simple-whitebox|--simple whitebox")
@@ -94,6 +96,7 @@ while [[ $# -gt 0 ]]; do
         --jobs) JOBS="$2"; shift 2 ;;
         --extra-flags) EXTRA_FLAGS="$2"; shift 2 ;;
         --skip-build) SKIP_BUILD=true; shift ;;
+        --stop) STOP_MODE=true; shift ;;
         --help) sed -n '2,/^$/p' "$0" | sed 's/^# \?//'; exit 0 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
@@ -108,6 +111,45 @@ fi
 
 cd "$REPO_DIR"
 SLUG=$(git rev-parse HEAD | head -c 8)
+
+# --stop mode: kill a running matrix and its process group, then exit.
+if [ "$STOP_MODE" = true ]; then
+    PIDFILE="/tmp/stress-matrix-${SLUG}.pid"
+    if [ ! -f "$PIDFILE" ]; then
+        echo "No running matrix found for $REPO_DIR (no PID file at $PIDFILE)"
+        exit 0
+    fi
+    MATRIX_PID=$(cat "$PIDFILE")
+    if ! kill -0 "$MATRIX_PID" 2>/dev/null; then
+        echo "Matrix PID $MATRIX_PID is not running (stale PID file). Cleaning up."
+        rm -f "$PIDFILE"
+        exit 0
+    fi
+    echo "Stopping stress matrix for $REPO_DIR (PID $MATRIX_PID, SLUG $SLUG)..."
+    kill -TERM -- -"$MATRIX_PID" 2>/dev/null
+    sleep 2
+    if kill -0 "$MATRIX_PID" 2>/dev/null; then
+        kill -KILL -- -"$MATRIX_PID" 2>/dev/null
+        sleep 1
+    fi
+    rm -f "$PIDFILE"
+    echo "Stopped."
+    exit 0
+fi
+
+# Register PID for --stop support
+PIDFILE="/tmp/stress-matrix-${SLUG}.pid"
+if [ -f "$PIDFILE" ]; then
+    OLD_PID=$(cat "$PIDFILE")
+    if kill -0 "$OLD_PID" 2>/dev/null; then
+        echo "ERROR: Another stress matrix for this repo is already running (PID $OLD_PID)"
+        echo "Stop it first: $0 --repo $REPO_DIR --stop"
+        exit 1
+    fi
+    rm -f "$PIDFILE"
+fi
+echo $$ > "$PIDFILE"
+trap 'rm -f "$PIDFILE"' EXIT
 
 # Build mode list
 ALL_TEST_MODES=()
@@ -147,6 +189,13 @@ echo "Total tests per batch: ${#VARIANT_ARR[@]} variants x $NUM_MODES modes = $(
 echo "============================================="
 
 # === BUILD PHASE ===
+# Memory check: warn if <50GB available
+FREE_GB=$(free -g 2>/dev/null | awk '/Mem/{print $7}')
+if [ -n "$FREE_GB" ] && [ "$FREE_GB" -lt 50 ] 2>/dev/null; then
+    echo ""
+    echo "WARNING: Only ${FREE_GB}GB free memory. Builds may OOM. Consider killing stale buck2/EdenFS."
+fi
+
 if [ "$SKIP_BUILD" = false ]; then
     echo ""
     echo "=== Building ${#VARIANT_ARR[@]} variants SEQUENTIALLY ==="
@@ -195,6 +244,9 @@ STRESS_TMPDIR="/tmp/stress-db-${SLUG}"
 mkdir -p "$STRESS_TMPDIR"
 
 TOTAL_TESTS=$(( ${#VARIANT_ARR[@]} * NUM_MODES ))
+MATRIX_START_TIME=$(date +%s)
+GLOBAL_PASSED=0
+GLOBAL_FAILED=0
 
 for duration in "${BATCH_ARR[@]}"; do
     BATCH_DIR="${RESULTS_DIR}/batch-${duration}s"
@@ -297,8 +349,10 @@ for duration in "${BATCH_ARR[@]}"; do
                 echo "    FAILED: ${label}"
                 ANY_FAIL=true
                 FAILURES+=("$label")
+                GLOBAL_FAILED=$((GLOBAL_FAILED + 1))
             else
                 echo "    PASSED: ${label}"
+                GLOBAL_PASSED=$((GLOBAL_PASSED + 1))
             fi
             COMPLETED=$((COMPLETED + 1))
         done
@@ -339,6 +393,32 @@ for duration in "${BATCH_ARR[@]}"; do
         done
         echo "Full logs: ${BATCH_DIR}/"
         echo "DB artifacts preserved in: ${STRESS_TMPDIR}/"
+
+        # Write failures.txt summary
+        FAILURES_FILE="${BATCH_DIR}/failures.txt"
+        echo "Stress matrix failures -- batch ${duration}s" > "$FAILURES_FILE"
+        echo "Date: $(date)" >> "$FAILURES_FILE"
+        echo "" >> "$FAILURES_FILE"
+        for label in "${FAILURES[@]}"; do
+            echo "=== $label ===" >> "$FAILURES_FILE"
+            logf="${BATCH_DIR}/${label}.log"
+            grep -m5 "SUMMARY\|Corruption\|Invalid blob\|Verification failed\|No such file\|SafeTerminate\|ERROR.*Sanitizer\|data race\|Assertion\|stack-use-after\|heap-use-after" "$logf" >> "$FAILURES_FILE" 2>/dev/null
+            echo "" >> "$FAILURES_FILE"
+        done
+
+        # FINAL SUMMARY (monitors watch for this marker)
+        ELAPSED=$(( $(date +%s) - MATRIX_START_TIME ))
+        echo ""
+        echo "=== FINAL SUMMARY ==="
+        echo "Result:       FAILED"
+        echo "Tests run:    $((GLOBAL_PASSED + GLOBAL_FAILED))"
+        echo "Passed:       $GLOBAL_PASSED"
+        echo "Failed:       $GLOBAL_FAILED (${FAILURES[*]})"
+        echo "Elapsed:      ${ELAPSED}s"
+        echo "Results dir:  $RESULTS_DIR"
+        echo "Failures:     ${FAILURES_FILE}"
+        echo "=== END SUMMARY ==="
+
         # Do NOT clean up on failure -- preserve everything for debugging
         exit 1
     fi
@@ -356,6 +436,18 @@ echo "=== ${#BATCH_ARR[@]} batches x ${TOTAL_TESTS} tests each ==="
 echo "=== ${#VARIANT_ARR[@]} variants x ${NUM_MODES} modes ==="
 echo "=== Results: ${RESULTS_DIR} ==="
 echo "============================================="
+
+# FINAL SUMMARY (monitors watch for this marker)
+ELAPSED=$(( $(date +%s) - MATRIX_START_TIME ))
+echo ""
+echo "=== FINAL SUMMARY ==="
+echo "Result:       PASSED"
+echo "Tests run:    $GLOBAL_PASSED"
+echo "Passed:       $GLOBAL_PASSED"
+echo "Failed:       0"
+echo "Elapsed:      ${ELAPSED}s"
+echo "Results dir:  $RESULTS_DIR"
+echo "=== END SUMMARY ==="
 
 # Clean up our SLUG-scoped test DB dirs on full success
 rm -rf "${STRESS_TMPDIR:?}" 2>/dev/null || true
