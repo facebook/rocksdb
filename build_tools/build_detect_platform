@@ -148,6 +148,24 @@ PLATFORM_SHARED_LDFLAGS="-Wl,--no-as-needed -shared -Wl,-soname -Wl,"
 PLATFORM_SHARED_CFLAGS="-fPIC"
 PLATFORM_SHARED_VERSIONED=true
 
+# Prefer lld linker when available on Linux. lld is typically 5-10x faster
+# than the default ld.bfd for large C++ projects. macOS uses ld64 (or
+# ld-prime) which is already fast, so we skip lld detection there.
+# Set ROCKSDB_NO_FAST_LINKER=1 to disable this auto-detection.
+if [ -z "$ROCKSDB_NO_FAST_LINKER" ] && [ "$TARGET_OS" = "Linux" ]; then
+    if $CXX -fuse-ld=lld -L/usr/local/lib -x c++ - -o /dev/null 2>/dev/null <<EOF
+int main() { return 0; }
+EOF
+    then
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -fuse-ld=lld"
+        # Ensure lld can find libraries in /usr/local/lib (lld does not
+        # search there by default, unlike ld.bfd)
+        if [ -d /usr/local/lib ]; then
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -L/usr/local/lib"
+        fi
+    fi
+fi
+
 # generic port files (working on all platform by #ifdef) go directly in /port
 GENERIC_PORT_FILES=`cd "$ROCKSDB_ROOT"; find port -name '*.cc' | tr "\n" " "`
 

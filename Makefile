@@ -450,7 +450,7 @@ ifndef USE_FOLLY
 endif
 
 ifndef GTEST_THROW_ON_FAILURE
-	export GTEST_THROW_ON_FAILURE=1
+	export GTEST_THROW_ON_FAILURE=0
 endif
 ifndef GTEST_HAS_EXCEPTIONS
 	export GTEST_HAS_EXCEPTIONS=1
@@ -621,31 +621,18 @@ endif
 
 ROCKSDBTESTS_SUBSET ?= $(TESTS)
 
-# c_test - doesn't use gtest
-# env_test - suspicious use of test::TmpDir
-# deletefile_test - serial because it generates giant temporary files in
-#   its various tests. Parallel can fill up your /dev/shm
-# db_bloom_filter_test - serial because excessive space usage by instances
-#   of DBFilterConstructionReserveMemoryTestWithParam can fill up /dev/shm
-# perf_context_test - 1GB write_buffer_size default, parallel can fill /dev/shm
-# obsolete_files_test - ~1GB write_buffer_size/target_file_size_base
-# backup_engine_test - 1GB write_buffer_size in FailOverwritingBackups
-# prefetch_test - 1GB write_buffer_size in PrefetchWhenReseek parameterized test
-# db_io_failure_test - 256MB write_buffer_size in FlushSstRangeSyncError and
-#   CompactionSstRangeSyncError
+# c_test - doesn't use gtest, can't be sharded
+# Other tests previously listed here (backup_engine_test, db_bloom_filter_test,
+# perf_context_test, etc.) were NON_PARALLEL due to /dev/shm memory concerns
+# when the old per-test-case sharding spawned thousands of processes. With the
+# new gtest-based sharding (GTEST_SHARD_SIZE=10, max NCORES*8 shards), at most
+# ~4 shards run concurrently on CI (4 cores), so peak memory is manageable
+# (4 * 1GB = 4GB << 16GB shm).
 NON_PARALLEL_TEST = \
 	c_test \
-	env_test \
-	deletefile_test \
-	db_bloom_filter_test \
-	perf_context_test \
-	obsolete_files_test \
-	backup_engine_test \
-	prefetch_test \
-	db_io_failure_test \
 	$(PLUGIN_TESTS) \
 
-PARALLEL_TEST = $(filter-out $(NON_PARALLEL_TEST), $(TESTS))
+PARALLEL_TEST = $(filter-out $(NON_PARALLEL_TEST), $(ROCKSDBTESTS_SUBSET))
 
 # Not necessarily well thought out or up-to-date, but matches old list
 TESTS_PLATFORM_DEPENDENT := \
@@ -882,24 +869,42 @@ coverage: clean
 
 parallel_tests = $(patsubst %,parallel_%,$(PARALLEL_TEST))
 .PHONY: gen_parallel_tests $(parallel_tests)
+# Shard size controls how many test cases run per process. The actual number
+# of shards per binary is: min(ceil(test_count / GTEST_SHARD_SIZE), NCORES * 8)
+# This adapts to machine size: many small shards on beefy machines, fewer
+# larger shards on CI (typically 2-4 cores).
+GTEST_SHARD_SIZE ?= 10
+NCORES ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+
 $(parallel_tests):
 	$(AM_V_at)TEST_BINARY=$(patsubst parallel_%,%,$@); \
-  TEST_NAMES=` \
-    (./$$TEST_BINARY --gtest_list_tests || echo "  $${TEST_BINARY}__list_tests_failure") \
-    | awk '/^[^ ]/ { prefix = $$1 } /^[ ]/ { print prefix $$1 }'`; \
-	echo "  Generating parallel test scripts for $$TEST_BINARY"; \
-	for TEST_NAME in $$TEST_NAMES; do \
-		TEST_SCRIPT=t/run-$$TEST_BINARY-$${TEST_NAME//\//-}; \
+  TEST_COUNT=` \
+    (./$$TEST_BINARY --gtest_list_tests 2>/dev/null || echo "  list_failure") \
+    | grep -c '^ '`; \
+	if [ "$$TEST_COUNT" -le 0 ]; then TEST_COUNT=1; fi; \
+	MAX_SHARDS=$$(( $(NCORES) * 8 )); \
+	NUM_SHARDS=$$(( (TEST_COUNT + $(GTEST_SHARD_SIZE) - 1) / $(GTEST_SHARD_SIZE) )); \
+	if [ "$$NUM_SHARDS" -gt "$$MAX_SHARDS" ]; then NUM_SHARDS=$$MAX_SHARDS; fi; \
+	if [ "$$NUM_SHARDS" -le 0 ]; then NUM_SHARDS=1; fi; \
+	echo "  Generating $$NUM_SHARDS shards for $$TEST_BINARY ($$TEST_COUNT tests)"; \
+	SHARD_IDX=0; \
+	while [ "$$SHARD_IDX" -lt "$$NUM_SHARDS" ]; do \
+		if [ -n "$(CI_TOTAL_SHARDS)" ] && [ $$(( $$SHARD_IDX % $(CI_TOTAL_SHARDS) )) -ne $(CI_SHARD_INDEX) ]; then \
+			SHARD_IDX=$$((SHARD_IDX + 1)); \
+			continue; \
+		fi; \
+		TEST_SCRIPT=t/run-$$TEST_BINARY-shard-$$SHARD_IDX; \
     printf '%s\n' \
       '#!/bin/sh' \
       "d=\$(TEST_TMPDIR)$$TEST_SCRIPT" \
       'mkdir -p $$d' \
-      "TEST_TMPDIR=\$$d $(DRIVER) ./$$TEST_BINARY --gtest_filter=$$TEST_NAME" \
+      "TEST_TMPDIR=\$$d GTEST_TOTAL_SHARDS=$$NUM_SHARDS GTEST_SHARD_INDEX=$$SHARD_IDX $(DRIVER) ./$$TEST_BINARY" \
       'test_retcode=$$?' \
       '[ $$test_retcode -eq 0 ] && rm -rf $$d' \
       'exit $$test_retcode' \
 		> $$TEST_SCRIPT; \
 		chmod a=rx $$TEST_SCRIPT; \
+		SHARD_IDX=$$((SHARD_IDX + 1)); \
 	done
 
 gen_parallel_tests:
@@ -923,8 +928,10 @@ gen_parallel_tests:
 # 152.120 PASS t/DBTest.FileCreationRandomFailure
 # 107.816 PASS t/DBTest.EncodeDecompressedBlockSizeTest
 #
+# With sharded test execution, prioritize binaries known to be slow.
+# These generate many shards and should start early for good load balancing.
 slow_test_regexp = \
-	^.*MySQLStyleTransactionTest.*$$|^.*SnapshotConcurrentAccessTest.*$$|^.*SeqAdvanceConcurrentTest.*$$|^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$|^.*RecoverFromCorruptedWALWithoutFlush$$
+	^.*block_based_table_reader_test.*$$|^.*table_test.*$$|^.*block_test.*$$|^.*write_prepared_transaction_test.*$$|^.*transaction_test.*$$|^.*external_sst_file_test.*$$|^.*db_wal_test.*$$|^.*db_with_timestamp_basic_test.*$$|^.*db_test-.*$$
 prioritize_long_running_tests =						\
   perl -pe 's,($(slow_test_regexp)),100 $$1,'				\
     | sort -k1,1gr							\
@@ -959,7 +966,13 @@ check_0:
 	  'To monitor subtest <duration,pass/fail,name>,'		\
 	  '  run "make watch-log" in a separate window' '';		\
 	{ \
-		printf './%s\n' $(filter-out $(PARALLEL_TEST),$(TESTS)); \
+		NON_PARALLEL_LIST="$(filter-out $(PARALLEL_TEST),$(ROCKSDBTESTS_SUBSET))"; \
+		if [ -n "$$NON_PARALLEL_LIST" ]; then \
+		  printf './%s\n' $$NON_PARALLEL_LIST \
+		    | if [ -n "$(CI_TOTAL_SHARDS)" ]; then \
+		        awk -v s=$(CI_SHARD_INDEX) -v n=$(CI_TOTAL_SHARDS) '(NR-1)%n==s'; \
+		      else cat; fi; \
+		fi; \
 		find t -name 'run-*' -print; \
 	} \
 	  | $(prioritize_long_running_tests)				\

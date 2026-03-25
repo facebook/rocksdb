@@ -153,7 +153,7 @@ class MemTableListVersion {
   // This returns the newest user defined timestamp found in the most recent
   // immutable memtable. This should only be called when user defined timestamp
   // is enabled.
-  const Slice& GetNewestUDT() const;
+  Slice GetNewestUDT() const;
 
  private:
   friend class MemTableList;

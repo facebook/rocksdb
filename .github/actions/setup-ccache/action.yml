@@ -16,6 +16,9 @@ runs:
         echo "CCACHE_DIR=${{ github.workspace }}/.ccache" >> $GITHUB_ENV
         echo "CCACHE_BASEDIR=${{ github.workspace }}" >> $GITHUB_ENV
         echo "CCACHE_NOHASHDIR=true" >> $GITHUB_ENV
+        echo "CCACHE_COMPILERCHECK=content" >> $GITHUB_ENV
+        echo "CCACHE_SLOPPINESS=clang_index_store,file_stat_matches,include_file_ctime,include_file_mtime,ivfsoverlay,pch_defines,modules,system_headers,time_macros" >> $GITHUB_ENV
+        echo "CCACHE_MAXSIZE=4G" >> $GITHUB_ENV
         if [ "${{ inputs.portable }}" = "true" ]; then
           echo "PORTABLE=1" >> $GITHUB_ENV
         fi
@@ -44,6 +47,8 @@ runs:
           echo "/usr/lib/ccache" >> $GITHUB_PATH
         fi
       shell: bash
-    - name: Zero ccache stats
-      run: ccache -z
+    - name: Zero ccache stats and set build marker
+      run: |
+        ccache -z
+        touch "$CCACHE_DIR/.build_marker"
       shell: bash

@@ -115,14 +115,14 @@ class ExternalTableReader {
   // Point lookup the given key and return its value
   virtual Status Get(const ReadOptions& read_options, const Slice& key,
                      const SliceTransform* prefix_extractor,
-                     std::string* value) = 0;
+                     PinnableSlice* value) = 0;
 
   // Point lookup the given vector of keys and return the values, as well
   // as status of each individual lookup in statuses.
   virtual void MultiGet(const ReadOptions& read_options,
                         const std::vector<Slice>& keys,
                         const SliceTransform* prefix_extractor,
-                        std::vector<std::string>* values,
+                        std::vector<PinnableSlice>* values,
                         std::vector<Status>* statuses) = 0;
 
   // Allocate and return the contents of the properties block. If the builder
