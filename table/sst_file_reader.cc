@@ -202,6 +202,8 @@ Status SstFileReader::Get(const ReadOptions& roptions, const Slice& key,
       roptions, InternalKey(key, kMaxSequenceNumber, kTypeValue).Encode(),
       &get_ctx, r->moptions.prefix_extractor.get(), false /* skip_filters */);
 
+  get_ctx.ReportCounters();
+
   if (status.ok()) {
     switch (get_ctx.State()) {
       case GetContext::kFound:

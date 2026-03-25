@@ -804,10 +804,14 @@ TEST_P(SstFileReaderTableGetTest, Basic) {
   DestroyAndReopen(options);
 
   ASSERT_OK(Put("foo", "val1"));
+  const Snapshot* snapshot1 = dbfull()->GetSnapshot();
   ASSERT_OK(Delete("foo"));
+  ASSERT_OK(Delete("bar"));
+  const Snapshot* snapshot2 = dbfull()->GetSnapshot();
   ASSERT_OK(Put("bar", "val2"));
   ASSERT_OK(Put("baz", "val3"));
   ASSERT_OK(Put("aaa", "val4"));
+  const Snapshot* snapshot3 = dbfull()->GetSnapshot();
   ASSERT_OK(Merge("aaa", "val5"));
 
   ASSERT_OK(Flush());
@@ -815,34 +819,44 @@ TEST_P(SstFileReaderTableGetTest, Basic) {
   std::vector<LiveFileMetaData> files;
   dbfull()->GetLiveFilesMetaData(&files);
   ASSERT_EQ(files.size(), 1);
+  ASSERT_TRUE(files[0].level == 0);
   std::string file_name = files[0].directory + "/" + files[0].relative_filename;
 
   SstFileReader reader(options);
   ASSERT_OK(reader.Open(file_name));
   ASSERT_OK(reader.VerifyChecksum());
 
+  ASSERT_OK(options.statistics->Reset());
+
   std::string value;
 
-  // Found keys
-  ASSERT_OK(DoGet(reader, "bar", &value));
-  ASSERT_EQ(value, "val2");
-
-  ASSERT_OK(DoGet(reader, "baz", &value));
-  ASSERT_EQ(value, "val3");
+  // Non-existent key returns NotFound
+  ASSERT_TRUE(DoGet(reader, "fo1", &value).IsNotFound());
 
   // Deleted key returns NotFound
   ASSERT_TRUE(DoGet(reader, "foo", &value).IsNotFound());
 
-  // Non-existent key returns NotFound
-  ASSERT_TRUE(DoGet(reader, "nonexistent", &value).IsNotFound());
+  // Found keys
+  ASSERT_OK(DoGet(reader, "baz", &value));
+  ASSERT_EQ(value, "val3");
 
-  // Bloom filter filtered key
-  ASSERT_TRUE(DoGet(reader, "zzz_not_in_sst", &value).IsNotFound());
+  ASSERT_OK(DoGet(reader, "bar", &value));
+  ASSERT_EQ(value, "val2");
 
   // Merged key
   ASSERT_OK(DoGet(reader, "aaa", &value));
   ASSERT_EQ(value, "val4,val5");
 
+  // Bloom filter filtered key
+  ASSERT_TRUE(DoGet(reader, "zzz_not_in_sst", &value).IsNotFound());
+
+  uint64_t cache_hits = options.statistics->getTickerCount(BLOCK_CACHE_HIT);
+  uint64_t cache_misses = options.statistics->getTickerCount(BLOCK_CACHE_MISS);
+  ASSERT_GT(cache_hits + cache_misses, 0);
+
+  dbfull()->ReleaseSnapshot(snapshot1);
+  dbfull()->ReleaseSnapshot(snapshot2);
+  dbfull()->ReleaseSnapshot(snapshot3);
   Close();
 }
 
