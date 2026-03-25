@@ -78,11 +78,18 @@ ROCKSDB_NO_INSTRUMENT static void RegisterThread(FuncTraceBuffer* fb,
 }
 
 // Thread-local buffers and initialization state.
-// We use raw aligned storage + memset (not new/malloc/constructors) to avoid
-// constructor calls that -finstrument-functions would instrument, causing
-// infinite recursion: __cyg_profile_func_enter -> GetFuncBuffer ->
+// We use heap-allocated buffers via malloc (not new) to avoid constructor
+// calls that -finstrument-functions would instrument, causing infinite
+// recursion: __cyg_profile_func_enter -> GetFuncBuffer ->
 // new FuncTraceBuffer -> FuncTraceBuffer() [instrumented] ->
 // __cyg_profile_func_enter -> GetFuncBuffer -> stack overflow.
+//
+// The buffers are intentionally leaked (never freed) so they survive thread
+// exit. This is critical: the crash handler iterates all registered threads
+// and reads their buffers. If buffers were thread-local stack storage, they
+// would be reclaimed on thread exit, leaving dangling pointers that cause
+// segfaults in the crash handler. The leak is bounded: ~165 KB per thread
+// (128 KB func buffer + 36 KB event buffer).
 //
 // The recursion guard (tl_initializing) breaks any remaining cycle:
 // during initialization, instrumented calls get nullptr and silently
@@ -91,10 +98,6 @@ ROCKSDB_NO_INSTRUMENT static void RegisterThread(FuncTraceBuffer* fb,
 // File-scope thread-local state shared by GetFuncBuffer/GetEventBuffer.
 static thread_local bool tl_initializing = false;
 static thread_local bool tl_registered = false;
-alignas(FuncTraceBuffer) static thread_local char
-    tl_func_storage[sizeof(FuncTraceBuffer)];
-alignas(EventTraceBuffer) static thread_local char
-    tl_evt_storage[sizeof(EventTraceBuffer)];
 static thread_local FuncTraceBuffer* tl_func_buf = nullptr;
 static thread_local EventTraceBuffer* tl_evt_buf = nullptr;
 
@@ -108,11 +111,14 @@ ROCKSDB_NO_INSTRUMENT static void EnsureInitialized() {
   }
   tl_initializing = true;
 
-  // Zero-initialize raw storage (POD-safe, no instrumented constructor).
-  memset(tl_func_storage, 0, sizeof(tl_func_storage));
-  memset(tl_evt_storage, 0, sizeof(tl_evt_storage));
-  tl_func_buf = reinterpret_cast<FuncTraceBuffer*>(tl_func_storage);
-  tl_evt_buf = reinterpret_cast<EventTraceBuffer*>(tl_evt_storage);
+  // Heap-allocate via malloc + memset (no constructors, no instrumentation).
+  // Intentionally leaked so crash handler can read after thread exit.
+  tl_func_buf =
+      static_cast<FuncTraceBuffer*>(malloc(sizeof(FuncTraceBuffer)));
+  tl_evt_buf =
+      static_cast<EventTraceBuffer*>(malloc(sizeof(EventTraceBuffer)));
+  memset(static_cast<void*>(tl_func_buf), 0, sizeof(FuncTraceBuffer));
+  memset(static_cast<void*>(tl_evt_buf), 0, sizeof(EventTraceBuffer));
 
   if (!tl_registered) {
     tl_registered = true;
