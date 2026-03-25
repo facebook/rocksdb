@@ -420,20 +420,31 @@ endif
 # library code (db/, table/, memtable/, etc.) is also traced. The ring buffer
 # and dump logic live in monitoring/stress_trace.{h,cc}.
 ifdef STRESS_TRACE
-	PLATFORM_CXXFLAGS += -DROCKSDB_STRESS_TRACE -finstrument-functions
-	# Exclude standard library headers from instrumentation. GCC's
-	# -finstrument-functions instruments ALL functions including inlined
-	# STL templates, which can reference symbols not present in the runtime
-	# library (e.g. _M_high_mark from a newer libstdc++ header with an older
-	# runtime). Excluding these paths avoids the ABI mismatch while still
-	# instrumenting all RocksDB code.
-	PLATFORM_CXXFLAGS += -finstrument-functions-exclude-file-list=/mnt/gvfs/third-party2/libgcc,/mnt/gvfs/third-party2/glibc,/usr/include/c++,/usr/local/include/c++
-	PLATFORM_CCFLAGS += -finstrument-functions
+	PLATFORM_CXXFLAGS += -DROCKSDB_STRESS_TRACE
 	EXEC_LDFLAGS += -ldl
 	# Force static library mode. -finstrument-functions can generate
 	# non-PIC code references that break shared library linking (PIC
 	# relocation errors from ld.lld on fbcode toolchains).
 	LIB_MODE = static
+
+	# Function instrumentation flags. Applied either globally (STRESS_TRACE=1)
+	# or selectively (STRESS_TRACE_FILES="db/db_impl/db_impl.cc ...").
+	# Selective mode only instruments the listed files, reducing overhead from
+	# ~27% to ~5% while still tracing the subsystems you care about.
+	STRESS_INSTRUMENT_FLAGS = -finstrument-functions
+	STRESS_INSTRUMENT_FLAGS += -finstrument-functions-exclude-file-list=/mnt/gvfs/third-party2/libgcc,/mnt/gvfs/third-party2/glibc,/usr/include/c++,/usr/local/include/c++
+
+ifdef STRESS_TRACE_FILES
+	# Selective instrumentation: only instrument listed files.
+	# Usage: STRESS_TRACE=1 STRESS_TRACE_FILES="db/db_impl/db_impl.cc db/db_impl/db_impl_compaction_flush.cc" make db_stress
+	# Or generate from recent commits:
+	#   STRESS_TRACE_FILES=$$(git diff --name-only HEAD~10..HEAD -- '*.cc' | grep -v test | tr '\n' ' ')
+	STRESS_TRACE_OBJS := $(patsubst %.cc,$(OBJ_DIR)/%.o,$(STRESS_TRACE_FILES))
+else
+	# Global instrumentation: all files.
+	PLATFORM_CXXFLAGS += $(STRESS_INSTRUMENT_FLAGS)
+	PLATFORM_CCFLAGS += -finstrument-functions
+endif
 endif
 
 
@@ -2561,6 +2572,15 @@ $(OBJ_DIR)/util/crc32c_ppc.o: util/crc32c_ppc.c
 
 $(OBJ_DIR)/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+endif
+
+# Selective stress trace instrumentation: compile listed files with
+# -finstrument-functions, everything else without.
+ifdef STRESS_TRACE
+ifdef STRESS_TRACE_FILES
+$(STRESS_TRACE_OBJS): $(OBJ_DIR)/%.o: %.cc
+	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(STRESS_INSTRUMENT_FLAGS) -c $< -o $@ $(COVERAGEFLAGS)
+endif
 endif
 $(OBJ_DIR)/%.o: %.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -c $< -o $@ $(COVERAGEFLAGS)
