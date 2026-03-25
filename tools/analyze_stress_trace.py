@@ -269,6 +269,8 @@ def main():
                         help="Merge all threads into unified timeline (default)")
     parser.add_argument("--no-funcs", action="store_true",
                         help="Exclude function ENTER events from output")
+    parser.add_argument("--atomics", "-a", action="store_true",
+                        help="Include atomic events (ATOMIC_STORE/LOAD/CAS/etc.)")
     args = parser.parse_args()
 
     trace_dir = args.trace_dir
@@ -340,7 +342,17 @@ def main():
         print(file=sys.stderr)
 
     # Filter events
-    if args.sync_only or args.no_funcs:
+    sync_types = {"MUTEX_LOCK", "MUTEX_UNLOCK", "CV_WAIT_BEGIN", "CV_WAIT_END",
+                  "CV_TIMED_WAIT_BEGIN", "CV_TIMED_WAIT_END", "CV_SIGNAL",
+                  "CV_SIGNAL_ALL", "SYNCPOINT"}
+    atomic_types = {"ATOMIC_STORE", "ATOMIC_LOAD", "ATOMIC_CAS", "ATOMIC_XCHG",
+                    "ATOMIC_ADD", "ATOMIC_SUB"}
+    if args.sync_only:
+        keep = sync_types
+        if args.atomics:
+            keep = keep | atomic_types
+        all_events = [e for e in all_events if e.event_type in keep]
+    elif args.no_funcs:
         all_events = [e for e in all_events if e.event_type != "ENTER"]
 
     # Select top threads

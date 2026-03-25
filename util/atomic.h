@@ -6,7 +6,10 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
+#include <type_traits>
 
+#include "monitoring/stress_trace.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -29,6 +32,19 @@ namespace ROCKSDB_NAMESPACE {
 // For such reasons, we provide wrappers below to make clear and explicit
 // usage of atomics easier.
 
+// Helper to cast atomic values to uint64_t for trace logging.
+// Handles integers, enums, bools, and pointers uniformly.
+namespace atomic_trace_detail {
+template <typename T>
+ROCKSDB_NO_INSTRUMENT inline uint64_t ToTraceVal(T v) {
+  if constexpr (std::is_pointer_v<T>) {
+    return reinterpret_cast<uint64_t>(v);
+  } else {
+    return static_cast<uint64_t>(v);
+  }
+}
+}  // namespace atomic_trace_detail
+
 // Wrapper around std::atomic for better code clarity (see Background above).
 //
 // This relaxed-only wrapper is intended for atomics that are not used to
@@ -39,24 +55,54 @@ template <typename T>
 class RelaxedAtomic {
  public:
   explicit RelaxedAtomic(T initial = {}) : v_(initial) {}
-  void StoreRelaxed(T desired) { v_.store(desired, std::memory_order_relaxed); }
+  void StoreRelaxed(T desired) {
+    STRESS_TRACE_EVENT("ATOMIC_STORE obj=%p val=%llu",
+                       (void*)this,
+                       (unsigned long long)atomic_trace_detail::ToTraceVal(desired));
+    v_.store(desired, std::memory_order_relaxed);
+  }
   T LoadRelaxed() const { return v_.load(std::memory_order_relaxed); }
   bool CasWeakRelaxed(T& expected, T desired) {
-    return v_.compare_exchange_weak(expected, desired,
-                                    std::memory_order_relaxed);
+    bool ok = v_.compare_exchange_weak(expected, desired,
+                                       std::memory_order_relaxed);
+    STRESS_TRACE_EVENT("ATOMIC_CAS obj=%p ok=%d val=%llu",
+                       (void*)this, ok,
+                       (unsigned long long)atomic_trace_detail::ToTraceVal(
+                           ok ? desired : expected));
+    return ok;
   }
   bool CasStrongRelaxed(T& expected, T desired) {
-    return v_.compare_exchange_strong(expected, desired,
-                                      std::memory_order_relaxed);
+    bool ok = v_.compare_exchange_strong(expected, desired,
+                                         std::memory_order_relaxed);
+    STRESS_TRACE_EVENT("ATOMIC_CAS obj=%p ok=%d val=%llu",
+                       (void*)this, ok,
+                       (unsigned long long)atomic_trace_detail::ToTraceVal(
+                           ok ? desired : expected));
+    return ok;
   }
   T ExchangeRelaxed(T desired) {
-    return v_.exchange(desired, std::memory_order_relaxed);
+    T old = v_.exchange(desired, std::memory_order_relaxed);
+    STRESS_TRACE_EVENT("ATOMIC_XCHG obj=%p old=%llu new=%llu",
+                       (void*)this,
+                       (unsigned long long)atomic_trace_detail::ToTraceVal(old),
+                       (unsigned long long)atomic_trace_detail::ToTraceVal(desired));
+    return old;
   }
   T FetchAddRelaxed(T operand) {
-    return v_.fetch_add(operand, std::memory_order_relaxed);
+    T old = v_.fetch_add(operand, std::memory_order_relaxed);
+    STRESS_TRACE_EVENT("ATOMIC_ADD obj=%p old=%llu delta=%lld",
+                       (void*)this,
+                       (unsigned long long)atomic_trace_detail::ToTraceVal(old),
+                       (long long)atomic_trace_detail::ToTraceVal(operand));
+    return old;
   }
   T FetchSubRelaxed(T operand) {
-    return v_.fetch_sub(operand, std::memory_order_relaxed);
+    T old = v_.fetch_sub(operand, std::memory_order_relaxed);
+    STRESS_TRACE_EVENT("ATOMIC_SUB obj=%p old=%llu delta=%lld",
+                       (void*)this,
+                       (unsigned long long)atomic_trace_detail::ToTraceVal(old),
+                       (long long)atomic_trace_detail::ToTraceVal(operand));
+    return old;
   }
   T FetchAndRelaxed(T operand) {
     return v_.fetch_and(operand, std::memory_order_relaxed);
@@ -88,27 +134,59 @@ class Atomic : public RelaxedAtomic<T> {
  public:
   explicit Atomic(T initial = {}) : RelaxedAtomic<T>(initial) {}
   void Store(T desired) {
+    STRESS_TRACE_EVENT("ATOMIC_STORE obj=%p val=%llu",
+                       (void*)this,
+                       (unsigned long long)atomic_trace_detail::ToTraceVal(desired));
     RelaxedAtomic<T>::v_.store(desired, std::memory_order_release);
   }
   T Load() const {
-    return RelaxedAtomic<T>::v_.load(std::memory_order_acquire);
+    T val = RelaxedAtomic<T>::v_.load(std::memory_order_acquire);
+    STRESS_TRACE_EVENT("ATOMIC_LOAD obj=%p val=%llu",
+                       (const void*)this,
+                       (unsigned long long)atomic_trace_detail::ToTraceVal(val));
+    return val;
   }
   bool CasWeak(T& expected, T desired) {
-    return RelaxedAtomic<T>::v_.compare_exchange_weak(
+    bool ok = RelaxedAtomic<T>::v_.compare_exchange_weak(
         expected, desired, std::memory_order_acq_rel);
+    STRESS_TRACE_EVENT("ATOMIC_CAS obj=%p ok=%d val=%llu",
+                       (void*)this, ok,
+                       (unsigned long long)atomic_trace_detail::ToTraceVal(
+                           ok ? desired : expected));
+    return ok;
   }
   bool CasStrong(T& expected, T desired) {
-    return RelaxedAtomic<T>::v_.compare_exchange_strong(
+    bool ok = RelaxedAtomic<T>::v_.compare_exchange_strong(
         expected, desired, std::memory_order_acq_rel);
+    STRESS_TRACE_EVENT("ATOMIC_CAS obj=%p ok=%d val=%llu",
+                       (void*)this, ok,
+                       (unsigned long long)atomic_trace_detail::ToTraceVal(
+                           ok ? desired : expected));
+    return ok;
   }
   T Exchange(T desired) {
-    return RelaxedAtomic<T>::v_.exchange(desired, std::memory_order_acq_rel);
+    T old = RelaxedAtomic<T>::v_.exchange(desired, std::memory_order_acq_rel);
+    STRESS_TRACE_EVENT("ATOMIC_XCHG obj=%p old=%llu new=%llu",
+                       (void*)this,
+                       (unsigned long long)atomic_trace_detail::ToTraceVal(old),
+                       (unsigned long long)atomic_trace_detail::ToTraceVal(desired));
+    return old;
   }
   T FetchAdd(T operand) {
-    return RelaxedAtomic<T>::v_.fetch_add(operand, std::memory_order_acq_rel);
+    T old = RelaxedAtomic<T>::v_.fetch_add(operand, std::memory_order_acq_rel);
+    STRESS_TRACE_EVENT("ATOMIC_ADD obj=%p old=%llu delta=%lld",
+                       (void*)this,
+                       (unsigned long long)atomic_trace_detail::ToTraceVal(old),
+                       (long long)atomic_trace_detail::ToTraceVal(operand));
+    return old;
   }
   T FetchSub(T operand) {
-    return RelaxedAtomic<T>::v_.fetch_sub(operand, std::memory_order_acq_rel);
+    T old = RelaxedAtomic<T>::v_.fetch_sub(operand, std::memory_order_acq_rel);
+    STRESS_TRACE_EVENT("ATOMIC_SUB obj=%p old=%llu delta=%lld",
+                       (void*)this,
+                       (unsigned long long)atomic_trace_detail::ToTraceVal(old),
+                       (long long)atomic_trace_detail::ToTraceVal(operand));
+    return old;
   }
   T FetchAnd(T operand) {
     return RelaxedAtomic<T>::v_.fetch_and(operand, std::memory_order_acq_rel);
