@@ -1049,6 +1049,8 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       }
     }
 
+    // Purposefully use FetchAdd here because even though write path is not
+    // concurrent, a concurrent read iterator may insert a range tombstone
     num_entries_.FetchAddRelaxed(1);
     data_size_.FetchAddRelaxed(encoded_len);
     if (type == kTypeDeletion || type == kTypeSingleDeletion ||
