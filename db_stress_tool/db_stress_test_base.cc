@@ -4422,6 +4422,10 @@ void InitializeOptionsFromFlags(
       options.compaction_options_fifo.max_data_files_size =
           FLAGS_fifo_compaction_max_data_files_size_mb * 1024 * 1024;
     }
+    if (FLAGS_fifo_compaction_max_table_files_size_mb > 0) {
+      options.compaction_options_fifo.max_table_files_size =
+          FLAGS_fifo_compaction_max_table_files_size_mb * 1024 * 1024;
+    }
     options.compaction_options_fifo.use_kv_ratio_compaction =
         FLAGS_fifo_compaction_use_kv_ratio_compaction;
   }

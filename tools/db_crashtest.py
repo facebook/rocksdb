@@ -272,7 +272,17 @@ default_params = {
     "stats_dump_period_sec": lambda: random.choice([0, 10, 600]),
     "compaction_ttl": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
     "fifo_allow_compaction": lambda: random.randint(0, 1),
-    "fifo_compaction_max_data_files_size_mb": lambda: random.choice([0, 100, 500]),
+    # TODO(T260692223): FIFO compaction drops old SST files when total size
+    # exceeds the limit, but the stress test expected state can't track these
+    # drops. max_table_files_size is always active (default 1GB) so set it
+    # very high. max_data_files_size when non-zero overrides max_table_files_size;
+    # randomize between 0 (fallback to max_table_files_size) and very high.
+    # Long-term, handle drops via OnCompactionBegin + SetPendingDel() as
+    # concurrent deletes.
+    "fifo_compaction_max_data_files_size_mb": lambda: random.choice(
+        [0, 100 * 1024]  # 0 = disabled (defers to max_table_files_size), 100GB
+    ),
+    "fifo_compaction_max_table_files_size_mb": 100 * 1024,  # 100GB, always high
     "fifo_compaction_use_kv_ratio_compaction": lambda: random.randint(0, 1),
     # Test small max_manifest_file_size in a smaller chance, as most of the
     # time we wnat manifest history to be preserved to help debug
@@ -1001,6 +1011,7 @@ def finalize_and_sanitize(src_params):
         dest_params["file_temperature_age_thresholds"] = ""
         # Disable FIFO-specific options for non-FIFO compaction styles
         dest_params["fifo_compaction_max_data_files_size_mb"] = 0
+        dest_params["fifo_compaction_max_table_files_size_mb"] = 0
         dest_params["fifo_compaction_use_kv_ratio_compaction"] = 0
     if dest_params["partition_filters"] == 1:
         if dest_params["index_type"] != 2:
