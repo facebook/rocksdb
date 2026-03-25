@@ -1682,12 +1682,6 @@ class VersionSet {
                            const FdWithKeyRange& f, const Slice& start,
                            const Slice& end, TableReaderCaller caller);
 
-  // Returns the approximate size of blob files in a key range for a given
-  // version. The caller provides the pre-computed SST size in the range;
-  // this method prorates the total blob file size by the ratio of that to
-  // the total SST size.
-  uint64_t ApproximateBlobSize(Version* v, uint64_t sst_size_in_range);
-
   struct MutableCFState {
     uint64_t log_number;
     std::string full_history_ts_low;

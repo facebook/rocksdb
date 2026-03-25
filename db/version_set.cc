@@ -7539,52 +7539,6 @@ uint64_t VersionSet::ApproximateSize(const ReadOptions& read_options,
                                       *f.file_metadata, caller, icmp, cf_opts);
 }
 
-uint64_t VersionSet::ApproximateBlobSize(Version* v,
-                                         uint64_t sst_size_in_range) {
-  assert(v);
-  if (sst_size_in_range == 0) {
-    return 0;
-  }
-
-  const auto* vstorage = v->storage_info();
-  const int num_non_empty_levels = vstorage->num_non_empty_levels();
-
-  // Compute total SST size across all levels.
-  uint64_t total_sst_size = 0;
-  for (int level = 0; level < num_non_empty_levels; ++level) {
-    total_sst_size += vstorage->NumLevelBytes(level);
-  }
-
-  if (total_sst_size == 0) {
-    return 0;
-  }
-
-  // Compute total blob file size.
-  uint64_t total_blob_size = 0;
-  const auto& blob_files = vstorage->GetBlobFiles();
-  for (const auto& blob_file_meta : blob_files) {
-    assert(blob_file_meta);
-    total_blob_size += blob_file_meta->GetBlobFileSize();
-  }
-
-  if (total_blob_size == 0) {
-    return 0;
-  }
-
-  // Approximate blob size in the range by prorating total blob size using the
-  // SST size ratio:
-  //   blob_contribution = total_blob_size * (sst_size_in_range /
-  //   total_sst_size)
-  //
-  // This assumes blob data is distributed proportionally to SST data across
-  // the key space. The approximation may be inaccurate if blob value sizes
-  // vary significantly across different key ranges (e.g., one range has large
-  // blobs while another has small ones).
-  return static_cast<uint64_t>(static_cast<double>(total_blob_size) *
-                               (static_cast<double>(sst_size_in_range) /
-                                static_cast<double>(total_sst_size)));
-}
-
 void VersionSet::RemoveLiveFiles(
     std::vector<ObsoleteFileInfo>& sst_delete_candidates,
     std::vector<ObsoleteBlobFileInfo>& blob_delete_candidates) const {

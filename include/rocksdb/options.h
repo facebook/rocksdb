@@ -2854,10 +2854,12 @@ struct ImportColumnFamilyOptions {
 // Options used with DB::GetApproximateSizes()
 struct SizeApproximationOptions {
   // Defines whether the returned size should include the recently written
-  // data in the memtables. If set to false, include_files must be true.
+  // data in the memtables. If set to false, at least one of include_files or
+  // include_blob_files must be true.
   bool include_memtables = false;
   // Defines whether the returned size should include data serialized to disk.
-  // If set to false, include_memtables must be true.
+  // If set to false, at least one of include_memtables or include_blob_files
+  // must be true.
   bool include_files = true;
   // Defines whether the returned size should include an approximation of
   // blob file data in the key range. When enabled, the total blob file size
