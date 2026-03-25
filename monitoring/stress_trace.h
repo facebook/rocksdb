@@ -48,6 +48,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <functional>
+#include <string>
 #include <thread>
 
 #ifndef OS_WIN
