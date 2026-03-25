@@ -119,6 +119,17 @@ class DBCompactionTest : public DBTestBase {
   DBCompactionTest()
       : DBTestBase("db_compaction_test", /*env_do_fsync=*/false) {}
 
+  void TearDown() override {
+    // Reset Env::Default() thread pool state that tests may have modified.
+    // Under sharded execution multiple tests share a process, so leaked
+    // thread-pool sizes (especially BOTTOM) cause later tests to see
+    // unexpected compaction scheduling (e.g. ForwardToBottomPriPool).
+    Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
+    Env::Default()->SetBackgroundThreads(1, Env::Priority::LOW);
+    Env::Default()->SetBackgroundThreads(1, Env::Priority::HIGH);
+    DBTestBase::TearDown();
+  }
+
  protected:
   /*
    * Verifies compaction stats of cfd are valid.
