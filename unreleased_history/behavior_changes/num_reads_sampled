@@ -1,1 +1,0 @@
-num_reads_sampled now factors in re-seeks and next/prev() on file iterators for files in L1+. next/prev() is discounted by 64x compared to seek due to being a much cheaper call. 
