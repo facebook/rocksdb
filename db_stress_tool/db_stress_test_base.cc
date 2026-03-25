@@ -2131,8 +2131,9 @@ Status StressTest::TestGetLiveFilesMetaData() const {
 
 Status StressTest::TestGetLiveFilesStorageInfo() const {
   std::vector<LiveFileStorageInfo> live_file_storage_info;
-  return db_->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(),
-                                      &live_file_storage_info);
+  LiveFilesStorageInfoOptions live_opts;
+  live_opts.atomic_flush = FLAGS_checkpoint_atomic_flush;
+  return db_->GetLiveFilesStorageInfo(live_opts, &live_file_storage_info);
 }
 
 Status StressTest::TestGetAllColumnFamilyMetaData() const {

@@ -168,6 +168,7 @@ default_params = {
     "manual_wal_flush_one_in": lambda: random.choice([0, 1000]),
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
     "get_live_files_apis_one_in": lambda: random.choice([10000, 1000000]),
+    "checkpoint_atomic_flush": lambda: random.choice([0, 1]),
     "get_all_column_family_metadata_one_in": lambda: random.choice([10000, 1000000]),
     # Note: the following two are intentionally disabled as the corresponding
     # APIs are not guaranteed to succeed.

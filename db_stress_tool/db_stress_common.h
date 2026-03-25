@@ -140,6 +140,7 @@ DECLARE_int32(universal_max_size_amplification_percent);
 DECLARE_int32(universal_max_read_amp);
 DECLARE_int32(clear_column_family_one_in);
 DECLARE_int32(get_live_files_apis_one_in);
+DECLARE_bool(checkpoint_atomic_flush);
 DECLARE_int32(get_all_column_family_metadata_one_in);
 DECLARE_int32(get_sorted_wal_files_one_in);
 DECLARE_int32(get_current_wal_file_one_in);
