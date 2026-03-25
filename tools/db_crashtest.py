@@ -880,9 +880,15 @@ def finalize_and_sanitize(src_params):
             dest_params["prefix_size"] = 1
 
     # BER disables WAL and tests unsynced data loss which
-    # does not work with inplace_update_support.
+    # does not work with inplace_update_support. Integrated BlobDB is also
+    # incompatible, so force blob-related toggles off even if they came from
+    # command-line overrides or another preset.
     if dest_params.get("best_efforts_recovery") == 1:
         dest_params["inplace_update_support"] = 0
+        dest_params["enable_blob_files"] = 0
+        dest_params["enable_blob_garbage_collection"] = 0
+        dest_params["allow_setting_blob_options_dynamically"] = 0
+        dest_params["enable_blob_direct_write"] = 0
 
     # Remote Compaction Incompatible Tests and Features
     if dest_params.get("remote_compaction_worker_threads", 0) > 0:
