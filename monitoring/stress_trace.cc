@@ -57,13 +57,15 @@ static std::atomic<bool> g_installed{false};
 // first use and registers them in the global list.
 
 ROCKSDB_NO_INSTRUMENT static void RegisterThread(FuncTraceBuffer* fb,
-                                                  EventTraceBuffer* eb) {
+                                                  EventTraceBuffer* eb,
+                                                  BinaryTraceBuffer* bb) {
   // Allocate a ThreadState. We intentionally leak this object -- it must
   // outlive the thread for the crash handler to read it. The leak is bounded:
   // one small struct per thread (< 100 bytes).
   ThreadState* ts = new ThreadState();
   ts->func_buf = fb;
   ts->event_buf = eb;
+  ts->binary_buf = bb;
   // Use a stable hash of thread_id for display (same technique as
   // InjectedErrorLog).
   ts->thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
@@ -100,6 +102,7 @@ static thread_local bool tl_initializing = false;
 static thread_local bool tl_registered = false;
 static thread_local FuncTraceBuffer* tl_func_buf = nullptr;
 static thread_local EventTraceBuffer* tl_evt_buf = nullptr;
+static thread_local BinaryTraceBuffer* tl_bin_buf = nullptr;
 
 ROCKSDB_NO_INSTRUMENT static void EnsureInitialized() {
   if (__builtin_expect(tl_func_buf != nullptr, 1)) {
@@ -117,12 +120,15 @@ ROCKSDB_NO_INSTRUMENT static void EnsureInitialized() {
       static_cast<FuncTraceBuffer*>(malloc(sizeof(FuncTraceBuffer)));
   tl_evt_buf =
       static_cast<EventTraceBuffer*>(malloc(sizeof(EventTraceBuffer)));
+  tl_bin_buf =
+      static_cast<BinaryTraceBuffer*>(malloc(sizeof(BinaryTraceBuffer)));
   memset(static_cast<void*>(tl_func_buf), 0, sizeof(FuncTraceBuffer));
   memset(static_cast<void*>(tl_evt_buf), 0, sizeof(EventTraceBuffer));
+  memset(static_cast<void*>(tl_bin_buf), 0, sizeof(BinaryTraceBuffer));
 
   if (!tl_registered) {
     tl_registered = true;
-    RegisterThread(tl_func_buf, tl_evt_buf);
+    RegisterThread(tl_func_buf, tl_evt_buf, tl_bin_buf);
   }
 
   tl_initializing = false;
@@ -136,6 +142,11 @@ ROCKSDB_NO_INSTRUMENT FuncTraceBuffer* GetFuncBuffer() {
 ROCKSDB_NO_INSTRUMENT EventTraceBuffer* GetEventBuffer() {
   EnsureInitialized();
   return tl_evt_buf;
+}
+
+ROCKSDB_NO_INSTRUMENT BinaryTraceBuffer* GetBinaryBuffer() {
+  EnsureInitialized();
+  return tl_bin_buf;
 }
 
 // ============================================================
@@ -210,19 +221,125 @@ ROCKSDB_NO_INSTRUMENT static void WriteAll(int fd, const char* buf, int len) {
   auto unused __attribute__((unused)) = write(fd, buf, (size_t)len);
 }
 
+// Format a TraceEventType to a short string.
+ROCKSDB_NO_INSTRUMENT static const char* EventTypeName(TraceEventType t) {
+  switch (t) {
+    case TraceEventType::kMutexLock:        return "MUTEX_LOCK";
+    case TraceEventType::kMutexUnlock:      return "MUTEX_UNLOCK";
+    case TraceEventType::kCvWaitBegin:      return "CV_WAIT_BEGIN";
+    case TraceEventType::kCvWaitEnd:        return "CV_WAIT_END";
+    case TraceEventType::kCvTimedWaitBegin: return "CV_TIMED_WAIT_BEGIN";
+    case TraceEventType::kCvTimedWaitEnd:   return "CV_TIMED_WAIT_END";
+    case TraceEventType::kCvSignal:         return "CV_SIGNAL";
+    case TraceEventType::kCvSignalAll:      return "CV_SIGNAL_ALL";
+    case TraceEventType::kSyncPoint:        return "SYNCPOINT";
+    case TraceEventType::kAtomicStore:      return "ATOMIC_STORE";
+    case TraceEventType::kAtomicLoad:       return "ATOMIC_LOAD";
+    case TraceEventType::kAtomicCas:        return "ATOMIC_CAS";
+    case TraceEventType::kAtomicXchg:       return "ATOMIC_XCHG";
+    case TraceEventType::kAtomicAdd:        return "ATOMIC_ADD";
+    case TraceEventType::kAtomicSub:        return "ATOMIC_SUB";
+    default:                                return "UNKNOWN";
+  }
+}
+
+// Format a binary event into a text line. Returns length written.
+ROCKSDB_NO_INSTRUMENT static int FormatBinaryEvent(char* buf, size_t buflen,
+                                                    const BinaryEvent* ev) {
+  TraceEventType type = ev->Type();
+  uint64_t obj = ev->ObjPtr();
+  const char* name = EventTypeName(type);
+
+  switch (type) {
+    case TraceEventType::kMutexLock:
+    case TraceEventType::kMutexUnlock:
+    case TraceEventType::kCvWaitBegin:
+    case TraceEventType::kCvWaitEnd:
+    case TraceEventType::kCvSignal:
+    case TraceEventType::kCvSignalAll:
+      return snprintf(buf, buflen, "  [%llu] EVENT %s obj=0x%llx\n",
+                      (unsigned long long)ev->tsc, name,
+                      (unsigned long long)obj);
+
+    case TraceEventType::kCvTimedWaitBegin:
+      return snprintf(buf, buflen,
+                      "  [%llu] EVENT %s obj=0x%llx timeout=%llu\n",
+                      (unsigned long long)ev->tsc, name,
+                      (unsigned long long)obj,
+                      (unsigned long long)ev->val1);
+
+    case TraceEventType::kCvTimedWaitEnd:
+      return snprintf(buf, buflen,
+                      "  [%llu] EVENT %s obj=0x%llx timed_out=%d\n",
+                      (unsigned long long)ev->tsc, name,
+                      (unsigned long long)obj, (int)ev->val1);
+
+    case TraceEventType::kSyncPoint:
+      // val1 is a pointer to the name string (may be invalid after crash
+      // if it was on a destroyed thread's stack, but usually it's a
+      // string literal which lives in .rodata).
+      return snprintf(buf, buflen, "  [%llu] EVENT %s %s\n",
+                      (unsigned long long)ev->tsc, name,
+                      ev->val1 ? (const char*)ev->val1 : "(null)");
+
+    case TraceEventType::kAtomicStore:
+    case TraceEventType::kAtomicLoad:
+      return snprintf(buf, buflen,
+                      "  [%llu] EVENT %s obj=0x%llx val=%llu\n",
+                      (unsigned long long)ev->tsc, name,
+                      (unsigned long long)obj,
+                      (unsigned long long)ev->val1);
+
+    case TraceEventType::kAtomicCas:
+      return snprintf(buf, buflen,
+                      "  [%llu] EVENT %s obj=0x%llx ok=%d val=%llu\n",
+                      (unsigned long long)ev->tsc, name,
+                      (unsigned long long)obj, (int)ev->val2,
+                      (unsigned long long)ev->val1);
+
+    case TraceEventType::kAtomicXchg:
+      return snprintf(buf, buflen,
+                      "  [%llu] EVENT %s obj=0x%llx old=%llu new=%llu\n",
+                      (unsigned long long)ev->tsc, name,
+                      (unsigned long long)obj,
+                      (unsigned long long)ev->val1,
+                      (unsigned long long)ev->val2);
+
+    case TraceEventType::kAtomicAdd:
+    case TraceEventType::kAtomicSub:
+      return snprintf(buf, buflen,
+                      "  [%llu] EVENT %s obj=0x%llx old=%llu delta=%lld\n",
+                      (unsigned long long)ev->tsc, name,
+                      (unsigned long long)obj,
+                      (unsigned long long)ev->val1,
+                      (long long)ev->val2);
+
+    default:
+      return snprintf(buf, buflen,
+                      "  [%llu] EVENT type=%d obj=0x%llx v1=%llu v2=%llu\n",
+                      (unsigned long long)ev->tsc, (int)type,
+                      (unsigned long long)obj,
+                      (unsigned long long)ev->val1,
+                      (unsigned long long)ev->val2);
+  }
+}
+
 // Dump one thread's combined (func + event) trace to fd, sorted by TSC.
 // We interleave the two sorted sequences using a simple merge (no heap).
 ROCKSDB_NO_INSTRUMENT static void DumpThread(int fd, const ThreadState* ts) {
   const FuncTraceBuffer* fb = ts->func_buf;
   const EventTraceBuffer* eb = ts->event_buf;
+  const BinaryTraceBuffer* bb = ts->binary_buf;
 
   char hdr[256];
   int hlen = snprintf(hdr, sizeof(hdr),
                       "\n=== Stress Trace: thread %llu ===\n"
-                      "    func_entries=%zu  event_entries=%zu\n",
+                      "    func_entries=%zu  event_entries=%zu"
+                      "  binary_entries=%zu\n",
                       (unsigned long long)ts->thread_id,
                       std::min(fb->head, kMaxFuncEntries),
-                      std::min(eb->head, kMaxEventEntries));
+                      std::min(eb->head, kMaxEventEntries),
+                      bb ? std::min(bb->head, kMaxBinaryEntries) : (size_t)0);
   WriteAll(fd, hdr, hlen);
 
   // Determine valid range in each ring buffer.
@@ -236,23 +353,31 @@ ROCKSDB_NO_INSTRUMENT static void DumpThread(int fd, const ThreadState* ts) {
   size_t e_start =
       (e_total >= kMaxEventEntries) ? (e_total % kMaxEventEntries) : 0;
 
-  if (f_count == 0 && e_count == 0) {
+  size_t b_total = bb ? bb->head : 0;
+  size_t b_count =
+      (b_total < kMaxBinaryEntries) ? b_total : kMaxBinaryEntries;
+  size_t b_start =
+      (b_total >= kMaxBinaryEntries) ? (b_total % kMaxBinaryEntries) : 0;
+
+  if (f_count == 0 && e_count == 0 && b_count == 0) {
     const char* empty = "  (empty)\n";
     WriteAll(fd, empty, 10);
     return;
   }
 
-  // Merge-print: walk both buffers in TSC order (oldest first).
+  // Merge-print: walk all three buffers in TSC order (oldest first).
   size_t fi = 0;  // index into func ring (logical)
   size_t ei = 0;  // index into event ring (logical)
+  size_t bi = 0;  // index into binary ring (logical)
 
   char line[512];
   char sym[256];
 
-  while (fi < f_count || ei < e_count) {
+  while (fi < f_count || ei < e_count || bi < b_count) {
     // Peek at next TSC from each buffer.
     uint64_t f_tsc = UINT64_MAX;
     uint64_t e_tsc = UINT64_MAX;
+    uint64_t b_tsc = UINT64_MAX;
 
     if (fi < f_count) {
       size_t ridx = (f_start + fi) % kMaxFuncEntries;
@@ -262,8 +387,12 @@ ROCKSDB_NO_INSTRUMENT static void DumpThread(int fd, const ThreadState* ts) {
       size_t ridx = (e_start + ei) % kMaxEventEntries;
       e_tsc = eb->entries[ridx].tsc;
     }
+    if (bi < b_count) {
+      size_t ridx = (b_start + bi) % kMaxBinaryEntries;
+      b_tsc = bb->entries[ridx].tsc;
+    }
 
-    if (f_tsc <= e_tsc) {
+    if (f_tsc <= e_tsc && f_tsc <= b_tsc) {
       // Emit func entry.
       size_t ridx = (f_start + fi) % kMaxFuncEntries;
       void* addr = fb->entries[ridx].func_addr;
@@ -272,10 +401,9 @@ ROCKSDB_NO_INSTRUMENT static void DumpThread(int fd, const ThreadState* ts) {
                        (unsigned long long)f_tsc, sym, addr);
       WriteAll(fd, line, n);
       ++fi;
-    } else {
-      // Emit event entry.
+    } else if (e_tsc <= b_tsc) {
+      // Emit string event entry.
       size_t ridx = (e_start + ei) % kMaxEventEntries;
-      // Copy msg to local to avoid TSAN-intercepted snprintf on shared memory.
       char local_msg[kMaxEventMsgLen];
       const volatile char* src = eb->entries[ridx].msg;
       for (size_t i = 0; i < kMaxEventMsgLen; i++) local_msg[i] = src[i];
@@ -283,6 +411,12 @@ ROCKSDB_NO_INSTRUMENT static void DumpThread(int fd, const ThreadState* ts) {
                        (unsigned long long)e_tsc, local_msg);
       WriteAll(fd, line, n);
       ++ei;
+    } else {
+      // Emit binary event entry.
+      size_t ridx = (b_start + bi) % kMaxBinaryEntries;
+      int n = FormatBinaryEvent(line, sizeof(line), &bb->entries[ridx]);
+      WriteAll(fd, line, n);
+      ++bi;
     }
   }
 
@@ -395,6 +529,7 @@ ROCKSDB_NO_INSTRUMENT void DumpAll() {}
 ROCKSDB_NO_INSTRUMENT void RecordEvent(const char* /*fmt*/, ...) {}
 ROCKSDB_NO_INSTRUMENT FuncTraceBuffer* GetFuncBuffer() { return nullptr; }
 ROCKSDB_NO_INSTRUMENT EventTraceBuffer* GetEventBuffer() { return nullptr; }
+ROCKSDB_NO_INSTRUMENT BinaryTraceBuffer* GetBinaryBuffer() { return nullptr; }
 ROCKSDB_NO_INSTRUMENT std::atomic<ThreadState*>& GlobalThreadList() {
   static std::atomic<ThreadState*> empty{nullptr};
   return empty;

@@ -107,7 +107,10 @@ void SyncPoint::Data::Process(const Slice& point, void* cb_arg) {
   if (!enabled_) {
     return;
   }
-  STRESS_TRACE_EVENT("SYNCPOINT %.*s", (int)point.size(), point.data());
+  STRESS_TRACE_BINARY(stress_trace::TraceEventType::kSyncPoint,
+                      reinterpret_cast<const void*>(
+                          std::hash<std::string>{}(point.ToString())),
+                      reinterpret_cast<uint64_t>(point.data()), point.size());
 
   // Use a filter to prevent mutex lock if possible.
   if (!point_filter_.MayContain(point)) {

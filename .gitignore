@@ -102,3 +102,7 @@ cmake-build-*
 third-party/folly/
 .cache
 *.sublime-*
+db_stress_baseline
+db_stress_traced
+db_stress_binary_traced
+__pycache__

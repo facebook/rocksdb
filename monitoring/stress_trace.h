@@ -80,9 +80,19 @@
 #ifdef ROCKSDB_STRESS_TRACE
 #define STRESS_TRACE_EVENT(fmt, ...)                            \
   ::ROCKSDB_NAMESPACE::stress_trace::RecordEvent(fmt, ##__VA_ARGS__)
+#define STRESS_TRACE_BINARY(type, obj, v1, v2)                  \
+  do {                                                          \
+    auto* _buf = ::ROCKSDB_NAMESPACE::stress_trace::GetBinaryBuffer(); \
+    if (__builtin_expect(_buf != nullptr, 1)) {                 \
+      _buf->Record(type, obj, v1, v2);                          \
+    }                                                           \
+  } while (0)
 #else
 #define STRESS_TRACE_EVENT(fmt, ...) \
   do {                               \
+  } while (0)
+#define STRESS_TRACE_BINARY(type, obj, v1, v2) \
+  do {                                          \
   } while (0)
 #endif
 
@@ -176,6 +186,66 @@ struct EventTraceBuffer {
   }
 };
 
+
+// ============================================================
+// Binary event tracing (zero-format, ~5ns per event)
+// ============================================================
+// Instead of vsnprintf into a char buffer, binary events store typed
+// integers directly. Formatting happens only at dump time (signal handler).
+// This is ~10x faster than STRESS_TRACE_EVENT for structured events.
+
+enum class TraceEventType : uint8_t {
+  kNone = 0,
+  kMutexLock = 1,
+  kMutexUnlock = 2,
+  kCvWaitBegin = 3,
+  kCvWaitEnd = 4,
+  kCvTimedWaitBegin = 5,
+  kCvTimedWaitEnd = 6,
+  kCvSignal = 7,
+  kCvSignalAll = 8,
+  kSyncPoint = 9,
+  kAtomicStore = 10,
+  kAtomicLoad = 11,
+  kAtomicCas = 12,
+  kAtomicXchg = 13,
+  kAtomicAdd = 14,
+  kAtomicSub = 15,
+};
+
+struct BinaryEvent {
+  uint64_t tsc;       // rdtsc timestamp
+  uint64_t type_obj;  // high 8 bits = TraceEventType, low 56 bits = obj ptr
+  uint64_t val1;      // meaning depends on type
+  uint64_t val2;      // meaning depends on type
+
+  ROCKSDB_NO_INSTRUMENT TraceEventType Type() const {
+    return static_cast<TraceEventType>(type_obj >> 56);
+  }
+  ROCKSDB_NO_INSTRUMENT uint64_t ObjPtr() const {
+    return type_obj & 0x00FFFFFFFFFFFFFF;
+  }
+};
+
+static constexpr size_t kMaxBinaryEntries = 8192;
+
+struct BinaryTraceBuffer {
+  BinaryEvent entries[kMaxBinaryEntries];
+  size_t head = 0;
+
+  ROCKSDB_NO_INSTRUMENT void Record(TraceEventType type, const void* obj,
+                                     uint64_t v1, uint64_t v2) {
+    size_t idx = head & (kMaxBinaryEntries - 1);
+    entries[idx].tsc = ReadTSC();
+    entries[idx].type_obj =
+        (static_cast<uint64_t>(type) << 56) |
+        (reinterpret_cast<uint64_t>(obj) & 0x00FFFFFFFFFFFFFF);
+    entries[idx].val1 = v1;
+    entries[idx].val2 = v2;
+    ++head;
+  }
+};
+
 // ============================================================
 // Global registry of per-thread buffers
 // ============================================================
@@ -185,6 +255,7 @@ struct EventTraceBuffer {
 struct ThreadState {
   FuncTraceBuffer* func_buf;
   EventTraceBuffer* event_buf;
+  BinaryTraceBuffer* binary_buf;
   uint64_t thread_id;
   ThreadState* next;
 };
@@ -225,6 +296,9 @@ ROCKSDB_NO_INSTRUMENT FuncTraceBuffer* GetFuncBuffer();
 
 // Returns the current thread's EventTraceBuffer, creating it on first call.
 ROCKSDB_NO_INSTRUMENT EventTraceBuffer* GetEventBuffer();
+
+// Returns the current thread's BinaryTraceBuffer, creating it on first call.
+ROCKSDB_NO_INSTRUMENT BinaryTraceBuffer* GetBinaryBuffer();
 
 }  // namespace stress_trace
 }  // namespace ROCKSDB_NAMESPACE

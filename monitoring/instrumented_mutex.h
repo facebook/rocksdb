@@ -46,7 +46,7 @@ class InstrumentedMutex {
   void Lock();
 
   void Unlock() {
-    STRESS_TRACE_EVENT("MUTEX_UNLOCK obj=%p", this);
+    STRESS_TRACE_BINARY(stress_trace::TraceEventType::kMutexUnlock, this, 0, 0);
     mutex_.Unlock();
   }
 
@@ -115,12 +115,12 @@ class InstrumentedCondVar {
   bool TimedWait(uint64_t abs_time_us);
 
   void Signal() {
-    STRESS_TRACE_EVENT("CV_SIGNAL obj=%p", this);
+    STRESS_TRACE_BINARY(stress_trace::TraceEventType::kCvSignal, this, 0, 0);
     cond_.Signal();
   }
 
   void SignalAll() {
-    STRESS_TRACE_EVENT("CV_SIGNAL_ALL obj=%p", this);
+    STRESS_TRACE_BINARY(stress_trace::TraceEventType::kCvSignalAll, this, 0, 0);
     cond_.SignalAll();
   }
 

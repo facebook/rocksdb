@@ -54,7 +54,7 @@ void InstrumentedMutex::LockInternal() {
   }
 #endif
   mutex_.Lock();
-  STRESS_TRACE_EVENT("MUTEX_LOCK obj=%p", this);
+  STRESS_TRACE_BINARY(stress_trace::TraceEventType::kMutexLock, this, 0, 0);
 }
 
 void InstrumentedCondVar::Wait() {
@@ -68,9 +68,9 @@ void InstrumentedCondVar::WaitInternal() {
 #ifndef NDEBUG
   ThreadStatusUtil::TEST_StateDelay(ThreadStatus::STATE_MUTEX_WAIT);
 #endif
-  STRESS_TRACE_EVENT("CV_WAIT_BEGIN obj=%p", this);
+  STRESS_TRACE_BINARY(stress_trace::TraceEventType::kCvWaitBegin, this, 0, 0);
   cond_.Wait();
-  STRESS_TRACE_EVENT("CV_WAIT_END obj=%p", this);
+  STRESS_TRACE_BINARY(stress_trace::TraceEventType::kCvWaitEnd, this, 0, 0);
 }
 
 bool InstrumentedCondVar::TimedWait(uint64_t abs_time_us) {
@@ -88,10 +88,9 @@ bool InstrumentedCondVar::TimedWaitInternal(uint64_t abs_time_us) {
   TEST_SYNC_POINT_CALLBACK("InstrumentedCondVar::TimedWaitInternal",
                            &abs_time_us);
 
-  STRESS_TRACE_EVENT("CV_TIMED_WAIT_BEGIN obj=%p timeout=%llu", this,
-                      (unsigned long long)abs_time_us);
+  STRESS_TRACE_BINARY(stress_trace::TraceEventType::kCvTimedWaitBegin, this, abs_time_us, 0);
   bool result = cond_.TimedWait(abs_time_us);
-  STRESS_TRACE_EVENT("CV_TIMED_WAIT_END obj=%p timed_out=%d", this, !result);
+  STRESS_TRACE_BINARY(stress_trace::TraceEventType::kCvTimedWaitEnd, this, !result, 0);
   return result;
 }
 

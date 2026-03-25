@@ -56,52 +56,46 @@ class RelaxedAtomic {
  public:
   explicit RelaxedAtomic(T initial = {}) : v_(initial) {}
   void StoreRelaxed(T desired) {
-    STRESS_TRACE_EVENT("ATOMIC_STORE obj=%p val=%llu",
-                       (void*)this,
-                       (unsigned long long)atomic_trace_detail::ToTraceVal(desired));
+    STRESS_TRACE_BINARY(stress_trace::TraceEventType::kAtomicStore, this,
+                        atomic_trace_detail::ToTraceVal(desired), 0);
     v_.store(desired, std::memory_order_relaxed);
   }
   T LoadRelaxed() const { return v_.load(std::memory_order_relaxed); }
   bool CasWeakRelaxed(T& expected, T desired) {
     bool ok = v_.compare_exchange_weak(expected, desired,
                                        std::memory_order_relaxed);
-    STRESS_TRACE_EVENT("ATOMIC_CAS obj=%p ok=%d val=%llu",
-                       (void*)this, ok,
-                       (unsigned long long)atomic_trace_detail::ToTraceVal(
-                           ok ? desired : expected));
+    STRESS_TRACE_BINARY(stress_trace::TraceEventType::kAtomicCas, this,
+                        atomic_trace_detail::ToTraceVal(ok ? desired : expected),
+                        ok);
     return ok;
   }
   bool CasStrongRelaxed(T& expected, T desired) {
     bool ok = v_.compare_exchange_strong(expected, desired,
                                          std::memory_order_relaxed);
-    STRESS_TRACE_EVENT("ATOMIC_CAS obj=%p ok=%d val=%llu",
-                       (void*)this, ok,
-                       (unsigned long long)atomic_trace_detail::ToTraceVal(
-                           ok ? desired : expected));
+    STRESS_TRACE_BINARY(stress_trace::TraceEventType::kAtomicCas, this,
+                        atomic_trace_detail::ToTraceVal(ok ? desired : expected),
+                        ok);
     return ok;
   }
   T ExchangeRelaxed(T desired) {
     T old = v_.exchange(desired, std::memory_order_relaxed);
-    STRESS_TRACE_EVENT("ATOMIC_XCHG obj=%p old=%llu new=%llu",
-                       (void*)this,
-                       (unsigned long long)atomic_trace_detail::ToTraceVal(old),
-                       (unsigned long long)atomic_trace_detail::ToTraceVal(desired));
+    STRESS_TRACE_BINARY(stress_trace::TraceEventType::kAtomicXchg, this,
+                        atomic_trace_detail::ToTraceVal(old),
+                        atomic_trace_detail::ToTraceVal(desired));
     return old;
   }
   T FetchAddRelaxed(T operand) {
     T old = v_.fetch_add(operand, std::memory_order_relaxed);
-    STRESS_TRACE_EVENT("ATOMIC_ADD obj=%p old=%llu delta=%lld",
-                       (void*)this,
-                       (unsigned long long)atomic_trace_detail::ToTraceVal(old),
-                       (long long)atomic_trace_detail::ToTraceVal(operand));
+    STRESS_TRACE_BINARY(stress_trace::TraceEventType::kAtomicAdd, this,
+                        atomic_trace_detail::ToTraceVal(old),
+                        atomic_trace_detail::ToTraceVal(operand));
     return old;
   }
   T FetchSubRelaxed(T operand) {
     T old = v_.fetch_sub(operand, std::memory_order_relaxed);
-    STRESS_TRACE_EVENT("ATOMIC_SUB obj=%p old=%llu delta=%lld",
-                       (void*)this,
-                       (unsigned long long)atomic_trace_detail::ToTraceVal(old),
-                       (long long)atomic_trace_detail::ToTraceVal(operand));
+    STRESS_TRACE_BINARY(stress_trace::TraceEventType::kAtomicSub, this,
+                        atomic_trace_detail::ToTraceVal(old),
+                        atomic_trace_detail::ToTraceVal(operand));
     return old;
   }
   T FetchAndRelaxed(T operand) {
@@ -134,58 +128,51 @@ class Atomic : public RelaxedAtomic<T> {
  public:
   explicit Atomic(T initial = {}) : RelaxedAtomic<T>(initial) {}
   void Store(T desired) {
-    STRESS_TRACE_EVENT("ATOMIC_STORE obj=%p val=%llu",
-                       (void*)this,
-                       (unsigned long long)atomic_trace_detail::ToTraceVal(desired));
+    STRESS_TRACE_BINARY(stress_trace::TraceEventType::kAtomicStore, this,
+                        atomic_trace_detail::ToTraceVal(desired), 0);
     RelaxedAtomic<T>::v_.store(desired, std::memory_order_release);
   }
   T Load() const {
     T val = RelaxedAtomic<T>::v_.load(std::memory_order_acquire);
-    STRESS_TRACE_EVENT("ATOMIC_LOAD obj=%p val=%llu",
-                       (const void*)this,
-                       (unsigned long long)atomic_trace_detail::ToTraceVal(val));
+    STRESS_TRACE_BINARY(stress_trace::TraceEventType::kAtomicLoad, this,
+                        atomic_trace_detail::ToTraceVal(val), 0);
     return val;
   }
   bool CasWeak(T& expected, T desired) {
     bool ok = RelaxedAtomic<T>::v_.compare_exchange_weak(
         expected, desired, std::memory_order_acq_rel);
-    STRESS_TRACE_EVENT("ATOMIC_CAS obj=%p ok=%d val=%llu",
-                       (void*)this, ok,
-                       (unsigned long long)atomic_trace_detail::ToTraceVal(
-                           ok ? desired : expected));
+    STRESS_TRACE_BINARY(stress_trace::TraceEventType::kAtomicCas, this,
+                        atomic_trace_detail::ToTraceVal(ok ? desired : expected),
+                        ok);
     return ok;
   }
   bool CasStrong(T& expected, T desired) {
     bool ok = RelaxedAtomic<T>::v_.compare_exchange_strong(
         expected, desired, std::memory_order_acq_rel);
-    STRESS_TRACE_EVENT("ATOMIC_CAS obj=%p ok=%d val=%llu",
-                       (void*)this, ok,
-                       (unsigned long long)atomic_trace_detail::ToTraceVal(
-                           ok ? desired : expected));
+    STRESS_TRACE_BINARY(stress_trace::TraceEventType::kAtomicCas, this,
+                        atomic_trace_detail::ToTraceVal(ok ? desired : expected),
+                        ok);
     return ok;
   }
   T Exchange(T desired) {
     T old = RelaxedAtomic<T>::v_.exchange(desired, std::memory_order_acq_rel);
-    STRESS_TRACE_EVENT("ATOMIC_XCHG obj=%p old=%llu new=%llu",
-                       (void*)this,
-                       (unsigned long long)atomic_trace_detail::ToTraceVal(old),
-                       (unsigned long long)atomic_trace_detail::ToTraceVal(desired));
+    STRESS_TRACE_BINARY(stress_trace::TraceEventType::kAtomicXchg, this,
+                        atomic_trace_detail::ToTraceVal(old),
+                        atomic_trace_detail::ToTraceVal(desired));
     return old;
   }
   T FetchAdd(T operand) {
     T old = RelaxedAtomic<T>::v_.fetch_add(operand, std::memory_order_acq_rel);
-    STRESS_TRACE_EVENT("ATOMIC_ADD obj=%p old=%llu delta=%lld",
-                       (void*)this,
-                       (unsigned long long)atomic_trace_detail::ToTraceVal(old),
-                       (long long)atomic_trace_detail::ToTraceVal(operand));
+    STRESS_TRACE_BINARY(stress_trace::TraceEventType::kAtomicAdd, this,
+                        atomic_trace_detail::ToTraceVal(old),
+                        atomic_trace_detail::ToTraceVal(operand));
     return old;
   }
   T FetchSub(T operand) {
     T old = RelaxedAtomic<T>::v_.fetch_sub(operand, std::memory_order_acq_rel);
-    STRESS_TRACE_EVENT("ATOMIC_SUB obj=%p old=%llu delta=%lld",
-                       (void*)this,
-                       (unsigned long long)atomic_trace_detail::ToTraceVal(old),
-                       (long long)atomic_trace_detail::ToTraceVal(operand));
+    STRESS_TRACE_BINARY(stress_trace::TraceEventType::kAtomicSub, this,
+                        atomic_trace_detail::ToTraceVal(old),
+                        atomic_trace_detail::ToTraceVal(operand));
     return old;
   }
   T FetchAnd(T operand) {
