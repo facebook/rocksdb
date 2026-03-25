@@ -777,17 +777,18 @@ class SstFileReaderTableGetTest : public DBTestBase,
 
   bool UseMultiGet() const { return GetParam(); }
 
-  Status DoGet(SstFileReader& reader, const Slice& key, std::string* value) {
+  std::vector<Status> DoGet(SstFileReader& reader,
+                            const std::vector<Slice>& keys,
+                            std::vector<std::string>* values) {
     if (UseMultiGet()) {
-      std::vector<Slice> keys = {key};
-      std::vector<std::string> values;
-      auto statuses = reader.MultiGet(ReadOptions(), keys, &values);
-      if (statuses[0].ok()) {
-        *value = values[0];
-      }
-      return statuses[0];
+      return reader.MultiGet(ReadOptions(), keys, values);
     } else {
-      return reader.Get(ReadOptions(), key, value);
+      values->resize(keys.size());
+      std::vector<Status> statuses(keys.size());
+      for (size_t i = 0; i < keys.size(); ++i) {
+        statuses[i] = reader.Get(ReadOptions(), keys[i], &(*values)[i]);
+      }
+      return statuses;
     }
   }
 };
@@ -828,27 +829,30 @@ TEST_P(SstFileReaderTableGetTest, Basic) {
 
   ASSERT_OK(options.statistics->Reset());
 
-  std::string value;
+  std::vector<Slice> keys = {"fo1", "foo", "baz",
+                             "bar", "aaa", "zzz_not_in_sst"};
+  std::vector<std::string> values;
+  auto statuses = DoGet(reader, keys, &values);
 
   // Non-existent key returns NotFound
-  ASSERT_TRUE(DoGet(reader, "fo1", &value).IsNotFound());
+  ASSERT_TRUE(statuses[0].IsNotFound());
 
   // Deleted key returns NotFound
-  ASSERT_TRUE(DoGet(reader, "foo", &value).IsNotFound());
+  ASSERT_TRUE(statuses[1].IsNotFound());
 
   // Found keys
-  ASSERT_OK(DoGet(reader, "baz", &value));
-  ASSERT_EQ(value, "val3");
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(values[2], "val3");
 
-  ASSERT_OK(DoGet(reader, "bar", &value));
-  ASSERT_EQ(value, "val2");
+  ASSERT_OK(statuses[3]);
+  ASSERT_EQ(values[3], "val2");
 
   // Merged key
-  ASSERT_OK(DoGet(reader, "aaa", &value));
-  ASSERT_EQ(value, "val4,val5");
+  ASSERT_OK(statuses[4]);
+  ASSERT_EQ(values[4], "val4,val5");
 
   // Bloom filter filtered key
-  ASSERT_TRUE(DoGet(reader, "zzz_not_in_sst", &value).IsNotFound());
+  ASSERT_TRUE(statuses[5].IsNotFound());
 
   uint64_t cache_hits = options.statistics->getTickerCount(BLOCK_CACHE_HIT);
   uint64_t cache_misses = options.statistics->getTickerCount(BLOCK_CACHE_MISS);
