@@ -388,7 +388,12 @@ Status DBImpl::FlushMemTableToOutputFile(
 Status DBImpl::FlushMemTablesToOutputFiles(
     const autovector<BGFlushArg>& bg_flush_args, bool* made_progress,
     JobContext* job_context, LogBuffer* log_buffer, Env::Priority thread_pri) {
-  if (immutable_db_options_.atomic_flush) {
+#ifndef NDEBUG
+  for (const auto& bg_flush_arg : bg_flush_args) {
+    assert(bg_flush_arg.atomic_flush_ == bg_flush_args[0].atomic_flush_);
+  }
+#endif /* !NDEBUG */
+  if (bg_flush_args[0].atomic_flush_) {
     return AtomicFlushMemTablesToOutputFiles(
         bg_flush_args, made_progress, job_context, log_buffer, thread_pri);
   }
@@ -2037,7 +2042,7 @@ Status DBImpl::FlushAllColumnFamilies(const FlushOptions& flush_options,
                                       FlushReason flush_reason) {
   mutex_.AssertHeld();
   Status status;
-  if (immutable_db_options_.atomic_flush) {
+  if (immutable_db_options_.atomic_flush || flush_options.force_atomic_flush) {
     mutex_.Unlock();
     status = AtomicFlushMemTables(flush_options, flush_reason);
     if (status.IsColumnFamilyDropped()) {
@@ -2070,7 +2075,7 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "[%s] Manual flush start.",
                  cfh->GetName().c_str());
   Status s;
-  if (immutable_db_options_.atomic_flush) {
+  if (immutable_db_options_.atomic_flush || flush_options.force_atomic_flush) {
     s = AtomicFlushMemTables(flush_options, FlushReason::kManualFlush,
                              {cfh->cfd()});
   } else {
@@ -2086,7 +2091,8 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
 Status DBImpl::Flush(const FlushOptions& flush_options,
                      const std::vector<ColumnFamilyHandle*>& column_families) {
   Status s;
-  if (!immutable_db_options_.atomic_flush) {
+  if (!immutable_db_options_.atomic_flush &&
+      !flush_options.force_atomic_flush) {
     for (auto cfh : column_families) {
       s = Flush(flush_options, cfh);
       if (!s.ok()) {
@@ -2381,7 +2387,7 @@ void DBImpl::GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
       continue;
     }
     uint64_t max_memtable_id = cfd->imm()->GetLatestMemTableID(
-        immutable_db_options_.atomic_flush /* for_atomic_flush */);
+        req->atomic_flush /* for_atomic_flush */);
     req->cfd_to_max_mem_id_to_persist.emplace(cfd, max_memtable_id);
   }
 }
@@ -2451,7 +2457,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
           !cached_recoverable_state_empty_.load() ||
           IsRecoveryFlush(flush_reason)) {
-        FlushRequest req{flush_reason, {{cfd, flush_memtable_id}}};
+        FlushRequest req{
+            flush_reason, false /* atomic_flush */, {{cfd, flush_memtable_id}}};
         flush_reqs.emplace_back(std::move(req));
         memtable_ids_to_wait.emplace_back(
             cfd->imm()->GetLatestMemTableID(false /* for_atomic_flush */));
@@ -2479,7 +2486,9 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                            "to avoid holding old logs",
                            cfd->GetName().c_str());
             s = SwitchMemtable(cfd_stats, &context);
-            FlushRequest req{flush_reason, {{cfd_stats, flush_memtable_id}}};
+            FlushRequest req{flush_reason,
+                             false /* atomic_flush */,
+                             {{cfd_stats, flush_memtable_id}}};
             flush_reqs.emplace_back(std::move(req));
             memtable_ids_to_wait.emplace_back(
                 cfd_stats->imm()->GetLatestMemTableID(
@@ -2558,7 +2567,6 @@ Status DBImpl::AtomicFlushMemTables(
     const FlushOptions& flush_options, FlushReason flush_reason,
     const autovector<ColumnFamilyData*>& provided_candidate_cfds,
     bool entered_write_thread) {
-  assert(immutable_db_options_.atomic_flush);
   if (!flush_options.wait && write_controller_.IsStopped()) {
     std::ostringstream oss;
     oss << "Writes have been stopped, thus unable to perform manual flush. "
@@ -2613,6 +2621,7 @@ Status DBImpl::AtomicFlushMemTables(
   }
   const bool needs_to_join_write_thread = !entered_write_thread;
   FlushRequest flush_req;
+  flush_req.atomic_flush = true;
   autovector<ColumnFamilyData*> cfds;
   {
     WriteContext context;
@@ -2720,6 +2729,7 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
   autovector<uint64_t> flush_memtable_ids;
   if (immutable_db_options_.atomic_flush) {
     FlushRequest flush_req;
+    flush_req.atomic_flush = true;
     GenerateFlushRequest(cfds, flush_reason, &flush_req);
     EnqueuePendingFlush(flush_req);
     for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
@@ -2733,6 +2743,7 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
       // reason to do so outside of atomic flush.
       FlushRequest flush_req{
           flush_reason,
+          false /* atomic_flush */,
           {{cfd,
             std::numeric_limits<uint64_t>::max() /* max_mem_id_to_persist */}}};
       if (EnqueuePendingFlush(flush_req)) {
@@ -3145,6 +3156,93 @@ DBImpl::BGJobLimits DBImpl::GetBGJobLimits(int max_background_flushes,
   return res;
 }
 
+BackgroundJobPressure DBImpl::CaptureBackgroundJobPressure() const {
+  mutex_.AssertHeld();
+
+  BackgroundJobPressure snapshot;
+
+  // Compaction: LOW + BOTTOM combined (matches RocksDB's scheduling check)
+  snapshot.compaction_scheduled =
+      bg_compaction_scheduled_ + bg_bottom_compaction_scheduled_;
+  snapshot.compaction_running = num_running_compactions_;
+
+  // Per-priority breakdown for pool-specific expansion
+  assert(num_running_compactions_ >= num_running_bottom_compactions_);
+  snapshot.compaction_low_scheduled = bg_compaction_scheduled_;
+  snapshot.compaction_low_running =
+      std::max(0, num_running_compactions_ - num_running_bottom_compactions_);
+  snapshot.compaction_bottom_scheduled = bg_bottom_compaction_scheduled_;
+  snapshot.compaction_bottom_running = num_running_bottom_compactions_;
+
+  // Flush
+  snapshot.flush_scheduled = bg_flush_scheduled_;
+  snapshot.flush_running = num_running_flushes_;
+
+  snapshot.compaction_speedup_active =
+      write_controller_.NeedSpeedupCompaction();
+
+  // Compute write_stall_proximity_pct: max across all CFs.
+  // Uses the same inputs as RecalculateWriteStallConditions() in
+  // column_family.cc:
+  //   - l0_delay_trigger_count(): sorted run count used for write stall
+  //     decisions. Equals NumLevelFiles(0) for level compaction; for universal
+  //     compaction, also counts non-empty levels from L1+ as sorted runs.
+  //   - estimated_compaction_needed_bytes(): pending compaction bytes.
+  // Prefers slowdown/soft triggers (gradual); falls back to stop/hard triggers.
+  // level0_slowdown_writes_trigger is sanitized to always be > 0;
+  // soft_pending_compaction_bytes_limit can be 0 (disabled).
+  int max_proximity = 0;
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped() || !cfd->initialized()) {
+      continue;
+    }
+    const auto* vstorage = cfd->current()->storage_info();
+    const auto& mutable_cf_options = cfd->GetCurrentMutableCFOptions();
+
+    int l0_proximity = 0;
+    int l0_trigger = mutable_cf_options.level0_slowdown_writes_trigger > 0
+                         ? mutable_cf_options.level0_slowdown_writes_trigger
+                         : mutable_cf_options.level0_stop_writes_trigger;
+    if (l0_trigger > 0) {
+      l0_proximity = static_cast<int>(
+          100.0 * vstorage->l0_delay_trigger_count() / l0_trigger);
+    }
+
+    int bytes_proximity = 0;
+    uint64_t bytes_limit =
+        mutable_cf_options.soft_pending_compaction_bytes_limit > 0
+            ? mutable_cf_options.soft_pending_compaction_bytes_limit
+            : mutable_cf_options.hard_pending_compaction_bytes_limit;
+    if (bytes_limit > 0) {
+      bytes_proximity = static_cast<int>(
+          100.0 *
+          static_cast<double>(vstorage->estimated_compaction_needed_bytes()) /
+          static_cast<double>(bytes_limit));
+    }
+
+    max_proximity =
+        std::max(max_proximity, std::max(l0_proximity, bytes_proximity));
+  }
+  snapshot.write_stall_proximity_pct = max_proximity;
+
+  return snapshot;
+}
+
+void DBImpl::NotifyOnBackgroundJobPressureChanged() {
+  mutex_.AssertHeld();
+  if (immutable_db_options_.listeners.empty()) {
+    return;
+  }
+  BackgroundJobPressure pressure = CaptureBackgroundJobPressure();
+  bg_pressure_callback_in_progress_++;
+  mutex_.Unlock();
+  for (const auto& listener : immutable_db_options_.listeners) {
+    listener->OnBackgroundJobPressureChanged(this, pressure);
+  }
+  mutex_.Lock();
+  bg_pressure_callback_in_progress_--;
+}
+
 void DBImpl::AddToCompactionQueue(ColumnFamilyData* cfd) {
   assert(!cfd->queued_for_compaction());
   cfd->Ref();
@@ -3166,11 +3264,11 @@ DBImpl::FlushRequest DBImpl::PopFirstFromFlushQueue() {
   assert(!flush_queue_.empty());
   FlushRequest flush_req = std::move(flush_queue_.front());
   flush_queue_.pop_front();
-  if (!immutable_db_options_.atomic_flush) {
+  if (!flush_req.atomic_flush) {
     assert(flush_req.cfd_to_max_mem_id_to_persist.size() == 1);
   }
   for (const auto& elem : flush_req.cfd_to_max_mem_id_to_persist) {
-    if (!immutable_db_options_.atomic_flush) {
+    if (!flush_req.atomic_flush) {
       ColumnFamilyData* cfd = elem.first;
       assert(cfd);
       assert(cfd->queued_for_flush());
@@ -3215,7 +3313,7 @@ bool DBImpl::EnqueuePendingFlush(const FlushRequest& flush_req) {
   if (flush_req.cfd_to_max_mem_id_to_persist.empty()) {
     return enqueued;
   }
-  if (!immutable_db_options_.atomic_flush) {
+  if (!flush_req.atomic_flush) {
     // For the non-atomic flush case, we never schedule multiple column
     // families in the same flush request.
     assert(flush_req.cfd_to_max_mem_id_to_persist.size() == 1);
@@ -3231,6 +3329,11 @@ bool DBImpl::EnqueuePendingFlush(const FlushRequest& flush_req) {
       enqueued = true;
     }
   } else {
+    // Atomic flush requests bypass the queued_for_flush() deduplication guard.
+    // This means an atomic request and a non-atomic request for the same CF
+    // can coexist in the flush queue. This is safe because PickMemtablesToFlush
+    // uses flush_in_progress_ to prevent double-picking of memtables, and
+    // BackgroundFlush filters out CFs where !IsFlushPending().
     for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
       ColumnFamilyData* cfd = iter.first;
       cfd->Ref();
@@ -3394,7 +3497,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
       }
       return status;
     }
-    if (!immutable_db_options_.atomic_flush &&
+    if (!flush_req.atomic_flush &&
         ShouldRescheduleFlushRequestToRetainUDT(flush_req)) {
       assert(flush_req.cfd_to_max_mem_id_to_persist.size() == 1);
       ColumnFamilyData* cfd =
@@ -3443,7 +3546,8 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
       }
       superversion_contexts.emplace_back(true);
       bg_flush_args.emplace_back(cfd, max_memtable_id,
-                                 &(superversion_contexts.back()), flush_reason);
+                                 &(superversion_contexts.back()), flush_reason,
+                                 flush_req.atomic_flush);
     }
     // `MaybeScheduleFlushOrCompaction` schedules as many `BackgroundCallFlush`
     // jobs as the number of `FlushRequest` in the `flush_queue_`, a.k.a
@@ -3580,6 +3684,9 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
     bg_flush_scheduled_--;
     // See if there's more work to be done
     MaybeScheduleFlushOrCompaction();
+
+    NotifyOnBackgroundJobPressureChanged();
+
     atomic_flush_install_cv_.SignalAll();
     bg_cv_.SignalAll();
     // IMPORTANT: there should be no code after calling SignalAll. This call may
@@ -3604,6 +3711,9 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     InstrumentedMutexLock l(&mutex_);
 
     num_running_compactions_++;
+    if (bg_thread_pri == Env::Priority::BOTTOM) {
+      num_running_bottom_compactions_++;
+    }
 
     std::unique_ptr<std::list<uint64_t>::iterator>
         pending_outputs_inserted_elem(new std::list<uint64_t>::iterator(
@@ -3686,10 +3796,14 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     } else {
       assert(bg_thread_pri == Env::Priority::BOTTOM);
       bg_bottom_compaction_scheduled_--;
+      assert(num_running_bottom_compactions_ > 0);
+      num_running_bottom_compactions_--;
     }
 
     // See if there's more work to be done
     MaybeScheduleFlushOrCompaction();
+
+    NotifyOnBackgroundJobPressureChanged();
 
     if (prepicked_compaction != nullptr &&
         prepicked_compaction->task_token != nullptr) {

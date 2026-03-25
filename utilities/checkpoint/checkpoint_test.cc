@@ -24,6 +24,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/metadata.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -1086,6 +1087,253 @@ TEST_P(CheckpointDestroyTest, DisableEnableSlowDeletion) {
 INSTANTIATE_TEST_CASE_P(CheckpointDestroyTest, CheckpointDestroyTest,
                         ::testing::Values(true, false));
 
+TEST_F(CheckpointTest, CheckpointCFAtomicFlushOverride) {
+  // Test that LiveFilesStorageInfoOptions::atomic_flush forces atomic flush
+  // even when DBOptions::atomic_flush is false. Verify the checkpoint is
+  // valid by creating it, opening it, and checking data consistency.
+  Options options = CurrentOptions();
+  options.atomic_flush = false;
+  CreateAndReopenWithCF({"one", "two", "three"}, options);
+
+  // Write data to multiple CFs, flush some to SST, leave some in memtable.
+  ASSERT_OK(Put(0, "key0", "val0_old"));
+  ASSERT_OK(Put(1, "key1", "val1_old"));
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Put(0, "key0", "val0"));
+  ASSERT_OK(Put(1, "key1", "val1"));
+  ASSERT_OK(Put(2, "key2", "val2"));
+  ASSERT_OK(Put(3, "key3", "val3"));
+
+  // Verify that atomic flush path is taken via sync point.
+  bool atomic_flush_called = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AtomicFlushMemTables:AfterScheduleFlush",
+      [&](void* /*arg*/) { atomic_flush_called = true; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Create checkpoint using GetLiveFilesStorageInfo with atomic_flush=true.
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  // CreateCheckpoint internally calls GetLiveFilesStorageInfo.
+  // To exercise the atomic_flush flag, use GetLiveFilesStorageInfo directly
+  // and verify the path, then also create a full checkpoint to verify
+  // end-to-end correctness.
+  LiveFilesStorageInfoOptions live_opts;
+  live_opts.atomic_flush = true;
+  std::vector<LiveFileStorageInfo> files;
+  ASSERT_OK(db_->GetLiveFilesStorageInfo(live_opts, &files));
+  ASSERT_TRUE(atomic_flush_called);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Now create a standard checkpoint (after the atomic flush has happened,
+  // data is already on disk so checkpoint will capture it).
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+  delete checkpoint;
+
+  // Open checkpoint and verify all data across CFs is present.
+  options.create_if_missing = false;
+  std::vector<std::string> cfs = {kDefaultColumnFamilyName, "one", "two",
+                                  "three"};
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.reserve(cfs.size());
+  for (const auto& cf : cfs) {
+    column_families.emplace_back(cf, options);
+  }
+  std::vector<ColumnFamilyHandle*> cphandles;
+  std::unique_ptr<DB> snapshotDB;
+  ASSERT_OK(DB::Open(options, snapshot_name_, column_families, &cphandles,
+                     &snapshotDB));
+
+  ReadOptions roptions;
+  std::string result;
+  ASSERT_OK(snapshotDB->Get(roptions, cphandles[0], "key0", &result));
+  ASSERT_EQ("val0", result);
+  ASSERT_OK(snapshotDB->Get(roptions, cphandles[1], "key1", &result));
+  ASSERT_EQ("val1", result);
+  ASSERT_OK(snapshotDB->Get(roptions, cphandles[2], "key2", &result));
+  ASSERT_EQ("val2", result);
+  ASSERT_OK(snapshotDB->Get(roptions, cphandles[3], "key3", &result));
+  ASSERT_EQ("val3", result);
+
+  for (auto h : cphandles) {
+    delete h;
+  }
+  cphandles.clear();
+  snapshotDB.reset();
+}
+
+TEST_F(CheckpointTest, CheckpointCFDefaultNoAtomicFlush) {
+  // Negative test: verify that when LiveFilesStorageInfoOptions::atomic_flush
+  // is false (default), the non-atomic flush path is taken.
+  Options options = CurrentOptions();
+  options.atomic_flush = false;
+  CreateAndReopenWithCF({"one", "two"}, options);
+
+  ASSERT_OK(Put(0, "key0", "val0"));
+  ASSERT_OK(Put(1, "key1", "val1"));
+  ASSERT_OK(Put(2, "key2", "val2"));
+
+  bool atomic_flush_called = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AtomicFlushMemTables:AfterScheduleFlush",
+      [&](void* /*arg*/) { atomic_flush_called = true; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Default LiveFilesStorageInfoOptions has atomic_flush=false.
+  LiveFilesStorageInfoOptions live_opts;
+  std::vector<LiveFileStorageInfo> files;
+  ASSERT_OK(db_->GetLiveFilesStorageInfo(live_opts, &files));
+  ASSERT_FALSE(atomic_flush_called);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(CheckpointTest, CheckpointAtomicFlushOverrideSingleCF) {
+  // Edge case: forced atomic flush with only the default CF.
+  Options options = CurrentOptions();
+  options.atomic_flush = false;
+  Reopen(options);
+
+  ASSERT_OK(Put("key", "val"));
+
+  bool atomic_flush_called = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AtomicFlushMemTables:AfterScheduleFlush",
+      [&](void* /*arg*/) { atomic_flush_called = true; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  LiveFilesStorageInfoOptions live_opts;
+  live_opts.atomic_flush = true;
+  std::vector<LiveFileStorageInfo> files;
+  ASSERT_OK(db_->GetLiveFilesStorageInfo(live_opts, &files));
+  ASSERT_TRUE(atomic_flush_called);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ("val", Get("key"));
+}
+
+TEST_F(CheckpointTest, CheckpointAtomicFlushOverrideWithDBAtomicFlush) {
+  // When DBOptions::atomic_flush is already true, the override should be
+  // harmless (atomic flush already used).
+  Options options = CurrentOptions();
+  options.atomic_flush = true;
+  CreateAndReopenWithCF({"one", "two"}, options);
+
+  ASSERT_OK(Put(0, "key0", "val0"));
+  ASSERT_OK(Put(1, "key1", "val1"));
+  ASSERT_OK(Put(2, "key2", "val2"));
+
+  bool atomic_flush_called = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AtomicFlushMemTables:AfterScheduleFlush",
+      [&](void* /*arg*/) { atomic_flush_called = true; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  LiveFilesStorageInfoOptions live_opts;
+  live_opts.atomic_flush = true;
+  std::vector<LiveFileStorageInfo> files;
+  ASSERT_OK(db_->GetLiveFilesStorageInfo(live_opts, &files));
+  ASSERT_TRUE(atomic_flush_called);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ("val0", Get(0, "key0"));
+  ASSERT_EQ("val1", Get(1, "key1"));
+  ASSERT_EQ("val2", Get(2, "key2"));
+}
+
+TEST_F(CheckpointTest, MixedAtomicAndNonAtomicFlushInQueue) {
+  // Test that both atomic and non-atomic flush requests can coexist in the
+  // flush queue. First enqueue a non-atomic flush, then an atomic flush.
+  Options options = CurrentOptions();
+  options.atomic_flush = false;
+  // Use multiple CFs so atomic flush is meaningful.
+  CreateAndReopenWithCF({"one", "two"}, options);
+
+  // Pause background flushes so requests queue up.
+  ASSERT_OK(dbfull()->PauseBackgroundWork());
+
+  // Write data to all CFs.
+  ASSERT_OK(Put(0, "k0", "v0"));
+  ASSERT_OK(Put(1, "k1", "v1"));
+  ASSERT_OK(Put(2, "k2", "v2"));
+
+  // Enqueue a non-atomic flush (default).
+  FlushOptions non_atomic_fo;
+  non_atomic_fo.wait = false;
+  non_atomic_fo.allow_write_stall = true;
+  ASSERT_OK(db_->Flush(non_atomic_fo, handles_[0]));
+
+  // Write more data so there's something new to flush atomically.
+  ASSERT_OK(Put(0, "k0_2", "v0_2"));
+  ASSERT_OK(Put(1, "k1_2", "v1_2"));
+  ASSERT_OK(Put(2, "k2_2", "v2_2"));
+
+  // Enqueue an atomic flush via force_atomic_flush.
+  FlushOptions atomic_fo;
+  atomic_fo.wait = false;
+  atomic_fo.allow_write_stall = true;
+  atomic_fo.force_atomic_flush = true;
+  ASSERT_OK(db_->Flush(atomic_fo, handles_));
+
+  // Resume and let both flushes execute.
+  ASSERT_OK(dbfull()->ContinueBackgroundWork());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // Verify all data is readable.
+  ASSERT_EQ("v0_2", Get(0, "k0_2"));
+  ASSERT_EQ("v1_2", Get(1, "k1_2"));
+  ASSERT_EQ("v2_2", Get(2, "k2_2"));
+}
+
+TEST_F(CheckpointTest, MixedAtomicThenNonAtomicFlushInQueue) {
+  // Reverse order: first enqueue an atomic flush, then a non-atomic flush.
+  Options options = CurrentOptions();
+  options.atomic_flush = false;
+  CreateAndReopenWithCF({"one", "two"}, options);
+
+  // Pause background flushes so requests queue up.
+  ASSERT_OK(dbfull()->PauseBackgroundWork());
+
+  // Write data to all CFs.
+  ASSERT_OK(Put(0, "k0", "v0"));
+  ASSERT_OK(Put(1, "k1", "v1"));
+  ASSERT_OK(Put(2, "k2", "v2"));
+
+  // Enqueue an atomic flush first.
+  FlushOptions atomic_fo;
+  atomic_fo.wait = false;
+  atomic_fo.allow_write_stall = true;
+  atomic_fo.force_atomic_flush = true;
+  ASSERT_OK(db_->Flush(atomic_fo, handles_));
+
+  // Write more data.
+  ASSERT_OK(Put(0, "k0_2", "v0_2"));
+  ASSERT_OK(Put(1, "k1_2", "v1_2"));
+
+  // Enqueue a non-atomic flush on a single CF.
+  FlushOptions non_atomic_fo;
+  non_atomic_fo.wait = false;
+  non_atomic_fo.allow_write_stall = true;
+  ASSERT_OK(db_->Flush(non_atomic_fo, handles_[1]));
+
+  // Resume and let both flushes execute.
+  ASSERT_OK(dbfull()->ContinueBackgroundWork());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // Verify all data is readable.
+  ASSERT_EQ("v0", Get(0, "k0"));
+  ASSERT_EQ("v0_2", Get(0, "k0_2"));
+  ASSERT_EQ("v1_2", Get(1, "k1_2"));
+  ASSERT_EQ("v2", Get(2, "k2"));
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

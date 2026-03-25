@@ -1,0 +1,476 @@
+# Claude Code Review — Analysis Workflow
+#
+# This workflow runs Claude to review PRs. It produces a markdown review
+# as an artifact but does NOT post comments (no write permissions).
+# The companion workflow (claude-review-comment.yml) handles posting.
+#
+# Triggers:
+#   1. workflow_run: Auto-review after pr-jobs passes
+#   2. issue_comment: Manual /claude-review or /claude-query by maintainers
+#   3. workflow_dispatch: Manual testing
+#
+# Security:
+#   - This job has contents:read ONLY (no PR write, no issue write)
+#   - ANTHROPIC_API_KEY is used here but never coexists with write tokens
+#   - Claude uses read-only tools (View, GlobTool, GrepTool)
+#   - Review methodology: claude_md/code_review.md
+
+name: Claude Code Review
+
+on:
+  workflow_run:
+    workflows: ["facebook/rocksdb/pr-jobs"]
+    types: [completed]
+
+  issue_comment:
+    types: [created]
+
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to review
+        required: true
+        type: number
+      model:
+        description: Claude model to use
+        required: false
+        type: choice
+        options:
+          - claude-opus-4-6
+          - claude-sonnet-4-20250514
+        default: claude-opus-4-6
+
+permissions:
+  contents: read
+
+jobs:
+  # ======================== Auto Review ======================== #
+  auto-review:
+    name: Auto Claude Review
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request'
+
+    steps:
+      - name: Get PR info
+        id: pr_info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const headSha = context.payload.workflow_run.head_sha;
+            let prNumber = null;
+
+            const prs = context.payload.workflow_run.pull_requests;
+            if (prs && prs.length > 0) {
+              prNumber = prs[0].number;
+            } else {
+              const { data: pulls } = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                sort: 'updated',
+                direction: 'desc',
+                per_page: 30
+              });
+              const match = pulls.find(p => p.head.sha === headSha);
+              if (match) prNumber = match.number;
+            }
+
+            if (!prNumber) {
+              core.setFailed(`Could not find PR for SHA ${headSha}`);
+              return;
+            }
+
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+
+            core.setOutput('pr_number', prNumber.toString());
+            core.setOutput('head_repo', pr.data.head.repo.clone_url);
+            core.setOutput('head_ref', pr.data.head.ref);
+            core.setOutput('head_sha', pr.data.head.sha);
+            core.setOutput('base_sha', pr.data.base.sha);
+            core.setOutput('base_ref', pr.data.base.ref);
+            core.setOutput('pr_title', pr.data.title);
+            core.setOutput('pr_body', pr.data.body || '');
+            core.setOutput('pr_author', pr.data.user.login);
+
+      - name: Check for existing review
+        id: check_existing
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.pr_info.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.pr_info.outputs.head_sha }}
+        with:
+          script: |
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parseInt(process.env.PR_NUMBER),
+              per_page: 100
+            });
+            const shortSha = process.env.HEAD_SHA.substring(0, 7);
+            const existing = comments.data.find(c =>
+              c.body.includes('<!-- claude-review -->') &&
+              c.body.includes(shortSha)
+            );
+            core.setOutput('skip', existing ? 'true' : 'false');
+
+      - name: Checkout base repository
+        if: steps.check_existing.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr_info.outputs.base_ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Generate diff and prompt
+        if: steps.check_existing.outputs.skip != 'true'
+        env:
+          HEAD_REPO: ${{ steps.pr_info.outputs.head_repo }}
+          HEAD_REF: ${{ steps.pr_info.outputs.head_ref }}
+          HEAD_SHA: ${{ steps.pr_info.outputs.head_sha }}
+          BASE_SHA: ${{ steps.pr_info.outputs.base_sha }}
+          PR_TITLE: ${{ steps.pr_info.outputs.pr_title }}
+          PR_BODY: ${{ steps.pr_info.outputs.pr_body }}
+          PR_AUTHOR: ${{ steps.pr_info.outputs.pr_author }}
+        run: |
+          git remote add fork "${HEAD_REPO}" || true
+          git fetch fork "${HEAD_REF}" --depth=100
+
+          git diff "${BASE_SHA}...${HEAD_SHA}" > /tmp/pr.diff
+          DIFF_STATS=$(git diff --stat "${BASE_SHA}...${HEAD_SHA}" | tail -1)
+
+          DIFF_SIZE=$(wc -c < /tmp/pr.diff)
+          IS_TRUNCATED=false
+          if [ "$DIFF_SIZE" -gt 100000 ]; then
+            head -c 100000 /tmp/pr.diff > /tmp/pr_truncated.diff
+            mv /tmp/pr_truncated.diff /tmp/pr.diff
+            IS_TRUNCATED=true
+          fi
+
+          cat > /tmp/prompt.txt << 'PROMPT_EOF'
+          Read claude_md/code_review.md for the full review methodology, then
+          review the pull request described below. Follow all perspectives and
+          the output format defined in that document.
+          PROMPT_EOF
+
+          cat >> /tmp/prompt.txt << PROMPT_EOF
+
+          ## Pull Request Information
+          - **Title:** ${PR_TITLE}
+          - **Author:** ${PR_AUTHOR}
+          - **Changes:** ${DIFF_STATS}
+          PROMPT_EOF
+
+          if [ "${IS_TRUNCATED}" = "true" ]; then
+            echo "- **Note:** Diff truncated due to size." >> /tmp/prompt.txt
+          fi
+
+          printf '\n## PR Description\n' >> /tmp/prompt.txt
+          printf '%s\n' "${PR_BODY}" >> /tmp/prompt.txt
+          printf '\n---\n\n## Diff to Review\n\n' >> /tmp/prompt.txt
+          cat /tmp/pr.diff >> /tmp/prompt.txt
+
+      - name: Run Claude
+        if: steps.check_existing.outputs.skip != 'true'
+        id: claude
+        uses: anthropics/claude-code-base-action@beta
+        with:
+          prompt_file: /tmp/prompt.txt
+          model: claude-opus-4-6
+          max_turns: "30"
+          allowed_tools: "View,GlobTool,GrepTool"
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Build review comment
+        if: steps.check_existing.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          CONCLUSION: ${{ steps.claude.outputs.conclusion }}
+          HEAD_SHA: ${{ steps.pr_info.outputs.head_sha }}
+        with:
+          script: |
+            const parse = require('./.github/scripts/parse-claude-review.js');
+            const body = parse({
+              executionFile: process.env.EXECUTION_FILE,
+              conclusion: process.env.CONCLUSION,
+              meta: {
+                trigger: 'auto',
+                headSha: process.env.HEAD_SHA,
+                reviewer: '',
+              }
+            });
+            const fs = require('fs');
+            fs.writeFileSync('claude-review-comment.md', body);
+
+      - name: Save PR number
+        if: steps.check_existing.outputs.skip != 'true'
+        run: echo "${{ steps.pr_info.outputs.pr_number }}" > pr_number.txt
+
+      - name: Save trigger metadata
+        if: steps.check_existing.outputs.skip != 'true'
+        run: echo "auto" > trigger_type.txt
+
+      - name: Upload review artifact
+        if: always() && steps.check_existing.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-review-result
+          path: |
+            claude-review-comment.md
+            pr_number.txt
+            trigger_type.txt
+          if-no-files-found: ignore
+          retention-days: 1
+
+      - name: Upload execution log
+        if: always() && steps.check_existing.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-review-execution-log
+          path: ${{ steps.claude.outputs.execution_file }}
+          retention-days: 7
+          if-no-files-found: warn
+
+  # ======================== Manual Review ======================== #
+  manual-review:
+    name: Manual Claude Review
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        (contains(github.event.comment.body, '/claude-review') || contains(github.event.comment.body, '/claude-query')) &&
+        contains(fromJSON('["pdillinger", "jaykorean", "hx235", "dannyhchen", "joshkang97", "zaidoon1", "omkarhgawde", "xingbowang", "anand1976", "virajthakur", "nmk70", "archang19", "mszeszko-meta", "yoshinorim", "cbi42"]'), github.event.comment.user.login)
+      )
+
+    steps:
+      - name: Detect command type
+        id: command
+        uses: actions/github-script@v7
+        with:
+          script: |
+            if (context.eventName === 'workflow_dispatch') {
+              core.setOutput('type', 'review');
+              core.setOutput('query', '');
+              return;
+            }
+            const body = context.payload.comment.body;
+            if (body.includes('/claude-review')) {
+              core.setOutput('type', 'review');
+              const match = body.match(/\/claude-review\s+([\s\S]*)/);
+              core.setOutput('query', match ? match[1].trim() : '');
+            } else if (body.includes('/claude-query')) {
+              const match = body.match(/\/claude-query\s+([\s\S]*)/);
+              const query = match ? match[1].trim() : '';
+              if (!query) {
+                core.setFailed('No query provided. Usage: /claude-query <your question>');
+                return;
+              }
+              core.setOutput('type', 'query');
+              core.setOutput('query', query);
+            } else {
+              core.setFailed('Unknown command');
+            }
+
+      - name: Get PR details
+        id: pr_info
+        uses: actions/github-script@v7
+        env:
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+        with:
+          script: |
+            const prNumber = context.eventName === 'workflow_dispatch'
+              ? parseInt(process.env.INPUT_PR_NUMBER, 10)
+              : context.issue.number;
+
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+
+            core.setOutput('pr_number', prNumber.toString());
+            core.setOutput('head_repo', pr.data.head.repo.clone_url);
+            core.setOutput('head_ref', pr.data.head.ref);
+            core.setOutput('head_sha', pr.data.head.sha);
+            core.setOutput('base_sha', pr.data.base.sha);
+            core.setOutput('base_ref', pr.data.base.ref);
+            core.setOutput('pr_title', pr.data.title);
+            core.setOutput('pr_body', pr.data.body || '');
+            core.setOutput('pr_author', pr.data.user.login);
+
+      - name: Checkout base repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr_info.outputs.base_ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Generate diff and prompt
+        env:
+          HEAD_REPO: ${{ steps.pr_info.outputs.head_repo }}
+          HEAD_REF: ${{ steps.pr_info.outputs.head_ref }}
+          HEAD_SHA: ${{ steps.pr_info.outputs.head_sha }}
+          BASE_SHA: ${{ steps.pr_info.outputs.base_sha }}
+          PR_TITLE: ${{ steps.pr_info.outputs.pr_title }}
+          PR_BODY: ${{ steps.pr_info.outputs.pr_body }}
+          PR_AUTHOR: ${{ steps.pr_info.outputs.pr_author }}
+          DIFF_STATS: ""
+          COMMAND_TYPE: ${{ steps.command.outputs.type }}
+          ADDITIONAL_CONTEXT: ${{ steps.command.outputs.query }}
+          USER_QUERY: ${{ steps.command.outputs.query }}
+        run: |
+          git remote add fork "${HEAD_REPO}" || true
+          git fetch fork "${HEAD_REF}" --depth=100
+
+          git diff "${BASE_SHA}...${HEAD_SHA}" > /tmp/pr.diff
+          DIFF_STATS=$(git diff --stat "${BASE_SHA}...${HEAD_SHA}" | tail -1)
+
+          DIFF_SIZE=$(wc -c < /tmp/pr.diff)
+          IS_TRUNCATED=false
+          if [ "$DIFF_SIZE" -gt 100000 ]; then
+            head -c 100000 /tmp/pr.diff > /tmp/pr_truncated.diff
+            mv /tmp/pr_truncated.diff /tmp/pr.diff
+            IS_TRUNCATED=true
+          fi
+
+          if [ "${COMMAND_TYPE}" = "query" ]; then
+            # Query prompt
+            cat > /tmp/prompt.txt << 'PROMPT_EOF'
+          You are an expert C++ engineer for RocksDB.
+          Read CLAUDE.md in the repo root and claude_md/ files for project context.
+          Answer thoroughly with exact file paths and line numbers.
+
+          ---
+
+          PROMPT_EOF
+
+            cat >> /tmp/prompt.txt << PROMPT_EOF
+          ## Pull Request Context
+          - **Title:** ${PR_TITLE}
+          - **Author:** ${PR_AUTHOR}
+          - **Changes:** ${DIFF_STATS}
+
+          ## PR Description
+          PROMPT_EOF
+            printf '%s\n' "${PR_BODY}" >> /tmp/prompt.txt
+            printf '\n## Question\n' >> /tmp/prompt.txt
+            printf '%s\n' "${USER_QUERY}" >> /tmp/prompt.txt
+            printf '\n---\n## PR Diff (for reference)\n' >> /tmp/prompt.txt
+            cat /tmp/pr.diff >> /tmp/prompt.txt
+          else
+            # Review prompt
+            cat > /tmp/prompt.txt << 'PROMPT_EOF'
+          Read claude_md/code_review.md for the full review methodology, then
+          review the pull request described below. Follow all perspectives and
+          the output format defined in that document.
+          PROMPT_EOF
+
+            cat >> /tmp/prompt.txt << PROMPT_EOF
+
+          ## Pull Request Information
+          - **Title:** ${PR_TITLE}
+          - **Author:** ${PR_AUTHOR}
+          - **Changes:** ${DIFF_STATS}
+          PROMPT_EOF
+
+            if [ "${IS_TRUNCATED}" = "true" ]; then
+              echo "- **Note:** Diff truncated due to size." >> /tmp/prompt.txt
+            fi
+
+            printf '\n## PR Description\n' >> /tmp/prompt.txt
+            printf '%s\n' "${PR_BODY}" >> /tmp/prompt.txt
+
+            if [ -n "${ADDITIONAL_CONTEXT}" ]; then
+              printf '\n## Additional Instructions from Reviewer\n' >> /tmp/prompt.txt
+              printf '%s\n' "${ADDITIONAL_CONTEXT}" >> /tmp/prompt.txt
+            fi
+
+            printf '\n---\n\n## Diff to Review\n\n' >> /tmp/prompt.txt
+            cat /tmp/pr.diff >> /tmp/prompt.txt
+          fi
+
+      - name: Run Claude
+        id: claude
+        uses: anthropics/claude-code-base-action@beta
+        with:
+          prompt_file: /tmp/prompt.txt
+          model: ${{ github.event_name == 'workflow_dispatch' && inputs.model || 'claude-opus-4-6' }}
+          max_turns: "30"
+          allowed_tools: "View,GlobTool,GrepTool"
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Build review comment
+        uses: actions/github-script@v7
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          CONCLUSION: ${{ steps.claude.outputs.conclusion }}
+          HEAD_SHA: ${{ steps.pr_info.outputs.head_sha }}
+          REVIEWER: ${{ github.event_name == 'workflow_dispatch' && github.actor || github.event.comment.user.login }}
+          COMMAND_TYPE: ${{ steps.command.outputs.type }}
+        with:
+          script: |
+            const parse = require('./.github/scripts/parse-claude-review.js');
+            const isReview = process.env.COMMAND_TYPE === 'review';
+            const body = parse({
+              executionFile: process.env.EXECUTION_FILE,
+              conclusion: process.env.CONCLUSION,
+              meta: {
+                trigger: 'manual',
+                headSha: process.env.HEAD_SHA,
+                reviewer: process.env.REVIEWER,
+                isQuery: !isReview,
+              }
+            });
+            const fs = require('fs');
+            fs.writeFileSync('claude-review-comment.md', body);
+
+      - name: Save PR number
+        run: echo "${{ steps.pr_info.outputs.pr_number }}" > pr_number.txt
+
+      - name: Save trigger metadata
+        env:
+          REVIEWER: ${{ github.event_name == 'workflow_dispatch' && github.actor || github.event.comment.user.login }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          echo "manual" > trigger_type.txt
+          echo "${REVIEWER}" > reviewer.txt
+          echo "${COMMENT_ID}" > comment_id.txt
+
+      - name: Upload review artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-review-result
+          path: |
+            claude-review-comment.md
+            pr_number.txt
+            trigger_type.txt
+            reviewer.txt
+            comment_id.txt
+          if-no-files-found: ignore
+          retention-days: 1
+
+      - name: Upload execution log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-review-execution-log
+          path: ${{ steps.claude.outputs.execution_file }}
+          retention-days: 7
+          if-no-files-found: warn

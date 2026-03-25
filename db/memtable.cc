@@ -1049,16 +1049,13 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       }
     }
 
-    // this is a bit ugly, but is the way to avoid locked instructions
-    // when incrementing an atomic
-    num_entries_.StoreRelaxed(num_entries_.LoadRelaxed() + 1);
-    data_size_.StoreRelaxed(data_size_.LoadRelaxed() + encoded_len);
+    num_entries_.FetchAddRelaxed(1);
+    data_size_.FetchAddRelaxed(encoded_len);
     if (type == kTypeDeletion || type == kTypeSingleDeletion ||
         type == kTypeDeletionWithTimestamp) {
-      num_deletes_.StoreRelaxed(num_deletes_.LoadRelaxed() + 1);
+      num_deletes_.FetchAddRelaxed(1);
     } else if (type == kTypeRangeDeletion) {
-      uint64_t val = num_range_deletes_.LoadRelaxed() + 1;
-      num_range_deletes_.StoreRelaxed(val);
+      num_range_deletes_.FetchAddRelaxed(1);
     }
 
     if (bloom_filter_ && prefix_extractor_ &&
@@ -1081,8 +1078,6 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       assert(first_seqno_.load() >= earliest_seqno_.load());
     }
     assert(post_process_info == nullptr);
-    // TODO(yuzhangyu): support updating newest UDT for when `allow_concurrent`
-    // is true.
     MaybeUpdateNewestUDT(key_slice);
     UpdateFlushState();
   } else {
@@ -1096,7 +1091,8 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     assert(post_process_info != nullptr);
     post_process_info->num_entries++;
     post_process_info->data_size += encoded_len;
-    if (type == kTypeDeletion) {
+    if (type == kTypeDeletion || type == kTypeSingleDeletion ||
+        type == kTypeDeletionWithTimestamp) {
       post_process_info->num_deletes++;
     }
 
@@ -1120,6 +1116,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
         (cur_earliest_seqno == kMaxSequenceNumber || s < cur_earliest_seqno) &&
         !earliest_seqno_.compare_exchange_weak(cur_earliest_seqno, s)) {
     }
+    MaybeUpdateNewestUDT(key_slice);
   }
   if (type == kTypeRangeDeletion) {
     auto new_cache = std::make_shared<FragmentedRangeTombstoneListCache>();
@@ -2043,14 +2040,22 @@ void MemTable::MaybeUpdateNewestUDT(const Slice& user_key) {
   }
   const Comparator* ucmp = GetInternalKeyComparator().user_comparator();
   Slice udt = ExtractTimestampFromUserKey(user_key, ts_sz_);
-  if (newest_udt_.empty() || ucmp->CompareTimestamp(udt, newest_udt_) > 0) {
-    newest_udt_ = udt;
+  const char* cur = newest_udt_data_.Load();
+  while (cur == nullptr ||
+         ucmp->CompareTimestamp(udt, Slice(cur, ts_sz_)) > 0) {
+    if (newest_udt_data_.CasWeak(cur, udt.data())) {
+      break;
+    }
   }
 }
 
-const Slice& MemTable::GetNewestUDT() const {
+Slice MemTable::GetNewestUDT() const {
   assert(ts_sz_ > 0);
-  return newest_udt_;
+  const char* data = newest_udt_data_.Load();
+  if (data == nullptr) {
+    return Slice();
+  }
+  return Slice(data, ts_sz_);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

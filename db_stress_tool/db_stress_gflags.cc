@@ -323,6 +323,13 @@ DEFINE_int32(
     "OK or violate any internal assertion. If N == 0, do not call the "
     "interface.");
 
+DEFINE_bool(
+    checkpoint_atomic_flush, false,
+    "If true, when calling GetLiveFilesStorageInfo (e.g., during checkpoint), "
+    "use LiveFilesStorageInfoOptions::atomic_flush=true to force atomic flush "
+    "of all column families regardless of the DBOptions::atomic_flush setting. "
+    "This exercises the per-request atomic flush override code path.");
+
 DEFINE_int32(
     get_all_column_family_metadata_one_in, 1000000,
     "With a chance of 1/N, call GetAllColumnFamilyMetaData to verify if it "
@@ -426,7 +433,16 @@ DEFINE_bool(fifo_allow_compaction, false,
 DEFINE_uint64(fifo_compaction_max_data_files_size_mb, 0,
               "If non-zero, set "
               "`Options::compaction_options_fifo.max_data_files_size` to this "
-              "value (in MB). Only takes effect with FIFO compaction.");
+              "value (in MB). Only takes effect with FIFO compaction. "
+              "When non-zero, overrides `max_table_files_size` for "
+              "determining when FIFO drops old SST files.");
+
+DEFINE_uint64(fifo_compaction_max_table_files_size_mb, 0,
+              "If non-zero, set "
+              "`Options::compaction_options_fifo.max_table_files_size` to this "
+              "value (in MB). Only takes effect with FIFO compaction. "
+              "When zero, uses the default (1GB). Ignored when "
+              "`fifo_compaction_max_data_files_size_mb` is non-zero.");
 
 DEFINE_bool(fifo_compaction_use_kv_ratio_compaction, false,
             "If true, set "

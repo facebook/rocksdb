@@ -2417,8 +2417,15 @@ struct FlushOptions {
   // is performed by someone else (foreground call or background thread).
   // Default: false
   bool allow_write_stall;
+  // If true, use atomic flush to flush all column families atomically,
+  // regardless of the DBOptions::atomic_flush setting. When used with
+  // DB::Flush() or internally via GetLiveFilesStorageInfo(), this forces
+  // all column families to be flushed in a single atomic operation.
+  // Default: false (uses DBOptions::atomic_flush setting).
+  bool force_atomic_flush;
 
-  FlushOptions() : wait(true), allow_write_stall(false) {}
+  FlushOptions()
+      : wait(true), allow_write_stall(false), force_atomic_flush(false) {}
 };
 
 struct FlushWALOptions {
@@ -2957,6 +2964,13 @@ struct LiveFilesStorageInfoOptions {
   // number (and DB is not read-only).
   // Default: always force a flush without checking sizes.
   uint64_t wal_size_for_flush = 0;
+  // If true, use atomic flush to flush all column families atomically,
+  // regardless of the DBOptions::atomic_flush setting. This ensures that the
+  // checkpoint captures a consistent view across all column families.
+  // Only takes effect when a flush is actually performed (i.e., not suppressed
+  // by wal_size_for_flush).
+  // Default: false (uses DBOptions::atomic_flush setting).
+  bool atomic_flush = false;
 };
 
 struct WaitForCompactOptions {

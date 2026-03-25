@@ -119,6 +119,10 @@ DBTestBase::~DBTestBase() {
   } else {
     EXPECT_OK(DestroyDB(dbname_, options));
   }
+  // Ensure SstFileManager (and its DeleteScheduler background thread) is
+  // destroyed before env_. The bg thread calls env_ virtual methods
+  // (e.g. NewDirectory), so env_ must outlive it.
+  last_options_.sst_file_manager.reset();
   delete env_;
 }
 

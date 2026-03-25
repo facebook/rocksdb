@@ -1,0 +1,11 @@
+name: teardown-ccache
+description: Trim stale ccache entries and print stats
+runs:
+  using: composite
+  steps:
+    - name: Trim and print ccache stats
+      run: |
+        .github/scripts/ccache-trim.sh || true
+        ccache -s
+      if: always()
+      shell: bash

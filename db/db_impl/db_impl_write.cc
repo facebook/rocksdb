@@ -358,6 +358,7 @@ Status DBImpl::IngestWBWIAsMemtable(
     if (immutable_db_options_.atomic_flush) {
       AssignAtomicFlushSeq(cfds);
       FlushRequest flush_req;
+      flush_req.atomic_flush = true;
       GenerateFlushRequest(cfds, FlushReason::kExternalFileIngestion,
                            &flush_req);
       EnqueuePendingFlush(flush_req);
@@ -1985,7 +1986,6 @@ void DBImpl::SelectColumnFamiliesForAtomicFlush(
 
 // Assign sequence number for atomic flush.
 void DBImpl::AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds) {
-  assert(immutable_db_options_.atomic_flush);
   auto seq = versions_->LastSequence();
   for (auto cfd : cfds) {
     // cfd can be nullptr, see ScheduleFlushes()
@@ -2089,6 +2089,7 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
     }
     if (immutable_db_options_.atomic_flush) {
       FlushRequest flush_req;
+      flush_req.atomic_flush = true;
       GenerateFlushRequest(cfds, FlushReason::kWalFull, &flush_req);
       EnqueuePendingFlush(flush_req);
     }
@@ -2181,6 +2182,7 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
     }
     if (immutable_db_options_.atomic_flush) {
       FlushRequest flush_req;
+      flush_req.atomic_flush = true;
       GenerateFlushRequest(cfds, FlushReason::kWriteBufferManager, &flush_req);
       EnqueuePendingFlush(flush_req);
     }
@@ -2457,6 +2459,7 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
     if (immutable_db_options_.atomic_flush) {
       AssignAtomicFlushSeq(cfds);
       FlushRequest flush_req;
+      flush_req.atomic_flush = true;
       GenerateFlushRequest(cfds, FlushReason::kWriteBufferFull, &flush_req);
       EnqueuePendingFlush(flush_req);
     } else {
@@ -2540,7 +2543,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   memtable_info.num_deletes = cfd->mem()->NumDeletion();
   if (!cfd->ioptions().persist_user_defined_timestamps &&
       cfd->user_comparator()->timestamp_size() > 0) {
-    const Slice& newest_udt = cfd->mem()->GetNewestUDT();
+    Slice newest_udt = cfd->mem()->GetNewestUDT();
     memtable_info.newest_udt.assign(newest_udt.data(), newest_udt.size());
   }
   // Log this later after lock release. It may be outdated, e.g., if background

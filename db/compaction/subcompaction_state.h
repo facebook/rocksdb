@@ -170,7 +170,7 @@ class SubcompactionState {
     }
   }
 
-  void Cleanup(Cache* cache);
+  void Cleanup(Cache* cache, const Status& overall_status);
 
   void AggregateCompactionOutputStats(
       InternalStats::CompactionStatsFull& internal_stats) const;

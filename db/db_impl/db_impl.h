@@ -1248,6 +1248,7 @@ class DBImpl : public DB {
 
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
+  int TEST_NumRunningBottomCompactions() const;
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   void TEST_WaitForPeriodicTaskRun(std::function<void()> callback) const;
   SeqnoToTimeMapping TEST_GetSeqnoToTimeMapping() const;
@@ -1530,7 +1531,7 @@ class DBImpl : public DB {
   Status FlushAllColumnFamilies(const FlushOptions& flush_options,
                                 FlushReason flush_reason);
 
-  virtual Status FlushForGetLiveFiles();
+  virtual Status FlushForGetLiveFiles(bool force_atomic_flush = false);
 
   void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;
 
@@ -1914,11 +1915,12 @@ class DBImpl : public DB {
           flush_reason_(FlushReason::kOthers) {}
     BGFlushArg(ColumnFamilyData* cfd, uint64_t max_memtable_id,
                SuperVersionContext* superversion_context,
-               FlushReason flush_reason)
+               FlushReason flush_reason, bool atomic_flush)
         : cfd_(cfd),
           max_memtable_id_(max_memtable_id),
           superversion_context_(superversion_context),
-          flush_reason_(flush_reason) {}
+          flush_reason_(flush_reason),
+          atomic_flush_(atomic_flush) {}
 
     // Column family to flush.
     ColumnFamilyData* cfd_;
@@ -1930,6 +1932,8 @@ class DBImpl : public DB {
     // requires a SuperVersionContext object (currently embedded in JobContext).
     SuperVersionContext* superversion_context_;
     FlushReason flush_reason_;
+    // Whether this flush should use atomic flush code path.
+    bool atomic_flush_ = false;
   };
 
   // Argument passed to flush thread.
@@ -2431,8 +2435,13 @@ class DBImpl : public DB {
 
   void MaybeScheduleFlushOrCompaction();
 
+  BackgroundJobPressure CaptureBackgroundJobPressure() const;
+  void NotifyOnBackgroundJobPressureChanged();
+
   struct FlushRequest {
     FlushReason flush_reason;
+    // Whether this flush request should use the atomic flush code path.
+    bool atomic_flush = false;
     // A map from column family to flush to largest memtable id to persist for
     // each column family. Once all the memtables whose IDs are smaller than or
     // equal to this per-column-family specified value, this flush request is
@@ -3073,6 +3082,9 @@ class DBImpl : public DB {
   // stores the number of compactions are currently running
   int num_running_compactions_ = 0;
 
+  // stores the number of BOTTOM-priority compactions currently running
+  int num_running_bottom_compactions_ = 0;
+
   // number of background memtable flush jobs, submitted to the HIGH pool
   int bg_flush_scheduled_ = 0;
 
@@ -3081,6 +3093,9 @@ class DBImpl : public DB {
 
   // number of background obsolete file purge jobs, submitted to the HIGH pool
   int bg_purge_scheduled_ = 0;
+
+  // number of pressure callbacks currently in progress (for destructor safety)
+  int bg_pressure_callback_in_progress_ = 0;
 
   enum class AsyncFileOpenState : uint8_t {
     kNotScheduled = 0,  // Async file opening has not been scheduled.

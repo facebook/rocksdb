@@ -13,6 +13,40 @@
 #include <string>
 #include <thread>
 
+#include "test_util/sync_point.h"
+
+namespace {
+// Global gtest event listener that cleans up SyncPoint state after every
+// test. Many tests set SyncPoint callbacks with captured local variables
+// but forget to disable/clear them. Under sharded execution (multiple
+// tests per process), stale callbacks cause segfaults or corruption.
+class SyncPointCleanupListener : public ::testing::EmptyTestEventListener {
+  void OnTestEnd(const ::testing::TestInfo& /*test_info*/) override {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
+    // LoadDependency({}) clears successors_, predecessors_, and
+    // cleared_points_ maps.  Without this, stale dependencies from a
+    // previous test can block SyncPoint::Process() in the next test
+    // (e.g. a background compaction thread hitting CompactFilesImpl:1
+    // whose predecessor was never fired).
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({});
+  }
+};
+
+// Auto-register the listener via static initialization.
+// This runs before main() and before any test fixtures are constructed.
+static int RegisterSyncPointCleanup() noexcept {
+  ::testing::TestEventListeners& listeners =
+      ::testing::UnitTest::GetInstance()->listeners();
+  listeners.Append(new SyncPointCleanupListener());
+  return 0;
+}
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+[[maybe_unused]] static int sync_point_cleanup_registered_ =
+    RegisterSyncPointCleanup();
+}  // namespace
+
 namespace ROCKSDB_NAMESPACE::test {
 
 #ifdef OS_WIN
