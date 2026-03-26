@@ -480,18 +480,26 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
               skipping_saved_key = true;
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
               MarkMemtableForFlushForPerOpTrigger(mem_hidden_op_scanned);
-              // Track contiguous tombstones for range conversion
+              // Track contiguous tombstones for range conversion.
+              // Skip tombstones from transaction's own writes (seq > snapshot)
+              // — converting them would cover data visible to other snapshots.
               if (min_tombstones_for_range_conversion_ > 0) {
-                if (contiguous_tombstone_count_ == 0) {
+                if (ikey_.sequence > sequence_) {
+                  if (contiguous_tombstone_count_ > 0) {
+                    MaybeInsertRangeTombstone(ikey_.user_key);
+                    ResetContiguousTombstoneTracking();
+                  }
+                } else if (contiguous_tombstone_count_ == 0) {
                   range_tomb_first_key_.SetUserKey(
                       ikey_.user_key,
                       !pin_thru_lifetime_ || !iter_.iter()->IsKeyPinned());
                   range_tomb_max_seq_ = ikey_.sequence;
+                  contiguous_tombstone_count_++;
                 } else {
                   range_tomb_max_seq_ =
                       std::max(range_tomb_max_seq_, ikey_.sequence);
+                  contiguous_tombstone_count_++;
                 }
-                contiguous_tombstone_count_++;
               }
             }
             break;
@@ -959,8 +967,9 @@ void DBIter::PrevInternal(const Slice* prefix) {
     if (min_tombstones_for_range_conversion_ > 0 &&
         range_tomb_end_key_.GetUserKey().size() > 0 &&
         timestamp_lb_ == nullptr) {
-      if (!valid_) {
+      if (!valid_ && ikey_.sequence <= sequence_) {
         // Key was deleted — track it as part of contiguous run.
+        // Skip transaction's own writes (seq > snapshot).
         range_tomb_first_key_.SetUserKey(
             saved_key_.GetUserKey(), !pin_thru_lifetime_ || !iter_.Valid() ||
                                          !iter_.iter()->IsKeyPinned());
@@ -1579,6 +1588,8 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
     return;
   }
 
+  // Tombstones from transaction's own writes (seq > snapshot) are filtered
+  // out at the tracking site, so this invariant should always hold.
   assert(range_tomb_max_seq_ <= sequence_);
 
   auto earliest_seq = active_mem_->GetEarliestSequenceNumber();

@@ -2591,9 +2591,6 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
                    "[%s] New memtable created with log file: #%" PRIu64
                    ". Immutable memtables: %d.\n",
                    cfd->GetName().c_str(), new_log_number, num_imm_unflushed);
-    // There should be no concurrent write as the thread is at the front of
-    // writer queue
-    cfd->mem()->ConstructFragmentedRangeTombstones();
   }
 
   mutex_.Lock();
@@ -2725,6 +2722,11 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   cfd->mem()->SetNextLogNumber(cur_wal_number_);
   assert(new_mem != nullptr);
   cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
+  // MarkImmutable() (called inside Add) blocks concurrent
+  // AddLogicallyRedundantRangeTombstone(). Now safe to construct the
+  // fragmented range tombstone list with all entries present.
+  // cfd->mem() still points to the old memtable until SetMemtable() below.
+  cfd->mem()->ConstructFragmentedRangeTombstones();
   if (new_imm) {
     // Need to assign memtable id here before SetMemtable() below assigns id to
     // the new live memtable
