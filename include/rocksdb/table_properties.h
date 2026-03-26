@@ -50,6 +50,7 @@ struct TablePropertiesNames {
   static const std::string kRawKeySize;
   static const std::string kRawValueSize;
   static const std::string kNumDataBlocks;
+  static const std::string kNumUniformBlocks;
   static const std::string kNumEntries;
   static const std::string kNumFilterEntries;
   static const std::string kDeletedKeys;
@@ -245,6 +246,8 @@ struct TableProperties {
   uint64_t raw_value_size = 0;
   // the number of blocks in this table
   uint64_t num_data_blocks = 0;
+  // the number of uniform blocks in this table
+  uint64_t num_uniform_blocks = 0;
   // the number of entries in this table
   uint64_t num_entries = 0;
   // the number of unique entries (keys or prefixes) added to filters

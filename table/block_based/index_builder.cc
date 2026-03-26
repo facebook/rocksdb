@@ -346,9 +346,12 @@ Status PartitionedIndexBuilder::Finish(
   if (UNLIKELY(entries_.empty())) {
     if (must_use_separator_with_seq_.LoadRelaxed()) {
       index_blocks->index_block_contents = index_block_builder_.Finish();
+      num_uniform_index_blocks_ += index_block_builder_.IsUniform() ? 1 : 0;
     } else {
       index_blocks->index_block_contents =
           index_block_builder_without_seq_.Finish();
+      num_uniform_index_blocks_ +=
+          index_block_builder_without_seq_.IsUniform() ? 1 : 0;
     }
     top_level_index_size_ = index_blocks->index_block_contents.size();
     index_size_ += top_level_index_size_;
@@ -361,6 +364,7 @@ Status PartitionedIndexBuilder::Finish(
     entry.value->must_use_separator_with_seq_.StoreRelaxed(
         must_use_separator_with_seq_.LoadRelaxed());
     auto s = entry.value->Finish(index_blocks);
+    num_uniform_index_blocks_ += entry.value->NumUniformIndexBlocks();
     index_size_ += index_blocks->index_block_contents.size();
     finishing_indexes_ = true;
     return s.ok() ? Status::Incomplete() : s;

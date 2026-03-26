@@ -160,6 +160,9 @@ class IndexBuilder {
   // Get the size for index block. Must be called after ::Finish.
   virtual size_t IndexSize() const = 0;
 
+  // Get the number of uniform index blocks. Must be called after ::Finish.
+  virtual uint64_t NumUniformIndexBlocks() const { return 0; }
+
   // Returns an estimate of the current index size based on the builder's state.
   // Implementations should cache the estimate and update it via
   // UpdateIndexSizeEstimate() to avoid recalculating on every key add,
@@ -434,15 +437,21 @@ class ShortenedIndexBuilder : public IndexBuilder {
                 const BlockHandle& /*last_partition_block_handle*/) override {
     if (must_use_separator_with_seq_.LoadRelaxed()) {
       index_blocks->index_block_contents = index_block_builder_.Finish();
+      is_uniform_ = index_block_builder_.IsUniform();
     } else {
       index_blocks->index_block_contents =
           index_block_builder_without_seq_.Finish();
+      is_uniform_ = index_block_builder_without_seq_.IsUniform();
     }
     index_size_ = index_blocks->index_block_contents.size();
     return Status::OK();
   }
 
   size_t IndexSize() const override { return index_size_; }
+
+  uint64_t NumUniformIndexBlocks() const override {
+    return is_uniform_ ? 1 : 0;
+  }
 
   uint64_t CurrentIndexSizeEstimate() const override {
     return estimated_index_size_.LoadRelaxed();
@@ -480,6 +489,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
   const bool include_first_key_;
   BlockBasedTableOptions::IndexShorteningMode shortening_mode_;
   BlockHandle last_encoded_handle_ = BlockHandle::NullBlockHandle();
+  bool is_uniform_ = false;
   std::string current_block_first_internal_key_;
   uint64_t num_index_entries_ = 0;
   // Cache for index size estimate to avoid recalculating in hot path
@@ -607,6 +617,10 @@ class HashIndexBuilder : public IndexBuilder {
            prefix_meta_block_.size();
   }
 
+  uint64_t NumUniformIndexBlocks() const override {
+    return primary_index_builder_.NumUniformIndexBlocks();
+  }
+
   uint64_t CurrentIndexSizeEstimate() const override { return 0; }
 
   bool separator_is_key_plus_seq() override {
@@ -685,6 +699,10 @@ class PartitionedIndexBuilder : public IndexBuilder {
   size_t TopLevelIndexSize(uint64_t) const { return top_level_index_size_; }
   size_t NumPartitions() const;
 
+  uint64_t NumUniformIndexBlocks() const override {
+    return num_uniform_index_blocks_;
+  }
+
   // Returns a cached estimate of the current index size. This
   // estimate is updated when data blocks are added.
   uint64_t CurrentIndexSizeEstimate() const override {
@@ -724,6 +742,8 @@ class PartitionedIndexBuilder : public IndexBuilder {
   size_t top_level_index_size_ = 0;
   // Set after ::Finish is called
   size_t partition_cnt_ = 0;
+  // Accumulated across all Finish() calls
+  uint64_t num_uniform_index_blocks_ = 0;
 
   void MakeNewSubIndexBuilder();
   void UpdateIndexSizeEstimate() override;
