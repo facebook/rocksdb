@@ -2023,6 +2023,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
   // Batch add support
   bool use_batch_add_;
+  ColumnFamilyData* batch_add_cfd_;
   MemTable* batch_add_mem_;  // Current memtable for pending batch entries
   std::vector<MemTable::MemTableEntry> pending_batch_entries_;
   static constexpr size_t kBatchAddFlushThreshold = 64;
@@ -2128,6 +2129,7 @@ class MemTableInserter : public WriteBatch::Handler {
         hint_per_batch_(hint_per_batch),
         hint_created_(false),
         use_batch_add_(use_batch_add),
+        batch_add_cfd_(nullptr),
         batch_add_mem_(nullptr) {
     assert(cf_mems_);
   }
@@ -2156,17 +2158,20 @@ class MemTableInserter : public WriteBatch::Handler {
     if (pending_batch_entries_.empty() || batch_add_mem_ == nullptr) {
       return Status::OK();
     }
-    Status s = batch_add_mem_->BatchAdd(
+    ColumnFamilyData* batch_add_cfd = batch_add_cfd_;
+    MemTable* batch_add_mem = batch_add_mem_;
+    Status s = batch_add_mem->BatchAdd(
         pending_batch_entries_.data(), pending_batch_entries_.size(),
-        concurrent_memtable_writes_ ? get_post_process_info(batch_add_mem_)
+        concurrent_memtable_writes_ ? get_post_process_info(batch_add_mem)
                                     : nullptr);
     pending_batch_entries_.clear();
+    batch_add_cfd_ = nullptr;
     batch_add_mem_ = nullptr;
     if (s.ok()) {
       // Schedule flush if memtable is full. Without this, deferred batch
       // inserts could push a memtable past write_buffer_size without
       // triggering flush scheduling until the next non-batched operation.
-      CheckMemtableFull();
+      CheckMemtableFull(batch_add_cfd, batch_add_mem);
     }
     return s;
   }
@@ -2302,6 +2307,7 @@ class MemTableInserter : public WriteBatch::Handler {
             return ret_status;
           }
         }
+        batch_add_cfd_ = cf_mems_->current();
         batch_add_mem_ = mem;
         MemTable::MemTableEntry entry;
         entry.seq = sequence_;
@@ -3010,12 +3016,19 @@ class MemTableInserter : public WriteBatch::Handler {
     return ret_status;
   }
 
-  void CheckMemtableFull() {
+  void CheckMemtableFull(ColumnFamilyData* cfd = nullptr,
+                         MemTable* mem = nullptr) {
+    if (cfd == nullptr) {
+      cfd = cf_mems_->current();
+    }
+    assert(cfd != nullptr);
+    if (mem == nullptr) {
+      mem = cfd->mem();
+    }
+    assert(mem != nullptr);
+
     if (flush_scheduler_ != nullptr) {
-      auto* cfd = cf_mems_->current();
-      assert(cfd != nullptr);
-      if (cfd->mem()->ShouldScheduleFlush() &&
-          cfd->mem()->MarkFlushScheduled()) {
+      if (mem->ShouldScheduleFlush() && mem->MarkFlushScheduled()) {
         // MarkFlushScheduled only returns true if we are the one that
         // should take action, so no need to dedup further
         flush_scheduler_->ScheduleWork(cfd);
@@ -3023,10 +3036,6 @@ class MemTableInserter : public WriteBatch::Handler {
     }
     // check if memtable_list size exceeds max_write_buffer_size_to_maintain
     if (trim_history_scheduler_ != nullptr) {
-      auto* cfd = cf_mems_->current();
-
-      assert(cfd);
-
       const size_t size_to_maintain = static_cast<size_t>(
           cfd->ioptions().max_write_buffer_size_to_maintain);
 
@@ -3035,9 +3044,6 @@ class MemTableInserter : public WriteBatch::Handler {
         assert(imm);
 
         if (imm->HasHistory()) {
-          const MemTable* const mem = cfd->mem();
-          assert(mem);
-
           if (mem->MemoryAllocatedBytes() +
                       imm->MemoryAllocatedBytesExcludingLast() >=
                   size_to_maintain &&

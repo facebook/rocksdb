@@ -12,6 +12,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/slice_transform.h"
+#include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -748,6 +749,53 @@ TEST_F(DBMemTableTest, WriteBatchWithBatchAddMultipleBatches) {
     ASSERT_OK(db_->Get(ReadOptions(), "key" + std::to_string(i), &value));
     ASSERT_EQ(value, "value" + std::to_string(i));
   }
+}
+
+TEST_F(DBMemTableTest, BatchAddFlushSchedulingUsesOwnerColumnFamily) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.allow_concurrent_memtable_write = false;
+  options.disable_auto_compactions = true;
+  options.max_background_flushes = 1;
+  options.max_write_buffer_number = 10;
+  options.write_buffer_size = 64 * 1024;
+  CreateAndReopenWithCF({"cf1"}, options);
+
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  test::SleepingBackgroundTask sleeping_task_high;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 &sleeping_task_high, Env::Priority::HIGH);
+  sleeping_task_high.WaitUntilSleeping();
+
+  WriteOptions wopts;
+  wopts.disableWAL = true;
+  wopts.use_batch_add = true;
+
+  WriteBatch batch;
+  const std::string large_value(4096, 'x');
+  for (int i = 0; i < 20; ++i) {
+    ASSERT_OK(
+        batch.Put(handles_[0], "default" + std::to_string(i), large_value));
+  }
+  ASSERT_OK(batch.Put(handles_[1], "cf1-key", "cf1-value"));
+  ASSERT_OK(db_->Write(wopts, &batch));
+
+  auto* default_cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(handles_[0])->cfd();
+  auto* cf1_cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(handles_[1])->cfd();
+  ASSERT_TRUE(default_cfd->mem()->HasFlushScheduled());
+  ASSERT_FALSE(cf1_cfd->mem()->HasFlushScheduled());
+
+  WriteOptions follow_up_wopts;
+  follow_up_wopts.disableWAL = true;
+  ASSERT_OK(db_->Put(follow_up_wopts, handles_[1], "cf1-follow-up", "v"));
+  ASSERT_EQ(default_cfd->imm()->NumNotFlushed(), 1);
+  ASSERT_EQ(cf1_cfd->imm()->NumNotFlushed(), 0);
+
+  sleeping_task_high.WakeUp();
+  sleeping_task_high.WaitUntilDone();
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[0]));
 }
 
 TEST_F(DBMemTableTest, BatchAddMixedPutDeleteMerge) {
