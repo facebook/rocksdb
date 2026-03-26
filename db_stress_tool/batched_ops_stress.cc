@@ -585,6 +585,10 @@ class BatchedOpsStressTest : public StressTest {
 
       ro_copies[i] = readoptions;
       ro_copies[i].snapshot = snapshot;
+      // This verifier compares 10 prefix scans entry-by-entry, so each
+      // iterator must be constrained to the seek prefix before we assert
+      // lockstep progress across them.
+      ro_copies[i].prefix_same_as_start = true;
       if (thread->rand.OneIn(2) &&
           GetNextPrefix(prefix_slices[i], &(upper_bounds[i]))) {
         // For half of the time, set the upper bound to the next prefix
