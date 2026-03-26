@@ -7,7 +7,7 @@
 // Parameters:
 //   executionFile - path to the JSON execution log from claude-code-base-action
 //   conclusion    - 'success' or 'failure' from the action output
-//   meta          - { trigger, headSha, reviewer, isQuery }
+//   meta          - { trigger, headSha, reviewer, isQuery, isPartial }
 
 const fs = require('fs');
 
@@ -23,6 +23,29 @@ module.exports = function parseClaude({executionFile, conclusion, meta}) {
 
     const resultMessage = executionLog.find(m => m.type === 'result');
 
+    // Helper: extract the last substantial assistant text from the log.
+    // Used as a fallback when Claude ran out of turns and the recovery
+    // session also failed to produce a result.
+    function getLastAssistantText(log, minLength = 200) {
+      for (let i = log.length - 1; i >= 0; i--) {
+        const m = log[i];
+        if (m.type !== 'assistant') continue;
+        const content = m.message && m.message.content;
+        if (!Array.isArray(content)) continue;
+        for (let j = content.length - 1; j >= 0; j--) {
+          if (content[j].type === 'text' && content[j].text &&
+              content[j].text.trim().length >= minLength) {
+            const text = content[j].text.trim();
+            // Truncate to avoid enormous PR comments
+            return text.length > 50000 ? text.substring(0, 50000) +
+                    '\n\n*[Truncated — full output in execution log artifact]*' :
+                                         text;
+          }
+        }
+      }
+      return null;
+    }
+
     if (!resultMessage) {
       responseBody = '⚠️ No result message found in execution log.';
     } else if (resultMessage.subtype === 'success' && resultMessage.result) {
@@ -31,6 +54,19 @@ module.exports = function parseClaude({executionFile, conclusion, meta}) {
       const errorInfo =
           resultMessage.result || resultMessage.error || 'Unknown error';
       responseBody = `❌ **Claude encountered an error:**\n\n${errorInfo}`;
+    } else if (resultMessage.subtype === 'error_max_turns') {
+      // The workflow runs a recovery session when this happens, so this
+      // branch is typically only hit if recovery wasn't attempted (e.g.,
+      // no findings file was written). Extract what we can.
+      const partial = getLastAssistantText(executionLog);
+      if (partial) {
+        responseBody =
+            `⚠️ **Review incomplete — Claude hit the turn limit.**\n\nBelow is the last partial output. You can request a fresh review with \`/claude-review\`.\n\n---\n\n${
+                partial}`;
+      } else {
+        responseBody =
+            '⚠️ **Review incomplete — Claude hit the turn limit before producing output.** You can request a fresh review with `/claude-review`.';
+      }
     } else if (resultMessage.result) {
       responseBody = `⚠️ **Completed with status: ${
           resultMessage.subtype}**\n\n${resultMessage.result}`;
@@ -41,7 +77,8 @@ module.exports = function parseClaude({executionFile, conclusion, meta}) {
     responseBody = `❌ Error parsing Claude response: ${error.message}`;
   }
 
-  const icon = conclusion === 'success' ? '✅' : '⚠️';
+  const isPartial = !!meta.isPartial;
+  const icon = isPartial ? '🟡' : (conclusion === 'success' ? '✅' : '⚠️');
   const headerTitle = meta.isQuery ? 'Claude Response' : 'Claude Code Review';
   const triggerLine = meta.trigger === 'auto' ?
       `*Auto-triggered after CI passed — reviewing commit ${
