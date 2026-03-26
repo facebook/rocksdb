@@ -1601,7 +1601,7 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
         } /* create_file_cb */,
         &sequence_number,
         options.flush_before_backup ? 0 : std::numeric_limits<uint64_t>::max(),
-        compare_checksum));
+        compare_checksum, options.atomic_flush));
     if (io_s.ok()) {
       new_backup->SetSequenceNumber(sequence_number);
     }

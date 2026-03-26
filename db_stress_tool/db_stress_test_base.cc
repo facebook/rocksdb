@@ -2460,11 +2460,19 @@ Status StressTest::TestBackupRestore(
       // lock and wait on a background operation (flush).
       create_opts.flush_before_backup = true;
     }
+    if (FLAGS_atomic_flush) {
+      // When atomic flush is enabled for the DB, use it for backup too.
+      // This ensures cross-CF consistency without needing WAL files.
+      // flush_before_backup must be true for atomic_flush to take effect.
+      create_opts.flush_before_backup = true;
+      create_opts.atomic_flush = true;
+    }
     create_opts.decrease_background_thread_cpu_priority = thread->rand.OneIn(2);
     create_opts.background_thread_cpu_priority = static_cast<CpuPriority>(
         thread->rand.Next() % (static_cast<int>(CpuPriority::kHigh) + 1));
     create_backup_opt_oss << "flush_before_backup: "
                           << create_opts.flush_before_backup
+                          << ", atomic_flush: " << create_opts.atomic_flush
                           << ", decrease_background_thread_cpu_priority: "
                           << create_opts.decrease_background_thread_cpu_priority
                           << ", background_thread_cpu_priority: "
