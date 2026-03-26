@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <cstring>
+#include <set>
 
 #include "db/db_test_util.h"
 #include "options/options_helper.h"
@@ -5314,6 +5315,74 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
   // be read back. Read them to check all live sst files and blob files.
   ASSERT_EQ("bar", Get("foo"));
   ASSERT_EQ("value", Get("key"));
+}
+
+TEST_F(DBBasicTest,
+       ManifestLoadTableHandlersFailureDoesNotLeaveNeverLiveFileCached) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.max_open_files = -1;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("base", "value"));
+  ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  uint64_t current_file = 0;
+  uint64_t injected_file = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::Rep::LoadTableHandlers::BeforeFindTable",
+      [&](void* arg) {
+        auto* file_meta = static_cast<FileMetaData*>(arg);
+        current_file = file_meta->fd.GetNumber();
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::Rep::LoadTableHandlers::AfterFindTable", [&](void* arg) {
+        auto* status = static_cast<Status*>(arg);
+        if (status->ok() && injected_file == 0) {
+          injected_file = current_file;
+          *status =
+              Status::IOError("Injected post-open LoadTableHandlers failure");
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("trigger", "value"));
+  Status s = Flush();
+  ASSERT_TRUE(s.IsIOError()) << s.ToString();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_NE(0U, injected_file);
+  ASSERT_TRUE(dbfull()->TEST_GetFilesToQuarantine().empty());
+
+  std::set<uint64_t> live_files;
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  for (const auto& file : metadata) {
+    live_files.insert(file.file_number);
+  }
+
+  std::vector<uint64_t> stale_cached_files;
+  Cache::ApplyToAllEntriesOptions apply_opts;
+  dbfull()->TEST_table_cache()->ApplyToAllEntries(
+      [&](const Slice& key, Cache::ObjectPtr, size_t,
+          const Cache::CacheItemHelper*) {
+        ASSERT_EQ(sizeof(uint64_t), key.size());
+        uint64_t file_number = 0;
+        memcpy(&file_number, key.data(), sizeof(file_number));
+        if (live_files.find(file_number) == live_files.end()) {
+          stale_cached_files.push_back(file_number);
+        }
+      },
+      apply_opts);
+
+  ASSERT_TRUE(stale_cached_files.empty())
+      << "Found cached never-live file " << injected_file;
 }
 
 TEST_F(DBBasicTest, DestroyDefaultCfHandle) {

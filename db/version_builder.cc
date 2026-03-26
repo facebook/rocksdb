@@ -1708,6 +1708,23 @@ class VersionBuilder::Rep {
         prefetch_index_and_filter_in_cache, mutable_cf_options,
         max_file_size_for_l0_meta_pin, read_options);
   }
+
+  void CleanupLoadedTableHandlers() {
+    if (table_cache_ == nullptr) {
+      return;
+    }
+
+    auto* cache = table_cache_->get_cache().get();
+    for (int level = 0; level < num_levels_; ++level) {
+      for (const auto& file_meta_pair : levels_[level].added_files) {
+        FileMetaData* file_meta = file_meta_pair.second;
+        if (file_meta->fd.pinned_reader.GetCacheHandle() != nullptr) {
+          file_meta->fd.pinned_reader.Release(cache);
+        }
+        TableCache::Evict(cache, file_meta->fd.GetNumber());
+      }
+    }
+  }
 };
 
 VersionBuilder::VersionBuilder(
@@ -1745,6 +1762,10 @@ Status VersionBuilder::LoadTableHandlers(
                                  prefetch_index_and_filter_in_cache,
                                  is_initial_load, mutable_cf_options,
                                  max_file_size_for_l0_meta_pin, read_options);
+}
+
+void VersionBuilder::CleanupLoadedTableHandlers() {
+  rep_->CleanupLoadedTableHandlers();
 }
 
 void VersionBuilder::CreateOrReplaceSavePoint() {

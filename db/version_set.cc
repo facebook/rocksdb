@@ -6413,6 +6413,12 @@ Status VersionSet::ProcessManifestWrites(
       prev_log_number_ = first_writer.edit_list.front()->GetPrevLogNumber();
     }
   } else {
+    if (io_s.ok()) {
+      for (const auto& builder_guard : builder_guards) {
+        builder_guard->version_builder()->CleanupLoadedTableHandlers();
+      }
+    }
+
     std::string version_edits;
     for (auto& e : batch_edits) {
       version_edits += ("\n" + e->DebugString(true));

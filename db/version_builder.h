@@ -62,6 +62,10 @@ class VersionBuilder {
                            size_t max_file_size_for_l0_meta_pin,
                            const ReadOptions& read_options);
 
+  // Release and evict any table handlers preloaded for files added by this
+  // builder. This is used when the pending version never becomes live.
+  void CleanupLoadedTableHandlers();
+
   //============APIs only used by VersionEditHandlerPointInTime ============//
 
   // Creates a save point for the Version that has been built so far. Subsequent
