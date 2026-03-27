@@ -51,6 +51,43 @@ TEST_F(DBBlobBasicTest, GetBlob) {
                   .IsIncomplete());
 }
 
+TEST_F(DBBlobBasicTest, EmptyValueNotStoredAsBlob) {
+  // Regression test for crash when empty blob value is evicted to
+  // CompressedSecondaryCache (T261142690). Empty values should always be
+  // stored inline in the SST, never as blobs, even with min_blob_size=0.
+  // A BlobIndex for an empty value is strictly larger than the value itself,
+  // so storing it as a blob is pure overhead.
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+
+  // Write an empty value and a non-empty value.
+  ASSERT_OK(Put("empty_key", ""));
+  constexpr char blob_value[] = "blob_value";
+  ASSERT_OK(Put("nonempty_key", blob_value));
+  ASSERT_OK(Flush());
+
+  // Both values should be readable.
+  ASSERT_EQ(Get("empty_key"), "");
+  ASSERT_EQ(Get("nonempty_key"), blob_value);
+
+  // The empty value should be stored inline (readable from block cache
+  // without blob file I/O), while the non-empty value requires blob I/O.
+  ReadOptions ro;
+  ro.read_tier = kBlockCacheTier;
+
+  PinnableSlice result;
+  ASSERT_OK(db_->Get(ro, db_->DefaultColumnFamily(), "empty_key", &result));
+  ASSERT_EQ(result, "");
+
+  result.Reset();
+  ASSERT_TRUE(db_->Get(ro, db_->DefaultColumnFamily(), "nonempty_key", &result)
+                  .IsIncomplete());
+}
+
 TEST_F(DBBlobBasicTest, GetBlobFromCache) {
   Options options = GetDefaultOptions();
 
