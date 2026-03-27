@@ -433,6 +433,41 @@ class TestKnownConflicts(unittest.TestCase):
         # commit_bypass_memtable should disable blob
         self.assertEqual(result["enable_blob_files"], 0)
 
+    def test_optimistic_txn_bumps_write_buffer_maintain(self):
+        """use_optimistic_txn=1 bumps max_write_buffer_size_to_maintain up."""
+        params = _resolve_params(db_crashtest.default_params)
+        params.update(_resolve_params(db_crashtest.blackbox_default_params))
+        params.update({
+            "use_optimistic_txn": 1,
+            "use_txn": 1,
+            "write_buffer_size": 4 * 1024 * 1024,
+            "max_write_buffer_size_to_maintain": 1024 * 1024,
+        })
+        result = self._assert_converges(
+            params, "optimistic_txn: maintain < write_buffer"
+        )
+        self.assertGreaterEqual(
+            result["max_write_buffer_size_to_maintain"],
+            result["write_buffer_size"],
+        )
+
+    def test_optimistic_txn_already_valid_unchanged(self):
+        """use_optimistic_txn=1 with valid maintain value is unchanged."""
+        params = _resolve_params(db_crashtest.default_params)
+        params.update(_resolve_params(db_crashtest.blackbox_default_params))
+        params.update({
+            "use_optimistic_txn": 1,
+            "use_txn": 1,
+            "write_buffer_size": 1024 * 1024,
+            "max_write_buffer_size_to_maintain": 8 * 1024 * 1024,
+        })
+        result = self._assert_converges(
+            params, "optimistic_txn: maintain already valid"
+        )
+        self.assertEqual(
+            result["max_write_buffer_size_to_maintain"], 8 * 1024 * 1024,
+        )
+
 
 def _extract_relevant(params):
     """Extract the most relevant params for debugging."""
@@ -441,7 +476,8 @@ def _extract_relevant(params):
         "inplace_update_support", "unordered_write", "use_txn",
         "txn_write_policy", "user_timestamp_size",
         "persist_user_defined_timestamps", "allow_concurrent_memtable_write",
-        "test_best_efforts_recovery",
+        "test_best_efforts_recovery", "use_optimistic_txn",
+        "write_buffer_size", "max_write_buffer_size_to_maintain",
     ]
     return {k: params.get(k) for k in keys}
 

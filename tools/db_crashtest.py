@@ -1900,6 +1900,20 @@ INCOMPATIBILITY_RULES = [
             "then": {"allow_resumption_one_in": 0},
             "comment": "allow_resumption requires remote compaction",
         },
+    {
+            "name": "optimistic_txn_write_buffer_maintain",
+            "when": lambda p: (
+                p.get("use_optimistic_txn") == 1
+                and p.get("max_write_buffer_size_to_maintain", 0)
+                < p.get("write_buffer_size", 0)
+            ),
+            "then": lambda p: {
+                "max_write_buffer_size_to_maintain": p.get("write_buffer_size", 0),
+            },
+            "comment": "OptimisticTransactionDB requires "
+                       "max_write_buffer_size_to_maintain >= write_buffer_size "
+                       "for OCC conflict detection against old memtable data",
+        },
 ]
 
 def gen_cmd_params(args):
