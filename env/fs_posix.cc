@@ -1346,7 +1346,7 @@ PosixFileSystem::PosixFileSystem()
   if (new_io_uring != nullptr) {
     thread_local_async_read_io_urings_.reset(new ThreadLocalPtr(DeleteIOUring));
     thread_local_multi_read_io_urings_.reset(new ThreadLocalPtr(DeleteIOUring));
-    delete new_io_uring;
+    DeleteIOUring(new_io_uring);
   }
 #endif
 }
