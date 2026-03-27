@@ -11693,6 +11693,76 @@ TEST_F(DBCompactionTest, PeriodicTask) {
   Close();
 }
 
+TEST_F(DBCompactionTest, ReadTriggeredCompaction) {
+  Options options = CurrentOptions();
+  options.num_levels = 3;
+  options.level0_file_num_compaction_trigger = 10;
+  options.read_triggered_compaction_threshold = 0.001;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // Write data at L2 first so L1 is not the bottommost level
+  Random rnd(301);
+  for (int i = 0; i < 5; ++i) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(1024)));
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+  ASSERT_EQ("0,0,1", FilesPerLevel());
+
+  // Write more data and move to L1 (the hot level)
+  for (int i = 5; i < 10; ++i) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(1024)));
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_EQ("0,1,1", FilesPerLevel());
+
+  ColumnFamilyMetaData cf_meta;
+  dbfull()->GetColumnFamilyMetaData(dbfull()->DefaultColumnFamily(), &cf_meta);
+  ASSERT_EQ(cf_meta.levels[1].files.size(), 1);
+  uint64_t file_size = cf_meta.levels[1].files[0].size;
+  // Set reads high enough to exceed threshold (0.001 * file_size)
+  uint64_t reads_needed =
+      static_cast<uint64_t>(0.002 * static_cast<double>(file_size));
+
+  {
+    auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
+                    dbfull()->DefaultColumnFamily())
+                    ->cfd();
+    auto* vstorage = cfd->current()->storage_info();
+    for (auto* f : vstorage->LevelFiles(1)) {
+      f->stats.num_collapsible_entry_reads_sampled.store(reads_needed);
+    }
+  }
+
+  std::atomic<int> read_triggered_compactions{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = static_cast<Compaction*>(arg);
+        if (compaction->compaction_reason() ==
+            CompactionReason::kReadTriggered) {
+          read_triggered_compactions.fetch_add(1, std::memory_order_relaxed);
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Enable auto compactions to trigger
+  ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ASSERT_GE(read_triggered_compactions, 1);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  // Verify the L1 file was compacted down (L1 should be empty now)
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
+
+  // Verify data integrity: all keys are still readable
+  for (int i = 0; i < 10; ++i) {
+    ASSERT_NE(Get(Key(i)), "NOT_FOUND");
+  }
+}
+
 // Regression test for a bug in SetupOtherFilesWithRoundRobinExpansion where
 // duplicate files are added to the compaction input, corrupting
 // ExpandInputsToCleanCut and violating the clean-cut invariant. The bug

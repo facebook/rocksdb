@@ -1709,6 +1709,28 @@ struct DBOptions {
   // this field blank. Default: Empty string (no offpeak).
   std::string daily_offpeak_time_utc = "";
 
+  // Maximum interval in seconds between periodic compaction trigger checks.
+  // The periodic trigger re-evaluates compaction scores for all column
+  // families, which is necessary for features like read-triggered compaction
+  // and time-based compaction to work on a "quiet" DB with no writes.
+  //
+  // This is an upper bound: the actual check interval may be reduced to
+  // align with stats_dump_period_sec, stats_persist_period_sec, or per-CF
+  // time-based compaction intervals (periodic_compaction_seconds, ttl, etc.).
+  //
+  // Note: this option controls how often RocksDB *checks* whether compaction
+  // is needed. It is different from the CF option `periodic_compaction_seconds`
+  // which controls the *age threshold* at which SST files become eligible for
+  // periodic compaction.
+  //
+  // The minimum effective period is 1 second (values below 1 are clamped to 1).
+  // Setting this to 0 results in the most aggressive 1-second polling.
+  //
+  // Default: 43200 (12 hours)
+  //
+  // Dynamically changeable through SetDBOptions() API.
+  uint64_t max_compaction_trigger_wakeup_seconds = 43200;
+
   // EXPERIMENTAL
 
   // When a RocksDB database is opened in follower mode, this option

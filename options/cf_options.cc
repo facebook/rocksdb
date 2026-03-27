@@ -582,6 +582,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, periodic_compaction_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"read_triggered_compaction_threshold",
+         {offsetof(struct MutableCFOptions,
+                   read_triggered_compaction_threshold),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"preclude_last_level_data_seconds",
          {offsetof(struct MutableCFOptions, preclude_last_level_data_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
@@ -1204,6 +1209,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  ttl);
   ROCKS_LOG_INFO(log, "              periodic_compaction_seconds: %" PRIu64,
                  periodic_compaction_seconds);
+  ROCKS_LOG_INFO(log, "    read_triggered_compaction_threshold: %f",
+                 read_triggered_compaction_threshold);
   ROCKS_LOG_INFO(log,
                  "              preclude_last_level_data_seconds: %" PRIu64,
                  preclude_last_level_data_seconds);
