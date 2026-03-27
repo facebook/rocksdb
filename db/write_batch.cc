@@ -3018,16 +3018,20 @@ class MemTableInserter : public WriteBatch::Handler {
 
   void CheckMemtableFull(ColumnFamilyData* cfd = nullptr,
                          MemTable* mem = nullptr) {
-    if (cfd == nullptr) {
-      cfd = cf_mems_->current();
+    if (flush_scheduler_ == nullptr && trim_history_scheduler_ == nullptr) {
+      return;
     }
-    assert(cfd != nullptr);
-    if (mem == nullptr) {
-      mem = cfd->mem();
-    }
-    assert(mem != nullptr);
 
     if (flush_scheduler_ != nullptr) {
+      if (cfd == nullptr) {
+        cfd = cf_mems_->current();
+      }
+      assert(cfd != nullptr);
+      if (mem == nullptr) {
+        mem = cfd->mem();
+      }
+      assert(mem != nullptr);
+
       if (mem->ShouldScheduleFlush() && mem->MarkFlushScheduled()) {
         // MarkFlushScheduled only returns true if we are the one that
         // should take action, so no need to dedup further
@@ -3036,6 +3040,15 @@ class MemTableInserter : public WriteBatch::Handler {
     }
     // check if memtable_list size exceeds max_write_buffer_size_to_maintain
     if (trim_history_scheduler_ != nullptr) {
+      if (cfd == nullptr) {
+        cfd = cf_mems_->current();
+      }
+      assert(cfd != nullptr);
+      if (mem == nullptr) {
+        mem = cfd->mem();
+      }
+      assert(mem != nullptr);
+
       const size_t size_to_maintain = static_cast<size_t>(
           cfd->ioptions().max_write_buffer_size_to_maintain);
 
