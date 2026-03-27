@@ -1429,6 +1429,224 @@ TEST_F(DBBasicTest, DBCloseFlushError) {
   Destroy(options);
 }
 
+TEST_F(DBBasicTest, SuperVersionReentrantGetSameThread) {
+  ASSERT_OK(Put("outer_key", "outer_value"));
+  ASSERT_OK(Put("inner_key", "inner_value"));
+
+  auto* db = dbfull();
+  auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
+                  db->DefaultColumnFamily())
+                  ->cfd();
+  int acquire_count = 0;
+  bool nested_called = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::GetImpl:AfterAcquireSv", [&](void* /*arg*/) {
+        ++acquire_count;
+        if (nested_called) {
+          return;
+        }
+        nested_called = true;
+        std::string nested_value;
+        ASSERT_OK(db_->Get(ReadOptions(), "inner_key", &nested_value));
+        ASSERT_EQ("inner_value", nested_value);
+        ASSERT_EQ(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "outer_key", &value));
+  ASSERT_EQ("outer_value", value);
+  ASSERT_GE(acquire_count, 2);
+  ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBBasicTest, SuperVersionReentrantGetWithPublish) {
+  ASSERT_OK(Put("key1", "value1"));
+
+  auto* db = dbfull();
+  auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
+                  db->DefaultColumnFamily())
+                  ->cfd();
+  bool injected = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::GetImpl:AfterAcquireSv", [&](void* /*arg*/) {
+        if (injected) {
+          return;
+        }
+        injected = true;
+
+        // Re-enter read path from the same thread while outer Get holds SV.
+        std::string nested_value;
+        ASSERT_OK(db_->Get(ReadOptions(), "key1", &nested_value));
+        ASSERT_EQ("value1", nested_value);
+
+        // Publish a new SuperVersion while outer Get still active.
+        ASSERT_OK(db_->Put(WriteOptions(), "publish_key", "publish_value"));
+        ASSERT_OK(db_->Flush(FlushOptions()));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "key1", &value));
+  ASSERT_EQ("value1", value);
+  ASSERT_TRUE(injected);
+
+  // Publish scraped thread-local entry while outer Get was in progress.
+  ASSERT_EQ(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Next Get should reacquire and restore thread-local SV.
+  ASSERT_EQ("value1", Get("key1"));
+  ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+  ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
+}
+
+TEST_F(DBBasicTest, SuperVersionMultiCFMixedOwnerNestedCleanup) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"cf_1"}, options);
+
+  ASSERT_OK(Put(0, "default_key", "default_value"));
+  ASSERT_OK(Put(1, "cf1_key", "cf1_value"));
+
+  auto* cfd0 = static_cast_with_check<ColumnFamilyHandleImpl>(handles_[0])->cfd();
+  auto* cfd1 = static_cast_with_check<ColumnFamilyHandleImpl>(handles_[1])->cfd();
+  bool callback_called = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::GetImpl:AfterAcquireSv", [&](void* /*arg*/) {
+        if (callback_called) {
+          return;
+        }
+        callback_called = true;
+
+        // Mixed acquisition: default CF is nested (already in-use by outer Get),
+        // while cf_1 is owner path.
+        std::vector<int> cfs = {0, 1};
+        std::vector<std::string> keys = {"default_key", "cf1_key"};
+        std::vector<std::string> values =
+            MultiGet(cfs, keys, nullptr, /*batched=*/false);
+        ASSERT_EQ(values.size(), 2);
+        ASSERT_EQ(values[0], "default_value");
+        ASSERT_EQ(values[1], "cf1_value");
+
+        ASSERT_EQ(cfd0->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+        ASSERT_NE(cfd1->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "default_key", &value));
+  ASSERT_EQ("default_value", value);
+  ASSERT_TRUE(callback_called);
+
+  ASSERT_NE(cfd0->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+  ASSERT_NE(cfd1->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBBasicTest, SuperVersionDirectAcquireDepthSemantics) {
+  ASSERT_OK(Put("depth_key", "depth_value"));
+
+  auto* db = dbfull();
+  auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
+                  db->DefaultColumnFamily())
+                  ->cfd();
+
+  SuperVersion* outer_sv = cfd->GetThreadLocalSuperVersion(db);
+  ASSERT_EQ(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+
+  SuperVersion* inner_sv = cfd->GetThreadLocalSuperVersion(db);
+  ASSERT_EQ(inner_sv, outer_sv);
+  ASSERT_EQ(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+
+  // Nested return should not put the SV back to TLS main slot.
+  ASSERT_FALSE(cfd->ReturnThreadLocalSuperVersion(inner_sv));
+  db->CleanupSuperVersion(inner_sv);
+  ASSERT_EQ(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+
+  // Owner return can restore TLS main slot.
+  ASSERT_TRUE(cfd->ReturnThreadLocalSuperVersion(outer_sv));
+  ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+  ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
+}
+
+TEST_F(DBBasicTest, SuperVersionDirectAcquirePublishThenOwnerCleanup) {
+  ASSERT_OK(Put("publish_key_base", "value0"));
+
+  auto* db = dbfull();
+  auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
+                  db->DefaultColumnFamily())
+                  ->cfd();
+
+  SuperVersion* sv = cfd->GetThreadLocalSuperVersion(db);
+  ASSERT_EQ(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+
+  // Install/publish a new SV while current thread still has in-use slot.
+  ASSERT_OK(db_->Put(WriteOptions(), "publish_key_new", "value1"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
+
+  // Owner return should fail to CAS back due to scrape => cleanup path.
+  ASSERT_FALSE(cfd->ReturnThreadLocalSuperVersion(sv));
+  db->CleanupSuperVersion(sv);
+  ASSERT_EQ(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
+
+  // Next acquire should recover from obsolete and restore usable TLS state.
+  SuperVersion* recovered_sv = cfd->GetThreadLocalSuperVersion(db);
+  ASSERT_NE(recovered_sv, nullptr);
+  ASSERT_TRUE(cfd->ReturnThreadLocalSuperVersion(recovered_sv));
+  ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+  ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
+}
+
+TEST_F(DBBasicTest, SuperVersionReentrantThreeLevelWithReferencedSV) {
+  ASSERT_OK(Put("reentrant_key", "reentrant_value"));
+
+  auto* db = dbfull();
+  auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
+                  db->DefaultColumnFamily())
+                  ->cfd();
+  int callback_calls = 0;
+  int recursive_depth = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::GetImpl:AfterAcquireSv", [&](void* /*arg*/) {
+        ++callback_calls;
+        ASSERT_EQ(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+
+        // Verify GetReferencedSuperVersion works correctly inside a reentrant
+        // acquire scope and does not clear the in-use state for the outer frame.
+        SuperVersion* referenced_sv = cfd->GetReferencedSuperVersion(db);
+        ASSERT_NE(referenced_sv, nullptr);
+        db->CleanupSuperVersion(referenced_sv);
+        ASSERT_EQ(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+
+        if (recursive_depth < 2) {
+          ++recursive_depth;
+          std::string nested_value;
+          ASSERT_OK(db_->Get(ReadOptions(), "reentrant_key", &nested_value));
+          ASSERT_EQ("reentrant_value", nested_value);
+          --recursive_depth;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "reentrant_key", &value));
+  ASSERT_EQ("reentrant_value", value);
+  ASSERT_EQ(callback_calls, 3);
+  ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
+  ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 class DBMultiGetTestWithParam
     : public DBBasicTest,
       public testing::WithParamInterface<std::tuple<bool, bool>> {};

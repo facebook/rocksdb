@@ -482,9 +482,11 @@ class ColumnFamilyData {
   // get a reference from a current SuperVersion.
   SuperVersion* GetThreadLocalSuperVersion(DBImpl* db);
   // Try to return SuperVersion back to thread local storage. Return true on
-  // success and false on failure. It fails when the thread local storage
-  // contains anything other than SuperVersion::kSVInUse flag.
+  // success and false when caller should cleanup the SuperVersion reference
+  // instead (e.g., nested acquisition or thread-local scrape).
   bool ReturnThreadLocalSuperVersion(SuperVersion* sv);
+  // Release one thread-local SuperVersion acquisition scope.
+  void ExitThreadLocalSuperVersion();
   // thread-safe
   uint64_t GetSuperVersionNumber() const {
     return super_version_number_.load();
@@ -665,6 +667,10 @@ class ColumnFamilyData {
   // Thread's local copy of SuperVersion pointer
   // This needs to be destructed before mutex_
   std::unique_ptr<ThreadLocalPtr> local_sv_;
+  // Non-owning in-use SuperVersion pointer for re-entrant reads.
+  std::unique_ptr<ThreadLocalPtr> local_sv_inuse_;
+  // Per-thread acquisition depth for this column family.
+  std::unique_ptr<ThreadLocalPtr> local_sv_depth_;
 
   // pointers for a circular linked list. we use it to support iterations over
   // all column families that are alive (note: dropped column families can also
