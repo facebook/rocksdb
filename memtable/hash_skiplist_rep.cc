@@ -62,6 +62,11 @@ class HashSkipListRep : public MemTableRep {
   // immutable after construction
   Allocator* const allocator_;
 
+  // Cached bucket from last Insert() to avoid redundant MurmurHash +
+  // atomic load when consecutive inserts share the same prefix.
+  mutable size_t last_hash_ = 0;
+  mutable Bucket* last_bucket_ = nullptr;
+
   inline size_t GetHash(const Slice& slice) const {
     return MurmurHash(slice.data(), static_cast<int>(slice.size()), 0) %
            bucket_size_;
@@ -267,7 +272,15 @@ void HashSkipListRep::Insert(KeyHandle handle) {
   auto* key = static_cast<char*>(handle);
   assert(!Contains(key));
   auto transformed = transform_->Transform(UserKey(key));
-  auto bucket = GetInitializedBucket(transformed);
+  size_t hash = GetHash(transformed);
+  Bucket* bucket;
+  if (hash == last_hash_ && last_bucket_ != nullptr) {
+    bucket = last_bucket_;
+  } else {
+    bucket = GetInitializedBucket(transformed);
+    last_hash_ = hash;
+    last_bucket_ = bucket;
+  }
   bucket->Insert(key);
 }
 

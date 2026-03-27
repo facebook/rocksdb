@@ -1988,6 +1988,11 @@ class MemTableInserter : public WriteBatch::Handler {
   bool post_info_created_;
   const WriteBatch::ProtectionInfo* prot_info_;
   size_t prot_info_idx_;
+  // Cached column family ID to avoid redundant cf_mems_->Seek() lookups
+  // when consecutive entries target the same CF (the common case).
+  // kInvalidCFID means no cached value.
+  static constexpr uint32_t kInvalidCFID = std::numeric_limits<uint32_t>::max();
+  uint32_t last_cf_id_;
 
   bool* has_valid_writes_;
   // On some (!) platforms just default creating
@@ -2104,6 +2109,7 @@ class MemTableInserter : public WriteBatch::Handler {
         post_info_created_(false),
         prot_info_(prot_info),
         prot_info_idx_(0),
+        last_cf_id_(kInvalidCFID),
         has_valid_writes_(has_valid_writes),
         rebuilding_trx_(nullptr),
         rebuilding_trx_seq_(0),
@@ -2159,6 +2165,10 @@ class MemTableInserter : public WriteBatch::Handler {
     }
   }
 
+  // Override Continue() to avoid virtual dispatch on every entry.
+  // MemTableInserter never stops early, so this always returns true.
+  bool Continue() override { return true; }
+
   void set_log_number_ref(uint64_t log) { log_number_ref_ = log; }
   void set_prot_info(const WriteBatch::ProtectionInfo* prot_info) {
     prot_info_ = prot_info;
@@ -2179,6 +2189,17 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 
   bool SeekToColumnFamily(uint32_t column_family_id, Status* s) {
+    // Fast path: if consecutive entries target the same CF, skip the
+    // hash-map lookup in cf_mems_->Seek().  The ColumnFamilyMemTables
+    // object retains the last Seek result, so current() is still valid.
+    if (LIKELY(column_family_id == last_cf_id_)) {
+      // Still need to ref the log section for each entry.
+      if (UNLIKELY(log_number_ref_ > 0)) {
+        cf_mems_->GetMemTable()->RefLogContainingPrepSection(log_number_ref_);
+      }
+      return true;
+    }
+
     // If we are in a concurrent mode, it is the caller's responsibility
     // to clone the original ColumnFamilyMemTables so that each thread
     // has its own instance.  Otherwise, it must be guaranteed that there
@@ -2221,6 +2242,7 @@ class MemTableInserter : public WriteBatch::Handler {
       cf_mems_->GetMemTable()->RefLogContainingPrepSection(log_number_ref_);
     }
 
+    last_cf_id_ = column_family_id;
     return true;
   }
 
