@@ -2562,6 +2562,33 @@ TEST_F(DBBlobBasicTest, GetApproximateSizesIncludingBlobFiles) {
             DB::SizeApproximationFlags::INCLUDE_BLOB_FILES));
     ASSERT_GT(size_flags, size_without_blobs);
   }
+
+  // Multi-range query: two non-overlapping sub-ranges should sum to
+  // approximately the full-range result.
+  {
+    SizeApproximationOptions size_approx_options;
+    size_approx_options.include_files = true;
+    size_approx_options.include_blob_files = true;
+
+    std::string mid = Key(kNumKeys / 2);
+    std::string r1_start = Key(0);
+    std::string r1_end = mid;
+    std::string r2_start = mid;
+    std::string r2_end = Key(kNumKeys);
+    Range ranges[2] = {Range(r1_start, r1_end), Range(r2_start, r2_end)};
+    uint64_t sizes[2] = {0, 0};
+    ASSERT_OK(db_->GetApproximateSizes(
+        size_approx_options, db_->DefaultColumnFamily(), ranges, 2, sizes));
+    // Each sub-range should return a positive size.
+    ASSERT_GT(sizes[0], 0);
+    ASSERT_GT(sizes[1], 0);
+    // Sum of sub-ranges should be close to the full-range result.
+    uint64_t full_size = 0;
+    ASSERT_OK(db_->GetApproximateSizes(
+        size_approx_options, db_->DefaultColumnFamily(), &r, 1, &full_size));
+    ASSERT_NEAR(static_cast<double>(sizes[0] + sizes[1]),
+                static_cast<double>(full_size), full_size * 0.1);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
