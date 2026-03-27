@@ -13,9 +13,12 @@
 #include <string>
 #include <thread>
 
+#ifndef NDEBUG
 #include "test_util/sync_point.h"
+#endif
 
 namespace {
+#ifndef NDEBUG
 // Global gtest event listener that cleans up SyncPoint state after every
 // test. Many tests set SyncPoint callbacks with captured local variables
 // but forget to disable/clear them. Under sharded execution (multiple
@@ -45,6 +48,7 @@ static int RegisterSyncPointCleanup() noexcept {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 [[maybe_unused]] static int sync_point_cleanup_registered_ =
     RegisterSyncPointCleanup();
+#endif  // !NDEBUG
 }  // namespace
 
 namespace ROCKSDB_NAMESPACE::test {
