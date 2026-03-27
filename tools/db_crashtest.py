@@ -871,6 +871,45 @@ multiops_txn_params = {
 # "disable_self" is called when the engine needs to turn this feature off
 #   (either because it lost a conflict or has prerequisites unmet).
 # "requires" is the set of params this feature needs.
+#
+# ---- Maintenance Guide: How to add a new feature requirement ----
+#
+# Use FEATURE_REQUIREMENTS when two features are *mutually incompatible* on a
+# shared parameter (feature A requires param=X, feature B requires param=Y).
+# The engine auto-detects these conflicts — you just declare requirements.
+#
+# Use INCOMPATIBILITY_RULES (below) instead when:
+#   - One feature forces a downstream consequence (one-way, not mutual)
+#   - The constraint involves numeric ranges or non-binary relationships
+#   - A condition affects params that no single feature "owns"
+#
+# Conflict resolution uses explicit_keys (params set via --extra_flags):
+#   - explicit + random  -> explicit wins, random feature disabled
+#   - explicit + explicit -> exit(1), user must fix their flags
+#   - random + random    -> 50/50 coin flip disables one feature
+#
+# Worked example — adding a hypothetical "my_feature":
+#
+#   "my_feature": {
+#       # Active when the param is turned on (adjust to your activation logic)
+#       "active_when": lambda p: p.get("my_feature_enabled") == 1,
+#       # How to turn this feature off when it loses a conflict
+#       "disable_self": lambda p: {"my_feature_enabled": 0},
+#       # What this feature needs from other params to work correctly
+#       "requires": {
+#           "foo": 1,   # my_feature needs foo=1
+#           "bar": 0,   # my_feature needs bar=0
+#       },
+#       "comment": "my_feature relies on foo and is incompatible with bar. "
+#                  "C++ check: db_stress_tool.cc asserts ...",
+#   }
+#
+# That's it. If any existing feature also requires "foo" or "bar" with a
+# different value, the engine will detect and resolve the conflict
+# automatically. No need to touch engine code.
+#
+# Tests: run `python3 tools/test_db_crashtest.py` to verify your new rule.
+# ---- End maintenance guide ----
 
 FEATURE_REQUIREMENTS = {
     "best_efforts_recovery": {
@@ -1200,10 +1239,13 @@ def _apply_feature_requirements(dest_params, explicit_keys, max_iterations=30):
         if not changed:
             break
     else:
-        import warnings
-        warnings.warn(
-            f"finalize_and_sanitize did not converge after {max_iterations} iterations"
+        print(
+            f"ERROR: finalize_and_sanitize did not converge after"
+            f" {max_iterations} iterations in _apply_feature_requirements()."
+            f" Check FEATURE_REQUIREMENTS / INCOMPATIBILITY_RULES for cycles.",
+            file=sys.stderr,
         )
+        sys.exit(1)
 
     return dest_params
 
@@ -1303,10 +1345,13 @@ def _apply_declarative_rules(dest_params, max_iterations=20):
             break
     else:
         # Should never happen in practice, but safety valve
-        import warnings
-        warnings.warn(
-            f"finalize_and_sanitize did not converge after {max_iterations} iterations"
+        print(
+            f"ERROR: finalize_and_sanitize did not converge after"
+            f" {max_iterations} iterations in _apply_special_rules()."
+            f" Check FEATURE_REQUIREMENTS / INCOMPATIBILITY_RULES for cycles.",
+            file=sys.stderr,
         )
+        sys.exit(1)
 
     return dest_params
 
@@ -1338,6 +1383,42 @@ INCOMPATIBILITY_RULES = [
     # One-way consequence rules: these propagate the effects of a feature
     # being active. They do NOT resolve conflicts between features —
     # that is handled by FEATURE_REQUIREMENTS above.
+    #
+    # ---- Maintenance Guide: How to add a new incompatibility rule ----
+    #
+    # Use INCOMPATIBILITY_RULES when a condition forces downstream param
+    # changes (one-way), NOT when two features are mutually incompatible
+    # (use FEATURE_REQUIREMENTS for that).
+    #
+    # Good fit for INCOMPATIBILITY_RULES:
+    #   - "if compression dict is 0, then training bytes must be 0"
+    #   - "if WAL is disabled, then sync must be 0 and atomic_flush must be 1"
+    #   - numeric constraints, conditional defaults, downstream side-effects
+    #
+    # Format:
+    #   {
+    #       "name": "unique_rule_name",
+    #       "when": lambda p: <condition>,
+    #       "then": {"param": value, ...}       # static dict
+    #           OR: lambda p: {"param": value}  # callable (can read current params)
+    #       "comment": "why this rule exists",
+    #   }
+    #
+    # Rules run in a fixed-point loop until no rule changes any param.
+    # Order in the list does NOT matter — all rules re-evaluate each iteration.
+    # The loop exits with an error after 100 iterations (cycle detection).
+    #
+    # Worked example — a hypothetical rule:
+    #
+    #   {
+    #       "name": "my_rule",
+    #       "when": lambda p: p.get("enable_foo") == 1,
+    #       "then": {"bar_timeout": 0, "baz_mode": 1},
+    #       "comment": "When foo is on, bar timeout is meaningless and baz required",
+    #   }
+    #
+    # Tests: run `python3 tools/test_db_crashtest.py` to verify your new rule.
+    # ---- End maintenance guide ----
     {
             "name": "compression_dict_zero",
             "when": lambda p: p.get("compression_max_dict_bytes") == 0,
