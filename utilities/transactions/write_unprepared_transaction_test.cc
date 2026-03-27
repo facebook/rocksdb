@@ -751,66 +751,89 @@ std::vector<std::string> VerifyIterator(Iterator* iter, bool forward) {
 // Since range_tomb_max_seq_ >= min_uncommitted, insertion is blocked for the
 // entire run. Verifies data correctness after commit.
 TEST_P(WriteUnpreparedTransactionTest, RangeTombstoneMultipleBatchesAndCommit) {
-  for (bool forward : {true, false}) {
-    SCOPED_TRACE(forward ? "forward" : "reverse");
-    options.min_tombstones_for_range_conversion = 4;
-    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    ASSERT_OK(ReOpenNoDelete());
+  // Test two scenarios:
+  // 1) Txn Delete extends the END of a committed tombstone run.
+  // 2) Txn Delete in the MIDDLE of a committed tombstone run.
+  // Both should block insertion because range_tomb_max_seq_ >=
+  // min_uncommitted.
+  for (bool middle_tombstone : {false, true}) {
+    SCOPED_TRACE(middle_tombstone ? "middle tombstone" : "end tombstone");
+    for (bool forward : {true, false}) {
+      SCOPED_TRACE(forward ? "forward" : "reverse");
+      options.min_tombstones_for_range_conversion = 4;
+      options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+      ASSERT_OK(ReOpenNoDelete());
 
-    for (char c = 'a'; c <= 'j'; c++) {
-      ASSERT_OK(db->Put(WriteOptions(), std::string(1, c), "val"));
-    }
-    ASSERT_OK(db->Flush(FlushOptions()));
+      for (char c = 'a'; c <= 'j'; c++) {
+        ASSERT_OK(db->Put(WriteOptions(), std::string(1, c), "val"));
+      }
+      ASSERT_OK(db->Flush(FlushOptions()));
 
-    // Committed point deletions c-g (5 contiguous, above threshold).
-    for (char c = 'c'; c <= 'g'; c++) {
-      ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));
-    }
+      if (middle_tombstone) {
+        // Committed deletions c, d, f, g (with gap at e).
+        for (char c : {'c', 'd', 'f', 'g'}) {
+          ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));
+        }
+      } else {
+        // Committed point deletions c-g (5 contiguous, above threshold).
+        for (char c = 'c'; c <= 'g'; c++) {
+          ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));
+        }
+      }
 
-    TransactionOptions txn_options;
-    // flush_threshold=1 forces each write to create a separate unprepared
-    // batch in the memtable, each with its own seqno range in unprep_seqs.
-    txn_options.write_batch_flush_threshold = 1;
-    std::unique_ptr<Transaction> txn(
-        db->BeginTransaction(WriteOptions(), txn_options));
-    ASSERT_NE(txn, nullptr);
+      TransactionOptions txn_options;
+      // flush_threshold=1 forces each write to create a separate unprepared
+      // batch in the memtable, each with its own seqno range in unprep_seqs.
+      txn_options.write_batch_flush_threshold = 1;
+      std::unique_ptr<Transaction> txn(
+          db->BeginTransaction(WriteOptions(), txn_options));
+      ASSERT_NE(txn, nullptr);
 
-    // Multiple unprepared batches — Put at "b" bounds the start. Delete at "h"
-    // extends the committed tombstone run [c, g] with an uncommitted entry,
-    // making the combined run [c, h] contain an uncommitted seqno.
-    ASSERT_OK(txn->Put("b", "txn_b"));  // batch 1, bounds start of run
-    ASSERT_OK(
-        txn->Delete("h"));  // batch 2, extends run with uncommitted delete
-    ASSERT_OK(txn->Put("i", "txn_i"));  // batch 3
-    ASSERT_OK(txn->Put("z", "txn_z"));  // batch 4
+      // Multiple unprepared batches.
+      ASSERT_OK(txn->Put("b", "txn_b"));  // batch 1, bounds start of run
+      if (middle_tombstone) {
+        // Txn Delete("e") fills the gap in the middle of committed deletes
+        // c, d, [e], f, g — making a contiguous run of 5 that contains an
+        // uncommitted seqno in the middle.
+        ASSERT_OK(txn->Delete("e"));
+      } else {
+        // Txn Delete("h") extends the committed run [c, g] at the end.
+        ASSERT_OK(txn->Delete("h"));
+      }
+      ASSERT_OK(txn->Put("i", "txn_i"));
+      ASSERT_OK(txn->Put("z", "txn_z"));
 
-    // The WriteUnpreparedTxnReadCallback makes own writes visible via
-    // IsVisibleFullCheck + unprep_seqs. The txn Delete("h") extends the
-    // tombstone run to [c, h], but its seqno >= min_uncommitted blocks
-    // insertion of the entire run.
-    {
-      ReadOptions ro;
-      std::unique_ptr<Iterator> iter(txn->GetIterator(ro));
-      // a(committed), b(txn), i(txn), j(committed), z(txn)
-      // h is deleted by txn Delete
-      ASSERT_EQ(VerifyIterator(iter.get(), forward),
-                (std::vector<std::string>{"a", "b", "i", "j", "z"}));
-      ASSERT_OK(iter->status());
-    }
-    ASSERT_EQ(
-        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
-        0u);
+      // The txn Delete (whether at "e" or "h") has seqno >= min_uncommitted.
+      // It contaminates the run's range_tomb_max_seq_, blocking insertion.
+      {
+        ReadOptions ro;
+        std::unique_ptr<Iterator> iter(txn->GetIterator(ro));
+        if (middle_tombstone) {
+          // c-g all deleted (c,d committed, e txn, f,g committed)
+          ASSERT_EQ(VerifyIterator(iter.get(), forward),
+                    (std::vector<std::string>{"a", "b", "h", "i", "j", "z"}));
+        } else {
+          // c-h all deleted (c-g committed, h txn)
+          ASSERT_EQ(VerifyIterator(iter.get(), forward),
+                    (std::vector<std::string>{"a", "b", "i", "j", "z"}));
+        }
+        ASSERT_OK(iter->status());
+      }
+      ASSERT_EQ(options.statistics->getTickerCount(
+                    READ_PATH_RANGE_TOMBSTONES_INSERTED),
+                0u);
 
-    ASSERT_OK(txn->Commit());
+      ASSERT_OK(txn->Commit());
 
-    // Verify data correctness after commit.
-    std::string value;
-    ASSERT_OK(db->Get(ReadOptions(), "b", &value));
-    ASSERT_EQ(value, "txn_b");
-    // c-h are all deleted (c-g committed, h by txn).
-    for (char c = 'c'; c <= 'h'; c++) {
-      ASSERT_TRUE(
-          db->Get(ReadOptions(), std::string(1, c), &value).IsNotFound());
+      // Verify data correctness after commit.
+      std::string value;
+      ASSERT_OK(db->Get(ReadOptions(), "b", &value));
+      ASSERT_EQ(value, "txn_b");
+      char last_del = middle_tombstone ? 'g' : 'h';
+      for (char c = 'c'; c <= last_del; c++) {
+        ASSERT_TRUE(
+            db->Get(ReadOptions(), std::string(1, c), &value).IsNotFound());
+      }
     }
   }
 }

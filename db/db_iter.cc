@@ -967,18 +967,20 @@ void DBIter::PrevInternal(const Slice* prefix) {
     if (min_tombstones_for_range_conversion_ > 0 &&
         range_tomb_end_key_.GetUserKey().size() > 0 &&
         timestamp_lb_ == nullptr) {
-      if (!valid_ && ikey_.sequence <= sequence_) {
-        // Key was deleted — track it as part of contiguous run.
-        // Skip transaction's own writes (seq > snapshot).
-        range_tomb_first_key_.SetUserKey(
-            saved_key_.GetUserKey(), !pin_thru_lifetime_ || !iter_.Valid() ||
-                                         !iter_.iter()->IsKeyPinned());
-        if (contiguous_tombstone_count_ == 0) {
-          range_tomb_max_seq_ = ikey_.sequence;
-        } else {
-          range_tomb_max_seq_ = std::max(range_tomb_max_seq_, ikey_.sequence);
+      if (!valid_) {
+        // Do not track tombstones inserted by uncommitted transactions.
+        if (ikey_.sequence <= sequence_) {
+          // Key was deleted — track it as part of contiguous run.
+          range_tomb_first_key_.SetUserKey(
+              saved_key_.GetUserKey(), !pin_thru_lifetime_ || !iter_.Valid() ||
+                                           !iter_.iter()->IsKeyPinned());
+          if (contiguous_tombstone_count_ == 0) {
+            range_tomb_max_seq_ = ikey_.sequence;
+          } else {
+            range_tomb_max_seq_ = std::max(range_tomb_max_seq_, ikey_.sequence);
+          }
+          contiguous_tombstone_count_++;
         }
-        contiguous_tombstone_count_++;
       } else if (contiguous_tombstone_count_ > 0) {
         // Live key found after a run of tombstones — insert if threshold met
         MaybeInsertRangeTombstone(range_tomb_end_key_.GetUserKey());
