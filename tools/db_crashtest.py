@@ -520,10 +520,18 @@ def setup_expected_values_dir():
     else:
         # if tmpdir is specified, store the expected_values_dir under that dir
         expected_values_dir = test_exp_tmpdir + "/rocksdb_crashtest_expected"
-        if os.path.exists(expected_values_dir):
-            shutil.rmtree(expected_values_dir)
-        os.mkdir(expected_values_dir)
+        os.makedirs(expected_values_dir, exist_ok=True)
     return expected_values_dir
+
+
+def prepare_expected_values_dir(expected_dir, destroy_db_initially):
+    if expected_dir is None or expected_dir == "":
+        return
+
+    if destroy_db_initially and os.path.exists(expected_dir):
+        shutil.rmtree(expected_dir, True)
+
+    os.makedirs(expected_dir, exist_ok=True)
 
 
 multiops_txn_key_spaces_file = None
@@ -1369,6 +1377,10 @@ def gen_cmd_params(args):
 
 def gen_cmd(params, unknown_params):
     finalzied_params = finalize_and_sanitize(params)
+    prepare_expected_values_dir(
+        finalzied_params.get("expected_values_dir"),
+        finalzied_params.get("destroy_db_initially", 0),
+    )
     cmd = (
         [stress_cmd]
         + [
@@ -1746,9 +1758,6 @@ def whitebox_crash_main(args, unknown_args):
         if time.time() > half_time:
             # Set next iteration to destroy DB (works for remote DB)
             cmd_params["destroy_db_initially"] = 1
-            if expected_values_dir is not None:
-                shutil.rmtree(expected_values_dir, True)
-                os.mkdir(expected_values_dir)
             check_mode = (check_mode + 1) % total_check_mode
 
         time.sleep(1)  # time to stabilize after a kill
