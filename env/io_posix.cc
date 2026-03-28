@@ -1096,7 +1096,6 @@ IOStatus PosixRandomAccessFile::ReadAsync(
 
   // Init failed, platform doesn't support io_uring.
   if (iu == nullptr) {
-    fprintf(stderr, "failed to init io_uring\n");
     return IOStatus::NotSupported("ReadAsync: failed to init io_uring");
   }
 
