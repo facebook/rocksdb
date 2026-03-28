@@ -185,6 +185,7 @@ jobs:
           prompt_file: /tmp/prompt.txt
           model: claude-opus-4-6
           max_turns: "300"
+          timeout_minutes: "60"
           allowed_tools: "View,GlobTool,GrepTool,Write,Task"
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
@@ -449,6 +450,7 @@ jobs:
           prompt_file: /tmp/prompt.txt
           model: ${{ github.event_name == 'workflow_dispatch' && inputs.model || 'claude-opus-4-6' }}
           max_turns: "300"
+          timeout_minutes: "60"
           allowed_tools: "View,GlobTool,GrepTool,Write,Task"
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
