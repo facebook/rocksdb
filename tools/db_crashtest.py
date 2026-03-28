@@ -1045,6 +1045,13 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("prefix_size") == -1:
         dest_params["readpercent"] += dest_params.get("prefixpercent", 20)
         dest_params["prefixpercent"] = 0
+    elif dest_params.get("simple") and dest_params.get("test_type") == "blackbox":
+        # `db_stress` randomizes iterate_lower_bound independently of the seek
+        # target. With a configured prefix extractor this can violate
+        # ReadOptions' same-prefix requirement, so disable random iterator
+        # operations in simple blackbox mode.
+        dest_params["readpercent"] += dest_params.get("iterpercent", 10)
+        dest_params["iterpercent"] = 0
     if (
         dest_params.get("prefix_size") == -1
         and dest_params.get("memtable_whole_key_filtering") == 0
