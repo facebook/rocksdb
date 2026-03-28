@@ -304,6 +304,7 @@ force_no_fbcode()
   # to patch old branches for changes to available FB compilers.
   sed -i -e 's|-d /mnt/gvfs/third-party|"$ROCKSDB_FORCE_FBCODE"|' build_tools/build_detect_platform
   # Fix a build issue affecting at least 4.2.fb
+  11.1.fb
   if [ -e include/rocksdb/delete_scheduler.h ]; then
     sed -i -e 's|pragma once|pragma once\n#include <memory>|' include/rocksdb/delete_scheduler.h
   fi
