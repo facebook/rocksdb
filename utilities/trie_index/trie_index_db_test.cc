@@ -20,8 +20,10 @@
 
 #include "port/port.h"
 #include "rocksdb/db.h"
+#include "rocksdb/experimental.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/slice_transform.h"
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -31,6 +33,7 @@
 #include "rocksdb/write_batch.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/coding.h"
 #include "util/compression.h"
 #include "util/random.h"
 #include "utilities/merge_operators.h"
@@ -49,6 +52,94 @@ static std::string MakeKeyBody(int k) {
     val >>= 8;
   }
   return key_body;
+}
+
+static void AppendBigEndian64(uint64_t val, std::string* key) {
+  PutFixed64(key, val);
+  char* int_data = &((*key)[key->size() - sizeof(uint64_t)]);
+  for (size_t i = 0; i < sizeof(uint64_t) / 2; ++i) {
+    std::swap(int_data[i], int_data[sizeof(uint64_t) - 1 - i]);
+  }
+}
+
+// Matches db_stress's default key generation for:
+//   max_key_len=3, key_len_percent_dist=1,30,69, key_window_scale_factor=10
+static std::string MakeStressKey(int64_t val) {
+  static constexpr uint64_t kWindow = 1000;
+  static constexpr uint64_t kWeights[] = {10, 300, 690};
+  static constexpr size_t kNumWeights = 3;
+
+  uint64_t window_idx = static_cast<uint64_t>(val) / kWindow;
+  uint64_t offset = static_cast<uint64_t>(val) % kWindow;
+  std::string key;
+  key.reserve(3 * sizeof(uint64_t));
+
+  for (size_t level = 0; level < kNumWeights; ++level) {
+    const uint64_t weight = kWeights[level];
+    uint64_t pfx = (level == 0) ? window_idx * weight : 0;
+    pfx += offset >= weight ? weight - 1 : offset;
+    AppendBigEndian64(pfx, &key);
+    if (offset < weight) {
+      if (offset < weight - 1 && level + 1 < kNumWeights) {
+        key.append(static_cast<size_t>(offset & 0x7), 'x');
+      }
+      break;
+    }
+    offset -= weight;
+  }
+
+  return key;
+}
+
+static std::string MakePaddedValue(int version, int key_num) {
+  std::string value =
+      "value_v" + std::to_string(version) + "_k" + std::to_string(key_num);
+  value.append(128, static_cast<char>('a' + (version % 26)));
+  return value;
+}
+
+class StressLikeVariableWidthExtractor
+    : public experimental::KeySegmentsExtractor {
+ public:
+  const char* Name() const override { return "StressLikeVariableWidth"; }
+
+  std::string GetId() const override { return Name(); }
+
+  void Extract(const Slice& key_or_bound, KeyKind /*kind*/,
+               Result* result) const override {
+    const uint32_t len = static_cast<uint32_t>(key_or_bound.size());
+    bool prev_non_zero = false;
+    for (uint32_t i = 0; i < len; ++i) {
+      if ((prev_non_zero && key_or_bound[i] == 0) || i + 1 == len) {
+        result->segment_ends.push_back(i + 1);
+      }
+      prev_non_zero = key_or_bound[i] != 0;
+    }
+  }
+};
+
+static std::shared_ptr<experimental::SstQueryFilterConfigsManager::Factory>
+MakeStressLikeSqfcFactory() {
+  using experimental::MakeSharedBytewiseMinMaxSQFC;
+  using experimental::SelectKeySegment;
+  using experimental::SstQueryFilterConfigs;
+  using experimental::SstQueryFilterConfigsManager;
+
+  auto extractor = std::make_shared<StressLikeVariableWidthExtractor>();
+  auto filter0 = MakeSharedBytewiseMinMaxSQFC(SelectKeySegment(0));
+  auto filter2 = MakeSharedBytewiseMinMaxSQFC(SelectKeySegment(2));
+
+  SstQueryFilterConfigs configs{{filter0, filter2}, extractor};
+  SstQueryFilterConfigsManager::Data data = {{1, {{"foo", configs}}}};
+
+  std::shared_ptr<SstQueryFilterConfigsManager> manager;
+  EXPECT_OK(SstQueryFilterConfigsManager::MakeShared(data, &manager));
+  EXPECT_TRUE(manager);
+
+  std::shared_ptr<SstQueryFilterConfigsManager::Factory> factory;
+  EXPECT_OK(manager->MakeSharedFactory("foo", 1, &factory));
+  EXPECT_TRUE(factory);
+  return factory;
 }
 
 class TrieIndexDBTest : public testing::Test {
@@ -1277,6 +1368,295 @@ TEST_F(TrieIndexDBTest, SameUserKeyManyVersionsSeekCorrectness) {
   for (auto* snap : snaps) {
     db_->ReleaseSnapshot(snap);
   }
+}
+
+TEST_F(TrieIndexDBTest, AutoRefreshSnapshotNextAcrossSameUserKeyBoundaries) {
+  options_.create_if_missing = true;
+  options_.disable_auto_compactions = true;
+
+  BlockBasedTableOptions table_options;
+  table_options.user_defined_index_factory = trie_factory_;
+  table_options.block_size = 64;
+  table_options.separate_key_value_in_data_block = true;
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  last_options_ = options_;
+  ASSERT_OK(DB::Open(options_, dbname_, &db_));
+
+  const std::vector<std::string> keys = {"key_aaa", "key_mmm", "key_zzz"};
+  constexpr int kVersionsPerKey = 12;
+  std::vector<const Snapshot*> snaps;
+
+  for (int v = 0; v < kVersionsPerKey; ++v) {
+    for (const auto& key : keys) {
+      std::string value =
+          key + "_v" + std::to_string(v) + "_padding_to_force_more_data_blocks";
+      ASSERT_OK(db_->Put(WriteOptions(), key, value));
+    }
+    snaps.push_back(db_->GetSnapshot());
+  }
+
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  const Snapshot* snap = snaps.back();
+  const std::string expected_mmm = "key_mmm_v" +
+                                   std::to_string(kVersionsPerKey - 1) +
+                                   "_padding_to_force_more_data_blocks";
+
+  ReadOptions std_ro;
+  std_ro.snapshot = snap;
+  std_ro.auto_refresh_iterator_with_snapshot = true;
+  std_ro.allow_unprepared_value = true;
+
+  ReadOptions trie_ro = std_ro;
+  trie_ro.table_index_factory = trie_factory_.get();
+
+  std::unique_ptr<Iterator> std_iter(db_->NewIterator(std_ro));
+  std::unique_ptr<Iterator> trie_iter(db_->NewIterator(trie_ro));
+
+  std_iter->Seek("key_aaa");
+  trie_iter->Seek("key_aaa");
+  ASSERT_TRUE(std_iter->Valid());
+  ASSERT_TRUE(trie_iter->Valid());
+  ASSERT_EQ(std_iter->key().ToString(), "key_aaa");
+  ASSERT_EQ(trie_iter->key().ToString(), "key_aaa");
+  ASSERT_TRUE(std_iter->PrepareValue());
+  ASSERT_TRUE(trie_iter->PrepareValue());
+
+  std::string std_sv_before;
+  std::string trie_sv_before;
+  ASSERT_OK(std_iter->GetProperty("rocksdb.iterator.super-version-number",
+                                  &std_sv_before));
+  ASSERT_OK(trie_iter->GetProperty("rocksdb.iterator.super-version-number",
+                                   &trie_sv_before));
+
+  // Bump SuperVersion after the iterators are already positioned so the next
+  // Next() must reconcile against the held snapshot.
+  for (int i = 0; i < 100; ++i) {
+    ASSERT_OK(db_->Put(WriteOptions(), "key_after_" + std::to_string(i),
+                       "value_after_" + std::to_string(i)));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  std_iter->Next();
+  trie_iter->Next();
+  ASSERT_TRUE(std_iter->Valid());
+  ASSERT_TRUE(trie_iter->Valid());
+  ASSERT_EQ(std_iter->key().ToString(), "key_mmm");
+  ASSERT_EQ(trie_iter->key().ToString(), "key_mmm");
+  ASSERT_TRUE(std_iter->PrepareValue());
+  ASSERT_TRUE(trie_iter->PrepareValue());
+  ASSERT_EQ(std_iter->value().ToString(), expected_mmm);
+  ASSERT_EQ(trie_iter->value().ToString(), expected_mmm);
+
+  std::string std_sv_after;
+  std::string trie_sv_after;
+  ASSERT_OK(std_iter->GetProperty("rocksdb.iterator.super-version-number",
+                                  &std_sv_after));
+  ASSERT_OK(trie_iter->GetProperty("rocksdb.iterator.super-version-number",
+                                   &trie_sv_after));
+  ASSERT_LT(std::stoull(std_sv_before), std::stoull(std_sv_after));
+  ASSERT_LT(std::stoull(trie_sv_before), std::stoull(trie_sv_after));
+
+  for (auto* held : snaps) {
+    db_->ReleaseSnapshot(held);
+  }
+}
+
+TEST_F(TrieIndexDBTest,
+       AutoRefreshSnapshotNextAfterCompactionAcrossSameUserKeyBoundaries) {
+  options_.create_if_missing = true;
+  options_.disable_auto_compactions = true;
+
+  BlockBasedTableOptions table_options;
+  table_options.user_defined_index_factory = trie_factory_;
+  table_options.block_size = 64;
+  table_options.separate_key_value_in_data_block = true;
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  last_options_ = options_;
+  ASSERT_OK(DB::Open(options_, dbname_, &db_));
+
+  const std::vector<std::string> keys = {"key_aaa", "key_mmm", "key_zzz"};
+  constexpr int kVersionsPerKey = 12;
+  std::vector<const Snapshot*> snaps;
+
+  for (int v = 0; v < kVersionsPerKey; ++v) {
+    for (const auto& key : keys) {
+      std::string value =
+          key + "_v" + std::to_string(v) + "_padding_to_force_more_data_blocks";
+      ASSERT_OK(db_->Put(WriteOptions(), key, value));
+    }
+    snaps.push_back(db_->GetSnapshot());
+  }
+
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  const Snapshot* snap = snaps.back();
+  const std::string expected_mmm = "key_mmm_v" +
+                                   std::to_string(kVersionsPerKey - 1) +
+                                   "_padding_to_force_more_data_blocks";
+
+  ReadOptions std_ro;
+  std_ro.snapshot = snap;
+  std_ro.auto_refresh_iterator_with_snapshot = true;
+  std_ro.allow_unprepared_value = true;
+
+  ReadOptions trie_ro = std_ro;
+  trie_ro.table_index_factory = trie_factory_.get();
+
+  std::unique_ptr<Iterator> std_iter(db_->NewIterator(std_ro));
+  std::unique_ptr<Iterator> trie_iter(db_->NewIterator(trie_ro));
+
+  std_iter->Seek("key_aaa");
+  trie_iter->Seek("key_aaa");
+  ASSERT_TRUE(std_iter->Valid());
+  ASSERT_TRUE(trie_iter->Valid());
+  ASSERT_TRUE(std_iter->PrepareValue());
+  ASSERT_TRUE(trie_iter->PrepareValue());
+
+  std::string std_sv_before;
+  std::string trie_sv_before;
+  ASSERT_OK(std_iter->GetProperty("rocksdb.iterator.super-version-number",
+                                  &std_sv_before));
+  ASSERT_OK(trie_iter->GetProperty("rocksdb.iterator.super-version-number",
+                                   &trie_sv_before));
+
+  // Rewrite the SST containing the multi-version keys while the iterators are
+  // open. The held snapshot keeps all versions live across compaction.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  std_iter->Next();
+  trie_iter->Next();
+  ASSERT_TRUE(std_iter->Valid());
+  ASSERT_TRUE(trie_iter->Valid());
+  ASSERT_EQ(std_iter->key().ToString(), "key_mmm");
+  ASSERT_EQ(trie_iter->key().ToString(), "key_mmm");
+  ASSERT_TRUE(std_iter->PrepareValue());
+  ASSERT_TRUE(trie_iter->PrepareValue());
+  ASSERT_EQ(std_iter->value().ToString(), expected_mmm);
+  ASSERT_EQ(trie_iter->value().ToString(), expected_mmm);
+
+  std::string std_sv_after;
+  std::string trie_sv_after;
+  ASSERT_OK(std_iter->GetProperty("rocksdb.iterator.super-version-number",
+                                  &std_sv_after));
+  ASSERT_OK(trie_iter->GetProperty("rocksdb.iterator.super-version-number",
+                                   &trie_sv_after));
+  ASSERT_LT(std::stoull(std_sv_before), std::stoull(std_sv_after));
+  ASSERT_LT(std::stoull(trie_sv_before), std::stoull(trie_sv_after));
+
+  for (auto* held : snaps) {
+    db_->ReleaseSnapshot(held);
+  }
+}
+
+TEST_F(TrieIndexDBTest,
+       AutoRefreshSnapshotStressLikeSingleCfCoalescingIterator) {
+  auto sqfc_factory = MakeStressLikeSqfcFactory();
+
+  options_.create_if_missing = true;
+  options_.disable_auto_compactions = true;
+  options_.prefix_extractor.reset(NewFixedPrefixTransform(5));
+  options_.table_properties_collector_factories.emplace_back(sqfc_factory);
+
+  BlockBasedTableOptions table_options;
+  table_options.user_defined_index_factory = trie_factory_;
+  table_options.block_size = 128;
+  table_options.separate_key_value_in_data_block = true;
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  last_options_ = options_;
+  ASSERT_OK(DB::Open(options_, dbname_, &db_));
+
+  constexpr int kRangeStart = 36745;
+  constexpr int kRangeEnd = 36755;
+  constexpr int kFillerStart = kRangeStart - 40;
+  constexpr int kFillerEnd = kRangeEnd + 40;
+  constexpr int kFinalVersion = 8;
+
+  FlushOptions flush_opts;
+  flush_opts.wait = true;
+
+  for (int version = 0; version <= kFinalVersion; ++version) {
+    for (int key_num = kFillerStart; key_num < kFillerEnd; ++key_num) {
+      ASSERT_OK(db_->Put(WriteOptions(), MakeStressKey(key_num),
+                         MakePaddedValue(version, key_num)));
+    }
+    ASSERT_OK(db_->Flush(flush_opts));
+  }
+
+  const Snapshot* snap = db_->GetSnapshot();
+  const std::string lb = MakeStressKey(kRangeStart);
+  const std::string ub = MakeStressKey(kRangeEnd);
+
+  auto expected_value = [&](int key_num) {
+    return MakePaddedValue(kFinalVersion, key_num);
+  };
+
+  auto make_iter = [&](bool use_trie, bool use_coalescing) {
+    ReadOptions ro;
+    ro.snapshot = snap;
+    ro.allow_unprepared_value = true;
+    ro.auto_refresh_iterator_with_snapshot = true;
+    ro.table_filter = sqfc_factory->GetTableFilterForRangeQuery(lb, ub);
+    if (use_trie) {
+      ro.table_index_factory = trie_factory_.get();
+    }
+    if (use_coalescing) {
+      return db_->NewCoalescingIterator(ro, {db_->DefaultColumnFamily()});
+    }
+    return std::unique_ptr<Iterator>(db_->NewIterator(ro));
+  };
+
+  auto assert_iter_state = [&](const char* label, Iterator* iter, int key_num) {
+    SCOPED_TRACE(label);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), MakeStressKey(key_num));
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(iter->value().ToString(), expected_value(key_num));
+  };
+
+  auto std_iter = make_iter(/*use_trie=*/false, /*use_coalescing=*/false);
+  auto trie_iter = make_iter(/*use_trie=*/true, /*use_coalescing=*/false);
+  auto std_coalescing = make_iter(/*use_trie=*/false, /*use_coalescing=*/true);
+  auto trie_coalescing = make_iter(/*use_trie=*/true, /*use_coalescing=*/true);
+
+  const std::string seek_key = MakeStressKey(kRangeStart);
+  std_iter->Seek(seek_key);
+  trie_iter->Seek(seek_key);
+  std_coalescing->Seek(seek_key);
+  trie_coalescing->Seek(seek_key);
+
+  assert_iter_state("standard iterator before refresh", std_iter.get(),
+                    kRangeStart);
+  assert_iter_state("trie iterator before refresh", trie_iter.get(),
+                    kRangeStart);
+  assert_iter_state("standard coalescing iterator before refresh",
+                    std_coalescing.get(), kRangeStart);
+  assert_iter_state("trie coalescing iterator before refresh",
+                    trie_coalescing.get(), kRangeStart);
+
+  for (int i = 0; i < 100; ++i) {
+    const int key_num = 90000 + i;
+    ASSERT_OK(db_->Put(WriteOptions(), MakeStressKey(key_num),
+                       MakePaddedValue(100 + i, key_num)));
+  }
+  ASSERT_OK(db_->Flush(flush_opts));
+
+  for (int key_num = kRangeStart + 1; key_num < kRangeEnd; ++key_num) {
+    std_iter->Next();
+    trie_iter->Next();
+    std_coalescing->Next();
+    trie_coalescing->Next();
+
+    assert_iter_state("standard iterator after refresh", std_iter.get(),
+                      key_num);
+    assert_iter_state("trie iterator after refresh", trie_iter.get(), key_num);
+    assert_iter_state("standard coalescing iterator after refresh",
+                      std_coalescing.get(), key_num);
+    assert_iter_state("trie coalescing iterator after refresh",
+                      trie_coalescing.get(), key_num);
+  }
+
+  db_->ReleaseSnapshot(snap);
 }
 
 // ============================================================================

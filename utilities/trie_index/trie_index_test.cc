@@ -3846,6 +3846,26 @@ TEST_F(TrieIndexFactoryTest, SeekWithZeroSeqOnSameKeyBlocks) {
       AssertSeekOffset(ctx.iter.get(), Slice("key"), 0, 2000u));
 }
 
+TEST_F(TrieIndexFactoryTest, ZeroSeqMustNotSkipLeafForSmallerUserKey) {
+  // Regression test for DBIter's forward-scan reseek path.
+  //
+  // Block 0 ends with user key "m" and block 1 starts with the same user key,
+  // so the trie stores separator "m" with non-zero seqno metadata on block 0.
+  // However, a seek target for a *smaller* user key "l"|0 must still land on
+  // block 0, because block 0 can contain keys in ("l", "m"].
+  //
+  // Current buggy behavior applies seqno-based post-seek correction whenever
+  // target_seq < leaf_seqno, even if target user key < separator user key. In
+  // that case it incorrectly advances to block 1.
+  auto ctx = BuildTrieAndGetIterator({
+      {"m", "m", 0, 1000, 300, 200},
+      {"y", "zzz", 1000, 1000, 100, 1},
+      {"zzz", "", 2000, 1000, 1, 0},
+  });
+
+  ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(ctx.iter.get(), Slice("l"), 0, 0u));
+}
+
 TEST_F(TrieIndexFactoryTest, NextTransitionOverflowToOverflow) {
   // Test Next() transitioning from one overflow run to the next trie leaf
   // that also has an overflow run.
