@@ -6235,6 +6235,80 @@ TEST_P(ReadPathRangeTombstoneTest, LowerBoundTruncatesReverse) {
   }
 }
 
+// Regression test: FindValueForCurrentKeyUsingSeek must set ikey_ to the entry
+// found by the seek. A stale (too-low) sequence feeds into range_tomb_max_seq_
+// and becomes the range tombstone's insertion seq. A reader whose snapshot
+// falls between the stale seq and the real deletion seq would see the range
+// tombstone but not the point delete, incorrectly hiding live data.
+TEST_F(DBIteratorTest, RangeTombstoneReseekStaleIkey) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 2;
+  // Low skip threshold forces FindValueForCurrentKeyUsingSeek for keys with
+  // many versions.
+  options.max_sequential_skip_in_iterations = 2;
+  DestroyAndReopen(options);
+
+  // Put keys a-d, flush so they get low sequence numbers.
+  //   seq 1: Put(a)  seq 2: Put(b)  seq 3: Put(c)  seq 4: Put(d)
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Put("c", "vc"));
+  ASSERT_OK(Put("d", "vd"));
+  ASSERT_OK(Flush());
+
+  // Give both b and c extra versions so FindValueForCurrentKey triggers the
+  // reseek path for each.
+  //   seq 5-7: Put(b) x3     seq 8-10: Put(c) x3
+  ASSERT_OK(Put("b", "b_v2"));
+  ASSERT_OK(Put("b", "b_v3"));
+  ASSERT_OK(Put("b", "b_v4"));
+  ASSERT_OK(Put("c", "c_v2"));
+  ASSERT_OK(Put("c", "c_v3"));
+  ASSERT_OK(Put("c", "c_v4"));
+
+  // Snapshot BEFORE the deletes. At this snapshot b and c are live.
+  const Snapshot* snap = db_->GetSnapshot();
+
+  // Delete b and c (2 tombstones = threshold).
+  //   seq 11: Del(b)   seq 12: Del(c)
+  ASSERT_OK(Delete("b"));
+  ASSERT_OK(Delete("c"));
+
+  // Reverse iterate at the latest sequence. Both b and c hit the reseek path.
+  // This inserts a range tombstone [b, d). Without the fix, the tombstone's
+  // insertion seq would be based on stale intermediate Put seqs (~5-9) instead
+  // of the actual deletion seqs (11-12).
+  {
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+    iter->SeekToLast();
+    while (iter->Valid()) {
+      iter->Prev();
+    }
+    ASSERT_OK(iter->status());
+  }
+
+  // Read with the earlier snapshot. The point deletes (seq 11-12) are NOT
+  // visible, so b and c must be live. But a range tombstone inserted at a
+  // stale seq <= 10 WOULD be visible and would incorrectly cover the Puts.
+  ReadOptions ro;
+  ro.snapshot = snap;
+  ASSERT_EQ(Get("b", snap), "b_v4");
+  ASSERT_EQ(Get("c", snap), "c_v4");
+
+  // Verify via iterator too.
+  {
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    std::vector<std::string> keys;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      keys.push_back(iter->key().ToString());
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(keys, (std::vector<std::string>{"a", "b", "c", "d"}));
+  }
+
+  db_->ReleaseSnapshot(snap);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

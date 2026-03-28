@@ -1292,6 +1292,11 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     iter_.Next();
   }
 
+  // Keep ikey_ in sync with the entry found by the seek.
+  ikey_ = ikey;
+  TEST_SYNC_POINT_CALLBACK(
+      "DBIter::FindValueForCurrentKeyUsingSeek:ikey_updated", &ikey_);
+
   if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
       kTypeDeletionWithTimestamp == ikey.type) {
     if (timestamp_lb_ == nullptr) {
@@ -1579,8 +1584,6 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
     return;
   }
 
-  // Tombstones from transaction's own writes (seq > snapshot) are filtered
-  // out at the tracking site, so this invariant should always hold.
   assert(range_tomb_max_seq_ <= sequence_);
 
   auto earliest_seq = active_mem_->GetEarliestSequenceNumber();

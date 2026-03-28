@@ -2727,6 +2727,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   // fragmented range tombstone list with all entries present.
   // cfd->mem() still points to the old memtable until SetMemtable() below.
   cfd->mem()->ConstructFragmentedRangeTombstones();
+  TEST_SYNC_POINT(
+      "DBImpl::SwitchMemtable:AfterConstructFragmentedRangeTombstones");
   if (new_imm) {
     // Need to assign memtable id here before SetMemtable() below assigns id to
     // the new live memtable
