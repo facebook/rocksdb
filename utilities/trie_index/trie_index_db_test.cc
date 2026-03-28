@@ -1288,7 +1288,8 @@ TEST_F(TrieIndexDBTest,
 
   ASSERT_OK(db_->Put(WriteOptions(), before, large_value('a')));
   for (int version = 0; version < 8; ++version) {
-    ASSERT_OK(db_->Put(WriteOptions(), repeated, large_value('b' + version)));
+    ASSERT_OK(db_->Put(WriteOptions(), repeated,
+                       large_value(static_cast<char>('b' + version))));
   }
   ASSERT_OK(db_->Put(WriteOptions(), expected_1, large_value('m')));
   ASSERT_OK(db_->Put(WriteOptions(), expected_2, large_value('n')));
