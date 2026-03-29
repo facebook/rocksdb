@@ -951,15 +951,22 @@ void DBIter::PrevInternal(const Slice* prefix) {
       return;
     }
 
-    if (!FindValueForCurrentKey()) {  // assigns valid_
+    bool found_visible = false;
+    if (!FindValueForCurrentKey(found_visible)) {  // assigns valid_
       return;
     }
 
     // Track contiguous tombstones for reverse range tombstone conversion.
+    // Only track when FindValueForCurrentKey found a visible entry
+    // (found_visible == true).  When no visible entry exists (all seqno >
+    // snapshot), the key doesn't exist at this snapshot and must not be
+    // treated as a tombstone.  Additionally, ikey_ is only updated when a
+    // visible entry is found, so reading ikey_.sequence without this guard
+    // would use a stale value.
     if (min_tombstones_for_range_conversion_ > 0 &&
         range_tomb_end_key_.GetUserKey().size() > 0 &&
         timestamp_lb_ == nullptr) {
-      if (!valid_) {
+      if (!valid_ && found_visible) {
         // Key was deleted — track it as part of contiguous run.
         range_tomb_first_key_.SetUserKey(
             saved_key_.GetUserKey(), !pin_thru_lifetime_ || !iter_.Valid() ||
@@ -1007,13 +1014,19 @@ void DBIter::PrevInternal(const Slice* prefix) {
 // value for it, or executes a merge, or determines that the value was deleted.
 // Sets valid_ to true if the value is found and is ready to be presented to
 // the user through value().
-// Sets valid_ to false if the value was deleted, and we should try another key.
+// Sets valid_ to false if the value was deleted or no visible entry exists.
+// Sets ikey_ to the last visible entry's internal key.  When found_visible
+// is false, ikey_ is not updated and may contain stale data.
+// Sets found_visible to true if at least one entry passed the IsVisible()
+// check (seqno <= snapshot).  When false, no entry was visible — the key
+// does not exist at this snapshot and should not be treated as a tombstone.
 // Returns false if an error occurred, and !status().ok() and !valid_.
 //
 // PRE: iter_ is positioned on the last entry with user key equal to saved_key_.
 // POST: iter_ is positioned on one of the entries equal to saved_key_, or on
 //       the entry just before them, or on the entry just after them.
-bool DBIter::FindValueForCurrentKey() {
+bool DBIter::FindValueForCurrentKey(bool& found_visible) {
+  found_visible = false;
   assert(iter_.Valid());
   merge_context_.Clear();
   current_entry_is_merged_ = false;
@@ -1088,8 +1101,10 @@ bool DBIter::FindValueForCurrentKey() {
           !pin_thru_lifetime_ || !iter_.iter()->IsKeyPinned() /* copy */);
     }
 
+    // Ensure ikey_ is only set to VISIBLE keys.
     ikey_ = ikey;
     valid_entry_seen = true;
+    found_visible = true;
     last_key_entry_type = ikey.type;
     switch (last_key_entry_type) {
       case kTypeValue:
@@ -1600,12 +1615,14 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
   // earliest_seq.
   SequenceNumber insert_seq = std::max(range_tomb_max_seq_, earliest_seq);
 
-  // Skip if any tombstone in the run might be uncommitted. With transactions,
-  // uncommitted entries are only visible to the owning transaction's iterator.
-  // Converting them into a range tombstone would make them visible to all
-  // readers. Tombstones with seqno < min_uncommitted are committed and safe.
+  // Skip if any tombstone in the run might be uncommitted, OR if the
+  // bumped insert_seq could shadow prepared-but-uncommitted writes.
+  // With write-prepared/write-unprepared transactions, a prepared entry's
+  // seqno can fall between range_tomb_max_seq_ and insert_seq (which is
+  // bumped to earliest_seq).  The range tombstone at insert_seq would
+  // shadow such entries after they commit.
   if (read_callback_ != nullptr &&
-      range_tomb_max_seq_ >= read_callback_->min_uncommitted()) {
+      insert_seq >= read_callback_->min_uncommitted()) {
     RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_DISCARDED);
     return;
   }

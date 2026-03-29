@@ -666,13 +666,13 @@ void MemTableList::Add(ReadOnlyMemTable* m,
                        autovector<ReadOnlyMemTable*>* to_delete) {
   assert(static_cast<int>(current_->memlist_.size()) >= num_flush_not_started_);
   InstallNewVersion();
+  m->MarkImmutable();
   // this method is used to move mutable memtable into an immutable list.
   // since mutable memtable is already refcounted by the DBImpl,
   // and when moving to the immutable list we don't unref it,
   // we don't have to ref the memtable here. we just take over the
   // reference from the DBImpl.
   current_->Add(m, to_delete);
-  m->MarkImmutable();
   num_flush_not_started_++;
   if (num_flush_not_started_ == 1) {
     imm_flush_needed.store(true, std::memory_order_release);

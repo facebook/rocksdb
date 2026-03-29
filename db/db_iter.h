@@ -291,7 +291,7 @@ class DBIter final : public Iterator {
   // It might get adjusted if the seek key is larger than iterator upper bound.
   // target does not have timestamp.
   void SetSavedKeyToSeekForPrevTarget(const Slice& target);
-  bool FindValueForCurrentKey();
+  bool FindValueForCurrentKey(bool& found_visible);
   bool FindValueForCurrentKeyUsingSeek();
   bool FindUserKeyBeforeSavedKey();
   // If `skipping_saved_key` is true, the function will keep iterating until it

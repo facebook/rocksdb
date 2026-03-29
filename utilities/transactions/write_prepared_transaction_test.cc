@@ -4202,6 +4202,74 @@ TEST_P(WritePreparedTransactionTest,
   }
 }
 
+// Regression test: when range tombstone insertion bumps the seqno to
+// earliest_seq of the active memtable, it can shadow a prepared-but-
+// uncommitted Put whose prepare_seq falls between range_tomb_max_seq_
+// and earliest_seq.  After the txn commits, the Put is incorrectly hidden.
+TEST_P(WritePreparedTransactionTest,
+       RangeTombstoneSeqnoBumpShadowsPreparedWrite) {
+  for (bool forward : {true, false}) {
+    SCOPED_TRACE(forward ? "forward" : "reverse");
+    options.min_tombstones_for_range_conversion = 2;
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    ASSERT_OK(ReOpenNoDelete());
+
+    // Step 1: Write base data and flush so it's in an SST.
+    for (char c = 'a'; c <= 'j'; c++) {
+      ASSERT_OK(db->Put(WriteOptions(), std::string(1, c), "val"));
+    }
+    ASSERT_OK(db->Flush(FlushOptions()));
+
+    // Step 2: Delete contiguous keys (committed, low seqnos).
+    for (char c = 'c'; c <= 'g'; c++) {
+      ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));
+    }
+
+    // Step 3: Prepare a Put for key "e" (inside the deleted range).
+    // Its prepare_seq will be higher than the delete seqnos.
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+    ASSERT_NE(txn, nullptr);
+    ASSERT_OK(txn->SetName("txn_put_e"));
+    ASSERT_OK(txn->Put("e", "txn_value"));
+    ASSERT_OK(txn->Prepare());
+
+    // Step 4: Force a memtable switch so that earliest_seq of the new
+    // memtable is higher than the prepare_seq.
+    ASSERT_OK(db->Flush(FlushOptions()));
+
+    // Write something to ensure the new memtable is active and has a
+    // high earliest_seq.
+    ASSERT_OK(db->Put(WriteOptions(), "z_dummy", "dummy"));
+
+    // Step 5: Iterate to trigger MaybeInsertRangeTombstone.
+    // The tombstones have max_seq < min_uncommitted (prepare_seq),
+    // so the check passes.  But insert_seq gets bumped to earliest_seq
+    // of the new memtable, which is > prepare_seq.
+    {
+      ReadOptions read_opts;
+      std::unique_ptr<Iterator> iter(db->NewIterator(read_opts));
+      if (forward) {
+        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        }
+      } else {
+        for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        }
+      }
+      ASSERT_OK(iter->status());
+    }
+
+    // Step 6: Commit the prepared transaction.
+    ASSERT_OK(txn->Commit());
+
+    // Step 7: The committed Put("e", "txn_value") should be visible.
+    // BUG: If the range tombstone was inserted with a bumped seqno >
+    // prepare_seq, it shadows this committed write.
+    std::string value;
+    ASSERT_OK(db->Get(ReadOptions(), "e", &value));
+    ASSERT_EQ(value, "txn_value");
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
