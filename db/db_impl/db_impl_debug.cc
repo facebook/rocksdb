@@ -10,6 +10,7 @@
 #include <iostream>
 
 #include "db/blob/blob_file_cache.h"
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
@@ -377,6 +378,18 @@ void DBImpl::TEST_VerifyNoObsoleteFilesCached(
   {
     const auto& quar_files = error_handler_.GetFilesToQuarantine();
     live_and_quar_files.insert(quar_files.begin(), quar_files.end());
+  }
+  // Blob direct write files (active, sealing, or awaiting MANIFEST commit)
+  // may have readers cached via BlobFileCache but are not yet in any version.
+  {
+    std::unordered_set<uint64_t> bdw_files;
+    for (auto* cfd : *versions_->GetColumnFamilySet()) {
+      auto* mgr = cfd->blob_partition_manager();
+      if (mgr) {
+        mgr->GetActiveBlobFileNumbers(&bdw_files);
+      }
+    }
+    live_and_quar_files.insert(bdw_files.begin(), bdw_files.end());
   }
   auto fn = [&live_and_quar_files](const Slice& key, Cache::ObjectPtr, size_t,
                                    const Cache::CacheItemHelper*) {

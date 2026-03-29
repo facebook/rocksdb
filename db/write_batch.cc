@@ -48,6 +48,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "db/blob/blob_index.h"
+#include "db/blob/orphan_blob_file_resolver.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
@@ -1121,6 +1123,46 @@ Status WriteBatchInternal::PutEntity(WriteBatch* b, uint32_t column_family_id,
   return save.commit();
 }
 
+Status WriteBatchInternal::PutEntity(WriteBatch* b, uint32_t column_family_id,
+                                     const Slice& key, const Slice& entity) {
+  assert(b);
+
+  if (key.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+    return Status::InvalidArgument("key is too large");
+  }
+
+  if (entity.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+    return Status::InvalidArgument("wide column entity is too large");
+  }
+
+  LocalSavePoint save(b);
+
+  WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
+
+  if (column_family_id == 0) {
+    b->rep_.push_back(static_cast<char>(kTypeWideColumnEntity));
+  } else {
+    b->rep_.push_back(static_cast<char>(kTypeColumnFamilyWideColumnEntity));
+    PutVarint32(&b->rep_, column_family_id);
+  }
+
+  PutLengthPrefixedSlice(&b->rep_, key);
+  PutLengthPrefixedSlice(&b->rep_, entity);
+
+  b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
+                              ContentFlags::HAS_PUT_ENTITY,
+                          std::memory_order_relaxed);
+
+  if (b->prot_info_ != nullptr) {
+    b->prot_info_->entries_.emplace_back(
+        ProtectionInfo64()
+            .ProtectKVO(key, entity, kTypeWideColumnEntity)
+            .ProtectC(column_family_id));
+  }
+
+  return save.commit();
+}
+
 Status WriteBatch::PutEntity(ColumnFamilyHandle* column_family,
                              const Slice& key, const WideColumns& columns) {
   if (!column_family) {
@@ -1974,6 +2016,43 @@ Status WriteBatch::VerifyChecksum() const {
 
 namespace {
 
+bool ShouldProcessWriteBatchEntry(ColumnFamilyMemTables* cf_mems,
+                                  uint32_t column_family_id,
+                                  bool ignore_missing_column_families,
+                                  uint64_t recovering_log_number, Status* s) {
+  assert(cf_mems);
+  assert(s);
+
+  const bool found = cf_mems->Seek(column_family_id);
+  if (!found) {
+    if (ignore_missing_column_families) {
+      *s = Status::OK();
+    } else {
+      *s = Status::InvalidArgument(
+          "Invalid column family specified in write batch");
+    }
+    return false;
+  }
+
+  auto* current = cf_mems->current();
+  if (current && current->ioptions().disallow_memtable_writes) {
+    *s = Status::InvalidArgument(
+        "This column family has disallow_memtable_writes=true");
+    return false;
+  }
+
+  if (recovering_log_number != 0 &&
+      recovering_log_number < cf_mems->GetLogNumber()) {
+    // In recovery, this column family already flushed data from this WAL.
+    // Replay must skip the entry to avoid applying it twice.
+    *s = Status::OK();
+    return false;
+  }
+
+  *s = Status::OK();
+  return true;
+}
+
 class MemTableInserter : public WriteBatch::Handler {
   SequenceNumber sequence_;
   ColumnFamilyMemTables* const cf_mems_;
@@ -2183,33 +2262,9 @@ class MemTableInserter : public WriteBatch::Handler {
     // to clone the original ColumnFamilyMemTables so that each thread
     // has its own instance.  Otherwise, it must be guaranteed that there
     // is no concurrent access
-    bool found = cf_mems_->Seek(column_family_id);
-    if (!found) {
-      if (ignore_missing_column_families_) {
-        *s = Status::OK();
-      } else {
-        *s = Status::InvalidArgument(
-            "Invalid column family specified in write batch");
-      }
-      return false;
-    }
-    auto* current = cf_mems_->current();
-    if (current && current->ioptions().disallow_memtable_writes) {
-      *s = Status::InvalidArgument(
-          "This column family has disallow_memtable_writes=true");
-      return false;
-    }
-
-    if (recovering_log_number_ != 0 &&
-        recovering_log_number_ < cf_mems_->GetLogNumber()) {
-      // This is true only in recovery environment (recovering_log_number_ is
-      // always 0 in
-      // non-recovery, regular write code-path)
-      // * If recovering_log_number_ < cf_mems_->GetLogNumber(), this means that
-      // column family already contains updates from this log. We can't apply
-      // updates twice because of update-in-place or merge workloads -- ignore
-      // the update
-      *s = Status::OK();
+    if (!ShouldProcessWriteBatchEntry(cf_mems_, column_family_id,
+                                      ignore_missing_column_families_,
+                                      recovering_log_number_, s)) {
       return false;
     }
 
@@ -2904,6 +2959,74 @@ class MemTableInserter : public WriteBatch::Handler {
     const auto* kv_prot_info = NextProtectionInfo();
     Status ret_status;
 
+    // During WAL recovery, check if this BlobIndex points to an orphan
+    // blob file. If so, resolve it to a raw value and insert as kTypeValue
+    // instead of kTypeBlobIndex. The subsequent recovery flush will create
+    // new properly-tracked blob files.
+    //
+    // Also discard BlobIndex entries pointing to blob files that are neither
+    // registered in the MANIFEST nor resolvable as orphans. This handles
+    // crash scenarios where the blob file header was never flushed to disk
+    // (e.g., crash before WritableFileWriter buffer flush), leaving the file
+    // too small or corrupt for the resolver to open.
+    OrphanBlobFileResolver* resolver =
+        db_ ? db_->GetOrphanBlobResolver() : nullptr;
+    Logger* recovery_info_log =
+        db_ ? static_cast<DBImpl*>(db_)->immutable_db_options().info_log.get()
+            : nullptr;
+    if (resolver != nullptr) {
+      BlobIndex blob_idx;
+      Status decode_s = blob_idx.DecodeFrom(value);
+      if (decode_s.ok() && !blob_idx.IsInlined()) {
+        const uint64_t file_number = blob_idx.file_number();
+        if (resolver->IsOrphan(file_number)) {
+          std::string resolved_value;
+          Status resolve_s = resolver->TryResolveBlob(
+              file_number, blob_idx.offset(), blob_idx.size(),
+              blob_idx.compression(), key, &resolved_value);
+          if (resolve_s.ok()) {
+            ROCKS_LOG_INFO(
+                recovery_info_log,
+                "[BlobDirectWrite] WAL replay: resolved orphan blob file "
+                "%" PRIu64 " offset=%" PRIu64 " for CF %" PRIu32
+                " as inline value (%zu bytes)",
+                file_number, blob_idx.offset(), column_family_id,
+                resolved_value.size());
+            auto rebuild_txn_op = [](WriteBatch* /* rebuilding_trx */,
+                                     uint32_t /* cf_id */, const Slice& /* k */,
+                                     const Slice& /* v */) -> Status {
+              return Status::OK();
+            };
+            Slice resolved_slice(resolved_value);
+            ret_status =
+                PutCFImpl(column_family_id, key, resolved_slice, kTypeValue,
+                          rebuild_txn_op, nullptr /* kv_prot_info */);
+            if (UNLIKELY(ret_status.IsTryAgain())) {
+              DecrementProtectionInfoIdxForTryAgain();
+            }
+            return ret_status;
+          }
+          ROCKS_LOG_WARN(
+              recovery_info_log,
+              "[BlobDirectWrite] WAL replay: DISCARDING key in CF %" PRIu32
+              " — orphan blob file %" PRIu64 " resolution failed: %s",
+              column_family_id, file_number, resolve_s.ToString().c_str());
+          ret_status.PermitUncheckedError();
+          return Status::OK();
+        }
+        if (!resolver->IsRegistered(file_number)) {
+          ROCKS_LOG_WARN(
+              recovery_info_log,
+              "[BlobDirectWrite] WAL replay: DISCARDING key in CF %" PRIu32
+              " — blob file %" PRIu64
+              " not in MANIFEST and not resolvable as orphan",
+              column_family_id, file_number);
+          ret_status.PermitUncheckedError();
+          return Status::OK();
+        }
+      }
+    }
+
     auto rebuild_txn_op = [](WriteBatch* /* rebuilding_trx */,
                              uint32_t /* cf_id */, const Slice& /* k */,
                              const Slice& /* v */) -> Status {
@@ -3217,7 +3340,7 @@ Status WriteBatchInternal::InsertInto(
       /*concurrent_memtable_writes=*/false, nullptr /* prot_info */,
       nullptr /*has_valid_writes*/, seq_per_batch, batch_per_txn);
   for (auto w : write_group) {
-    if (w->CallbackFailed()) {
+    if (w->CallbackFailed() || !w->status.ok()) {
       continue;
     }
     w->sequence = inserter.sequence();
@@ -3489,6 +3612,107 @@ Status WriteBatchInternal::UpdateProtectionInfo(WriteBatch* wb,
   }
   return Status::NotSupported(
       "WriteBatch protection info must be zero or eight bytes/key");
+}
+
+namespace {
+
+class BlobIndexValidator : public WriteBatch::Handler {
+ public:
+  BlobIndexValidator(ColumnFamilyMemTables* cf_mems,
+                     bool ignore_missing_column_families,
+                     uint64_t recovering_log_number,
+                     OrphanBlobFileResolver* resolver)
+      : cf_mems_(cf_mems),
+        ignore_missing_column_families_(ignore_missing_column_families),
+        recovering_log_number_(recovering_log_number),
+        resolver_(resolver) {
+    assert(cf_mems_);
+    assert(resolver_);
+  }
+
+  Status PutBlobIndexCF(uint32_t column_family_id, const Slice& key,
+                        const Slice& value) override {
+    Status s;
+    if (!ShouldProcessWriteBatchEntry(cf_mems_, column_family_id,
+                                      ignore_missing_column_families_,
+                                      recovering_log_number_, &s)) {
+      return s;
+    }
+
+    BlobIndex blob_idx;
+    s = blob_idx.DecodeFrom(value);
+    if (!s.ok() || blob_idx.IsInlined()) {
+      return Status::OK();
+    }
+    const uint64_t file_number = blob_idx.file_number();
+    if (resolver_->IsOrphan(file_number)) {
+      std::string resolved_value;
+      Status resolve_s = resolver_->TryResolveBlob(
+          file_number, blob_idx.offset(), blob_idx.size(),
+          blob_idx.compression(), key, &resolved_value);
+      if (!resolve_s.ok()) {
+        return Status::Aborted(
+            "Orphan blob resolution failed for batch entry (file " +
+            std::to_string(file_number) + "): " + resolve_s.ToString());
+      }
+      return Status::OK();
+    }
+    if (!resolver_->IsRegistered(file_number)) {
+      return Status::Aborted(
+          "Blob file " + std::to_string(file_number) +
+          " not found in MANIFEST or as orphan during batch validation");
+    }
+    return Status::OK();
+  }
+
+  Status PutCF(uint32_t, const Slice&, const Slice&) override {
+    return Status::OK();
+  }
+  Status TimedPutCF(uint32_t, const Slice&, const Slice&, uint64_t) override {
+    return Status::OK();
+  }
+  Status PutEntityCF(uint32_t, const Slice&, const Slice&) override {
+    return Status::OK();
+  }
+  Status DeleteCF(uint32_t, const Slice&) override { return Status::OK(); }
+  Status SingleDeleteCF(uint32_t, const Slice&) override {
+    return Status::OK();
+  }
+  Status DeleteRangeCF(uint32_t, const Slice&, const Slice&) override {
+    return Status::OK();
+  }
+  Status MergeCF(uint32_t, const Slice&, const Slice&) override {
+    return Status::OK();
+  }
+  void LogData(const Slice&) override {}
+  Status MarkBeginPrepare(bool) override { return Status::OK(); }
+  Status MarkEndPrepare(const Slice&) override { return Status::OK(); }
+  Status MarkCommit(const Slice&) override { return Status::OK(); }
+  Status MarkCommitWithTimestamp(const Slice&, const Slice&) override {
+    return Status::OK();
+  }
+  Status MarkRollback(const Slice&) override { return Status::OK(); }
+  Status MarkNoop(bool) override { return Status::OK(); }
+
+ private:
+  ColumnFamilyMemTables* cf_mems_;
+  const bool ignore_missing_column_families_;
+  const uint64_t recovering_log_number_;
+  OrphanBlobFileResolver* resolver_;
+};
+
+}  // anonymous namespace
+
+Status WriteBatchInternal::ValidateBlobIndicesForRecovery(
+    const WriteBatch* batch, ColumnFamilyMemTables* memtables,
+    bool ignore_missing_column_families, uint64_t recovery_log_number,
+    OrphanBlobFileResolver* resolver) {
+  assert(batch);
+  assert(memtables);
+  assert(resolver);
+  BlobIndexValidator validator(memtables, ignore_missing_column_families,
+                               recovery_log_number, resolver);
+  return batch->Iterate(&validator);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "db/blob/blob_file_cache.h"
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_source.h"
 #include "db/compaction/compaction_picker.h"
 #include "db/compaction/compaction_picker_fifo.h"
@@ -496,6 +497,31 @@ ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
       result.memtable_avg_op_scan_flush_trigger = 0;
     }
   }
+  if (result.enable_blob_direct_write && !result.enable_blob_files) {
+    ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "enable_blob_direct_write requires enable_blob_files=true. "
+                   "Disabling blob direct write.");
+    result.enable_blob_direct_write = false;
+  }
+  if (result.blob_direct_write_partitions == 0) {
+    result.blob_direct_write_partitions = 1;
+  }
+  if (result.blob_direct_write_partitions > 64) {
+    ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "blob_direct_write_partitions capped to 64 (was %" PRIu32
+                   ")",
+                   result.blob_direct_write_partitions);
+    result.blob_direct_write_partitions = 64;
+  }
+  constexpr uint64_t kMaxBufferSize = 64ULL * 1024 * 1024;  // 64MB
+  if (result.blob_direct_write_buffer_size > kMaxBufferSize) {
+    ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "blob_direct_write_buffer_size capped to 64MB (was %" PRIu64
+                   ")",
+                   result.blob_direct_write_buffer_size);
+    result.blob_direct_write_buffer_size = kMaxBufferSize;
+  }
+
   return result;
 }
 
@@ -781,6 +807,11 @@ ColumnFamilyData::~ColumnFamilyData() {
           id_, name_.c_str());
     }
   }
+}
+
+void ColumnFamilyData::SetBlobPartitionManager(
+    std::unique_ptr<BlobFilePartitionManager> mgr) {
+  blob_partition_manager_ = std::move(mgr);
 }
 
 bool ColumnFamilyData::UnrefAndTryDelete() {

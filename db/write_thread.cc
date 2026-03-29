@@ -801,7 +801,9 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
     // Complete writers that don't write to memtable
     for (Writer* w = last_writer; w != leader;) {
       Writer* next = w->link_older;
-      w->status = status;
+      if (!status.ok() || w->status.ok()) {
+        w->status = status;
+      }
       if (!w->ShouldWriteToMemtable()) {
         CompleteFollower(w, write_group);
       }
@@ -877,7 +879,13 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
 
     while (last_writer != leader) {
       assert(last_writer);
-      last_writer->status = status;
+      // Propagate group status to followers. If the group status is non-ok
+      // (e.g., WAL write failure), override any per-writer status.
+      // If the group status is ok but the writer already has a non-ok status
+      // (e.g., TryAgain from blob epoch check), preserve the per-writer status.
+      if (!status.ok() || last_writer->status.ok()) {
+        last_writer->status = status;
+      }
       // we need to read link_older before calling SetState, because as soon
       // as it is marked committed the other thread's Await may return and
       // deallocate the Writer.

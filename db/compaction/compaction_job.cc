@@ -829,7 +829,7 @@ void CompactionJob::CleanupAbortedSubcompactions() {
 
 bool CompactionJob::HasNewBlobFiles() const {
   for (const auto& state : compact_->sub_compact_states) {
-    if (state.Current().HasBlobFileAdditions()) {
+    if (state.Outputs(false)->HasBlobFileAdditions()) {
       return true;
     }
   }
@@ -1509,7 +1509,13 @@ InternalIterator* CompactionJob::CreateInputIterator(
   }
 
   if (sub_compact->compaction->DoesInputReferenceBlobFiles()) {
-    BlobGarbageMeter* meter = sub_compact->Current().CreateBlobGarbageMeter();
+    BlobGarbageMeter* meter =
+        sub_compact->Outputs(false)->CreateBlobGarbageMeter();
+    // With tiered storage, entries may be routed to the proximal output.
+    // Share the garbage meter so outflow from proximal entries is tracked.
+    if (sub_compact->compaction->SupportsPerKeyPlacement()) {
+      sub_compact->Outputs(true)->SetSharedBlobGarbageMeter(meter);
+    }
     iterators.blob_counter =
         std::make_unique<BlobCountingIterator>(input, meter);
     input = iterators.blob_counter.get();
@@ -1536,13 +1542,15 @@ void CompactionJob::CreateBlobFileBuilder(
   if (mutable_cf_options.enable_blob_files &&
       sub_compact->compaction->output_level() >=
           mutable_cf_options.blob_file_starting_level) {
+    // Blob files are always built on the non-proximal (last level) output.
+    CompactionOutputs* blob_output = sub_compact->Outputs(false);
     blob_file_builder = std::make_unique<BlobFileBuilder>(
         versions_, fs_.get(), &sub_compact->compaction->immutable_options(),
         &mutable_cf_options, &file_options_, &write_options, db_id_,
         db_session_id_, job_id_, cfd->GetID(), cfd->GetName(), write_hint_,
         io_tracer_, blob_callback_, BlobFileCreationReason::kCompaction,
-        sub_compact->Current().GetOutputFilePathsPtr(),
-        sub_compact->Current().GetBlobFileAdditionsPtr());
+        blob_output->GetOutputFilePathsPtr(),
+        blob_output->GetBlobFileAdditionsPtr());
   } else {
     blob_file_builder = nullptr;
   }
@@ -1836,7 +1844,10 @@ Status CompactionJob::FinalizeBlobFiles(SubcompactionState* sub_compact,
     } else {
       blob_file_builder->Abandon(status);
     }
-    sub_compact->Current().UpdateBlobStats();
+    // Blob files are only built for the non-proximal (last) level output,
+    // not the proximal level. Use Outputs(false) instead of Current() which
+    // may point to the proximal level with tiered storage.
+    sub_compact->Outputs(false)->UpdateBlobStats();
   }
 
   return status;
@@ -2309,12 +2320,18 @@ Status CompactionJob::InstallCompactionResults(bool* compaction_released) {
   for (const auto& sub_compact : compact_->sub_compact_states) {
     sub_compact.AddOutputsEdit(edit);
 
-    for (const auto& blob : sub_compact.Current().GetBlobFileAdditions()) {
+    // Blob file additions and garbage are always tracked on the non-proximal
+    // (last level) output. With tiered storage (per-key placement),
+    // Current() may point to the proximal output after the last key is
+    // written, which would silently miss blob file additions and garbage.
+    const CompactionOutputs* blob_output = sub_compact.Outputs(false);
+
+    for (const auto& blob : blob_output->GetBlobFileAdditions()) {
       edit->AddBlobFile(blob);
     }
 
-    if (sub_compact.Current().GetBlobGarbageMeter()) {
-      const auto& flows = sub_compact.Current().GetBlobGarbageMeter()->flows();
+    if (blob_output->GetBlobGarbageMeter()) {
+      const auto& flows = blob_output->GetBlobGarbageMeter()->flows();
 
       for (const auto& pair : flows) {
         const uint64_t blob_file_number = pair.first;

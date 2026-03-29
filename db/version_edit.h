@@ -112,6 +112,10 @@ enum NewFileCustomTag : uint32_t {
   kCompensatedRangeDeletionSize = 14,
   kTailSize = 15,
   kUserDefinedTimestampsPersisted = 16,
+  // Deprecated: older manifests may encode all blob file numbers referenced by
+  // an SST here. The field is accepted during decode for backward
+  // compatibility but ignored.
+  kReferencedBlobFileNumbers = 17,
 
   // If this bit for the custom tag is set, opening DB should fail if
   // we don't know this field.

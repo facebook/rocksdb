@@ -472,6 +472,15 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                    cf_allow_ingest_behind ? "true" : "false");
   ROCKS_LOG_HEADER(log, "  Options.memtable_batch_lookup_optimization: %s",
                    memtable_batch_lookup_optimization ? "true" : "false");
+  ROCKS_LOG_HEADER(log,
+                   "           Options.blob_direct_write_partitions: %" PRIu32,
+                   blob_direct_write_partitions);
+  ROCKS_LOG_HEADER(log,
+                   "          Options.blob_direct_write_buffer_size: %" PRIu64,
+                   blob_direct_write_buffer_size);
+  ROCKS_LOG_HEADER(log,
+                   "    Options.blob_direct_write_flush_interval_ms: %" PRIu64,
+                   blob_direct_write_flush_interval_ms);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {

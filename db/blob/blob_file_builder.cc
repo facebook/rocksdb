@@ -218,6 +218,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   // which only contains successfully written files.
   assert(blob_file_paths_);
   blob_file_paths_->emplace_back(std::move(blob_file_path));
+  current_blob_file_path_ = blob_file_paths_->back();
 
   assert(file);
   file->SetIOPriority(write_options_->rate_limiter_priority);
@@ -326,6 +327,8 @@ Status BlobFileBuilder::CloseBlobFile() {
 
   std::string checksum_method;
   std::string checksum_value;
+  const uint64_t physical_file_size =
+      writer_->file()->GetFileSize() + BlobLogFooter::kSize;
 
   Status s = writer_->AppendFooter(*write_options_, footer, &checksum_method,
                                    &checksum_value);
@@ -340,15 +343,15 @@ Status BlobFileBuilder::CloseBlobFile() {
 
   if (blob_callback_) {
     s = blob_callback_->OnBlobFileCompleted(
-        blob_file_paths_->back(), column_family_name_, job_id_,
-        blob_file_number, creation_reason_, s, checksum_value, checksum_method,
-        blob_count_, blob_bytes_);
+        current_blob_file_path_, column_family_name_, job_id_, blob_file_number,
+        creation_reason_, s, checksum_value, checksum_method, blob_count_,
+        blob_bytes_);
   }
 
   assert(blob_file_additions_);
-  blob_file_additions_->emplace_back(blob_file_number, blob_count_, blob_bytes_,
-                                     std::move(checksum_method),
-                                     std::move(checksum_value));
+  blob_file_additions_->emplace_back(
+      blob_file_number, blob_count_, blob_bytes_, std::move(checksum_method),
+      std::move(checksum_value), physical_file_size);
 
   assert(immutable_options_);
   ROCKS_LOG_INFO(immutable_options_->logger,
@@ -360,6 +363,7 @@ Status BlobFileBuilder::CloseBlobFile() {
   writer_.reset();
   blob_count_ = 0;
   blob_bytes_ = 0;
+  current_blob_file_path_.clear();
 
   return s;
 }
@@ -381,11 +385,12 @@ void BlobFileBuilder::Abandon(const Status& s) {
   if (!IsBlobFileOpen()) {
     return;
   }
+  assert(!current_blob_file_path_.empty());
   if (blob_callback_) {
     // BlobFileBuilder::Abandon() is called because of error while writing to
     // Blob files. So we can ignore the below error.
     blob_callback_
-        ->OnBlobFileCompleted(blob_file_paths_->back(), column_family_name_,
+        ->OnBlobFileCompleted(current_blob_file_path_, column_family_name_,
                               job_id_, writer_->get_log_number(),
                               creation_reason_, s, "", "", blob_count_,
                               blob_bytes_)
@@ -395,6 +400,7 @@ void BlobFileBuilder::Abandon(const Status& s) {
   writer_.reset();
   blob_count_ = 0;
   blob_bytes_ = 0;
+  current_blob_file_path_.clear();
 }
 
 Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,

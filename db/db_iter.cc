@@ -12,6 +12,11 @@
 #include <limits>
 #include <string>
 
+#include "db/blob/blob_contents.h"
+#include "db/blob/blob_file_cache.h"
+#include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_file_reader.h"
+#include "db/blob/blob_index.h"
 #include "db/dbformat.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
@@ -43,7 +48,9 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                const Comparator* cmp, InternalIterator* iter,
                const Version* version, SequenceNumber s, bool arena_mode,
                ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
-               bool expose_blob_index, ReadOnlyMemTable* active_mem)
+               bool expose_blob_index, ReadOnlyMemTable* active_mem,
+               BlobFileCache* blob_file_cache,
+               BlobFilePartitionManager* blob_partition_mgr)
     : prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
       env_(_env),
       clock_(ioptions.clock),
@@ -53,7 +60,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       iter_(iter),
       blob_reader_(version, read_options.read_tier,
                    read_options.verify_checksums, read_options.fill_cache,
-                   read_options.io_activity),
+                   read_options.io_activity, blob_file_cache,
+                   blob_partition_mgr),
       read_callback_(read_callback),
       sequence_(s),
       statistics_(ioptions.stats),
@@ -234,17 +242,37 @@ Status DBIter::BlobReader::RetrieveAndSetBlobValue(const Slice& user_key,
   read_options.verify_checksums = verify_checksums_;
   read_options.fill_cache = fill_cache_;
   read_options.io_activity = io_activity_;
+
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
   constexpr uint64_t* bytes_read = nullptr;
 
-  const Status s = version_->GetBlob(read_options, user_key, blob_index,
-                                     prefetch_buffer, &blob_value_, bytes_read);
-
-  if (!s.ok()) {
+  // Try the standard Version path first — this handles sealed blob files
+  // registered in the MANIFEST with no extra overhead. Only fall back to
+  // the 4-tier resolution (pending records, unsealed files) on failure.
+  Status s = version_->GetBlob(read_options, user_key, blob_index,
+                               prefetch_buffer, &blob_value_, bytes_read);
+  if (s.ok() || !(blob_partition_mgr_ || blob_file_cache_)) {
     return s;
   }
 
-  return Status::OK();
+  // Only fall back to blob direct write resolution for errors that indicate
+  // the blob file is not yet registered in the version (e.g., NotFound,
+  // Corruption from missing metadata). IO errors should be propagated
+  // directly — they may come from fault injection or real disk issues, and
+  // silently succeeding via an in-memory fallback would violate the fault
+  // injection contract.
+  if (s.IsIOError()) {
+    return s;
+  }
+
+  BlobIndex blob_idx;
+  s = blob_idx.DecodeFrom(blob_index);
+  if (!s.ok()) {
+    return s;
+  }
+  return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
+      read_options, user_key, blob_idx, version_, blob_file_cache_,
+      blob_partition_mgr_, &blob_value_);
 }
 
 bool DBIter::SetValueAndColumnsFromBlobImpl(const Slice& user_key,

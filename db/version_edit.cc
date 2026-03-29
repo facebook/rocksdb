@@ -454,6 +454,22 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input, int& max_level,
             return "invalid oldest blob file number";
           }
           break;
+        case kReferencedBlobFileNumbers: {
+          // Deprecated: older manifests may encode all referenced blob file
+          // numbers here. Keep parsing the payload so DBs created by newer
+          // binaries remain readable after downgrade, but ignore the values.
+          uint64_t count = 0;
+          if (!GetVarint64(&field, &count)) {
+            return "invalid referenced blob file numbers count";
+          }
+          for (uint64_t i = 0; i < count; i++) {
+            uint64_t blob_fn = 0;
+            if (!GetVarint64(&field, &blob_fn)) {
+              return "invalid referenced blob file number";
+            }
+          }
+          break;
+        }
         case kTemperature:
           if (field.size() != 1) {
             return "temperature field wrong size";

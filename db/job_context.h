@@ -9,7 +9,9 @@
 
 #pragma once
 
+#include <limits>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "db/column_family.h"
@@ -211,6 +213,23 @@ struct JobContext {
   // min_log_number_to_keep is only updated after successful manifest commits.
   // So this data structure doesn't track log files.
   autovector<uint64_t> files_to_quarantine;
+
+  // Blob file numbers that PurgeObsoleteFiles must keep.
+  // Includes files managed by blob direct write partition managers
+  // (being written, being sealed, or awaiting MANIFEST commit), plus
+  // blob files whose source WALs are still live and may need to be replayed
+  // again after a later crash, even if MANIFEST metadata for those blob files
+  // has already been dropped.
+  // Collected under db_mutex_ in FindObsoleteFiles so PurgeObsoleteFiles
+  // (which runs without mutex) can safely skip them.
+  std::unordered_set<uint64_t> active_blob_direct_write_files;
+
+  // Snapshot of VersionSet's next file number taken before collecting
+  // active_blob_direct_write_files. Blob direct write opens new blob files
+  // without db_mutex_, so a file can be created on disk after the active-set
+  // snapshot but before the directory scan. Files with numbers >= this cutoff
+  // are skipped by PurgeObsoleteFiles in the current pass.
+  uint64_t min_blob_file_number_to_keep = std::numeric_limits<uint64_t>::max();
 
   // a list of manifest files that we need to delete
   std::vector<std::string> manifest_delete_files;

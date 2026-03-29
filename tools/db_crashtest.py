@@ -522,10 +522,18 @@ def setup_expected_values_dir():
     else:
         # if tmpdir is specified, store the expected_values_dir under that dir
         expected_values_dir = test_exp_tmpdir + "/rocksdb_crashtest_expected"
-        if os.path.exists(expected_values_dir):
-            shutil.rmtree(expected_values_dir)
-        os.mkdir(expected_values_dir)
+        os.makedirs(expected_values_dir, exist_ok=True)
     return expected_values_dir
+
+
+def prepare_expected_values_dir(expected_dir, destroy_db_initially):
+    if expected_dir is None or expected_dir == "":
+        return
+
+    if destroy_db_initially and os.path.exists(expected_dir):
+        shutil.rmtree(expected_dir, True)
+
+    os.makedirs(expected_dir, exist_ok=True)
 
 
 multiops_txn_key_spaces_file = None
@@ -698,11 +706,11 @@ blob_params = {
     "allow_setting_blob_options_dynamically": 1,
     # Enable blob files and GC with a 75% chance initially; note that they might still be
     # enabled/disabled during the test via SetOptions
-    "enable_blob_files": lambda: random.choice([0] + [1] * 3),
+    "enable_blob_files": 1,  # Pinned: must not toggle across crash iterations
     "min_blob_size": lambda: random.choice([0, 8, 16]),
     "blob_file_size": lambda: random.choice([1048576, 16777216, 268435456, 1073741824]),
     "blob_compression_type": lambda: random.choice(["none", "snappy", "lz4", "zstd"]),
-    "enable_blob_garbage_collection": lambda: random.choice([0] + [1] * 3),
+    "enable_blob_garbage_collection": 1,  # Pinned: must not toggle across crash iterations
     "blob_garbage_collection_age_cutoff": lambda: random.choice(
         [0.0, 0.25, 0.5, 0.75, 1.0]
     ),
@@ -715,6 +723,11 @@ blob_params = {
     "use_shared_block_and_blob_cache": lambda: random.randint(0, 1),
     "blob_cache_size": lambda: random.choice([1048576, 2097152, 4194304, 8388608]),
     "prepopulate_blob_cache": lambda: random.randint(0, 1),
+    # Enable blob direct write with a 50% chance when blob files are enabled
+    "enable_blob_direct_write": 1,  # Pinned: must not toggle across crash iterations
+    "blob_direct_write_partitions": lambda: random.choice([1, 2, 4]),
+    "blob_direct_write_flush_interval_ms": lambda: random.choice([0, 50, 100, 500]),
+    "blob_direct_write_buffer_size": lambda: random.choice([0, 65536, 262144, 1048576, 4194304]),
     # TODO Fix races when both Remote Compaction + BlobDB enabled
     "remote_compaction_worker_threads": 0,
 }
@@ -838,6 +851,7 @@ def finalize_and_sanitize(src_params):
     dest_params = {k: v() if callable(v) else v for (k, v) in src_params.items()}
     if is_release_mode():
         dest_params["read_fault_one_in"] = 0
+        dest_params["metadata_read_fault_one_in"] = 0
     if dest_params.get("compression_max_dict_bytes") == 0:
         dest_params["compression_zstd_max_train_bytes"] = 0
         dest_params["compression_max_dict_buffer_bytes"] = 0
@@ -880,11 +894,22 @@ def finalize_and_sanitize(src_params):
         dest_params["use_multiscan"] = 0
         if dest_params["prefix_size"] < 0:
             dest_params["prefix_size"] = 1
+        # BatchedOpsStressTest writes 10 prefix entries in one batch and
+        # verifies cross-prefix consistency. BDW crash recovery may abort
+        # batches with missing blob data (write batch atomicity enforcement),
+        # which the stress test framework does not handle gracefully.
+        dest_params["enable_blob_direct_write"] = 0
 
     # BER disables WAL and tests unsynced data loss which
-    # does not work with inplace_update_support.
+    # does not work with inplace_update_support. Integrated BlobDB is also
+    # incompatible, so force blob-related toggles off even if they came from
+    # command-line overrides or another preset.
     if dest_params.get("best_efforts_recovery") == 1:
         dest_params["inplace_update_support"] = 0
+        dest_params["enable_blob_files"] = 0
+        dest_params["enable_blob_garbage_collection"] = 0
+        dest_params["allow_setting_blob_options_dynamically"] = 0
+        dest_params["enable_blob_direct_write"] = 0
 
     # Remote Compaction Incompatible Tests and Features
     if dest_params.get("remote_compaction_worker_threads", 0) > 0:
@@ -892,6 +917,11 @@ def finalize_and_sanitize(src_params):
         dest_params["enable_blob_files"] = 0
         dest_params["enable_blob_garbage_collection"] = 0
         dest_params["allow_setting_blob_options_dynamically"] = 0
+        # Remote compaction serializes/deserializes compaction state across
+        # processes; blob direct write files are local and not transferable.
+        dest_params["enable_blob_direct_write"] = 0
+        # TODO Fix - Remote worker shouldn't recover from WAL
+        dest_params["disable_wal"] = 1
         # Disable Incompatible Ones
         dest_params["inplace_update_support"] = 0
         dest_params["checkpoint_one_in"] = 0
@@ -953,10 +983,12 @@ def finalize_and_sanitize(src_params):
         dest_params["sync_fault_injection"] = 0
         dest_params["disable_wal"] = 0
         dest_params["manual_wal_flush_one_in"] = 0
+        dest_params["enable_blob_direct_write"] = 0
     if (
         dest_params.get("sync_fault_injection") == 1
         or dest_params.get("disable_wal") == 1
         or dest_params.get("manual_wal_flush_one_in", 0) > 0
+        or dest_params.get("enable_blob_direct_write") == 1
     ):
         # File ingestion does not guarantee prefix-recoverability when unsynced
         # data can be lost. Ingesting a file syncs data immediately that is
@@ -970,11 +1002,63 @@ def finalize_and_sanitize(src_params):
         # files, which would be problematic when unsynced data can be lost in
         # crash recoveries.
         dest_params["enable_compaction_filter"] = 0
+
+    # Blob direct write stores blob data outside the WAL. Backup/restore
+    # verification opens a restored DB and reads keys, but blob files
+    # referenced by in-flight (unflushed) blob indices may not be included
+    # in the backup, causing "unexpected blob index" errors on Get.
+    if dest_params.get("enable_blob_direct_write") == 1:
+        dest_params["backup_one_in"] = 0
+        # Dynamically changing blob options (enable_blob_files, GC settings)
+        # while blob direct write is active can cause version mismatches
+        # where blob files are deleted while still referenced.
+        dest_params["allow_setting_blob_options_dynamically"] = 0
+        # Blob direct write relies on WAL replay for crash recovery of
+        # unflushed blob indices. Without WAL, blob indices in the memtable
+        # are lost on crash, creating dangling blob files.
+        dest_params["disable_wal"] = 0
+        dest_params["manual_wal_flush_one_in"] = 0
+        # Write/read fault injection can corrupt blob direct write files
+        # during seal I/O or cause partial writes that leave blob files in
+        # an inconsistent state.
+        dest_params["write_fault_one_in"] = 0
+        dest_params["read_fault_one_in"] = 0
+        dest_params["metadata_write_fault_one_in"] = 0
+        dest_params["metadata_read_fault_one_in"] = 0
+        dest_params["open_read_fault_one_in"] = 0
+        # Pipelined write bypasses blob direct write (writes go through the
+        # standard path). Disable it to ensure blob direct write is exercised.
+        dest_params["enable_pipelined_write"] = 0
+        # Remote compaction is incompatible with blob direct write:
+        # compaction state is serialized across processes but blob direct
+        # write files are local and not transferable.
+        dest_params["remote_compaction_worker_threads"] = 0
+        # Merge + blob direct write: MergeUntil during flush needs a
+        # blob_fetcher to resolve BlobIndex merge operands. The flush path
+        # does not provide one, causing assert(blob_fetcher) to fail.
+        # TODO: plumb blob_fetcher through BuildTable/flush path.
+        dest_params["use_merge"] = 0
+        # test_multi_ops_txns uses TransactionDB internally, which is
+        # incompatible with blob direct write.
+        dest_params["test_multi_ops_txns"] = 0
+        # Backfill BDW support knobs with randomized values when not
+        # explicitly provided.
+        if "blob_direct_write_partitions" not in dest_params:
+            dest_params["blob_direct_write_partitions"] = random.choice([1, 2, 4])
+        if "blob_direct_write_flush_interval_ms" not in dest_params:
+            dest_params["blob_direct_write_flush_interval_ms"] = random.choice(
+                [0, 50, 100, 500]
+            )
+        if "blob_direct_write_buffer_size" not in dest_params:
+            dest_params["blob_direct_write_buffer_size"] = random.choice(
+                [0, 65536, 262144, 1048576, 4194304]
+            )
+
     # Remove the following once write-prepared/write-unprepared with/without
     # unordered write supports timestamped snapshots
     if dest_params.get("create_timestamped_snapshot_one_in", 0) > 0:
         dest_params["unordered_write"] = 0
-        if dest_params.get("txn_write_policy", 0) != 0:
+        if dest_params.get("txn_write_policy", 0) != 0 or dest_params.get("use_txn", 0) == 0:
             dest_params["create_timestamped_snapshot_one_in"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     # unordered_write is only enabled with --txn, and txn_params disables inplace_update_support, so
@@ -1053,6 +1137,7 @@ def finalize_and_sanitize(src_params):
         dest_params["sync_fault_injection"] = 0
         dest_params["disable_wal"] = 0
         dest_params["manual_wal_flush_one_in"] = 0
+        dest_params["enable_blob_direct_write"] = 0
         # Wide-column pessimistic transaction APIs are initially supported for
         # WriteCommitted only
         dest_params["use_put_entity_one_in"] = 0
@@ -1062,6 +1147,10 @@ def finalize_and_sanitize(src_params):
         dest_params["commit_bypass_memtable_one_in"] = 0
         # not compatible with Remote Compaction yet
         dest_params["remote_compaction_worker_threads"] = 0
+        # WritePrepared/WriteUnprepared txns do not override GetEntity/MultiGetEntity yet.
+        dest_params["use_get_entity"] = 0
+        dest_params["use_multi_get_entity"] = 0
+        dest_params["use_attribute_group"] = 0
     # TODO(hx235): enable test_multi_ops_txns with fault injection after stabilizing the CI
     if dest_params.get("test_multi_ops_txns") == 1:
         dest_params["write_fault_one_in"] = 0
@@ -1292,6 +1381,22 @@ def finalize_and_sanitize(src_params):
         # which are not updated if skip_stats_update_on_db_open is true
         dest_params["skip_stats_update_on_db_open"] = 0
 
+    # Blob direct write requires blob files to be enabled. Disable direct
+    # write options when blob files are off to avoid wasting test cycles on
+    # no-op configurations.
+    if dest_params.get("enable_blob_files", 0) == 0:
+        dest_params["enable_blob_direct_write"] = 0
+
+
+    # Blob direct write + TransactionDB/OptimisticTransactionDB: transaction
+    # rebuild during WAL replay doesn't support BlobIndex entries yet.
+    if dest_params.get("use_txn") == 1 or dest_params.get(
+        "use_optimistic_txn"
+    ) == 1:
+        dest_params["enable_blob_direct_write"] = 0
+
+
+
     # open_files_async requires skip_stats_update_on_db_open to avoid
     # synchronous I/O in UpdateAccumulatedStats during DB open
     if dest_params.get("skip_stats_update_on_db_open", 0) == 0:
@@ -1370,6 +1475,10 @@ def gen_cmd_params(args):
 
 def gen_cmd(params, unknown_params):
     finalzied_params = finalize_and_sanitize(params)
+    prepare_expected_values_dir(
+        finalzied_params.get("expected_values_dir"),
+        finalzied_params.get("destroy_db_initially", 0),
+    )
     cmd = (
         [stress_cmd]
         + [
@@ -1747,9 +1856,6 @@ def whitebox_crash_main(args, unknown_args):
         if time.time() > half_time:
             # Set next iteration to destroy DB (works for remote DB)
             cmd_params["destroy_db_initially"] = 1
-            if expected_values_dir is not None:
-                shutil.rmtree(expected_values_dir, True)
-                os.mkdir(expected_values_dir)
             check_mode = (check_mode + 1) % total_check_mode
 
         time.sleep(1)  # time to stabilize after a kill

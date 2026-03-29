@@ -8,8 +8,10 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/db_impl/db_impl.h"
 #include "db/job_context.h"
 #include "db/version_set.h"
@@ -53,11 +55,16 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   // Make a set of all of the live table and blob files
   std::vector<uint64_t> live_table_files;
   std::vector<uint64_t> live_blob_files;
+  std::unordered_set<uint64_t> active_blob_files;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
       continue;
     }
     cfd->current()->AddLiveFiles(&live_table_files, &live_blob_files);
+    auto* mgr = cfd->blob_partition_manager();
+    if (mgr) {
+      mgr->GetActiveBlobFileNumbers(&active_blob_files);
+    }
   }
 
   ret.clear();
@@ -71,6 +78,9 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   }
 
   for (const auto& blob_file_number : live_blob_files) {
+    if (active_blob_files.count(blob_file_number)) {
+      continue;
+    }
     ret.emplace_back(BlobFileName("", blob_file_number));
   }
 
@@ -260,9 +270,15 @@ Status DBImpl::GetLiveFilesStorageInfo(
   }
 
   // Make a set of all of the live table and blob files
+  // Collect active blob file numbers to exclude from backup (unstable sizes).
+  std::unordered_set<uint64_t> active_blob_files;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
       continue;
+    }
+    auto* mgr = cfd->blob_partition_manager();
+    if (mgr) {
+      mgr->GetActiveBlobFileNumbers(&active_blob_files);
     }
     VersionStorageInfo& vsi = *cfd->current()->storage_info();
     auto& cf_paths = cfd->ioptions().cf_paths;
@@ -304,6 +320,11 @@ Status DBImpl::GetLiveFilesStorageInfo(
     const auto& blob_files = vsi.GetBlobFiles();
     for (const auto& meta : blob_files) {
       assert(meta);
+
+      // Skip active blob direct write files — their on-disk size is unstable.
+      if (active_blob_files.count(meta->GetBlobFileNumber())) {
+        continue;
+      }
 
       results.emplace_back();
       LiveFileStorageInfo& info = results.back();

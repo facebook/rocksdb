@@ -32,8 +32,8 @@ class Slice;
 // storage with minimal cost.
 class BlobSource {
  public:
-  // NOTE: db_id, db_session_id, and blob_file_cache are saved by reference or
-  // pointer.
+  // NOTE: db_id and db_session_id are stored by value (copied) to avoid
+  // dangling references. blob_file_cache is saved by pointer.
   BlobSource(const ImmutableOptions& immutable_options,
              const MutableCFOptions& mutable_cf_options,
              const std::string& db_id, const std::string& db_session_id,
@@ -101,8 +101,9 @@ class BlobSource {
   inline Status GetBlobFileReader(
       const ReadOptions& read_options, uint64_t blob_file_number,
       CacheHandleGuard<BlobFileReader>* blob_file_reader) {
-    return blob_file_cache_->GetBlobFileReader(read_options, blob_file_number,
-                                               blob_file_reader);
+    return blob_file_cache_->GetBlobFileReader(
+        read_options, blob_file_number, blob_file_reader,
+        /*allow_footer_skip_retry=*/false);
   }
 
   inline Cache* GetBlobCache() const { return blob_cache_.get(); }
@@ -144,8 +145,8 @@ class BlobSource {
     return base_cache_key.WithOffset(offset);
   }
 
-  const std::string& db_id_;
-  const std::string& db_session_id_;
+  const std::string db_id_;
+  const std::string db_session_id_;
 
   Statistics* statistics_;
 

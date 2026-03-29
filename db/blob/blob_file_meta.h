@@ -12,6 +12,7 @@
 #include <string>
 #include <unordered_set>
 
+#include "db/blob/blob_log_format.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -28,21 +29,21 @@ class SharedBlobFileMetaData {
   static std::shared_ptr<SharedBlobFileMetaData> Create(
       uint64_t blob_file_number, uint64_t total_blob_count,
       uint64_t total_blob_bytes, std::string checksum_method,
-      std::string checksum_value) {
+      std::string checksum_value, uint64_t file_size = 0) {
     return std::shared_ptr<SharedBlobFileMetaData>(new SharedBlobFileMetaData(
         blob_file_number, total_blob_count, total_blob_bytes,
-        std::move(checksum_method), std::move(checksum_value)));
+        std::move(checksum_method), std::move(checksum_value), file_size));
   }
 
   template <typename Deleter>
   static std::shared_ptr<SharedBlobFileMetaData> Create(
       uint64_t blob_file_number, uint64_t total_blob_count,
       uint64_t total_blob_bytes, std::string checksum_method,
-      std::string checksum_value, Deleter deleter) {
+      std::string checksum_value, Deleter deleter, uint64_t file_size = 0) {
     return std::shared_ptr<SharedBlobFileMetaData>(
         new SharedBlobFileMetaData(blob_file_number, total_blob_count,
                                    total_blob_bytes, std::move(checksum_method),
-                                   std::move(checksum_value)),
+                                   std::move(checksum_value), file_size),
         deleter);
   }
 
@@ -62,12 +63,22 @@ class SharedBlobFileMetaData {
   std::string DebugString() const;
 
  private:
+  static uint64_t DefaultFileSize(uint64_t total_blob_bytes) {
+    return BlobLogHeader::kSize + total_blob_bytes + BlobLogFooter::kSize;
+  }
+
+  static uint64_t ResolveFileSize(uint64_t total_blob_bytes,
+                                  uint64_t file_size) {
+    return file_size == 0 ? DefaultFileSize(total_blob_bytes) : file_size;
+  }
+
   SharedBlobFileMetaData(uint64_t blob_file_number, uint64_t total_blob_count,
                          uint64_t total_blob_bytes, std::string checksum_method,
-                         std::string checksum_value)
+                         std::string checksum_value, uint64_t file_size)
       : blob_file_number_(blob_file_number),
         total_blob_count_(total_blob_count),
         total_blob_bytes_(total_blob_bytes),
+        file_size_(ResolveFileSize(total_blob_bytes, file_size)),
         checksum_method_(std::move(checksum_method)),
         checksum_value_(std::move(checksum_value)) {
     assert(checksum_method_.empty() == checksum_value_.empty());
@@ -76,6 +87,10 @@ class SharedBlobFileMetaData {
   uint64_t blob_file_number_;
   uint64_t total_blob_count_;
   uint64_t total_blob_bytes_;
+  // Physical sealed file size. This can exceed total_blob_bytes_ when orphaned
+  // direct-write records remain on disk but are excluded from live-byte
+  // accounting.
+  uint64_t file_size_;
   std::string checksum_method_;
   std::string checksum_value_;
 };

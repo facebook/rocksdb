@@ -199,8 +199,8 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
 
   const std::string& path = cf_paths.front().path;
 
-  // Add an obsolete blob file.
-  constexpr uint64_t first_blob_file_number = 234;
+  const uint64_t old_blob_file_number = versions->NewFileNumber();
+  const uint64_t first_blob_file_number = versions->NewFileNumber();
   versions->AddObsoleteBlobFile(first_blob_file_number, path);
 
   // Add a live blob file.
@@ -210,7 +210,7 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
   VersionStorageInfo* const storage_info = version->storage_info();
   assert(storage_info);
 
-  constexpr uint64_t second_blob_file_number = 456;
+  const uint64_t second_blob_file_number = versions->NewFileNumber();
   constexpr uint64_t second_total_blob_count = 100;
   constexpr uint64_t second_total_blob_bytes = 2000000;
   constexpr char second_checksum_method[] = "CRC32B";
@@ -256,8 +256,8 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
   // list and adjusting the pending file number. We add the two files
   // above as well as two additional ones, where one is old
   // and should be cleaned up, and the other is still pending.
-  constexpr uint64_t old_blob_file_number = 123;
-  constexpr uint64_t pending_blob_file_number = 567;
+  const uint64_t pending_blob_file_number =
+      versions->current_next_file_number();
 
   job_context.full_scan_candidate_files.emplace_back(
       BlobFileName(old_blob_file_number), path);

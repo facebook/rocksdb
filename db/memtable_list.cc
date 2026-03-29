@@ -128,12 +128,14 @@ void MemTableListVersion::MultiGet(const ReadOptions& read_options,
 
 bool MemTableListVersion::GetMergeOperands(
     const LookupKey& key, Status* s, MergeContext* merge_context,
-    SequenceNumber* max_covering_tombstone_seq, const ReadOptions& read_opts) {
+    SequenceNumber* max_covering_tombstone_seq, const ReadOptions& read_opts,
+    bool* is_blob_index, std::string* blob_index, std::string* timestamp) {
   for (ReadOnlyMemTable* memtable : memlist_) {
-    bool done = memtable->Get(
-        key, /*value=*/nullptr, /*columns=*/nullptr, /*timestamp=*/nullptr, s,
-        merge_context, max_covering_tombstone_seq, read_opts,
-        true /* immutable_memtable */, nullptr, nullptr, false);
+    bool done =
+        memtable->Get(key, /*value=*/nullptr, /*columns=*/nullptr, timestamp, s,
+                      merge_context, max_covering_tombstone_seq, read_opts,
+                      true /* immutable_memtable */, nullptr, is_blob_index,
+                      false, blob_index);
     if (done) {
       return true;
     }

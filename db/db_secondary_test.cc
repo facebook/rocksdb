@@ -507,6 +507,96 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
   verify_db_func("new_foo_value", "new_bar_value");
 }
 
+TEST_F(DBSecondaryTest, OpenAsSecondaryBlobDirectWrite) {
+  Options options;
+  options.env = env_;
+  options.enable_blob_files = true;
+  options.enable_blob_direct_write = true;
+  options.min_blob_size = 16;
+  Reopen(options);
+
+  const std::string foo_value(64, 'f');
+  const std::string bar_value(96, 'b');
+  ASSERT_OK(Put("foo", foo_value));
+  ASSERT_OK(Put("bar", bar_value));
+  ASSERT_OK(dbfull()->FlushWAL(/*sync=*/true));
+
+  Options secondary_options = options;
+  secondary_options.max_open_files = -1;
+  OpenSecondary(secondary_options);
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  ReadOptions ropts;
+  ropts.verify_checksums = true;
+  const auto verify_db_func = [&](const std::string& expected_foo,
+                                  const std::string& expected_bar) {
+    std::string value;
+    ASSERT_OK(db_secondary_->Get(ropts, "foo", &value));
+    ASSERT_EQ(expected_foo, value);
+    ASSERT_OK(db_secondary_->Get(ropts, "bar", &value));
+    ASSERT_EQ(expected_bar, value);
+
+    std::unique_ptr<Iterator> iter(db_secondary_->NewIterator(ropts));
+    ASSERT_NE(nullptr, iter);
+    iter->Seek("foo");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("foo", iter->key().ToString());
+    ASSERT_EQ(expected_foo, iter->value().ToString());
+    iter->Seek("bar");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("bar", iter->key().ToString());
+    ASSERT_EQ(expected_bar, iter->value().ToString());
+  };
+
+  verify_db_func(foo_value, bar_value);
+
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  verify_db_func(foo_value, bar_value);
+}
+
+TEST_F(DBSecondaryTest, OpenAsSecondaryBlobDirectWriteWithoutExplicitFlushWAL) {
+  Options options;
+  options.env = env_;
+  options.enable_blob_files = true;
+  options.enable_blob_direct_write = true;
+  options.min_blob_size = 16;
+  options.blob_direct_write_buffer_size = 1 * 1024 * 1024;
+  options.blob_direct_write_flush_interval_ms = 0;
+  Reopen(options);
+
+  const std::string first_foo_value(64, 'f');
+  const std::string first_bar_value(96, 'b');
+  ASSERT_OK(Put("foo", first_foo_value));
+  ASSERT_OK(Put("bar", first_bar_value));
+
+  Options secondary_options = options;
+  secondary_options.max_open_files = -1;
+  OpenSecondary(secondary_options);
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  ReadOptions ropts;
+  ropts.verify_checksums = true;
+  const auto verify_db_func = [&](const std::string& expected_foo,
+                                  const std::string& expected_bar) {
+    std::string value;
+    ASSERT_OK(db_secondary_->Get(ropts, "foo", &value));
+    ASSERT_EQ(expected_foo, value);
+    ASSERT_OK(db_secondary_->Get(ropts, "bar", &value));
+    ASSERT_EQ(expected_bar, value);
+  };
+
+  verify_db_func(first_foo_value, first_bar_value);
+
+  const std::string second_foo_value(80, 'x');
+  const std::string second_bar_value(112, 'y');
+  ASSERT_OK(Put("foo", second_foo_value));
+  ASSERT_OK(Put("bar", second_bar_value));
+
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  verify_db_func(second_foo_value, second_bar_value);
+}
+
 TEST_F(DBSecondaryTest, OptionsOverrideTest) {
   Options options;
   options.env = env_;

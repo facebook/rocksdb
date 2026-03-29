@@ -9,6 +9,8 @@
 #include <cinttypes>
 #include <deque>
 
+#include "db/blob/blob_file_cache.h"
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
@@ -286,10 +288,104 @@ Status DBImpl::FlushMemTableToOutputFile(
   // and EventListener callback will be called when the db_mutex
   // is unlocked by the current thread.
   if (s.ok()) {
-    s = flush_job.Run(&logs_with_prep_tracker_, &file_meta,
-                      &switched_to_mempurge, &skip_set_bg_error,
-                      &error_handler_);
-    need_cancel = false;
+    // Seal write-path blob files for this CF and inject their additions into
+    // the flush edit, so they're registered in the same version as the flush
+    // SST. Sealed files remain in the partition manager's file_to_partition_
+    // map (visible to GetActiveBlobFileNumbers / PurgeObsoleteFiles) until
+    // we explicitly remove them after MANIFEST commit below.
+    std::vector<BlobFileAddition> write_path_additions;
+    bool has_write_path_additions = false;
+    std::vector<uint64_t> sealed_blob_numbers;
+    if (cfd->blob_partition_manager()) {
+      std::vector<uint64_t> blob_epochs;
+      for (const auto* mem : flush_job.GetMemTables()) {
+        uint64_t ep = mem->GetBlobWriteEpoch();
+        ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                       "[BlobDirectWrite] SingleFlush CF %s: memtable "
+                       "id=%" PRIu64 " blob_write_epoch=%" PRIu64,
+                       cfd->GetName().c_str(), mem->GetID(), ep);
+        if (ep != 0) {
+          blob_epochs.push_back(ep);
+        }
+      }
+      ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                     "[BlobDirectWrite] SingleFlush: Releasing db_mutex "
+                     "for SealAllPartitions on CF %s, %zu memtables, "
+                     "%zu non-zero epochs",
+                     cfd->GetName().c_str(), flush_job.GetMemTables().size(),
+                     blob_epochs.size());
+      mutex_.Unlock();
+      s = cfd->blob_partition_manager()->SealAllPartitions(
+          WriteOptions(Env::IOActivity::kFlush), &write_path_additions,
+          /*seal_all=*/false, blob_epochs);
+      mutex_.Lock();
+      ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                     "[BlobDirectWrite] SingleFlush: Re-acquired db_mutex "
+                     "after seal, got %zu additions, status=%s",
+                     write_path_additions.size(), s.ToString().c_str());
+      has_write_path_additions = s.ok() && !write_path_additions.empty();
+      if (has_write_path_additions) {
+        for (const auto& addition : write_path_additions) {
+          sealed_blob_numbers.push_back(addition.GetBlobFileNumber());
+        }
+        flush_job.AddExternalBlobFileAdditions(std::move(write_path_additions));
+      }
+    }
+    if (s.ok()) {
+      s = flush_job.Run(&logs_with_prep_tracker_, &file_meta,
+                        &switched_to_mempurge, &skip_set_bg_error,
+                        &error_handler_);
+      need_cancel = false;
+    }
+    // If the flush didn't consume the external blob additions, return them to
+    // the partition manager so they're picked up by the next flush. This
+    // covers failures/mempurge and the empty-mems / no-output case where
+    // FlushJob::Run() returns OK without registering the additions.
+    if (cfd->blob_partition_manager() && has_write_path_additions) {
+      auto unconsumed_additions = flush_job.TakeExternalBlobFileAdditions();
+      if (switched_to_mempurge || !s.ok() || !unconsumed_additions.empty()) {
+        if (!unconsumed_additions.empty()) {
+          ROCKS_LOG_WARN(
+              immutable_db_options_.info_log,
+              "[BlobDirectWrite] FlushMemTableToOutputFile: returning %zu "
+              "unconsumed external blob additions after flush status=%s "
+              "(mempurge=%d)",
+              unconsumed_additions.size(), s.ToString().c_str(),
+              switched_to_mempurge);
+          cfd->blob_partition_manager()->ReturnUnconsumedAdditions(
+              std::move(unconsumed_additions));
+        }
+        sealed_blob_numbers.clear();  // Don't remove mappings if not committed.
+      }
+    }
+    // On success, files are now committed to MANIFEST (in blob_live_set).
+    // Keep them on disk until their source WALs become obsolete. Later
+    // compaction may drop their MANIFEST metadata before those WALs age out.
+    if (s.ok() && !sealed_blob_numbers.empty()) {
+      const uint64_t flush_log_number = flush_job.GetLogNumber();
+      if (flush_log_number > 0) {
+        const uint64_t protected_until_wal = flush_log_number - 1;
+        for (uint64_t file_number : sealed_blob_numbers) {
+          ProtectBlobFileFromObsoleteDeletion(file_number, protected_until_wal);
+        }
+        ROCKS_LOG_DEBUG(
+            immutable_db_options_.info_log,
+            "[BlobDirectWrite] FlushMemTableToOutputFile: protecting %zu "
+            "sealed blob files until WAL #%" PRIu64 " is obsolete",
+            sealed_blob_numbers.size(), protected_until_wal);
+      }
+    }
+    // On success, files are now committed to MANIFEST (in blob_live_set).
+    // Remove them from file_to_partition_ so the map doesn't grow unbounded.
+    if (cfd->blob_partition_manager() && !sealed_blob_numbers.empty()) {
+      ROCKS_LOG_DEBUG(
+          immutable_db_options_.info_log,
+          "[BlobDirectWrite] FlushMemTableToOutputFile: "
+          "removing %zu sealed blob file mappings after MANIFEST commit",
+          sealed_blob_numbers.size());
+      cfd->blob_partition_manager()->RemoveFilePartitionMappings(
+          sealed_blob_numbers);
+    }
   }
 
   if (!s.ok() && need_cancel) {
@@ -563,6 +659,57 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     }
   }
 
+  // Track sealed blob file numbers per-CF so we can remove their
+  // file_to_partition_ mappings after MANIFEST commit.
+  // Map from CF index to the list of sealed blob file numbers.
+  std::unordered_map<int, std::vector<uint64_t>> sealed_blob_numbers_by_cf;
+
+  if (s.ok()) {
+    // Seal write-path blob files for each CF and inject additions into the
+    // corresponding flush job's version edit. Release db_mutex during seal
+    // I/O. Sealed files remain in file_to_partition_ (visible to
+    // GetActiveBlobFileNumbers) until RemoveFilePartitionMappings.
+    for (int i = 0; i < num_cfs; i++) {
+      auto* mgr = cfds[i]->blob_partition_manager();
+      if (!mgr) continue;
+      std::vector<uint64_t> blob_epochs;
+      for (const auto* mem : jobs[i]->GetMemTables()) {
+        uint64_t ep = mem->GetBlobWriteEpoch();
+        ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                       "[BlobDirectWrite] AtomicFlush CF[%d] %s: memtable "
+                       "id=%" PRIu64 " blob_write_epoch=%" PRIu64,
+                       i, cfds[i]->GetName().c_str(), mem->GetID(), ep);
+        if (ep != 0) {
+          blob_epochs.push_back(ep);
+        }
+      }
+      std::vector<BlobFileAddition> write_path_additions;
+      ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                     "[BlobDirectWrite] AtomicFlush CF[%d] %s: Releasing "
+                     "db_mutex for SealAllPartitions, %zu memtables, "
+                     "%zu non-zero epochs",
+                     i, cfds[i]->GetName().c_str(),
+                     jobs[i]->GetMemTables().size(), blob_epochs.size());
+      mutex_.Unlock();
+      s = mgr->SealAllPartitions(write_options, &write_path_additions,
+                                 /*seal_all=*/false, blob_epochs);
+      mutex_.Lock();
+      ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                     "[BlobDirectWrite] Re-acquired db_mutex after seal, "
+                     "got %zu additions, status=%s",
+                     write_path_additions.size(), s.ToString().c_str());
+      if (s.ok() && !write_path_additions.empty()) {
+        auto& sealed_numbers = sealed_blob_numbers_by_cf[i];
+        for (const auto& addition : write_path_additions) {
+          sealed_numbers.push_back(addition.GetBlobFileNumber());
+        }
+        jobs[i]->AddExternalBlobFileAdditions(std::move(write_path_additions));
+      }
+      TEST_SYNC_POINT("DBImpl::AtomicFlushMemTablesToOutputFiles:AfterSeal");
+      if (!s.ok()) break;
+    }
+  }
+
   if (s.ok()) {
     assert(switched_to_mempurge.size() ==
            static_cast<long unsigned int>(num_cfs));
@@ -768,9 +915,55 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         directories_.GetDbDir(), log_buffer);
   }
 
+  // Handle sealed blob file lifecycle after atomic flush:
+  // - On success: remove file_to_partition_ mappings (files are in MANIFEST).
+  // - On failure/mempurge: return additions to partition manager for retry.
+  //   Files remain in file_to_partition_ for PurgeObsoleteFiles protection.
+  for (int i = 0; i < num_cfs; i++) {
+    auto it = sealed_blob_numbers_by_cf.find(i);
+    if (it == sealed_blob_numbers_by_cf.end()) continue;
+    auto* mgr = cfds[i]->blob_partition_manager();
+    if (!mgr) continue;
+
+    auto additions = jobs[i]->TakeExternalBlobFileAdditions();
+    if (!s.ok() || switched_to_mempurge[i] || !additions.empty()) {
+      // Return additions so the next flush picks them up. An OK status with
+      // leftover additions means this CF did not actually commit them (for
+      // example, an empty-mems flush job), so the mappings must stay too.
+      if (!additions.empty()) {
+        ROCKS_LOG_WARN(
+            immutable_db_options_.info_log,
+            "[BlobDirectWrite] AtomicFlush: returning %zu unconsumed "
+            "external blob additions for CF[%d] after flush status=%s "
+            "(mempurge=%d)",
+            additions.size(), i, s.ToString().c_str(), switched_to_mempurge[i]);
+        mgr->ReturnUnconsumedAdditions(std::move(additions));
+      }
+      // Don't remove mappings — files need PurgeObsoleteFiles protection.
+    } else {
+      const uint64_t flush_log_number = jobs[i]->GetLogNumber();
+      if (flush_log_number > 0) {
+        const uint64_t protected_until_wal = flush_log_number - 1;
+        for (uint64_t file_number : it->second) {
+          ProtectBlobFileFromObsoleteDeletion(file_number, protected_until_wal);
+        }
+        ROCKS_LOG_DEBUG(
+            immutable_db_options_.info_log,
+            "[BlobDirectWrite] AtomicFlush: protecting %zu sealed blob files "
+            "for CF[%d] until WAL #%" PRIu64 " is obsolete",
+            it->second.size(), i, protected_until_wal);
+      }
+      // Files committed to MANIFEST. Remove from file_to_partition_.
+      ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                     "[BlobDirectWrite] AtomicFlush: "
+                     "removing %zu sealed blob file mappings for CF[%d] "
+                     "after MANIFEST commit",
+                     it->second.size(), i);
+      mgr->RemoveFilePartitionMappings(it->second);
+    }
+  }
+
   if (s.ok()) {
-    assert(num_cfs ==
-           static_cast<int>(job_context->superversion_contexts.size()));
     for (int i = 0; i != num_cfs; ++i) {
       assert(cfds[i]);
 

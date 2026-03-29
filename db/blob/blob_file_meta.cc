@@ -12,9 +12,7 @@
 #include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
-uint64_t SharedBlobFileMetaData::GetBlobFileSize() const {
-  return BlobLogHeader::kSize + total_blob_bytes_ + BlobLogFooter::kSize;
-}
+uint64_t SharedBlobFileMetaData::GetBlobFileSize() const { return file_size_; }
 
 std::string SharedBlobFileMetaData::DebugString() const {
   std::ostringstream oss;
@@ -28,6 +26,7 @@ std::ostream& operator<<(std::ostream& os,
   os << "blob_file_number: " << shared_meta.GetBlobFileNumber()
      << " total_blob_count: " << shared_meta.GetTotalBlobCount()
      << " total_blob_bytes: " << shared_meta.GetTotalBlobBytes()
+     << " file_size: " << shared_meta.GetBlobFileSize()
      << " checksum_method: " << shared_meta.GetChecksumMethod()
      << " checksum_value: "
      << Slice(shared_meta.GetChecksumValue()).ToString(/* hex */ true);

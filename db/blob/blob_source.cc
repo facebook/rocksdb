@@ -211,7 +211,8 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
   {
     CacheHandleGuard<BlobFileReader> blob_file_reader;
     s = blob_file_cache_->GetBlobFileReader(read_options, file_number,
-                                            &blob_file_reader);
+                                            &blob_file_reader,
+                                            /*allow_footer_skip_retry=*/false);
     if (!s.ok()) {
       return s;
     }
@@ -374,8 +375,9 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
     }
 
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    Status s = blob_file_cache_->GetBlobFileReader(read_options, file_number,
-                                                   &blob_file_reader);
+    Status s = blob_file_cache_->GetBlobFileReader(
+        read_options, file_number, &blob_file_reader,
+        /*allow_footer_skip_retry=*/false);
     if (!s.ok()) {
       for (size_t i = 0; i < _blob_reqs.size(); ++i) {
         BlobReadRequest* const req = _blob_reqs[i].first;

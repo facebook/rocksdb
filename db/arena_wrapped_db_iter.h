@@ -110,7 +110,9 @@ class ArenaWrappedDBIter : public Iterator {
             const SequenceNumber& sequence, uint64_t version_number,
             ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
             bool expose_blob_index, bool allow_refresh,
-            ReadOnlyMemTable* active_mem);
+            ReadOnlyMemTable* active_mem,
+            BlobFileCache* blob_file_cache = nullptr,
+            BlobFilePartitionManager* blob_partition_mgr = nullptr);
 
   // Store some parameters so we can refresh the iterator at a later point
   // with these same params
@@ -144,5 +146,6 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ReadOptions& read_options, ColumnFamilyHandleImpl* cfh,
     SuperVersion* sv, const SequenceNumber& sequence,
     ReadCallback* read_callback, DBImpl* db_impl, bool expose_blob_index,
-    bool allow_refresh, bool allow_mark_memtable_for_flush);
+    bool allow_refresh, bool allow_mark_memtable_for_flush,
+    BlobFilePartitionManager* blob_partition_mgr = nullptr);
 }  // namespace ROCKSDB_NAMESPACE

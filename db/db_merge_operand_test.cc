@@ -37,6 +37,22 @@ class LimitedStringAppendMergeOp : public StringAppendTESTOperator {
  private:
   size_t limit_ = 0;
 };
+
+void AssertMergeOperands(DB* db, const Slice& key,
+                         const std::vector<std::string>& expected) {
+  std::vector<PinnableSlice> values(expected.size());
+  GetMergeOperandsOptions merge_operands_info;
+  merge_operands_info.expected_max_number_of_operands =
+      static_cast<int>(expected.size());
+  int number_of_operands = 0;
+  ASSERT_OK(db->GetMergeOperands(ReadOptions(), db->DefaultColumnFamily(), key,
+                                 values.data(), &merge_operands_info,
+                                 &number_of_operands));
+  ASSERT_EQ(static_cast<int>(expected.size()), number_of_operands);
+  for (size_t i = 0; i < expected.size(); ++i) {
+    ASSERT_EQ(expected[i], values[i]);
+  }
+}
 }  // anonymous namespace
 
 class DBMergeOperandTest : public DBTestBase {
@@ -409,6 +425,53 @@ TEST_F(DBMergeOperandTest, BlobDBGetMergeOperandsBasic) {
   ASSERT_EQ(values[1], "cb");
   ASSERT_EQ(values[2], "dc");
   ASSERT_EQ(values[3], "ed");
+}
+
+TEST_F(DBMergeOperandTest, BlobDirectWriteGetMergeOperandsBaseValue) {
+  Options options = CurrentOptions();
+  options.enable_blob_files = true;
+  options.enable_blob_direct_write = true;
+  options.blob_direct_write_partitions = 1;
+  options.max_write_buffer_number = 10;
+  options.min_blob_size = 0;
+  DestroyAndReopen(options);
+
+  const std::string mutable_value(64, 'm');
+  ASSERT_OK(Put("mutable", mutable_value));
+  AssertMergeOperands(db_.get(), "mutable", {mutable_value});
+
+  ASSERT_OK(db_->PauseBackgroundWork());
+  const std::string imm_value(96, 'i');
+  ASSERT_OK(Put("imm", imm_value));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  AssertMergeOperands(db_.get(), "imm", {imm_value});
+  ASSERT_OK(db_->ContinueBackgroundWork());
+}
+
+TEST_F(DBMergeOperandTest, BlobDirectWriteGetMergeOperandsBaseValueWithMerges) {
+  Options options = CurrentOptions();
+  options.enable_blob_files = true;
+  options.enable_blob_direct_write = true;
+  options.blob_direct_write_partitions = 1;
+  options.max_write_buffer_number = 10;
+  options.min_blob_size = 0;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+
+  const std::string mutable_base(64, 'a');
+  ASSERT_OK(Put("mutable", mutable_base));
+  ASSERT_OK(Merge("mutable", "m1"));
+  ASSERT_OK(Merge("mutable", "m2"));
+  AssertMergeOperands(db_.get(), "mutable", {mutable_base, "m1", "m2"});
+
+  ASSERT_OK(db_->PauseBackgroundWork());
+  const std::string imm_base(96, 'b');
+  ASSERT_OK(Put("imm", imm_base));
+  ASSERT_OK(Merge("imm", "x"));
+  ASSERT_OK(Merge("imm", "y"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  AssertMergeOperands(db_.get(), "imm", {imm_base, "x", "y"});
+  ASSERT_OK(db_->ContinueBackgroundWork());
 }
 
 TEST_F(DBMergeOperandTest, GetMergeOperandsLargeResultOptimization) {

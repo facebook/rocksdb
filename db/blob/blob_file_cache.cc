@@ -9,6 +9,9 @@
 #include <memory>
 
 #include "db/blob/blob_file_reader.h"
+#include "db/blob/blob_log_format.h"
+#include "file/filename.h"
+#include "logging/logging.h"
 #include "options/cf_options.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/slice.h"
@@ -38,7 +41,8 @@ BlobFileCache::BlobFileCache(Cache* cache,
 
 Status BlobFileCache::GetBlobFileReader(
     const ReadOptions& read_options, uint64_t blob_file_number,
-    CacheHandleGuard<BlobFileReader>* blob_file_reader) {
+    CacheHandleGuard<BlobFileReader>* blob_file_reader,
+    bool allow_footer_skip_retry) {
   assert(blob_file_reader);
   assert(blob_file_reader->IsEmpty());
 
@@ -73,10 +77,35 @@ Status BlobFileCache::GetBlobFileReader(
 
   {
     assert(file_options_);
-    const Status s = BlobFileReader::Create(
+    Status s = BlobFileReader::Create(
         *immutable_options_, read_options, *file_options_, column_family_id_,
-        blob_file_read_hist_, blob_file_number, io_tracer_, &reader);
+        blob_file_read_hist_, blob_file_number, io_tracer_,
+        /*skip_footer_validation=*/false, &reader);
+    if (!s.ok() && s.IsCorruption() && allow_footer_skip_retry) {
+      ROCKS_LOG_INFO(
+          immutable_options_->logger,
+          "[BlobDirectWrite] BlobFileCache::GetBlobFileReader: retrying blob "
+          "file %" PRIu64 " open without footer validation after status=%s",
+          blob_file_number, s.ToString().c_str());
+      // Blob files created by direct write may not have a footer yet
+      // (still being written to, or DB crashed before the file was
+      // sealed during flush). Retry without footer validation.
+      // Individual blob records still have CRC checks (when
+      // verify_checksums=true), so real data corruption will still be
+      // caught during reads. I/O errors are not retried.
+      reader.reset();
+      s = BlobFileReader::Create(
+          *immutable_options_, read_options, *file_options_, column_family_id_,
+          blob_file_read_hist_, blob_file_number, io_tracer_,
+          /*skip_footer_validation=*/true, &reader);
+    }
     if (!s.ok()) {
+      ROCKS_LOG_WARN(
+          immutable_options_->logger,
+          "[BlobDirectWrite] BlobFileCache::GetBlobFileReader failed: "
+          "cf_id=%u blob=%" PRIu64 " allow_footer_skip_retry=%d status=%s",
+          column_family_id_, blob_file_number, allow_footer_skip_retry,
+          s.ToString().c_str());
       RecordTick(statistics, NO_FILE_ERRORS);
       return s;
     }
@@ -97,6 +126,67 @@ Status BlobFileCache::GetBlobFileReader(
   *blob_file_reader = cache_.Guard(handle);
 
   return Status::OK();
+}
+
+Status BlobFileCache::OpenBlobFileReaderUncached(
+    const ReadOptions& read_options, uint64_t blob_file_number,
+    std::unique_ptr<BlobFileReader>* blob_file_reader) {
+  assert(blob_file_reader);
+  assert(!*blob_file_reader);
+  assert(immutable_options_);
+  assert(file_options_);
+
+  Statistics* const statistics = immutable_options_->stats;
+  RecordTick(statistics, NO_FILE_OPENS);
+
+  Status s = BlobFileReader::Create(
+      *immutable_options_, read_options, *file_options_, column_family_id_,
+      blob_file_read_hist_, blob_file_number, io_tracer_,
+      /*skip_footer_validation=*/true, blob_file_reader);
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(
+        immutable_options_->logger,
+        "[BlobDirectWrite] BlobFileCache::OpenBlobFileReaderUncached failed: "
+        "cf_id=%u blob=%" PRIu64 " status=%s",
+        column_family_id_, blob_file_number, s.ToString().c_str());
+    RecordTick(statistics, NO_FILE_ERRORS);
+  }
+
+  return s;
+}
+
+Status BlobFileCache::InsertBlobFileReader(
+    uint64_t blob_file_number,
+    std::unique_ptr<BlobFileReader>* blob_file_reader,
+    CacheHandleGuard<BlobFileReader>* cached_blob_file_reader) {
+  assert(blob_file_reader);
+  assert(*blob_file_reader);
+  assert(cached_blob_file_reader);
+  assert(cached_blob_file_reader->IsEmpty());
+  assert(immutable_options_);
+
+  // NOTE: sharing same Cache with table_cache
+  const Slice key = GetSliceForKey(&blob_file_number);
+
+  MutexLock lock(&mutex_.Get(key));
+
+  TypedHandle* handle = cache_.Lookup(key);
+  if (handle) {
+    *cached_blob_file_reader = cache_.Guard(handle);
+    blob_file_reader->reset();
+    return Status::OK();
+  }
+
+  constexpr size_t charge = 1;
+  Status s = cache_.Insert(key, blob_file_reader->get(), charge, &handle);
+  if (!s.ok()) {
+    RecordTick(immutable_options_->stats, NO_FILE_ERRORS);
+    return s;
+  }
+
+  blob_file_reader->release();
+  *cached_blob_file_reader = cache_.Guard(handle);
+  return s;
 }
 
 void BlobFileCache::Evict(uint64_t blob_file_number) {

@@ -110,6 +110,10 @@ class BlobFileBuilder {
   BlobFileCreationReason creation_reason_;
   std::vector<std::string>* blob_file_paths_;
   std::vector<BlobFileAddition>* blob_file_additions_;
+  // Tracks the blob file currently open in `writer_`. `blob_file_paths_` may
+  // be shared with compaction SST outputs, so its last entry is not a stable
+  // way to identify the active blob file.
+  std::string current_blob_file_path_;
   std::unique_ptr<BlobLogWriter> writer_;
   uint64_t blob_count_;
   uint64_t blob_bytes_;

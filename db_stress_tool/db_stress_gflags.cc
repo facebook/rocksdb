@@ -526,6 +526,32 @@ DEFINE_int32(
     "[Integrated BlobDB] Enable writing blob files during flushes and "
     "compactions starting from the specified level.");
 
+DEFINE_bool(
+    enable_blob_direct_write,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().enable_blob_direct_write,
+    "[Integrated BlobDB] Write blob values directly to blob files at Put() "
+    "time instead of during flush.");
+
+DEFINE_uint32(
+    blob_direct_write_partitions,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+        .blob_direct_write_partitions,
+    "[Integrated BlobDB] Number of blob file partitions for direct write.");
+
+DEFINE_uint64(
+    blob_direct_write_flush_interval_ms,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+        .blob_direct_write_flush_interval_ms,
+    "[Integrated BlobDB] Periodic flush interval in milliseconds for blob "
+    "direct write buffers. 0 disables periodic flushing.");
+
+DEFINE_uint64(
+    blob_direct_write_buffer_size,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+        .blob_direct_write_buffer_size,
+    "[Integrated BlobDB] Write buffer size per partition for blob direct "
+    "write. 0 disables buffering (sync flush after every record).");
+
 DEFINE_bool(use_blob_cache, false, "[Integrated BlobDB] Enable blob cache.");
 
 DEFINE_bool(

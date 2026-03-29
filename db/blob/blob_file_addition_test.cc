@@ -37,6 +37,7 @@ TEST_F(BlobFileAdditionTest, Empty) {
   ASSERT_EQ(blob_file_addition.GetTotalBlobBytes(), 0);
   ASSERT_TRUE(blob_file_addition.GetChecksumMethod().empty());
   ASSERT_TRUE(blob_file_addition.GetChecksumValue().empty());
+  ASSERT_EQ(blob_file_addition.GetFileSize(), 0);
 
   TestEncodeDecode(blob_file_addition);
 }
@@ -59,6 +60,28 @@ TEST_F(BlobFileAdditionTest, NonEmpty) {
   ASSERT_EQ(blob_file_addition.GetTotalBlobBytes(), total_blob_bytes);
   ASSERT_EQ(blob_file_addition.GetChecksumMethod(), checksum_method);
   ASSERT_EQ(blob_file_addition.GetChecksumValue(), checksum_value);
+  ASSERT_EQ(blob_file_addition.GetFileSize(),
+            total_blob_bytes + BlobLogHeader::kSize + BlobLogFooter::kSize);
+
+  TestEncodeDecode(blob_file_addition);
+}
+
+TEST_F(BlobFileAdditionTest, NonDefaultFileSize) {
+  constexpr uint64_t blob_file_number = 124;
+  constexpr uint64_t total_blob_count = 2;
+  constexpr uint64_t total_blob_bytes = 123456;
+  constexpr uint64_t file_size =
+      total_blob_bytes + BlobLogHeader::kSize + BlobLogFooter::kSize + 128;
+  const std::string checksum_method("SHA1");
+  const std::string checksum_value(
+      "\xbd\xb7\xf3\x4a\x59\xdf\xa1\x59\x2c\xe7\xf5\x2e\x99\xf9\x8c\x57\x0c\x52"
+      "\x5c\xbd");
+
+  BlobFileAddition blob_file_addition(blob_file_number, total_blob_count,
+                                      total_blob_bytes, checksum_method,
+                                      checksum_value, file_size);
+
+  ASSERT_EQ(blob_file_addition.GetFileSize(), file_size);
 
   TestEncodeDecode(blob_file_addition);
 }

@@ -189,6 +189,15 @@ class SubcompactionState {
     return &compaction_outputs_;
   }
 
+  const CompactionOutputs* Outputs(bool is_proximal_level) const {
+    assert(compaction);
+    if (is_proximal_level) {
+      assert(compaction->SupportsPerKeyPlacement());
+      return &proximal_level_outputs_;
+    }
+    return &compaction_outputs_;
+  }
+
   // Per-level stats for the output
   InternalStats::CompactionStats* OutputStats(bool is_proximal_level) {
     assert(compaction);

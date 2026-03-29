@@ -23,6 +23,33 @@ class TablePropertiesCollectorFactory;
 class TableFactory;
 struct Options;
 
+// Public interface for blob file partition assignment.
+// Users can implement custom strategies to control which partition
+// a blob is written to, based on key and value content.
+// Used with the blob direct write feature (enable_blob_direct_write).
+//
+// THREAD SAFETY: Implementations MUST be thread-safe. SelectPartition()
+// is called concurrently from multiple writer threads without external
+// synchronization.
+//
+// PERFORMANCE: Called on the write hot path (blob direct write) and during
+// flush. Implementations should be lightweight.
+class BlobFilePartitionStrategy {
+ public:
+  virtual ~BlobFilePartitionStrategy() = default;
+
+  // Select a partition index for the given key and value.
+  // num_partitions is provided as a hint. The return value can be any
+  // uint32_t; the caller will apply modulo num_partitions internally.
+  // This allows the implementation to be decoupled from the actual
+  // partition count, which may change at runtime.
+  //
+  // Thread-safe: may be called concurrently from multiple threads.
+  virtual uint32_t SelectPartition(uint32_t num_partitions,
+                                   uint32_t column_family_id, const Slice& key,
+                                   const Slice& value) const = 0;
+};
+
 enum CompactionStyle : char {
   // level based compaction style
   kCompactionStyleLevel = 0x0,
@@ -1187,6 +1214,90 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through the SetOptions() API
   PrepopulateBlobCache prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
+
+  // When enabled, blob values >= min_blob_size are written directly to blob
+  // files during the write path. Only the small BlobIndex pointer is stored
+  // in WAL and memtable, meaning the full blob value bypasses both WAL and
+  // memtable entirely. This reduces WAL write amplification and memtable
+  // memory usage for large values.
+  //
+  // PERFORMANCE TRADE-OFF: Adds blob file I/O to the write path. In
+  // deferred flush mode (blob_direct_write_buffer_size > 0), blob records
+  // are buffered in memory and flushed asynchronously by background
+  // threads, so Put() latency is dominated by the memcpy into the buffer
+  // rather than disk I/O. In synchronous mode (buffer_size = 0), each
+  // Put() performs a direct write to the blob file. Best for workloads
+  // where WAL/memtable savings outweigh the extra write-path cost (e.g.,
+  // large values, batch ingestion).
+  //
+  // DURABILITY: When WriteOptions::sync is true, blob files are synced
+  // before WAL write. When sync is false, both blob and WAL data are
+  // buffered in OS cache. The sync method (fsync vs fdatasync) is
+  // controlled by DBOptions::use_fsync, shared with the rest of the DB.
+  //
+  // Requires enable_blob_files = true to have effect.
+  //
+  // Default: false
+  //
+  // Not dynamically changeable through SetOptions(). Requires DB reopen
+  // to enable or disable. The structural options below (partitions,
+  // buffer_size, etc.) are also immutable and only take effect at
+  // DB::Open() time.
+  //
+  // NOTE: Each column family with this feature enabled gets its own
+  // BlobFilePartitionManager with its own settings. No aggregation
+  // across column families occurs.
+  bool enable_blob_direct_write = false;
+
+  // Number of blob file partitions for concurrent write-path blob writes.
+  // Each partition has its own blob file and mutex, reducing lock contention
+  // when multiple writer threads write blobs simultaneously.
+  // Only used when enable_blob_direct_write = true.
+  //
+  // NOTE: Only read at DB open time. Changes via SetOptions() will not
+  // take effect until the database is reopened.
+  //
+  // Default: 1
+  uint32_t blob_direct_write_partitions = 1;
+
+  // Write buffer size (in bytes) for each blob direct write partition.
+  // Blob records are buffered in memory and flushed to disk when the
+  // buffer is full, amortizing I/O syscall overhead across multiple blobs.
+  // Set to 0 to disable buffering (flush after every record).
+  // Only used when enable_blob_direct_write = true.
+  //
+  // When both buffer_size > 0 and blob_direct_write_flush_interval_ms > 0,
+  // the buffer is flushed on whichever condition comes first: buffer full
+  // OR interval elapsed.
+  //
+  // CRASH SAFETY: When buffer_size > 0 and sync=false, buffered blob
+  // records may be lost on crash even if the WAL survives. WAL replay
+  // will produce BlobIndex entries pointing to unwritten blob data.
+  // Use sync=true or buffer_size=0 to avoid this window.
+  //
+  // Default: 524288 (512KB)
+  uint64_t blob_direct_write_buffer_size = 512 * 1024;
+
+  // Periodic flush interval (in milliseconds) for blob direct write buffers.
+  // When set to a positive value, background threads will flush pending
+  // blob records to disk at least every this many milliseconds, even if
+  // the buffer hasn't reached the high-water mark.
+  // Set to 0 to disable periodic flushing (only flush on high-water mark,
+  // backpressure, or file rotation).
+  // Only used when enable_blob_direct_write = true and
+  // blob_direct_write_buffer_size > 0.
+  //
+  // Default: 0 (disabled)
+  uint64_t blob_direct_write_flush_interval_ms = 0;
+
+  // Custom partition strategy for blob direct writes.
+  // Controls which partition a blob is assigned to based on key and value
+  // content. If nullptr, uses the default round-robin strategy.
+  // Used when enable_blob_direct_write = true.
+  //
+  // Default: nullptr (round-robin)
+  std::shared_ptr<BlobFilePartitionStrategy>
+      blob_direct_write_partition_strategy = nullptr;
 
   // Enable memtable per key-value checksum protection.
   //

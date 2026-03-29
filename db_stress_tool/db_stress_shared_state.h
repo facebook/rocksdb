@@ -33,6 +33,8 @@ DECLARE_bool(error_recovery_with_no_fault_injection);
 DECLARE_bool(sync_fault_injection);
 DECLARE_int32(range_deletion_width);
 DECLARE_bool(disable_wal);
+DECLARE_bool(enable_blob_direct_write);
+DECLARE_bool(sync);
 DECLARE_int32(manual_wal_flush_one_in);
 DECLARE_int32(metadata_read_fault_one_in);
 DECLARE_int32(metadata_write_fault_one_in);
@@ -277,7 +279,10 @@ class SharedState {
 
   bool HasHistory() { return expected_state_manager_->HasHistory(); }
 
-  Status Restore(DB* db) { return expected_state_manager_->Restore(db); }
+  Status Restore(DB* db,
+                 const std::vector<ColumnFamilyHandle*>& cf_handles = {}) {
+    return expected_state_manager_->Restore(db, cf_handles);
+  }
 
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) {

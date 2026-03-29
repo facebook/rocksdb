@@ -31,12 +31,7 @@ class BlobFileCompletionCallback {
   void OnBlobFileCreationStarted(const std::string& file_name,
                                  const std::string& column_family_name,
                                  int job_id,
-                                 BlobFileCreationReason creation_reason) {
-    // Notify the listeners.
-    EventHelpers::NotifyBlobFileCreationStarted(listeners_, dbname_,
-                                                column_family_name, file_name,
-                                                job_id, creation_reason);
-  }
+                                 BlobFileCreationReason creation_reason);
 
   Status OnBlobFileCompleted(const std::string& file_name,
                              const std::string& column_family_name, int job_id,
@@ -45,33 +40,7 @@ class BlobFileCompletionCallback {
                              const Status& report_status,
                              const std::string& checksum_value,
                              const std::string& checksum_method,
-                             uint64_t blob_count, uint64_t blob_bytes) {
-    Status s;
-
-    auto sfm = static_cast<SstFileManagerImpl*>(sst_file_manager_);
-    if (sfm) {
-      // Report new blob files to SstFileManagerImpl
-      s = sfm->OnAddFile(file_name);
-      if (sfm->IsMaxAllowedSpaceReached()) {
-        s = Status::SpaceLimit("Max allowed space was reached");
-        TEST_SYNC_POINT(
-            "BlobFileCompletionCallback::CallBack::MaxAllowedSpaceReached");
-        InstrumentedMutexLock l(mutex_);
-        error_handler_->SetBGError(s, BackgroundErrorReason::kFlush);
-      }
-    }
-
-    // Notify the listeners.
-    EventHelpers::LogAndNotifyBlobFileCreationFinished(
-        event_logger_, listeners_, dbname_, column_family_name, file_name,
-        job_id, file_number, creation_reason,
-        (!report_status.ok() ? report_status : s),
-        (checksum_value.empty() ? kUnknownFileChecksum : checksum_value),
-        (checksum_method.empty() ? kUnknownFileChecksumFuncName
-                                 : checksum_method),
-        blob_count, blob_bytes);
-    return s;
-  }
+                             uint64_t blob_count, uint64_t blob_bytes);
 
  private:
   SstFileManager* sst_file_manager_;

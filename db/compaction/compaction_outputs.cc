@@ -427,6 +427,8 @@ Status CompactionOutputs::AddToOutput(
 
   if (blob_garbage_meter_) {
     s = blob_garbage_meter_->ProcessOutFlow(key, value);
+  } else if (shared_blob_garbage_meter_) {
+    s = shared_blob_garbage_meter_->ProcessOutFlow(key, value);
   }
 
   if (!s.ok()) {

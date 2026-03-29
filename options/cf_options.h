@@ -81,6 +81,17 @@ struct ImmutableCFOptions {
 
   std::shared_ptr<Cache> blob_cache;
 
+  bool enable_blob_direct_write;
+
+  std::shared_ptr<BlobFilePartitionStrategy>
+      blob_direct_write_partition_strategy;
+
+  uint32_t blob_direct_write_partitions;
+
+  uint64_t blob_direct_write_buffer_size;
+
+  uint64_t blob_direct_write_flush_interval_ms;
+
   bool persist_user_defined_timestamps;
 
   bool cf_allow_ingest_behind;
@@ -338,7 +349,6 @@ struct MutableCFOptions {
   uint64_t blob_compaction_readahead_size;
   int blob_file_starting_level;
   PrepopulateBlobCache prepopulate_blob_cache;
-
   // Misc options
   uint64_t max_sequential_skip_in_iterations;
   bool paranoid_file_checks;

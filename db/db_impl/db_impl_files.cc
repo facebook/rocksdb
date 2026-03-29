@@ -8,8 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cinttypes>
 #include <set>
+#include <sstream>
 #include <unordered_set>
 
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/db_impl/db_impl.h"
 #include "db/event_helpers.h"
 #include "db/memtable_list.h"
@@ -23,6 +25,42 @@
 #include "util/defer.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+template <typename Container>
+std::string SummarizeNumbers(const Container& numbers,
+                             size_t max_to_show = 16) {
+  std::vector<uint64_t> ordered(numbers.begin(), numbers.end());
+  std::sort(ordered.begin(), ordered.end());
+
+  std::ostringstream oss;
+  oss << "[";
+  for (size_t i = 0; i < ordered.size() && i < max_to_show; ++i) {
+    if (i > 0) {
+      oss << ",";
+    }
+    oss << ordered[i];
+  }
+  if (ordered.size() > max_to_show) {
+    oss << ",...+" << (ordered.size() - max_to_show);
+  }
+  oss << "]";
+  return oss.str();
+}
+
+std::string SummarizeBlobDeleteFiles(
+    const std::vector<ObsoleteBlobFileInfo>& blob_files,
+    size_t max_to_show = 16) {
+  std::vector<uint64_t> numbers;
+  numbers.reserve(blob_files.size());
+  for (const auto& blob_file : blob_files) {
+    numbers.push_back(blob_file.GetBlobFileNumber());
+  }
+  return SummarizeNumbers(numbers, max_to_show);
+}
+
+}  // namespace
 
 uint64_t DBImpl::MinLogNumberToKeep() {
   return versions_->min_log_number_to_keep();
@@ -127,6 +165,10 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
 
   // if deletion is disabled, do nothing
   if (disable_delete_obsolete_files_ > 0) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[BlobDirectWrite] FindObsoleteFiles: SKIPPED "
+                   "(disable_count=%d)",
+                   disable_delete_obsolete_files_);
     return;
   }
 
@@ -138,6 +180,12 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   } else if (force ||
              mutable_db_options_.delete_obsolete_files_period_micros == 0) {
     doing_the_full_scan = true;
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[BlobDirectWrite] FindObsoleteFiles: full_scan=true "
+                   "(force=%d, period=%" PRIu64 ", disable_count=%d)",
+                   force,
+                   mutable_db_options_.delete_obsolete_files_period_micros,
+                   disable_delete_obsolete_files_);
   } else {
     const uint64_t now_micros = immutable_db_options_.clock->NowMicros();
     if ((delete_obsolete_files_last_run_ +
@@ -157,12 +205,53 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   job_context->files_to_quarantine = error_handler_.GetFilesToQuarantine();
   job_context->min_options_file_number = MinOptionsFileNumberToKeep();
 
+  // Snapshot the next file number before collecting active blob direct write
+  // files. Writers open new blob files without db_mutex_, so a file can be
+  // created on disk after the active-set snapshot but before the directory
+  // scan. Files with numbers >= this cutoff are skipped by PurgeObsoleteFiles.
+  job_context->min_blob_file_number_to_keep =
+      versions_->current_next_file_number();
+  const uint64_t min_log_number_to_keep = MinLogNumberToKeep();
+
+  // Collect blob files that must stay on disk while PurgeObsoleteFiles runs.
+  // This includes active blob direct write files plus any blob file whose
+  // source WAL is still live and might be replayed again after a crash.
+  for (auto* cfd : *versions_->GetColumnFamilySet()) {
+    auto* mgr = cfd->blob_partition_manager();
+    if (mgr) {
+      mgr->GetActiveBlobFileNumbers(
+          &job_context->active_blob_direct_write_files);
+    }
+  }
+  for (auto it = wal_protected_blob_files_.begin();
+       it != wal_protected_blob_files_.end();) {
+    if (min_log_number_to_keep > it->second) {
+      it = wal_protected_blob_files_.erase(it);
+    } else {
+      job_context->active_blob_direct_write_files.insert(it->first);
+      ++it;
+    }
+  }
+
   // Get obsolete files.  This function will also update the list of
   // pending files in VersionSet().
   assert(versions_);
   versions_->GetObsoleteFiles(
       &job_context->sst_delete_files, &job_context->blob_delete_files,
       &job_context->manifest_delete_files, job_context->min_pending_output);
+  if (!job_context->blob_delete_files.empty()) {
+    ROCKS_LOG_INFO(
+        immutable_db_options_.info_log,
+        "[BlobDirectWrite] FindObsoleteFiles: job=%d force=%d no_full_scan=%d "
+        "full_scan=%d min_pending_output=%" PRIu64 " min_blob_keep=%" PRIu64
+        " active_blob_files=%s "
+        "queued_blob_deletes=%s",
+        job_context->job_id, force, no_full_scan, doing_the_full_scan,
+        job_context->min_pending_output,
+        job_context->min_blob_file_number_to_keep,
+        SummarizeNumbers(job_context->active_blob_direct_write_files).c_str(),
+        SummarizeBlobDeleteFiles(job_context->blob_delete_files).c_str());
+  }
 
   // Mark the elements in job_context->sst_delete_files and
   // job_context->blob_delete_files as "grabbed for purge" so that other threads
@@ -180,10 +269,11 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   job_context->manifest_file_number = versions_->manifest_file_number();
   job_context->pending_manifest_file_number =
       versions_->pending_manifest_file_number();
-  job_context->log_number = MinLogNumberToKeep();
+  job_context->log_number = min_log_number_to_keep;
   job_context->prev_log_number = versions_->prev_log_number();
 
   if (doing_the_full_scan) {
+    TEST_SYNC_POINT("DBImpl::FindObsoleteFiles:AfterBlobStateSnapshot");
     versions_->AddLiveFiles(&job_context->sst_live, &job_context->blob_live);
     InfoLogPrefix info_log_prefix(!immutable_db_options_.db_log_dir.empty(),
                                   dbname_);
@@ -215,6 +305,12 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
         // TODO(icanadi) clean up this mess to avoid having one-off "/"
         // prefixes
         job_context->full_scan_candidate_files.emplace_back("/" + file, path);
+        if (type == kBlobFile) {
+          ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                         "[BlobDirectWrite] FindObsoleteFiles: "
+                         "full scan found blob file %" PRIu64,
+                         number);
+        }
       }
     }
 
@@ -434,6 +530,11 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
                                             state.sst_live.end());
   std::unordered_set<uint64_t> blob_live_set(state.blob_live.begin(),
                                              state.blob_live.end());
+  std::unordered_set<uint64_t> obsolete_blob_delete_files;
+  obsolete_blob_delete_files.reserve(state.blob_delete_files.size());
+  for (const auto& blob_file : state.blob_delete_files) {
+    obsolete_blob_delete_files.emplace(blob_file.GetBlobFileNumber());
+  }
   std::unordered_set<uint64_t> wal_recycle_files_set(
       state.log_recycle_files.begin(), state.log_recycle_files.end());
   std::unordered_set<uint64_t> quarantine_files_set(
@@ -542,6 +643,11 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     s.PermitUncheckedError();
   }
 
+  // Blob files protected from deletion were collected under db_mutex_ in
+  // FindObsoleteFiles. Use the pre-collected set here since
+  // PurgeObsoleteFiles runs without the mutex.
+  const auto& active_blob_file_numbers = state.active_blob_direct_write_files;
+
   bool own_files = OwnTablesAndLogs();
   std::unordered_set<uint64_t> files_to_del;
   for (const auto& candidate_file : candidate_files) {
@@ -587,13 +693,45 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
           files_to_del.insert(number);
         }
         break;
-      case kBlobFile:
+      case kBlobFile: {
+        const bool blob_live =
+            blob_live_set.find(number) != blob_live_set.end();
+        const bool active_blob = active_blob_file_numbers.find(number) !=
+                                 active_blob_file_numbers.end();
+        const bool from_obsolete_queue =
+            obsolete_blob_delete_files.find(number) !=
+            obsolete_blob_delete_files.end();
         keep = number >= state.min_pending_output ||
-               (blob_live_set.find(number) != blob_live_set.end());
+               number >= state.min_blob_file_number_to_keep || blob_live ||
+               active_blob;
+        if (from_obsolete_queue) {
+          ROCKS_LOG_INFO(
+              immutable_db_options_.info_log,
+              "[BlobDirectWrite] PurgeObsoleteFiles: %s queued obsolete blob "
+              "file %" PRIu64
+              " blob_live=%d active_blob=%d "
+              "min_blob_keep=%" PRIu64 " min_pending_output=%" PRIu64,
+              keep ? "keeping" : "deleting", number, blob_live, active_blob,
+              state.min_blob_file_number_to_keep, state.min_pending_output);
+        }
         if (!keep) {
+          ROCKS_LOG_INFO(
+              immutable_db_options_.info_log,
+              "[BlobDirectWrite] PurgeObsoleteFiles: DELETING blob file "
+              "%" PRIu64
+              " source=%s blob_live=%d active_blob=%d "
+              "min_blob_keep=%" PRIu64 " min_pending_output=%" PRIu64,
+              number,
+              from_obsolete_queue ? "obsolete_queue" : "full_scan_backstop",
+              blob_live, active_blob, state.min_blob_file_number_to_keep,
+              state.min_pending_output);
+          // BlobFileCache shares the DB-level table cache and uses the same
+          // file-number key encoding, so evict the shared cache entry before
+          // deleting the obsolete blob file.
+          TableCache::Evict(table_cache_.get(), number);
           files_to_del.insert(number);
         }
-        break;
+      } break;
       case kTempFile:
         // Any temp files that are currently being written to must
         // be recorded in pending_outputs_, which is inserted into "live".
@@ -734,6 +872,18 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     bg_cv_.SignalAll();
   }
   TEST_SYNC_POINT("DBImpl::PurgeObsoleteFiles:End");
+}
+
+void DBImpl::ProtectBlobFileFromObsoleteDeletion(uint64_t blob_file_number,
+                                                 uint64_t protected_until_wal) {
+  mutex_.AssertHeld();
+  if (protected_until_wal == 0) {
+    return;
+  }
+  auto& current = wal_protected_blob_files_[blob_file_number];
+  if (current < protected_until_wal) {
+    current = protected_until_wal;
+  }
 }
 
 void DBImpl::DeleteObsoleteFiles() {

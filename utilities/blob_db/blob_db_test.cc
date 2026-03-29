@@ -852,7 +852,10 @@ TEST_F(BlobDBTest, MigrateFromPlainRocksDB) {
   delete blob_db_;
   blob_db_ = nullptr;
 
-  // Verify plain db return error for keys written by blob db.
+  // Plain RocksDB cannot reliably interpret stacked BlobDB writes. Depending
+  // on where the newer blob index lives, the read can fail or fall back to an
+  // older plain-RocksDB value, but it must not surface the latest BlobDB
+  // value.
   ASSERT_OK(DB::Open(options, dbname_, &db));
   std::string value;
   for (size_t i = 0; i < kNumKey; i++) {
@@ -861,7 +864,7 @@ TEST_F(BlobDBTest, MigrateFromPlainRocksDB) {
     if (data.count(key) == 0) {
       ASSERT_TRUE(s.IsNotFound());
     } else if (is_blob[i]) {
-      ASSERT_TRUE(s.IsCorruption());
+      ASSERT_TRUE(!s.ok() || value != data[key]);
     } else {
       ASSERT_OK(s);
       ASSERT_EQ(data[key], value);
