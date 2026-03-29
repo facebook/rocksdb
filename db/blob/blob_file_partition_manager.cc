@@ -170,11 +170,9 @@ Status BlobFilePartitionManager::OpenNewBlobFile(Partition* partition,
     return s;
   }
 
-  {
-    uint64_t fn_copy = blob_file_number;
-    TEST_SYNC_POINT_CALLBACK(
-        "BlobFilePartitionManager::OpenNewBlobFile:AfterCreate", &fn_copy);
-  }
+  TEST_SYNC_POINT_CALLBACK(
+      "BlobFilePartitionManager::OpenNewBlobFile:AfterCreate",
+      &blob_file_number);
 
   const bool perform_data_verification =
       checksum_handoff_file_types_.Contains(FileType::kBlobFile);
@@ -605,9 +603,9 @@ void BlobFilePartitionManager::SubmitSeal(Partition* partition,
     MutexLock lock(&bg_mutex_);
     if (bg_seal_in_progress_) {
       ROCKS_LOG_DEBUG(info_log_,
-                     "[BlobDirectWrite] SubmitSeal: sealing blob file %" PRIu64
-                     " INLINE (bg_seal_in_progress=true, %" PRIu64 " blobs)",
-                     seal.file_number, seal.blob_count);
+                      "[BlobDirectWrite] SubmitSeal: sealing blob file %" PRIu64
+                      " INLINE (bg_seal_in_progress=true, %" PRIu64 " blobs)",
+                      seal.file_number, seal.blob_count);
       Status s = SealDeferredFile(partition, &seal);
       if (!s.ok()) {
         ROCKS_LOG_ERROR(info_log_,
@@ -620,9 +618,9 @@ void BlobFilePartitionManager::SubmitSeal(Partition* partition,
     }
   }
   ROCKS_LOG_DEBUG(info_log_,
-                 "[BlobDirectWrite] SubmitSeal: scheduling BG seal for blob "
-                 "file %" PRIu64 " (%" PRIu64 " blobs)",
-                 seal.file_number, seal.blob_count);
+                  "[BlobDirectWrite] SubmitSeal: scheduling BG seal for blob "
+                  "file %" PRIu64 " (%" PRIu64 " blobs)",
+                  seal.file_number, seal.blob_count);
   bg_in_flight_.fetch_add(1, std::memory_order_acq_rel);
   auto* ctx = new BGSealContext{this, partition, std::move(seal)};
   env_->Schedule(&BGSealWrapper, ctx, Env::Priority::BOTTOM);
@@ -664,9 +662,9 @@ void BlobFilePartitionManager::DrainBackgroundWork() {
   int64_t in_flight = bg_in_flight_.load(std::memory_order_acquire);
   if (in_flight > 0) {
     ROCKS_LOG_DEBUG(info_log_,
-                   "[BlobDirectWrite] DrainBackgroundWork: waiting for "
-                   "%" PRId64 " in-flight BG tasks",
-                   in_flight);
+                    "[BlobDirectWrite] DrainBackgroundWork: waiting for "
+                    "%" PRId64 " in-flight BG tasks",
+                    in_flight);
   }
   while (bg_in_flight_.load(std::memory_order_acquire) > 0) {
     bg_cv_.Wait();
@@ -780,19 +778,19 @@ void BlobFilePartitionManager::AddFilePartitionMapping(uint64_t file_number,
   WriteLock lock(&file_partition_mutex_);
   file_to_partition_[file_number] = partition_idx;
   ROCKS_LOG_DEBUG(info_log_,
-                 "[BlobDirectWrite] AddFilePartitionMapping: "
-                 "file %" PRIu64
-                 " -> partition %u, "
-                 "map size now %zu",
-                 file_number, partition_idx, file_to_partition_.size());
+                  "[BlobDirectWrite] AddFilePartitionMapping: "
+                  "file %" PRIu64
+                  " -> partition %u, "
+                  "map size now %zu",
+                  file_number, partition_idx, file_to_partition_.size());
 }
 
 void BlobFilePartitionManager::RemoveFilePartitionMapping(
     uint64_t file_number) {
   ROCKS_LOG_DEBUG(info_log_,
-                 "[BlobDirectWrite] RemoveFilePartitionMapping: "
-                 "removing file %" PRIu64 " (single)",
-                 file_number);
+                  "[BlobDirectWrite] RemoveFilePartitionMapping: "
+                  "removing file %" PRIu64 " (single)",
+                  file_number);
   WriteLock lock(&file_partition_mutex_);
   file_to_partition_.erase(file_number);
 }
@@ -806,9 +804,9 @@ void BlobFilePartitionManager::RemoveFilePartitionMappings(
     nums += std::to_string(fn);
   }
   ROCKS_LOG_DEBUG(info_log_,
-                 "[BlobDirectWrite] RemoveFilePartitionMappings: "
-                 "removing %zu files: %s",
-                 file_numbers.size(), nums.c_str());
+                  "[BlobDirectWrite] RemoveFilePartitionMappings: "
+                  "removing %zu files: %s",
+                  file_numbers.size(), nums.c_str());
   WriteLock lock(&file_partition_mutex_);
   for (uint64_t fn : file_numbers) {
     file_to_partition_.erase(fn);
@@ -1187,24 +1185,24 @@ Status BlobFilePartitionManager::RotateAllPartitions() {
     for (const auto& [partition, seal] : seals) {
       (void)partition;
       ROCKS_LOG_DEBUG(info_log_,
-                     "[BlobDirectWrite] RotateAllPartitions: captured blob "
-                     "file %" PRIu64 " (%" PRIu64 " blobs, %" PRIu64
-                     " bytes) into rotation batch epoch=%" PRIu64,
-                     seal.file_number, seal.blob_count, seal.total_blob_bytes,
-                     current_epoch);
+                      "[BlobDirectWrite] RotateAllPartitions: captured blob "
+                      "file %" PRIu64 " (%" PRIu64 " blobs, %" PRIu64
+                      " bytes) into rotation batch epoch=%" PRIu64,
+                      seal.file_number, seal.blob_count, seal.total_blob_bytes,
+                      current_epoch);
     }
     RotationBatch batch;
     batch.epoch = current_epoch;
     batch.seals = std::move(seals);
     rotation_deferred_seals_.emplace_back(std::move(batch));
     ROCKS_LOG_DEBUG(info_log_,
-                   "[BlobDirectWrite] RotateAllPartitions: "
-                   "rotation_deferred_seals_ now has %zu batches",
-                   rotation_deferred_seals_.size());
+                    "[BlobDirectWrite] RotateAllPartitions: "
+                    "rotation_deferred_seals_ now has %zu batches",
+                    rotation_deferred_seals_.size());
   } else {
     ROCKS_LOG_DEBUG(info_log_,
-                   "[BlobDirectWrite] RotateAllPartitions: no partitions "
-                   "had writers, no seals captured");
+                    "[BlobDirectWrite] RotateAllPartitions: no partitions "
+                    "had writers, no seals captured");
   }
 
   rotation_epoch_.fetch_add(1, std::memory_order_release);
@@ -1224,9 +1222,9 @@ Status BlobFilePartitionManager::SealAllPartitions(
     file_to_partition_size = file_to_partition_.size();
   }
   ROCKS_LOG_DEBUG(info_log_,
-                 "[BlobDirectWrite] SealAllPartitions: entry, "
-                 "file_to_partition_ size = %zu",
-                 file_to_partition_size);
+                  "[BlobDirectWrite] SealAllPartitions: entry, "
+                  "file_to_partition_ size = %zu",
+                  file_to_partition_size);
 
   // Fast path: skip if no blobs have been written since the last seal
   // AND there are no pending rotation seals.
@@ -1244,10 +1242,10 @@ Status BlobFilePartitionManager::SealAllPartitions(
       blobs_written_since_seal_.exchange(0, std::memory_order_acq_rel) == 0) {
     TakeCompletedBlobFileAdditions(additions);
     ROCKS_LOG_DEBUG(info_log_,
-                   "[BlobDirectWrite] SealAllPartitions: FAST PATH "
-                   "(no pending rotation, no new blobs), collected %zu "
-                   "completed additions",
-                   additions->size());
+                    "[BlobDirectWrite] SealAllPartitions: FAST PATH "
+                    "(no pending rotation, no new blobs), collected %zu "
+                    "completed additions",
+                    additions->size());
     return Status::OK();
   }
 
@@ -1263,10 +1261,10 @@ Status BlobFilePartitionManager::SealAllPartitions(
       // Shutdown: drain ALL pending rotation batches.
       for (auto& batch : rotation_deferred_seals_) {
         ROCKS_LOG_DEBUG(info_log_,
-                       "[BlobDirectWrite] SealAllPartitions: seal_all "
-                       "draining rotation batch epoch=%" PRIu64
-                       " with %zu seals",
-                       batch.epoch, batch.seals.size());
+                        "[BlobDirectWrite] SealAllPartitions: seal_all "
+                        "draining rotation batch epoch=%" PRIu64
+                        " with %zu seals",
+                        batch.epoch, batch.seals.size());
         for (auto& entry : batch.seals) {
           rotation_seals.emplace_back(std::move(entry));
         }
@@ -1288,9 +1286,9 @@ Status BlobFilePartitionManager::SealAllPartitions(
         pending_str += std::to_string(b.epoch);
       }
       ROCKS_LOG_DEBUG(info_log_,
-                     "[BlobDirectWrite] SealAllPartitions: epoch matching, "
-                     "requested=[%s], pending=[%s]",
-                     epoch_str.c_str(), pending_str.c_str());
+                      "[BlobDirectWrite] SealAllPartitions: epoch matching, "
+                      "requested=[%s], pending=[%s]",
+                      epoch_str.c_str(), pending_str.c_str());
       for (uint64_t ep : epochs) {
         if (ep == 0) continue;
         bool found = false;
@@ -1298,9 +1296,9 @@ Status BlobFilePartitionManager::SealAllPartitions(
              it != rotation_deferred_seals_.end(); ++it) {
           if (it->epoch == ep) {
             ROCKS_LOG_DEBUG(info_log_,
-                           "[BlobDirectWrite] SealAllPartitions: MATCHED "
-                           "epoch=%" PRIu64 " with %zu seals",
-                           ep, it->seals.size());
+                            "[BlobDirectWrite] SealAllPartitions: MATCHED "
+                            "epoch=%" PRIu64 " with %zu seals",
+                            ep, it->seals.size());
             for (auto& entry : it->seals) {
               rotation_seals.emplace_back(std::move(entry));
             }
@@ -1312,9 +1310,9 @@ Status BlobFilePartitionManager::SealAllPartitions(
         }
         if (!found) {
           ROCKS_LOG_DEBUG(info_log_,
-                         "[BlobDirectWrite] SealAllPartitions: epoch=%" PRIu64
-                         " NOT FOUND in pending rotation batches",
-                         ep);
+                          "[BlobDirectWrite] SealAllPartitions: epoch=%" PRIu64
+                          " NOT FOUND in pending rotation batches",
+                          ep);
         }
       }
       if (!rotation_deferred_seals_.empty()) {
@@ -1325,21 +1323,21 @@ Status BlobFilePartitionManager::SealAllPartitions(
                        std::to_string(b.seals.size()) + " seals)";
         }
         ROCKS_LOG_DEBUG(info_log_,
-                       "[BlobDirectWrite] SealAllPartitions: %zu UNMATCHED "
-                       "rotation batches remain: [%s]",
-                       rotation_deferred_seals_.size(), remaining.c_str());
+                        "[BlobDirectWrite] SealAllPartitions: %zu UNMATCHED "
+                        "rotation batches remain: [%s]",
+                        rotation_deferred_seals_.size(), remaining.c_str());
       }
     } else if (!rotation_deferred_seals_.empty()) {
       // epoch=0 with pending rotations: fall back to FIFO for backward
       // compatibility (e.g., first flush before any rotation, or callers
       // that don't pass an epoch).
       ROCKS_LOG_DEBUG(info_log_,
-                     "[BlobDirectWrite] SealAllPartitions: FIFO fallback "
-                     "(epochs empty), popping front batch epoch=%" PRIu64
-                     " with %zu seals, %zu batches remain",
-                     rotation_deferred_seals_.front().epoch,
-                     rotation_deferred_seals_.front().seals.size(),
-                     rotation_deferred_seals_.size() - 1);
+                      "[BlobDirectWrite] SealAllPartitions: FIFO fallback "
+                      "(epochs empty), popping front batch epoch=%" PRIu64
+                      " with %zu seals, %zu batches remain",
+                      rotation_deferred_seals_.front().epoch,
+                      rotation_deferred_seals_.front().seals.size(),
+                      rotation_deferred_seals_.size() - 1);
       auto& batch = rotation_deferred_seals_.front();
       for (auto& entry : batch.seals) {
         rotation_seals.emplace_back(std::move(entry));
@@ -1416,9 +1414,9 @@ Status BlobFilePartitionManager::SealAllPartitions(
     }
 
     ROCKS_LOG_DEBUG(info_log_,
-                   "[BlobDirectWrite] SealAllPartitions: sealing %zu "
-                   "rotation files",
-                   rotation_seals.size());
+                    "[BlobDirectWrite] SealAllPartitions: sealing %zu "
+                    "rotation files",
+                    rotation_seals.size());
     TEST_SYNC_POINT("BlobFilePartitionManager::SealAllPartitions:Phase2");
     Status first_error;
     for (auto& [partition, seal] : rotation_seals) {
@@ -1461,12 +1459,12 @@ Status BlobFilePartitionManager::SealAllPartitions(
 
       if (s.ok()) {
         ROCKS_LOG_DEBUG(info_log_,
-                       "[BlobDirectWrite] SealAllPartitions: rotation seal "
-                       "OK for blob file %" PRIu64 " (%" PRIu64
-                       " blobs, "
-                       "%" PRIu64 " bytes)",
-                       seal.file_number, seal.blob_count,
-                       seal.total_blob_bytes);
+                        "[BlobDirectWrite] SealAllPartitions: rotation seal "
+                        "OK for blob file %" PRIu64 " (%" PRIu64
+                        " blobs, "
+                        "%" PRIu64 " bytes)",
+                        seal.file_number, seal.blob_count,
+                        seal.total_blob_bytes);
       } else {
         ROCKS_LOG_ERROR(
             info_log_,
@@ -1482,9 +1480,9 @@ Status BlobFilePartitionManager::SealAllPartitions(
     }
 
     ROCKS_LOG_DEBUG(info_log_,
-                   "[BlobDirectWrite] SealAllPartitions: rotation path "
-                   "produced %zu additions total, first_error=%s",
-                   additions->size(), first_error.ToString().c_str());
+                    "[BlobDirectWrite] SealAllPartitions: rotation path "
+                    "produced %zu additions total, first_error=%s",
+                    additions->size(), first_error.ToString().c_str());
 
     {
       MutexLock lock(&bg_mutex_);

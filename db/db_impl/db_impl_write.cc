@@ -3025,12 +3025,12 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
         cfd->blob_partition_manager()->GetRotationEpoch();
     new_mem->SetBlobWriteEpoch(post_rotation_epoch);
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
-                   "[BlobDirectWrite] SwitchMemtable CF %s: "
-                   "old_memtable epoch=%" PRIu64
-                   " (pre-rotation), "
-                   "new_memtable id=%" PRIu64 " tagged epoch=%" PRIu64,
-                   cfd->GetName().c_str(), pre_rotation_epoch, new_mem->GetID(),
-                   post_rotation_epoch);
+                    "[BlobDirectWrite] SwitchMemtable CF %s: "
+                    "old_memtable epoch=%" PRIu64
+                    " (pre-rotation), "
+                    "new_memtable id=%" PRIu64 " tagged epoch=%" PRIu64,
+                    cfd->GetName().c_str(), pre_rotation_epoch,
+                    new_mem->GetID(), post_rotation_epoch);
   }
 
   // Notify client that memtable is sealed, now that we have successfully

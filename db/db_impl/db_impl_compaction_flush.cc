@@ -301,28 +301,28 @@ Status DBImpl::FlushMemTableToOutputFile(
       for (const auto* mem : flush_job.GetMemTables()) {
         uint64_t ep = mem->GetBlobWriteEpoch();
         ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
-                       "[BlobDirectWrite] SingleFlush CF %s: memtable "
-                       "id=%" PRIu64 " blob_write_epoch=%" PRIu64,
-                       cfd->GetName().c_str(), mem->GetID(), ep);
+                        "[BlobDirectWrite] SingleFlush CF %s: memtable "
+                        "id=%" PRIu64 " blob_write_epoch=%" PRIu64,
+                        cfd->GetName().c_str(), mem->GetID(), ep);
         if (ep != 0) {
           blob_epochs.push_back(ep);
         }
       }
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
-                     "[BlobDirectWrite] SingleFlush: Releasing db_mutex "
-                     "for SealAllPartitions on CF %s, %zu memtables, "
-                     "%zu non-zero epochs",
-                     cfd->GetName().c_str(), flush_job.GetMemTables().size(),
-                     blob_epochs.size());
+                      "[BlobDirectWrite] SingleFlush: Releasing db_mutex "
+                      "for SealAllPartitions on CF %s, %zu memtables, "
+                      "%zu non-zero epochs",
+                      cfd->GetName().c_str(), flush_job.GetMemTables().size(),
+                      blob_epochs.size());
       mutex_.Unlock();
       s = cfd->blob_partition_manager()->SealAllPartitions(
           WriteOptions(Env::IOActivity::kFlush), &write_path_additions,
           /*seal_all=*/false, blob_epochs);
       mutex_.Lock();
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
-                     "[BlobDirectWrite] SingleFlush: Re-acquired db_mutex "
-                     "after seal, got %zu additions, status=%s",
-                     write_path_additions.size(), s.ToString().c_str());
+                      "[BlobDirectWrite] SingleFlush: Re-acquired db_mutex "
+                      "after seal, got %zu additions, status=%s",
+                      write_path_additions.size(), s.ToString().c_str());
       has_write_path_additions = s.ok() && !write_path_additions.empty();
       if (has_write_path_additions) {
         for (const auto& addition : write_path_additions) {
@@ -676,28 +676,28 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       for (const auto* mem : jobs[i]->GetMemTables()) {
         uint64_t ep = mem->GetBlobWriteEpoch();
         ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
-                       "[BlobDirectWrite] AtomicFlush CF[%d] %s: memtable "
-                       "id=%" PRIu64 " blob_write_epoch=%" PRIu64,
-                       i, cfds[i]->GetName().c_str(), mem->GetID(), ep);
+                        "[BlobDirectWrite] AtomicFlush CF[%d] %s: memtable "
+                        "id=%" PRIu64 " blob_write_epoch=%" PRIu64,
+                        i, cfds[i]->GetName().c_str(), mem->GetID(), ep);
         if (ep != 0) {
           blob_epochs.push_back(ep);
         }
       }
       std::vector<BlobFileAddition> write_path_additions;
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
-                     "[BlobDirectWrite] AtomicFlush CF[%d] %s: Releasing "
-                     "db_mutex for SealAllPartitions, %zu memtables, "
-                     "%zu non-zero epochs",
-                     i, cfds[i]->GetName().c_str(),
-                     jobs[i]->GetMemTables().size(), blob_epochs.size());
+                      "[BlobDirectWrite] AtomicFlush CF[%d] %s: Releasing "
+                      "db_mutex for SealAllPartitions, %zu memtables, "
+                      "%zu non-zero epochs",
+                      i, cfds[i]->GetName().c_str(),
+                      jobs[i]->GetMemTables().size(), blob_epochs.size());
       mutex_.Unlock();
       s = mgr->SealAllPartitions(write_options, &write_path_additions,
                                  /*seal_all=*/false, blob_epochs);
       mutex_.Lock();
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
-                     "[BlobDirectWrite] Re-acquired db_mutex after seal, "
-                     "got %zu additions, status=%s",
-                     write_path_additions.size(), s.ToString().c_str());
+                      "[BlobDirectWrite] Re-acquired db_mutex after seal, "
+                      "got %zu additions, status=%s",
+                      write_path_additions.size(), s.ToString().c_str());
       if (s.ok() && !write_path_additions.empty()) {
         auto& sealed_numbers = sealed_blob_numbers_by_cf[i];
         for (const auto& addition : write_path_additions) {
@@ -955,10 +955,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       }
       // Files committed to MANIFEST. Remove from file_to_partition_.
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
-                     "[BlobDirectWrite] AtomicFlush: "
-                     "removing %zu sealed blob file mappings for CF[%d] "
-                     "after MANIFEST commit",
-                     it->second.size(), i);
+                      "[BlobDirectWrite] AtomicFlush: "
+                      "removing %zu sealed blob file mappings for CF[%d] "
+                      "after MANIFEST commit",
+                      it->second.size(), i);
       mgr->RemoveFilePartitionMappings(it->second);
     }
   }
