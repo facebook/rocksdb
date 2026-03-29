@@ -170,9 +170,12 @@ Status BlobFilePartitionManager::OpenNewBlobFile(Partition* partition,
     return s;
   }
 
-  TEST_SYNC_POINT_CALLBACK(
-      "BlobFilePartitionManager::OpenNewBlobFile:AfterCreate",
-      &blob_file_number);
+  {
+    uint64_t fn_num = blob_file_number;
+    TEST_SYNC_POINT_CALLBACK(
+        "BlobFilePartitionManager::OpenNewBlobFile:AfterCreate", &fn_num);
+    (void)fn_num;  // suppress unused-variable warning; callback may not use it
+  }
 
   const bool perform_data_verification =
       checksum_handoff_file_types_.Contains(FileType::kBlobFile);
