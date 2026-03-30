@@ -2407,6 +2407,13 @@ TEST_F(DBBlobDirectWriteTest, ShutdownSealEvictsCachedBlobReader) {
       /*allow_footer_skip_retry=*/true));
   EXPECT_TRUE(sealed_reader.GetValue()->HasFooter());
   EXPECT_EQ(sealed_reader.GetValue()->GetFileSize(), sealed_file_size);
+
+  // Release the cache handle and evict so TEST_VerifyNoObsoleteFilesCached
+  // (called at DB close) does not find a stale cache entry for a file that
+  // is no longer tracked as active (it has been sealed but not yet committed
+  // to MANIFEST in this test scenario).
+  sealed_reader.Reset();
+  blob_file_cache->Evict(blob_file_number);
 }
 
 // Regression test: if an active-file read hits a cached BlobFileReader with a
