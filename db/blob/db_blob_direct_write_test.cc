@@ -6156,7 +6156,7 @@ TEST_F(DBBlobDirectWriteTest, AtomicFlushEpochMatch) {
   for (int i = 0; i < 20; i++) {
     for (int cf = 0; cf < 3; cf++) {
       ASSERT_OK(Put(cf, "afkey" + std::to_string(i),
-                    std::string(value_size, 'A' + cf)));
+                    std::string(value_size, static_cast<char>('A' + cf))));
     }
   }
 
@@ -6172,7 +6172,7 @@ TEST_F(DBBlobDirectWriteTest, AtomicFlushEpochMatch) {
   for (int i = 0; i < 20; i++) {
     for (int cf = 0; cf < 3; cf++) {
       ASSERT_EQ(Get(cf, "afkey" + std::to_string(i)),
-                std::string(value_size, 'A' + cf));
+                std::string(value_size, static_cast<char>('A' + cf)));
     }
   }
 
@@ -6181,7 +6181,7 @@ TEST_F(DBBlobDirectWriteTest, AtomicFlushEpochMatch) {
   for (int i = 0; i < 20; i++) {
     for (int cf = 0; cf < 3; cf++) {
       ASSERT_EQ(Get(cf, "afkey" + std::to_string(i)),
-                std::string(value_size, 'A' + cf));
+                std::string(value_size, static_cast<char>('A' + cf)));
     }
   }
 }
