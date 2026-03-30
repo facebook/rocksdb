@@ -71,20 +71,31 @@ jobs:
             if (prs && prs.length > 0) {
               prNumber = prs[0].number;
             } else {
-              const { data: pulls } = await github.rest.pulls.list({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                state: 'open',
-                sort: 'updated',
-                direction: 'desc',
-                per_page: 30
-              });
-              const match = pulls.find(p => p.head.sha === headSha);
-              if (match) prNumber = match.number;
+              // PR may not be registered yet if push and PR creation raced.
+              // Retry up to 5 times with 10s delay.
+              for (let attempt = 0; attempt < 5; attempt++) {
+                if (attempt > 0) {
+                  core.info(`PR not found for SHA ${headSha}, retrying in 10s (attempt ${attempt + 1}/5)...`);
+                  await new Promise(r => setTimeout(r, 10000));
+                }
+                const { data: pulls } = await github.rest.pulls.list({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  state: 'open',
+                  sort: 'updated',
+                  direction: 'desc',
+                  per_page: 100
+                });
+                const match = pulls.find(p => p.head.sha === headSha);
+                if (match) {
+                  prNumber = match.number;
+                  break;
+                }
+              }
             }
 
             if (!prNumber) {
-              core.setFailed(`Could not find PR for SHA ${headSha}`);
+              core.setFailed(`Could not find PR for SHA ${headSha} after retries`);
               return;
             }
 
@@ -185,6 +196,7 @@ jobs:
           prompt_file: /tmp/prompt.txt
           model: claude-opus-4-6
           max_turns: "300"
+          timeout_minutes: "60"
           allowed_tools: "View,GlobTool,GrepTool,Write,Task"
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
@@ -449,6 +461,7 @@ jobs:
           prompt_file: /tmp/prompt.txt
           model: ${{ github.event_name == 'workflow_dispatch' && inputs.model || 'claude-opus-4-6' }}
           max_turns: "300"
+          timeout_minutes: "60"
           allowed_tools: "View,GlobTool,GrepTool,Write,Task"
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
