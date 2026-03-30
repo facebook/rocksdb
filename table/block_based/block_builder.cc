@@ -105,6 +105,7 @@ BlockBuilder::BlockBuilder(
       restarts_(1, 0),  // First restart point is at offset 0
       counter_(0),
       finished_(false),
+      is_uniform_(false),
       uniform_cv_threshold_(uniform_cv_threshold),
       statistics_(statistics),
       use_separated_kv_storage_(use_separated_kv_storage) {
@@ -131,6 +132,7 @@ void BlockBuilder::Reset() {
               (use_separated_kv_storage_ ? sizeof(uint32_t) : 0);
   counter_ = 0;
   finished_ = false;
+  is_uniform_ = false;
   last_key_.clear();
   if (data_block_hash_index_builder_.Valid()) {
     data_block_hash_index_builder_.Reset();
@@ -185,7 +187,7 @@ size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key,
 }
 
 Slice BlockBuilder::Finish() {
-  bool is_uniform = ScanForUniformity();
+  is_uniform_ = ScanForUniformity();
 
   // Append restart array
   size_t values_buffer_offset = buffer_.size();
@@ -201,7 +203,7 @@ Slice BlockBuilder::Finish() {
   DataBlockFooter footer;
   footer.num_restarts = static_cast<uint32_t>(restarts_.size());
   footer.index_type = BlockBasedTableOptions::kDataBlockBinarySearch;
-  footer.is_uniform = is_uniform;
+  footer.is_uniform = is_uniform_;
   if (data_block_hash_index_builder_.Valid() &&
       CurrentSizeEstimate() <= kMaxBlockSizeSupportedByHashIndex) {
     data_block_hash_index_builder_.Finish(buffer_);
