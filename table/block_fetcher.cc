@@ -14,6 +14,28 @@
 #include <string>
 
 #include "logging/logging.h"
+
+namespace {
+// Returns a thread-local IODebugContext, avoiding the cost of constructing
+// and destructing std::shared_mutex + std::map on every block read.
+// The default PosixRandomAccessFile ignores the IODebugContext parameter,
+// but the full object (with its std::shared_mutex) is still constructed and
+// destructed on every ReadBlock() call, which shows up in CPU profiles.
+ROCKSDB_NAMESPACE::IODebugContext* GetThreadLocalIODebugContext() {
+  static thread_local ROCKSDB_NAMESPACE::IODebugContext tl_dbg;
+  tl_dbg.file_path.clear();
+  tl_dbg.msg.clear();
+  tl_dbg.request_id = nullptr;
+  tl_dbg.trace_data = 0;
+  if (!tl_dbg.counters.empty()) {
+    tl_dbg.counters.clear();
+  }
+  if (tl_dbg.cost_info.has_value()) {
+    tl_dbg.cost_info.reset();
+  }
+  return &tl_dbg;
+}
+}  // anonymous namespace
 #include "memory/memory_allocator_impl.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/compression_type.h"
@@ -101,8 +123,8 @@ inline bool BlockFetcher::TryGetUncompressBlockFromPersistentCache() {
 inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
   if (prefetch_buffer_ != nullptr) {
     IOOptions opts;
-    IODebugContext dbg;
-    IOStatus io_s = file_->PrepareIOOptions(read_options_, opts, &dbg);
+    IODebugContext* dbg = GetThreadLocalIODebugContext();
+    IOStatus io_s = file_->PrepareIOOptions(read_options_, opts, dbg);
     if (io_s.ok()) {
       bool read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCache(
           opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
@@ -274,8 +296,8 @@ inline void BlockFetcher::GetBlockContents() {
 void BlockFetcher::ReadBlock(bool retry) {
   FSReadRequest read_req;
   IOOptions opts;
-  IODebugContext dbg;
-  io_status_ = file_->PrepareIOOptions(read_options_, opts, &dbg);
+  IODebugContext* dbg = GetThreadLocalIODebugContext();
+  io_status_ = file_->PrepareIOOptions(read_options_, opts, dbg);
   opts.verify_and_reconstruct_read = retry;
   read_req.status.PermitUncheckedError();
   // Actual file read
@@ -287,7 +309,7 @@ void BlockFetcher::ReadBlock(bool retry) {
           ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
       io_status_ =
           file_->Read(opts, handle_.offset(), block_size_with_trailer_, &slice_,
-                      /*scratch=*/nullptr, &direct_io_buf_, &dbg);
+                      /*scratch=*/nullptr, &direct_io_buf_, dbg);
       PERF_COUNTER_ADD(block_read_count, 1);
       used_buf_ = const_cast<char*>(slice_.data());
     } else if (use_fs_scratch_) {
@@ -299,7 +321,7 @@ void BlockFetcher::ReadBlock(bool retry) {
       read_req.len = block_size_with_trailer_;
       read_req.scratch = nullptr;
       io_status_ = file_->MultiRead(opts, &read_req, /*num_reqs=*/1,
-                                    /*AlignedBuf* =*/nullptr, &dbg);
+                                    /*AlignedBuf* =*/nullptr, dbg);
       PERF_COUNTER_ADD(block_read_count, 1);
 
       slice_ = Slice(read_req.result.data(), read_req.result.size());
@@ -316,7 +338,7 @@ void BlockFetcher::ReadBlock(bool retry) {
       io_status_ =
           file_->Read(opts, handle_.offset(), /*size*/ block_size_with_trailer_,
                       /*result*/ &slice_, /*scratch*/ used_buf_,
-                      /*aligned_buf=*/nullptr, &dbg);
+                      /*aligned_buf=*/nullptr, dbg);
       PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG
       if (slice_.data() == &stack_buf_[0]) {
@@ -448,8 +470,8 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
     assert(prefetch_buffer_ != nullptr);
     if (!for_compaction_) {
       IOOptions opts;
-      IODebugContext dbg;
-      IOStatus io_s = file_->PrepareIOOptions(read_options_, opts, &dbg);
+      IODebugContext* dbg = GetThreadLocalIODebugContext();
+      IOStatus io_s = file_->PrepareIOOptions(read_options_, opts, dbg);
       if (!io_s.ok()) {
         return io_s;
       }
