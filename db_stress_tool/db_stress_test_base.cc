@@ -4132,6 +4132,13 @@ void StressTest::Reopen(ThreadState* thread) {
     } else {
       s = db_->SyncWAL();
     }
+    if (s.IsNotSupported()) {
+      // Some WAL implementations (e.g., Warm Storage) do not support
+      // SyncWAL()/FlushWAL(sync=true) because their WritableFile is not
+      // sync-thread-safe. Fall back to FlushWAL(sync=false) to flush the
+      // internal buffer; persistence is handled by the WAL implementation.
+      s = db_->FlushWAL(/*sync=*/false);
+    }
     if (!s.ok()) {
       fprintf(stderr,
               "Error persisting WAL data which is needed before reopening the "
