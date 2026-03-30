@@ -469,6 +469,14 @@ struct CompactionServiceResult {
   static Status Read(const std::string& data_str, CompactionServiceResult* obj);
   Status Write(std::string* output);
 
+  // ============ Remote Compaction ============
+  void AddOutputFile(const std::string& file_name,
+                     SequenceNumber smallest_seqno,
+                     SequenceNumber largest_seqno,
+                     const std::string& smallest_key,
+                     const std::string& largest_key);
+  // ====================================
+
 #ifndef NDEBUG
   bool TEST_Equals(CompactionServiceResult* other);
   bool TEST_Equals(CompactionServiceResult* other, std::string* mismatch);

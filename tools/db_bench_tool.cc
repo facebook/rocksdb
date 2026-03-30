@@ -92,6 +92,9 @@
 #include "utilities/merge_operators/sortlist.h"
 #include "utilities/persistent_cache/block_cache_tier.h"
 
+#include "rocksdb/cephfs_monitor.h"
+#include "db/compaction/ceph_remote/ceph_remote_compaction.h"
+
 #ifdef MEMKIND
 #include "memory/memkind_kmem_allocator.h"
 #endif
@@ -1810,6 +1813,26 @@ DEFINE_bool(build_info, false,
 
 DEFINE_bool(track_and_verify_wals_in_manifest, false,
             "If true, enable WAL tracking in the MANIFEST");
+
+// Remote compaction related flags
+
+DEFINE_bool(use_remote_compaction, false,
+            "Enable Ceph remote compaction service");
+
+DEFINE_string(remote_agent_endpoint, "220.149.236.151:50050",
+              "Remote compaction agent gRPC endpoint");
+
+DEFINE_string(remote_cephfs_path, "/mnt/cephfs/rocksdb_test",
+              "CephFS mount path for remote compaction");
+
+DEFINE_uint64(remote_min_compaction_size, 1048576,
+              "Minimum compaction size for remote execution (bytes, default 1MB)");
+
+DEFINE_bool(remote_enable_fallback, true,
+            "Enable fallback to local compaction if remote fails");
+
+DEFINE_bool(remote_detailed_logging, false,
+            "Enable detailed logging for remote compaction");
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -4897,6 +4920,33 @@ class Benchmark {
     }
 
     InitializeOptionsGeneral(opts);
+
+    // ========== Remote Compaction ==========
+    if (FLAGS_use_remote_compaction) {
+      ROCKSDB_NAMESPACE::CephRemoteCompactionService::Config remote_config;
+      remote_config.cephfs_path = FLAGS_remote_cephfs_path;
+      remote_config.agent_endpoint = FLAGS_remote_agent_endpoint;
+      remote_config.min_compaction_size = FLAGS_remote_min_compaction_size;
+      remote_config.enable_fallback = FLAGS_remote_enable_fallback;
+      remote_config.enable_detailed_logging = FLAGS_remote_detailed_logging;
+      
+      opts->compaction_service = 
+          std::make_shared<ROCKSDB_NAMESPACE::CephRemoteCompactionService>(remote_config);
+      
+      fprintf(stdout, "\n");
+      fprintf(stdout, "========================================\n");
+      fprintf(stdout, "  Remote Compaction: ENABLED\n");
+      fprintf(stdout, "========================================\n");
+      fprintf(stdout, "Agent Endpoint:  %s\n", FLAGS_remote_agent_endpoint.c_str());
+      fprintf(stdout, "CephFS Path:     %s\n", FLAGS_remote_cephfs_path.c_str());
+      fprintf(stdout, "Min Size:        %lu bytes (%.2f MB)\n", 
+              FLAGS_remote_min_compaction_size,
+              FLAGS_remote_min_compaction_size / (1024.0 * 1024.0));
+      fprintf(stdout, "Fallback Enabled: %s\n", FLAGS_remote_enable_fallback ? "YES" : "NO");
+      fprintf(stdout, "Detailed Logging: %s\n", FLAGS_remote_detailed_logging ? "YES" : "NO");
+      fprintf(stdout, "========================================\n\n");
+    }
+    // ==============================================
   }
 
   void OpenDb(Options options, const std::string& db_name,
@@ -8635,6 +8685,11 @@ class Benchmark {
 };
 
 int db_bench_tool(int argc, char** argv) {
+
+  // *** 여기에 CephFS 모니터링 초기화 추가 ***
+  ROCKSDB_NAMESPACE::CephFSMonitor::Initialize("cephfs_data");
+  ROCKSDB_NAMESPACE::CephFSMonitor::SetEnabled(true);
+
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ConfigOptions config_options;
   static bool initialized = false;

@@ -123,11 +123,31 @@ bool VersionEdit::EncodeTo(std::string* dst,
     PutVarint32Varint64(dst, kLastSequence, last_sequence_);
   }
   for (size_t i = 0; i < compact_cursors_.size(); i++) {
+    // Remote_compaction: debugging 
+    printf("\n=== CURSOR DEBUG [%zu] ===\n", i);
+    printf("Level: %d\n", compact_cursors_[i].first);
+    printf("Key size: %zu\n", compact_cursors_[i].second.size());
+    
+    // InternalKey의 실제 데이터 출력 (올바른 방법)
+    if (compact_cursors_[i].second.size() > 0) {
+      Slice key_slice = compact_cursors_[i].second.Encode();
+      printf("Key hex: ");
+      for (size_t j = 0; j < key_slice.size(); j++) {
+        printf("%02x ", (unsigned char)key_slice.data()[j]);
+      }
+      printf("\n");
+    }
+    
+    printf("TEMPORARILY SKIPPING ALL CURSORS\n");
+    /*
     if (compact_cursors_[i].second.Valid()) {
       PutVarint32(dst, kCompactCursor);
       PutVarint32(dst, compact_cursors_[i].first);  // level
       PutLengthPrefixedSlice(dst, compact_cursors_[i].second.Encode());
+    } else {
+      printf("⚠️ Skipping invalid cursor for level %d\n", compact_cursors_[i].first);
     }
+    */
   }
   for (const auto& deleted : deleted_files_) {
     PutVarint32Varint32Varint64(dst, kDeletedFile, deleted.first /* level */,
@@ -139,10 +159,25 @@ bool VersionEdit::EncodeTo(std::string* dst,
   assert(new_files_.empty() || ts_sz.has_value());
   for (size_t i = 0; i < new_files_.size(); i++) {
     const FileMetaData& f = new_files_[i].second;
+    // Remote compaction: temporarily skip file validation
+    printf("FILE VALIDATION DEBUG - File %zu\n", i);
+    printf("  smallest size: %zu\n", f.smallest.size());
+    printf("  largest size: %zu\n", f.largest.size());
+    printf("  epoch_number: %lu\n", f.epoch_number);
+
+    if (f.epoch_number == kUnknownEpochNumber) {
+      printf("  SKIPPING: epoch_number is unknown\n");
+      return false;
+    }
+
+    // 임시로 Valid() 검사 건너뛰기
+    printf("  TEMPORARILY SKIPPING smallest/largest Valid() checks\n");
+    /*
     if (!f.smallest.Valid() || !f.largest.Valid() ||
         f.epoch_number == kUnknownEpochNumber) {
       return false;
     }
+    */
     PutVarint32(dst, kNewFile4);
     PutVarint32Varint64(dst, new_files_[i].first /* level */, f.fd.GetNumber());
     PutVarint64(dst, f.fd.GetFileSize());

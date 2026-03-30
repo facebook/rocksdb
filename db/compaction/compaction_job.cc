@@ -56,6 +56,7 @@
 #include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
+#include "rocksdb/cephfs_monitor.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -1080,7 +1081,14 @@ void CompactionJob::NotifyOnSubcompactionCompleted(
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact);
   assert(sub_compact->compaction);
+  printf("*** DEBUG: compaction_service = %p ***\n", 
+         db_options_.compaction_service.get());
+  fflush(stdout);
+  
   if (db_options_.compaction_service) {
+    printf("*** DEBUG: Calling remote compaction ***\n");
+    fflush(stdout);
+
     CompactionServiceJobStatus comp_status =
         ProcessKeyValueCompactionWithCompactionService(sub_compact);
     if (comp_status == CompactionServiceJobStatus::kSuccess ||
@@ -1090,6 +1098,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     // fallback to local compaction
     assert(comp_status == CompactionServiceJobStatus::kUseLocal);
     sub_compact->compaction_job_stats.is_remote_compaction = false;
+  } else {
+    printf("*** DEBUG: compaction_service is NULL ***\n");
+    fflush(stdout);
   }
 
   uint64_t prev_cpu_micros = db_options_.clock->CPUMicros();
@@ -1670,6 +1681,12 @@ Status CompactionJob::FinishCompactionOutputFile(
                    current_entries, meta->fd.file_size,
                    meta->marked_for_compaction ? " (need compaction)" : "",
                    temperature_to_string[meta->temperature].c_str());
+
+    // *** 여기에 CephFS SST 생성 추적 코드 추가 ***
+    std::string sst_path = TableFileName(cfd->ioptions()->cf_paths,
+                                        output_number, 
+                                        meta->fd.GetPathId());
+    CephFSMonitor::CollectSSTObjectLocations(sst_path, cfd->ioptions()->cf_paths[0].path, "creation");
   }
   std::string fname;
   FileDescriptor output_fd;
@@ -2170,6 +2187,29 @@ void CompactionJob::LogCompaction() {
       }
     }
   }
+}
+// Remote Compaction
+void CompactionServiceResult::AddOutputFile(
+    const std::string& file_name,
+    SequenceNumber smallest_seqno,
+    SequenceNumber largest_seqno,
+    const std::string& smallest_key,
+    const std::string& largest_key) {
+  
+  CompactionServiceOutputFile file;
+  file.file_name = file_name;
+  file.smallest_seqno = smallest_seqno;
+  file.largest_seqno = largest_seqno;
+  file.smallest_internal_key = smallest_key;
+  file.largest_internal_key = largest_key;
+  
+  // 기본값 설정
+  file.oldest_ancester_time = kUnknownOldestAncesterTime;
+  file.file_creation_time = kUnknownFileCreationTime;
+  file.epoch_number = kUnknownEpochNumber;
+  file.marked_for_compaction = false;
+  
+  output_files.push_back(std::move(file));
 }
 
 std::string CompactionJob::GetTableFileName(uint64_t file_number) {

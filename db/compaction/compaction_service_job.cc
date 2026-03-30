@@ -15,9 +15,73 @@
 #include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
 #include "rocksdb/utilities/options_type.h"
-
+#include "rocksdb/sst_file_reader.h"
 namespace ROCKSDB_NAMESPACE {
 class SubcompactionState;
+
+// Remote Compaction - 원격 컴팩션 파일에서 Internal Key 읽기
+static Status ReconstructRemoteFileMetadata(
+    const std::string& file_path,
+    CompactionServiceOutputFile* output_file,
+    ColumnFamilyData* cfd) {
+  
+  Options options;
+  options.comparator = cfd->user_comparator();
+
+  // printf("*** CHECKPOINT 17: ReconstructRemoteFileMetadata start ***\n");
+
+  // 1. 파일 열기
+  SstFileReader reader(options);
+  Status s = reader.Open(file_path);
+  if (!s.ok()) {
+    return Status::IOError("Failed to open SST file", s.ToString());
+  }
+  
+  ReadOptions read_opts;
+  std::unique_ptr<Iterator> iter(reader.NewIterator(read_opts));
+  
+  // 2. 첫 번째 User Key 읽기
+  iter->SeekToFirst();
+  if (!iter->Valid()) {
+    return Status::Corruption("Cannot read first key");
+  }
+  std::string first_user_key = iter->key().ToString();
+  
+  // 3. 마지막 User Key 읽기
+  iter->SeekToLast();
+  if (!iter->Valid()) {
+    return Status::Corruption("Cannot read last key");
+  }
+  std::string last_user_key = iter->key().ToString();
+  
+  s = iter->status();
+  if (!s.ok()) {
+    return s;
+  }
+  
+  // 4. Smallest Internal Key 생성
+  // Format: User Key + Sequence(7B, 0x00) + Type(1B, 0x01)
+  output_file->smallest_internal_key = first_user_key;
+  output_file->smallest_internal_key.append(7, '\x00');
+  output_file->smallest_internal_key.push_back(static_cast<char>(1));
+  output_file->smallest_seqno = 0;
+  
+  // 5. Largest Internal Key 생성
+  // Format: User Key + Sequence(7B, 0xFF) + Type(1B, 0x01)
+  output_file->largest_internal_key = last_user_key;
+  uint64_t max_seq = kMaxSequenceNumber;
+  for (int i = 0; i < 7; i++) {
+    output_file->largest_internal_key.push_back(
+        static_cast<char>((max_seq >> (i * 8)) & 0xFF));
+  }
+  output_file->largest_internal_key.push_back(static_cast<char>(1));
+  output_file->largest_seqno = kMaxSequenceNumber;
+
+  // 6. epoch_number 설정 (중요!)
+  output_file->epoch_number = cfd->NewEpochNumber();
+  
+  return Status::OK();
+}
 
 CompactionServiceJobStatus
 CompactionJob::ProcessKeyValueCompactionWithCompactionService(
@@ -124,6 +188,65 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   CompactionServiceResult compaction_result;
   s = CompactionServiceResult::Read(compaction_result_binary,
                                     &compaction_result);
+
+  // Remote Compaction - 원격 컴팩션 메타데이터 재구성
+  if (s.ok() && compaction_status == CompactionServiceJobStatus::kSuccess) {
+    for (auto& output_file : compaction_result.output_files) {
+      if (output_file.smallest_internal_key.empty() || 
+          output_file.largest_internal_key.empty() ||
+          output_file.smallest_internal_key.size() < 16 ||
+          output_file.largest_internal_key.size() < 16) {
+        
+        std::string src_file = compaction_result.output_path + "/" + output_file.file_name;
+        
+        ROCKS_LOG_INFO(db_options_.info_log,
+                       "[%s] [JOB %d] Reconstructing metadata for: %s",
+                       compaction->column_family_data()->GetName().c_str(),
+                       job_id_, output_file.file_name.c_str());
+        
+        s = ReconstructRemoteFileMetadata(
+            src_file,
+            &output_file,
+            sub_compact->compaction->column_family_data());
+        
+        if (!s.ok()) {
+          sub_compact->status = s;
+          ROCKS_LOG_ERROR(db_options_.info_log,
+                          "[%s] [JOB %d] Failed to reconstruct metadata: %s",
+                          compaction->column_family_data()->GetName().c_str(),
+                          job_id_, s.ToString().c_str());
+          db_options_.compaction_service->OnInstallation(
+              response.scheduled_job_id, CompactionServiceJobStatus::kFailure);
+          return CompactionServiceJobStatus::kFailure;
+        }
+        
+        ROCKS_LOG_INFO(db_options_.info_log,
+                       "[%s] [JOB %d] Reconstructed: smallest=%zu bytes, largest=%zu bytes",
+                       compaction->column_family_data()->GetName().c_str(),
+                       job_id_,
+                       output_file.smallest_internal_key.size(),
+                       output_file.largest_internal_key.size());
+      }
+    }
+  }
+
+  if (s.ok() && compaction_status == CompactionServiceJobStatus::kSuccess) {
+    ROCKS_LOG_INFO(db_options_.info_log,
+                  "[%s] [JOB %d] Remote compaction completed successfully, files: %zu",
+                  sub_compact->compaction->column_family_data()->GetName().c_str(),
+                  job_id_, 
+                  compaction_result.output_files.size());
+    
+    for (auto& output_file : compaction_result.output_files) {
+      ROCKS_LOG_INFO(db_options_.info_log,
+                    "[%s] [JOB %d] Output file: %s, smallest: %zu bytes, largest: %zu bytes",
+                    sub_compact->compaction->column_family_data()->GetName().c_str(),
+                    job_id_,
+                    output_file.file_name.c_str(),
+                    output_file.smallest_internal_key.size(),
+                    output_file.largest_internal_key.size());
+    }
+  }
 
   if (compaction_status == CompactionServiceJobStatus::kFailure) {
     if (s.ok()) {

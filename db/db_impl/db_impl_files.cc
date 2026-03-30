@@ -21,6 +21,7 @@
 #include "rocksdb/options.h"
 #include "util/autovector.h"
 #include "util/defer.h"
+#include "rocksdb/cephfs_monitor.h" 
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -652,6 +653,13 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     if (!own_files) {
       continue;
     }
+
+    // *** CephFS SST 오브젝트 위치 수집 추가 ***
+    if (type == kTableFile) {
+      // SST 파일 삭제 직전에 오브젝트 분포 정보 수집
+      CephFSMonitor::CollectSSTObjectLocations(fname, dir_to_sync, "deletion");
+    }
+    
     if (schedule_only) {
       InstrumentedMutexLock guard_lock(&mutex_);
       SchedulePendingPurge(fname, dir_to_sync, type, number, state.job_id);

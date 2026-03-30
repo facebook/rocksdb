@@ -659,7 +659,7 @@ ifneq ($(filter check-headers, $(MAKECMDGOALS)),)
 # TODO: add/support JNI headers
 	DEV_HEADER_DIRS := $(sort include/ $(dir $(ALL_SOURCES)))
 # Some headers like in port/ are platform-specific
-	DEV_HEADERS_TO_CHECK := $(shell $(FIND) $(DEV_HEADER_DIRS) -type f -name '*.h' | grep -E -v 'port/|plugin/|lua/|range_tree/|secondary_index/')
+	DEV_HEADERS_TO_CHECK := $(shell $(FIND) $(DEV_HEADER_DIRS) -type f -name '*.h' | grep -E -v 'port/|plugin/|lua/|range_tree/')
 	PUBLIC_HEADERS_TO_CHECK := $(shell $(FIND) include/ -type f -name '*.h' | grep -E -v 'lua/')
 else
 	DEV_HEADERS_TO_CHECK :=
@@ -2634,3 +2634,14 @@ ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets check-
 ifneq ("$(ROCKS_DEP_RULES)", "")
 -include $(DEPFILES)
 endif
+
+# Remote Compaction Sources
+LIB_SOURCES += \
+  db/compaction/ceph_remote/ceph_remote_compaction.cc \
+  db/compaction/ceph_remote/agent_service.pb.cc \
+  db/compaction/ceph_remote/agent_service.grpc.pb.cc \
+  db/compaction/ceph_remote/worker_service.pb.cc \
+  db/compaction/ceph_remote/worker_service.grpc.pb.cc
+
+# Remote Compaction gRPC Libraries
+PLATFORM_LDFLAGS += -lgrpc++ -lgrpc -lprotobuf -lpthread

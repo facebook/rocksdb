@@ -1,0 +1,58 @@
+syntax = "proto3";
+package worker;
+
+service CompactionWorkerService {
+  rpc PerformCompaction(CompactionRequest) returns (CompactionResponse);
+  rpc GetWorkerStatus(StatusRequest) returns (StatusResponse);
+}
+
+message CompactionRequest {
+  string job_id = 1;
+  repeated string input_sst_files = 2;
+  CompactionOptions options = 3;
+}
+
+message CompactionOptions {
+  string compression_type = 1;
+  uint64 target_file_size = 2;
+  bool enable_statistics = 3;
+}
+
+// ★ 새로 추가: 개별 출력 파일의 메타데이터
+message OutputFileMetadata {
+  string file_path = 1;
+  string smallest_key_hex = 2;
+  string largest_key_hex = 3;
+  uint64 num_entries = 4;
+  uint64 file_size = 5;
+}
+
+message CompactionResponse {
+  bool success = 1;
+  string job_id = 2;
+  repeated string output_sst_files = 3;   // 파일 경로 리스트 (기존)
+  uint64 input_size_bytes = 4;
+  uint64 output_size_bytes = 5;
+  double compression_ratio = 6;
+  uint64 processing_time_ms = 7;
+  string error_message = 8;
+  
+  // 기존 단일 파일용 필드 (하위 호환, 단일 파일일 때 사용)
+  string smallest_key = 9;
+  string largest_key = 10;
+  uint64 num_entries = 11;
+  uint64 file_size = 12;
+  uint64 num_input_entries = 13;
+  
+  // ★ 새로 추가: 다중 파일 메타데이터
+  repeated OutputFileMetadata output_file_metadata = 14;
+}
+
+message StatusRequest {}
+message StatusResponse {
+  string node_name = 1;
+  bool is_healthy = 2;
+  int32 active_jobs = 3;
+  int32 total_completed = 4;
+  int64 avg_processing_time_ms = 5;
+}

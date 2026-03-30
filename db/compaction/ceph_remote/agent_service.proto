@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package agent;
+
+// Agent Service - RocksDB와 Worker 사이의 중개자
+service RemoteCompactionAgent {
+  // Locality 분석 및 최적의 Worker 선택
+  rpc SelectWorker(WorkerSelectionRequest) returns (WorkerSelectionResponse);
+  
+  // Agent 상태 확인
+  rpc GetAgentStatus(AgentStatusRequest) returns (AgentStatusResponse);
+  
+  // 컴팩션 작업 제출 (locality 분석 + worker 호출 통합)
+  rpc SubmitCompaction(CompactionJobRequest) returns (CompactionJobResponse);
+}
+
+message WorkerSelectionRequest {
+  repeated string input_sst_files = 1;
+  string pool_name = 2;
+}
+
+message WorkerSelectionResponse {
+  string selected_worker_host = 1;
+  string worker_endpoint = 2;
+  double locality_score = 3;
+  map<string, int32> host_locality_map = 4;
+  bool success = 5;
+  string error_message = 6;
+}
+
+message AgentStatusRequest {}
+
+message AgentStatusResponse {
+  bool ceph_connected = 1;
+  int32 total_osds = 2;
+  int32 available_workers = 3;
+  int64 total_jobs_processed = 4;
+  int64 successful_jobs = 5;
+  int64 failed_jobs = 6;
+}
+
+message CompactionJobRequest {
+  string job_id = 1;
+  repeated string input_sst_files = 2;
+  string output_file = 3;
+  CompactionOptions options = 4;
+}
+
+message CompactionOptions {
+  string compression_type = 1;
+  uint64 target_file_size = 2;
+  bool enable_statistics = 3;
+}
+
+message CompactionJobResponse {
+  bool success = 1;
+  string job_id = 2;
+  string selected_worker = 3;
+  repeated string output_files = 4;
+  uint64 input_size_bytes = 5;
+  uint64 output_size_bytes = 6;
+  double compression_ratio = 7;
+  uint64 processing_time_ms = 8;
+  string error_message = 9;
+}
