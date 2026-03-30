@@ -269,6 +269,7 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
       BlobFileName(pending_blob_file_number), path);
 
   job_context.min_pending_output = pending_blob_file_number;
+  job_context.min_blob_file_number_to_keep = pending_blob_file_number;
 
   // Purge obsolete files and make sure we purge the old file and the first file
   // (and keep the second file and the pending file).

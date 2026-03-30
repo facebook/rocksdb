@@ -2637,7 +2637,7 @@ void Version::MultiGetBlob(
     BlobReadContexts& blobs_in_file = ctx.second;
     for (auto& blob : blobs_in_file) {
       const BlobIndex& blob_index = blob.blob_index;
-      const KeyContext* const key_context = blob.key_context;
+      KeyContext* const key_context = blob.key_context;
       assert(key_context);
       assert(key_context->get_context);
       assert(key_context->s);
@@ -2679,7 +2679,7 @@ void Version::MultiGetBlob(
   for (auto& ctx : blob_ctxs) {
     BlobReadContexts& blobs_in_file = ctx.second;
     for (auto& blob : blobs_in_file) {
-      const KeyContext* const key_context = blob.key_context;
+      KeyContext* const key_context = blob.key_context;
       assert(key_context);
       assert(key_context->get_context);
       assert(key_context->s);
@@ -2693,6 +2693,10 @@ void Version::MultiGetBlob(
           key_context->columns->SetPlainValue(std::move(blob.result));
           range.AddValueSize(key_context->columns->serialized_size());
         }
+        // MultiGetBlob() has already materialized the blob reference into the
+        // user-visible value, so clear this flag before later MultiGet
+        // post-processing checks whether further blob resolution is needed.
+        key_context->is_blob_index = false;
 
         if (range.GetValueSize() > read_options.value_size_soft_limit) {
           *key_context->s = Status::Aborted();

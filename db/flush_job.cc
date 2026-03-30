@@ -1105,6 +1105,15 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.tail_size, meta_.user_defined_timestamps_persisted,
                    meta_.min_timestamp, meta_.max_timestamp);
     edit_->SetBlobFileAdditions(std::move(blob_file_additions));
+
+    for (auto& addition : external_blob_file_additions_) {
+      edit_->AddBlobFile(std::move(addition));
+    }
+    for (auto& garbage : external_blob_file_garbages_) {
+      edit_->AddBlobFileGarbage(std::move(garbage));
+    }
+    external_blob_file_additions_.clear();
+    external_blob_file_garbages_.clear();
   }
   // Piggyback FlushJobInfo on the first first flushed memtable.
   mems_[0]->SetFlushJobInfo(GetFlushJobInfo());

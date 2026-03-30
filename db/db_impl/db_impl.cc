@@ -28,6 +28,8 @@
 
 #include "db/arena_wrapped_db_iter.h"
 #include "db/attribute_group_iterator_impl.h"
+#include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_index.h"
 #include "db/builder.h"
 #include "db/coalescing_iterator.h"
 #include "db/compaction/compaction_job.h"
@@ -485,9 +487,16 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   s.PermitUncheckedError();
 
   InstrumentedMutexLock l(&mutex_);
-  if (!shutting_down_.load(std::memory_order_acquire) &&
+  // Blob direct-write relies on clean shutdown flushes to register live blob
+  // files in MANIFEST before close. WAL recovery of unregistered files is out
+  // of scope in v1.
+  const bool force_flush_for_blob_direct_write =
+      HasAnyBlobDirectWriteColumnFamilyWithLockHeld();
+  const bool flush_for_unpersisted_data =
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
-      !mutable_db_options_.avoid_flush_during_shutdown) {
+      !mutable_db_options_.avoid_flush_during_shutdown;
+  if (!shutting_down_.load(std::memory_order_acquire) &&
+      (flush_for_unpersisted_data || force_flush_for_blob_direct_write)) {
     s = DBImpl::FlushAllColumnFamilies(FlushOptions(), FlushReason::kShutDown);
     s.PermitUncheckedError();  //**TODO: What to do on error?
   }
@@ -521,6 +530,21 @@ Status DBImpl::MaybeReleaseTimestampedSnapshotsAndCheck() {
 void DBImpl::UntrackDataFiles() {
   TrackOrUntrackFiles(/*existing_data_files=*/{},
                       /*track=*/false);
+}
+
+bool DBImpl::HasAnyBlobDirectWriteColumnFamily() {
+  InstrumentedMutexLock l(&mutex_);
+  return HasAnyBlobDirectWriteColumnFamilyWithLockHeld();
+}
+
+bool DBImpl::HasAnyBlobDirectWriteColumnFamilyWithLockHeld() {
+  mutex_.AssertHeld();
+  for (auto* cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->blob_partition_manager() != nullptr) {
+      return true;
+    }
+  }
+  return false;
 }
 
 Status DBImpl::CloseHelper() {
@@ -1359,6 +1383,30 @@ Status DBImpl::SetOptions(
       // thread.
       for (const auto& cfd_opts : column_family_datas) {
         InstallSuperVersionForConfigChange(cfd_opts.first, &sv_context);
+      }
+
+      for (const auto& cfd_opts : column_family_datas) {
+        auto* cfd = cfd_opts.first;
+        const auto* opts_map = cfd_opts.second;
+        auto* mgr = cfd->blob_partition_manager();
+        if (mgr == nullptr) {
+          continue;
+        }
+        if (opts_map->count("min_blob_size") == 0 &&
+            opts_map->count("blob_compression_type") == 0 &&
+            opts_map->count("prepopulate_blob_cache") == 0) {
+          continue;
+        }
+
+        const auto& mcf = cfd->GetLatestMutableCFOptions();
+        BlobDirectWriteSettings settings;
+        settings.enable_blob_direct_write =
+            cfd->ioptions().enable_blob_direct_write;
+        settings.min_blob_size = mcf.min_blob_size;
+        settings.compression_type = mcf.blob_compression_type;
+        settings.blob_cache = cfd->ioptions().blob_cache.get();
+        settings.prepopulate_blob_cache = mcf.prepopulate_blob_cache;
+        mgr->UpdateCachedSettings(cfd->GetID(), settings);
       }
       persist_options_status =
           WriteOptionsFile(write_options, true /*db_mutex_already_held*/);
@@ -2480,6 +2528,82 @@ bool DBImpl::ShouldReferenceSuperVersion(const MergeContext& merge_context) {
              merge_context.GetOperands().size();
 }
 
+static Slice GetBlobLookupUserKey(const Slice& user_key,
+                                  const std::string* timestamp,
+                                  std::string* user_key_with_ts) {
+  if (timestamp == nullptr || timestamp->empty()) {
+    return user_key;
+  }
+
+  assert(user_key_with_ts != nullptr);
+  user_key_with_ts->assign(user_key.data(), user_key.size());
+  user_key_with_ts->append(timestamp->data(), timestamp->size());
+  return Slice(*user_key_with_ts);
+}
+
+static bool MaybeResolveBlobForWritePath(
+    const ReadOptions& read_options, const Slice& key, Status* s,
+    bool* is_blob_index, bool resolve_blob_direct_write, PinnableSlice* value,
+    PinnableWideColumns* columns, Version* current, ColumnFamilyData* cfd,
+    BlobFilePartitionManager* partition_mgr, bool* value_found = nullptr) {
+  if (!s->ok() || !*is_blob_index || !resolve_blob_direct_write ||
+      (!value && !columns)) {
+    return false;
+  }
+
+  if (read_options.read_tier == kBlockCacheTier) {
+    if (value != nullptr) {
+      value->Reset();
+    } else {
+      assert(columns != nullptr);
+      columns->Reset();
+    }
+    if (value_found != nullptr) {
+      *value_found = false;
+    }
+    *s = Status::Incomplete();
+    *is_blob_index = false;
+    return true;
+  }
+
+  Slice blob_index_slice;
+  if (value != nullptr) {
+    if (value->size() > 0) {
+      blob_index_slice = Slice(value->data(), value->size());
+    } else {
+      blob_index_slice = Slice(*(value->GetSelf()));
+    }
+  } else {
+    assert(columns != nullptr);
+    assert(!columns->columns().empty());
+    blob_index_slice = columns->columns().front().value();
+  }
+
+  BlobIndex blob_idx;
+  *s = blob_idx.DecodeFrom(blob_index_slice);
+  if (s->ok()) {
+    if (blob_idx.HasTTL()) {
+      *s =
+          Status::Corruption("Unexpected TTL blob index for blob direct write");
+    } else {
+      PinnableSlice resolved_value;
+      PinnableSlice* target = value ? value : &resolved_value;
+      if (value != nullptr) {
+        value->Reset();
+      }
+      *s = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
+          read_options, key, blob_idx, current, cfd->blob_file_cache(),
+          partition_mgr, target);
+      if (s->ok() && columns != nullptr) {
+        columns->SetPlainValue(std::move(*target));
+      }
+    }
+  }
+
+  *is_blob_index = false;
+  return true;
+}
+
 Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        GetImplOptions& get_impl_options) {
   assert(get_impl_options.value != nullptr ||
@@ -2616,38 +2740,64 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   bool skip_memtable = (read_options.read_tier == kPersistedTier &&
                         has_unpersisted_data_.load(std::memory_order_relaxed));
   bool done = false;
-  std::string* timestamp =
-      ucmp->timestamp_size() > 0 ? get_impl_options.timestamp : nullptr;
+  bool is_blob_index = false;
+  bool* is_blob_ptr = get_impl_options.is_blob_index;
+  auto* partition_mgr = cfd->blob_partition_manager();
+  std::string timestamp_storage;
+  std::string* timestamp = nullptr;
+  if (ucmp->timestamp_size() > 0) {
+    timestamp = get_impl_options.timestamp != nullptr
+                    ? get_impl_options.timestamp
+                    : (partition_mgr != nullptr ? &timestamp_storage : nullptr);
+  }
+  if (partition_mgr != nullptr && !is_blob_ptr && get_impl_options.get_value) {
+    is_blob_ptr = &is_blob_index;
+  }
+  const bool resolve_blob_direct_write =
+      partition_mgr != nullptr && (is_blob_ptr == &is_blob_index);
+  std::string blob_lookup_key_storage;
+  auto get_blob_lookup_key = [&]() -> Slice {
+    return GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage);
+  };
   if (!skip_memtable) {
     // Get value associated with key
     if (get_impl_options.get_value) {
-      if (sv->mem->Get(
-              lkey,
-              get_impl_options.value ? get_impl_options.value->GetSelf()
-                                     : nullptr,
-              get_impl_options.columns, timestamp, &s, &merge_context,
-              &max_covering_tombstone_seq, read_options,
-              false /* immutable_memtable */, get_impl_options.callback,
-              get_impl_options.is_blob_index)) {
+      if (sv->mem->Get(lkey,
+                       get_impl_options.value
+                           ? get_impl_options.value->GetSelf()
+                           : nullptr,
+                       get_impl_options.columns, timestamp, &s, &merge_context,
+                       &max_covering_tombstone_seq, read_options,
+                       false /* immutable_memtable */,
+                       get_impl_options.callback, is_blob_ptr)) {
         done = true;
 
-        if (get_impl_options.value) {
+        bool blob_resolved = MaybeResolveBlobForWritePath(
+            read_options, get_blob_lookup_key(), &s, &is_blob_index,
+            resolve_blob_direct_write, get_impl_options.value,
+            get_impl_options.columns, sv->current, cfd, partition_mgr,
+            get_impl_options.value_found);
+        if (!blob_resolved && get_impl_options.value) {
           get_impl_options.value->PinSelf();
         }
 
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
-                 sv->imm->Get(lkey,
-                              get_impl_options.value
-                                  ? get_impl_options.value->GetSelf()
-                                  : nullptr,
-                              get_impl_options.columns, timestamp, &s,
-                              &merge_context, &max_covering_tombstone_seq,
-                              read_options, get_impl_options.callback,
-                              get_impl_options.is_blob_index)) {
+                 sv->imm->Get(
+                     lkey,
+                     get_impl_options.value ? get_impl_options.value->GetSelf()
+                                            : nullptr,
+                     get_impl_options.columns, timestamp, &s, &merge_context,
+                     &max_covering_tombstone_seq, read_options,
+                     get_impl_options.callback, is_blob_ptr)) {
         done = true;
 
-        if (get_impl_options.value) {
+        bool blob_resolved = MaybeResolveBlobForWritePath(
+            read_options, get_blob_lookup_key(), &s, &is_blob_index,
+            resolve_blob_direct_write, get_impl_options.value,
+            get_impl_options.columns, sv->current, cfd, partition_mgr,
+            get_impl_options.value_found);
+        if (!blob_resolved && get_impl_options.value) {
           get_impl_options.value->PinSelf();
         }
 
@@ -2689,8 +2839,15 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
         get_impl_options.get_value ? get_impl_options.value_found : nullptr,
         nullptr, nullptr,
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
-        get_impl_options.get_value ? get_impl_options.is_blob_index : nullptr,
+        get_impl_options.get_value ? is_blob_ptr : nullptr,
         get_impl_options.get_value);
+    if (get_impl_options.get_value) {
+      MaybeResolveBlobForWritePath(read_options, get_blob_lookup_key(), &s,
+                                   &is_blob_index, resolve_blob_direct_write,
+                                   get_impl_options.value,
+                                   get_impl_options.columns, sv->current, cfd,
+                                   partition_mgr, get_impl_options.value_found);
+    }
     RecordTick(stats_, MEMTABLE_MISS);
   }
 
@@ -3269,9 +3426,13 @@ void DBImpl::MultiGetWithCallbackImpl(
     const ReadOptions& read_options, ColumnFamilyHandle* column_family,
     ReadCallback* callback,
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys) {
+  assert(sorted_keys != nullptr);
   std::array<ColumnFamilySuperVersionPair, 1> cf_sv_pairs;
   cf_sv_pairs[0] = ColumnFamilySuperVersionPair(column_family, nullptr);
   size_t num_keys = sorted_keys->size();
+  if (num_keys == 0) {
+    return;
+  }
   SequenceNumber consistent_seqnum = kMaxSequenceNumber;
   bool sv_from_thread_local = false;
   Status s = MultiCFSnapshot<std::array<ColumnFamilySuperVersionPair, 1>>(
@@ -3345,6 +3506,13 @@ Status DBImpl::MultiGetImpl(
 
   assert(sorted_keys);
   assert(start_key + num_keys <= sorted_keys->size());
+  if (num_keys == 0) {
+    return Status::OK();
+  }
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+      (*sorted_keys)[start_key]->column_family);
+  ColumnFamilyData* cfd = cfh->cfd();
+  auto* partition_mgr = cfd->blob_partition_manager();
   // Clear the timestamps for returning results so that we can distinguish
   // between tombstone or key that has never been written
   for (size_t i = start_key; i < start_key + num_keys; ++i) {
@@ -3428,6 +3596,17 @@ Status DBImpl::MultiGetImpl(
     KeyContext* key = (*sorted_keys)[i];
     assert(key);
     assert(key->s);
+
+    if (partition_mgr != nullptr && key->s->ok() && key->is_blob_index) {
+      std::string blob_lookup_key_storage;
+      MaybeResolveBlobForWritePath(
+          read_options,
+          GetBlobLookupUserKey(*key->key, key->timestamp,
+                               &blob_lookup_key_storage),
+          key->s, &key->is_blob_index,
+          /*resolve_blob_direct_write=*/true, key->value, key->columns,
+          super_version->current, cfd, partition_mgr);
+    }
 
     if (key->s->ok()) {
       const auto& merge_threshold = read_options.merge_operand_count_threshold;
@@ -4136,7 +4315,8 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
   // that they are likely to be in the same cache line and/or page.
   return NewArenaWrappedDbIterator(
       env_, read_options, cfh, sv, snapshot, read_callback, this,
-      expose_blob_index, allow_refresh, /*allow_mark_memtable_for_flush=*/true);
+      expose_blob_index, allow_refresh, /*allow_mark_memtable_for_flush=*/true,
+      cfh->cfd()->blob_partition_manager());
 }
 
 std::unique_ptr<Iterator> DBImpl::NewCoalescingIterator(
@@ -4262,7 +4442,9 @@ Status DBImpl::NewIterators(
           cf_sv_pair.super_version->mutable_cf_options,
           cf_sv_pair.cfd->user_comparator(), iter,
           cf_sv_pair.super_version->current, kMaxSequenceNumber,
-          nullptr /*read_callback*/, /*active_mem=*/nullptr, cf_sv_pair.cfh));
+          nullptr /*read_callback*/, /*active_mem=*/nullptr, cf_sv_pair.cfh,
+          /*expose_blob_index=*/false, /*arena=*/nullptr,
+          cf_sv_pair.cfd->blob_partition_manager()));
     }
   } else {
     for (const auto& cf_sv_pair : cf_sv_pairs) {

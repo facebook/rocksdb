@@ -104,13 +104,16 @@ class ArenaWrappedDBIter : public Iterator {
 
   // FIXME: we could just pass SV in for mutable cf option, version and version
   // number, but this is used by SstFileReader which does not have a SV.
+  // `blob_partition_mgr` is passed through to DBIter so reads can resolve
+  // direct-write blob indexes before the blob file is registered in Version.
   void Init(Env* env, const ReadOptions& read_options,
             const ImmutableOptions& ioptions,
             const MutableCFOptions& mutable_cf_options, const Version* version,
             const SequenceNumber& sequence, uint64_t version_number,
             ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
             bool expose_blob_index, bool allow_refresh,
-            ReadOnlyMemTable* active_mem);
+            ReadOnlyMemTable* active_mem,
+            BlobFilePartitionManager* blob_partition_mgr = nullptr);
 
   // Store some parameters so we can refresh the iterator at a later point
   // with these same params
@@ -144,5 +147,6 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ReadOptions& read_options, ColumnFamilyHandleImpl* cfh,
     SuperVersion* sv, const SequenceNumber& sequence,
     ReadCallback* read_callback, DBImpl* db_impl, bool expose_blob_index,
-    bool allow_refresh, bool allow_mark_memtable_for_flush);
+    bool allow_refresh, bool allow_mark_memtable_for_flush,
+    BlobFilePartitionManager* blob_partition_mgr = nullptr);
 }  // namespace ROCKSDB_NAMESPACE

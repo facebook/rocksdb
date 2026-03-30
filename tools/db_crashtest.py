@@ -719,6 +719,28 @@ blob_params = {
     "remote_compaction_worker_threads": 0,
 }
 
+blob_direct_write_params = {
+    "enable_blob_files": 1,
+    "enable_blob_direct_write": 1,
+    "blob_direct_write_partitions": lambda: random.choice([1, 2, 4, 8]),
+    "allow_setting_blob_options_dynamically": 0,
+    "min_blob_size": lambda: random.choice([8, 16, 64]),
+    "blob_file_size": lambda: random.choice([1048576, 16777216, 268435456]),
+    "blob_compression_type": lambda: random.choice(["none", "snappy", "lz4", "zstd"]),
+    "enable_blob_garbage_collection": 0,
+    "blob_garbage_collection_age_cutoff": 0.0,
+    "blob_garbage_collection_force_threshold": 1.0,
+    "blob_compaction_readahead_size": 0,
+    "blob_file_starting_level": 0,
+    "use_blob_cache": lambda: random.randint(0, 1),
+    "use_shared_block_and_blob_cache": lambda: random.randint(0, 1),
+    "blob_cache_size": lambda: random.choice([1048576, 2097152, 4194304, 8388608]),
+    "prepopulate_blob_cache": lambda: random.randint(0, 1),
+    # The reduced-scope implementation assumes a single writer thread.
+    "threads": 1,
+    "remote_compaction_worker_threads": 0,
+}
+
 ts_params = {
     "test_cf_consistency": 0,
     "test_batches_snapshots": 0,
@@ -860,6 +882,58 @@ def finalize_and_sanitize(src_params):
             dest_params["use_direct_io_for_flush_and_compaction"] = 0
         else:
             dest_params["mock_direct_io"] = True
+
+    if dest_params.get("enable_blob_direct_write", 0) == 1:
+        # The reduced-scope direct-write feature assumes a single writer and
+        # excludes WAL-based crash recovery, broad dynamic blob option changes,
+        # blob GC, merge-aware writes, transaction DB modes, secondary
+        # instances, and active-file snapshot / backup style APIs.
+        dest_params["enable_blob_files"] = 1
+        dest_params["blob_direct_write_partitions"] = max(
+            1, dest_params.get("blob_direct_write_partitions", 1)
+        )
+        dest_params["threads"] = 1
+        dest_params["allow_concurrent_memtable_write"] = 0
+        dest_params["enable_pipelined_write"] = 0
+        dest_params["two_write_queues"] = 0
+        dest_params["unordered_write"] = 0
+        dest_params["use_blob_db"] = 0
+        dest_params["allow_setting_blob_options_dynamically"] = 0
+        dest_params["enable_blob_garbage_collection"] = 0
+        dest_params["blob_garbage_collection_age_cutoff"] = 0.0
+        dest_params["blob_garbage_collection_force_threshold"] = 1.0
+        dest_params["blob_compaction_readahead_size"] = 0
+        dest_params["blob_file_starting_level"] = 0
+        dest_params["use_merge"] = 0
+        dest_params["use_full_merge_v1"] = 0
+        dest_params["use_put_entity_one_in"] = 0
+        dest_params["use_get_entity"] = 0
+        dest_params["use_multi_get_entity"] = 0
+        dest_params["use_timed_put_one_in"] = 0
+        dest_params["use_attribute_group"] = 0
+        dest_params["use_txn"] = 0
+        dest_params["txn_write_policy"] = 0
+        dest_params["use_optimistic_txn"] = 0
+        dest_params["test_multi_ops_txns"] = 0
+        dest_params["commit_bypass_memtable_one_in"] = 0
+        dest_params["disable_wal"] = 1
+        dest_params["best_efforts_recovery"] = 0
+        dest_params["sync_fault_injection"] = 0
+        dest_params["write_fault_one_in"] = 0
+        dest_params["metadata_write_fault_one_in"] = 0
+        dest_params["read_fault_one_in"] = 0
+        dest_params["metadata_read_fault_one_in"] = 0
+        dest_params["open_metadata_write_fault_one_in"] = 0
+        dest_params["open_metadata_read_fault_one_in"] = 0
+        dest_params["open_write_fault_one_in"] = 0
+        dest_params["open_read_fault_one_in"] = 0
+        dest_params["remote_compaction_worker_threads"] = 0
+        dest_params["test_secondary"] = 0
+        dest_params["backup_one_in"] = 0
+        dest_params["checkpoint_one_in"] = 0
+        dest_params["get_live_files_apis_one_in"] = 0
+        dest_params["ingest_external_file_one_in"] = 0
+        dest_params["ingest_wbwi_one_in"] = 0
 
     if dest_params.get("memtablerep") == "vector":
         dest_params["inplace_update_support"] = 0
@@ -1343,16 +1417,17 @@ def gen_cmd_params(args):
     if args.test_tiered_storage:
         params.update(tiered_params)
 
-    # Best-effort recovery, tiered storage are currently incompatible with BlobDB.
-    # Test BE recovery if specified on the command line; otherwise, apply BlobDB
-    # related overrides with a 10% chance.
+    # Best-effort recovery, tiered storage are currently incompatible with
+    # BlobDB and blob direct write. Test BE recovery if specified on the
+    # command line; otherwise, apply one of the blob feature overrides with a
+    # 10% chance.
     if (
         not args.test_best_efforts_recovery
         and not args.test_tiered_storage
         and params.get("test_secondary", 0) == 0
         and random.choice([0] * 9 + [1]) == 1
     ):
-        params.update(blob_params)
+        params.update(random.choice([blob_params, blob_direct_write_params]))
 
     if "compaction_style" not in params:
         # Default to leveled compaction
@@ -1788,6 +1863,7 @@ def main():
         + list(blackbox_simple_default_params.items())
         + list(whitebox_simple_default_params.items())
         + list(blob_params.items())
+        + list(blob_direct_write_params.items())
         + list(ts_params.items())
         + list(multiops_txn_params.items())
         + list(best_efforts_recovery_params.items())

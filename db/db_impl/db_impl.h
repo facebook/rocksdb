@@ -260,6 +260,10 @@ class DBImpl : public DB {
       const WriteOptions& options,
       std::shared_ptr<WriteBatchWithIndex> wbwi) override;
 
+  // Returns true if any live column family currently has blob direct write
+  // enabled.
+  bool HasAnyBlobDirectWriteColumnFamily();
+
   using DB::Get;
   Status Get(const ReadOptions& _read_options,
              ColumnFamilyHandle* column_family, const Slice& key,
@@ -1777,6 +1781,9 @@ class DBImpl : public DB {
   friend class CompactionServiceTest_PreservedOptionsLocalCompaction_Test;
   friend class CompactionServiceTest_PreservedOptionsRemoteCompaction_Test;
 #endif
+
+  // Same as HasAnyBlobDirectWriteColumnFamily(), but requires `mutex_` held.
+  bool HasAnyBlobDirectWriteColumnFamilyWithLockHeld();
 
   struct CompactionState;
   struct PrepickedCompaction;

@@ -12,6 +12,8 @@
 #include <limits>
 #include <string>
 
+#include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_index.h"
 #include "db/dbformat.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
@@ -43,7 +45,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                const Comparator* cmp, InternalIterator* iter,
                const Version* version, SequenceNumber s, bool arena_mode,
                ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
-               bool expose_blob_index, ReadOnlyMemTable* active_mem)
+               bool expose_blob_index, ReadOnlyMemTable* active_mem,
+               BlobFilePartitionManager* blob_partition_mgr)
     : prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
       env_(_env),
       clock_(ioptions.clock),
@@ -51,9 +54,10 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       user_comparator_(cmp),
       merge_operator_(ioptions.merge_operator.get()),
       iter_(iter),
-      blob_reader_(version, read_options.read_tier,
-                   read_options.verify_checksums, read_options.fill_cache,
-                   read_options.io_activity),
+      blob_reader_(
+          version, read_options.read_tier, read_options.verify_checksums,
+          read_options.fill_cache, read_options.io_activity,
+          cfh ? cfh->cfd()->blob_file_cache() : nullptr, blob_partition_mgr),
       read_callback_(read_callback),
       sequence_(s),
       statistics_(ioptions.stats),
@@ -222,7 +226,7 @@ Status DBIter::BlobReader::RetrieveAndSetBlobValue(const Slice& user_key,
                                                    const Slice& blob_index) {
   assert(blob_value_.empty());
 
-  if (!version_) {
+  if (!version_ && !blob_file_cache_ && !blob_partition_mgr_) {
     return Status::Corruption("Encountered unexpected blob index.");
   }
 
@@ -234,17 +238,14 @@ Status DBIter::BlobReader::RetrieveAndSetBlobValue(const Slice& user_key,
   read_options.verify_checksums = verify_checksums_;
   read_options.fill_cache = fill_cache_;
   read_options.io_activity = io_activity_;
-  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
-  constexpr uint64_t* bytes_read = nullptr;
-
-  const Status s = version_->GetBlob(read_options, user_key, blob_index,
-                                     prefetch_buffer, &blob_value_, bytes_read);
-
+  BlobIndex blob_idx;
+  Status s = blob_idx.DecodeFrom(blob_index);
   if (!s.ok()) {
     return s;
   }
-
-  return Status::OK();
+  return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
+      read_options, user_key, blob_idx, version_, blob_file_cache_,
+      blob_partition_mgr_, &blob_value_);
 }
 
 bool DBIter::SetValueAndColumnsFromBlobImpl(const Slice& user_key,

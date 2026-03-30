@@ -22,6 +22,28 @@ class DBBlobBasicTest : public DBTestBase {
  protected:
   DBBlobBasicTest()
       : DBTestBase("db_blob_basic_test", /* env_do_fsync */ false) {}
+
+  Options GetDirectWriteOptions() {
+    Options options = GetDefaultOptions();
+    options.enable_blob_files = true;
+    options.enable_blob_direct_write = true;
+    options.min_blob_size = 32;
+    options.blob_direct_write_partitions = 1;
+    return options;
+  }
+
+  size_t CountBlobFiles() {
+    std::vector<std::string> files;
+    EXPECT_OK(env_->GetChildren(dbname_, &files));
+
+    size_t blob_files = 0;
+    for (const auto& file : files) {
+      if (file.size() > 5 && file.substr(file.size() - 5) == ".blob") {
+        ++blob_files;
+      }
+    }
+    return blob_files;
+  }
 };
 
 TEST_F(DBBlobBasicTest, GetBlob) {
@@ -921,6 +943,413 @@ TEST_F(DBBlobBasicTest, MultiGetWithDirectIO) {
     ASSERT_OK(statuses[2]);
     ASSERT_EQ(values[2], second_blob);
   }
+}
+
+TEST_F(DBBlobBasicTest,
+       DirectWriteWriteBatchManyPartitionsBeforeAndAfterFlush) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.enable_blob_direct_write = true;
+  options.blob_direct_write_partitions = 4;
+  options.min_blob_size = 32;
+  options.use_direct_reads = true;
+  options.use_direct_io_for_flush_and_compaction = true;
+
+  Status s = TryReopen(options);
+  if (s.IsInvalidArgument()) {
+    ROCKSDB_GTEST_SKIP("This test requires direct IO support");
+    return;
+  }
+  ASSERT_OK(s);
+
+  const std::array<std::string, 5> keys{
+      "blob_key_0", "blob_key_1", "blob_key_2", "blob_key_3", "inline_key"};
+  const std::array<std::string, 5> values{
+      std::string(256, 'a'), std::string(256, 'b'), std::string(256, 'c'),
+      std::string(256, 'd'), "tiny"};
+
+  WriteBatch batch;
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_OK(batch.Put(keys[i], values[i]));
+  }
+  ASSERT_OK(batch.Delete("deleted_key"));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_EQ(Get(keys[i]), values[i]);
+  }
+
+  const std::array<Slice, 5> key_slices{Slice(keys[0]), Slice(keys[1]),
+                                        Slice(keys[2]), Slice(keys[3]),
+                                        Slice(keys[4])};
+  auto assert_multiget = [&]() {
+    std::array<PinnableSlice, 5> results;
+    std::array<Status, 5> statuses;
+    db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), key_slices.size(),
+                  key_slices.data(), results.data(), statuses.data());
+    for (size_t i = 0; i < key_slices.size(); ++i) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(results[i], values[i]);
+    }
+  };
+  assert_multiget();
+
+  for (size_t i = 0; i < 4; ++i) {
+    std::string value;
+    bool value_found = true;
+    ASSERT_TRUE(db_->KeyMayExist(ReadOptions(), db_->DefaultColumnFamily(),
+                                 keys[i], &value, &value_found));
+    ASSERT_FALSE(value_found);
+  }
+
+  std::string inline_value;
+  bool inline_value_found = false;
+  ASSERT_TRUE(db_->KeyMayExist(ReadOptions(), db_->DefaultColumnFamily(),
+                               keys[4], &inline_value, &inline_value_found));
+  ASSERT_TRUE(inline_value_found);
+  ASSERT_EQ(inline_value, values[4]);
+
+  ASSERT_OK(Flush());
+  assert_multiget();
+
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  size_t blob_files = 0;
+  for (const auto& f : files) {
+    if (f.size() > 5 && f.substr(f.size() - 5) == ".blob") {
+      ++blob_files;
+    }
+  }
+  ASSERT_EQ(blob_files, 4);
+
+  Close();
+  Reopen(options);
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_EQ(Get(keys[i]), values[i]);
+  }
+}
+
+TEST_F(DBBlobBasicTest, DirectWriteCloseFlushesWhenShutdownFlushIsDisabled) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.enable_blob_direct_write = true;
+  options.blob_direct_write_partitions = 4;
+  options.min_blob_size = 32;
+  options.avoid_flush_during_shutdown = true;
+
+  Reopen(options);
+
+  const std::array<std::string, 4> keys{"close_blob_key_0", "close_blob_key_1",
+                                        "close_blob_key_2", "close_blob_key_3"};
+  const std::array<std::string, 4> values{
+      std::string(128, 'a'), std::string(128, 'b'), std::string(128, 'c'),
+      std::string(128, 'd')};
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_OK(Put(keys[i], values[i]));
+  }
+
+  Close();
+  Reopen(options);
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_EQ(Get(keys[i]), values[i]);
+  }
+}
+
+TEST_F(DBBlobBasicTest, DirectWriteRejectsMemPurge) {
+  Options options = GetDirectWriteOptions();
+  options.experimental_mempurge_threshold = 1.0;
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+
+  options.experimental_mempurge_threshold = 0.0;
+  ASSERT_OK(TryReopen(options));
+  ASSERT_TRUE(db_->SetOptions(db_->DefaultColumnFamily(),
+                              {{"experimental_mempurge_threshold", "1.0"}})
+                  .IsNotSupported());
+}
+
+TEST_F(DBBlobBasicTest, DirectWriteIteratorMixedValuesBeforeAndAfterFlush) {
+  Options options = GetDirectWriteOptions();
+  options.min_blob_size = 20;
+
+  Reopen(options);
+
+  const std::array<std::string, 4> keys{"a_small", "b_large", "c_small",
+                                        "d_large"};
+  const std::array<std::string, 4> values{"tiny", std::string(80, 'B'), "mini",
+                                          std::string(80, 'D')};
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_OK(Put(keys[i], values[i]));
+  }
+
+  auto verify_iteration = [&]() {
+    ReadOptions read_options;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+
+    iter->SeekToFirst();
+    for (size_t i = 0; i < keys.size(); ++i) {
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key(), keys[i]);
+      ASSERT_EQ(iter->value(), values[i]);
+      iter->Next();
+    }
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    iter->SeekToLast();
+    for (size_t i = keys.size(); i-- > 0;) {
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key(), keys[i]);
+      ASSERT_EQ(iter->value(), values[i]);
+      iter->Prev();
+    }
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    iter->Seek("b_large");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key(), keys[1]);
+    ASSERT_EQ(iter->value(), values[1]);
+  };
+
+  verify_iteration();
+  ASSERT_OK(Flush());
+  verify_iteration();
+}
+
+TEST_F(DBBlobBasicTest, DirectWriteImmutableMemtableRead) {
+  Options options = GetDirectWriteOptions();
+
+  Reopen(options);
+
+  constexpr size_t kNumKeys = 6;
+  std::array<std::string, kNumKeys> keys;
+  std::array<std::string, kNumKeys> values;
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    keys[i] = "imm_key_" + std::to_string(i);
+    values[i] = std::string(96 + i, static_cast<char>('A' + i));
+    ASSERT_OK(Put(keys[i], values[i]));
+  }
+
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+
+  auto verify_reads = [&]() {
+    std::array<Slice, kNumKeys> key_slices{Slice(keys[0]), Slice(keys[1]),
+                                           Slice(keys[2]), Slice(keys[3]),
+                                           Slice(keys[4]), Slice(keys[5])};
+    std::array<PinnableSlice, kNumKeys> results;
+    std::array<Status, kNumKeys> statuses;
+
+    for (size_t i = 0; i < kNumKeys; ++i) {
+      ASSERT_EQ(Get(keys[i]), values[i]);
+    }
+
+    db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), key_slices.size(),
+                  key_slices.data(), results.data(), statuses.data());
+    for (size_t i = 0; i < kNumKeys; ++i) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(results[i], values[i]);
+    }
+  };
+
+  verify_reads();
+  ASSERT_OK(dbfull()->TEST_FlushMemTable(true));
+  verify_reads();
+}
+
+TEST_F(DBBlobBasicTest, DirectWriteBlobFileRotationSinglePartition) {
+  Options options = GetDirectWriteOptions();
+  options.blob_file_size = 512;
+
+  Reopen(options);
+
+  constexpr size_t kNumKeys = 12;
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(Put("rot_key_" + std::to_string(i),
+                  std::string(120, static_cast<char>('a' + i))));
+  }
+
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    ASSERT_EQ(Get("rot_key_" + std::to_string(i)),
+              std::string(120, static_cast<char>('a' + i)));
+  }
+
+  ASSERT_OK(Flush());
+  ASSERT_GT(CountBlobFiles(), 1U);
+
+  Close();
+  Reopen(options);
+
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    ASSERT_EQ(Get("rot_key_" + std::to_string(i)),
+              std::string(120, static_cast<char>('a' + i)));
+  }
+}
+
+TEST_F(DBBlobBasicTest, DirectWriteFailedBatchTrackedAsInitialGarbage) {
+  Options options = GetDirectWriteOptions();
+  options.blob_file_size = 1 << 20;
+  options.blob_compression_type = kNoCompression;
+
+  Reopen(options);
+
+  const std::string failed_key = "failed_key";
+  const std::string failed_value(128, 'f');
+  const uint64_t failed_record_bytes =
+      BlobLogRecord::kHeaderSize + failed_key.size() + failed_value.size();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteImpl:AfterBlobDirectWrite", [](void* arg) {
+        auto* status = static_cast<Status*>(arg);
+        assert(status != nullptr);
+        *status = Status::IOError("Injected post-BDW failure");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_TRUE(Put(failed_key, failed_value).IsIOError());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  const std::string good_key = "good_key";
+  const std::string good_value(96, 'g');
+  const uint64_t good_record_bytes =
+      BlobLogRecord::kHeaderSize + good_key.size() + good_value.size();
+
+  ASSERT_OK(Put(good_key, good_value));
+  ASSERT_EQ(Get(failed_key), "NOT_FOUND");
+  ASSERT_EQ(Get(good_key), good_value);
+
+  ASSERT_OK(Flush());
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_file_count, 1U);
+  ASSERT_EQ(cf_meta.blob_files.size(), 1U);
+
+  const BlobMetaData& blob_meta = cf_meta.blob_files[0];
+  ASSERT_EQ(blob_meta.total_blob_count, 2U);
+  ASSERT_EQ(blob_meta.total_blob_bytes,
+            failed_record_bytes + good_record_bytes);
+  ASSERT_EQ(blob_meta.garbage_blob_count, 1U);
+  ASSERT_EQ(blob_meta.garbage_blob_bytes, failed_record_bytes);
+
+  Close();
+  Reopen(options);
+
+  ASSERT_EQ(Get(failed_key), "NOT_FOUND");
+  ASSERT_EQ(Get(good_key), good_value);
+
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_file_count, 1U);
+  ASSERT_EQ(cf_meta.blob_files.size(), 1U);
+  ASSERT_EQ(cf_meta.blob_files[0].total_blob_count, 2U);
+  ASSERT_EQ(cf_meta.blob_files[0].garbage_blob_count, 1U);
+  ASSERT_EQ(cf_meta.blob_files[0].garbage_blob_bytes, failed_record_bytes);
+}
+
+TEST_F(DBBlobBasicTest, DirectWriteBoundaryValues) {
+  Options options = GetDirectWriteOptions();
+  options.min_blob_size = 20;
+
+  Reopen(options);
+
+  const std::string below(19, 'b');
+  const std::string exact(20, 'e');
+  const std::string above(21, 'a');
+
+  ASSERT_OK(Put("below", below));
+  ASSERT_OK(Put("exact", exact));
+  ASSERT_OK(Put("above", above));
+
+  ASSERT_EQ(Get("below"), below);
+  ASSERT_EQ(Get("exact"), exact);
+  ASSERT_EQ(Get("above"), above);
+
+  ASSERT_OK(Flush());
+  ASSERT_EQ(CountBlobFiles(), 1U);
+  ASSERT_EQ(Get("below"), below);
+  ASSERT_EQ(Get("exact"), exact);
+  ASSERT_EQ(Get("above"), above);
+}
+
+TEST_F(DBBlobBasicTest, DirectWriteWriteBatchNoQualifyingValues) {
+  Options options = GetDirectWriteOptions();
+  options.min_blob_size = 1024;
+
+  Reopen(options);
+
+  WriteBatch batch;
+  ASSERT_OK(batch.Put("k1", "small_v1"));
+  ASSERT_OK(batch.Put("k2", "small_v2"));
+  ASSERT_OK(batch.Delete("k3"));
+  ASSERT_OK(batch.SingleDelete("k4"));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  ASSERT_EQ(Get("k1"), "small_v1");
+  ASSERT_EQ(Get("k2"), "small_v2");
+  ASSERT_EQ(Get("k3"), "NOT_FOUND");
+  ASSERT_EQ(CountBlobFiles(), 0U);
+
+  ASSERT_OK(Flush());
+  ASSERT_EQ(Get("k1"), "small_v1");
+  ASSERT_EQ(Get("k2"), "small_v2");
+  ASSERT_EQ(CountBlobFiles(), 0U);
+}
+
+TEST_F(DBBlobBasicTest, DirectWriteDeleteAndReput) {
+  Options options = GetDirectWriteOptions();
+
+  Reopen(options);
+
+  const std::string first_value(96, '1');
+  const std::string second_value(128, '2');
+
+  ASSERT_OK(Put("reput_key", first_value));
+  ASSERT_EQ(Get("reput_key"), first_value);
+
+  ASSERT_OK(Delete("reput_key"));
+  ASSERT_EQ(Get("reput_key"), "NOT_FOUND");
+
+  ASSERT_OK(Put("reput_key", second_value));
+  ASSERT_EQ(Get("reput_key"), second_value);
+
+  ASSERT_OK(Flush());
+  ASSERT_EQ(Get("reput_key"), second_value);
+}
+
+TEST_F(DBBlobBasicTest, DirectWriteSnapshotIsolation) {
+  Options options = GetDirectWriteOptions();
+
+  Reopen(options);
+
+  const std::string first_value(96, '1');
+  const std::string second_value(128, '2');
+
+  ASSERT_OK(Put("snap_key", first_value));
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  ASSERT_OK(Put("snap_key", second_value));
+  ASSERT_OK(Put("snap_new_key", second_value));
+
+  ASSERT_EQ(Get("snap_key"), second_value);
+  ASSERT_EQ(Get("snap_new_key"), second_value);
+
+  ReadOptions read_options;
+  read_options.snapshot = snapshot;
+  std::string value;
+
+  ASSERT_OK(
+      db_->Get(read_options, db_->DefaultColumnFamily(), "snap_key", &value));
+  ASSERT_EQ(value, first_value);
+  ASSERT_TRUE(
+      db_->Get(read_options, db_->DefaultColumnFamily(), "snap_new_key", &value)
+          .IsNotFound());
+
+  db_->ReleaseSnapshot(snapshot);
 }
 
 TEST_F(DBBlobBasicTest, MultiGetBlobsFromMultipleFiles) {
@@ -2096,6 +2525,19 @@ class DBBlobWithTimestampTest : public DBBasicTestWithTimestampBase {
   DBBlobWithTimestampTest()
       : DBBasicTestWithTimestampBase("db_blob_with_timestamp_test") {}
 };
+
+TEST_F(DBBlobWithTimestampTest, DirectWriteRejectsUserDefinedTimestamps) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.enable_blob_direct_write = true;
+  options.min_blob_size = 32;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+}
 
 TEST_F(DBBlobWithTimestampTest, GetBlob) {
   Options options = GetDefaultOptions();

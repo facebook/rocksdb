@@ -1188,6 +1188,27 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   PrepopulateBlobCache prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
 
+  // When enabled, values >= min_blob_size are written directly to blob files
+  // during the write path and replaced in WAL and memtable with BlobIndex
+  // references.
+  //
+  // Requires enable_blob_files = true.
+  //
+  // Default: false
+  //
+  // Not dynamically changeable through the SetOptions() API.
+  bool enable_blob_direct_write = false;
+
+  // Number of direct-write blob partitions for this column family.
+  // Partition selection is round-robin.
+  //
+  // Requires enable_blob_direct_write = true.
+  //
+  // Default: 1
+  //
+  // Not dynamically changeable through the SetOptions() API.
+  uint32_t blob_direct_write_partitions = 1;
+
   // Enable memtable per key-value checksum protection.
   //
   // Each entry in memtable will be suffixed by a per key-value checksum.

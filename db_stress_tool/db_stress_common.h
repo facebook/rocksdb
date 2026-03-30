@@ -320,6 +320,8 @@ DECLARE_bool(blob_db_enable_gc);
 // Options for integrated BlobDB
 DECLARE_bool(allow_setting_blob_options_dynamically);
 DECLARE_bool(enable_blob_files);
+DECLARE_bool(enable_blob_direct_write);
+DECLARE_uint64(blob_direct_write_partitions);
 DECLARE_uint64(min_blob_size);
 DECLARE_uint64(blob_file_size);
 DECLARE_string(blob_compression_type);

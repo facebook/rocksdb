@@ -10,6 +10,7 @@
 #include <set>
 #include <unordered_set>
 
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/db_impl/db_impl.h"
 #include "db/event_helpers.h"
 #include "db/memtable_list.h"
@@ -156,6 +157,15 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   job_context->min_pending_output = MinObsoleteSstNumberToKeep();
   job_context->files_to_quarantine = error_handler_.GetFilesToQuarantine();
   job_context->min_options_file_number = MinOptionsFileNumberToKeep();
+  job_context->min_blob_file_number_to_keep =
+      versions_->current_next_file_number();
+  for (auto* cfd : *versions_->GetColumnFamilySet()) {
+    auto* mgr = cfd->blob_partition_manager();
+    if (mgr != nullptr) {
+      mgr->GetActiveBlobFileNumbers(
+          &job_context->active_blob_direct_write_files);
+    }
+  }
 
   // Get obsolete files.  This function will also update the list of
   // pending files in VersionSet().
@@ -589,8 +599,12 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
         break;
       case kBlobFile:
         keep = number >= state.min_pending_output ||
-               (blob_live_set.find(number) != blob_live_set.end());
+               number >= state.min_blob_file_number_to_keep ||
+               (blob_live_set.find(number) != blob_live_set.end()) ||
+               (state.active_blob_direct_write_files.find(number) !=
+                state.active_blob_direct_write_files.end());
         if (!keep) {
+          TableCache::Evict(table_cache_.get(), number);
           files_to_del.insert(number);
         }
         break;

@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "db/blob/blob_file_cache.h"
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_source.h"
 #include "db/compaction/compaction_picker.h"
 #include "db/compaction/compaction_picker_fifo.h"
@@ -496,6 +497,15 @@ ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
       result.memtable_avg_op_scan_flush_trigger = 0;
     }
   }
+  if (result.enable_blob_direct_write && !result.enable_blob_files) {
+    ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "enable_blob_direct_write requires enable_blob_files=true. "
+                   "Disabling blob direct write.");
+    result.enable_blob_direct_write = false;
+  }
+  if (result.blob_direct_write_partitions == 0) {
+    result.blob_direct_write_partitions = 1;
+  }
   return result;
 }
 
@@ -781,6 +791,11 @@ ColumnFamilyData::~ColumnFamilyData() {
           id_, name_.c_str());
     }
   }
+}
+
+void ColumnFamilyData::SetBlobPartitionManager(
+    std::unique_ptr<BlobFilePartitionManager> mgr) {
+  blob_partition_manager_ = std::move(mgr);
 }
 
 bool ColumnFamilyData::UnrefAndTryDelete() {
@@ -1524,6 +1539,16 @@ Status ColumnFamilyData::ValidateOptions(
 
   const auto* ucmp = cf_options.comparator;
   assert(ucmp);
+  if (cf_options.enable_blob_direct_write) {
+    if (cf_options.experimental_mempurge_threshold > 0.0) {
+      return Status::NotSupported(
+          "Blob direct write does not support MemPurge.");
+    }
+    if (ucmp->timestamp_size() > 0) {
+      return Status::NotSupported(
+          "Blob direct write does not support user-defined timestamps.");
+    }
+  }
   if (ucmp->timestamp_size() > 0 &&
       !cf_options.persist_user_defined_timestamps) {
     if (db_options.atomic_flush) {

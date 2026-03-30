@@ -625,6 +625,7 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
                (ContentFlags::DEFERRED | ContentFlags::HAS_BLOB_INDEX));
         s = handler->PutBlobIndexCF(column_family, key, value);
         if (LIKELY(s.ok())) {
+          empty_batch = false;
           found++;
         }
         break;
@@ -1087,6 +1088,23 @@ Status WriteBatchInternal::PutEntity(WriteBatch* b, uint32_t column_family_id,
   const Status s = WideColumnSerialization::Serialize(sorted_columns, entity);
   if (!s.ok()) {
     return s;
+  }
+
+  if (entity.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+    return Status::InvalidArgument("wide column entity is too large");
+  }
+
+  return PutEntitySerialized(b, column_family_id, key, entity);
+}
+
+Status WriteBatchInternal::PutEntitySerialized(WriteBatch* b,
+                                               uint32_t column_family_id,
+                                               const Slice& key,
+                                               const Slice& entity) {
+  assert(b);
+
+  if (key.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+    return Status::InvalidArgument("key is too large");
   }
 
   if (entity.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
