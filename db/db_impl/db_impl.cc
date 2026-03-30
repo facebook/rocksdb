@@ -673,18 +673,9 @@ Status DBImpl::CloseHelper() {
     mutex_.Lock();
   }
 
-  // Now that PurgeObsoleteFiles has completed, check for stale cache entries
-  // while blob partition managers are still alive (needed for
-  // GetActiveBlobFileNumbers inside the check).
-  // First, evict unreferenced entries so only referenced (live) readers remain.
-  // This prevents false positives from readers opened during the test body for
-  // files that are either in a live Version or still tracked as active.
-  table_cache_->EraseUnRefEntries();
-#ifndef NDEBUG
-  TEST_VerifyNoObsoleteFilesCached(/*db_mutex_already_held=*/true);
-#endif  // !NDEBUG
-
-  // Safe to destroy blob partition managers now.
+  // Now that PurgeObsoleteFiles has completed, it's safe to destroy
+  // blob partition managers. Their file_to_partition_ maps were needed
+  // by FindObsoleteFiles/GetActiveBlobFileNumbers above.
   for (auto* cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->blob_partition_manager()) {
       cfd->SetBlobPartitionManager(nullptr);
@@ -728,6 +719,9 @@ Status DBImpl::CloseHelper() {
   // time a handle is released, we erase it from the cache too. By doing that,
   // we can guarantee that after versions_.reset(), table cache is empty
   // so the cache can be safely destroyed.
+#ifndef NDEBUG
+  TEST_VerifyNoObsoleteFilesCached(/*db_mutex_already_held=*/true);
+#endif  // !NDEBUG
   table_cache_->EraseUnRefEntries();
 
   for (auto& txn_entry : recovered_transactions_) {
