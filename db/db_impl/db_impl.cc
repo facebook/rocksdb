@@ -673,10 +673,24 @@ Status DBImpl::CloseHelper() {
     mutex_.Lock();
   }
 
-  // Now that PurgeObsoleteFiles has completed, run the stale-cache check
-  // while blob partition managers are still alive. The check calls
-  // GetActiveBlobFileNumbers to include active/sealed BDW files whose
-  // readers may be cached but not yet in any version.
+  // Table cache may have table/blob handles holding blocks from the block
+  // cache. Release all unreferenced entries before the debug-only stale-cache
+  // check so the check only inspects entries still visible after the normal
+  // shutdown sweep. This avoids false positives from unreferenced BDW blob
+  // readers that are expected to disappear via EraseUnRefEntries().
+  //
+  // We need to do this before versions_.reset() because the block cache may be
+  // destroyed when the column family data list is torn down. After this sweep,
+  // only handles still referenced by VersionSet (or some other live owner)
+  // remain. Those owners must erase their handles as they release them so the
+  // cache is empty by the time versions_.reset() completes.
+  table_cache_->EraseUnRefEntries();
+
+  // Now that PurgeObsoleteFiles has completed and the unreferenced cache
+  // entries have been swept, run the stale-cache check while blob partition
+  // managers are still alive. The check calls GetActiveBlobFileNumbers to
+  // include active/sealed BDW files whose readers may still be referenced but
+  // are not yet in any version.
 #ifndef NDEBUG
   TEST_VerifyNoObsoleteFilesCached(/*db_mutex_already_held=*/true);
 #endif  // !NDEBUG
@@ -710,22 +724,6 @@ Status DBImpl::CloseHelper() {
     }
     logs_.clear();
   }
-
-  // Table cache may have table handles holding blocks from the block cache.
-  // We need to release them before the block cache is destroyed. The block
-  // cache may be destroyed inside versions_.reset(), when column family data
-  // list is destroyed, so leaving handles in table cache after
-  // versions_.reset() may cause issues. Here we clean all unreferenced handles
-  // in table cache, and (for certain builds/conditions) assert that no obsolete
-  // files are hanging around unreferenced (leak) in the table/blob file cache.
-  // Now we assume all user queries have finished, so only version set itself
-  // can possibly hold the blocks from block cache. After releasing unreferenced
-  // handles here, only handles held by version set left and inside
-  // versions_.reset(), we will release them. There, we need to make sure every
-  // time a handle is released, we erase it from the cache too. By doing that,
-  // we can guarantee that after versions_.reset(), table cache is empty
-  // so the cache can be safely destroyed.
-  table_cache_->EraseUnRefEntries();
 
   for (auto& txn_entry : recovered_transactions_) {
     delete txn_entry.second;
