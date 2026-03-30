@@ -5652,8 +5652,9 @@ TEST_F(DBBlobDirectWriteTest,
 
   const std::vector<int> seed_value_sizes = {33, 40, 47, 54};
   for (int i = 0; i < 4; ++i) {
-    ASSERT_OK(Put("seed" + std::to_string(i),
-                  std::string(seed_value_sizes[i], 'a' + i)));
+    ASSERT_OK(
+        Put("seed" + std::to_string(i),
+            std::string(seed_value_sizes[i], static_cast<char>('a' + i))));
   }
   const uint64_t old_epoch = mgr->GetRotationEpoch();
 
@@ -5664,8 +5665,9 @@ TEST_F(DBBlobDirectWriteTest,
   WriteBatch batch;
   const std::vector<int> retry_value_sizes = {35, 42, 49, 70};
   for (int i = 0; i < 4; ++i) {
-    ASSERT_OK(batch.Put("retry" + std::to_string(i),
-                        std::string(retry_value_sizes[i], 'k' + i)));
+    ASSERT_OK(batch.Put(
+        "retry" + std::to_string(i),
+        std::string(retry_value_sizes[i], static_cast<char>('k' + i))));
   }
 
   std::mutex mu;
@@ -5942,8 +5944,8 @@ TEST_F(DBBlobDirectWriteTest, OrphanBytesBlockGC) {
 
   // Write 4 keys to M0 -> all go to blob file B0.
   for (int i = 0; i < 4; i++) {
-    ASSERT_OK(
-        Put("m0key" + std::to_string(i), std::string(value_size, 'A' + i)));
+    ASSERT_OK(Put("m0key" + std::to_string(i),
+                  std::string(value_size, static_cast<char>('A' + i))));
   }
 
   // Trigger SwitchMemtable by writing enough to fill M0.
@@ -5962,7 +5964,7 @@ TEST_F(DBBlobDirectWriteTest, OrphanBytesBlockGC) {
   // Verify all keys readable.
   for (int i = 0; i < 4; i++) {
     ASSERT_EQ(Get("m0key" + std::to_string(i)),
-              std::string(value_size, 'A' + i));
+              std::string(value_size, static_cast<char>('A' + i)));
   }
   ASSERT_EQ(Get("m1key0"), std::string(value_size, 'X'));
 
@@ -6024,7 +6026,7 @@ TEST_F(DBBlobDirectWriteTest, CrashRecoveryNoOrphanBytes) {
   wo.disableWAL = true;
   for (int i = 0; i < 4; i++) {
     ASSERT_OK(db_->Put(wo, "crkey" + std::to_string(i),
-                       std::string(value_size, 'A' + i)));
+                       std::string(value_size, static_cast<char>('A' + i))));
   }
 
   // Flush M0 -> seals B0, SST S0 committed.
@@ -6047,7 +6049,7 @@ TEST_F(DBBlobDirectWriteTest, CrashRecoveryNoOrphanBytes) {
   // M1's key is lost.
   for (int i = 0; i < 4; i++) {
     ASSERT_EQ(Get("crkey" + std::to_string(i)),
-              std::string(value_size, 'A' + i));
+              std::string(value_size, static_cast<char>('A' + i)));
   }
 
   // Overwrite all M0's keys so B0's data becomes fully garbage.
