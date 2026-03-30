@@ -4320,7 +4320,8 @@ TEST_F(DBBlobDirectWriteTest, RecoveryTruncatesPartialRecord) {
   // file space if the file were read naively).
   BlobLogRecord fake_record;
   fake_record.key = Slice("fake_partial_key");
-  fake_record.value = Slice(std::string(500, 'X'));
+  std::string fake_record_value(500, 'X');
+  fake_record.value = Slice(fake_record_value);
   fake_record.expiration = 0;
   std::string fake_header;
   fake_record.EncodeHeaderTo(&fake_header);
@@ -4393,7 +4394,8 @@ TEST_F(DBBlobDirectWriteTest, RecoveryDiscardsEntriesInTruncatedRegion) {
     content.resize(static_cast<size_t>(trunc_size));
     BlobLogRecord fake;
     fake.key = Slice("x");
-    fake.value = Slice(std::string(200, 'Z'));
+    std::string fake_value(200, 'Z');
+    fake.value = Slice(fake_value);
     fake.expiration = 0;
     std::string fake_hdr;
     fake.EncodeHeaderTo(&fake_hdr);
