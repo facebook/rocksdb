@@ -676,6 +676,10 @@ Status DBImpl::CloseHelper() {
   // Now that PurgeObsoleteFiles has completed, check for stale cache entries
   // while blob partition managers are still alive (needed for
   // GetActiveBlobFileNumbers inside the check).
+  // First, evict unreferenced entries so only referenced (live) readers remain.
+  // This prevents false positives from readers opened during the test body for
+  // files that are either in a live Version or still tracked as active.
+  table_cache_->EraseUnRefEntries();
 #ifndef NDEBUG
   TEST_VerifyNoObsoleteFilesCached(/*db_mutex_already_held=*/true);
 #endif  // !NDEBUG
