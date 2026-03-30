@@ -3880,10 +3880,10 @@ TEST_F(DBBlobDirectWriteTest,
   auto fault_fs = std::make_shared<FaultInjectionTestFS>(env_->GetFileSystem());
   fault_fs->SetFilesystemDirectWritable(false);
   fault_fs->SetInjectUnsyncedDataLoss(true);
-  auto* fault_env = new CompositeEnvWrapper(env_, fault_fs);
+  auto fault_env = std::make_unique<CompositeEnvWrapper>(env_, fault_fs);
 
   Options options = GetBlobDirectWriteOptions();
-  options.env = fault_env;
+  options.env = fault_env.get();
   options.blob_direct_write_partitions = 1;
   options.blob_direct_write_buffer_size = 0;
   options.disable_auto_compactions = true;
