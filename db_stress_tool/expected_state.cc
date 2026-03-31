@@ -419,8 +419,8 @@ bool FileExpectedStateManager::HasHistory() {
 
 namespace {
 
-// An `ExpectedStateTraceRecordHandler` applies a configurable number of
-// write operation trace records to the configured expected state. It is used in
+// An `ExpectedStateTraceRecordHandler` applies a configurable number of traced
+// write operations to the configured expected state. It is used in
 // `FileExpectedStateManager::Restore()` to sync the expected state with the
 // DB's post-recovery state.
 class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
@@ -431,10 +431,12 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
         state_(state),
         buffered_writes_(nullptr) {}
 
-  ~ExpectedStateTraceRecordHandler() { assert(IsDone()); }
-
   // True if we have already reached the limit on write operations to apply.
-  bool IsDone() { return num_write_ops_ == max_write_ops_; }
+  bool IsDone() const { return num_write_ops_ >= max_write_ops_; }
+
+  uint64_t NumWriteOps() const { return num_write_ops_; }
+
+  bool Continue() override { return !IsDone(); }
 
   Status Handle(const WriteQueryTraceRecord& record,
                 std::unique_ptr<TraceRecordResult>* /* result */) override {
@@ -484,7 +486,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     }
 
     state_->SyncPut(column_family_id, static_cast<int64_t>(key_id), value_base);
-    ++num_write_ops_;
+    NoteWriteOpApplied();
     return Status::OK();
   }
 
@@ -506,7 +508,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     }
 
     state_->SyncPut(column_family_id, static_cast<int64_t>(key_id), value_base);
-    ++num_write_ops_;
+    NoteWriteOpApplied();
     return Status::OK();
   }
 
@@ -541,8 +543,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
         GetValueBase(WideColumnsHelper::GetDefaultColumn(columns));
 
     state_->SyncPut(column_family_id, static_cast<int64_t>(key_id), value_base);
-
-    ++num_write_ops_;
+    NoteWriteOpApplied();
 
     return Status::OK();
   }
@@ -563,7 +564,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     }
 
     state_->SyncDelete(column_family_id, static_cast<int64_t>(key_id));
-    ++num_write_ops_;
+    NoteWriteOpApplied();
     return Status::OK();
   }
 
@@ -609,7 +610,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     state_->SyncDeleteRange(column_family_id,
                             static_cast<int64_t>(begin_key_id),
                             static_cast<int64_t>(end_key_id));
-    ++num_write_ops_;
+    NoteWriteOpApplied();
     return Status::OK();
   }
 
@@ -669,6 +670,11 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
   }
 
  private:
+  void NoteWriteOpApplied() {
+    ++num_write_ops_;
+    assert(num_write_ops_ <= max_write_ops_);
+  }
+
   uint64_t num_write_ops_ = 0;
   uint64_t max_write_ops_;
   ExpectedState* state_;
@@ -758,6 +764,12 @@ Status FileExpectedStateManager::Restore(DB* db) {
       }
       std::unique_ptr<TraceRecordResult> res;
       s = record->Accept(handler.get(), &res);
+    }
+    if (s.ok() && !handler->IsDone()) {
+      s = Status::Corruption(
+          "Trace ended before replaying all expected write ops",
+          std::to_string(handler->NumWriteOps()) + " < " +
+              std::to_string(seqno - saved_seqno_));
     }
   }
 

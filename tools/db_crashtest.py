@@ -933,6 +933,12 @@ def finalize_and_sanitize(src_params):
         dest_params["use_multi_get_entity"] = 0
         dest_params["use_timed_put_one_in"] = 0
         dest_params["use_attribute_group"] = 0
+        # Direct write v1 only supports the plain comparator / key encoding
+        # path. User-defined timestamps and the TransactionDB-only timestamped
+        # snapshot API are outside this feature envelope.
+        dest_params["user_timestamp_size"] = 0
+        dest_params["persist_user_defined_timestamps"] = 0
+        dest_params["create_timestamped_snapshot_one_in"] = 0
         dest_params["use_txn"] = 0
         dest_params["txn_write_policy"] = 0
         dest_params["use_optimistic_txn"] = 0
