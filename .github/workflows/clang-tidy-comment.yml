@@ -20,7 +20,7 @@ jobs:
 
     - name: Download clang-tidy results
       id: download
-      uses: actions/download-artifact@v4.0.0
+      uses: actions/download-artifact@v4.1.3
       with:
         name: clang-tidy-result
         run-id: ${{ github.event.workflow_run.id }}
