@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <algorithm>
 #include <array>
 #include <sstream>
 #include <string>
@@ -1056,6 +1057,63 @@ TEST_F(DBBlobBasicTest, DirectWriteCloseFlushesWhenShutdownFlushIsDisabled) {
   for (size_t i = 0; i < keys.size(); ++i) {
     ASSERT_EQ(Get(keys[i]), values[i]);
   }
+}
+
+TEST_F(DBBlobBasicTest, DirectWriteAutoFlushPreservesBlobGenerationOrder) {
+  Options options = GetDirectWriteOptions();
+  options.allow_concurrent_memtable_write = false;
+  options.disable_auto_compactions = true;
+  options.arena_block_size = 4096;
+  options.write_buffer_size = 500000;
+  options.max_write_buffer_number = 4;
+  options.write_buffer_manager =
+      std::make_shared<WriteBufferManager>(100, nullptr, false);
+
+  Reopen(options);
+
+  WriteOptions write_options;
+  write_options.disableWAL = true;
+
+  const std::string first_value(128, 'a');
+  const std::string second_value(128, 'b');
+
+  ASSERT_OK(db_->Put(write_options, "first_key", first_value));
+  ASSERT_OK(db_->Put(write_options, "second_key", second_value));
+
+  // The tiny shared write buffer forces the first write to queue a flush. The
+  // second write then goes through PreprocessWrite(), which schedules the
+  // flush by switching memtables before the transformed batch is inserted.
+  uint64_t num_imm = 0;
+  ASSERT_TRUE(
+      db_->GetIntProperty("rocksdb.num-immutable-mem-table", &num_imm));
+  ASSERT_GE(num_imm, 1);
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ(Get("first_key"), first_value);
+  ASSERT_EQ(Get("second_key"), second_value);
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_files.size(), 2U);
+
+  std::vector<uint64_t> blob_file_numbers;
+  blob_file_numbers.reserve(cf_meta.blob_files.size());
+  for (const auto& blob_meta : cf_meta.blob_files) {
+    blob_file_numbers.push_back(blob_meta.blob_file_number);
+  }
+  std::sort(blob_file_numbers.begin(), blob_file_numbers.end());
+
+  std::vector<LiveFileMetaData> live_files;
+  db_->GetLiveFilesMetaData(&live_files);
+  ASSERT_EQ(live_files.size(), 2U);
+  std::sort(live_files.begin(), live_files.end(),
+            [](const LiveFileMetaData& lhs, const LiveFileMetaData& rhs) {
+              return lhs.smallest_seqno < rhs.smallest_seqno;
+            });
+
+  ASSERT_EQ(live_files[0].oldest_blob_file_number, blob_file_numbers[0]);
+  ASSERT_EQ(live_files[1].oldest_blob_file_number, blob_file_numbers[1]);
 }
 
 TEST_F(DBBlobBasicTest, DirectWriteRejectsMemPurge) {
