@@ -884,19 +884,32 @@ def finalize_and_sanitize(src_params):
             dest_params["mock_direct_io"] = True
 
     if dest_params.get("enable_blob_direct_write", 0) == 1:
-        # The reduced-scope direct-write feature assumes a single writer and
-        # excludes WAL-based crash recovery, broad dynamic blob option changes,
-        # blob GC, merge-aware writes, transaction DB modes, secondary
-        # instances, and active-file snapshot / backup style APIs.
+        # Keep blob direct write in its reduced-scope v1 profile.
+        #
+        # Supported recovery shape:
+        #   * clean shutdown / flush
+        #   * crash restart that only relies on SST + manifest-visible blob
+        #     state
+        #
+        # Unsupported here:
+        #   * WAL replay / best-efforts recovery
+        #   * broad dynamic blob option changes and blob GC
+        #   * multi-writer / merge / transaction variants
+        #   * secondary / backup / checkpoint / ingest style APIs that reason
+        #     about active files directly
         dest_params["enable_blob_files"] = 1
         dest_params["blob_direct_write_partitions"] = max(
             1, dest_params.get("blob_direct_write_partitions", 1)
         )
+        # The write-path transformer and partition manager currently assume one
+        # logical writer and no parallel write queue variants.
         dest_params["threads"] = 1
         dest_params["allow_concurrent_memtable_write"] = 0
         dest_params["enable_pipelined_write"] = 0
         dest_params["two_write_queues"] = 0
         dest_params["unordered_write"] = 0
+        # Direct write is implemented only for integrated BlobDB, without
+        # dynamic blob option changes or background blob GC.
         dest_params["use_blob_db"] = 0
         dest_params["allow_setting_blob_options_dynamically"] = 0
         dest_params["enable_blob_garbage_collection"] = 0
@@ -916,8 +929,13 @@ def finalize_and_sanitize(src_params):
         dest_params["use_optimistic_txn"] = 0
         dest_params["test_multi_ops_txns"] = 0
         dest_params["commit_bypass_memtable_one_in"] = 0
+        # Force the WAL-disabled crash-test profile. The generic disable_wal
+        # sanitization below will also force reopen=0 so db_stress does not try
+        # in-process reopen with unlogged data.
         dest_params["disable_wal"] = 1
         dest_params["best_efforts_recovery"] = 0
+        # Write/open fault injection currently assumes WAL-based recovery or
+        # error-retry behavior that direct write v1 does not provide.
         dest_params["sync_fault_injection"] = 0
         dest_params["write_fault_one_in"] = 0
         dest_params["metadata_write_fault_one_in"] = 0
@@ -927,6 +945,8 @@ def finalize_and_sanitize(src_params):
         dest_params["open_metadata_read_fault_one_in"] = 0
         dest_params["open_write_fault_one_in"] = 0
         dest_params["open_read_fault_one_in"] = 0
+        # Remote compaction, secondary readers, file snapshot style APIs, and
+        # ingest APIs are outside the initial direct-write feature envelope.
         dest_params["remote_compaction_worker_threads"] = 0
         dest_params["test_secondary"] = 0
         dest_params["backup_one_in"] = 0
@@ -1060,6 +1080,9 @@ def finalize_and_sanitize(src_params):
         else:
             dest_params["unordered_write"] = 0
     if dest_params.get("disable_wal", 0) == 1:
+        # WAL-disabled stress runs do not support in-process reopen. Blob
+        # direct write v1 relies on this path so crash testing stays within its
+        # SST/blob-manifest recovery envelope rather than WAL replay.
         dest_params["atomic_flush"] = 1
         dest_params["sync"] = 0
         dest_params["write_fault_one_in"] = 0

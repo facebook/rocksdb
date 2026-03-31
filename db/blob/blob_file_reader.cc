@@ -469,6 +469,13 @@ void BlobFileReader::MultiGetBlob(
 
   RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, total_len);
 
+  if (read_reqs.empty()) {
+    if (bytes_read) {
+      *bytes_read = 0;
+    }
+    return;
+  }
+
   Buffer buf;
   AlignedBuf aligned_buf;
 

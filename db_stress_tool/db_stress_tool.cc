@@ -214,6 +214,11 @@ int db_stress_tool(int argc, char** argv) {
     exit(1);
   }
   if (FLAGS_enable_blob_direct_write) {
+    // Blob direct write is intentionally validated as a reduced-scope v1
+    // feature. We allow the WAL-disabled crash-test profile, but reject
+    // best-efforts recovery, multi-writer write modes, transactions, remote
+    // compaction, and APIs/features that depend on active-file snapshotting or
+    // unsupported blob option transitions.
     if (!FLAGS_enable_blob_files) {
       fprintf(stderr,
               "Error: enable_blob_direct_write requires enable_blob_files\n");

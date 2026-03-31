@@ -568,6 +568,12 @@ void BlobFilePartitionManager::RemoveFilePartitionMappings(
   WriteLock lock(&file_partition_mutex_);
   for (uint64_t file_number : file_numbers) {
     file_to_partition_.erase(file_number);
+    if (blob_file_cache_ != nullptr) {
+      // In-flight direct-write reads may have cached a footer-less reader for
+      // this file before it was sealed. Drop it now so future manifest-visible
+      // reads reopen against the finalized on-disk size and footer state.
+      blob_file_cache_->Evict(file_number);
+    }
   }
 }
 
@@ -624,7 +630,8 @@ Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
 
   std::unique_ptr<BlobFileReader> fresh_reader;
   s = blob_file_cache->OpenBlobFileReaderUncached(
-      read_options, blob_idx.file_number(), &fresh_reader);
+      read_options, blob_idx.file_number(), &fresh_reader,
+      /*allow_footer_skip_retry=*/true);
   if (!s.ok()) {
     return s;
   }
@@ -638,7 +645,7 @@ Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
     blob_value->PinSelf(fresh_contents->data());
     CacheHandleGuard<BlobFileReader> ignored;
     blob_file_cache
-        ->InsertBlobFileReader(blob_idx.file_number(), &fresh_reader, &ignored)
+        ->RefreshBlobFileReader(blob_idx.file_number(), &fresh_reader, &ignored)
         .PermitUncheckedError();
   }
 

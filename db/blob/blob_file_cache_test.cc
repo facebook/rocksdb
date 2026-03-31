@@ -192,6 +192,102 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_F(BlobFileCacheTest, RefreshBlobFileReaderPrefersLargestObservedFileSize) {
+  Options options;
+  options.env = mock_env_.get();
+  options.statistics = CreateDBStatistics();
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(
+          mock_env_.get(),
+          "BlobFileCacheTest_"
+          "RefreshBlobFileReaderPrefersLargestObservedFileSize"),
+      0);
+  options.enable_blob_files = true;
+
+  constexpr uint32_t column_family_id = 1;
+  ImmutableOptions immutable_options(options);
+  constexpr uint64_t blob_file_number = 123;
+
+  const std::string blob_file_path =
+      BlobFileName(immutable_options.cf_paths.front().path, blob_file_number);
+
+  std::unique_ptr<FSWritableFile> file;
+  ASSERT_OK(NewWritableFile(immutable_options.fs.get(), blob_file_path, &file,
+                            FileOptions()));
+
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      std::move(file), blob_file_path, FileOptions(), immutable_options.clock));
+
+  constexpr Statistics* statistics = nullptr;
+  constexpr bool use_fsync = false;
+  constexpr bool do_flush = false;
+  BlobLogWriter blob_log_writer(std::move(file_writer), immutable_options.clock,
+                                statistics, blob_file_number, use_fsync,
+                                do_flush);
+
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+  BlobLogHeader header(column_family_id, kNoCompression, has_ttl,
+                       expiration_range);
+  ASSERT_OK(blob_log_writer.WriteHeader(WriteOptions(), header));
+
+  uint64_t key_offset = 0;
+  uint64_t blob_offset = 0;
+  ASSERT_OK(blob_log_writer.AddRecord(WriteOptions(), "key0", "blob0",
+                                      &key_offset, &blob_offset));
+  ASSERT_OK(blob_log_writer.Sync(WriteOptions()));
+
+  constexpr size_t capacity = 10;
+  std::shared_ptr<Cache> backing_cache = NewLRUCache(capacity);
+
+  FileOptions file_options;
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_options,
+                                &file_options, column_family_id,
+                                blob_file_read_hist, nullptr /*IOTracer*/);
+
+  const ReadOptions read_options;
+  std::unique_ptr<BlobFileReader> stale_reader;
+  ASSERT_OK(blob_file_cache.OpenBlobFileReaderUncached(
+      read_options, blob_file_number, &stale_reader,
+      /*allow_footer_skip_retry=*/true));
+
+  std::unique_ptr<BlobFileReader> initial_cached_reader;
+  ASSERT_OK(blob_file_cache.OpenBlobFileReaderUncached(
+      read_options, blob_file_number, &initial_cached_reader,
+      /*allow_footer_skip_retry=*/true));
+
+  CacheHandleGuard<BlobFileReader> cached_reader;
+  ASSERT_OK(blob_file_cache.RefreshBlobFileReader(
+      blob_file_number, &initial_cached_reader, &cached_reader));
+  ASSERT_NE(cached_reader.GetValue(), nullptr);
+  const uint64_t initial_file_size = cached_reader.GetValue()->GetFileSize();
+
+  ASSERT_OK(blob_log_writer.AddRecord(WriteOptions(), "key1", "blob1",
+                                      &key_offset, &blob_offset));
+  ASSERT_OK(blob_log_writer.Sync(WriteOptions()));
+
+  std::unique_ptr<BlobFileReader> fresh_reader;
+  ASSERT_OK(blob_file_cache.OpenBlobFileReaderUncached(
+      read_options, blob_file_number, &fresh_reader,
+      /*allow_footer_skip_retry=*/true));
+  ASSERT_GT(fresh_reader->GetFileSize(), initial_file_size);
+
+  CacheHandleGuard<BlobFileReader> refreshed_reader;
+  ASSERT_OK(blob_file_cache.RefreshBlobFileReader(
+      blob_file_number, &fresh_reader, &refreshed_reader));
+  ASSERT_NE(refreshed_reader.GetValue(), nullptr);
+  ASSERT_GT(refreshed_reader.GetValue()->GetFileSize(), initial_file_size);
+  BlobFileReader* const largest_reader = refreshed_reader.GetValue();
+
+  CacheHandleGuard<BlobFileReader> preserved_reader;
+  ASSERT_OK(blob_file_cache.RefreshBlobFileReader(
+      blob_file_number, &stale_reader, &preserved_reader));
+  ASSERT_NE(preserved_reader.GetValue(), nullptr);
+  ASSERT_EQ(preserved_reader.GetValue(), largest_reader);
+  ASSERT_EQ(stale_reader.get(), nullptr);
+}
+
 TEST_F(BlobFileCacheTest, GetBlobFileReader_IOError) {
   Options options;
   options.env = mock_env_.get();

@@ -1160,6 +1160,83 @@ TEST_F(DBBlobBasicTest, DirectWriteImmutableMemtableRead) {
   verify_reads();
 }
 
+TEST_F(DBBlobBasicTest, DirectWriteRefreshesReaderAfterFlush) {
+  Options options = GetDirectWriteOptions();
+  options.blob_direct_write_partitions = 1;
+
+  Reopen(options);
+
+  const std::string first_key = "first_key";
+  const std::string second_key = "second_key";
+  const std::string third_key = "third_key";
+  const std::string first_value(128, 'a');
+  const std::string second_value(128, 'b');
+  const std::string third_value(128, 'c');
+
+  ASSERT_OK(Put(first_key, first_value));
+  // This read opens and caches an in-flight direct-write reader before the
+  // blob file is sealed by flush.
+  ASSERT_EQ(Get(first_key), first_value);
+
+  ASSERT_OK(Put(second_key, second_value));
+  ASSERT_OK(Put(third_key, third_value));
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ(Get(second_key), second_value);
+  ASSERT_EQ(Get(third_key), third_value);
+
+  const std::array<std::string, 2> keys{second_key, third_key};
+  const std::array<std::string, 2> values{second_value, third_value};
+  const std::array<Slice, 2> key_slices{Slice(keys[0]), Slice(keys[1])};
+  std::array<PinnableSlice, 2> results;
+  std::array<Status, 2> statuses;
+
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), key_slices.size(),
+                key_slices.data(), results.data(), statuses.data());
+  for (size_t i = 0; i < key_slices.size(); ++i) {
+    ASSERT_OK(statuses[i]);
+    ASSERT_EQ(results[i], values[i]);
+  }
+}
+
+TEST_F(DBBlobBasicTest, DirectWriteRefreshesReaderWhileFileIsGrowing) {
+  Options options = GetDirectWriteOptions();
+  options.blob_direct_write_partitions = 1;
+
+  Reopen(options);
+
+  const std::string first_key = "active_first_key";
+  const std::string second_key = "active_second_key";
+  const std::string third_key = "active_third_key";
+  const std::string first_value(128, 'x');
+  const std::string second_value(128, 'y');
+  const std::string third_value(128, 'z');
+
+  ASSERT_OK(Put(first_key, first_value));
+  // This read caches a reader for the current active direct-write file before
+  // more blob records extend the file.
+  ASSERT_EQ(Get(first_key), first_value);
+
+  ASSERT_OK(Put(second_key, second_value));
+  ASSERT_OK(Put(third_key, third_value));
+
+  ASSERT_EQ(Get(second_key), second_value);
+  ASSERT_EQ(Get(third_key), third_value);
+
+  const std::array<std::string, 2> keys{second_key, third_key};
+  const std::array<std::string, 2> values{second_value, third_value};
+  const std::array<Slice, 2> key_slices{Slice(keys[0]), Slice(keys[1])};
+  std::array<PinnableSlice, 2> results;
+  std::array<Status, 2> statuses;
+
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), key_slices.size(),
+                key_slices.data(), results.data(), statuses.data());
+  for (size_t i = 0; i < key_slices.size(); ++i) {
+    ASSERT_OK(statuses[i]);
+    ASSERT_EQ(results[i], values[i]);
+  }
+}
+
 TEST_F(DBBlobBasicTest, DirectWriteBlobFileRotationSinglePartition) {
   Options options = GetDirectWriteOptions();
   options.blob_file_size = 512;

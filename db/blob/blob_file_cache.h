@@ -43,11 +43,21 @@ class BlobFileCache {
   // Opens a blob file reader without inserting it into the cache.
   Status OpenBlobFileReaderUncached(
       const ReadOptions& read_options, uint64_t blob_file_number,
-      std::unique_ptr<BlobFileReader>* blob_file_reader);
+      std::unique_ptr<BlobFileReader>* blob_file_reader,
+      bool allow_footer_skip_retry = false);
 
   // Inserts a freshly opened uncached reader unless another thread already
   // cached the same blob file.
   Status InsertBlobFileReader(
+      uint64_t blob_file_number,
+      std::unique_ptr<BlobFileReader>* blob_file_reader,
+      CacheHandleGuard<BlobFileReader>* cached_blob_file_reader);
+
+  // Installs a refresh-opened reader into the cache. If another thread has
+  // already cached a reader opened on at least as large a file size, keep that
+  // reader instead so a racing refresh cannot reintroduce an older active-file
+  // view after the blob file grows.
+  Status RefreshBlobFileReader(
       uint64_t blob_file_number,
       std::unique_ptr<BlobFileReader>* blob_file_reader,
       CacheHandleGuard<BlobFileReader>* cached_blob_file_reader);
