@@ -2418,6 +2418,144 @@ class NonBatchedOpsStressTest : public StressTest {
     }
   }
 
+  // Dumps diagnostic information on iterator verification failure.
+  // Logs expected-state details, iterator config, and replays the
+  // scan with fresh iterators (standard vs trie, direct vs coalescing)
+  // to aid triage.
+  void DumpIteratorVerificationFailure(
+      Iterator* iter, ColumnFamilyHandle* cfh, uint64_t curr, std::size_t index,
+      int64_t lb, int64_t ub, uint32_t value_base_from_db, bool must_not_exist,
+      bool in_expected_value_base_range,
+      const ExpectedValue& pre_read_expected_value,
+      const ExpectedValue& post_read_expected_value, const ReadOptions& ro,
+      int64_t mid, int64_t step,
+      const std::vector<int>& rand_column_families) const {
+    fprintf(stderr,
+            "Iterator verification details: curr=%llu, index=%zu, "
+            "range=[%lld, %lld), value_base_from_db=%u, "
+            "must_not_exist=%d, in_expected_value_base_range=%d\n",
+            static_cast<unsigned long long>(curr), index,
+            static_cast<long long>(lb), static_cast<long long>(ub),
+            static_cast<unsigned>(value_base_from_db),
+            static_cast<int>(must_not_exist),
+            static_cast<int>(in_expected_value_base_range));
+    fprintf(stderr,
+            "Expected state (pre): raw=0x%08x, value_base=%u, "
+            "final_value_base=%u, del_counter=%u, final_del_counter=%u, "
+            "deleted=%d, pending_write=%d, pending_delete=%d\n",
+            static_cast<unsigned>(pre_read_expected_value.Read()),
+            static_cast<unsigned>(pre_read_expected_value.GetValueBase()),
+            static_cast<unsigned>(pre_read_expected_value.GetFinalValueBase()),
+            static_cast<unsigned>(pre_read_expected_value.GetDelCounter()),
+            static_cast<unsigned>(pre_read_expected_value.GetFinalDelCounter()),
+            static_cast<int>(pre_read_expected_value.IsDeleted()),
+            static_cast<int>(pre_read_expected_value.PendingWrite()),
+            static_cast<int>(pre_read_expected_value.PendingDelete()));
+    fprintf(
+        stderr,
+        "Expected state (post): raw=0x%08x, value_base=%u, "
+        "final_value_base=%u, del_counter=%u, final_del_counter=%u, "
+        "deleted=%d, pending_write=%d, pending_delete=%d\n",
+        static_cast<unsigned>(post_read_expected_value.Read()),
+        static_cast<unsigned>(post_read_expected_value.GetValueBase()),
+        static_cast<unsigned>(post_read_expected_value.GetFinalValueBase()),
+        static_cast<unsigned>(post_read_expected_value.GetDelCounter()),
+        static_cast<unsigned>(post_read_expected_value.GetFinalDelCounter()),
+        static_cast<int>(post_read_expected_value.IsDeleted()),
+        static_cast<int>(post_read_expected_value.PendingWrite()),
+        static_cast<int>(post_read_expected_value.PendingDelete()));
+    fprintf(stderr,
+            "Iterator config: allow_unprepared_value=%d, "
+            "auto_refresh_iterator_with_snapshot=%d, has_snapshot=%d, "
+            "use_multi_cf_iterator=%d, using_udi=%d, use_trie_index=%d\n",
+            static_cast<int>(ro.allow_unprepared_value),
+            static_cast<int>(ro.auto_refresh_iterator_with_snapshot),
+            static_cast<int>(ro.snapshot != nullptr),
+            static_cast<int>(FLAGS_use_multi_cf_iterator),
+            static_cast<int>(ro.table_index_factory != nullptr),
+            static_cast<int>(FLAGS_use_trie_index));
+    fprintf(stderr, "Iterator value: %s\n",
+            iter->value().ToString(true).c_str());
+
+    const std::string failure_key = iter->key().ToString();
+    const std::string replay_key = Key(mid);
+
+    auto make_debug_iter =
+        [&](const ReadOptions& debug_ro,
+            bool use_multi_cf_iter) -> std::unique_ptr<Iterator> {
+      if (use_multi_cf_iter) {
+        std::vector<ColumnFamilyHandle*> cfhs;
+        cfhs.reserve(rand_column_families.size());
+        for (auto cf_index : rand_column_families) {
+          cfhs.emplace_back(column_families_[cf_index]);
+        }
+        return db_->NewCoalescingIterator(debug_ro, cfhs);
+      }
+      return std::unique_ptr<Iterator>(db_->NewIterator(debug_ro, cfh));
+    };
+
+    auto dump_debug_iter = [&](const char* label, const ReadOptions& debug_ro,
+                               bool use_multi_cf_iter, bool replay_from_mid) {
+      auto debug_iter = make_debug_iter(debug_ro, use_multi_cf_iter);
+      if (replay_from_mid) {
+        debug_iter->Seek(replay_key);
+        for (int64_t s = 0; s < step && debug_iter->Valid(); ++s) {
+          debug_iter->Next();
+        }
+      } else {
+        debug_iter->Seek(failure_key);
+      }
+
+      if (debug_iter->Valid() && debug_ro.allow_unprepared_value) {
+        if (!debug_iter->PrepareValue()) {
+          assert(!debug_iter->Valid());
+        }
+      }
+
+      std::string sv_number;
+      Status prop_s = debug_iter->GetProperty(
+          "rocksdb.iterator.super-version-number", &sv_number);
+      fprintf(stderr, "%s (%s): valid=%d, status=%s, sv=%s, key=%s, value=%s\n",
+              label, replay_from_mid ? "replay_from_mid" : "seek_failure_key",
+              static_cast<int>(debug_iter->Valid()),
+              debug_iter->status().ToString().c_str(),
+              prop_s.ok() ? sv_number.c_str() : prop_s.ToString().c_str(),
+              debug_iter->Valid() ? debug_iter->key().ToString(true).c_str()
+                                  : "(invalid)",
+              (debug_iter->Valid() &&
+               (!debug_ro.allow_unprepared_value || debug_iter->status().ok()))
+                  ? debug_iter->value().ToString(true).c_str()
+                  : "(n/a)");
+    };
+
+    ReadOptions standard_ro = ro;
+    standard_ro.table_index_factory = nullptr;
+    dump_debug_iter("Debug standard direct", standard_ro,
+                    /*use_multi_cf_iter=*/false,
+                    /*replay_from_mid=*/false);
+    dump_debug_iter("Debug trie direct", ro, /*use_multi_cf_iter=*/false,
+                    /*replay_from_mid=*/false);
+    dump_debug_iter("Debug standard direct", standard_ro,
+                    /*use_multi_cf_iter=*/false,
+                    /*replay_from_mid=*/true);
+    dump_debug_iter("Debug trie direct", ro, /*use_multi_cf_iter=*/false,
+                    /*replay_from_mid=*/true);
+    if (FLAGS_use_multi_cf_iterator) {
+      dump_debug_iter("Debug standard coalescing", standard_ro,
+                      /*use_multi_cf_iter=*/true,
+                      /*replay_from_mid=*/false);
+      dump_debug_iter("Debug trie coalescing", ro,
+                      /*use_multi_cf_iter=*/true,
+                      /*replay_from_mid=*/false);
+      dump_debug_iter("Debug standard coalescing", standard_ro,
+                      /*use_multi_cf_iter=*/true,
+                      /*replay_from_mid=*/true);
+      dump_debug_iter("Debug trie coalescing", ro,
+                      /*use_multi_cf_iter=*/true,
+                      /*replay_from_mid=*/true);
+    }
+  }
+
   // Given a key K, this creates an iterator which scans the range
   // [K, K + FLAGS_num_iterations) forward and backward.
   // Then does a random sequence of Next/Prev operations.
@@ -2863,11 +3001,13 @@ class NonBatchedOpsStressTest : public StressTest {
             pre_read_expected_values[index];
         const ExpectedValue post_read_expected_value =
             post_read_expected_values[index];
-        if (ExpectedValueHelper::MustHaveNotExisted(pre_read_expected_value,
-                                                    post_read_expected_value) ||
-            !ExpectedValueHelper::InExpectedValueBaseRange(
+        const bool must_not_exist = ExpectedValueHelper::MustHaveNotExisted(
+            pre_read_expected_value, post_read_expected_value);
+        const bool in_expected_value_base_range =
+            ExpectedValueHelper::InExpectedValueBaseRange(
                 value_base_from_db, pre_read_expected_value,
-                post_read_expected_value)) {
+                post_read_expected_value);
+        if (must_not_exist || !in_expected_value_base_range) {
           // Fail fast to preserve the DB state.
           thread->shared->SetVerificationFailure();
           fprintf(stderr,
@@ -2876,6 +3016,11 @@ class NonBatchedOpsStressTest : public StressTest {
                   iter->key().ToString(true).c_str());
           fprintf(stderr, "Column family: %s, op_logs: %s\n",
                   cfh->GetName().c_str(), op_logs.c_str());
+          DumpIteratorVerificationFailure(
+              iter.get(), cfh, curr, index, lb, ub, value_base_from_db,
+              must_not_exist, in_expected_value_base_range,
+              pre_read_expected_value, post_read_expected_value, ro, mid, i,
+              rand_column_families);
           thread->stats.AddErrors(1);
           break;
         }
