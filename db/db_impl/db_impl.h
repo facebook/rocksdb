@@ -1785,10 +1785,14 @@ class DBImpl : public DB {
 
   // Same as HasAnyBlobDirectWriteColumnFamily(), but requires `mutex_` held.
   bool HasAnyBlobDirectWriteColumnFamilyWithLockHeld();
+  // Creates and attaches the per-CF blob direct-write partition manager when
+  // the column family is opened with the feature enabled.
   void MaybeInitBlobDirectWriteColumnFamily(
       ColumnFamilyData* cfd, const ColumnFamilyOptions& cf_options,
       const std::string& column_family_name);
+  // Increments the DB-level count of live blob direct-write column families.
   void RegisterBlobDirectWriteColumnFamily();
+  // Decrements the DB-level count of live blob direct-write column families.
   void UnregisterBlobDirectWriteColumnFamily();
 
   struct CompactionState;
