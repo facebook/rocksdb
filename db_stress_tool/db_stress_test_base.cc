@@ -3837,9 +3837,8 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     }
 
     options_.listeners.clear();
-    options_.listeners.emplace_back(
-        new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors,
-                             db_stress_listener_env, shared));
+    options_.listeners.emplace_back(new DbStressListener(
+        FLAGS_db, options_.db_paths, cf_descriptors, shared));
     RegisterAdditionalListeners();
 
     // If this is for DB reopen,  error injection may have been enabled.
