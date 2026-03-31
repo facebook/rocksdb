@@ -166,7 +166,8 @@ Status BlobFileCache::InsertBlobFileReader(
     return s;
   }
 
-  blob_file_reader->release();
+  // Ownership transferred to the cache; suppress unused-return-value.
+  (void)blob_file_reader->release();
   *cached_blob_file_reader = cache_.Guard(handle);
   return Status::OK();
 }
@@ -208,7 +209,8 @@ Status BlobFileCache::RefreshBlobFileReader(
     return s;
   }
 
-  blob_file_reader->release();
+  // Ownership transferred to the cache; suppress unused-return-value.
+  (void)blob_file_reader->release();
   *cached_blob_file_reader = cache_.Guard(handle);
   return Status::OK();
 }
