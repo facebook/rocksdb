@@ -166,6 +166,7 @@ default_params = {
     "expected_values_dir": lambda: setup_expected_values_dir(),
     "flush_one_in": lambda: random.choice([1000, 1000000]),
     "manual_wal_flush_one_in": lambda: random.choice([0, 1000]),
+    "sync_wal_one_in": 0,
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
     "get_live_files_apis_one_in": lambda: random.choice([10000, 1000000]),
     "checkpoint_atomic_flush": lambda: random.choice([0, 1]),
@@ -200,6 +201,7 @@ default_params = {
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
     "partition_filters": lambda: random.randint(0, 1),
     "partition_pinning": lambda: random.randint(0, 3),
+    "rate_limit_auto_wal_flush": 0,
     "reset_stats_one_in": lambda: random.choice([10000, 1000000]),
     "pause_background_one_in": lambda: random.choice([10000, 1000000]),
     "disable_file_deletions_one_in": lambda: random.choice([10000, 1000000]),
@@ -724,6 +726,9 @@ blob_direct_write_params = {
     "enable_blob_direct_write": 1,
     "blob_direct_write_partitions": lambda: random.choice([1, 2, 4, 8]),
     "allow_setting_blob_options_dynamically": 0,
+    # Keep the fixed-across-runs write mode within the reduced WAL-disabled
+    # direct-write profile.
+    "inplace_update_support": 0,
     "min_blob_size": lambda: random.choice([8, 16, 64]),
     "blob_file_size": lambda: random.choice([1048576, 16777216, 268435456]),
     "blob_compression_type": lambda: random.choice(["none", "snappy", "lz4", "zstd"]),
@@ -908,6 +913,10 @@ def finalize_and_sanitize(src_params):
         dest_params["enable_pipelined_write"] = 0
         dest_params["two_write_queues"] = 0
         dest_params["unordered_write"] = 0
+        # Keep inplace updates off. The later inplace_update_support
+        # sanitization intentionally forces disable_wal=0 for its own recovery
+        # assumptions, which would silently undo the BDW crash-test profile.
+        dest_params["inplace_update_support"] = 0
         # Direct write is implemented only for integrated BlobDB, without
         # dynamic blob option changes or background blob GC.
         dest_params["use_blob_db"] = 0
@@ -930,10 +939,22 @@ def finalize_and_sanitize(src_params):
         dest_params["test_multi_ops_txns"] = 0
         dest_params["commit_bypass_memtable_one_in"] = 0
         # Force the WAL-disabled crash-test profile. The generic disable_wal
-        # sanitization below will also force reopen=0 so db_stress does not try
-        # in-process reopen with unlogged data.
+        # sanitization below still applies, but keep the WAL-dependent stress
+        # features explicitly off here so later sanitizers or explicit command
+        # line overrides do not silently re-enable them.
         dest_params["disable_wal"] = 1
         dest_params["best_efforts_recovery"] = 0
+        # Direct write v1 crash testing does not cover reopen with unlogged
+        # data, manual/sync WAL persistence, or WAL metadata/locking APIs.
+        dest_params["reopen"] = 0
+        dest_params["manual_wal_flush_one_in"] = 0
+        dest_params["sync_wal_one_in"] = 0
+        dest_params["lock_wal_one_in"] = 0
+        dest_params["get_sorted_wal_files_one_in"] = 0
+        dest_params["get_current_wal_file_one_in"] = 0
+        dest_params["track_and_verify_wals"] = 0
+        dest_params["rate_limit_auto_wal_flush"] = 0
+        dest_params["recycle_log_file_num"] = 0
         # Write/open fault injection currently assumes WAL-based recovery or
         # error-retry behavior that direct write v1 does not provide.
         dest_params["sync_fault_injection"] = 0
