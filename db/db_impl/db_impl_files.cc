@@ -6,11 +6,13 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+#include <array>
 #include <cinttypes>
 #include <set>
 #include <unordered_set>
 
 #include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_log_format.h"
 #include "db/db_impl/db_impl.h"
 #include "db/event_helpers.h"
 #include "db/memtable_list.h"
@@ -24,6 +26,55 @@
 #include "util/defer.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+// A full-scan obsolete-file purge can observe a newly created direct-write
+// blob file before it is added to the manager's active-file set. Those
+// in-flight files are still missing their footer, so conservatively keep any
+// footer-less blob file here rather than risk deleting a live write-path file.
+bool ShouldKeepFooterlessBlobFile(FileSystem* fs,
+                                  const FileOptions& file_options,
+                                  const std::string& blob_file_path) {
+  assert(fs != nullptr);
+
+  constexpr IODebugContext* dbg = nullptr;
+  uint64_t file_size = 0;
+  IOStatus io_s = fs->GetFileSize(blob_file_path, IOOptions(), &file_size, dbg);
+  if (!io_s.ok()) {
+    return !io_s.IsPathNotFound();
+  }
+
+  if (file_size < BlobLogHeader::kSize + BlobLogFooter::kSize) {
+    return true;
+  }
+
+  FileOptions read_file_options = file_options;
+  read_file_options.use_direct_reads = false;
+
+  std::unique_ptr<FSRandomAccessFile> file;
+  io_s = fs->NewRandomAccessFile(blob_file_path, read_file_options, &file, dbg);
+  if (!io_s.ok()) {
+    return !io_s.IsPathNotFound();
+  }
+
+  std::array<char, BlobLogFooter::kSize> scratch;
+  Slice footer_slice;
+  io_s = file->Read(file_size - BlobLogFooter::kSize, BlobLogFooter::kSize,
+                    IOOptions(), &footer_slice, scratch.data(), dbg);
+  if (!io_s.ok()) {
+    return !io_s.IsPathNotFound();
+  }
+
+  if (footer_slice.size() != BlobLogFooter::kSize) {
+    return true;
+  }
+
+  BlobLogFooter footer;
+  return !footer.DecodeFrom(footer_slice).ok();
+}
+
+}  // namespace
 
 uint64_t DBImpl::MinLogNumberToKeep() {
   return versions_->min_log_number_to_keep();
@@ -597,17 +648,25 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
           files_to_del.insert(number);
         }
         break;
-      case kBlobFile:
+      case kBlobFile: {
         keep = number >= state.min_pending_output ||
                number >= state.min_blob_file_number_to_keep ||
                (blob_live_set.find(number) != blob_live_set.end()) ||
                (state.active_blob_direct_write_files.find(number) !=
                 state.active_blob_direct_write_files.end());
         if (!keep) {
+          const std::string blob_file_path =
+              BlobFileName(candidate_file.file_path, number);
+          if (ShouldKeepFooterlessBlobFile(fs_.get(), file_options_,
+                                           blob_file_path)) {
+            keep = true;
+            break;
+          }
           TableCache::Evict(table_cache_.get(), number);
           files_to_del.insert(number);
         }
         break;
+      }
       case kTempFile:
         // Any temp files that are currently being written to must
         // be recorded in pending_outputs_, which is inserted into "live".
