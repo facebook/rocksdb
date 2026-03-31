@@ -1154,8 +1154,7 @@ TEST_F(DBBlobBasicTest, DirectWriteAutoFlushPreservesBlobGenerationOrder) {
   // second write then goes through PreprocessWrite(), which schedules the
   // flush by switching memtables before the transformed batch is inserted.
   uint64_t num_imm = 0;
-  ASSERT_TRUE(
-      db_->GetIntProperty("rocksdb.num-immutable-mem-table", &num_imm));
+  ASSERT_TRUE(db_->GetIntProperty("rocksdb.num-immutable-mem-table", &num_imm));
   ASSERT_GE(num_imm, 1);
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   ASSERT_OK(Flush());
