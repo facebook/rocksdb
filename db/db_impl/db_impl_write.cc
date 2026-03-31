@@ -527,6 +527,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         const std::vector<BlobWriteBatchTransformer::RollbackInfo>*
             rollback_infos)
         : rollback_infos_(rollback_infos) {}
+    BlobWriteRollbackGuard(const BlobWriteRollbackGuard&) = delete;
+    BlobWriteRollbackGuard& operator=(const BlobWriteRollbackGuard&) = delete;
 
     ~BlobWriteRollbackGuard() {
       if (!active_ || rollback_infos_ == nullptr) {
