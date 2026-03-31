@@ -82,7 +82,6 @@ BlobFilePartitionManager::~BlobFilePartitionManager() {
       blob_file_cache_->Evict(file_number);
     }
   }
-
 }
 
 void BlobFilePartitionManager::ResetPartitionState(Partition* partition) {
