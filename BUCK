@@ -331,6 +331,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/secondary_index/simple_secondary_index.cc",
         "utilities/simulator_cache/cache_simulator.cc",
         "utilities/simulator_cache/sim_cache.cc",
+        "utilities/sorted_run_builder/sorted_run_builder.cc",
         "utilities/table_properties_collectors/compact_for_tiering_collector.cc",
         "utilities/table_properties_collectors/compact_on_deletion_collector.cc",
         "utilities/trace/file_trace_reader_writer.cc",
@@ -5528,6 +5529,12 @@ cpp_unittest_wrapper(name="slice_test",
 
 cpp_unittest_wrapper(name="slice_transform_test",
             srcs=["util/slice_transform_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="sorted_run_builder_test",
+            srcs=["utilities/sorted_run_builder/sorted_run_builder_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
