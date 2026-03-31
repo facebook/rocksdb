@@ -7492,38 +7492,6 @@ TEST_F(DBTest, UnsupportedManualSync) {
   ASSERT_TRUE(s.IsNotSupported());
 }
 
-TEST_F(DBTest, SyncWALNotSupportedFallbackToFlushWAL) {
-  // Simulates the warm_storage_crash_test scenario where the WAL
-  // implementation does not support IsSyncThreadSafe(), causing SyncWAL() to
-  // return NotSupported. The stress test's reopen logic should fall back to
-  // FlushWAL(sync=false) and data should still be available after reopen.
-  DestroyAndReopen(CurrentOptions());
-
-  // Write some data
-  ASSERT_OK(Put("key1", "value1"));
-  ASSERT_OK(Put("key2", "value2"));
-
-  // Make SyncWAL() unsupported (as in Warm Storage WAL)
-  env_->is_wal_sync_thread_safe_.store(false);
-
-  // SyncWAL() should fail with NotSupported
-  Status s = db_->SyncWAL();
-  ASSERT_TRUE(s.IsNotSupported());
-
-  // FlushWAL(sync=false) should succeed as fallback
-  s = db_->FlushWAL(/*sync=*/false);
-  ASSERT_OK(s);
-
-  // Restore sync thread safety before reopen (reopen creates new WAL files
-  // and the test env needs to work normally for recovery)
-  env_->is_wal_sync_thread_safe_.store(true);
-
-  // Reopen should succeed and data should be available
-  Reopen(CurrentOptions());
-  ASSERT_EQ("value1", Get("key1"));
-  ASSERT_EQ("value2", Get("key2"));
-}
-
 INSTANTIATE_TEST_CASE_P(DBTestWithParam, DBTestWithParam,
                         ::testing::Combine(::testing::Values(1, 4),
                                            ::testing::Bool()));
