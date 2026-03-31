@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cinttypes>
+#include <optional>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "db/blob/blob_file_partition_manager.h"
@@ -22,6 +24,54 @@
 #include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+class BlobWriteRollbackGuard {
+ public:
+  explicit BlobWriteRollbackGuard(
+      const std::vector<BlobWriteBatchTransformer::RollbackInfo>*
+          rollback_infos,
+      Logger* info_log)
+      : rollback_infos_(rollback_infos), info_log_(info_log) {}
+  BlobWriteRollbackGuard(const BlobWriteRollbackGuard&) = delete;
+  BlobWriteRollbackGuard& operator=(const BlobWriteRollbackGuard&) = delete;
+
+  ~BlobWriteRollbackGuard() {
+    if (!active_ || rollback_infos_ == nullptr) {
+      return;
+    }
+
+    for (const auto& rollback_info : *rollback_infos_) {
+      if (rollback_info.partition_mgr == nullptr) {
+        continue;
+      }
+      Status rollback_s = rollback_info.partition_mgr->MarkBlobWriteAsGarbage(
+          rollback_info.file_number, rollback_info.count, rollback_info.bytes);
+      if (!rollback_s.ok()) {
+        if (info_log_ != nullptr) {
+          ROCKS_LOG_ERROR(
+              info_log_,
+              "Failed to rollback blob direct-write garbage accounting for "
+              "file #%" PRIu64 " (%" PRIu64 " blobs, %" PRIu64 " bytes): %s",
+              rollback_info.file_number, rollback_info.count,
+              rollback_info.bytes, rollback_s.ToString().c_str());
+        }
+        rollback_s.PermitUncheckedError();
+      }
+    }
+  }
+
+  void Dismiss() { active_ = false; }
+
+ private:
+  const std::vector<BlobWriteBatchTransformer::RollbackInfo>* rollback_infos_;
+  Logger* info_log_;
+  bool active_ = true;
+};
+
+}  // namespace
+
 // Convenience methods
 Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
                    const Slice& key, const Slice& val) {
@@ -376,6 +426,165 @@ Status DBImpl::IngestWBWIAsMemtable(
   return s;
 }
 
+struct DBImpl::BlobDirectWriteContext {
+  struct Entry {
+    ColumnFamilyData* cfd = nullptr;
+    BlobFilePartitionManager* partition_mgr = nullptr;
+    BlobDirectWriteSettings settings;
+  };
+
+  explicit BlobDirectWriteContext(DBImpl* db_impl) : db_impl_(db_impl) {}
+  BlobDirectWriteContext(const BlobDirectWriteContext&) = delete;
+  BlobDirectWriteContext& operator=(const BlobDirectWriteContext&) = delete;
+
+  ~BlobDirectWriteContext() { Release(); }
+
+  BlobDirectWriteSettings GetSettings(uint32_t cf_id,
+                                      bool lookup_from_write_thread) {
+    return GetOrCreate(cf_id, lookup_from_write_thread).settings;
+  }
+
+  BlobFilePartitionManager* GetPartitionManager(uint32_t cf_id,
+                                                bool lookup_from_write_thread) {
+    return GetOrCreate(cf_id, lookup_from_write_thread).partition_mgr;
+  }
+
+  void Release() {
+    if (entries_.empty()) {
+      return;
+    }
+
+    InstrumentedMutexLock lock(&db_impl_->mutex_);
+    for (auto& entry : entries_) {
+      if (entry.second.cfd != nullptr) {
+        entry.second.cfd->UnrefAndTryDelete();
+      }
+    }
+    entries_.clear();
+  }
+
+  std::unordered_set<BlobFilePartitionManager*> touched_managers;
+  std::vector<BlobWriteBatchTransformer::RollbackInfo> rollback_infos;
+
+ private:
+  Entry& GetOrCreate(uint32_t cf_id, bool lookup_from_write_thread) {
+    auto entry_it = entries_.find(cf_id);
+    if (entry_it != entries_.end()) {
+      return entry_it->second;
+    }
+
+    Entry entry;
+    auto pin_cfd = [&](ColumnFamilyData* cfd) {
+      if (cfd == nullptr) {
+        return;
+      }
+
+      BlobFilePartitionManager* mgr = cfd->blob_partition_manager();
+      if (mgr == nullptr) {
+        return;
+      }
+
+      cfd->Ref();
+      entry.cfd = cfd;
+      entry.partition_mgr = mgr;
+    };
+
+    if (lookup_from_write_thread) {
+      pin_cfd(
+          db_impl_->versions_->GetColumnFamilySet()->GetColumnFamily(cf_id));
+    } else {
+      InstrumentedMutexLock lock(&db_impl_->mutex_);
+      pin_cfd(
+          db_impl_->versions_->GetColumnFamilySet()->GetColumnFamily(cf_id));
+    }
+
+    if (entry.partition_mgr != nullptr) {
+      entry.settings = entry.partition_mgr->GetCachedSettings(cf_id);
+    }
+
+    return entries_.emplace(cf_id, std::move(entry)).first->second;
+  }
+
+  DBImpl* db_impl_;
+  std::unordered_map<uint32_t, Entry> entries_;
+};
+
+Status DBImpl::MaybeTransformBatchForBlobDirectWrite(
+    const WriteOptions& write_options, WriteBatch** batch,
+    bool should_write_to_memtable, bool lookup_from_write_thread,
+    WriteBatch* transformed_storage,
+    BlobDirectWriteContext* blob_direct_write_ctx) {
+  assert(batch != nullptr);
+  assert(transformed_storage != nullptr);
+  assert(blob_direct_write_ctx != nullptr);
+
+  if (!should_write_to_memtable || *batch == nullptr || !(*batch)->HasPut() ||
+      (*batch)->HasMerge()) {
+    return Status::OK();
+  }
+
+  // Quick check: skip the (potentially expensive) batch iteration when no
+  // column family has blob direct write enabled. This also avoids Iterate()
+  // returning an error on a corrupted batch before the WAL verification path
+  // has a chance to detect it.
+  if (!HasAnyBlobDirectWriteColumnFamily()) {
+    return Status::OK();
+  }
+
+  std::vector<BlobFilePartitionManager*> batch_managers;
+  std::vector<BlobWriteBatchTransformer::RollbackInfo> batch_rollbacks;
+  bool transformed = false;
+  transformed_storage->Clear();
+
+  auto settings_provider = [&](uint32_t cf_id) -> BlobDirectWriteSettings {
+    return blob_direct_write_ctx->GetSettings(cf_id, lookup_from_write_thread);
+  };
+  auto partition_mgr_provider =
+      [&](uint32_t cf_id) -> BlobFilePartitionManager* {
+    return blob_direct_write_ctx->GetPartitionManager(cf_id,
+                                                      lookup_from_write_thread);
+  };
+  Status s = BlobWriteBatchTransformer::TransformBatch(
+      write_options, *batch, transformed_storage, partition_mgr_provider,
+      settings_provider, &transformed, &batch_managers, &batch_rollbacks);
+  if (!s.ok()) {
+    return s;
+  }
+  if (transformed) {
+    *batch = transformed_storage;
+    blob_direct_write_ctx->touched_managers.insert(batch_managers.begin(),
+                                                   batch_managers.end());
+    blob_direct_write_ctx->rollback_infos.insert(
+        blob_direct_write_ctx->rollback_infos.end(), batch_rollbacks.begin(),
+        batch_rollbacks.end());
+  }
+  return Status::OK();
+}
+
+Status DBImpl::SyncBlobDirectWriteManagers(
+    const WriteOptions& write_options,
+    const BlobDirectWriteContext& blob_direct_write_ctx) {
+  for (auto* mgr : blob_direct_write_ctx.touched_managers) {
+    Status blob_s = write_options.sync ? mgr->SyncAllOpenFiles(write_options)
+                                       : mgr->FlushAllOpenFiles(write_options);
+    if (!blob_s.ok()) {
+      return blob_s;
+    }
+  }
+
+  if (!blob_direct_write_ctx.touched_managers.empty()) {
+    // Tests can inject a post-transform failure after blob bytes are durable
+    // enough to require manifest-time garbage accounting.
+    Status blob_s;
+    TEST_SYNC_POINT_CALLBACK("DBImpl::WriteImpl:AfterBlobDirectWrite", &blob_s);
+    if (!blob_s.ok()) {
+      return blob_s;
+    }
+  }
+
+  return Status::OK();
+}
+
 Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          WriteBatch* my_batch, WriteCallback* callback,
                          UserWriteCallback* user_write_cb, uint64_t* wal_used,
@@ -520,139 +729,40 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                             disable_memtable);
   }
 
-  WriteBatch transformed_batch_storage;
-  std::vector<BlobWriteBatchTransformer::RollbackInfo> rollback_infos;
-  struct BlobWriteRollbackGuard {
-    explicit BlobWriteRollbackGuard(
-        const std::vector<BlobWriteBatchTransformer::RollbackInfo>*
-            rollback_infos)
-        : rollback_infos_(rollback_infos) {}
-    BlobWriteRollbackGuard(const BlobWriteRollbackGuard&) = delete;
-    BlobWriteRollbackGuard& operator=(const BlobWriteRollbackGuard&) = delete;
-
-    ~BlobWriteRollbackGuard() {
-      if (!active_ || rollback_infos_ == nullptr) {
-        return;
-      }
-
-      for (const auto& rollback_info : *rollback_infos_) {
-        if (rollback_info.partition_mgr == nullptr) {
-          continue;
-        }
-        Status rollback_s = rollback_info.partition_mgr->MarkBlobWriteAsGarbage(
-            rollback_info.file_number, rollback_info.count,
-            rollback_info.bytes);
-        if (!rollback_s.ok()) {
-          rollback_s.PermitUncheckedError();
-        }
-      }
-    }
-
-    void Dismiss() { active_ = false; }
-
-   private:
-    const std::vector<BlobWriteBatchTransformer::RollbackInfo>* rollback_infos_;
-    bool active_ = true;
-  } blob_write_rollback_guard(&rollback_infos);
+  const bool maybe_use_blob_direct_write =
+      wbwi == nullptr && HasAnyBlobDirectWriteColumnFamily();
+  std::optional<WriteBatch> transformed_batch_storage;
+  std::optional<std::vector<WriteBatch>> transformed_write_group_batches;
+  std::optional<BlobDirectWriteContext> blob_direct_write_ctx;
+  std::optional<BlobWriteRollbackGuard> blob_write_rollback_guard;
+  if (maybe_use_blob_direct_write) {
+    blob_direct_write_ctx.emplace(this);
+    blob_write_rollback_guard.emplace(&blob_direct_write_ctx->rollback_infos,
+                                      immutable_db_options_.info_log.get());
+  }
   auto finish_write = [&](Status s) {
-    if (s.ok()) {
-      blob_write_rollback_guard.Dismiss();
+    if (s.ok() && blob_write_rollback_guard.has_value()) {
+      blob_write_rollback_guard->Dismiss();
     }
     return s;
   };
-
-  auto settings_provider = [this](uint32_t cf_id) -> BlobDirectWriteSettings {
-    auto* cfd = versions_->GetColumnFamilySet()->GetColumnFamily(cf_id);
-    if (cfd == nullptr) {
-      return BlobDirectWriteSettings{};
-    }
-    auto* mgr = cfd->blob_partition_manager();
-    return mgr ? mgr->GetCachedSettings(cf_id) : BlobDirectWriteSettings{};
-  };
-  auto partition_mgr_provider =
-      [this](uint32_t cf_id) -> BlobFilePartitionManager* {
-    auto* cfd = versions_->GetColumnFamilySet()->GetColumnFamily(cf_id);
-    return cfd ? cfd->blob_partition_manager() : nullptr;
-  };
-  auto maybe_transform_batch_for_blob_direct_write =
-      [&](WriteBatch** batch, bool should_write_to_memtable,
-          WriteBatch* transformed_storage,
-          std::unordered_set<BlobFilePartitionManager*>* transformed_managers) {
-        assert(batch != nullptr);
-        assert(transformed_storage != nullptr);
-        assert(transformed_managers != nullptr);
-
-        if (wbwi != nullptr || !should_write_to_memtable || *batch == nullptr ||
-            !(*batch)->HasPut() || (*batch)->HasMerge()) {
-          return Status::OK();
-        }
-
-        // Quick check: skip the (potentially expensive) batch iteration when
-        // no column family has blob direct write enabled.  This also avoids
-        // Iterate() returning an error on a corrupted batch before the WAL
-        // verification path has a chance to detect it.
-        if (!HasAnyBlobDirectWriteColumnFamily()) {
-          return Status::OK();
-        }
-
-        std::vector<BlobFilePartitionManager*> batch_managers;
-        std::vector<BlobWriteBatchTransformer::RollbackInfo> batch_rollbacks;
-        bool transformed = false;
-        transformed_storage->Clear();
-        Status s = BlobWriteBatchTransformer::TransformBatch(
-            write_options, *batch, transformed_storage, partition_mgr_provider,
-            settings_provider, &transformed, &batch_managers, &batch_rollbacks);
-        if (!s.ok()) {
-          return s;
-        }
-        if (transformed) {
-          *batch = transformed_storage;
-          transformed_managers->insert(batch_managers.begin(),
-                                       batch_managers.end());
-          rollback_infos.insert(rollback_infos.end(), batch_rollbacks.begin(),
-                                batch_rollbacks.end());
-        }
-        return Status::OK();
-      };
-  auto sync_blob_direct_write_managers =
-      [&](const std::unordered_set<BlobFilePartitionManager*>& managers) {
-        for (auto* mgr : managers) {
-          Status blob_s = write_options.sync
-                              ? mgr->SyncAllOpenFiles(write_options)
-                              : mgr->FlushAllOpenFiles(write_options);
-          if (!blob_s.ok()) {
-            return blob_s;
-          }
-        }
-
-        if (!managers.empty()) {
-          // Tests can inject a post-transform failure after blob bytes are
-          // durable enough to require manifest-time garbage accounting.
-          Status blob_s;
-          TEST_SYNC_POINT_CALLBACK("DBImpl::WriteImpl:AfterBlobDirectWrite",
-                                   &blob_s);
-          if (!blob_s.ok()) {
-            return blob_s;
-          }
-        }
-
-        return Status::OK();
-      };
   // Ordered query traces should reflect the original user batch even if the
   // applied batch is rewritten for blob direct write.
   WriteBatch* trace_batch = my_batch;
 
-  if ((immutable_db_options_.unordered_write ||
-       immutable_db_options_.enable_pipelined_write) &&
-      wbwi == nullptr) {
-    std::unordered_set<BlobFilePartitionManager*> transformed_managers;
-    Status blob_s = maybe_transform_batch_for_blob_direct_write(
-        &my_batch, !disable_memtable, &transformed_batch_storage,
-        &transformed_managers);
+  if (maybe_use_blob_direct_write &&
+      (immutable_db_options_.unordered_write ||
+       immutable_db_options_.enable_pipelined_write)) {
+    transformed_batch_storage.emplace();
+    Status blob_s = MaybeTransformBatchForBlobDirectWrite(
+        write_options, &my_batch, !disable_memtable,
+        /*lookup_from_write_thread=*/false, &transformed_batch_storage.value(),
+        &blob_direct_write_ctx.value());
     if (!blob_s.ok()) {
       return blob_s;
     }
-    blob_s = sync_blob_direct_write_managers(transformed_managers);
+    blob_s = SyncBlobDirectWriteManagers(write_options,
+                                         blob_direct_write_ctx.value());
     if (!blob_s.ok()) {
       return blob_s;
     }
@@ -801,34 +911,36 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     assert(write_group.size == 1);
   }
 
-  std::vector<WriteBatch> transformed_write_group_batches;
   IOStatus io_s;
   Status pre_release_cb_status;
   size_t seq_inc = 0;
   if (status.ok()) {
-    std::unordered_set<BlobFilePartitionManager*> transformed_managers;
-    if (!immutable_db_options_.unordered_write &&
+    if (maybe_use_blob_direct_write && !immutable_db_options_.unordered_write &&
         !immutable_db_options_.enable_pipelined_write) {
       // PreprocessWrite() may switch memtables in order to schedule pending
       // flushes. Defer the blob direct-write transformation until after that
       // point so the blob file generation matches the memtable that will store
       // the transformed blob index.
-      transformed_write_group_batches.reserve(write_group.size);
+      transformed_write_group_batches.emplace();
+      transformed_write_group_batches->reserve(write_group.size);
       for (auto* writer : write_group) {
         assert(writer != nullptr);
         if (!writer->ShouldWriteToMemtable()) {
           continue;
         }
-        transformed_write_group_batches.emplace_back();
-        status = maybe_transform_batch_for_blob_direct_write(
-            &writer->batch, /*should_write_to_memtable=*/true,
-            &transformed_write_group_batches.back(), &transformed_managers);
+        transformed_write_group_batches->emplace_back();
+        status = MaybeTransformBatchForBlobDirectWrite(
+            write_options, &writer->batch, /*should_write_to_memtable=*/true,
+            /*lookup_from_write_thread=*/true,
+            &transformed_write_group_batches->back(),
+            &blob_direct_write_ctx.value());
         if (!status.ok()) {
           break;
         }
       }
       if (status.ok()) {
-        status = sync_blob_direct_write_managers(transformed_managers);
+        status = SyncBlobDirectWriteManagers(write_options,
+                                             blob_direct_write_ctx.value());
       }
     }
   }

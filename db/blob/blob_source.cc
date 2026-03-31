@@ -20,6 +20,21 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+
+Status AppendBlobRefreshRetryFailure(const Status& stale_status,
+                                     const Status& retry_status) {
+  assert(stale_status.IsCorruption());
+  assert(!retry_status.ok());
+  if (retry_status.IsCorruption()) {
+    return retry_status;
+  }
+  return Status::CopyAppendMessage(
+      stale_status, "; refresh retry failed: ", retry_status.ToString());
+}
+
+}  // namespace
+
 BlobSource::BlobSource(const ImmutableOptions& immutable_options,
                        const MutableCFOptions& mutable_cf_options,
                        const std::string& db_id,
@@ -232,6 +247,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
         read_options, user_key, offset, value_size, compression_type,
         prefetch_buffer, allocator, &blob_contents, &read_size);
     if (s.IsCorruption()) {
+      const Status stale_status = s;
       blob_file_reader.Reset();
       blob_file_cache_->Evict(file_number);
 
@@ -240,7 +256,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
           read_options, file_number, &fresh_reader,
           /*allow_footer_skip_retry=*/false);
       if (!s.ok()) {
-        return s;
+        return AppendBlobRefreshRetryFailure(stale_status, s);
       }
 
       if (compression_type != fresh_reader->GetCompressionType()) {
@@ -253,7 +269,9 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
       s = fresh_reader->GetBlob(read_options, user_key, offset, value_size,
                                 compression_type, prefetch_buffer, allocator,
                                 &blob_contents, &read_size);
-      if (s.ok()) {
+      if (!s.ok()) {
+        s = AppendBlobRefreshRetryFailure(stale_status, s);
+      } else {
         CacheHandleGuard<BlobFileReader> ignored_reader;
         blob_file_cache_
             ->RefreshBlobFileReader(file_number, &fresh_reader, &ignored_reader)
@@ -451,7 +469,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
           assert(req != nullptr);
           assert(req->status != nullptr);
           if (req->status->IsCorruption()) {
-            *req->status = s;
+            *req->status = AppendBlobRefreshRetryFailure(*req->status, s);
           }
         }
         return;
@@ -459,6 +477,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
 
       autovector<std::pair<BlobReadRequest*, std::unique_ptr<BlobContents>>>
           retry_blob_reqs;
+      autovector<Status> stale_statuses;
       for (auto& blob_req : _blob_reqs) {
         BlobReadRequest* const req = blob_req.first;
         assert(req != nullptr);
@@ -467,6 +486,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
           continue;
         }
 
+        stale_statuses.emplace_back(*req->status);
         *req->status = Status::OK();
         blob_req.second.reset();
         retry_blob_reqs.emplace_back(req, std::unique_ptr<BlobContents>());
@@ -478,11 +498,15 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
       _bytes_read += refreshed_bytes_read;
 
       bool install_fresh_reader = false;
-      for (auto& retried_blob_req : retry_blob_reqs) {
+      for (size_t i = 0; i < retry_blob_reqs.size(); ++i) {
+        auto& retried_blob_req = retry_blob_reqs[i];
         BlobReadRequest* const retried_req = retried_blob_req.first;
         assert(retried_req != nullptr);
         if (retried_req->status->ok()) {
           install_fresh_reader = true;
+        } else {
+          *retried_req->status = AppendBlobRefreshRetryFailure(
+              stale_statuses[i], *retried_req->status);
         }
 
         for (auto& blob_req : _blob_reqs) {

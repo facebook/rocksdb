@@ -83,10 +83,6 @@ BlobFilePartitionManager::~BlobFilePartitionManager() {
     }
   }
 
-  delete cached_settings_.load(std::memory_order_relaxed);
-  for (const auto* settings : retired_settings_) {
-    delete settings;
-  }
 }
 
 void BlobFilePartitionManager::ResetPartitionState(Partition* partition) {

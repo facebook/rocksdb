@@ -9,7 +9,6 @@
 #include <deque>
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -64,8 +63,7 @@ class BlobFilePartitionManager {
       const std::shared_ptr<IOTracer>& io_tracer, std::string db_id,
       std::string db_session_id, Logger* info_log);
 
-  // Releases retired settings snapshots accumulated from dynamic option
-  // updates.
+  // Evicts cached readers for manager-owned files during shutdown.
   ~BlobFilePartitionManager();
 
   // Appends one blob record to a partition file and returns the resulting
@@ -119,22 +117,18 @@ class BlobFilePartitionManager {
 
   // Returns the current cached direct-write settings snapshot.
   BlobDirectWriteSettings GetCachedSettings(uint32_t /*cf_id*/) const {
-    const BlobDirectWriteSettings* settings =
-        cached_settings_.load(std::memory_order_acquire);
+    std::shared_ptr<const BlobDirectWriteSettings> settings =
+        std::atomic_load_explicit(&cached_settings_, std::memory_order_acquire);
     return settings ? *settings : BlobDirectWriteSettings{};
   }
 
   // Publishes a new cached settings snapshot for future write-path lookups.
   void UpdateCachedSettings(uint32_t /*cf_id*/,
                             const BlobDirectWriteSettings& settings) {
-    std::lock_guard<std::mutex> lock(settings_write_mutex_);
-    const BlobDirectWriteSettings* old =
-        cached_settings_.load(std::memory_order_relaxed);
-    auto* replacement = new BlobDirectWriteSettings(settings);
-    cached_settings_.store(replacement, std::memory_order_release);
-    if (old != nullptr) {
-      retired_settings_.push_back(old);
-    }
+    std::shared_ptr<const BlobDirectWriteSettings> replacement =
+        std::make_shared<BlobDirectWriteSettings>(settings);
+    std::atomic_store_explicit(&cached_settings_, std::move(replacement),
+                               std::memory_order_release);
   }
 
   // Resolves a direct-write BlobIndex by consulting manifest-visible state
@@ -278,12 +272,10 @@ class BlobFilePartitionManager {
   // Protects file_to_partition_.
   mutable port::RWMutex file_partition_mutex_;
 
-  // Cached direct-write settings for the hot write path.
-  std::atomic<const BlobDirectWriteSettings*> cached_settings_{nullptr};
-  // Serializes cached_settings_ publication and retired_settings_ updates.
-  mutable std::mutex settings_write_mutex_;
-  // Older settings snapshots kept alive until manager destruction.
-  std::vector<const BlobDirectWriteSettings*> retired_settings_;
+  // Cached direct-write settings snapshot for the hot write path. Atomic
+  // shared_ptr publication keeps readers lock-free while allowing old
+  // snapshots to be reclaimed automatically after dynamic option updates.
+  std::shared_ptr<const BlobDirectWriteSettings> cached_settings_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
