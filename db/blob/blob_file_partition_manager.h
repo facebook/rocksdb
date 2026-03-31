@@ -113,8 +113,9 @@ class BlobFilePartitionManager {
 
   // Marks blob records from a failed transformed write as initial garbage for
   // the target blob file while keeping the physical bytes in place.
-  void MarkBlobWriteAsGarbage(uint64_t file_number, uint64_t blob_count,
-                              uint64_t blob_bytes);
+  // Returns Corruption if the manager can no longer match the blob file.
+  Status MarkBlobWriteAsGarbage(uint64_t file_number, uint64_t blob_count,
+                                uint64_t blob_bytes);
 
   // Returns the current cached direct-write settings snapshot.
   BlobDirectWriteSettings GetCachedSettings(uint32_t /*cf_id*/) const {

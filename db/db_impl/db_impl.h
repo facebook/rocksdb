@@ -1785,6 +1785,11 @@ class DBImpl : public DB {
 
   // Same as HasAnyBlobDirectWriteColumnFamily(), but requires `mutex_` held.
   bool HasAnyBlobDirectWriteColumnFamilyWithLockHeld();
+  void MaybeInitBlobDirectWriteColumnFamily(
+      ColumnFamilyData* cfd, const ColumnFamilyOptions& cf_options,
+      const std::string& column_family_name);
+  void RegisterBlobDirectWriteColumnFamily();
+  void UnregisterBlobDirectWriteColumnFamily();
 
   struct CompactionState;
   struct PrepickedCompaction;
@@ -3145,6 +3150,11 @@ class DBImpl : public DB {
   // data that is not yet persisted into either WAL or SST file.
   // Used when disableWAL is true.
   std::atomic<bool> has_unpersisted_data_{false};
+
+  // Number of live column families with an active blob direct write partition
+  // manager. This keeps the read/write fast paths at O(1) when the feature is
+  // completely disabled for the DB.
+  std::atomic<uint32_t> blob_direct_write_cf_count_{0};
 
   // if an attempt was made to flush all column families that
   // the oldest log depends on but uncommitted data in the oldest

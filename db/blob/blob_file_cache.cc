@@ -150,6 +150,9 @@ Status BlobFileCache::InsertBlobFileReader(
   assert(cached_blob_file_reader->IsEmpty());
 
   const Slice key = GetSliceForKey(&blob_file_number);
+  // Serialize refreshes for the same blob file. The cache API does not expose
+  // a conditional replace, so refresh is intentionally modeled as
+  // Lookup/optional Erase/Insert under this per-key mutex.
   MutexLock lock(&mutex_.Get(key));
 
   TypedHandle* handle = cache_.Lookup(key);

@@ -533,18 +533,62 @@ void DBImpl::UntrackDataFiles() {
 }
 
 bool DBImpl::HasAnyBlobDirectWriteColumnFamily() {
-  InstrumentedMutexLock l(&mutex_);
-  return HasAnyBlobDirectWriteColumnFamilyWithLockHeld();
+  return blob_direct_write_cf_count_.load(std::memory_order_relaxed) > 0;
 }
 
 bool DBImpl::HasAnyBlobDirectWriteColumnFamilyWithLockHeld() {
   mutex_.AssertHeld();
-  for (auto* cfd : *versions_->GetColumnFamilySet()) {
-    if (cfd->blob_partition_manager() != nullptr) {
-      return true;
+  return blob_direct_write_cf_count_.load(std::memory_order_relaxed) > 0;
+}
+
+void DBImpl::MaybeInitBlobDirectWriteColumnFamily(
+    ColumnFamilyData* cfd, const ColumnFamilyOptions& cf_options,
+    const std::string& column_family_name) {
+  assert(cfd != nullptr);
+
+  if (!cf_options.enable_blob_files || !cf_options.enable_blob_direct_write) {
+    return;
+  }
+  assert(cfd->blob_partition_manager() == nullptr);
+
+  auto mgr = std::make_unique<BlobFilePartitionManager>(
+      cf_options.blob_direct_write_partitions,
+      [vs = versions_.get()]() { return vs->NewFileNumber(); }, fs_.get(),
+      immutable_db_options_.clock, stats_, file_options_, dbname_,
+      column_family_name, cf_options.blob_file_size,
+      immutable_db_options_.use_fsync, cfd->blob_file_cache(), &blob_callback_,
+      immutable_db_options_.listeners,
+      immutable_db_options_.file_checksum_gen_factory.get(),
+      immutable_db_options_.checksum_handoff_file_types, io_tracer_, db_id_,
+      db_session_id_, immutable_db_options_.info_log.get());
+
+  const auto& mcf = cfd->GetLatestMutableCFOptions();
+  BlobDirectWriteSettings settings;
+  settings.enable_blob_direct_write = true;
+  settings.min_blob_size = mcf.min_blob_size;
+  settings.compression_type = mcf.blob_compression_type;
+  settings.blob_cache = cfd->ioptions().blob_cache.get();
+  settings.prepopulate_blob_cache = mcf.prepopulate_blob_cache;
+  mgr->UpdateCachedSettings(cfd->GetID(), settings);
+
+  cfd->SetBlobPartitionManager(std::move(mgr));
+  RegisterBlobDirectWriteColumnFamily();
+}
+
+void DBImpl::RegisterBlobDirectWriteColumnFamily() {
+  blob_direct_write_cf_count_.fetch_add(1, std::memory_order_relaxed);
+}
+
+void DBImpl::UnregisterBlobDirectWriteColumnFamily() {
+  uint32_t current =
+      blob_direct_write_cf_count_.load(std::memory_order_relaxed);
+  while (current != 0) {
+    if (blob_direct_write_cf_count_.compare_exchange_weak(
+            current, current - 1, std::memory_order_relaxed)) {
+      return;
     }
   }
-  return false;
+  assert(false);
 }
 
 Status DBImpl::CloseHelper() {
@@ -2759,6 +2803,20 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   auto get_blob_lookup_key = [&]() -> Slice {
     return GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage);
   };
+  auto maybe_resolve_memtable_blob = [&]() {
+    if (resolve_blob_direct_write) {
+      const bool blob_resolved = MaybeResolveBlobForWritePath(
+          read_options, get_blob_lookup_key(), &s, &is_blob_index,
+          resolve_blob_direct_write, get_impl_options.value,
+          get_impl_options.columns, sv->current, cfd, partition_mgr,
+          get_impl_options.value_found);
+      if (!blob_resolved && get_impl_options.value != nullptr) {
+        get_impl_options.value->PinSelf();
+      }
+    } else if (get_impl_options.value != nullptr) {
+      get_impl_options.value->PinSelf();
+    }
+  };
   if (!skip_memtable) {
     // Get value associated with key
     if (get_impl_options.get_value) {
@@ -2771,15 +2829,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        false /* immutable_memtable */,
                        get_impl_options.callback, is_blob_ptr)) {
         done = true;
-
-        bool blob_resolved = MaybeResolveBlobForWritePath(
-            read_options, get_blob_lookup_key(), &s, &is_blob_index,
-            resolve_blob_direct_write, get_impl_options.value,
-            get_impl_options.columns, sv->current, cfd, partition_mgr,
-            get_impl_options.value_found);
-        if (!blob_resolved && get_impl_options.value) {
-          get_impl_options.value->PinSelf();
-        }
+        maybe_resolve_memtable_blob();
 
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
@@ -2791,15 +2841,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                      &max_covering_tombstone_seq, read_options,
                      get_impl_options.callback, is_blob_ptr)) {
         done = true;
-
-        bool blob_resolved = MaybeResolveBlobForWritePath(
-            read_options, get_blob_lookup_key(), &s, &is_blob_index,
-            resolve_blob_direct_write, get_impl_options.value,
-            get_impl_options.columns, sv->current, cfd, partition_mgr,
-            get_impl_options.value_found);
-        if (!blob_resolved && get_impl_options.value) {
-          get_impl_options.value->PinSelf();
-        }
+        maybe_resolve_memtable_blob();
 
         RecordTick(stats_, MEMTABLE_HIT);
       }
@@ -2841,7 +2883,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
         get_impl_options.get_value ? is_blob_ptr : nullptr,
         get_impl_options.get_value);
-    if (get_impl_options.get_value) {
+    if (get_impl_options.get_value && resolve_blob_direct_write) {
       MaybeResolveBlobForWritePath(read_options, get_blob_lookup_key(), &s,
                                    &is_blob_index, resolve_blob_direct_write,
                                    get_impl_options.value,
@@ -3997,6 +4039,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
       auto* cfd =
           versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
       assert(cfd != nullptr);
+      MaybeInitBlobDirectWriteColumnFamily(cfd, cf_options, column_family_name);
       InstallSuperVersionForConfigChange(cfd, &sv_context);
 
       if (!cfd->mem()->IsSnapshotSupported()) {
@@ -4094,6 +4137,9 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
       s = versions_->LogAndApply(cfd, read_options, write_options, &edit,
                                  &mutex_, directories_.GetDbDir());
       write_thread_.ExitUnbatched(&w);
+      if (s.ok() && cfd->blob_partition_manager() != nullptr) {
+        UnregisterBlobDirectWriteColumnFamily();
+      }
     }
     if (s.ok()) {
       auto& moptions = cfd->GetLatestMutableCFOptions();

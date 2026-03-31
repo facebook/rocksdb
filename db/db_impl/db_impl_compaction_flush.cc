@@ -326,6 +326,10 @@ Status DBImpl::FlushMemTableToOutputFile(
     auto unconsumed_garbages = flush_job.TakeExternalBlobFileGarbages();
     if (!s.ok() || !unconsumed_additions.empty() ||
         !unconsumed_garbages.empty()) {
+      // Skip committing this attempt, but keep the prepared generations queued
+      // in pending_generations_. The same immutable memtables still reference
+      // these sealed blob files, so a later flush retry must publish the exact
+      // same additions rather than abandoning them here.
       prepared_blob_generations = 0;
       sealed_blob_numbers.clear();
     }
@@ -859,6 +863,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     auto unconsumed_garbages = jobs[i]->TakeExternalBlobFileGarbages();
     if (!s.ok() || !unconsumed_additions.empty() ||
         !unconsumed_garbages.empty()) {
+      // Same retry semantics as the single-CF flush path above: do not
+      // consume these prepared generations yet, because the rolled-back
+      // memtables still need to reuse the same sealed blob files on retry.
       prepared_blob_generations[i] = 0;
       continue;
     }

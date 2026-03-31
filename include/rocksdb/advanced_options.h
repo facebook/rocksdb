@@ -1193,6 +1193,18 @@ struct AdvancedColumnFamilyOptions {
   // references.
   //
   // Requires enable_blob_files = true.
+  // Experimental reduced-scope v1 restrictions:
+  //  - assumes a single logical writer and is not compatible with concurrent
+  //    memtable writes or the unordered/pipelined/two_write_queues write
+  //    modes.
+  //  - crash recovery only supports blob files that were already made
+  //    manifest-visible by flush/SST creation; WAL replay of active
+  //    direct-write blob files is not currently supported.
+  //  - not compatible with MemPurge or user-defined timestamps.
+  //  - DB::IngestWriteBatchWithIndex() is not supported while any live column
+  //    family enables this option.
+  //  - read-only and secondary opens can read flushed/manifest-visible blob
+  //    files, but do not resolve still-active direct-write blob files.
   //
   // Default: false
   //

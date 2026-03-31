@@ -152,13 +152,22 @@ inline bool IsValidBlobOffset(uint64_t value_offset, uint64_t key_size,
                               bool has_footer = true) {
   constexpr uint64_t kMinPrefix =
       BlobLogHeader::kSize + BlobLogRecord::kHeaderSize;
-  if (value_offset < kMinPrefix || value_offset - kMinPrefix < key_size) {
+  if (value_offset < kMinPrefix) {
+    return false;
+  }
+  if (value_offset - kMinPrefix < key_size) {
     return false;
   }
 
   const uint64_t footer_size = has_footer ? BlobLogFooter::kSize : 0;
-  if (file_size < footer_size || value_size > file_size - footer_size ||
-      value_offset > file_size - footer_size - value_size) {
+  if (file_size < footer_size) {
+    return false;
+  }
+  const uint64_t max_value_end = file_size - footer_size;
+  if (value_size > max_value_end) {
+    return false;
+  }
+  if (value_offset > max_value_end - value_size) {
     return false;
   }
 

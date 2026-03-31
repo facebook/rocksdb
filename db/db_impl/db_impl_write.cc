@@ -539,9 +539,12 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         if (rollback_info.partition_mgr == nullptr) {
           continue;
         }
-        rollback_info.partition_mgr->MarkBlobWriteAsGarbage(
+        Status rollback_s = rollback_info.partition_mgr->MarkBlobWriteAsGarbage(
             rollback_info.file_number, rollback_info.count,
             rollback_info.bytes);
+        if (!rollback_s.ok()) {
+          rollback_s.PermitUncheckedError();
+        }
       }
     }
 
@@ -588,14 +591,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         // no column family has blob direct write enabled.  This also avoids
         // Iterate() returning an error on a corrupted batch before the WAL
         // verification path has a chance to detect it.
-        bool any_bdw = false;
-        for (auto* cfd : *versions_->GetColumnFamilySet()) {
-          if (cfd->blob_partition_manager() != nullptr) {
-            any_bdw = true;
-            break;
-          }
-        }
-        if (!any_bdw) {
+        if (!HasAnyBlobDirectWriteColumnFamily()) {
           return Status::OK();
         }
 

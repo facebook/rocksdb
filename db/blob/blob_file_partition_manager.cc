@@ -5,7 +5,6 @@
 
 #include "db/blob/blob_file_partition_manager.h"
 
-#include <cinttypes>
 #include <memory>
 #include <utility>
 
@@ -128,6 +127,9 @@ Status BlobFilePartitionManager::OpenNewBlobFile(Partition* partition,
       statistics_, Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS, listeners_,
       file_checksum_gen_factory_, perform_data_verification);
 
+  // This only drains WritableFileWriter's buffered bytes so readers can see
+  // each appended record promptly. Durability still comes from SyncAllOpenFiles
+  // or AppendFooter(), both of which call Sync().
   constexpr bool kDoFlushEachRecord = true;
   auto blob_log_writer = std::make_unique<BlobLogWriter>(
       std::move(file_writer), clock_, statistics_, blob_file_number, use_fsync_,
@@ -333,6 +335,10 @@ Status BlobFilePartitionManager::WriteBlob(
   assert(blob_offset != nullptr);
   assert(blob_size != nullptr);
 
+  // Do compression before taking the partition mutex so large-value CPU work
+  // does not serialize writers. A concurrent file rollover can still cause
+  // this compressed buffer to be discarded below, which is acceptable on this
+  // non-hot failure/configuration-change path.
   GrowableBuffer compressed_value;
   Slice write_value = value;
   if (compression != kNoCompression) {
@@ -483,47 +489,47 @@ Status BlobFilePartitionManager::PrepareFlushAdditions(
   return Status::OK();
 }
 
-void BlobFilePartitionManager::MarkBlobWriteAsGarbage(uint64_t file_number,
-                                                      uint64_t blob_count,
-                                                      uint64_t blob_bytes) {
+Status BlobFilePartitionManager::MarkBlobWriteAsGarbage(uint64_t file_number,
+                                                        uint64_t blob_count,
+                                                        uint64_t blob_bytes) {
   if (blob_count == 0) {
     assert(blob_bytes == 0);
-    return;
+    return Status::OK();
   }
 
   MutexLock lock(&mutex_);
   for (auto& partition : partitions_) {
     if (MarkPartitionGarbage(partition.get(), file_number, blob_count,
                              blob_bytes)) {
-      return;
+      return Status::OK();
     }
   }
 
   if (MarkSealedFileGarbage(&current_generation_sealed_files_, file_number,
                             blob_count, blob_bytes)) {
-    return;
+    return Status::OK();
   }
 
   for (auto& batch : pending_generations_) {
     for (auto& deferred : batch.deferred_files) {
       if (MarkDeferredFileGarbage(&deferred, file_number, blob_count,
                                   blob_bytes)) {
-        return;
+        return Status::OK();
       }
     }
     if (MarkSealedFileGarbage(&batch.sealed_files, file_number, blob_count,
                               blob_bytes)) {
-      return;
+      return Status::OK();
     }
   }
 
-  assert(false);
+  const std::string message =
+      "Could not match failed blob direct-write rollback for file #" +
+      std::to_string(file_number);
   if (info_log_ != nullptr) {
-    ROCKS_LOG_WARN(
-        info_log_,
-        "Could not match failed blob direct-write rollback for file #%" PRIu64,
-        file_number);
+    ROCKS_LOG_ERROR(info_log_, "%s", message.c_str());
   }
+  return Status::Corruption(message);
 }
 
 void BlobFilePartitionManager::CommitPreparedGenerations(

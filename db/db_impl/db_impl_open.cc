@@ -2610,34 +2610,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     for (size_t i = 0; i < column_families.size(); ++i) {
       const auto& cf = column_families[i];
-      if (!cf.options.enable_blob_files ||
-          !cf.options.enable_blob_direct_write) {
-        continue;
-      }
-
       auto* cfd = static_cast<ColumnFamilyHandleImpl*>((*handles)[i])->cfd();
-      auto mgr = std::make_unique<BlobFilePartitionManager>(
-          cf.options.blob_direct_write_partitions,
-          [vs = impl->versions_.get()]() { return vs->NewFileNumber(); },
-          impl->fs_.get(), impl->immutable_db_options_.clock, impl->stats_,
-          impl->file_options_, dbname, cf.name, cf.options.blob_file_size,
-          impl->immutable_db_options_.use_fsync, cfd->blob_file_cache(),
-          &impl->blob_callback_, impl->immutable_db_options_.listeners,
-          impl->immutable_db_options_.file_checksum_gen_factory.get(),
-          impl->immutable_db_options_.checksum_handoff_file_types,
-          impl->io_tracer_, impl->db_id_, impl->db_session_id_,
-          impl->immutable_db_options_.info_log.get());
-
-      const auto& mcf = cfd->GetLatestMutableCFOptions();
-      BlobDirectWriteSettings settings;
-      settings.enable_blob_direct_write = true;
-      settings.min_blob_size = mcf.min_blob_size;
-      settings.compression_type = mcf.blob_compression_type;
-      settings.blob_cache = cfd->ioptions().blob_cache.get();
-      settings.prepopulate_blob_cache = mcf.prepopulate_blob_cache;
-      mgr->UpdateCachedSettings(cfd->GetID(), settings);
-
-      cfd->SetBlobPartitionManager(std::move(mgr));
+      impl->MaybeInitBlobDirectWriteColumnFamily(cfd, cf.options, cf.name);
     }
   }
 

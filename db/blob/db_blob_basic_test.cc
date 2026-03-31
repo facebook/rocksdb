@@ -9,8 +9,10 @@
 #include <string>
 
 #include "cache/compressed_secondary_cache.h"
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
+#include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
 #include "port/stack_trace.h"
@@ -1453,6 +1455,104 @@ TEST_F(DBBlobBasicTest, DirectWriteFailedBatchTrackedAsInitialGarbage) {
   ASSERT_EQ(cf_meta.blob_files[0].total_blob_count, 2U);
   ASSERT_EQ(cf_meta.blob_files[0].garbage_blob_count, 1U);
   ASSERT_EQ(cf_meta.blob_files[0].garbage_blob_bytes, failed_record_bytes);
+}
+
+TEST_F(DBBlobBasicTest, DirectWriteRollbackMismatchReturnsCorruption) {
+  Reopen(GetDirectWriteOptions());
+
+  ASSERT_TRUE(dbfull()->HasAnyBlobDirectWriteColumnFamily());
+
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+      db_->DefaultColumnFamily());
+  auto* mgr = cfh->cfd()->blob_partition_manager();
+  ASSERT_NE(mgr, nullptr);
+
+  Status s =
+      mgr->MarkBlobWriteAsGarbage(/*file_number=*/123456789,
+                                  /*blob_count=*/1,
+                                  /*blob_bytes=*/BlobLogRecord::kHeaderSize);
+  ASSERT_TRUE(s.IsCorruption());
+}
+
+TEST_F(DBBlobBasicTest, DirectWriteCountTracksCreatedAndDroppedColumnFamily) {
+  Reopen(GetDefaultOptions());
+
+  ASSERT_FALSE(dbfull()->HasAnyBlobDirectWriteColumnFamily());
+
+  ColumnFamilyHandle* bdw_cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(GetDirectWriteOptions(), "bdw", &bdw_cfh));
+  ASSERT_NE(bdw_cfh, nullptr);
+  ASSERT_TRUE(dbfull()->HasAnyBlobDirectWriteColumnFamily());
+
+  const std::string key = "cf_key";
+  const std::string value(128, 'c');
+  ASSERT_OK(db_->Put(WriteOptions(), bdw_cfh, key, value));
+
+  PinnableSlice read_value;
+  ASSERT_OK(db_->Get(ReadOptions(), bdw_cfh, key, &read_value));
+  ASSERT_EQ(read_value.ToString(), value);
+
+  ASSERT_OK(db_->DropColumnFamily(bdw_cfh));
+  ASSERT_FALSE(dbfull()->HasAnyBlobDirectWriteColumnFamily());
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
+}
+
+TEST_F(DBBlobBasicTest, DirectWritePreparedGenerationsStayReusableUntilCommit) {
+  Options options = GetDirectWriteOptions();
+  options.blob_file_size = 1 << 20;
+
+  Reopen(options);
+
+  ASSERT_TRUE(dbfull()->HasAnyBlobDirectWriteColumnFamily());
+
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+      db_->DefaultColumnFamily());
+  auto* mgr = cfh->cfd()->blob_partition_manager();
+  ASSERT_NE(mgr, nullptr);
+
+  const std::string key = "retry_key";
+  const std::string value(128, 'r');
+  ASSERT_OK(Put(key, value));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfh->cfd()));
+
+  std::vector<BlobFileAddition> additions1;
+  std::vector<BlobFileGarbage> garbages1;
+  ASSERT_OK(mgr->PrepareFlushAdditions(WriteOptions(), /*num_generations=*/1,
+                                       &additions1, &garbages1));
+  ASSERT_EQ(additions1.size(), 1U);
+  ASSERT_TRUE(garbages1.empty());
+  ASSERT_EQ(Get(key), value);
+  ASSERT_EQ(CountBlobFiles(), 1U);
+
+  std::vector<BlobFileAddition> additions2;
+  std::vector<BlobFileGarbage> garbages2;
+  ASSERT_OK(mgr->PrepareFlushAdditions(WriteOptions(), /*num_generations=*/1,
+                                       &additions2, &garbages2));
+  ASSERT_EQ(additions2.size(), 1U);
+  ASSERT_TRUE(garbages2.empty());
+  ASSERT_EQ(additions2[0].GetBlobFileNumber(),
+            additions1[0].GetBlobFileNumber());
+  ASSERT_EQ(additions2[0].GetTotalBlobCount(),
+            additions1[0].GetTotalBlobCount());
+  ASSERT_EQ(additions2[0].GetTotalBlobBytes(),
+            additions1[0].GetTotalBlobBytes());
+
+  ASSERT_EQ(Get(key), value);
+  ASSERT_OK(Flush());
+  ASSERT_EQ(Get(key), value);
+  ASSERT_EQ(CountBlobFiles(), 1U);
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_file_count, 1U);
+  ASSERT_EQ(cf_meta.blob_files.size(), 1U);
+  ASSERT_EQ(cf_meta.blob_files[0].total_blob_count, 1U);
+
+  Close();
+  Reopen(options);
+
+  ASSERT_EQ(Get(key), value);
+  ASSERT_EQ(CountBlobFiles(), 1U);
 }
 
 TEST_F(DBBlobBasicTest, DirectWriteBoundaryValues) {
