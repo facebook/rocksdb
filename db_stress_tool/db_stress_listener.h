@@ -31,7 +31,7 @@ namespace ROCKSDB_NAMESPACE {
 // Verify across process executions that all seen IDs are unique
 class UniqueIdVerifier {
  public:
-  explicit UniqueIdVerifier(const std::string& db_name, Env* env);
+  explicit UniqueIdVerifier(const std::string& dir);
   ~UniqueIdVerifier();
 
   void Verify(const std::string& id);
@@ -41,7 +41,7 @@ class UniqueIdVerifier {
 
  private:
   std::mutex mutex_;
-  // IDs persisted to a hidden file inside DB dir
+  // IDs persisted to a hidden file inside expected_values_dir (or DB dir)
   std::string path_;
   std::unique_ptr<WritableFileWriter> data_file_writer_;
   // Starting byte for which 8 bytes to check in memory within 24 byte ID
@@ -55,12 +55,14 @@ class DbStressListener : public EventListener {
   DbStressListener(const std::string& db_name,
                    const std::vector<DbPath>& db_paths,
                    const std::vector<ColumnFamilyDescriptor>& column_families,
-                   Env* env, SharedState* shared)
+                   SharedState* shared)
       : db_name_(db_name),
         db_paths_(db_paths),
         column_families_(column_families),
         num_pending_file_creations_(0),
-        unique_ids_(db_name, env),
+        unique_ids_(FLAGS_expected_values_dir.empty()
+                        ? db_name
+                        : FLAGS_expected_values_dir),
         shared_(shared) {}
 
   const char* Name() const override { return kClassName(); }
