@@ -356,31 +356,6 @@ uint64_t Bitvector::FindNthZeroBit(uint64_t i) const {
   return num_bits_;
 }
 
-uint64_t Bitvector::NextSetBit(uint64_t pos) const {
-  if (pos >= num_bits_) {
-    return num_bits_;
-  }
-
-  uint64_t word_idx = pos / 64;
-  uint64_t bit_idx = pos % 64;
-
-  // Check remaining bits in the current word.
-  uint64_t word = words_[word_idx] >> bit_idx;
-  if (word != 0) {
-    uint64_t result = pos + Ctz(word);
-    return (result < num_bits_) ? result : num_bits_;
-  }
-
-  // Scan subsequent words.
-  for (uint64_t w = word_idx + 1; w < num_words_; w++) {
-    if (words_[w] != 0) {
-      uint64_t result = w * 64 + Ctz(words_[w]);
-      return (result < num_bits_) ? result : num_bits_;
-    }
-  }
-  return num_bits_;
-}
-
 uint64_t Bitvector::DistanceToNextSetBit(uint64_t pos) const {
   assert(pos < num_bits_);
   assert(GetBit(pos));  // pos must be a set bit.

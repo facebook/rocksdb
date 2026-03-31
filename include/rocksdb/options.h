@@ -2304,10 +2304,9 @@ struct ReadOptions {
   // block based table index. The table_factory used for the column family
   // must support building/reading this index.
   //
-  // Forward scans (SeekToFirst, Seek, Next) and point lookups (Get) are
-  // supported. Reverse operations (SeekToLast, SeekForPrev, Prev) are not
-  // yet supported and will return NotSupported when this is set. Leave this
-  // null to use the native index for reverse operations.
+  // All iterator operations are supported: forward scans (SeekToFirst, Seek,
+  // Next), reverse scans (SeekToLast, SeekForPrev, Prev), and point lookups
+  // (Get). Leave this null to use the native block-based table index.
   const UserDefinedIndexFactory* table_index_factory = nullptr;
 
   // *** END options only relevant to iterators or scans ***

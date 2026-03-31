@@ -1999,19 +1999,11 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
 
     Slice key(key_str);
 
-    // UserDefinedIndexIterator supports Seek(target), Next(), and
-    // SeekToFirst(). However, SeekToLast, SeekForPrev, and Prev are not
-    // supported. Check if UDI is being used either via ReadOptions or
-    // CF-level configuration.
-    const bool using_udi =
-        (ro.table_index_factory != nullptr) || (udi_factory_ != nullptr);
-    // SeekToFirst is supported by UDI, so only total_order is required.
     const bool support_seek_to_first =
-        expect_total_order && (FLAGS_test_backward_scan || using_udi);
-    // SeekToLast requires backward scan support which UDI does not provide.
+        expect_total_order && FLAGS_test_backward_scan;
     const bool support_seek_to_last =
-        expect_total_order && FLAGS_test_backward_scan && !using_udi;
-    const bool support_seek_for_prev = FLAGS_test_backward_scan && !using_udi;
+        expect_total_order && FLAGS_test_backward_scan;
+    const bool support_seek_for_prev = FLAGS_test_backward_scan;
 
     // Write-prepared and Write-unprepared and multi-cf-iterator do not support
     // Refresh() yet.

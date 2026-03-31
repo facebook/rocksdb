@@ -229,12 +229,6 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_atomic_flush = true;
   }
 
-  // Trie UDI supports Seek, Next, and SeekToFirst, but not SeekToLast,
-  // SeekForPrev, or Prev. Disable backward scan testing.
-  if (FLAGS_use_trie_index) {
-    FLAGS_test_backward_scan = false;
-  }
-
   // Trie UDI uses zero-copy pointers into block data, which is
   // incompatible with mmap_read.
   if (FLAGS_use_trie_index && FLAGS_mmap_read) {
