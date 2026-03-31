@@ -1122,6 +1122,8 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   begin = "Key4";
   end = "Key7";
   ASSERT_OK(db_->CompactRange(compact_options, &begin, &end));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
   ASSERT_EQ("0,2", FilesPerLevel(0));
 
   sfm->WaitForEmptyTrash();
@@ -1132,6 +1134,8 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   compact_options.bottommost_level_compaction =
       BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
   ASSERT_EQ("0,1", FilesPerLevel(0));
 
   sfm->WaitForEmptyTrash();

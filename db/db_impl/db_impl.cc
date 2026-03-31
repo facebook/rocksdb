@@ -549,7 +549,13 @@ void DBImpl::MaybeInitBlobDirectWriteColumnFamily(
   if (!cf_options.enable_blob_files || !cf_options.enable_blob_direct_write) {
     return;
   }
-  assert(cfd->blob_partition_manager() == nullptr);
+  if (cfd->blob_partition_manager() != nullptr) {
+    // DB::Open(..., create_missing_column_families=true, ...) can create the
+    // missing CF during open and then revisit the same handle in the post-open
+    // initialization loop below. Treat BDW initialization as idempotent for
+    // that path so we do not double-register the same CF.
+    return;
+  }
 
   auto mgr = std::make_unique<BlobFilePartitionManager>(
       cf_options.blob_direct_write_partitions,

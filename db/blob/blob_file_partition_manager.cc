@@ -64,6 +64,25 @@ BlobFilePartitionManager::BlobFilePartitionManager(
 }
 
 BlobFilePartitionManager::~BlobFilePartitionManager() {
+  if (blob_file_cache_ != nullptr) {
+    std::vector<uint64_t> tracked_file_numbers;
+    {
+      ReadLock lock(&file_partition_mutex_);
+      tracked_file_numbers.reserve(file_to_partition_.size());
+      for (const auto& entry : file_to_partition_) {
+        tracked_file_numbers.push_back(entry.first);
+      }
+    }
+
+    for (uint64_t file_number : tracked_file_numbers) {
+      // Dropping the CF or closing the DB can destroy the manager while active
+      // direct-write readers are still cached. Evict them before the CF-owned
+      // blob cache goes away so Close() does not retain obsolete footer-less
+      // readers for files that are no longer live.
+      blob_file_cache_->Evict(file_number);
+    }
+  }
+
   delete cached_settings_.load(std::memory_order_relaxed);
   for (const auto* settings : retired_settings_) {
     delete settings;

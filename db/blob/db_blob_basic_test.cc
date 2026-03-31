@@ -1153,11 +1153,11 @@ TEST_F(DBBlobBasicTest, DirectWriteAutoFlushPreservesBlobGenerationOrder) {
   ASSERT_OK(db_->Put(write_options, "second_key", second_value));
 
   // The tiny shared write buffer forces the first write to queue a flush. The
-  // second write then goes through PreprocessWrite(), which schedules the
-  // flush by switching memtables before the transformed batch is inserted.
-  uint64_t num_imm = 0;
-  ASSERT_TRUE(db_->GetIntProperty("rocksdb.num-immutable-mem-table", &num_imm));
-  ASSERT_GE(num_imm, 1);
+  // second write then goes through PreprocessWrite(), which can switch
+  // memtables before the transformed batch is inserted. By the time the test
+  // inspects DB state, that auto flush may already have finished, so wait for
+  // any in-flight auto flush instead of asserting on an instantaneous imm
+  // count.
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   ASSERT_OK(Flush());
 
@@ -1185,6 +1185,30 @@ TEST_F(DBBlobBasicTest, DirectWriteAutoFlushPreservesBlobGenerationOrder) {
 
   ASSERT_EQ(live_files[0].oldest_blob_file_number, blob_file_numbers[0]);
   ASSERT_EQ(live_files[1].oldest_blob_file_number, blob_file_numbers[1]);
+}
+
+TEST_F(DBBlobBasicTest, DirectWriteCreateMissingColumnFamilyOnOpen) {
+  Reopen(GetDefaultOptions());
+
+  Options default_options = GetDefaultOptions();
+  default_options.create_if_missing = false;
+  default_options.create_missing_column_families = true;
+
+  Options direct_write_options = GetDirectWriteOptions();
+  direct_write_options.create_if_missing = false;
+  direct_write_options.create_missing_column_families = true;
+
+  const std::vector<std::string> cfs{kDefaultColumnFamilyName, "bdw"};
+  const std::vector<Options> options{default_options, direct_write_options};
+  ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
+
+  ASSERT_EQ(handles_.size(), 2U);
+  ASSERT_TRUE(dbfull()->HasAnyBlobDirectWriteColumnFamily());
+
+  const std::string key = "cf_key";
+  const std::string value(128, 'd');
+  ASSERT_OK(db_->Put(WriteOptions(), handles_[1], key, value));
+  ASSERT_EQ(Get(1, key), value);
 }
 
 TEST_F(DBBlobBasicTest, DirectWriteRejectsMemPurge) {
