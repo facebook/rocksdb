@@ -14,6 +14,9 @@
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/trace_reader_writer.h"
+#include "rocksdb/trace_record.h"
+#include "rocksdb/utilities/replayer.h"
 #include "test_util/sync_point.h"
 #include "utilities/fault_injection_env.h"
 
@@ -44,6 +47,73 @@ class DBBlobBasicTest : public DBTestBase {
       }
     }
     return blob_files;
+  }
+
+  void AssertOrderedTraceStoresLogicalPut(const Options& options) {
+    const std::string trace_file = dbname_ + "/rocksdb.trace";
+    Reopen(options);
+
+    TraceOptions trace_options;
+    trace_options.preserve_write_order = true;
+
+    std::unique_ptr<TraceWriter> trace_writer;
+    ASSERT_OK(
+        NewFileTraceWriter(env_, EnvOptions(), trace_file, &trace_writer));
+    ASSERT_OK(db_->StartTrace(trace_options, std::move(trace_writer)));
+
+    const std::string key = "bdw-key";
+    const std::string value(64, 'x');
+    ASSERT_OK(Put(key, value));
+    ASSERT_OK(db_->EndTrace());
+
+    ASSERT_EQ(Get(key), value);
+    ASSERT_GT(CountBlobFiles(), 0U);
+
+    std::unique_ptr<TraceReader> trace_reader;
+    ASSERT_OK(
+        NewFileTraceReader(env_, EnvOptions(), trace_file, &trace_reader));
+
+    std::vector<ColumnFamilyHandle*> handles{db_->DefaultColumnFamily()};
+    std::unique_ptr<Replayer> replayer;
+    ASSERT_OK(
+        db_->NewDefaultReplayer(handles, std::move(trace_reader), &replayer));
+    ASSERT_OK(replayer->Prepare());
+
+    std::unique_ptr<TraceRecord> record;
+    ASSERT_OK(replayer->Next(&record));
+    ASSERT_NE(record, nullptr);
+    ASSERT_EQ(record->GetTraceType(), kTraceWrite);
+
+    auto* write_record = dynamic_cast<WriteQueryTraceRecord*>(record.get());
+    ASSERT_NE(write_record, nullptr);
+
+    class SingleWriteInspector : public WriteBatch::Handler {
+     public:
+      Status PutCF(uint32_t, const Slice& key, const Slice& value) override {
+        saw_put = true;
+        key_ = key.ToString();
+        value_ = value.ToString();
+        return Status::OK();
+      }
+
+      Status PutBlobIndexCF(uint32_t, const Slice&, const Slice&) override {
+        saw_put_blob_index = true;
+        return Status::OK();
+      }
+
+      bool saw_put = false;
+      bool saw_put_blob_index = false;
+      std::string key_;
+      std::string value_;
+    };
+
+    WriteBatch traced_batch(write_record->GetWriteBatchRep().ToString());
+    SingleWriteInspector inspector;
+    ASSERT_OK(traced_batch.Iterate(&inspector));
+    ASSERT_TRUE(inspector.saw_put);
+    ASSERT_FALSE(inspector.saw_put_blob_index);
+    ASSERT_EQ(inspector.key_, key);
+    ASSERT_EQ(inspector.value_, value);
   }
 };
 
@@ -1827,6 +1897,17 @@ TEST_F(DBBlobBasicTest, GenerateIOTracing) {
     // Assuming blob files will have Append, Close and then Read operations.
     ASSERT_GT(blob_files_op_count, 2);
   }
+}
+
+TEST_F(DBBlobBasicTest, OrderedTraceUsesLogicalBatchForBlobDirectWrite) {
+  AssertOrderedTraceStoresLogicalPut(GetDirectWriteOptions());
+}
+
+TEST_F(DBBlobBasicTest,
+       OrderedTraceUsesLogicalBatchForBlobDirectWritePipelinedWrite) {
+  Options options = GetDirectWriteOptions();
+  options.enable_pipelined_write = true;
+  AssertOrderedTraceStoresLogicalPut(options);
 }
 
 TEST_F(DBBlobBasicTest, BestEffortsRecovery_MissingNewestBlobFile) {

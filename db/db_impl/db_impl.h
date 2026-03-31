@@ -1596,6 +1596,7 @@ class DBImpl : public DB {
                    std::shared_ptr<WriteBatchWithIndex> wbwi = nullptr);
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
+                            WriteBatch* trace_batch,
                             WriteCallback* callback = nullptr,
                             UserWriteCallback* user_write_cb = nullptr,
                             uint64_t* wal_used = nullptr, uint64_t log_ref = 0,
@@ -1624,7 +1625,7 @@ class DBImpl : public DB {
   // marks start of a new sub-batch.
   Status WriteImplWALOnly(
       WriteThread* write_thread, const WriteOptions& options,
-      WriteBatch* updates, WriteCallback* callback,
+      WriteBatch* updates, WriteBatch* trace_batch, WriteCallback* callback,
       UserWriteCallback* user_write_cb, uint64_t* wal_used,
       const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
       PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,

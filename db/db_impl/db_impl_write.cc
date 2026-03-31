@@ -513,10 +513,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         seq_per_batch_ ? kDoAssignOrder : kDontAssignOrder;
     // Otherwise it is WAL-only Prepare batches in WriteCommitted policy and
     // they don't consume sequence.
-    return WriteImplWALOnly(
-        &nonmem_write_thread_, write_options, my_batch, callback, user_write_cb,
-        wal_used, log_ref, seq_used, batch_cnt, pre_release_callback,
-        assign_order, kDontPublishLastSeq, disable_memtable);
+    return WriteImplWALOnly(&nonmem_write_thread_, write_options, my_batch,
+                            my_batch, callback, user_write_cb, wal_used,
+                            log_ref, seq_used, batch_cnt, pre_release_callback,
+                            assign_order, kDontPublishLastSeq,
+                            disable_memtable);
   }
 
   WriteBatch transformed_batch_storage;
@@ -624,6 +625,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
         return Status::OK();
       };
+  // Ordered query traces should reflect the original user batch even if the
+  // applied batch is rewritten for blob direct write.
+  WriteBatch* trace_batch = my_batch;
 
   if ((immutable_db_options_.unordered_write ||
        immutable_db_options_.enable_pipelined_write) &&
@@ -649,10 +653,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     uint64_t seq = 0;
     // Use a write thread to i) optimize for WAL write, ii) publish last
     // sequence in in increasing order, iii) call pre_release_callback serially
-    Status status = WriteImplWALOnly(
-        &write_thread_, write_options, my_batch, callback, user_write_cb,
-        wal_used, log_ref, &seq, sub_batch_cnt, pre_release_callback,
-        kDoAssignOrder, kDoPublishLastSeq, disable_memtable);
+    Status status =
+        WriteImplWALOnly(&write_thread_, write_options, my_batch, trace_batch,
+                         callback, user_write_cb, wal_used, log_ref, &seq,
+                         sub_batch_cnt, pre_release_callback, kDoAssignOrder,
+                         kDoPublishLastSeq, disable_memtable);
     TEST_SYNC_POINT("DBImpl::WriteImpl:UnorderedWriteAfterWriteWAL");
     if (!status.ok()) {
       return status;
@@ -669,16 +674,16 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   if (immutable_db_options_.enable_pipelined_write) {
-    return finish_write(PipelinedWriteImpl(write_options, my_batch, callback,
-                                           user_write_cb, wal_used, log_ref,
-                                           disable_memtable, seq_used));
+    return finish_write(PipelinedWriteImpl(
+        write_options, my_batch, trace_batch, callback, user_write_cb, wal_used,
+        log_ref, disable_memtable, seq_used));
   }
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, user_write_cb,
                         log_ref, disable_memtable, batch_cnt,
                         pre_release_callback, post_memtable_callback,
-                        /*_ingest_wbwi=*/wbwi != nullptr);
+                        /*_ingest_wbwi=*/wbwi != nullptr, trace_batch);
   StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
   write_thread_.JoinBatchGroup(&w);
@@ -863,7 +868,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
             // is in writer->batch
             tracer_->Write(wbwi->GetWriteBatch()).PermitUncheckedError();
           } else {
-            tracer_->Write(writer->batch).PermitUncheckedError();
+            tracer_->Write(writer->trace_batch).PermitUncheckedError();
           }
         }
       }
@@ -1130,7 +1135,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 }
 
 Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
-                                  WriteBatch* my_batch, WriteCallback* callback,
+                                  WriteBatch* my_batch, WriteBatch* trace_batch,
+                                  WriteCallback* callback,
                                   UserWriteCallback* user_write_cb,
                                   uint64_t* wal_used, uint64_t log_ref,
                                   bool disable_memtable, uint64_t* seq_used) {
@@ -1141,7 +1147,9 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
 
   WriteThread::Writer w(write_options, my_batch, callback, user_write_cb,
                         log_ref, disable_memtable, /*_batch_cnt=*/0,
-                        /*_pre_release_callback=*/nullptr);
+                        /*_pre_release_callback=*/nullptr,
+                        /*_post_memtable_callback=*/nullptr,
+                        /*_ingest_wbwi=*/false, trace_batch);
   write_thread_.JoinBatchGroup(&w);
   TEST_SYNC_POINT("DBImplWrite::PipelinedWriteImpl:AfterJoinBatchGroup");
   if (w.state == WriteThread::STATE_GROUP_LEADER) {
@@ -1190,7 +1198,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
               continue;
             }
             // TODO: maybe handle the tracing status?
-            tracer_->Write(writer->batch).PermitUncheckedError();
+            tracer_->Write(writer->trace_batch).PermitUncheckedError();
           }
         }
       }
@@ -1385,7 +1393,7 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
 // applicable in a two-queue setting.
 Status DBImpl::WriteImplWALOnly(
     WriteThread* write_thread, const WriteOptions& write_options,
-    WriteBatch* my_batch, WriteCallback* callback,
+    WriteBatch* my_batch, WriteBatch* trace_batch, WriteCallback* callback,
     UserWriteCallback* user_write_cb, uint64_t* wal_used,
     const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
     PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
@@ -1393,7 +1401,9 @@ Status DBImpl::WriteImplWALOnly(
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, user_write_cb,
                         log_ref, disable_memtable, sub_batch_cnt,
-                        pre_release_callback);
+                        pre_release_callback,
+                        /*_post_memtable_callback=*/nullptr,
+                        /*_ingest_wbwi=*/false, trace_batch);
   StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
   write_thread->JoinBatchGroup(&w);
@@ -1473,7 +1483,7 @@ Status DBImpl::WriteImplWALOnly(
           continue;
         }
         // TODO: maybe handle the tracing status?
-        tracer_->Write(writer->batch).PermitUncheckedError();
+        tracer_->Write(writer->trace_batch).PermitUncheckedError();
       }
     }
   }
