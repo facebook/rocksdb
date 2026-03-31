@@ -491,6 +491,9 @@ Status BlobFilePartitionManager::PrepareFlushAdditions(
       if (!s.ok()) {
         return s;
       }
+      // Keep each successfully sealed file attached to the generation
+      // immediately. If a later seal or the flush job itself fails, retry must
+      // reuse these exact on-disk files instead of finalizing replacements.
       batch.sealed_files.push_back(std::move(sealed_file));
     }
 

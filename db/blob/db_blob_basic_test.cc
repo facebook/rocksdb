@@ -1223,6 +1223,28 @@ TEST_F(DBBlobBasicTest, DirectWriteRejectsMemPurge) {
                   .IsNotSupported());
 }
 
+TEST_F(DBBlobBasicTest, DirectWriteRejectsUnsupportedWriteModes) {
+  auto assert_rejected = [&](const Options& options,
+                             const std::string& expected_substr) {
+    Status s = TryReopen(options);
+    ASSERT_TRUE(s.IsNotSupported()) << s.ToString();
+    ASSERT_NE(s.ToString().find(expected_substr), std::string::npos)
+        << s.ToString();
+  };
+
+  Options options = GetDirectWriteOptions();
+  options.enable_pipelined_write = true;
+  assert_rejected(options, "pipelined writes");
+
+  options = GetDirectWriteOptions();
+  options.unordered_write = true;
+  assert_rejected(options, "unordered writes");
+
+  options = GetDirectWriteOptions();
+  options.two_write_queues = true;
+  assert_rejected(options, "two write queues");
+}
+
 TEST_F(DBBlobBasicTest, DirectWriteIteratorMixedValuesBeforeAndAfterFlush) {
   Options options = GetDirectWriteOptions();
   options.min_blob_size = 20;
@@ -1541,6 +1563,8 @@ TEST_F(DBBlobBasicTest, DirectWritePreparedGenerationsStayReusableUntilCommit) {
 
   std::vector<BlobFileAddition> additions1;
   std::vector<BlobFileGarbage> garbages1;
+  // Simulate a flush retry: prepare once, skip commit, then prepare the same
+  // generation again and verify it reuses the already sealed blob file.
   ASSERT_OK(mgr->PrepareFlushAdditions(WriteOptions(), /*num_generations=*/1,
                                        &additions1, &garbages1));
   ASSERT_EQ(additions1.size(), 1U);

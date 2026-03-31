@@ -6,8 +6,26 @@
 #pragma once
 
 #include <atomic>
+#include <memory>
 
 #include "rocksdb/rocksdb_namespace.h"
+
+#if defined(__clang__)
+#define ROCKSDB_SUPPRESS_SHARED_PTR_ATOMIC_DEPRECATION_PUSH \
+  _Pragma("clang diagnostic push")                          \
+      _Pragma("clang diagnostic ignored \"-Wdeprecated-declarations\"")
+#define ROCKSDB_SUPPRESS_SHARED_PTR_ATOMIC_DEPRECATION_POP \
+  _Pragma("clang diagnostic pop")
+#elif defined(__GNUC__)
+#define ROCKSDB_SUPPRESS_SHARED_PTR_ATOMIC_DEPRECATION_PUSH \
+  _Pragma("GCC diagnostic push")                            \
+      _Pragma("GCC diagnostic ignored \"-Wdeprecated-declarations\"")
+#define ROCKSDB_SUPPRESS_SHARED_PTR_ATOMIC_DEPRECATION_POP \
+  _Pragma("GCC diagnostic pop")
+#else
+#define ROCKSDB_SUPPRESS_SHARED_PTR_ATOMIC_DEPRECATION_PUSH
+#define ROCKSDB_SUPPRESS_SHARED_PTR_ATOMIC_DEPRECATION_POP
+#endif
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -121,4 +139,31 @@ class Atomic : public RelaxedAtomic<T> {
   }
 };
 
+// Atomic shared_ptr helper wrappers.
+//
+// The C++20 replacement is std::atomic<std::shared_ptr<T>>, but the libstdc++
+// used in some RocksDB environments still lacks that specialization while also
+// deprecating the older free-function API. Centralize the workaround here so
+// callers can keep a single code path.
+template <typename T>
+inline std::shared_ptr<T> AtomicSharedPtrLoad(const std::shared_ptr<T>* ptr,
+                                              std::memory_order order) {
+  ROCKSDB_SUPPRESS_SHARED_PTR_ATOMIC_DEPRECATION_PUSH
+  auto result = std::atomic_load_explicit(ptr, order);
+  ROCKSDB_SUPPRESS_SHARED_PTR_ATOMIC_DEPRECATION_POP
+  return result;
+}
+
+template <typename T>
+inline void AtomicSharedPtrStore(std::shared_ptr<T>* ptr,
+                                 std::shared_ptr<T> desired,
+                                 std::memory_order order) {
+  ROCKSDB_SUPPRESS_SHARED_PTR_ATOMIC_DEPRECATION_PUSH
+  std::atomic_store_explicit(ptr, std::move(desired), order);
+  ROCKSDB_SUPPRESS_SHARED_PTR_ATOMIC_DEPRECATION_POP
+}
+
 }  // namespace ROCKSDB_NAMESPACE
+
+#undef ROCKSDB_SUPPRESS_SHARED_PTR_ATOMIC_DEPRECATION_PUSH
+#undef ROCKSDB_SUPPRESS_SHARED_PTR_ATOMIC_DEPRECATION_POP

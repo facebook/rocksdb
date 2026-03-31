@@ -243,9 +243,24 @@ Status DBImpl::GetLiveFilesStorageInfo(
   // This is a modified version of GetLiveFiles, to get access to more
   // metadata.
   mutex_.Lock();
+  bool wal_locked = false;
+  const bool needs_blob_direct_write_flush =
+      HasInFlightBlobDirectWriteFilesWithLockHeld();
+  if (needs_blob_direct_write_flush && !flush_memtable) {
+    mutex_.Unlock();
+    return Status::NotSupported(
+        "Blob direct write requires flushing active blob files before "
+        "capturing live files. Retry with flush enabled.");
+  }
   if (flush_memtable) {
-    bool wal_locked = lock_wal_count_ > 0;
+    wal_locked = lock_wal_count_ > 0;
     if (wal_locked) {
+      if (needs_blob_direct_write_flush) {
+        mutex_.Unlock();
+        return Status::NotSupported(
+            "Blob direct write requires flushing active blob files before "
+            "capturing live files. Retry with WAL unlocked.");
+      }
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Can't FlushForGetLiveFiles while WAL is locked");
     } else {

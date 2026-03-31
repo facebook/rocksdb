@@ -26,6 +26,7 @@
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "util/atomic.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -118,7 +119,7 @@ class BlobFilePartitionManager {
   // Returns the current cached direct-write settings snapshot.
   BlobDirectWriteSettings GetCachedSettings(uint32_t /*cf_id*/) const {
     std::shared_ptr<const BlobDirectWriteSettings> settings =
-        std::atomic_load_explicit(&cached_settings_, std::memory_order_acquire);
+        AtomicSharedPtrLoad(&cached_settings_, std::memory_order_acquire);
     return settings ? *settings : BlobDirectWriteSettings{};
   }
 
@@ -127,8 +128,8 @@ class BlobFilePartitionManager {
                             const BlobDirectWriteSettings& settings) {
     std::shared_ptr<const BlobDirectWriteSettings> replacement =
         std::make_shared<BlobDirectWriteSettings>(settings);
-    std::atomic_store_explicit(&cached_settings_, std::move(replacement),
-                               std::memory_order_release);
+    AtomicSharedPtrStore(&cached_settings_, std::move(replacement),
+                         std::memory_order_release);
   }
 
   // Resolves a direct-write BlobIndex by consulting manifest-visible state

@@ -40,6 +40,7 @@
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
 #include "table/merging_iterator.h"
+#include "util/atomic.h"
 #include "util/autovector.h"
 #include "util/coding.h"
 #include "util/mutexlock.h"
@@ -144,26 +145,14 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
   auto new_cache = std::make_shared<FragmentedRangeTombstoneListCache>();
   size_t size = cached_range_tombstone_.Size();
   for (size_t i = 0; i < size; ++i) {
-#if defined(__cpp_lib_atomic_shared_ptr)
-    std::atomic<std::shared_ptr<FragmentedRangeTombstoneListCache>>*
-        local_cache_ref_ptr = cached_range_tombstone_.AccessAtCore(i);
-    auto new_local_cache_ref = std::make_shared<
-        const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
-    std::shared_ptr<FragmentedRangeTombstoneListCache> aliased_ptr(
-        new_local_cache_ref, new_cache.get());
-    local_cache_ref_ptr->store(std::move(aliased_ptr),
-                               std::memory_order_relaxed);
-#else
     std::shared_ptr<FragmentedRangeTombstoneListCache>* local_cache_ref_ptr =
         cached_range_tombstone_.AccessAtCore(i);
     auto new_local_cache_ref = std::make_shared<
         const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
-    std::atomic_store_explicit(
-        local_cache_ref_ptr,
-        std::shared_ptr<FragmentedRangeTombstoneListCache>(new_local_cache_ref,
-                                                           new_cache.get()),
-        std::memory_order_relaxed);
-#endif
+    std::shared_ptr<FragmentedRangeTombstoneListCache> aliased_ptr(
+        new_local_cache_ref, new_cache.get());
+    AtomicSharedPtrStore(local_cache_ref_ptr, std::move(aliased_ptr),
+                         std::memory_order_relaxed);
   }
   const Comparator* ucmp = cmp.user_comparator();
   assert(ucmp);
@@ -821,13 +810,8 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
 
   // takes current cache
   std::shared_ptr<FragmentedRangeTombstoneListCache> cache =
-#if defined(__cpp_lib_atomic_shared_ptr)
-      cached_range_tombstone_.Access()->load(std::memory_order_relaxed)
-#else
-      std::atomic_load_explicit(cached_range_tombstone_.Access(),
-                                std::memory_order_relaxed)
-#endif
-      ;
+      AtomicSharedPtrLoad(cached_range_tombstone_.Access(),
+                          std::memory_order_relaxed);
   // construct fragmented tombstone list if necessary
   if (!cache->initialized.load(std::memory_order_acquire)) {
     cache->reader_mutex.lock();
@@ -1089,31 +1073,19 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       range_del_mutex_.lock();
     }
     for (size_t i = 0; i < size; ++i) {
-#if defined(__cpp_lib_atomic_shared_ptr)
-      std::atomic<std::shared_ptr<FragmentedRangeTombstoneListCache>>*
-          local_cache_ref_ptr = cached_range_tombstone_.AccessAtCore(i);
-      auto new_local_cache_ref = std::make_shared<
-          const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
-      std::shared_ptr<FragmentedRangeTombstoneListCache> aliased_ptr(
-          new_local_cache_ref, new_cache.get());
-      local_cache_ref_ptr->store(std::move(aliased_ptr),
-                                 std::memory_order_relaxed);
-#else
       std::shared_ptr<FragmentedRangeTombstoneListCache>* local_cache_ref_ptr =
           cached_range_tombstone_.AccessAtCore(i);
       auto new_local_cache_ref = std::make_shared<
           const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
+      std::shared_ptr<FragmentedRangeTombstoneListCache> aliased_ptr(
+          new_local_cache_ref, new_cache.get());
       // It is okay for some reader to load old cache during invalidation as
       // the new sequence number is not published yet.
       // Each core will have a shared_ptr to a shared_ptr to the cached
-      // fragmented range tombstones, so that ref count is maintianed locally
+      // fragmented range tombstones, so that ref count is maintained locally
       // per-core using the per-core shared_ptr.
-      std::atomic_store_explicit(
-          local_cache_ref_ptr,
-          std::shared_ptr<FragmentedRangeTombstoneListCache>(
-              new_local_cache_ref, new_cache.get()),
-          std::memory_order_relaxed);
-#endif
+      AtomicSharedPtrStore(local_cache_ref_ptr, std::move(aliased_ptr),
+                           std::memory_order_relaxed);
     }
 
     if (allow_concurrent) {

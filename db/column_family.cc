@@ -1540,6 +1540,18 @@ Status ColumnFamilyData::ValidateOptions(
   const auto* ucmp = cf_options.comparator;
   assert(ucmp);
   if (cf_options.enable_blob_direct_write) {
+    if (db_options.enable_pipelined_write) {
+      return Status::NotSupported(
+          "Blob direct write v1 does not support pipelined writes.");
+    }
+    if (db_options.unordered_write) {
+      return Status::NotSupported(
+          "Blob direct write v1 does not support unordered writes.");
+    }
+    if (db_options.two_write_queues) {
+      return Status::NotSupported(
+          "Blob direct write v1 does not support two write queues.");
+    }
     if (cf_options.experimental_mempurge_threshold > 0.0) {
       return Status::NotSupported(
           "Blob direct write does not support MemPurge.");

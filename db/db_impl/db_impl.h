@@ -1802,6 +1802,9 @@ class DBImpl : public DB {
 
   // Same as HasAnyBlobDirectWriteColumnFamily(), but requires `mutex_` held.
   bool HasAnyBlobDirectWriteColumnFamilyWithLockHeld();
+  // Returns true if any BDW column family still owns blob files that have not
+  // yet been made visible through MANIFEST. Requires `mutex_` held.
+  bool HasInFlightBlobDirectWriteFilesWithLockHeld();
   // Creates and attaches the per-CF blob direct-write partition manager when
   // the column family is opened with the feature enabled.
   void MaybeInitBlobDirectWriteColumnFamily(
