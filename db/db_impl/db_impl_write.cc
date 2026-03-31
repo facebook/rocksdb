@@ -582,6 +582,21 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           return Status::OK();
         }
 
+        // Quick check: skip the (potentially expensive) batch iteration when
+        // no column family has blob direct write enabled.  This also avoids
+        // Iterate() returning an error on a corrupted batch before the WAL
+        // verification path has a chance to detect it.
+        bool any_bdw = false;
+        for (auto* cfd : *versions_->GetColumnFamilySet()) {
+          if (cfd->blob_partition_manager() != nullptr) {
+            any_bdw = true;
+            break;
+          }
+        }
+        if (!any_bdw) {
+          return Status::OK();
+        }
+
         std::vector<BlobFilePartitionManager*> batch_managers;
         std::vector<BlobWriteBatchTransformer::RollbackInfo> batch_rollbacks;
         bool transformed = false;
