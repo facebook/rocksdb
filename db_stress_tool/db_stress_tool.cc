@@ -216,17 +216,36 @@ int db_stress_tool(int argc, char** argv) {
   if (FLAGS_enable_blob_direct_write) {
     // Blob direct write is intentionally validated as a reduced-scope v1
     // feature. We allow the WAL-disabled crash-test profile, but reject
-    // best-efforts recovery, multi-writer write modes, transactions, remote
-    // compaction, and APIs/features that depend on active-file snapshotting or
-    // unsupported blob option transitions.
+    // best-efforts recovery, parallel memtable/write-queue variants,
+    // transactions, remote compaction, and APIs/features that depend on
+    // active-file snapshotting or unsupported blob option transitions.
     if (!FLAGS_enable_blob_files) {
       fprintf(stderr,
               "Error: enable_blob_direct_write requires enable_blob_files\n");
       exit(1);
     }
-    if (FLAGS_threads != 1) {
+    if (FLAGS_allow_concurrent_memtable_write) {
       fprintf(stderr,
-              "Error: blob direct write stress currently requires threads=1\n");
+              "Error: blob direct write stress requires "
+              "allow_concurrent_memtable_write=0\n");
+      exit(1);
+    }
+    if (FLAGS_enable_pipelined_write) {
+      fprintf(stderr,
+              "Error: blob direct write stress does not support "
+              "enable_pipelined_write\n");
+      exit(1);
+    }
+    if (FLAGS_unordered_write) {
+      fprintf(stderr,
+              "Error: blob direct write stress does not support "
+              "unordered_write\n");
+      exit(1);
+    }
+    if (FLAGS_two_write_queues) {
+      fprintf(stderr,
+              "Error: blob direct write stress does not support "
+              "two_write_queues\n");
       exit(1);
     }
     if (FLAGS_use_blob_db) {
