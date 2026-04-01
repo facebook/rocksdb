@@ -20,6 +20,7 @@
 #include "file/filename.h"
 #include "file/sst_file_manager_impl.h"
 #include "logging/logging.h"
+#include "monitoring/thread_status_util.h"
 #include "port/port.h"
 #include "rocksdb/options.h"
 #include "util/autovector.h"
@@ -28,6 +29,36 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+
+Env::IOActivity GetCurrentThreadIOActivityForMetadataRead() {
+  switch (ThreadStatusUtil::GetThreadOperation()) {
+    case ThreadStatus::OperationType::OP_FLUSH:
+      return Env::IOActivity::kFlush;
+    case ThreadStatus::OperationType::OP_COMPACTION:
+      return Env::IOActivity::kCompaction;
+    case ThreadStatus::OperationType::OP_DBOPEN:
+      return Env::IOActivity::kDBOpen;
+    case ThreadStatus::OperationType::OP_GET:
+      return Env::IOActivity::kGet;
+    case ThreadStatus::OperationType::OP_MULTIGET:
+      return Env::IOActivity::kMultiGet;
+    case ThreadStatus::OperationType::OP_DBITERATOR:
+      return Env::IOActivity::kDBIterator;
+    case ThreadStatus::OperationType::OP_VERIFY_DB_CHECKSUM:
+      return Env::IOActivity::kVerifyDBChecksum;
+    case ThreadStatus::OperationType::OP_VERIFY_FILE_CHECKSUMS:
+      return Env::IOActivity::kVerifyFileChecksums;
+    case ThreadStatus::OperationType::OP_GETENTITY:
+      return Env::IOActivity::kGetEntity;
+    case ThreadStatus::OperationType::OP_MULTIGETENTITY:
+      return Env::IOActivity::kMultiGetEntity;
+    case ThreadStatus::OperationType::
+        OP_GET_FILE_CHECKSUMS_FROM_CURRENT_MANIFEST:
+      return Env::IOActivity::kGetFileChecksumsFromCurrentManifest;
+    default:
+      return Env::IOActivity::kUnknown;
+  }
+}
 
 // A full-scan obsolete-file purge can observe a newly created direct-write
 // blob file before it is added to the manager's active-file set. Those
@@ -39,8 +70,14 @@ bool ShouldKeepFooterlessBlobFile(FileSystem* fs,
   assert(fs != nullptr);
 
   constexpr IODebugContext* dbg = nullptr;
+  // This purge path can run from DB open, flush/compaction cleanup, or
+  // iterator-triggered obsolete-file cleanup. Tag the probe with the current
+  // thread activity so db_stress keeps validating the read against the active
+  // operation instead of seeing an unexpected kUnknown metadata read.
+  IOOptions io_options;
+  io_options.io_activity = GetCurrentThreadIOActivityForMetadataRead();
   uint64_t file_size = 0;
-  IOStatus io_s = fs->GetFileSize(blob_file_path, IOOptions(), &file_size, dbg);
+  IOStatus io_s = fs->GetFileSize(blob_file_path, io_options, &file_size, dbg);
   if (!io_s.ok()) {
     return !io_s.IsPathNotFound();
   }
@@ -61,7 +98,7 @@ bool ShouldKeepFooterlessBlobFile(FileSystem* fs,
   std::array<char, BlobLogFooter::kSize> scratch;
   Slice footer_slice;
   io_s = file->Read(file_size - BlobLogFooter::kSize, BlobLogFooter::kSize,
-                    IOOptions(), &footer_slice, scratch.data(), dbg);
+                    io_options, &footer_slice, scratch.data(), dbg);
   if (!io_s.ok()) {
     return !io_s.IsPathNotFound();
   }
