@@ -641,6 +641,13 @@ void BlobFilePartitionManager::UnprotectSealedBlobFileNumbers(
     --it->second;
     if (it->second == 0) {
       protected_blob_file_refs_.erase(it);
+      if (blob_file_cache_ != nullptr) {
+        // Once the last memtable-backed reference goes away, any cached reader
+        // for this file is either obsolete or can be reopened through the
+        // manifest-visible path. Evict it here so delayed protection does not
+        // leave an obsolete blob reader behind until DB close.
+        blob_file_cache_->Evict(file_number);
+      }
     }
   }
 }

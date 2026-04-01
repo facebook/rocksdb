@@ -8,8 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #ifndef NDEBUG
 #include <iostream>
+#include <unordered_set>
 
 #include "db/blob/blob_file_cache.h"
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
@@ -357,10 +359,14 @@ void DBImpl::TEST_VerifyNoObsoleteFilesCached(
   }
 
   // Live and "quarantined" files are allowed to be open in table cache
-  std::set<uint64_t> live_and_quar_files;
+  std::unordered_set<uint64_t> live_and_quar_files;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
       continue;
+    }
+    if (auto* mgr = cfd->blob_partition_manager(); mgr != nullptr) {
+      mgr->GetActiveBlobFileNumbers(&live_and_quar_files);
+      mgr->GetProtectedBlobFileNumbers(&live_and_quar_files);
     }
     // Iterate over live versions
     Version* current = cfd->current();
