@@ -766,7 +766,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   std::optional<std::vector<WriteBatch>> transformed_write_group_batches;
   std::optional<BlobDirectWriteContext> blob_direct_write_ctx;
   std::optional<BlobWriteRollbackGuard> blob_write_rollback_guard;
-  if (maybe_use_blob_direct_write) {
+  if (UNLIKELY(maybe_use_blob_direct_write)) {
     blob_direct_write_ctx.emplace(this);
     blob_write_rollback_guard.emplace(&blob_direct_write_ctx->rollback_infos,
                                       immutable_db_options_.info_log.get());
@@ -781,7 +781,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   // applied batch is rewritten for blob direct write.
   WriteBatch* trace_batch = my_batch;
 
-  if (maybe_use_blob_direct_write &&
+  if (UNLIKELY(maybe_use_blob_direct_write) &&
       (immutable_db_options_.unordered_write ||
        immutable_db_options_.enable_pipelined_write)) {
     transformed_batch_storage.emplace();
@@ -946,7 +946,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   Status pre_release_cb_status;
   size_t seq_inc = 0;
   if (status.ok()) {
-    if (maybe_use_blob_direct_write && !immutable_db_options_.unordered_write &&
+    if (UNLIKELY(maybe_use_blob_direct_write) &&
+        !immutable_db_options_.unordered_write &&
         !immutable_db_options_.enable_pipelined_write) {
       // PreprocessWrite() may switch memtables in order to schedule pending
       // flushes. Defer the blob direct-write transformation until after that

@@ -4361,10 +4361,10 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
   // Laying out the iterators in the order of being accessed makes it more
   // likely that any iterator pointer is close to the iterator it points to so
   // that they are likely to be in the same cache line and/or page.
-  return NewArenaWrappedDbIterator(
-      env_, read_options, cfh, sv, snapshot, read_callback, this,
-      expose_blob_index, allow_refresh, /*allow_mark_memtable_for_flush=*/true,
-      cfh->cfd()->blob_partition_manager());
+  return NewArenaWrappedDbIterator(env_, read_options, cfh, sv, snapshot,
+                                   read_callback, this, expose_blob_index,
+                                   allow_refresh,
+                                   /*allow_mark_memtable_for_flush=*/true);
 }
 
 std::unique_ptr<Iterator> DBImpl::NewCoalescingIterator(
@@ -4491,8 +4491,7 @@ Status DBImpl::NewIterators(
           cf_sv_pair.cfd->user_comparator(), iter,
           cf_sv_pair.super_version->current, kMaxSequenceNumber,
           nullptr /*read_callback*/, /*active_mem=*/nullptr, cf_sv_pair.cfh,
-          /*expose_blob_index=*/false, /*arena=*/nullptr,
-          cf_sv_pair.cfd->blob_partition_manager()));
+          /*expose_blob_index=*/false, /*arena=*/nullptr));
     }
   } else {
     for (const auto& cf_sv_pair : cf_sv_pairs) {

@@ -22,7 +22,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 class BlobFileCache;
-class BlobFilePartitionManager;
 class Version;
 
 // This file declares the factory functions of DBIter, in its original form
@@ -65,25 +64,24 @@ class DBIter final : public Iterator {
   // is reading from. If not null, the memtable can be marked for flush
   // according to options mutable_cf_options.memtable_op_scan_flush_trigger
   // and mutable_cf_options.memtable_avg_op_scan_flush_trigger.
-  // @param blob_partition_mgr Optional manager used to resolve write-path blob
-  // indexes that are not manifest-visible yet.
   // @param arena_mode If true, the DBIter will be allocated from the arena.
-  static DBIter* NewIter(
-      Env* env, const ReadOptions& read_options,
-      const ImmutableOptions& ioptions,
-      const MutableCFOptions& mutable_cf_options,
-      const Comparator* user_key_comparator, InternalIterator* internal_iter,
-      const Version* version, const SequenceNumber& sequence,
-      ReadCallback* read_callback, ReadOnlyMemTable* active_mem,
-      ColumnFamilyHandleImpl* cfh = nullptr, bool expose_blob_index = false,
-      Arena* arena = nullptr,
-      BlobFilePartitionManager* blob_partition_mgr = nullptr) {
+  static DBIter* NewIter(Env* env, const ReadOptions& read_options,
+                         const ImmutableOptions& ioptions,
+                         const MutableCFOptions& mutable_cf_options,
+                         const Comparator* user_key_comparator,
+                         InternalIterator* internal_iter,
+                         const Version* version, const SequenceNumber& sequence,
+                         ReadCallback* read_callback,
+                         ReadOnlyMemTable* active_mem,
+                         ColumnFamilyHandleImpl* cfh = nullptr,
+                         bool expose_blob_index = false,
+                         Arena* arena = nullptr) {
     void* mem = arena ? arena->AllocateAligned(sizeof(DBIter))
                       : operator new(sizeof(DBIter));
-    DBIter* db_iter = new (mem) DBIter(
-        env, read_options, ioptions, mutable_cf_options, user_key_comparator,
-        internal_iter, version, sequence, arena, read_callback, cfh,
-        expose_blob_index, active_mem, blob_partition_mgr);
+    DBIter* db_iter = new (mem)
+        DBIter(env, read_options, ioptions, mutable_cf_options,
+               user_key_comparator, internal_iter, version, sequence, arena,
+               read_callback, cfh, expose_blob_index, active_mem);
     return db_iter;
   }
 
@@ -253,28 +251,24 @@ class DBIter final : public Iterator {
          InternalIterator* iter, const Version* version, SequenceNumber s,
          bool arena_mode, ReadCallback* read_callback,
          ColumnFamilyHandleImpl* cfh, bool expose_blob_index,
-         ReadOnlyMemTable* active_mem,
-         BlobFilePartitionManager* blob_partition_mgr);
+         ReadOnlyMemTable* active_mem);
 
   class BlobReader {
    public:
-    // `blob_partition_mgr` enables fallback reads from in-flight direct-write
-    // blob files when Version does not yet expose the file.
     BlobReader(const Version* version, ReadTier read_tier,
                bool verify_checksums, bool fill_cache,
-               Env::IOActivity io_activity, BlobFileCache* blob_file_cache,
-               BlobFilePartitionManager* blob_partition_mgr = nullptr)
+               Env::IOActivity io_activity, BlobFileCache* blob_file_cache)
         : version_(version),
           read_tier_(read_tier),
           verify_checksums_(verify_checksums),
           fill_cache_(fill_cache),
           io_activity_(io_activity),
-          blob_file_cache_(blob_file_cache),
-          blob_partition_mgr_(blob_partition_mgr) {}
+          blob_file_cache_(blob_file_cache) {}
 
     const Slice& GetBlobValue() const { return blob_value_; }
     Status RetrieveAndSetBlobValue(const Slice& user_key,
-                                   const Slice& blob_index);
+                                   const Slice& blob_index,
+                                   bool allow_write_path_fallback);
     void ResetBlobValue() { blob_value_.Reset(); }
 
    private:
@@ -284,10 +278,9 @@ class DBIter final : public Iterator {
     bool verify_checksums_;
     bool fill_cache_;
     Env::IOActivity io_activity_;
-    // Cache used to read blob files that are not yet reachable through Version.
+    // Cache used by the write-path fallback for in-flight direct-write blob
+    // files that are not yet reachable through Version.
     BlobFileCache* blob_file_cache_;
-    // Partition manager used to resolve write-path blob indexes.
-    BlobFilePartitionManager* blob_partition_mgr_;
   };
 
   // For all methods in this block:

@@ -45,8 +45,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                const Comparator* cmp, InternalIterator* iter,
                const Version* version, SequenceNumber s, bool arena_mode,
                ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
-               bool expose_blob_index, ReadOnlyMemTable* active_mem,
-               BlobFilePartitionManager* blob_partition_mgr)
+               bool expose_blob_index, ReadOnlyMemTable* active_mem)
     : prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
       env_(_env),
       clock_(ioptions.clock),
@@ -54,10 +53,10 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       user_comparator_(cmp),
       merge_operator_(ioptions.merge_operator.get()),
       iter_(iter),
-      blob_reader_(
-          version, read_options.read_tier, read_options.verify_checksums,
-          read_options.fill_cache, read_options.io_activity,
-          cfh ? cfh->cfd()->blob_file_cache() : nullptr, blob_partition_mgr),
+      blob_reader_(version, read_options.read_tier,
+                   read_options.verify_checksums, read_options.fill_cache,
+                   read_options.io_activity,
+                   cfh ? cfh->cfd()->blob_file_cache() : nullptr),
       read_callback_(read_callback),
       sequence_(s),
       statistics_(ioptions.stats),
@@ -222,11 +221,12 @@ void DBIter::Next() {
   }
 }
 
-Status DBIter::BlobReader::RetrieveAndSetBlobValue(const Slice& user_key,
-                                                   const Slice& blob_index) {
+Status DBIter::BlobReader::RetrieveAndSetBlobValue(
+    const Slice& user_key, const Slice& blob_index,
+    bool allow_write_path_fallback) {
   assert(blob_value_.empty());
 
-  if (!version_ && !blob_file_cache_ && !blob_partition_mgr_) {
+  if (!version_ && (!allow_write_path_fallback || !blob_file_cache_)) {
     return Status::Corruption("Encountered unexpected blob index.");
   }
 
@@ -238,11 +238,20 @@ Status DBIter::BlobReader::RetrieveAndSetBlobValue(const Slice& user_key,
   read_options.verify_checksums = verify_checksums_;
   read_options.fill_cache = fill_cache_;
   read_options.io_activity = io_activity_;
+  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+  constexpr uint64_t* bytes_read = nullptr;
   BlobIndex blob_idx;
   Status s = blob_idx.DecodeFrom(blob_index);
   if (!s.ok()) {
     return s;
   }
+
+  if (!allow_write_path_fallback) {
+    assert(version_ != nullptr);
+    return version_->GetBlob(read_options, user_key, blob_idx, prefetch_buffer,
+                             &blob_value_, bytes_read);
+  }
+
   return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
       read_options, user_key, blob_idx, version_, blob_file_cache_,
       &blob_value_);
@@ -250,7 +259,13 @@ Status DBIter::BlobReader::RetrieveAndSetBlobValue(const Slice& user_key,
 
 bool DBIter::SetValueAndColumnsFromBlobImpl(const Slice& user_key,
                                             const Slice& blob_index) {
-  const Status s = blob_reader_.RetrieveAndSetBlobValue(user_key, blob_index);
+  // Keep the non-BDW iterator path on the pre-existing Version::GetBlob()
+  // fast path. Only enable the direct-write fallback when this CF actually
+  // has a write-path partition manager.
+  const bool allow_write_path_fallback =
+      cfh_ != nullptr && cfh_->cfd()->blob_partition_manager() != nullptr;
+  const Status s = blob_reader_.RetrieveAndSetBlobValue(
+      user_key, blob_index, allow_write_path_fallback);
   if (!s.ok()) {
     status_ = s;
     valid_ = false;
@@ -1386,7 +1401,10 @@ bool DBIter::MergeWithBlobBaseValue(const Slice& blob_index,
     return false;
   }
 
-  const Status s = blob_reader_.RetrieveAndSetBlobValue(user_key, blob_index);
+  const bool allow_write_path_fallback =
+      cfh_ != nullptr && cfh_->cfd()->blob_partition_manager() != nullptr;
+  const Status s = blob_reader_.RetrieveAndSetBlobValue(
+      user_key, blob_index, allow_write_path_fallback);
   if (!s.ok()) {
     status_ = s;
     valid_ = false;
