@@ -30,11 +30,18 @@ class DBBlobBasicTest : public DBTestBase {
   DBBlobBasicTest()
       : DBTestBase("db_blob_basic_test", /* env_do_fsync */ false) {}
 
-  Options GetDirectWriteOptions() {
+  Options GetBlobDirectWriteCompatibleOptions() {
     Options options = GetDefaultOptions();
+    // `allow_concurrent_memtable_write` is a DB option, so mixed-CF tests must
+    // open the DB with it disabled before creating or reopening a BDW CF.
+    options.allow_concurrent_memtable_write = false;
+    return options;
+  }
+
+  Options GetDirectWriteOptions() {
+    Options options = GetBlobDirectWriteCompatibleOptions();
     options.enable_blob_files = true;
     options.enable_blob_direct_write = true;
-    options.allow_concurrent_memtable_write = false;
     options.min_blob_size = 32;
     options.blob_direct_write_partitions = 1;
     return options;
@@ -1197,9 +1204,9 @@ TEST_F(DBBlobBasicTest, DirectWriteAutoFlushPreservesBlobGenerationOrder) {
 }
 
 TEST_F(DBBlobBasicTest, DirectWriteCreateMissingColumnFamilyOnOpen) {
-  Reopen(GetDefaultOptions());
+  Reopen(GetBlobDirectWriteCompatibleOptions());
 
-  Options default_options = GetDefaultOptions();
+  Options default_options = GetBlobDirectWriteCompatibleOptions();
   default_options.create_if_missing = false;
   default_options.create_missing_column_families = true;
 
@@ -1534,7 +1541,7 @@ TEST_F(DBBlobBasicTest, DirectWriteRollbackMismatchReturnsCorruption) {
 }
 
 TEST_F(DBBlobBasicTest, DirectWriteCountTracksCreatedAndDroppedColumnFamily) {
-  Reopen(GetDefaultOptions());
+  Reopen(GetBlobDirectWriteCompatibleOptions());
 
   ASSERT_FALSE(dbfull()->HasAnyBlobDirectWriteColumnFamily());
 
