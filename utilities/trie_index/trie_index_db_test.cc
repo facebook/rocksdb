@@ -2520,21 +2520,8 @@ TEST_P(TrieIndexDBTest, PrefixIterationWithDeletesAndMerges) {
             std::make_pair(std::string("aaa05"), std::string("v5,,m2")));
   ASSERT_EQ(std_result[3].first, "aaa06");
 
-  auto ReversePrefixScan = [&](const ReadOptions& ro) {
-    std::vector<std::string> result;
-    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
-    for (iter->SeekForPrev("aaa\xff"); iter->Valid(); iter->Prev()) {
-      if (iter->key().ToString().substr(0, 3) != "aaa") {
-        break;
-      }
-      result.push_back(iter->key().ToString());
-    }
-    EXPECT_OK(iter->status());
-    return result;
-  };
-
-  auto std_rev = ReversePrefixScan(StandardIndexReadOptions());
-  auto trie_rev = ReversePrefixScan(TrieIndexReadOptions());
+  auto std_rev = ReversePrefixScanKeys(StandardIndexReadOptions(), "aaa");
+  auto trie_rev = ReversePrefixScanKeys(TrieIndexReadOptions(), "aaa");
   ASSERT_EQ(std_rev, trie_rev);
   ASSERT_EQ(std_rev.size(), 4u);
 }
@@ -2561,23 +2548,10 @@ TEST_P(TrieIndexDBTest, PrefixIterationAfterCompaction) {
   ASSERT_OK(db_->Flush(FlushOptions()));
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
-  auto PrefixScan = [&](const ReadOptions& ro, const std::string& prefix) {
-    std::vector<std::string> keys;
-    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
-    for (iter->Seek(prefix); iter->Valid(); iter->Next()) {
-      if (iter->key().ToString().substr(0, 3) != prefix) {
-        break;
-      }
-      keys.push_back(iter->key().ToString());
-    }
-    EXPECT_OK(iter->status());
-    return keys;
-  };
-
   for (const char* pfx : {"aaa", "bbb", "ccc"}) {
     SCOPED_TRACE(pfx);
-    ASSERT_EQ(PrefixScan(StandardIndexReadOptions(), pfx),
-              PrefixScan(TrieIndexReadOptions(), pfx));
+    ASSERT_EQ(PrefixScanKeys(StandardIndexReadOptions(), pfx),
+              PrefixScanKeys(TrieIndexReadOptions(), pfx));
   }
 }
 
@@ -2717,39 +2691,13 @@ TEST_P(TrieIndexDBTest, PrefixIterationWithDeleteRange) {
                              "aaa0005", "aaa0015"));
   ASSERT_OK(db_->Flush(FlushOptions()));
 
-  auto PrefixScan = [&](const ReadOptions& ro) {
-    std::vector<std::string> keys;
-    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
-    for (iter->Seek("aaa"); iter->Valid(); iter->Next()) {
-      if (iter->key().ToString().substr(0, 3) != "aaa") {
-        break;
-      }
-      keys.push_back(iter->key().ToString());
-    }
-    EXPECT_OK(iter->status());
-    return keys;
-  };
-
-  auto std_keys = PrefixScan(StandardIndexReadOptions());
-  auto trie_keys = PrefixScan(TrieIndexReadOptions());
+  auto std_keys = PrefixScanKeys(StandardIndexReadOptions(), "aaa");
+  auto trie_keys = PrefixScanKeys(TrieIndexReadOptions(), "aaa");
   ASSERT_EQ(std_keys, trie_keys);
   ASSERT_EQ(std_keys.size(), 10u);
 
-  auto ReversePrefixScan = [&](const ReadOptions& ro) {
-    std::vector<std::string> keys;
-    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
-    for (iter->SeekForPrev("aaa\xff"); iter->Valid(); iter->Prev()) {
-      if (iter->key().ToString().substr(0, 3) != "aaa") {
-        break;
-      }
-      keys.push_back(iter->key().ToString());
-    }
-    EXPECT_OK(iter->status());
-    return keys;
-  };
-
-  ASSERT_EQ(ReversePrefixScan(StandardIndexReadOptions()),
-            ReversePrefixScan(TrieIndexReadOptions()));
+  ASSERT_EQ(ReversePrefixScanKeys(StandardIndexReadOptions(), "aaa"),
+            ReversePrefixScanKeys(TrieIndexReadOptions(), "aaa"));
 }
 
 TEST_P(TrieIndexDBTest, PrefixIterationMemtablePlusSST) {
@@ -2785,21 +2733,8 @@ TEST_P(TrieIndexDBTest, PrefixIterationMemtablePlusSST) {
   ASSERT_EQ(std_result, trie_result);
   ASSERT_EQ(std_result.size(), 5u);
 
-  auto ReversePrefixScan = [&](const ReadOptions& ro) {
-    std::vector<std::string> result;
-    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
-    for (iter->SeekForPrev("aaa\xff"); iter->Valid(); iter->Prev()) {
-      if (iter->key().ToString().substr(0, 3) != "aaa") {
-        break;
-      }
-      result.push_back(iter->key().ToString());
-    }
-    EXPECT_OK(iter->status());
-    return result;
-  };
-
-  ASSERT_EQ(ReversePrefixScan(StandardIndexReadOptions()),
-            ReversePrefixScan(TrieIndexReadOptions()));
+  ASSERT_EQ(ReversePrefixScanKeys(StandardIndexReadOptions(), "aaa"),
+            ReversePrefixScanKeys(TrieIndexReadOptions(), "aaa"));
 }
 
 // ---------------------------------------------------------------------------
@@ -4060,13 +3995,7 @@ TEST_P(TrieIndexDBTest, ForwardThenReverseDirection) {
   // Interleave forward and reverse iteration to test direction switching.
   ASSERT_OK(OpenDB(/*block_size=*/64));
 
-  for (int i = 0; i < 50; i++) {
-    char key[16];
-    char val[16];
-    snprintf(key, sizeof(key), "key_%04d", i);
-    snprintf(val, sizeof(val), "val_%04d", i);
-    ASSERT_OK(db_->Put(WriteOptions(), key, val));
-  }
+  WriteSequentialKeys(0, 50);
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
@@ -4277,13 +4206,7 @@ TEST_P(TrieIndexDBTest, PrimaryUDIBackwardCompatibility) {
   // indexes, new config says "use UDI as primary for all reads."
   ASSERT_OK(OpenDBSecondary(/*block_size=*/128));
 
-  for (int i = 0; i < 50; i++) {
-    char key[16];
-    char val[16];
-    snprintf(key, sizeof(key), "key_%04d", i);
-    snprintf(val, sizeof(val), "val_%04d", i);
-    ASSERT_OK(db_->Put(WriteOptions(), key, val));
-  }
+  WriteSequentialKeys(0, 50);
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   // Verify via trie (secondary mode -- explicit ReadOptions).
@@ -4322,26 +4245,14 @@ TEST_P(TrieIndexDBTest, MigrationFullPath) {
 
   // Step 1: Start without UDI. Write some data.
   ASSERT_OK(OpenDBWithoutUDI(/*block_size=*/128));
-  for (int i = 0; i < 30; i++) {
-    char key[16];
-    char val[16];
-    snprintf(key, sizeof(key), "key_%04d", i);
-    snprintf(val, sizeof(val), "val_%04d", i);
-    ASSERT_OK(db_->Put(WriteOptions(), key, val));
-  }
+  WriteSequentialKeys(0, 30);
   ASSERT_OK(db_->Flush(FlushOptions()));
   ASSERT_OK(db_->Close());
   db_.reset();
 
   // Step 2: Enable UDI as secondary. Write more data.
   ASSERT_OK(OpenDBSecondary(/*block_size=*/128));
-  for (int i = 30; i < 50; i++) {
-    char key[16];
-    char val[16];
-    snprintf(key, sizeof(key), "key_%04d", i);
-    snprintf(val, sizeof(val), "val_%04d", i);
-    ASSERT_OK(db_->Put(WriteOptions(), key, val));
-  }
+  WriteSequentialKeys(30, 50);
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   // Verify reads work through both indexes for the new SST.
@@ -4414,13 +4325,7 @@ TEST_P(TrieIndexDBTest, RollbackFromPrimaryToSecondary) {
 
   // Start in primary mode. Write data.
   ASSERT_OK(OpenDBPrimary(/*block_size=*/128));
-  for (int i = 0; i < 30; i++) {
-    char key[16];
-    char val[16];
-    snprintf(key, sizeof(key), "key_%04d", i);
-    snprintf(val, sizeof(val), "val_%04d", i);
-    ASSERT_OK(db_->Put(WriteOptions(), key, val));
-  }
+  WriteSequentialKeys(0, 30);
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   // Verify data is readable in primary mode.
