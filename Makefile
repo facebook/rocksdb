@@ -1049,6 +1049,7 @@ ifneq ($(PLATFORM), OS_AIX)
 	$(PYTHON) tools/check_all_python.py
 ifndef ASSERT_STATUS_CHECKED # not yet working with these tests
 	$(PYTHON) tools/ldb_test.py
+	$(PYTHON) tools/db_crashtest_test.py
 	sh tools/rocksdb_dump_test.sh
 endif
 endif
@@ -1065,6 +1066,10 @@ check_some: $(ROCKSDBTESTS_SUBSET)
 .PHONY: ldb_tests
 ldb_tests: ldb
 	$(PYTHON) tools/ldb_test.py
+
+.PHONY: db_crashtest_tests
+db_crashtest_tests:
+	$(PYTHON) tools/db_crashtest_test.py
 
 include crash_test.mk
 

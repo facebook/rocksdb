@@ -2203,6 +2203,21 @@ void StressTest::VerifyIterator(
     return;
   }
 
+  if (!ro.total_order_seek && options_.prefix_extractor != nullptr &&
+      ro.iterate_lower_bound != nullptr) {
+    const SliceTransform* prefix_extractor = options_.prefix_extractor.get();
+    if (!prefix_extractor->InDomain(seek_key) ||
+        !prefix_extractor->InDomain(*ro.iterate_lower_bound) ||
+        prefix_extractor->Transform(seek_key) !=
+            prefix_extractor->Transform(*ro.iterate_lower_bound)) {
+      // ReadOptions requires the seek target and iterate_lower_bound to share
+      // a prefix when prefix iteration is enabled. Skip verification for this
+      // undefined configuration.
+      *diverged = true;
+      return;
+    }
+  }
+
   const SliceTransform* pe = (ro.total_order_seek || ro.auto_prefix_mode)
                                  ? nullptr
                                  : options_.prefix_extractor.get();

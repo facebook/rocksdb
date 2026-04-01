@@ -54,6 +54,10 @@ static std::string MakeKeyBody(int k) {
   return key_body;
 }
 
+static std::string MakeStressKey(int prefix, int middle, int suffix) {
+  return MakeKeyBody(prefix) + MakeKeyBody(middle) + MakeKeyBody(suffix);
+}
+
 static void AppendBigEndian64(uint64_t val, std::string* key) {
   PutFixed64(key, val);
   char* int_data = &((*key)[key->size() - sizeof(uint64_t)]);
@@ -1368,6 +1372,79 @@ TEST_F(TrieIndexDBTest, SameUserKeyManyVersionsSeekCorrectness) {
   for (auto* snap : snaps) {
     db_->ReleaseSnapshot(snap);
   }
+}
+
+TEST_F(TrieIndexDBTest,
+       AutoPrefixBoundsSnapshotIteratorMatchesStandardIndexWithHiddenVersions) {
+  options_.compression = kNoCompression;
+  options_.disable_auto_compactions = true;
+  options_.max_sequential_skip_in_iterations = 2;
+  options_.prefix_extractor.reset(NewFixedPrefixTransform(8));
+  ASSERT_OK(OpenDB(/*block_size=*/64));
+
+  auto large_value = [](char ch) { return std::string(96, ch); };
+
+  const std::string lower_bound = MakeStressKey(0x45, 0x12B, 0x00A3);
+  const std::string before = MakeStressKey(0xB3, 0x12B, 0x012E);
+  const std::string repeated = MakeStressKey(0xB3, 0x12B, 0x012F);
+  const std::string expected_1 = MakeStressKey(0xB3, 0x12B, 0x0131);
+  const std::string expected_2 = MakeStressKey(0xB3, 0x12B, 0x0132);
+  const std::string upper_bound = MakeStressKey(0x1D5, 0x12B, 0x0200);
+
+  ASSERT_OK(db_->Put(WriteOptions(), before, large_value('a')));
+  for (int version = 0; version < 8; ++version) {
+    ASSERT_OK(db_->Put(WriteOptions(), repeated,
+                       large_value(static_cast<char>('b' + version))));
+  }
+  ASSERT_OK(db_->Put(WriteOptions(), expected_1, large_value('m')));
+  ASSERT_OK(db_->Put(WriteOptions(), expected_2, large_value('n')));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  const Snapshot* snapshot = db_->GetSnapshot();
+  const Slice lower_bound_slice(lower_bound);
+  const Slice upper_bound_slice(upper_bound);
+
+  const auto build_read_options =
+      [&](const UserDefinedIndexFactory* table_index_factory) {
+        ReadOptions ro;
+        ro.snapshot = snapshot;
+        ro.auto_prefix_mode = true;
+        ro.allow_unprepared_value = true;
+        ro.auto_refresh_iterator_with_snapshot = true;
+        ro.iterate_lower_bound = &lower_bound_slice;
+        ro.iterate_upper_bound = &upper_bound_slice;
+        ro.table_index_factory = table_index_factory;
+        return ro;
+      };
+
+  const std::vector<std::pair<std::string, std::string>> expected = {
+      {before, large_value('a')},
+      {repeated, large_value('i')},
+      {expected_1, large_value('m')},
+      {expected_2, large_value('n')},
+  };
+
+  const UserDefinedIndexFactory* table_index_factories[] = {
+      nullptr, trie_factory_.get()};
+  for (const auto* table_index_factory : table_index_factories) {
+    SCOPED_TRACE(table_index_factory == nullptr ? "standard index"
+                                                : "trie index");
+    const ReadOptions ro = build_read_options(table_index_factory);
+    ASSERT_EQ(ScanAllKeyValues(ro), expected);
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+    iter->Seek(before);
+    for (const auto& [expected_key, expected_value] : expected) {
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key().ToString(), expected_key);
+      ASSERT_EQ(iter->value().ToString(), expected_value);
+      iter->Next();
+    }
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  db_->ReleaseSnapshot(snapshot);
 }
 
 TEST_F(TrieIndexDBTest, AutoRefreshSnapshotNextAcrossSameUserKeyBoundaries) {

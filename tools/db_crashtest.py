@@ -522,10 +522,18 @@ def setup_expected_values_dir():
     else:
         # if tmpdir is specified, store the expected_values_dir under that dir
         expected_values_dir = test_exp_tmpdir + "/rocksdb_crashtest_expected"
-        if os.path.exists(expected_values_dir):
-            shutil.rmtree(expected_values_dir)
-        os.mkdir(expected_values_dir)
+        os.makedirs(expected_values_dir, exist_ok=True)
     return expected_values_dir
+
+
+def prepare_expected_values_dir(expected_dir, destroy_db_initially):
+    if expected_dir is None or expected_dir == "":
+        return
+
+    if destroy_db_initially and os.path.exists(expected_dir):
+        shutil.rmtree(expected_dir, True)
+
+    os.makedirs(expected_dir, exist_ok=True)
 
 
 multiops_txn_key_spaces_file = None
@@ -882,9 +890,15 @@ def finalize_and_sanitize(src_params):
             dest_params["prefix_size"] = 1
 
     # BER disables WAL and tests unsynced data loss which
-    # does not work with inplace_update_support.
+    # does not work with inplace_update_support. Integrated BlobDB is also
+    # incompatible, so force blob-related toggles off even if they came from
+    # command-line overrides or another preset.
     if dest_params.get("best_efforts_recovery") == 1:
         dest_params["inplace_update_support"] = 0
+        dest_params["enable_blob_files"] = 0
+        dest_params["enable_blob_garbage_collection"] = 0
+        dest_params["allow_setting_blob_options_dynamically"] = 0
+        dest_params["enable_blob_direct_write"] = 0
 
     # Remote Compaction Incompatible Tests and Features
     if dest_params.get("remote_compaction_worker_threads", 0) > 0:
@@ -1033,6 +1047,13 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("prefix_size") == -1:
         dest_params["readpercent"] += dest_params.get("prefixpercent", 20)
         dest_params["prefixpercent"] = 0
+    elif dest_params.get("simple") and dest_params.get("test_type") == "blackbox":
+        # `db_stress` randomizes iterate_lower_bound independently of the seek
+        # target. With a configured prefix extractor this can violate
+        # ReadOptions' same-prefix requirement, so disable random iterator
+        # operations in simple blackbox mode.
+        dest_params["readpercent"] += dest_params.get("iterpercent", 10)
+        dest_params["iterpercent"] = 0
     if (
         dest_params.get("prefix_size") == -1
         and dest_params.get("memtable_whole_key_filtering") == 0
@@ -1370,6 +1391,10 @@ def gen_cmd_params(args):
 
 def gen_cmd(params, unknown_params):
     finalzied_params = finalize_and_sanitize(params)
+    prepare_expected_values_dir(
+        finalzied_params.get("expected_values_dir"),
+        finalzied_params.get("destroy_db_initially", 0),
+    )
     cmd = (
         [stress_cmd]
         + [
@@ -1747,9 +1772,6 @@ def whitebox_crash_main(args, unknown_args):
         if time.time() > half_time:
             # Set next iteration to destroy DB (works for remote DB)
             cmd_params["destroy_db_initially"] = 1
-            if expected_values_dir is not None:
-                shutil.rmtree(expected_values_dir, True)
-                os.mkdir(expected_values_dir)
             check_mode = (check_mode + 1) % total_check_mode
 
         time.sleep(1)  # time to stabilize after a kill
