@@ -130,8 +130,10 @@ class BlobFilePartitionManager {
                                 uint64_t blob_bytes);
 
   // Resolves a direct-write BlobIndex by consulting manifest-visible state
-  // first, then falling back to direct blob-file reads while the target blob
-  // file is still write-path-owned and therefore not yet tracked by Version.
+  // first, then falling back to direct blob-file reads only when the target
+  // blob file is still write-path-owned and therefore not yet tracked by
+  // Version. Existing manifest-visible read results, including I/O failures,
+  // are returned directly rather than masked by fallback logic.
   static Status ResolveBlobDirectWriteIndex(const ReadOptions& read_options,
                                             const Slice& user_key,
                                             const BlobIndex& blob_idx,

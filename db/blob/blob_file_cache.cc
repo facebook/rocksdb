@@ -170,7 +170,8 @@ Status BlobFileCache::InsertBlobFileReader(
   }
 
   // Ownership transferred to the cache.
-  [[maybe_unused]] BlobFileReader* released_reader = blob_file_reader->release();
+  [[maybe_unused]] BlobFileReader* released_reader =
+      blob_file_reader->release();
   *cached_blob_file_reader = cache_.Guard(handle);
   return Status::OK();
 }
@@ -213,7 +214,8 @@ Status BlobFileCache::RefreshBlobFileReader(
   }
 
   // Ownership transferred to the cache.
-  [[maybe_unused]] BlobFileReader* released_reader = blob_file_reader->release();
+  [[maybe_unused]] BlobFileReader* released_reader =
+      blob_file_reader->release();
   *cached_blob_file_reader = cache_.Guard(handle);
   return Status::OK();
 }

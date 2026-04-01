@@ -13,14 +13,19 @@
 #include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
+#include "db/blob/blob_log_sequential_reader.h"
 #include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
+#include "file/filename.h"
+#include "file/random_access_file_reader.h"
 #include "port/stack_trace.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/trace_record.h"
 #include "rocksdb/utilities/replayer.h"
 #include "test_util/sync_point.h"
+#include "util/compression.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -58,6 +63,60 @@ class DBBlobBasicTest : public DBTestBase {
       }
     }
     return blob_files;
+  }
+
+  std::vector<uint64_t> GetBlobFileNumbers() {
+    std::vector<std::string> files;
+    EXPECT_OK(env_->GetChildren(dbname_, &files));
+
+    std::vector<uint64_t> blob_file_numbers;
+    for (const auto& file : files) {
+      uint64_t file_number = 0;
+      FileType type;
+      if (ParseFileName(file, &file_number, /*info_log_name_prefix=*/"",
+                        &type) &&
+          type == kBlobFile) {
+        blob_file_numbers.push_back(file_number);
+      }
+    }
+
+    std::sort(blob_file_numbers.begin(), blob_file_numbers.end());
+    return blob_file_numbers;
+  }
+
+  Status ReadBlobFileHeader(uint64_t blob_file_number, BlobLogHeader* header) {
+    assert(header != nullptr);
+
+    std::unique_ptr<FSRandomAccessFile> file;
+    FileOptions file_options;
+    constexpr IODebugContext* dbg = nullptr;
+    const std::string blob_file_path = BlobFileName(dbname_, blob_file_number);
+    FileSystem* fs = env_->GetFileSystem().get();
+    SystemClock* clock = env_->GetSystemClock().get();
+
+    Status s =
+        fs->NewRandomAccessFile(blob_file_path, file_options, &file, dbg);
+    if (!s.ok()) {
+      return s;
+    }
+
+    std::unique_ptr<RandomAccessFileReader> file_reader(
+        new RandomAccessFileReader(std::move(file), blob_file_path, clock));
+    BlobLogSequentialReader reader(std::move(file_reader), clock,
+                                   /*statistics=*/nullptr);
+    return reader.ReadHeader(header);
+  }
+
+  CompressionType GetSupportedCompressedBlobCompression() {
+    static constexpr std::array<CompressionType, 6> kCandidates{
+        kSnappyCompression, kLZ4Compression,   kZSTD,
+        kZlibCompression,   kBZip2Compression, kLZ4HCCompression};
+    for (CompressionType compression : kCandidates) {
+      if (CompressionTypeSupported(compression)) {
+        return compression;
+      }
+    }
+    return kNoCompression;
   }
 
   void AssertOrderedTraceStoresLogicalPut(const Options& options,
@@ -1459,6 +1518,70 @@ TEST_F(DBBlobBasicTest, DirectWriteBlobFileRotationSinglePartition) {
     ASSERT_EQ(Get("rot_key_" + std::to_string(i)),
               std::string(120, static_cast<char>('a' + i)));
   }
+}
+
+TEST_F(DBBlobBasicTest,
+       DirectWriteCompressionUpdateReusesCachedCompressorAndRotatesFiles) {
+  const CompressionType compressed = GetSupportedCompressedBlobCompression();
+  if (compressed == kNoCompression) {
+    return;
+  }
+
+  std::string compressed_option_value;
+  ASSERT_OK(GetStringFromCompressionType(&compressed_option_value, compressed));
+
+  Options options = GetDirectWriteOptions();
+  options.blob_file_size = 1 << 20;
+  options.blob_compression_type = compressed;
+
+  Reopen(options);
+
+  const std::string first_key = "compressed_before_update";
+  const std::string second_key = "uncompressed_between_updates";
+  const std::string third_key = "compressed_after_update";
+  const std::string first_value(256, 'a');
+  const std::string second_value(256, 'b');
+  const std::string third_value(256, 'c');
+
+  ASSERT_OK(Put(first_key, first_value));
+  ASSERT_EQ(Get(first_key), first_value);
+
+  ASSERT_OK(db_->SetOptions(db_->DefaultColumnFamily(),
+                            {{"blob_compression_type", "kNoCompression"}}));
+  ASSERT_OK(Put(second_key, second_value));
+  ASSERT_EQ(Get(first_key), first_value);
+  ASSERT_EQ(Get(second_key), second_value);
+
+  ASSERT_OK(
+      db_->SetOptions(db_->DefaultColumnFamily(),
+                      {{"blob_compression_type", compressed_option_value}}));
+  ASSERT_OK(Put(third_key, third_value));
+  ASSERT_EQ(Get(first_key), first_value);
+  ASSERT_EQ(Get(second_key), second_value);
+  ASSERT_EQ(Get(third_key), third_value);
+
+  ASSERT_OK(Flush());
+  ASSERT_EQ(CountBlobFiles(), 3U);
+
+  const std::vector<uint64_t> blob_file_numbers = GetBlobFileNumbers();
+  ASSERT_EQ(blob_file_numbers.size(), 3U);
+
+  BlobLogHeader header;
+  ASSERT_OK(ReadBlobFileHeader(blob_file_numbers[0], &header));
+  ASSERT_EQ(header.compression, compressed);
+
+  ASSERT_OK(ReadBlobFileHeader(blob_file_numbers[1], &header));
+  ASSERT_EQ(header.compression, kNoCompression);
+
+  ASSERT_OK(ReadBlobFileHeader(blob_file_numbers[2], &header));
+  ASSERT_EQ(header.compression, compressed);
+
+  Close();
+  Reopen(options);
+
+  ASSERT_EQ(Get(first_key), first_value);
+  ASSERT_EQ(Get(second_key), second_value);
+  ASSERT_EQ(Get(third_key), third_value);
 }
 
 TEST_F(DBBlobBasicTest, DirectWriteFailedBatchTrackedAsInitialGarbage) {

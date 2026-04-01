@@ -5,6 +5,7 @@
 
 #include "db/blob/blob_file_partition_manager.h"
 
+#include <array>
 #include <cinttypes>
 #include <memory>
 #include <utility>
@@ -27,6 +28,44 @@
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+struct DirectWriteCompressionState {
+  // `working_area` must be released before its owning compressor.
+  std::unique_ptr<Compressor> compressor;
+  Compressor::ManagedWorkingArea working_area;
+};
+
+DirectWriteCompressionState& GetDirectWriteCompressionState(
+    CompressionType compression) {
+  assert(compression <= kLastBuiltinCompression);
+
+  static thread_local std::array<DirectWriteCompressionState,
+                                 static_cast<size_t>(kLastBuiltinCompression) +
+                                     1>
+      compression_states;
+
+  auto& compression_state =
+      compression_states[static_cast<size_t>(compression)];
+  if (compression != kNoCompression &&
+      compression_state.compressor == nullptr) {
+    // BDW v1 mirrors BlobFileBuilder by using the built-in compressor with the
+    // default CompressionOptions only. Cache it per thread so repeated writes
+    // do not allocate a new compressor and working area every time.
+    compression_state.compressor =
+        GetBuiltinV2CompressionManager()->GetCompressor(CompressionOptions{},
+                                                        compression);
+    if (compression_state.compressor != nullptr) {
+      compression_state.working_area =
+          compression_state.compressor->ObtainWorkingArea();
+    }
+  }
+
+  return compression_state;
+}
+
+}  // namespace
 
 BlobFilePartitionManager::BlobFilePartitionManager(
     uint32_t num_partitions, FileNumberAllocator file_number_allocator,
@@ -357,17 +396,18 @@ Status BlobFilePartitionManager::WriteBlob(
   GrowableBuffer compressed_value;
   Slice write_value = value;
   if (compression != kNoCompression) {
-    auto compressor = GetBuiltinV2CompressionManager()->GetCompressor(
-        CompressionOptions{}, compression);
-    if (compressor) {
-      auto working_area = compressor->ObtainWorkingArea();
-      Status s = LegacyForceBuiltinCompression(*compressor, &working_area,
-                                               value, &compressed_value);
-      if (!s.ok()) {
-        return s;
-      }
-      write_value = Slice(compressed_value);
+    auto& compression_state = GetDirectWriteCompressionState(compression);
+    if (compression_state.compressor == nullptr) {
+      return Status::NotSupported(
+          "Blob direct write compression type not supported");
     }
+    Status s = LegacyForceBuiltinCompression(*compression_state.compressor,
+                                             &compression_state.working_area,
+                                             value, &compressed_value);
+    if (!s.ok()) {
+      return s;
+    }
+    write_value = Slice(compressed_value);
   }
 
   const uint32_t partition_idx = static_cast<uint32_t>(
@@ -683,6 +723,11 @@ Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
   if (version != nullptr) {
     s = version->GetBlob(read_options, user_key, blob_idx, prefetch_buffer,
                          blob_value, bytes_read);
+    // Fallback is only for the pre-flush BDW case where Version does not yet
+    // know the blob file and currently reports that as Corruption("Invalid blob
+    // file number"). If Version already found the manifest-visible file, any
+    // resulting IOError should propagate directly instead of retrying through
+    // the write-path cache and potentially hiding a real read failure.
     if (s.ok() || s.IsIOError()) {
       return s;
     }
