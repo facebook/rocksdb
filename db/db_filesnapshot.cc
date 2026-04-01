@@ -205,7 +205,6 @@ Status DBImpl::GetLiveFilesStorageInfo(
 
   // NOTE: This implementation was largely migrated from Checkpoint.
 
-  Status s;
   VectorWalPtr live_wal_files;
   bool flush_memtable = true;
   if (!immutable_db_options_.allow_2pc) {
@@ -217,12 +216,13 @@ Status DBImpl::GetLiveFilesStorageInfo(
       // Don't take archived log size into account when calculating wal
       // size for flush, and don't need to verify consistency with manifest
       // here & now.
-      s = wal_manager_.GetSortedWalFiles(live_wal_files,
-                                         /* need_seqnos */ false,
-                                         /*include_archived*/ false);
+      Status wal_s = wal_manager_.GetSortedWalFiles(
+          live_wal_files,
+          /* need_seqnos */ false,
+          /*include_archived*/ false);
 
-      if (!s.ok()) {
-        return s;
+      if (!wal_s.ok()) {
+        return wal_s;
       }
 
       // Don't flush column families if total log size is smaller than
@@ -408,17 +408,15 @@ Status DBImpl::GetLiveFilesStorageInfo(
   TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles1");
   TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
 
-  if (s.ok()) {
-    // FlushWAL is required to ensure we can physically copy everything
-    // logically written to the WAL. (Sync not strictly required for
-    // active WAL to be copied rather than hard linked, even when
-    // Checkpoint guarantees that the copied-to file is sync-ed. Plus we can't
-    // help track_and_verify_wals_in_manifest after manifest_size is
-    // already determined.)
-    s = FlushWAL(/*sync=*/false);
-    if (s.IsNotSupported()) {  // read-only DB or similar
-      s = Status::OK();
-    }
+  // FlushWAL is required to ensure we can physically copy everything
+  // logically written to the WAL. (Sync not strictly required for
+  // active WAL to be copied rather than hard linked, even when
+  // Checkpoint guarantees that the copied-to file is sync-ed. Plus we can't
+  // help track_and_verify_wals_in_manifest after manifest_size is
+  // already determined.)
+  Status s = FlushWAL(/*sync=*/false);
+  if (s.IsNotSupported()) {  // read-only DB or similar
+    s = Status::OK();
   }
 
   TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1");
