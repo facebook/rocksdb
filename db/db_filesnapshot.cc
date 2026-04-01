@@ -216,10 +216,9 @@ Status DBImpl::GetLiveFilesStorageInfo(
       // Don't take archived log size into account when calculating wal
       // size for flush, and don't need to verify consistency with manifest
       // here & now.
-      Status wal_s = wal_manager_.GetSortedWalFiles(
-          live_wal_files,
-          /* need_seqnos */ false,
-          /*include_archived*/ false);
+      Status wal_s = wal_manager_.GetSortedWalFiles(live_wal_files,
+                                                    /* need_seqnos */ false,
+                                                    /*include_archived*/ false);
 
       if (!wal_s.ok()) {
         return wal_s;
