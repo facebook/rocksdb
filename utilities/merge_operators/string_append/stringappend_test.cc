@@ -71,8 +71,7 @@ std::shared_ptr<DB> OpenTtlDb(const std::string& delim) {
 class StringLists {
  public:
   // Constructor: specifies the rocksdb db
-  /* implicit */
-  StringLists(std::shared_ptr<DB> db)
+  explicit StringLists(std::shared_ptr<DB> db)
       : db_(db), merge_option_(), get_option_() {
     assert(db);
   }

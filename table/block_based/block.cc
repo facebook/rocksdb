@@ -648,7 +648,9 @@ bool BlockIter<TValue>::ParseNextKey(bool* is_shared) {
     return false;
   }
   // Decode next entry
-  uint32_t shared, non_shared, value_length;
+  uint32_t shared;
+  uint32_t non_shared;
+  uint32_t value_length;
   p = DecodeEntryFunc()(p, limit, &shared, &non_shared, &value_length);
   if (p == nullptr || raw_key_.Size() < shared) {
     CorruptionError();
@@ -845,12 +847,14 @@ bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t* index,
   //   keys.
   // - Any restart keys after index `right` are strictly greater than the target
   //   key.
-  int64_t left = -1, right = num_restarts_ - 1;
+  int64_t left = -1;
+  int64_t right = num_restarts_ - 1;
   while (left != right) {
     // The `mid` is computed by rounding up so it lands in (`left`, `right`].
     int64_t mid = left + (right - left + 1) / 2;
     uint32_t region_offset = GetRestartPoint(static_cast<uint32_t>(mid));
-    uint32_t shared, non_shared;
+    uint32_t shared;
+    uint32_t non_shared;
     const char* key_ptr = DecodeKeyFunc()(
         data_ + region_offset, data_ + restarts_, &shared, &non_shared);
     if (key_ptr == nullptr || (shared != 0)) {
@@ -889,7 +893,8 @@ bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t* index,
 // Return -1 if error.
 int IndexBlockIter::CompareBlockKey(uint32_t block_index, const Slice& target) {
   uint32_t region_offset = GetRestartPoint(block_index);
-  uint32_t shared, non_shared;
+  uint32_t shared;
+  uint32_t non_shared;
   const char* key_ptr =
       value_delta_encoded_
           ? DecodeKeyV4()(data_ + region_offset, data_ + restarts_, &shared,
