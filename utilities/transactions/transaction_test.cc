@@ -284,6 +284,7 @@ TEST_P(TransactionTest, DirectWriteCommitPath) {
 
   options.enable_blob_files = true;
   options.enable_blob_direct_write = true;
+  options.allow_concurrent_memtable_write = false;
   options.blob_direct_write_partitions = 2;
   options.min_blob_size = 32;
   options.use_direct_reads = true;

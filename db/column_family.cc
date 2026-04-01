@@ -1544,6 +1544,10 @@ Status ColumnFamilyData::ValidateOptions(
       return Status::NotSupported(
           "Blob direct write v1 does not support pipelined writes.");
     }
+    if (db_options.allow_concurrent_memtable_write) {
+      return Status::NotSupported(
+          "Blob direct write v1 does not support concurrent memtable writes.");
+    }
     if (db_options.unordered_write) {
       return Status::NotSupported(
           "Blob direct write v1 does not support unordered writes.");

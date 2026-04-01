@@ -909,6 +909,7 @@ TEST_F(CheckpointTest, CheckpointWithLockWALRejectsBlobDirectWrite) {
   Options options = CurrentOptions();
   options.enable_blob_files = true;
   options.enable_blob_direct_write = true;
+  options.allow_concurrent_memtable_write = false;
   options.min_blob_size = 32;
   Reopen(options);
 
@@ -1448,6 +1449,7 @@ TEST_F(CheckpointTest, BackupWithoutFlushRejectsBlobDirectWrite) {
   Options options = CurrentOptions();
   options.enable_blob_files = true;
   options.enable_blob_direct_write = true;
+  options.allow_concurrent_memtable_write = false;
   options.min_blob_size = 32;
   Reopen(options);
 

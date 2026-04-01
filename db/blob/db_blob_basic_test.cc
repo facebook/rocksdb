@@ -34,6 +34,7 @@ class DBBlobBasicTest : public DBTestBase {
     Options options = GetDefaultOptions();
     options.enable_blob_files = true;
     options.enable_blob_direct_write = true;
+    options.allow_concurrent_memtable_write = false;
     options.min_blob_size = 32;
     options.blob_direct_write_partitions = 1;
     return options;
@@ -1029,6 +1030,7 @@ TEST_F(DBBlobBasicTest,
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.enable_blob_direct_write = true;
+  options.allow_concurrent_memtable_write = false;
   options.blob_direct_write_partitions = 4;
   options.min_blob_size = 32;
   options.use_direct_reads = true;
@@ -1113,6 +1115,7 @@ TEST_F(DBBlobBasicTest, DirectWriteCloseFlushesWhenShutdownFlushIsDisabled) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.enable_blob_direct_write = true;
+  options.allow_concurrent_memtable_write = false;
   options.blob_direct_write_partitions = 4;
   options.min_blob_size = 32;
   options.avoid_flush_during_shutdown = true;
@@ -1241,6 +1244,10 @@ TEST_F(DBBlobBasicTest, DirectWriteRejectsUnsupportedWriteModes) {
   Options options = GetDirectWriteOptions();
   options.enable_pipelined_write = true;
   assert_rejected(options, "pipelined writes");
+
+  options = GetDirectWriteOptions();
+  options.allow_concurrent_memtable_write = true;
+  assert_rejected(options, "concurrent memtable writes");
 
   options = GetDirectWriteOptions();
   options.unordered_write = true;
@@ -3118,6 +3125,7 @@ TEST_F(DBBlobWithTimestampTest, DirectWriteRejectsUserDefinedTimestamps) {
   options.create_if_missing = true;
   options.enable_blob_files = true;
   options.enable_blob_direct_write = true;
+  options.allow_concurrent_memtable_write = false;
   options.min_blob_size = 32;
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);

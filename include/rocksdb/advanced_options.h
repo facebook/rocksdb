@@ -1196,8 +1196,9 @@ struct AdvancedColumnFamilyOptions {
   // Experimental reduced-scope v1 restrictions. These limitations keep the v1
   // implementation intentionally small; follow-up PRs are expected to improve
   // feature compatibility over time:
-  //  - only supports the ordered write path; unordered, pipelined, and
-  //    two_write_queues write modes are not supported.
+  //  - only supports the ordered single-memtable-writer path; unordered,
+  //    pipelined, two_write_queues, and allow_concurrent_memtable_write are
+  //    not supported.
   //  - crash recovery only supports blob files that were already made
   //    manifest-visible by flush/SST creation; WAL replay of active
   //    direct-write blob files is not currently supported.
