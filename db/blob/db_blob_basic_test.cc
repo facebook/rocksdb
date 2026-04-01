@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <set>
 #include <sstream>
 #include <string>
 
@@ -1707,6 +1708,218 @@ TEST_F(DBBlobBasicTest, DirectWriteSnapshotIsolation) {
           .IsNotFound());
 
   db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBBlobBasicTest,
+       DirectWriteLazyIteratorReadSurvivesCompactionWithMultiplePartitions) {
+  Options options = GetDirectWriteOptions();
+  options.blob_direct_write_partitions = 4;
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+
+  const std::array<std::string, 4> keys{"lazy_iter_key_0", "lazy_iter_key_1",
+                                        "lazy_iter_key_2", "lazy_iter_key_3"};
+  const std::array<std::string, 4> values{
+      std::string(96, 'a'), std::string(96, 'b'), std::string(96, 'c'),
+      std::string(96, 'd')};
+  const std::array<std::string, 4> new_values{
+      std::string(128, 'w'), std::string(128, 'x'), std::string(128, 'y'),
+      std::string(128, 'z')};
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_OK(Put(keys[i], values[i]));
+  }
+  ASSERT_OK(Flush());
+
+  auto get_blob_file_number = [this](const std::string& key) -> uint64_t {
+    PinnableSlice value;
+    bool is_blob_index = false;
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = db_->DefaultColumnFamily();
+    get_impl_options.value = &value;
+    get_impl_options.is_blob_index = &is_blob_index;
+    Status s = dbfull()->GetImpl(ReadOptions(), key, get_impl_options);
+    EXPECT_OK(s);
+    EXPECT_TRUE(is_blob_index);
+    if (!s.ok() || !is_blob_index) {
+      return kInvalidBlobFileNumber;
+    }
+
+    BlobIndex blob_index;
+    s = blob_index.DecodeFrom(value);
+    EXPECT_OK(s);
+    if (!s.ok()) {
+      return kInvalidBlobFileNumber;
+    }
+    return blob_index.file_number();
+  };
+
+  std::array<uint64_t, 4> original_blob_files{};
+  for (size_t i = 0; i < keys.size(); ++i) {
+    original_blob_files[i] = get_blob_file_number(keys[i]);
+    ASSERT_NE(original_blob_files[i], kInvalidBlobFileNumber);
+  }
+
+  const uint64_t oldest_blob_file =
+      *std::min_element(original_blob_files.begin(), original_blob_files.end());
+  size_t target_idx = 0;
+  while (target_idx < original_blob_files.size() &&
+         original_blob_files[target_idx] == oldest_blob_file) {
+    ++target_idx;
+  }
+  ASSERT_LT(target_idx, original_blob_files.size());
+
+  ReadOptions read_options;
+  read_options.allow_unprepared_value = true;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  iter->Seek(keys[target_idx]);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), keys[target_idx]);
+  ASSERT_TRUE(iter->value().empty());
+  ASSERT_OK(iter->status());
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_OK(Put(keys[i], new_values[i]));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                              /*end=*/nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
+
+  auto get_live_blob_file_numbers = [this]() -> std::set<uint64_t> {
+    std::set<uint64_t> blob_file_numbers;
+
+    VersionSet* const versions = dbfull()->GetVersionSet();
+    EXPECT_NE(versions, nullptr);
+    if (versions == nullptr || versions->GetColumnFamilySet() == nullptr) {
+      return blob_file_numbers;
+    }
+
+    ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+    EXPECT_NE(cfd, nullptr);
+    if (cfd == nullptr) {
+      return blob_file_numbers;
+    }
+
+    Version* const dummy_versions = cfd->dummy_versions();
+    EXPECT_NE(dummy_versions, nullptr);
+    if (dummy_versions == nullptr) {
+      return blob_file_numbers;
+    }
+
+    for (Version* v = dummy_versions->Next(); v != dummy_versions;
+         v = v->Next()) {
+      EXPECT_NE(v, nullptr);
+      if (v == nullptr) {
+        continue;
+      }
+      for (const auto& meta : v->storage_info()->GetBlobFiles()) {
+        EXPECT_NE(meta, nullptr);
+        if (meta == nullptr) {
+          continue;
+        }
+        blob_file_numbers.insert(meta->GetBlobFileNumber());
+      }
+    }
+
+    return blob_file_numbers;
+  };
+
+  const auto live_blob_files = get_live_blob_file_numbers();
+  ASSERT_TRUE(live_blob_files.find(original_blob_files[target_idx]) !=
+              live_blob_files.end());
+
+  ASSERT_TRUE(iter->PrepareValue());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value().ToString(), values[target_idx]);
+}
+
+TEST_F(
+    DBBlobBasicTest,
+    DirectWriteLazyIteratorFromMemtableSurvivesFlushCompactionWithMultiplePartitions) {
+  Options options = GetDirectWriteOptions();
+  options.blob_direct_write_partitions = 4;
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+
+  const std::array<std::string, 4> keys{
+      "mem_lazy_iter_key_0", "mem_lazy_iter_key_1", "mem_lazy_iter_key_2",
+      "mem_lazy_iter_key_3"};
+  const std::array<std::string, 4> values{
+      std::string(96, 'a'), std::string(96, 'b'), std::string(96, 'c'),
+      std::string(96, 'd')};
+  const std::array<std::string, 4> new_values{
+      std::string(128, 'w'), std::string(128, 'x'), std::string(128, 'y'),
+      std::string(128, 'z')};
+
+  auto get_blob_file_number = [this](const std::string& key) -> uint64_t {
+    PinnableSlice value;
+    bool is_blob_index = false;
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = db_->DefaultColumnFamily();
+    get_impl_options.value = &value;
+    get_impl_options.is_blob_index = &is_blob_index;
+    Status s = dbfull()->GetImpl(ReadOptions(), key, get_impl_options);
+    EXPECT_OK(s);
+    EXPECT_TRUE(is_blob_index);
+    if (!s.ok() || !is_blob_index) {
+      return kInvalidBlobFileNumber;
+    }
+
+    BlobIndex blob_index;
+    s = blob_index.DecodeFrom(value);
+    EXPECT_OK(s);
+    if (!s.ok()) {
+      return kInvalidBlobFileNumber;
+    }
+    return blob_index.file_number();
+  };
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_OK(Put(keys[i], values[i]));
+  }
+
+  std::array<uint64_t, 4> original_blob_files{};
+  for (size_t i = 0; i < keys.size(); ++i) {
+    original_blob_files[i] = get_blob_file_number(keys[i]);
+    ASSERT_NE(original_blob_files[i], kInvalidBlobFileNumber);
+  }
+
+  const uint64_t oldest_blob_file =
+      *std::min_element(original_blob_files.begin(), original_blob_files.end());
+  size_t target_idx = 0;
+  while (target_idx < original_blob_files.size() &&
+         original_blob_files[target_idx] == oldest_blob_file) {
+    ++target_idx;
+  }
+  ASSERT_LT(target_idx, original_blob_files.size());
+
+  ReadOptions read_options;
+  read_options.allow_unprepared_value = true;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  iter->Seek(keys[target_idx]);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), keys[target_idx]);
+  ASSERT_TRUE(iter->value().empty());
+  ASSERT_OK(iter->status());
+
+  ASSERT_OK(Flush());
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_OK(Put(keys[i], new_values[i]));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                              /*end=*/nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
+
+  ASSERT_TRUE(iter->PrepareValue());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value().ToString(), values[target_idx]);
 }
 
 TEST_F(DBBlobBasicTest, MultiGetBlobsFromMultipleFiles) {

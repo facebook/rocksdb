@@ -252,6 +252,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     if (mgr != nullptr) {
       mgr->GetActiveBlobFileNumbers(
           &job_context->active_blob_direct_write_files);
+      mgr->GetProtectedBlobFileNumbers(
+          &job_context->active_blob_direct_write_files);
     }
   }
 

@@ -15,6 +15,7 @@
 #include <memory>
 #include <optional>
 
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/dbformat.h"
 #include "db/kv_checksum.h"
 #include "db/merge_context.h"
@@ -76,6 +77,50 @@ ImmutableMemTableOptions::ImmutableMemTableOptions(
           mutable_cf_options.memtable_veirfy_per_key_checksum_on_seek),
       memtable_batch_lookup_optimization(
           ioptions.memtable_batch_lookup_optimization) {}
+
+void ReadOnlyMemTable::ProtectSealedBlobFiles(
+    BlobFilePartitionManager* blob_partition_manager,
+    const std::vector<uint64_t>& file_numbers) {
+  if (file_numbers.empty()) {
+    return;
+  }
+
+  assert(blob_partition_manager != nullptr);
+  if (protected_blob_file_manager_ == nullptr) {
+    protected_blob_file_manager_ = blob_partition_manager;
+  } else {
+    assert(protected_blob_file_manager_ == blob_partition_manager);
+  }
+
+  std::vector<uint64_t> newly_protected_file_numbers;
+  newly_protected_file_numbers.reserve(file_numbers.size());
+  for (uint64_t file_number : file_numbers) {
+    auto it = std::find(protected_blob_file_numbers_.begin(),
+                        protected_blob_file_numbers_.end(), file_number);
+    if (it != protected_blob_file_numbers_.end()) {
+      continue;
+    }
+    protected_blob_file_numbers_.push_back(file_number);
+    newly_protected_file_numbers.push_back(file_number);
+  }
+
+  if (!newly_protected_file_numbers.empty()) {
+    protected_blob_file_manager_->ProtectSealedBlobFileNumbers(
+        newly_protected_file_numbers);
+  }
+}
+
+void ReadOnlyMemTable::ReleaseProtectedSealedBlobFiles() {
+  if (protected_blob_file_manager_ == nullptr) {
+    assert(protected_blob_file_numbers_.empty());
+    return;
+  }
+
+  protected_blob_file_manager_->UnprotectSealedBlobFileNumbers(
+      protected_blob_file_numbers_);
+  protected_blob_file_numbers_.clear();
+  protected_blob_file_manager_ = nullptr;
+}
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableOptions& ioptions,

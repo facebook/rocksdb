@@ -5,6 +5,7 @@
 
 #include "db/blob/blob_file_partition_manager.h"
 
+#include <cinttypes>
 #include <memory>
 #include <utility>
 
@@ -468,11 +469,15 @@ void BlobFilePartitionManager::RotateCurrentGeneration() {
 Status BlobFilePartitionManager::PrepareFlushAdditions(
     const WriteOptions& write_options, size_t num_generations,
     std::vector<BlobFileAddition>* additions,
-    std::vector<BlobFileGarbage>* garbages) {
+    std::vector<BlobFileGarbage>* garbages,
+    std::vector<std::vector<uint64_t>>* generation_blob_file_numbers) {
   assert(additions != nullptr);
   assert(garbages != nullptr);
   additions->clear();
   garbages->clear();
+  if (generation_blob_file_numbers != nullptr) {
+    generation_blob_file_numbers->clear();
+  }
 
   MutexLock lock(&mutex_);
   if (num_generations > pending_generations_.size()) {
@@ -497,9 +502,20 @@ Status BlobFilePartitionManager::PrepareFlushAdditions(
       batch.sealed_files.push_back(std::move(sealed_file));
     }
 
+    std::vector<uint64_t>* generation_file_numbers = nullptr;
+    if (generation_blob_file_numbers != nullptr) {
+      generation_blob_file_numbers->emplace_back();
+      generation_file_numbers = &generation_blob_file_numbers->back();
+      generation_file_numbers->reserve(batch.sealed_files.size());
+    }
+
     for (const auto& sealed_file : batch.sealed_files) {
       additions->push_back(sealed_file.addition);
       AddSealedFileGarbage(sealed_file, garbages);
+      if (generation_file_numbers != nullptr) {
+        generation_file_numbers->push_back(
+            sealed_file.addition.GetBlobFileNumber());
+      }
     }
   }
 
@@ -579,6 +595,53 @@ void BlobFilePartitionManager::GetActiveBlobFileNumbers(
   ReadLock lock(&file_partition_mutex_);
   for (const auto& entry : file_to_partition_) {
     file_numbers->insert(entry.first);
+  }
+}
+
+void BlobFilePartitionManager::GetProtectedBlobFileNumbers(
+    std::unordered_set<uint64_t>* file_numbers) const {
+  assert(file_numbers != nullptr);
+  ReadLock lock(&file_partition_mutex_);
+  for (const auto& entry : protected_blob_file_refs_) {
+    file_numbers->insert(entry.first);
+  }
+}
+
+void BlobFilePartitionManager::ProtectSealedBlobFileNumbers(
+    const std::vector<uint64_t>& file_numbers) {
+  if (file_numbers.empty()) {
+    return;
+  }
+
+  WriteLock lock(&file_partition_mutex_);
+  for (uint64_t file_number : file_numbers) {
+    ++protected_blob_file_refs_[file_number];
+  }
+}
+
+void BlobFilePartitionManager::UnprotectSealedBlobFileNumbers(
+    const std::vector<uint64_t>& file_numbers) {
+  if (file_numbers.empty()) {
+    return;
+  }
+
+  WriteLock lock(&file_partition_mutex_);
+  for (uint64_t file_number : file_numbers) {
+    auto it = protected_blob_file_refs_.find(file_number);
+    if (it == protected_blob_file_refs_.end()) {
+      if (info_log_ != nullptr) {
+        ROCKS_LOG_ERROR(info_log_,
+                        "Memtable blob protection underflow for file #%" PRIu64,
+                        file_number);
+      }
+      continue;
+    }
+
+    assert(it->second > 0);
+    --it->second;
+    if (it->second == 0) {
+      protected_blob_file_refs_.erase(it);
+    }
   }
 }
 

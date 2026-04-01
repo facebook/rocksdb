@@ -295,14 +295,24 @@ Status DBImpl::FlushMemTableToOutputFile(
       prepared_blob_generations = flush_job.GetMemTables().size();
       std::vector<BlobFileAddition> write_path_additions;
       std::vector<BlobFileGarbage> write_path_garbages;
+      std::vector<std::vector<uint64_t>> generation_blob_file_numbers;
       mutex_.Unlock();
-      s = mgr->PrepareFlushAdditions(write_options, prepared_blob_generations,
-                                     &write_path_additions,
-                                     &write_path_garbages);
+      s = mgr->PrepareFlushAdditions(
+          write_options, prepared_blob_generations, &write_path_additions,
+          &write_path_garbages, &generation_blob_file_numbers);
       mutex_.Lock();
       if (!s.ok()) {
         prepared_blob_generations = 0;
       } else if (!write_path_additions.empty()) {
+        const auto& memtables = flush_job.GetMemTables();
+        assert(generation_blob_file_numbers.size() == memtables.size());
+        for (size_t i = 0; i < generation_blob_file_numbers.size(); ++i) {
+          // Old SuperVersions can keep these memtables alive after the flush
+          // commits, so keep their sealed direct-write blob files protected
+          // from obsolete-file purge until the memtable is finally released.
+          memtables[i]->ProtectSealedBlobFiles(mgr,
+                                               generation_blob_file_numbers[i]);
+        }
         for (const auto& addition : write_path_additions) {
           sealed_blob_numbers.push_back(addition.GetBlobFileNumber());
         }
@@ -626,16 +636,23 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       prepared_blob_generations[i] = jobs[i]->GetMemTables().size();
       std::vector<BlobFileAddition> write_path_additions;
       std::vector<BlobFileGarbage> write_path_garbages;
+      std::vector<std::vector<uint64_t>> generation_blob_file_numbers;
       mutex_.Unlock();
       s = mgr->PrepareFlushAdditions(
           write_options, prepared_blob_generations[i], &write_path_additions,
-          &write_path_garbages);
+          &write_path_garbages, &generation_blob_file_numbers);
       mutex_.Lock();
       if (!s.ok()) {
         prepared_blob_generations[i] = 0;
         break;
       }
       if (!write_path_additions.empty()) {
+        const auto& memtables = jobs[i]->GetMemTables();
+        assert(generation_blob_file_numbers.size() == memtables.size());
+        for (size_t j = 0; j < generation_blob_file_numbers.size(); ++j) {
+          memtables[j]->ProtectSealedBlobFiles(mgr,
+                                               generation_blob_file_numbers[j]);
+        }
         auto& sealed_blob_numbers = sealed_blob_numbers_by_cf[i];
         for (const auto& addition : write_path_additions) {
           sealed_blob_numbers.push_back(addition.GetBlobFileNumber());

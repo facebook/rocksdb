@@ -44,11 +44,10 @@ struct ReadOptions;
 
 // Manages per-partition blob files for write-path blob direct write.
 //
-// The v1 design intentionally assumes a single writer thread. Every memtable
-// switch creates one FIFO generation batch. Direct-write files for that
-// memtable are sealed and registered when that batch is flushed. This keeps
-// the initial implementation scoped down; follow-up PRs can broaden
-// compatibility as the feature matures.
+// The v1 design keeps each memtable switch as one FIFO generation batch.
+// Direct-write files for that memtable are sealed and registered when the
+// matching flush commits. Follow-up PRs can broaden compatibility as the
+// feature matures.
 class BlobFilePartitionManager {
  public:
   using FileNumberAllocator = std::function<uint64_t()>;
@@ -85,11 +84,15 @@ class BlobFilePartitionManager {
   // Seal the first `num_generations` queued immutable generations and return
   // all blob additions and initial-garbage updates that must be registered
   // with the matching flush. Generations stay queued until
-  // CommitPreparedGenerations() is called.
+  // CommitPreparedGenerations() is called. If `generation_blob_file_numbers`
+  // is non-null, it receives the sealed blob file numbers for each prepared
+  // generation in the same FIFO order.
   Status PrepareFlushAdditions(const WriteOptions& write_options,
                                size_t num_generations,
                                std::vector<BlobFileAddition>* additions,
-                               std::vector<BlobFileGarbage>* garbages);
+                               std::vector<BlobFileGarbage>* garbages,
+                               std::vector<std::vector<uint64_t>>*
+                                   generation_blob_file_numbers = nullptr);
 
   // Remove the first `num_generations` prepared immutable generations after
   // their blob-file additions and garbage edits were committed to MANIFEST.
@@ -108,6 +111,16 @@ class BlobFilePartitionManager {
   // to consider obsolete.
   void GetActiveBlobFileNumbers(
       std::unordered_set<uint64_t>* file_numbers) const;
+
+  // Returns sealed blob files that are still reachable through live memtables
+  // or old SuperVersions and therefore must not be purged yet.
+  void GetProtectedBlobFileNumbers(
+      std::unordered_set<uint64_t>* file_numbers) const;
+
+  // Increments / decrements memtable-held protection on sealed blob files.
+  void ProtectSealedBlobFileNumbers(const std::vector<uint64_t>& file_numbers);
+  void UnprotectSealedBlobFileNumbers(
+      const std::vector<uint64_t>& file_numbers);
 
   // Stops protecting file numbers that are now registered in MANIFEST.
   void RemoveFilePartitionMappings(const std::vector<uint64_t>& file_numbers);
@@ -271,10 +284,13 @@ class BlobFilePartitionManager {
   // FIFO immutable memtable generations waiting to be flushed.
   std::deque<GenerationBatch> pending_generations_;
 
-  // Tracks blob files that should be protected from obsolete-file deletion
-  // until commit or abandonment.
+  // Tracks blob files still owned by active or deferred write-path state until
+  // MANIFEST commit publishes them.
   std::unordered_map<uint64_t, uint32_t> file_to_partition_;
-  // Protects file_to_partition_.
+  // Sealed direct-write files that remain reachable from live memtables, such
+  // as old SuperVersions serving lazy iterator reads after flush commit.
+  std::unordered_map<uint64_t, uint32_t> protected_blob_file_refs_;
+  // Protects file_to_partition_ and protected_blob_file_refs_.
   mutable port::RWMutex file_partition_mutex_;
 
   // Cached direct-write settings snapshot for the hot write path. Atomic

@@ -37,6 +37,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class BlobFilePartitionManager;
 struct FlushJobInfo;
 class Mutex;
 class MemTableIterator;
@@ -344,10 +345,19 @@ class ReadOnlyMemTable {
     --refs_;
     assert(refs_ >= 0);
     if (refs_ <= 0) {
+      ReleaseProtectedSealedBlobFiles();
       return this;
     }
     return nullptr;
   }
+
+  // Registers sealed direct-write blob files that this memtable can still
+  // resolve through lazy blob indexes. The protection lasts until the
+  // memtable's final Unref().
+  // REQUIRES: external synchronization to prevent simultaneous operations on
+  // the same MemTable.
+  void ProtectSealedBlobFiles(BlobFilePartitionManager* blob_partition_manager,
+                              const std::vector<uint64_t>& file_numbers);
 
   // Returns the edits area that is needed for flushing the memtable
   VersionEdit* GetEdits() { return &edit_; }
@@ -532,6 +542,12 @@ class ReadOnlyMemTable {
   std::unique_ptr<FlushJobInfo> flush_job_info_;
 
   RelaxedAtomic<bool> marked_for_flush_{false};
+
+ private:
+  void ReleaseProtectedSealedBlobFiles();
+
+  BlobFilePartitionManager* protected_blob_file_manager_ = nullptr;
+  std::vector<uint64_t> protected_blob_file_numbers_;
 };
 
 class MemTable final : public ReadOnlyMemTable {

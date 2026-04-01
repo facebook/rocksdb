@@ -1217,7 +1217,6 @@ struct AdvancedColumnFamilyOptions {
 
   // Number of direct-write blob partitions for this column family.
   // Partition selection is round-robin.
-  //
   // Requires enable_blob_direct_write = true.
   //
   // Default: 1

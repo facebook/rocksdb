@@ -214,7 +214,9 @@ struct JobContext {
   // So this data structure doesn't track log files.
   autovector<uint64_t> files_to_quarantine;
 
-  // Blob file numbers that PurgeObsoleteFiles must keep.
+  // Blob file numbers that PurgeObsoleteFiles must keep. This includes both
+  // actively written direct-write files and sealed direct-write files that are
+  // still reachable through live memtables / old SuperVersions.
   // Collected under db_mutex_ in FindObsoleteFiles so PurgeObsoleteFiles can
   // safely use the snapshot without taking DB mutex.
   std::unordered_set<uint64_t> active_blob_direct_write_files;
