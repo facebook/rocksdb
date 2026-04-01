@@ -296,6 +296,14 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {PREFETCH_MEMORY_BYTES_RELEASED, "rocksdb.prefetch.memory.bytes.released"},
     {PREFETCH_MEMORY_REQUESTS_BLOCKED,
      "rocksdb.prefetch.memory.requests.blocked"},
+    {BLOCK_CACHE_RANGE_DELETION_MISS,
+     "rocksdb.block.cache.range.deletion.miss"},
+    {BLOCK_CACHE_RANGE_DELETION_HIT, "rocksdb.block.cache.range.deletion.hit"},
+    {BLOCK_CACHE_RANGE_DELETION_ADD, "rocksdb.block.cache.range.deletion.add"},
+    {BLOCK_CACHE_RANGE_DELETION_BYTES_INSERT,
+     "rocksdb.block.cache.range.deletion.bytes.insert"},
+    {BLOCK_CACHE_RANGE_DELETION_ADD_REDUNDANT,
+     "rocksdb.block.cache.range.deletion.add.redundant"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {

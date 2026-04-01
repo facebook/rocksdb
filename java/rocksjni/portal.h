@@ -4894,6 +4894,16 @@ class TickerTypeJni {
       case ROCKSDB_NAMESPACE::Tickers::
           BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT:
         return 0x1A;
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_RANGE_DELETION_MISS:
+        return -0x69;
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_RANGE_DELETION_HIT:
+        return -0x6A;
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_RANGE_DELETION_ADD:
+        return -0x6B;
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_RANGE_DELETION_BYTES_INSERT:
+        return -0x6C;
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_RANGE_DELETION_ADD_REDUNDANT:
+        return -0x6D;
       case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_HITS:
         return 0x1B;
       case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_FILTER_HITS:
@@ -4955,6 +4965,8 @@ class TickerTypeJni {
         return 0x37;
       case ROCKSDB_NAMESPACE::Tickers::COMPACTION_CANCELLED:
         return 0x38;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_ABORTED:
+        return -0x6E;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_WRITTEN:
         return 0x39;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_READ:
@@ -5804,6 +5816,20 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::MULTISCAN_IO_COALESCED_NONADJACENT;
       case -0x68:
         return ROCKSDB_NAMESPACE::Tickers::MULTISCAN_SEEK_ERRORS;
+      case -0x69:
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_RANGE_DELETION_MISS;
+      case -0x6A:
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_RANGE_DELETION_HIT;
+      case -0x6B:
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_RANGE_DELETION_ADD;
+      case -0x6C:
+        return ROCKSDB_NAMESPACE::Tickers::
+            BLOCK_CACHE_RANGE_DELETION_BYTES_INSERT;
+      case -0x6D:
+        return ROCKSDB_NAMESPACE::Tickers::
+            BLOCK_CACHE_RANGE_DELETION_ADD_REDUNDANT;
+      case -0x6E:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACTION_ABORTED;
       case -0x54:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
