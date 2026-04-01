@@ -346,7 +346,7 @@ inline struct io_uring* CreateIOUring() {
   flags |= IORING_SETUP_DEFER_TASKRUN;
   int ret = io_uring_queue_init(kIoUringDepth, new_io_uring, flags);
   if (ret) {
-    fprintf(stderr, "CreateIOUring failed: %s (errno=%d), thread=%lu\n",
+    fprintf(stdout, "CreateIOUring failed: %s (errno=%d), thread=%lu\n",
             errnoStr(-ret).c_str(), -ret,
             static_cast<unsigned long>(pthread_self()));
     delete new_io_uring;
