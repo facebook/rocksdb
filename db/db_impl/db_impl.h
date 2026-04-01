@@ -1595,8 +1595,9 @@ class DBImpl : public DB {
                    PostMemTableCallback* post_memtable_callback = nullptr,
                    std::shared_ptr<WriteBatchWithIndex> wbwi = nullptr);
 
-  // Per-WriteImpl state that keeps BDW column families pinned until the
-  // transformed write either commits or rolls back.
+  // Per-WriteImpl state that keeps BDW column families pinned through
+  // referenced SuperVersions until the transformed write either commits or
+  // rolls back.
   struct BlobDirectWriteContext;
   // Rewrites a write batch for blob direct write when the current DB and batch
   // shape are compatible, recording touched managers and rollback metadata in

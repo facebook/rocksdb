@@ -26,8 +26,6 @@
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "util/atomic.h"
-
 namespace ROCKSDB_NAMESPACE {
 
 class BlobFileCache;
@@ -130,22 +128,6 @@ class BlobFilePartitionManager {
   // Returns Corruption if the manager can no longer match the blob file.
   Status MarkBlobWriteAsGarbage(uint64_t file_number, uint64_t blob_count,
                                 uint64_t blob_bytes);
-
-  // Returns the current cached direct-write settings snapshot.
-  BlobDirectWriteSettings GetCachedSettings(uint32_t /*cf_id*/) const {
-    std::shared_ptr<const BlobDirectWriteSettings> settings =
-        AtomicSharedPtrLoad(&cached_settings_, std::memory_order_acquire);
-    return settings ? *settings : BlobDirectWriteSettings{};
-  }
-
-  // Publishes a new cached settings snapshot for future write-path lookups.
-  void UpdateCachedSettings(uint32_t /*cf_id*/,
-                            const BlobDirectWriteSettings& settings) {
-    std::shared_ptr<const BlobDirectWriteSettings> replacement =
-        std::make_shared<BlobDirectWriteSettings>(settings);
-    AtomicSharedPtrStore(&cached_settings_, std::move(replacement),
-                         std::memory_order_release);
-  }
 
   // Resolves a direct-write BlobIndex by consulting manifest-visible state
   // first, then falling back to direct blob-file reads while the target blob
@@ -292,11 +274,6 @@ class BlobFilePartitionManager {
   std::unordered_map<uint64_t, uint32_t> protected_blob_file_refs_;
   // Protects file_to_partition_ and protected_blob_file_refs_.
   mutable port::RWMutex file_partition_mutex_;
-
-  // Cached direct-write settings snapshot for the hot write path. Atomic
-  // shared_ptr publication keeps readers lock-free while allowing old
-  // snapshots to be reclaimed automatically after dynamic option updates.
-  std::shared_ptr<const BlobDirectWriteSettings> cached_settings_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

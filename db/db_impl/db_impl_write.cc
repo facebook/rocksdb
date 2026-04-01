@@ -428,7 +428,9 @@ Status DBImpl::IngestWBWIAsMemtable(
 
 struct DBImpl::BlobDirectWriteContext {
   struct Entry {
-    ColumnFamilyData* cfd = nullptr;
+    // Hold a referenced SuperVersion so BDW uses the same published mutable
+    // option snapshot as the rest of the DB while keeping the CFD alive.
+    SuperVersion* super_version = nullptr;
     BlobFilePartitionManager* partition_mgr = nullptr;
     BlobDirectWriteSettings settings;
   };
@@ -454,10 +456,9 @@ struct DBImpl::BlobDirectWriteContext {
       return;
     }
 
-    InstrumentedMutexLock lock(&db_impl_->mutex_);
     for (auto& entry : entries_) {
-      if (entry.second.cfd != nullptr) {
-        entry.second.cfd->UnrefAndTryDelete();
+      if (entry.second.super_version != nullptr) {
+        db_impl_->CleanupSuperVersion(entry.second.super_version);
       }
     }
     entries_.clear();
@@ -467,6 +468,55 @@ struct DBImpl::BlobDirectWriteContext {
   std::vector<BlobWriteBatchTransformer::RollbackInfo> rollback_infos;
 
  private:
+  static BlobDirectWriteSettings BuildSettings(const SuperVersion* sv) {
+    assert(sv != nullptr);
+
+    BlobDirectWriteSettings settings;
+    settings.enable_blob_direct_write =
+        sv->cfd->ioptions().enable_blob_direct_write;
+    settings.min_blob_size = sv->mutable_cf_options.min_blob_size;
+    settings.compression_type = sv->mutable_cf_options.blob_compression_type;
+    settings.blob_cache = sv->cfd->ioptions().blob_cache.get();
+    settings.prepopulate_blob_cache =
+        sv->mutable_cf_options.prepopulate_blob_cache;
+    return settings;
+  }
+
+  SuperVersion* AcquireReferencedSuperVersion(uint32_t cf_id,
+                                              bool lookup_from_write_thread) {
+    if (lookup_from_write_thread) {
+      auto* cfd =
+          db_impl_->versions_->GetColumnFamilySet()->GetColumnFamily(cf_id);
+      if (cfd != nullptr) {
+        return cfd->GetReferencedSuperVersion(db_impl_);
+      }
+      return nullptr;
+    }
+
+    ColumnFamilyData* cfd = nullptr;
+    {
+      InstrumentedMutexLock lock(&db_impl_->mutex_);
+      cfd = db_impl_->versions_->GetColumnFamilySet()->GetColumnFamily(cf_id);
+      if (cfd != nullptr) {
+        // Hold the CFD long enough to acquire a referenced SuperVersion after
+        // dropping DB mutex. This reuses the existing SuperVersion publication
+        // path for mutable options rather than maintaining a separate BDW
+        // settings snapshot.
+        cfd->Ref();
+      }
+    }
+    if (cfd == nullptr) {
+      return nullptr;
+    }
+
+    SuperVersion* sv = cfd->GetReferencedSuperVersion(db_impl_);
+    {
+      InstrumentedMutexLock lock(&db_impl_->mutex_);
+      cfd->UnrefAndTryDelete();
+    }
+    return sv;
+  }
+
   Entry& GetOrCreate(uint32_t cf_id, bool lookup_from_write_thread) {
     auto entry_it = entries_.find(cf_id);
     if (entry_it != entries_.end()) {
@@ -474,37 +524,13 @@ struct DBImpl::BlobDirectWriteContext {
     }
 
     Entry entry;
-    auto pin_cfd = [&](ColumnFamilyData* cfd) {
-      if (cfd == nullptr) {
-        return;
+    if (SuperVersion* sv =
+            AcquireReferencedSuperVersion(cf_id, lookup_from_write_thread)) {
+      entry.super_version = sv;
+      entry.partition_mgr = sv->cfd->blob_partition_manager();
+      if (entry.partition_mgr != nullptr) {
+        entry.settings = BuildSettings(sv);
       }
-
-      BlobFilePartitionManager* mgr = cfd->blob_partition_manager();
-      if (mgr == nullptr) {
-        return;
-      }
-
-      // The partition manager is owned by ColumnFamilyData, so pinning the CFD
-      // is sufficient to keep the manager alive across batch transform,
-      // write-path syncing, and rollback even if the CF is concurrently
-      // dropped. This avoids introducing a separate manager refcount or
-      // depending on SuperVersion lifetime for BDW-only write-path state.
-      cfd->Ref();
-      entry.cfd = cfd;
-      entry.partition_mgr = mgr;
-    };
-
-    if (lookup_from_write_thread) {
-      pin_cfd(
-          db_impl_->versions_->GetColumnFamilySet()->GetColumnFamily(cf_id));
-    } else {
-      InstrumentedMutexLock lock(&db_impl_->mutex_);
-      pin_cfd(
-          db_impl_->versions_->GetColumnFamilySet()->GetColumnFamily(cf_id));
-    }
-
-    if (entry.partition_mgr != nullptr) {
-      entry.settings = entry.partition_mgr->GetCachedSettings(cf_id);
     }
 
     return entries_.emplace(cf_id, std::move(entry)).first->second;
