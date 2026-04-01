@@ -46,7 +46,9 @@ struct ReadOptions;
 //
 // The v1 design intentionally assumes a single writer thread. Every memtable
 // switch creates one FIFO generation batch. Direct-write files for that
-// memtable are sealed and registered when that batch is flushed.
+// memtable are sealed and registered when that batch is flushed. This keeps
+// the initial implementation scoped down; follow-up PRs can broaden
+// compatibility as the feature matures.
 class BlobFilePartitionManager {
  public:
   using FileNumberAllocator = std::function<uint64_t()>;

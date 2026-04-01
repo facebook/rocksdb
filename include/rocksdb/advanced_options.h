@@ -1193,7 +1193,9 @@ struct AdvancedColumnFamilyOptions {
   // references.
   //
   // Requires enable_blob_files = true.
-  // Experimental reduced-scope v1 restrictions:
+  // Experimental reduced-scope v1 restrictions. These limitations keep the v1
+  // implementation intentionally small; follow-up PRs are expected to improve
+  // feature compatibility over time:
   //  - only supports the ordered write path; unordered, pipelined, and
   //    two_write_queues write modes are not supported.
   //  - crash recovery only supports blob files that were already made

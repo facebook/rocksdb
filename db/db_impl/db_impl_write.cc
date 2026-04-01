@@ -484,6 +484,11 @@ struct DBImpl::BlobDirectWriteContext {
         return;
       }
 
+      // The partition manager is owned by ColumnFamilyData, so pinning the CFD
+      // is sufficient to keep the manager alive across batch transform,
+      // write-path syncing, and rollback even if the CF is concurrently
+      // dropped. This avoids introducing a separate manager refcount or
+      // depending on SuperVersion lifetime for BDW-only write-path state.
       cfd->Ref();
       entry.cfd = cfd;
       entry.partition_mgr = mgr;
