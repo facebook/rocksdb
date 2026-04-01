@@ -6127,6 +6127,54 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterBoundOutsidePrefix) {
   }
 }
 
+TEST_P(ReadPathRangeTombstoneTest, PrefixFilterOutOfDomainSeek) {
+  // When the seek target is out-of-domain for the prefix extractor,
+  // the BBTI skips bloom filtering (all files visible). Tombstone
+  // tracking falls back to no prefix restriction — same as
+  // total_order_seek. The scan must not crash on Transform().
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 2;
+  options.statistics = CreateDBStatistics();
+  options.disable_auto_compactions = true;
+  // FixedPrefixTransform(4): keys shorter than 4 bytes are out-of-domain.
+  options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  table_options.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  // All keys are in-domain (>= 4 bytes).
+  ASSERT_OK(Put("aaaa", "v1"));
+  ASSERT_OK(Delete("bbbb"));
+  ASSERT_OK(Delete("bbcc"));
+  ASSERT_OK(Put("bbdd", "v2"));
+  ASSERT_OK(Put("cccc", "v3"));
+
+  inserted_ranges_.clear();
+  ReadOptions ro;
+  auto it = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+  if (Forward()) {
+    // Seek with a 1-byte key — out-of-domain for FixedPrefixTransform(4).
+    // No prefix restriction, tombstone tracking works normally.
+    it->Seek("b");
+    while (it->Valid()) {
+      it->Next();
+    }
+  } else {
+    it->Seek("c");
+    ASSERT_TRUE(it->Valid());
+    while (it->Valid()) {
+      it->Prev();
+    }
+  }
+  ASSERT_OK(it->status());
+  // Without prefix restriction, the 2 deletes (bbbb, bbcc) form a run
+  // terminated by live key "bbdd". Tombstone [bbbb, bbdd).
+  ASSERT_EQ(inserted_ranges_.size(), 1u);
+  AssertRange(0, "bbbb", "bbdd");
+}
+
 TEST_P(ReadPathRangeTombstoneTest, SnapshotPredatesMemtable) {
   Options options = CurrentOptions();
   options.min_tombstones_for_range_conversion = 4;

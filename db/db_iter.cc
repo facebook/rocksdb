@@ -207,7 +207,8 @@ void DBIter::Next() {
   if (ok && iter_.Valid()) {
     ClearSavedValue();
 
-    if (prefix_same_as_start_ || !expect_total_order_inner_iter_) {
+    if (prefix_same_as_start_ ||
+        (!expect_total_order_inner_iter_ && !prefix_.GetUserKey().empty())) {
       assert(prefix_extractor_ != nullptr);
       const Slice prefix = prefix_.GetUserKey();
       FindNextUserEntry(true /* skipping the current user key */, &prefix);
@@ -838,7 +839,8 @@ void DBIter::Prev() {
     ClearSavedValue();
 
     Slice prefix;
-    bool has_prefix = prefix_same_as_start_ || !expect_total_order_inner_iter_;
+    bool has_prefix =
+        (!expect_total_order_inner_iter_ && !prefix_.GetUserKey().empty());
     if (has_prefix) {
       assert(prefix_extractor_ != nullptr);
       prefix = prefix_.GetUserKey();
@@ -1958,7 +1960,8 @@ void DBIter::Seek(const Slice& target) {
   // Now the inner iterator is placed to the target position. From there,
   // we need to find out the next key that is visible to the user.
   ClearSavedValue();
-  if (prefix_same_as_start_ || !expect_total_order_inner_iter_) {
+  if (prefix_same_as_start_ || (!expect_total_order_inner_iter_ &&
+                                prefix_extractor_->InDomain(target))) {
     assert(prefix_extractor_ != nullptr);
     Slice target_prefix = prefix_extractor_->Transform(target);
     FindNextUserEntry(false /* not skipping saved_key */, &target_prefix);
@@ -2029,7 +2032,8 @@ void DBIter::SeekForPrev(const Slice& target) {
   // we need to find out the first key that is visible to the user in the
   // backward direction.
   ClearSavedValue();
-  if (prefix_same_as_start_ || !expect_total_order_inner_iter_) {
+  if (prefix_same_as_start_ || (!expect_total_order_inner_iter_ &&
+                                prefix_extractor_->InDomain(target))) {
     assert(prefix_extractor_ != nullptr);
     Slice target_prefix = prefix_extractor_->Transform(target);
     PrevInternal(&target_prefix);
