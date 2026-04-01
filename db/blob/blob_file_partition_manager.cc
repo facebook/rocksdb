@@ -603,9 +603,7 @@ void BlobFilePartitionManager::RemoveFilePartitionMappings(
 Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
     const ReadOptions& read_options, const Slice& user_key,
     const BlobIndex& blob_idx, const Version* version,
-    BlobFileCache* blob_file_cache,
-    BlobFilePartitionManager* blob_partition_mgr, PinnableSlice* blob_value) {
-  (void)blob_partition_mgr;
+    BlobFileCache* blob_file_cache, PinnableSlice* blob_value) {
   assert(blob_value != nullptr);
 
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;

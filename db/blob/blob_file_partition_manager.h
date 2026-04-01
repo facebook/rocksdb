@@ -135,12 +135,14 @@ class BlobFilePartitionManager {
   }
 
   // Resolves a direct-write BlobIndex by consulting manifest-visible state
-  // first, then falling back to direct blob-file reads if needed.
-  static Status ResolveBlobDirectWriteIndex(
-      const ReadOptions& read_options, const Slice& user_key,
-      const BlobIndex& blob_idx, const Version* version,
-      BlobFileCache* blob_file_cache,
-      BlobFilePartitionManager* blob_partition_mgr, PinnableSlice* blob_value);
+  // first, then falling back to direct blob-file reads while the target blob
+  // file is still write-path-owned and therefore not yet tracked by Version.
+  static Status ResolveBlobDirectWriteIndex(const ReadOptions& read_options,
+                                            const Slice& user_key,
+                                            const BlobIndex& blob_idx,
+                                            const Version* version,
+                                            BlobFileCache* blob_file_cache,
+                                            PinnableSlice* blob_value);
 
  private:
   struct Partition {

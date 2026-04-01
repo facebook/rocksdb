@@ -245,7 +245,7 @@ Status DBIter::BlobReader::RetrieveAndSetBlobValue(const Slice& user_key,
   }
   return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
       read_options, user_key, blob_idx, version_, blob_file_cache_,
-      blob_partition_mgr_, &blob_value_);
+      &blob_value_);
 }
 
 bool DBIter::SetValueAndColumnsFromBlobImpl(const Slice& user_key,

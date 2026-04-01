@@ -2618,16 +2618,21 @@ static Slice GetBlobLookupUserKey(const Slice& user_key,
   return Slice(*user_key_with_ts);
 }
 
-static bool MaybeResolveBlobForWritePath(
-    const ReadOptions& read_options, const Slice& key, Status* s,
-    bool* is_blob_index, bool resolve_blob_direct_write, PinnableSlice* value,
-    PinnableWideColumns* columns, Version* current, ColumnFamilyData* cfd,
-    BlobFilePartitionManager* partition_mgr, bool* value_found = nullptr) {
-  if (!s->ok() || !*is_blob_index || !resolve_blob_direct_write ||
+static bool MaybeResolveWritePathBlobIndex(
+    const ReadOptions& read_options, const Slice& key,
+    bool resolve_write_path_blob_index, const Version* current,
+    ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns,
+    Status* s, bool* is_blob_index, bool* value_found = nullptr) {
+  if (!s->ok() || !*is_blob_index || !resolve_write_path_blob_index ||
       (!value && !columns)) {
     return false;
   }
 
+  // Once a blob file is registered in Version metadata, the normal integrated
+  // blob read path is already agnostic to whether the file came from direct
+  // write or flush/compaction. This helper only covers the pre-flush gap where
+  // a memtable can already reference a blob file that is not yet
+  // manifest-visible.
   if (read_options.read_tier == kBlockCacheTier) {
     if (value != nullptr) {
       value->Reset();
@@ -2669,8 +2674,7 @@ static bool MaybeResolveBlobForWritePath(
         value->Reset();
       }
       *s = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
-          read_options, key, blob_idx, current, cfd->blob_file_cache(),
-          partition_mgr, target);
+          read_options, key, blob_idx, current, cfd->blob_file_cache(), target);
       if (s->ok() && columns != nullptr) {
         columns->SetPlainValue(std::move(*target));
       }
@@ -2830,19 +2834,18 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   if (partition_mgr != nullptr && !is_blob_ptr && get_impl_options.get_value) {
     is_blob_ptr = &is_blob_index;
   }
-  const bool resolve_blob_direct_write =
+  const bool resolve_write_path_blob_index =
       partition_mgr != nullptr && (is_blob_ptr == &is_blob_index);
   std::string blob_lookup_key_storage;
   auto get_blob_lookup_key = [&]() -> Slice {
     return GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage);
   };
-  auto maybe_resolve_memtable_blob = [&]() {
-    if (resolve_blob_direct_write) {
-      const bool blob_resolved = MaybeResolveBlobForWritePath(
-          read_options, get_blob_lookup_key(), &s, &is_blob_index,
-          resolve_blob_direct_write, get_impl_options.value,
-          get_impl_options.columns, sv->current, cfd, partition_mgr,
-          get_impl_options.value_found);
+  auto maybe_resolve_memtable_blob_index = [&]() {
+    if (resolve_write_path_blob_index) {
+      const bool blob_resolved = MaybeResolveWritePathBlobIndex(
+          read_options, get_blob_lookup_key(), resolve_write_path_blob_index,
+          sv->current, cfd, get_impl_options.value, get_impl_options.columns,
+          &s, &is_blob_index, get_impl_options.value_found);
       if (!blob_resolved && get_impl_options.value != nullptr) {
         get_impl_options.value->PinSelf();
       }
@@ -2862,7 +2865,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        false /* immutable_memtable */,
                        get_impl_options.callback, is_blob_ptr)) {
         done = true;
-        maybe_resolve_memtable_blob();
+        maybe_resolve_memtable_blob_index();
 
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
@@ -2874,7 +2877,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                      &max_covering_tombstone_seq, read_options,
                      get_impl_options.callback, is_blob_ptr)) {
         done = true;
-        maybe_resolve_memtable_blob();
+        maybe_resolve_memtable_blob_index();
 
         RecordTick(stats_, MEMTABLE_HIT);
       }
@@ -2916,12 +2919,11 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
         get_impl_options.get_value ? is_blob_ptr : nullptr,
         get_impl_options.get_value);
-    if (get_impl_options.get_value && resolve_blob_direct_write) {
-      MaybeResolveBlobForWritePath(read_options, get_blob_lookup_key(), &s,
-                                   &is_blob_index, resolve_blob_direct_write,
-                                   get_impl_options.value,
-                                   get_impl_options.columns, sv->current, cfd,
-                                   partition_mgr, get_impl_options.value_found);
+    if (get_impl_options.get_value && resolve_write_path_blob_index) {
+      MaybeResolveWritePathBlobIndex(
+          read_options, get_blob_lookup_key(), resolve_write_path_blob_index,
+          sv->current, cfd, get_impl_options.value, get_impl_options.columns,
+          &s, &is_blob_index, get_impl_options.value_found);
     }
     RecordTick(stats_, MEMTABLE_MISS);
   }
@@ -3674,13 +3676,12 @@ Status DBImpl::MultiGetImpl(
 
     if (partition_mgr != nullptr && key->s->ok() && key->is_blob_index) {
       std::string blob_lookup_key_storage;
-      MaybeResolveBlobForWritePath(
+      MaybeResolveWritePathBlobIndex(
           read_options,
           GetBlobLookupUserKey(*key->key, key->timestamp,
                                &blob_lookup_key_storage),
-          key->s, &key->is_blob_index,
-          /*resolve_blob_direct_write=*/true, key->value, key->columns,
-          super_version->current, cfd, partition_mgr);
+          /*resolve_write_path_blob_index=*/true, super_version->current, cfd,
+          key->value, key->columns, key->s, &key->is_blob_index);
     }
 
     if (key->s->ok()) {

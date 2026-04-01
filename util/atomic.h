@@ -141,10 +141,11 @@ class Atomic : public RelaxedAtomic<T> {
 
 // Atomic shared_ptr helper wrappers.
 //
-// The C++20 replacement is std::atomic<std::shared_ptr<T>>, but the libstdc++
-// used in some RocksDB environments still lacks that specialization while also
-// deprecating the older free-function API. Centralize the workaround here so
-// callers can keep a single code path.
+// The C++20 replacement is std::atomic<std::shared_ptr<T>>, but the fbcode
+// make build still uses a libstdc++ 11.x toolchain where that specialization
+// is unavailable while the older free-function API is already deprecated.
+// Centralize the workaround here so callers can keep a single code path until
+// the build toolchain can support std::atomic<std::shared_ptr<T>> directly.
 template <typename T>
 inline std::shared_ptr<T> AtomicSharedPtrLoad(const std::shared_ptr<T>* ptr,
                                               std::memory_order order) {
