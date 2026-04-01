@@ -95,7 +95,7 @@ bool ShouldKeepFooterlessBlobFile(FileSystem* fs,
     return !io_s.IsPathNotFound();
   }
 
-  std::array<char, BlobLogFooter::kSize> scratch;
+  std::array<char, BlobLogFooter::kSize> scratch{};
   Slice footer_slice;
   io_s = file->Read(file_size - BlobLogFooter::kSize, BlobLogFooter::kSize,
                     io_options, &footer_slice, scratch.data(), dbg);

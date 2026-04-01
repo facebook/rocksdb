@@ -499,6 +499,8 @@ inline enum RepFactory StringToRepFactory(const char* ctype) {
 extern enum RepFactory FLAGS_rep_factory;
 
 namespace ROCKSDB_NAMESPACE {
+void RegisterDbStressBdwFlagValidators();
+
 inline enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);

@@ -1109,9 +1109,13 @@ DEFINE_uint64(blob_direct_write_partitions,
                   .blob_direct_write_partitions,
               "[Integrated BlobDB] Number of partitions for direct-write blob "
               "files.");
-static const bool FLAGS_blob_direct_write_partitions_dummy
-    __attribute__((__unused__)) = RegisterFlagValidator(
-        &FLAGS_blob_direct_write_partitions, &ValidateUint32Range);
+
+static void RegisterDbBenchBdwFlagValidators() {
+  static const bool blob_direct_write_partitions_validator_registered =
+      RegisterFlagValidator(&FLAGS_blob_direct_write_partitions,
+                            &ValidateUint32Range);
+  (void)blob_direct_write_partitions_validator_registered;
+}
 
 DEFINE_uint64(min_blob_size,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().min_blob_size,
@@ -9247,6 +9251,7 @@ int db_bench_tool(int argc, char** argv, ToolHooks& hooks) {
     SetVersionString(GetRocksVersionAsString(true));
     initialized = true;
   }
+  RegisterDbBenchBdwFlagValidators();
   ParseCommandLineFlags(&argc, &argv, true);
   FLAGS_compaction_style_e =
       (ROCKSDB_NAMESPACE::CompactionStyle)FLAGS_compaction_style;

@@ -494,9 +494,17 @@ DEFINE_uint64(blob_direct_write_partitions,
                   .blob_direct_write_partitions,
               "[Integrated BlobDB] Number of partitions for direct-write blob "
               "files.");
-static const bool FLAGS_blob_direct_write_partitions_dummy
-    __attribute__((__unused__)) = RegisterFlagValidator(
-        &FLAGS_blob_direct_write_partitions, &ValidateUint32Range);
+
+namespace ROCKSDB_NAMESPACE {
+
+void RegisterDbStressBdwFlagValidators() {
+  static const bool blob_direct_write_partitions_validator_registered =
+      RegisterFlagValidator(&FLAGS_blob_direct_write_partitions,
+                            &ValidateUint32Range);
+  (void)blob_direct_write_partitions_validator_registered;
+}
+
+}  // namespace ROCKSDB_NAMESPACE
 
 DEFINE_uint64(min_blob_size,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().min_blob_size,

@@ -36,6 +36,8 @@ class BlobWriteRollbackGuard {
       : rollback_infos_(rollback_infos), info_log_(info_log) {}
   BlobWriteRollbackGuard(const BlobWriteRollbackGuard&) = delete;
   BlobWriteRollbackGuard& operator=(const BlobWriteRollbackGuard&) = delete;
+  BlobWriteRollbackGuard(BlobWriteRollbackGuard&&) = delete;
+  BlobWriteRollbackGuard& operator=(BlobWriteRollbackGuard&&) = delete;
 
   ~BlobWriteRollbackGuard() {
     if (!active_ || rollback_infos_ == nullptr) {
@@ -438,6 +440,8 @@ struct DBImpl::BlobDirectWriteContext {
   explicit BlobDirectWriteContext(DBImpl* db_impl) : db_impl_(db_impl) {}
   BlobDirectWriteContext(const BlobDirectWriteContext&) = delete;
   BlobDirectWriteContext& operator=(const BlobDirectWriteContext&) = delete;
+  BlobDirectWriteContext(BlobDirectWriteContext&&) = delete;
+  BlobDirectWriteContext& operator=(BlobDirectWriteContext&&) = delete;
 
   ~BlobDirectWriteContext() { Release(); }
 

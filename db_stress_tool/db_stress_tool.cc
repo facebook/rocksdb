@@ -43,6 +43,7 @@ KeyGenContext key_gen_ctx;
 int db_stress_tool(int argc, char** argv) {
   SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                   " [OPTIONS]...");
+  RegisterDbStressBdwFlagValidators();
   ParseCommandLineFlags(&argc, &argv, true);
 
   SanitizeDoubleParam(&FLAGS_bloom_bits);
@@ -222,72 +223,72 @@ int db_stress_tool(int argc, char** argv) {
     if (!FLAGS_enable_blob_files) {
       fprintf(stderr,
               "Error: enable_blob_direct_write requires enable_blob_files\n");
-      exit(1);
+      return 1;
     }
     if (FLAGS_allow_concurrent_memtable_write) {
       fprintf(stderr,
               "Error: blob direct write stress requires "
               "allow_concurrent_memtable_write=0\n");
-      exit(1);
+      return 1;
     }
     if (FLAGS_enable_pipelined_write) {
       fprintf(stderr,
               "Error: blob direct write stress does not support "
               "enable_pipelined_write\n");
-      exit(1);
+      return 1;
     }
     if (FLAGS_unordered_write) {
       fprintf(stderr,
               "Error: blob direct write stress does not support "
               "unordered_write\n");
-      exit(1);
+      return 1;
     }
     if (FLAGS_two_write_queues) {
       fprintf(stderr,
               "Error: blob direct write stress does not support "
               "two_write_queues\n");
-      exit(1);
+      return 1;
     }
     if (FLAGS_use_blob_db) {
       fprintf(stderr,
               "Error: blob direct write is only supported with integrated "
               "BlobDB\n");
-      exit(1);
+      return 1;
     }
     if (FLAGS_use_merge || FLAGS_use_full_merge_v1) {
       fprintf(stderr,
               "Error: blob direct write stress does not support merge\n");
-      exit(1);
+      return 1;
     }
     if (FLAGS_experimental_mempurge_threshold > 0.0) {
       fprintf(stderr,
               "Error: blob direct write stress does not support MemPurge\n");
-      exit(1);
+      return 1;
     }
     if (FLAGS_user_timestamp_size > 0) {
       fprintf(stderr,
               "Error: blob direct write stress does not support "
               "user-defined timestamps\n");
-      exit(1);
+      return 1;
     }
     if (FLAGS_allow_setting_blob_options_dynamically ||
         FLAGS_enable_blob_garbage_collection) {
       fprintf(stderr,
               "Error: blob direct write stress does not support dynamic blob "
               "options or blob GC\n");
-      exit(1);
+      return 1;
     }
     if (FLAGS_best_efforts_recovery) {
       fprintf(stderr,
               "Error: blob direct write stress supports disable_wal-based "
               "crash testing, not best-efforts recovery\n");
-      exit(1);
+      return 1;
     }
     if (FLAGS_remote_compaction_worker_threads > 0) {
       fprintf(stderr,
               "Error: blob direct write stress does not support remote "
               "compaction\n");
-      exit(1);
+      return 1;
     }
     if (FLAGS_use_txn || FLAGS_txn_write_policy != 0 ||
         FLAGS_use_optimistic_txn || FLAGS_test_multi_ops_txns ||
@@ -295,7 +296,7 @@ int db_stress_tool(int argc, char** argv) {
       fprintf(stderr,
               "Error: blob direct write stress does not support "
               "TransactionDB modes\n");
-      exit(1);
+      return 1;
     }
     if (FLAGS_test_secondary || FLAGS_backup_one_in > 0 ||
         FLAGS_checkpoint_one_in > 0 || FLAGS_get_live_files_apis_one_in > 0 ||
@@ -304,13 +305,13 @@ int db_stress_tool(int argc, char** argv) {
               "Error: blob direct write stress does not support secondary, "
               "backup, checkpoint, get_live_files, or ingest_external_file "
               "modes\n");
-      exit(1);
+      return 1;
     }
     if (FLAGS_ingest_wbwi_one_in > 0) {
       fprintf(stderr,
               "Error: blob direct write stress does not support "
               "IngestWriteBatchWithIndex\n");
-      exit(1);
+      return 1;
     }
   }
   if (FLAGS_ingest_external_file_one_in > 0 &&
