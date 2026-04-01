@@ -144,6 +144,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableDBOptions, daily_offpeak_time_utc),
           OptionType::kString, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"max_compaction_trigger_wakeup_seconds",
+         {offsetof(struct MutableDBOptions,
+                   max_compaction_trigger_wakeup_seconds),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -1064,7 +1069,9 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       manifest_preallocation_size(options.manifest_preallocation_size),
       verify_manifest_content_on_close(
           options.verify_manifest_content_on_close),
-      daily_offpeak_time_utc(options.daily_offpeak_time_utc) {}
+      daily_offpeak_time_utc(options.daily_offpeak_time_utc),
+      max_compaction_trigger_wakeup_seconds(
+          options.max_compaction_trigger_wakeup_seconds) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
@@ -1121,6 +1128,9 @@ void MutableDBOptions::Dump(Logger* log) const {
                    verify_manifest_content_on_close);
   ROCKS_LOG_HEADER(log, "Options.daily_offpeak_time_utc: %s",
                    daily_offpeak_time_utc.c_str());
+  ROCKS_LOG_HEADER(log,
+                   "Options.max_compaction_trigger_wakeup_seconds: %" PRIu64,
+                   max_compaction_trigger_wakeup_seconds);
 }
 
 Status GetMutableDBOptionsFromStrings(

@@ -2432,6 +2432,10 @@ void BlockBasedTableBuilder::WriteIndexBlock(
       // The last index_block_handle will be for the partition index block
     }
   }
+  if (LIKELY(ok())) {
+    rep_->props.num_uniform_blocks =
+        rep_->index_builder->NumUniformIndexBlocks();
+  }
   // If success and need to record in metaindex rather than footer...
   if (LIKELY(ok()) && !FormatVersionUsesIndexHandleInFooter(
                           rep_->table_options.format_version)) {

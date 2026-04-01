@@ -192,6 +192,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.verify_manifest_content_on_close =
       mutable_db_options.verify_manifest_content_on_close;
   options.daily_offpeak_time_utc = mutable_db_options.daily_offpeak_time_utc;
+  options.max_compaction_trigger_wakeup_seconds =
+      mutable_db_options.max_compaction_trigger_wakeup_seconds;
   options.follower_refresh_catchup_period_ms =
       immutable_db_options.follower_refresh_catchup_period_ms;
   options.follower_catchup_retry_count =
@@ -264,6 +266,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.max_bytes_for_level_multiplier;
   cf_opts->ttl = moptions.ttl;
   cf_opts->periodic_compaction_seconds = moptions.periodic_compaction_seconds;
+  cf_opts->read_triggered_compaction_threshold =
+      moptions.read_triggered_compaction_threshold;
   cf_opts->preclude_last_level_data_seconds =
       moptions.preclude_last_level_data_seconds;
   cf_opts->preserve_internal_time_seconds =

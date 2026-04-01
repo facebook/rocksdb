@@ -97,6 +97,7 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   Add(TablePropertiesNames::kMergeOperands, props.num_merge_operands);
   Add(TablePropertiesNames::kNumRangeDeletions, props.num_range_deletions);
   Add(TablePropertiesNames::kNumDataBlocks, props.num_data_blocks);
+  Add(TablePropertiesNames::kNumUniformBlocks, props.num_uniform_blocks);
   Add(TablePropertiesNames::kFilterSize, props.filter_size);
   Add(TablePropertiesNames::kFormatVersion, props.format_version);
   Add(TablePropertiesNames::kFixedKeyLen, props.fixed_key_len);
@@ -291,6 +292,8 @@ Status ParsePropertiesBlock(
        &new_table_properties->raw_value_size},
       {TablePropertiesNames::kNumDataBlocks,
        &new_table_properties->num_data_blocks},
+      {TablePropertiesNames::kNumUniformBlocks,
+       &new_table_properties->num_uniform_blocks},
       {TablePropertiesNames::kNumEntries, &new_table_properties->num_entries},
       {TablePropertiesNames::kNumFilterEntries,
        &new_table_properties->num_filter_entries},

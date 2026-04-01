@@ -967,6 +967,7 @@ set(SOURCES
         utilities/cassandra/merge_operator.cc
         utilities/checkpoint/checkpoint_impl.cc
         utilities/compaction_filters.cc
+        utilities/sorted_run_builder/sorted_run_builder.cc
         utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc
         utilities/counted_fs.cc
         utilities/debug.cc
@@ -1137,7 +1138,10 @@ if(USE_FOLLY_LITE)
   include_directories(${FMT_INCLUDE_DIR})
 
   add_definitions(-DUSE_FOLLY -DFOLLY_NO_CONFIG)
-  list(APPEND THIRDPARTY_LIBS glog)
+  find_library(GLOG_LIBRARY glog)
+  if(GLOG_LIBRARY)
+    list(APPEND THIRDPARTY_LIBS glog)
+  endif()
 endif()
 
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
@@ -1552,6 +1556,7 @@ if(WITH_TESTS)
         utilities/cassandra/cassandra_row_merge_test.cc
         utilities/cassandra/cassandra_serialize_test.cc
         utilities/checkpoint/checkpoint_test.cc
+        utilities/sorted_run_builder/sorted_run_builder_test.cc
         utilities/env_timed_test.cc
         utilities/fault_injection_fs_test.cc
         utilities/memory/memory_test.cc

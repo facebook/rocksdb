@@ -10,7 +10,12 @@
 #include <errno.h>
 #if defined(ROCKSDB_IOURING_PRESENT)
 #include <liburing.h>
+#include <pthread.h>
 #include <sys/uio.h>
+
+#include <cstdio>
+
+#include "util/string_util.h"
 
 // Compatibility defines for io_uring flags that may not be present in older
 // kernel headers. These values are fixed and won't change, so it's safe to
@@ -330,6 +335,7 @@ const unsigned int kIoUringDepth = 256;
 
 inline void DeleteIOUring(void* p) {
   struct io_uring* iu = static_cast<struct io_uring*>(p);
+  io_uring_queue_exit(iu);
   delete iu;
 }
 
@@ -340,6 +346,9 @@ inline struct io_uring* CreateIOUring() {
   flags |= IORING_SETUP_DEFER_TASKRUN;
   int ret = io_uring_queue_init(kIoUringDepth, new_io_uring, flags);
   if (ret) {
+    fprintf(stderr, "CreateIOUring failed: %s (errno=%d), thread=%lu\n",
+            errnoStr(-ret).c_str(), -ret,
+            static_cast<unsigned long>(pthread_self()));
     delete new_io_uring;
     new_io_uring = nullptr;
   }

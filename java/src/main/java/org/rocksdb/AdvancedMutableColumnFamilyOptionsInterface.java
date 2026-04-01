@@ -757,6 +757,23 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
   double blobGarbageCollectionForceThreshold();
 
   /**
+   * Set threshold for read-triggered compaction. An SST file is marked for
+   * compaction when its sampled read frequency (sampled_reads / file_size)
+   * exceeds this value. Use 0.0 to disable.
+   *
+   * @param readTriggeredCompactionThreshold the threshold value
+   * @return the reference to the current options
+   */
+  T setReadTriggeredCompactionThreshold(double readTriggeredCompactionThreshold);
+
+  /**
+   * Get the current value for read-triggered compaction threshold.
+   *
+   * @return the current threshold
+   */
+  double readTriggeredCompactionThreshold();
+
+  /**
    * Set compaction readahead for blob files.
    * <p>
    * Default: 0

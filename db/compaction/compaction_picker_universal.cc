@@ -275,6 +275,21 @@ class UniversalCompactionBuilder {
     return c;
   }
 
+  Compaction* MaybePickReadTriggeredCompaction(
+      Compaction* const prev_picked_c) {
+    if (prev_picked_c != nullptr ||
+        vstorage_->ReadTriggeredCompactionFiles().empty()) {
+      return prev_picked_c;
+    }
+    Compaction* c = PickReadTriggeredCompaction();
+    if (c != nullptr) {
+      ROCKS_LOG_BUFFER(log_buffer_,
+                       "[%s] Universal: picked for read triggered compaction\n",
+                       cf_name_.c_str());
+    }
+    return c;
+  }
+
   // Pick Universal compaction to limit read amplification
   Compaction* PickCompactionToReduceSortedRuns(
       unsigned int ratio, unsigned int max_number_of_files_to_compact);
@@ -291,6 +306,14 @@ class UniversalCompactionBuilder {
   Compaction* PickIncrementalForReduceSizeAmp(double fanout_threshold);
 
   Compaction* PickDeleteTriggeredCompaction();
+
+  Compaction* PickReadTriggeredCompaction();
+
+  // Given already-selected start_level_inputs, find the first non-empty output
+  // level, compute overlapping inputs, and create a Compaction. Can produce
+  // intra-L0 compaction if there is only level 0.
+  Compaction* BuildCompactionToNextLevel(
+      CompactionInputFiles& start_level_inputs, CompactionReason reason);
 
   // Returns true if this given file (that is marked be compaction) should be
   // skipped from being picked for now. We do this to best use standalone range
@@ -594,6 +617,9 @@ bool UniversalCompactionPicker::NeedsCompaction(
   if (!vstorage->FilesMarkedForCompaction().empty()) {
     return true;
   }
+  if (!vstorage->ReadTriggeredCompactionFiles().empty()) {
+    return true;
+  }
   return false;
 }
 
@@ -759,6 +785,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
   if (sorted_runs_.size() == 0 ||
       (vstorage_->FilesMarkedForPeriodicCompaction().empty() &&
        vstorage_->FilesMarkedForCompaction().empty() &&
+       vstorage_->ReadTriggeredCompactionFiles().empty() &&
        sorted_runs_.size() < (unsigned int)file_num_compaction_trigger)) {
     ROCKS_LOG_BUFFER(log_buffer_, "[%s] Universal: nothing to do\n",
                      cf_name_.c_str());
@@ -782,6 +809,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
   c = MaybePickCompactionToReduceSortedRuns(c, file_num_compaction_trigger,
                                             ratio);
   c = MaybePickDeleteTriggeredCompaction(c);
+  c = MaybePickReadTriggeredCompaction(c);
 
   if (c == nullptr) {
     TEST_SYNC_POINT_CALLBACK(
@@ -1461,9 +1489,6 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
 // CompactOnDeleteCollector due to the presence of tombstones.
 Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
   CompactionInputFiles start_level_inputs;
-  int output_level;
-  std::vector<CompactionInputFiles> inputs;
-  std::vector<FileMetaData*> grandparents;
 
   if (vstorage_->num_levels() == 1) {
     // This is single level universal. Since we're basically trying to reclaim
@@ -1474,7 +1499,6 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
 
     start_level_inputs.level = 0;
     start_level_inputs.files.clear();
-    output_level = 0;
     // Find the first file marked for compaction. Ignore the last file
     for (size_t loop = 0; loop + 1 < sorted_runs_.size(); loop++) {
       SortedRun* sr = &sorted_runs_[loop];
@@ -1503,13 +1527,9 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       FileMetaData* f = vstorage_->LevelFiles(0)[loop];
       start_level_inputs.files.push_back(f);
     }
-    if (start_level_inputs.size() <= 1) {
-      // If only the last file in L0 is marked for compaction, ignore it
-      return nullptr;
-    }
-    inputs.push_back(start_level_inputs);
   } else {
     int start_level;
+    int output_level;
 
     // For multi-level universal, the strategy is to make this look more like
     // leveled. We pick one of the files marked for compaction and compact with
@@ -1522,100 +1542,10 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
     if (start_level_inputs.empty()) {
       return nullptr;
     }
-
-    int max_output_level = vstorage_->MaxOutputLevel(allow_ingest_behind_);
-    // Pick the first non-empty level after the start_level
-    for (output_level = start_level + 1; output_level <= max_output_level;
-         output_level++) {
-      if (vstorage_->NumLevelFiles(output_level) != 0) {
-        break;
-      }
-    }
-
-    // If all higher levels are empty, pick the highest level as output level
-    if (output_level > max_output_level) {
-      if (start_level == 0) {
-        output_level = max_output_level;
-      } else {
-        // If start level is non-zero and all higher levels are empty, this
-        // compaction will translate into a trivial move. Since the idea is
-        // to reclaim space and trivial move doesn't help with that, we
-        // skip compaction in this case and return nullptr
-        return nullptr;
-      }
-    }
-    assert(output_level <= max_output_level);
-
-    if (!MeetsOutputLevelRequirements(output_level)) {
-      return nullptr;
-    }
-
-    if (output_level != 0) {
-      // For standalone range deletion, we don't want to compact it with newer
-      // L0 files that it doesn't cover.
-      const FileMetaData* starting_l0_file =
-          (start_level == 0 && start_level_inputs.size() == 1 &&
-           start_level_inputs.files[0]->FileIsStandAloneRangeTombstone())
-              ? start_level_inputs.files[0]
-              : nullptr;
-
-      if (start_level == 0) {
-        if (!picker_->GetOverlappingL0Files(vstorage_, &start_level_inputs,
-                                            output_level, nullptr,
-                                            starting_l0_file)) {
-          return nullptr;
-        }
-      }
-
-      CompactionInputFiles output_level_inputs;
-      int parent_index = -1;
-
-      output_level_inputs.level = output_level;
-      if (!picker_->SetupOtherInputs(cf_name_, mutable_cf_options_, vstorage_,
-                                     &start_level_inputs, &output_level_inputs,
-                                     &parent_index, -1, false,
-                                     starting_l0_file)) {
-        return nullptr;
-      }
-      inputs.push_back(start_level_inputs);
-      if (!output_level_inputs.empty()) {
-        inputs.push_back(output_level_inputs);
-      }
-      if (picker_->FilesRangeOverlapWithCompaction(
-              inputs, output_level,
-              Compaction::EvaluateProximalLevel(vstorage_, mutable_cf_options_,
-                                                ioptions_, start_level,
-                                                output_level))) {
-        return nullptr;
-      }
-
-      picker_->GetGrandparents(vstorage_, start_level_inputs,
-                               output_level_inputs, &grandparents);
-    } else {
-      inputs.push_back(start_level_inputs);
-    }
   }
 
-  uint64_t estimated_total_size = 0;
-  // Use size of the output level as estimated file size
-  for (FileMetaData* f : vstorage_->LevelFiles(output_level)) {
-    estimated_total_size += f->fd.GetFileSize();
-  }
-  uint32_t path_id =
-      GetPathId(ioptions_, mutable_cf_options_, estimated_total_size);
-  return new Compaction(
-      vstorage_, ioptions_, mutable_cf_options_, mutable_db_options_,
-      std::move(inputs), output_level,
-      MaxFileSizeForLevel(mutable_cf_options_, output_level,
-                          kCompactionStyleUniversal),
-      /* max_grandparent_overlap_bytes */ GetMaxOverlappingBytes(), path_id,
-      GetCompressionType(vstorage_, mutable_cf_options_, output_level, 1),
-      GetCompressionOptions(mutable_cf_options_, vstorage_, output_level),
-      Temperature::kUnknown,
-      /* max_subcompactions */ 0, grandparents, earliest_snapshot_,
-      snapshot_checker_, CompactionReason::kFilesMarkedForCompaction,
-      /* trim_ts */ "", score_,
-      /* l0_files_might_overlap */ true);
+  return BuildCompactionToNextLevel(
+      start_level_inputs, CompactionReason::kFilesMarkedForCompaction);
 }
 
 Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
@@ -1780,6 +1710,153 @@ Compaction* UniversalCompactionBuilder::PickPeriodicCompaction() {
       "UniversalCompactionPicker::PickPeriodicCompaction:Return", c);
 
   return c;
+}
+
+Compaction* UniversalCompactionBuilder::PickReadTriggeredCompaction() {
+  ROCKS_LOG_BUFFER(log_buffer_, "[%s] Universal: Read Triggered Compaction",
+                   cf_name_.c_str());
+
+  if (vstorage_->ReadTriggeredCompactionFiles().empty()) {
+    return nullptr;
+  }
+
+  CompactionInputFiles start_level_inputs;
+  int start_level = -1;
+
+  for (const auto& level_file : vstorage_->ReadTriggeredCompactionFiles()) {
+    assert(!level_file.second->being_compacted);
+    start_level = level_file.first;
+
+    if (start_level == 0 &&
+        !picker_->level0_compactions_in_progress()->empty()) {
+      continue;
+    }
+
+    start_level_inputs.files = {level_file.second};
+    start_level_inputs.level = start_level;
+    if (picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
+                                        &start_level_inputs)) {
+      break;
+    }
+    start_level_inputs.files.clear();
+  }
+
+  if (start_level_inputs.empty()) {
+    return nullptr;
+  }
+
+  // For intra L0 compactions, pick up all overlapping files
+  if (vstorage_->num_levels() == 1 && start_level_inputs.level == 0) {
+    if (!picker_->GetOverlappingL0Files(vstorage_, &start_level_inputs,
+                                        /*output_level=*/0, nullptr, nullptr)) {
+      return nullptr;
+    }
+  }
+
+  return BuildCompactionToNextLevel(start_level_inputs,
+                                    CompactionReason::kReadTriggered);
+}
+
+Compaction* UniversalCompactionBuilder::BuildCompactionToNextLevel(
+    CompactionInputFiles& start_level_inputs, CompactionReason reason) {
+  int start_level = start_level_inputs.level;
+  int max_output_level = vstorage_->MaxOutputLevel(allow_ingest_behind_);
+
+  // Pick the first non-empty level after start_level as output.
+  int output_level;
+  for (output_level = start_level + 1; output_level <= max_output_level;
+       output_level++) {
+    if (vstorage_->NumLevelFiles(output_level) != 0) {
+      break;
+    }
+  }
+
+  // If all higher levels are empty, pick the highest level as output level
+  // for L0 start. For non-L0 start, a trivial move doesn't help reclaim
+  // space, so skip.
+  if (output_level > max_output_level) {
+    if (start_level == 0) {
+      output_level = max_output_level;
+    } else {
+      return nullptr;
+    }
+  }
+
+  if (start_level_inputs.size() <= 1 && output_level == 0) {
+    // If only the last file in L0 is marked for compaction, ignore it
+    return nullptr;
+  }
+
+  std::vector<CompactionInputFiles> inputs;
+  std::vector<FileMetaData*> grandparents;
+
+  if (output_level != 0) {
+    if (!MeetsOutputLevelRequirements(output_level)) {
+      return nullptr;
+    }
+
+    // For standalone range deletion, we don't want to compact it with newer
+    // L0 files that it doesn't cover.
+    const FileMetaData* starting_l0_file =
+        (start_level == 0 && start_level_inputs.size() == 1 &&
+         start_level_inputs.files[0]->FileIsStandAloneRangeTombstone())
+            ? start_level_inputs.files[0]
+            : nullptr;
+
+    if (start_level == 0) {
+      if (!picker_->GetOverlappingL0Files(vstorage_, &start_level_inputs,
+                                          output_level, nullptr,
+                                          starting_l0_file)) {
+        return nullptr;
+      }
+    }
+
+    CompactionInputFiles output_level_inputs;
+    int parent_index = -1;
+
+    output_level_inputs.level = output_level;
+    if (!picker_->SetupOtherInputs(
+            cf_name_, mutable_cf_options_, vstorage_, &start_level_inputs,
+            &output_level_inputs, &parent_index, -1, false, starting_l0_file)) {
+      return nullptr;
+    }
+    inputs.push_back(start_level_inputs);
+    if (!output_level_inputs.empty()) {
+      inputs.push_back(output_level_inputs);
+    }
+    if (picker_->FilesRangeOverlapWithCompaction(
+            inputs, output_level,
+            Compaction::EvaluateProximalLevel(vstorage_, mutable_cf_options_,
+                                              ioptions_, start_level,
+                                              output_level))) {
+      return nullptr;
+    }
+
+    picker_->GetGrandparents(vstorage_, start_level_inputs, output_level_inputs,
+                             &grandparents);
+  } else {
+    inputs.push_back(start_level_inputs);
+  }
+
+  uint64_t estimated_total_size = 0;
+  for (FileMetaData* f : vstorage_->LevelFiles(output_level)) {
+    estimated_total_size += f->fd.GetFileSize();
+  }
+  uint32_t path_id =
+      GetPathId(ioptions_, mutable_cf_options_, estimated_total_size);
+  return new Compaction(
+      vstorage_, ioptions_, mutable_cf_options_, mutable_db_options_,
+      std::move(inputs), output_level,
+      MaxFileSizeForLevel(mutable_cf_options_, output_level,
+                          kCompactionStyleUniversal),
+      /* max_grandparent_overlap_bytes */ GetMaxOverlappingBytes(), path_id,
+      GetCompressionType(vstorage_, mutable_cf_options_, output_level, 1),
+      GetCompressionOptions(mutable_cf_options_, vstorage_, output_level),
+      Temperature::kUnknown,
+      /* max_subcompactions */ 0, grandparents, earliest_snapshot_,
+      snapshot_checker_, reason,
+      /* trim_ts */ "", score_,
+      /* l0_files_might_overlap */ true);
 }
 
 uint64_t UniversalCompactionBuilder::GetMaxOverlappingBytes() const {

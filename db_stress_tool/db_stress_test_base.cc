@@ -1999,19 +1999,11 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
 
     Slice key(key_str);
 
-    // UserDefinedIndexIterator supports Seek(target), Next(), and
-    // SeekToFirst(). However, SeekToLast, SeekForPrev, and Prev are not
-    // supported. Check if UDI is being used either via ReadOptions or
-    // CF-level configuration.
-    const bool using_udi =
-        (ro.table_index_factory != nullptr) || (udi_factory_ != nullptr);
-    // SeekToFirst is supported by UDI, so only total_order is required.
     const bool support_seek_to_first =
-        expect_total_order && (FLAGS_test_backward_scan || using_udi);
-    // SeekToLast requires backward scan support which UDI does not provide.
+        expect_total_order && FLAGS_test_backward_scan;
     const bool support_seek_to_last =
-        expect_total_order && FLAGS_test_backward_scan && !using_udi;
-    const bool support_seek_for_prev = FLAGS_test_backward_scan && !using_udi;
+        expect_total_order && FLAGS_test_backward_scan;
+    const bool support_seek_for_prev = FLAGS_test_backward_scan;
 
     // Write-prepared and Write-unprepared and multi-cf-iterator do not support
     // Refresh() yet.
@@ -2475,11 +2467,19 @@ Status StressTest::TestBackupRestore(
       // lock and wait on a background operation (flush).
       create_opts.flush_before_backup = true;
     }
+    if (FLAGS_atomic_flush) {
+      // When atomic flush is enabled for the DB, use it for backup too.
+      // This ensures cross-CF consistency without needing WAL files.
+      // flush_before_backup must be true for atomic_flush to take effect.
+      create_opts.flush_before_backup = true;
+      create_opts.atomic_flush = true;
+    }
     create_opts.decrease_background_thread_cpu_priority = thread->rand.OneIn(2);
     create_opts.background_thread_cpu_priority = static_cast<CpuPriority>(
         thread->rand.Next() % (static_cast<int>(CpuPriority::kHigh) + 1));
     create_backup_opt_oss << "flush_before_backup: "
                           << create_opts.flush_before_backup
+                          << ", atomic_flush: " << create_opts.atomic_flush
                           << ", decrease_background_thread_cpu_priority: "
                           << create_opts.decrease_background_thread_cpu_priority
                           << ", background_thread_cpu_priority: "
@@ -2797,7 +2797,8 @@ Status StressTest::TestApproximateSize(
     // Call GetApproximateSizes
     SizeApproximationOptions sao;
     sao.include_memtables = thread->rand.OneIn(2);
-    if (sao.include_memtables) {
+    sao.include_blob_files = thread->rand.OneIn(2);
+    if (sao.include_memtables || sao.include_blob_files) {
       sao.include_files = thread->rand.OneIn(2);
     }
     if (thread->rand.OneIn(2)) {
@@ -3843,9 +3844,8 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     }
 
     options_.listeners.clear();
-    options_.listeners.emplace_back(
-        new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors,
-                             db_stress_listener_env, shared));
+    options_.listeners.emplace_back(new DbStressListener(
+        FLAGS_db, options_.db_paths, cf_descriptors, shared));
     RegisterAdditionalListeners();
 
     // If this is for DB reopen,  error injection may have been enabled.
@@ -4519,6 +4519,8 @@ void InitializeOptionsFromFlags(
   options.daily_offpeak_time_utc = FLAGS_daily_offpeak_time_utc;
   options.stats_dump_period_sec =
       static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
+  options.max_compaction_trigger_wakeup_seconds =
+      FLAGS_max_compaction_trigger_wakeup_seconds;
   options.ttl = FLAGS_compaction_ttl;
   options.enable_pipelined_write = FLAGS_enable_pipelined_write;
   options.enable_write_thread_adaptive_yield =
@@ -4572,6 +4574,8 @@ void InitializeOptionsFromFlags(
       FLAGS_blob_garbage_collection_force_threshold;
   options.blob_compaction_readahead_size = FLAGS_blob_compaction_readahead_size;
   options.blob_file_starting_level = FLAGS_blob_file_starting_level;
+  options.read_triggered_compaction_threshold =
+      FLAGS_read_triggered_compaction_threshold;
 
   if (FLAGS_use_blob_cache) {
     if (FLAGS_use_shared_block_and_blob_cache) {

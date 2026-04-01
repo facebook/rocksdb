@@ -1222,6 +1222,18 @@ public class ColumnFamilyOptions
     return blobGarbageCollectionForceThreshold(nativeHandle_);
   }
 
+  @Override
+  public ColumnFamilyOptions setReadTriggeredCompactionThreshold(
+      final double readTriggeredCompactionThreshold) {
+    setReadTriggeredCompactionThreshold(nativeHandle_, readTriggeredCompactionThreshold);
+    return this;
+  }
+
+  @Override
+  public double readTriggeredCompactionThreshold() {
+    return readTriggeredCompactionThreshold(nativeHandle_);
+  }
+
   /**
    * Set compaction readahead for blob files.
    * <p>
@@ -1496,6 +1508,9 @@ public class ColumnFamilyOptions
   private static native void setBlobGarbageCollectionForceThreshold(
       final long nativeHandle_, final double blobGarbageCollectionForceThreshold);
   private static native double blobGarbageCollectionForceThreshold(final long nativeHandle_);
+  private static native void setReadTriggeredCompactionThreshold(
+      final long nativeHandle_, final double readTriggeredCompactionThreshold);
+  private static native double readTriggeredCompactionThreshold(final long nativeHandle_);
   private static native void setBlobCompactionReadaheadSize(
       final long nativeHandle_, final long blobCompactionReadaheadSize);
   private static native long blobCompactionReadaheadSize(final long nativeHandle_);

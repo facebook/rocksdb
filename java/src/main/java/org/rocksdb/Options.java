@@ -781,6 +781,20 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setMaxCompactionTriggerWakeupSeconds(
+      final long maxCompactionTriggerWakeupSeconds) {
+    assert (isOwningHandle());
+    setMaxCompactionTriggerWakeupSeconds(nativeHandle_, maxCompactionTriggerWakeupSeconds);
+    return this;
+  }
+
+  @Override
+  public long maxCompactionTriggerWakeupSeconds() {
+    assert (isOwningHandle());
+    return maxCompactionTriggerWakeupSeconds(nativeHandle_);
+  }
+
+  @Override
   public Options setStatsPersistPeriodSec(
       final int statsPersistPeriodSec) {
     assert(isOwningHandle());
@@ -2060,6 +2074,18 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setReadTriggeredCompactionThreshold(
+      final double readTriggeredCompactionThreshold) {
+    setReadTriggeredCompactionThreshold(nativeHandle_, readTriggeredCompactionThreshold);
+    return this;
+  }
+
+  @Override
+  public double readTriggeredCompactionThreshold() {
+    return readTriggeredCompactionThreshold(nativeHandle_);
+  }
+
+  @Override
   public Options setBlobCompactionReadaheadSize(final long blobCompactionReadaheadSize) {
     setBlobCompactionReadaheadSize(nativeHandle_, blobCompactionReadaheadSize);
     return this;
@@ -2230,6 +2256,9 @@ public class Options extends RocksObject
   private static native boolean isFdCloseOnExec(long handle);
   private static native void setStatsDumpPeriodSec(long handle, int statsDumpPeriodSec);
   private static native int statsDumpPeriodSec(long handle);
+  private static native void setMaxCompactionTriggerWakeupSeconds(
+      long handle, long maxCompactionTriggerWakeupSeconds);
+  private static native long maxCompactionTriggerWakeupSeconds(long handle);
   private static native void setStatsPersistPeriodSec(
       final long handle, final int statsPersistPeriodSec);
   private static native int statsPersistPeriodSec(final long handle);
@@ -2493,6 +2522,9 @@ public class Options extends RocksObject
   private static native void setBlobGarbageCollectionForceThreshold(
       final long nativeHandle_, final double blobGarbageCollectionForceThreshold);
   private static native double blobGarbageCollectionForceThreshold(final long nativeHandle_);
+  private static native void setReadTriggeredCompactionThreshold(
+      final long nativeHandle_, final double readTriggeredCompactionThreshold);
+  private static native double readTriggeredCompactionThreshold(final long nativeHandle_);
   private static native void setBlobCompactionReadaheadSize(
       final long nativeHandle_, final long blobCompactionReadaheadSize);
   private static native long blobCompactionReadaheadSize(final long nativeHandle_);

@@ -1488,6 +1488,29 @@ void Java_org_rocksdb_Options_setStatsDumpPeriodSec(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setMaxCompactionTriggerWakeupSeconds
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setMaxCompactionTriggerWakeupSeconds(
+    JNIEnv*, jclass, jlong jhandle, jlong jval) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+      ->max_compaction_trigger_wakeup_seconds = static_cast<uint64_t>(jval);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    maxCompactionTriggerWakeupSeconds
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_maxCompactionTriggerWakeupSeconds(
+    JNIEnv*, jclass, jlong jhandle) {
+  return static_cast<jlong>(
+      reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+          ->max_compaction_trigger_wakeup_seconds);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    statsPersistPeriodSec
  * Signature: (J)I
  */
@@ -3771,6 +3794,28 @@ jdouble Java_org_rocksdb_Options_blobGarbageCollectionForceThreshold(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setReadTriggeredCompactionThreshold
+ * Signature: (JD)V
+ */
+void Java_org_rocksdb_Options_setReadTriggeredCompactionThreshold(
+    JNIEnv*, jclass, jlong jhandle, jdouble jval) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opts->read_triggered_compaction_threshold = static_cast<double>(jval);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    readTriggeredCompactionThreshold
+ * Signature: (J)D
+ */
+jdouble Java_org_rocksdb_Options_readTriggeredCompactionThreshold(
+    JNIEnv*, jclass, jlong jhandle) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return static_cast<jdouble>(opts->read_triggered_compaction_threshold);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    setBlobCompactionReadaheadSize
  * Signature: (JJ)V
  */
@@ -5679,6 +5724,30 @@ Java_org_rocksdb_ColumnFamilyOptions_blobGarbageCollectionForceThreshold(
 
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setReadTriggeredCompactionThreshold
+ * Signature: (JD)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setReadTriggeredCompactionThreshold(
+    JNIEnv*, jclass, jlong jhandle, jdouble jval) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  opts->read_triggered_compaction_threshold = static_cast<double>(jval);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    readTriggeredCompactionThreshold
+ * Signature: (J)D
+ */
+jdouble Java_org_rocksdb_ColumnFamilyOptions_readTriggeredCompactionThreshold(
+    JNIEnv*, jclass, jlong jhandle) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  return static_cast<jdouble>(opts->read_triggered_compaction_threshold);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
  * Method:    setBlobCompactionReadaheadSize
  * Signature: (JJ)V
  */
@@ -6912,6 +6981,29 @@ jint Java_org_rocksdb_DBOptions_statsDumpPeriodSec(JNIEnv*, jclass,
                                                    jlong jhandle) {
   return reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
       ->stats_dump_period_sec;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setMaxCompactionTriggerWakeupSeconds
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_DBOptions_setMaxCompactionTriggerWakeupSeconds(
+    JNIEnv*, jclass, jlong jhandle, jlong jval) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
+      ->max_compaction_trigger_wakeup_seconds = static_cast<uint64_t>(jval);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    maxCompactionTriggerWakeupSeconds
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_DBOptions_maxCompactionTriggerWakeupSeconds(
+    JNIEnv*, jclass, jlong jhandle) {
+  return static_cast<jlong>(
+      reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
+          ->max_compaction_trigger_wakeup_seconds);
 }
 
 /*

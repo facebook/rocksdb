@@ -27,6 +27,7 @@
 #include "rocksdb/metadata.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -1334,6 +1335,93 @@ TEST_F(CheckpointTest, MixedAtomicThenNonAtomicFlushInQueue) {
   ASSERT_EQ("v1_2", Get(1, "k1_2"));
   ASSERT_EQ("v2", Get(2, "k2"));
 }
+TEST_F(CheckpointTest, BackupWithAtomicFlushSkipsWAL) {
+  // Test that BackupEngine with atomic_flush=true and backup_log_files=false
+  // creates a valid, restorable backup for a multi-CF database.
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  CreateAndReopenWithCF({"cf1", "cf2"}, options);
+
+  // Write data to all column families (default, cf1, cf2)
+  ASSERT_OK(Put(0, "key0", "val0"));
+  ASSERT_OK(Put(1, "key1", "val1"));
+  ASSERT_OK(Put(2, "key2", "val2"));
+
+  // Set up backup engine with backup_log_files=false
+  std::string backup_dir = test::PerThreadDBPath(env_, "backup_atomic_flush");
+  std::string restore_dir = test::PerThreadDBPath(env_, "restore_atomic_flush");
+  ASSERT_OK(DestroyDB(restore_dir, options));
+  test::DeleteDir(env_, backup_dir);
+
+  BackupEngineOptions backup_options(backup_dir);
+  backup_options.backup_log_files = false;
+  backup_options.destroy_old_data = true;
+
+  BackupEngine* backup_engine_ptr;
+  ASSERT_OK(BackupEngine::Open(env_, backup_options, &backup_engine_ptr));
+  std::unique_ptr<BackupEngine> backup_engine(backup_engine_ptr);
+
+  // Verify that the atomic flush sync point is triggered
+  bool atomic_flush_triggered = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AtomicFlushMemTables:AfterScheduleFlush",
+      [&](void* /*arg*/) { atomic_flush_triggered = true; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Create backup with atomic_flush=true, flush_before_backup=true
+  CreateBackupOptions create_options;
+  create_options.flush_before_backup = true;
+  create_options.atomic_flush = true;
+  ASSERT_OK(backup_engine->CreateNewBackup(create_options, db_.get()));
+
+  ASSERT_TRUE(atomic_flush_triggered);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Verify no WAL files in the backup
+  BackupInfo backup_info;
+  ASSERT_OK(backup_engine->GetLatestBackupInfo(&backup_info,
+                                               /*include_file_details=*/true));
+  for (const auto& file : backup_info.file_details) {
+    // WAL files have names like 000001.log
+    ASSERT_TRUE(file.relative_filename.find(".log") == std::string::npos)
+        << "Found WAL file in backup: " << file.relative_filename;
+  }
+
+  // Close the original DB and restore from backup
+  Close();
+
+  ASSERT_OK(backup_engine->RestoreDBFromLatestBackup(restore_dir, restore_dir));
+
+  // Open the restored DB and verify data
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions(options));
+  cf_descs.emplace_back("cf1", ColumnFamilyOptions(options));
+  cf_descs.emplace_back("cf2", ColumnFamilyOptions(options));
+
+  std::unique_ptr<DB> restored_db;
+  std::vector<ColumnFamilyHandle*> restored_handles;
+  ASSERT_OK(DB::Open(DBOptions(options), restore_dir, cf_descs,
+                     &restored_handles, &restored_db));
+
+  ReadOptions ropts;
+  std::string value;
+  ASSERT_OK(restored_db->Get(ropts, restored_handles[0], "key0", &value));
+  ASSERT_EQ("val0", value);
+  ASSERT_OK(restored_db->Get(ropts, restored_handles[1], "key1", &value));
+  ASSERT_EQ("val1", value);
+  ASSERT_OK(restored_db->Get(ropts, restored_handles[2], "key2", &value));
+  ASSERT_EQ("val2", value);
+
+  for (auto* h : restored_handles) {
+    delete h;
+  }
+  restored_db.reset();
+  ASSERT_OK(DestroyDB(restore_dir, options));
+  test::DeleteDir(env_, backup_dir);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

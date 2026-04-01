@@ -296,7 +296,7 @@ TEST_F(OptionsSettableTest, TablePropertiesAllFieldsSettable) {
       "external_sst_file_global_seqno_offset=0;num_merge_operands=0;index_key_"
       "is_user_key=0;key_largest_seqno=18446744073709551615;key_smallest_seqno="
       "18;data_block_restart_interval=16;index_block_restart_interval=1;"
-      "separate_key_value_in_data_block=0;",
+      "separate_key_value_in_data_block=0;num_uniform_blocks=0;",
       new_tp));
 
   // All bytes are set from the parse
@@ -476,6 +476,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "allow_data_in_errors=false;"
       "enforce_single_del_contracts=false;"
       "daily_offpeak_time_utc=08:30-19:00;"
+      "max_compaction_trigger_wakeup_seconds=43200;"
       "follower_refresh_catchup_period_ms=123;"
       "follower_catchup_retry_count=456;"
       "follower_catchup_retry_wait_ms=789;"
@@ -662,6 +663,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "disallow_memtable_writes=true;"
       "ttl=60;"
       "periodic_compaction_seconds=3600;"
+      "read_triggered_compaction_threshold=0.5;"
       "sample_for_compression=0;"
       "enable_blob_files=true;"
       "min_blob_size=256;"

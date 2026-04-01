@@ -99,7 +99,8 @@ public class MutableColumnFamilyOptions extends AbstractMutableOptions {
     max_bytes_for_level_multiplier(ValueType.INT),
     max_bytes_for_level_multiplier_additional(ValueType.INT_ARRAY),
     ttl(ValueType.LONG),
-    periodic_compaction_seconds(ValueType.LONG);
+    periodic_compaction_seconds(ValueType.LONG),
+    read_triggered_compaction_threshold(ValueType.DOUBLE);
 
     private final ValueType valueType;
     CompactionOption(final ValueType valueType) {
@@ -583,6 +584,18 @@ public class MutableColumnFamilyOptions extends AbstractMutableOptions {
     @Override
     public double blobGarbageCollectionForceThreshold() {
       return getDouble(BlobOption.blob_garbage_collection_force_threshold);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setReadTriggeredCompactionThreshold(
+        final double readTriggeredCompactionThreshold) {
+      return setDouble(
+          CompactionOption.read_triggered_compaction_threshold, readTriggeredCompactionThreshold);
+    }
+
+    @Override
+    public double readTriggeredCompactionThreshold() {
+      return getDouble(CompactionOption.read_triggered_compaction_threshold);
     }
 
     @Override

@@ -16,6 +16,13 @@
 namespace ROCKSDB_NAMESPACE {
 namespace trie_index {
 
+// Tag used for non-boundary separators (between blocks with different user
+// keys). This is the same tag the standard index uses:
+// the smallest possible internal key for a given user key.
+static uint64_t NonBoundaryTag() {
+  return PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek);
+}
+
 // ============================================================================
 // TrieIndexBuilder
 // ============================================================================
@@ -30,7 +37,7 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
                                       const BlockHandle& block_handle,
                                       std::string* separator_scratch,
                                       const IndexEntryContext& context) {
-  SequenceNumber last_key_seq = context.last_key_seq;
+  uint64_t last_key_tag = context.last_key_tag;
 
   // Compute a short separator between the two user keys using the
   // comparator. FindShortestSeparator takes `*start` as both input and output:
@@ -117,12 +124,18 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
   BufferedEntry entry;
   entry.separator_key = separator.ToString();
   // For same-user-key boundaries, use the actual seqno of the last key.
-  // For different-user-key boundaries, use kMaxSequenceNumber (sentinel
-  // meaning "this is not a same-key boundary, never advance past it").
+  // For different-user-key boundaries, use the maximum tag as a
+  // non-boundary tag meaning "use the same comparison semantics as the
+  // standard index's InternalKeyComparator".
   if (same_user_key) {
-    entry.seqno = last_key_seq;
+    entry.tag = last_key_tag;
   } else {
-    entry.seqno = kMaxSequenceNumber;
+    // Not a same-user-key boundary. Use a sentinel value that ensures
+    // Use the same tag the standard index uses for non-boundary
+    // separators: kMaxSequenceNumber | kValueTypeForSeek. This ensures the
+    // trie's post-seek comparison exactly matches the standard index's
+    // InternalKeyComparator behavior.
+    entry.tag = NonBoundaryTag();
   }
   entry.handle = handle;
   buffered_entries_.push_back(std::move(entry));
@@ -157,9 +170,11 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
     // goes into the trie (as the primary block). The remaining blocks in the
     // run are stored as overflow blocks in the side-table.
     //
-    // For non-boundary separators (different user keys), seqno is set to 0
-    // (sentinel = "never advance past this leaf"). kMaxSequenceNumber from
-    // AddIndexEntry is mapped to 0 here.
+    // For non-boundary separators (different user keys), the tag
+    // is PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek) -- the
+    // same tag the standard index uses. This is stored directly in the
+    // seqno side-table, ensuring the post-seek correction correctly matches
+    // the standard index's InternalKeyComparator behavior.
     size_t i = 0;
     while (i < buffered_entries_.size()) {
       const auto& entry = buffered_entries_[i];
@@ -173,22 +188,29 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
       }
       uint32_t block_count = static_cast<uint32_t>(run_end - run_start);
 
-      // Map kMaxSequenceNumber (non-same-key boundary) to 0 (sentinel).
-      uint64_t seqno = (entry.seqno == kMaxSequenceNumber) ? 0 : entry.seqno;
+      // For non-boundary separators (between blocks with different user keys),
+      // store the same tag the standard index uses:
+      // PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek). This
+      // makes the trie's post-seek comparison exactly match the standard
+      // index's InternalKeyComparator behavior.
+      //
+      // For boundary separators (same user key), store the actual packed
+      // tag for correct seqno-based block selection.
+      uint64_t tag = entry.tag;
 
       // Add the primary (first) block for this separator.
       trie_builder_.AddKeyWithSeqno(Slice(entry.separator_key), entry.handle,
-                                    seqno, block_count);
+                                    tag, block_count);
 
       // Add overflow blocks (2nd, 3rd, ... in the run).
-      // Overflow blocks only exist within same-key runs, so their seqnos
-      // come from last_key_seq in AddIndexEntry (never kMaxSequenceNumber).
-      // The seqno may be 0 when bottommost compaction zeroes all sequence
-      // numbers — this is valid; see AddOverflowBlock comment.
+      // Overflow blocks only exist within same-key runs, so their packed
+      // tags come from last_key_tag in AddIndexEntry.
+      // The tag may be 0 when bottommost compaction zeroes all sequence
+      // numbers -- this is valid; see AddOverflowBlock comment.
       for (size_t j = run_start + 1; j < run_end; j++) {
-        assert(buffered_entries_[j].seqno != kMaxSequenceNumber);
+        assert(buffered_entries_[j].tag != NonBoundaryTag());
         trie_builder_.AddOverflowBlock(buffered_entries_[j].handle,
-                                       buffered_entries_[j].seqno);
+                                       buffered_entries_[j].tag);
       }
 
       i = run_end;
@@ -243,11 +265,7 @@ void TrieIndexIterator::Prepare(const ScanOptions scan_opts[],
 }
 
 Status TrieIndexIterator::SeekToFirstAndGetResult(IterateResult* result) {
-  // Reset overflow state — SeekToFirst always lands on the primary block
-  // of the first trie leaf.
-  overflow_run_index_ = 0;
-  overflow_run_size_ = 1;
-  overflow_base_idx_ = 0;
+  ResetOverflowState();
 
   if (!iter_.SeekToFirst()) {
     result->bound_check_result = IterBoundCheck::kUnknown;
@@ -255,28 +273,60 @@ Status TrieIndexIterator::SeekToFirstAndGetResult(IterateResult* result) {
     return Status::OK();
   }
 
-  result->key = iter_.Key();
-  current_key_scratch_ = result->key.ToString();
-  result->key = Slice(current_key_scratch_);
+  CopyTrieKeyToResult(result);
+  SetupOverflowForCurrentLeaf(/*position_at_last=*/false);
+  result->bound_check_result = IterBoundCheck::kInbound;
+  return Status::OK();
+}
 
-  // Set up overflow state for the first leaf if seqno encoding is active.
-  if (has_seqno_encoding_) {
-    uint64_t leaf_idx = iter_.LeafIndex();
-    uint32_t block_count = trie_->GetLeafBlockCount(leaf_idx);
-    overflow_run_size_ = block_count;
-    overflow_base_idx_ = trie_->GetOverflowBase(leaf_idx);
+Status TrieIndexIterator::SeekToLastAndGetResult(IterateResult* result) {
+  ResetOverflowState();
+
+  if (!iter_.SeekToLast()) {
+    result->bound_check_result = IterBoundCheck::kUnknown;
+    result->key = Slice();
+    return Status::OK();
   }
 
-  // The very first entry is always in bounds (no target to compare against
-  // the limit, and the first block cannot precede any scan range).
+  CopyTrieKeyToResult(result);
+  SetupOverflowForCurrentLeaf(/*position_at_last=*/true);
   result->bound_check_result = IterBoundCheck::kInbound;
+  return Status::OK();
+}
+
+Status TrieIndexIterator::PrevAndGetResult(IterateResult* result) {
+  // Overflow fast path: key doesn't change within the same run, so
+  // current_key_scratch_ can be passed directly to CheckBounds (no copy).
+  if (overflow_run_index_ > 0) {
+    overflow_run_index_--;
+    result->key = Slice(current_key_scratch_);
+    result->bound_check_result = CheckBounds(Slice(current_key_scratch_));
+    return Status::OK();
+  }
+
+  // Non-overflow: current_key_scratch_ is about to be overwritten, so swap
+  // into prev_key_scratch_ in O(1) instead of copying.
+  std::swap(prev_key_scratch_, current_key_scratch_);
+
+  // Move to the previous trie leaf.
+  ResetOverflowState();
+
+  if (!iter_.Prev()) {
+    result->bound_check_result = IterBoundCheck::kUnknown;
+    result->key = Slice();
+    return Status::OK();
+  }
+
+  CopyTrieKeyToResult(result);
+  SetupOverflowForCurrentLeaf(/*position_at_last=*/true);
+  result->bound_check_result = CheckBounds(Slice(prev_key_scratch_));
   return Status::OK();
 }
 
 Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
                                            IterateResult* result,
                                            const SeekContext& context) {
-  SequenceNumber target_seq = context.target_seq;
+  uint64_t target_packed = context.target_tag;
 
   // Advance current_scan_idx_ past any scans whose limit <= target.
   // This handles the multi-scan case where the caller seeks into a later
@@ -293,10 +343,7 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
     }
   }
 
-  // Reset overflow state.
-  overflow_run_index_ = 0;
-  overflow_run_size_ = 1;
-  overflow_base_idx_ = 0;
+  ResetOverflowState();
 
   // Always seek with user key only — the trie stores user-key separators.
   // When seqno encoding is active, post-seek correction handles the seqno.
@@ -312,46 +359,44 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
   }
 
   // Set the result key (always a user key, no suffix stripping needed).
-  result->key = iter_.Key();
-  current_key_scratch_ = result->key.ToString();
-  result->key = Slice(current_key_scratch_);
+  // Reuse current_key_scratch_ capacity — avoids heap allocation after warmup.
+  {
+    Slice trie_key = iter_.Key();
+    current_key_scratch_.assign(trie_key.data(), trie_key.size());
+    result->key = Slice(current_key_scratch_);
+  }
 
   // ---- Post-seek correction for seqno side-table ----
   //
-  // When has_seqno_encoding_ is true, the leaf we landed on may have a
-  // seqno side-table entry. We use it to determine if this is the right
-  // block for the given (target, target_seq).
+  // When has_seqno_encoding_ is true, the leaf we landed on has a seqno
+  // side-table entry. We use it to determine if this is the right block
+  // for the given (target, target_packed).
   //
-  // The trie stores separators that are upper bounds on block contents:
-  //   separator_key >= all keys in the block
-  //   separator_seqno = seqno of the last key written to the block
+  // For same-user-key boundaries: the tag determines which block
+  // within a run of same-key blocks is correct. If target_packed < leaf_packed,
+  // advance through overflow blocks.
   //
-  // For same-user-key boundaries, the separator IS the user key. The seqno
-  // determines which block within a run of same-key blocks is correct:
-  //   - If target_seq >= leaf_seqno: this is the right block (target's
-  //     internal key <= separator's internal key, because higher seqno means
-  //     "smaller" internal key for the same user key)
-  //   - If target_seq < leaf_seqno: target's internal key > separator,
-  //     so we need to advance to the next block in the run
-  //
-  // For non-boundary leaves (leaf_seqno == 0), the `leaf_seqno != 0` guard
-  // short-circuits before the comparison, so we never advance. This is the
-  // zero-overhead common path.
+  // For non-boundary separators: leaf_seqno stores the same tag
+  // the standard index uses for these separators:
+  // PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek). The comparison
+  // target_packed < leaf_seqno determines whether to advance, exactly matching
+  // the standard index's InternalKeyComparator behavior.
   if (has_seqno_encoding_ && iter_.Valid()) {
     uint64_t leaf_idx = iter_.LeafIndex();
     uint64_t leaf_seqno = trie_->GetLeafSeqno(leaf_idx);
 
-    if (leaf_seqno != 0 && target_seq < leaf_seqno) {
-      // Target's internal key is AFTER the separator (lower seqno = later
-      // in internal key order for same user key). Advance through overflow
-      // blocks.
+    if (target_packed < leaf_seqno &&
+        comparator_->Compare(Slice(current_key_scratch_), target) == 0) {
+      // Target's internal key is AFTER the separator (lower tag =
+      // later in internal key order for same user key). Advance through
+      // overflow blocks.
       uint32_t block_count = trie_->GetLeafBlockCount(leaf_idx);
       uint32_t base = trie_->GetOverflowBase(leaf_idx);
 
       bool found = false;
       for (uint32_t oi = 0; oi < block_count - 1; oi++) {
         uint64_t ov_seqno = trie_->GetOverflowSeqno(base + oi);
-        if (ov_seqno == 0 || target_seq >= ov_seqno) {
+        if (ov_seqno == 0 || target_packed >= ov_seqno) {
           // This overflow block is the right one.
           overflow_run_index_ = oi + 1;  // 1-based (0 = primary)
           overflow_run_size_ = block_count;
@@ -362,8 +407,8 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
       }
 
       if (!found) {
-        // target_seq is below all seqnos in this run. Advance to the next
-        // trie leaf (the block after the run).
+        // target_packed is below all tags in this run. Advance to
+        // the next trie leaf (the block after the run).
         if (!iter_.Next()) {
           // Exhausted all blocks: target is past the end of this SST.
           // Return kUnknown — see comment in Seek path above.
@@ -372,9 +417,11 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
           return Status::OK();
         }
         // Update key and overflow state for the new leaf.
-        result->key = iter_.Key();
-        current_key_scratch_ = result->key.ToString();
-        result->key = Slice(current_key_scratch_);
+        {
+          Slice trie_key = iter_.Key();
+          current_key_scratch_.assign(trie_key.data(), trie_key.size());
+          result->key = Slice(current_key_scratch_);
+        }
         overflow_run_index_ = 0;
         overflow_run_size_ = 1;
         overflow_base_idx_ = 0;
@@ -402,43 +449,30 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
 }
 
 Status TrieIndexIterator::NextAndGetResult(IterateResult* result) {
-  // Save the current separator (user key) as "previous" before advancing.
-  prev_key_scratch_ = current_key_scratch_;
-
-  // If we're in an overflow run and haven't exhausted it, advance within
-  // the run (no trie traversal needed — just increment the overflow index).
+  // Overflow fast path: key doesn't change within the same run, so
+  // current_key_scratch_ can be passed directly to CheckBounds (no copy).
   if (overflow_run_index_ + 1 < overflow_run_size_) {
     overflow_run_index_++;
-    // The key doesn't change (same separator for all blocks in the run).
     result->key = Slice(current_key_scratch_);
-    result->bound_check_result = CheckBounds(Slice(prev_key_scratch_));
+    result->bound_check_result = CheckBounds(Slice(current_key_scratch_));
     return Status::OK();
   }
 
+  // Non-overflow: current_key_scratch_ is about to be overwritten, so swap
+  // into prev_key_scratch_ in O(1) instead of copying.
+  std::swap(prev_key_scratch_, current_key_scratch_);
+
   // Advance to the next trie leaf.
-  overflow_run_index_ = 0;
-  overflow_run_size_ = 1;
-  overflow_base_idx_ = 0;
+  ResetOverflowState();
 
   if (!iter_.Next()) {
-    // No more blocks: past the end of this SST.
-    // Return kUnknown — see comment in Seek path above.
     result->bound_check_result = IterBoundCheck::kUnknown;
     result->key = Slice();
     return Status::OK();
   }
 
-  result->key = iter_.Key();
-  current_key_scratch_ = result->key.ToString();
-  result->key = Slice(current_key_scratch_);
-
-  // Set overflow state for the new leaf.
-  if (has_seqno_encoding_ && iter_.Valid()) {
-    uint64_t leaf_idx = iter_.LeafIndex();
-    overflow_run_size_ = trie_->GetLeafBlockCount(leaf_idx);
-    overflow_base_idx_ = trie_->GetOverflowBase(leaf_idx);
-  }
-
+  CopyTrieKeyToResult(result);
+  SetupOverflowForCurrentLeaf(/*position_at_last=*/false);
   result->bound_check_result = CheckBounds(Slice(prev_key_scratch_));
   return Status::OK();
 }

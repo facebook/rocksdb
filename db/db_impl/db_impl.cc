@@ -822,8 +822,9 @@ static uint64_t GetMinTimeBasedCompactionInterval(
 }
 
 uint64_t DBImpl::ComputeTriggerCompactionPeriod() {
-  // Start with a maximum period of every 12 hours.
-  uint64_t period_sec = 12 * 60 * 60;
+  // Start with the configured maximum, then reduce based on other options.
+  uint64_t period_sec =
+      mutable_db_options_.max_compaction_trigger_wakeup_seconds;
 
   // Consider DB-level options that have the DB waking up periodically anyway.
   // Waking up to check for compactions at the same interval should be no
@@ -4952,7 +4953,8 @@ void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
 Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
                                    ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes) {
-  if (!options.include_memtables && !options.include_files) {
+  if (!options.include_memtables && !options.include_files &&
+      !options.include_blob_files) {
     return Status::InvalidArgument("Invalid options");
   }
 
@@ -4968,6 +4970,28 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
 
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
+
+  // Pre-compute blob-to-SST ratio once (invariant across ranges for the same
+  // Version). This avoids iterating all levels and blob files per range.
+  double blob_to_sst_ratio = 0.0;
+  if (options.include_blob_files) {
+    const auto* vstorage = v->storage_info();
+    uint64_t total_sst_size = 0;
+    for (int level = 0; level < vstorage->num_non_empty_levels(); ++level) {
+      total_sst_size += vstorage->NumLevelBytes(level);
+    }
+    if (total_sst_size > 0) {
+      uint64_t total_blob_size = 0;
+      const auto& blob_files = vstorage->GetBlobFiles();
+      for (const auto& blob_file_meta : blob_files) {
+        assert(blob_file_meta);
+        total_blob_size += blob_file_meta->GetBlobFileSize();
+      }
+      blob_to_sst_ratio = static_cast<double>(total_blob_size) /
+                          static_cast<double>(total_sst_size);
+    }
+  }
+
   for (int i = 0; i < n; i++) {
     // Add timestamp if needed
     std::string start_with_ts, limit_with_ts;
@@ -4979,15 +5003,25 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
     InternalKey k1(start.value(), kMaxSequenceNumber, kValueTypeForSeek);
     InternalKey k2(limit.value(), kMaxSequenceNumber, kValueTypeForSeek);
     sizes[i] = 0;
-    if (options.include_files) {
-      sizes[i] += versions_->ApproximateSize(
+    // Compute SST size in range (needed for both include_files and
+    // include_blob_files, since blob size is prorated by SST ratio).
+    uint64_t sst_size_in_range = 0;
+    if (options.include_files || options.include_blob_files) {
+      sst_size_in_range = versions_->ApproximateSize(
           options, read_options, v, k1.Encode(), k2.Encode(),
           /*start_level=*/0,
           /*end_level=*/-1, TableReaderCaller::kUserApproximateSize);
     }
+    if (options.include_files) {
+      sizes[i] += sst_size_in_range;
+    }
     if (options.include_memtables) {
       sizes[i] += sv->mem->ApproximateStats(k1.Encode(), k2.Encode()).size;
       sizes[i] += sv->imm->ApproximateStats(k1.Encode(), k2.Encode()).size;
+    }
+    if (options.include_blob_files) {
+      sizes[i] += static_cast<uint64_t>(static_cast<double>(sst_size_in_range) *
+                                        blob_to_sst_ratio);
     }
   }
 
@@ -7003,11 +7037,12 @@ void DBImpl::TriggerPeriodicCompaction() {
       if (cfd->queued_for_compaction()) {
         continue;
       }
-      // Check if this CF has any time-based compaction trigger configured.
-      // This includes periodic_compaction_seconds, ttl, or FIFO temperature
-      // thresholds. Note: periodic_compaction_seconds may be 0 even when
-      // ttl or temperature thresholds are set, due to option sanitization.
-      if (GetMinTimeBasedCompactionInterval(cfd->GetLatestCFOptions()) > 0) {
+      // Check if this CF has any time-based or read-triggered compaction
+      // configured. This includes periodic_compaction_seconds, ttl, FIFO
+      // temperature thresholds, or read_triggered_compaction_threshold.
+      if (GetMinTimeBasedCompactionInterval(cfd->GetLatestCFOptions()) > 0 ||
+          cfd->GetLatestMutableCFOptions().read_triggered_compaction_threshold >
+              0.0) {
         TEST_SYNC_POINT_CALLBACK(
             "DBImpl::TriggerPeriodicCompaction:BeforeComputeCompactionScore",
             cfd);

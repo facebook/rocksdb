@@ -2867,6 +2867,14 @@ int main(int argc, char** argv) {
     rocksdb_options_set_blob_gc_force_threshold(o, 0.75);
     CheckCondition(0.75 == rocksdb_options_get_blob_gc_force_threshold(o));
 
+    rocksdb_options_set_read_triggered_compaction_threshold(o, 0.001);
+    CheckCondition(0.001 ==
+                   rocksdb_options_get_read_triggered_compaction_threshold(o));
+
+    rocksdb_options_set_max_compaction_trigger_wakeup_seconds(o, 3600);
+    CheckCondition(
+        3600 == rocksdb_options_get_max_compaction_trigger_wakeup_seconds(o));
+
     rocksdb_options_set_blob_compaction_readahead_size(o, 262144);
     CheckCondition(262144 ==
                    rocksdb_options_get_blob_compaction_readahead_size(o));

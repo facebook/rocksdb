@@ -5,7 +5,11 @@ runs:
   steps:
     - name: Trim and print ccache stats
       run: |
+        if [ -z "$CCACHE_DIR" ]; then
+          echo "teardown-ccache: CCACHE_DIR not set, skipping (setup-ccache may not have run)"
+          exit 0
+        fi
         .github/scripts/ccache-trim.sh || true
-        ccache -s
+        ccache -s || echo "teardown-ccache: ccache not found, skipping stats"
       if: always()
       shell: bash

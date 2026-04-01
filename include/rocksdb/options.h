@@ -1709,6 +1709,28 @@ struct DBOptions {
   // this field blank. Default: Empty string (no offpeak).
   std::string daily_offpeak_time_utc = "";
 
+  // Maximum interval in seconds between periodic compaction trigger checks.
+  // The periodic trigger re-evaluates compaction scores for all column
+  // families, which is necessary for features like read-triggered compaction
+  // and time-based compaction to work on a "quiet" DB with no writes.
+  //
+  // This is an upper bound: the actual check interval may be reduced to
+  // align with stats_dump_period_sec, stats_persist_period_sec, or per-CF
+  // time-based compaction intervals (periodic_compaction_seconds, ttl, etc.).
+  //
+  // Note: this option controls how often RocksDB *checks* whether compaction
+  // is needed. It is different from the CF option `periodic_compaction_seconds`
+  // which controls the *age threshold* at which SST files become eligible for
+  // periodic compaction.
+  //
+  // The minimum effective period is 1 second (values below 1 are clamped to 1).
+  // Setting this to 0 results in the most aggressive 1-second polling.
+  //
+  // Default: 43200 (12 hours)
+  //
+  // Dynamically changeable through SetDBOptions() API.
+  uint64_t max_compaction_trigger_wakeup_seconds = 43200;
+
   // EXPERIMENTAL
 
   // When a RocksDB database is opened in follower mode, this option
@@ -2282,10 +2304,9 @@ struct ReadOptions {
   // block based table index. The table_factory used for the column family
   // must support building/reading this index.
   //
-  // Forward scans (SeekToFirst, Seek, Next) and point lookups (Get) are
-  // supported. Reverse operations (SeekToLast, SeekForPrev, Prev) are not
-  // yet supported and will return NotSupported when this is set. Leave this
-  // null to use the native index for reverse operations.
+  // All iterator operations are supported: forward scans (SeekToFirst, Seek,
+  // Next), reverse scans (SeekToLast, SeekForPrev, Prev), and point lookups
+  // (Get). Leave this null to use the native block-based table index.
   const UserDefinedIndexFactory* table_index_factory = nullptr;
 
   // *** END options only relevant to iterators or scans ***
@@ -2861,11 +2882,26 @@ struct ImportColumnFamilyOptions {
 // Options used with DB::GetApproximateSizes()
 struct SizeApproximationOptions {
   // Defines whether the returned size should include the recently written
-  // data in the memtables. If set to false, include_files must be true.
+  // data in the memtables. If set to false, at least one of include_files or
+  // include_blob_files must be true.
   bool include_memtables = false;
   // Defines whether the returned size should include data serialized to disk.
-  // If set to false, include_memtables must be true.
+  // If set to false, at least one of include_memtables or include_blob_files
+  // must be true.
   bool include_files = true;
+  // Defines whether the returned size should include an approximation of
+  // blob file data in the key range. When enabled, the total blob file size
+  // is prorated by the ratio of SST data in the range to the total SST data:
+  //
+  //   blob_size_in_range ≈ total_blob_size * (sst_in_range / total_sst)
+  //
+  // Limitations of this approximation:
+  // - Assumes blob data is distributed proportionally to SST data, which
+  //   may not hold if blob value sizes vary significantly across keys.
+  // - If there are no SST files (all data in memtables), the blob size
+  //   contribution will be 0 even if blob files exist on disk.
+  // Default: false (for backward compatibility).
+  bool include_blob_files = false;
   // When approximating the files total size that is used to store a keys range
   // using DB::GetApproximateSizes, allow approximation with an error margin of
   // up to total_files_size * files_size_error_margin. This allows to take some

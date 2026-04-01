@@ -14,8 +14,10 @@
 #include "db/arena_wrapped_db_iter.h"
 #include "db/db_iter.h"
 #include "db/db_test_util.h"
+#include "env/composite_env_wrapper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/io_dispatcher.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"
@@ -4804,6 +4806,124 @@ TEST_P(DBMultiScanIteratorTest, AsyncPrefetchAcrossMultipleFiles) {
   }
 
   iter.reset();
+}
+
+// Wrapper filesystem that does not support async IO.
+// Used to verify that MultiScan gracefully falls back to sync IO.
+class NoAsyncIOFS : public FileSystemWrapper {
+ public:
+  explicit NoAsyncIOFS(const std::shared_ptr<FileSystem>& target)
+      : FileSystemWrapper(target) {}
+  static const char* kClassName() { return "NoAsyncIOFS"; }
+  const char* Name() const override { return kClassName(); }
+
+  void SupportedOps(int64_t& supported_ops) override {
+    target()->SupportedOps(supported_ops);
+    supported_ops &= ~(1 << FSSupportedOps::kAsyncIO);
+  }
+
+  IOStatus Poll(std::vector<void*>& /*io_handles*/,
+                size_t /*min_completions*/) override {
+    ADD_FAILURE() << "Poll should not be called when kAsyncIO is unsupported";
+    return IOStatus::NotSupported();
+  }
+
+  IOStatus AbortIO(std::vector<void*>& /*io_handles*/) override {
+    ADD_FAILURE()
+        << "AbortIO should not be called when kAsyncIO is unsupported";
+    return IOStatus::NotSupported();
+  }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    IOStatus s = target()->NewRandomAccessFile(fname, opts, result, dbg);
+    if (s.ok()) {
+      *result = std::make_unique<NoAsyncIOFile>(std::move(*result));
+    }
+    return s;
+  }
+
+ private:
+  class NoAsyncIOFile : public FSRandomAccessFileOwnerWrapper {
+   public:
+    using FSRandomAccessFileOwnerWrapper::FSRandomAccessFileOwnerWrapper;
+    IOStatus ReadAsync(FSReadRequest& /*req*/, const IOOptions& /*opts*/,
+                       std::function<void(FSReadRequest&, void*)> /*cb*/,
+                       void* /*cb_arg*/, void** /*io_handle*/,
+                       IOHandleDeleter* /*del_fn*/,
+                       IODebugContext* /*dbg*/) override {
+      ADD_FAILURE()
+          << "ReadAsync should not be called when kAsyncIO is unsupported";
+      return IOStatus::NotSupported();
+    }
+  };
+};
+
+TEST_P(DBMultiScanIteratorTest, AsyncIOFallbackWithoutFSSupport) {
+  // Verify that MultiScan works correctly when use_async_io = true but the
+  // filesystem does NOT support kAsyncIO. The constructor should silently
+  // disable async IO, and no async operations should be attempted.
+  auto options = CurrentOptions();
+  options.target_file_size_base = 1 << 15;  // 32KiB
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 50;
+  options.compression = kNoCompression;
+
+  auto no_async_fs = std::make_shared<NoAsyncIOFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> wrapped_env(new CompositeEnvWrapper(env_, no_async_fs));
+  options.env = wrapped_env.get();
+
+  DestroyAndReopen(options);
+
+  Random rnd(305);
+
+  // Create data across multiple files
+  for (int i = 0; i < 1000; ++i) {
+    std::stringstream ss;
+    ss << "k" << std::setw(5) << std::setfill('0') << i;
+    ASSERT_OK(Put(ss.str(), rnd.RandomString(1 << 10)));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+
+  // Set up multiple non-overlapping ranges
+  std::vector<std::string> key_ranges(
+      {"k00000", "k00100", "k00500", "k00600", "k00800", "k00900"});
+  ReadOptions ro;
+  ro.fill_cache = GetParam();
+
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.use_async_io = true;  // Deliberately request async IO
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+  scan_options.insert(key_ranges[4], key_ranges[5]);
+
+  // The MultiScan constructor should disable async IO since the FS
+  // doesn't support it. If it doesn't, the NoAsyncIOFS wrapper will
+  // cause ADD_FAILURE() when ReadAsync/Poll/AbortIO are called.
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+  ASSERT_NE(iter, nullptr);
+
+  // Iterate all ranges and verify keys are returned correctly
+  try {
+    for (auto range : *iter) {
+      for (auto it : range) {
+        it.first.ToString();
+      }
+    }
+  } catch (MultiScanException& ex) {
+    FAIL() << "Iterator returned status " << ex.what();
+  } catch (std::logic_error& ex) {
+    FAIL() << "Iterator returned logic error " << ex.what();
+  }
+
+  iter.reset();
+  Close();
 }
 
 TEST_P(DBMultiScanIteratorTest, AsyncPrefetchMultipleLevels) {

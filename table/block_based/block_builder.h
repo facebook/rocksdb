@@ -86,6 +86,10 @@ class BlockBuilder {
 
   std::string& MutableBuffer() { return buffer_; }
 
+  // Returns true if the most recently Finish()'d block was marked uniform.
+  // REQUIRES: Finish() has been called.
+  bool IsUniform() const { return is_uniform_; }
+
  private:
   inline void AddWithLastKeyImpl(const Slice& key, const Slice& value,
                                  const Slice& last_key,
@@ -128,6 +132,7 @@ class BlockBuilder {
   size_t estimate_;
   int counter_;    // Number of entries emitted since restart
   bool finished_;  // Has Finish() been called?
+  bool is_uniform_;  // Was the last Finish()'d block uniform?
   std::string last_key_;
   DataBlockHashIndexBuilder data_block_hash_index_builder_;
   const double uniform_cv_threshold_;

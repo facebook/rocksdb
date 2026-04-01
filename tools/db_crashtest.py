@@ -266,6 +266,8 @@ default_params = {
     "use_get_entity": lambda: random.choice([0] * 7 + [1]),
     "use_multi_get_entity": lambda: random.choice([0] * 7 + [1]),
     "periodic_compaction_seconds": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
+    "max_compaction_trigger_wakeup_seconds": lambda: random.choice([43200, 600, 30]),
+    "read_triggered_compaction_threshold": lambda: random.choice([0.0, 0.001, 0.01]),
     "daily_offpeak_time_utc": lambda: random.choice(
         ["", "", "00:00-23:59", "04:00-08:00", "23:30-03:15"]
     ),
@@ -926,7 +928,7 @@ def finalize_and_sanitize(src_params):
         dest_params["open_read_fault_one_in"] = 0
         dest_params["sync_fault_injection"] = 0
 
-    # UDI now supports all operation types (Put, Delete, Merge, etc.).
+    # UDI now supports all operation types and all iteration directions.
     # Only parallel compression and mmap_read remain incompatible.
     if dest_params.get("use_trie_index") == 1:
         # Trie UDI uses zero-copy pointers into block data, which is
@@ -1324,6 +1326,11 @@ def finalize_and_sanitize(src_params):
     # allow_resumption requires remote compaction
     if dest_params.get("remote_compaction_worker_threads", 0) == 0:
         dest_params["allow_resumption_one_in"] = 0
+
+    # When read-triggered compaction is enabled, use a short periodic trigger
+    # interval so that the feature gets exercised on a quiet DB.
+    if dest_params.get("read_triggered_compaction_threshold", 0) > 0:
+        dest_params["max_compaction_trigger_wakeup_seconds"] = 20
 
     return dest_params
 

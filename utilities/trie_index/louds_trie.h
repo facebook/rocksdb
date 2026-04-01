@@ -384,9 +384,11 @@ class LoudsTrie {
   // separator maps to multiple blocks.
   //
   // leaf_seqnos_[i]: seqno for the i-th leaf (BFS order).
-  //   Value 0 = sentinel meaning "never advance past this leaf" (used for
-  //   non-boundary leaves and for leaves where seqno=0 covers everything).
-  //   For boundary leaves, stores the actual last_key_seq.
+  //   For non-boundary leaves: stores
+  //   PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek) -- the same
+  //   tag the standard index uses for non-boundary separators.
+  //   For boundary leaves: stores the actual tag
+  //   ((sequence_number << 8) | value_type).
   //
   // leaf_block_counts_[i]: how many consecutive blocks share this separator.
   //   1 = no overflow (the common case). >1 = same-user-key run.
@@ -457,7 +459,8 @@ class LoudsTrie {
 // ============================================================================
 // LoudsTrieIterator: Iterates over the leaves of a LoudsTrie.
 //
-// Supports forward-only iteration: Seek(key) + Next().
+// Supports bidirectional iteration: Seek/SeekToFirst/Next (forward) and
+// SeekToLast/Prev (reverse).
 // Reconstructs the separator key from the trie path at each position.
 //
 // The iterator maintains a stack of positions through the trie (one per
@@ -478,6 +481,14 @@ class LoudsTrieIterator {
   // check at root (DescendToLeftmostLeaf handles prefix keys at every node).
   // Returns true if positioned on a valid leaf.
   bool SeekToFirst();
+
+  // Position on the very last leaf (largest key) by descending from the
+  // root to the rightmost leaf. Returns true if positioned on a valid leaf.
+  bool SeekToLast();
+
+  // Move to the previous leaf in sorted order.
+  // Returns true if positioned on a valid leaf, false if before the first.
+  bool Prev();
 
   // Seek to the first leaf whose key is >= `target`.
   // Returns true if positioned on a valid leaf.
@@ -614,11 +625,28 @@ class LoudsTrieIterator {
   // leaf_index_ and valid_. Returns true if a leaf was found.
   bool DescendToLeftmostLeaf(bool in_dense, uint64_t node_num);
 
+  // Descend from the given node to the rightmost leaf in its subtree,
+  // pushing entries onto path_ and building key_buf_. Sets
+  // leaf_index_ and valid_. Returns true if a leaf was found.
+  // Unlike DescendToLeftmostLeaf, this does NOT check prefix keys —
+  // prefix keys are the smallest leaf at a node, so in reverse order
+  // they are visited last (handled by Retreat when backtracking).
+  bool DescendToRightmostLeaf(bool in_dense, uint64_t node_num);
+
   // Advance to the next valid leaf by backtracking up the trie path
   // and finding the next sibling label, then descending to the leftmost
   // leaf in that subtree. Used by Next() and SeekImpl().
   // Returns true if a next leaf was found.
   bool Advance();
+
+  // Retreat to the previous valid leaf by backtracking up the trie path
+  // and finding the previous sibling label, then descending to the
+  // rightmost leaf in that subtree. When no previous sibling exists,
+  // checks if the current node has a prefix key (which is the smallest
+  // leaf at a node, so it comes last in reverse order).
+  // Used by Prev().
+  // Returns true if a previous leaf was found.
+  bool Retreat();
 
   // Seek implementation, templated on whether path-compression chains exist.
   // When kHasChains=false, the compiler eliminates ALL chain-related code,
