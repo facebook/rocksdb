@@ -38,6 +38,7 @@ enum class BlobFileCreationReason {
   kFlush,
   kCompaction,
   kRecovery,
+  kDirectWrite,
 };
 
 // The types of files RocksDB uses in a DB directory. (Available for

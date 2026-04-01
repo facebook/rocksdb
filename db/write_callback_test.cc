@@ -57,6 +57,18 @@ class WriteCallbackTestWriteCallback2 : public WriteCallback {
   bool AllowWriteBatching() override { return true; }
 };
 
+class WriteCallbackTestWriteCallbackTryAgain : public WriteCallback {
+ public:
+  int calls = 0;
+
+  Status Callback(DB* /*db*/) override {
+    ++calls;
+    return Status::TryAgain("retry from callback");
+  }
+
+  bool AllowWriteBatching() override { return true; }
+};
+
 class MockWriteCallback : public WriteCallback {
  public:
   bool should_fail_ = false;
@@ -480,6 +492,36 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   ASSERT_EQ(value, "value.a4");
   ASSERT_TRUE(user_write_cb.write_enqueued_.load());
   ASSERT_TRUE(user_write_cb.wal_write_done_.load());
+
+  db.reset();
+  ASSERT_OK(DestroyDB(dbname, options));
+}
+
+TEST_F(WriteCallbackTest, WriteCallbackTryAgainDoesNotLoop) {
+  Options options;
+  WriteOptions write_options;
+  ReadOptions read_options;
+  std::unique_ptr<DB> db;
+  DBImpl* db_impl;
+
+  ASSERT_OK(DestroyDB(dbname, options));
+
+  options.create_if_missing = true;
+  ASSERT_OK(DB::Open(options, dbname, &db));
+
+  db_impl = dynamic_cast<DBImpl*>(db.get());
+  ASSERT_NE(db_impl, nullptr);
+
+  WriteCallbackTestWriteCallbackTryAgain callback;
+  WriteBatch wb;
+  ASSERT_OK(wb.Put("a", "value.a"));
+
+  Status s = db_impl->WriteWithCallback(write_options, &wb, &callback);
+  ASSERT_TRUE(s.IsTryAgain());
+  ASSERT_EQ(callback.calls, 1);
+
+  std::string value;
+  ASSERT_TRUE(db->Get(read_options, "a", &value).IsNotFound());
 
   db.reset();
   ASSERT_OK(DestroyDB(dbname, options));

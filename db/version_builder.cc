@@ -33,6 +33,7 @@
 #include "db/version_edit_handler.h"
 #include "db/version_set.h"
 #include "db/version_util.h"
+#include "logging/logging.h"
 #include "port/port.h"
 #include "table/table_reader.h"
 #include "test_util/sync_point.h"
@@ -213,6 +214,21 @@ class VersionBuilder::Rep {
 
     uint64_t GetGarbageBlobBytes() const { return garbage_blob_bytes_; }
 
+    uint64_t GetBlobFileSize() const {
+      assert(shared_meta_);
+      return shared_meta_->GetBlobFileSize();
+    }
+
+    uint64_t GetTotalBlobCount() const {
+      assert(shared_meta_);
+      return shared_meta_->GetTotalBlobCount();
+    }
+
+    uint64_t GetTotalBlobBytes() const {
+      assert(shared_meta_);
+      return shared_meta_->GetTotalBlobBytes();
+    }
+
     bool AddGarbage(uint64_t count, uint64_t bytes) {
       assert(shared_meta_);
 
@@ -281,6 +297,12 @@ class VersionBuilder::Rep {
   // version edits.
   std::map<uint64_t, MutableBlobFileMetaData> mutable_blob_file_metas_;
 
+  // Lazily-built reverse index: blob_file_number → SST numbers that
+  // reference it (via oldest_blob_file_number). Built once during the
+  // first ApplyBlobFileAddition to avoid O(levels * SSTs) per addition.
+  std::unordered_map<uint64_t, std::vector<uint64_t>> sst_blob_reverse_index_;
+  bool sst_blob_reverse_index_built_ = false;
+
   std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr_;
 
   ColumnFamilyData* cfd_;
@@ -325,6 +347,55 @@ class VersionBuilder::Rep {
 
   // End of fields that are only tracked when `track_found_and_missing_files_`
   // is enabled.
+
+  Logger* GetInfoLog() const {
+    return cfd_ ? cfd_->ioptions().logger : nullptr;
+  }
+
+  const char* GetColumnFamilyName() const {
+    return cfd_ ? cfd_->GetName().c_str() : "unknown";
+  }
+
+  static std::string SummarizeNumbers(
+      const std::unordered_set<uint64_t>& numbers, size_t max_to_show = 8) {
+    std::vector<uint64_t> sorted(numbers.begin(), numbers.end());
+    std::sort(sorted.begin(), sorted.end());
+
+    std::ostringstream oss;
+    oss << "[";
+    for (size_t i = 0; i < sorted.size() && i < max_to_show; ++i) {
+      if (i > 0) {
+        oss << ",";
+      }
+      oss << sorted[i];
+    }
+    if (sorted.size() > max_to_show) {
+      oss << ",...+" << (sorted.size() - max_to_show);
+    }
+    oss << "]";
+    return oss.str();
+  }
+
+  template <typename Meta>
+  void LogBlobFileDecision(const char* action, const char* reason,
+                           uint64_t blob_file_number, const Meta& meta) const {
+    Logger* info_log = GetInfoLog();
+    if (!info_log) {
+      return;
+    }
+
+    const auto& linked_ssts = meta->GetLinkedSsts();
+    ROCKS_LOG_INFO(info_log,
+                   "[BlobDirectWrite] VersionBuilder: %s blob file %" PRIu64
+                   " cf=%s reason=%s linked_ssts_count=%" ROCKSDB_PRIszt
+                   " linked_ssts=%s garbage=%" PRIu64 "/%" PRIu64
+                   " garbage_bytes=%" PRIu64 "/%" PRIu64 " file_size=%" PRIu64,
+                   action, blob_file_number, GetColumnFamilyName(), reason,
+                   linked_ssts.size(), SummarizeNumbers(linked_ssts).c_str(),
+                   meta->GetGarbageBlobCount(), meta->GetTotalBlobCount(),
+                   meta->GetGarbageBlobBytes(), meta->GetTotalBlobBytes(),
+                   meta->GetBlobFileSize());
+  }
 
  public:
   Rep(const FileOptions& file_options, const ImmutableCFOptions* ioptions,
@@ -768,10 +839,55 @@ class VersionBuilder::Rep {
         blob_file_number, blob_file_addition.GetTotalBlobCount(),
         blob_file_addition.GetTotalBlobBytes(),
         blob_file_addition.GetChecksumMethod(),
-        blob_file_addition.GetChecksumValue(), std::move(deleter));
+        blob_file_addition.GetChecksumValue(), std::move(deleter),
+        blob_file_addition.GetFileSize());
 
     mutable_blob_file_metas_.emplace(
         blob_file_number, MutableBlobFileMetaData(std::move(shared_meta)));
+
+    // Link existing SSTs that reference this blob file via
+    // oldest_blob_file_number. Uses a lazily-built reverse index
+    // (blob_file_number -> SST numbers) to avoid O(levels * SSTs) per blob
+    // file addition. The index is built once on first use.
+    assert(base_vstorage_);
+    if (!sst_blob_reverse_index_built_) {
+      for (int level = 0; level < num_levels_; level++) {
+        for (const auto* f : base_vstorage_->LevelFiles(level)) {
+          if (f->oldest_blob_file_number != kInvalidBlobFileNumber) {
+            sst_blob_reverse_index_[f->oldest_blob_file_number].push_back(
+                f->fd.GetNumber());
+          }
+        }
+      }
+      sst_blob_reverse_index_built_ = true;
+    }
+    auto& mutable_meta = mutable_blob_file_metas_.at(blob_file_number);
+    auto rit = sst_blob_reverse_index_.find(blob_file_number);
+    if (rit != sst_blob_reverse_index_.end()) {
+      for (uint64_t sst_number : rit->second) {
+        mutable_meta.LinkSst(sst_number);
+      }
+    }
+    // Also check SSTs added in the same batch of edits.
+    for (int level = 0; level < num_levels_; level++) {
+      for (const auto& added : levels_[level].added_files) {
+        if (added.second->oldest_blob_file_number == blob_file_number) {
+          mutable_meta.LinkSst(added.second->fd.GetNumber());
+        }
+      }
+    }
+
+    ROCKS_LOG_INFO(GetInfoLog(),
+                   "[BlobDirectWrite] VersionBuilder: add blob file %" PRIu64
+                   " cf=%s total_blobs=%" PRIu64 " total_blob_bytes=%" PRIu64
+                   " file_size=%" PRIu64 " linked_ssts_count=%" ROCKSDB_PRIszt
+                   " linked_ssts=%s",
+                   blob_file_number, GetColumnFamilyName(),
+                   blob_file_addition.GetTotalBlobCount(),
+                   blob_file_addition.GetTotalBlobBytes(),
+                   mutable_meta.GetBlobFileSize(),
+                   mutable_meta.GetLinkedSsts().size(),
+                   SummarizeNumbers(mutable_meta.GetLinkedSsts()).c_str());
 
     Status s;
     if (track_found_and_missing_files_) {
@@ -798,10 +914,10 @@ class VersionBuilder::Rep {
         GetOrCreateMutableBlobFileMetaData(blob_file_number);
 
     if (!mutable_meta) {
-      std::ostringstream oss;
-      oss << "Blob file #" << blob_file_number << " not found";
-
-      return Status::Corruption("VersionBuilder", oss.str());
+      TEST_SYNC_POINT_CALLBACK(
+          "VersionBuilder::ApplyBlobFileGarbage:BlobNotFound",
+          const_cast<uint64_t*>(&blob_file_number));
+      return Status::OK();
     }
 
     if (!mutable_meta->AddGarbage(blob_file_garbage.GetGarbageBlobCount(),
@@ -810,6 +926,17 @@ class VersionBuilder::Rep {
       oss << "Garbage overflow for blob file #" << blob_file_number;
       return Status::Corruption("VersionBuilder", oss.str());
     }
+
+    ROCKS_LOG_INFO(
+        GetInfoLog(),
+        "[BlobDirectWrite] VersionBuilder: add garbage to blob file %" PRIu64
+        " cf=%s delta=%" PRIu64 "/%" PRIu64 " total_garbage=%" PRIu64
+        "/%" PRIu64 " garbage_bytes=%" PRIu64 "/%" PRIu64,
+        blob_file_number, GetColumnFamilyName(),
+        blob_file_garbage.GetGarbageBlobCount(),
+        blob_file_garbage.GetGarbageBlobBytes(),
+        mutable_meta->GetGarbageBlobCount(), mutable_meta->GetTotalBlobCount(),
+        mutable_meta->GetGarbageBlobBytes(), mutable_meta->GetTotalBlobBytes());
 
     return Status::OK();
   }
@@ -887,6 +1014,14 @@ class VersionBuilder::Rep {
           GetOrCreateMutableBlobFileMetaData(blob_file_number);
       if (mutable_meta) {
         mutable_meta->UnlinkSst(file_number);
+        ROCKS_LOG_INFO(GetInfoLog(),
+                       "[BlobDirectWrite] VersionBuilder: unlink SST %" PRIu64
+                       " from blob file %" PRIu64
+                       " cf=%s level=%d "
+                       "linked_ssts_count=%" ROCKSDB_PRIszt " linked_ssts=%s",
+                       file_number, blob_file_number, GetColumnFamilyName(),
+                       level, mutable_meta->GetLinkedSsts().size(),
+                       SummarizeNumbers(mutable_meta->GetLinkedSsts()).c_str());
       }
     }
 
@@ -996,6 +1131,18 @@ class VersionBuilder::Rep {
           GetOrCreateMutableBlobFileMetaData(blob_file_number);
       if (mutable_meta) {
         mutable_meta->LinkSst(file_number);
+        ROCKS_LOG_INFO(GetInfoLog(),
+                       "[BlobDirectWrite] VersionBuilder: link SST %" PRIu64
+                       " to blob file %" PRIu64
+                       " cf=%s level=%d "
+                       "linked_ssts_count=%" ROCKSDB_PRIszt " linked_ssts=%s",
+                       file_number, blob_file_number, GetColumnFamilyName(),
+                       level, mutable_meta->GetLinkedSsts().size(),
+                       SummarizeNumbers(mutable_meta->GetLinkedSsts()).c_str());
+      } else {
+        std::pair<uint64_t, uint64_t> info{file_number, blob_file_number};
+        TEST_SYNC_POINT_CALLBACK(
+            "VersionBuilder::ApplyFileAddition:OldestBlobNotFound", &info);
       }
     }
 
@@ -1271,7 +1418,7 @@ class VersionBuilder::Rep {
   // contain valid data (blobs).
   template <typename Meta>
   void AddBlobFileIfNeeded(VersionStorageInfo* vstorage, Meta&& meta,
-                           uint64_t blob_file_number) const {
+                           uint64_t blob_file_number, bool log_decision) const {
     assert(vstorage);
     assert(meta);
 
@@ -1279,19 +1426,36 @@ class VersionBuilder::Rep {
     if (track_found_and_missing_files_) {
       if (missing_blob_files_.find(blob_file_number) !=
           missing_blob_files_.end()) {
+        if (log_decision) {
+          LogBlobFileDecision("drop", "missing_blob_file", blob_file_number,
+                              meta);
+        }
         return;
       }
       // Leave the empty case for the below blob garbage collection logic.
       if (!linked_ssts.empty() && OnlyLinkedToMissingL0Files(linked_ssts)) {
+        if (log_decision) {
+          LogBlobFileDecision("drop", "only_linked_to_missing_l0",
+                              blob_file_number, meta);
+        }
         return;
       }
     }
 
     if (linked_ssts.empty() &&
         meta->GetGarbageBlobCount() >= meta->GetTotalBlobCount()) {
+      if (log_decision) {
+        LogBlobFileDecision("drop", "fully_garbage_and_unlinked",
+                            blob_file_number, meta);
+      }
+      TEST_SYNC_POINT_CALLBACK("VersionBuilder::AddBlobFileIfNeeded:Dropping",
+                               &blob_file_number);
       return;
     }
 
+    if (log_decision) {
+      LogBlobFileDecision("keep", "saved_to_version", blob_file_number, meta);
+    }
     vstorage->AddBlobFile(std::forward<Meta>(meta));
   }
 
@@ -1305,12 +1469,18 @@ class VersionBuilder::Rep {
     vstorage->ReserveBlob(base_vstorage_->GetBlobFiles().size() +
                           mutable_blob_file_metas_.size());
 
-    const uint64_t oldest_blob_file_with_linked_ssts =
-        GetMinOldestBlobFileNumber();
-
-    // If there are no blob files with linked SSTs, meaning that there are no
-    // valid blob files
-    if (oldest_blob_file_with_linked_ssts == kInvalidBlobFileNumber) {
+    // Start from file 0 (not oldest_blob_file_with_linked_ssts) to ensure
+    // newly-added blob files from blob direct write are never dropped.
+    // With blob direct write, blob files may be added via BlobFileAddition
+    // before any SST links to them (the linking SST is created by the same
+    // flush). The AddBlobFileIfNeeded filter (linked_ssts.empty() &&
+    // garbage >= total) still correctly drops empty/fully-garbage files.
+    //
+    // Early return optimization: if there are no mutable blob file metas
+    // (no edits touching blob files), and the base version has no blob
+    // files, there's nothing to process.
+    if (mutable_blob_file_metas_.empty() &&
+        base_vstorage_->GetBlobFiles().empty()) {
       return;
     }
 
@@ -1319,7 +1489,7 @@ class VersionBuilder::Rep {
           assert(base_meta);
 
           AddBlobFileIfNeeded(vstorage, base_meta,
-                              base_meta->GetBlobFileNumber());
+                              base_meta->GetBlobFileNumber(), false);
 
           return true;
         };
@@ -1327,7 +1497,7 @@ class VersionBuilder::Rep {
     auto process_mutable =
         [this, vstorage](const MutableBlobFileMetaData& mutable_meta) {
           AddBlobFileIfNeeded(vstorage, CreateBlobFileMetaData(mutable_meta),
-                              mutable_meta.GetBlobFileNumber());
+                              mutable_meta.GetBlobFileNumber(), true);
 
           return true;
         };
@@ -1345,20 +1515,19 @@ class VersionBuilder::Rep {
                mutable_meta.GetGarbageBlobBytes());
         assert(base_meta->GetLinkedSsts() == mutable_meta.GetLinkedSsts());
 
-        AddBlobFileIfNeeded(vstorage, base_meta,
-                            base_meta->GetBlobFileNumber());
+        AddBlobFileIfNeeded(vstorage, base_meta, base_meta->GetBlobFileNumber(),
+                            false);
 
         return true;
       }
 
       AddBlobFileIfNeeded(vstorage, CreateBlobFileMetaData(mutable_meta),
-                          mutable_meta.GetBlobFileNumber());
+                          mutable_meta.GetBlobFileNumber(), true);
 
       return true;
     };
 
-    MergeBlobFileMetas(oldest_blob_file_with_linked_ssts, process_base,
-                       process_mutable, process_both);
+    MergeBlobFileMetas(0, process_base, process_mutable, process_both);
   }
 
   void MaybeAddFile(VersionStorageInfo* vstorage, int level,

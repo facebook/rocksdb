@@ -7,7 +7,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cinttypes>
+#include <optional>
+#include <unordered_map>
 
+#include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_index.h"
+#include "db/blob/blob_write_batch_transformer.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
@@ -26,6 +31,83 @@ Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
   if (!s.ok()) {
     return s;
   }
+
+  // Fast path for blob direct write: write blob value directly to blob file
+  // and build a WriteBatch with only the ~30 byte BlobIndex entry.
+  // This avoids serializing the full value into WriteBatch rep_ (saves a
+  // memcpy) and skips TransformBatch in WriteImpl (saves iteration overhead).
+  //
+  // Epoch-based rotation: snapshot rotation_epoch before WriteBlob. The
+  // write group leader checks the epoch after PreprocessWrite (which may
+  // call SwitchMemtable → RotateAllPartitions). If the epoch changed,
+  // WriteImpl returns TryAgain and we retry from WriteBlob.
+  {
+    auto* cfh = static_cast<ColumnFamilyHandleImpl*>(column_family);
+    auto* mgr = cfh->cfd()->blob_partition_manager();
+    if (mgr) {
+      const uint32_t cf_id = cfh->GetID();
+      const auto settings = mgr->GetCachedSettings(cf_id);
+      if (settings.enable_blob_direct_write &&
+          val.size() >= settings.min_blob_size) {
+        while (true) {
+          // Step 1: Snapshot rotation epoch (1 atomic load).
+          uint64_t blob_epoch = mgr->GetRotationEpoch();
+
+          // Step 2: Write blob to partition file.
+          uint64_t blob_file_number = 0;
+          uint64_t blob_offset = 0;
+          uint64_t blob_size = 0;
+          Status blob_s = mgr->WriteBlob(o, cf_id, settings.compression_type,
+                                         key, val, &blob_file_number,
+                                         &blob_offset, &blob_size, &settings);
+          if (!blob_s.ok()) {
+            return blob_s;
+          }
+
+          // Encode BlobIndex (~30 bytes) and build a tiny WriteBatch.
+          std::string blob_index_buf;
+          BlobIndex::EncodeBlob(&blob_index_buf, blob_file_number, blob_offset,
+                                blob_size, settings.compression_type);
+
+          WriteBatch batch(key.size() + blob_index_buf.size() + 24, 0,
+                           o.protection_bytes_per_key, 0);
+          blob_s = WriteBatchInternal::PutBlobIndex(&batch, cf_id, key,
+                                                    blob_index_buf);
+          if (!blob_s.ok()) {
+            return blob_s;
+          }
+
+          // Flush blob data to OS before WAL write so that the blob
+          // data referenced by the WAL entry is at least in the OS page
+          // cache whenever the WAL reaches the OS.  With sync=true we
+          // additionally fsync the blob files.
+          if (o.sync) {
+            blob_s = mgr->SyncAllOpenFiles(o);
+          } else {
+            blob_s = mgr->FlushAllOpenFiles(o);
+          }
+          if (!blob_s.ok()) {
+            return blob_s;
+          }
+
+          // Step 3: WriteImpl with epoch. Leader checks epoch match.
+          TEST_SYNC_POINT("DBImpl::Put:AfterBlobWriteBeforeWriteImpl");
+          blob_s =
+              WriteImpl(o, &batch, nullptr, nullptr, nullptr, 0, false, nullptr,
+                        0, nullptr, nullptr, nullptr, blob_epoch, mgr);
+          if (blob_s.IsTryAgain()) {
+            // Epoch mismatch retry — bytes belong to the specific old file.
+            mgr->SubtractUncommittedBytes(
+                BlobLogRecord::kHeaderSize + key.size() + val.size(),
+                blob_file_number);
+            continue;
+          }
+          return blob_s;
+        }
+      }
+    }
+  }
+
   return DB::Put(o, column_family, key, val);
 }
 
@@ -155,9 +237,14 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
         my_batch, write_options.protection_bytes_per_key);
   }
   if (s.ok()) {
-    s = WriteImpl(write_options, my_batch, /*callback=*/nullptr,
-                  /*user_write_cb=*/nullptr,
-                  /*wal_used=*/nullptr);
+    // Retry on TryAgain: blob epoch mismatch means SwitchMemtable rotated
+    // blob files between WriteBlob and the write group. TransformBatch
+    // operates on the original my_batch (unchanged), so retry is safe.
+    do {
+      s = WriteImpl(write_options, my_batch, /*callback=*/nullptr,
+                    /*user_write_cb=*/nullptr,
+                    /*wal_used=*/nullptr);
+    } while (s.IsTryAgain());
   }
   return s;
 }
@@ -171,6 +258,11 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
         my_batch, write_options.protection_bytes_per_key);
   }
   if (s.ok()) {
+    // Do not auto-retry when a WriteCallback is installed. TryAgain can be a
+    // legitimate terminal result from the callback path (for example,
+    // optimistic transaction validation when memtable history is too short),
+    // and blindly retrying would spin forever while repeatedly appending the
+    // same WAL record.
     s = WriteImpl(write_options, my_batch, callback, user_write_cb);
   }
   return s;
@@ -185,7 +277,10 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
         my_batch, write_options.protection_bytes_per_key);
   }
   if (s.ok()) {
-    s = WriteImpl(write_options, my_batch, /*callback=*/nullptr, user_write_cb);
+    do {
+      s = WriteImpl(write_options, my_batch, /*callback=*/nullptr,
+                    user_write_cb);
+    } while (s.IsTryAgain());
   }
   return s;
 }
@@ -375,7 +470,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          uint64_t* seq_used, size_t batch_cnt,
                          PreReleaseCallback* pre_release_callback,
                          PostMemTableCallback* post_memtable_callback,
-                         std::shared_ptr<WriteBatchWithIndex> wbwi) {
+                         std::shared_ptr<WriteBatchWithIndex> wbwi,
+                         uint64_t blob_write_epoch, void* blob_partition_mgr) {
   assert(!seq_per_batch_ || batch_cnt != 0);
   assert(my_batch == nullptr || my_batch->Count() == 0 ||
          write_options.protection_bytes_per_key == 0 ||
@@ -511,6 +607,114 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         assign_order, kDontPublishLastSeq, disable_memtable);
   }
 
+  // Blob direct write: transform batch by writing large values to blob files
+  // and replacing them with BlobIndex entries. This must happen before
+  // entering any write path (unordered, pipelined, or standard) so that
+  // the WAL and memtable see BlobIndex entries instead of full blob values.
+  // Skip if the batch was already transformed (e.g., from DBImpl::Put fast
+  // path which builds a BlobIndex-only batch directly).
+  //
+  // If the write fails after TransformBatch (e.g., WAL write error), the blob
+  // records written here become orphaned. Track the exact files/bytes so the
+  // next seal can subtract them precisely and keep GC accounting accurate.
+  //
+  // Epoch-based rotation: snapshot the rotation epoch before TransformBatch.
+  // The write group leader will check this epoch after PreprocessWrite.
+  // If SwitchMemtable rotated blob files, the epoch will mismatch and the
+  // writer is rejected with TryAgain. For multi-CF batches, only the first
+  // used manager's epoch is tracked (conservative: any rotation triggers
+  // rejection of the entire batch).
+  std::optional<WriteBatch> transformed_batch_storage;
+  std::vector<BlobFilePartitionManager*> used_managers;
+  std::vector<BlobWriteBatchTransformer::RollbackInfo> blob_rollback_infos;
+  uint64_t transform_blob_epoch = 0;
+  void* transform_blob_mgr = nullptr;
+  if (my_batch != nullptr && my_batch->HasPut()) {
+    auto settings_provider = [this](uint32_t cf_id) -> BlobDirectWriteSettings {
+      auto* cfd = versions_->GetColumnFamilySet()->GetColumnFamily(cf_id);
+      if (cfd) {
+        auto* mgr = cfd->blob_partition_manager();
+        if (mgr) {
+          return mgr->GetCachedSettings(cf_id);
+        }
+      }
+      return BlobDirectWriteSettings{};
+    };
+    auto partition_mgr_provider =
+        [this](uint32_t cf_id) -> BlobFilePartitionManager* {
+      auto* cfd = versions_->GetColumnFamilySet()->GetColumnFamily(cf_id);
+      return cfd ? cfd->blob_partition_manager() : nullptr;
+    };
+
+    // Snapshot rotation epoch before TransformBatch. If SwitchMemtable
+    // rotates blob files between now and when the write group leader
+    // checks the epoch, the writer is rejected and returns TryAgain.
+    // We use the first CF's partition manager that has blob direct write.
+    for (auto* cf : *versions_->GetColumnFamilySet()) {
+      auto* mgr = cf->blob_partition_manager();
+      if (mgr) {
+        transform_blob_epoch = mgr->GetRotationEpoch();
+        transform_blob_mgr = mgr;
+        break;
+      }
+    }
+
+    transformed_batch_storage.emplace();
+    bool transformed = false;
+    Status blob_s = BlobWriteBatchTransformer::TransformBatch(
+        write_options, my_batch, &*transformed_batch_storage,
+        partition_mgr_provider, settings_provider, &transformed, &used_managers,
+        &blob_rollback_infos);
+    if (!blob_s.ok()) {
+      return blob_s;
+    }
+    if (transformed) {
+      my_batch = &*transformed_batch_storage;
+    }
+
+    // Flush blob data to OS before WAL write so that the blob data
+    // referenced by the WAL entry is at least in the OS page cache
+    // whenever the WAL reaches the OS.  With sync=true we additionally
+    // fsync the blob files.
+    if (!used_managers.empty()) {
+      for (auto* mgr : used_managers) {
+        if (write_options.sync) {
+          blob_s = mgr->SyncAllOpenFiles(write_options);
+        } else {
+          blob_s = mgr->FlushAllOpenFiles(write_options);
+        }
+        if (!blob_s.ok()) {
+          return blob_s;
+        }
+      }
+    }
+  }
+
+  TEST_SYNC_POINT("DBImpl::WriteImpl:AfterTransformBatch");
+
+  // Scope guard: if the write fails after TransformBatch, rollback the
+  // uncommitted bytes so GC accounting stays accurate.
+  bool blob_write_committed = false;
+  auto rollback_blob_bytes = [&]() {
+    if (!blob_write_committed && !blob_rollback_infos.empty()) {
+      std::unordered_map<BlobFilePartitionManager*,
+                         std::unordered_map<uint64_t, uint64_t>>
+          rollback_bytes_by_file;
+      rollback_bytes_by_file.reserve(blob_rollback_infos.size());
+
+      for (const auto& info : blob_rollback_infos) {
+        rollback_bytes_by_file[info.partition_mgr][info.file_number] +=
+            info.bytes;
+      }
+
+      for (const auto& [mgr, file_bytes] : rollback_bytes_by_file) {
+        for (const auto& [file_number, bytes] : file_bytes) {
+          mgr->SubtractUncommittedBytes(bytes, file_number);
+        }
+      }
+    }
+  };
+
   if (immutable_db_options_.unordered_write) {
     const size_t sub_batch_cnt = batch_cnt != 0
                                      ? batch_cnt
@@ -525,6 +729,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         kDoAssignOrder, kDoPublishLastSeq, disable_memtable);
     TEST_SYNC_POINT("DBImpl::WriteImpl:UnorderedWriteAfterWriteWAL");
     if (!status.ok()) {
+      rollback_blob_bytes();
       return status;
     }
     if (seq_used) {
@@ -535,19 +740,41 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       status = UnorderedWriteMemtable(write_options, my_batch, callback,
                                       log_ref, seq, sub_batch_cnt);
     }
+    if (!status.ok()) {
+      rollback_blob_bytes();
+    } else {
+      blob_write_committed = true;
+    }
     return status;
   }
 
   if (immutable_db_options_.enable_pipelined_write) {
-    return PipelinedWriteImpl(write_options, my_batch, callback, user_write_cb,
-                              wal_used, log_ref, disable_memtable, seq_used);
+    Status s =
+        PipelinedWriteImpl(write_options, my_batch, callback, user_write_cb,
+                           wal_used, log_ref, disable_memtable, seq_used);
+    if (!s.ok()) {
+      rollback_blob_bytes();
+    } else {
+      blob_write_committed = true;
+    }
+    return s;
   }
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
+
   WriteThread::Writer w(write_options, my_batch, callback, user_write_cb,
                         log_ref, disable_memtable, batch_cnt,
                         pre_release_callback, post_memtable_callback,
                         /*_ingest_wbwi=*/wbwi != nullptr);
+  w.blob_write_epoch = blob_write_epoch;
+  w.blob_partition_mgr = blob_partition_mgr;
+  // If the TransformBatch path was used (not the Put fast path),
+  // set the epoch from the transform snapshot.
+  if (w.blob_write_epoch == 0 && transform_blob_epoch != 0 &&
+      !used_managers.empty()) {
+    w.blob_write_epoch = transform_blob_epoch;
+    w.blob_partition_mgr = transform_blob_mgr;
+  }
   StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
   write_thread_.JoinBatchGroup(&w);
@@ -597,6 +824,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     assert(w.state == WriteThread::STATE_COMPLETED);
     // STATE_COMPLETED conditional below handles exit
   }
+
   if (w.state == WriteThread::STATE_COMPLETED) {
     if (wal_used != nullptr) {
       *wal_used = w.wal_used;
@@ -655,6 +883,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   IOStatus io_s;
   Status pre_release_cb_status;
   size_t seq_inc = 0;
+  bool publish_last_sequence = false;
   if (status.ok()) {
     // Rules for when we can update the memtable concurrently
     // 1. supported by memtable
@@ -673,8 +902,26 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     size_t valid_batches = 0;
     size_t total_byte_size = 0;
     size_t pre_release_callback_cnt = 0;
+    bool has_rejected_writer = false;
     for (auto* writer : write_group) {
       assert(writer);
+
+      if (writer->blob_write_epoch != 0 && writer->blob_partition_mgr) {
+        auto* mgr =
+            static_cast<BlobFilePartitionManager*>(writer->blob_partition_mgr);
+        uint64_t current_epoch = mgr->GetRotationEpoch();
+        if (writer->blob_write_epoch != current_epoch) {
+          ROCKS_LOG_DEBUG(
+              immutable_db_options_.info_log,
+              "[BlobDirectWrite] WriteImpl: epoch mismatch for writer, "
+              "writer_epoch=%" PRIu64 " current_epoch=%" PRIu64 " — TryAgain",
+              writer->blob_write_epoch, current_epoch);
+          writer->status = Status::TryAgain("blob epoch mismatch");
+          has_rejected_writer = true;
+          continue;
+        }
+      }
+
       if (writer->CheckCallback(this)) {
         valid_batches += writer->batch_cnt;
         if (writer->ShouldWriteToMemtable()) {
@@ -688,13 +935,16 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         }
       }
     }
+    if (has_rejected_writer) {
+      parallel = false;
+    }
     // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
     // grabs but does not seem thread-safe.
     if (tracer_) {
       InstrumentedMutexLock lock(&trace_mutex_);
       if (tracer_ && tracer_->IsWriteOrderPreserved()) {
         for (auto* writer : write_group) {
-          if (writer->CallbackFailed()) {
+          if (writer->CallbackFailed() || !writer->status.ok()) {
             continue;
           }
           // TODO: maybe handle the tracing status?
@@ -826,7 +1076,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       // with WriteBatchInternal::InsertInto(write_batch...) that is called on
       // the merged batch during recovery from the WAL.
       for (auto* writer : write_group) {
-        if (writer->CallbackFailed()) {
+        if (writer->CallbackFailed() || !writer->status.ok()) {
           continue;
         }
         writer->sequence = next_sequence;
@@ -853,15 +1103,23 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
       if (!parallel) {
         // w.sequence will be set inside InsertInto
-        w.status = WriteBatchInternal::InsertInto(
+        // Preserve w.status if it was set to a non-ok value by the epoch
+        // check (e.g., TryAgain). InsertInto returns OK even when it skips
+        // the epoch-rejected leader, which would overwrite the TryAgain.
+        Status insert_status = WriteBatchInternal::InsertInto(
             write_group, current_sequence, column_family_memtables_.get(),
             &flush_scheduler_, &trim_history_scheduler_,
             write_options.ignore_missing_column_families,
             0 /*recovery_log_number*/, this, seq_per_batch_, batch_per_txn_);
+        publish_last_sequence = insert_status.ok() && seq_inc > 0;
+        if (w.status.ok() || !insert_status.ok()) {
+          w.status = insert_status;
+        }
       } else {
         write_group.last_sequence = last_sequence;
         write_thread_.LaunchParallelMemTableWriters(&write_group);
         in_parallel_group = true;
+        publish_last_sequence = seq_inc > 0;
 
         // Each parallel follower is doing each own writes. The leader should
         // also do its own.
@@ -947,11 +1205,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       }
       // Note: if we are to resume after non-OK statuses we need to revisit how
       // we react to non-OK statuses here.
-      if (w.status.ok()) {  // Don't publish a partial batch write
+      if (publish_last_sequence && (w.status.ok() || w.status.IsTryAgain())) {
         versions_->SetLastSequence(last_sequence);
       }
     }
-    if (!w.status.ok()) {
+    if (!w.status.ok() && !w.status.IsTryAgain()) {
       if (wal_context.prev_size < SIZE_MAX) {
         InstrumentedMutexLock l(&wal_write_mutex_);
         if (logs_.back().number == wal_context.wal_file_number_size->number) {
@@ -965,6 +1223,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   if (status.ok()) {
     status = w.FinalStatus();
+  }
+  if (status.ok()) {
+    blob_write_committed = true;
+  } else {
+    rollback_blob_bytes();
   }
   return status;
 }
@@ -1615,6 +1878,7 @@ Status DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
   auto* leader = write_group.leader;
   assert(!leader->disable_wal);  // Same holds for all in the batch group
   if (write_group.size == 1 && !leader->CallbackFailed() &&
+      leader->status.ok() &&
       leader->batch->GetWalTerminationPoint().is_cleared()) {
     // we simply write the first WriteBatch to WAL if the group only
     // contains one batch, that batch should be written to the WAL,
@@ -1630,7 +1894,7 @@ Status DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
     // interface
     *merged_batch = tmp_batch;
     for (auto writer : write_group) {
-      if (!writer->CallbackFailed()) {
+      if (!writer->CallbackFailed() && writer->status.ok()) {
         Status s = WriteBatchInternal::Append(*merged_batch, writer->batch,
                                               /*WAL_only*/ true);
         if (!s.ok()) {
@@ -1716,10 +1980,8 @@ IOStatus DBImpl::WriteGroupToWAL(const WriteThread::WriteGroup& write_group,
     return io_s;
   }
 
-  if (merged_batch == write_group.leader->batch) {
-    write_group.leader->wal_used = cur_wal_number_;
-  } else if (write_with_wal > 1) {
-    for (auto writer : write_group) {
+  for (auto writer : write_group) {
+    if (!writer->CallbackFailed() && writer->status.ok()) {
       writer->wal_used = cur_wal_number_;
     }
   }
@@ -1737,6 +1999,13 @@ IOStatus DBImpl::WriteGroupToWAL(const WriteThread::WriteGroup& write_group,
   if (to_be_cached_state) {
     cached_recoverable_state_ = *to_be_cached_state;
     cached_recoverable_state_empty_ = false;
+  }
+
+  if (io_s.ok() && need_wal_sync) {
+    // This sync barrier can make earlier async blob-index records in the
+    // current WAL durable as well, so sync their referenced blob files first.
+    io_s = status_to_io_status(
+        SyncBlobFilesForWals(write_options, wal_file_number_size.number));
   }
 
   if (io_s.ok() && need_wal_sync) {
@@ -1807,7 +2076,7 @@ IOStatus DBImpl::WriteGroupToWAL(const WriteThread::WriteGroup& write_group,
     stats->AddDBStats(InternalStats::kIntStatsWriteWithWal, write_with_wal);
     RecordTick(stats_, WRITE_WITH_WAL, write_with_wal);
     for (auto* writer : write_group) {
-      if (!writer->CallbackFailed()) {
+      if (!writer->CallbackFailed() && writer->status.ok()) {
         writer->CheckPostWalWriteCallback();
       }
     }
@@ -1836,10 +2105,8 @@ IOStatus DBImpl::ConcurrentWriteGroupToWAL(
   // We need to lock wal_write_mutex_ since logs_ and alive_wal_files might be
   // pushed back concurrently
   wal_write_mutex_.Lock();
-  if (merged_batch == write_group.leader->batch) {
-    write_group.leader->wal_used = cur_wal_number_;
-  } else if (write_with_wal > 1) {
-    for (auto writer : write_group) {
+  for (auto writer : write_group) {
+    if (!writer->CallbackFailed() && writer->status.ok()) {
       writer->wal_used = cur_wal_number_;
     }
   }
@@ -1876,7 +2143,7 @@ IOStatus DBImpl::ConcurrentWriteGroupToWAL(
                       concurrent);
     RecordTick(stats_, WRITE_WITH_WAL, write_with_wal);
     for (auto* writer : write_group) {
-      if (!writer->CallbackFailed()) {
+      if (!writer->CallbackFailed() && writer->status.ok()) {
         writer->CheckPostWalWriteCallback();
       }
     }
@@ -2740,6 +3007,31 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
   InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context);
+
+  // Rotate blob files at memtable switch so each blob file maps to exactly
+  // one memtable. RotateAllPartitions tags the deferred batch with the
+  // CURRENT epoch (before bump) and then bumps the epoch. The new memtable
+  // gets tagged with the NEW epoch (after bump).
+  if (cfd->blob_partition_manager()) {
+    uint64_t pre_rotation_epoch =
+        cfd->blob_partition_manager()->GetRotationEpoch();
+    Status rotation_s = cfd->blob_partition_manager()->RotateAllPartitions();
+    if (!rotation_s.ok()) {
+      ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                      "[BlobDirectWrite] RotateAllPartitions failed: %s",
+                      rotation_s.ToString().c_str());
+    }
+    uint64_t post_rotation_epoch =
+        cfd->blob_partition_manager()->GetRotationEpoch();
+    new_mem->SetBlobWriteEpoch(post_rotation_epoch);
+    ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                    "[BlobDirectWrite] SwitchMemtable CF %s: "
+                    "old_memtable epoch=%" PRIu64
+                    " (pre-rotation), "
+                    "new_memtable id=%" PRIu64 " tagged epoch=%" PRIu64,
+                    cfd->GetName().c_str(), pre_rotation_epoch,
+                    new_mem->GetID(), post_rotation_epoch);
+  }
 
   // Notify client that memtable is sealed, now that we have successfully
   // installed a new memtable

@@ -26,6 +26,8 @@
 #include <string>
 #include <thread>
 
+#include "port/lang.h"
+
 #ifndef OS_WIN
 #include <fcntl.h>
 #include <limits.h>
@@ -170,6 +172,9 @@ class InjectedErrorLog {
       // TSAN-intercepted snprintf. See comment in Record() for why we use a
       // volatile pointer to prevent loop-to-memcpy optimization.
       const Entry& e = entries_[idx];
+      // Copy fields to locals so snprintf (which TSAN intercepts) operates on
+      // stack-local data, while avoiding memcpy on shared memory for the same
+      // reason described in Record().
       uint64_t local_ts = e.timestamp_us;
       uint64_t local_tid = e.thread_id;
       char local_ctx[kMaxMessageLen];
@@ -683,6 +688,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     read_unsynced_data_ = read_unsynced_data;
   }
   bool ReadUnsyncedData() const { return read_unsynced_data_; }
+  bool IsTrackedFile(const std::string& fname);
+  bool TryGetTrackedFileSize(const std::string& fname, uint64_t* file_size);
 
   // FaultInjectionTestFS normally includes a hygiene check for FileSystem
   // implementations that only support LinkFile() on closed files (not open

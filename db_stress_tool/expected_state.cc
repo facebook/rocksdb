@@ -426,10 +426,14 @@ namespace {
 class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                                         public WriteBatch::Handler {
  public:
-  ExpectedStateTraceRecordHandler(uint64_t max_write_ops, ExpectedState* state)
+  ExpectedStateTraceRecordHandler(
+      uint64_t max_write_ops, ExpectedState* state, DB* db = nullptr,
+      const std::vector<ColumnFamilyHandle*>& cf_handles = {})
       : max_write_ops_(max_write_ops),
         state_(state),
-        buffered_writes_(nullptr) {}
+        buffered_writes_(nullptr),
+        db_(db),
+        cf_handles_(cf_handles) {}
 
   ~ExpectedStateTraceRecordHandler() { assert(IsDone()); }
 
@@ -544,6 +548,46 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
     ++num_write_ops_;
 
+    return Status::OK();
+  }
+
+  Status PutBlobIndexCF(uint32_t column_family_id, const Slice& key_with_ts,
+                        const Slice& value) override {
+    Slice key =
+        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+    uint64_t key_id;
+    if (!GetIntVal(key.ToString(), &key_id)) {
+      return Status::Corruption("unable to parse key", key.ToString());
+    }
+
+    if (buffered_writes_) {
+      return WriteBatchInternal::PutBlobIndex(
+          buffered_writes_.get(), column_family_id, key_with_ts, value);
+    }
+
+    // BDW trace records contain a BlobIndex, not the user value.
+    // Read the resolved value from the recovered DB to get value_base.
+    uint32_t value_base = 0;
+    if (db_ && column_family_id < cf_handles_.size()) {
+      std::string resolved;
+      ReadOptions read_opts;
+      Slice write_ts;
+      if (FLAGS_user_timestamp_size > 0) {
+        write_ts =
+            ExtractTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+        read_opts.timestamp = &write_ts;
+      }
+      Status s =
+          db_->Get(read_opts, cf_handles_[column_family_id], key, &resolved);
+      if (s.ok()) {
+        value_base = GetValueBase(Slice(resolved));
+      }
+      // NotFound is fine -- the write may have been lost in the crash,
+      // or a later Delete/SingleDelete in the trace will fix state.
+    }
+
+    state_->SyncPut(column_family_id, static_cast<int64_t>(key_id), value_base);
+    ++num_write_ops_;
     return Status::OK();
   }
 
@@ -675,11 +719,14 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
   std::unordered_map<std::string, std::unique_ptr<WriteBatch>>
       xid_to_buffered_writes_;
   std::unique_ptr<WriteBatch> buffered_writes_;
+  DB* db_;
+  std::vector<ColumnFamilyHandle*> cf_handles_;
 };
 
 }  // anonymous namespace
 
-Status FileExpectedStateManager::Restore(DB* db) {
+Status FileExpectedStateManager::Restore(
+    DB* db, const std::vector<ColumnFamilyHandle*>& cf_handles) {
   assert(HasHistory());
   SequenceNumber seqno = db->GetLatestSequenceNumber();
   if (seqno < saved_seqno_) {
@@ -726,8 +773,8 @@ Status FileExpectedStateManager::Restore(DB* db) {
       s = state->Open(false /* create */);
     }
     if (s.ok()) {
-      handler.reset(new ExpectedStateTraceRecordHandler(seqno - saved_seqno_,
-                                                        state.get()));
+      handler.reset(new ExpectedStateTraceRecordHandler(
+          seqno - saved_seqno_, state.get(), db, cf_handles));
       // TODO(ajkr): An API limitation requires we provide `handles` although
       // they will be unused since we only use the replayer for reading records.
       // Just give a default CFH for now to satisfy the requirement.

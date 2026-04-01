@@ -638,6 +638,7 @@ PARALLEL_TEST = $(filter-out $(NON_PARALLEL_TEST), $(ROCKSDBTESTS_SUBSET))
 TESTS_PLATFORM_DEPENDENT := \
 	db_basic_test \
 	db_blob_basic_test \
+	db_blob_direct_write_test \
 	db_encryption_test \
 	external_sst_file_basic_test \
 	auto_roll_logger_test \
@@ -1049,6 +1050,7 @@ ifneq ($(PLATFORM), OS_AIX)
 	$(PYTHON) tools/check_all_python.py
 ifndef ASSERT_STATUS_CHECKED # not yet working with these tests
 	$(PYTHON) tools/ldb_test.py
+	$(PYTHON) tools/db_crashtest_test.py
 	sh tools/rocksdb_dump_test.sh
 endif
 endif
@@ -1065,6 +1067,10 @@ check_some: $(ROCKSDBTESTS_SUBSET)
 .PHONY: ldb_tests
 ldb_tests: ldb
 	$(PYTHON) tools/ldb_test.py
+
+.PHONY: db_crashtest_tests
+db_crashtest_tests:
+	$(PYTHON) tools/db_crashtest_test.py
 
 include crash_test.mk
 
@@ -1443,6 +1449,9 @@ db_blob_basic_test: $(OBJ_DIR)/db/blob/db_blob_basic_test.o $(TEST_LIBRARY) $(LI
 	$(AM_LINK)
 
 db_blob_compaction_test: $(OBJ_DIR)/db/blob/db_blob_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+db_blob_direct_write_test: $(OBJ_DIR)/db/blob/db_blob_direct_write_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 db_readonly_with_timestamp_test: $(OBJ_DIR)/db/db_readonly_with_timestamp_test.o $(TEST_LIBRARY) $(LIBRARY)

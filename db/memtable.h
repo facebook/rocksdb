@@ -220,6 +220,9 @@ class ReadOnlyMemTable {
   // will be set to the result value.
   // @param column If not null and memtable contains a value/WideColumn for key,
   // `column` will be set to the result value/WideColumn.
+  // @param blob_index If not null and `do_merge` is false, a final
+  // kTypeBlobIndex entry for key will be stored here without materializing a
+  // merged value through `value`/`columns`.
   // Note: only one of `value` and `column` can be non-nullptr.
   // To only query for key existence or the latest sequence number of a key,
   // `value` and `column` can be both nullptr. In this case, returned status can
@@ -233,18 +236,19 @@ class ReadOnlyMemTable {
                    SequenceNumber* max_covering_tombstone_seq,
                    SequenceNumber* seq, const ReadOptions& read_opts,
                    bool immutable_memtable, ReadCallback* callback = nullptr,
-                   bool* is_blob_index = nullptr, bool do_merge = true) = 0;
+                   bool* is_blob_index = nullptr, bool do_merge = true,
+                   std::string* blob_index = nullptr) = 0;
   bool Get(const LookupKey& key, std::string* value,
            PinnableWideColumns* columns, std::string* timestamp, Status* s,
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, bool immutable_memtable,
            ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-           bool do_merge = true) {
+           bool do_merge = true, std::string* blob_index = nullptr) {
     SequenceNumber seq;
     return Get(key, value, columns, timestamp, s, merge_context,
                max_covering_tombstone_seq, &seq, read_opts, immutable_memtable,
-               callback, is_blob_index, do_merge);
+               callback, is_blob_index, do_merge, blob_index);
   }
 
   // @param immutable_memtable Whether this memtable is immutable. Used
@@ -368,6 +372,13 @@ class ReadOnlyMemTable {
   void SetID(uint64_t id) { id_ = id; }
 
   uint64_t GetID() const { return id_; }
+
+  // Blob direct write epoch: the rotation_epoch_ snapshot at the time this
+  // memtable was created by SwitchMemtable. The flush path passes this to
+  // SealAllPartitions so it seals the correct epoch's deferred batch.
+  // 0 means blob direct write was not active when this memtable was created.
+  void SetBlobWriteEpoch(uint64_t epoch) { blob_write_epoch_ = epoch; }
+  uint64_t GetBlobWriteEpoch() const { return blob_write_epoch_; }
 
   void SetFlushCompleted(bool completed) { flush_completed_ = completed; }
 
@@ -522,6 +533,9 @@ class ReadOnlyMemTable {
   // Memtable id to track flush.
   uint64_t id_ = 0;
 
+  // Blob direct write rotation epoch. Set at SwitchMemtable time.
+  uint64_t blob_write_epoch_ = 0;
+
   // Sequence number of the atomic flush that is responsible for this memtable.
   // The sequence number of atomic flush is a seq, such that no writes with
   // sequence numbers greater than or equal to seq are flushed, while all
@@ -649,7 +663,7 @@ class MemTable final : public ReadOnlyMemTable {
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, bool immutable_memtable,
            ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-           bool do_merge = true) override;
+           bool do_merge = true, std::string* blob_index = nullptr) override;
 
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                 ReadCallback* callback, bool immutable_memtable) override;
@@ -925,7 +939,7 @@ class MemTable final : public ReadOnlyMemTable {
                     SequenceNumber max_covering_tombstone_seq, bool do_merge,
                     ReadCallback* callback, bool* is_blob_index,
                     std::string* value, PinnableWideColumns* columns,
-                    std::string* timestamp, Status* s,
+                    std::string* blob_index, std::string* timestamp, Status* s,
                     MergeContext* merge_context, SequenceNumber* seq,
                     bool* found_final_value, bool* merge_in_progress);
 

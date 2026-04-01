@@ -1593,9 +1593,7 @@ class VersionSet {
   // This function doesn't support leveldb SST filenames
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata);
 
-  void AddObsoleteBlobFile(uint64_t blob_file_number, std::string path) {
-    obsolete_blob_files_.emplace_back(blob_file_number, std::move(path));
-  }
+  void AddObsoleteBlobFile(uint64_t blob_file_number, std::string path);
 
   void GetObsoleteFiles(std::vector<ObsoleteFileInfo>* files,
                         std::vector<ObsoleteBlobFileInfo>* blob_files,

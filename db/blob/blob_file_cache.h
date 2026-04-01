@@ -32,9 +32,32 @@ class BlobFileCache {
   BlobFileCache(const BlobFileCache&) = delete;
   BlobFileCache& operator=(const BlobFileCache&) = delete;
 
+  // When allow_footer_skip_retry is true and the initial open fails with
+  // Corruption (typically from footer validation), retries with
+  // skip_footer_validation=true.  Only pass true for write-path blobs that
+  // may not yet have a footer (unsealed direct-write files).  For sealed
+  // files in the Version, pass false so genuine footer corruption is not
+  // masked.
   Status GetBlobFileReader(const ReadOptions& read_options,
                            uint64_t blob_file_number,
-                           CacheHandleGuard<BlobFileReader>* blob_file_reader);
+                           CacheHandleGuard<BlobFileReader>* blob_file_reader,
+                           bool allow_footer_skip_retry);
+
+  // Opens a fresh blob file reader with skip_footer_validation=true without
+  // looking up or populating the cache. This is used for one-shot retries
+  // after evicting a stale cached reader for an unsealed direct-write file.
+  Status OpenBlobFileReaderUncached(
+      const ReadOptions& read_options, uint64_t blob_file_number,
+      std::unique_ptr<BlobFileReader>* blob_file_reader);
+
+  // Inserts a freshly opened blob file reader into the cache and returns a
+  // guard to the cached reader. If another thread already repopulated the
+  // cache, returns a guard to that entry instead. On insert failure,
+  // *blob_file_reader retains ownership so the caller can still use it.
+  Status InsertBlobFileReader(
+      uint64_t blob_file_number,
+      std::unique_ptr<BlobFileReader>* blob_file_reader,
+      CacheHandleGuard<BlobFileReader>* cached_blob_file_reader);
 
   // Called when a blob file is obsolete to ensure it is removed from the cache
   // to avoid effectively leaking the open file and assicated memory

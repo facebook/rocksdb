@@ -7,7 +7,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cinttypes>
+#include <unordered_set>
 
+#include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_index.h"
+#include "db/blob/blob_log_sequential_reader.h"
+#include "db/blob/orphan_blob_file_resolver.h"
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
@@ -15,6 +20,7 @@
 #include "db/version_util.h"
 #include "env/composite_env_wrapper.h"
 #include "file/filename.h"
+#include "file/random_access_file_reader.h"
 #include "file/read_write_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "file/writable_file_writer.h"
@@ -31,6 +37,71 @@
 #include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+class BlobFileReferenceCollector : public WriteBatch::Handler {
+ public:
+  explicit BlobFileReferenceCollector(
+      std::unordered_set<uint64_t>* referenced_blob_files)
+      : referenced_blob_files_(referenced_blob_files) {
+    assert(referenced_blob_files_);
+  }
+
+  Status PutBlobIndexCF(uint32_t /*column_family_id*/, const Slice& /*key*/,
+                        const Slice& value) override {
+    BlobIndex blob_idx;
+    Status s = blob_idx.DecodeFrom(value);
+    if (!s.ok() || blob_idx.IsInlined()) {
+      return Status::OK();
+    }
+    referenced_blob_files_->insert(blob_idx.file_number());
+    return Status::OK();
+  }
+
+  Status PutCF(uint32_t, const Slice&, const Slice&) override {
+    return Status::OK();
+  }
+  Status TimedPutCF(uint32_t, const Slice&, const Slice&, uint64_t) override {
+    return Status::OK();
+  }
+  Status PutEntityCF(uint32_t, const Slice&, const Slice&) override {
+    return Status::OK();
+  }
+  Status DeleteCF(uint32_t, const Slice&) override { return Status::OK(); }
+  Status SingleDeleteCF(uint32_t, const Slice&) override {
+    return Status::OK();
+  }
+  Status DeleteRangeCF(uint32_t, const Slice&, const Slice&) override {
+    return Status::OK();
+  }
+  Status MergeCF(uint32_t, const Slice&, const Slice&) override {
+    return Status::OK();
+  }
+  void LogData(const Slice&) override {}
+  Status MarkBeginPrepare(bool) override { return Status::OK(); }
+  Status MarkEndPrepare(const Slice&) override { return Status::OK(); }
+  Status MarkCommit(const Slice&) override { return Status::OK(); }
+  Status MarkCommitWithTimestamp(const Slice&, const Slice&) override {
+    return Status::OK();
+  }
+  Status MarkRollback(const Slice&) override { return Status::OK(); }
+  Status MarkNoop(bool) override { return Status::OK(); }
+
+ private:
+  std::unordered_set<uint64_t>* referenced_blob_files_;
+};
+
+Status CollectReferencedBlobFiles(const WriteBatch* batch,
+                                  std::unordered_set<uint64_t>* result) {
+  assert(batch);
+  assert(result);
+  BlobFileReferenceCollector collector(result);
+  return batch->Iterate(&collector);
+}
+
+}  // namespace
+
 Options SanitizeOptions(const std::string& dbname, const Options& src,
                         bool read_only, Status* logger_creation_s) {
   auto db_options =
@@ -803,6 +874,24 @@ Status DBImpl::Recover(
     }
 
     if (!wal_files.empty()) {
+      // Create the orphan blob file resolver before WAL replay. This scans
+      // the DB directory for blob files not registered in any CF's
+      // VersionStorageInfo and opens them for on-demand blob resolution
+      // during PutBlobIndexCF.
+      if (!read_only) {
+        Status resolver_s = OrphanBlobFileResolver::Create(
+            fs_.get(), dbname_, immutable_db_options_.clock,
+            immutable_db_options_.statistics.get(),
+            immutable_db_options_.info_log.get(), versions_.get(),
+            &orphan_blob_resolver_);
+        if (!resolver_s.ok()) {
+          ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                         "Failed to create OrphanBlobFileResolver: %s",
+                         resolver_s.ToString().c_str());
+          // Non-fatal: proceed without orphan resolution.
+        }
+      }
+
       // Recover in the order in which the wals were generated
       std::vector<uint64_t> wals;
       wals.reserve(wal_files.size());
@@ -822,6 +911,47 @@ Status DBImpl::Recover(
         for (auto cfd : *versions_->GetColumnFamilySet()) {
           cfd->CreateNewMemtable(kMaxSequenceNumber);
         }
+      }
+
+      // Log orphan recovery stats and destroy the resolver.
+      if (orphan_blob_resolver_) {
+        if (orphan_blob_resolver_->resolved_count() > 0 ||
+            orphan_blob_resolver_->discarded_count() > 0) {
+          ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                         "Orphan blob recovery: resolved %" PRIu64
+                         " records from %zu orphan files, discarded %" PRIu64
+                         " entries",
+                         orphan_blob_resolver_->resolved_count(),
+                         orphan_blob_resolver_->orphan_file_count(),
+                         orphan_blob_resolver_->discarded_count());
+          RecordTick(stats_, BLOB_DB_ORPHAN_RECOVERY_DISCARDED,
+                     orphan_blob_resolver_->discarded_count());
+        }
+
+        // BlobIndex entries from the WAL were resolved to raw values and
+        // inserted into memtables as kTypeValue. However, the original WAL
+        // still contains those BlobIndex entries. If recovery avoids flushing
+        // the recovered memtables and the process crashes again, a later open
+        // must be able to resolve the same orphan blob files a second time.
+        //
+        // Keep reserving orphan file numbers so NewFileNumber() does not reuse
+        // them before PurgeObsoleteFiles can clean them up. Any blob file
+        // still referenced by a live WAL is now protected during replay,
+        // regardless of whether it was orphaned or MANIFEST-tracked.
+        if (s.ok() && !read_only &&
+            orphan_blob_resolver_->orphan_file_count() > 0) {
+          auto orphan_infos = orphan_blob_resolver_->GetOrphanFileInfo();
+          for (const auto& info : orphan_infos) {
+            versions_->MarkFileNumberUsed(info.file_number);
+          }
+          ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                         "Orphan blob recovery: %zu orphan files scanned, "
+                         "file numbers reserved. WAL-referenced blob files "
+                         "remain protected until dependent WALs are obsolete.",
+                         orphan_blob_resolver_->orphan_file_count());
+        }
+
+        orphan_blob_resolver_.reset();
       }
     }
   }
@@ -1495,6 +1625,7 @@ Status DBImpl::ProcessLogRecord(
   assert(process_status.ok());
   process_status = InsertLogRecordToMemtable(
       batch_to_use, wal_number, next_sequence, &has_valid_writes, read_only);
+
   MaybeIgnoreError(&process_status);
   // We are treating this as a failure while reading since we read valid
   // blocks that do not form coherent data
@@ -1581,11 +1712,40 @@ Status DBImpl::InsertLogRecordToMemtable(WriteBatch* batch_to_use,
   // That's why we set ignore missing column families to true
   assert(batch_to_use);
   assert(has_valid_writes);
+
+  // Pre-validate blob indices to maintain write batch atomicity.
+  // If any PutBlobIndex entry references an unresolvable orphan blob file,
+  // reject the entire batch rather than partially applying it.
+  OrphanBlobFileResolver* resolver = GetOrphanBlobResolver();
+  if (resolver) {
+    Status validate_s = WriteBatchInternal::ValidateBlobIndicesForRecovery(
+        batch_to_use, column_family_memtables_.get(),
+        true /* ignore_missing_column_families */, wal_number, resolver);
+    if (!validate_s.ok()) {
+      return validate_s;
+    }
+  }
+
   Status status = WriteBatchInternal::InsertInto(
       batch_to_use, column_family_memtables_.get(), &flush_scheduler_,
       &trim_history_scheduler_, true, wal_number, this,
       false /* concurrent_memtable_writes */, next_sequence, has_valid_writes,
       seq_per_batch_, batch_per_txn_);
+
+  // Rebuild WAL protection for every blob file referenced by the live WALs we
+  // just replayed. This covers both orphan-resolved files and MANIFEST-tracked
+  // files that may later become obsolete before the WAL ages out.
+  if (status.ok() && *has_valid_writes && wal_number != 0) {
+    std::unordered_set<uint64_t> referenced_blob_files;
+    Status collect_s =
+        CollectReferencedBlobFiles(batch_to_use, &referenced_blob_files);
+    if (!collect_s.ok()) {
+      return collect_s;
+    }
+    for (uint64_t file_number : referenced_blob_files) {
+      ProtectBlobFileFromObsoleteDeletion(file_number, wal_number);
+    }
+  }
 
   // Check WriteBufferManager global limit during recovery.
   // When multiple RocksDB instances share a WriteBufferManager, a recovering
@@ -2646,6 +2806,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   } else {
     persist_options_status.PermitUncheckedError();
   }
+
   impl->mutex_.Unlock();
 
   auto sfm = static_cast<SstFileManagerImpl*>(
@@ -2683,6 +2844,58 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           .PermitUncheckedError();
     }
     impl->mutex_.Lock();
+
+    // Initialize per-CF blob partition managers for column families with
+    // blob direct write enabled, before DeleteObsoleteFiles and
+    // MaybeScheduleFlushOrCompaction so that background threads can safely
+    // read blob_partition_manager() under the mutex.
+    for (size_t i = 0; i < column_families.size(); i++) {
+      const auto& cf = column_families[i];
+      if (!cf.options.enable_blob_files ||
+          !cf.options.enable_blob_direct_write) {
+        continue;
+      }
+      auto* cfd = static_cast<ColumnFamilyHandleImpl*>((*handles)[i])->cfd();
+
+      auto mgr = std::make_unique<BlobFilePartitionManager>(
+          cf.options.blob_direct_write_partitions,
+          cf.options.blob_direct_write_partition_strategy,
+          [vs = impl->versions_.get()]() { return vs->NewFileNumber(); },
+          impl->env_, impl->fs_.get(), impl->immutable_db_options_.clock,
+          impl->stats_, impl->file_options_, dbname, cf.options.blob_file_size,
+          impl->immutable_db_options_.use_fsync,
+          cf.options.blob_compression_type,
+          cf.options.blob_direct_write_buffer_size,
+          impl->immutable_db_options_.use_direct_io_for_flush_and_compaction,
+          cf.options.blob_direct_write_flush_interval_ms, impl->io_tracer_,
+          impl->immutable_db_options_.listeners,
+          impl->immutable_db_options_.file_checksum_gen_factory.get(),
+          impl->immutable_db_options_.checksum_handoff_file_types,
+          cfd->blob_file_cache(), &impl->blob_callback_, impl->db_id_,
+          impl->db_session_id_, impl->immutable_db_options_.info_log.get());
+
+      // Cache this CF's settings in the partition manager.
+      BlobDirectWriteSettings settings;
+      settings.enable_blob_direct_write = true;
+      settings.min_blob_size = cf.options.min_blob_size;
+      settings.compression_type = cf.options.blob_compression_type;
+      settings.blob_cache = cf.options.blob_cache.get();
+      settings.prepopulate_blob_cache = cf.options.prepopulate_blob_cache;
+      uint32_t cf_id = cfd->GetID();
+      mgr->UpdateCachedSettings(cf_id, settings);
+
+      cfd->SetBlobPartitionManager(std::move(mgr));
+
+      // Tag the existing memtable with the partition manager's initial epoch
+      // so that SealAllPartitions can match its deferred seal batch when this
+      // memtable is flushed together with a later memtable.  Without this,
+      // the first memtable keeps blob_write_epoch_=0, epoch 0 is filtered
+      // out by the flush path, and the corresponding blob file additions are
+      // never committed to the MANIFEST.
+      cfd->mem()->SetBlobWriteEpoch(
+          cfd->blob_partition_manager()->GetRotationEpoch());
+    }
+
     // This will do a full scan.
     impl->DeleteObsoleteFiles();
     TEST_SYNC_POINT("DBImpl::Open:AfterDeleteFiles");

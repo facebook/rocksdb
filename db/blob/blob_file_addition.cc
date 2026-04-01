@@ -21,6 +21,8 @@ namespace ROCKSDB_NAMESPACE {
 enum BlobFileAddition::CustomFieldTags : uint32_t {
   kEndMarker,
 
+  kPhysicalFileSize,
+
   // Add forward compatible fields here
 
   /////////////////////////////////////////////////////////////////////
@@ -41,6 +43,13 @@ void BlobFileAddition::EncodeTo(std::string* output) const {
   // CustomFieldTags above) followed by a length prefixed slice. Unknown custom
   // fields will be ignored during decoding unless they're in the forward
   // incompatible range.
+  if (file_size_ != 0 && file_size_ != DefaultFileSize(total_blob_bytes_)) {
+    std::string encoded_file_size;
+    PutVarint64(&encoded_file_size, file_size_);
+
+    PutVarint32(output, kPhysicalFileSize);
+    PutLengthPrefixedSlice(output, Slice(encoded_file_size));
+  }
 
   TEST_SYNC_POINT_CALLBACK("BlobFileAddition::EncodeTo::CustomFields", output);
 
@@ -73,6 +82,8 @@ Status BlobFileAddition::DecodeFrom(Slice* input) {
     return Status::Corruption(class_name, "Error decoding checksum value");
   }
   checksum_value_ = checksum_value.ToString();
+  file_size_ = ResolveFileSize(blob_file_number_, total_blob_bytes_,
+                               /*file_size=*/0);
 
   while (true) {
     uint32_t custom_field_tag = 0;
@@ -93,6 +104,21 @@ Status BlobFileAddition::DecodeFrom(Slice* input) {
     if (!GetLengthPrefixedSlice(input, &custom_field_value)) {
       return Status::Corruption(class_name,
                                 "Error decoding custom field value");
+    }
+
+    switch (custom_field_tag) {
+      case kPhysicalFileSize: {
+        uint64_t file_size = 0;
+        if (!GetVarint64(&custom_field_value, &file_size) ||
+            !custom_field_value.empty()) {
+          return Status::Corruption(class_name, "Error decoding file size");
+        }
+        file_size_ =
+            ResolveFileSize(blob_file_number_, total_blob_bytes_, file_size);
+        break;
+      }
+      default:
+        break;
     }
   }
 
@@ -122,7 +148,8 @@ bool operator==(const BlobFileAddition& lhs, const BlobFileAddition& rhs) {
          lhs.GetTotalBlobCount() == rhs.GetTotalBlobCount() &&
          lhs.GetTotalBlobBytes() == rhs.GetTotalBlobBytes() &&
          lhs.GetChecksumMethod() == rhs.GetChecksumMethod() &&
-         lhs.GetChecksumValue() == rhs.GetChecksumValue();
+         lhs.GetChecksumValue() == rhs.GetChecksumValue() &&
+         lhs.GetFileSize() == rhs.GetFileSize();
 }
 
 bool operator!=(const BlobFileAddition& lhs, const BlobFileAddition& rhs) {
@@ -134,6 +161,7 @@ std::ostream& operator<<(std::ostream& os,
   os << "blob_file_number: " << blob_file_addition.GetBlobFileNumber()
      << " total_blob_count: " << blob_file_addition.GetTotalBlobCount()
      << " total_blob_bytes: " << blob_file_addition.GetTotalBlobBytes()
+     << " file_size: " << blob_file_addition.GetFileSize()
      << " checksum_method: " << blob_file_addition.GetChecksumMethod()
      << " checksum_value: "
      << Slice(blob_file_addition.GetChecksumValue()).ToString(/* hex */ true);
@@ -145,9 +173,9 @@ JSONWriter& operator<<(JSONWriter& jw,
                        const BlobFileAddition& blob_file_addition) {
   jw << "BlobFileNumber" << blob_file_addition.GetBlobFileNumber()
      << "TotalBlobCount" << blob_file_addition.GetTotalBlobCount()
-     << "TotalBlobBytes" << blob_file_addition.GetTotalBlobBytes()
-     << "ChecksumMethod" << blob_file_addition.GetChecksumMethod()
-     << "ChecksumValue"
+     << "TotalBlobBytes" << blob_file_addition.GetTotalBlobBytes() << "FileSize"
+     << blob_file_addition.GetFileSize() << "ChecksumMethod"
+     << blob_file_addition.GetChecksumMethod() << "ChecksumValue"
      << Slice(blob_file_addition.GetChecksumValue()).ToString(/* hex */ true);
 
   return jw;

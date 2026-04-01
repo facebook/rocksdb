@@ -180,6 +180,8 @@ Status BlobLogWriter::EmitPhysicalRecord(const WriteOptions& write_options,
                                          uint64_t* blob_offset) {
   IOOptions opts;
   Status s = WritableFileWriter::PrepareIOOptions(write_options, opts);
+  TEST_SYNC_POINT_CALLBACK("BlobLogWriter::EmitPhysicalRecord:BeforeAppend",
+                           &s);
   if (s.ok()) {
     s = dest_->Append(opts, Slice(headerbuf));
   }

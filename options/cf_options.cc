@@ -916,6 +916,15 @@ static std::unordered_map<std::string, OptionTypeInfo>
             auto* cache = static_cast<std::shared_ptr<Cache>*>(addr);
             return Cache::CreateFromString(opts, value, cache);
           }}},
+        {"blob_direct_write_partition_strategy",
+         {offsetof(struct ImmutableCFOptions,
+                   blob_direct_write_partition_strategy),
+          OptionType::kUnknown, OptionVerificationType::kNormal,
+          (OptionTypeFlags::kCompareNever | OptionTypeFlags::kDontSerialize)}},
+        {"enable_blob_direct_write",
+         {offsetof(struct ImmutableCFOptions, enable_blob_direct_write),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"persist_user_defined_timestamps",
          {offsetof(struct ImmutableCFOptions, persist_user_defined_timestamps),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -928,6 +937,19 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableCFOptions,
                    memtable_batch_lookup_optimization),
           OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"blob_direct_write_partitions",
+         {offsetof(struct ImmutableCFOptions, blob_direct_write_partitions),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"blob_direct_write_buffer_size",
+         {offsetof(struct ImmutableCFOptions, blob_direct_write_buffer_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"blob_direct_write_flush_interval_ms",
+         {offsetof(struct ImmutableCFOptions,
+                   blob_direct_write_flush_interval_ms),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
 };
 
@@ -1067,6 +1089,13 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       compaction_thread_limiter(cf_options.compaction_thread_limiter),
       sst_partitioner_factory(cf_options.sst_partitioner_factory),
       blob_cache(cf_options.blob_cache),
+      enable_blob_direct_write(cf_options.enable_blob_direct_write),
+      blob_direct_write_partition_strategy(
+          cf_options.blob_direct_write_partition_strategy),
+      blob_direct_write_partitions(cf_options.blob_direct_write_partitions),
+      blob_direct_write_buffer_size(cf_options.blob_direct_write_buffer_size),
+      blob_direct_write_flush_interval_ms(
+          cf_options.blob_direct_write_flush_interval_ms),
       persist_user_defined_timestamps(
           cf_options.persist_user_defined_timestamps),
       cf_allow_ingest_behind(cf_options.cf_allow_ingest_behind),

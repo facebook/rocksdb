@@ -83,7 +83,10 @@ class MemTableListVersion {
   bool GetMergeOperands(const LookupKey& key, Status* s,
                         MergeContext* merge_context,
                         SequenceNumber* max_covering_tombstone_seq,
-                        const ReadOptions& read_opts);
+                        const ReadOptions& read_opts,
+                        bool* is_blob_index = nullptr,
+                        std::string* blob_index = nullptr,
+                        std::string* timestamp = nullptr);
 
   // Similar to Get(), but searches the Memtable history of memtables that
   // have already been flushed.  Should only be used from in-memory only

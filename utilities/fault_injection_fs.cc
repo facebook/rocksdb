@@ -28,6 +28,7 @@
 #include "rocksdb/io_status.h"
 #include "rocksdb/types.h"
 #include "test_util/sync_point.h"
+#include "util/aligned_buffer.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/mutexlock.h"
@@ -473,6 +474,13 @@ TestFSRandomAccessFile::TestFSRandomAccessFile(
   assert(target_ != nullptr);
 }
 
+static IOStatus ReadRandomAccessWithUnsyncedData(
+    FaultInjectionTestFS* fs, const std::string& fname,
+    const std::function<IOStatus(uint64_t, size_t, Slice*, char*,
+                                 IODebugContext*)>& target_read,
+    uint64_t offset, size_t n, Slice* result, char* scratch,
+    IODebugContext* dbg, bool use_direct_io, size_t direct_io_alignment);
+
 IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
                                       const IOOptions& options, Slice* result,
                                       char* scratch,
@@ -491,15 +499,34 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
     return s;
   }
 
-  s = target_->Read(offset, n, options, result, scratch, dbg);
-  // TODO (low priority): fs_->ReadUnsyncedData()
-  return s;
+  return ReadRandomAccessWithUnsyncedData(
+      fs_, fname_,
+      [this, &options](uint64_t read_offset, size_t read_n, Slice* read_result,
+                       char* read_scratch, IODebugContext* read_dbg) {
+        return target_->Read(read_offset, read_n, options, read_result,
+                             read_scratch, read_dbg);
+      },
+      offset, n, result, scratch, dbg, use_direct_io(),
+      target_->GetRequiredBufferAlignment());
 }
 
 IOStatus TestFSRandomAccessFile::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
     std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
+  if (fs_->ReadUnsyncedData() && fs_->IsTrackedFile(fname_)) {
+    req.status =
+        Read(req.offset, req.len, opts, &req.result, req.scratch, nullptr);
+    if (io_handle != nullptr) {
+      *io_handle = nullptr;
+    }
+    if (del_fn != nullptr) {
+      *del_fn = nullptr;
+    }
+    cb(req, cb_arg);
+    return IOStatus::OK();
+  }
+
   IOStatus res_status;
   FSReadRequest res;
   IOStatus s;
@@ -536,6 +563,14 @@ IOStatus TestFSRandomAccessFile::ReadAsync(
 IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
                                            const IOOptions& options,
                                            IODebugContext* dbg) {
+  if (fs_->ReadUnsyncedData() && fs_->IsTrackedFile(fname_)) {
+    for (size_t i = 0; i < num_reqs; i++) {
+      reqs[i].status = Read(reqs[i].offset, reqs[i].len, options,
+                            &reqs[i].result, reqs[i].scratch, dbg);
+    }
+    return IOStatus::OK();
+  }
+
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -580,22 +615,123 @@ size_t TestFSRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
 IOStatus TestFSRandomAccessFile::GetFileSize(uint64_t* file_size) {
   if (is_sst_ && fs_->ShouldFailRandomAccessGetFileSizeSst()) {
     return IOStatus::IOError("FSRandomAccessFile::GetFileSize failed");
-  } else {
-    return target_->GetFileSize(file_size);
   }
+  IOStatus s = target_->GetFileSize(file_size);
+  if (!s.ok()) {
+    return s;
+  }
+  if (fs_->ReadUnsyncedData()) {
+    uint64_t tracked_size = 0;
+    if (fs_->TryGetTrackedFileSize(fname_, &tracked_size)) {
+      *file_size = tracked_size;
+    }
+  }
+  return s;
 }
 
-namespace {
 // Modifies `result` to start at the beginning of `scratch` if not already,
 // copying data there if needed.
-void MoveToScratchIfNeeded(Slice* result, char* scratch) {
+static void MoveToScratchIfNeeded(Slice* result, char* scratch) {
+  if (result->size() == 0) {
+    *result = Slice(scratch, 0);
+    return;
+  }
   if (result->data() != scratch) {
     // NOTE: might overlap, where result is later in scratch
     std::copy(result->data(), result->data() + result->size(), scratch);
     *result = Slice(scratch, result->size());
   }
 }
-}  // namespace
+
+static IOStatus ReadRandomAccessWithUnsyncedData(
+    FaultInjectionTestFS* fs, const std::string& fname,
+    const std::function<IOStatus(uint64_t, size_t, Slice*, char*,
+                                 IODebugContext*)>& target_read,
+    uint64_t offset, size_t n, Slice* result, char* scratch,
+    IODebugContext* dbg, bool use_direct_io, size_t direct_io_alignment) {
+  assert(!use_direct_io || direct_io_alignment > 0);
+
+  auto read_with_alignment = [&](uint64_t read_offset, size_t read_n,
+                                 Slice* read_result, char* read_scratch) {
+    if (!use_direct_io) {
+      return target_read(read_offset, read_n, read_result, read_scratch, dbg);
+    }
+
+    const size_t aligned_offset = TruncateToPageBoundary(
+        direct_io_alignment, static_cast<size_t>(read_offset));
+    const size_t offset_advance =
+        static_cast<size_t>(read_offset) - aligned_offset;
+    const size_t aligned_read_n =
+        Roundup(static_cast<size_t>(read_offset) + read_n,
+                direct_io_alignment) -
+        aligned_offset;
+
+    AlignedBuffer aligned_scratch;
+    aligned_scratch.Alignment(direct_io_alignment);
+    aligned_scratch.AllocateNewBuffer(aligned_read_n);
+
+    Slice aligned_result;
+    IOStatus io_s = target_read(aligned_offset, aligned_read_n, &aligned_result,
+                                aligned_scratch.Destination(), dbg);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+
+    MoveToScratchIfNeeded(&aligned_result, aligned_scratch.BufferStart());
+    size_t copied = 0;
+    if (aligned_result.size() > offset_advance) {
+      copied = std::min(read_n, aligned_result.size() - offset_advance);
+      std::copy_n(aligned_result.data() + offset_advance, copied, read_scratch);
+    }
+    *read_result = Slice(read_scratch, copied);
+    return io_s;
+  };
+
+  IOStatus s = read_with_alignment(offset, n, result, scratch);
+  if (!s.ok() || !fs->ReadUnsyncedData() || scratch == nullptr) {
+    return s;
+  }
+
+  MoveToScratchIfNeeded(result, scratch);
+
+  Slice unsynced_result;
+  int64_t pos_at_last_sync = -1;
+  fs->ReadUnsynced(fname, offset, n, &unsynced_result, scratch,
+                   &pos_at_last_sync);
+  if (pos_at_last_sync < 0) {
+    return s;
+  }
+
+  const size_t synced_prefix =
+      pos_at_last_sync <= static_cast<int64_t>(offset)
+          ? 0
+          : static_cast<size_t>(std::min<uint64_t>(
+                n, static_cast<uint64_t>(pos_at_last_sync) - offset));
+  if (result->size() < synced_prefix) {
+    Slice supplemental_result;
+    s = read_with_alignment(offset + result->size(),
+                            synced_prefix - result->size(),
+                            &supplemental_result, scratch + result->size());
+    if (!s.ok()) {
+      return s;
+    }
+    MoveToScratchIfNeeded(&supplemental_result, scratch + result->size());
+    if (supplemental_result.size() < synced_prefix - result->size()) {
+      return IOStatus::IOError("Unexpected truncation or short read of file " +
+                               fname);
+    }
+    *result = Slice(scratch, synced_prefix);
+  }
+
+  if (unsynced_result.size() > 0) {
+    const size_t unsynced_end =
+        static_cast<size_t>(unsynced_result.data() - scratch) +
+        unsynced_result.size();
+    *result = Slice(scratch, std::max(result->size(), unsynced_end));
+  }
+
+  return s;
+}
 
 void FaultInjectionTestFS::ReadUnsynced(const std::string& fname,
                                         uint64_t offset, size_t n,
@@ -1029,7 +1165,16 @@ IOStatus FaultInjectionTestFS::NewRandomAccessFile(
     return io_s;
   }
 
-  io_s = target()->NewRandomAccessFile(fname, file_opts, result, dbg);
+  FileOptions open_opts = file_opts;
+  if (ReadUnsyncedData() && file_opts.use_mmap_reads && IsTrackedFile(fname)) {
+    // Tracked files can have unsynced bytes that only exist in the wrapper's
+    // in-memory state. Avoid mmap so subsequent reads stay in this wrapper,
+    // where synced bytes from the underlying file can be merged with the
+    // unsynced tail tracked by FaultInjectionTestFS.
+    open_opts.use_mmap_reads = false;
+  }
+
+  io_s = target()->NewRandomAccessFile(fname, open_opts, result, dbg);
 
   if (io_s.ok()) {
     result->reset(new TestFSRandomAccessFile(fname, std::move(*result), this));
@@ -1102,11 +1247,10 @@ IOStatus FaultInjectionTestFS::GetFileSize(const std::string& f,
   }
 
   if (ReadUnsyncedData()) {
-    // Need to report flushed size, not synced size
-    MutexLock l(&mutex_);
-    auto it = db_file_state_.find(f);
-    if (it != db_file_state_.end()) {
-      *file_size = it->second.pos_at_last_append_;
+    uint64_t tracked_size = 0;
+    if (TryGetTrackedFileSize(f, &tracked_size)) {
+      // Need to report flushed size, not synced size.
+      *file_size = tracked_size;
     }
   }
   return io_s;
@@ -1305,6 +1449,28 @@ void FaultInjectionTestFS::RandomRWFileClosed(const std::string& fname) {
   if (open_managed_files_.find(fname) != open_managed_files_.end()) {
     open_managed_files_.erase(fname);
   }
+}
+
+bool FaultInjectionTestFS::IsTrackedFile(const std::string& fname) {
+  MutexLock l(&mutex_);
+  return open_managed_files_.find(fname) != open_managed_files_.end() ||
+         db_file_state_.find(fname) != db_file_state_.end();
+}
+
+bool FaultInjectionTestFS::TryGetTrackedFileSize(const std::string& fname,
+                                                 uint64_t* file_size) {
+  assert(file_size != nullptr);
+  MutexLock l(&mutex_);
+  auto it = db_file_state_.find(fname);
+  if (it != db_file_state_.end()) {
+    *file_size = it->second.pos_at_last_append_;
+    return true;
+  }
+  if (open_managed_files_.find(fname) != open_managed_files_.end()) {
+    *file_size = 0;
+    return true;
+  }
+  return false;
 }
 
 void FaultInjectionTestFS::WritableFileClosed(const FSFileState& state) {

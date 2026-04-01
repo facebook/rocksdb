@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <memory>
+#include <vector>
 
 #include "db/dbformat.h"
 #include "db_stress_tool/expected_value.h"
@@ -231,7 +232,8 @@ class ExpectedStateManager {
   // Requires external locking preventing concurrent execution with any other
   // member function. Furthermore, `db` must not be mutated while this function
   // is executing.
-  virtual Status Restore(DB* db) = 0;
+  virtual Status Restore(
+      DB* db, const std::vector<ColumnFamilyHandle*>& cf_handles = {}) = 0;
 
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) { return latest_->ClearColumnFamily(cf); }
@@ -323,7 +325,8 @@ class FileExpectedStateManager : public ExpectedStateManager {
   // was called and now it is `b`. Then this function replays `b - a` write
   // operations from "`a`.trace" onto "`a`.state", and then copies the resulting
   // file into "LATEST.state".
-  Status Restore(DB* db) override;
+  Status Restore(
+      DB* db, const std::vector<ColumnFamilyHandle*>& cf_handles = {}) override;
 
  private:
   // Requires external locking preventing concurrent execution with any other
@@ -366,7 +369,11 @@ class AnonExpectedStateManager : public ExpectedStateManager {
   //
   // This implementation returns `Status::NotSupported` since we do not
   // currently have a need to keep history of expected state within a process.
-  Status Restore(DB* /* db */) override { return Status::NotSupported(); }
+  Status Restore(
+      DB* /* db */,
+      const std::vector<ColumnFamilyHandle*>& /* cf_handles */ = {}) override {
+    return Status::NotSupported();
+  }
 
   // Requires external locking preventing concurrent execution with any other
   // member function.

@@ -18,6 +18,7 @@
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -74,8 +75,10 @@ namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class ArenaWrappedDBIter;
+class BlobFilePartitionManager;
 class InMemoryStatsHistoryIterator;
 class MemTable;
+class OrphanBlobFileResolver;
 class PersistentStatsHistoryIterator;
 class TableCache;
 class TaskLimiterToken;
@@ -716,6 +719,23 @@ class DBImpl : public DB {
   // get_impl_options.key via get_impl_options.merge_operands
   virtual Status GetImpl(const ReadOptions& options, const Slice& key,
                          GetImplOptions& get_impl_options);
+
+  // Helper to resolve a blob direct write BlobIndex found in memtable/imm.
+  // Decodes BlobIndex from value, resolves via the multi-tier fallback
+  // (pending_records -> in_flight_records -> BlobFileCache -> retry).
+  // Returns true if blob resolution was attempted.
+  bool MaybeResolveBlobForWritePath(const ReadOptions& read_options,
+                                    const Slice& key, Status* s,
+                                    bool* is_blob_index, bool for_direct_write,
+                                    PinnableSlice* value,
+                                    PinnableWideColumns* columns,
+                                    Version* current, ColumnFamilyData* cfd,
+                                    BlobFilePartitionManager* partition_mgr);
+
+  // Returns the orphan blob resolver (non-null only during WAL recovery).
+  OrphanBlobFileResolver* GetOrphanBlobResolver() const {
+    return orphan_blob_resolver_.get();
+  }
 
   // If `snapshot` == kMaxSequenceNumber, set a recent one inside the file.
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
@@ -1589,7 +1609,9 @@ class DBImpl : public DB {
                    size_t batch_cnt = 0,
                    PreReleaseCallback* pre_release_callback = nullptr,
                    PostMemTableCallback* post_memtable_callback = nullptr,
-                   std::shared_ptr<WriteBatchWithIndex> wbwi = nullptr);
+                   std::shared_ptr<WriteBatchWithIndex> wbwi = nullptr,
+                   uint64_t blob_write_epoch = 0,
+                   void* blob_partition_mgr = nullptr);
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
@@ -2226,6 +2248,11 @@ class DBImpl : public DB {
   // in case wals_total_size > max_total_wal_size.
   Status RestoreAliveLogFiles(const std::vector<uint64_t>& log_numbers);
 
+  // Keep a blob file on disk until the specified WAL becomes obsolete.
+  // REQUIRES: mutex_ held.
+  void ProtectBlobFileFromObsoleteDeletion(uint64_t blob_file_number,
+                                           uint64_t protected_until_wal);
+
   // num_bytes: for slowdown case, delay time is calculated based on
   //            `num_bytes` going through.
   Status DelayWrite(uint64_t num_bytes, WriteThread& write_thread,
@@ -2570,6 +2597,8 @@ class DBImpl : public DB {
                        const WriteOptions& write_options,
                        JobContext* job_context, VersionEdit* synced_wals,
                        bool error_recovery_in_prog);
+  Status SyncBlobFilesForWals(const WriteOptions& write_options,
+                              uint64_t up_to_number);
 
   // helper function to call after some of the logs_ were synced
   void MarkLogsSynced(uint64_t up_to, bool synced_dir, VersionEdit* edit);
@@ -3233,6 +3262,19 @@ class DBImpl : public DB {
   std::atomic<uint64_t> max_total_wal_size_;
 
   BlobFileCompletionCallback blob_callback_;
+
+  // Active during WAL recovery only. Resolves BlobIndex entries pointing
+  // to orphan blob files by reading blobs and converting to raw values.
+  std::unique_ptr<OrphanBlobFileResolver> orphan_blob_resolver_;
+
+  // Blob files that must stay on disk while some live WAL may still reference
+  // them. This includes:
+  // 1. orphan blob files resolved during WAL recovery, and
+  // 2. write-path blob files that were later dropped from MANIFEST after all
+  //    SST references disappeared, but whose source WALs are still live.
+  // Map: blob file number -> highest WAL number that may still reference it.
+  // Protected by db mutex.
+  std::unordered_map<uint64_t, uint64_t> wal_protected_blob_files_;
 
   // Pointer to WriteBufferManager stalling interface.
   std::unique_ptr<StallInterface> wbm_stall_;

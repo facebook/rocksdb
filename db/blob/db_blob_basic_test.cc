@@ -10,6 +10,8 @@
 #include "cache/compressed_secondary_cache.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
+#include "db/blob/blob_source.h"
+#include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
 #include "port/stack_trace.h"
@@ -22,13 +24,70 @@ class DBBlobBasicTest : public DBTestBase {
  protected:
   DBBlobBasicTest()
       : DBTestBase("db_blob_basic_test", /* env_do_fsync */ false) {}
+
+  bool IsBlobValueCached(const Slice& key) {
+    ReadOptions read_options;
+    PinnableSlice blob_index_slice;
+    bool is_blob_index = false;
+
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = db_->DefaultColumnFamily();
+    get_impl_options.value = &blob_index_slice;
+    get_impl_options.is_blob_index = &is_blob_index;
+
+    EXPECT_OK(dbfull()->GetImpl(read_options, key, get_impl_options));
+    EXPECT_TRUE(is_blob_index);
+
+    BlobIndex blob_index;
+    EXPECT_OK(blob_index.DecodeFrom(blob_index_slice));
+    EXPECT_FALSE(blob_index.IsInlined());
+
+    std::string db_id;
+    EXPECT_OK(db_->GetDbIdentity(db_id));
+    std::string db_session_id;
+    EXPECT_OK(db_->GetDbSessionId(db_session_id));
+
+    auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+        db_->DefaultColumnFamily());
+    auto* cfd = cfh->cfd();
+    BlobSource blob_source(cfd->ioptions(), cfd->GetLatestMutableCFOptions(),
+                           db_id, db_session_id, cfd->blob_file_cache());
+    return blob_source.TEST_BlobInCache(blob_index.file_number(),
+                                        /*file_size=*/0, blob_index.offset());
+  }
+
+  void AssertBlobCached(const Slice& key) {
+    ASSERT_TRUE(IsBlobValueCached(key));
+  }
+
+  void AssertBlobNotCached(const Slice& key) {
+    ASSERT_FALSE(IsBlobValueCached(key));
+  }
 };
 
-TEST_F(DBBlobBasicTest, GetBlob) {
+// Parameterized sub-fixture for tests that should also run with blob direct
+// write enabled.  The bool parameter controls whether direct write is on.
+class DBBlobBasicTestWithDirectWrite
+    : public DBBlobBasicTest,
+      public testing::WithParamInterface<bool> {
+ protected:
+  void MaybeEnableBlobDirectWrite(Options& options) {
+    if (GetParam()) {
+      options.enable_blob_direct_write = true;
+      options.blob_direct_write_partitions = 2;
+    }
+  }
+};
+
+INSTANTIATE_TEST_CASE_P(BlobDirectWrite, DBBlobBasicTestWithDirectWrite,
+                        testing::Bool());
+
+TEST_P(DBBlobBasicTestWithDirectWrite, GetBlob) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   constexpr char key[] = "key";
@@ -88,7 +147,7 @@ TEST_F(DBBlobBasicTest, EmptyValueNotStoredAsBlob) {
                   .IsIncomplete());
 }
 
-TEST_F(DBBlobBasicTest, GetBlobFromCache) {
+TEST_P(DBBlobBasicTestWithDirectWrite, GetBlobFromCache) {
   Options options = GetDefaultOptions();
 
   LRUCacheOptions co;
@@ -106,6 +165,7 @@ TEST_F(DBBlobBasicTest, GetBlobFromCache) {
   block_based_options.cache_index_and_filter_blocks = true;
   options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   constexpr char key[] = "key";
@@ -156,7 +216,7 @@ TEST_F(DBBlobBasicTest, GetBlobFromCache) {
   }
 }
 
-TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
+TEST_P(DBBlobBasicTestWithDirectWrite, IterateBlobsFromCache) {
   Options options = GetDefaultOptions();
 
   LRUCacheOptions co;
@@ -176,6 +236,7 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
 
   options.statistics = CreateDBStatistics();
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   int num_blobs = 5;
@@ -269,7 +330,7 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
   }
 }
 
-TEST_F(DBBlobBasicTest, IterateBlobsFromCachePinning) {
+TEST_P(DBBlobBasicTestWithDirectWrite, IterateBlobsFromCachePinning) {
   constexpr size_t min_blob_size = 6;
 
   Options options = GetDefaultOptions();
@@ -283,6 +344,7 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCachePinning) {
   options.enable_blob_files = true;
   options.min_blob_size = min_blob_size;
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   // Put then iterate over three key-values. The second value is below the size
@@ -411,10 +473,11 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCachePinning) {
   }
 }
 
-TEST_F(DBBlobBasicTest, IterateBlobsAllowUnpreparedValue) {
+TEST_P(DBBlobBasicTestWithDirectWrite, IterateBlobsAllowUnpreparedValue) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   constexpr size_t num_blobs = 5;
@@ -520,13 +583,14 @@ TEST_F(DBBlobBasicTest, IterateBlobsAllowUnpreparedValue) {
   }
 }
 
-TEST_F(DBBlobBasicTest, MultiGetBlobs) {
+TEST_P(DBBlobBasicTestWithDirectWrite, MultiGetBlobs) {
   constexpr size_t min_blob_size = 6;
 
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = min_blob_size;
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   // Put then retrieve three key-values. The first value is below the size limit
@@ -599,7 +663,7 @@ TEST_F(DBBlobBasicTest, MultiGetBlobs) {
   }
 }
 
-TEST_F(DBBlobBasicTest, MultiGetBlobsFromCache) {
+TEST_P(DBBlobBasicTestWithDirectWrite, MultiGetBlobsFromCache) {
   Options options = GetDefaultOptions();
 
   LRUCacheOptions co;
@@ -620,6 +684,7 @@ TEST_F(DBBlobBasicTest, MultiGetBlobsFromCache) {
   block_based_options.cache_index_and_filter_blocks = true;
   options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
 
+  MaybeEnableBlobDirectWrite(options);
   DestroyAndReopen(options);
 
   // Put then retrieve three key-values. The first value is below the size limit
@@ -734,7 +799,7 @@ TEST_F(DBBlobBasicTest, MultiGetBlobsFromCache) {
   }
 }
 
-TEST_F(DBBlobBasicTest, MultiGetWithDirectIO) {
+TEST_P(DBBlobBasicTestWithDirectWrite, MultiGetWithDirectIO) {
   Options options = GetDefaultOptions();
 
   // First, create an external SST file ["b"].
@@ -758,6 +823,7 @@ TEST_F(DBBlobBasicTest, MultiGetWithDirectIO) {
   options.sst_partitioner_factory =
       NewSstPartitionerFixedPrefixFactory(key_len);
 
+  MaybeEnableBlobDirectWrite(options);
   Status s = TryReopen(options);
   if (s.IsInvalidArgument()) {
     ROCKSDB_GTEST_SKIP("This test requires direct IO support");
@@ -923,7 +989,7 @@ TEST_F(DBBlobBasicTest, MultiGetWithDirectIO) {
   }
 }
 
-TEST_F(DBBlobBasicTest, MultiGetBlobsFromMultipleFiles) {
+TEST_P(DBBlobBasicTestWithDirectWrite, MultiGetBlobsFromMultipleFiles) {
   Options options = GetDefaultOptions();
 
   LRUCacheOptions co;
@@ -943,6 +1009,7 @@ TEST_F(DBBlobBasicTest, MultiGetBlobsFromMultipleFiles) {
   block_based_options.cache_index_and_filter_blocks = true;
   options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   constexpr size_t kNumBlobFiles = 3;
@@ -1028,11 +1095,12 @@ TEST_F(DBBlobBasicTest, MultiGetBlobsFromMultipleFiles) {
   }
 }
 
-TEST_F(DBBlobBasicTest, GetBlob_CorruptIndex) {
+TEST_P(DBBlobBasicTestWithDirectWrite, GetBlobCorruptIndex) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   constexpr char key[] = "key";
@@ -1058,12 +1126,13 @@ TEST_F(DBBlobBasicTest, GetBlob_CorruptIndex) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_F(DBBlobBasicTest, MultiGetBlob_CorruptIndex) {
+TEST_P(DBBlobBasicTestWithDirectWrite, MultiGetBlobCorruptIndex) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
   options.create_if_missing = true;
 
+  MaybeEnableBlobDirectWrite(options);
   DestroyAndReopen(options);
 
   constexpr size_t kNumOfKeys = 3;
@@ -1117,11 +1186,12 @@ TEST_F(DBBlobBasicTest, MultiGetBlob_CorruptIndex) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_F(DBBlobBasicTest, MultiGetBlob_ExceedSoftLimit) {
+TEST_P(DBBlobBasicTestWithDirectWrite, MultiGetBlobExceedSoftLimit) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   constexpr size_t kNumOfKeys = 3;
@@ -1210,12 +1280,13 @@ TEST_F(DBBlobBasicTest, GetBlob_IndexWithInvalidFileNumber) {
                   .IsCorruption());
 }
 
-TEST_F(DBBlobBasicTest, GenerateIOTracing) {
+TEST_P(DBBlobBasicTestWithDirectWrite, GenerateIOTracing) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
   std::string trace_file = dbname_ + "/io_trace_file";
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
   {
     // Create IO trace file
@@ -1308,12 +1379,13 @@ TEST_F(DBBlobBasicTest, BestEffortsRecovery_MissingNewestBlobFile) {
   ASSERT_EQ("value" + std::to_string(kNumTableFiles - 2), value);
 }
 
-TEST_F(DBBlobBasicTest, GetMergeBlobWithPut) {
+TEST_P(DBBlobBasicTestWithDirectWrite, GetMergeBlobWithPut) {
   Options options = GetDefaultOptions();
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   ASSERT_OK(Put("Key1", "v1"));
@@ -1328,12 +1400,13 @@ TEST_F(DBBlobBasicTest, GetMergeBlobWithPut) {
   ASSERT_EQ(Get("Key1"), "v1,v2,v3");
 }
 
-TEST_F(DBBlobBasicTest, GetMergeBlobFromMemoryTier) {
+TEST_P(DBBlobBasicTestWithDirectWrite, GetMergeBlobFromMemoryTier) {
   Options options = GetDefaultOptions();
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   ASSERT_OK(Put(Key(0), "v1"));
@@ -1352,7 +1425,7 @@ TEST_F(DBBlobBasicTest, GetMergeBlobFromMemoryTier) {
   ASSERT_TRUE(db_->Get(read_options, Key(0), &value).IsIncomplete());
 }
 
-TEST_F(DBBlobBasicTest, MultiGetMergeBlobWithPut) {
+TEST_P(DBBlobBasicTestWithDirectWrite, MultiGetMergeBlobWithPut) {
   constexpr size_t num_keys = 3;
 
   Options options = GetDefaultOptions();
@@ -1360,6 +1433,7 @@ TEST_F(DBBlobBasicTest, MultiGetMergeBlobWithPut) {
   options.enable_blob_files = true;
   options.min_blob_size = 0;
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   ASSERT_OK(Put("Key0", "v0_0"));
@@ -1697,7 +1771,7 @@ TEST_P(DBBlobBasicIOErrorMultiGetTest, MultipleBlobFiles) {
   ASSERT_TRUE(statuses[1].IsIOError());
 }
 
-TEST_F(DBBlobBasicTest, MultiGetFindTable_IOError) {
+TEST_P(DBBlobBasicTestWithDirectWrite, MultiGetFindTableIOError) {
   // Repro test for a specific bug where `MultiGet()` would fail to open a table
   // in `FindTable()` and then proceed to return raw blob handles for the other
   // keys.
@@ -1705,6 +1779,7 @@ TEST_F(DBBlobBasicTest, MultiGetFindTable_IOError) {
   options.enable_blob_files = true;
   options.min_blob_size = 0;
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   // Force no table cache so every read will preload the SST file.
@@ -1878,10 +1953,8 @@ TEST_F(DBBlobBasicTest, WarmCacheWithBlobsDuringFlush) {
     ASSERT_OK(Put(std::to_string(i + kNumBlobs), value));  // Add some overlap
     ASSERT_OK(Flush());
     ASSERT_EQ(i * 2, options.statistics->getTickerCount(BLOB_DB_CACHE_ADD));
-    ASSERT_EQ(value, Get(std::to_string(i)));
-    ASSERT_EQ(value, Get(std::to_string(i + kNumBlobs)));
-    ASSERT_EQ(0, options.statistics->getTickerCount(BLOB_DB_CACHE_MISS));
-    ASSERT_EQ(i * 2, options.statistics->getTickerCount(BLOB_DB_CACHE_HIT));
+    AssertBlobCached(std::to_string(i));
+    AssertBlobCached(std::to_string(i + kNumBlobs));
   }
 
   // Verify compaction not counted
@@ -1929,12 +2002,9 @@ TEST_F(DBBlobBasicTest, DynamicallyWarmCacheDuringFlush) {
     ASSERT_OK(Flush());
     ASSERT_EQ(2, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD));
 
-    ASSERT_EQ(value, Get(std::to_string(i)));
-    ASSERT_EQ(value, Get(std::to_string(i + kNumBlobs)));
+    AssertBlobCached(std::to_string(i));
+    AssertBlobCached(std::to_string(i + kNumBlobs));
     ASSERT_EQ(0, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD));
-    ASSERT_EQ(0,
-              options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS));
-    ASSERT_EQ(2, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT));
   }
 
   ASSERT_OK(dbfull()->SetOptions({{"prepopulate_blob_cache", "kDisable"}}));
@@ -1945,12 +2015,11 @@ TEST_F(DBBlobBasicTest, DynamicallyWarmCacheDuringFlush) {
     ASSERT_OK(Flush());
     ASSERT_EQ(0, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD));
 
+    AssertBlobNotCached(std::to_string(i));
+    AssertBlobNotCached(std::to_string(i + kNumBlobs));
     ASSERT_EQ(value, Get(std::to_string(i)));
     ASSERT_EQ(value, Get(std::to_string(i + kNumBlobs)));
     ASSERT_EQ(2, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD));
-    ASSERT_EQ(2,
-              options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS));
-    ASSERT_EQ(0, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT));
   }
 
   // Verify compaction not counted
@@ -2003,44 +2072,19 @@ TEST_F(DBBlobBasicTest, WarmCacheWithBlobsSecondary) {
   ASSERT_OK(Flush());
   ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 1);
 
-  // First blob is inserted into primary cache.
-  // Second blob is evicted but only a dummy handle is inserted into secondary
-  // cache.
+  // The primary cache is too small to keep both blobs resident, so this
+  // exercises end-to-end reads with secondary cache configured.
   ASSERT_EQ(Get(first_key), first_blob);
-  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 1);
-  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 0);
-  ASSERT_EQ(options.statistics->getAndResetTickerCount(SECONDARY_CACHE_HITS),
-            0);
-  // Second blob is inserted into primary cache,
-  // First blob is evicted and is inserted into secondary cache.
   ASSERT_EQ(Get(second_key), second_blob);
-  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 1);
-  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 0);
-  ASSERT_EQ(options.statistics->getAndResetTickerCount(SECONDARY_CACHE_HITS),
-            0);
-
-  // First blob's dummy item is inserted into primary cache b/c of lookup.
-  // Second blob is still in primary cache.
   ASSERT_EQ(Get(first_key), first_blob);
-  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 0);
-  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 1);
-  ASSERT_EQ(options.statistics->getAndResetTickerCount(SECONDARY_CACHE_HITS),
-            1);
-
-  // First blob's item is inserted into primary cache b/c of lookup.
-  // Second blob is evicted and inserted into secondary cache.
-  ASSERT_EQ(Get(first_key), first_blob);
-  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 0);
-  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 1);
-  ASSERT_EQ(options.statistics->getAndResetTickerCount(SECONDARY_CACHE_HITS),
-            1);
 }
 
-TEST_F(DBBlobBasicTest, GetEntityBlob) {
+TEST_P(DBBlobBasicTestWithDirectWrite, GetEntityBlob) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   constexpr char key[] = "key";

@@ -8,6 +8,8 @@
 #include <cinttypes>
 
 #include "db/arena_wrapped_db_iter.h"
+#include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_index.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
 #include "db/merge_context.h"
@@ -23,6 +25,65 @@
 #include "util/write_batch_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+bool SupportsBlobDirectWriteRead(const ColumnFamilyData* cfd) {
+  return cfd->ioptions().enable_blob_direct_write &&
+         cfd->blob_file_cache() != nullptr;
+}
+
+Slice GetBlobLookupUserKeyForSecondary(const Slice& user_key,
+                                       const std::string* timestamp,
+                                       std::string* user_key_with_ts) {
+  if (timestamp == nullptr || timestamp->empty()) {
+    return user_key;
+  }
+
+  assert(user_key_with_ts != nullptr);
+  user_key_with_ts->assign(user_key.data(), user_key.size());
+  user_key_with_ts->append(timestamp->data(), timestamp->size());
+  return Slice(*user_key_with_ts);
+}
+
+bool MaybeResolveBlobIndexForSecondaryGetMergeOperands(
+    const ReadOptions& read_options, const Slice& user_key, Status* s,
+    bool* is_blob_index, bool resolve_blob_direct_write,
+    const Slice& blob_index_slice, Version* current, ColumnFamilyData* cfd,
+    BlobFilePartitionManager* partition_mgr, MergeContext* merge_context) {
+  if (!s->ok() || !*is_blob_index || !resolve_blob_direct_write) {
+    return false;
+  }
+
+  if (blob_index_slice.empty()) {
+    *s = Status::Corruption(
+        "Missing blob index for blob direct write GetMergeOperands");
+    *is_blob_index = false;
+    return true;
+  }
+
+  BlobIndex blob_idx;
+  *s = blob_idx.DecodeFrom(blob_index_slice);
+  if (s->ok()) {
+    if (blob_idx.HasTTL()) {
+      *s =
+          Status::Corruption("Unexpected TTL blob index for blob direct write");
+    } else {
+      PinnableSlice resolved_value;
+      *s = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
+          read_options, user_key, blob_idx, current, cfd->blob_file_cache(),
+          partition_mgr, &resolved_value);
+      if (s->ok()) {
+        merge_context->PushOperand(Slice(resolved_value));
+      }
+    }
+  }
+
+  *is_blob_index = false;
+  return true;
+}
+
+}  // namespace
 
 DBImplSecondary::DBImplSecondary(const DBOptions& db_options,
                                  const std::string& dbname,
@@ -363,13 +424,34 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
 
   const Comparator* ucmp = get_impl_options.column_family->GetComparator();
   assert(ucmp);
-  std::string* ts =
-      ucmp->timestamp_size() > 0 ? get_impl_options.timestamp : nullptr;
   SequenceNumber snapshot = versions_->LastSequence();
   GetWithTimestampReadCallback read_cb(snapshot);
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
       get_impl_options.column_family);
   auto cfd = cfh->cfd();
+  auto* partition_mgr = cfd->blob_partition_manager();
+  bool is_blob_index = false;
+  bool* is_blob_ptr = get_impl_options.is_blob_index;
+  const bool supports_blob_direct_write = SupportsBlobDirectWriteRead(cfd);
+  std::string timestamp_storage;
+  std::string* ts = nullptr;
+  if (ucmp->timestamp_size() > 0) {
+    // Memtable-side blob direct write reads need the matching entry's
+    // timestamp so secondary can reconstruct the exact blob lookup key.
+    ts = get_impl_options.timestamp != nullptr
+             ? get_impl_options.timestamp
+             : (supports_blob_direct_write ? &timestamp_storage : nullptr);
+  }
+  if (supports_blob_direct_write && !is_blob_ptr) {
+    is_blob_ptr = &is_blob_index;
+  }
+  const bool resolve_blob_direct_write =
+      supports_blob_direct_write && (is_blob_ptr == &is_blob_index);
+  std::string blob_lookup_key_storage;
+  auto get_blob_lookup_key = [&]() -> Slice {
+    return GetBlobLookupUserKeyForSecondary(key, ts, &blob_lookup_key_storage);
+  };
+  std::string memtable_blob_index;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
@@ -404,10 +486,34 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                                    : nullptr,
             get_impl_options.columns, ts, &s, &merge_context,
             &max_covering_tombstone_seq, read_options,
-            false /* immutable_memtable */, &read_cb,
-            /*is_blob_index=*/nullptr, /*do_merge=*/true)) {
+            false /* immutable_memtable */, &read_cb, is_blob_ptr,
+            /*do_merge=*/true)) {
       done = true;
-      if (get_impl_options.value) {
+      bool blob_resolved = MaybeResolveBlobForWritePath(
+          read_options, get_blob_lookup_key(), &s, &is_blob_index,
+          resolve_blob_direct_write, get_impl_options.value,
+          get_impl_options.columns, super_version->current, cfd, partition_mgr);
+      if (blob_resolved && s.ok() && merge_context.GetNumOperands() > 0) {
+        const ImmutableOptions& ioptions = cfd->ioptions();
+        if (get_impl_options.value || get_impl_options.columns) {
+          Slice base_value(
+              get_impl_options.value
+                  ? *get_impl_options.value
+                  : get_impl_options.columns->columns().front().value());
+          s = MergeHelper::TimedFullMerge(
+              ioptions.merge_operator.get(), key, MergeHelper::kPlainBaseValue,
+              base_value, merge_context.GetOperands(), ioptions.logger,
+              ioptions.statistics.get(), ioptions.clock,
+              /*update_num_ops_stats=*/true,
+              /*op_failure_scope=*/nullptr,
+              get_impl_options.value ? get_impl_options.value->GetSelf()
+                                     : nullptr,
+              get_impl_options.columns);
+          if (get_impl_options.value) {
+            get_impl_options.value->PinSelf();
+          }
+        }
+      } else if (!blob_resolved && get_impl_options.value) {
         get_impl_options.value->PinSelf();
       }
       RecordTick(stats_, MEMTABLE_HIT);
@@ -417,9 +523,34 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                    get_impl_options.value ? get_impl_options.value->GetSelf()
                                           : nullptr,
                    get_impl_options.columns, ts, &s, &merge_context,
-                   &max_covering_tombstone_seq, read_options, &read_cb)) {
+                   &max_covering_tombstone_seq, read_options, &read_cb,
+                   is_blob_ptr)) {
       done = true;
-      if (get_impl_options.value) {
+      bool blob_resolved = MaybeResolveBlobForWritePath(
+          read_options, get_blob_lookup_key(), &s, &is_blob_index,
+          resolve_blob_direct_write, get_impl_options.value,
+          get_impl_options.columns, super_version->current, cfd, partition_mgr);
+      if (blob_resolved && s.ok() && merge_context.GetNumOperands() > 0) {
+        const ImmutableOptions& ioptions = cfd->ioptions();
+        if (get_impl_options.value || get_impl_options.columns) {
+          Slice base_value(
+              get_impl_options.value
+                  ? *get_impl_options.value
+                  : get_impl_options.columns->columns().front().value());
+          s = MergeHelper::TimedFullMerge(
+              ioptions.merge_operator.get(), key, MergeHelper::kPlainBaseValue,
+              base_value, merge_context.GetOperands(), ioptions.logger,
+              ioptions.statistics.get(), ioptions.clock,
+              /*update_num_ops_stats=*/true,
+              /*op_failure_scope=*/nullptr,
+              get_impl_options.value ? get_impl_options.value->GetSelf()
+                                     : nullptr,
+              get_impl_options.columns);
+          if (get_impl_options.value) {
+            get_impl_options.value->PinSelf();
+          }
+        }
+      } else if (!blob_resolved && get_impl_options.value) {
         get_impl_options.value->PinSelf();
       }
       RecordTick(stats_, MEMTABLE_HIT);
@@ -432,15 +563,23 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                                    : nullptr,
             get_impl_options.columns, ts, &s, &merge_context,
             &max_covering_tombstone_seq, read_options,
-            false /* immutable_memtable */, &read_cb,
-            /*is_blob_index=*/nullptr, /*do_merge=*/false)) {
+            false /* immutable_memtable */, &read_cb, is_blob_ptr,
+            /*do_merge=*/false, &memtable_blob_index)) {
       done = true;
+      MaybeResolveBlobIndexForSecondaryGetMergeOperands(
+          read_options, get_blob_lookup_key(), &s, &is_blob_index,
+          resolve_blob_direct_write, memtable_blob_index,
+          super_version->current, cfd, partition_mgr, &merge_context);
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
-               super_version->imm->GetMergeOperands(lkey, &s, &merge_context,
-                                                    &max_covering_tombstone_seq,
-                                                    read_options)) {
+               super_version->imm->GetMergeOperands(
+                   lkey, &s, &merge_context, &max_covering_tombstone_seq,
+                   read_options, is_blob_ptr, &memtable_blob_index, ts)) {
       done = true;
+      MaybeResolveBlobIndexForSecondaryGetMergeOperands(
+          read_options, get_blob_lookup_key(), &s, &is_blob_index,
+          resolve_blob_direct_write, memtable_blob_index,
+          super_version->current, cfd, partition_mgr, &merge_context);
       RecordTick(stats_, MEMTABLE_HIT);
     }
   }
@@ -555,7 +694,8 @@ ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
   return NewArenaWrappedDbIterator(env_, read_options, cfh, super_version,
                                    snapshot, read_callback, this,
                                    expose_blob_index, allow_refresh,
-                                   /*allow_mark_memtable_for_flush=*/false);
+                                   /*allow_mark_memtable_for_flush=*/false,
+                                   cfh->cfd()->blob_partition_manager());
 }
 
 Status DBImplSecondary::NewIterators(

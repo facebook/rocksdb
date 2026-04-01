@@ -994,8 +994,9 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileAdditionApplied) {
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileNotFound) {
-  // Attempt to increase the amount of garbage for a blob file that is
-  // neither in the base version, nor was it added using a version edit.
+  // Garbage for a blob file not in the version is silently skipped.
+  // This can happen when concurrent compactions process different SSTs
+  // referencing the same blob file, and one finishes first.
 
   UpdateVersionStorageInfo();
 
@@ -1016,8 +1017,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileNotFound) {
                           garbage_blob_bytes);
 
   const Status s = builder.Apply(&edit);
-  ASSERT_TRUE(s.IsCorruption());
-  ASSERT_TRUE(std::strstr(s.getState(), "Blob file #1234 not found"));
+  ASSERT_OK(s);
 }
 
 TEST_F(VersionBuilderTest, BlobFileGarbageOverflow) {
@@ -1185,8 +1185,10 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   ASSERT_EQ(meta9->GetGarbageBlobCount(), 0);
   ASSERT_EQ(meta9->GetGarbageBlobBytes(), 0);
 
-  // Delete the first table file, which makes the first blob file obsolete
-  // since it's at the head and unreferenced.
+  // Delete the first table file. Blob file #3 becomes unreferenced, but
+  // SaveBlobFilesTo retains unlinked blob files until they become fully
+  // garbage. This matches the BDW-compatible behavior used for orphan and
+  // multi-partition blob files.
   VersionBuilder second_builder(env_options, &ioptions_, table_cache,
                                 &new_vstorage, version_set);
 
@@ -1205,16 +1207,17 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   UpdateVersionStorageInfo(&new_vstorage_2);
 
   const auto& newer_blob_files = new_vstorage_2.GetBlobFiles();
-  ASSERT_EQ(newer_blob_files.size(), 2);
+  ASSERT_EQ(newer_blob_files.size(), 3);
 
   const auto newer_meta3 =
       new_vstorage_2.GetBlobFileMetaData(/* blob_file_number */ 3);
 
-  ASSERT_EQ(newer_meta3, nullptr);
+  ASSERT_NE(newer_meta3, nullptr);
 
   // Blob file #5 is referenced by table file #4, and blob file #9 is
-  // unreferenced. After deleting table file #4, all blob files will become
-  // unreferenced and will therefore be obsolete.
+  // unreferenced. After deleting table file #4, all blob files become
+  // unreferenced, but they still remain in the version since they are not yet
+  // fully garbage.
   VersionBuilder third_builder(env_options, &ioptions_, table_cache,
                                &new_vstorage_2, version_set);
   VersionEdit third_edit;
@@ -1232,7 +1235,7 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
 
   UpdateVersionStorageInfo(&new_vstorage_3);
 
-  ASSERT_TRUE(new_vstorage_3.GetBlobFiles().empty());
+  ASSERT_EQ(new_vstorage_3.GetBlobFiles().size(), 3);
 
   UnrefFilesInVersion(&new_vstorage_3);
   UnrefFilesInVersion(&new_vstorage_2);

@@ -48,11 +48,13 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
                        SequenceNumber* max_covering_tombstone_seq,
                        SequenceNumber* out_seq, const ReadOptions&,
                        bool immutable_memtable, ReadCallback* callback,
-                       bool* is_blob_index, bool do_merge) {
+                       bool* is_blob_index, bool do_merge,
+                       std::string* blob_index) {
   assert(s->ok() || s->IsMergeInProgress());
   (void)immutable_memtable;
   (void)timestamp;
   (void)columns;
+  (void)blob_index;
   assert(immutable_memtable);
   assert(!timestamp);  // TODO: support UDT
   assert(assigned_seqno_.upper_bound != kMaxSequenceNumber);

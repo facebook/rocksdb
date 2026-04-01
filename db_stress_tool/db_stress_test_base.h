@@ -61,7 +61,8 @@ class StressTest {
   void PrintStatistics();
   bool MightHaveUnsyncedDataLoss() {
     return FLAGS_sync_fault_injection || FLAGS_disable_wal ||
-           FLAGS_manual_wal_flush_one_in > 0;
+           FLAGS_manual_wal_flush_one_in > 0 ||
+           (FLAGS_enable_blob_direct_write && !FLAGS_sync);
   }
   Status EnableAutoCompaction() {
     assert(options_.disable_auto_compactions);

@@ -1193,6 +1193,10 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
       }
     }
 
+    // Note: blob files currently being written by blob direct write are
+    // unsealed and not registered in the MANIFEST, so they are not in
+    // GetBlobFiles() and cannot appear in the GC cutoff computation.
+    // No special handling is needed to skip them here.
     if (blob_index.file_number() >=
         blob_garbage_collection_cutoff_file_number_) {
       return;

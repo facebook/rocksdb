@@ -27,6 +27,7 @@ namespace ROCKSDB_NAMESPACE {
 class MemTable;
 class FlushScheduler;
 class ColumnFamilyData;
+class OrphanBlobFileResolver;
 
 class ColumnFamilyMemTables {
  public:
@@ -93,6 +94,11 @@ class WriteBatchInternal {
 
   static Status PutEntity(WriteBatch* batch, uint32_t column_family_id,
                           const Slice& key, const WideColumns& columns);
+
+  // Overload that takes already-serialized entity bytes, avoiding a
+  // deserialize/re-serialize round-trip when passing entities through.
+  static Status PutEntity(WriteBatch* batch, uint32_t column_family_id,
+                          const Slice& key, const Slice& entity);
 
   static Status Delete(WriteBatch* batch, uint32_t column_family_id,
                        const SliceParts& key);
@@ -256,6 +262,22 @@ class WriteBatchInternal {
   // If checksum is provided, the batch content is verfied against the checksum.
   static Status UpdateProtectionInfo(WriteBatch* wb, size_t bytes_per_key,
                                      uint64_t* checksum = nullptr);
+
+  // Pre-validate PutBlobIndex entries that WAL recovery would actually apply.
+  // Entries for dropped/missing column families, or for column families whose
+  // updates recovery would skip because they already flushed past
+  // `recovery_log_number`, are ignored so validation matches replay semantics.
+  //
+  // Returns OK if every remaining PutBlobIndex referencing an orphan blob file
+  // can be resolved (blob data is readable). Returns Aborted if any remaining
+  // entry references an orphan file whose blob data is missing/corrupt, or a
+  // file that is neither registered in MANIFEST nor resolvable as an orphan.
+  // This must be called BEFORE InsertInto to maintain write batch atomicity:
+  // either the entire batch is applied, or it is skipped.
+  static Status ValidateBlobIndicesForRecovery(
+      const WriteBatch* batch, ColumnFamilyMemTables* memtables,
+      bool ignore_missing_column_families, uint64_t recovery_log_number,
+      OrphanBlobFileResolver* resolver);
 };
 
 // LocalSavePoint is similar to a scope guard

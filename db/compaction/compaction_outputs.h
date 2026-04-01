@@ -103,6 +103,17 @@ class CompactionOutputs {
     return blob_garbage_meter_.get();
   }
 
+  // Allow the proximal level output to track blob outflow on the
+  // non-proximal output's BlobGarbageMeter. Without this, entries
+  // routed to the proximal output are missing from outflow, causing
+  // the garbage meter to over-count garbage for blob files whose
+  // entries survive in the proximal output.
+  void SetSharedBlobGarbageMeter(BlobGarbageMeter* meter) {
+    assert(is_proximal_level_);
+    assert(!blob_garbage_meter_);
+    shared_blob_garbage_meter_ = meter;
+  }
+
   BlobGarbageMeter* GetBlobGarbageMeter() const {
     if (is_proximal_level_) {
       // blobdb doesn't support per_key_placement yet
@@ -333,6 +344,9 @@ class CompactionOutputs {
   // BlobDB info
   std::vector<BlobFileAddition> blob_file_additions_;
   std::unique_ptr<BlobGarbageMeter> blob_garbage_meter_;
+  // For the proximal level output: pointer to the non-proximal output's
+  // BlobGarbageMeter so outflow from proximal entries is tracked correctly.
+  BlobGarbageMeter* shared_blob_garbage_meter_ = nullptr;
 
   // All file paths (SST and blob) created during compaction.
   // Used for cleanup on abort - ensures orphan files are deleted even if

@@ -231,6 +231,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   if (mems_.empty()) {
     ROCKS_LOG_BUFFER(log_buffer_, "[%s] No memtable to flush",
                      cfd_->GetName().c_str());
+    TEST_SYNC_POINT("FlushJob::Run:EmptyMems");
     return Status::OK();
   }
 
@@ -1105,6 +1106,12 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.tail_size, meta_.user_defined_timestamps_persisted,
                    meta_.min_timestamp, meta_.max_timestamp);
     edit_->SetBlobFileAdditions(std::move(blob_file_additions));
+
+    // Add external blob file additions from write-path blob direct write.
+    for (auto& addition : external_blob_file_additions_) {
+      edit_->AddBlobFile(std::move(addition));
+    }
+    external_blob_file_additions_.clear();
   }
   // Piggyback FlushJobInfo on the first first flushed memtable.
   mems_[0]->SetFlushJobInfo(GetFlushJobInfo());

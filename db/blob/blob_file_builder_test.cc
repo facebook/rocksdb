@@ -12,12 +12,14 @@
 #include <vector>
 
 #include "db/blob/blob_file_addition.h"
+#include "db/blob/blob_file_completion_callback.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_sequential_reader.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
+#include "file/sst_file_manager_impl.h"
 #include "options/cf_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
@@ -285,6 +287,64 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckMultipleFiles) {
     VerifyBlobFile(i + 2, blob_file_paths[i], column_family_id, kNoCompression,
                    expected_key_value_pair, blob_index);
   }
+}
+
+TEST_F(BlobFileBuilderTest, CompletionCallbackUsesActiveBlobFilePath) {
+  Options options;
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(
+          mock_env_.get(),
+          "BlobFileBuilderTest_CompletionCallbackUsesActiveBlobFilePath"),
+      0);
+  options.enable_blob_files = true;
+  options.env = mock_env_.get();
+
+  ImmutableOptions immutable_options(options);
+  MutableCFOptions mutable_cf_options(options);
+
+  SstFileManagerImpl sst_file_manager(
+      mock_env_->GetSystemClock(), mock_env_->GetFileSystem(),
+      std::shared_ptr<Logger>(), /*rate_bytes_per_sec=*/0,
+      /*max_trash_db_ratio=*/0.25, /*bytes_max_delete_chunk=*/0);
+  BlobFileCompletionCallback blob_callback(
+      &sst_file_manager, /*mutex=*/nullptr, /*error_handler=*/nullptr,
+      /*event_logger=*/nullptr, {}, options.cf_paths.front().path);
+
+  constexpr int job_id = 1;
+  constexpr uint32_t column_family_id = 123;
+  constexpr char column_family_name[] = "foobar";
+  constexpr Env::WriteLifeTimeHint write_hint = Env::WLTH_MEDIUM;
+
+  std::vector<std::string> output_file_paths;
+  std::vector<BlobFileAddition> blob_file_additions;
+
+  BlobFileBuilder builder(
+      TestFileNumberGenerator(), fs_, &immutable_options, &mutable_cf_options,
+      &file_options_, &write_options_, "" /*db_id*/, "" /*db_session_id*/,
+      job_id, column_family_id, column_family_name, write_hint,
+      nullptr /*IOTracer*/, &blob_callback, BlobFileCreationReason::kCompaction,
+      &output_file_paths, &blob_file_additions);
+
+  std::string blob_index;
+  ASSERT_OK(builder.Add("1", "deadbeef", &blob_index));
+  ASSERT_FALSE(blob_index.empty());
+
+  constexpr uint64_t blob_file_number = 2;
+  const std::string expected_blob_path =
+      BlobFileName(options.cf_paths.front().path, blob_file_number);
+  ASSERT_EQ(output_file_paths.size(), 1);
+  ASSERT_EQ(output_file_paths.front(), expected_blob_path);
+
+  const std::string fake_sst_path =
+      MakeTableFileName(options.cf_paths.front().path, 8525);
+  output_file_paths.push_back(fake_sst_path);
+
+  ASSERT_OK(builder.Finish());
+
+  const auto tracked_files = sst_file_manager.GetTrackedFiles();
+  ASSERT_EQ(tracked_files.size(), 1);
+  ASSERT_EQ(tracked_files.count(expected_blob_path), 1);
+  ASSERT_EQ(tracked_files.count(fake_sst_path), 0);
 }
 
 TEST_F(BlobFileBuilderTest, InlinedValues) {

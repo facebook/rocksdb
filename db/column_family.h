@@ -49,6 +49,7 @@ class InstrumentedMutex;
 class InstrumentedMutexLock;
 struct SuperVersionContext;
 class BlobFileCache;
+class BlobFilePartitionManager;
 class BlobSource;
 
 extern const double kIncSlowdownRatio;
@@ -415,6 +416,10 @@ class ColumnFamilyData {
   TableCache* table_cache() const { return table_cache_.get(); }
   BlobFileCache* blob_file_cache() const { return blob_file_cache_.get(); }
   BlobSource* blob_source() const { return blob_source_.get(); }
+  BlobFilePartitionManager* blob_partition_manager() const {
+    return blob_partition_manager_.get();
+  }
+  void SetBlobPartitionManager(std::unique_ptr<BlobFilePartitionManager> mgr);
 
   // See documentation in compaction_picker.h
   // REQUIRES: DB mutex held
@@ -649,6 +654,11 @@ class ColumnFamilyData {
   std::unique_ptr<BlobFileCache> blob_file_cache_;
   std::unique_ptr<BlobSource> blob_source_;
 
+  // Per-CF blob direct write partition manager. nullptr when this CF does not
+  // have enable_blob_direct_write=true. Created during DB::Open, destroyed
+  // during CloseHelper (sealed first). Outlives all writes and reads.
+  std::unique_ptr<BlobFilePartitionManager> blob_partition_manager_;
+
   std::unique_ptr<InternalStats> internal_stats_;
 
   WriteBufferManager* write_buffer_manager_;
@@ -840,7 +850,7 @@ class ColumnFamilySet {
   WriteController* write_controller_;
   BlockCacheTracer* const block_cache_tracer_;
   std::shared_ptr<IOTracer> io_tracer_;
-  const std::string& db_id_;
+  const std::string db_id_;
   std::string db_session_id_;
 };
 

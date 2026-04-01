@@ -31,6 +31,23 @@ class DBBlobCompactionTest : public DBTestBase {
   }
 };
 
+// Parameterized sub-fixture for tests that should also run with blob direct
+// write enabled.  The bool parameter controls whether direct write is on.
+class DBBlobCompactionTestWithDirectWrite
+    : public DBBlobCompactionTest,
+      public testing::WithParamInterface<bool> {
+ protected:
+  void MaybeEnableBlobDirectWrite(Options& options) {
+    if (GetParam()) {
+      options.enable_blob_direct_write = true;
+      options.blob_direct_write_partitions = 2;
+    }
+  }
+};
+
+INSTANTIATE_TEST_CASE_P(BlobDirectWrite, DBBlobCompactionTestWithDirectWrite,
+                        testing::Bool());
+
 namespace {
 
 class FilterByKeyLength : public CompactionFilter {
@@ -222,7 +239,7 @@ INSTANTIATE_TEST_CASE_P(
                         CompactionFilter::Decision::kChangeBlobIndex,
                         CompactionFilter::Decision::kIOError)));
 
-TEST_F(DBBlobCompactionTest, FilterByKeyLength) {
+TEST_P(DBBlobCompactionTestWithDirectWrite, FilterByKeyLength) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
@@ -236,6 +253,7 @@ TEST_F(DBBlobCompactionTest, FilterByKeyLength) {
   constexpr char long_key[] = "abc";
   constexpr char blob_value[] = "value";
 
+  MaybeEnableBlobDirectWrite(options);
   DestroyAndReopen(options);
   ASSERT_OK(Put(short_key, blob_value));
   ASSERT_OK(Put(long_key, blob_value));
@@ -259,7 +277,7 @@ TEST_F(DBBlobCompactionTest, FilterByKeyLength) {
   Close();
 }
 
-TEST_F(DBBlobCompactionTest, FilterByValueLength) {
+TEST_P(DBBlobCompactionTestWithDirectWrite, FilterByValueLength) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 5;
@@ -274,6 +292,7 @@ TEST_F(DBBlobCompactionTest, FilterByValueLength) {
   const std::vector<std::string> long_value_keys = {"b", "f", "k"};
   constexpr char long_value[] = "valuevalue";
 
+  MaybeEnableBlobDirectWrite(options);
   DestroyAndReopen(options);
   for (size_t i = 0; i < short_value_keys.size(); ++i) {
     ASSERT_OK(Put(short_value_keys[i], short_value));
@@ -382,7 +401,7 @@ TEST_F(DBBlobCompactionTest, BlobCompactWithStartingLevel) {
   Close();
 }
 
-TEST_F(DBBlobCompactionTest, BlindWriteFilter) {
+TEST_P(DBBlobCompactionTestWithDirectWrite, BlindWriteFilter) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
@@ -391,6 +410,7 @@ TEST_F(DBBlobCompactionTest, BlindWriteFilter) {
   std::unique_ptr<CompactionFilter> compaction_filter_guard(
       new ValueBlindWriteFilter(new_blob_value));
   options.compaction_filter = compaction_filter_guard.get();
+  MaybeEnableBlobDirectWrite(options);
   DestroyAndReopen(options);
   const std::vector<std::string> keys = {"a", "b", "c"};
   const std::vector<std::string> values = {"a_value", "b_value", "c_value"};
@@ -416,7 +436,7 @@ TEST_F(DBBlobCompactionTest, BlindWriteFilter) {
   Close();
 }
 
-TEST_F(DBBlobCompactionTest, SkipUntilFilter) {
+TEST_P(DBBlobCompactionTestWithDirectWrite, SkipUntilFilter) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
 
@@ -424,6 +444,7 @@ TEST_F(DBBlobCompactionTest, SkipUntilFilter) {
       new SkipUntilFilter("z"));
   options.compaction_filter = compaction_filter_guard.get();
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   const std::vector<std::string> keys{"a", "b", "c"};
@@ -508,7 +529,7 @@ TEST_F(DBBlobCompactionTest, CompactionFilter_InlinedTTLIndex) {
   Close();
 }
 
-TEST_F(DBBlobCompactionTest, CompactionFilter) {
+TEST_P(DBBlobCompactionTestWithDirectWrite, CompactionFilter) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.enable_blob_files = true;
@@ -517,6 +538,7 @@ TEST_F(DBBlobCompactionTest, CompactionFilter) {
   std::unique_ptr<CompactionFilter> compaction_filter_guard(
       new ValueMutationFilter(padding));
   options.compaction_filter = compaction_filter_guard.get();
+  MaybeEnableBlobDirectWrite(options);
   DestroyAndReopen(options);
   const std::vector<std::pair<std::string, std::string>> kvs = {
       {"a", "a_value"}, {"b", "b_value"}, {"c", "c_value"}};
@@ -577,7 +599,7 @@ TEST_F(DBBlobCompactionTest, CorruptedBlobIndex) {
   Close();
 }
 
-TEST_F(DBBlobCompactionTest, CompactionFilterReadBlobAndKeep) {
+TEST_P(DBBlobCompactionTestWithDirectWrite, CompactionFilterReadBlobAndKeep) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.enable_blob_files = true;
@@ -585,6 +607,7 @@ TEST_F(DBBlobCompactionTest, CompactionFilterReadBlobAndKeep) {
   std::unique_ptr<CompactionFilter> compaction_filter_guard(
       new AlwaysKeepFilter());
   options.compaction_filter = compaction_filter_guard.get();
+  MaybeEnableBlobDirectWrite(options);
   DestroyAndReopen(options);
   ASSERT_OK(Put("foo", "foo_value"));
   ASSERT_OK(Flush());
@@ -709,13 +732,14 @@ TEST_F(DBBlobCompactionTest, TrackGarbage) {
   }
 }
 
-TEST_F(DBBlobCompactionTest, MergeBlobWithBase) {
+TEST_P(DBBlobCompactionTestWithDirectWrite, MergeBlobWithBase) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
   options.disable_auto_compactions = true;
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
   ASSERT_OK(Put("Key1", "v1_1"));
   ASSERT_OK(Put("Key2", "v2_1"));
@@ -735,7 +759,8 @@ TEST_F(DBBlobCompactionTest, MergeBlobWithBase) {
   Close();
 }
 
-TEST_F(DBBlobCompactionTest, CompactionReadaheadGarbageCollection) {
+TEST_P(DBBlobCompactionTestWithDirectWrite,
+       CompactionReadaheadGarbageCollection) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
@@ -744,6 +769,7 @@ TEST_F(DBBlobCompactionTest, CompactionReadaheadGarbageCollection) {
   options.blob_compaction_readahead_size = 1 << 10;
   options.disable_auto_compactions = true;
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   ASSERT_OK(Put("key", "lime"));
@@ -775,7 +801,7 @@ TEST_F(DBBlobCompactionTest, CompactionReadaheadGarbageCollection) {
   Close();
 }
 
-TEST_F(DBBlobCompactionTest, CompactionReadaheadFilter) {
+TEST_P(DBBlobCompactionTestWithDirectWrite, CompactionReadaheadFilter) {
   Options options = GetDefaultOptions();
 
   std::unique_ptr<CompactionFilter> compaction_filter_guard(
@@ -787,6 +813,7 @@ TEST_F(DBBlobCompactionTest, CompactionReadaheadFilter) {
   options.blob_compaction_readahead_size = 1 << 10;
   options.disable_auto_compactions = true;
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   ASSERT_OK(Put("key", "lime"));
@@ -814,7 +841,7 @@ TEST_F(DBBlobCompactionTest, CompactionReadaheadFilter) {
   Close();
 }
 
-TEST_F(DBBlobCompactionTest, CompactionReadaheadMerge) {
+TEST_P(DBBlobCompactionTestWithDirectWrite, CompactionReadaheadMerge) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
@@ -822,6 +849,7 @@ TEST_F(DBBlobCompactionTest, CompactionReadaheadMerge) {
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
   options.disable_auto_compactions = true;
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   ASSERT_OK(Put("key", "lime"));
@@ -853,7 +881,7 @@ TEST_F(DBBlobCompactionTest, CompactionReadaheadMerge) {
   Close();
 }
 
-TEST_F(DBBlobCompactionTest, CompactionDoNotFillCache) {
+TEST_P(DBBlobCompactionTestWithDirectWrite, CompactionDoNotFillCache) {
   Options options = GetDefaultOptions();
 
   options.enable_blob_files = true;
@@ -869,6 +897,7 @@ TEST_F(DBBlobCompactionTest, CompactionDoNotFillCache) {
 
   options.blob_cache = NewLRUCache(cache_options);
 
+  MaybeEnableBlobDirectWrite(options);
   Reopen(options);
 
   ASSERT_OK(Put("key", "lime"));

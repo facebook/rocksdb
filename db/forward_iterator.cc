@@ -6,6 +6,7 @@
 #include "db/forward_iterator.h"
 
 #include <limits>
+#include <sstream>
 #include <string>
 #include <utility>
 
@@ -16,6 +17,7 @@
 #include "db/job_context.h"
 #include "db/range_del_aggregator.h"
 #include "db/range_tombstone_fragmenter.h"
+#include "logging/logging.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
@@ -258,12 +260,40 @@ ForwardIterator::~ForwardIterator() { Cleanup(true); }
 void ForwardIterator::SVCleanup(DBImpl* db, SuperVersion* sv,
                                 bool background_purge_on_iterator_cleanup) {
   if (sv->Unref()) {
+    const uint64_t sv_version_number =
+        sv->current ? sv->current->GetVersionNumber() : 0;
+    const std::string cf_name = sv->cfd ? sv->cfd->GetName() : "unknown";
+    auto summarize_blob_delete_files =
+        [](const std::vector<ObsoleteBlobFileInfo>& blob_files) {
+          std::ostringstream oss;
+          oss << "[";
+          for (size_t i = 0; i < blob_files.size() && i < 16; ++i) {
+            if (i > 0) {
+              oss << ",";
+            }
+            oss << blob_files[i].GetBlobFileNumber();
+          }
+          if (blob_files.size() > 16) {
+            oss << ",...+" << (blob_files.size() - 16);
+          }
+          oss << "]";
+          return oss.str();
+        };
     // Job id == 0 means that this is not our background process, but rather
     // user thread
     JobContext job_context(0);
     db->mutex_.Lock();
     sv->Cleanup();
     db->FindObsoleteFiles(&job_context, false, true);
+    if (!job_context.blob_delete_files.empty()) {
+      ROCKS_LOG_INFO(
+          db->immutable_db_options().info_log,
+          "[BlobDirectWrite] ForwardIterator::SVCleanup: cf=%s version=%" PRIu64
+          " background_purge=%d queued_blob_deletes=%s",
+          cf_name.c_str(), sv_version_number,
+          background_purge_on_iterator_cleanup,
+          summarize_blob_delete_files(job_context.blob_delete_files).c_str());
+    }
     if (background_purge_on_iterator_cleanup) {
       db->ScheduleBgLogWriterClose(&job_context);
       db->AddSuperVersionsToFreeQueue(sv);

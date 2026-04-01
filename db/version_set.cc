@@ -16,6 +16,7 @@
 #include <list>
 #include <map>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -97,6 +98,25 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 
 using ScanOptionsMap = std::unordered_map<size_t, MultiScanArgs>;
+
+std::string SummarizeBlobFileNumbers(
+    const std::vector<ObsoleteBlobFileInfo>& blob_files,
+    size_t max_to_show = 16) {
+  std::ostringstream oss;
+  oss << "[";
+  const size_t count = blob_files.size();
+  for (size_t i = 0; i < count && i < max_to_show; ++i) {
+    if (i > 0) {
+      oss << ",";
+    }
+    oss << blob_files[i].GetBlobFileNumber();
+  }
+  if (count > max_to_show) {
+    oss << ",...+" << (count - max_to_show);
+  }
+  oss << "]";
+  return oss.str();
+}
 
 // Find File in LevelFilesBrief data structure
 // Within an index range defined by left and right
@@ -2609,6 +2629,13 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
 
   auto blob_file_meta = storage_info_.GetBlobFileMetaData(blob_file_number);
   if (!blob_file_meta) {
+    ROCKS_LOG_WARN(info_log_,
+                   "[BlobDirectWrite] Version::GetBlob missing metadata: cf=%s "
+                   "version=%" PRIu64 " blob=%" PRIu64 " offset=%" PRIu64
+                   " value_size=%" PRIu64 " key_size=%" ROCKSDB_PRIszt,
+                   cfd_ ? cfd_->GetName().c_str() : "unknown", version_number_,
+                   blob_file_number, blob_index.offset(), blob_index.size(),
+                   user_key.size());
     return Status::Corruption("Invalid blob file number");
   }
 
@@ -2618,6 +2645,17 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
       read_options, user_key, blob_file_number, blob_index.offset(),
       blob_file_meta->GetBlobFileSize(), blob_index.size(),
       blob_index.compression(), prefetch_buffer, value, bytes_read);
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(info_log_,
+                   "[BlobDirectWrite] Version::GetBlob read failure: cf=%s "
+                   "version=%" PRIu64 " blob=%" PRIu64 " offset=%" PRIu64
+                   " value_size=%" PRIu64 " file_size=%" PRIu64
+                   " key_size=%" ROCKSDB_PRIszt " status=%s",
+                   cfd_ ? cfd_->GetName().c_str() : "unknown", version_number_,
+                   blob_file_number, blob_index.offset(), blob_index.size(),
+                   blob_file_meta->GetBlobFileSize(), user_key.size(),
+                   s.ToString().c_str());
+  }
 
   return s;
 }
@@ -4165,7 +4203,11 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
   assert(oldest_meta);
 
   const auto& linked_ssts = oldest_meta->GetLinkedSsts();
-  assert(!linked_ssts.empty());
+  // Blob direct write can create blob files with no linked SSTs (data not
+  // yet flushed to SST). Skip forced GC in this case.
+  if (linked_ssts.empty()) {
+    return;
+  }
 
   size_t count = 1;
   uint64_t sum_total_blob_bytes = oldest_meta->GetTotalBlobBytes();
@@ -7905,9 +7947,28 @@ void VersionSet::GetObsoleteFiles(std::vector<ObsoleteFileInfo>* files,
       pending_blob_files.emplace_back(std::move(blob_file));
     }
   }
+  if (!blob_files->empty() || !pending_blob_files.empty()) {
+    ROCKS_LOG_INFO(db_options_->info_log,
+                   "[BlobDirectWrite] VersionSet::GetObsoleteFiles: "
+                   "min_pending_output=%" PRIu64 " moved=%s deferred=%s",
+                   min_pending_output,
+                   SummarizeBlobFileNumbers(*blob_files).c_str(),
+                   SummarizeBlobFileNumbers(pending_blob_files).c_str());
+  }
   obsolete_blob_files_.swap(pending_blob_files);
 
   obsolete_manifests_.swap(*manifest_filenames);
+}
+
+void VersionSet::AddObsoleteBlobFile(uint64_t blob_file_number,
+                                     std::string path) {
+  obsolete_blob_files_.emplace_back(blob_file_number, std::move(path));
+  ROCKS_LOG_INFO(
+      db_options_->info_log,
+      "[BlobDirectWrite] VersionSet::AddObsoleteBlobFile: "
+      "queued blob file %" PRIu64 " path=%s pending_count=%" ROCKSDB_PRIszt,
+      blob_file_number, obsolete_blob_files_.back().GetPath().c_str(),
+      obsolete_blob_files_.size());
 }
 
 uint64_t VersionSet::GetObsoleteSstFilesSize() const {

@@ -150,6 +150,17 @@ class WriteThread {
 
     bool ingest_wbwi;
 
+    // Blob direct write epoch: snapshot of BlobFilePartitionManager's
+    // rotation_epoch_ taken before WriteBlob. The write group leader
+    // compares this with the current epoch after PreprocessWrite to
+    // detect stale blob writes that crossed a SwitchMemtable boundary.
+    // 0 means this writer does not use blob direct write.
+    uint64_t blob_write_epoch;
+    // Pointer to the partition manager for epoch comparison in the
+    // write group leader. Non-null only when blob_write_epoch > 0.
+    // Not owned by this struct.
+    void* blob_partition_mgr;
+
     Writer()
         : batch(nullptr),
           sync(false),
@@ -170,7 +181,9 @@ class WriteThread {
           write_group(nullptr),
           sequence(kMaxSequenceNumber),
           link_older(nullptr),
-          link_newer(nullptr) {}
+          link_newer(nullptr),
+          blob_write_epoch(0),
+          blob_partition_mgr(nullptr) {}
 
     Writer(const WriteOptions& write_options, WriteBatch* _batch,
            WriteCallback* _callback, UserWriteCallback* _user_write_cb,
@@ -200,7 +213,9 @@ class WriteThread {
           sequence(kMaxSequenceNumber),
           link_older(nullptr),
           link_newer(nullptr),
-          ingest_wbwi(_ingest_wbwi) {}
+          ingest_wbwi(_ingest_wbwi),
+          blob_write_epoch(0),
+          blob_partition_mgr(nullptr) {}
 
     ~Writer() {
       if (made_waitable) {

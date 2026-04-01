@@ -351,6 +351,14 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->compaction_thread_limiter = ioptions.compaction_thread_limiter;
   cf_opts->sst_partitioner_factory = ioptions.sst_partitioner_factory;
   cf_opts->blob_cache = ioptions.blob_cache;
+  cf_opts->enable_blob_direct_write = ioptions.enable_blob_direct_write;
+  cf_opts->blob_direct_write_partition_strategy =
+      ioptions.blob_direct_write_partition_strategy;
+  cf_opts->blob_direct_write_partitions = ioptions.blob_direct_write_partitions;
+  cf_opts->blob_direct_write_buffer_size =
+      ioptions.blob_direct_write_buffer_size;
+  cf_opts->blob_direct_write_flush_interval_ms =
+      ioptions.blob_direct_write_flush_interval_ms;
   cf_opts->persist_user_defined_timestamps =
       ioptions.persist_user_defined_timestamps;
   cf_opts->default_temperature = ioptions.default_temperature;

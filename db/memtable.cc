@@ -1136,6 +1136,7 @@ struct Saver {
   bool* found_final_value;  // Is value set correctly? Used by KeyMayExist
   bool* merge_in_progress;
   std::string* value;
+  std::string* blob_index;
   PinnableWideColumns* columns;
   SequenceNumber seq;
   std::string* timestamp;
@@ -1256,14 +1257,46 @@ static bool SaveValue(void* arg, const char* entry) {
     }
     switch (type) {
       case kTypeBlobIndex: {
+        Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         if (!s->do_merge) {
-          *(s->status) = Status::NotSupported(
-              "GetMergeOperands not supported by stacked BlobDB");
+          if (s->is_blob_index != nullptr) {
+            // Integrated/blob direct write path: the blob index is a final
+            // value (Put) that terminates the merge chain. Preserve the raw
+            // blob index separately so DBImpl::GetImpl can resolve it and
+            // append the logical base value to merge_context without
+            // materializing a merged value through s->value.
+            *(s->status) = Status::OK();
+            if (s->blob_index != nullptr) {
+              s->blob_index->assign(v.data(), v.size());
+            }
+            *(s->is_blob_index) = true;
+          } else {
+            // Stacked BlobDB path: no is_blob_index tracking available.
+            *(s->status) = Status::NotSupported(
+                "GetMergeOperands not supported by stacked BlobDB");
+          }
           *(s->found_final_value) = true;
           return false;
         }
 
         if (*(s->merge_in_progress)) {
+          if (s->is_blob_index != nullptr) {
+            // Integrated/blob direct write path: the blob index is the base
+            // Put value for the merge. We cannot resolve the blob here (no
+            // version/cache context). Set the blob index as the value and
+            // mark is_blob_index=true. The caller (GetImpl) will resolve
+            // the blob via MaybeResolveBlobForWritePath, then apply the
+            // pending merge using merge_context operands.
+            *(s->status) = Status::OK();
+            if (s->value) {
+              s->value->assign(v.data(), v.size());
+            } else if (s->columns) {
+              s->columns->SetPlainValue(v);
+            }
+            *(s->found_final_value) = true;
+            *(s->is_blob_index) = true;
+            return false;
+          }
           *(s->status) = Status::NotSupported(
               "Merge operator not supported by stacked BlobDB");
           *(s->found_final_value) = true;
@@ -1278,8 +1311,6 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->found_final_value) = true;
           return false;
         }
-
-        Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
 
         *(s->status) = Status::OK();
 
@@ -1405,7 +1436,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
                    SequenceNumber* max_covering_tombstone_seq,
                    SequenceNumber* seq, const ReadOptions& read_opts,
                    bool immutable_memtable, ReadCallback* callback,
-                   bool* is_blob_index, bool do_merge) {
+                   bool* is_blob_index, bool do_merge,
+                   std::string* blob_index) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
@@ -1462,8 +1494,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
       PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
     }
     GetFromTable(key, *max_covering_tombstone_seq, do_merge, callback,
-                 is_blob_index, value, columns, timestamp, s, merge_context,
-                 seq, &found_final_value, &merge_in_progress);
+                 is_blob_index, value, columns, blob_index, timestamp, s,
+                 merge_context, seq, &found_final_value, &merge_in_progress);
   }
 
   // No change to value, since we have not yet found a Put/Delete
@@ -1479,20 +1511,19 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
   return found_final_value;
 }
 
-void MemTable::GetFromTable(const LookupKey& key,
-                            SequenceNumber max_covering_tombstone_seq,
-                            bool do_merge, ReadCallback* callback,
-                            bool* is_blob_index, std::string* value,
-                            PinnableWideColumns* columns,
-                            std::string* timestamp, Status* s,
-                            MergeContext* merge_context, SequenceNumber* seq,
-                            bool* found_final_value, bool* merge_in_progress) {
+void MemTable::GetFromTable(
+    const LookupKey& key, SequenceNumber max_covering_tombstone_seq,
+    bool do_merge, ReadCallback* callback, bool* is_blob_index,
+    std::string* value, PinnableWideColumns* columns, std::string* blob_index,
+    std::string* timestamp, Status* s, MergeContext* merge_context,
+    SequenceNumber* seq, bool* found_final_value, bool* merge_in_progress) {
   Saver saver;
   saver.status = s;
   saver.found_final_value = found_final_value;
   saver.merge_in_progress = merge_in_progress;
   saver.key = &key;
   saver.value = value;
+  saver.blob_index = blob_index;
   saver.columns = columns;
   saver.timestamp = timestamp;
   saver.seq = kMaxSequenceNumber;
@@ -1712,11 +1743,12 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         }
       }
       SequenceNumber dummy_seq;
-      GetFromTable(
-          *(iter->lkey), iter->max_covering_tombstone_seq, true, callback,
-          &iter->is_blob_index, iter->value ? iter->value->GetSelf() : nullptr,
-          iter->columns, iter->timestamp, iter->s, &(iter->merge_context),
-          &dummy_seq, &found_final_value, &merge_in_progress);
+      GetFromTable(*(iter->lkey), iter->max_covering_tombstone_seq, true,
+                   callback, &iter->is_blob_index,
+                   iter->value ? iter->value->GetSelf() : nullptr,
+                   iter->columns, /*blob_index=*/nullptr, iter->timestamp,
+                   iter->s, &(iter->merge_context), &dummy_seq,
+                   &found_final_value, &merge_in_progress);
 
       if (!found_final_value && merge_in_progress) {
         if (iter->s->ok()) {
