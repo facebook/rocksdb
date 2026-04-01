@@ -741,8 +741,6 @@ blob_direct_write_params = {
     "use_shared_block_and_blob_cache": lambda: random.randint(0, 1),
     "blob_cache_size": lambda: random.choice([1048576, 2097152, 4194304, 8388608]),
     "prepopulate_blob_cache": lambda: random.randint(0, 1),
-    # The reduced-scope implementation assumes a single writer thread.
-    "threads": 1,
     "remote_compaction_worker_threads": 0,
 }
 
@@ -899,16 +897,17 @@ def finalize_and_sanitize(src_params):
         # Unsupported here:
         #   * WAL replay / best-efforts recovery
         #   * broad dynamic blob option changes and blob GC
-        #   * multi-writer / merge / transaction variants
+        #   * merge / transaction variants and parallel write queue modes
         #   * secondary / backup / checkpoint / ingest style APIs that reason
         #     about active files directly
         dest_params["enable_blob_files"] = 1
         dest_params["blob_direct_write_partitions"] = max(
             1, dest_params.get("blob_direct_write_partitions", 1)
         )
-        # The write-path transformer and partition manager currently assume one
-        # logical writer and no parallel write queue variants.
-        dest_params["threads"] = 1
+        # BDW can still run with multiple application threads as long as writes
+        # stay on the ordered write path. Disable the write modes that would
+        # let memtable/WAL publication diverge from the transformed blob-file
+        # write ordering.
         dest_params["allow_concurrent_memtable_write"] = 0
         dest_params["enable_pipelined_write"] = 0
         dest_params["two_write_queues"] = 0

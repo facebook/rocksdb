@@ -275,6 +275,13 @@ TEST_P(TransactionTest, SuccessTest) {
 }
 
 TEST_P(TransactionTest, DirectWriteCommitPath) {
+  if (options.two_write_queues || options.unordered_write) {
+    ROCKSDB_GTEST_BYPASS(
+        "Blob direct write v1 only supports the ordered single-write-queue "
+        "path");
+    return;
+  }
+
   options.enable_blob_files = true;
   options.enable_blob_direct_write = true;
   options.blob_direct_write_partitions = 2;

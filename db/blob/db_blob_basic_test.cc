@@ -51,7 +51,8 @@ class DBBlobBasicTest : public DBTestBase {
     return blob_files;
   }
 
-  void AssertOrderedTraceStoresLogicalPut(const Options& options) {
+  void AssertOrderedTraceStoresLogicalPut(const Options& options,
+                                          bool expect_blob_files) {
     const std::string trace_file = dbname_ + "/rocksdb.trace";
     Reopen(options);
 
@@ -69,7 +70,11 @@ class DBBlobBasicTest : public DBTestBase {
     ASSERT_OK(db_->EndTrace());
 
     ASSERT_EQ(Get(key), value);
-    ASSERT_GT(CountBlobFiles(), 0U);
+    if (expect_blob_files) {
+      ASSERT_GT(CountBlobFiles(), 0U);
+    } else {
+      ASSERT_EQ(CountBlobFiles(), 0U);
+    }
 
     std::unique_ptr<TraceReader> trace_reader;
     ASSERT_OK(
@@ -2047,14 +2052,20 @@ TEST_F(DBBlobBasicTest, GenerateIOTracing) {
 }
 
 TEST_F(DBBlobBasicTest, OrderedTraceUsesLogicalBatchForBlobDirectWrite) {
-  AssertOrderedTraceStoresLogicalPut(GetDirectWriteOptions());
+  AssertOrderedTraceStoresLogicalPut(GetDirectWriteOptions(),
+                                     /*expect_blob_files=*/true);
 }
 
 TEST_F(DBBlobBasicTest,
        OrderedTraceUsesLogicalBatchForBlobDirectWritePipelinedWrite) {
   Options options = GetDirectWriteOptions();
   options.enable_pipelined_write = true;
-  AssertOrderedTraceStoresLogicalPut(options);
+
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsNotSupported()) << s.ToString();
+
+  options.enable_blob_direct_write = false;
+  AssertOrderedTraceStoresLogicalPut(options, /*expect_blob_files=*/false);
 }
 
 TEST_F(DBBlobBasicTest, BestEffortsRecovery_MissingNewestBlobFile) {
