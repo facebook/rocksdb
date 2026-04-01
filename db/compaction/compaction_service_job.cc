@@ -10,10 +10,13 @@
 
 #include "db/compaction/compaction_job.h"
 #include "db/compaction/compaction_state.h"
+#include "db/user_value_checksum_helper.h"
+#include "file/random_access_file_reader.h"
 #include "logging/logging.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/utilities/options_type.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -350,6 +353,73 @@ void CompactionServiceCompactionJob::Prepare(
                          compaction_progress_writer);
 }
 
+Status CompactionServiceCompactionJob::VerifyUserValueChecksumsOnOutputFiles() {
+  ColumnFamilyData* cfd = compact_->compaction->column_family_data();
+  const auto& ioptions = compact_->compaction->immutable_options();
+  const auto& mutable_cf_options = compact_->compaction->mutable_cf_options();
+  const auto& user_value_checksum = ioptions.user_value_checksum;
+  const bool should_verify =
+      user_value_checksum &&
+      mutable_cf_options.verify_user_value_checksum_on_compaction;
+  if (!should_verify) {
+    return Status::OK();
+  }
+
+  assert(compact_->sub_compact_states.size() == 1);
+  SubcompactionState* sub_compact = compact_->sub_compact_states.data();
+
+  for (const auto& output_file : sub_compact->GetOutputs()) {
+    std::string fname =
+        MakeTableFileName(output_path_, output_file.meta.fd.GetNumber());
+
+    // Open the output file directly from the output path.
+    // Use file_options_for_read() but override file checksum fields since
+    // we're only reading for user value checksum validation, not for
+    // file-level checksum handoff.
+    std::unique_ptr<FSRandomAccessFile> file;
+    FileOptions fopts = file_options_for_read();
+    fopts.file_checksum_func_name = kNoFileChecksumFuncName;
+    fopts.file_checksum = "";
+    IOStatus io_s =
+        ioptions.fs->NewRandomAccessFile(fname, fopts, &file, nullptr);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+    std::unique_ptr<RandomAccessFileReader> file_reader(
+        new RandomAccessFileReader(std::move(file), fname));
+
+    // Open the table
+    ReadOptions read_options;
+    read_options.verify_checksums = true;
+    std::unique_ptr<TableReader> table_reader;
+    Status s = mutable_cf_options.table_factory->NewTableReader(
+        read_options,
+        TableReaderOptions(ioptions, mutable_cf_options.prefix_extractor,
+                           mutable_cf_options.compression_manager.get(), fopts,
+                           cfd->internal_comparator(),
+                           mutable_cf_options.block_protection_bytes_per_key),
+        std::move(file_reader), output_file.meta.fd.GetFileSize(),
+        &table_reader, /*prefetch_index_and_filter_in_cache=*/false);
+    if (!s.ok()) {
+      return s;
+    }
+
+    // Iterate and validate user value checksums
+    std::unique_ptr<InternalIterator> iter(
+        table_reader->NewIterator(read_options, /*prefix_extractor=*/nullptr,
+                                  /*arena=*/nullptr, /*skip_filters=*/false,
+                                  TableReaderCaller::kCompactionRefill));
+    s = IterateAndValidateOutput(iter.get(), /*output_validator=*/nullptr,
+                                 /*reference_validator=*/nullptr,
+                                 user_value_checksum.get(), stats_,
+                                 "remote compaction output verification");
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  return Status::OK();
+}
+
 Status CompactionServiceCompactionJob::Run() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_RUN);
@@ -399,6 +469,10 @@ Status CompactionServiceCompactionJob::Run() {
   }
   if (status.ok()) {
     status = io_s;
+  }
+
+  if (status.ok()) {
+    status = VerifyUserValueChecksumsOnOutputFiles();
   }
 
   LogFlush(db_options_.info_log);

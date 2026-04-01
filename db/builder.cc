@@ -22,6 +22,7 @@
 #include "db/output_validator.h"
 #include "db/range_del_aggregator.h"
 #include "db/table_cache.h"
+#include "db/user_value_checksum_helper.h"
 #include "db/version_edit.h"
 #include "file/file_util.h"
 #include "file/filename.h"
@@ -469,17 +470,21 @@ Status BuildTable(
           /*largest_compaction_key*/ nullptr,
           /*allow_unprepared_value*/ false));
       s = it->status();
-      if (s.ok() && paranoid_file_checks) {
+      const auto& user_value_checksum = tboptions.ioptions.user_value_checksum;
+      const bool verify_user_checksum_on_flush =
+          user_value_checksum &&
+          mutable_cf_options.verify_user_value_checksum_on_flush;
+
+      const bool need_iteration =
+          paranoid_file_checks || verify_user_checksum_on_flush;
+      if (s.ok() && need_iteration) {
         OutputValidator file_validator(tboptions.internal_comparator,
-                                       /*enable_hash=*/true);
-        for (it->SeekToFirst(); it->Valid(); it->Next()) {
-          // Generate a rolling 64-bit hash of the key and values
-          file_validator.Add(it->key(), it->value()).PermitUncheckedError();
-        }
-        s = it->status();
-        if (s.ok() && !output_validator.CompareValidator(file_validator)) {
-          s = Status::Corruption("Paranoid checksums do not match");
-        }
+                                       /*enable_hash=*/paranoid_file_checks);
+        s = IterateAndValidateOutput(
+            it.get(), paranoid_file_checks ? &file_validator : nullptr,
+            paranoid_file_checks ? &output_validator : nullptr,
+            verify_user_checksum_on_flush ? user_value_checksum.get() : nullptr,
+            ioptions.stats, "flush output verification");
       }
     }
   }

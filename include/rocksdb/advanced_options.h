@@ -823,6 +823,34 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   bool paranoid_file_checks = false;
 
+  // When true and user_value_checksum is set in ColumnFamilyOptions, validate
+  // user-defined value checksums during flush. After the SST file is written
+  // and synced, the file is read back and each value is validated using the
+  // UserValueChecksum interface. On checksum failure, the flush is retried.
+  // If the retry also fails, the DB enters read-only mode.
+  //
+  // The application is responsible for ensuring that merge operators and
+  // compaction filters produce values with valid checksums.
+  //
+  // Default: false
+  //
+  // Dynamically changeable through SetOptions() API
+  bool verify_user_value_checksum_on_flush = false;
+
+  // When true and user_value_checksum is set in ColumnFamilyOptions, validate
+  // user-defined value checksums during compaction. After each output SST file
+  // is written and synced, the file is read back and each value is validated
+  // using the UserValueChecksum interface. On checksum failure, the compaction
+  // is retried. If the retry also fails, the DB enters read-only mode.
+  //
+  // The application is responsible for ensuring that merge operators and
+  // compaction filters produce values with valid checksums.
+  //
+  // Default: false
+  //
+  // Dynamically changeable through SetOptions() API
+  bool verify_user_value_checksum_on_compaction = false;
+
   // Bitmask enum for output verification option.
   //
   // Default: 0 (kVerifyNone)

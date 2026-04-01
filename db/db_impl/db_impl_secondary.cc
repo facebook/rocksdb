@@ -1544,6 +1544,7 @@ Status DB::OpenAndCompact(
       cf.options.table_factory = override_options.table_factory;
       cf.options.sst_partitioner_factory =
           override_options.sst_partitioner_factory;
+      cf.options.user_value_checksum = override_options.user_value_checksum;
       cf.options.table_properties_collector_factories =
           override_options.table_properties_collector_factories;
 

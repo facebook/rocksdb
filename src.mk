@@ -168,6 +168,7 @@ LIB_SOURCES =                                                   \
   options/options.cc                                            \
   options/options_helper.cc                                     \
   options/options_parser.cc                                     \
+  options/user_value_checksum.cc                                \
   port/mmap.cc                                                  \
   port/port_posix.cc                                            \
   port/win/env_default.cc                                       \
@@ -504,6 +505,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_encryption_test.cc                                              \
   db/db_etc3_test.cc                                                    \
   db/db_flush_test.cc                                                   \
+  db/db_user_value_checksum_test.cc                                     \
   db/db_follower_test.cc						                                    \
   db/db_readonly_with_timestamp_test.cc                                 \
   db/db_with_timestamp_basic_test.cc                                    \
