@@ -1700,6 +1700,61 @@ TEST_F(EnvPosixTest, MultiReadIOUringError2) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
+TEST_F(EnvPosixTest, SupportedOpsNoAsyncIOOnIOUringInitFailure) {
+  // Verify that SupportedOps does not advertise kAsyncIO when CreateIOUring
+  // fails on the calling thread.
+  auto fs = FileSystem::Default();
+  int64_t supported_ops = 0;
+
+  // Check baseline on the current thread.
+  fs->SupportedOps(supported_ops);
+  bool baseline_has_async =
+      (supported_ops & (1 << FSSupportedOps::kAsyncIO)) != 0;
+
+  if (!baseline_has_async) {
+    // Platform doesn't support io_uring at all, nothing to test.
+    return;
+  }
+
+  // Simulate CreateIOUring failure by nullifying the returned pointer.
+  // Count how many times CreateIOUring is invoked to verify caching.
+  int create_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "PosixFileSystem::SupportedOps:CreateIOUring", [&](void* arg) {
+        ++create_count;
+        auto* iu_ptr = static_cast<struct io_uring**>(arg);
+        if (*iu_ptr != nullptr) {
+          DeleteIOUring(*iu_ptr);
+          *iu_ptr = nullptr;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Run SupportedOps on a new thread so the thread-local io_uring is
+  // uninitialized and CreateIOUring (+ our sync point) will be invoked.
+  // Call it twice on the same thread: the second call must NOT retry
+  // CreateIOUring (the failure should be cached).
+  int64_t thread_supported_ops = 0;
+  int64_t thread_supported_ops2 = 0;
+  std::thread t([&]() {
+    fs->SupportedOps(thread_supported_ops);
+    // Second call on the same thread — cached failure, no retry.
+    fs->SupportedOps(thread_supported_ops2);
+  });
+  t.join();
+
+  ASSERT_EQ(thread_supported_ops & (1 << FSSupportedOps::kAsyncIO), 0);
+  // kFSPrefetch should still be set.
+  ASSERT_NE(thread_supported_ops & (1 << FSSupportedOps::kFSPrefetch), 0);
+  // Second call should also lack kAsyncIO.
+  ASSERT_EQ(thread_supported_ops2 & (1 << FSSupportedOps::kAsyncIO), 0);
+  ASSERT_NE(thread_supported_ops2 & (1 << FSSupportedOps::kFSPrefetch), 0);
+  // CreateIOUring must have been called exactly once — not retried.
+  ASSERT_EQ(create_count, 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
 #endif  // ROCKSDB_IOURING_PRESENT
 
 // Only works in linux platforms
