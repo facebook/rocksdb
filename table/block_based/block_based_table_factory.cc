@@ -12,6 +12,7 @@
 #include <cinttypes>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "cache/cache_entry_roles.h"
@@ -34,8 +35,28 @@
 #include "table/format.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
+#include "utilities/trie_index/trie_index_factory.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+void RegisterUserDefinedIndexFactories() {
+  static std::once_flag loaded;
+  std::call_once(loaded, []() {
+    auto library = ObjectLibrary::Default();
+    library->AddFactory<UserDefinedIndexFactory>(
+        trie_index::TrieIndexFactory::kClassName(),
+        [](const std::string& /*uri*/,
+           std::unique_ptr<UserDefinedIndexFactory>* guard,
+           std::string* /*errmsg*/) {
+          guard->reset(new trie_index::TrieIndexFactory());
+          return guard->get();
+        });
+  });
+}
+
+}  // namespace
 
 void TailPrefetchStats::RecordEffectiveSize(size_t len) {
   MutexLock l(&mutex_);
@@ -1101,6 +1122,7 @@ TableFactory* NewBlockBasedTableFactory(
 Status UserDefinedIndexFactory::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<UserDefinedIndexFactory>* factory) {
+  RegisterUserDefinedIndexFactories();
   return LoadSharedObject<UserDefinedIndexFactory>(config_options, value,
                                                    factory);
 }

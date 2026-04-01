@@ -421,6 +421,28 @@ Example reference: commit `429b36c22d76403d275dd0e6877b08d4cea2bc90` (block_alig
 
 If an option already exists but needs C API support:
 
+**First decide whether the option is auto-managed.**
+
+Many simple option fields are no longer maintained by hand in
+`include/rocksdb/c.h` and `db/c.cc`. Before adding a manual wrapper:
+
+- Check whether the option belongs to a family handled by
+  `tools/c_api_gen/auto_simple_bindings.py`.
+- If it is a simple scalar/enum/string field in an auto-managed family, run
+  `python3 tools/c_api_gen/regen_all.py` and let the generator add the C API.
+- Do not edit generated `.inc` files under `include/rocksdb/c_api_gen/` or
+  `db/c_api_gen/` by hand.
+- If the new field is not ready for C API support yet, add an entry to
+  `tools/c_api_gen/auto_simple_bindings_blocklist.json` with
+  `"policy": "deferred"` and a concrete reason so the build stays intentional
+  rather than silently drifting.
+- If the field needs custom ownership, callback, vector, or nested-struct
+  marshalling, keep it manual or move it into `tools/c_api_gen/spec.json`
+  depending on the API shape.
+
+If the option is not auto-managed, or the C API really is a custom/manual case,
+the traditional hand-written pattern still applies:
+
 **File: `db/c.cc`**
 
 ```cpp
@@ -509,4 +531,3 @@ Common option types used in serialization:
 - [ ] unreleased_history markdown file
 - [ ] Java API (for BlockBasedTableOptions)
 - [ ] C API (if needed)
-

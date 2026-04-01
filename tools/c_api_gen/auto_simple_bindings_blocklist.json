@@ -1,0 +1,565 @@
+{
+  "schema_version": 1,
+  "families": [
+    {
+      "name": "ReadOptions",
+      "entries": [
+        {
+          "field": "snapshot",
+          "policy": "manual",
+          "reason": "Needs pointer, slice, callback, or other non-trivial C binding policy that the simple generator cannot infer."
+        },
+        {
+          "field": "timestamp",
+          "policy": "manual",
+          "reason": "Needs pointer, slice, callback, or other non-trivial C binding policy that the simple generator cannot infer."
+        },
+        {
+          "field": "iter_start_ts",
+          "policy": "manual",
+          "reason": "Needs pointer, slice, callback, or other non-trivial C binding policy that the simple generator cannot infer."
+        },
+        {
+          "field": "merge_operand_count_threshold",
+          "policy": "manual",
+          "reason": "Needs pointer, slice, callback, or other non-trivial C binding policy that the simple generator cannot infer."
+        },
+        {
+          "field": "iterate_lower_bound",
+          "policy": "manual",
+          "reason": "Needs pointer, slice, callback, or other non-trivial C binding policy that the simple generator cannot infer."
+        },
+        {
+          "field": "iterate_upper_bound",
+          "policy": "manual",
+          "reason": "Needs pointer, slice, callback, or other non-trivial C binding policy that the simple generator cannot infer."
+        },
+        {
+          "field": "table_filter",
+          "policy": "manual",
+          "reason": "Needs pointer, slice, callback, or other non-trivial C binding policy that the simple generator cannot infer."
+        },
+        {
+          "field": "table_index_factory",
+          "policy": "manual",
+          "reason": "Needs pointer, slice, callback, or other non-trivial C binding policy that the simple generator cannot infer."
+        },
+        {
+          "field": "request_id",
+          "policy": "manual",
+          "reason": "Needs pointer, slice, callback, or other non-trivial C binding policy that the simple generator cannot infer."
+        }
+      ]
+    },
+    {
+      "name": "DBOptions",
+      "entries": [
+        {
+          "field": "env",
+          "policy": "manual",
+          "reason": "Stores external objects, callback collections, or nested aggregates that need explicit C ownership and lifetime policy."
+        },
+        {
+          "field": "rate_limiter",
+          "policy": "manual",
+          "reason": "Stores external objects, callback collections, or nested aggregates that need explicit C ownership and lifetime policy."
+        },
+        {
+          "field": "sst_file_manager",
+          "policy": "manual",
+          "reason": "Stores external objects, callback collections, or nested aggregates that need explicit C ownership and lifetime policy."
+        },
+        {
+          "field": "info_log",
+          "policy": "manual",
+          "reason": "Stores external objects, callback collections, or nested aggregates that need explicit C ownership and lifetime policy."
+        },
+        {
+          "field": "statistics",
+          "policy": "manual",
+          "reason": "Stores external objects, callback collections, or nested aggregates that need explicit C ownership and lifetime policy."
+        },
+        {
+          "field": "db_paths",
+          "policy": "manual",
+          "reason": "Stores external objects, callback collections, or nested aggregates that need explicit C ownership and lifetime policy."
+        },
+        {
+          "field": "write_buffer_manager",
+          "policy": "manual",
+          "reason": "Stores external objects, callback collections, or nested aggregates that need explicit C ownership and lifetime policy."
+        },
+        {
+          "field": "listeners",
+          "policy": "manual",
+          "reason": "Stores external objects, callback collections, or nested aggregates that need explicit C ownership and lifetime policy."
+        },
+        {
+          "field": "row_cache",
+          "policy": "manual",
+          "reason": "Stores external objects, callback collections, or nested aggregates that need explicit C ownership and lifetime policy."
+        },
+        {
+          "field": "wal_filter",
+          "policy": "manual",
+          "reason": "Stores external objects, callback collections, or nested aggregates that need explicit C ownership and lifetime policy."
+        },
+        {
+          "field": "file_checksum_gen_factory",
+          "policy": "manual",
+          "reason": "Stores external objects, callback collections, or nested aggregates that need explicit C ownership and lifetime policy."
+        },
+        {
+          "field": "checksum_handoff_file_types",
+          "policy": "manual",
+          "reason": "Stores external objects, callback collections, or nested aggregates that need explicit C ownership and lifetime policy."
+        },
+        {
+          "field": "compaction_service",
+          "policy": "manual",
+          "reason": "Stores external objects, callback collections, or nested aggregates that need explicit C ownership and lifetime policy."
+        },
+        {
+          "field": "calculate_sst_write_lifetime_hint_set",
+          "policy": "manual",
+          "reason": "Stores external objects, callback collections, or nested aggregates that need explicit C ownership and lifetime policy."
+        }
+      ]
+    },
+    {
+      "name": "AdvancedColumnFamilyOptions",
+      "entries": [
+        {
+          "field": "inplace_callback",
+          "policy": "manual",
+          "reason": "Uses callbacks, factories, vectors, or nested option structs that need explicit C bridging."
+        },
+        {
+          "field": "memtable_insert_with_hint_prefix_extractor",
+          "policy": "manual",
+          "reason": "Uses callbacks, factories, vectors, or nested option structs that need explicit C bridging."
+        },
+        {
+          "field": "compression_per_level",
+          "policy": "manual",
+          "reason": "Uses callbacks, factories, vectors, or nested option structs that need explicit C bridging."
+        },
+        {
+          "field": "max_bytes_for_level_multiplier_additional",
+          "policy": "manual",
+          "reason": "Uses callbacks, factories, vectors, or nested option structs that need explicit C bridging."
+        },
+        {
+          "field": "compaction_options_universal",
+          "policy": "manual",
+          "reason": "Uses callbacks, factories, vectors, or nested option structs that need explicit C bridging."
+        },
+        {
+          "field": "compaction_options_fifo",
+          "policy": "manual",
+          "reason": "Uses callbacks, factories, vectors, or nested option structs that need explicit C bridging."
+        },
+        {
+          "field": "memtable_factory",
+          "policy": "manual",
+          "reason": "Uses callbacks, factories, vectors, or nested option structs that need explicit C bridging."
+        },
+        {
+          "field": "table_properties_collector_factories",
+          "policy": "manual",
+          "reason": "Uses callbacks, factories, vectors, or nested option structs that need explicit C bridging."
+        },
+        {
+          "field": "blob_cache",
+          "policy": "manual",
+          "reason": "Uses callbacks, factories, vectors, or nested option structs that need explicit C bridging."
+        },
+        {
+          "field": "blob_compression_opts",
+          "policy": "manual",
+          "reason": "CompressionOptions is a nested struct; needs explicit C bridging (matches existing compaction_options_universal/fifo pattern)."
+        },
+        {
+          "field": "blob_direct_write_partition_strategy",
+          "policy": "manual",
+          "reason": "std::shared_ptr<BlobFilePartitionStrategy> \u2014 factory/ownership-transfer type; needs explicit C bridging."
+        }
+      ]
+    },
+    {
+      "name": "ColumnFamilyOptions",
+      "entries": [
+        {
+          "field": "comparator",
+          "policy": "manual",
+          "reason": "Uses custom components or nested option objects that need hand-designed C bridging."
+        },
+        {
+          "field": "merge_operator",
+          "policy": "manual",
+          "reason": "Uses custom components or nested option objects that need hand-designed C bridging."
+        },
+        {
+          "field": "compaction_filter",
+          "policy": "manual",
+          "reason": "Uses custom components or nested option objects that need hand-designed C bridging."
+        },
+        {
+          "field": "compaction_filter_factory",
+          "policy": "manual",
+          "reason": "Uses custom components or nested option objects that need hand-designed C bridging."
+        },
+        {
+          "field": "bottommost_compression_opts",
+          "policy": "manual",
+          "reason": "Uses custom components or nested option objects that need hand-designed C bridging."
+        },
+        {
+          "field": "compression_opts",
+          "policy": "manual",
+          "reason": "Uses custom components or nested option objects that need hand-designed C bridging."
+        },
+        {
+          "field": "compression_manager",
+          "policy": "manual",
+          "reason": "Uses custom components or nested option objects that need hand-designed C bridging."
+        },
+        {
+          "field": "prefix_extractor",
+          "policy": "manual",
+          "reason": "Uses custom components or nested option objects that need hand-designed C bridging."
+        },
+        {
+          "field": "table_factory",
+          "policy": "manual",
+          "reason": "Uses custom components or nested option objects that need hand-designed C bridging."
+        },
+        {
+          "field": "cf_paths",
+          "policy": "manual",
+          "reason": "Uses custom components or nested option objects that need hand-designed C bridging."
+        },
+        {
+          "field": "compaction_thread_limiter",
+          "policy": "manual",
+          "reason": "Uses custom components or nested option objects that need hand-designed C bridging."
+        },
+        {
+          "field": "sst_partitioner_factory",
+          "policy": "manual",
+          "reason": "Uses custom components or nested option objects that need hand-designed C bridging."
+        }
+      ]
+    },
+    {
+      "name": "EnvOptions",
+      "entries": [
+        {
+          "field": "rate_limiter",
+          "policy": "manual",
+          "reason": "Stores an external object pointer that needs explicit ownership policy in the C API."
+        }
+      ]
+    },
+    {
+      "name": "CompactionOptions",
+      "entries": [
+        {
+          "field": "canceled",
+          "policy": "manual",
+          "reason": "Uses caller-owned cancellation state that should not be exposed as a blind auto-generated field wrapper."
+        }
+      ]
+    },
+    {
+      "name": "CompactRangeOptions",
+      "entries": [
+        {
+          "field": "full_history_ts_low",
+          "policy": "manual",
+          "reason": "Uses caller-owned cancellation or timestamp state that needs explicit C API policy."
+        },
+        {
+          "field": "canceled",
+          "policy": "manual",
+          "reason": "Uses caller-owned cancellation or timestamp state that needs explicit C API policy."
+        }
+      ]
+    },
+    {
+      "name": "OpenAndCompactOptions",
+      "entries": [
+        {
+          "field": "canceled",
+          "policy": "manual",
+          "reason": "Uses caller-owned cancellation state that should not be exposed as a blind auto-generated field wrapper."
+        }
+      ]
+    },
+    {
+      "name": "GetColumnFamilyMetaDataOptions",
+      "entries": [
+        {
+          "field": "range",
+          "policy": "manual",
+          "reason": "Uses a range object that needs dedicated marshalling rather than a simple scalar binding."
+        }
+      ]
+    },
+    {
+      "name": "BlockBasedTableOptions",
+      "entries": [
+        {
+          "field": "flush_block_policy_factory",
+          "policy": "manual",
+          "reason": "Uses factories, caches, or nested option objects that need explicit ownership or non-scalar marshalling."
+        },
+        {
+          "field": "metadata_cache_options",
+          "policy": "manual",
+          "reason": "Uses factories, caches, or nested option objects that need explicit ownership or non-scalar marshalling."
+        },
+        {
+          "field": "block_cache",
+          "policy": "manual",
+          "reason": "Uses factories, caches, or nested option objects that need explicit ownership or non-scalar marshalling."
+        },
+        {
+          "field": "persistent_cache",
+          "policy": "manual",
+          "reason": "Uses factories, caches, or nested option objects that need explicit ownership or non-scalar marshalling."
+        },
+        {
+          "field": "cache_usage_options",
+          "policy": "manual",
+          "reason": "Uses factories, caches, or nested option objects that need explicit ownership or non-scalar marshalling."
+        },
+        {
+          "field": "filter_policy",
+          "policy": "manual",
+          "reason": "Uses factories, caches, or nested option objects that need explicit ownership or non-scalar marshalling."
+        },
+        {
+          "field": "user_defined_index_factory",
+          "policy": "manual",
+          "reason": "Uses factories, caches, or nested option objects that need explicit ownership or non-scalar marshalling."
+        }
+      ]
+    },
+    {
+      "name": "CompactionOptionsFIFO",
+      "entries": [
+        {
+          "field": "file_temperature_age_thresholds",
+          "policy": "manual",
+          "reason": "Uses collection-style configuration that needs dedicated marshalling rather than a simple scalar binding."
+        }
+      ]
+    },
+    {
+      "name": "BackupEngineOptions",
+      "entries": [
+        {
+          "field": "backup_env",
+          "policy": "manual",
+          "reason": "Stores external objects and rate limiters that need explicit C ownership and lifetime policy."
+        },
+        {
+          "field": "info_log",
+          "policy": "manual",
+          "reason": "Stores external objects and rate limiters that need explicit C ownership and lifetime policy."
+        },
+        {
+          "field": "backup_rate_limiter",
+          "policy": "manual",
+          "reason": "Stores external objects and rate limiters that need explicit C ownership and lifetime policy."
+        },
+        {
+          "field": "restore_rate_limiter",
+          "policy": "manual",
+          "reason": "Stores external objects and rate limiters that need explicit C ownership and lifetime policy."
+        }
+      ]
+    },
+    {
+      "name": "CreateBackupOptions",
+      "entries": [
+        {
+          "field": "progress_callback",
+          "policy": "manual",
+          "reason": "Uses callback hooks that need dedicated C callback plumbing."
+        },
+        {
+          "field": "exclude_files_callback",
+          "policy": "manual",
+          "reason": "Uses callback hooks that need dedicated C callback plumbing."
+        }
+      ]
+    },
+    {
+      "name": "RestoreOptions",
+      "entries": [
+        {
+          "field": "alternate_dirs",
+          "policy": "manual",
+          "reason": "Uses a collection of alternate directories that needs explicit marshalling."
+        }
+      ]
+    },
+    {
+      "name": "TransactionDBOptions",
+      "entries": [
+        {
+          "field": "custom_mutex_factory",
+          "policy": "manual",
+          "reason": "Uses factories, handles, callbacks, or internal collections that need hand-designed C bridging."
+        },
+        {
+          "field": "lock_mgr_handle",
+          "policy": "manual",
+          "reason": "Uses factories, handles, callbacks, or internal collections that need hand-designed C bridging."
+        },
+        {
+          "field": "rollback_deletion_type_callback",
+          "policy": "manual",
+          "reason": "Uses factories, handles, callbacks, or internal collections that need hand-designed C bridging."
+        },
+        {
+          "field": "secondary_indices",
+          "policy": "manual",
+          "reason": "Uses factories, handles, callbacks, or internal collections that need hand-designed C bridging."
+        },
+        {
+          "field": "wp_snapshot_cache_bits",
+          "policy": "manual",
+          "reason": "Uses factories, handles, callbacks, or internal collections that need hand-designed C bridging."
+        },
+        {
+          "field": "wp_commit_cache_bits",
+          "policy": "manual",
+          "reason": "Uses factories, handles, callbacks, or internal collections that need hand-designed C bridging."
+        },
+        {
+          "field": "autogenerate_name",
+          "policy": "manual",
+          "reason": "Uses factories, handles, callbacks, or internal collections that need hand-designed C bridging."
+        }
+      ]
+    },
+    {
+      "name": "OptimisticTransactionOptions",
+      "entries": [
+        {
+          "field": "cmp",
+          "policy": "manual",
+          "reason": "Stores a comparator-like object pointer that needs explicit ownership policy."
+        }
+      ]
+    },
+    {
+      "name": "OptimisticTransactionDBOptions",
+      "entries": [
+        {
+          "field": "shared_lock_buckets",
+          "policy": "manual",
+          "reason": "Uses shared internal synchronization state that should not be exposed as a blind field wrapper."
+        }
+      ]
+    },
+    {
+      "name": "FlushJobInfo",
+      "entries": [
+        {
+          "field": "table_properties",
+          "policy": "manual",
+          "reason": "Returns nested metadata objects that need dedicated accessors rather than a simple scalar getter."
+        },
+        {
+          "field": "blob_file_addition_infos",
+          "policy": "manual",
+          "reason": "Returns nested metadata objects that need dedicated accessors rather than a simple scalar getter."
+        }
+      ]
+    },
+    {
+      "name": "CompactionJobInfo",
+      "entries": [
+        {
+          "field": "input_files",
+          "policy": "manual",
+          "reason": "Returns nested metadata objects or collections that need dedicated accessors rather than a simple scalar getter."
+        },
+        {
+          "field": "input_file_infos",
+          "policy": "manual",
+          "reason": "Returns nested metadata objects or collections that need dedicated accessors rather than a simple scalar getter."
+        },
+        {
+          "field": "output_files",
+          "policy": "manual",
+          "reason": "Returns nested metadata objects or collections that need dedicated accessors rather than a simple scalar getter."
+        },
+        {
+          "field": "output_file_infos",
+          "policy": "manual",
+          "reason": "Returns nested metadata objects or collections that need dedicated accessors rather than a simple scalar getter."
+        },
+        {
+          "field": "table_properties",
+          "policy": "manual",
+          "reason": "Returns nested metadata objects or collections that need dedicated accessors rather than a simple scalar getter."
+        },
+        {
+          "field": "stats",
+          "policy": "manual",
+          "reason": "Returns nested metadata objects or collections that need dedicated accessors rather than a simple scalar getter."
+        },
+        {
+          "field": "blob_file_addition_infos",
+          "policy": "manual",
+          "reason": "Returns nested metadata objects or collections that need dedicated accessors rather than a simple scalar getter."
+        },
+        {
+          "field": "blob_file_garbage_infos",
+          "policy": "manual",
+          "reason": "Returns nested metadata objects or collections that need dedicated accessors rather than a simple scalar getter."
+        }
+      ]
+    },
+    {
+      "name": "SubcompactionJobInfo",
+      "entries": [
+        {
+          "field": "stats",
+          "policy": "manual",
+          "reason": "Returns nested metadata objects that need dedicated accessors rather than a simple scalar getter."
+        }
+      ]
+    },
+    {
+      "name": "ExternalFileIngestionInfo",
+      "entries": [
+        {
+          "field": "table_properties",
+          "policy": "manual",
+          "reason": "Returns nested metadata objects that need dedicated accessors rather than a simple scalar getter."
+        }
+      ]
+    },
+    {
+      "name": "TableProperties",
+      "entries": [
+        {
+          "field": "user_collected_properties",
+          "policy": "manual",
+          "reason": "Returns map-like metadata that needs dedicated marshalling rather than a simple scalar getter."
+        },
+        {
+          "field": "readable_properties",
+          "policy": "manual",
+          "reason": "Returns map-like metadata that needs dedicated marshalling rather than a simple scalar getter."
+        }
+      ]
+    }
+  ]
+}

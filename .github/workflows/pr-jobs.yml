@@ -312,6 +312,18 @@ jobs:
     - run: CC=clang-18 CXX=clang++-18 USE_CLANG=1 make -j32 all microbench
     - run: make clean
     - run: CC=clang-18 CXX=clang++-18 USE_CLANG=1 DEBUG_LEVEL=0 make -j32 release
+    - name: Install clang-21 for C API gen check
+      run: |
+        wget -qO- https://apt.llvm.org/llvm.sh | bash -s 21 || true
+        apt-get install -y clang-21 clang-format-21 2>/dev/null || true
+        update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-21 100 2>/dev/null || true
+    - name: Check C API generated files are up to date
+      run: |
+        CXX=clang++-21 python3 tools/c_api_gen/regen_all.py
+        # Re-format checked-in files with the same clang-format version used for regen
+        # so version differences in clang-format output do not cause false failures.
+        find include/rocksdb/c_api_gen db/c_api_gen -name "*.inc" | xargs clang-format-21 -i
+        git diff --exit-code -- include/rocksdb/c_api_gen db/c_api_gen
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
