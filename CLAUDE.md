@@ -227,6 +227,11 @@ The following patterns emerged as frequent sources of review feedback:
 * When there are multiple unit tests need to be executed, try to use
     gtest_parallel.py if available. E.g.
     python3 ${GTEST_PARALLEL}/gtest_parallel.py ./table_test
+* After writing a test, stress-test for flakiness:
+    ```bash
+    COERCE_CONTEXT_SWITCH=1 make {test_binary}
+    ./{test_binary} --gtest_filter="*YourTestName*" --gtest_repeat=5
+    ```
 
 ### Unit test dedup guidelines
 * Extract helper functions for repeated patterns such as object
@@ -274,6 +279,9 @@ The following patterns emerged as frequent sources of review feedback:
 * Execute make clean to clean all of the changes.
 * Execute make check to build all of the changes and execute all of the tests.
     Note that executing all of the tests could take multiple minutes.
+* Run `ASSERT_STATUS_CHECKED=1 make check` to verify all Status objects are
+    properly checked. This catches missing error handling that can lead to
+    silent data corruption.
 
 ### Monitoring make check progress
 * Use `make check-progress` to get machine-parseable JSON progress while
