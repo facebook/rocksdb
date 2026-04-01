@@ -23,12 +23,19 @@ class DBImpl;
 struct DBRecoverContext {
   FlushReason flush_reason;
   bool flush_after_recovery;
+  bool recovering_from_no_space;
+  BackgroundErrorReason bg_error_reason;
 
   DBRecoverContext()
       : flush_reason(FlushReason::kErrorRecovery),
-        flush_after_recovery(false) {}
+        flush_after_recovery(false),
+        recovering_from_no_space(false),
+        bg_error_reason(BackgroundErrorReason::kCompaction) {}
   DBRecoverContext(FlushReason reason)
-      : flush_reason(reason), flush_after_recovery(false) {}
+      : flush_reason(reason),
+        flush_after_recovery(false),
+        recovering_from_no_space(false),
+        bg_error_reason(BackgroundErrorReason::kCompaction) {}
 };
 
 class ErrorHandler {
@@ -63,6 +70,12 @@ class ErrorHandler {
   Status GetBGError() const { return bg_error_; }
 
   Status GetRecoveryError() const { return recovery_error_; }
+
+  // REQUIREs: db mutex held
+  const DBRecoverContext& GetRecoverContext() const {
+    db_mutex_->AssertHeld();
+    return recover_context_;
+  }
 
   // REQUIREs: db mutex held
   //
@@ -156,6 +169,9 @@ class ErrorHandler {
   void RecoverFromNoSpace();
   void StartRecoverFromRetryableBGIOError(const IOStatus& io_error);
   void RecoverFromRetryableBGIOError();
+  // Set the no-space recovery flag in the context when recovering from no-space
+  // errors
+  void SetNoSpaceRecoveryContext();
   // First, if it is in recovery and the recovery_error is ok. Set the
   // recovery_error_ to bg_err. Second, if the severity is higher than the
   // current bg_error_, overwrite it.
