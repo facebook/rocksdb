@@ -3728,6 +3728,71 @@ TEST_F(TestAsyncRead, InterleavingIOUringOperations) {
 #endif
 }
 
+// Test that ReadAsync returns IOStatus::Busy when io_uring_get_sqe returns
+// null (submission queue full), rather than crashing on a null SQE dereference.
+// Uses SyncPoint injection to simulate the null SQE since io_uring_submit is
+// called per-request, making it difficult to naturally saturate the SQ.
+TEST_F(TestAsyncRead, ReadAsyncQueueFull) {
+#if defined(ROCKSDB_IOURING_PRESENT)
+  std::shared_ptr<FileSystem> fs = env_->GetFileSystem();
+  std::string fname = test::PerThreadDBPath(env_, "testfile_queuefull");
+
+  constexpr size_t kSectorSize = 4096;
+
+  // 1. Create a test file.
+  {
+    std::unique_ptr<FSWritableFile> wfile;
+    ASSERT_OK(
+        fs->NewWritableFile(fname, FileOptions(), &wfile, nullptr /*dbg*/));
+    auto data = NewAligned(kSectorSize * 8, 'x');
+    Slice slice(data.get(), kSectorSize);
+    ASSERT_OK(wfile->Append(slice, IOOptions(), nullptr));
+    ASSERT_OK(wfile->Close(IOOptions(), nullptr));
+  }
+
+  // 2. Open the file and verify ReadAsync handles null SQE gracefully.
+  {
+    std::unique_ptr<FSRandomAccessFile> file;
+    ASSERT_OK(fs->NewRandomAccessFile(fname, FileOptions(), &file, nullptr));
+
+    // Force io_uring_get_sqe to appear to return null via SyncPoint.
+    SyncPoint::GetInstance()->SetCallBack(
+        "PosixRandomAccessFile::ReadAsync:io_uring_get_sqe",
+        [](void* arg) { *static_cast<io_uring_sqe**>(arg) = nullptr; });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    IOOptions opts;
+    auto scratch = NewAligned(kSectorSize, 0);
+    FSReadRequest req;
+    req.offset = 0;
+    req.len = kSectorSize;
+    req.scratch = scratch.get();
+
+    void* io_handle = nullptr;
+    IOHandleDeleter del_fn = nullptr;
+    std::function<void(FSReadRequest&, void*)> callback =
+        [](FSReadRequest& /*req*/, void* /*cb_arg*/) {};
+
+    IOStatus s = file->ReadAsync(req, opts, callback, nullptr, &io_handle,
+                                 &del_fn, nullptr);
+
+    if (s.IsNotSupported()) {
+      fprintf(stderr, "Skipping test - io_uring not supported: %s\n",
+              s.ToString().c_str());
+    } else {
+      ASSERT_TRUE(s.IsBusy()) << s.ToString();
+      ASSERT_EQ(io_handle, nullptr);
+      ASSERT_EQ(del_fn, nullptr);
+    }
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
+#else
+  fprintf(stderr, "Skipping test - ROCKSDB_IOURING_PRESENT not defined\n");
+#endif
+}
+
 // Helper function to run AbortIO test with parameterized read requests.
 // Each request is specified as {offset, length}.
 // use_direct_io: if true, opens the file with O_DIRECT to bypass page cache.
