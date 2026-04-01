@@ -3056,6 +3056,7 @@ class H : public WriteBatch::Handler {
       (*log_data_)(state_, blob.data(), blob.size());
     }
   }
+  Status MarkNoop(bool /* empty_batch */) override { return Status::OK(); }
 };
 
 class HCF : public WriteBatch::Handler {
@@ -3089,6 +3090,7 @@ class HCF : public WriteBatch::Handler {
       (*log_data_)(state_, blob.data(), blob.size());
     }
   }
+  Status MarkNoop(bool /* empty_batch */) override { return Status::OK(); }
 };
 
 void rocksdb_writebatch_iterate(rocksdb_writebatch_t* b, void* state,
@@ -8302,6 +8304,11 @@ void rocksdb_transaction_delete_cf(
     rocksdb_transaction_t* txn, rocksdb_column_family_handle_t* column_family,
     const char* key, size_t klen, char** errptr) {
   SaveError(errptr, txn->rep->Delete(column_family->rep, Slice(key, klen)));
+}
+
+void rocksdb_transaction_put_log_data(rocksdb_transaction_t* txn,
+                                      const char* blob, size_t len) {
+  txn->rep->PutLogData(Slice(blob, len));
 }
 
 // Delete a key outside a transaction
