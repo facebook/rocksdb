@@ -582,6 +582,14 @@ struct BlockBasedTableOptions {
   // in primary mode have a stub standard index and cannot be read without
   // UDI support.
   //
+  // Backup/restore: the user_defined_index_factory is a shared_ptr that
+  // cannot survive Options serialization (e.g., GetStringFromDBOptions).
+  // Tools or code paths that reconstruct Options from strings will lose
+  // the factory. In secondary mode this is safe (the standard index is
+  // fully populated). In primary mode, the restored DB cannot read
+  // primary-mode SSTs. Ensure the factory is explicitly set when opening
+  // a restored DB.
+  //
   // Default: false (UDI is built alongside the standard index as a secondary)
   bool use_udi_as_primary_index = false;
 

@@ -760,11 +760,35 @@ Status BlockBasedTableFactory::ValidateOptions(
         "data_block_hash_table_util_ratio should be greater than 0 when "
         "data_block_index_type is set to kDataBlockBinaryAndHash");
   }
-  if (table_options_.user_defined_index_factory &&
-      (cf_opts.compression_opts.parallel_threads > 1 ||
-       cf_opts.bottommost_compression_opts.parallel_threads > 1)) {
+  if (table_options_.user_defined_index_factory) {
+    if (cf_opts.compression_opts.parallel_threads > 1 ||
+        cf_opts.bottommost_compression_opts.parallel_threads > 1) {
+      return Status::InvalidArgument(
+          "user_defined_index_factory not supported with parallel compression");
+    }
+    if (table_options_.use_udi_as_primary_index) {
+      if (!table_options_.user_defined_index_factory) {
+        return Status::InvalidArgument(
+            "use_udi_as_primary_index requires user_defined_index_factory");
+      }
+      if (table_options_.index_type ==
+          BlockBasedTableOptions::kTwoLevelIndexSearch) {
+        return Status::InvalidArgument(
+            "use_udi_as_primary_index is incompatible with partitioned index "
+            "(kTwoLevelIndexSearch). Primary UDI skips the standard index "
+            "builder, but partitioned index requires it for partition "
+            "boundaries.");
+      }
+      if (table_options_.partition_filters) {
+        return Status::InvalidArgument(
+            "use_udi_as_primary_index is incompatible with partitioned "
+            "filters. Partitioned filters require the standard "
+            "PartitionedIndexBuilder for partition boundaries.");
+      }
+    }
+  } else if (table_options_.use_udi_as_primary_index) {
     return Status::InvalidArgument(
-        "user_defined_index_factory not supported with parallel compression");
+        "use_udi_as_primary_index requires user_defined_index_factory");
   }
   if (db_opts.unordered_write && cf_opts.max_successive_merges > 0) {
     // TODO(myabandeh): support it

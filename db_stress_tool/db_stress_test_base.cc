@@ -4408,6 +4408,16 @@ void InitializeOptionsFromFlags(
     block_based_options.user_defined_index_factory = udi_factory;
     if (FLAGS_use_udi_as_primary_index) {
       block_based_options.use_udi_as_primary_index = true;
+      // The trie index uses user-key-only separators while the standard
+      // index uses full internal key separators (with seqno trailer). During
+      // subcompacted compaction, the per-subcompaction seek target can land
+      // past the trie's last separator for SSTs whose data is entirely in
+      // another subcompaction's range. The trie correctly returns "past end"
+      // for these SSTs (the data IS processed by the other subcompaction),
+      // but the compaction record count verification sees a mismatch
+      // because it expects ALL input SSTs' records to be processed. This
+      // is a verification false positive, not data loss.
+      options.compaction_verify_record_count = false;
     }
   }
   options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));

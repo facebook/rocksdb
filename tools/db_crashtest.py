@@ -1062,6 +1062,28 @@ def finalize_and_sanitize(src_params):
         dest_params["mmap_read"] = 0
         # Parallel compression is incompatible with UDI
         dest_params["compression_parallel_threads"] = 1
+        if dest_params.get("use_udi_as_primary_index") == 1:
+            # Primary UDI skips the standard index builder (only a stub is
+            # written). Partitioned index (kTwoLevelIndexSearch) and
+            # partitioned filters require the standard PartitionedIndexBuilder
+            # to provide partition boundaries, which doesn't work with an
+            # empty stub. These combinations are rejected at builder creation
+            # time with InvalidArgument.
+            dest_params["index_type"] = random.choice([0, 0, 3])
+            dest_params["partition_filters"] = 0
+            # Backup/restore verification opens the restored DB by
+            # serializing the current Options to a string and parsing it
+            # back (PrepareOptionsForRestoredDB). The user_defined_index_factory
+            # is a shared_ptr that cannot survive this round-trip -- the
+            # restored DB opens without UDI support. In secondary mode this
+            # is fine (reads fall through to the fully populated standard
+            # index). In primary mode the standard index is a stub with zero
+            # entries, so every read returns nothing.
+            dest_params["backup_one_in"] = 0
+            # Secondary DB opens SSTs with default Options (not a copy of
+            # the primary's options), losing the UDI factory. Reads through
+            # the stub standard index return nothing.
+            dest_params["test_secondary"] = 0
     else:
         # use_udi_as_primary_index requires use_trie_index
         dest_params["use_udi_as_primary_index"] = 0
