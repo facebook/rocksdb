@@ -31,7 +31,7 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
       std::unique_ptr<IndexBuilder> internal_index_builder,
       std::unique_ptr<UserDefinedIndexBuilder> user_defined_index_builder,
       const InternalKeyComparator* comparator, size_t ts_sz,
-      bool persist_user_defined_timestamps, bool udi_is_primary = false)
+      bool persist_user_defined_timestamps, bool udi_is_primary)
       : IndexBuilder(comparator, ts_sz, persist_user_defined_timestamps),
         name_(name),
         internal_index_builder_(std::move(internal_index_builder)),
@@ -389,8 +389,8 @@ class UserDefinedIndexReaderWrapper : public BlockBasedTable::IndexReader {
   UserDefinedIndexReaderWrapper(
       const std::string& name,
       std::unique_ptr<BlockBasedTable::IndexReader>&& reader,
-      std::unique_ptr<UserDefinedIndexReader>&& udi_reader,
-      bool udi_is_primary = false, bool udi_written_as_primary = false)
+      std::unique_ptr<UserDefinedIndexReader>&& udi_reader, bool udi_is_primary,
+      bool udi_written_as_primary)
       : name_(name),
         reader_(std::move(reader)),
         udi_reader_(std::move(udi_reader)),
