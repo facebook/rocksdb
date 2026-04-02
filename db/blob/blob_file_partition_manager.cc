@@ -719,7 +719,6 @@ Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
   constexpr uint64_t* bytes_read = nullptr;
 
-  Status s;
   if (version != nullptr) {
     // Only fall back when the blob file is still owned exclusively by the
     // write path and therefore absent from Version metadata. Once Version
@@ -731,10 +730,10 @@ Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
       return version->GetBlob(read_options, user_key, blob_idx, prefetch_buffer,
                               blob_value, bytes_read);
     }
-    s = Status::Corruption("Invalid blob file number");
-  } else {
-    s = Status::NotFound();
   }
+
+  Status s = version != nullptr ? Status::Corruption("Invalid blob file number")
+                                : Status::NotFound();
 
   if (blob_file_cache == nullptr) {
     return s;
