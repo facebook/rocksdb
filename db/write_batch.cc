@@ -169,7 +169,7 @@ struct BatchContentClassifier : public WriteBatch::Handler {
 
 }  // anonymous namespace
 
-struct WriteBatch::AttachedColumnFamily {
+struct AttachedColumnFamily {
   explicit AttachedColumnFamily(ColumnFamilyHandleImpl* handle)
       : cfd(handle != nullptr ? handle->cfd() : nullptr),
         db(handle != nullptr ? handle->db() : nullptr),
@@ -192,7 +192,61 @@ struct WriteBatch::AttachedColumnFamily {
 };
 
 struct SavePoints {
-  std::stack<SavePoint, autovector<SavePoint>> stack;
+  struct State {
+    State() = default;
+
+    State(const SavePoint& save_point_value,
+          size_t attached_blob_direct_write_column_families_size_value)
+        : save_point(save_point_value),
+          attached_blob_direct_write_column_families_size(
+              attached_blob_direct_write_column_families_size_value) {}
+
+    SavePoint save_point;
+    size_t attached_blob_direct_write_column_families_size = 0;
+  };
+
+  using AttachedBlobDirectWriteColumnFamilies =
+      std::unordered_map<uint32_t, std::shared_ptr<AttachedColumnFamily>>;
+
+  void Clear() {
+    while (!stack.empty()) {
+      stack.pop();
+    }
+    attached_blob_direct_write_column_families.clear();
+    attached_blob_direct_write_column_family_order.clear();
+  }
+
+  Status AddAttachedBlobDirectWriteColumnFamily(
+      uint32_t cf_id, const std::shared_ptr<AttachedColumnFamily>& attached) {
+    auto [it, inserted] =
+        attached_blob_direct_write_column_families.emplace(cf_id, attached);
+    if (inserted) {
+      attached_blob_direct_write_column_family_order.push_back(cf_id);
+      return Status::OK();
+    }
+    if (it->second->db != attached->db || it->second->cfd != attached->cfd) {
+      return Status::InvalidArgument(
+          "Cannot combine WriteBatch instances with conflicting blob direct "
+          "write column family attachments");
+    }
+    return Status::OK();
+  }
+
+  void TruncateAttachedBlobDirectWriteColumnFamilies(size_t size) {
+    while (attached_blob_direct_write_column_family_order.size() > size) {
+      const uint32_t cf_id =
+          attached_blob_direct_write_column_family_order.back();
+      attached_blob_direct_write_column_family_order.pop_back();
+      attached_blob_direct_write_column_families.erase(cf_id);
+    }
+    assert(attached_blob_direct_write_column_family_order.size() ==
+           attached_blob_direct_write_column_families.size());
+  }
+
+  std::stack<State, autovector<State>> stack;
+  AttachedBlobDirectWriteColumnFamilies
+      attached_blob_direct_write_column_families;
+  autovector<uint32_t> attached_blob_direct_write_column_family_order;
 };
 
 WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes,
@@ -225,13 +279,11 @@ WriteBatch::WriteBatch(const WriteBatch& src)
     : wal_term_point_(src.wal_term_point_),
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       max_bytes_(src.max_bytes_),
-      attached_blob_direct_write_column_families_(
-          src.attached_blob_direct_write_column_families_),
       default_cf_ts_sz_(src.default_cf_ts_sz_),
       rep_(src.rep_) {
   if (src.save_points_ != nullptr) {
     save_points_.reset(new SavePoints());
-    save_points_->stack = src.save_points_->stack;
+    *save_points_ = *src.save_points_;
   }
   if (src.prot_info_ != nullptr) {
     prot_info_.reset(new WriteBatch::ProtectionInfo());
@@ -245,8 +297,6 @@ WriteBatch::WriteBatch(WriteBatch&& src) noexcept
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       max_bytes_(src.max_bytes_),
       prot_info_(std::move(src.prot_info_)),
-      attached_blob_direct_write_column_families_(
-          std::move(src.attached_blob_direct_write_column_families_)),
       default_cf_ts_sz_(src.default_cf_ts_sz_),
       rep_(std::move(src.rep_)) {}
 
@@ -284,15 +334,12 @@ void WriteBatch::Clear() {
   content_flags_.store(0, std::memory_order_relaxed);
 
   if (save_points_ != nullptr) {
-    while (!save_points_->stack.empty()) {
-      save_points_->stack.pop();
-    }
+    save_points_.reset();
   }
 
   if (prot_info_ != nullptr) {
     prot_info_->entries_.clear();
   }
-  attached_blob_direct_write_column_families_.clear();
   wal_term_point_.clear();
   default_cf_ts_sz_ = 0;
 }
@@ -829,13 +876,32 @@ void WriteBatchInternal::SetDefaultColumnFamilyTimestampSize(
 std::tuple<Status, uint32_t, size_t>
 WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(
     WriteBatch* b, ColumnFamilyHandle* column_family) {
-  uint32_t cf_id = GetColumnFamilyID(column_family);
+  uint32_t cf_id = 0;
   size_t ts_sz = 0;
   Status s;
   if (column_family) {
-    s = MaybeAttachBlobDirectWriteColumnFamily(b, column_family);
-    if (!s.ok()) {
-      return std::make_tuple(s, 0, 0);
+    auto* handle =
+        static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+    cf_id = handle->GetID();
+    auto* cfd = handle->cfd();
+    if (cfd != nullptr && cfd->ioptions().enable_blob_direct_write) {
+      if (handle->db() == nullptr || handle->mutex() == nullptr) {
+        return std::make_tuple(
+            Status::InvalidArgument(
+                "Blob direct write attachment requires a live column family "
+                "handle"),
+            0, 0);
+      }
+      if (handle->db()->HasAnyBlobDirectWriteColumnFamily()) {
+        if (b->save_points_ == nullptr) {
+          b->save_points_.reset(new SavePoints());
+        }
+        s = b->save_points_->AddAttachedBlobDirectWriteColumnFamily(
+            cf_id, std::make_shared<AttachedColumnFamily>(handle));
+        if (!s.ok()) {
+          return std::make_tuple(s, 0, 0);
+        }
+      }
     }
     const Comparator* const ucmp = column_family->GetComparator();
     if (ucmp) {
@@ -844,8 +910,6 @@ WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(
         s = Status::InvalidArgument("Default cf timestamp size mismatch");
       }
     }
-    auto* cfd =
-        static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
     if (cfd && cfd->ioptions().disallow_memtable_writes) {
       s = Status::InvalidArgument(
           "This column family has disallow_memtable_writes=true");
@@ -863,10 +927,14 @@ Status CheckColumnFamilyTimestampSize(WriteBatch* batch,
   if (!column_family) {
     return Status::InvalidArgument("column family handle cannot be null");
   }
-  Status s = WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
-      batch, column_family);
-  if (!s.ok()) {
-    return s;
+  auto* handle = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  auto* cfd = handle->cfd();
+  if (cfd != nullptr && cfd->ioptions().enable_blob_direct_write) {
+    Status s = WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+        batch, column_family);
+    if (!s.ok()) {
+      return s;
+    }
   }
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
@@ -877,8 +945,6 @@ Status CheckColumnFamilyTimestampSize(WriteBatch* batch,
   if (cf_ts_sz != ts.size()) {
     return Status::InvalidArgument("timestamp size mismatch");
   }
-  auto* cfd =
-      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
   if (cfd && cfd->ioptions().disallow_memtable_writes) {
     return Status::InvalidArgument(
         "This column family has disallow_memtable_writes=true");
@@ -1877,8 +1943,10 @@ void WriteBatch::SetSavePoint() {
     save_points_.reset(new SavePoints());
   }
   // Record length and count of current batch of writes.
-  save_points_->stack.push(SavePoint(
-      GetDataSize(), Count(), content_flags_.load(std::memory_order_relaxed)));
+  save_points_->stack.push(SavePoints::State(
+      SavePoint(GetDataSize(), Count(),
+                content_flags_.load(std::memory_order_relaxed)),
+      save_points_->attached_blob_direct_write_column_family_order.size()));
 }
 
 Status WriteBatch::RollbackToSavePoint() {
@@ -1887,8 +1955,9 @@ Status WriteBatch::RollbackToSavePoint() {
   }
 
   // Pop the most recent savepoint off the stack
-  SavePoint savepoint = save_points_->stack.top();
+  SavePoints::State savepoint_state = save_points_->stack.top();
   save_points_->stack.pop();
+  const SavePoint& savepoint = savepoint_state.save_point;
 
   assert(savepoint.size <= rep_.size());
   assert(static_cast<uint32_t>(savepoint.count) <= Count());
@@ -1906,6 +1975,8 @@ Status WriteBatch::RollbackToSavePoint() {
     WriteBatchInternal::SetCount(this, savepoint.count);
     content_flags_.store(savepoint.content_flags, std::memory_order_relaxed);
   }
+  save_points_->TruncateAttachedBlobDirectWriteColumnFamilies(
+      savepoint_state.attached_blob_direct_write_column_families_size);
 
   return Status::OK();
 }
@@ -3452,7 +3523,9 @@ Status WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
 
   b->rep_.assign(contents.data(), contents.size());
   b->content_flags_.store(ContentFlags::DEFERRED, std::memory_order_relaxed);
-  b->attached_blob_direct_write_column_families_.clear();
+  if (b->save_points_ != nullptr) {
+    b->save_points_.reset();
+  }
   return Status::OK();
 }
 
@@ -3463,14 +3536,12 @@ Status WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
   }
 
   auto* handle = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
-  auto* cfd = handle->cfd();
-  if (cfd == nullptr || !cfd->ioptions().enable_blob_direct_write) {
+  if (handle->db() != nullptr &&
+      !handle->db()->HasAnyBlobDirectWriteColumnFamily()) {
     return Status::OK();
   }
-
-  const uint32_t cf_id = handle->GetID();
-  if (b->attached_blob_direct_write_column_families_.find(cf_id) !=
-      b->attached_blob_direct_write_column_families_.end()) {
+  auto* cfd = handle->cfd();
+  if (cfd == nullptr || !cfd->ioptions().enable_blob_direct_write) {
     return Status::OK();
   }
 
@@ -3479,9 +3550,11 @@ Status WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
         "Blob direct write attachment requires a live column family handle");
   }
 
-  b->attached_blob_direct_write_column_families_.emplace(
-      cf_id, std::make_shared<WriteBatch::AttachedColumnFamily>(handle));
-  return Status::OK();
+  if (b->save_points_ == nullptr) {
+    b->save_points_.reset(new SavePoints());
+  }
+  return b->save_points_->AddAttachedBlobDirectWriteColumnFamily(
+      handle->GetID(), std::make_shared<AttachedColumnFamily>(handle));
 }
 
 ColumnFamilyData* WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
@@ -3490,9 +3563,15 @@ ColumnFamilyData* WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
     return nullptr;
   }
 
+  if (batch->save_points_ == nullptr) {
+    return nullptr;
+  }
+
   auto iter =
-      batch->attached_blob_direct_write_column_families_.find(column_family_id);
-  if (iter == batch->attached_blob_direct_write_column_families_.end()) {
+      batch->save_points_->attached_blob_direct_write_column_families.find(
+          column_family_id);
+  if (iter ==
+      batch->save_points_->attached_blob_direct_write_column_families.end()) {
     return nullptr;
   }
 
@@ -3527,6 +3606,25 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
     src_flags = src->content_flags_.load(std::memory_order_relaxed);
   }
 
+  if (src->save_points_ != nullptr &&
+      !src->save_points_->attached_blob_direct_write_column_families.empty() &&
+      dst->save_points_ != nullptr) {
+    for (const auto& entry :
+         src->save_points_->attached_blob_direct_write_column_families) {
+      auto it =
+          dst->save_points_->attached_blob_direct_write_column_families.find(
+              entry.first);
+      if (it != dst->save_points_->attached_blob_direct_write_column_families
+                    .end() &&
+          (it->second->db != entry.second->db ||
+           it->second->cfd != entry.second->cfd)) {
+        return Status::InvalidArgument(
+            "Cannot combine WriteBatch instances with conflicting blob direct "
+            "write column family attachments");
+      }
+    }
+  }
+
   if (src->prot_info_ != nullptr) {
     if (dst->prot_info_ == nullptr) {
       dst->prot_info_.reset(new WriteBatch::ProtectionInfo());
@@ -3546,12 +3644,19 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
   dst->content_flags_.store(
       dst->content_flags_.load(std::memory_order_relaxed) | src_flags,
       std::memory_order_relaxed);
-  for (const auto& entry : src->attached_blob_direct_write_column_families_) {
-    auto [it, inserted] =
-        dst->attached_blob_direct_write_column_families_.emplace(entry.first,
-                                                                 entry.second);
-    assert(inserted || it->second->db == entry.second->db);
-    (void)it;
+  if (src->save_points_ == nullptr ||
+      src->save_points_->attached_blob_direct_write_column_families.empty()) {
+    return Status::OK();
+  }
+  if (dst->save_points_ == nullptr) {
+    dst->save_points_.reset(new SavePoints());
+  }
+  for (const auto& entry :
+       src->save_points_->attached_blob_direct_write_column_families) {
+    Status s = dst->save_points_->AddAttachedBlobDirectWriteColumnFamily(
+        entry.first, entry.second);
+    assert(s.ok());
+    (void)s;
   }
   return Status::OK();
 }

@@ -205,8 +205,9 @@ class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
 };
 
 // Releases a ref() held on ColumnFamilyData using the same drop cleanup path
-// as ColumnFamilyHandleImpl destruction, without exposing a user-visible
-// handle-lifecycle event.
+// as ColumnFamilyHandleImpl destruction. This helper intentionally does not
+// invoke OnColumnFamilyHandleDeletionStarted() because no user-visible handle
+// is being destroyed.
 void ReleaseColumnFamilyDataReference(ColumnFamilyData* cfd, DBImpl* db,
                                       InstrumentedMutex* mutex);
 

@@ -802,12 +802,20 @@ void TransactionBaseImpl::PutLogData(const Slice& blob) {
 }
 
 void TransactionBaseImpl::MaybeAttachDefaultColumnFamiliesForBlobDirectWrite() {
-  WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
-      write_batch_.GetWriteBatch(), db_->DefaultColumnFamily())
-      .PermitUncheckedError();
-  WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
-      &commit_time_batch_, db_->DefaultColumnFamily())
-      .PermitUncheckedError();
+  if (!dbimpl_->HasAnyBlobDirectWriteColumnFamily()) {
+    return;
+  }
+
+  const Status write_batch_status =
+      WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+          write_batch_.GetWriteBatch(), db_->DefaultColumnFamily());
+  if (!write_batch_status.ok()) {
+    ROCKS_LOG_WARN(
+        dbimpl_->immutable_db_options().info_log,
+        "Falling back to DB mutex lookup after failing to attach the default "
+        "column family to a transaction write batch for blob direct write: %s",
+        write_batch_status.ToString().c_str());
+  }
 }
 
 WriteBatchWithIndex* TransactionBaseImpl::GetWriteBatch() {
@@ -988,6 +996,21 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
 }
 
 WriteBatch* TransactionBaseImpl::GetCommitTimeWriteBatch() {
+  if (dbimpl_->HasAnyBlobDirectWriteColumnFamily()) {
+    // Commit-time batches can accumulate user writes via
+    // Transaction::GetCommitTimeWriteBatch(), including writes against the
+    // default column family that otherwise would not carry a handle.
+    const Status s = WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+        &commit_time_batch_, db_->DefaultColumnFamily());
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(
+          dbimpl_->immutable_db_options().info_log,
+          "Falling back to DB mutex lookup after failing to attach the "
+          "default column family to a transaction commit-time batch for blob "
+          "direct write: %s",
+          s.ToString().c_str());
+    }
+  }
   return &commit_time_batch_;
 }
 }  // namespace ROCKSDB_NAMESPACE

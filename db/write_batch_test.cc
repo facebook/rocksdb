@@ -175,6 +175,16 @@ class WriteBatchAttachedColumnFamilyTest : public DBTestBase {
     options.allow_concurrent_memtable_write = false;
     return options;
   }
+
+  ColumnFamilyData* GetCfd(ColumnFamilyHandle* cfh) {
+    return static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
+  }
+
+  ColumnFamilyData* GetAttached(const WriteBatch* batch,
+                                ColumnFamilyHandle* cfh, DBImpl* db = nullptr) {
+    return WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+        batch, cfh->GetID(), db != nullptr ? db : dbfull());
+  }
 };
 
 TEST_F(WriteBatchTest, Empty) {
@@ -210,11 +220,8 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   ColumnFamilyHandle* bdw_cfh = nullptr;
   ASSERT_OK(db_->CreateColumnFamily(options, "bdw", &bdw_cfh));
 
-  auto* default_cfd =
-      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
-          ->cfd();
-  auto* bdw_cfd =
-      static_cast_with_check<ColumnFamilyHandleImpl>(bdw_cfh)->cfd();
+  auto* default_cfd = GetCfd(db_->DefaultColumnFamily());
+  auto* bdw_cfd = GetCfd(bdw_cfh);
 
   WriteBatch batch;
   ASSERT_OK(WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
@@ -222,55 +229,43 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   ASSERT_OK(batch.Put("default_key", "default_value"));
   ASSERT_OK(batch.Put(bdw_cfh, "cf_key", "cf_value"));
 
-  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
-                &batch, db_->DefaultColumnFamily()->GetID(), dbfull()),
-            default_cfd);
-  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
-                &batch, bdw_cfh->GetID(), dbfull()),
-            bdw_cfd);
+  ASSERT_EQ(GetAttached(&batch, db_->DefaultColumnFamily()), default_cfd);
+  ASSERT_EQ(GetAttached(&batch, bdw_cfh), bdw_cfd);
 
   WriteBatch copy(batch);
-  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
-                &copy, db_->DefaultColumnFamily()->GetID(), dbfull()),
+  ASSERT_EQ(GetAttached(&copy, db_->DefaultColumnFamily()), default_cfd);
+  ASSERT_EQ(GetAttached(&copy, bdw_cfh), bdw_cfd);
+
+  WriteBatch copy_assigned;
+  copy_assigned = batch;
+  ASSERT_EQ(GetAttached(&copy_assigned, db_->DefaultColumnFamily()),
             default_cfd);
-  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
-                &copy, bdw_cfh->GetID(), dbfull()),
-            bdw_cfd);
+  ASSERT_EQ(GetAttached(&copy_assigned, bdw_cfh), bdw_cfd);
 
   WriteBatch moved(std::move(copy));
-  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
-                &moved, db_->DefaultColumnFamily()->GetID(), dbfull()),
+  ASSERT_EQ(GetAttached(&moved, db_->DefaultColumnFamily()), default_cfd);
+  ASSERT_EQ(GetAttached(&moved, bdw_cfh), bdw_cfd);
+
+  WriteBatch move_assigned;
+  move_assigned = std::move(copy_assigned);
+  ASSERT_EQ(GetAttached(&move_assigned, db_->DefaultColumnFamily()),
             default_cfd);
-  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
-                &moved, bdw_cfh->GetID(), dbfull()),
-            bdw_cfd);
+  ASSERT_EQ(GetAttached(&move_assigned, bdw_cfh), bdw_cfd);
 
   WriteBatch appended;
   ASSERT_OK(WriteBatchInternal::Append(&appended, &moved));
-  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
-                &appended, db_->DefaultColumnFamily()->GetID(), dbfull()),
-            default_cfd);
-  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
-                &appended, bdw_cfh->GetID(), dbfull()),
-            bdw_cfd);
+  ASSERT_EQ(GetAttached(&appended, db_->DefaultColumnFamily()), default_cfd);
+  ASSERT_EQ(GetAttached(&appended, bdw_cfh), bdw_cfd);
 
   WriteBatch replaced(appended);
   ASSERT_OK(WriteBatchInternal::SetContents(
       &replaced, WriteBatchInternal::Contents(&appended)));
-  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
-                &replaced, db_->DefaultColumnFamily()->GetID(), dbfull()),
-            nullptr);
-  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
-                &replaced, bdw_cfh->GetID(), dbfull()),
-            nullptr);
+  ASSERT_EQ(GetAttached(&replaced, db_->DefaultColumnFamily()), nullptr);
+  ASSERT_EQ(GetAttached(&replaced, bdw_cfh), nullptr);
 
   appended.Clear();
-  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
-                &appended, db_->DefaultColumnFamily()->GetID(), dbfull()),
-            nullptr);
-  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
-                &appended, bdw_cfh->GetID(), dbfull()),
-            nullptr);
+  ASSERT_EQ(GetAttached(&appended, db_->DefaultColumnFamily()), nullptr);
+  ASSERT_EQ(GetAttached(&appended, bdw_cfh), nullptr);
 
   ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
 }
@@ -283,11 +278,8 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   ColumnFamilyHandle* bdw_cfh = nullptr;
   ASSERT_OK(db_->CreateColumnFamily(options, "bdw", &bdw_cfh));
 
-  auto* default_cfd =
-      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
-          ->cfd();
-  auto* bdw_cfd =
-      static_cast_with_check<ColumnFamilyHandleImpl>(bdw_cfh)->cfd();
+  auto* default_cfd = GetCfd(db_->DefaultColumnFamily());
+  auto* bdw_cfd = GetCfd(bdw_cfh);
 
   WriteBatchWithIndex wbwi;
   ASSERT_OK(WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
@@ -295,15 +287,98 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   ASSERT_OK(wbwi.Put("default_key", "default_value"));
   ASSERT_OK(wbwi.Put(bdw_cfh, "cf_key", "cf_value"));
 
-  ASSERT_EQ(
-      WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
-          wbwi.GetWriteBatch(), db_->DefaultColumnFamily()->GetID(), dbfull()),
-      default_cfd);
-  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
-                wbwi.GetWriteBatch(), bdw_cfh->GetID(), dbfull()),
-            bdw_cfd);
+  ASSERT_EQ(GetAttached(wbwi.GetWriteBatch(), db_->DefaultColumnFamily()),
+            default_cfd);
+  ASSERT_EQ(GetAttached(wbwi.GetWriteBatch(), bdw_cfh), bdw_cfd);
 
   ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
+}
+
+TEST_F(WriteBatchAttachedColumnFamilyTest,
+       RollbackToSavePointRemovesLaterAttachments) {
+  const Options options = GetBlobDirectWriteOptions();
+  DestroyAndReopen(options);
+
+  ColumnFamilyHandle* bdw_cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(options, "bdw", &bdw_cfh));
+
+  auto* default_cfd = GetCfd(db_->DefaultColumnFamily());
+  auto* bdw_cfd = GetCfd(bdw_cfh);
+
+  WriteBatch batch;
+  ASSERT_OK(
+      batch.Put(db_->DefaultColumnFamily(), "default_key", "default_value"));
+  batch.SetSavePoint();
+  ASSERT_OK(batch.Put(bdw_cfh, "cf_key", "cf_value"));
+
+  ASSERT_EQ(GetAttached(&batch, db_->DefaultColumnFamily()), default_cfd);
+  ASSERT_EQ(GetAttached(&batch, bdw_cfh), bdw_cfd);
+
+  ASSERT_OK(batch.RollbackToSavePoint());
+  ASSERT_EQ(GetAttached(&batch, db_->DefaultColumnFamily()), default_cfd);
+  ASSERT_EQ(GetAttached(&batch, bdw_cfh), nullptr);
+
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
+}
+
+TEST_F(WriteBatchAttachedColumnFamilyTest,
+       NonBlobDirectWriteColumnFamiliesDoNotAttach) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+
+  WriteBatch batch;
+  ASSERT_OK(batch.Put(db_->DefaultColumnFamily(), "key", "value"));
+  ASSERT_EQ(GetAttached(&batch, db_->DefaultColumnFamily()), nullptr);
+}
+
+TEST_F(WriteBatchAttachedColumnFamilyTest,
+       AppendRejectsConflictingAttachedBlobDirectWriteColumnFamilies) {
+  const Options options = GetBlobDirectWriteOptions();
+  DestroyAndReopen(options);
+
+  WriteBatch first_batch;
+  ASSERT_OK(WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+      &first_batch, db_->DefaultColumnFamily()));
+
+  const std::string other_dbname =
+      test::PerThreadDBPath("write_batch_attached_column_family_test_other");
+  ASSERT_OK(DestroyDB(other_dbname, options));
+  std::unique_ptr<DB> other_db;
+  ASSERT_OK(DB::Open(options, other_dbname, &other_db));
+
+  WriteBatch second_batch;
+  ASSERT_OK(WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+      &second_batch, other_db->DefaultColumnFamily()));
+
+  Status s = WriteBatchInternal::Append(&first_batch, &second_batch);
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_NE(s.ToString().find("conflicting blob direct write column family "
+                              "attachments"),
+            std::string::npos);
+
+  other_db.reset();
+  ASSERT_OK(DestroyDB(other_dbname, options));
+}
+
+TEST_F(WriteBatchAttachedColumnFamilyTest,
+       AttachedBlobDirectWriteColumnFamilySurvivesDropAndHandleDestruction) {
+  const Options options = GetBlobDirectWriteOptions();
+  DestroyAndReopen(options);
+
+  ColumnFamilyHandle* bdw_cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(options, "bdw", &bdw_cfh));
+
+  {
+    WriteBatch batch;
+    ASSERT_OK(batch.Put(bdw_cfh, "cf_key", "cf_value"));
+    ASSERT_NE(GetAttached(&batch, bdw_cfh), nullptr);
+
+    ASSERT_OK(db_->DropColumnFamily(bdw_cfh));
+    ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
+  }
+
+  ASSERT_OK(Put("default_key", "default_value"));
+  ASSERT_EQ(Get("default_key"), "default_value");
 }
 
 TEST_F(WriteBatchTest, Corruption) {
