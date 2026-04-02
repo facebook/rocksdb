@@ -666,7 +666,6 @@ void MemTableList::Add(ReadOnlyMemTable* m,
                        autovector<ReadOnlyMemTable*>* to_delete) {
   assert(static_cast<int>(current_->memlist_.size()) >= num_flush_not_started_);
   InstallNewVersion();
-  m->MarkImmutable();
   // this method is used to move mutable memtable into an immutable list.
   // since mutable memtable is already refcounted by the DBImpl,
   // and when moving to the immutable list we don't unref it,

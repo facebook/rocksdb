@@ -4140,6 +4140,69 @@ TEST_P(DBIteratorTest, AverageMemtableOpsScanFlushTriggerByOverwrites) {
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
 }
 
+TEST_P(DBIteratorTest, PrefixSameAsStartSeekToNonInDomainKey) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("abc1", "v1"));
+  ASSERT_OK(Put("abc2", "v2"));
+  ASSERT_OK(Put("abc3", "v3"));
+
+  // Seek to "ab" (2 bytes) — out-of-domain for FixedPrefixTransform(3).
+  // ShouldSetPrefix returns false for out-of-domain targets, so no prefix
+  // constraint is set. The seek should find "abc1" and iteration should
+  // proceed without prefix_same_as_start enforcement.
+  ReadOptions ro;
+  ro.prefix_same_as_start = true;
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+  iter->Seek("ab");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "abc1");
+  ASSERT_EQ(iter->value().ToString(), "v1");
+
+  // Since prefix_ was not set (out-of-domain seek target), Next should
+  // continue without prefix boundary checking.
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "abc2");
+
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "abc3");
+}
+
+TEST_P(DBIteratorTest, PrefixSameAsStartIteratePastOutOfDomainKey) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  // FixedPrefixTransform(3): keys shorter than 3 bytes are out-of-domain.
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("abc1", "v1"));
+  ASSERT_OK(Put("abc2", "v2"));
+  ASSERT_OK(Put("zz", "short"));  // out-of-domain: only 2 bytes
+
+  ReadOptions ro;
+  ro.prefix_same_as_start = true;
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+  iter->Seek("abc1");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "abc1");
+
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "abc2");
+
+  // Next encounters "zz" (out-of-domain for FixedPrefixTransform(3)).
+  // KeyMatchesPrefix returns false for out-of-domain keys, so the iterator
+  // invalidates cleanly instead of calling Transform() on the short key.
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+}
+
 class DBMultiScanIteratorTest : public DBTestBase,
                                 public ::testing::WithParamInterface<bool> {
  public:

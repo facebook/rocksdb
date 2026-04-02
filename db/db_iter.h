@@ -296,17 +296,17 @@ class DBIter final : public Iterator {
   bool FindUserKeyBeforeSavedKey();
   // If `skipping_saved_key` is true, the function will keep iterating until it
   // finds a user key that is larger than `saved_key_`.
-  // If `prefix` is not null, the iterator needs to stop when all keys for the
-  // prefix are exhausted and the iterator is set to invalid.
-  bool FindNextUserEntry(bool skipping_saved_key, const Slice* prefix);
+  // When prefix_ is set, the iterator stops when all keys for the prefix are
+  // exhausted and the iterator is set to invalid.
+  bool FindNextUserEntry(bool skipping_saved_key);
   // Internal implementation of FindNextUserEntry().
-  bool FindNextUserEntryInternal(bool skipping_saved_key, const Slice* prefix);
+  bool FindNextUserEntryInternal(bool skipping_saved_key);
   bool ParseKey(ParsedInternalKey* key);
   bool MergeValuesNewToOld();
 
-  // If prefix is not null, we need to set the iterator to invalid if no more
+  // When prefix_ is set, we need to set the iterator to invalid if no more
   // entry can be found within the prefix.
-  void PrevInternal(const Slice* prefix);
+  void PrevInternal();
   bool TooManyInternalKeysSkipped(bool increment = true);
   bool IsVisible(SequenceNumber sequence, const Slice& ts,
                  bool* more_recent = nullptr);
@@ -420,6 +420,26 @@ class DBIter final : public Iterator {
   }
   void ResetRangeTombEndKey() { range_tomb_end_key_.Clear(); }
 
+  // Returns true if there is no prefix constraint (prefix_ not set) or
+  // if `key` is in the prefix extractor's domain and its prefix matches.
+  // Out-of-domain keys return false when a prefix is set.
+  bool KeyMatchesPrefix(const Slice& key) const {
+    return !prefix_.has_value() || (prefix_extractor_->InDomain(key) &&
+                                    prefix_extractor_->Transform(key).compare(
+                                        prefix_->GetUserKey()) == 0);
+  }
+
+  // Returns true if a prefix should be extracted from the seek target and
+  // used for prefix boundary tracking. True when prefix_same_as_start is
+  // set, or when range tombstone conversion is enabled during a legacy
+  // prefix seek. If target is out of domain then false is returned.
+  bool ShouldSetPrefix(const Slice& target) const {
+    return (prefix_same_as_start_ ||
+            (min_tombstones_for_range_conversion_ > 0 &&
+             !expect_total_order_inner_iter_)) &&
+           prefix_extractor_->InDomain(target);
+  }
+
   void ResetSeekState() {
     ReleaseTempPinnedData();
     ResetBlobData();
@@ -427,6 +447,7 @@ class DBIter final : public Iterator {
     ResetInternalKeysSkippedCounter();
     ResetContiguousTombstoneTracking();
     ResetRangeTombEndKey();
+    prefix_.reset();
   }
 
   void MarkMemtableForFlushForAvgTrigger() {
@@ -506,7 +527,7 @@ class DBIter final : public Iterator {
   //  - bound range tombstone tracking to the seek prefix when
   //    min_tombstones_for_range_conversion_ > 0.
   // Set via SetUserKey(), read via GetUserKey().
-  IterKey prefix_;
+  std::optional<IterKey> prefix_;
 
   Status status_;
   Slice lazy_blob_index_;

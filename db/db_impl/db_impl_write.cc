@@ -2593,6 +2593,14 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
                    cfd->GetName().c_str(), new_log_number, num_imm_unflushed);
   }
 
+  // MarkImmutable() blocks concurrent AddLogicallyRedundantRangeTombstone()
+  // from reader threads. Once blocked, safe to construct the fragmented range
+  // tombstone list. Both calls happen outside the DB mutex to avoid increasing
+  // write stall. MarkImmutable() is idempotent, so Add() calling it again
+  // inside the mutex is harmless.
+  cfd->mem()->MarkImmutable();
+  cfd->mem()->ConstructFragmentedRangeTombstones();
+
   mutex_.Lock();
   if (recycle_log_number != 0) {
     // Since renaming the file is done outside DB mutex, we need to ensure
@@ -2722,11 +2730,6 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   cfd->mem()->SetNextLogNumber(cur_wal_number_);
   assert(new_mem != nullptr);
   cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
-  // MarkImmutable() (called inside Add) blocks concurrent
-  // AddLogicallyRedundantRangeTombstone(). Now safe to construct the
-  // fragmented range tombstone list with all entries present.
-  // cfd->mem() still points to the old memtable until SetMemtable() below.
-  cfd->mem()->ConstructFragmentedRangeTombstones();
   TEST_SYNC_POINT(
       "DBImpl::SwitchMemtable:AfterConstructFragmentedRangeTombstones");
   if (new_imm) {

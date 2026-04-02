@@ -322,7 +322,7 @@ class ReadOnlyMemTable {
   // — it is derived from existing point tombstones observed during iteration
   // and does not delete any data that isn't already deleted. This is a
   // best-effort optimization. It allows future reads to skip iterating over
-  // continous single deletion tombstones.
+  // continuous single deletion tombstones.
   //
   // Adding a range tombstone may fail if
   // - memtable switches to immutable state

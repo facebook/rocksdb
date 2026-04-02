@@ -524,7 +524,7 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
   int memtableMaxRangeDeletions();
 
   /**
-   * During forward iteration, when this many or more strictly contiguous
+   * During forward or reverse iteration, when this many or more strictly contiguous
    * point tombstones are encountered with no live keys between them,
    * a range tombstone is inserted into the current mutable memtable.
    *

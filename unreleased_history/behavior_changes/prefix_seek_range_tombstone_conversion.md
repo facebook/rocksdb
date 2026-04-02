@@ -1,0 +1,1 @@
+Prefix filter changes - when seeking to a key that is out of domain, and total_order_seek is false, total_order_seek is treated as if it were true. This avoids seeing unexpected missing keys. When prefix_same_as_start = true, now iterating past a key that is out of domain invalidates the iterator, whereas before it was implementation dependent.

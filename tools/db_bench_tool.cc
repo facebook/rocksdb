@@ -7501,7 +7501,10 @@ class Benchmark {
             (db_.db != nullptr) ? db_.db : multi_dbs_[db_idx_to_use].db;
         for (int j = 0; j < FLAGS_seek_nexts_to_delete && iter_to_use->Valid();
              ++j) {
-          db_to_use->Delete(WriteOptions(), iter_to_use->key());
+          Status s = db_to_use->Delete(WriteOptions(), iter_to_use->key());
+          if (!s.ok()) {
+            fprintf(stderr, "Delete failed: %s\n", s.ToString().c_str());
+          }
           if (!FLAGS_reverse_iterator) {
             iter_to_use->Next();
           } else {
