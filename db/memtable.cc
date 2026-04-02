@@ -79,7 +79,7 @@ ImmutableMemTableOptions::ImmutableMemTableOptions(
           ioptions.memtable_batch_lookup_optimization) {}
 
 void ReadOnlyMemTable::ProtectSealedBlobFiles(
-    BlobFilePartitionManager* blob_partition_manager,
+    const std::shared_ptr<BlobFilePartitionManager>& blob_partition_manager,
     const std::vector<uint64_t>& file_numbers) {
   if (file_numbers.empty()) {
     return;
@@ -89,7 +89,7 @@ void ReadOnlyMemTable::ProtectSealedBlobFiles(
   if (protected_blob_file_manager_ == nullptr) {
     protected_blob_file_manager_ = blob_partition_manager;
   } else {
-    assert(protected_blob_file_manager_ == blob_partition_manager);
+    assert(protected_blob_file_manager_.get() == blob_partition_manager.get());
   }
 
   std::vector<uint64_t> newly_protected_file_numbers;
@@ -116,10 +116,11 @@ void ReadOnlyMemTable::ReleaseProtectedSealedBlobFiles() {
     return;
   }
 
-  protected_blob_file_manager_->UnprotectSealedBlobFileNumbers(
+  std::shared_ptr<BlobFilePartitionManager> blob_partition_manager =
+      std::move(protected_blob_file_manager_);
+  blob_partition_manager->UnprotectSealedBlobFileNumbers(
       protected_blob_file_numbers_);
   protected_blob_file_numbers_.clear();
-  protected_blob_file_manager_ = nullptr;
 }
 
 MemTable::MemTable(const InternalKeyComparator& cmp,

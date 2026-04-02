@@ -421,8 +421,14 @@ class ColumnFamilyData {
   BlobFilePartitionManager* blob_partition_manager() const {
     return blob_partition_manager_.get();
   }
+  // Returns a shared ownership handle for cold paths that must keep the
+  // manager alive beyond the lifetime of this ColumnFamilyData.
+  std::shared_ptr<BlobFilePartitionManager> blob_partition_manager_handle()
+      const {
+    return blob_partition_manager_;
+  }
   // Installs the write-path blob partition manager for this CF.
-  void SetBlobPartitionManager(std::unique_ptr<BlobFilePartitionManager> mgr);
+  void SetBlobPartitionManager(std::shared_ptr<BlobFilePartitionManager> mgr);
 
   // See documentation in compaction_picker.h
   // REQUIRES: DB mutex held
@@ -657,7 +663,7 @@ class ColumnFamilyData {
   std::unique_ptr<BlobFileCache> blob_file_cache_;
   std::unique_ptr<BlobSource> blob_source_;
   // Per-CF manager for write-path blob direct-write files.
-  std::unique_ptr<BlobFilePartitionManager> blob_partition_manager_;
+  std::shared_ptr<BlobFilePartitionManager> blob_partition_manager_;
 
   std::unique_ptr<InternalStats> internal_stats_;
 

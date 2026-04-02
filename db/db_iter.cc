@@ -240,16 +240,17 @@ Status DBIter::BlobReader::RetrieveAndSetBlobValue(
   read_options.io_activity = io_activity_;
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
   constexpr uint64_t* bytes_read = nullptr;
+
+  if (!allow_write_path_fallback) {
+    assert(version_ != nullptr);
+    return version_->GetBlob(read_options, user_key, blob_index,
+                             prefetch_buffer, &blob_value_, bytes_read);
+  }
+
   BlobIndex blob_idx;
   Status s = blob_idx.DecodeFrom(blob_index);
   if (!s.ok()) {
     return s;
-  }
-
-  if (!allow_write_path_fallback) {
-    assert(version_ != nullptr);
-    return version_->GetBlob(read_options, user_key, blob_idx, prefetch_buffer,
-                             &blob_value_, bytes_read);
   }
 
   return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(

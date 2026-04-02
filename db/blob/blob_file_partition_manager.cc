@@ -721,16 +721,17 @@ Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
 
   Status s;
   if (version != nullptr) {
-    s = version->GetBlob(read_options, user_key, blob_idx, prefetch_buffer,
-                         blob_value, bytes_read);
-    // Fallback is only for the pre-flush BDW case where Version does not yet
-    // know the blob file and currently reports that as Corruption("Invalid blob
-    // file number"). If Version already found the manifest-visible file, any
-    // resulting IOError should propagate directly instead of retrying through
-    // the write-path cache and potentially hiding a real read failure.
-    if (s.ok() || s.IsIOError()) {
-      return s;
+    // Only fall back when the blob file is still owned exclusively by the
+    // write path and therefore absent from Version metadata. Once Version
+    // knows the file number, every result from Version::GetBlob(), including
+    // corruption, must propagate directly.
+    if (blob_idx.HasTTL() || blob_idx.IsInlined() ||
+        version->storage_info()->GetBlobFileMetaData(blob_idx.file_number()) !=
+            nullptr) {
+      return version->GetBlob(read_options, user_key, blob_idx, prefetch_buffer,
+                              blob_value, bytes_read);
     }
+    s = Status::Corruption("Invalid blob file number");
   } else {
     s = Status::NotFound();
   }

@@ -353,11 +353,13 @@ class ReadOnlyMemTable {
 
   // Registers sealed direct-write blob files that this memtable can still
   // resolve through lazy blob indexes. The protection lasts until the
-  // memtable's final Unref().
+  // memtable's final Unref(). The manager handle is shared here because
+  // immutable memtables can outlive the ColumnFamilyData that created them.
   // REQUIRES: external synchronization to prevent simultaneous operations on
   // the same MemTable.
-  void ProtectSealedBlobFiles(BlobFilePartitionManager* blob_partition_manager,
-                              const std::vector<uint64_t>& file_numbers);
+  void ProtectSealedBlobFiles(
+      const std::shared_ptr<BlobFilePartitionManager>& blob_partition_manager,
+      const std::vector<uint64_t>& file_numbers);
 
   // Returns the edits area that is needed for flushing the memtable
   VersionEdit* GetEdits() { return &edit_; }
@@ -546,7 +548,7 @@ class ReadOnlyMemTable {
  private:
   void ReleaseProtectedSealedBlobFiles();
 
-  BlobFilePartitionManager* protected_blob_file_manager_ = nullptr;
+  std::shared_ptr<BlobFilePartitionManager> protected_blob_file_manager_;
   std::vector<uint64_t> protected_blob_file_numbers_;
 };
 

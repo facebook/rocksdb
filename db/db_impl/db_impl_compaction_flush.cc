@@ -290,7 +290,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   // and EventListener callback will be called when the db_mutex
   // is unlocked by the current thread.
   if (s.ok()) {
-    auto* mgr = cfd->blob_partition_manager();
+    auto mgr_handle = cfd->blob_partition_manager_handle();
+    auto* mgr = mgr_handle.get();
     if (mgr != nullptr) {
       prepared_blob_generations = flush_job.GetMemTables().size();
       std::vector<BlobFileAddition> write_path_additions;
@@ -310,7 +311,7 @@ Status DBImpl::FlushMemTableToOutputFile(
           // Old SuperVersions can keep these memtables alive after the flush
           // commits, so keep their sealed direct-write blob files protected
           // from obsolete-file purge until the memtable is finally released.
-          memtables[i]->ProtectSealedBlobFiles(mgr,
+          memtables[i]->ProtectSealedBlobFiles(mgr_handle,
                                                generation_blob_file_numbers[i]);
         }
         for (const auto& addition : write_path_additions) {
@@ -628,7 +629,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
   if (s.ok()) {
     for (int i = 0; i != num_cfs; ++i) {
-      auto* mgr = cfds[i]->blob_partition_manager();
+      auto mgr_handle = cfds[i]->blob_partition_manager_handle();
+      auto* mgr = mgr_handle.get();
       if (mgr == nullptr) {
         continue;
       }
@@ -650,7 +652,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         const auto& memtables = jobs[i]->GetMemTables();
         assert(generation_blob_file_numbers.size() == memtables.size());
         for (size_t j = 0; j < generation_blob_file_numbers.size(); ++j) {
-          memtables[j]->ProtectSealedBlobFiles(mgr,
+          memtables[j]->ProtectSealedBlobFiles(mgr_handle,
                                                generation_blob_file_numbers[j]);
         }
         auto& sealed_blob_numbers = sealed_blob_numbers_by_cf[i];

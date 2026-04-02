@@ -794,7 +794,7 @@ ColumnFamilyData::~ColumnFamilyData() {
 }
 
 void ColumnFamilyData::SetBlobPartitionManager(
-    std::unique_ptr<BlobFilePartitionManager> mgr) {
+    std::shared_ptr<BlobFilePartitionManager> mgr) {
   blob_partition_manager_ = std::move(mgr);
 }
 
