@@ -867,8 +867,9 @@ void MemTable::ConstructFragmentedRangeTombstones() {
 bool MemTable::AddLogicallyRedundantRangeTombstone(SequenceNumber seq,
                                                    const Slice& start_key,
                                                    const Slice& end_key) {
-  // Fast path: skip if already immutable (no mutex needed).
-  if (is_immutable_.LoadRelaxed()) {
+  // Fast path: skip if already immutable or empty. Some code paths (i.e.
+  // ExternalFileIngestion) rely ensuring memtable is empty after flushing.
+  if (is_immutable_.LoadRelaxed() || IsEmpty()) {
     return false;
   }
 
@@ -1097,6 +1098,9 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       bloom_filter_->AddConcurrently(key_without_ts);
     }
   }
+
+  // In the non-concurrent path, sequence numbers are non-decreasing.
+  assert(allow_concurrent || first_seqno_ == 0 || s >= first_seqno_);
 
   // Atomically update first_seqno_ and earliest_seqno_.
   uint64_t cur_seq_num = first_seqno_.load(std::memory_order_relaxed);

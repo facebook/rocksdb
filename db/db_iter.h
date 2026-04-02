@@ -497,11 +497,15 @@ class DBIter final : public Iterator {
   const Slice* iterate_lower_bound_;
   const Slice* iterate_upper_bound_;
 
-  // The prefix of the seek key. It is only used when prefix_same_as_start_
-  // is true and prefix extractor is not null. In Next() or Prev(), current keys
-  // will be checked against this prefix, so that the iterator can be
-  // invalidated if the keys in this prefix has been exhausted. Set it using
-  // SetUserKey() and use it using GetUserKey().
+  // The prefix of the seek key. Set during Seek/SeekForPrev when either
+  // prefix_same_as_start_ is true or the iterator uses prefix filtering
+  // (!expect_total_order_inner_iter_ && InDomain(target)). Used in Next()
+  // and Prev() to:
+  //  - invalidate the iterator when prefix_same_as_start_ is true and keys
+  //    in this prefix have been exhausted.
+  //  - bound range tombstone tracking to the seek prefix when
+  //    min_tombstones_for_range_conversion_ > 0.
+  // Set via SetUserKey(), read via GetUserKey().
   IterKey prefix_;
 
   Status status_;

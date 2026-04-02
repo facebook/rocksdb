@@ -5501,6 +5501,12 @@ TEST_P(ReadPathRangeTombstoneTest, BasicInsertion) {
 
     if (flush_before_read) {
       ASSERT_OK(Flush());
+      // Memtable is empty after flush. AddLogicallyRedundantRangeTombstone
+      // skips empty memtables.
+      inserted_ranges_.clear();
+      VerifyIteration({"a", "g", "h", "n"});
+      ASSERT_EQ(inserted_ranges_.size(), 0);
+      break;
     }
 
     inserted_ranges_.clear();

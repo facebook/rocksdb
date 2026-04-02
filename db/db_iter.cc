@@ -1716,6 +1716,12 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
   if (active_mem_->AddLogicallyRedundantRangeTombstone(
           insert_seq, range_tomb_first_key_.GetUserKey(), end_key)) {
     RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_INSERTED);
+    ROCKS_LOG_DEBUG(logger_,
+                    "Inserted range tombstone [%s, %s) @ seq %" PRIu64
+                    " (count=%" PRIu32 ", snapshot=%" PRIu64 ")",
+                    range_tomb_first_key_.GetUserKey().ToString(true).c_str(),
+                    end_key.ToString(true).c_str(), insert_seq,
+                    contiguous_tombstone_count_, sequence_);
   } else {
     RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_DISCARDED);
   }
