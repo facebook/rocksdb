@@ -3721,6 +3721,35 @@ class FSBufferPrefetchTest
           }
           return IOStatus::OK();
         }
+
+        IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                           std::function<void(FSReadRequest&, void*)> cb,
+                           void* cb_arg, void** io_handle,
+                           IOHandleDeleter* del_fn,
+                           IODebugContext* dbg) override {
+          if (req.scratch == nullptr) {
+            // FS buffer mode: allocate our own buffer, read into it, and
+            // return via fs_scratch — same pattern as MultiRead above.
+            char* internalData = new char[req.len];
+            req.status =
+                Read(req.offset, req.len, opts, &req.result, internalData, dbg);
+
+            Slice* internalSlice = new Slice(internalData, req.len);
+            FSAllocationPtr internalPtr(internalSlice, [](void* ptr) {
+              delete[] static_cast<const char*>(
+                  static_cast<Slice*>(ptr)->data_);
+              delete static_cast<Slice*>(ptr);
+            });
+            req.fs_scratch = std::move(internalPtr);
+            *io_handle = nullptr;
+            *del_fn = nullptr;
+            cb(req, cb_arg);
+            return IOStatus::OK();
+          }
+          // Non-FS-buffer mode: delegate to base class.
+          return FSRandomAccessFileOwnerWrapper::ReadAsync(
+              req, opts, cb, cb_arg, io_handle, del_fn, dbg);
+        }
       };
 
       std::unique_ptr<FSRandomAccessFile> file;
@@ -3739,12 +3768,7 @@ class FSBufferPrefetchTest
   void SetUp() override {
     SetupSyncPointsToMockDirectIO();
     env_ = Env::Default();
-    bool use_async_prefetch = std::get<0>(GetParam());
-    if (use_async_prefetch) {
-      fs_ = FileSystem::Default();
-    } else {
-      fs_ = std::make_shared<BufferReuseFS>(FileSystem::Default());
-    }
+    fs_ = std::make_shared<BufferReuseFS>(FileSystem::Default());
 
     test_dir_ = test::PerThreadDBPath("fs_buffer_prefetch_test");
     ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
@@ -4236,6 +4260,99 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchRandomized) {
       offset += len;
     }
   }
+}
+
+// Test that PrefetchAsync + TryReadFromCacheAsync returns correct data at a
+// non-zero offset using FS-provided buffers with num_buffers > 1.
+TEST_P(FSBufferPrefetchTest, PrefetchAsyncWithFSBuffer) {
+  std::string fname = "prefetch-async-with-fs-buffer";
+  Random rand(42);
+  std::string content = rand.RandomString(32768);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = 8192;
+  readahead_params.max_readahead_size = 16384;
+  readahead_params.num_buffers = 2;
+
+  FilePrefetchBuffer fpb(readahead_params, true /* enable */,
+                         false /* track_min_offset */, fs(), clock(), stats());
+
+  Slice result;
+  // Issue PrefetchAsync at offset 4096, length 4096.
+  Status s = fpb.PrefetchAsync(IOOptions(), r.get(), 4096, 4096, &result);
+  if (s.IsNotSupported()) {
+    // Async IO not available on this platform.
+    return;
+  }
+  if (s.IsTryAgain()) {
+    // Data not yet available, poll via TryReadFromCacheAsync.
+    bool found = fpb.TryReadFromCache(IOOptions(), r.get(), 4096, 4096, &result,
+                                      &s, /*for_compaction=*/false);
+    if (s.IsNotSupported()) {
+      return;
+    }
+    ASSERT_TRUE(found);
+    ASSERT_OK(s);
+  } else {
+    ASSERT_OK(s);
+  }
+  ASSERT_EQ(result.size(), 4096);
+  ASSERT_EQ(memcmp(result.data(), content.data() + 4096, 4096), 0);
+}
+
+// Test that sequential reads across two consecutive blocks work correctly with
+// FS-provided buffers when using async prefetching (num_buffers > 1).
+TEST_P(FSBufferPrefetchTest, SequentialReadWithFSBuffer) {
+  std::string fname = "sequential-read-with-fs-buffer";
+  Random rand(123);
+  std::string content = rand.RandomString(65536);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  bool use_async_prefetch = std::get<0>(GetParam());
+  bool for_compaction = std::get<1>(GetParam());
+  if (use_async_prefetch && for_compaction) {
+    return;
+  }
+  size_t num_buffers = use_async_prefetch ? 2 : 1;
+
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = 8192;
+  readahead_params.max_readahead_size = 16384;
+  readahead_params.num_buffers = num_buffers;
+
+  FilePrefetchBuffer fpb(readahead_params, true /* enable */,
+                         false /* track_min_offset */, fs(), clock(), stats());
+
+  Slice result;
+  Status s;
+
+  // First sequential read: offset 0, length 4096.
+  bool found = fpb.TryReadFromCache(IOOptions(), r.get(), 0, 4096, &result, &s,
+                                    for_compaction);
+  if (use_async_prefetch && s.IsNotSupported()) {
+    return;
+  }
+  ASSERT_TRUE(found);
+  ASSERT_OK(s);
+  ASSERT_EQ(result.size(), 4096);
+  ASSERT_EQ(memcmp(result.data(), content.data(), 4096), 0);
+
+  // Second sequential read: offset 4096, length 4096.
+  found = fpb.TryReadFromCache(IOOptions(), r.get(), 4096, 4096, &result, &s,
+                               for_compaction);
+  ASSERT_TRUE(found);
+  ASSERT_OK(s);
+  ASSERT_EQ(result.size(), 4096);
+  ASSERT_EQ(memcmp(result.data(), content.data() + 4096, 4096), 0);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
