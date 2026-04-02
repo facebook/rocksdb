@@ -213,7 +213,8 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   auto* default_cfd =
       static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
           ->cfd();
-  auto* bdw_cfd = static_cast_with_check<ColumnFamilyHandleImpl>(bdw_cfh)->cfd();
+  auto* bdw_cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(bdw_cfh)->cfd();
 
   WriteBatch batch;
   ASSERT_OK(WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
@@ -285,7 +286,8 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   auto* default_cfd =
       static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
           ->cfd();
-  auto* bdw_cfd = static_cast_with_check<ColumnFamilyHandleImpl>(bdw_cfh)->cfd();
+  auto* bdw_cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(bdw_cfh)->cfd();
 
   WriteBatchWithIndex wbwi;
   ASSERT_OK(WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
@@ -293,10 +295,10 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   ASSERT_OK(wbwi.Put("default_key", "default_value"));
   ASSERT_OK(wbwi.Put(bdw_cfh, "cf_key", "cf_value"));
 
-  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
-                wbwi.GetWriteBatch(), db_->DefaultColumnFamily()->GetID(),
-                dbfull()),
-            default_cfd);
+  ASSERT_EQ(
+      WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+          wbwi.GetWriteBatch(), db_->DefaultColumnFamily()->GetID(), dbfull()),
+      default_cfd);
   ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
                 wbwi.GetWriteBatch(), bdw_cfh->GetID(), dbfull()),
             bdw_cfd);

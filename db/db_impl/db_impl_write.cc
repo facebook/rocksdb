@@ -500,8 +500,9 @@ struct DBImpl::BlobDirectWriteContext {
     }
 
     if (batch != nullptr) {
-      if (auto* cfd = WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
-              batch, cf_id, db_impl_)) {
+      if (auto* cfd =
+              WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+                  batch, cf_id, db_impl_)) {
         // Attached batches already pinned the CFD while the user still held a
         // CF handle, so we can reuse the usual SuperVersion publication path
         // here without taking DB mutex for an id->CFD lookup.
@@ -540,9 +541,8 @@ struct DBImpl::BlobDirectWriteContext {
     }
 
     Entry entry;
-    if (SuperVersion* sv =
-            AcquireReferencedSuperVersion(batch, cf_id,
-                                          lookup_from_write_thread)) {
+    if (SuperVersion* sv = AcquireReferencedSuperVersion(
+            batch, cf_id, lookup_from_write_thread)) {
       entry.super_version = sv;
       entry.partition_mgr = sv->cfd->blob_partition_manager();
       if (entry.partition_mgr != nullptr) {
