@@ -50,7 +50,18 @@ class DBBlobDirectWriteTest : public DBTestBase {
     return wide_column_test_util::GetDirectWriteOptions(GetDefaultOptions());
   }
 
-  size_t CountBlobFiles() { return DBTestBase::GetBlobFileNumbers().size(); }
+  size_t CountBlobFiles() {
+    std::vector<std::string> files;
+    EXPECT_OK(env_->GetChildren(dbname_, &files));
+
+    size_t blob_files = 0;
+    for (const auto& file : files) {
+      if (file.size() > 5 && file.substr(file.size() - 5) == ".blob") {
+        ++blob_files;
+      }
+    }
+    return blob_files;
+  }
 
   Status ReadBlobFileHeader(uint64_t blob_file_number, BlobLogHeader* header) {
     assert(header != nullptr);

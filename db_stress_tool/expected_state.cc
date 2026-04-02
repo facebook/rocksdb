@@ -894,7 +894,8 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
       return;
     }
     ++emitted_debug_logs_;
-    fprintf(stderr, "[expected_state_trace_debug] %s\n", line.c_str());
+    fprintf(stdout, "[expected_state_trace_debug] %s\n", line.c_str());
+    fflush(stdout);
   }
 
   TraceKeyDebugInfo BuildTraceKeyDebugInfo(const std::string& raw_key,
@@ -1078,7 +1079,7 @@ Status FileExpectedStateManager::Restore(DB* db) {
       focus_key_hex = Slice(Key(FLAGS_expected_state_trace_debug_key))
                           .ToString(/* hex */ true);
     }
-    fprintf(stderr,
+    fprintf(stdout,
             "[expected_state_trace_debug] restore_begin saved_seqno=%" PRIu64
             " db_seqno=%" PRIu64 " replay_write_ops=%" PRIu64
             " state_path=%s trace_path=%s focus_key=%" PRIi64
@@ -1087,6 +1088,7 @@ Status FileExpectedStateManager::Restore(DB* db) {
             replay_write_ops, state_file_path.c_str(), trace_file_path.c_str(),
             FLAGS_expected_state_trace_debug_key, focus_key_hex.c_str(),
             FLAGS_expected_state_trace_debug_max_logs);
+    fflush(stdout);
   }
 
   std::unique_ptr<TraceReader> trace_reader;
@@ -1140,11 +1142,12 @@ Status FileExpectedStateManager::Restore(DB* db) {
       s = replayer->Next(&record);
       if (!s.ok()) {
         if (trace_debug) {
-          fprintf(stderr,
+          fprintf(stdout,
                   "[expected_state_trace_debug] restore_replay_next status=%s "
                   "handler_done=%d\n",
                   s.ToString().c_str(),
                   handler != nullptr && handler->IsDone());
+          fflush(stdout);
         }
         if (s.IsCorruption() && handler->IsDone()) {
           // There could be a corruption reading the tail record of the trace
@@ -1180,7 +1183,7 @@ Status FileExpectedStateManager::Restore(DB* db) {
   }
 
   if (trace_debug) {
-    fprintf(stderr,
+    fprintf(stdout,
             "[expected_state_trace_debug] restore_replay_summary status=%s "
             "replayed_write_ops=%" PRIu64 "/%" PRIu64
             " key_decode_failures=%" PRIu64 " key_roundtrip_mismatches=%" PRIu64
@@ -1189,6 +1192,7 @@ Status FileExpectedStateManager::Restore(DB* db) {
             s.ToString().c_str(), replayed_write_ops, replay_write_ops,
             key_decode_failures, key_roundtrip_mismatches, focus_key_op_hits,
             logs_emitted, logs_suppressed);
+    fflush(stdout);
   }
 
   if (s.ok()) {
@@ -1237,8 +1241,9 @@ Status FileExpectedStateManager::Restore(DB* db) {
     }
   }
   if (trace_debug) {
-    fprintf(stderr, "[expected_state_trace_debug] restore_end status=%s\n",
+    fprintf(stdout, "[expected_state_trace_debug] restore_end status=%s\n",
             s.ToString().c_str());
+    fflush(stdout);
   }
   return s;
 }
