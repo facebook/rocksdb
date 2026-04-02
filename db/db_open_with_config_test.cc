@@ -358,8 +358,9 @@ TEST_F(DBOpenWithConfigTest, OpenWithComprehensiveConfig) {
   ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), "key1",
                            first_columns));
 
+  const std::string second_value(1000, 'x');
   WideColumns second_columns{
-      {kDefaultWideColumnName, std::string(1000, 'x')},
+      {kDefaultWideColumnName, second_value},
       {"attr_large", "large_attr_value"}};  // Larger value for blob
   ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), "key2",
                            second_columns));
