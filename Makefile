@@ -807,7 +807,18 @@ endif  # PLATFORM_SHARED_EXT
 	rocksdbjavastatic rocksdbjava install install-static install-shared \
 	uninstall analyze tools tools_lib check-headers checkout_folly clang-tidy
 
-all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
+# Auto-configure git hooks on first build so developers do not need to run
+# "make install-hooks" manually. This is a no-op if already set.
+setup-hooks:
+	@if [ -d .git ] && [ -d githooks ]; then \
+		cur=$$(git config core.hooksPath 2>/dev/null); \
+		if [ "$$cur" != "githooks" ]; then \
+			git config core.hooksPath githooks; \
+			echo "git hooks: configured core.hooksPath = githooks"; \
+		fi; \
+	fi
+
+all: setup-hooks $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
 
 all_but_some_tests: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(ROCKSDBTESTS_SUBSET)
 
