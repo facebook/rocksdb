@@ -21,7 +21,9 @@
 namespace ROCKSDB_NAMESPACE {
 class NonBatchedOpsStressTest : public StressTest {
  public:
-  NonBatchedOpsStressTest() = default;
+  NonBatchedOpsStressTest(const std::string& db_path, const std::string& ev_dir,
+                          const std::string& sec_base)
+      : StressTest(db_path, ev_dir, sec_base) {}
 
   virtual ~NonBatchedOpsStressTest() = default;
 
@@ -255,20 +257,20 @@ class NonBatchedOpsStressTest : public StressTest {
             std::string from_db;
 
             // Temporarily disable error injection to verify the secondary
-            if (fault_fs_guard) {
-              fault_fs_guard->DisableThreadLocalErrorInjection(
+            if (fault_fs_) {
+              fault_fs_->DisableThreadLocalErrorInjection(
                   FaultInjectionIOType::kRead);
-              fault_fs_guard->DisableThreadLocalErrorInjection(
+              fault_fs_->DisableThreadLocalErrorInjection(
                   FaultInjectionIOType::kMetadataRead);
             }
 
             s = secondary_db_->Get(options, secondary_cfhs_[cf], key, &from_db);
 
             // Re-enable error injection after verifying the secondary
-            if (fault_fs_guard) {
-              fault_fs_guard->EnableThreadLocalErrorInjection(
+            if (fault_fs_) {
+              fault_fs_->EnableThreadLocalErrorInjection(
                   FaultInjectionIOType::kRead);
-              fault_fs_guard->EnableThreadLocalErrorInjection(
+              fault_fs_->EnableThreadLocalErrorInjection(
                   FaultInjectionIOType::kMetadataRead);
             }
 
@@ -678,10 +680,10 @@ class NonBatchedOpsStressTest : public StressTest {
     bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
         thread, read_ts_str, read_ts_slice, read_opts_copy);
 
-    if (fault_fs_guard) {
-      fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+    if (fault_fs_) {
+      fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
           FaultInjectionIOType::kRead);
-      fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+      fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
           FaultInjectionIOType::kMetadataRead);
       SharedState::ignore_read_error = false;
     }
@@ -693,11 +695,11 @@ class NonBatchedOpsStressTest : public StressTest {
         thread->shared->Get(rand_column_families[0], rand_keys[0]);
 
     int injected_error_count = 0;
-    if (fault_fs_guard) {
+    if (fault_fs_) {
       injected_error_count = GetMinInjectedErrorCount(
-          fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+          fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
               FaultInjectionIOType::kRead),
-          fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+          fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
               FaultInjectionIOType::kMetadataRead));
       if (!SharedState::ignore_read_error && injected_error_count > 0 &&
           (s.ok() || s.IsNotFound())) {
@@ -706,9 +708,9 @@ class NonBatchedOpsStressTest : public StressTest {
         MutexLock l(thread->shared->GetMutex());
         fprintf(stderr, "Didn't get expected error from Get\n");
         fprintf(stderr, "Callstack that injected the fault\n");
-        fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+        fault_fs_->PrintInjectedThreadLocalErrorBacktrace(
             FaultInjectionIOType::kRead);
-        fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+        fault_fs_->PrintInjectedThreadLocalErrorBacktrace(
             FaultInjectionIOType::kMetadataRead);
         std::terminate();
       }
@@ -811,10 +813,10 @@ class NonBatchedOpsStressTest : public StressTest {
     std::unique_ptr<Transaction> txn;
     if (use_txn) {
       // TODO(hx235): test fault injection with MultiGet() with transactions
-      if (fault_fs_guard) {
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+      if (fault_fs_) {
+        fault_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kRead);
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+        fault_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
       WriteOptions wo;
@@ -840,20 +842,20 @@ class NonBatchedOpsStressTest : public StressTest {
     int injected_error_count = 0;
 
     if (!use_txn) {
-      if (fault_fs_guard) {
-        fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+      if (fault_fs_) {
+        fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
             FaultInjectionIOType::kRead);
-        fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+        fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
             FaultInjectionIOType::kMetadataRead);
         SharedState::ignore_read_error = false;
       }
       db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
-      if (fault_fs_guard) {
+      if (fault_fs_) {
         injected_error_count = GetMinInjectedErrorCount(
-            fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+            fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
                 FaultInjectionIOType::kRead),
-            fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+            fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
                 FaultInjectionIOType::kMetadataRead));
 
         if (injected_error_count > 0) {
@@ -873,9 +875,9 @@ class NonBatchedOpsStressTest : public StressTest {
                     "num_keys %zu Expected %d errors, seen at least %d\n",
                     num_keys, injected_error_count, stat_nok_nfound);
             fprintf(stderr, "Callstack that injected the fault\n");
-            fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+            fault_fs_->PrintInjectedThreadLocalErrorBacktrace(
                 FaultInjectionIOType::kRead);
-            fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+            fault_fs_->PrintInjectedThreadLocalErrorBacktrace(
                 FaultInjectionIOType::kMetadataRead);
             std::terminate();
           }
@@ -942,10 +944,10 @@ class NonBatchedOpsStressTest : public StressTest {
             const Status& s,
             const std::optional<ExpectedValue>& ryw_expected_value) -> bool {
       //  Temporarily disable error injection for verification
-      if (fault_fs_guard) {
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+      if (fault_fs_) {
+        fault_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kRead);
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+        fault_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
 
@@ -1039,10 +1041,10 @@ class NonBatchedOpsStressTest : public StressTest {
       }
 
       // Enable back error injection disbled for checking results
-      if (fault_fs_guard) {
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+      if (fault_fs_) {
+        fault_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kRead);
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+        fault_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
       return check_multiget_res;
@@ -1081,10 +1083,9 @@ class NonBatchedOpsStressTest : public StressTest {
     if (use_txn) {
       txn->Rollback().PermitUncheckedError();
       // Enable back error injection disbled for transactions
-      if (fault_fs_guard) {
-        fault_fs_guard->EnableThreadLocalErrorInjection(
-            FaultInjectionIOType::kRead);
-        fault_fs_guard->EnableThreadLocalErrorInjection(
+      if (fault_fs_) {
+        fault_fs_->EnableThreadLocalErrorInjection(FaultInjectionIOType::kRead);
+        fault_fs_->EnableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
     }
@@ -1131,10 +1132,10 @@ class NonBatchedOpsStressTest : public StressTest {
     const ExpectedValue pre_read_expected_value =
         thread->shared->Get(column_family, key);
 
-    if (fault_fs_guard) {
-      fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+    if (fault_fs_) {
+      fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
           FaultInjectionIOType::kRead);
-      fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+      fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
           FaultInjectionIOType::kMetadataRead);
       SharedState::ignore_read_error = false;
     }
@@ -1154,11 +1155,11 @@ class NonBatchedOpsStressTest : public StressTest {
         thread->shared->Get(column_family, key);
 
     int injected_error_count = 0;
-    if (fault_fs_guard) {
+    if (fault_fs_) {
       injected_error_count = GetMinInjectedErrorCount(
-          fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+          fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
               FaultInjectionIOType::kRead),
-          fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+          fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
               FaultInjectionIOType::kMetadataRead));
       if (!SharedState::ignore_read_error && injected_error_count > 0 &&
           (s.ok() || s.IsNotFound())) {
@@ -1167,9 +1168,9 @@ class NonBatchedOpsStressTest : public StressTest {
         MutexLock l(thread->shared->GetMutex());
         fprintf(stderr, "Didn't get expected error from GetEntity\n");
         fprintf(stderr, "Callstack that injected the fault\n");
-        fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+        fault_fs_->PrintInjectedThreadLocalErrorBacktrace(
             FaultInjectionIOType::kRead);
-        fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+        fault_fs_->PrintInjectedThreadLocalErrorBacktrace(
             FaultInjectionIOType::kMetadataRead);
         std::terminate();
       }
@@ -1271,10 +1272,10 @@ class NonBatchedOpsStressTest : public StressTest {
     if (FLAGS_use_txn) {
       // TODO(hx235): test fault injection with MultiGetEntity() with
       // transactions
-      if (fault_fs_guard) {
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+      if (fault_fs_) {
+        fault_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kRead);
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+        fault_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
       WriteOptions write_options;
@@ -1308,11 +1309,11 @@ class NonBatchedOpsStressTest : public StressTest {
     int injected_error_count = 0;
 
     auto verify_expected_errors = [&](auto get_status) {
-      assert(fault_fs_guard);
+      assert(fault_fs_);
       injected_error_count = GetMinInjectedErrorCount(
-          fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+          fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
               FaultInjectionIOType::kRead),
-          fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+          fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
               FaultInjectionIOType::kMetadataRead));
       if (injected_error_count) {
         int stat_nok_nfound = 0;
@@ -1334,9 +1335,9 @@ class NonBatchedOpsStressTest : public StressTest {
           fprintf(stderr, "num_keys %zu Expected %d errors, seen %d\n",
                   num_keys, injected_error_count, stat_nok_nfound);
           fprintf(stderr, "Call stack that injected the fault\n");
-          fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+          fault_fs_->PrintInjectedThreadLocalErrorBacktrace(
               FaultInjectionIOType::kRead);
-          fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+          fault_fs_->PrintInjectedThreadLocalErrorBacktrace(
               FaultInjectionIOType::kMetadataRead);
           std::terminate();
         }
@@ -1346,10 +1347,10 @@ class NonBatchedOpsStressTest : public StressTest {
     auto check_results = [&](auto get_columns, auto get_status,
                              auto do_extra_check, auto call_get_entity) {
       // Temporarily disable error injection for checking results
-      if (fault_fs_guard) {
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+      if (fault_fs_) {
+        fault_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kRead);
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+        fault_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
       const bool check_get_entity =
@@ -1439,10 +1440,9 @@ class NonBatchedOpsStressTest : public StressTest {
         }
       }
       // Enable back error injection disbled for checking results
-      if (fault_fs_guard) {
-        fault_fs_guard->EnableThreadLocalErrorInjection(
-            FaultInjectionIOType::kRead);
-        fault_fs_guard->EnableThreadLocalErrorInjection(
+      if (fault_fs_) {
+        fault_fs_->EnableThreadLocalErrorInjection(FaultInjectionIOType::kRead);
+        fault_fs_->EnableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
     };
@@ -1525,19 +1525,18 @@ class NonBatchedOpsStressTest : public StressTest {
 
       txn->Rollback().PermitUncheckedError();
       // Enable back error injection disbled for transactions
-      if (fault_fs_guard) {
-        fault_fs_guard->EnableThreadLocalErrorInjection(
-            FaultInjectionIOType::kRead);
-        fault_fs_guard->EnableThreadLocalErrorInjection(
+      if (fault_fs_) {
+        fault_fs_->EnableThreadLocalErrorInjection(FaultInjectionIOType::kRead);
+        fault_fs_->EnableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
     } else if (FLAGS_use_attribute_group) {
       // AttributeGroup MultiGetEntity verification
 
-      if (fault_fs_guard) {
-        fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+      if (fault_fs_) {
+        fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
             FaultInjectionIOType::kRead);
-        fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+        fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
             FaultInjectionIOType::kMetadataRead);
         SharedState::ignore_read_error = false;
       }
@@ -1553,7 +1552,7 @@ class NonBatchedOpsStressTest : public StressTest {
       db_->MultiGetEntity(read_opts_copy, num_keys, key_slices.data(),
                           results.data());
 
-      if (fault_fs_guard) {
+      if (fault_fs_) {
         verify_expected_errors(
             [&](size_t i) { return results[i][0].status(); });
       }
@@ -1569,10 +1568,10 @@ class NonBatchedOpsStressTest : public StressTest {
     } else {
       // Non-AttributeGroup MultiGetEntity verification
 
-      if (fault_fs_guard) {
-        fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+      if (fault_fs_) {
+        fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
             FaultInjectionIOType::kRead);
-        fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+        fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
             FaultInjectionIOType::kMetadataRead);
         SharedState::ignore_read_error = false;
       }
@@ -1583,7 +1582,7 @@ class NonBatchedOpsStressTest : public StressTest {
       db_->MultiGetEntity(read_opts_copy, cfh, num_keys, key_slices.data(),
                           results.data(), statuses.data());
 
-      if (fault_fs_guard) {
+      if (fault_fs_) {
         verify_expected_errors([&](size_t i) { return statuses[i]; });
       }
 
@@ -1634,10 +1633,10 @@ class NonBatchedOpsStressTest : public StressTest {
     MaybeUseOlderTimestampForRangeScan(thread, read_ts_str, read_ts_slice,
                                        ro_copy);
 
-    if (fault_fs_guard) {
-      fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+    if (fault_fs_) {
+      fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
           FaultInjectionIOType::kRead);
-      fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+      fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
           FaultInjectionIOType::kMetadataRead);
       SharedState::ignore_read_error = false;
     }
@@ -1699,11 +1698,11 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     int injected_error_count = 0;
-    if (fault_fs_guard) {
+    if (fault_fs_) {
       injected_error_count = GetMinInjectedErrorCount(
-          fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+          fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
               FaultInjectionIOType::kRead),
-          fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
+          fault_fs_->GetAndResetInjectedThreadLocalErrorCount(
               FaultInjectionIOType::kMetadataRead));
       if (!SharedState::ignore_read_error && injected_error_count > 0 &&
           s.ok()) {
@@ -1712,9 +1711,9 @@ class NonBatchedOpsStressTest : public StressTest {
         MutexLock l(thread->shared->GetMutex());
         fprintf(stderr, "Didn't get expected error from PrefixScan\n");
         fprintf(stderr, "Callstack that injected the fault\n");
-        fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+        fault_fs_->PrintInjectedThreadLocalErrorBacktrace(
             FaultInjectionIOType::kRead);
-        fault_fs_guard->PrintInjectedThreadLocalErrorBacktrace(
+        fault_fs_->PrintInjectedThreadLocalErrorBacktrace(
             FaultInjectionIOType::kMetadataRead);
         std::terminate();
       }
@@ -1781,10 +1780,10 @@ class NonBatchedOpsStressTest : public StressTest {
 
     if (FLAGS_verify_before_write) {
       // Temporarily disable error injection for preparation
-      if (fault_fs_guard) {
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+      if (fault_fs_) {
+        fault_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kRead);
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+        fault_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
 
@@ -1795,10 +1794,9 @@ class NonBatchedOpsStressTest : public StressTest {
           /* msg_prefix */ "Pre-Put Get verification", from_db, s);
 
       // Enable back error injection disabled for preparation
-      if (fault_fs_guard) {
-        fault_fs_guard->EnableThreadLocalErrorInjection(
-            FaultInjectionIOType::kRead);
-        fault_fs_guard->EnableThreadLocalErrorInjection(
+      if (fault_fs_) {
+        fault_fs_->EnableThreadLocalErrorInjection(FaultInjectionIOType::kRead);
+        fault_fs_->EnableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
       if (!res) {
@@ -2226,11 +2224,11 @@ class NonBatchedOpsStressTest : public StressTest {
         FLAGS_test_ingest_standalone_range_deletion_one_in);
     std::vector<std::string> external_files;
     const std::string sst_filename =
-        FLAGS_db + "/." + std::to_string(thread->tid) + ".sst";
+        db_path_ + "/." + std::to_string(thread->tid) + ".sst";
     external_files.push_back(sst_filename);
     std::string standalone_rangedel_filename;
     if (test_standalone_range_deletion) {
-      standalone_rangedel_filename = FLAGS_db + "/." +
+      standalone_rangedel_filename = db_path_ + "/." +
                                      std::to_string(thread->tid) +
                                      "_standalone_rangedel.sst";
       external_files.push_back(standalone_rangedel_filename);
@@ -2239,10 +2237,10 @@ class NonBatchedOpsStressTest : public StressTest {
     std::ostringstream ingest_options_oss;
 
     // Temporarily disable error injection for preparation
-    if (fault_fs_guard) {
-      fault_fs_guard->DisableThreadLocalErrorInjection(
+    if (fault_fs_) {
+      fault_fs_->DisableThreadLocalErrorInjection(
           FaultInjectionIOType::kMetadataRead);
-      fault_fs_guard->DisableThreadLocalErrorInjection(
+      fault_fs_->DisableThreadLocalErrorInjection(
           FaultInjectionIOType::kMetadataWrite);
     }
 
@@ -2257,10 +2255,10 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
 
-    if (fault_fs_guard) {
-      fault_fs_guard->EnableThreadLocalErrorInjection(
+    if (fault_fs_) {
+      fault_fs_->EnableThreadLocalErrorInjection(
           FaultInjectionIOType::kMetadataRead);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
+      fault_fs_->EnableThreadLocalErrorInjection(
           FaultInjectionIOType::kMetadataWrite);
     }
 
@@ -3386,8 +3384,10 @@ class NonBatchedOpsStressTest : public StressTest {
   }
 };
 
-StressTest* CreateNonBatchedOpsStressTest() {
-  return new NonBatchedOpsStressTest();
+StressTest* CreateNonBatchedOpsStressTest(const std::string& db_path,
+                                          const std::string& ev_dir,
+                                          const std::string& sec_base) {
+  return new NonBatchedOpsStressTest(db_path, ev_dir, sec_base);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

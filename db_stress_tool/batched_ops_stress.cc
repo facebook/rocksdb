@@ -13,7 +13,9 @@
 namespace ROCKSDB_NAMESPACE {
 class BatchedOpsStressTest : public StressTest {
  public:
-  BatchedOpsStressTest() = default;
+  BatchedOpsStressTest(const std::string& db_path, const std::string& ev_dir,
+                       const std::string& sec_base)
+      : StressTest(db_path, ev_dir, sec_base) {}
   virtual ~BatchedOpsStressTest() = default;
 
   bool IsStateTracked() const override { return false; }
@@ -722,7 +724,11 @@ class BatchedOpsStressTest : public StressTest {
   }
 };
 
-StressTest* CreateBatchedOpsStressTest() { return new BatchedOpsStressTest(); }
+StressTest* CreateBatchedOpsStressTest(const std::string& db_path,
+                                       const std::string& ev_dir,
+                                       const std::string& sec_base) {
+  return new BatchedOpsStressTest(db_path, ev_dir, sec_base);
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

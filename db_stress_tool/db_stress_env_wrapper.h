@@ -172,6 +172,8 @@ class DbStressFSWrapper : public FileSystemWrapper {
   static const char* kClassName() { return "DbStressFS"; }
   const char* Name() const override { return kClassName(); }
 
+  const std::shared_ptr<FileSystem>& GetInnerFS() const { return target_; }
+
   IOStatus NewRandomAccessFile(const std::string& f,
                                const FileOptions& file_opts,
                                std::unique_ptr<FSRandomAccessFile>* r,

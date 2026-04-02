@@ -13,11 +13,15 @@
 
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
+#include "env/composite_env_wrapper.h"
+#include "rocksdb/db_stress_tool.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/user_defined_index.h"
 #include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+class DbStressFSWrapper;
 class SystemClock;
 class Transaction;
 class TransactionDB;
@@ -40,11 +44,20 @@ class StressTest {
   // from optimistic transactions when conflict detection retries are exhausted.
   static bool IsExpectedTxnError(const Status& s);
 
-  StressTest();
+  StressTest(const std::string& db_path, const std::string& expected_values_dir,
+             const std::string& secondaries_base);
 
   virtual ~StressTest() {}
 
-  std::shared_ptr<Cache> NewCache(size_t capacity, int32_t num_shard_bits);
+  const std::string& GetDbPath() const { return db_path_; }
+  const std::string& GetExpectedValuesDir() const {
+    return expected_values_dir_;
+  }
+  const std::string& GetSecondariesBase() const { return secondaries_base_; }
+  std::shared_ptr<FaultInjectionTestFS> GetFaultFs() const { return fault_fs_; }
+
+  static std::shared_ptr<Cache> NewCache(size_t capacity,
+                                         int32_t num_shard_bits);
 
   static std::vector<std::string> GetBlobCompressionTags();
 
@@ -407,6 +420,14 @@ class StressTest {
                                           ReadOptions& read_opts);
 
   void CleanUpColumnFamilies();
+
+  std::string db_path_;
+  std::string expected_values_dir_;
+  std::string secondaries_base_;
+
+  std::shared_ptr<FaultInjectionTestFS> fault_fs_;
+  std::shared_ptr<DbStressFSWrapper> fault_stress_fs_;
+  std::unique_ptr<CompositeEnvWrapper> fault_env_;
 
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;

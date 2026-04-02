@@ -15,8 +15,12 @@ namespace ROCKSDB_NAMESPACE {
 
 #ifdef GFLAGS
 
-UniqueIdVerifier::UniqueIdVerifier(const std::string& dir)
-    : path_(dir + "/.unique_ids") {
+// TODO: consider using expected_values_dir instead, but this is more
+// convenient for now.
+UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name,
+                                   const std::string& expected_values_dir)
+    : path_((!expected_values_dir.empty() ? expected_values_dir : db_name) +
+            "/.unique_ids") {
   // We expect such a small number of files generated during this test
   // (thousands?), checking full 192-bit IDs for uniqueness is a very
   // weak check. For a stronger check, we pick a specific 64-bit
@@ -25,9 +29,11 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& dir)
   // very good probability for the quantities in this test.
   offset_ = Random::GetTLSInstance()->Uniform(17);  // 0 to 16
 
-  // Always use local (default) filesystem for this bookkeeping file,
-  // even when DB is on a remote/warm filesystem, to avoid issues with
-  // weaker durability guarantees on remote filesystems.
+  // Use expected_values_dir (always a local path) when available, falling
+  // back to db_name. Always use the default (local) filesystem so
+  // bookkeeping avoids durability issues with remote/custom filesystems.
+  const std::string& dir =
+      !expected_values_dir.empty() ? expected_values_dir : db_name;
   const std::shared_ptr<FileSystem> fs = Env::Default()->GetFileSystem();
   IOOptions opts;
 

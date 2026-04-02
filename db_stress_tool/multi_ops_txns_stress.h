@@ -191,7 +191,9 @@ class MultiOpsTxnsStressTest : public StressTest {
     uint32_t c_{0};
   };
 
-  MultiOpsTxnsStressTest() {}
+  MultiOpsTxnsStressTest(const std::string& db_path, const std::string& ev_dir,
+                         const std::string& sec_base)
+      : StressTest(db_path, ev_dir, sec_base) {}
 
   ~MultiOpsTxnsStressTest() override {}
 

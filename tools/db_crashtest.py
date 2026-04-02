@@ -477,6 +477,9 @@ default_params = {
     "statistics": random.choice([0, 1]),
     # TODO: re-enable after resolving "Req failed: Unknown error -14" errors
     "multiscan_use_async_io": 0,  # random.randint(0, 1),
+    # TODO: re-enable multi-DB stress testing after CI validation
+    # "num_dbs": lambda: random.choice([1] * 4 + [3, 5]),
+    "num_dbs": 1,
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
@@ -1331,6 +1334,14 @@ def finalize_and_sanitize(src_params):
     # interval so that the feature gets exercised on a quiet DB.
     if dest_params.get("read_triggered_compaction_threshold", 0) > 0:
         dest_params["max_compaction_trigger_wakeup_seconds"] = 20
+    # Multi-DB mode: disable features with known race conditions
+    if dest_params.get("num_dbs", 1) > 1:
+        # clear_column_family_one_in has a pre-existing CF handle race
+        # condition that is more likely to trigger with multi-DB thread count
+        dest_params["clear_column_family_one_in"] = 0
+        # MultiOpsTxnsStressTest uses a single global key_spaces_path file
+        # that would be corrupted by concurrent DB instances
+        dest_params["test_multi_ops_txns"] = 0
 
     return dest_params
 
@@ -1473,9 +1484,27 @@ def print_output_and_exit_on_error(stdout, stderr, print_stderr_separately=False
     sys.exit(2)
 
 
-def cleanup_after_success(dbname):
+def cleanup_after_success(dbname, num_dbs=1, expected_values_dir=None,
+                          secondaries_base=None, test_secondary=0,
+                          continuous_verification_interval=0):
     # Use db_stress --destroy_db_and_exit, which simplifies remote DB cleanup
     cleanup_cmd_parts = [stress_cmd, "--destroy_db_and_exit=1", "--db=" + dbname]
+    if num_dbs > 1:
+        cleanup_cmd_parts.append("--num_dbs=%d" % num_dbs)
+    if expected_values_dir:
+        cleanup_cmd_parts.append("--expected_values_dir=" + expected_values_dir)
+    if secondaries_base:
+        cleanup_cmd_parts.append("--secondaries_base=" + secondaries_base)
+    # Forward flags that trigger auto-generated secondaries_base in the C++
+    # side, so --destroy_db_and_exit can clean the default path even when the
+    # Python driver never set --secondaries_base explicitly.
+    if test_secondary:
+        cleanup_cmd_parts.append("--test_secondary=%s" % test_secondary)
+    if continuous_verification_interval:
+        cleanup_cmd_parts.append(
+            "--continuous_verification_interval=%s"
+            % continuous_verification_interval
+        )
     # Pass through relevant arguments for remote DB access
     for arg in remain_args:
         parts = arg.split("=", 1)
@@ -1540,6 +1569,23 @@ def print_and_cleanup_fault_injection_log(pid):
 # in case of unsafe crashes in RocksDB.
 def blackbox_crash_main(args, unknown_args):
     cmd_params = gen_cmd_params(args)
+    # Materialize num_dbs once since it determines directory layout for the
+    # entire run and must stay constant across iterations and cleanup.
+    num_dbs_val = cmd_params.get("num_dbs", 1)
+    if callable(num_dbs_val):
+        num_dbs_val = num_dbs_val()
+    cmd_params["num_dbs"] = num_dbs_val
+    # Materialize expected_values_dir once since the lambda creates a new
+    # temp directory each time (mkdtemp) and we need the same path at cleanup.
+    ev_dir_val = cmd_params.get("expected_values_dir")
+    if callable(ev_dir_val):
+        ev_dir_val = ev_dir_val()
+    cmd_params["expected_values_dir"] = ev_dir_val
+    # Materialize test_secondary so cleanup can forward a concrete value.
+    ts_val = cmd_params.get("test_secondary", 0)
+    if callable(ts_val):
+        ts_val = ts_val()
+    cmd_params["test_secondary"] = ts_val
     dbname = get_dbname("blackbox")
     exit_time = time.time() + cmd_params["duration"]
 
@@ -1597,13 +1643,34 @@ def blackbox_crash_main(args, unknown_args):
     print_output_and_exit_on_error(outs, errs, args.print_stderr_separately)
 
     # we need to clean up after ourselves -- only do this on test success
-    cleanup_after_success(dbname)
+    cleanup_after_success(dbname, cmd_params.get("num_dbs", 1),
+                          cmd_params.get("expected_values_dir"),
+                          cmd_params.get("secondaries_base"),
+                          cmd_params.get("test_secondary", 0),
+                          cmd_params.get("continuous_verification_interval", 0))
 
 
 # This python script runs db_stress multiple times. Some runs with
 # kill_random_test that causes rocksdb to crash at various points in code.
 def whitebox_crash_main(args, unknown_args):
     cmd_params = gen_cmd_params(args)
+    # Materialize num_dbs once since it determines directory layout for the
+    # entire run and must stay constant across iterations and cleanup.
+    num_dbs_val = cmd_params.get("num_dbs", 1)
+    if callable(num_dbs_val):
+        num_dbs_val = num_dbs_val()
+    cmd_params["num_dbs"] = num_dbs_val
+    # Materialize expected_values_dir once since the lambda creates a new
+    # temp directory each time (mkdtemp) and we need the same path at cleanup.
+    ev_dir_val = cmd_params.get("expected_values_dir")
+    if callable(ev_dir_val):
+        ev_dir_val = ev_dir_val()
+    cmd_params["expected_values_dir"] = ev_dir_val
+    # Materialize test_secondary so cleanup can forward a concrete value.
+    ts_val = cmd_params.get("test_secondary", 0)
+    if callable(ts_val):
+        ts_val = ts_val()
+    cmd_params["test_secondary"] = ts_val
     dbname = get_dbname("whitebox")
 
     cur_time = time.time()
@@ -1779,7 +1846,11 @@ def whitebox_crash_main(args, unknown_args):
     # If successfully finished or timed out (we currently treat timed out test as passing)
     # Clean up after ourselves
     if succeeded or hit_timeout:
-        cleanup_after_success(dbname)
+        cleanup_after_success(dbname, cmd_params.get("num_dbs", 1),
+                              cmd_params.get("expected_values_dir"),
+                              cmd_params.get("secondaries_base"),
+                              cmd_params.get("test_secondary", 0),
+                              cmd_params.get("continuous_verification_interval", 0))
 
 
 def main():

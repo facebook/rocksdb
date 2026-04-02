@@ -78,7 +78,8 @@ class SharedState {
   // for those calls
   static thread_local bool ignore_read_error;
 
-  SharedState(Env* /*env*/, StressTest* stress_test)
+  SharedState(Env* /*env*/, StressTest* stress_test,
+              const std::string& expected_values_dir)
       : cv_(&mu_),
         seed_(static_cast<uint32_t>(FLAGS_seed)),
         max_key_(FLAGS_max_key),
@@ -98,15 +99,17 @@ class SharedState {
         should_stop_test_(false),
         no_overwrite_ids_(GenerateNoOverwriteIds()),
         expected_state_manager_(nullptr),
+        expected_values_dir_(expected_values_dir),
         printing_verification_results_(false),
         start_timestamp_(Env::Default()->NowNanos()) {
     Status status;
+    const std::string& ev_dir = expected_values_dir_;
     // TODO: We should introduce a way to explicitly disable verification
-    // during shutdown. When that is disabled and FLAGS_expected_values_dir
+    // during shutdown. When that is disabled and expected_values_dir
     // is empty (disabling verification at startup), we can skip tracking
     // expected state. Only then should we permit bypassing the below feature
     // compatibility checks.
-    if (!FLAGS_expected_values_dir.empty()) {
+    if (!ev_dir.empty()) {
       if (!std::atomic<uint32_t>{}.is_lock_free() ||
           !std::atomic<uint64_t>{}.is_lock_free()) {
         std::ostringstream status_s;
@@ -125,12 +128,12 @@ class SharedState {
       }
     }
     if (status.ok()) {
-      if (FLAGS_expected_values_dir.empty()) {
+      if (ev_dir.empty()) {
         expected_state_manager_.reset(
             new AnonExpectedStateManager(FLAGS_max_key, FLAGS_column_families));
       } else {
         expected_state_manager_.reset(new FileExpectedStateManager(
-            FLAGS_max_key, FLAGS_column_families, FLAGS_expected_values_dir));
+            FLAGS_max_key, FLAGS_column_families, ev_dir));
       }
       status = expected_state_manager_->Open();
     }
@@ -430,9 +433,7 @@ class SharedState {
     return bg_thread_finished_ == num_bg_threads_;
   }
 
-  bool ShouldVerifyAtBeginning() const {
-    return !FLAGS_expected_values_dir.empty();
-  }
+  bool ShouldVerifyAtBeginning() const { return !expected_values_dir_.empty(); }
 
   bool PrintingVerificationResults() {
     bool tmp = false;
@@ -519,6 +520,7 @@ class SharedState {
   const std::unordered_set<int64_t> no_overwrite_ids_;
 
   std::unique_ptr<ExpectedStateManager> expected_state_manager_;
+  const std::string expected_values_dir_;
   // Cannot store `port::Mutex` directly in vector since it is not copyable
   // and storing it in the container may require copying depending on the impl.
   std::vector<std::unique_ptr<port::Mutex[]>> key_locks_;
