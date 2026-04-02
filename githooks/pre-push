@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# pre-push hook: auto-format changed code before pushing.
+#
+# Runs `make format-auto` to apply clang-format to files changed relative to
+# the upstream merge base. If any files are reformatted, they are committed as
+# a new "format" commit so the pushed code is always correctly formatted.
+#
+# Install with:
+#   make install-hooks
+#
+# Skip with:
+#   git push --no-verify
+
+set -e
+
+# Only act when we have a terminal (skip in CI / automated pushes)
+if [ ! -t 1 ] && [ -z "$ROCKSDB_FORMAT_HOOK" ]; then
+  exit 0
+fi
+
+echo "pre-push: running format check..."
+
+# Save any uncommitted work so format-auto only touches committed code
+NEED_STASH=0
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  git stash push -q -m "pre-push-hook-$(date +%s)"
+  NEED_STASH=1
+fi
+
+cleanup() {
+  if [ "$NEED_STASH" -eq 1 ]; then
+    git stash pop -q 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+
+# Run format check (check-only mode first to see if anything needs fixing)
+if make check-format 2>/dev/null; then
+  echo "pre-push: formatting is clean."
+  exit 0
+fi
+
+echo "pre-push: formatting issues detected, auto-fixing..."
+make format-auto
+
+# Check if format-auto actually changed anything
+if git diff --quiet; then
+  echo "pre-push: formatting is clean after auto-fix."
+  exit 0
+fi
+
+# Create a new format commit
+git add -A
+git commit -m "format: auto-format code" --no-verify -q
+echo "pre-push: created format commit $(git log --oneline -1 HEAD)"
+
+# The tip commit changed — git is about to push the old SHA.
+# Abort so the user can push again with the new commit included.
+echo ""
+echo "==========================================================="
+echo "  A formatting commit was added."
+echo "  Please run 'git push' again to include it."
+echo "==========================================================="
+exit 1

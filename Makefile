@@ -1255,6 +1255,31 @@ format-auto:
 check-format:
 	build_tools/format-diff.sh -c
 
+
+install-hooks:
+	@echo "Installing git hooks from githooks/..."
+	@if [ -d githooks ]; then \
+		for hook in githooks/*; do \
+			hook_name=$$(basename "$$hook"); \
+			cp "$$hook" .git/hooks/"$$hook_name"; \
+			chmod +x .git/hooks/"$$hook_name"; \
+			echo "  Installed $$hook_name"; \
+		done; \
+		echo "Done. Hooks installed to .git/hooks/"; \
+	else \
+		echo "Error: githooks/ directory not found"; \
+		exit 1; \
+	fi
+
+uninstall-hooks:
+	@echo "Removing installed git hooks..."
+	@for hook in githooks/*; do \
+		hook_name=$$(basename "$$hook"); \
+		rm -f .git/hooks/"$$hook_name"; \
+		echo "  Removed $$hook_name"; \
+	done
+	@echo "Done."
+
 check-buck-targets:
 	buckifier/check_buck_targets.sh
 
