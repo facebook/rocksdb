@@ -1307,13 +1307,15 @@ Status CompactionJob::Install(bool* compaction_released) {
            << pl_stats.bytes_written_blob;
   }
 
-  // Update compact_->status so that CleanupCompaction() passes the correct
-  // overall status to SubcompactionState::Cleanup(). Without this, if Run()
-  // succeeds (compact_->status = OK) but InstallCompactionResults() fails
-  // (local status = error), Cleanup would see overall_status = OK and skip
-  // ReleaseObsolete, leaking table cache entries for output files that were
-  // never installed into any Version.
-  compact_->status = status;
+  // Propagate Install failure to compact_->status so that
+  // CleanupCompaction() -> SubcompactionState::Cleanup() sees the failure and
+  // calls ReleaseObsolete on output files' table cache entries. Without this,
+  // if Run() succeeds but InstallCompactionResults() fails, Cleanup would see
+  // overall_status = OK and skip ReleaseObsolete, leaking entries for output
+  // files that were never installed into any Version.
+  if (!status.ok() && compact_->status.ok()) {
+    compact_->status = status;
+  }
 
   CleanupCompaction();
   return status;
