@@ -346,15 +346,17 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   std::unique_ptr<DB> other_db;
   ASSERT_OK(DB::Open(options, other_dbname, &other_db));
 
-  WriteBatch second_batch;
-  ASSERT_OK(WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
-      &second_batch, other_db->DefaultColumnFamily()));
+  {
+    WriteBatch second_batch;
+    ASSERT_OK(WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+        &second_batch, other_db->DefaultColumnFamily()));
 
-  Status s = WriteBatchInternal::Append(&first_batch, &second_batch);
-  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
-  ASSERT_NE(s.ToString().find("conflicting blob direct write column family "
-                              "attachments"),
-            std::string::npos);
+    Status s = WriteBatchInternal::Append(&first_batch, &second_batch);
+    ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+    ASSERT_NE(s.ToString().find("conflicting blob direct write column family "
+                                "attachments"),
+              std::string::npos);
+  }
 
   other_db.reset();
   ASSERT_OK(DestroyDB(other_dbname, options));
