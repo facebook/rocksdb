@@ -154,7 +154,10 @@ PLATFORM_SHARED_VERSIONED=true
 # Set ROCKSDB_NO_FAST_LINKER=1 to disable this auto-detection.
 if [ -z "$ROCKSDB_NO_FAST_LINKER" ] && [ "$TARGET_OS" = "Linux" ]; then
     if $CXX -fuse-ld=lld -L/usr/local/lib -x c++ - -o /dev/null 2>/dev/null <<EOF
-int main() { return 0; }
+int main() {
+    try { throw 1; } catch (...) { return 1; }
+    return 0;
+}
 EOF
     then
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -fuse-ld=lld"
