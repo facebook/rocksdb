@@ -9,7 +9,6 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "rocksdb/advanced_options.h"
@@ -19,6 +18,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -146,7 +146,7 @@ class BlobWriteBatchTransformer : public WriteBatch::Handler {
   BlobFilePartitionManager* cached_partition_mgr_ = nullptr;
   // Set of partition managers that received data during this batch,
   // returned to the caller so it can flush/sync them.
-  std::unordered_set<BlobFilePartitionManager*> used_managers_;
+  UnorderedSet<BlobFilePartitionManager*> used_managers_;
   // Exact blob writes performed during this batch. We only aggregate these
   // entries if rollback is needed so the normal path keeps minimal overhead.
   std::vector<RollbackInfo> rollback_infos_;

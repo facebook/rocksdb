@@ -9,7 +9,6 @@
 #include <cinttypes>
 #include <optional>
 #include <unordered_map>
-#include <unordered_set>
 
 #include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_write_batch_transformer.h"
@@ -22,6 +21,7 @@
 #include "options/options_helper.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -468,7 +468,7 @@ struct DBImpl::BlobDirectWriteContext {
     entries_.clear();
   }
 
-  std::unordered_set<BlobFilePartitionManager*> touched_managers;
+  UnorderedSet<BlobFilePartitionManager*> touched_managers;
   std::vector<BlobWriteBatchTransformer::RollbackInfo> rollback_infos;
 
  private:
@@ -505,7 +505,8 @@ struct DBImpl::BlobDirectWriteContext {
         // Hold the CFD long enough to acquire a referenced SuperVersion after
         // dropping DB mutex. This reuses the existing SuperVersion publication
         // path for mutable options rather than maintaining a separate BDW
-        // settings snapshot.
+        // settings snapshot. A future attached-WriteBatch path could pin the
+        // needed CFDs up front and avoid this DB mutex lookup entirely.
         cfd->Ref();
       }
     }
@@ -770,7 +771,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   std::optional<std::vector<WriteBatch>> transformed_write_group_batches;
   std::optional<BlobDirectWriteContext> blob_direct_write_ctx;
   std::optional<BlobWriteRollbackGuard> blob_write_rollback_guard;
-  if (UNLIKELY(maybe_use_blob_direct_write)) {
+  if (maybe_use_blob_direct_write) {
     blob_direct_write_ctx.emplace(this);
     blob_write_rollback_guard.emplace(&blob_direct_write_ctx->rollback_infos,
                                       immutable_db_options_.info_log.get());

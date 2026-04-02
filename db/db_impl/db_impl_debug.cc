@@ -18,6 +18,7 @@
 #include "db/periodic_task_scheduler.h"
 #include "monitoring/thread_status_updater.h"
 #include "util/cast_util.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 uint64_t DBImpl::TEST_GetLevel0TotalSize() {
@@ -359,7 +360,7 @@ void DBImpl::TEST_VerifyNoObsoleteFilesCached(
   }
 
   // Live and "quarantined" files are allowed to be open in table cache
-  std::unordered_set<uint64_t> live_and_quar_files;
+  UnorderedSet<uint64_t> live_and_quar_files;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
       continue;

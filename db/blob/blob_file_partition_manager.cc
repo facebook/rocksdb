@@ -630,7 +630,7 @@ Status BlobFilePartitionManager::SyncAllOpenFiles(
 }
 
 void BlobFilePartitionManager::GetActiveBlobFileNumbers(
-    std::unordered_set<uint64_t>* file_numbers) const {
+    UnorderedSet<uint64_t>* file_numbers) const {
   assert(file_numbers != nullptr);
   ReadLock lock(&file_partition_mutex_);
   for (const auto& entry : file_to_partition_) {
@@ -639,7 +639,7 @@ void BlobFilePartitionManager::GetActiveBlobFileNumbers(
 }
 
 void BlobFilePartitionManager::GetProtectedBlobFileNumbers(
-    std::unordered_set<uint64_t>* file_numbers) const {
+    UnorderedSet<uint64_t>* file_numbers) const {
   assert(file_numbers != nullptr);
   ReadLock lock(&file_partition_mutex_);
   for (const auto& entry : protected_blob_file_refs_) {

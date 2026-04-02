@@ -11,7 +11,6 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "db/blob/blob_file_addition.h"
@@ -26,6 +25,7 @@
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "util/hash_containers.h"
 namespace ROCKSDB_NAMESPACE {
 
 class BlobFileCache;
@@ -44,8 +44,11 @@ struct ReadOptions;
 //
 // The v1 design keeps each memtable switch as one FIFO generation batch.
 // Direct-write files for that memtable are sealed and registered when the
-// matching flush commits. Follow-up PRs can broaden compatibility as the
-// feature matures.
+// matching flush commits. The current implementation still serializes blob
+// appends through one manager mutex; follow-up PRs can add independent
+// per-partition locks to allow concurrent blob writes without changing the
+// generation/flush contract. Follow-up PRs can also broaden compatibility as
+// the feature matures.
 class BlobFilePartitionManager {
  public:
   using FileNumberAllocator = std::function<uint64_t()>;
@@ -96,7 +99,7 @@ class BlobFilePartitionManager {
   // their blob-file additions and garbage edits were committed to MANIFEST.
   void CommitPreparedGenerations(size_t num_generations);
 
-  // In v1 sync-only mode each AddRecord flushes to the OS immediately, so
+  // In v1 flush-on-write mode each AddRecord flushes to the OS immediately, so
   // there is nothing extra to do for the non-sync write path.
   Status FlushAllOpenFiles(const WriteOptions& /*write_options*/) {
     return Status::OK();
@@ -107,13 +110,11 @@ class BlobFilePartitionManager {
 
   // Returns blob files still owned by the manager and therefore not yet safe
   // to consider obsolete.
-  void GetActiveBlobFileNumbers(
-      std::unordered_set<uint64_t>* file_numbers) const;
+  void GetActiveBlobFileNumbers(UnorderedSet<uint64_t>* file_numbers) const;
 
   // Returns sealed blob files that are still reachable through live memtables
   // or old SuperVersions and therefore must not be purged yet.
-  void GetProtectedBlobFileNumbers(
-      std::unordered_set<uint64_t>* file_numbers) const;
+  void GetProtectedBlobFileNumbers(UnorderedSet<uint64_t>* file_numbers) const;
 
   // Increments / decrements memtable-held protection on sealed blob files.
   void ProtectSealedBlobFileNumbers(const std::vector<uint64_t>& file_numbers);

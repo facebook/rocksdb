@@ -118,6 +118,8 @@ Status BlobWriteBatchTransformer::TimedPutCF(uint32_t column_family_id,
 Status BlobWriteBatchTransformer::PutEntityCF(uint32_t column_family_id,
                                               const Slice& key,
                                               const Slice& entity) {
+  // Wide-column/entity writes stay serialized as-is. BDW v1 only rewrites
+  // plain Put values into BlobIndex entries.
   return WriteBatchInternal::PutEntitySerialized(output_batch_,
                                                  column_family_id, key, entity);
 }

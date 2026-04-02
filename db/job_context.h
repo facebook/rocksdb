@@ -11,13 +11,13 @@
 
 #include <limits>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 #include "db/column_family.h"
 #include "db/log_writer.h"
 #include "db/version_set.h"
 #include "util/autovector.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -219,7 +219,7 @@ struct JobContext {
   // still reachable through live memtables / old SuperVersions.
   // Collected under db_mutex_ in FindObsoleteFiles so PurgeObsoleteFiles can
   // safely use the snapshot without taking DB mutex.
-  std::unordered_set<uint64_t> active_blob_direct_write_files;
+  UnorderedSet<uint64_t> active_blob_direct_write_files;
 
   // Snapshot of VersionSet's next file number taken before collecting active
   // direct-write blob files. This keeps the current purge pass from racing a
