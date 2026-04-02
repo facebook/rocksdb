@@ -1281,8 +1281,13 @@ class DBImpl : public DB {
   // In certain configurations, verify that the table/blob file cache only
   // contains entries for live files, to check for effective leaks of open
   // files. This can only be called when purging of obsolete files has
-  // "settled," such as during parts of DB Close().
-  void TEST_VerifyNoObsoleteFilesCached(bool db_mutex_already_held) const;
+  // "settled," such as during parts of DB Close(). When available,
+  // protected_blob_files_snapshot should be the blob-file keep-set captured by
+  // FindObsoleteFiles for the corresponding PurgeObsoleteFiles run.
+  void TEST_VerifyNoObsoleteFilesCached(
+      bool db_mutex_already_held,
+      const std::unordered_set<uint64_t>* protected_blob_files_snapshot =
+          nullptr) const;
 
   // persist stats to column family "_persistent_stats"
   void PersistStats();

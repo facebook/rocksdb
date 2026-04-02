@@ -333,7 +333,8 @@ size_t DBImpl::TEST_EstimateInMemoryStatsHistorySize() const {
 }
 
 void DBImpl::TEST_VerifyNoObsoleteFilesCached(
-    bool db_mutex_already_held) const {
+    bool db_mutex_already_held,
+    const std::unordered_set<uint64_t>* protected_blob_files_snapshot) const {
   // This check is somewhat expensive and obscure to make a part of every
   // unit test in every build variety. Thus, we only enable it for ASAN builds.
   if (!kMustFreeHeapAllocations) {
@@ -384,6 +385,16 @@ void DBImpl::TEST_VerifyNoObsoleteFilesCached(
   {
     const auto& quar_files = error_handler_.GetFilesToQuarantine();
     live_and_quar_files.insert(quar_files.begin(), quar_files.end());
+  }
+  if (protected_blob_files_snapshot != nullptr) {
+    live_and_quar_files.insert(protected_blob_files_snapshot->begin(),
+                               protected_blob_files_snapshot->end());
+  }
+  {
+    std::unordered_set<uint64_t> fallback_live_blob_files;
+    versions_->GetFallbackLiveBlobFiles(&fallback_live_blob_files);
+    live_and_quar_files.insert(fallback_live_blob_files.begin(),
+                               fallback_live_blob_files.end());
   }
   auto fn = [&live_and_quar_files](const Slice& key, Cache::ObjectPtr, size_t,
                                    const Cache::CacheItemHelper*) {

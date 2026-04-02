@@ -1305,12 +1305,17 @@ class VersionBuilder::Rep {
     vstorage->ReserveBlob(base_vstorage_->GetBlobFiles().size() +
                           mutable_blob_file_metas_.size());
 
-    const uint64_t oldest_blob_file_with_linked_ssts =
-        GetMinOldestBlobFileNumber();
+    uint64_t first_blob_file = 0;
+    if (track_found_and_missing_files_) {
+      first_blob_file = GetMinOldestBlobFileNumber();
 
-    // If there are no blob files with linked SSTs, meaning that there are no
-    // valid blob files
-    if (oldest_blob_file_with_linked_ssts == kInvalidBlobFileNumber) {
+      // Recovery / catch-up still uses linked SST metadata to decide which
+      // blob files can belong to a valid Version.
+      if (first_blob_file == kInvalidBlobFileNumber) {
+        return;
+      }
+    } else if (mutable_blob_file_metas_.empty() &&
+               base_vstorage_->GetBlobFiles().empty()) {
       return;
     }
 
@@ -1357,8 +1362,8 @@ class VersionBuilder::Rep {
       return true;
     };
 
-    MergeBlobFileMetas(oldest_blob_file_with_linked_ssts, process_base,
-                       process_mutable, process_both);
+    MergeBlobFileMetas(first_blob_file, process_base, process_mutable,
+                       process_both);
   }
 
   void MaybeAddFile(VersionStorageInfo* vstorage, int level,

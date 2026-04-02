@@ -754,6 +754,9 @@ Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
                                  bytes_read);
   if (s.ok()) {
     blob_value->PinSelf(blob_contents->data());
+    if (version != nullptr) {
+      version->ProtectFallbackLiveBlobFile(blob_idx.file_number());
+    }
     return s;
   }
 
@@ -779,6 +782,9 @@ Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
                             bytes_read);
   if (s.ok()) {
     blob_value->PinSelf(fresh_contents->data());
+    if (version != nullptr) {
+      version->ProtectFallbackLiveBlobFile(blob_idx.file_number());
+    }
     CacheHandleGuard<BlobFileReader> ignored;
     blob_file_cache
         ->RefreshBlobFileReader(blob_idx.file_number(), &fresh_reader, &ignored)

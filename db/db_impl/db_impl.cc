@@ -725,9 +725,11 @@ Status DBImpl::CloseHelper() {
   // manifest file), it is not able to identify live files correctly. As a
   // result, all "live" files can get deleted by accident. However, corrupted
   // manifest is recoverable by RepairDB().
+  std::unordered_set<uint64_t> protected_blob_files_snapshot;
   if (opened_successfully_) {
     JobContext job_context(next_job_id_.fetch_add(1));
     FindObsoleteFiles(&job_context, true);
+    protected_blob_files_snapshot = job_context.active_blob_direct_write_files;
 
     mutex_.Unlock();
     // manifest number starting from 2
@@ -776,7 +778,8 @@ Status DBImpl::CloseHelper() {
   // we can guarantee that after versions_.reset(), table cache is empty
   // so the cache can be safely destroyed.
 #ifndef NDEBUG
-  TEST_VerifyNoObsoleteFilesCached(/*db_mutex_already_held=*/true);
+  TEST_VerifyNoObsoleteFilesCached(/*db_mutex_already_held=*/true,
+                                   &protected_blob_files_snapshot);
 #endif  // !NDEBUG
   table_cache_->EraseUnRefEntries();
 

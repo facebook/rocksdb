@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -37,6 +38,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBBlobDirectWriteTest : public DBTestBase {
  protected:
+  using ValueFn = std::function<std::string(int, int)>;
+
   DBBlobDirectWriteTest()
       : DBTestBase("db_blob_direct_write_test", /* env_do_fsync */ false) {}
 
@@ -55,6 +58,67 @@ class DBBlobDirectWriteTest : public DBTestBase {
     options.min_blob_size = 32;
     options.blob_direct_write_partitions = 1;
     return options;
+  }
+
+  static std::string DefaultLargeValue(int index, int value_size) {
+    return std::string(value_size + index,
+                       static_cast<char>('a' + (index % 26)));
+  }
+
+  void WriteLargeValues(int num_keys, int value_size,
+                        const std::string& prefix = "key") {
+    WriteLargeValues(num_keys, value_size, prefix, DefaultLargeValue);
+  }
+
+  void WriteLargeValues(int num_keys, int value_size, const std::string& prefix,
+                        const ValueFn& value_fn) {
+    for (int i = 0; i < num_keys; ++i) {
+      ASSERT_OK(Put(prefix + std::to_string(i), value_fn(i, value_size)));
+    }
+  }
+
+  void VerifyLargeValues(int num_keys, int value_size,
+                         const std::string& prefix = "key") {
+    VerifyLargeValues(num_keys, value_size, prefix, DefaultLargeValue);
+  }
+
+  void VerifyLargeValues(int num_keys, int value_size,
+                         const std::string& prefix, const ValueFn& value_fn) {
+    for (int i = 0; i < num_keys; ++i) {
+      ASSERT_EQ(Get(prefix + std::to_string(i)), value_fn(i, value_size));
+    }
+  }
+
+  uint64_t GetBlobFileNumberFromIndex(const std::string& key) {
+    PinnableSlice value;
+    bool is_blob_index = false;
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = db_->DefaultColumnFamily();
+    get_impl_options.value = &value;
+    get_impl_options.is_blob_index = &is_blob_index;
+    Status s = dbfull()->GetImpl(ReadOptions(), key, get_impl_options);
+    EXPECT_OK(s);
+    EXPECT_TRUE(is_blob_index);
+    if (!s.ok() || !is_blob_index) {
+      return kInvalidBlobFileNumber;
+    }
+
+    BlobIndex blob_index;
+    s = blob_index.DecodeFrom(value);
+    EXPECT_OK(s);
+    if (!s.ok()) {
+      return kInvalidBlobFileNumber;
+    }
+    return blob_index.file_number();
+  }
+
+  bool VersionContainsBlobFile(uint64_t blob_file_number) {
+    ColumnFamilyMetaData cf_meta;
+    db_->GetColumnFamilyMetaData(&cf_meta);
+    return std::any_of(cf_meta.blob_files.begin(), cf_meta.blob_files.end(),
+                       [blob_file_number](const BlobMetaData& blob_file) {
+                         return blob_file.blob_file_number == blob_file_number;
+                       });
   }
 
   size_t CountBlobFiles() {
@@ -1169,6 +1233,133 @@ TEST_F(
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->value().ToString(), values[target_idx]);
 }
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteIteratorKeepsFallbackBlobFileAliveAfterPurge) {
+  Options options = GetDirectWriteOptions();
+  options.blob_direct_write_partitions = 4;
+  options.disable_auto_compactions = true;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+  options.blob_garbage_collection_force_threshold = 0.0;
+
+  Reopen(options);
+
+  const std::array<std::string, 4> keys{
+      "fallback_iter_key_0", "fallback_iter_key_1", "fallback_iter_key_2",
+      "fallback_iter_key_3"};
+  const std::array<std::string, 4> values{
+      std::string(96, 'a'), std::string(96, 'b'), std::string(96, 'c'),
+      std::string(96, 'd')};
+  const std::array<std::string, 4> new_values{
+      std::string(160, 'w'), std::string(160, 'x'), std::string(160, 'y'),
+      std::string(160, 'z')};
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_OK(Put(keys[i], values[i]));
+  }
+
+  std::array<uint64_t, 4> old_blob_files{};
+  for (size_t i = 0; i < keys.size(); ++i) {
+    old_blob_files[i] = GetBlobFileNumberFromIndex(keys[i]);
+    ASSERT_NE(old_blob_files[i], kInvalidBlobFileNumber);
+  }
+
+  const uint64_t oldest_blob_file =
+      *std::min_element(old_blob_files.begin(), old_blob_files.end());
+  size_t target_idx = 0;
+  while (target_idx < old_blob_files.size() &&
+         old_blob_files[target_idx] == oldest_blob_file) {
+    ++target_idx;
+  }
+  ASSERT_LT(target_idx, old_blob_files.size());
+
+  const uint64_t target_blob_file = old_blob_files[target_idx];
+  const std::string target_blob_path = BlobFileName(dbname_, target_blob_file);
+
+  ReadOptions read_options;
+  read_options.allow_unprepared_value = true;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  iter->Seek(keys[target_idx]);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), keys[target_idx]);
+  ASSERT_TRUE(iter->value().empty());
+  ASSERT_OK(iter->status());
+
+  ASSERT_OK(db_->DisableFileDeletions());
+
+  ASSERT_OK(Flush());
+  ASSERT_TRUE(VersionContainsBlobFile(target_blob_file));
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_OK(Put(keys[i], new_values[i]));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_FALSE(VersionContainsBlobFile(target_blob_file));
+
+  ASSERT_OK(db_->EnableFileDeletions());
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
+  dbfull()->TEST_DeleteObsoleteFiles();
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
+  ASSERT_OK(env_->FileExists(target_blob_path));
+
+  ASSERT_TRUE(iter->PrepareValue());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value().ToString(), values[target_idx]);
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(Get(keys[target_idx]), new_values[target_idx]);
+
+  dbfull()->TEST_VerifyNoObsoleteFilesCached(
+      /*db_mutex_already_held=*/false);
+
+  iter.reset();
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
+  dbfull()->TEST_DeleteObsoleteFiles();
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
+  dbfull()->TEST_VerifyNoObsoleteFilesCached(
+      /*db_mutex_already_held=*/false);
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteMultiPartitionBlobGCDoesNotDropLiveFiles) {
+  Options options = GetDirectWriteOptions();
+  options.blob_direct_write_partitions = 4;
+  options.disable_auto_compactions = true;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+  options.blob_garbage_collection_force_threshold = 0.0;
+
+  Reopen(options);
+
+  constexpr int kNumKeys = 40;
+  constexpr int kValueSize = 128;
+  constexpr int kUpdatedValueSize = 160;
+
+  WriteLargeValues(kNumKeys, kValueSize);
+  ASSERT_OK(Flush());
+  ASSERT_GE(GetBlobFileNumbers().size(), 2U);
+
+  for (int i = 0; i < kNumKeys / 2; ++i) {
+    ASSERT_OK(
+        Put("key" + std::to_string(i), std::string(kUpdatedValueSize, 'X')));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
+  dbfull()->TEST_DeleteObsoleteFiles();
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
+
+  for (int i = 0; i < kNumKeys / 2; ++i) {
+    ASSERT_EQ(Get("key" + std::to_string(i)),
+              std::string(kUpdatedValueSize, 'X'));
+  }
+  for (int i = kNumKeys / 2; i < kNumKeys; ++i) {
+    ASSERT_EQ(Get("key" + std::to_string(i)), DefaultLargeValue(i, kValueSize));
+  }
+}
+
 TEST_F(DBBlobDirectWriteTest, OrderedTraceUsesLogicalBatchForBlobDirectWrite) {
   AssertOrderedTraceStoresLogicalPut(GetDirectWriteOptions(),
                                      /*expect_blob_files=*/true);

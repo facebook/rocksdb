@@ -1018,6 +1018,10 @@ class Version {
       std::vector<ObsoleteFileInfo>& sst_delete_candidates,
       std::vector<ObsoleteBlobFileInfo>& blob_delete_candidates) const;
 
+  // Track blob files that this Version can only reach through the blob direct
+  // write fallback path instead of VersionStorageInfo metadata.
+  void ProtectFallbackLiveBlobFile(uint64_t blob_file_number) const;
+
   // Return a human readable string that describes this version's contents.
   std::string DebugString(bool hex = false, bool print_stats = false) const;
 
@@ -1185,6 +1189,8 @@ class Version {
   uint64_t version_number_;
   std::shared_ptr<IOTracer> io_tracer_;
   bool use_async_io_;
+  mutable port::RWMutex fallback_live_blob_files_mutex_;
+  mutable std::unordered_set<uint64_t> fallback_live_blob_files_;
 
   Version(ColumnFamilyData* cfd, VersionSet* vset, const FileOptions& file_opt,
           const MutableCFOptions& mutable_cf_options,
@@ -1575,6 +1581,11 @@ class VersionSet {
       std::vector<ObsoleteFileInfo>& sst_delete_candidates,
       std::vector<ObsoleteBlobFileInfo>& blob_delete_candidates) const;
 
+  // Blob files reachable only through the blob direct write fallback path.
+  // These methods are thread-safe and can be called without DB mutex.
+  void GetFallbackLiveBlobFiles(
+      std::unordered_set<uint64_t>* blob_file_numbers) const;
+
   // Return the approximate size of data to be scanned for range [start, end)
   // in levels [start_level, end_level). If end_level == -1 it will search
   // through all non-empty levels
@@ -1734,6 +1745,10 @@ class VersionSet {
   // holding DB mutex if outside of DB startup.
   void TuneMaxManifestFileSize();
 
+  void AddFallbackLiveBlobFile(uint64_t blob_file_number);
+  void RemoveFallbackLiveBlobFiles(
+      const std::unordered_set<uint64_t>& blob_file_numbers);
+
   // Protected by DB mutex.
   WalSet wals_;
 
@@ -1809,6 +1824,8 @@ class VersionSet {
   std::vector<ObsoleteFileInfo> obsolete_files_;
   std::vector<ObsoleteBlobFileInfo> obsolete_blob_files_;
   std::vector<std::string> obsolete_manifests_;
+  mutable port::Mutex fallback_live_blob_files_mutex_;
+  std::unordered_map<uint64_t, uint32_t> fallback_live_blob_file_refs_;
 
   // env options for all reads and writes except compactions
   FileOptions file_options_;

@@ -256,6 +256,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
           &job_context->active_blob_direct_write_files);
     }
   }
+  versions_->GetFallbackLiveBlobFiles(
+      &job_context->active_blob_direct_write_files);
 
   // Get obsolete files.  This function will also update the list of
   // pending files in VersionSet().

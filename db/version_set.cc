@@ -849,6 +849,11 @@ VersionStorageInfo::~VersionStorageInfo() { delete[] files_; }
 Version::~Version() {
   assert(refs_ == 0);
 
+  if (!fallback_live_blob_files_.empty()) {
+    assert(vset_);
+    vset_->RemoveFallbackLiveBlobFiles(fallback_live_blob_files_);
+  }
+
   // Remove from linked list
   prev_->next_ = next_;
   next_->prev_ = prev_;
@@ -4737,6 +4742,25 @@ bool Version::Unref() {
   return false;
 }
 
+void Version::ProtectFallbackLiveBlobFile(uint64_t blob_file_number) const {
+  if (storage_info_.GetBlobFileMetaData(blob_file_number)) {
+    return;
+  }
+
+  bool inserted = false;
+  {
+    WriteLock lock(&fallback_live_blob_files_mutex_);
+    inserted = fallback_live_blob_files_.insert(blob_file_number).second;
+  }
+
+  if (!inserted) {
+    return;
+  }
+
+  assert(vset_);
+  vset_->AddFallbackLiveBlobFile(blob_file_number);
+}
+
 bool VersionStorageInfo::OverlapInLevel(int level,
                                         const Slice* smallest_user_key,
                                         const Slice* largest_user_key) {
@@ -7701,6 +7725,41 @@ void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_table_files,
       // Should never happen unless it is a bug.
       assert(false);
       current->AddLiveFiles(live_table_files, live_blob_files);
+    }
+  }
+}
+
+void VersionSet::GetFallbackLiveBlobFiles(
+    std::unordered_set<uint64_t>* blob_file_numbers) const {
+  assert(blob_file_numbers);
+  MutexLock lock(&fallback_live_blob_files_mutex_);
+  blob_file_numbers->reserve(blob_file_numbers->size() +
+                             fallback_live_blob_file_refs_.size());
+  for (const auto& [blob_file_number, _] : fallback_live_blob_file_refs_) {
+    blob_file_numbers->insert(blob_file_number);
+  }
+}
+
+void VersionSet::AddFallbackLiveBlobFile(uint64_t blob_file_number) {
+  MutexLock lock(&fallback_live_blob_files_mutex_);
+  ++fallback_live_blob_file_refs_[blob_file_number];
+}
+
+void VersionSet::RemoveFallbackLiveBlobFiles(
+    const std::unordered_set<uint64_t>& blob_file_numbers) {
+  if (blob_file_numbers.empty()) {
+    return;
+  }
+
+  MutexLock lock(&fallback_live_blob_files_mutex_);
+  for (uint64_t blob_file_number : blob_file_numbers) {
+    auto it = fallback_live_blob_file_refs_.find(blob_file_number);
+    if (it == fallback_live_blob_file_refs_.end()) {
+      continue;
+    }
+    assert(it->second > 0);
+    if (--it->second == 0) {
+      fallback_live_blob_file_refs_.erase(it);
     }
   }
 }
