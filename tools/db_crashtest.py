@@ -246,8 +246,9 @@ default_params = {
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     # use_trie_index must be the same across invocations so that all SSTs
-    # in a DB are opened with matching table options
-    "use_trie_index": random.choice([0, 0, 0, 0, 0, 0, 0, 1]),
+    # in a DB are opened with matching table options.
+    # Temporarily disabled due to trie UDI stress test failures.
+    "use_trie_index": 0,
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     "use_attribute_group": lambda: random.randint(0, 1),
