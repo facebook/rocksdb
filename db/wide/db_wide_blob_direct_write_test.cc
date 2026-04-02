@@ -31,22 +31,11 @@ class DBWideBlobDirectWriteTest : public DBTestBase {
       : DBTestBase("db_wide_blob_direct_write_test",
                    /*env_do_fsync=*/false) {}
 
-  Options GetBlobDirectWriteCompatibleOptions() {
-    Options options = GetDefaultOptions();
-    options.allow_concurrent_memtable_write = false;
-    return options;
-  }
-
   Options GetDirectWriteOptions() {
-    Options options = GetBlobDirectWriteCompatibleOptions();
-    options.enable_blob_files = true;
-    options.enable_blob_direct_write = true;
-    options.min_blob_size = 32;
-    options.blob_direct_write_partitions = 1;
-    return options;
+    return wide_column_test_util::GetDirectWriteOptions(GetDefaultOptions());
   }
 
-  size_t CountBlobFiles() { return GetBlobFileNumbers().size(); }
+  size_t CountBlobFiles() { return DBTestBase::GetBlobFileNumbers().size(); }
 };
 
 namespace {
@@ -64,6 +53,12 @@ char ValueFillForIndex(size_t index) {
 WideColumns BuildTTLWideEntity(const std::string& value,
                                const std::string& ttl) {
   return WideColumns{{kDefaultWideColumnName, value}, {"ttl", ttl}};
+}
+
+std::string BuildTTLKey(uint32_t partition, size_t cycle) {
+  char key_buf[48];
+  snprintf(key_buf, sizeof(key_buf), "lazy_ttl_p%03u_c%zu", partition, cycle);
+  return key_buf;
 }
 
 class TTLOnlyLazyDropFilter : public CompactionFilter {
@@ -267,56 +262,87 @@ TEST_F(DBWideBlobDirectWriteTest, DirectWriteWideEntityBeforeAndAfterFlush) {
 }
 
 TEST_F(DBWideBlobDirectWriteTest,
-       DirectWriteIteratorKeyValueScanKeepsNonDefaultBlobColumnsLazy) {
-  Options options = GetDirectWriteOptions();
-  options.min_blob_size = 64;
-  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+       DirectWriteIteratorValueScanDefersUnneededBlobColumns) {
+  struct IteratorScanCase {
+    const char* name;
+    std::string default_value;
+    std::string blob_attr_value;
+    bool expect_default_blob_read;
+  };
 
-  Reopen(options);
+  const std::array<IteratorScanCase, 2> cases{{
+      {"inline_default", "inline-default", std::string(128, 'b'),
+       /*expect_default_blob_read=*/false},
+      {"blob_default", std::string(128, 'd'), std::string(160, 'e'),
+       /*expect_default_blob_read=*/true},
+  }};
 
-  const std::string key = "wide_entity_key";
-  const std::string default_value = "inline-default";
-  const std::string blob_value(128, 'b');
-  const std::string ttl = "00000001";
-  WideColumns columns{{kDefaultWideColumnName, default_value},
-                      {"blob_attr", blob_value},
-                      {"ttl", ttl}};
+  for (const auto& test_case : cases) {
+    SCOPED_TRACE(test_case.name);
 
-  ASSERT_OK(
-      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
-  ASSERT_OK(Flush());
-  ASSERT_GT(CountBlobFiles(), 0U);
+    Options options = GetDirectWriteOptions();
+    options.min_blob_size = 64;
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
 
-  Close();
-  Reopen(options);
-  options.statistics->Reset();
+    DestroyAndReopen(options);
 
-  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
-  iter->SeekToFirst();
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_OK(iter->status());
-  ASSERT_EQ(iter->key(), key);
-  ASSERT_EQ(iter->value(), default_value);
-  ASSERT_EQ(options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ),
-            0);
+    const std::string key = std::string("wide_entity_key_") + test_case.name;
+    const std::string ttl = "00000001";
+    const WideColumns columns{{kDefaultWideColumnName, test_case.default_value},
+                              {"blob_attr", test_case.blob_attr_value},
+                              {"ttl", ttl}};
 
-  ASSERT_EQ(iter->columns(), columns);
-  ASSERT_OK(iter->status());
-  ASSERT_GT(options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ),
-            0);
+    ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key,
+                             columns));
+    ASSERT_OK(Flush());
+    ASSERT_GT(CountBlobFiles(), 0U);
+
+    Close();
+    Reopen(options);
+    options.statistics->Reset();
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), key);
+    ASSERT_EQ(iter->value(), test_case.default_value);
+
+    const uint64_t blob_bytes_before_columns =
+        options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ);
+    if (test_case.expect_default_blob_read) {
+      ASSERT_GT(blob_bytes_before_columns, 0U)
+          << "Blob-backed default columns must be resolved for value() scans";
+    } else {
+      ASSERT_EQ(blob_bytes_before_columns, 0U)
+          << "Inline default columns should not trigger blob reads";
+    }
+
+    ASSERT_EQ(iter->columns(), columns);
+    ASSERT_OK(iter->status());
+
+    const uint64_t blob_bytes_after_columns =
+        options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ);
+    ASSERT_GT(blob_bytes_after_columns, blob_bytes_before_columns)
+        << "Iterator positioning should defer non-default blob resolution "
+           "until columns() is requested";
+  }
 }
 
 TEST_F(DBWideBlobDirectWriteTest,
        DirectWriteWideEntityLazyTTLCompactionDropsExpiredBlobFiles) {
-  constexpr size_t kTotalKeys = 16;
-  constexpr size_t kExpiredKeys = 12;
-  constexpr size_t kLiveKeys = kTotalKeys - kExpiredKeys;
-  constexpr size_t kLargeValueSize = 128 * 1024;
+  constexpr size_t kKeysPerPartition = 4;
+  constexpr size_t kExpiredCycles = 2;
+  constexpr size_t kLargeValueSize = 104 * 1024;
   constexpr uint64_t kExpiredTTL = 10;
   constexpr uint64_t kLiveTTLBase = 1000;
 
   for (const uint32_t partitions : {32U, 128U}) {
     SCOPED_TRACE("partitions=" + std::to_string(partitions));
+
+    const size_t kTotalKeys = partitions * kKeysPerPartition;
+    const size_t kExpiredKeys = partitions * kExpiredCycles;
+    const size_t kLiveKeys = kTotalKeys - kExpiredKeys;
 
     std::atomic<int> filter_call_count{0};
     std::atomic<int> ttl_columns_seen{0};
@@ -341,24 +367,46 @@ TEST_F(DBWideBlobDirectWriteTest,
 
     DestroyAndReopen(options);
 
-    for (size_t i = 0; i < kTotalKeys; ++i) {
-      char key_buf[32];
-      snprintf(key_buf, sizeof(key_buf), "lazy_ttl_key_%02zu", i);
+    auto for_each_key = [&](size_t begin_cycle, size_t end_cycle, auto&& fn) {
+      for (size_t cycle = begin_cycle; cycle < end_cycle; ++cycle) {
+        for (uint32_t partition = 0; partition < partitions; ++partition) {
+          const size_t key_index = cycle * partitions + partition;
+          fn(cycle, partition, key_index);
+        }
+      }
+    };
 
-      const std::string value =
-          GenerateLargeValue(kLargeValueSize, ValueFillForIndex(i));
-      const std::string ttl =
-          EncodeFixedTTL(i < kExpiredKeys ? kExpiredTTL : kLiveTTLBase + i);
-      const WideColumns columns = BuildTTLWideEntity(value, ttl);
+    auto expected_ttl_for = [&](size_t cycle, size_t key_index) -> uint64_t {
+      if (cycle < kExpiredCycles) {
+        return kExpiredTTL;
+      }
+      return kLiveTTLBase + key_index;
+    };
 
-      ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
-                               key_buf, columns));
-    }
+    // Insert more than one key per direct-write partition so each partition
+    // reuses its active blob file. With blob_file_size sized for roughly two
+    // values per file, each partition gets one expired-only file followed by
+    // one live-only file.
+    for_each_key(
+        0, kKeysPerPartition,
+        [&](size_t cycle, uint32_t partition, size_t key_index) {
+          const std::string key = BuildTTLKey(partition, cycle);
+          const std::string value =
+              GenerateLargeValue(kLargeValueSize, ValueFillForIndex(key_index));
+          const std::string ttl =
+              EncodeFixedTTL(expected_ttl_for(cycle, key_index));
+          const WideColumns columns = BuildTTLWideEntity(value, ttl);
+
+          ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                                   key, columns));
+        });
     ASSERT_OK(Flush());
 
     const auto blob_files_before = GetBlobFileNumbers();
-    ASSERT_GT(blob_files_before.size(), kLiveKeys)
-        << "Expected enough blob files to observe expired blobs being dropped";
+    ASSERT_GT(blob_files_before.size(), partitions)
+        << "Expected each partition to span multiple blob files";
+    ASSERT_LT(blob_files_before.size(), kTotalKeys)
+        << "Expected multiple keys to share direct-write blob files";
 
     options.statistics->Reset();
     ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -385,6 +433,8 @@ TEST_F(DBWideBlobDirectWriteTest,
     const auto blob_files_after = GetBlobFileNumbers();
     ASSERT_LT(blob_files_after.size(), blob_files_before.size())
         << "Compaction should drop blob files owned only by expired entities";
+    ASSERT_GE(blob_files_after.size(), partitions)
+        << "Live blobs should keep at least one file per partition";
 
     {
       size_t live_count = 0;
@@ -396,32 +446,32 @@ TEST_F(DBWideBlobDirectWriteTest,
       ASSERT_EQ(live_count, kLiveKeys);
     }
 
-    for (size_t i = 0; i < kExpiredKeys; ++i) {
-      char key_buf[32];
-      snprintf(key_buf, sizeof(key_buf), "lazy_ttl_key_%02zu", i);
+    for_each_key(0, kExpiredCycles,
+                 [&](size_t cycle, uint32_t partition, size_t /*key_index*/) {
+                   const std::string key = BuildTTLKey(partition, cycle);
+                   PinnableSlice value;
+                   ASSERT_TRUE(db_->Get(ReadOptions(),
+                                        db_->DefaultColumnFamily(), key, &value)
+                                   .IsNotFound())
+                       << "Expired key " << key << " should be dropped";
+                 });
 
-      PinnableSlice value;
-      ASSERT_TRUE(
-          db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key_buf, &value)
-              .IsNotFound())
-          << "Expired key " << key_buf << " should be dropped";
-    }
+    for_each_key(
+        kExpiredCycles, kKeysPerPartition,
+        [&](size_t cycle, uint32_t partition, size_t key_index) {
+          const std::string key = BuildTTLKey(partition, cycle);
+          const std::string expected_value =
+              GenerateLargeValue(kLargeValueSize, ValueFillForIndex(key_index));
+          const std::string expected_ttl =
+              EncodeFixedTTL(expected_ttl_for(cycle, key_index));
+          const WideColumns expected =
+              BuildTTLWideEntity(expected_value, expected_ttl);
 
-    for (size_t i = kExpiredKeys; i < kTotalKeys; ++i) {
-      char key_buf[32];
-      snprintf(key_buf, sizeof(key_buf), "lazy_ttl_key_%02zu", i);
-
-      const std::string expected_value =
-          GenerateLargeValue(kLargeValueSize, ValueFillForIndex(i));
-      const std::string expected_ttl = EncodeFixedTTL(kLiveTTLBase + i);
-      const WideColumns expected =
-          BuildTTLWideEntity(expected_value, expected_ttl);
-
-      PinnableWideColumns result;
-      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
-                               key_buf, &result));
-      ASSERT_EQ(result.columns(), expected);
-    }
+          PinnableWideColumns result;
+          ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                                   key, &result));
+          ASSERT_EQ(result.columns(), expected);
+        });
 
     ttl_cutoff.store(std::numeric_limits<uint64_t>::max(),
                      std::memory_order_relaxed);
