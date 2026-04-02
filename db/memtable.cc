@@ -16,6 +16,7 @@
 #include <optional>
 
 #include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_index.h"
 #include "db/dbformat.h"
 #include "db/kv_checksum.h"
 #include "db/merge_context.h"
@@ -47,6 +48,31 @@
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+Status GetDefaultColumnBlobIndexSlice(Slice entity, Slice* blob_index_slice) {
+  assert(blob_index_slice != nullptr);
+
+  std::vector<WideColumn> columns;
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+  Status s =
+      WideColumnSerialization::DeserializeV2(entity, columns, blob_columns);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (columns.empty() || columns.front().name() != kDefaultWideColumnName ||
+      blob_columns.empty() || blob_columns.front().first != 0) {
+    return Status::Corruption(
+        "Wide column default column blob reference missing");
+  }
+
+  *blob_index_slice = columns.front().value();
+  return Status::OK();
+}
+
+}  // namespace
 
 ImmutableMemTableOptions::ImmutableMemTableOptions(
     const ImmutableOptions& ioptions,
@@ -1331,6 +1357,7 @@ static bool SaveValue(void* arg, const char* entry) {
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
 
         *(s->status) = Status::OK();
+        bool default_blob_index_returned = false;
 
         if (!s->do_merge) {
           // Preserve the value with the goal of returning it as part of
@@ -1364,6 +1391,15 @@ static bool SaveValue(void* arg, const char* entry) {
               v, value_of_default);
           if (s->status->ok()) {
             s->value->assign(value_of_default.data(), value_of_default.size());
+          } else if (s->status->IsNotSupported() &&
+                     s->is_blob_index != nullptr) {
+            Slice blob_index_slice;
+            *(s->status) = GetDefaultColumnBlobIndexSlice(v, &blob_index_slice);
+            if (s->status->ok()) {
+              s->value->assign(blob_index_slice.data(),
+                               blob_index_slice.size());
+              default_blob_index_returned = true;
+            }
           }
         } else if (s->columns) {
           *(s->status) = s->columns->SetWideColumnValue(v);
@@ -1372,7 +1408,7 @@ static bool SaveValue(void* arg, const char* entry) {
         *(s->found_final_value) = true;
 
         if (s->is_blob_index != nullptr) {
-          *(s->is_blob_index) = false;
+          *(s->is_blob_index) = default_blob_index_returned;
         }
 
         return false;

@@ -693,6 +693,20 @@ DEFINE_string(
     "only tracked when --sync_fault_injection is set. See --seed and "
     "--nooverwritepercent for further requirements.");
 
+DEFINE_bool(expected_state_trace_debug, true,
+            "If true, print debug logs while replaying expected-state trace "
+            "records during crash recovery verification.");
+
+DEFINE_int64(
+    expected_state_trace_debug_key, -1,
+    "If non-negative, restrict expected-state trace debug logs to the "
+    "specified logical key where possible. Raw-key roundtrip mismatches for "
+    "that logical key are still logged.");
+
+DEFINE_int32(expected_state_trace_debug_max_logs, 200,
+             "Maximum number of expected-state trace debug log lines to emit "
+             "per restore attempt.");
+
 DEFINE_bool(verify_checksum, false,
             "Verify checksum for every block read from storage");
 

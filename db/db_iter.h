@@ -9,9 +9,16 @@
 
 #pragma once
 #include <cstdint>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <utility>
+#include <vector>
 
+#include "db/blob/blob_fetcher.h"
+#include "db/blob/blob_index.h"
 #include "db/db_impl/db_impl.h"
+#include "db/wide/read_path_blob_resolver.h"
 #include "memory/arena.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
@@ -193,6 +200,14 @@ class DBIter final : public Iterator {
   const WideColumns& columns() const override {
     assert(valid_);
 
+    if (!wide_columns_.empty() || lazy_entity_columns_.empty()) {
+      return wide_columns_;
+    }
+
+    if (!MaterializeLazyEntityColumns()) {
+      return kNoWideColumns;
+    }
+
     return wide_columns_;
   }
 
@@ -257,19 +272,23 @@ class DBIter final : public Iterator {
    public:
     BlobReader(const Version* version, ReadTier read_tier,
                bool verify_checksums, bool fill_cache,
-               Env::IOActivity io_activity, BlobFileCache* blob_file_cache)
+               Env::IOActivity io_activity, BlobFileCache* blob_file_cache,
+               bool allow_write_path_fallback)
         : version_(version),
           read_tier_(read_tier),
           verify_checksums_(verify_checksums),
           fill_cache_(fill_cache),
           io_activity_(io_activity),
-          blob_file_cache_(blob_file_cache) {}
+          blob_file_cache_(blob_file_cache),
+          allow_write_path_fallback_(allow_write_path_fallback) {}
 
     const Slice& GetBlobValue() const { return blob_value_; }
     Status RetrieveAndSetBlobValue(const Slice& user_key,
                                    const Slice& blob_index,
                                    bool allow_write_path_fallback);
     void ResetBlobValue() { blob_value_.Reset(); }
+    // Create a BlobFetcher with the same read options as this BlobReader.
+    BlobFetcher CreateBlobFetcher() const;
 
    private:
     PinnableSlice blob_value_;
@@ -281,6 +300,7 @@ class DBIter final : public Iterator {
     // Cache used by the write-path fallback for in-flight direct-write blob
     // files that are not yet reachable through Version.
     BlobFileCache* blob_file_cache_;
+    bool allow_write_path_fallback_;
   };
 
   // For all methods in this block:
@@ -377,6 +397,7 @@ class DBIter final : public Iterator {
                                   const Slice& blob_index);
 
   bool SetValueAndColumnsFromEntity(Slice slice);
+  bool MaterializeLazyEntityColumns() const;
 
   bool SetValueAndColumnsFromMergeResult(const Status& merge_status,
                                          ValueType result_type);
@@ -384,6 +405,9 @@ class DBIter final : public Iterator {
   void ResetValueAndColumns() {
     value_.clear();
     wide_columns_.clear();
+    lazy_entity_columns_.clear();
+    lazy_blob_columns_.clear();
+    entity_blob_resolver_.Reset(Slice(), nullptr, nullptr);
   }
 
   void ResetBlobData() {
@@ -531,5 +555,12 @@ class DBIter final : public Iterator {
   bool allow_unprepared_value_;
   bool is_blob_;
   bool arena_mode_;
+
+  // Entity blob resolution support. These hold the deserialized column
+  // metadata for the current entity when it has blob columns (V2 format).
+  ReadPathBlobResolver entity_blob_resolver_;
+  std::vector<WideColumn> lazy_entity_columns_;
+  std::vector<std::pair<size_t, BlobIndex>> lazy_blob_columns_;
+  mutable std::mutex lazy_entity_columns_mutex_;
 };
 }  // namespace ROCKSDB_NAMESPACE

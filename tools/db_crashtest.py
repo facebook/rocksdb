@@ -753,6 +753,29 @@ blob_direct_write_params = {
     "remote_compaction_worker_threads": 0,
 }
 
+# Wide-column entity stress needs `use_put_entity_one_in` fixed across the
+# repeated db_stress invocations in one crash-test run series, so keep it as a
+# once-per-process random choice rather than a lambda.
+blob_direct_write_get_entity_params = dict(blob_direct_write_params)
+blob_direct_write_get_entity_params.update(
+    {
+        "use_put_entity_one_in": random.choice([1, 5, 10]),
+        "use_get_entity": 1,
+        "use_multi_get_entity": 0,
+        "use_attribute_group": 0,
+    }
+)
+
+blob_direct_write_multi_get_entity_params = dict(blob_direct_write_params)
+blob_direct_write_multi_get_entity_params.update(
+    {
+        "use_put_entity_one_in": random.choice([1, 5, 10]),
+        "use_get_entity": 0,
+        "use_multi_get_entity": 1,
+        "use_attribute_group": 0,
+    }
+)
+
 ts_params = {
     "test_cf_consistency": 0,
     "test_batches_snapshots": 0,
@@ -896,12 +919,12 @@ def finalize_and_sanitize(src_params):
             dest_params["mock_direct_io"] = True
 
     if dest_params.get("enable_blob_direct_write", 0) == 1:
-        # Keep blob direct write in its reduced-scope v1 profile.
+        # Keep blob direct write in its reduced-scope crash-test profile.
         #
         # Supported recovery shape:
         #   * clean shutdown / flush
         #   * crash restart that only relies on SST + manifest-visible blob
-        #     state
+        #     state, including wide-column entities stored through PutEntity
         #
         # Unsupported here:
         #   * WAL replay / best-efforts recovery
@@ -936,12 +959,12 @@ def finalize_and_sanitize(src_params):
         dest_params["blob_file_starting_level"] = 0
         dest_params["use_merge"] = 0
         dest_params["use_full_merge_v1"] = 0
-        dest_params["use_put_entity_one_in"] = 0
-        dest_params["use_get_entity"] = 0
-        dest_params["use_multi_get_entity"] = 0
         dest_params["use_timed_put_one_in"] = 0
+        # Wide-column PutEntity/GetEntity/MultiGetEntity are now compatible
+        # with this profile. AttributeGroup exercises a different path that
+        # still stays disabled here.
         dest_params["use_attribute_group"] = 0
-        # Direct write v1 only supports the plain comparator / key encoding
+        # Direct write stress only supports the plain comparator / key encoding
         # path. User-defined timestamps and the TransactionDB-only timestamped
         # snapshot API are outside this feature envelope.
         dest_params["user_timestamp_size"] = 0
@@ -1498,7 +1521,16 @@ def gen_cmd_params(args):
         and params.get("test_secondary", 0) == 0
         and random.choice([0] * 9 + [1]) == 1
     ):
-        params.update(random.choice([blob_params, blob_direct_write_params]))
+        params.update(
+            random.choice(
+                [
+                    blob_params,
+                    blob_direct_write_params,
+                    blob_direct_write_get_entity_params,
+                    blob_direct_write_multi_get_entity_params,
+                ]
+            )
+        )
 
     if "compaction_style" not in params:
         # Default to leveled compaction
@@ -1936,6 +1968,8 @@ def main():
         + list(whitebox_simple_default_params.items())
         + list(blob_params.items())
         + list(blob_direct_write_params.items())
+        + list(blob_direct_write_get_entity_params.items())
+        + list(blob_direct_write_multi_get_entity_params.items())
         + list(ts_params.items())
         + list(multiops_txn_params.items())
         + list(best_efforts_recovery_params.items())
