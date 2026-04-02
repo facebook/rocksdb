@@ -27,6 +27,7 @@
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "port/stack_trace.h"
+#include "monitoring/stress_trace.h"
 #include "rocksdb/convenience.h"
 #include "utilities/fault_injection_fs.h"
 
@@ -102,15 +103,51 @@ int db_stress_tool(int argc, char** argv) {
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();
 
-    // Register a crash callback so that recently injected errors are
-    // printed to stderr when the process crashes (SIGABRT, SIGSEGV, etc.).
-    // This helps diagnose stress test failures caused by fault injection.
-    port::RegisterCrashCallback([]() {
-      if (fault_fs_guard) {
-        fault_fs_guard->PrintRecentInjectedErrors();
-      }
-    });
+    // Crash callback is registered below (after stress trace setup),
+    // so that it can chain both fault injection + stress trace dumps.
   }
+
+  // Initialize stress trace with a dump path based on the DB path.
+  // Trace files will be written to:
+  //   <parent-of-db>/stress-trace/trace-<pid>-thread-<tid>.txt
+  // The stress-trace/ subdirectory is a sibling of the db dir, created at
+  // startup. It survives DestroyDB (which only removes the db dir itself).
+  // If FLAGS_db is empty, traces go to stdout.
+  {
+    std::string trace_prefix;
+    if (!FLAGS_db.empty()) {
+      // Put trace files in a sibling directory next to the db dir.
+      // Resolve FLAGS_db to an absolute path first to avoid "/../" issues,
+      // then take its parent directory.
+      std::string abs_db;
+      Status abs_s = Env::Default()->GetAbsolutePath(FLAGS_db, &abs_db);
+      std::string parent_dir;
+      if (abs_s.ok() && !abs_db.empty()) {
+        size_t pos = abs_db.rfind('/');
+        parent_dir = (pos != std::string::npos && pos > 0)
+                         ? abs_db.substr(0, pos)
+                         : abs_db;
+      } else {
+        // Fallback: use FLAGS_db with /../
+        parent_dir = FLAGS_db + "/..";
+      }
+      std::string trace_dir = parent_dir + "/stress-trace";
+      Env::Default()->CreateDirIfMissing(trace_dir);
+      trace_prefix = trace_dir + "/trace-" + std::to_string(getpid());
+    }
+    stress_trace::Install(trace_prefix);
+  }
+
+  // Register a unified crash callback that dumps both fault injection errors
+  // and execution traces. This is called on SIGABRT, SIGSEGV, etc.
+  port::RegisterCrashCallback([]() {
+    if (fault_fs_guard) {
+      fault_fs_guard->PrintRecentInjectedErrors();
+    }
+    // Dump per-thread execution traces (function calls + semantic events).
+    // No-op if ROCKSDB_STRESS_TRACE was not defined at build time.
+    stress_trace::DumpAll();
+  });
 
   auto db_stress_fs =
       std::make_shared<DbStressFSWrapper>(raw_env->GetFileSystem());

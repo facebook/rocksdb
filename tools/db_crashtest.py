@@ -1660,6 +1660,73 @@ def print_and_cleanup_fault_injection_log(pid):
             pass
 
 
+
+
+def resolve_and_print_stress_trace(pid, dbname):
+    """Resolve and print stress trace files produced by STRESS_TRACE builds.
+
+    When db_stress is built with STRESS_TRACE=1, it writes per-thread trace
+    files on crash to <parent-of-db>/stress-trace/trace-<pid>-thread-<tid>.txt. This
+    function finds those files, resolves hex addresses to symbols using
+    tools/resolve_stress_trace.py, and prints a summary.
+    """
+    trace_dir = os.path.dirname(os.path.abspath(dbname))
+    pattern = os.path.join(trace_dir, "stress-trace", "trace-%d-*.txt" % pid)
+    trace_files = sorted(glob.glob(pattern), key=os.path.getsize, reverse=True)
+    if not trace_files:
+        return
+
+    print("\n=== Stress Trace Files (%d threads) ===" % len(trace_files))
+
+    # Find the resolver script and binary
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    resolver = os.path.join(script_dir, "resolve_stress_trace.py")
+    binary = os.path.abspath(stress_cmd)
+
+    if not os.path.isfile(resolver):
+        # Resolver not available; just list the files
+        for f in trace_files:
+            size = os.path.getsize(f)
+            print("  %s (%d bytes)" % (f, size))
+        print("  (run tools/resolve_stress_trace.py to resolve symbols)")
+        return
+
+    if not os.path.isfile(binary):
+        print("  Warning: db_stress binary not found at %s" % binary)
+        print("  Raw trace files:")
+        for f in trace_files:
+            print("    %s" % f)
+        return
+
+    # Only resolve non-empty files; show at most the 4 largest
+    nonempty = [f for f in trace_files if os.path.getsize(f) > 0]
+    if not nonempty:
+        print("  (all trace files empty)")
+        return
+
+    show_files = nonempty[:4]
+    if len(nonempty) > 4:
+        print("  (showing %d of %d threads with data; "
+              "remaining files in %s)" % (4, len(nonempty), trace_dir))
+
+    try:
+        result = subprocess.run(
+            [sys.executable, resolver, "--binary", binary] + show_files,
+            capture_output=True, text=True, timeout=120
+        )
+        if result.stdout:
+            # Only print the last 50 lines per thread to avoid flooding
+            for line in result.stdout.splitlines():
+                print(line)
+        if result.stderr:
+            for line in result.stderr.splitlines():
+                print(line, file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        print("  (resolver timed out; raw files at %s)" % trace_dir)
+    except Exception as e:
+        print("  (resolver failed: %s; raw files at %s)" % (e, trace_dir))
+
+
 # This script runs and kills db_stress multiple times. It checks consistency
 # in case of unsafe crashes in RocksDB.
 def blackbox_crash_main(args, unknown_args):
@@ -1686,6 +1753,7 @@ def blackbox_crash_main(args, unknown_args):
         hit_timeout, retcode, outs, errs, pid = execute_cmd(cmd, cmd_params["interval"])
 
         print_and_cleanup_fault_injection_log(pid)
+        resolve_and_print_stress_trace(pid, dbname)
 
         # Reset destroy_db_initially after each run (it may have been set by
         # command line for first run only)
@@ -1716,6 +1784,7 @@ def blackbox_crash_main(args, unknown_args):
     )
 
     print_and_cleanup_fault_injection_log(pid)
+    resolve_and_print_stress_trace(pid, dbname)
 
     # For the final run
     print_output_and_exit_on_error(outs, errs, args.print_stderr_separately)
@@ -1870,6 +1939,8 @@ def whitebox_crash_main(args, unknown_args):
         )
 
         print(msg)
+        print_and_cleanup_fault_injection_log(pid)
+        resolve_and_print_stress_trace(pid, dbname)
         print_output_and_exit_on_error(
             stdoutdata, stderrdata, args.print_stderr_separately
         )

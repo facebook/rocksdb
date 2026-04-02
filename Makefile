@@ -86,6 +86,7 @@ else
 	LIB_MODE?=shared
 endif
 
+
 $(info $$DEBUG_LEVEL is $(DEBUG_LEVEL), $$LIB_MODE is $(LIB_MODE))
 
 # Detect what platform we're building on.
@@ -411,6 +412,26 @@ ifdef COMPILE_WITH_UBSAN
 	PLATFORM_CCFLAGS += -fsanitize=undefined -fno-sanitize-recover=all -DROCKSDB_UBSAN_RUN
 	PLATFORM_CXXFLAGS += -fsanitize=undefined -fno-sanitize-recover=all -DROCKSDB_UBSAN_RUN
 endif
+# Stress test execution tracing. Instruments every function entry with a
+# ring-buffer trace that is dumped on crash. Build with:
+#   STRESS_TRACE=1 make db_stress
+# Overhead: ~0% for functions doing real work; ~2x for trivial leaf functions.
+# The -finstrument-functions flag applies to ALL compilation units so that
+# library code (db/, table/, memtable/, etc.) is also traced. The ring buffer
+# and dump logic live in monitoring/stress_trace.{h,cc}.
+ifdef STRESS_TRACE
+	PLATFORM_CXXFLAGS += -DROCKSDB_STRESS_TRACE -finstrument-functions
+	# Exclude standard library headers from instrumentation. GCC's
+	# -finstrument-functions instruments ALL functions including inlined
+	# STL templates, which can reference symbols not present in the runtime
+	# library (e.g. _M_high_mark from a newer libstdc++ header with an older
+	# runtime). Excluding these paths avoids the ABI mismatch while still
+	# instrumenting all RocksDB code.
+	PLATFORM_CXXFLAGS += -finstrument-functions-exclude-file-list=/mnt/gvfs/third-party2/libgcc,/mnt/gvfs/third-party2/glibc,/usr/include/c++,/usr/local/include/c++
+	PLATFORM_CCFLAGS += -finstrument-functions
+	EXEC_LDFLAGS += -ldl
+endif
+
 
 ifdef ROCKSDB_VALGRIND_RUN
 	PLATFORM_CCFLAGS += -DROCKSDB_VALGRIND_RUN

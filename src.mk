@@ -419,6 +419,7 @@ STRESS_LIB_SOURCES =                                           \
   db_stress_tool/expected_value.cc                             \
   db_stress_tool/no_batched_ops_stress.cc                      \
   db_stress_tool/multi_ops_txns_stress.cc                      \
+  monitoring/stress_trace.cc                                   \
 
 TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \
