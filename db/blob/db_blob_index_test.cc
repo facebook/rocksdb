@@ -29,6 +29,17 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+
+void CorruptPinnedBlobIndexOnCleanup(void* arg1, void* /*arg2*/) {
+  auto* blob_index = static_cast<std::string*>(arg1);
+  assert(blob_index != nullptr);
+  assert(!blob_index->empty());
+  (*blob_index)[0] = static_cast<char>(BlobIndex::Type::kUnknown);
+}
+
+}  // namespace
+
 // kTypeBlobIndex is a value type used by BlobDB only. The base rocksdb
 // should accept the value type on write, and report not supported value
 // for reads, unless caller request for it explicitly. The base rocksdb
@@ -104,6 +115,16 @@ class DBBlobIndexTest : public DBTestBase {
         ReadOptions(), cfh_impl(), cfd()->GetReferencedSuperVersion(db_impl),
         db_impl->GetLatestSequenceNumber(), nullptr /*read_callback*/,
         true /*expose_blob_index*/);
+  }
+
+  bool MaybeResolveWritePathValueForTest(
+      const ReadOptions& read_options, const Slice& key,
+      bool resolve_write_path_value, const Version* current,
+      PinnableSlice* value, PinnableWideColumns* columns, Status* s,
+      bool* is_blob_index, bool* value_found = nullptr) {
+    return DBImpl::MaybeResolveWritePathValue(
+        read_options, key, resolve_write_path_value, current, cfd(), value,
+        columns, s, is_blob_index, value_found);
   }
 
   Options GetTestOptions() {
@@ -219,6 +240,30 @@ TEST_F(DBBlobIndexTest, Get) {
     ASSERT_EQ(blob_index, GetImpl("blob_key", &is_blob_index));
     ASSERT_TRUE(is_blob_index);
   }
+}
+
+TEST_F(DBBlobIndexTest,
+       MaybeResolveWritePathValueDecodesPinnedBlobIndexBeforeReset) {
+  DestroyAndReopen(GetTestOptions());
+
+  std::string blob_index;
+  BlobIndex::EncodeBlob(&blob_index, /*file_number=*/123, /*offset=*/456,
+                        /*size=*/789, kNoCompression);
+
+  PinnableSlice value;
+  value.PinSlice(Slice(blob_index), CorruptPinnedBlobIndexOnCleanup,
+                 &blob_index, nullptr);
+
+  Status s = Status::OK();
+  bool is_blob_index = true;
+  ASSERT_TRUE(MaybeResolveWritePathValueForTest(
+      ReadOptions(), Slice("key"), /*resolve_write_path_value=*/true,
+      /*current=*/nullptr, &value, /*columns=*/nullptr, &s, &is_blob_index));
+
+  ASSERT_FALSE(s.IsCorruption()) << s.ToString();
+  ASSERT_TRUE(s.IsIOError() || s.IsNotFound()) << s.ToString();
+  ASSERT_FALSE(is_blob_index);
+  ASSERT_EQ(static_cast<char>(BlobIndex::Type::kUnknown), blob_index.front());
 }
 
 // Note: the following test case pertains to the StackableDB-based BlobDB

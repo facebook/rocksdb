@@ -2665,6 +2665,7 @@ bool DBImpl::MaybeResolveWritePathValue(
 
   if (needs_blob_index_resolution) {
     Slice blob_index_slice;
+    std::string blob_index_storage;
     if (value != nullptr) {
       if (value->size() > 0) {
         blob_index_slice = Slice(value->data(), value->size());
@@ -2680,6 +2681,13 @@ bool DBImpl::MaybeResolveWritePathValue(
     PinnableSlice resolved_value;
     PinnableSlice* target = value ? value : &resolved_value;
     if (value != nullptr) {
+      if (value->IsPinned()) {
+        // Reset() releases the backing cleanup chain for pinned table values,
+        // so preserve the encoded blob index before clearing `value`.
+        blob_index_storage.assign(blob_index_slice.data(),
+                                  blob_index_slice.size());
+        blob_index_slice = Slice(blob_index_storage);
+      }
       value->Reset();
     }
 
