@@ -1185,8 +1185,10 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   ASSERT_EQ(meta9->GetGarbageBlobCount(), 0);
   ASSERT_EQ(meta9->GetGarbageBlobBytes(), 0);
 
-  // Delete the first table file, which makes the first blob file obsolete
-  // since it's at the head and unreferenced.
+  // Delete the first table file, which leaves the first blob file unlinked.
+  // Normal Version construction must still retain non-garbage unlinked blob
+  // files because BDW can make blob files visible in the MANIFEST before any
+  // SST links exist.
   VersionBuilder second_builder(env_options, &ioptions_, table_cache,
                                 &new_vstorage, version_set);
 
@@ -1205,16 +1207,16 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   UpdateVersionStorageInfo(&new_vstorage_2);
 
   const auto& newer_blob_files = new_vstorage_2.GetBlobFiles();
-  ASSERT_EQ(newer_blob_files.size(), 2);
+  ASSERT_EQ(newer_blob_files.size(), 3);
 
   const auto newer_meta3 =
       new_vstorage_2.GetBlobFileMetaData(/* blob_file_number */ 3);
 
-  ASSERT_EQ(newer_meta3, nullptr);
+  ASSERT_NE(newer_meta3, nullptr);
+  ASSERT_TRUE(newer_meta3->GetLinkedSsts().empty());
 
-  // Blob file #5 is referenced by table file #4, and blob file #9 is
-  // unreferenced. After deleting table file #4, all blob files will become
-  // unreferenced and will therefore be obsolete.
+  // After deleting table file #4, all remaining blob files are unlinked but
+  // still contain non-garbage data, so they must remain in the Version.
   VersionBuilder third_builder(env_options, &ioptions_, table_cache,
                                &new_vstorage_2, version_set);
   VersionEdit third_edit;
@@ -1232,7 +1234,13 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
 
   UpdateVersionStorageInfo(&new_vstorage_3);
 
-  ASSERT_TRUE(new_vstorage_3.GetBlobFiles().empty());
+  const auto& newest_blob_files = new_vstorage_3.GetBlobFiles();
+  ASSERT_EQ(newest_blob_files.size(), 3);
+  for (uint64_t blob_file_number : {3, 5, 9}) {
+    const auto meta = new_vstorage_3.GetBlobFileMetaData(blob_file_number);
+    ASSERT_NE(meta, nullptr);
+    ASSERT_TRUE(meta->GetLinkedSsts().empty());
+  }
 
   UnrefFilesInVersion(&new_vstorage_3);
   UnrefFilesInVersion(&new_vstorage_2);
