@@ -1260,8 +1260,7 @@ TEST_P(EnvPosixTestWithParam, AllocateTest) {
     if (statfs(fname.c_str(), &fs_stat) == 0 &&
         fs_stat.f_type ==
             static_cast<decltype(fs_stat.f_type)>(BTRFS_SUPER_MAGIC)) {
-      fprintf(stderr,
-              "Skipping preallocation block count checks on btrfs\n");
+      fprintf(stderr, "Skipping preallocation block count checks on btrfs\n");
       skip_block_checks = true;
     }
 #endif
