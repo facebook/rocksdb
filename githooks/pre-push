@@ -61,30 +61,28 @@ fi
 # Create a new format commit
 git add -A
 git commit -m "format: auto-format code" --no-verify -q
-echo "pre-push: created format commit $(git log --oneline -1 HEAD)"
-
-# Abort *this* push (git is pushing the old SHA), then retry with --no-verify
-# so we don't recurse back into this hook.
-echo "pre-push: retrying push with format fix..."
 
 # Build the refspecs using the current (post-format) branch HEAD
 REFSPECS=()
-CURRENT_BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
 for ref_pair in "${PUSH_REFS[@]}"; do
   remote_ref="${ref_pair#*:}"
-  # Use current HEAD for the local side since we just added a commit
   REFSPECS+=("HEAD:$remote_ref")
 done
 
-# Do the actual push, skipping the hook to avoid recursion
+# Retry push, skipping the hook to avoid recursion
 if git push --no-verify "$REMOTE" "${REFSPECS[@]}" 2>&1; then
-  echo "pre-push: push succeeded with format fix included."
-  # Exit non-zero to cancel the *original* push (we already pushed)
+  echo ""
+  echo "==========================================================="
+  echo "  pre-push: automatically formatted with a new commit and"
+  echo "  pushed. You can ignore the 'failed to push' message below"
+  echo "  — that is git cancelling the stale push; your code is"
+  echo "  already on the remote."
+  echo "==========================================================="
   exit 1
 else
   echo ""
   echo "==========================================================="
-  echo "  Format commit was added but retry push failed."
+  echo "  pre-push: format commit was added but push failed."
   echo "  Please run 'git push' again manually."
   echo "==========================================================="
   exit 1
