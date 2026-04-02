@@ -321,6 +321,29 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
 }
 
+TEST_F(WriteBatchAttachedColumnFamilyTest, PopSavePointKeepsLaterAttachments) {
+  const Options options = GetBlobDirectWriteOptions();
+  DestroyAndReopen(options);
+
+  ColumnFamilyHandle* bdw_cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(options, "bdw", &bdw_cfh));
+
+  auto* default_cfd = GetCfd(db_->DefaultColumnFamily());
+  auto* bdw_cfd = GetCfd(bdw_cfh);
+
+  WriteBatch batch;
+  ASSERT_OK(
+      batch.Put(db_->DefaultColumnFamily(), "default_key", "default_value"));
+  batch.SetSavePoint();
+  ASSERT_OK(batch.Put(bdw_cfh, "cf_key", "cf_value"));
+
+  ASSERT_OK(batch.PopSavePoint());
+  ASSERT_EQ(GetAttached(&batch, db_->DefaultColumnFamily()), default_cfd);
+  ASSERT_EQ(GetAttached(&batch, bdw_cfh), bdw_cfd);
+
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
+}
+
 TEST_F(WriteBatchAttachedColumnFamilyTest,
        NonBlobDirectWriteColumnFamiliesDoNotAttach) {
   Options options = CurrentOptions();
@@ -357,6 +380,32 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
                                 "attachments"),
               std::string::npos);
   }
+
+  other_db.reset();
+  ASSERT_OK(DestroyDB(other_dbname, options));
+}
+
+TEST_F(WriteBatchAttachedColumnFamilyTest,
+       ClearReleasesAttachedBlobDirectWriteColumnFamiliesBeforeDbClose) {
+  const Options options = GetBlobDirectWriteOptions();
+
+  const std::string other_dbname =
+      test::PerThreadDBPath("write_batch_attached_column_family_test_clear");
+  ASSERT_OK(DestroyDB(other_dbname, options));
+  std::unique_ptr<DB> other_db;
+  ASSERT_OK(DB::Open(options, other_dbname, &other_db));
+
+  auto* other_db_impl = static_cast_with_check<DBImpl>(other_db->GetRootDB());
+
+  WriteBatch batch;
+  ASSERT_OK(WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+      &batch, other_db->DefaultColumnFamily()));
+  ASSERT_NE(GetAttached(&batch, other_db->DefaultColumnFamily(), other_db_impl),
+            nullptr);
+
+  batch.Clear();
+  ASSERT_EQ(GetAttached(&batch, other_db->DefaultColumnFamily(), other_db_impl),
+            nullptr);
 
   other_db.reset();
   ASSERT_OK(DestroyDB(other_dbname, options));

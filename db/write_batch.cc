@@ -170,6 +170,8 @@ struct BatchContentClassifier : public WriteBatch::Handler {
 }  // anonymous namespace
 
 struct AttachedColumnFamily {
+  // Mirrors ColumnFamilyHandleImpl's lifetime contract: the originating DB
+  // must outlive any batch that still holds BDW attachments.
   explicit AttachedColumnFamily(ColumnFamilyHandleImpl* handle)
       : cfd(handle != nullptr ? handle->cfd() : nullptr),
         db(handle != nullptr ? handle->db() : nullptr),
@@ -873,6 +875,33 @@ void WriteBatchInternal::SetDefaultColumnFamilyTimestampSize(
   wb->default_cf_ts_sz_ = default_cf_ts_sz;
 }
 
+namespace {
+
+Status PrepareColumnFamilyHandleForWriteBatch(WriteBatch* batch,
+                                              ColumnFamilyHandleImpl* handle,
+                                              ColumnFamilyData** cfd_out) {
+  assert(handle != nullptr);
+
+  Status s =
+      WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(batch, handle);
+  if (!s.ok()) {
+    return s;
+  }
+
+  ColumnFamilyData* cfd = handle->cfd();
+  if (cfd != nullptr && cfd->ioptions().disallow_memtable_writes) {
+    return Status::InvalidArgument(
+        "This column family has disallow_memtable_writes=true");
+  }
+
+  if (cfd_out != nullptr) {
+    *cfd_out = cfd;
+  }
+  return Status::OK();
+}
+
+}  // anonymous namespace
+
 std::tuple<Status, uint32_t, size_t>
 WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(
     WriteBatch* b, ColumnFamilyHandle* column_family) {
@@ -883,25 +912,10 @@ WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(
     auto* handle =
         static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
     cf_id = handle->GetID();
-    auto* cfd = handle->cfd();
-    if (cfd != nullptr && cfd->ioptions().enable_blob_direct_write) {
-      if (handle->db() == nullptr || handle->mutex() == nullptr) {
-        return std::make_tuple(
-            Status::InvalidArgument(
-                "Blob direct write attachment requires a live column family "
-                "handle"),
-            0, 0);
-      }
-      if (handle->db()->HasAnyBlobDirectWriteColumnFamily()) {
-        if (b->save_points_ == nullptr) {
-          b->save_points_.reset(new SavePoints());
-        }
-        s = b->save_points_->AddAttachedBlobDirectWriteColumnFamily(
-            cf_id, std::make_shared<AttachedColumnFamily>(handle));
-        if (!s.ok()) {
-          return std::make_tuple(s, 0, 0);
-        }
-      }
+    ColumnFamilyData* cfd = nullptr;
+    s = PrepareColumnFamilyHandleForWriteBatch(b, handle, &cfd);
+    if (!s.ok()) {
+      return std::make_tuple(s, 0, 0);
     }
     const Comparator* const ucmp = column_family->GetComparator();
     if (ucmp) {
@@ -909,10 +923,6 @@ WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(
       if (0 == cf_id && b->default_cf_ts_sz_ != ts_sz) {
         s = Status::InvalidArgument("Default cf timestamp size mismatch");
       }
-    }
-    if (cfd && cfd->ioptions().disallow_memtable_writes) {
-      s = Status::InvalidArgument(
-          "This column family has disallow_memtable_writes=true");
     }
   } else if (b->default_cf_ts_sz_ > 0) {
     ts_sz = b->default_cf_ts_sz_;
@@ -928,13 +938,10 @@ Status CheckColumnFamilyTimestampSize(WriteBatch* batch,
     return Status::InvalidArgument("column family handle cannot be null");
   }
   auto* handle = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
-  auto* cfd = handle->cfd();
-  if (cfd != nullptr && cfd->ioptions().enable_blob_direct_write) {
-    Status s = WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
-        batch, column_family);
-    if (!s.ok()) {
-      return s;
-    }
+  Status s = PrepareColumnFamilyHandleForWriteBatch(batch, handle,
+                                                    /*cfd_out=*/nullptr);
+  if (!s.ok()) {
+    return s;
   }
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
@@ -944,10 +951,6 @@ Status CheckColumnFamilyTimestampSize(WriteBatch* batch,
   }
   if (cf_ts_sz != ts.size()) {
     return Status::InvalidArgument("timestamp size mismatch");
-  }
-  if (cfd && cfd->ioptions().disallow_memtable_writes) {
-    return Status::InvalidArgument(
-        "This column family has disallow_memtable_writes=true");
   }
   return Status::OK();
 }
@@ -1986,7 +1989,8 @@ Status WriteBatch::PopSavePoint() {
     return Status::NotFound();
   }
 
-  // Pop the most recent savepoint off the stack
+  // Pop commits everything added after the save point, including blob
+  // direct-write attachments recorded for those newer entries.
   save_points_->stack.pop();
 
   return Status::OK();
@@ -3609,6 +3613,9 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
   if (src->save_points_ != nullptr &&
       !src->save_points_->attached_blob_direct_write_column_families.empty() &&
       dst->save_points_ != nullptr) {
+    // Only an already-attached destination can conflict. If `dst` has not yet
+    // allocated save-point state, it cannot already carry BDW attachments and
+    // the copy loop below will initialize that state after the payload append.
     for (const auto& entry :
          src->save_points_->attached_blob_direct_write_column_families) {
       auto it =
@@ -3656,7 +3663,9 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
     Status s = dst->save_points_->AddAttachedBlobDirectWriteColumnFamily(
         entry.first, entry.second);
     assert(s.ok());
-    (void)s;
+    // Conflicts were fully prevalidated above, so this append path cannot
+    // report an error here without already having mutated `dst`.
+    s.PermitUncheckedError();
   }
   return Status::OK();
 }

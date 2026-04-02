@@ -506,11 +506,17 @@ struct DBImpl::BlobDirectWriteContext {
         // Attached batches already pinned the CFD while the user still held a
         // CF handle, so we can reuse the usual SuperVersion publication path
         // here without taking DB mutex for an id->CFD lookup.
+        TEST_SYNC_POINT(
+            "DBImpl::BlobDirectWriteContext::AcquireReferencedSuperVersion:"
+            "UseAttachment");
         return cfd->GetReferencedSuperVersion(db_impl_);
       }
     }
 
     ColumnFamilyData* cfd = nullptr;
+    TEST_SYNC_POINT(
+        "DBImpl::BlobDirectWriteContext::AcquireReferencedSuperVersion:"
+        "FallbackLookup");
     {
       InstrumentedMutexLock lock(&db_impl_->mutex_);
       cfd = db_impl_->versions_->GetColumnFamilySet()->GetColumnFamily(cf_id);
@@ -608,6 +614,16 @@ Status DBImpl::MaybeTransformBatchForBlobDirectWrite(
         batch_rollbacks.end());
   }
   return Status::OK();
+}
+
+Status DBImpl::TEST_MaybeTransformBatchForBlobDirectWriteOffWriteThread(
+    const WriteOptions& write_options, WriteBatch** batch,
+    WriteBatch* transformed_storage) {
+  BlobDirectWriteContext blob_direct_write_ctx(this);
+  return MaybeTransformBatchForBlobDirectWrite(
+      write_options, batch, /*should_write_to_memtable=*/true,
+      /*lookup_from_write_thread=*/false, transformed_storage,
+      &blob_direct_write_ctx);
 }
 
 Status DBImpl::SyncBlobDirectWriteManagers(

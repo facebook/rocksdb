@@ -999,7 +999,10 @@ WriteBatch* TransactionBaseImpl::GetCommitTimeWriteBatch() {
   if (dbimpl_->HasAnyBlobDirectWriteColumnFamily()) {
     // Commit-time batches can accumulate user writes via
     // Transaction::GetCommitTimeWriteBatch(), including writes against the
-    // default column family that otherwise would not carry a handle.
+    // default column family that otherwise would not carry a handle. This is a
+    // mutating accessor for BDW: the first call may allocate batch attachment
+    // bookkeeping and pin the default column family until the batch is cleared
+    // or the transaction is destroyed.
     const Status s = WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
         &commit_time_batch_, db_->DefaultColumnFamily());
     if (!s.ok()) {

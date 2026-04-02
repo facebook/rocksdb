@@ -1283,6 +1283,9 @@ class DBImpl : public DB {
   // files. This can only be called when purging of obsolete files has
   // "settled," such as during parts of DB Close().
   void TEST_VerifyNoObsoleteFilesCached(bool db_mutex_already_held) const;
+  Status TEST_MaybeTransformBatchForBlobDirectWriteOffWriteThread(
+      const WriteOptions& write_options, WriteBatch** batch,
+      WriteBatch* transformed_storage);
 
   // persist stats to column family "_persistent_stats"
   void PersistStats();
