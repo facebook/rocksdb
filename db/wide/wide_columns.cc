@@ -5,6 +5,7 @@
 
 #include "rocksdb/wide_columns.h"
 
+#include "db/blob/blob_index.h"
 #include "db/wide/wide_column_serialization.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -15,9 +16,28 @@ const WideColumns kNoWideColumns;
 
 Status PinnableWideColumns::CreateIndexForWideColumns() {
   columns_.clear();
+  unresolved_blob_column_indices_.clear();
 
   Slice value_copy = value_;
-  return WideColumnSerialization::Deserialize(value_copy, columns_);
+  Status s = WideColumnSerialization::Deserialize(value_copy, columns_);
+  if (s.ok() || !s.IsNotSupported()) {
+    return s;
+  }
+
+  value_copy = value_;
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+  s = WideColumnSerialization::DeserializeV2(value_copy, columns_,
+                                             blob_columns);
+  if (!s.ok()) {
+    return s;
+  }
+
+  unresolved_blob_column_indices_.reserve(blob_columns.size());
+  for (const auto& blob_column : blob_columns) {
+    unresolved_blob_column_indices_.push_back(blob_column.first);
+  }
+
+  return Status::OK();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

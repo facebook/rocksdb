@@ -839,6 +839,35 @@ TEST_F(WideColumnSerializationTest, RandomizedSerializeDeserializeRoundTrip) {
   }
 }
 
+TEST_F(WideColumnSerializationTest, ResolveEntityForMergeNullBlobFetcher) {
+  // Create a V2 entity with a blob column reference
+  std::vector<std::pair<std::string, std::string>> columns;
+  columns.push_back({"", "default_val"});
+  columns.push_back({"col1", "inline_val"});
+
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+  blob_columns.push_back({0, MakeBlobIndex(42, 100, 50)});
+
+  std::string serialized;
+  ASSERT_OK(
+      WideColumnSerialization::SerializeV2(columns, blob_columns, serialized));
+
+  // Verify it has blob columns
+  bool has_blob_columns = false;
+  ASSERT_OK(WideColumnSerialization::HasBlobColumns(Slice(serialized),
+                                                    has_blob_columns));
+  ASSERT_TRUE(has_blob_columns);
+
+  // Call ResolveEntityForMerge with null blob_fetcher - should return an error
+  // status rather than crashing.
+  std::string resolved_entity;
+  Slice effective_entity;
+  Status s = WideColumnSerialization::ResolveEntityForMerge(
+      Slice(serialized), "user_key", nullptr /* blob_fetcher */,
+      nullptr /* prefetch_buffers */, resolved_entity, effective_entity);
+  ASSERT_TRUE(s.IsCorruption());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

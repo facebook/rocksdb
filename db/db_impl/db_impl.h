@@ -1593,7 +1593,9 @@ class DBImpl : public DB {
                    size_t batch_cnt = 0,
                    PreReleaseCallback* pre_release_callback = nullptr,
                    PostMemTableCallback* post_memtable_callback = nullptr,
-                   std::shared_ptr<WriteBatchWithIndex> wbwi = nullptr);
+                   std::shared_ptr<WriteBatchWithIndex> wbwi = nullptr,
+                   WriteBatch* trace_batch_override = nullptr,
+                   bool skip_blob_direct_write_transform = false);
 
   // Per-WriteImpl state that keeps BDW column families pinned through
   // referenced SuperVersions until the transformed write either commits or
@@ -1607,6 +1609,19 @@ class DBImpl : public DB {
       bool should_write_to_memtable, bool lookup_from_write_thread,
       WriteBatch* transformed_storage,
       BlobDirectWriteContext* blob_direct_write_ctx);
+  Status AppendPreprocessedPutEntityToBatch(
+      const WriteOptions& write_options, WriteBatch* batch,
+      ColumnFamilyHandle* column_family, const Slice& key,
+      const WideColumns& columns,
+      BlobDirectWriteContext* blob_direct_write_ctx);
+  Status PutEntityFastPath(const WriteOptions& write_options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           const WideColumns& columns);
+  Status PutEntityFastPath(const WriteOptions& write_options, const Slice& key,
+                           const AttributeGroups& attribute_groups);
+  Status WritePreprocessedPutEntityBatch(const WriteOptions& write_options,
+                                         WriteBatch* batch,
+                                         WriteBatch* trace_batch);
   // Flushes or syncs all blob direct-write managers touched by the current
   // transformed write before the write can proceed.
   Status SyncBlobDirectWriteManagers(
@@ -2815,6 +2830,11 @@ class DBImpl : public DB {
                                       std::string ts_low);
 
   bool ShouldReferenceSuperVersion(const MergeContext& merge_context);
+  static bool MaybeResolveWritePathValue(
+      const ReadOptions& read_options, const Slice& key,
+      bool resolve_write_path_value, const Version* current,
+      ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns,
+      Status* s, bool* is_blob_index, bool* value_found = nullptr);
 
   template <typename IterType, typename ImplType,
             typename ErrorIteratorFuncType>

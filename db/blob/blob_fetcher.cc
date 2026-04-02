@@ -5,6 +5,8 @@
 
 #include "db/blob/blob_fetcher.h"
 
+#include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_index.h"
 #include "db/version_set.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -14,10 +16,14 @@ Status BlobFetcher::FetchBlob(const Slice& user_key,
                               FilePrefetchBuffer* prefetch_buffer,
                               PinnableSlice* blob_value,
                               uint64_t* bytes_read) const {
-  assert(version_);
+  BlobIndex blob_index;
+  Status s = blob_index.DecodeFrom(blob_index_slice);
+  if (!s.ok()) {
+    return s;
+  }
 
-  return version_->GetBlob(read_options_, user_key, blob_index_slice,
-                           prefetch_buffer, blob_value, bytes_read);
+  return FetchBlob(user_key, blob_index, prefetch_buffer, blob_value,
+                   bytes_read);
 }
 
 Status BlobFetcher::FetchBlob(const Slice& user_key,
@@ -25,10 +31,20 @@ Status BlobFetcher::FetchBlob(const Slice& user_key,
                               FilePrefetchBuffer* prefetch_buffer,
                               PinnableSlice* blob_value,
                               uint64_t* bytes_read) const {
-  assert(version_);
+  if (!allow_write_path_fallback_) {
+    assert(version_);
 
-  return version_->GetBlob(read_options_, user_key, blob_index, prefetch_buffer,
-                           blob_value, bytes_read);
+    return version_->GetBlob(read_options_, user_key, blob_index,
+                             prefetch_buffer, blob_value, bytes_read);
+  }
+
+  // The write-path fallback currently ignores prefetch and bytes-read
+  // accounting. It is only used for pre-flush direct-write blobs, where
+  // correctness is the priority and the amount of data is bounded by live
+  // memtable state.
+  return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
+      read_options_, user_key, blob_index, version_, blob_file_cache_,
+      blob_value);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
