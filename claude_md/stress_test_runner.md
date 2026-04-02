@@ -4,9 +4,9 @@ description: 'Run RocksDB crash/stress tests using the Sandcastle-aligned stress
 
 # RocksDB Stress Test Runner
 
-Scripts: `run_stress_matrix.sh` and `stress_fix_loop.sh` in `~/bin/` (on PATH).
+Scripts: `tools/run_stress_matrix.sh` and `tools/stress_fix_loop.sh`.
 Mirrors Sandcastle: 3 variants (debug, asan, tsan) x 22 modes = 66 tests.
-Concurrent-safe via SLUG isolation (git HEAD hash prefix).
+Concurrent-safe via repo-path SLUG isolation.
 
 ## Pre-Flight Checklist
 
@@ -27,7 +27,7 @@ Concurrent-safe via SLUG isolation (git HEAD hash prefix).
 | --modes LIST | all | Mode groups (see below) |
 | --extra-flags F | | Extra db_crashtest.py flags |
 | --skip-build | | Reuse existing binaries |
-| --stop | | Stop a running matrix for this repo |
+| --stop | | Stop a running matrix for this repo and clean repo-scoped temp dirs |
 
 ### 22 Test Modes (8 groups)
 
@@ -37,12 +37,12 @@ best_efforts(1), ts(2), tiered_storage(2), multiops(3)
 ### Scheduling
 
 3-pass variant interleave over priority-ordered modes.
-Each parallel batch covers all variants x distinct features.
-Early exit after any parallel batch with failures.
+The scheduler keeps `--parallel` slots full in pipeline mode.
+Early exit on the first failing test.
 
 ### Isolation (SLUG)
 
-SLUG = git rev-parse HEAD | head -c 8
+SLUG = first 8 chars of `md5(repo_path)`
 - Worktrees: /tmp/stress-wt-{SLUG}-{variant}
 - Test DBs: /tmp/stress-db-{SLUG}/{label}/ (via TEST_TMPDIR)
 - Results: /tmp/stress-results-{SLUG}-YYYYMMDD-HHMMSS/
@@ -57,20 +57,21 @@ Background monitors should watch for this marker to know when the matrix is done
 
 - On pass: cleans /tmp/stress-db-{SLUG}/* between batches
 - On failure: preserves ALL DB artifacts + LOG files + failures.txt summary
+- On `--stop`: recursively kills child processes and removes this repo's worktrees + TEST_TMPDIR state
 - Never touches other runs' dirs
 
 ### Examples
 
 ```
-run_stress_matrix.sh --repo ~/workspace/ws21/rocksdb --modes core --batches 300
-run_stress_matrix.sh --repo ~/workspace/ws21/rocksdb
-run_stress_matrix.sh --variants asan --modes core,txn --batches 1800
-run_stress_matrix.sh --repo ~/workspace/ws21/rocksdb --stop
+tools/run_stress_matrix.sh --repo ~/workspace/ws21/rocksdb --modes core --batches 300
+tools/run_stress_matrix.sh --repo ~/workspace/ws21/rocksdb
+tools/run_stress_matrix.sh --variants asan --modes core,txn --batches 1800
+tools/run_stress_matrix.sh --repo ~/workspace/ws21/rocksdb --stop
 ```
 
 ## stress_fix_loop.sh
 
-Automated: stress matrix → analyze failures → report and exit.
+Automated: stress matrix → summarize failures → report and exit with exact rerun commands.
 SLUG = md5sum(repo_path) for stability across commits.
 
 | Flag | Default | Description |
@@ -82,7 +83,9 @@ SLUG = md5sum(repo_path) for stability across commits.
 | --modes LIST | all | Mode groups to test |
 | --extra-flags F | | Extra db_crashtest.py flags |
 | --max-iterations N | 10 | Max fix rounds |
+| --jobs N | detected CPU count | Build parallelism |
 | --push | | Push to GitHub on success |
+| --skip-first-build | | Reuse existing worktree binaries on the first iteration |
 | --stop | | Stop a running loop for this repo |
 
 On failure, prints:
@@ -131,7 +134,7 @@ value back to the original value_base.
 |---------|-----|
 | getcwd errors | rm -rf /tmp/stress-wt-* |
 | OOM kills | pkill -9 buck2d; reduce --parallel; check cgroup memory.events |
-| Process dies on disconnect | Use setsid or systemd-run --user --scope |
+| Process dies on disconnect | Use `systemd-run --user --scope` or `nohup` |
 | False verification failures | Check MightHaveUnsyncedDataLoss() for your feature |
 | assert(IsDone()) in Restore | Check ExpectedStateTraceRecordHandler for missing record type |
 | Incompatible feature combo | Pass explicit disables in --extra-flags |

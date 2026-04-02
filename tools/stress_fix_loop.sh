@@ -2,59 +2,231 @@
 #
 # RocksDB Stress-Fix Loop (General-purpose, concurrent-safe)
 #
-# Automated loop that runs crash tests, analyzes failures with Claude Code,
-# applies fixes, and repeats until stress tests pass cleanly at the target
-# duration. Once clean, optionally pushes to GitHub.
+# Automated loop that runs crash tests, summarizes failures, and repeats
+# until stress tests pass cleanly at the target duration. The repo-local
+# scripts are self-contained and can be run directly from tools/ without
+# requiring any host-specific PATH setup.
 #
-# All /tmp paths are prefixed with a repo-derived SLUG so multiple instances
-# (from different repos) can run concurrently without collision.
-#
-# This script is repo-agnostic — pass --repo to point at any RocksDB checkout.
-# If not specified, defaults to current directory.
+# All /tmp paths are prefixed with a repo-derived SLUG so multiple repos or
+# worktrees can run concurrently without collision.
 #
 # Usage:
-#   stress_fix_loop.sh --repo /path/to/rocksdb [OPTIONS]
+#   tools/stress_fix_loop.sh --repo /path/to/rocksdb [OPTIONS]
 #
 # Options:
 #   --repo DIR            Path to RocksDB repo (default: current directory)
 #   --target-duration N   Duration (seconds) that must pass clean to exit (default: 3600)
 #   --parallel N          Parallel runs per variant (default: 4)
 #   --variants LIST       Comma-separated variants (default: debug,asan,tsan)
+#   --modes LIST          Comma-separated mode groups (default: all)
 #   --extra-flags F       Extra flags for db_crashtest.py
 #   --max-iterations N    Max fix iterations before giving up (default: 10)
+#   --jobs N              Build parallelism (default: detected CPU count)
 #   --push                Push to GitHub after passing (default: no)
 #   --skip-first-build    Skip initial build (reuse existing binaries)
-#   --stop                Stop a running loop for this repo (kills entire process group)
+#   --stop                Stop a running loop for this repo and clean repo-scoped
+#                         temp worktrees/DB dirs
 #   --help                Show this help
 #
-# Key learnings (from PR #14457 stress testing):
+# Key learnings:
 #   - db_crashtest.py randomizes params. extra-flags are appended to the
 #     db_stress command line (last occurrence wins in gflags), BUT
 #     finalize_and_sanitize() can force flags to 0 based on other random
-#     params (e.g., enable_blob_files=0 forces enable_blob_direct_write=0).
-#     Always pass ALL required flags together.
-#   - CC should only run unit tests, not stress tests. CC runs stress tests
-#     one at a time and is slow. The loop runs 8-16 in parallel.
-#   - Worktrees must use explicit commit hash: git worktree add $WT $(git rev-parse HEAD)
-#   - Build variants sequentially (not parallel) to avoid 512-process I/O storms.
-#   - Sandcastle never runs release crash tests (no assertions, no fault injection).
-#   - Features with lower durability (e.g., blob direct write deferred mode)
-#     need db_crashtest.py to treat them as data-loss modes (like disable_wal).
+#     params. Always pass all required flags together.
+#   - Worktrees must use explicit commit hashes when created.
+#   - Build variants sequentially (not parallel) to avoid I/O storms.
+#   - Features with lower durability need db_crashtest.py to treat them as
+#     data-loss modes (like disable_wal).
 #
 # Examples:
-#   # Fix loop for blob direct write until 1hr clean
-#   stress_fix_loop.sh --repo ~/workspace/ws21/rocksdb --parallel 4 \
+#   tools/stress_fix_loop.sh --repo ~/workspace/ws21/rocksdb --parallel 4 \
 #     --extra-flags "--enable_blob_direct_write=1 --enable_blob_files=1 \
 #       --blob_direct_write_partitions=4 --blob_direct_write_buffer_size=1048576"
 #
-#   # Quick loop: 30min target, 2 parallel, push when done
-#   stress_fix_loop.sh --repo ~/workspace/ws22/rocksdb --target-duration 1800 --parallel 2 --push
-#
-#   # Just debug+asan variants (from inside the repo)
-#   cd ~/workspace/ws21/rocksdb && stress_fix_loop.sh --variants debug,asan
+#   tools/stress_fix_loop.sh --repo ~/workspace/ws22/rocksdb \
+#     --target-duration 1800 --parallel 2 --push
 #
 
-# Defaults
+resolve_path() {
+    if command -v readlink >/dev/null 2>&1; then
+        readlink -f -- "$1" 2>/dev/null && return 0
+    fi
+    (
+        cd -- "$(dirname -- "$1")" >/dev/null 2>&1 &&
+        printf '%s/%s\n' "$(pwd -P)" "$(basename -- "$1")"
+    )
+}
+
+usage() {
+    cat <<'EOF'
+Usage:
+  tools/stress_fix_loop.sh --repo /path/to/rocksdb [OPTIONS]
+
+Options:
+  --repo DIR            Path to RocksDB repo (default: current directory)
+  --target-duration N   Duration in seconds that must pass clean to exit
+  --parallel N          Parallel runs per variant (default: 4)
+  --variants LIST       Comma-separated variants (default: debug,asan,tsan)
+  --modes LIST          Comma-separated mode groups (default: all)
+  --extra-flags F       Extra flags for db_crashtest.py
+  --max-iterations N    Max fix iterations before giving up (default: 10)
+  --jobs N              Build parallelism (default: detected CPU count)
+  --push                Push to GitHub after passing
+  --skip-first-build    Skip the initial build and reuse existing worktree binaries
+  --stop                Stop a running loop for this repo and clean temp dirs
+  --help                Show this help
+EOF
+}
+
+detect_cpu_count() {
+    local cpu_count
+    cpu_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
+    if [ -z "$cpu_count" ]; then
+        cpu_count="$(nproc 2>/dev/null || true)"
+    fi
+    if [ -z "$cpu_count" ]; then
+        cpu_count="$(sysctl -n hw.logicalcpu 2>/dev/null || true)"
+    fi
+    case "$cpu_count" in
+        ''|*[!0-9]*) cpu_count=8 ;;
+    esac
+    printf '%s\n' "$cpu_count"
+}
+
+hash_string() {
+    if command -v md5sum >/dev/null 2>&1; then
+        printf '%s' "$1" | md5sum | awk '{print substr($1, 1, 8)}'
+        return 0
+    fi
+    if command -v md5 >/dev/null 2>&1; then
+        printf '%s' "$1" | md5 | awk '{print substr($NF, 1, 8)}'
+        return 0
+    fi
+    printf '%s' "$1" | sha256sum | awk '{print substr($1, 1, 8)}'
+}
+
+require_positive_integer() {
+    local name="$1"
+    local value="$2"
+    case "$value" in
+        ''|*[!0-9]*)
+            echo "ERROR: ${name} must be a positive integer, got '${value}'"
+            exit 1
+            ;;
+    esac
+    if [ "$value" -le 0 ]; then
+        echo "ERROR: ${name} must be > 0, got '${value}'"
+        exit 1
+    fi
+}
+
+list_child_pids() {
+    local parent_pid="$1"
+    ps -o pid= --ppid "$parent_pid" 2>/dev/null | awk '{print $1}'
+}
+
+collect_process_tree() {
+    local root_pid="$1"
+    local child_pid
+
+    if ! kill -0 "$root_pid" 2>/dev/null; then
+        return 0
+    fi
+
+    for child_pid in $(list_child_pids "$root_pid"); do
+        collect_process_tree "$child_pid"
+    done
+    printf '%s\n' "$root_pid"
+}
+
+terminate_process_tree() {
+    local root_pid="$1"
+    local targets
+    local pid
+    local survivors=()
+
+    targets="$(collect_process_tree "$root_pid")"
+    if [ -z "$targets" ]; then
+        return 0
+    fi
+
+    # shellcheck disable=SC2086
+    kill -TERM $targets 2>/dev/null || true
+    sleep 2
+
+    for pid in $targets; do
+        if kill -0 "$pid" 2>/dev/null; then
+            survivors+=("$pid")
+        fi
+    done
+
+    if [ "${#survivors[@]}" -gt 0 ]; then
+        kill -KILL "${survivors[@]}" 2>/dev/null || true
+        sleep 1
+    fi
+}
+
+terminate_direct_children() {
+    local child_pid
+    for child_pid in $(list_child_pids "$$"); do
+        terminate_process_tree "$child_pid"
+    done
+}
+
+cleanup_owned_resources() {
+    local wt
+
+    rm -rf "${STRESS_TMPDIR:-}" 2>/dev/null || true
+
+    for wt in /tmp/stress-wt-"${SLUG}"-*; do
+        if [ ! -e "$wt" ]; then
+            continue
+        fi
+        git -C "$REPO_DIR" worktree remove --force "$wt" 2>/dev/null || true
+        rm -rf "$wt" 2>/dev/null || true
+    done
+}
+
+shell_join() {
+    local arg
+    local quoted
+    local parts=()
+    for arg in "$@"; do
+        printf -v quoted '%q' "$arg"
+        parts+=("$quoted")
+    done
+    printf '%s' "${parts[*]}"
+}
+
+cleanup_on_exit() {
+    local exit_code="$?"
+
+    if [ "${CLEANUP_DONE}" = true ]; then
+        return
+    fi
+    CLEANUP_DONE=true
+    trap - EXIT INT TERM
+
+    terminate_direct_children
+    rm -f "$PIDFILE" "$MATRIX_PIDFILE"
+
+    if [ "${INTERRUPTED}" = true ]; then
+        cleanup_owned_resources
+    fi
+
+    if [ "${INTERRUPTED}" = true ]; then
+        echo ""
+        echo "Interrupted. Cleaned up repo-scoped temp resources for SLUG ${SLUG}."
+    fi
+
+    exit "$exit_code"
+}
+
+SCRIPT_PATH="$(resolve_path "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd -P)"
+MATRIX_SCRIPT="${SCRIPT_DIR}/run_stress_matrix.sh"
+CPU_COUNT="$(detect_cpu_count)"
+
 TARGET_DURATION=3600
 PARALLEL=4
 VARIANTS="debug,asan,tsan"
@@ -64,12 +236,11 @@ MAX_ITERATIONS=10
 PUSH_ON_SUCCESS=false
 SKIP_FIRST_BUILD=false
 REPO_DIR=""
-JOBS=128
+JOBS="$CPU_COUNT"
 STOP_MODE=false
 
-# Parse args
 while [[ $# -gt 0 ]]; do
-    case $1 in
+    case "$1" in
         --repo) REPO_DIR="$2"; shift 2 ;;
         --target-duration) TARGET_DURATION="$2"; shift 2 ;;
         --parallel) PARALLEL="$2"; shift 2 ;;
@@ -80,148 +251,144 @@ while [[ $# -gt 0 ]]; do
         --push) PUSH_ON_SUCCESS=true; shift ;;
         --skip-first-build) SKIP_FIRST_BUILD=true; shift ;;
         --jobs) JOBS="$2"; shift 2 ;;
-        --stop)
-            STOP_MODE=true; shift ;;
-        --help)
-            sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
-            exit 0 ;;
+        --stop) STOP_MODE=true; shift ;;
+        --help) usage; exit 0 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
 
-# Default repo to current directory if not specified
-if [ -z "$REPO_DIR" ]; then
-    REPO_DIR="$(pwd)"
-fi
-REPO_DIR="$(cd "$REPO_DIR" && pwd)"
+require_positive_integer "target-duration" "$TARGET_DURATION"
+require_positive_integer "parallel" "$PARALLEL"
+require_positive_integer "max-iterations" "$MAX_ITERATIONS"
+require_positive_integer "jobs" "$JOBS"
 
-# Validate it's a RocksDB repo
+if [ -z "$REPO_DIR" ]; then
+    REPO_DIR="$(pwd -P)"
+fi
+REPO_DIR="$(cd "$REPO_DIR" && pwd -P)"
+
 if [ ! -f "$REPO_DIR/tools/db_crashtest.py" ]; then
     echo "ERROR: $REPO_DIR does not look like a RocksDB repo (missing tools/db_crashtest.py)"
     echo "Use --repo /path/to/rocksdb to specify the repo location."
     exit 1
 fi
 
-# Derive a short slug from repo path for /tmp namespace isolation.
-SLUG=$(echo "$REPO_DIR" | md5sum | cut -c1-8)
+if [ ! -f "$MATRIX_SCRIPT" ]; then
+    echo "ERROR: Cannot find sibling run_stress_matrix.sh at $MATRIX_SCRIPT"
+    exit 1
+fi
 
-# --stop mode: kill the running loop and its entire process group, then exit.
+SLUG="$(hash_string "$REPO_DIR")"
+PIDFILE="/tmp/stress-fix-loop-${SLUG}.pid"
+MATRIX_PIDFILE="/tmp/stress-matrix-${SLUG}.pid"
+STRESS_TMPDIR="/tmp/stress-db-${SLUG}"
+INTERRUPTED=false
+CLEANUP_DONE=false
+
 if [ "$STOP_MODE" = true ]; then
-    PIDFILE="/tmp/stress-fix-loop-${SLUG}.pid"
     if [ ! -f "$PIDFILE" ]; then
         echo "No running loop found for $REPO_DIR (no PID file at $PIDFILE)"
+        rm -f "$MATRIX_PIDFILE"
+        cleanup_owned_resources
         exit 0
     fi
-    LOOP_PID=$(cat "$PIDFILE")
+
+    LOOP_PID="$(cat "$PIDFILE")"
     if ! kill -0 "$LOOP_PID" 2>/dev/null; then
         echo "Loop PID $LOOP_PID is not running (stale PID file). Cleaning up."
-        rm -f "$PIDFILE"
+        rm -f "$PIDFILE" "$MATRIX_PIDFILE"
+        cleanup_owned_resources
         exit 0
     fi
+
     echo "Stopping stress-fix loop for $REPO_DIR (PID $LOOP_PID, SLUG $SLUG)..."
-    # Kill the entire process group (loop + matrix + crashtest + db_stress).
-    # The loop runs under setsid, so it's the session leader.
-    kill -TERM -"$LOOP_PID" 2>/dev/null
-    sleep 2
-    # Force-kill any survivors
-    if kill -0 "$LOOP_PID" 2>/dev/null; then
-        kill -KILL -"$LOOP_PID" 2>/dev/null
-        sleep 1
-    fi
-    rm -f "$PIDFILE"
-    echo "Stopped."
+    terminate_process_tree "$LOOP_PID"
+    rm -f "$PIDFILE" "$MATRIX_PIDFILE"
+    cleanup_owned_resources
+    echo "Stopped and cleaned up repo-scoped temp resources."
     exit 0
 fi
 
-# PID file for safe concurrent operation on shared devvms.
-# Scoped to SLUG (repo path) so multiple repos can run independently.
-# Prevents blanket "pkill -f stress_fix_loop" from killing unrelated loops.
-PIDFILE="/tmp/stress-fix-loop-${SLUG}.pid"
-
-# Check for an existing loop on the same repo
 if [ -f "$PIDFILE" ]; then
-    OLD_PID=$(cat "$PIDFILE")
+    OLD_PID="$(cat "$PIDFILE")"
     if kill -0 "$OLD_PID" 2>/dev/null; then
         echo "ERROR: Another stress-fix loop for this repo is already running (PID $OLD_PID)"
-        echo "Kill it first: kill $OLD_PID"
+        echo "Stop it first: $(shell_join "$SCRIPT_PATH" --repo "$REPO_DIR" --stop)"
         exit 1
-    else
-        echo "Removing stale PID file (PID $OLD_PID no longer running)"
-        rm -f "$PIDFILE"
     fi
+    echo "Removing stale PID file (PID $OLD_PID no longer running)"
+    rm -f "$PIDFILE"
 fi
 
 echo $$ > "$PIDFILE"
-trap 'rm -f "$PIDFILE"' EXIT
+trap 'INTERRUPTED=true; exit 130' INT
+trap 'INTERRUPTED=true; exit 143' TERM
+trap 'cleanup_on_exit' EXIT
 
-# Build escalating batch list up to target duration
 BATCHES=""
+LAST_BATCH=0
 for d in 300 600 1800 3600 7200; do
     if [ -z "$BATCHES" ]; then
         BATCHES="$d"
     else
-        BATCHES="$BATCHES,$d"
+        BATCHES="${BATCHES},${d}"
     fi
-    [ "$d" -ge "$TARGET_DURATION" ] && break
+    LAST_BATCH="$d"
+    if [ "$d" -ge "$TARGET_DURATION" ]; then
+        break
+    fi
 done
+if [ "$LAST_BATCH" -lt "$TARGET_DURATION" ]; then
+    BATCHES="${BATCHES},${TARGET_DURATION}"
+fi
 
 cd "$REPO_DIR"
 
 echo "============================================="
 echo "RocksDB Stress-Fix Loop"
 echo "============================================="
+echo "Script:       $SCRIPT_PATH"
+echo "Matrix script: $MATRIX_SCRIPT"
 echo "Repo:         $REPO_DIR"
 echo "Slug:         $SLUG"
 echo "Target:       ${TARGET_DURATION}s clean"
 echo "Batches:      $BATCHES"
 echo "Variants:     $VARIANTS"
+echo "Modes:        $MODES"
 echo "Parallel:     $PARALLEL per variant"
+echo "Build jobs:   $JOBS"
 echo "Max iters:    $MAX_ITERATIONS"
 echo "Push on pass: $PUSH_ON_SUCCESS"
 echo "Start:        $(date)"
 echo "============================================="
 
-for iteration in $(seq 1 $MAX_ITERATIONS); do
+for iteration in $(seq 1 "$MAX_ITERATIONS"); do
     echo ""
     echo ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>"
     echo ">>>> ITERATION $iteration / $MAX_ITERATIONS ($(date))"
     echo ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>"
 
-    # === BUILD ===
-    BUILD_FLAG=""
-    if [ "$iteration" -eq 1 ] && [ "$SKIP_FIRST_BUILD" = true ]; then
-        BUILD_FLAG="--skip-build"
-    fi
-
-    # === RUN STRESS MATRIX ===
-    echo ""
-    echo "--- Running stress matrix ---"
-    STRESS_LOG="/tmp/stress-${SLUG}-fix-iter${iteration}.log"
-
-    # Use run_stress_matrix.sh from the same directory as this script,
-    # or from PATH if not found alongside
-    MATRIX_SCRIPT="$(dirname "$0")/run_stress_matrix.sh"
-    if [ ! -f "$MATRIX_SCRIPT" ]; then
-        MATRIX_SCRIPT="$(command -v run_stress_matrix.sh 2>/dev/null)"
-    fi
-    if [ -z "$MATRIX_SCRIPT" ] || [ ! -f "$MATRIX_SCRIPT" ]; then
-        echo "ERROR: Cannot find run_stress_matrix.sh. Place it next to this script or on PATH."
-        exit 1
-    fi
-
-    bash "$MATRIX_SCRIPT" \
+    MATRIX_CMD=(bash "$MATRIX_SCRIPT" \
         --repo "$REPO_DIR" \
         --parallel "$PARALLEL" \
         --variants "$VARIANTS" \
         --modes "$MODES" \
         --batches "$BATCHES" \
-        --jobs "$JOBS" \
-        --extra-flags "$EXTRA_FLAGS" \
-        $BUILD_FLAG \
-        > "$STRESS_LOG" 2>&1
+        --jobs "$JOBS")
+    if [ -n "$EXTRA_FLAGS" ]; then
+        MATRIX_CMD+=(--extra-flags "$EXTRA_FLAGS")
+    fi
+    if [ "$iteration" -eq 1 ] && [ "$SKIP_FIRST_BUILD" = true ]; then
+        MATRIX_CMD+=(--skip-build)
+    fi
+
+    echo ""
+    echo "--- Running stress matrix ---"
+    STRESS_LOG="/tmp/stress-${SLUG}-fix-iter${iteration}.log"
+    "${MATRIX_CMD[@]}" > "$STRESS_LOG" 2>&1
     STRESS_EXIT=$?
 
-    if [ $STRESS_EXIT -eq 0 ]; then
+    if [ "$STRESS_EXIT" -eq 0 ]; then
         echo ""
         echo "============================================="
         echo "=== STRESS TESTS PASSED on iteration $iteration! ==="
@@ -229,8 +396,7 @@ for iteration in $(seq 1 $MAX_ITERATIONS); do
 
         if [ "$PUSH_ON_SUCCESS" = true ]; then
             echo "Pushing to GitHub..."
-            cd "$REPO_DIR"
-            git push origin HEAD
+            git -C "$REPO_DIR" push origin HEAD
             echo "Pushed."
         else
             echo "All tests clean. Ready to push when you want."
@@ -242,13 +408,19 @@ for iteration in $(seq 1 $MAX_ITERATIONS); do
     echo "--- Stress test FAILED on iteration $iteration ---"
     echo "Analyzing failures..."
 
-    # === GATHER FAILURE LOGS ===
-    RESULTS_DIR=$(grep "^Results:" "$STRESS_LOG" | awk '{print $2}')
+    RESULTS_DIR="$(awk '/^Results:/ {print $2; exit}' "$STRESS_LOG")"
+    MATRIX_FAILURES_FILE="$(awk '/^Failures:/ {print $2; exit}' "$STRESS_LOG")"
     FAILURE_SUMMARY="/tmp/stress-${SLUG}-failures-iter${iteration}.txt"
+
     echo "Iteration $iteration failures:" > "$FAILURE_SUMMARY"
     echo "" >> "$FAILURE_SUMMARY"
 
-    FAILED_BATCH_DIR=$(ls -d "$RESULTS_DIR"/batch-*/ 2>/dev/null | tail -1)
+    FAILED_BATCH_DIR=""
+    if [ -n "$MATRIX_FAILURES_FILE" ] && [ -f "$MATRIX_FAILURES_FILE" ]; then
+        FAILED_BATCH_DIR="$(dirname "$MATRIX_FAILURES_FILE")"
+    elif [ -n "$RESULTS_DIR" ] && [ -d "$RESULTS_DIR" ]; then
+        FAILED_BATCH_DIR="$(find "$RESULTS_DIR" -mindepth 1 -maxdepth 1 -type d -name 'batch-*' -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)"
+    fi
 
     if [ -z "$FAILED_BATCH_DIR" ]; then
         echo "ERROR: No batch directory found in $RESULTS_DIR"
@@ -257,11 +429,16 @@ for iteration in $(seq 1 $MAX_ITERATIONS); do
     fi
 
     echo "Failed batch: $FAILED_BATCH_DIR" >> "$FAILURE_SUMMARY"
+    if [ -n "$MATRIX_FAILURES_FILE" ] && [ -f "$MATRIX_FAILURES_FILE" ]; then
+        echo "Matrix failure summary: $MATRIX_FAILURES_FILE" >> "$FAILURE_SUMMARY"
+    fi
     echo "" >> "$FAILURE_SUMMARY"
 
+    FOUND_FAILURE_LOG=false
+    shopt -s nullglob
     for logfile in "$FAILED_BATCH_DIR"/*.log; do
-        label=$(basename "$logfile" .log)
-        exit_line=$(grep "^EXIT:" "$logfile" 2>/dev/null)
+        label="$(basename "$logfile" .log)"
+        exit_line="$(grep "^EXIT:" "$logfile" 2>/dev/null)"
 
         has_error=false
         for pattern in "SUMMARY.*Sanitizer" "Corruption" "Invalid blob" \
@@ -275,9 +452,9 @@ for iteration in $(seq 1 $MAX_ITERATIONS); do
         done
 
         if [ "$has_error" = true ] || [ "$exit_line" != "EXIT: 0" ]; then
+            FOUND_FAILURE_LOG=true
             echo "=== $label ===" >> "$FAILURE_SUMMARY"
 
-            # Categorize the failure
             CATEGORY="unknown"
             if grep -q "SUMMARY.*AddressSanitizer\|heap-use-after\|stack-use-after\|heap-buffer-overflow" "$logfile" 2>/dev/null; then
                 CATEGORY="sanitizer:asan"
@@ -294,8 +471,7 @@ for iteration in $(seq 1 $MAX_ITERATIONS); do
             fi
             echo "Category: $CATEGORY" >> "$FAILURE_SUMMARY"
 
-            # Extract the db_stress command line
-            CMD_LINE=$(grep -m1 "Running.*db_stress\|Executing.*db_stress\|db_stress " "$logfile" 2>/dev/null | head -1)
+            CMD_LINE="$(grep -m1 "Running.*db_stress\|Executing.*db_stress\|db_stress " "$logfile" 2>/dev/null | head -1)"
             if [ -n "$CMD_LINE" ]; then
                 echo "Command: $CMD_LINE" >> "$FAILURE_SUMMARY"
             fi
@@ -307,10 +483,16 @@ for iteration in $(seq 1 $MAX_ITERATIONS); do
             echo "" >> "$FAILURE_SUMMARY"
         fi
     done
+    shopt -u nullglob
+
+    if [ "$FOUND_FAILURE_LOG" = false ] && [ -n "$MATRIX_FAILURES_FILE" ] && [ -f "$MATRIX_FAILURES_FILE" ]; then
+        echo "--- Raw matrix summary ---" >> "$FAILURE_SUMMARY"
+        cat "$MATRIX_FAILURES_FILE" >> "$FAILURE_SUMMARY"
+        echo "" >> "$FAILURE_SUMMARY"
+    fi
 
     echo "Failure summary: $FAILURE_SUMMARY ($(wc -l < "$FAILURE_SUMMARY") lines)"
 
-    # === STOP AND REPORT ===
     echo ""
     echo "============================================="
     echo "=== STRESS TEST FAILED (iteration $iteration) ==="
@@ -325,14 +507,22 @@ for iteration in $(seq 1 $MAX_ITERATIONS); do
     echo "  Results dir:      $RESULTS_DIR"
     echo ""
     echo "--- Re-run commands ---"
-    # Build the re-run command with all current flags
-    RERUN_CMD="stress_fix_loop.sh --repo $REPO_DIR --skip-first-build --target-duration $TARGET_DURATION --parallel $PARALLEL --variants $VARIANTS --modes $MODES --jobs $JOBS --max-iterations $MAX_ITERATIONS"
-    [ -n "$EXTRA_FLAGS" ] && RERUN_CMD="$RERUN_CMD --extra-flags \"$EXTRA_FLAGS\""
-    echo "  Re-run:  $RERUN_CMD"
-    echo "  Stop:    stress_fix_loop.sh --repo $REPO_DIR --stop"
+    RERUN_ARGS=("$SCRIPT_PATH" \
+        --repo "$REPO_DIR" \
+        --skip-first-build \
+        --target-duration "$TARGET_DURATION" \
+        --parallel "$PARALLEL" \
+        --variants "$VARIANTS" \
+        --modes "$MODES" \
+        --jobs "$JOBS" \
+        --max-iterations "$MAX_ITERATIONS")
+    if [ -n "$EXTRA_FLAGS" ]; then
+        RERUN_ARGS+=(--extra-flags "$EXTRA_FLAGS")
+    fi
+    echo "  Re-run:  $(shell_join "${RERUN_ARGS[@]}")"
+    echo "  Stop:    $(shell_join "$SCRIPT_PATH" --repo "$REPO_DIR" --stop)"
     echo ""
     exit 1
-
 done
 
 echo ""

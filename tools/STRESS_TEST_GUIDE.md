@@ -240,7 +240,7 @@ Before fixing, write a test that reproduces the failure deterministically:
 
 When running stress tests for multiple features simultaneously (different repos/branches), isolate resources:
 
-- **Worktree paths**: Use a unique SLUG per feature (e.g., first 8 chars of commit hash) → `/tmp/stress-wt-{SLUG}-{variant}`
+- **Worktree paths**: Use a unique SLUG per repo/worktree (first 8 chars of `md5(real_repo_path)`) → `/tmp/stress-wt-{SLUG}-{variant}`
 - **DB paths**: `/tmp/stress-db-{SLUG}/`
 - **Result paths**: `/tmp/stress-results-{SLUG}-YYYYMMDD-HHMMSS/`
 - Use `--destroy_db_initially=1` to avoid stale DB state between runs
@@ -256,13 +256,12 @@ When running stress tests for multiple features simultaneously (different repos/
 ### Process Management
 
 - **Use PID files** for process lifecycle management — never `pkill -f` with broad patterns
-- **Kill process groups, not individual PIDs**: `kill -TERM -$(cat pidfile)` (negative PID = process group)
-- **Orphaned `db_stress` processes eat memory** — always clean up the full process tree
-- **Use `setsid`** for background processes to create isolated process groups
+- **Kill the full process tree, not just the top-level script** — orphaned `db_stress` processes eat memory
+- Prefer the repo-local `--stop` commands. They recursively terminate children and clean repo-scoped temp resources
 
 ## Running Stress Tests with Scripts
 
-Two scripts automate stress testing at scale. They live in `~/bin/` on the devvm (on PATH) and work with any RocksDB checkout.
+Two scripts automate stress testing at scale. They live under `tools/` in the repo and work out of the box from any RocksDB checkout.
 
 ### `run_stress_matrix.sh` — One-Shot Stress Test Run
 
@@ -270,18 +269,18 @@ Builds 3 binary variants and runs all 22 Sandcastle-equivalent test modes with e
 
 ```bash
 # Quick smoke test — core modes only, 5 min
-run_stress_matrix.sh --repo ~/workspace/rocksdb --modes core --batches 300
+tools/run_stress_matrix.sh --repo ~/workspace/rocksdb --modes core --batches 300
 
 # Full Sandcastle coverage — 3 variants × 22 modes = 66 tests per batch
-run_stress_matrix.sh --repo ~/workspace/rocksdb
+tools/run_stress_matrix.sh --repo ~/workspace/rocksdb
 
 # Test a specific feature — enable it and disable incompatible features
-run_stress_matrix.sh --repo ~/workspace/rocksdb \
+tools/run_stress_matrix.sh --repo ~/workspace/rocksdb \
   --modes core,atomic_flush \
   --extra-flags "--enable_my_feature=1 --incompatible_feature=0"
 
 # Only ASAN, just transaction modes, 30-min batches
-run_stress_matrix.sh --variants asan --modes txn --batches 1800
+tools/run_stress_matrix.sh --variants asan --modes txn --batches 1800
 ```
 
 **Key flags:**
@@ -294,35 +293,36 @@ run_stress_matrix.sh --variants asan --modes txn --batches 1800
 | `--modes LIST` | all | Mode groups: core, atomic_flush, txn, optimistic_txn, best_efforts, ts, tiered_storage, multiops |
 | `--extra-flags F` | | Extra flags for db_crashtest.py |
 | `--skip-build` | | Reuse existing worktree binaries |
-| `--jobs N` | 128 | Build parallelism |
+| `--jobs N` | detected CPU count | Build parallelism |
 
 **How it works:**
-1. Builds `db_stress` in worktrees under `/tmp/stress-wt-{SLUG}-{variant}` (SLUG = first 8 chars of HEAD commit hash)
-2. Runs tests in priority order: Tier 1 (blackbox per feature) → Tier 2 (whitebox counterparts) → Tier 3 (policy variants)
+1. Builds `db_stress` in worktrees under `/tmp/stress-wt-{SLUG}-{variant}` (SLUG = first 8 chars of `md5(real_repo_path)`)
+2. Runs tests in priority order with a pipeline scheduler that keeps `--parallel` slots full
 3. Escalates through batch durations (300s → 600s → 1800s → 3600s). All tests must pass at one duration before advancing.
-4. On failure: preserves crash DB LOG files in the results directory. On success: cleans up test DBs between batches.
+4. On failure: preserves crash DB artifacts and LOG files. On success: cleans up test DBs between batches.
+5. On `--stop`: recursively kills child processes and removes this repo's temp worktrees + TEST_TMPDIR state.
 
 **Output:** `/tmp/stress-results-{SLUG}-YYYYMMDD-HHMMSS/`
 
 ### `stress_fix_loop.sh` — Automated Fix Loop
 
-Runs stress matrix → on failure, launches Claude Code (CC) to analyze and fix → commits locally → rebuilds → re-runs. Repeats until the target duration passes clean.
+Runs the stress matrix, summarizes failures, and prints exact rerun commands so you can iterate quickly after making a fix.
 
 ```bash
 # Fix loop until 1hr passes clean, then push
-stress_fix_loop.sh --repo ~/workspace/rocksdb --target-duration 3600 --push
+tools/stress_fix_loop.sh --repo ~/workspace/rocksdb --target-duration 3600 --push
 
 # Feature-specific: enable your feature, disable incompatible ones, skip irrelevant modes
-stress_fix_loop.sh --repo ~/workspace/rocksdb --parallel 4 \
+tools/stress_fix_loop.sh --repo ~/workspace/rocksdb --parallel 4 \
   --modes core,atomic_flush,best_efforts,ts,tiered_storage \
   --extra-flags "--enable_my_feature=1 --incompatible_feature_a=0"
 
 # Quick: 5-min target, debug only
-stress_fix_loop.sh --repo ~/workspace/rocksdb \
+tools/stress_fix_loop.sh --repo ~/workspace/rocksdb \
   --target-duration 300 --variants debug --parallel 2
 
-# Stop a running loop (kills entire process group cleanly)
-stress_fix_loop.sh --repo ~/workspace/rocksdb --stop
+# Stop a running loop and clean repo-scoped temp resources
+tools/stress_fix_loop.sh --repo ~/workspace/rocksdb --stop
 ```
 
 **Key flags:**
@@ -335,21 +335,21 @@ stress_fix_loop.sh --repo ~/workspace/rocksdb --stop
 | `--modes LIST` | all | Mode groups to test |
 | `--extra-flags F` | | Extra flags for db_crashtest.py |
 | `--max-iterations N` | 10 | Give up after N fix rounds |
+| `--jobs N` | detected CPU count | Build parallelism |
 | `--push` | | Push to GitHub after passing |
+| `--skip-first-build` | | Reuse existing worktree binaries on the first iteration |
 | `--stop` | | Stop the running loop for this repo |
 
 **How it works:**
-1. Runs `run_stress_matrix.sh` with escalating batch durations up to `--target-duration`
-2. On failure: collects failure logs, writes a prompt with full context, launches CC to analyze and fix
-3. CC reads failures, fixes code, builds `db_stress`, runs unit tests — but does NOT commit
-4. Loop commits CC's changes locally, rebuilds worktrees, and re-runs the stress matrix
-5. Repeats until all batches pass clean or `--max-iterations` is reached
-6. On success with `--push`: pushes to GitHub
+1. Runs `tools/run_stress_matrix.sh` with escalating batch durations up to `--target-duration`
+2. On failure: collects failure logs, categorizes failures, and writes a compact summary
+3. Prints exact repo-local rerun and stop commands so you can fix code and restart quickly with `--skip-first-build`
+4. On success with `--push`: pushes to GitHub
 
 **Concurrency safety:**
 - PID file at `/tmp/stress-fix-loop-{SLUG}.pid` (SLUG = first 8 chars of md5 of repo path)
 - Auto-detects if another loop for the same repo is already running
-- `--stop` kills the entire process group (loop + matrix + crashtest + db_stress)
+- `--stop` recursively kills the loop and all child processes, then removes repo-scoped temp worktrees + TEST_TMPDIR state
 - **Never use `pkill -f stress`** — it kills loops for ALL repos. Always use `--stop`.
 
 ## Common Pitfalls
