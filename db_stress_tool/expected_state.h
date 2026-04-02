@@ -193,6 +193,7 @@ class AnonExpectedState : public ExpectedState {
 
  private:
   std::unique_ptr<std::atomic<uint32_t>[]> values_allocation_;
+  std::unique_ptr<std::atomic<SequenceNumber>> persisted_seqno_allocation_;
 };
 
 // An `ExpectedStateManager` manages data about the expected state of the
