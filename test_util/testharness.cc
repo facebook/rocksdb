@@ -17,6 +17,10 @@
 #include "test_util/sync_point.h"
 #endif
 
+#ifdef OS_WIN
+#include <windows.h>
+#endif
+
 namespace {
 #ifndef NDEBUG
 // Global gtest event listener that cleans up SyncPoint state after every
@@ -54,8 +58,6 @@ static int RegisterSyncPointCleanup() noexcept {
 namespace ROCKSDB_NAMESPACE::test {
 
 #ifdef OS_WIN
-#include <windows.h>
-
 std::string GetPidStr() { return std::to_string(GetCurrentProcessId()); }
 #else
 std::string GetPidStr() { return std::to_string(getpid()); }
