@@ -1307,6 +1307,16 @@ Status CompactionJob::Install(bool* compaction_released) {
            << pl_stats.bytes_written_blob;
   }
 
+  // Propagate Install failure to compact_->status so that
+  // CleanupCompaction() -> SubcompactionState::Cleanup() sees the failure and
+  // calls ReleaseObsolete on output files' table cache entries. Without this,
+  // if Run() succeeds but InstallCompactionResults() fails, Cleanup would see
+  // overall_status = OK and skip ReleaseObsolete, leaking entries for output
+  // files that were never installed into any Version.
+  if (!status.ok() && compact_->status.ok()) {
+    compact_->status = status;
+  }
+
   CleanupCompaction();
   return status;
 }
@@ -2355,11 +2365,16 @@ Status CompactionJob::InstallCompactionResults(bool* compaction_released) {
     *compaction_released = true;
   };
 
-  return versions_->LogAndApply(compaction->column_family_data(), read_options,
-                                write_options, edit, db_mutex_, db_directory_,
-                                /*new_descriptor_log=*/false,
-                                /*column_family_options=*/nullptr,
-                                manifest_wcb);
+  Status s;
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionJob::InstallCompactionResults:BeforeLogAndApply", &s);
+  if (s.ok()) {
+    s = versions_->LogAndApply(compaction->column_family_data(), read_options,
+                               write_options, edit, db_mutex_, db_directory_,
+                               /*new_descriptor_log=*/false,
+                               /*column_family_options=*/nullptr, manifest_wcb);
+  }
+  return s;
 }
 
 void CompactionJob::RecordCompactionIOStats() {
