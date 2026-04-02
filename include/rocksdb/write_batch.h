@@ -535,6 +535,12 @@ class WriteBatch : public WriteBatchBase {
 
   std::unique_ptr<ProtectionInfo> prot_info_;
 
+  struct AttachedColumnFamily;
+  // Non-serialized BDW-only sidecar for column families that were added via a
+  // handle and need lock-free CFD access later on the write path.
+  std::unordered_map<uint32_t, std::shared_ptr<AttachedColumnFamily>>
+      attached_blob_direct_write_column_families_;
+
   size_t default_cf_ts_sz_ = 0;
 
   bool track_timestamp_size_ = false;

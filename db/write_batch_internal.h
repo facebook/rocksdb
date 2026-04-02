@@ -27,6 +27,7 @@ namespace ROCKSDB_NAMESPACE {
 class MemTable;
 class FlushScheduler;
 class ColumnFamilyData;
+class DBImpl;
 
 class ColumnFamilyMemTables {
  public:
@@ -173,6 +174,16 @@ class WriteBatchInternal {
   static size_t ByteSize(const WriteBatch* batch) { return batch->rep_.size(); }
 
   static Status SetContents(WriteBatch* batch, const Slice& contents);
+
+  // Record a non-serialized CFD attachment for BDW-enabled column families so
+  // later write-path transforms can avoid DB mutex lookup.
+  static Status MaybeAttachBlobDirectWriteColumnFamily(
+      WriteBatch* batch, ColumnFamilyHandle* column_family);
+
+  // Returns the attached CFD for `column_family_id` when it belongs to `db`;
+  // otherwise returns null and callers must fall back to normal lookup.
+  static ColumnFamilyData* GetAttachedBlobDirectWriteColumnFamily(
+      const WriteBatch* batch, uint32_t column_family_id, DBImpl* db);
 
   static Status CheckSlicePartsLength(const SliceParts& key,
                                       const SliceParts& value);

@@ -78,6 +78,7 @@ TransactionBaseImpl::TransactionBaseImpl(
   if (dbimpl_->allow_2pc()) {
     InitWriteBatch();
   }
+  MaybeAttachDefaultColumnFamiliesForBlobDirectWrite();
 }
 
 TransactionBaseImpl::~TransactionBaseImpl() {
@@ -89,6 +90,7 @@ void TransactionBaseImpl::Clear() {
   save_points_.reset(nullptr);
   write_batch_.Clear();
   commit_time_batch_.Clear();
+  MaybeAttachDefaultColumnFamiliesForBlobDirectWrite();
   tracked_locks_->Clear();
   num_puts_ = 0;
   num_put_entities_ = 0;
@@ -120,6 +122,7 @@ void TransactionBaseImpl::Reinitialize(DB* db,
   WriteBatchInternal::UpdateProtectionInfo(
       &commit_time_batch_, write_options_.protection_bytes_per_key)
       .PermitUncheckedError();
+  MaybeAttachDefaultColumnFamiliesForBlobDirectWrite();
 }
 
 void TransactionBaseImpl::SetSnapshot() {
@@ -796,6 +799,15 @@ void TransactionBaseImpl::PutLogData(const Slice& blob) {
   auto s = write_batch_.PutLogData(blob);
   (void)s;
   assert(s.ok());
+}
+
+void TransactionBaseImpl::MaybeAttachDefaultColumnFamiliesForBlobDirectWrite() {
+  WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+      write_batch_.GetWriteBatch(), db_->DefaultColumnFamily())
+      .PermitUncheckedError();
+  WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+      &commit_time_batch_, db_->DefaultColumnFamily())
+      .PermitUncheckedError();
 }
 
 WriteBatchWithIndex* TransactionBaseImpl::GetWriteBatch() {

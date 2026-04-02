@@ -161,6 +161,22 @@ static std::string PrintContents(WriteBatch* b,
 
 class WriteBatchTest : public testing::Test {};
 
+class WriteBatchAttachedColumnFamilyTest : public DBTestBase {
+ public:
+  WriteBatchAttachedColumnFamilyTest()
+      : DBTestBase("/write_batch_attached_column_family_test",
+                   /*env_do_fsync=*/false) {}
+
+ protected:
+  Options GetBlobDirectWriteOptions() const {
+    Options options = CurrentOptions();
+    options.enable_blob_files = true;
+    options.enable_blob_direct_write = true;
+    options.allow_concurrent_memtable_write = false;
+    return options;
+  }
+};
+
 TEST_F(WriteBatchTest, Empty) {
   WriteBatch batch;
   ASSERT_EQ("", PrintContents(&batch));
@@ -184,6 +200,108 @@ TEST_F(WriteBatchTest, Multiple) {
       "DeleteRange(bar, foo)@102",
       PrintContents(&batch));
   ASSERT_EQ(4u, batch.Count());
+}
+
+TEST_F(WriteBatchAttachedColumnFamilyTest,
+       AttachedBlobDirectWriteColumnFamiliesFollowBatchState) {
+  const Options options = GetBlobDirectWriteOptions();
+  DestroyAndReopen(options);
+
+  ColumnFamilyHandle* bdw_cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(options, "bdw", &bdw_cfh));
+
+  auto* default_cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
+          ->cfd();
+  auto* bdw_cfd = static_cast_with_check<ColumnFamilyHandleImpl>(bdw_cfh)->cfd();
+
+  WriteBatch batch;
+  ASSERT_OK(WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+      &batch, db_->DefaultColumnFamily()));
+  ASSERT_OK(batch.Put("default_key", "default_value"));
+  ASSERT_OK(batch.Put(bdw_cfh, "cf_key", "cf_value"));
+
+  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+                &batch, db_->DefaultColumnFamily()->GetID(), dbfull()),
+            default_cfd);
+  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+                &batch, bdw_cfh->GetID(), dbfull()),
+            bdw_cfd);
+
+  WriteBatch copy(batch);
+  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+                &copy, db_->DefaultColumnFamily()->GetID(), dbfull()),
+            default_cfd);
+  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+                &copy, bdw_cfh->GetID(), dbfull()),
+            bdw_cfd);
+
+  WriteBatch moved(std::move(copy));
+  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+                &moved, db_->DefaultColumnFamily()->GetID(), dbfull()),
+            default_cfd);
+  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+                &moved, bdw_cfh->GetID(), dbfull()),
+            bdw_cfd);
+
+  WriteBatch appended;
+  ASSERT_OK(WriteBatchInternal::Append(&appended, &moved));
+  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+                &appended, db_->DefaultColumnFamily()->GetID(), dbfull()),
+            default_cfd);
+  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+                &appended, bdw_cfh->GetID(), dbfull()),
+            bdw_cfd);
+
+  WriteBatch replaced(appended);
+  ASSERT_OK(WriteBatchInternal::SetContents(
+      &replaced, WriteBatchInternal::Contents(&appended)));
+  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+                &replaced, db_->DefaultColumnFamily()->GetID(), dbfull()),
+            nullptr);
+  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+                &replaced, bdw_cfh->GetID(), dbfull()),
+            nullptr);
+
+  appended.Clear();
+  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+                &appended, db_->DefaultColumnFamily()->GetID(), dbfull()),
+            nullptr);
+  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+                &appended, bdw_cfh->GetID(), dbfull()),
+            nullptr);
+
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
+}
+
+TEST_F(WriteBatchAttachedColumnFamilyTest,
+       WriteBatchWithIndexRetainsAttachedBlobDirectWriteColumnFamilies) {
+  const Options options = GetBlobDirectWriteOptions();
+  DestroyAndReopen(options);
+
+  ColumnFamilyHandle* bdw_cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(options, "bdw", &bdw_cfh));
+
+  auto* default_cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
+          ->cfd();
+  auto* bdw_cfd = static_cast_with_check<ColumnFamilyHandleImpl>(bdw_cfh)->cfd();
+
+  WriteBatchWithIndex wbwi;
+  ASSERT_OK(WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+      wbwi.GetWriteBatch(), db_->DefaultColumnFamily()));
+  ASSERT_OK(wbwi.Put("default_key", "default_value"));
+  ASSERT_OK(wbwi.Put(bdw_cfh, "cf_key", "cf_value"));
+
+  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+                wbwi.GetWriteBatch(), db_->DefaultColumnFamily()->GetID(),
+                dbfull()),
+            default_cfd);
+  ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+                wbwi.GetWriteBatch(), bdw_cfh->GetID(), dbfull()),
+            bdw_cfd);
+
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
 }
 
 TEST_F(WriteBatchTest, Corruption) {

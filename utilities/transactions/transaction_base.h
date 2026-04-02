@@ -375,6 +375,8 @@ class TransactionBaseImpl : public Transaction {
     assert(s.ok());
   }
 
+  void MaybeAttachDefaultColumnFamiliesForBlobDirectWrite();
+
   WriteBatchBase* GetBatchForWrite();
 
   DB* db_;
