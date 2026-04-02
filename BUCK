@@ -4806,6 +4806,12 @@ cpp_unittest_wrapper(name="db_blob_corruption_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="db_blob_direct_write_test",
+            srcs=["db/blob/db_blob_direct_write_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="db_blob_index_test",
             srcs=["db/blob/db_blob_index_test.cc"],
             deps=[":rocksdb_test_lib"],
