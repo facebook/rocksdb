@@ -24,6 +24,10 @@ Status PinnableWideColumns::CreateIndexForWideColumns() {
     return s;
   }
 
+  // Deserialize() may already populate columns_ before discovering V2 blob
+  // references and returning NotSupported. Clear the partial result before
+  // falling back to DeserializeV2(), which requires an empty output vector.
+  columns_.clear();
   value_copy = value_;
   std::vector<std::pair<size_t, BlobIndex>> blob_columns;
   s = WideColumnSerialization::DeserializeV2(value_copy, columns_,

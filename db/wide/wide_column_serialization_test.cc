@@ -10,6 +10,7 @@
 
 #include "db/blob/blob_index.h"
 #include "db/wide/wide_columns_helper.h"
+#include "rocksdb/wide_columns.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/random.h"
@@ -568,6 +569,32 @@ TEST_F(WideColumnSerializationTest, V2BlobColumnRejectsDeserialize) {
   WideColumns deserialized;
   ASSERT_TRUE(WideColumnSerialization::Deserialize(input, deserialized)
                   .IsNotSupported());
+}
+
+TEST_F(WideColumnSerializationTest, PinnableWideColumnsFallbacksToV2) {
+  const std::vector<std::pair<std::string, std::string>> columns = {
+      {"", "placeholder"}, {"ttl", "00000001"}, {"type", "cold"}};
+  const std::vector<std::pair<size_t, BlobIndex>> blob_columns = {
+      {0, MakeBlobIndex(10, 20, 30)}};
+
+  std::string serialized;
+  ASSERT_OK(
+      WideColumnSerialization::SerializeV2(columns, blob_columns, serialized));
+
+  std::vector<WideColumn> expected_columns;
+  std::vector<std::pair<size_t, BlobIndex>> expected_blob_columns;
+  Slice input(serialized);
+  ASSERT_OK(WideColumnSerialization::DeserializeV2(input, expected_columns,
+                                                   expected_blob_columns));
+
+  PinnableWideColumns result;
+  ASSERT_OK(result.SetWideColumnValue(serialized));
+
+  ASSERT_EQ(result.columns().size(), expected_columns.size());
+  for (size_t i = 0; i < expected_columns.size(); ++i) {
+    ASSERT_EQ(result.columns()[i].name(), expected_columns[i].name());
+    ASSERT_EQ(result.columns()[i].value(), expected_columns[i].value());
+  }
 }
 
 TEST_F(WideColumnSerializationTest, V2GetValueOfDefaultColumnBlobRef) {

@@ -10,7 +10,6 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
-#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -25,7 +24,6 @@
 #include "db/write_batch_internal.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
-#include "util/coding.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -498,93 +496,6 @@ TEST_F(DBBlobIndexTest, Iterate) {
 using wide_column_test_util::GenerateLargeValue;
 using wide_column_test_util::GenerateSmallValue;
 using wide_column_test_util::GetOptionsForBlobTest;
-
-namespace {
-
-std::string EncodeFixedTTL(uint64_t ttl) {
-  std::string encoded;
-  PutFixed64(&encoded, ttl);
-  return encoded;
-}
-
-char ValueFillForIndex(size_t index) {
-  return static_cast<char>('A' + (index % 26));
-}
-
-WideColumns BuildTTLWideEntity(const std::string& value,
-                               const std::string& ttl) {
-  return WideColumns{{kDefaultWideColumnName, value}, {"ttl", ttl}};
-}
-
-class TTLOnlyLazyDropFilter : public CompactionFilter {
- public:
-  TTLOnlyLazyDropFilter(std::atomic<uint64_t>* ttl_cutoff,
-                        std::atomic<int>* filter_call_count,
-                        std::atomic<int>* ttl_columns_seen,
-                        std::atomic<int>* ttl_bad_size_count,
-                        std::atomic<int>* missing_ttl_count,
-                        std::atomic<int>* blob_columns_seen)
-      : ttl_cutoff_(ttl_cutoff),
-        filter_call_count_(filter_call_count),
-        ttl_columns_seen_(ttl_columns_seen),
-        ttl_bad_size_count_(ttl_bad_size_count),
-        missing_ttl_count_(missing_ttl_count),
-        blob_columns_seen_(blob_columns_seen) {}
-
-  Decision FilterV4(
-      int /*level*/, const Slice& /*key*/, ValueType value_type,
-      const Slice* /*existing_value*/, const WideColumns* existing_columns,
-      std::string* /*new_value*/,
-      std::vector<std::pair<std::string, std::string>>* /*new_columns*/,
-      std::string* /*skip_until*/,
-      WideColumnBlobResolver* blob_resolver = nullptr) const override {
-    if (value_type != ValueType::kWideColumnEntity || !existing_columns) {
-      return Decision::kKeep;
-    }
-
-    ++(*filter_call_count_);
-
-    for (size_t i = 0; i < existing_columns->size(); ++i) {
-      if (blob_resolver != nullptr && blob_resolver->IsBlobColumn(i)) {
-        ++(*blob_columns_seen_);
-        continue;
-      }
-
-      const auto& column = (*existing_columns)[i];
-      if (column.name() != "ttl") {
-        continue;
-      }
-
-      ++(*ttl_columns_seen_);
-      if (column.value().size() != sizeof(uint64_t)) {
-        ++(*ttl_bad_size_count_);
-        return Decision::kKeep;
-      }
-
-      if (DecodeFixed64(column.value().data()) <
-          ttl_cutoff_->load(std::memory_order_relaxed)) {
-        return Decision::kRemove;
-      }
-      return Decision::kKeep;
-    }
-
-    ++(*missing_ttl_count_);
-    return Decision::kKeep;
-  }
-
-  bool SupportsFilterV4() const override { return true; }
-  const char* Name() const override { return "TTLOnlyLazyDropFilter"; }
-
- private:
-  std::atomic<uint64_t>* ttl_cutoff_;
-  std::atomic<int>* filter_call_count_;
-  std::atomic<int>* ttl_columns_seen_;
-  std::atomic<int>* ttl_bad_size_count_;
-  std::atomic<int>* missing_ttl_count_;
-  std::atomic<int>* blob_columns_seen_;
-};
-
-}  // namespace
 
 // Test 1: Full roundtrip test: PutEntity with large columns -> flush ->
 // compaction with blob extraction -> read back with blob resolution -> verify
@@ -1833,142 +1744,6 @@ TEST_F(DBBlobIndexTest, EntityBlobFilterV3Remove) {
   PinnableSlice result;
   Status s = db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result);
   ASSERT_TRUE(s.IsNotFound()) << s.ToString();
-}
-
-TEST_F(DBBlobIndexTest,
-       DirectWriteWideEntityLazyTTLCompactionDropsExpiredBlobFiles) {
-  // This workload matches the currently supported direct-write partition fanout
-  // (32 / 128 partitions). TTL-bucket-to-partition mapping is still a
-  // separate feature; here we validate that compaction only reads the inline
-  // 8-byte TTL column and still drops blob files for expired entities.
-  constexpr size_t kTotalKeys = 16;
-  constexpr size_t kExpiredKeys = 12;
-  constexpr size_t kLiveKeys = kTotalKeys - kExpiredKeys;
-  constexpr size_t kLargeValueSize = 128 * 1024;
-  constexpr uint64_t kExpiredTTL = 10;
-  constexpr uint64_t kLiveTTLBase = 1000;
-
-  for (const uint32_t partitions : {32U, 128U}) {
-    SCOPED_TRACE("partitions=" + std::to_string(partitions));
-
-    std::atomic<int> filter_call_count{0};
-    std::atomic<int> ttl_columns_seen{0};
-    std::atomic<int> ttl_bad_size_count{0};
-    std::atomic<int> missing_ttl_count{0};
-    std::atomic<int> blob_columns_seen{0};
-    std::atomic<uint64_t> ttl_cutoff{kLiveTTLBase};
-    TTLOnlyLazyDropFilter filter(&ttl_cutoff, &filter_call_count,
-                                 &ttl_columns_seen, &ttl_bad_size_count,
-                                 &missing_ttl_count, &blob_columns_seen);
-
-    Options options = GetOptionsForBlobTest();
-    options.statistics = CreateDBStatistics();
-    options.allow_concurrent_memtable_write = false;
-    options.enable_blob_direct_write = true;
-    options.blob_direct_write_partitions = partitions;
-    options.min_blob_size = 512;
-    options.blob_file_size = 256 * 1024;
-    options.compaction_style = kCompactionStyleUniversal;
-    options.compaction_filter = &filter;
-    options.enable_blob_garbage_collection = false;
-
-    DestroyAndReopen(options);
-
-    for (size_t i = 0; i < kTotalKeys; ++i) {
-      char key_buf[32];
-      snprintf(key_buf, sizeof(key_buf), "lazy_ttl_key_%02zu", i);
-
-      const std::string value =
-          GenerateLargeValue(kLargeValueSize, ValueFillForIndex(i));
-      const std::string ttl =
-          EncodeFixedTTL(i < kExpiredKeys ? kExpiredTTL : kLiveTTLBase + i);
-      const WideColumns columns = BuildTTLWideEntity(value, ttl);
-
-      ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
-                               key_buf, columns));
-    }
-    ASSERT_OK(Flush());
-
-    const auto blob_files_before = GetBlobFileNumbers();
-    ASSERT_GT(blob_files_before.size(), kLiveKeys)
-        << "Expected enough blob files to observe expired blobs being dropped";
-
-    options.statistics->Reset();
-    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-
-    ASSERT_GE(filter_call_count.load(), static_cast<int>(kTotalKeys));
-    ASSERT_EQ(ttl_columns_seen.load(), filter_call_count.load());
-    ASSERT_EQ(ttl_bad_size_count.load(), 0)
-        << "Compaction filter should only see 8-byte inline TTL values";
-    ASSERT_EQ(missing_ttl_count.load(), 0)
-        << "Every entity in this workload must carry a TTL column";
-    ASSERT_EQ(blob_columns_seen.load(), filter_call_count.load())
-        << "Expected exactly one blob-backed default column per entity";
-
-    const uint64_t compact_read_bytes =
-        options.statistics->getTickerCount(COMPACT_READ_BYTES);
-    ASSERT_GT(compact_read_bytes, 0)
-        << "Compaction should have processed the SST data";
-
-    const uint64_t blob_bytes_read =
-        options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ);
-    ASSERT_EQ(blob_bytes_read, 0)
-        << "TTL-only compaction filter should not read blob payloads";
-
-    const auto blob_files_after = GetBlobFileNumbers();
-    ASSERT_LT(blob_files_after.size(), blob_files_before.size())
-        << "Compaction should drop blob files owned only by expired entities";
-
-    {
-      size_t live_count = 0;
-      std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
-      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-        ++live_count;
-      }
-      ASSERT_OK(iter->status());
-      ASSERT_EQ(live_count, kLiveKeys);
-    }
-
-    for (size_t i = 0; i < kExpiredKeys; ++i) {
-      char key_buf[32];
-      snprintf(key_buf, sizeof(key_buf), "lazy_ttl_key_%02zu", i);
-
-      PinnableSlice value;
-      ASSERT_TRUE(
-          db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key_buf, &value)
-              .IsNotFound())
-          << "Expired key " << key_buf << " should be dropped";
-    }
-
-    for (size_t i = kExpiredKeys; i < kTotalKeys; ++i) {
-      char key_buf[32];
-      snprintf(key_buf, sizeof(key_buf), "lazy_ttl_key_%02zu", i);
-
-      const std::string expected_value =
-          GenerateLargeValue(kLargeValueSize, ValueFillForIndex(i));
-      const std::string expected_ttl = EncodeFixedTTL(kLiveTTLBase + i);
-      const WideColumns expected =
-          BuildTTLWideEntity(expected_value, expected_ttl);
-
-      PinnableWideColumns result;
-      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
-                               key_buf, &result));
-      ASSERT_EQ(result.columns(), expected);
-    }
-
-    ttl_cutoff.store(std::numeric_limits<uint64_t>::max(),
-                     std::memory_order_relaxed);
-    options.statistics->Reset();
-    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-
-    ASSERT_EQ(options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ),
-              0)
-        << "Advancing the TTL cutoff should still avoid blob payload reads";
-    ASSERT_TRUE(GetBlobFileNumbers().empty())
-        << "All blob files should be dropped after every entity expires";
-
-    Close();
-  }
 }
 
 // Compaction filter that drops wide column entities based on a TTL column,

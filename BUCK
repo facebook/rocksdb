@@ -5048,6 +5048,12 @@ cpp_unittest_wrapper(name="db_wide_basic_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="db_wide_blob_direct_write_test",
+            srcs=["db/wide/db_wide_blob_direct_write_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="db_with_timestamp_basic_test",
             srcs=["db/db_with_timestamp_basic_test.cc"],
             deps=[":rocksdb_test_lib"],

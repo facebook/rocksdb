@@ -1481,6 +1481,7 @@ if(WITH_TESTS)
         db/wal_manager_test.cc
         db/wal_edit_test.cc
         db/wide/db_wide_basic_test.cc
+        db/wide/db_wide_blob_direct_write_test.cc
         db/wide/wide_column_serialization_test.cc
         db/wide/wide_columns_helper_test.cc
         db/write_batch_test.cc

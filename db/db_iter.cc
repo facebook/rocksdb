@@ -321,16 +321,22 @@ bool DBIter::SetValueAndColumnsFromBlob(const Slice& user_key,
 }
 
 // Lifetime contract for V2 entities with blob columns:
-// - Column name Slices in wide_columns_ point into saved_value_
-// - Blob column value Slices point into entity_blob_resolver_.resolved_cache_
-// - Inline column value Slices point into saved_value_
-// - saved_value_ must not be modified while wide_columns_ is live
-// - entity_blob_resolver_ must not be Reset() while wide_columns_ is live
+// - Column name/value Slices in lazy_entity_columns_ point into saved_value_
+// - Blob column value Slices in wide_columns_ / value_ point into
+//   entity_blob_resolver_.resolved_cache_
+// - Inline column value Slices in wide_columns_ / value_ point into
+//   saved_value_
+// - saved_value_ must not be modified while lazy_entity_columns_ /
+//   wide_columns_ are live
+// - entity_blob_resolver_ must not be Reset() while lazy_entity_columns_ /
+//   wide_columns_ are live
 // All movement methods (Next, Prev, Seek, etc.) call ResetValueAndColumns()
 // before any code that could modify saved_value_, ensuring safety.
 bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
   assert(value_.empty());
   assert(wide_columns_.empty());
+  assert(lazy_entity_columns_.empty());
+  assert(lazy_blob_columns_.empty());
 
   // Fast path: if no blob columns, use the simpler Deserialize
   bool has_blob_columns = false;
@@ -383,43 +389,67 @@ bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
     if (!s.ok()) {
       status_ = s;
       valid_ = false;
+      lazy_entity_columns_.clear();
+      lazy_blob_columns_.clear();
       return false;
     }
   }
 
-  // Eager path: use the resolver to fetch all blob values immediately.
-  // The resolver's resolved_cache_ (PinnableSlice) keeps resolved blob data
-  // alive until the next Reset() call, so wide_columns_ Slices can safely
-  // point into it. Inline column Slices point into saved_value_.
+  // Resolve only the default column on iterator positioning. Non-default blob
+  // columns stay lazy until columns() is explicitly requested.
   entity_blob_resolver_.Reset(saved_key_.GetUserKey(), &lazy_entity_columns_,
                               &lazy_blob_columns_);
 
-  wide_columns_.reserve(lazy_entity_columns_.size());
-  for (const auto& col : lazy_entity_columns_) {
-    wide_columns_.emplace_back(col.name(), col.value());
-  }
-
-  // Resolve all blob columns eagerly
-  for (const auto& bc : lazy_blob_columns_) {
-    const size_t col_idx = bc.first;
-    assert(col_idx < wide_columns_.size());
-
-    Slice resolved_value;
-    const Status s =
-        entity_blob_resolver_.ResolveColumn(col_idx, &resolved_value);
+  if (WideColumnsHelper::HasDefaultColumn(lazy_entity_columns_)) {
+    Slice resolved_default_value;
+    const Status s = entity_blob_resolver_.ResolveColumn(
+        /*column_index=*/0, &resolved_default_value);
     if (!s.ok()) {
       status_ = s;
       valid_ = false;
-      wide_columns_.clear();
+      lazy_entity_columns_.clear();
+      lazy_blob_columns_.clear();
+      entity_blob_resolver_.Reset(Slice(), nullptr, nullptr);
       return false;
     }
-    wide_columns_[col_idx].value() = resolved_value;
+    value_ = resolved_default_value;
   }
 
-  if (WideColumnsHelper::HasDefaultColumn(wide_columns_)) {
-    value_ = WideColumnsHelper::GetDefaultColumn(wide_columns_);
+  return true;
+}
+
+bool DBIter::MaterializeLazyEntityColumns() const {
+  if (lazy_entity_columns_.empty() || !wide_columns_.empty()) {
+    return true;
   }
 
+  std::lock_guard<std::mutex> lock(lazy_entity_columns_mutex_);
+  if (lazy_entity_columns_.empty() || !wide_columns_.empty()) {
+    return true;
+  }
+
+  DBIter* const mutable_this = const_cast<DBIter*>(this);
+  WideColumns materialized_columns;
+  materialized_columns.reserve(lazy_entity_columns_.size());
+  for (const auto& col : lazy_entity_columns_) {
+    materialized_columns.emplace_back(col.name(), col.value());
+  }
+
+  for (const auto& blob_col : lazy_blob_columns_) {
+    Slice resolved_value;
+    const Status s = mutable_this->entity_blob_resolver_.ResolveColumn(
+        blob_col.first, &resolved_value);
+    if (!s.ok()) {
+      mutable_this->status_ = s;
+      mutable_this->valid_ = false;
+      mutable_this->wide_columns_.clear();
+      return false;
+    }
+
+    materialized_columns[blob_col.first].value() = resolved_value;
+  }
+
+  mutable_this->wide_columns_ = std::move(materialized_columns);
   return true;
 }
 

@@ -10,6 +10,7 @@
 #pragma once
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -198,6 +199,14 @@ class DBIter final : public Iterator {
 
   const WideColumns& columns() const override {
     assert(valid_);
+
+    if (!wide_columns_.empty() || lazy_entity_columns_.empty()) {
+      return wide_columns_;
+    }
+
+    if (!MaterializeLazyEntityColumns()) {
+      return kNoWideColumns;
+    }
 
     return wide_columns_;
   }
@@ -388,6 +397,7 @@ class DBIter final : public Iterator {
                                   const Slice& blob_index);
 
   bool SetValueAndColumnsFromEntity(Slice slice);
+  bool MaterializeLazyEntityColumns() const;
 
   bool SetValueAndColumnsFromMergeResult(const Status& merge_status,
                                          ValueType result_type);
@@ -395,6 +405,9 @@ class DBIter final : public Iterator {
   void ResetValueAndColumns() {
     value_.clear();
     wide_columns_.clear();
+    lazy_entity_columns_.clear();
+    lazy_blob_columns_.clear();
+    entity_blob_resolver_.Reset(Slice(), nullptr, nullptr);
   }
 
   void ResetBlobData() {
@@ -548,5 +561,6 @@ class DBIter final : public Iterator {
   ReadPathBlobResolver entity_blob_resolver_;
   std::vector<WideColumn> lazy_entity_columns_;
   std::vector<std::pair<size_t, BlobIndex>> lazy_blob_columns_;
+  mutable std::mutex lazy_entity_columns_mutex_;
 };
 }  // namespace ROCKSDB_NAMESPACE
