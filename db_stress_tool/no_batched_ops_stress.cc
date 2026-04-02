@@ -86,6 +86,13 @@ class NonBatchedOpsStressTest : public StressTest {
       if (method == VerificationMethod::kMultiGet && !FLAGS_use_multiget) {
         method = VerificationMethod::kGet;
       }
+      if (method == VerificationMethod::kGetMergeOperands &&
+          (!FLAGS_use_merge || FLAGS_enable_blob_files)) {
+        // GetMergeOperands only makes sense when merge operands are being
+        // generated, and stacked BlobDB does not support exposing raw merge
+        // operands for blob-indexed values.
+        method = VerificationMethod::kGet;
+      }
 
       if (method == VerificationMethod::kIterator) {
         std::unique_ptr<ManagedSnapshot> snapshot = nullptr;

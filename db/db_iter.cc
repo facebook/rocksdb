@@ -12,6 +12,8 @@
 #include <limits>
 #include <string>
 
+#include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_index.h"
 #include "db/dbformat.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
@@ -53,7 +55,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       iter_(iter),
       blob_reader_(version, read_options.read_tier,
                    read_options.verify_checksums, read_options.fill_cache,
-                   read_options.io_activity),
+                   read_options.io_activity,
+                   cfh ? cfh->cfd()->blob_file_cache() : nullptr),
       read_callback_(read_callback),
       sequence_(s),
       statistics_(ioptions.stats),
@@ -218,11 +221,12 @@ void DBIter::Next() {
   }
 }
 
-Status DBIter::BlobReader::RetrieveAndSetBlobValue(const Slice& user_key,
-                                                   const Slice& blob_index) {
+Status DBIter::BlobReader::RetrieveAndSetBlobValue(
+    const Slice& user_key, const Slice& blob_index,
+    bool allow_write_path_fallback) {
   assert(blob_value_.empty());
 
-  if (!version_) {
+  if (!version_ && (!allow_write_path_fallback || !blob_file_cache_)) {
     return Status::Corruption("Encountered unexpected blob index.");
   }
 
@@ -237,19 +241,32 @@ Status DBIter::BlobReader::RetrieveAndSetBlobValue(const Slice& user_key,
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
   constexpr uint64_t* bytes_read = nullptr;
 
-  const Status s = version_->GetBlob(read_options, user_key, blob_index,
-                                     prefetch_buffer, &blob_value_, bytes_read);
+  if (!allow_write_path_fallback) {
+    assert(version_ != nullptr);
+    return version_->GetBlob(read_options, user_key, blob_index,
+                             prefetch_buffer, &blob_value_, bytes_read);
+  }
 
+  BlobIndex blob_idx;
+  Status s = blob_idx.DecodeFrom(blob_index);
   if (!s.ok()) {
     return s;
   }
 
-  return Status::OK();
+  return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
+      read_options, user_key, blob_idx, version_, blob_file_cache_,
+      &blob_value_);
 }
 
 bool DBIter::SetValueAndColumnsFromBlobImpl(const Slice& user_key,
                                             const Slice& blob_index) {
-  const Status s = blob_reader_.RetrieveAndSetBlobValue(user_key, blob_index);
+  // Keep the non-BDW iterator path on the pre-existing Version::GetBlob()
+  // fast path. Only enable the direct-write fallback when this CF actually
+  // has a write-path partition manager.
+  const bool allow_write_path_fallback =
+      cfh_ != nullptr && cfh_->cfd()->blob_partition_manager() != nullptr;
+  const Status s = blob_reader_.RetrieveAndSetBlobValue(
+      user_key, blob_index, allow_write_path_fallback);
   if (!s.ok()) {
     status_ = s;
     valid_ = false;
@@ -1385,7 +1402,10 @@ bool DBIter::MergeWithBlobBaseValue(const Slice& blob_index,
     return false;
   }
 
-  const Status s = blob_reader_.RetrieveAndSetBlobValue(user_key, blob_index);
+  const bool allow_write_path_fallback =
+      cfh_ != nullptr && cfh_->cfd()->blob_partition_manager() != nullptr;
+  const Status s = blob_reader_.RetrieveAndSetBlobValue(
+      user_key, blob_index, allow_write_path_fallback);
   if (!s.ok()) {
     status_ = s;
     valid_ = false;

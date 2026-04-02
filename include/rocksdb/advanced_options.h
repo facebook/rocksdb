@@ -1188,6 +1188,43 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   PrepopulateBlobCache prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
 
+  // When enabled, values >= min_blob_size are written directly to blob files
+  // during the write path and replaced in WAL and memtable with BlobIndex
+  // references.
+  //
+  // Requires enable_blob_files = true.
+  // Experimental reduced-scope v1 restrictions. These limitations keep the v1
+  // implementation intentionally small; follow-up PRs are expected to improve
+  // feature compatibility over time:
+  //  - only supports the ordered single-memtable-writer path; unordered,
+  //    pipelined, two_write_queues, and allow_concurrent_memtable_write are
+  //    not supported.
+  //  - crash recovery only supports blob files that were already made
+  //    manifest-visible by flush/SST creation; WAL replay of active
+  //    direct-write blob files is not currently supported.
+  //  - checkpoint/backup/live-files enumeration must flush pending
+  //    direct-write state first; APIs that intentionally skip the flush, or
+  //    run while WAL is locked, can return NotSupported.
+  //  - not compatible with MemPurge or user-defined timestamps.
+  //  - DB::IngestWriteBatchWithIndex() is not supported while any live column
+  //    family enables this option.
+  //  - read-only and secondary opens can read flushed/manifest-visible blob
+  //    files, but do not resolve still-active direct-write blob files.
+  //
+  // Default: false
+  //
+  // Not dynamically changeable through the SetOptions() API.
+  bool enable_blob_direct_write = false;
+
+  // Number of direct-write blob partitions for this column family.
+  // Partition selection is round-robin.
+  // Requires enable_blob_direct_write = true.
+  //
+  // Default: 1
+  //
+  // Not dynamically changeable through the SetOptions() API.
+  uint32_t blob_direct_write_partitions = 1;
+
   // Enable memtable per key-value checksum protection.
   //
   // Each entry in memtable will be suffixed by a per key-value checksum.

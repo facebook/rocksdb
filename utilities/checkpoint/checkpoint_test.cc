@@ -905,6 +905,29 @@ TEST_F(CheckpointTest, CheckpointWithLockWAL) {
   ASSERT_EQ("foo_value", get_result);
 }
 
+TEST_F(CheckpointTest, CheckpointWithLockWALRejectsBlobDirectWrite) {
+  Options options = CurrentOptions();
+  options.enable_blob_files = true;
+  options.enable_blob_direct_write = true;
+  options.allow_concurrent_memtable_write = false;
+  options.min_blob_size = 32;
+  Reopen(options);
+
+  ASSERT_OK(Put("foo", std::string(128, 'b')));
+  ASSERT_OK(db_->LockWAL());
+
+  Checkpoint* checkpoint = nullptr;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  std::unique_ptr<Checkpoint> checkpoint_holder(checkpoint);
+
+  Status s = checkpoint->CreateCheckpoint(snapshot_name_);
+  ASSERT_TRUE(s.IsNotSupported()) << s.ToString();
+  ASSERT_NE(s.ToString().find("Blob direct write"), std::string::npos)
+      << s.ToString();
+
+  ASSERT_OK(db_->UnlockWAL());
+}
+
 TEST_F(CheckpointTest, CheckpointReadOnlyDBWithMultipleColumnFamilies) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu", "eevee"}, options);
@@ -1419,6 +1442,37 @@ TEST_F(CheckpointTest, BackupWithAtomicFlushSkipsWAL) {
   }
   restored_db.reset();
   ASSERT_OK(DestroyDB(restore_dir, options));
+  test::DeleteDir(env_, backup_dir);
+}
+
+TEST_F(CheckpointTest, BackupWithoutFlushRejectsBlobDirectWrite) {
+  Options options = CurrentOptions();
+  options.enable_blob_files = true;
+  options.enable_blob_direct_write = true;
+  options.allow_concurrent_memtable_write = false;
+  options.min_blob_size = 32;
+  Reopen(options);
+
+  ASSERT_OK(Put("foo", std::string(128, 'x')));
+
+  std::string backup_dir =
+      test::PerThreadDBPath(env_, "backup_blob_direct_write_requires_flush");
+  test::DeleteDir(env_, backup_dir);
+
+  BackupEngineOptions backup_options(backup_dir);
+  backup_options.destroy_old_data = true;
+
+  BackupEngine* backup_engine_ptr = nullptr;
+  ASSERT_OK(BackupEngine::Open(env_, backup_options, &backup_engine_ptr));
+  std::unique_ptr<BackupEngine> backup_engine(backup_engine_ptr);
+
+  CreateBackupOptions create_options;
+  create_options.flush_before_backup = false;
+  Status s = backup_engine->CreateNewBackup(create_options, db_.get());
+  ASSERT_TRUE(s.IsNotSupported()) << s.ToString();
+  ASSERT_NE(s.ToString().find("Blob direct write"), std::string::npos)
+      << s.ToString();
+
   test::DeleteDir(env_, backup_dir);
 }
 

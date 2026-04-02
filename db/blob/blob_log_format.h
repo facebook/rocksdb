@@ -148,13 +148,26 @@ struct BlobLogRecord {
 
 // Checks whether a blob offset is potentially valid or not.
 inline bool IsValidBlobOffset(uint64_t value_offset, uint64_t key_size,
-                              uint64_t value_size, uint64_t file_size) {
-  if (value_offset <
-      BlobLogHeader::kSize + BlobLogRecord::kHeaderSize + key_size) {
+                              uint64_t value_size, uint64_t file_size,
+                              bool has_footer = true) {
+  constexpr uint64_t kMinPrefix =
+      BlobLogHeader::kSize + BlobLogRecord::kHeaderSize;
+  if (value_offset < kMinPrefix) {
+    return false;
+  }
+  if (value_offset - kMinPrefix < key_size) {
     return false;
   }
 
-  if (value_offset + value_size + BlobLogFooter::kSize > file_size) {
+  const uint64_t footer_size = has_footer ? BlobLogFooter::kSize : 0;
+  if (file_size < footer_size) {
+    return false;
+  }
+  const uint64_t max_value_end = file_size - footer_size;
+  if (value_size > max_value_end) {
+    return false;
+  }
+  if (value_offset > max_value_end - value_size) {
     return false;
   }
 

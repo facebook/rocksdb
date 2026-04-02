@@ -666,6 +666,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "read_triggered_compaction_threshold=0.5;"
       "sample_for_compression=0;"
       "enable_blob_files=true;"
+      "enable_blob_direct_write=true;"
       "min_blob_size=256;"
       "blob_file_size=1000000;"
       "blob_compression_type=kBZip2Compression;"
@@ -674,6 +675,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "blob_garbage_collection_force_threshold=0.75;"
       "blob_compaction_readahead_size=262144;"
       "blob_file_starting_level=1;"
+      "blob_direct_write_partitions=3;"
       "prepopulate_blob_cache=kDisable;"
       "bottommost_temperature=kWarm;"
       "last_level_temperature=kWarm;"
@@ -709,6 +711,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
 
   // Custom verification since compaction_options_fifo was in
   // kColumnFamilyOptionsExcluded
+  ASSERT_TRUE(new_options->enable_blob_direct_write);
+  ASSERT_EQ(new_options->blob_direct_write_partitions, 3U);
   ASSERT_EQ(new_options->compaction_options_fifo.max_table_files_size, 3);
   ASSERT_EQ(new_options->compaction_options_fifo.allow_compaction, true);
   ASSERT_EQ(new_options->compaction_options_fifo.file_temperature_age_thresholds

@@ -707,6 +707,7 @@ set(SOURCES
         db/blob/blob_file_addition.cc
         db/blob/blob_file_builder.cc
         db/blob/blob_file_cache.cc
+        db/blob/blob_file_partition_manager.cc
         db/blob/blob_file_garbage.cc
         db/blob/blob_file_meta.cc
         db/blob/blob_file_reader.cc
@@ -715,6 +716,7 @@ set(SOURCES
         db/blob/blob_log_sequential_reader.cc
         db/blob/blob_log_writer.cc
         db/blob/blob_source.cc
+        db/blob/blob_write_batch_transformer.cc
         db/blob/prefetch_buffer_collection.cc
         db/builder.cc
         db/c.cc
@@ -1387,6 +1389,7 @@ if(WITH_TESTS)
         db/blob/blob_garbage_meter_test.cc
         db/blob/blob_source_test.cc
         db/blob/db_blob_basic_test.cc
+        db/blob/db_blob_direct_write_test.cc
         db/blob/db_blob_compaction_test.cc
         db/blob/db_blob_corruption_test.cc
         db/blob/db_blob_index_test.cc

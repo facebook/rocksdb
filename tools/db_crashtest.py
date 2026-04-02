@@ -166,6 +166,7 @@ default_params = {
     "expected_values_dir": lambda: setup_expected_values_dir(),
     "flush_one_in": lambda: random.choice([1000, 1000000]),
     "manual_wal_flush_one_in": lambda: random.choice([0, 1000]),
+    "sync_wal_one_in": 0,
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
     "get_live_files_apis_one_in": lambda: random.choice([10000, 1000000]),
     "checkpoint_atomic_flush": lambda: random.choice([0, 1]),
@@ -200,6 +201,7 @@ default_params = {
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
     "partition_filters": lambda: random.randint(0, 1),
     "partition_pinning": lambda: random.randint(0, 3),
+    "rate_limit_auto_wal_flush": 0,
     "reset_stats_one_in": lambda: random.choice([10000, 1000000]),
     "pause_background_one_in": lambda: random.choice([10000, 1000000]),
     "disable_file_deletions_one_in": lambda: random.choice([10000, 1000000]),
@@ -727,6 +729,29 @@ blob_params = {
     "remote_compaction_worker_threads": 0,
 }
 
+blob_direct_write_params = {
+    "enable_blob_files": 1,
+    "enable_blob_direct_write": 1,
+    "blob_direct_write_partitions": lambda: random.choice([1, 2, 4, 8]),
+    "allow_setting_blob_options_dynamically": 0,
+    # Keep the fixed-across-runs write mode within the reduced WAL-disabled
+    # direct-write profile.
+    "inplace_update_support": 0,
+    "min_blob_size": lambda: random.choice([8, 16, 64]),
+    "blob_file_size": lambda: random.choice([1048576, 16777216, 268435456]),
+    "blob_compression_type": lambda: random.choice(["none", "snappy", "lz4", "zstd"]),
+    "enable_blob_garbage_collection": 0,
+    "blob_garbage_collection_age_cutoff": 0.0,
+    "blob_garbage_collection_force_threshold": 1.0,
+    "blob_compaction_readahead_size": 0,
+    "blob_file_starting_level": 0,
+    "use_blob_cache": lambda: random.randint(0, 1),
+    "use_shared_block_and_blob_cache": lambda: random.randint(0, 1),
+    "blob_cache_size": lambda: random.choice([1048576, 2097152, 4194304, 8388608]),
+    "prepopulate_blob_cache": lambda: random.randint(0, 1),
+    "remote_compaction_worker_threads": 0,
+}
+
 ts_params = {
     "test_cf_consistency": 0,
     "test_batches_snapshots": 0,
@@ -869,6 +894,101 @@ def finalize_and_sanitize(src_params):
         else:
             dest_params["mock_direct_io"] = True
 
+    if dest_params.get("enable_blob_direct_write", 0) == 1:
+        # Keep blob direct write in its reduced-scope v1 profile.
+        #
+        # Supported recovery shape:
+        #   * clean shutdown / flush
+        #   * crash restart that only relies on SST + manifest-visible blob
+        #     state
+        #
+        # Unsupported here:
+        #   * WAL replay / best-efforts recovery
+        #   * broad dynamic blob option changes and blob GC
+        #   * merge / transaction variants and parallel write queue modes
+        #   * secondary / backup / checkpoint / ingest style APIs that reason
+        #     about active files directly
+        dest_params["enable_blob_files"] = 1
+        dest_params["blob_direct_write_partitions"] = max(
+            1, dest_params.get("blob_direct_write_partitions", 1)
+        )
+        # BDW can still run with multiple application threads as long as writes
+        # stay on the ordered write path. Disable the write modes that would
+        # let memtable/WAL publication diverge from the transformed blob-file
+        # write ordering.
+        dest_params["allow_concurrent_memtable_write"] = 0
+        dest_params["enable_pipelined_write"] = 0
+        dest_params["two_write_queues"] = 0
+        dest_params["unordered_write"] = 0
+        # Keep inplace updates off. The later inplace_update_support
+        # sanitization intentionally forces disable_wal=0 for its own recovery
+        # assumptions, which would silently undo the BDW crash-test profile.
+        dest_params["inplace_update_support"] = 0
+        # Direct write is implemented only for integrated BlobDB, without
+        # dynamic blob option changes or background blob GC.
+        dest_params["use_blob_db"] = 0
+        dest_params["allow_setting_blob_options_dynamically"] = 0
+        dest_params["enable_blob_garbage_collection"] = 0
+        dest_params["blob_garbage_collection_age_cutoff"] = 0.0
+        dest_params["blob_garbage_collection_force_threshold"] = 1.0
+        dest_params["blob_compaction_readahead_size"] = 0
+        dest_params["blob_file_starting_level"] = 0
+        dest_params["use_merge"] = 0
+        dest_params["use_full_merge_v1"] = 0
+        dest_params["use_put_entity_one_in"] = 0
+        dest_params["use_get_entity"] = 0
+        dest_params["use_multi_get_entity"] = 0
+        dest_params["use_timed_put_one_in"] = 0
+        dest_params["use_attribute_group"] = 0
+        # Direct write v1 only supports the plain comparator / key encoding
+        # path. User-defined timestamps and the TransactionDB-only timestamped
+        # snapshot API are outside this feature envelope.
+        dest_params["user_timestamp_size"] = 0
+        dest_params["persist_user_defined_timestamps"] = 0
+        dest_params["create_timestamped_snapshot_one_in"] = 0
+        dest_params["use_txn"] = 0
+        dest_params["txn_write_policy"] = 0
+        dest_params["use_optimistic_txn"] = 0
+        dest_params["test_multi_ops_txns"] = 0
+        dest_params["commit_bypass_memtable_one_in"] = 0
+        # Force the WAL-disabled crash-test profile. The generic disable_wal
+        # sanitization below still applies, but keep the WAL-dependent stress
+        # features explicitly off here so later sanitizers or explicit command
+        # line overrides do not silently re-enable them.
+        dest_params["disable_wal"] = 1
+        dest_params["best_efforts_recovery"] = 0
+        # Direct write v1 crash testing does not cover reopen with unlogged
+        # data, manual/sync WAL persistence, or WAL metadata/locking APIs.
+        dest_params["reopen"] = 0
+        dest_params["manual_wal_flush_one_in"] = 0
+        dest_params["sync_wal_one_in"] = 0
+        dest_params["lock_wal_one_in"] = 0
+        dest_params["get_sorted_wal_files_one_in"] = 0
+        dest_params["get_current_wal_file_one_in"] = 0
+        dest_params["track_and_verify_wals"] = 0
+        dest_params["rate_limit_auto_wal_flush"] = 0
+        dest_params["recycle_log_file_num"] = 0
+        # Write/open fault injection currently assumes WAL-based recovery or
+        # error-retry behavior that direct write v1 does not provide.
+        dest_params["sync_fault_injection"] = 0
+        dest_params["write_fault_one_in"] = 0
+        dest_params["metadata_write_fault_one_in"] = 0
+        dest_params["read_fault_one_in"] = 0
+        dest_params["metadata_read_fault_one_in"] = 0
+        dest_params["open_metadata_write_fault_one_in"] = 0
+        dest_params["open_metadata_read_fault_one_in"] = 0
+        dest_params["open_write_fault_one_in"] = 0
+        dest_params["open_read_fault_one_in"] = 0
+        # Remote compaction, secondary readers, file snapshot style APIs, and
+        # ingest APIs are outside the initial direct-write feature envelope.
+        dest_params["remote_compaction_worker_threads"] = 0
+        dest_params["test_secondary"] = 0
+        dest_params["backup_one_in"] = 0
+        dest_params["checkpoint_one_in"] = 0
+        dest_params["get_live_files_apis_one_in"] = 0
+        dest_params["ingest_external_file_one_in"] = 0
+        dest_params["ingest_wbwi_one_in"] = 0
+
     if dest_params.get("memtablerep") == "vector":
         dest_params["inplace_update_support"] = 0
 
@@ -1000,6 +1120,9 @@ def finalize_and_sanitize(src_params):
         else:
             dest_params["unordered_write"] = 0
     if dest_params.get("disable_wal", 0) == 1:
+        # WAL-disabled stress runs do not support in-process reopen. Blob
+        # direct write v1 relies on this path so crash testing stays within its
+        # SST/blob-manifest recovery envelope rather than WAL replay.
         dest_params["atomic_flush"] = 1
         dest_params["sync"] = 0
         dest_params["write_fault_one_in"] = 0
@@ -1364,16 +1487,17 @@ def gen_cmd_params(args):
     if args.test_tiered_storage:
         params.update(tiered_params)
 
-    # Best-effort recovery, tiered storage are currently incompatible with BlobDB.
-    # Test BE recovery if specified on the command line; otherwise, apply BlobDB
-    # related overrides with a 10% chance.
+    # Best-effort recovery, tiered storage are currently incompatible with
+    # BlobDB and blob direct write. Test BE recovery if specified on the
+    # command line; otherwise, apply one of the blob feature overrides with a
+    # 10% chance.
     if (
         not args.test_best_efforts_recovery
         and not args.test_tiered_storage
         and params.get("test_secondary", 0) == 0
         and random.choice([0] * 9 + [1]) == 1
     ):
-        params.update(blob_params)
+        params.update(random.choice([blob_params, blob_direct_write_params]))
 
     if "compaction_style" not in params:
         # Default to leveled compaction
@@ -1810,6 +1934,7 @@ def main():
         + list(blackbox_simple_default_params.items())
         + list(whitebox_simple_default_params.items())
         + list(blob_params.items())
+        + list(blob_direct_write_params.items())
         + list(ts_params.items())
         + list(multiops_txn_params.items())
         + list(best_efforts_recovery_params.items())

@@ -260,6 +260,10 @@ class DBImpl : public DB {
       const WriteOptions& options,
       std::shared_ptr<WriteBatchWithIndex> wbwi) override;
 
+  // Returns true if any live column family currently has blob direct write
+  // enabled.
+  bool HasAnyBlobDirectWriteColumnFamily();
+
   using DB::Get;
   Status Get(const ReadOptions& _read_options,
              ColumnFamilyHandle* column_family, const Slice& key,
@@ -1591,7 +1595,26 @@ class DBImpl : public DB {
                    PostMemTableCallback* post_memtable_callback = nullptr,
                    std::shared_ptr<WriteBatchWithIndex> wbwi = nullptr);
 
+  // Per-WriteImpl state that keeps BDW column families pinned through
+  // referenced SuperVersions until the transformed write either commits or
+  // rolls back.
+  struct BlobDirectWriteContext;
+  // Rewrites a write batch for blob direct write when the current DB and batch
+  // shape are compatible, recording touched managers and rollback metadata in
+  // `blob_direct_write_ctx`.
+  Status MaybeTransformBatchForBlobDirectWrite(
+      const WriteOptions& write_options, WriteBatch** batch,
+      bool should_write_to_memtable, bool lookup_from_write_thread,
+      WriteBatch* transformed_storage,
+      BlobDirectWriteContext* blob_direct_write_ctx);
+  // Flushes or syncs all blob direct-write managers touched by the current
+  // transformed write before the write can proceed.
+  Status SyncBlobDirectWriteManagers(
+      const WriteOptions& write_options,
+      const BlobDirectWriteContext& blob_direct_write_ctx);
+
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
+                            WriteBatch* trace_batch,
                             WriteCallback* callback = nullptr,
                             UserWriteCallback* user_write_cb = nullptr,
                             uint64_t* wal_used = nullptr, uint64_t log_ref = 0,
@@ -1620,7 +1643,7 @@ class DBImpl : public DB {
   // marks start of a new sub-batch.
   Status WriteImplWALOnly(
       WriteThread* write_thread, const WriteOptions& options,
-      WriteBatch* updates, WriteCallback* callback,
+      WriteBatch* updates, WriteBatch* trace_batch, WriteCallback* callback,
       UserWriteCallback* user_write_cb, uint64_t* wal_used,
       const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
       PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
@@ -1777,6 +1800,21 @@ class DBImpl : public DB {
   friend class CompactionServiceTest_PreservedOptionsLocalCompaction_Test;
   friend class CompactionServiceTest_PreservedOptionsRemoteCompaction_Test;
 #endif
+
+  // Same as HasAnyBlobDirectWriteColumnFamily(), but requires `mutex_` held.
+  bool HasAnyBlobDirectWriteColumnFamilyWithLockHeld();
+  // Returns true if any BDW column family still owns blob files that have not
+  // yet been made visible through MANIFEST. Requires `mutex_` held.
+  bool HasInFlightBlobDirectWriteFilesWithLockHeld();
+  // Creates and attaches the per-CF blob direct-write partition manager when
+  // the column family is opened with the feature enabled.
+  void MaybeInitBlobDirectWriteColumnFamily(
+      ColumnFamilyData* cfd, const ColumnFamilyOptions& cf_options,
+      const std::string& column_family_name);
+  // Increments the DB-level count of live blob direct-write column families.
+  void RegisterBlobDirectWriteColumnFamily();
+  // Decrements the DB-level count of live blob direct-write column families.
+  void UnregisterBlobDirectWriteColumnFamily();
 
   struct CompactionState;
   struct PrepickedCompaction;
@@ -3137,6 +3175,11 @@ class DBImpl : public DB {
   // data that is not yet persisted into either WAL or SST file.
   // Used when disableWAL is true.
   std::atomic<bool> has_unpersisted_data_{false};
+
+  // Number of live column families with an active blob direct write partition
+  // manager. This keeps the read/write fast paths at O(1) when the feature is
+  // completely disabled for the DB.
+  std::atomic<uint32_t> blob_direct_write_cf_count_{0};
 
   // if an attempt was made to flush all column families that
   // the oldest log depends on but uncommitted data in the oldest
