@@ -179,6 +179,10 @@ struct WriteBatch::AttachedColumnFamily {
     assert(mutex != nullptr);
     cfd->Ref();
   }
+  AttachedColumnFamily(const AttachedColumnFamily&) = delete;
+  AttachedColumnFamily& operator=(const AttachedColumnFamily&) = delete;
+  AttachedColumnFamily(AttachedColumnFamily&&) = delete;
+  AttachedColumnFamily& operator=(AttachedColumnFamily&&) = delete;
 
   ~AttachedColumnFamily() { ReleaseColumnFamilyDataReference(cfd, db, mutex); }
 
