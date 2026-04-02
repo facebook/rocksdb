@@ -4412,6 +4412,60 @@ TEST_P(TrieIndexDBTest, RollbackFromPrimaryWithoutCompactFails) {
   // If open failed, that's also acceptable -- the SST is unusable without UDI.
 }
 
+TEST_P(TrieIndexDBTest, PrimaryModeTableProperties) {
+  // Verifies primary-mode-specific behavior: the udi_is_primary_index table
+  // property is set, and SSTs are readable in secondary mode (the standard
+  // index is a valid stub).
+  if (!IsPrimaryMode()) {
+    ROCKSDB_GTEST_SKIP("Only applicable in primary mode");
+    return;
+  }
+  ASSERT_OK(OpenDB());
+
+  ASSERT_OK(db_->Put(WriteOptions(), "key1", "val1"));
+  ASSERT_OK(db_->Put(WriteOptions(), "key2", "val2"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Verify the table property is set.
+  TablePropertiesCollection props;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+  ASSERT_FALSE(props.empty());
+  for (const auto& p : props) {
+    ASSERT_EQ(p.second->udi_is_primary_index, 1u);
+    // Standard index should report user-key-only (since we set
+    // separator_is_key_plus_seq()=false for primary).
+    ASSERT_EQ(p.second->index_key_is_user_key, 1u);
+  }
+
+  // Reads work with default ReadOptions (no table_index_factory needed).
+  ReadOptions ro;
+  std::string value;
+  ASSERT_OK(db_->Get(ro, "key1", &value));
+  ASSERT_EQ(value, "val1");
+}
+
+TEST_P(TrieIndexDBTest, EstimatedSizeNonZero) {
+  // Verifies that TrieIndexBuilder::EstimatedSize() returns non-zero after
+  // adding entries, ensuring compaction file sizing works.
+  if (!IsPrimaryMode()) {
+    ROCKSDB_GTEST_SKIP("Only applicable in primary mode");
+    return;
+  }
+  ASSERT_OK(OpenDB(/*block_size=*/128));
+
+  // Write enough data to produce multiple blocks.
+  WriteSequentialKeys(0, 200);
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Check that the SST's index size is non-zero in table properties.
+  TablePropertiesCollection props;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+  ASSERT_FALSE(props.empty());
+  for (const auto& p : props) {
+    ASSERT_GT(p.second->index_size, 0u);
+  }
+}
+
 // Run all parameterized tests in both UDI modes:
 // - Secondary (false): UDI is secondary, reads require table_index_factory
 // - Primary (true): UDI is primary, all reads use the trie by default

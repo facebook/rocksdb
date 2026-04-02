@@ -108,12 +108,10 @@ class TrieIndexBuilder final : public UserDefinedIndexBuilder {
 
   // Buffered separator entries: (separator_key, tag, handle).
   // The separator_key is the user-key-only separator computed by
-  // FindShortestSeparator. The seqno field stores a packed internal key
-  // tag ((sequence_number << 8) | value_type):
-  //   - For same-user-key boundaries: the tag of last_key
-  //   - For different-user-key boundaries:
-  //     PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek) --
-  //     the same tag the standard index uses for these separators
+  // FindShortestSeparator. The tag field stores:
+  //   - For same-user-key boundaries: the real tag of last_key
+  //   - For the last block: the real tag of last_key
+  //   - For intermediate non-boundary entries: 0 (sentinel)
   struct BufferedEntry {
     std::string separator_key;
     uint64_t tag{};
