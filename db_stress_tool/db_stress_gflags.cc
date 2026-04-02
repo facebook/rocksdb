@@ -1633,4 +1633,9 @@ DEFINE_bool(use_multiscan, false,
 DEFINE_bool(multiscan_use_async_io, false,
             "If set, enable async_io for MultiScan operations.");
 
+DEFINE_int32(num_dbs, 1,
+             "Number of DB instances to run in parallel. "
+             "When > 1, each DB uses FLAGS_db/db_<i> as its path. "
+             "Shared resources (Env, cache) are shared across all DBs.");
+
 #endif  // GFLAGS

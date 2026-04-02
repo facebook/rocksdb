@@ -62,10 +62,40 @@ std::shared_ptr<const FilterPolicy> CreateFilterPolicy() {
   return std::shared_ptr<const FilterPolicy>(new_policy);
 }
 
+static bool NeedsFaultInjection() {
+  return FLAGS_open_metadata_read_fault_one_in ||
+         FLAGS_open_metadata_write_fault_one_in ||
+         FLAGS_open_read_fault_one_in || FLAGS_open_write_fault_one_in ||
+         FLAGS_metadata_read_fault_one_in ||
+         FLAGS_metadata_write_fault_one_in || FLAGS_read_fault_one_in ||
+         FLAGS_write_fault_one_in || FLAGS_sync_fault_injection;
+}
+
 }  // namespace
 
-StressTest::StressTest()
-    : cache_(NewCache(FLAGS_cache_size, FLAGS_cache_numshardbits)),
+StressTest::StressTest(const std::string& db_path,
+                       const std::string& expected_values_dir,
+                       const std::string& secondaries_base)
+    : db_path_(db_path),
+      expected_values_dir_(expected_values_dir),
+      secondaries_base_(secondaries_base),
+      fault_fs_(NeedsFaultInjection()
+                    ? std::make_shared<FaultInjectionTestFS>(
+                          std::static_pointer_cast<DbStressFSWrapper>(
+                              db_stress_env->GetFileSystem())
+                              ->GetInnerFS())
+                    : nullptr),
+      fault_stress_fs_(
+          fault_fs_ ? std::make_shared<DbStressFSWrapper>(fault_fs_) : nullptr),
+      fault_env_(fault_stress_fs_ ? std::make_unique<CompositeEnvWrapper>(
+                                        db_stress_env, fault_stress_fs_)
+                                  : nullptr),
+      cache_(FLAGS_num_dbs > 1
+                 ? (block_cache
+                        ? block_cache
+                        : (block_cache = NewCache(FLAGS_cache_size,
+                                                  FLAGS_cache_numshardbits)))
+                 : NewCache(FLAGS_cache_size, FLAGS_cache_numshardbits)),
       filter_policy_(CreateFilterPolicy()),
       db_(nullptr),
       txn_db_(nullptr),
@@ -76,14 +106,6 @@ StressTest::StressTest()
       num_times_reopened_(0),
       db_preload_finished_(false),
       is_db_stopped_(false) {
-  if (FLAGS_destroy_db_initially) {
-    const Status s = DbStressDestroyDb(FLAGS_db);
-    if (!s.ok()) {
-      fprintf(stderr, "Cannot destroy original db: %s\n", s.ToString().c_str());
-      exit(1);
-    }
-  }
-
   Status s = DbStressSqfcManager().MakeSharedFactory(
       FLAGS_sqfc_name, FLAGS_sqfc_version, &sqfc_factory_);
   if (!s.ok()) {
@@ -1060,37 +1082,35 @@ void StressTest::OperateDb(ThreadState* thread) {
     }
 
 #ifndef NDEBUG
-    if (fault_fs_guard) {
-      fault_fs_guard->SetThreadLocalErrorContext(
+    if (fault_fs_) {
+      fault_fs_->SetThreadLocalErrorContext(
           FaultInjectionIOType::kRead, thread->shared->GetSeed(),
           FLAGS_read_fault_one_in,
           FLAGS_inject_error_severity == 1 /* retryable */,
           FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kRead);
+      fault_fs_->EnableThreadLocalErrorInjection(FaultInjectionIOType::kRead);
 
-      fault_fs_guard->SetThreadLocalErrorContext(
+      fault_fs_->SetThreadLocalErrorContext(
           FaultInjectionIOType::kWrite, thread->shared->GetSeed(),
           FLAGS_write_fault_one_in,
           FLAGS_inject_error_severity == 1 /* retryable */,
           FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kWrite);
+      fault_fs_->EnableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
 
-      fault_fs_guard->SetThreadLocalErrorContext(
+      fault_fs_->SetThreadLocalErrorContext(
           FaultInjectionIOType::kMetadataRead, thread->shared->GetSeed(),
           FLAGS_metadata_read_fault_one_in,
           FLAGS_inject_error_severity == 1 /* retryable */,
           FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
+      fault_fs_->EnableThreadLocalErrorInjection(
           FaultInjectionIOType::kMetadataRead);
 
-      fault_fs_guard->SetThreadLocalErrorContext(
+      fault_fs_->SetThreadLocalErrorContext(
           FaultInjectionIOType::kMetadataWrite, thread->shared->GetSeed(),
           FLAGS_metadata_write_fault_one_in,
           FLAGS_inject_error_severity == 1 /* retryable */,
           FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
+      fault_fs_->EnableThreadLocalErrorInjection(
           FaultInjectionIOType::kMetadataWrite);
     }
 #endif  // NDEBUG
@@ -1113,13 +1133,13 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (thread->tid == 0 && FLAGS_verify_db_one_in > 0 &&
           thread->rand.OneIn(FLAGS_verify_db_one_in)) {
         //  Temporarily disable error injection for verification
-        if (fault_fs_guard) {
-          fault_fs_guard->DisableAllThreadLocalErrorInjection();
+        if (fault_fs_) {
+          fault_fs_->DisableAllThreadLocalErrorInjection();
         }
         ContinuouslyVerifyDb(thread);
         //  Enable back error injection disabled for verification
-        if (fault_fs_guard) {
-          fault_fs_guard->EnableAllThreadLocalErrorInjection();
+        if (fault_fs_) {
+          fault_fs_->EnableAllThreadLocalErrorInjection();
         }
         if (thread->shared->ShouldStopTest()) {
           break;
@@ -1144,8 +1164,8 @@ void StressTest::OperateDb(ThreadState* thread) {
           fprintf(stderr, "LockWAL() failed: %s\n", s.ToString().c_str());
         } else if (s.ok()) {
           //  Temporarily disable error injection for verification
-          if (fault_fs_guard) {
-            fault_fs_guard->DisableAllThreadLocalErrorInjection();
+          if (fault_fs_) {
+            fault_fs_->DisableAllThreadLocalErrorInjection();
           }
 
           // Verify no writes during LockWAL
@@ -1199,8 +1219,8 @@ void StressTest::OperateDb(ThreadState* thread) {
           }
 
           //  Enable back error injection disabled for verification
-          if (fault_fs_guard) {
-            fault_fs_guard->EnableAllThreadLocalErrorInjection();
+          if (fault_fs_) {
+            fault_fs_->EnableAllThreadLocalErrorInjection();
           }
         }
       }
@@ -1317,14 +1337,14 @@ void StressTest::OperateDb(ThreadState* thread) {
         // TestGetProperty doesn't return status for us to tell whether it has
         // failed due to injected error. So we disable fault injection to avoid
         // false positive
-        if (fault_fs_guard) {
-          fault_fs_guard->DisableAllThreadLocalErrorInjection();
+        if (fault_fs_) {
+          fault_fs_->DisableAllThreadLocalErrorInjection();
         }
 
         TestGetProperty(thread);
 
-        if (fault_fs_guard) {
-          fault_fs_guard->EnableAllThreadLocalErrorInjection();
+        if (fault_fs_) {
+          fault_fs_->EnableAllThreadLocalErrorInjection();
         }
       }
 
@@ -1345,7 +1365,7 @@ void StressTest::OperateDb(ThreadState* thread) {
         uint64_t total_size = 0;
         if (FLAGS_backup_max_size > 0) {
           std::vector<FileAttributes> files;
-          db_stress_env->GetChildrenFileAttributes(FLAGS_db, &files);
+          db_stress_env->GetChildrenFileAttributes(db_path_, &files);
           for (auto& file : files) {
             total_size += file.size_bytes;
           }
@@ -1354,12 +1374,12 @@ void StressTest::OperateDb(ThreadState* thread) {
         if (total_size <= FLAGS_backup_max_size) {
           // TODO(hx235): enable error injection with
           // backup/restore after fixing the various issues it surfaces
-          if (fault_fs_guard) {
-            fault_fs_guard->DisableAllThreadLocalErrorInjection();
+          if (fault_fs_) {
+            fault_fs_->DisableAllThreadLocalErrorInjection();
           }
           Status s = TestBackupRestore(thread, rand_column_families, rand_keys);
-          if (fault_fs_guard) {
-            fault_fs_guard->EnableAllThreadLocalErrorInjection();
+          if (fault_fs_) {
+            fault_fs_->EnableAllThreadLocalErrorInjection();
           }
           ProcessStatus(shared, "Backup/restore", s);
         }
@@ -1402,7 +1422,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       // user write.
       // TODO(hx235): support tracing user writes with fault injection.
       bool disable_fault_injection_during_user_write =
-          fault_fs_guard && MightHaveUnsyncedDataLoss();
+          fault_fs_ && MightHaveUnsyncedDataLoss();
       int prob_op = thread->rand.Uniform(100);
       // Reset this in case we pick something other than a read op. We don't
       // want to use a stale value when deciding at the beginning of the loop
@@ -1462,32 +1482,32 @@ void StressTest::OperateDb(ThreadState* thread) {
         assert(prefix_bound <= prob_op);
         // OPERATION write
         if (disable_fault_injection_during_user_write) {
-          fault_fs_guard->DisableAllThreadLocalErrorInjection();
+          fault_fs_->DisableAllThreadLocalErrorInjection();
         }
         TestPut(thread, write_opts, read_opts, rand_column_families, rand_keys,
                 value);
         if (disable_fault_injection_during_user_write) {
-          fault_fs_guard->EnableAllThreadLocalErrorInjection();
+          fault_fs_->EnableAllThreadLocalErrorInjection();
         }
       } else if (prob_op < del_bound) {
         assert(write_bound <= prob_op);
         // OPERATION delete
         if (disable_fault_injection_during_user_write) {
-          fault_fs_guard->DisableAllThreadLocalErrorInjection();
+          fault_fs_->DisableAllThreadLocalErrorInjection();
         }
         TestDelete(thread, write_opts, rand_column_families, rand_keys);
         if (disable_fault_injection_during_user_write) {
-          fault_fs_guard->EnableAllThreadLocalErrorInjection();
+          fault_fs_->EnableAllThreadLocalErrorInjection();
         }
       } else if (prob_op < delrange_bound) {
         assert(del_bound <= prob_op);
         // OPERATION delete range
         if (disable_fault_injection_during_user_write) {
-          fault_fs_guard->DisableAllThreadLocalErrorInjection();
+          fault_fs_->DisableAllThreadLocalErrorInjection();
         }
         TestDeleteRange(thread, write_opts, rand_column_families, rand_keys);
         if (disable_fault_injection_during_user_write) {
-          fault_fs_guard->EnableAllThreadLocalErrorInjection();
+          fault_fs_->EnableAllThreadLocalErrorInjection();
         }
       } else if (prob_op < iterate_bound) {
         assert(delrange_bound <= prob_op);
@@ -1545,8 +1565,8 @@ void StressTest::OperateDb(ThreadState* thread) {
     }
 
 #ifndef NDEBUG
-    if (fault_fs_guard) {
-      fault_fs_guard->DisableAllThreadLocalErrorInjection();
+    if (fault_fs_) {
+      fault_fs_->DisableAllThreadLocalErrorInjection();
     }
 #endif  // NDEBUG
   }
@@ -2362,9 +2382,9 @@ Status StressTest::TestBackupRestore(
   }
 
   const std::string backup_dir =
-      FLAGS_db + "/.backup" + std::to_string(thread->tid);
+      db_path_ + "/.backup" + std::to_string(thread->tid);
   const std::string restore_dir =
-      FLAGS_db + "/.restore" + std::to_string(thread->tid);
+      db_path_ + "/.restore" + std::to_string(thread->tid);
   BackupEngineOptions backup_opts(backup_dir);
   // For debugging, get info_log from live options
   backup_opts.info_log = db_->GetDBOptions().info_log.get();
@@ -2663,8 +2683,8 @@ Status StressTest::TestBackupRestore(
   }
 
   // Temporarily disable error injection for clean up
-  if (fault_fs_guard) {
-    fault_fs_guard->DisableAllThreadLocalErrorInjection();
+  if (fault_fs_) {
+    fault_fs_->DisableAllThreadLocalErrorInjection();
   }
 
   if (s.ok() || IsErrorInjectedAndRetryable(s)) {
@@ -2685,8 +2705,8 @@ Status StressTest::TestBackupRestore(
   }
 
   // Enable back error injection disabled for clean up
-  if (fault_fs_guard) {
-    fault_fs_guard->EnableAllThreadLocalErrorInjection();
+  if (fault_fs_) {
+    fault_fs_->EnableAllThreadLocalErrorInjection();
   }
 
   if (!s.ok() && !IsErrorInjectedAndRetryable(s)) {
@@ -2828,20 +2848,20 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   }
 
   std::string checkpoint_dir =
-      FLAGS_db + "/.checkpoint" + std::to_string(thread->tid);
+      db_path_ + "/.checkpoint" + std::to_string(thread->tid);
   Options tmp_opts(options_);
   tmp_opts.listeners.clear();
   tmp_opts.env = db_stress_env;
   // Avoid delayed deletion so whole directory can be deleted
   tmp_opts.sst_file_manager.reset();
   //  Temporarily disable error injection for clean-up
-  if (fault_fs_guard) {
-    fault_fs_guard->DisableAllThreadLocalErrorInjection();
+  if (fault_fs_) {
+    fault_fs_->DisableAllThreadLocalErrorInjection();
   }
   DestroyDB(checkpoint_dir, tmp_opts);
   // Enable back error injection disabled for clean-up
-  if (fault_fs_guard) {
-    fault_fs_guard->EnableAllThreadLocalErrorInjection();
+  if (fault_fs_) {
+    fault_fs_->EnableAllThreadLocalErrorInjection();
   }
   Checkpoint* checkpoint = nullptr;
   Status s = Checkpoint::Create(db_, &checkpoint);
@@ -2853,8 +2873,8 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
       std::vector<std::string> files;
 
       // Temporarily disable error injection to print debugging information
-      if (fault_fs_guard) {
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+      if (fault_fs_) {
+        fault_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
 
@@ -2862,8 +2882,8 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
 
       // Enable back disable error injection disabled for printing debugging
       // information
-      if (fault_fs_guard) {
-        fault_fs_guard->EnableThreadLocalErrorInjection(
+      if (fault_fs_) {
+        fault_fs_->EnableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
       if (!my_s.ok()) {
@@ -2947,8 +2967,8 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   }
 
   //  Temporarily disable error injection for clean-up
-  if (fault_fs_guard) {
-    fault_fs_guard->DisableAllThreadLocalErrorInjection();
+  if (fault_fs_) {
+    fault_fs_->DisableAllThreadLocalErrorInjection();
   }
 
   if (!s.ok() && !IsErrorInjectedAndRetryable(s)) {
@@ -2959,8 +2979,8 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   }
 
   // Enable back error injection disabled for clean-up
-  if (fault_fs_guard) {
-    fault_fs_guard->EnableAllThreadLocalErrorInjection();
+  if (fault_fs_) {
+    fault_fs_->EnableAllThreadLocalErrorInjection();
   }
   return s;
 }
@@ -3351,8 +3371,8 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
   uint32_t pre_hash = 0;
   if (thread->rand.OneIn(2)) {
     // Temporarily disable error injection to for validation
-    if (fault_fs_guard) {
-      fault_fs_guard->DisableAllThreadLocalErrorInjection();
+    if (fault_fs_) {
+      fault_fs_->DisableAllThreadLocalErrorInjection();
     }
 
     // Declare a snapshot and compare the data before and after the compaction
@@ -3361,8 +3381,8 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
         GetRangeHash(thread, pre_snapshot, column_family, start_key, end_key);
 
     // Enable back error injection disabled for validation
-    if (fault_fs_guard) {
-      fault_fs_guard->EnableAllThreadLocalErrorInjection();
+    if (fault_fs_) {
+      fault_fs_->EnableAllThreadLocalErrorInjection();
     }
   }
   std::ostringstream compact_range_opt_oss;
@@ -3399,8 +3419,8 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
 
   if (pre_snapshot != nullptr) {
     // Temporarily disable error injection for validation
-    if (fault_fs_guard) {
-      fault_fs_guard->DisableAllThreadLocalErrorInjection();
+    if (fault_fs_) {
+      fault_fs_->DisableAllThreadLocalErrorInjection();
     }
     uint32_t post_hash =
         GetRangeHash(thread, pre_snapshot, column_family, start_key, end_key);
@@ -3417,9 +3437,9 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
       thread->shared->SetVerificationFailure();
     }
     db_->ReleaseSnapshot(pre_snapshot);
-    if (fault_fs_guard) {
+    if (fault_fs_) {
       // Enable back error injection disabled for validation
-      fault_fs_guard->EnableAllThreadLocalErrorInjection();
+      fault_fs_->EnableAllThreadLocalErrorInjection();
     }
   }
 }
@@ -3690,6 +3710,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     InitializeOptionsFromFlags(cache_, filter_policy_, udi_factory_, options_);
   }
   InitializeOptionsGeneral(cache_, filter_policy_, sqfc_factory_, options_);
+  options_.env = fault_env_ ? fault_env_.get() : db_stress_env;
   DbStressCustomCompressionManager::Register();
 
   if (!strcasecmp(FLAGS_compression_manager.c_str(), "custom")) {
@@ -3790,13 +3811,13 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
   }
 
-  fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
+  fprintf(stdout, "DB path: [%s]\n", db_path_.c_str());
 
   Status s;
 
   if (FLAGS_ttl == -1) {
     std::vector<std::string> existing_column_families;
-    s = DB::ListColumnFamilies(DBOptions(options_), FLAGS_db,
+    s = DB::ListColumnFamilies(DBOptions(options_), db_path_,
                                &existing_column_families);  // ignore errors
     if (!s.ok()) {
       // DB doesn't exist
@@ -3844,14 +3865,15 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     }
 
     options_.listeners.clear();
-    options_.listeners.emplace_back(new DbStressListener(
-        FLAGS_db, options_.db_paths, cf_descriptors, shared));
+    options_.listeners.emplace_back(
+        new DbStressListener(db_path_, options_.db_paths, cf_descriptors,
+                             expected_values_dir_, shared, fault_fs_));
     RegisterAdditionalListeners();
 
     // If this is for DB reopen,  error injection may have been enabled.
     // Disable it here in case there is no open fault injection.
-    if (fault_fs_guard) {
-      fault_fs_guard->DisableAllThreadLocalErrorInjection();
+    if (fault_fs_) {
+      fault_fs_->DisableAllThreadLocalErrorInjection();
     }
     // TODO; test transaction DB Open with fault injection
     if (!FLAGS_use_txn) {
@@ -3865,41 +3887,39 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       if ((inject_sync_fault || inject_open_meta_read_error ||
            inject_open_meta_write_error || inject_open_read_error ||
            inject_open_write_error) &&
-          fault_fs_guard
-              ->FileExists(FLAGS_db + "/CURRENT", IOOptions(), nullptr)
+          fault_fs_->FileExists(db_path_ + "/CURRENT", IOOptions(), nullptr)
               .ok()) {
         if (inject_sync_fault || inject_open_write_error) {
-          fault_fs_guard->SetFilesystemDirectWritable(false);
-          fault_fs_guard->SetInjectUnsyncedDataLoss(inject_sync_fault);
+          fault_fs_->SetFilesystemDirectWritable(false);
+          fault_fs_->SetInjectUnsyncedDataLoss(inject_sync_fault);
         }
-        fault_fs_guard->SetThreadLocalErrorContext(
+        fault_fs_->SetThreadLocalErrorContext(
             FaultInjectionIOType::kMetadataRead,
             static_cast<uint32_t>(FLAGS_seed),
             FLAGS_open_metadata_read_fault_one_in, false /* retryable */,
             false /* has_data_loss */);
-        fault_fs_guard->EnableThreadLocalErrorInjection(
+        fault_fs_->EnableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
 
-        fault_fs_guard->SetThreadLocalErrorContext(
+        fault_fs_->SetThreadLocalErrorContext(
             FaultInjectionIOType::kMetadataWrite,
             static_cast<uint32_t>(FLAGS_seed),
             FLAGS_open_metadata_write_fault_one_in, false /* retryable */,
             false /* has_data_loss */);
-        fault_fs_guard->EnableThreadLocalErrorInjection(
+        fault_fs_->EnableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataWrite);
 
-        fault_fs_guard->SetThreadLocalErrorContext(
+        fault_fs_->SetThreadLocalErrorContext(
             FaultInjectionIOType::kRead, static_cast<uint32_t>(FLAGS_seed),
             FLAGS_open_read_fault_one_in, false /* retryable */,
             false /* has_data_loss */);
-        fault_fs_guard->EnableThreadLocalErrorInjection(
-            FaultInjectionIOType::kRead);
+        fault_fs_->EnableThreadLocalErrorInjection(FaultInjectionIOType::kRead);
 
-        fault_fs_guard->SetThreadLocalErrorContext(
+        fault_fs_->SetThreadLocalErrorContext(
             FaultInjectionIOType::kWrite, static_cast<uint32_t>(FLAGS_seed),
             FLAGS_open_write_fault_one_in, false /* retryable */,
             false /* has_data_loss */);
-        fault_fs_guard->EnableThreadLocalErrorInjection(
+        fault_fs_->EnableThreadLocalErrorInjection(
             FaultInjectionIOType::kWrite);
       }
       while (true) {
@@ -3910,7 +3930,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
           blob_db_options.enable_garbage_collection = FLAGS_blob_db_enable_gc;
 
           blob_db::BlobDB* blob_db = nullptr;
-          s = blob_db::BlobDB::Open(options_, blob_db_options, FLAGS_db,
+          s = blob_db::BlobDB::Open(options_, blob_db_options, db_path_,
                                     cf_descriptors, &column_families_,
                                     &blob_db);
           if (s.ok()) {
@@ -3919,11 +3939,11 @@ void StressTest::Open(SharedState* shared, bool reopen) {
           }
         } else {
           if (db_preload_finished_.load() && FLAGS_read_only) {
-            s = DB::OpenForReadOnly(DBOptions(options_), FLAGS_db,
+            s = DB::OpenForReadOnly(DBOptions(options_), db_path_,
                                     cf_descriptors, &column_families_,
                                     &db_owner_);
           } else {
-            s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
+            s = DB::Open(DBOptions(options_), db_path_, cf_descriptors,
                          &column_families_, &db_owner_);
           }
           if (s.ok()) {
@@ -3934,7 +3954,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         if (inject_sync_fault || inject_open_meta_read_error ||
             inject_open_meta_write_error || inject_open_read_error ||
             inject_open_write_error) {
-          fault_fs_guard->DisableAllThreadLocalErrorInjection();
+          fault_fs_->DisableAllThreadLocalErrorInjection();
 
           if (s.ok()) {
             // Injected errors might happen in background compactions. We
@@ -3964,13 +3984,13 @@ void StressTest::Open(SharedState* shared, bool reopen) {
             if (!reopen) {
               Random rand(static_cast<uint32_t>(FLAGS_seed));
               if (rand.OneIn(2)) {
-                fault_fs_guard->DeleteFilesCreatedAfterLastDirSync(IOOptions(),
-                                                                   nullptr);
+                fault_fs_->DeleteFilesCreatedAfterLastDirSync(IOOptions(),
+                                                              nullptr);
               }
               if (rand.OneIn(3)) {
-                fault_fs_guard->DropUnsyncedFileData();
+                fault_fs_->DropUnsyncedFileData();
               } else if (rand.OneIn(2)) {
-                fault_fs_guard->DropRandomUnsyncedFileData(&rand);
+                fault_fs_->DropRandomUnsyncedFileData(&rand);
               }
             }
             continue;
@@ -3993,7 +4013,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
           optimistic_txn_db_options.shared_lock_buckets = nullptr;
         }
         s = OptimisticTransactionDB::Open(
-            options_, optimistic_txn_db_options, FLAGS_db, cf_descriptors,
+            options_, optimistic_txn_db_options, db_path_, cf_descriptors,
             &column_families_, &optimistic_txn_db_);
         if (!s.ok()) {
           fprintf(stderr, "Error in opening the OptimisticTransactionDB [%s]\n",
@@ -4027,7 +4047,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         txn_db_options.use_per_key_point_lock_mgr =
             FLAGS_use_per_key_point_lock_mgr;
         PrepareTxnDbOptions(shared, txn_db_options);
-        s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
+        s = TransactionDB::Open(options_, txn_db_options, db_path_,
                                 cf_descriptors, &column_families_, &txn_db_);
         if (!s.ok()) {
           fprintf(stderr, "Error in opening the TransactionDB [%s]\n",
@@ -4067,8 +4087,8 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       // TODO(yanqin) support max_open_files != -1 for secondary instance.
       tmp_opts.max_open_files = -1;
       tmp_opts.env = db_stress_env;
-      const std::string& secondary_path = FLAGS_secondaries_base;
-      s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
+      const std::string& secondary_path = secondaries_base_;
+      s = DB::OpenAsSecondary(tmp_opts, db_path_, secondary_path,
                               cf_descriptors, &secondary_cfhs_, &secondary_db_);
       assert(s.ok());
       assert(secondary_cfhs_.size() ==
@@ -4076,7 +4096,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     }
   } else {
     DBWithTTL* db_with_ttl;
-    s = DBWithTTL::Open(options_, FLAGS_db, &db_with_ttl, FLAGS_ttl);
+    s = DBWithTTL::Open(options_, db_path_, &db_with_ttl, FLAGS_ttl);
     db_owner_.reset(db_with_ttl);
     db_ = db_with_ttl;
   }
@@ -4417,8 +4437,12 @@ void InitializeOptionsFromFlags(
   options.memtable_prefix_bloom_size_ratio =
       FLAGS_memtable_prefix_bloom_size_ratio;
   if (FLAGS_use_write_buffer_manager) {
-    options.write_buffer_manager.reset(
-        new WriteBufferManager(FLAGS_db_write_buffer_size, block_cache));
+    if (shared_wbm) {
+      options.write_buffer_manager = shared_wbm;
+    } else {
+      options.write_buffer_manager = std::make_shared<WriteBufferManager>(
+          FLAGS_db_write_buffer_size, block_cache);
+    }
   }
   options.memtable_whole_key_filtering = FLAGS_memtable_whole_key_filtering;
   if (ShouldDisableAutoCompactionsBeforeVerifyDb()) {
@@ -4753,7 +4777,9 @@ void InitializeOptionsGeneral(
   // TODO: row_cache, thread-pool IO priority, CPU priority.
 
   if (!options.rate_limiter) {
-    if (FLAGS_rate_limiter_bytes_per_sec > 0) {
+    if (shared_rate_limiter) {
+      options.rate_limiter = shared_rate_limiter;
+    } else if (FLAGS_rate_limiter_bytes_per_sec > 0) {
       options.rate_limiter.reset(NewGenericRateLimiter(
           FLAGS_rate_limiter_bytes_per_sec, 1000 /* refill_period_us */,
           10 /* fairness */,

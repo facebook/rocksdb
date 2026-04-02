@@ -14,7 +14,9 @@
 namespace ROCKSDB_NAMESPACE {
 class CfConsistencyStressTest : public StressTest {
  public:
-  CfConsistencyStressTest() : batch_id_(0) {}
+  CfConsistencyStressTest(const std::string& db_path, const std::string& ev_dir,
+                          const std::string& sec_base)
+      : StressTest(db_path, ev_dir, sec_base), batch_id_(0) {}
 
   ~CfConsistencyStressTest() override = default;
 
@@ -172,10 +174,10 @@ class CfConsistencyStressTest : public StressTest {
                    key, &value0);
 
       // Temporarily disable error injection for verification
-      if (fault_fs_guard) {
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+      if (fault_fs_) {
+        fault_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kRead);
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+        fault_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
 
@@ -224,10 +226,9 @@ class CfConsistencyStressTest : public StressTest {
       }
 
       //  Enable back error injection disabled for verification
-      if (fault_fs_guard) {
-        fault_fs_guard->EnableThreadLocalErrorInjection(
-            FaultInjectionIOType::kRead);
-        fault_fs_guard->EnableThreadLocalErrorInjection(
+      if (fault_fs_) {
+        fault_fs_->EnableThreadLocalErrorInjection(FaultInjectionIOType::kRead);
+        fault_fs_->EnableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
       db_->ReleaseSnapshot(snapshot);
@@ -340,10 +341,10 @@ class CfConsistencyStressTest : public StressTest {
                          &cmp_result);
 
       //  Temporarily disable error injection for verification
-      if (fault_fs_guard) {
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+      if (fault_fs_) {
+        fault_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kRead);
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+        fault_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
 
@@ -484,10 +485,9 @@ class CfConsistencyStressTest : public StressTest {
       }
 
       //  Enable back error injection disabled for verification
-      if (fault_fs_guard) {
-        fault_fs_guard->EnableThreadLocalErrorInjection(
-            FaultInjectionIOType::kRead);
-        fault_fs_guard->EnableThreadLocalErrorInjection(
+      if (fault_fs_) {
+        fault_fs_->EnableThreadLocalErrorInjection(FaultInjectionIOType::kRead);
+        fault_fs_->EnableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
     }
@@ -1148,8 +1148,10 @@ class CfConsistencyStressTest : public StressTest {
   std::atomic<uint32_t> batch_id_;
 };
 
-StressTest* CreateCfConsistencyStressTest() {
-  return new CfConsistencyStressTest();
+StressTest* CreateCfConsistencyStressTest(const std::string& db_path,
+                                          const std::string& ev_dir,
+                                          const std::string& sec_base) {
+  return new CfConsistencyStressTest(db_path, ev_dir, sec_base);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

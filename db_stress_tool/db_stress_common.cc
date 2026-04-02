@@ -20,9 +20,10 @@
 
 ROCKSDB_NAMESPACE::Env* db_stress_listener_env = nullptr;
 ROCKSDB_NAMESPACE::Env* db_stress_env = nullptr;
-std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
 std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> compressed_secondary_cache;
 std::shared_ptr<ROCKSDB_NAMESPACE::Cache> block_cache;
+std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager> shared_wbm;
+std::shared_ptr<ROCKSDB_NAMESPACE::RateLimiter> shared_rate_limiter;
 enum ROCKSDB_NAMESPACE::CompressionType compression_type_e =
     ROCKSDB_NAMESPACE::kSnappyCompression;
 enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e =
@@ -230,37 +231,38 @@ void CompressedCacheSetCapacityThread(void* v) {
 }
 
 #ifndef NDEBUG
-static void SetupFaultInjectionForRemoteCompaction(SharedState* shared) {
-  if (!fault_fs_guard) {
+static void SetupFaultInjectionForRemoteCompaction(
+    FaultInjectionTestFS* fault_fs, SharedState* shared) {
+  if (!fault_fs) {
     return;
   }
 
-  fault_fs_guard->SetThreadLocalErrorContext(
+  fault_fs->SetThreadLocalErrorContext(
       FaultInjectionIOType::kRead, shared->GetSeed(), FLAGS_read_fault_one_in,
       FLAGS_inject_error_severity == 1 /* retryable */,
       FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-  fault_fs_guard->EnableThreadLocalErrorInjection(FaultInjectionIOType::kRead);
+  fault_fs->EnableThreadLocalErrorInjection(FaultInjectionIOType::kRead);
 
-  fault_fs_guard->SetThreadLocalErrorContext(
+  fault_fs->SetThreadLocalErrorContext(
       FaultInjectionIOType::kWrite, shared->GetSeed(), FLAGS_write_fault_one_in,
       FLAGS_inject_error_severity == 1 /* retryable */,
       FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-  fault_fs_guard->EnableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+  fault_fs->EnableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
 
-  fault_fs_guard->SetThreadLocalErrorContext(
+  fault_fs->SetThreadLocalErrorContext(
       FaultInjectionIOType::kMetadataRead, shared->GetSeed(),
       FLAGS_metadata_read_fault_one_in,
       FLAGS_inject_error_severity == 1 /* retryable */,
       FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-  fault_fs_guard->EnableThreadLocalErrorInjection(
+  fault_fs->EnableThreadLocalErrorInjection(
       FaultInjectionIOType::kMetadataRead);
 
-  fault_fs_guard->SetThreadLocalErrorContext(
+  fault_fs->SetThreadLocalErrorContext(
       FaultInjectionIOType::kMetadataWrite, shared->GetSeed(),
       FLAGS_metadata_write_fault_one_in,
       FLAGS_inject_error_severity == 1 /* retryable */,
       FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-  fault_fs_guard->EnableThreadLocalErrorInjection(
+  fault_fs->EnableThreadLocalErrorInjection(
       FaultInjectionIOType::kMetadataWrite);
 }
 #endif  // NDEBUG
@@ -310,11 +312,13 @@ static CompactionServiceOptionsOverride CreateOverrideOptions(
   return override_options;
 }
 
-static Status CleanupOutputDirectory(const std::string& output_directory) {
+static Status CleanupOutputDirectory(
+    const std::string& output_directory,
+    [[maybe_unused]] FaultInjectionTestFS* fault_fs) {
 #ifndef NDEBUG
   // Temporarily disable fault injection to ensure deletion always succeeds
-  if (fault_fs_guard) {
-    fault_fs_guard->DisableAllThreadLocalErrorInjection();
+  if (fault_fs) {
+    fault_fs->DisableAllThreadLocalErrorInjection();
   }
 #endif  // NDEBUG
 
@@ -338,8 +342,8 @@ static Status CleanupOutputDirectory(const std::string& output_directory) {
 
 #ifndef NDEBUG
   // Re-enable fault injection after deletion
-  if (fault_fs_guard) {
-    fault_fs_guard->EnableAllThreadLocalErrorInjection();
+  if (fault_fs) {
+    fault_fs->EnableAllThreadLocalErrorInjection();
   }
 #endif  // NDEBUG
 
@@ -428,7 +432,7 @@ static void ProcessRemoteCompactionJob(
   }
 
   if (!open_compact_options.allow_resumption) {
-    CleanupOutputDirectory(output_directory);
+    CleanupOutputDirectory(output_directory, stress_test->GetFaultFs().get());
   }
 
   std::shared_ptr<std::atomic<bool>> canceled = nullptr;
@@ -460,7 +464,8 @@ void RemoteCompactionWorkerThread(void* v) {
   assert(stress_test != nullptr);
 
 #ifndef NDEBUG
-  SetupFaultInjectionForRemoteCompaction(shared);
+  SetupFaultInjectionForRemoteCompaction(stress_test->GetFaultFs().get(),
+                                         shared);
 #endif  // NDEBUG
 
   // Tracks the duration (in microseconds) of the most recent successfully

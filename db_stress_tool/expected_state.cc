@@ -211,6 +211,8 @@ Status AnonExpectedState::Open(bool /* create */) {
       new std::atomic<uint32_t>[GetValuesLen() /
                                 sizeof(std::atomic<uint32_t>)]);
   values_ = &values_allocation_[0];
+  persisted_seqno_allocation_.reset(new std::atomic<SequenceNumber>(0));
+  persisted_seqno_ = persisted_seqno_allocation_.get();
   Reset();
   return Status::OK();
 }

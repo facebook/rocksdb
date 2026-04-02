@@ -68,9 +68,11 @@ bool RunStressTestImpl(SharedState* shared) {
   StressTest* stress = shared->GetStressTest();
 
   if (shared->ShouldVerifyAtBeginning() && FLAGS_preserve_unverified_changes) {
-    Status s = InitUnverifiedSubdir(FLAGS_db);
-    if (s.ok() && !FLAGS_expected_values_dir.empty()) {
-      s = InitUnverifiedSubdir(FLAGS_expected_values_dir);
+    const std::string& db_path = stress->GetDbPath();
+    const std::string& expected_values_dir = stress->GetExpectedValuesDir();
+    Status s = InitUnverifiedSubdir(db_path);
+    if (s.ok() && !expected_values_dir.empty()) {
+      s = InitUnverifiedSubdir(expected_values_dir);
     }
     if (!s.ok()) {
       fprintf(stderr, "Failed to setup unverified state dir: %s\n",
@@ -159,9 +161,9 @@ bool RunStressTestImpl(SharedState* shared) {
         fprintf(stderr, "Crash-recovery verification failed :(\n");
       } else {
         fprintf(stdout, "Crash-recovery verification passed :)\n");
-        Status s = DestroyUnverifiedSubdir(FLAGS_db);
-        if (s.ok() && !FLAGS_expected_values_dir.empty()) {
-          s = DestroyUnverifiedSubdir(FLAGS_expected_values_dir);
+        Status s = DestroyUnverifiedSubdir(stress->GetDbPath());
+        if (s.ok() && !stress->GetExpectedValuesDir().empty()) {
+          s = DestroyUnverifiedSubdir(stress->GetExpectedValuesDir());
         }
         if (!s.ok()) {
           fprintf(stderr, "Failed to cleanup unverified state dir: %s\n",
@@ -174,15 +176,16 @@ bool RunStressTestImpl(SharedState* shared) {
     if (!FLAGS_verification_only) {
       // This is after the verification step to avoid making all those `Get()`s
       // and `MultiGet()`s contend on the DB-wide trace mutex.
-      if (!FLAGS_expected_values_dir.empty()) {
+      if (!stress->GetExpectedValuesDir().empty()) {
         stress->TrackExpectedState(shared);
       }
 
       if (FLAGS_sync_fault_injection || FLAGS_write_fault_one_in > 0) {
-        fault_fs_guard->SetFilesystemDirectWritable(false);
-        fault_fs_guard->SetInjectUnsyncedDataLoss(FLAGS_sync_fault_injection);
+        auto fault_fs = stress->GetFaultFs();
+        fault_fs->SetFilesystemDirectWritable(false);
+        fault_fs->SetInjectUnsyncedDataLoss(FLAGS_sync_fault_injection);
         if (FLAGS_exclude_wal_from_write_fault_injection) {
-          fault_fs_guard->SetFileTypesExcludedFromWriteFaultInjection(
+          fault_fs->SetFileTypesExcludedFromWriteFaultInjection(
               {FileType::kWalFile});
         }
       }

@@ -453,6 +453,9 @@ DECLARE_bool(universal_reduce_file_locking);
 DECLARE_bool(use_multiscan);
 DECLARE_bool(multiscan_use_async_io);
 
+// Multi-DB stress test flags
+DECLARE_int32(num_dbs);
+
 // Compaction deletion trigger declarations for stress testing
 DECLARE_bool(enable_compaction_on_deletion_trigger);
 DECLARE_uint64(compaction_on_deletion_min_file_size);
@@ -469,10 +472,11 @@ constexpr uint32_t kLargePrimeForCommonFactorSkew = 1872439133;
 // wrapped posix environment
 extern ROCKSDB_NAMESPACE::Env* db_stress_env;
 extern ROCKSDB_NAMESPACE::Env* db_stress_listener_env;
-extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
 extern std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache>
     compressed_secondary_cache;
 extern std::shared_ptr<ROCKSDB_NAMESPACE::Cache> block_cache;
+extern std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager> shared_wbm;
+extern std::shared_ptr<ROCKSDB_NAMESPACE::RateLimiter> shared_rate_limiter;
 
 extern enum ROCKSDB_NAMESPACE::CompressionType compression_type_e;
 extern enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e;
@@ -815,10 +819,18 @@ AttributeGroups GenerateAttributeGroups(
     const std::vector<ColumnFamilyHandle*>& cfhs, uint32_t value_base,
     const Slice& slice);
 
-StressTest* CreateCfConsistencyStressTest();
-StressTest* CreateBatchedOpsStressTest();
-StressTest* CreateNonBatchedOpsStressTest();
-StressTest* CreateMultiOpsTxnsStressTest();
+StressTest* CreateCfConsistencyStressTest(const std::string& db_path,
+                                          const std::string& ev_dir,
+                                          const std::string& sec_base);
+StressTest* CreateBatchedOpsStressTest(const std::string& db_path,
+                                       const std::string& ev_dir,
+                                       const std::string& sec_base);
+StressTest* CreateNonBatchedOpsStressTest(const std::string& db_path,
+                                          const std::string& ev_dir,
+                                          const std::string& sec_base);
+StressTest* CreateMultiOpsTxnsStressTest(const std::string& db_path,
+                                         const std::string& ev_dir,
+                                         const std::string& sec_base);
 void CheckAndSetOptionsForMultiOpsTxnStressTest();
 void InitializeHotKeyGenerator(double alpha);
 int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
