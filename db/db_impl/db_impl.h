@@ -1184,6 +1184,7 @@ class DBImpl : public DB {
   Status TEST_GetBGError();
 
   bool TEST_IsRecoveryInProgress();
+  bool TEST_IsStopped() { return error_handler_.IsDBStopped(); }
 
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
