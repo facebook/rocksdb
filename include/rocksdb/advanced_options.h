@@ -1111,6 +1111,16 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   CompressionType blob_compression_type = kNoCompression;
 
+  // The compression options for blob files. This allows fine-tuning of
+  // compression parameters (e.g. level, window_bits) independently of SST file
+  // compression. For example, setting level=1 with ZSTD uses the "fast"
+  // strategy (single hash table) vs the default level=3 "doubleFast" strategy.
+  //
+  // Default: default CompressionOptions (level = kDefaultCompressionLevel)
+  //
+  // Dynamically changeable through the SetOptions() API
+  CompressionOptions blob_compression_opts;
+
   // Enables garbage collection of blobs. Blob GC is performed as part of
   // compaction. Valid blobs residing in blob files older than a cutoff get
   // relocated to new files as they are encountered during compaction, which

@@ -535,6 +535,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(uint64_t)},
       {offsetof(struct ColumnFamilyOptions, preserve_internal_time_seconds),
        sizeof(uint64_t)},
+      {offsetof(struct ColumnFamilyOptions, blob_compression_opts),
+       sizeof(CompressionOptions)},
       {offsetof(struct ColumnFamilyOptions, blob_cache),
        sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct ColumnFamilyOptions,
@@ -673,6 +675,11 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "min_blob_size=256;"
       "blob_file_size=1000000;"
       "blob_compression_type=kBZip2Compression;"
+      "blob_compression_opts={window_bits=-14;level=1;strategy=0;max_dict_"
+      "bytes=0;"
+      "zstd_max_train_bytes=0;enabled=true;parallel_threads=1;"
+      "max_dict_buffer_bytes=0;use_zstd_dict_trainer=true;"
+      "max_compressed_bytes_per_kb=896;checksum=false};"
       "enable_blob_garbage_collection=true;"
       "blob_garbage_collection_age_cutoff=0.5;"
       "blob_garbage_collection_force_threshold=0.75;"
