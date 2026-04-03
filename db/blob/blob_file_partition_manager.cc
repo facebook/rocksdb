@@ -34,15 +34,21 @@ namespace {
 
 class RoundRobinBlobFilePartitionStrategy : public BlobFilePartitionStrategy {
  public:
-  uint32_t SelectPartition(uint32_t /*num_partitions*/,
+  const char* Name() const override {
+    return "RoundRobinBlobFilePartitionStrategy";
+  }
+
+  uint32_t SelectPartition(uint32_t num_partitions,
                            uint32_t /*column_family_id*/, const Slice& /*key*/,
-                           const Slice& /*value*/) const override {
+                           const Slice& /*value*/) override {
+    assert(num_partitions > 0);
     return static_cast<uint32_t>(
-        next_partition_.fetch_add(1, std::memory_order_relaxed));
+        next_partition_.fetch_add(1, std::memory_order_relaxed) %
+        static_cast<uint64_t>(num_partitions));
   }
 
  private:
-  mutable std::atomic<uint64_t> next_partition_{0};
+  std::atomic<uint64_t> next_partition_{0};
 };
 
 struct DirectWriteCompressionState {
@@ -429,6 +435,9 @@ Status BlobFilePartitionManager::WriteBlob(
     write_value = Slice(compressed_value);
   }
 
+  // Partition selection is based on the logical write inputs. In particular,
+  // strategies that inspect value contents or size see the original
+  // uncompressed value rather than `write_value`.
   const uint32_t partition_idx =
       strategy_->SelectPartition(num_partitions_, column_family_id, key,
                                  value) %

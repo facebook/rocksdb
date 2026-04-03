@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "rocksdb/blob_file_partition_strategy.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/memtablerep.h"
@@ -22,20 +23,6 @@ class SliceTransform;
 class TablePropertiesCollectorFactory;
 class TableFactory;
 struct Options;
-
-// Public interface for customizing blob direct write partition assignment.
-// Implementations must be thread-safe because SelectPartition() may be called
-// concurrently from multiple writer threads.
-class BlobFilePartitionStrategy {
- public:
-  virtual ~BlobFilePartitionStrategy() = default;
-
-  // Select a partition for the given blob direct write. The return value can
-  // be any uint32_t; the caller applies modulo num_partitions internally.
-  virtual uint32_t SelectPartition(uint32_t num_partitions,
-                                   uint32_t column_family_id, const Slice& key,
-                                   const Slice& value) const = 0;
-};
 
 enum CompactionStyle : char {
   // level based compaction style
@@ -1244,6 +1231,10 @@ struct AdvancedColumnFamilyOptions {
   // Custom partition strategy for blob direct writes.
   // If null, uses the default round-robin strategy.
   // Requires enable_blob_direct_write = true.
+  //
+  // RocksDB treats this as an application-supplied callback rather than a
+  // serialized OPTIONS object. Applications must provide it again on every DB
+  // open when they rely on custom partitioning behavior.
   //
   // Default: nullptr
   //
