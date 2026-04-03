@@ -19,6 +19,7 @@
 #include "db/wide/wide_column_test_util.h"
 #include "port/stack_trace.h"
 #include "util/coding.h"
+#include "utilities/trie_index/trie_index_factory.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -36,6 +37,143 @@ class DBWideBlobDirectWriteTest : public DBTestBase {
   }
 
   size_t CountBlobFiles() { return DBTestBase::GetBlobFileNumbers().size(); }
+
+  static std::string MakeIteratorStressKey(int index) {
+    std::string key;
+    auto append_big_endian_u64 = [](uint64_t value, std::string* dst) {
+      for (int shift = 56; shift >= 0; shift -= 8) {
+        dst->push_back(static_cast<char>((value >> shift) & 0xff));
+      }
+    };
+    append_big_endian_u64(
+        0x3900000000000000ULL | static_cast<uint64_t>(index), &key);
+    append_big_endian_u64(
+        0x1200000000000000ULL | static_cast<uint64_t>(index), &key);
+    append_big_endian_u64(
+        0x2900000000000000ULL | static_cast<uint64_t>(index), &key);
+    return key;
+  }
+
+  static WideColumns MakeIteratorStressColumns(char fill, int index) {
+    return WideColumns{
+        {kDefaultWideColumnName,
+         std::string(128, fill) + "_" + std::to_string(index)},
+        {"meta", std::string(96, static_cast<char>(fill + 1)) + "_" +
+                     std::to_string(index)}};
+  }
+
+  void PopulateIteratorStressEntities(int num_keys) {
+    for (int index = 0; index < num_keys; ++index) {
+      ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                               MakeIteratorStressKey(index),
+                               MakeIteratorStressColumns('A', index)));
+    }
+    ASSERT_OK(Flush());
+    MoveFilesToLevel(1);
+
+    for (int index = 0; index < num_keys; ++index) {
+      ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                               MakeIteratorStressKey(index),
+                               MakeIteratorStressColumns('C', index)));
+    }
+  }
+
+  struct SingleCfCoalescingIteratorScenario {
+    bool use_trie_index = false;
+    bool refresh_before_seek = false;
+    bool refresh_mid_iteration = false;
+    bool reuse_iterator_before_refresh = false;
+    bool create_control_before_refresh = true;
+  };
+
+  void VerifySingleCfCoalescingIteratorMatchesDirectIterator(
+      const SingleCfCoalescingIteratorScenario& scenario) {
+    constexpr int kNumKeys = 32;
+
+    Options options = GetDirectWriteOptions();
+    options.min_blob_size = 64;
+    options.disable_auto_compactions = true;
+    options.prefix_extractor.reset(NewFixedPrefixTransform(7));
+
+    Reopen(options);
+    PopulateIteratorStressEntities(kNumKeys);
+
+    ReadOptions coalescing_ro;
+    coalescing_ro.allow_unprepared_value = true;
+    coalescing_ro.auto_refresh_iterator_with_snapshot = true;
+    coalescing_ro.pin_data = true;
+    const Snapshot* snapshot = db_->GetSnapshot();
+    coalescing_ro.snapshot = snapshot;
+
+    trie_index::TrieIndexFactory trie_index_factory;
+    if (scenario.use_trie_index) {
+      coalescing_ro.table_index_factory = &trie_index_factory;
+    }
+
+    ReadOptions control_ro = coalescing_ro;
+    control_ro.allow_unprepared_value = false;
+    control_ro.total_order_seek = true;
+
+    std::unique_ptr<Iterator> coalescing =
+        db_->NewCoalescingIterator(coalescing_ro, {db_->DefaultColumnFamily()});
+    std::unique_ptr<Iterator> control;
+    if (scenario.create_control_before_refresh) {
+      control.reset(db_->NewIterator(control_ro, db_->DefaultColumnFamily()));
+    }
+
+    if (scenario.reuse_iterator_before_refresh) {
+      const int first_index = kNumKeys / 8;
+      coalescing->Seek(MakeIteratorStressKey(first_index));
+      ASSERT_TRUE(coalescing->Valid());
+      ASSERT_TRUE(coalescing->PrepareValue());
+      ASSERT_EQ(MakeIteratorStressColumns('C', first_index),
+                coalescing->columns());
+      coalescing->Next();
+      ASSERT_TRUE(coalescing->Valid());
+      ASSERT_TRUE(coalescing->PrepareValue());
+    }
+
+    if (scenario.refresh_before_seek) {
+      ASSERT_OK(Flush());
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    }
+
+    if (!control) {
+      control.reset(db_->NewIterator(control_ro, db_->DefaultColumnFamily()));
+    }
+
+    const int start_index = kNumKeys / 4;
+    const std::string start_key = MakeIteratorStressKey(start_index);
+
+    coalescing->Seek(start_key);
+    control->Seek(start_key);
+
+    for (int index = start_index; index < kNumKeys; ++index) {
+      ASSERT_TRUE(coalescing->Valid());
+      ASSERT_TRUE(control->Valid());
+      ASSERT_EQ(MakeIteratorStressKey(index), coalescing->key().ToString());
+      ASSERT_EQ(control->key(), coalescing->key());
+
+      ASSERT_TRUE(coalescing->PrepareValue());
+      ASSERT_EQ(control->value(), coalescing->value());
+      ASSERT_EQ(control->columns(), coalescing->columns());
+
+      if (scenario.refresh_mid_iteration && index == kNumKeys / 2) {
+        ASSERT_OK(Flush());
+        ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+      }
+
+      coalescing->Next();
+      control->Next();
+    }
+
+    ASSERT_FALSE(coalescing->Valid());
+    ASSERT_FALSE(control->Valid());
+    ASSERT_OK(coalescing->status());
+    ASSERT_OK(control->status());
+
+    db_->ReleaseSnapshot(snapshot);
+  }
 };
 
 namespace {
@@ -259,6 +397,31 @@ TEST_F(DBWideBlobDirectWriteTest, DirectWriteWideEntityBeforeAndAfterFlush) {
   Close();
   Reopen(options);
   verify();
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       SingleCfCoalescingIteratorMatchesDirectIteratorAcrossAutoRefresh) {
+  SingleCfCoalescingIteratorScenario scenario;
+  scenario.refresh_mid_iteration = true;
+  VerifySingleCfCoalescingIteratorMatchesDirectIterator(scenario);
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       SingleCfCoalescingIteratorMatchesDirectIteratorAfterSeekRefresh) {
+  SingleCfCoalescingIteratorScenario scenario;
+  scenario.use_trie_index = true;
+  scenario.refresh_before_seek = true;
+  VerifySingleCfCoalescingIteratorMatchesDirectIterator(scenario);
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       SingleCfCoalescingIteratorMatchesDirectIteratorAfterReuseAndSeekRefresh) {
+  SingleCfCoalescingIteratorScenario scenario;
+  scenario.use_trie_index = true;
+  scenario.refresh_before_seek = true;
+  scenario.reuse_iterator_before_refresh = true;
+  scenario.create_control_before_refresh = false;
+  VerifySingleCfCoalescingIteratorMatchesDirectIterator(scenario);
 }
 
 TEST_F(DBWideBlobDirectWriteTest,

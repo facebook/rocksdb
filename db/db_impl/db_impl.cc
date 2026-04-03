@@ -4488,6 +4488,12 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
 std::unique_ptr<Iterator> DBImpl::NewCoalescingIterator(
     const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families) {
+  if (column_families.size() == 1) {
+    // Preserve direct iterator semantics, including lazy value preparation,
+    // when callers route a single CF through the multi-CF API.
+    return std::unique_ptr<Iterator>(
+        NewIterator(_read_options, column_families.front()));
+  }
   return NewMultiCfIterator<Iterator, CoalescingIterator>(
       _read_options, column_families, [](const Status& s) {
         return std::unique_ptr<Iterator>(NewErrorIterator(s));
