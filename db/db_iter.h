@@ -410,6 +410,20 @@ class DBIter final : public Iterator {
     return true;
   }
 
+  // Record a deletion into the current contiguous tombstone run.
+  // In forward iteration, first_key is set only for the first tombstone
+  // (always_update_first_key=false). In reverse, keys arrive in decreasing
+  // order so first_key is updated every time (always_update_first_key=true).
+  void TrackContiguousTombstone(const Slice& user_key, SequenceNumber seq,
+                                bool always_update_first_key);
+
+  // If a contiguous tombstone run is pending, insert a range tombstone
+  // (if threshold is met) and reset tracking state.  When
+  // check_prefix_match is true, the insertion is skipped (but tracking is
+  // still reset) if end_key is outside the seek prefix.
+  void FlushPendingTombstoneRun(const Slice& end_key,
+                                bool check_prefix_match = false);
+
   // If enough contiguous tombstones have been tracked, insert a range
   // tombstone [first_key, end_key) into the mutable memtable.
   // end_key is the exclusive upper bound — typically the next live key.

@@ -428,10 +428,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
       // entire prefixes between the seek prefix and the current key.
       // The tombstone covers n-1 of n deletes; the last remains as a
       // point delete.
-      if (contiguous_tombstone_count_ > 0) {
-        MaybeInsertRangeTombstone(saved_key_.GetUserKey());
-        ResetContiguousTombstoneTracking();
-      }
+      FlushPendingTombstoneRun(saved_key_.GetUserKey());
       if (prefix_same_as_start_) {
         break;
       }
@@ -488,16 +485,8 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
               // a new run outside the prefix.
               if (min_tombstones_for_range_conversion_ > 0 &&
                   KeyMatchesPrefix(user_key_without_ts)) {
-                if (contiguous_tombstone_count_ == 0) {
-                  range_tomb_first_key_.SetUserKey(
-                      ikey_.user_key,
-                      !pin_thru_lifetime_ || !iter_.iter()->IsKeyPinned());
-                  range_tomb_max_seq_ = ikey_.sequence;
-                } else {
-                  range_tomb_max_seq_ =
-                      std::max(range_tomb_max_seq_, ikey_.sequence);
-                }
-                contiguous_tombstone_count_++;
+                TrackContiguousTombstone(ikey_.user_key, ikey_.sequence,
+                                         /*always_update_first_key=*/false);
               }
             }
             break;
@@ -508,10 +497,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
             if (!PrepareValueInternal()) {
               return false;
             }
-            if (contiguous_tombstone_count_ > 0) {
-              MaybeInsertRangeTombstone(ikey_.user_key);
-              ResetContiguousTombstoneTracking();
-            }
+            FlushPendingTombstoneRun(ikey_.user_key);
             if (timestamp_lb_) {
               saved_key_.SetInternalKey(ikey_);
             } else {
@@ -545,10 +531,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
             if (!PrepareValueInternal()) {
               return false;
             }
-            if (contiguous_tombstone_count_ > 0) {
-              MaybeInsertRangeTombstone(ikey_.user_key);
-              ResetContiguousTombstoneTracking();
-            }
+            FlushPendingTombstoneRun(ikey_.user_key);
             saved_key_.SetUserKey(
                 ikey_.user_key,
                 !pin_thru_lifetime_ || !iter_.iter()->IsKeyPinned() /* copy */);
@@ -937,15 +920,8 @@ void DBIter::PrevInternal() {
     if (!KeyMatchesPrefix(saved_key_without_ts)) {
       // Insert any pending tombstone run before leaving the seek prefix.
       // Only insert if end_key (previous live key) is within the seek prefix.
-      if (contiguous_tombstone_count_ > 0) {
-        Slice end_key = range_tomb_end_key_.GetUserKey();
-        Slice end_key_without_ts =
-            StripTimestampFromUserKey(end_key, timestamp_size_);
-        if (KeyMatchesPrefix(end_key_without_ts)) {
-          MaybeInsertRangeTombstone(end_key);
-        }
-        ResetContiguousTombstoneTracking();
-      }
+      FlushPendingTombstoneRun(range_tomb_end_key_.GetUserKey(),
+                               /*check_prefix_match=*/true);
       if (prefix_same_as_start_) {
         valid_ = false;
         return;
@@ -961,14 +937,8 @@ void DBIter::PrevInternal() {
             saved_key_.GetUserKey(), /*a_has_ts=*/true, *iterate_lower_bound_,
             /*b_has_ts=*/false) < 0) {
       // We've iterated earlier than the user-specified lower bound.
-      if (contiguous_tombstone_count_ > 0) {
-        Slice end_key = range_tomb_end_key_.GetUserKey();
-        Slice end_key_without_ts =
-            StripTimestampFromUserKey(end_key, timestamp_size_);
-        if (KeyMatchesPrefix(end_key_without_ts)) {
-          MaybeInsertRangeTombstone(end_key);
-        }
-      }
+      FlushPendingTombstoneRun(range_tomb_end_key_.GetUserKey(),
+                               /*check_prefix_match=*/true);
       valid_ = false;
       return;
     }
@@ -990,19 +960,12 @@ void DBIter::PrevInternal() {
         timestamp_lb_ == nullptr) {
       if (!valid_ && found_visible && KeyMatchesPrefix(saved_key_without_ts)) {
         // Key was deleted and is within the seek prefix — track it.
-        range_tomb_first_key_.SetUserKey(
-            saved_key_.GetUserKey(), !pin_thru_lifetime_ || !iter_.Valid() ||
-                                         !iter_.iter()->IsKeyPinned());
-        if (contiguous_tombstone_count_ == 0) {
-          range_tomb_max_seq_ = ikey_.sequence;
-        } else {
-          range_tomb_max_seq_ = std::max(range_tomb_max_seq_, ikey_.sequence);
-        }
-        contiguous_tombstone_count_++;
-      } else if (contiguous_tombstone_count_ > 0) {
-        // Live key found — insert if threshold met.
-        MaybeInsertRangeTombstone(range_tomb_end_key_.GetUserKey());
-        ResetContiguousTombstoneTracking();
+        TrackContiguousTombstone(saved_key_.GetUserKey(), ikey_.sequence,
+                                 /*always_update_first_key=*/true);
+      } else if (valid_) {
+        // Live key breaks the run.
+        FlushPendingTombstoneRun(range_tomb_end_key_.GetUserKey(),
+                                 /*check_prefix_match=*/true);
       }
     }
 
@@ -1022,15 +985,8 @@ void DBIter::PrevInternal() {
     }
   }
 
-  if (contiguous_tombstone_count_ > 0) {
-    Slice end_key = range_tomb_end_key_.GetUserKey();
-    Slice end_key_without_ts =
-        StripTimestampFromUserKey(end_key, timestamp_size_);
-    if (KeyMatchesPrefix(end_key_without_ts)) {
-      MaybeInsertRangeTombstone(end_key);
-    }
-    ResetContiguousTombstoneTracking();
-  }
+  FlushPendingTombstoneRun(range_tomb_end_key_.GetUserKey(),
+                           /*check_prefix_match=*/true);
 
   // We haven't found any key - iterator is not valid
   valid_ = false;
@@ -1620,6 +1576,40 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
   return true;
 }
 
+void DBIter::TrackContiguousTombstone(const Slice& user_key, SequenceNumber seq,
+                                      bool always_update_first_key) {
+  if (always_update_first_key || contiguous_tombstone_count_ == 0) {
+    bool copy =
+        !pin_thru_lifetime_ || !iter_.Valid() || !iter_.iter()->IsKeyPinned();
+    range_tomb_first_key_.SetUserKey(user_key, copy);
+  }
+  if (contiguous_tombstone_count_ == 0) {
+    range_tomb_max_seq_ = seq;
+  } else {
+    range_tomb_max_seq_ = std::max(range_tomb_max_seq_, seq);
+  }
+  contiguous_tombstone_count_++;
+}
+
+void DBIter::FlushPendingTombstoneRun(const Slice& end_key,
+                                      bool check_prefix_match) {
+  if (contiguous_tombstone_count_ == 0) {
+    return;
+  }
+
+  if (check_prefix_match) {
+    Slice end_key_without_ts =
+        StripTimestampFromUserKey(end_key, timestamp_size_);
+    if (KeyMatchesPrefix(end_key_without_ts)) {
+      MaybeInsertRangeTombstone(end_key);
+    }
+  } else {
+    MaybeInsertRangeTombstone(end_key);
+  }
+
+  ResetContiguousTombstoneTracking();
+}
+
 void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
   if (contiguous_tombstone_count_ < min_tombstones_for_range_conversion_) {
     return;
@@ -1631,6 +1621,8 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
 
   assert(KeyMatchesPrefix(range_tomb_first_key_.GetUserKey()));
   assert(KeyMatchesPrefix(end_key));
+  assert(user_comparator_.Compare(range_tomb_first_key_.GetUserKey(),
+                                  end_key) <= 0);
 
   assert(range_tomb_max_seq_ <= sequence_);
 

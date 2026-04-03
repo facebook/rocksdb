@@ -6753,67 +6753,41 @@ TEST_P(ReadPathRangeTombstoneTest, ReseekStaleIkey) {
 // the snapshot (no visible entries at all), FindValueForCurrentKey breaks
 // early without updating ikey_.  The reverse tombstone tracking then uses
 // the stale ikey_.sequence, which can exceed sequence_.
-TEST_P(ReadPathRangeTombstoneTest, StaleIkeyFromForwardThenReverse) {
+TEST_P(ReadPathRangeTombstoneTest, InvisibleKeysDontBreakTombstoneRun) {
   Options options = CurrentOptions();
   options.min_tombstones_for_range_conversion = 2;
   options.statistics = CreateDBStatistics();
   DestroyAndReopen(options);
 
-  // Step 1: Write base keys a, e and flush.
+  // Base keys: a, b, d, f.
   ASSERT_OK(Put("a", "va"));
-  ASSERT_OK(Put("e", "ve"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Put("d", "vd"));
+  ASSERT_OK(Put("f", "vf"));
   ASSERT_OK(Flush());
 
-  // Step 2: Take snapshot S.  At this point, only "a" and "e" exist.
+  // Delete b, d — visible tombstones.
+  ASSERT_OK(Delete("b"));
+  ASSERT_OK(Delete("d"));
+
+  // Snapshot S.  At S: a(live), b(del), d(del), f(live).
   const Snapshot* snap = db_->GetSnapshot();
 
-  // Step 3: Write keys b, c, d AFTER the snapshot.  These have seqno > S,
-  // so they are completely invisible at snapshot S.
-  ASSERT_OK(Put("b", "vb"));
+  // Write c, e AFTER the snapshot — invisible at S.
+  // At S the iterator sees: a(live), b(del), c(invis), d(del),
+  //   e(invis), f(live).
   ASSERT_OK(Put("c", "vc"));
-  ASSERT_OK(Put("d", "vd"));
+  ASSERT_OK(Put("e", "ve"));
 
-  // Step 4: Forward Seek("e") at snapshot S.  This sets ikey_ to "e"
-  // with a seqno <= S.
   ReadOptions ro;
   ro.snapshot = snap;
-  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+  inserted_ranges_.clear();
+  VerifyIteration({"a", "f"}, ro);
 
-  if (!Forward()) {
-    iter->Seek("e");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("e", iter->key().ToString());
-
-    // Step 5: Prev() triggers reverse scan.  The internal iterator
-    // encounters d, c, b (written after snapshot).  For each:
-    //   - FindValueForCurrentKey: newest entry has seqno > S → not visible
-    //   - Breaks without updating ikey_ (valid_entry_seen = false)
-    //   - valid_ = false → treated as "deleted" by tombstone tracking
-    //   - range_tomb_max_seq_ = ikey_.sequence (STALE — from "e"'s entry)
-    //
-    // Since "e"'s seqno <= S, this particular case doesn't trigger the
-    // assertion.  But the keys are incorrectly treated as tombstones
-    // and a range tombstone may be inserted for keys that don't actually
-    // have deletions.
-    iter->Prev();
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("a", iter->key().ToString());
-  } else {
-    iter->SeekToFirst();
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("a", iter->key().ToString());
-    iter->Next();
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("e", iter->key().ToString());
-  }
-  ASSERT_OK(iter->status());
-
-  // Keys b, c, d are invisible at snapshot S (they don't exist at S).
-  // They should NOT be counted as tombstones, so no range tombstone
-  // should be inserted.
-  ASSERT_EQ(
-      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
-      0u);
+  // Invisible keys c and e should not break the tombstone run.
+  // 2 tombstones (b, d) ≥ threshold → range [b, f).
+  ASSERT_EQ(inserted_ranges_.size(), 1);
+  AssertRange(0, "b", "f");
 
   db_->ReleaseSnapshot(snap);
 }
