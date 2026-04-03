@@ -14,6 +14,7 @@
 #include "rocksdb/compression_type.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/universal_compaction.h"
+#include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -35,6 +36,29 @@ class BlobFilePartitionStrategy {
   virtual uint32_t SelectPartition(uint32_t num_partitions,
                                    uint32_t column_family_id, const Slice& key,
                                    const Slice& value) const = 0;
+
+  // Select a partition for the given wide-column blob direct write. This is
+  // used once per PutEntity() before writing any blob-backed columns from the
+  // entity. The returned partition is reused for all blob-backed columns in
+  // that entity. The default behavior delegates to the plain-value overload
+  // using the default column value when present, otherwise the first column
+  // value, or an empty Slice for an empty entity.
+  virtual uint32_t SelectPartition(uint32_t num_partitions,
+                                   uint32_t column_family_id, const Slice& key,
+                                   const WideColumns& columns) const {
+    const Slice* value = nullptr;
+    for (const auto& column : columns) {
+      if (column.name() == kDefaultWideColumnName) {
+        value = &column.value();
+        break;
+      }
+    }
+    if (value == nullptr && !columns.empty()) {
+      value = &columns.front().value();
+    }
+    return SelectPartition(num_partitions, column_family_id, key,
+                           value != nullptr ? *value : Slice());
+  }
 };
 
 enum CompactionStyle : char {
@@ -1243,6 +1267,10 @@ struct AdvancedColumnFamilyOptions {
 
   // Custom partition strategy for blob direct writes.
   // If null, uses the default round-robin strategy.
+  // Put()/Merge-style value separation uses SelectPartition(..., Slice value),
+  // while PutEntity() wide-column separation calls
+  // SelectPartition(..., WideColumns columns) once per entity and reuses the
+  // selected partition for all blob-backed columns in that entity.
   // Requires enable_blob_direct_write = true.
   //
   // Default: nullptr

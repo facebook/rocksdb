@@ -34,6 +34,8 @@ namespace {
 
 class RoundRobinBlobFilePartitionStrategy : public BlobFilePartitionStrategy {
  public:
+  using BlobFilePartitionStrategy::SelectPartition;
+
   uint32_t SelectPartition(uint32_t /*num_partitions*/,
                            uint32_t /*column_family_id*/, const Slice& /*key*/,
                            const Slice& /*value*/) const override {
@@ -399,11 +401,19 @@ Status BlobFilePartitionManager::MaybePrepopulateBlobCache(
                                 CacheTier::kVolatileTier);
 }
 
+uint32_t BlobFilePartitionManager::SelectWideColumnPartition(
+    uint32_t column_family_id, const Slice& key,
+    const WideColumns& columns) const {
+  return strategy_->SelectPartition(num_partitions_, column_family_id, key,
+                                    columns) %
+         num_partitions_;
+}
+
 Status BlobFilePartitionManager::WriteBlob(
     const WriteOptions& write_options, uint32_t column_family_id,
     CompressionType compression, const Slice& key, const Slice& value,
     uint64_t* blob_file_number, uint64_t* blob_offset, uint64_t* blob_size,
-    const BlobDirectWriteSettings* settings) {
+    const BlobDirectWriteSettings* settings, const uint32_t* partition_idx) {
   assert(blob_file_number != nullptr);
   assert(blob_offset != nullptr);
   assert(blob_size != nullptr);
@@ -429,14 +439,16 @@ Status BlobFilePartitionManager::WriteBlob(
     write_value = Slice(compressed_value);
   }
 
-  const uint32_t partition_idx =
-      strategy_->SelectPartition(num_partitions_, column_family_id, key,
-                                 value) %
-      num_partitions_;
+  const uint32_t selected_partition_idx =
+      partition_idx != nullptr
+          ? (*partition_idx % num_partitions_)
+          : (strategy_->SelectPartition(num_partitions_, column_family_id, key,
+                                        value) %
+             num_partitions_);
 
   {
     MutexLock lock(&mutex_);
-    Partition* partition = partitions_[partition_idx].get();
+    Partition* partition = partitions_[selected_partition_idx].get();
 
     auto seal_current_file = [&]() -> Status {
       if (!partition->writer) {
@@ -467,7 +479,7 @@ Status BlobFilePartitionManager::WriteBlob(
 
     if (!partition->writer) {
       Status s = OpenNewBlobFile(partition, column_family_id, compression,
-                                 partition_idx);
+                                 selected_partition_idx);
       if (!s.ok()) {
         return s;
       }

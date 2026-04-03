@@ -87,11 +87,18 @@ Status BlobWriteBatchTransformer::MaybePreprocessWideColumns(
   std::vector<std::pair<size_t, BlobIndex>> new_blob_columns;
   new_blob_columns.reserve(columns.size());
   std::string blob_index_buf;
+  bool has_entity_partition = false;
+  uint32_t entity_partition = 0;
 
   for (size_t column_idx = 0; column_idx < columns.size(); ++column_idx) {
     const Slice& column_value = columns[column_idx].value();
     if (column_value.size() < settings.min_blob_size) {
       continue;
+    }
+    if (!has_entity_partition) {
+      entity_partition = partition_mgr->SelectWideColumnPartition(
+          column_family_id, key, columns);
+      has_entity_partition = true;
     }
 
     uint64_t blob_file_number = 0;
@@ -99,7 +106,8 @@ Status BlobWriteBatchTransformer::MaybePreprocessWideColumns(
     uint64_t blob_size = 0;
     Status s = partition_mgr->WriteBlob(
         write_options, column_family_id, settings.compression_type, key,
-        column_value, &blob_file_number, &blob_offset, &blob_size, &settings);
+        column_value, &blob_file_number, &blob_offset, &blob_size, &settings,
+        &entity_partition);
     if (!s.ok()) {
       return s;
     }

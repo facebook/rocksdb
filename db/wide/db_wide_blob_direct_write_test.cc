@@ -267,6 +267,42 @@ class TTLOnlyLazyDropFilter : public CompactionFilter {
   std::atomic<int>* blob_columns_seen_;
 };
 
+class NameBasedWideColumnPartitionStrategy : public BlobFilePartitionStrategy {
+ public:
+  using BlobFilePartitionStrategy::SelectPartition;
+
+  uint32_t SelectPartition(uint32_t /*num_partitions*/,
+                           uint32_t /*column_family_id*/, const Slice& /*key*/,
+                           const Slice& /*value*/) const override {
+    value_calls_.fetch_add(1, std::memory_order_relaxed);
+    return 0;
+  }
+
+  uint32_t SelectPartition(uint32_t /*num_partitions*/,
+                           uint32_t /*column_family_id*/, const Slice& /*key*/,
+                           const WideColumns& columns) const override {
+    wide_columns_calls_.fetch_add(1, std::memory_order_relaxed);
+    for (const auto& column : columns) {
+      if (column.name() == "ttl") {
+        return column.value() == "00000001" ? 1 : 3;
+      }
+    }
+    return 0;
+  }
+
+  uint32_t value_calls() const {
+    return value_calls_.load(std::memory_order_relaxed);
+  }
+
+  uint32_t wide_columns_calls() const {
+    return wide_columns_calls_.load(std::memory_order_relaxed);
+  }
+
+ private:
+  mutable std::atomic<uint32_t> value_calls_{0};
+  mutable std::atomic<uint32_t> wide_columns_calls_{0};
+};
+
 }  // namespace
 
 TEST_F(DBWideBlobDirectWriteTest, PutEntityRejectsEmptyAttributeGroups) {
@@ -397,6 +433,56 @@ TEST_F(DBWideBlobDirectWriteTest, DirectWriteWideEntityBeforeAndAfterFlush) {
   Close();
   Reopen(options);
   verify();
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       DirectWriteCustomPartitionStrategyUsesWideColumnOverload) {
+  Options options = GetDirectWriteOptions();
+  options.blob_direct_write_partitions = 4;
+  options.blob_file_size = 1 << 20;
+  options.min_blob_size = 64;
+  auto strategy = std::make_shared<NameBasedWideColumnPartitionStrategy>();
+  options.blob_direct_write_partition_strategy = strategy;
+
+  Reopen(options);
+
+  const std::string key1 = "entity_strategy_key_a";
+  const std::string key2 = "entity_strategy_key_b";
+  const std::string value1(128, 'a');
+  const std::string meta1(128, 'b');
+  const std::string ttl1 = "00000001";
+  const std::string value2(144, 'c');
+  const std::string meta2(144, 'd');
+  const std::string ttl2 = "00000002";
+  const WideColumns columns1{
+      {kDefaultWideColumnName, value1}, {"meta", meta1}, {"ttl", ttl1}};
+  const WideColumns columns2{
+      {kDefaultWideColumnName, value2}, {"meta", meta2}, {"ttl", ttl2}};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key1,
+                           columns1));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key2,
+                           columns2));
+
+  ASSERT_OK(Flush());
+  ASSERT_EQ(CountBlobFiles(), 2U);
+  ASSERT_EQ(strategy->wide_columns_calls(), 2U);
+  ASSERT_EQ(strategy->value_calls(), 0U);
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_file_count, 2U);
+  ASSERT_EQ(cf_meta.blob_files.size(), 2U);
+
+  PinnableWideColumns result;
+  ASSERT_OK(
+      db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key1, &result));
+  ASSERT_EQ(result.columns(), columns1);
+
+  result.Reset();
+  ASSERT_OK(
+      db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key2, &result));
+  ASSERT_EQ(result.columns(), columns2);
 }
 
 TEST_F(DBWideBlobDirectWriteTest,

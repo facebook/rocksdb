@@ -38,6 +38,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class FixedBlobDirectWritePartitionStrategy : public BlobFilePartitionStrategy {
  public:
+  using BlobFilePartitionStrategy::SelectPartition;
+
   explicit FixedBlobDirectWritePartitionStrategy(uint32_t partition)
       : partition_(partition) {}
 
