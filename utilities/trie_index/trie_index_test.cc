@@ -5428,6 +5428,268 @@ TEST_F(TrieIndexFactoryTest, IntermediateNonBoundarySeparatorNoAdvance) {
       AssertSeekOffset(ctx.iter.get(), Slice("cherry"), 1, 1000));
 }
 
+TEST_F(TrieIndexFactoryTest, NonBoundarySeparatorSeekWhenShorteningFails) {
+  // Reproducer for GitHub issue #14561: when FindShortestSeparator cannot
+  // shorten the separator (e.g., "acc" -> "acd" stays "acc"), the trie lands
+  // on separator "acc" with tag=0 (non-boundary sentinel). The post-seek
+  // correction must NOT advance past it regardless of the target seqno.
+  //
+  // Seqno encoding is always active (must_use_separator_with_seq_=true).
+  // The key arrangement:
+  //   Block 0: separator = FindShortestSeparator("aaa","acc") = "ab"
+  //   Block 1: separator = FindShortestSeparator("acc","acd") = "acc"
+  //            (shortening fails because 'c'+1='d' is not < 'd')
+  //   Block 2: last block, separator = "acd", real tag
+  auto ctx = BuildTrieAndGetIterator({
+      {"aaa", "acc", 0, 1000, 100, 50},
+      {"acc", "acd", 1000, 1000, 50, 40},
+      {"acd", "", 2000, 1000, 40, 0},
+  });
+
+  // Seek for "acc" with any seqno should find block 1 at offset 1000.
+  // The separator "acc" has tag=0 (non-boundary sentinel), so
+  // target_packed < 0 is always false → no advancement occurs.
+  //
+  // Before the fix (NonBoundaryTag = kMaxSequenceNumber), the comparison
+  // target_packed < kMaxSequenceNumber was always true for real seqnos,
+  // causing incorrect advancement past block 1.
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("acc"), kMaxSequenceNumber, 1000));
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("acc"), 50, 1000));
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("acc"), 1, 1000));
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("acc"), 0, 1000));
+
+  // Full forward scan verifies all blocks are reachable.
+  AssertFullForwardScan(ctx.iter.get(), Slice("aaa"), {0, 1000, 2000});
+}
+
+TEST_F(TrieIndexFactoryTest, PrevWithinOverflowRun) {
+  // Exercises PrevAndGetResult when positioned mid-overflow: the fast path
+  // that decrements overflow_run_index_ without calling iter_.Prev().
+  auto ctx = BuildTrieAndGetIterator({
+      // Block 0-2: "key" spans 3 blocks (overflow run).
+      {"key", "key", 0, 1000, 300, 200},
+      {"key", "key", 1000, 1000, 200, 100},
+      {"key", "zzz", 2000, 1000, 100, 50},
+      // Block 3: "zzz" last block.
+      {"zzz", "", 3000, 1000, 50, 0},
+  });
+
+  IterateResult result;
+
+  // Seek to "key"|100 — should land on the last block in the "key" overflow
+  // run (offset 2000) since seqno=100 matches that block's tag.
+  ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("key"), &result, SeekCtx(100)));
+  ASSERT_EQ(ctx.iter->value().offset, 2000u);
+
+  // Prev should go back to the middle of the overflow run (offset 1000).
+  ASSERT_OK(ctx.iter->PrevAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(ctx.iter->value().offset, 1000u);
+
+  // Prev again: first block of the run (offset 0).
+  ASSERT_OK(ctx.iter->PrevAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(ctx.iter->value().offset, 0u);
+
+  // Prev again: past the beginning.
+  ASSERT_OK(ctx.iter->PrevAndGetResult(&result));
+  ASSERT_NE(result.bound_check_result, IterBoundCheck::kInbound);
+}
+
+TEST_F(TrieIndexFactoryTest, SeekToLastWithOverflowRun) {
+  // SeekToLast on a trie where the last leaf has block_count > 1 should
+  // position at the last overflow block.
+  auto ctx = BuildTrieAndGetIterator({
+      // Block 0: "aaa" standalone.
+      {"aaa", "zzz", 0, 1000, 100, 50},
+      // Block 1-3: "zzz" spans 3 blocks (overflow run) — this is the last leaf.
+      {"zzz", "zzz", 1000, 1000, 50, 30},
+      {"zzz", "zzz", 2000, 1000, 30, 10},
+      {"zzz", "", 3000, 1000, 10, 0},
+  });
+
+  IterateResult result;
+
+  // SeekToLast should land on the last overflow block (offset 3000).
+  ASSERT_OK(ctx.iter->SeekToLastAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(result.key.ToString(), "zzz");
+  ASSERT_EQ(ctx.iter->value().offset, 3000u);
+
+  // Prev within overflow: offset 2000.
+  ASSERT_OK(ctx.iter->PrevAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(ctx.iter->value().offset, 2000u);
+
+  // Prev within overflow: offset 1000.
+  ASSERT_OK(ctx.iter->PrevAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(ctx.iter->value().offset, 1000u);
+
+  // Prev to previous trie leaf: "aaa" at offset 0.
+  ASSERT_OK(ctx.iter->PrevAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(ctx.iter->value().offset, 0u);
+
+  // Prev past beginning.
+  ASSERT_OK(ctx.iter->PrevAndGetResult(&result));
+  ASSERT_NE(result.bound_check_result, IterBoundCheck::kInbound);
+}
+
+TEST_F(TrieIndexFactoryTest, PrevLandsOnLeafWithOverflow) {
+  // Prev from a standalone leaf should land on a previous leaf that has an
+  // overflow run, positioning at the last block in that run.
+  auto ctx = BuildTrieAndGetIterator({
+      // Block 0-1: "aaa" spans 2 blocks.
+      {"aaa", "aaa", 0, 1000, 200, 100},
+      {"aaa", "mmm", 1000, 1000, 100, 50},
+      // Block 2: "mmm" standalone.
+      {"mmm", "zzz", 2000, 1000, 50, 10},
+      // Block 3: "zzz" standalone.
+      {"zzz", "", 3000, 1000, 10, 0},
+  });
+
+  IterateResult result;
+
+  // Seek to "zzz" (offset 3000).
+  ASSERT_NO_FATAL_FAILURE(
+      AssertSeekOffset(ctx.iter.get(), Slice("zzz"), kMaxSequenceNumber, 3000));
+
+  // Prev to "mmm" (offset 2000).
+  ASSERT_OK(ctx.iter->PrevAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(ctx.iter->value().offset, 2000u);
+
+  // Prev to "aaa" — should land on the LAST block in the overflow run
+  // (offset 1000), not the primary block (offset 0).
+  ASSERT_OK(ctx.iter->PrevAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(ctx.iter->value().offset, 1000u);
+
+  // Prev within "aaa" overflow: offset 0.
+  ASSERT_OK(ctx.iter->PrevAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(ctx.iter->value().offset, 0u);
+
+  // Prev past beginning.
+  ASSERT_OK(ctx.iter->PrevAndGetResult(&result));
+  ASSERT_NE(result.bound_check_result, IterBoundCheck::kInbound);
+}
+
+TEST_F(TrieIndexFactoryTest, SeekToFirstOnEmptyTrie) {
+  // SeekToFirstAndGetResult on an empty trie should return kUnknown.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+
+  IterateResult result;
+  ASSERT_OK(iter->SeekToFirstAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
+}
+
+TEST_F(TrieIndexFactoryTest, SeekToLastOnEmptyTrie) {
+  // SeekToLastAndGetResult on an empty trie should return kUnknown.
+  UserDefinedIndexOption option;
+  option.comparator = BytewiseComparator();
+  std::unique_ptr<UserDefinedIndexBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+  std::unique_ptr<UserDefinedIndexReader> reader;
+  ASSERT_OK(factory_->NewReader(option, index_contents, reader));
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+
+  IterateResult result;
+  ASSERT_OK(iter->SeekToLastAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
+}
+
+TEST_F(TrieIndexFactoryTest, OverflowExhaustionThenForwardScanThroughOverflow) {
+  // When SeekAndGetResult exhausts an overflow run and advances to the next
+  // trie leaf, verify that subsequent Next() calls correctly traverse through
+  // any later overflow runs.
+  //
+  // Layout:
+  //   Blocks 0-1: "key" same-key run (2 blocks)
+  //   Block 2: separator "l" (shortened "key"->"zzz"), standalone
+  //   Blocks 3-4: "zzz" same-key run (2 blocks)
+  auto ctx = BuildTrieAndGetIterator({
+      {"key", "key", 0, 1000, 300, 200},
+      {"key", "key", 1000, 1000, 200, 100},
+      {"key", "zzz", 2000, 1000, 100, 50},
+      {"zzz", "zzz", 3000, 1000, 50, 30},
+      {"zzz", "", 4000, 1000, 30, 0},
+  });
+
+  IterateResult result;
+
+  // Seek "key"|1 — seqno=1 is below all overflow tags in the "key" run
+  // (300, 200), so it exhausts the run and advances to the next leaf.
+  // FindShortestSeparator("key", "zzz") = "l", so the next leaf is "l".
+  ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("key"), &result, SeekCtx(1)));
+  ASSERT_EQ(result.key.ToString(), "l");
+  ASSERT_EQ(ctx.iter->value().offset, 2000u);
+
+  // Next advances to "zzz" primary (offset 3000).
+  ASSERT_OK(ctx.iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.key.ToString(), "zzz");
+  ASSERT_EQ(ctx.iter->value().offset, 3000u);
+
+  // Next advances through "zzz" overflow (offset 4000).
+  ASSERT_OK(ctx.iter->NextAndGetResult(&result));
+  ASSERT_EQ(ctx.iter->value().offset, 4000u);
+
+  // Next past end.
+  ASSERT_OK(ctx.iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
+}
+
+TEST_F(TrieIndexFactoryTest, AllScansExhaustedThenSeek) {
+  // After all scan ranges are exhausted (current_scan_idx_ >= size), any
+  // subsequent seek should return kOutOfBound.
+  auto ctx = BuildTrieAndGetIterator({
+      {"az", "c", 0, 500, 0, 0},
+      {"cz", "e", 1000, 500, 0, 0},
+      {"ez", "", 2000, 500, 0, 0},
+  });
+
+  // Two non-overlapping scan ranges: [a,b) and [c,d).
+  ScanOptions scans[2] = {
+      ScanOptions(Slice("a"), Slice("b")),
+      ScanOptions(Slice("c"), Slice("d")),
+  };
+  ctx.iter->Prepare(scans, 2);
+
+  IterateResult result;
+
+  // Seek "a" — within first scan range, kInbound.
+  ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("a"), &result,
+                                       SeekCtx(kMaxSequenceNumber)));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+
+  // Seek "c" — advances to second scan range, kInbound.
+  ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("c"), &result,
+                                       SeekCtx(kMaxSequenceNumber)));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+
+  // Seek "e" — past both scan ranges, kOutOfBound.
+  ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("e"), &result,
+                                       SeekCtx(kMaxSequenceNumber)));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
+}
+
 }  // namespace trie_index
 }  // namespace ROCKSDB_NAMESPACE
 

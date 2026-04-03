@@ -4466,6 +4466,273 @@ TEST_P(TrieIndexDBTest, EstimatedSizeNonZero) {
   }
 }
 
+// ============================================================================
+// Issue #14561 DB-level reproducer: NonBoundary separator seek regression
+// ============================================================================
+
+TEST_P(TrieIndexDBTest, NonBoundarySeparatorSeekRegression) {
+  // DB-level reproducer for GitHub issue #14561. When FindShortestSeparator
+  // cannot shorten the separator (e.g., "acc" -> "acd" stays "acc") and
+  // seqno encoding is active from an earlier same-user-key boundary, the
+  // post-seek correction must not advance past the correct block.
+  ASSERT_OK(OpenDB(/*block_size=*/64));
+
+  // Write a same-user-key pair to trigger seqno encoding.
+  ASSERT_OK(db_->Put(WriteOptions(), "aaa", std::string(100, 'a')));
+  ManagedSnapshot snap_for_encoding(db_.get());
+  ASSERT_OK(db_->Put(WriteOptions(), "aaa", std::string(100, 'A')));
+
+  // Write keys where shortening fails: "acc" -> "acd" stays "acc".
+  ASSERT_OK(db_->Put(WriteOptions(), "acc", std::string(100, 'c')));
+  ASSERT_OK(db_->Put(WriteOptions(), "acd", std::string(100, 'd')));
+  ManagedSnapshot read_snap(db_.get());
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Seek for "acc" should find "acc" through both indexes.
+  for (auto base_ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(base_ro.table_index_factory ? "trie" : "standard");
+    base_ro.snapshot = read_snap.snapshot();
+    std::unique_ptr<Iterator> iter(db_->NewIterator(base_ro));
+    iter->Seek("acc");
+    ASSERT_TRUE(iter->Valid()) << "Seek(acc) should be valid";
+    ASSERT_EQ(iter->key().ToString(), "acc");
+    ASSERT_OK(iter->status());
+  }
+
+  // Also verify point Get works.
+  for (auto base_ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(base_ro.table_index_factory ? "trie" : "standard");
+    base_ro.snapshot = read_snap.snapshot();
+    std::string value;
+    ASSERT_OK(db_->Get(base_ro, "acc", &value));
+    ASSERT_EQ(value, std::string(100, 'c'));
+  }
+}
+
+// ============================================================================
+// Multi-CF iterator with trie index
+// ============================================================================
+
+TEST_P(TrieIndexDBTest, MultiCFCoalescingIterator) {
+  // Exercises the trie index through NewCoalescingIterator with multiple
+  // distinct column families. This covers the trie + use_multi_cf_iterator
+  // gap identified in issue #14560.
+  options_.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options_.disable_auto_compactions = true;
+  options_.create_if_missing = true;
+  BlockBasedTableOptions table_options;
+  table_options.user_defined_index_factory = trie_factory_;
+  table_options.use_udi_as_primary_index = IsPrimaryMode();
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  last_options_ = options_;
+  ASSERT_OK(DB::Open(options_, dbname_, &db_));
+
+  // Create two additional CFs.
+  ColumnFamilyHandle* cf1 = nullptr;
+  ColumnFamilyHandle* cf2 = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(options_, "cf_one", &cf1));
+  ASSERT_OK(db_->CreateColumnFamily(options_, "cf_two", &cf2));
+
+  // Write different keys to each CF (with some overlap in key space).
+  for (int i = 0; i < 20; i++) {
+    char key[16];
+    snprintf(key, sizeof(key), "key_%04d", i);
+    ASSERT_OK(db_->Put(WriteOptions(), key, "default_" + std::to_string(i)));
+    ASSERT_OK(db_->Put(WriteOptions(), cf1, key, "cf1_" + std::to_string(i)));
+    ASSERT_OK(db_->Put(WriteOptions(), cf2, key, "cf2_" + std::to_string(i)));
+  }
+
+  // Flush all CFs.
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Flush(FlushOptions(), cf1));
+  ASSERT_OK(db_->Flush(FlushOptions(), cf2));
+
+  // Create coalescing iterator across all CFs.
+  ReadOptions ro = TrieIndexReadOptions();
+  std::vector<ColumnFamilyHandle*> cfhs = {db_->DefaultColumnFamily(), cf1,
+                                           cf2};
+  std::unique_ptr<Iterator> coal_iter = db_->NewCoalescingIterator(ro, cfhs);
+  ASSERT_NE(coal_iter, nullptr);
+
+  // Forward scan: should see all 20 keys.
+  coal_iter->SeekToFirst();
+  int count = 0;
+  std::string prev_key;
+  while (coal_iter->Valid()) {
+    std::string key = coal_iter->key().ToString();
+    if (!prev_key.empty()) {
+      ASSERT_GT(key, prev_key) << "Keys must be in order";
+    }
+    prev_key = key;
+    count++;
+    coal_iter->Next();
+  }
+  ASSERT_OK(coal_iter->status());
+  ASSERT_EQ(count, 20);
+
+  // Reverse scan.
+  coal_iter->SeekToLast();
+  count = 0;
+  prev_key.clear();
+  while (coal_iter->Valid()) {
+    std::string key = coal_iter->key().ToString();
+    if (!prev_key.empty()) {
+      ASSERT_LT(key, prev_key) << "Reverse keys must be in order";
+    }
+    prev_key = key;
+    count++;
+    coal_iter->Prev();
+  }
+  ASSERT_OK(coal_iter->status());
+  ASSERT_EQ(count, 20);
+
+  // Seek to specific key.
+  coal_iter->Seek("key_0010");
+  ASSERT_TRUE(coal_iter->Valid());
+  ASSERT_EQ(coal_iter->key().ToString(), "key_0010");
+  ASSERT_OK(coal_iter->status());
+
+  delete cf1;
+  delete cf2;
+}
+
+// ============================================================================
+// GetEntity with explicit snapshot comparison
+// ============================================================================
+
+TEST_P(TrieIndexDBTest, GetEntityWithExplicitSnapshotComparison) {
+  // Compares GetEntity results between standard and trie indexes using an
+  // explicit snapshot. This covers the gap identified in issue #14562.
+  ASSERT_OK(OpenDB(/*block_size=*/128));
+
+  // Write PutEntity and regular Put.
+  WideColumns columns{
+      {kDefaultWideColumnName, "default_val_v1"},
+      {"col_a", "val_a_v1"},
+  };
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           "entity_key", columns));
+  ASSERT_OK(db_->Put(WriteOptions(), "regular_key", "regular_val_v1"));
+
+  // Take an explicit snapshot.
+  const Snapshot* snap = db_->GetSnapshot();
+  ASSERT_NE(snap, nullptr);
+
+  // Overwrite both keys.
+  WideColumns columns_v2{
+      {kDefaultWideColumnName, "default_val_v2"},
+      {"col_a", "val_a_v2"},
+      {"col_b", "val_b_v2"},
+  };
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           "entity_key", columns_v2));
+  ASSERT_OK(db_->Put(WriteOptions(), "regular_key", "regular_val_v2"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Read at snapshot through both indexes — should see v1 data.
+  for (auto base_ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(base_ro.table_index_factory ? "trie" : "standard");
+    base_ro.snapshot = snap;
+
+    // GetEntity on PutEntity key at snapshot.
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(base_ro, db_->DefaultColumnFamily(), "entity_key",
+                             &result));
+    ASSERT_EQ(result.columns().size(), 2u);
+    ASSERT_EQ(result.columns()[0].value(), "default_val_v1");
+    ASSERT_EQ(result.columns()[1].value(), "val_a_v1");
+
+    // GetEntity on regular Put key at snapshot.
+    PinnableWideColumns result2;
+    ASSERT_OK(db_->GetEntity(base_ro, db_->DefaultColumnFamily(), "regular_key",
+                             &result2));
+    ASSERT_EQ(result2.columns().size(), 1u);
+    ASSERT_EQ(result2.columns()[0].value(), "regular_val_v1");
+
+    // GetEntity on nonexistent key.
+    PinnableWideColumns result3;
+    ASSERT_TRUE(db_->GetEntity(base_ro, db_->DefaultColumnFamily(),
+                               "no_such_key", &result3)
+                    .IsNotFound());
+  }
+
+  // Read without snapshot — should see v2 data.
+  for (auto base_ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(base_ro.table_index_factory ? "trie" : "standard");
+
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(base_ro, db_->DefaultColumnFamily(), "entity_key",
+                             &result));
+    ASSERT_EQ(result.columns().size(), 3u);
+    ASSERT_EQ(result.columns()[0].value(), "default_val_v2");
+    ASSERT_EQ(result.columns()[1].value(), "val_a_v2");
+    ASSERT_EQ(result.columns()[2].value(), "val_b_v2");
+  }
+
+  db_->ReleaseSnapshot(snap);
+}
+
+// ============================================================================
+// Same-user-key across blocks with Prev (reverse iteration through overflow)
+// ============================================================================
+
+TEST_P(TrieIndexDBTest, ReverseIterationAcrossSameUserKeyBlocks) {
+  // Verifies that reverse iteration correctly traverses through same-user-key
+  // blocks (overflow runs). This exercises the PrevAndGetResult overflow
+  // decrement path at the DB level.
+  ASSERT_OK(OpenDB(/*block_size=*/64));
+
+  // Write multiple versions of the same key to force them across blocks.
+  std::vector<const Snapshot*> snapshots;
+  for (int i = 0; i < 8; i++) {
+    ASSERT_OK(
+        db_->Put(WriteOptions(), "same_key", "value_v" + std::to_string(i)));
+    snapshots.push_back(db_->GetSnapshot());
+  }
+  // Write surrounding keys.
+  ASSERT_OK(db_->Put(WriteOptions(), "aaa", "before"));
+  ASSERT_OK(db_->Put(WriteOptions(), "zzz", "after"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Forward scan at latest snapshot should see: aaa, same_key(v7), zzz.
+  std::vector<std::string> expected = {"aaa", "same_key", "zzz"};
+  VerifyScanBothIndexes(expected);
+
+  // At an older snapshot, same_key should have the older value.
+  for (auto base_ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(base_ro.table_index_factory ? "trie" : "standard");
+    base_ro.snapshot = snapshots[3];
+    std::string value;
+    ASSERT_OK(db_->Get(base_ro, "same_key", &value));
+    ASSERT_EQ(value, "value_v3");
+  }
+
+  // Reverse scan through trie should produce zzz, same_key, aaa.
+  for (auto base_ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
+    SCOPED_TRACE(base_ro.table_index_factory ? "trie" : "standard");
+    std::unique_ptr<Iterator> iter(db_->NewIterator(base_ro));
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "zzz");
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "same_key");
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "aaa");
+
+    iter->Prev();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  for (auto* snap : snapshots) {
+    db_->ReleaseSnapshot(snap);
+  }
+}
+
 // Run all parameterized tests in both UDI modes:
 // - Secondary (false): UDI is secondary, reads require table_index_factory
 // - Primary (true): UDI is primary, all reads use the trie by default
