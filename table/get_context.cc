@@ -20,6 +20,7 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/system_clock.h"
+#include "table/debug_read_trace.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -231,9 +232,32 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
          merge_context_ != nullptr);
   if (ucmp_->EqualWithoutTimestamp(parsed_key.user_key, user_key_)) {
     *matched = true;
+    const size_t ts_sz = ucmp_->timestamp_size();
+    const Slice traced_user_key =
+        StripTimestampFromUserKey(parsed_key.user_key, ts_sz);
+    const bool debug_trace =
+        debug_read_trace::ShouldTraceUserKey(traced_user_key);
     // If the value is not in the snapshot, skip it
     if (!CheckCallback(parsed_key.sequence)) {
+      if (debug_trace) {
+        debug_read_trace::Trace(
+            "GetContext::SaveValue",
+            "snapshot filtered user_key=" +
+                debug_read_trace::ToHex(traced_user_key) + " seq=" +
+                std::to_string(parsed_key.sequence) + " type=" +
+                std::to_string(static_cast<int>(parsed_key.type)) +
+                " state_before=" + std::to_string(static_cast<int>(state_)));
+      }
       return true;  // to continue to the next seq
+    }
+
+    if (debug_trace) {
+      debug_read_trace::Trace(
+          "GetContext::SaveValue",
+          "visible match user_key=" + debug_read_trace::ToHex(traced_user_key) +
+              " seq=" + std::to_string(parsed_key.sequence) + " type=" +
+              std::to_string(static_cast<int>(parsed_key.type)) +
+              " state_before=" + std::to_string(static_cast<int>(state_)));
     }
 
     if (seq_ != nullptr) {
@@ -246,7 +270,6 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       }
     }
 
-    size_t ts_sz = ucmp_->timestamp_size();
     Slice ts;
 
     if (ts_sz > 0) {

@@ -45,21 +45,20 @@ class DBWideBlobDirectWriteTest : public DBTestBase {
         dst->push_back(static_cast<char>((value >> shift) & 0xff));
       }
     };
-    append_big_endian_u64(
-        0x3900000000000000ULL | static_cast<uint64_t>(index), &key);
-    append_big_endian_u64(
-        0x1200000000000000ULL | static_cast<uint64_t>(index), &key);
-    append_big_endian_u64(
-        0x2900000000000000ULL | static_cast<uint64_t>(index), &key);
+    append_big_endian_u64(0x3900000000000000ULL | static_cast<uint64_t>(index),
+                          &key);
+    append_big_endian_u64(0x1200000000000000ULL | static_cast<uint64_t>(index),
+                          &key);
+    append_big_endian_u64(0x2900000000000000ULL | static_cast<uint64_t>(index),
+                          &key);
     return key;
   }
 
   static WideColumns MakeIteratorStressColumns(char fill, int index) {
-    return WideColumns{
-        {kDefaultWideColumnName,
-         std::string(128, fill) + "_" + std::to_string(index)},
-        {"meta", std::string(96, static_cast<char>(fill + 1)) + "_" +
-                     std::to_string(index)}};
+    return WideColumns{{kDefaultWideColumnName,
+                        std::string(128, fill) + "_" + std::to_string(index)},
+                       {"meta", std::string(96, static_cast<char>(fill + 1)) +
+                                    "_" + std::to_string(index)}};
   }
 
   void PopulateIteratorStressEntities(int num_keys) {
@@ -500,14 +499,145 @@ TEST_F(DBWideBlobDirectWriteTest,
   VerifySingleCfCoalescingIteratorMatchesDirectIterator(scenario);
 }
 
-TEST_F(DBWideBlobDirectWriteTest,
-       SingleCfCoalescingIteratorMatchesDirectIteratorAfterReuseAndSeekRefresh) {
+TEST_F(
+    DBWideBlobDirectWriteTest,
+    SingleCfCoalescingIteratorMatchesDirectIteratorAfterReuseAndSeekRefresh) {
   SingleCfCoalescingIteratorScenario scenario;
   scenario.use_trie_index = true;
   scenario.refresh_before_seek = true;
   scenario.reuse_iterator_before_refresh = true;
   scenario.create_control_before_refresh = false;
   VerifySingleCfCoalescingIteratorMatchesDirectIterator(scenario);
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       SnapshotMultiGetEntityMatchesPointGetAcrossFlushAndTrieIndex) {
+  struct SnapshotReadCase {
+    const char* name;
+    bool use_trie_index;
+    bool duplicate_first_key;
+    bool flush_before_snapshot;
+  };
+
+  const std::array<SnapshotReadCase, 8> cases{{
+      {"mem_plain_unique", false, false, false},
+      {"mem_plain_duplicate", false, true, false},
+      {"mem_trie_unique", true, false, false},
+      {"mem_trie_duplicate", true, true, false},
+      {"sst_plain_unique", false, false, true},
+      {"sst_plain_duplicate", false, true, true},
+      {"sst_trie_unique", true, false, true},
+      {"sst_trie_duplicate", true, true, true},
+  }};
+
+  for (const auto& test_case : cases) {
+    SCOPED_TRACE(test_case.name);
+
+    Options options = GetDirectWriteOptions();
+    options.min_blob_size = 64;
+    options.blob_direct_write_partitions = 4;
+
+    Reopen(options);
+
+    const std::string key1 = "snapshot_key_a";
+    const std::string key2 = "snapshot_key_b";
+    const std::string old_value1(128, 'a');
+    const std::string old_meta1(96, 'b');
+    const std::string new_value1(144, 'c');
+    const std::string new_meta1(104, 'd');
+    const std::string old_value2(160, 'e');
+    const std::string old_meta2(112, 'f');
+    const std::string new_value2(176, 'g');
+    const std::string new_meta2(120, 'h');
+    const WideColumns old_columns1{
+        {kDefaultWideColumnName, old_value1},
+        {"meta", old_meta1},
+    };
+    const WideColumns new_columns1{
+        {kDefaultWideColumnName, new_value1},
+        {"meta", new_meta1},
+    };
+    const WideColumns old_columns2{
+        {kDefaultWideColumnName, old_value2},
+        {"meta", old_meta2},
+    };
+    const WideColumns new_columns2{
+        {kDefaultWideColumnName, new_value2},
+        {"meta", new_meta2},
+    };
+
+    ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key1,
+                             old_columns1));
+    ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key2,
+                             old_columns2));
+    if (test_case.flush_before_snapshot) {
+      ASSERT_OK(Flush());
+    }
+
+    const Snapshot* snapshot = db_->GetSnapshot();
+
+    ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key1,
+                             new_columns1));
+    ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key2,
+                             new_columns2));
+
+    ReadOptions read_options;
+    read_options.snapshot = snapshot;
+
+    trie_index::TrieIndexFactory trie_index_factory;
+    if (test_case.use_trie_index) {
+      read_options.table_index_factory = &trie_index_factory;
+    }
+
+    const auto verify_snapshot_reads = [&]() {
+      std::array<Slice, 3> keys{
+          {Slice(key1),
+           test_case.duplicate_first_key ? Slice(key1) : Slice(key2),
+           Slice(key2)}};
+      const std::array<WideColumns, 3> expected_columns{
+          {old_columns1,
+           test_case.duplicate_first_key ? old_columns1 : old_columns2,
+           old_columns2}};
+
+      std::array<PinnableWideColumns, 3> multiget_results;
+      std::array<Status, 3> multiget_statuses;
+
+      db_->MultiGetEntity(read_options, db_->DefaultColumnFamily(),
+                          keys.size(), keys.data(), multiget_results.data(),
+                          multiget_statuses.data());
+
+      for (size_t i = 0; i < keys.size(); ++i) {
+        ASSERT_OK(multiget_statuses[i]);
+        ASSERT_EQ(expected_columns[i], multiget_results[i].columns());
+
+        PinnableWideColumns get_result;
+        ASSERT_OK(db_->GetEntity(read_options, db_->DefaultColumnFamily(),
+                                 keys[i], &get_result));
+        ASSERT_EQ(expected_columns[i], get_result.columns());
+        ASSERT_EQ(get_result.columns(), multiget_results[i].columns());
+      }
+    };
+
+    verify_snapshot_reads();
+    ASSERT_OK(Flush());
+    verify_snapshot_reads();
+
+    {
+      PinnableWideColumns latest_result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key1,
+                               &latest_result));
+      ASSERT_EQ(new_columns1, latest_result.columns());
+    }
+
+    {
+      PinnableWideColumns latest_result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key2,
+                               &latest_result));
+      ASSERT_EQ(new_columns2, latest_result.columns());
+    }
+
+    db_->ReleaseSnapshot(snapshot);
+  }
 }
 
 TEST_F(DBWideBlobDirectWriteTest,

@@ -4,6 +4,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "table/debug_read_trace.h"
 #include "util/async_file_reader.h"
 #include "util/coro_utils.h"
 
@@ -373,11 +374,32 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         for (auto miter = data_block_range.begin();
              miter != data_block_range.end(); ++miter) {
           const Slice& key = miter->ikey;
+          const bool debug_trace =
+              debug_read_trace::ShouldTraceUserKey(miter->ukey_without_ts);
           iiter->Seek(miter->ikey);
 
           IndexValue v;
           if (iiter->Valid()) {
             v = iiter->value();
+          }
+          if (debug_trace) {
+            std::string msg =
+                "phase=preload batch_idx=" + std::to_string(miter.index()) +
+                " target_user_key=" +
+                debug_read_trace::ToHex(miter->ukey_without_ts) +
+                " target_internal_key=" + debug_read_trace::ToHex(miter->ikey);
+            if (iiter->Valid()) {
+              msg += " index_key=" + debug_read_trace::ToHex(iiter->key()) +
+                     " block_offset=" + std::to_string(v.handle.offset()) +
+                     " block_size=" + std::to_string(v.handle.size());
+              if (!v.first_internal_key.empty()) {
+                msg += " first_internal_key=" +
+                       debug_read_trace::ToHex(v.first_internal_key);
+              }
+            } else {
+              msg += " index_invalid status=" + iiter->status().ToString();
+            }
+            debug_read_trace::Trace("BlockBasedTable::MultiGet", msg);
           }
           if (!iiter->Valid() ||
               (!v.first_internal_key.empty() && !skip_filters &&
@@ -418,6 +440,13 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
           }
 
           if (v.handle.offset() == prev_offset) {
+            if (debug_trace) {
+              debug_read_trace::Trace(
+                  "BlockBasedTable::MultiGet",
+                  "phase=preload batch_idx=" + std::to_string(miter.index()) +
+                      " reusing_previous_block_offset=" +
+                      std::to_string(prev_offset));
+            }
             // This key can reuse the previous block (later on).
             // Mark previous as "reused"
             reused_mask |= MultiGetContext::Mask{1}
@@ -545,6 +574,8 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
       Status s;
       GetContext* get_context = miter->get_context;
       const Slice& key = miter->ikey;
+      const bool debug_trace =
+          debug_read_trace::ShouldTraceUserKey(miter->ukey_without_ts);
       bool matched = false;  // if such user key matched a key in SST
       bool done = false;
       bool first_block = true;
@@ -603,6 +634,24 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
           later_reused = false;
         }
 
+        if (debug_trace) {
+          std::string msg =
+              "phase=read batch_idx=" + std::to_string(miter.index()) +
+              " first_block=" + debug_read_trace::BoolToString(first_block) +
+              " handle_present=" +
+              debug_read_trace::BoolToString(handle_present) +
+              " reusing_prev_block=" +
+              debug_read_trace::BoolToString(reusing_prev_block) +
+              " later_reused=" +
+              debug_read_trace::BoolToString(later_reused);
+          if (!first_block) {
+            IndexValue v = iiter->value();
+            msg += " next_block_offset=" + std::to_string(v.handle.offset()) +
+                   " next_block_size=" + std::to_string(v.handle.size());
+          }
+          debug_read_trace::Trace("BlockBasedTable::MultiGet", msg);
+        }
+
         if (read_options.read_tier == kBlockCacheTier &&
             biter->status().IsIncomplete()) {
           // couldn't get block from block_cache
@@ -659,6 +708,18 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         }
 
         bool may_exist = biter->SeekForGet(key);
+        if (debug_trace) {
+          std::string msg =
+              "phase=read batch_idx=" + std::to_string(miter.index()) +
+              " may_exist=" + debug_read_trace::BoolToString(may_exist) +
+              " iterator_valid=" +
+              debug_read_trace::BoolToString(biter->Valid());
+          if (biter->Valid()) {
+            msg += " landed_internal_key=" +
+                   debug_read_trace::ToHex(biter->key());
+          }
+          debug_read_trace::Trace("BlockBasedTable::MultiGet", msg);
+        }
         if (!may_exist) {
           // HashSeek cannot find the key this block and the the iter is not
           // the end of the block, i.e. cannot be in the following blocks
@@ -744,6 +805,13 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
       }
       if (s.ok() && !iiter->status().IsNotFound()) {
         s = iiter->status();
+      }
+      if (debug_trace) {
+        debug_read_trace::Trace(
+            "BlockBasedTable::MultiGet",
+            "final batch_idx=" + std::to_string(miter.index()) +
+                " status=" + s.ToString() + " get_state=" +
+                std::to_string(static_cast<int>(get_context->State())));
       }
       *(miter->s) = s;
     }

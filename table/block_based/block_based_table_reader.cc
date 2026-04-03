@@ -60,6 +60,7 @@
 #include "table/block_based/partitioned_filter_block.h"
 #include "table/block_based/partitioned_index_reader.h"
 #include "table/block_based/user_defined_index_wrapper.h"
+#include "table/debug_read_trace.h"
 #include "table/block_fetcher.h"
 #include "table/format.h"
 #include "table/get_context.h"
@@ -2488,6 +2489,17 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   assert(key.size() >= 8);  // key must be internal key
   assert(get_context != nullptr);
   Status s;
+  const Slice target_user_key = ExtractUserKey(key);
+  const bool debug_trace =
+      debug_read_trace::ShouldTraceUserKey(target_user_key);
+
+  if (debug_trace) {
+    debug_read_trace::Trace(
+        "BlockBasedTable::Get",
+        "file=" + rep_->file->file_name() + " target_user_key=" +
+            debug_read_trace::ToHex(target_user_key) +
+            " target_internal_key=" + debug_read_trace::ToHex(key));
+  }
 
   FilterBlockReader* const filter =
       !skip_filters ? rep_->filter.get() : nullptr;
@@ -2531,6 +2543,16 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
     bool done = false;
     for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
       IndexValue v = iiter->value();
+      if (debug_trace) {
+        std::string msg = "index_key=" + debug_read_trace::ToHex(iiter->key()) +
+                          " block_offset=" + std::to_string(v.handle.offset()) +
+                          " block_size=" + std::to_string(v.handle.size());
+        if (!v.first_internal_key.empty()) {
+          msg += " first_internal_key=" +
+                 debug_read_trace::ToHex(v.first_internal_key);
+        }
+        debug_read_trace::Trace("BlockBasedTable::Get", msg);
+      }
 
       if (!v.first_internal_key.empty() && !skip_filters &&
           UserComparatorWrapper(rep_->internal_comparator.user_comparator())
@@ -2571,6 +2593,17 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       }
 
       bool may_exist = biter.SeekForGet(key);
+      if (debug_trace) {
+        std::string msg =
+            "data_block_offset=" + std::to_string(v.handle.offset()) +
+            " may_exist=" + debug_read_trace::BoolToString(may_exist) +
+            " iterator_valid=" +
+            debug_read_trace::BoolToString(biter.Valid());
+        if (biter.Valid()) {
+          msg += " landed_internal_key=" + debug_read_trace::ToHex(biter.key());
+        }
+        debug_read_trace::Trace("BlockBasedTable::Get", msg);
+      }
       // If user-specified timestamp is supported, we cannot end the search
       // just because hash index lookup indicates the key+ts does not exist.
       if (!may_exist && ts_sz == 0) {
@@ -2648,6 +2681,13 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
     if (s.ok() && !iiter->status().IsNotFound()) {
       s = iiter->status();
     }
+  }
+
+  if (debug_trace) {
+    debug_read_trace::Trace(
+        "BlockBasedTable::Get",
+        "final_status=" + s.ToString() + " get_state=" +
+            std::to_string(static_cast<int>(get_context->State())));
   }
 
   return s;
