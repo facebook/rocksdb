@@ -437,7 +437,7 @@ class DBIter final : public Iterator {
   // Returns true if there is no prefix constraint (prefix_ not set) or
   // if `key` is in the prefix extractor's domain and its prefix matches.
   // Out-of-domain keys return false when a prefix is set.
-  bool KeyMatchesPrefix(const Slice& key) const {
+  bool PrefixCheck(const Slice& key) const {
     return !prefix_.has_value() || (prefix_extractor_->InDomain(key) &&
                                     prefix_extractor_->Transform(key).compare(
                                         prefix_->GetUserKey()) == 0);

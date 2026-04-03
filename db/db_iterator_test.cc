@@ -4196,7 +4196,7 @@ TEST_P(DBIteratorTest, PrefixSameAsStartIteratePastOutOfDomainKey) {
   ASSERT_EQ(iter->key().ToString(), "abc2");
 
   // Next encounters "zz" (out-of-domain for FixedPrefixTransform(3)).
-  // KeyMatchesPrefix returns false for out-of-domain keys, so the iterator
+  // PrefixCheck returns false for out-of-domain keys, so the iterator
   // invalidates cleanly instead of calling Transform() on the short key.
   iter->Next();
   ASSERT_FALSE(iter->Valid());

@@ -421,7 +421,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
     }
 
     assert(!prefix_.has_value() || prefix_extractor_ != nullptr);
-    if (!KeyMatchesPrefix(user_key_without_ts)) {
+    if (!PrefixCheck(user_key_without_ts)) {
       // Insert any pending tombstone run using the last tracked delete
       // (saved_key_) as the end key.  We cannot use the current key's
       // prefix as the boundary because bloom filters may have hidden
@@ -484,7 +484,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
               // flushed any pending run, but we must also avoid starting
               // a new run outside the prefix.
               if (min_tombstones_for_range_conversion_ > 0 &&
-                  KeyMatchesPrefix(user_key_without_ts)) {
+                  PrefixCheck(user_key_without_ts)) {
                 TrackContiguousTombstone(ikey_.user_key, ikey_.sequence,
                                          /*always_update_first_key=*/false);
               }
@@ -637,8 +637,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
   // iterate_upper_bound_ if within the seek prefix, otherwise fall back to
   // saved_key_ (the last tracked delete, covering n-1 deletes).
   if (contiguous_tombstone_count_ > 0 && iter_.status().ok()) {
-    if (iterate_upper_bound_ != nullptr &&
-        KeyMatchesPrefix(*iterate_upper_bound_)) {
+    if (iterate_upper_bound_ != nullptr && PrefixCheck(*iterate_upper_bound_)) {
       if (timestamp_size_ == 0) {
         MaybeInsertRangeTombstone(*iterate_upper_bound_);
       } else {
@@ -917,7 +916,7 @@ void DBIter::PrevInternal() {
         StripTimestampFromUserKey(saved_key_.GetUserKey(), timestamp_size_);
     // When prefix filtering is active, insert any pending tombstone run
     // before we leave the seek prefix.
-    if (!KeyMatchesPrefix(saved_key_without_ts)) {
+    if (!PrefixCheck(saved_key_without_ts)) {
       // Insert any pending tombstone run before leaving the seek prefix.
       // Only insert if end_key (previous live key) is within the seek prefix.
       FlushPendingTombstoneRun(range_tomb_end_key_.GetUserKey(),
@@ -958,7 +957,7 @@ void DBIter::PrevInternal() {
     if (min_tombstones_for_range_conversion_ > 0 &&
         range_tomb_end_key_.GetUserKey().size() > 0 &&
         timestamp_lb_ == nullptr) {
-      if (!valid_ && found_visible && KeyMatchesPrefix(saved_key_without_ts)) {
+      if (!valid_ && found_visible && PrefixCheck(saved_key_without_ts)) {
         // Key was deleted and is within the seek prefix — track it.
         TrackContiguousTombstone(saved_key_.GetUserKey(), ikey_.sequence,
                                  /*always_update_first_key=*/true);
@@ -1600,7 +1599,7 @@ void DBIter::FlushPendingTombstoneRun(const Slice& end_key,
   if (check_prefix_match) {
     Slice end_key_without_ts =
         StripTimestampFromUserKey(end_key, timestamp_size_);
-    if (KeyMatchesPrefix(end_key_without_ts)) {
+    if (PrefixCheck(end_key_without_ts)) {
       MaybeInsertRangeTombstone(end_key);
     }
   } else {
@@ -1619,8 +1618,8 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
     return;
   }
 
-  assert(KeyMatchesPrefix(range_tomb_first_key_.GetUserKey()));
-  assert(KeyMatchesPrefix(end_key));
+  assert(PrefixCheck(range_tomb_first_key_.GetUserKey()));
+  assert(PrefixCheck(end_key));
   assert(user_comparator_.Compare(range_tomb_first_key_.GetUserKey(),
                                   end_key) <= 0);
 
