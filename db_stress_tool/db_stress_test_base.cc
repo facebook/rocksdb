@@ -29,6 +29,7 @@
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/io_dispatcher.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/table_properties.h"
@@ -1715,6 +1716,14 @@ Status StressTest::TestMultiScan(ThreadState* thread,
       FLAGS_multiscan_use_async_io &&
       CheckFSFeatureSupport(options_.env->GetFileSystem().get(),
                             FSSupportedOps::kAsyncIO);
+  std::shared_ptr<IODispatcher> io_dispatcher;
+  if (FLAGS_multiscan_max_prefetch_memory_bytes > 0) {
+    IODispatcherOptions io_opts;
+    io_opts.max_prefetch_memory_bytes =
+        FLAGS_multiscan_max_prefetch_memory_bytes;
+    io_dispatcher.reset(NewIODispatcher(io_opts));
+    scan_opts.io_dispatcher = io_dispatcher;
+  }
   start_key_strs.reserve(num_scans);
   end_key_strs.reserve(num_scans);
 

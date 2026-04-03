@@ -168,6 +168,15 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
   // SubmitJob)
   if (pinned_blocks_[block_index].GetValue()) {
     *out = std::move(pinned_blocks_[block_index]);
+    // Release memory accounting for prefetched blocks. After moving the value
+    // out, ReleaseBlock() and the destructor check pinned_blocks_.GetValue()
+    // which will be null, so they won't release memory again.
+    if (block_index < block_sizes_.size() && block_sizes_[block_index] > 0) {
+      if (auto dispatcher_data = dispatcher_data_.lock()) {
+        dispatcher_data->ReleaseMemory(block_sizes_[block_index]);
+      }
+      block_sizes_[block_index] = 0;
+    }
     // Note: Statistics for this block were already counted during SubmitJob
     // (either as cache hit or sync read)
     return Status::OK();
@@ -190,6 +199,14 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
       // After polling, the block should be in pinned_blocks_
       if (pinned_blocks_[block_index].GetValue()) {
         *out = std::move(pinned_blocks_[block_index]);
+        // Release memory accounting (same as case 1 above)
+        if (block_index < block_sizes_.size() &&
+            block_sizes_[block_index] > 0) {
+          if (auto dispatcher_data = dispatcher_data_.lock()) {
+            dispatcher_data->ReleaseMemory(block_sizes_[block_index]);
+          }
+          block_sizes_[block_index] = 0;
+        }
         return Status::OK();
       }
 

@@ -1436,6 +1436,9 @@ def finalize_and_sanitize(src_params):
         # LevelIterator multiscan currently relies on num_entries and num_range_deletions,
         # which are not updated if skip_stats_update_on_db_open is true
         dest_params["skip_stats_update_on_db_open"] = 0
+        dest_params["multiscan_max_prefetch_memory_bytes"] = random.choice(
+            [0, 0, 64 * 1024, 256 * 1024]
+        )
 
     # open_files_async requires skip_stats_update_on_db_open to avoid
     # synchronous I/O in UpdateAccumulatedStats during DB open
