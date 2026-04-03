@@ -82,7 +82,7 @@ class CfConsistencyStressTest : public StressTest {
       }
     }
 
-    const SequenceNumber seq_before = db_->GetLatestSequenceNumber();
+    const SequenceNumber latest_seq_before = db_->GetLatestSequenceNumber();
     const uint32_t batch_count = batch.Count();
 
     if (status.ok()) {
@@ -90,18 +90,16 @@ class CfConsistencyStressTest : public StressTest {
     }
 
     if (status.ok()) {
-      const SequenceNumber seq_after = db_->GetLatestSequenceNumber();
+      const SequenceNumber latest_seq_after = db_->GetLatestSequenceNumber();
       RecordDebugEvent({debug_op, k,
-                        /* end_key */ "", seq_before, seq_after, batch_count,
-                        value_base, write_unix_time, rand_column_families});
-      if (seq_after != seq_before + batch_count) {
-        fprintf(stderr,
-                "Write sequence mismatch for key %s: before=%" PRIu64
-                " batch_count=%u after=%" PRIu64 " value_base=%u\n",
-                Slice(k).ToString(true).c_str(), seq_before, batch_count,
-                seq_after, value_base);
-        thread->stats.AddErrors(1);
-        thread->shared->SetVerificationFailure();
+                        /* end_key */ "", latest_seq_before, latest_seq_after,
+                        batch_count, value_base, write_unix_time,
+                        rand_column_families});
+      if (latest_seq_after <
+          latest_seq_before + static_cast<SequenceNumber>(batch_count)) {
+        ReportInvalidWriteSequenceBounds(thread, k, latest_seq_before,
+                                         latest_seq_after, batch_count,
+                                         value_base);
       }
     }
 
@@ -127,14 +125,21 @@ class CfConsistencyStressTest : public StressTest {
       ColumnFamilyHandle* cfh = column_families_[cf];
       batch.Delete(cfh, key);
     }
-    const SequenceNumber seq_before = db_->GetLatestSequenceNumber();
+    const SequenceNumber latest_seq_before = db_->GetLatestSequenceNumber();
     Status s = db_->Write(write_opts, &batch);
     if (s.ok()) {
+      const SequenceNumber latest_seq_after = db_->GetLatestSequenceNumber();
       RecordDebugEvent({DebugOpKind::kDelete, key_str,
-                        /* end_key */ "", seq_before,
-                        db_->GetLatestSequenceNumber(), batch.Count(),
+                        /* end_key */ "", latest_seq_before, latest_seq_after,
+                        batch.Count(),
                         /* value_base */ 0,
                         /* write_unix_time */ 0, rand_column_families});
+      if (latest_seq_after <
+          latest_seq_before + static_cast<SequenceNumber>(batch.Count())) {
+        ReportInvalidWriteSequenceBounds(thread, key_str, latest_seq_before,
+                                         latest_seq_after, batch.Count(),
+                                         /* value_base */ 0);
+      }
       thread->stats.AddDeletes(static_cast<long>(rand_column_families.size()));
     } else if (!IsErrorInjectedAndRetryable(s)) {
       fprintf(stderr, "multidel error: %s\n", s.ToString().c_str());
@@ -162,14 +167,20 @@ class CfConsistencyStressTest : public StressTest {
       ColumnFamilyHandle* cfh = column_families_[rand_column_families[cf]];
       batch.DeleteRange(cfh, key, end_key);
     }
-    const SequenceNumber seq_before = db_->GetLatestSequenceNumber();
+    const SequenceNumber latest_seq_before = db_->GetLatestSequenceNumber();
     Status s = db_->Write(write_opts, &batch);
     if (s.ok()) {
+      const SequenceNumber latest_seq_after = db_->GetLatestSequenceNumber();
       RecordDebugEvent({DebugOpKind::kDeleteRange, key_str, end_key_str,
-                        seq_before, db_->GetLatestSequenceNumber(),
-                        batch.Count(),
+                        latest_seq_before, latest_seq_after, batch.Count(),
                         /* value_base */ 0,
                         /* write_unix_time */ 0, rand_column_families});
+      if (latest_seq_after <
+          latest_seq_before + static_cast<SequenceNumber>(batch.Count())) {
+        ReportInvalidWriteSequenceBounds(thread, key_str, latest_seq_before,
+                                         latest_seq_after, batch.Count(),
+                                         /* value_base */ 0);
+      }
       thread->stats.AddRangeDeletions(
           static_cast<long>(rand_column_families.size()));
     } else if (!IsErrorInjectedAndRetryable(s)) {
@@ -1247,6 +1258,9 @@ class CfConsistencyStressTest : public StressTest {
     DebugOpKind op;
     std::string key;
     std::string end_key;
+    // [seq_before, seq_after] is the observed latest-sequence window around
+    // the write. Exact per-CF sequence mapping is only available when
+    // seq_after == seq_before + batch_count.
     SequenceNumber seq_before;
     SequenceNumber seq_after;
     uint32_t batch_count;
@@ -1256,7 +1270,6 @@ class CfConsistencyStressTest : public StressTest {
   };
 
   static constexpr size_t kMaxRecentDebugEvents = 512;
-
   static const char* DebugOpKindName(DebugOpKind op) {
     switch (op) {
       case DebugOpKind::kPut:
@@ -1299,8 +1312,31 @@ class CfConsistencyStressTest : public StressTest {
     return event.key == key;
   }
 
+  void ReportInvalidWriteSequenceBounds(ThreadState* thread,
+                                        const std::string& key,
+                                        SequenceNumber latest_seq_before,
+                                        SequenceNumber latest_seq_after,
+                                        uint32_t batch_count,
+                                        uint32_t value_base) {
+    fprintf(stderr,
+            "Write sequence bounds invalid for key %s: latest_before=%" PRIu64
+            " batch_count=%u latest_after=%" PRIu64 " value_base=%u\n",
+            Slice(key).ToString(true).c_str(), latest_seq_before, batch_count,
+            latest_seq_after, value_base);
+    thread->stats.AddErrors(1);
+    thread->shared->SetVerificationFailure();
+  }
+
+  static bool HasExactCfSequenceMapping(const DebugEvent& event) {
+    return event.seq_after ==
+           event.seq_before + static_cast<SequenceNumber>(event.batch_count);
+  }
+
   bool TryGetEventSequenceForCf(const DebugEvent& event, int cf,
                                 SequenceNumber* seq) const {
+    if (!HasExactCfSequenceMapping(event)) {
+      return false;
+    }
     const size_t count =
         std::min(event.cfs.size(), static_cast<size_t>(event.batch_count));
     for (size_t i = 0; i < count; ++i) {
@@ -1314,6 +1350,9 @@ class CfConsistencyStressTest : public StressTest {
 
   std::string FormatCfSequenceSummary(const DebugEvent& event,
                                       SequenceNumber snapshot_seq) const {
+    if (!HasExactCfSequenceMapping(event)) {
+      return "interleaved-with-other-writes";
+    }
     const size_t count =
         std::min(event.cfs.size(), static_cast<size_t>(event.batch_count));
     std::string summary;
@@ -1395,13 +1434,14 @@ class CfConsistencyStressTest : public StressTest {
       fprintf(stdout,
               "[cf_consistency_debug] event op=%s key=%s end_key=%s "
               "seq_before=%" PRIu64 " seq_after=%" PRIu64
-              " batch_count=%u value_base=%u "
+              " batch_count=%u exact_mapping=%s value_base=%u "
               "write_unix_time=%" PRIu64
               " focus_split=%s focus_cmp_seq=%s "
               "focus_mismatch_seq=%s per_cf=%s\n",
               DebugOpKindName(event.op), StringToHex(event.key).c_str(),
               event.end_key.empty() ? "-" : StringToHex(event.end_key).c_str(),
               event.seq_before, event.seq_after, event.batch_count,
+              HasExactCfSequenceMapping(event) ? "true" : "false",
               event.value_base, event.write_unix_time,
               snapshot_splits_focus_cfs ? "true" : "false",
               has_cmp_seq ? std::to_string(cmp_seq).c_str() : "-",
