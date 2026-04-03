@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#include <atomic>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -55,8 +54,10 @@ class BlobFilePartitionManager {
 
   // Creates the per-column-family manager for write-path blob files.
   BlobFilePartitionManager(
-      uint32_t num_partitions, FileNumberAllocator file_number_allocator,
-      FileSystem* fs, SystemClock* clock, Statistics* statistics,
+      uint32_t num_partitions,
+      std::shared_ptr<BlobFilePartitionStrategy> strategy,
+      FileNumberAllocator file_number_allocator, FileSystem* fs,
+      SystemClock* clock, Statistics* statistics,
       const FileOptions& file_options, std::string db_path,
       std::string column_family_name, uint64_t blob_file_size, bool use_fsync,
       BlobFileCache* blob_file_cache, BlobFileCompletionCallback* blob_callback,
@@ -233,9 +234,9 @@ class BlobFilePartitionManager {
                                    uint64_t blob_file_number,
                                    uint64_t blob_offset);
 
-  // Configured partition fanout and round-robin write selector.
+  // Configured partition fanout and write-selection strategy.
   const uint32_t num_partitions_;
-  std::atomic<uint64_t> next_partition_{0};
+  std::shared_ptr<BlobFilePartitionStrategy> strategy_;
   // Shared services needed to create, track, and cache blob files.
   FileNumberAllocator file_number_allocator_;
   FileSystem* fs_;

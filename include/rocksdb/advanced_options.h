@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "rocksdb/blob_file_partition_strategy.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/memtablerep.h"
@@ -1217,13 +1218,29 @@ struct AdvancedColumnFamilyOptions {
   bool enable_blob_direct_write = false;
 
   // Number of direct-write blob partitions for this column family.
-  // Partition selection is round-robin.
   // Requires enable_blob_direct_write = true.
+  //
+  // If blob_direct_write_partition_strategy is null, partition selection uses
+  // the default round-robin strategy.
   //
   // Default: 1
   //
   // Not dynamically changeable through the SetOptions() API.
   uint32_t blob_direct_write_partitions = 1;
+
+  // Custom partition strategy for blob direct writes.
+  // If null, uses the default round-robin strategy.
+  // Requires enable_blob_direct_write = true.
+  //
+  // RocksDB treats this as an application-supplied callback rather than a
+  // serialized OPTIONS object. Applications must provide it again on every DB
+  // open when they rely on custom partitioning behavior.
+  //
+  // Default: nullptr
+  //
+  // Not dynamically changeable through the SetOptions() API.
+  std::shared_ptr<BlobFilePartitionStrategy>
+      blob_direct_write_partition_strategy = nullptr;
 
   // Enable memtable per key-value checksum protection.
   //
