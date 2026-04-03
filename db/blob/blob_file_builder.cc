@@ -67,13 +67,11 @@ BlobFileBuilder::BlobFileBuilder(
       min_blob_size_(mutable_cf_options->min_blob_size),
       blob_file_size_(mutable_cf_options->blob_file_size),
       blob_compression_type_(mutable_cf_options->blob_compression_type),
-      // TODO: support most CompressionOptions with a new CF option
-      // blob_compression_opts
       // TODO with schema change: support custom compression manager and options
       // such as max_compressed_bytes_per_kb
       // NOTE: returns nullptr for kNoCompression
       blob_compressor_(GetBuiltinV2CompressionManager()->GetCompressor(
-          CompressionOptions{}, blob_compression_type_)),
+          mutable_cf_options->blob_compression_opts, blob_compression_type_)),
       blob_compressor_wa_(blob_compressor_
                               ? blob_compressor_->ObtainWorkingArea()
                               : Compressor::ManagedWorkingArea{}),

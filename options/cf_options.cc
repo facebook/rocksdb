@@ -622,6 +622,24 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, blob_compression_type),
           OptionType::kCompressionType, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"blob_compression_opts",
+         OptionTypeInfo::Struct(
+             "blob_compression_opts", &compression_options_type_info,
+             offsetof(struct MutableCFOptions, blob_compression_opts),
+             OptionVerificationType::kNormal,
+             (OptionTypeFlags::kMutable | OptionTypeFlags::kCompareNever),
+             [](const ConfigOptions& opts, const std::string& name,
+                const std::string& value, void* addr) {
+               if (name == "blob_compression_opts" &&
+                   value.find('=') == std::string::npos) {
+                 auto* compression = static_cast<CompressionOptions*>(addr);
+                 return ParseCompressionOptions(value, name, *compression);
+               } else {
+                 return OptionTypeInfo::ParseStruct(
+                     opts, "blob_compression_opts",
+                     &compression_options_type_info, name, value, addr);
+               }
+             })},
         {"enable_blob_garbage_collection",
          {offsetof(struct MutableCFOptions, enable_blob_garbage_collection),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -1306,6 +1324,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  blob_file_size);
   ROCKS_LOG_INFO(log, "                    blob_compression_type: %s",
                  CompressionTypeToString(blob_compression_type).c_str());
+  ROCKS_LOG_INFO(log, "             blob_compression_opts.level: %d",
+                 blob_compression_opts.level);
   ROCKS_LOG_INFO(log, "           enable_blob_garbage_collection: %s",
                  enable_blob_garbage_collection ? "true" : "false");
   ROCKS_LOG_INFO(log, "       blob_garbage_collection_age_cutoff: %f",

@@ -162,6 +162,7 @@ struct MutableCFOptions {
         min_blob_size(options.min_blob_size),
         blob_file_size(options.blob_file_size),
         blob_compression_type(options.blob_compression_type),
+        blob_compression_opts(options.blob_compression_opts),
         enable_blob_garbage_collection(options.enable_blob_garbage_collection),
         blob_garbage_collection_age_cutoff(
             options.blob_garbage_collection_age_cutoff),
@@ -235,6 +236,7 @@ struct MutableCFOptions {
         min_blob_size(0),
         blob_file_size(0),
         blob_compression_type(kNoCompression),
+        blob_compression_opts(),
         enable_blob_garbage_collection(false),
         blob_garbage_collection_age_cutoff(0.0),
         blob_garbage_collection_force_threshold(0.0),
@@ -340,6 +342,7 @@ struct MutableCFOptions {
   uint64_t min_blob_size;
   uint64_t blob_file_size;
   CompressionType blob_compression_type;
+  CompressionOptions blob_compression_opts;
   bool enable_blob_garbage_collection;
   double blob_garbage_collection_age_cutoff;
   double blob_garbage_collection_force_threshold;
