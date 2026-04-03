@@ -116,6 +116,10 @@ class BlobFilePartitionManager {
   // or old SuperVersions and therefore must not be purged yet.
   void GetProtectedBlobFileNumbers(UnorderedSet<uint64_t>* file_numbers) const;
 
+  // Returns true when the blob file is still owned by the write path or
+  // protected by a live memtable / old SuperVersion.
+  bool IsTrackedBlobFileNumber(uint64_t file_number) const;
+
   // Increments / decrements memtable-held protection on sealed blob files.
   void ProtectSealedBlobFileNumbers(const std::vector<uint64_t>& file_numbers);
   void UnprotectSealedBlobFileNumbers(

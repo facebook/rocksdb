@@ -647,6 +647,14 @@ void BlobFilePartitionManager::GetProtectedBlobFileNumbers(
   }
 }
 
+bool BlobFilePartitionManager::IsTrackedBlobFileNumber(
+    uint64_t file_number) const {
+  ReadLock lock(&file_partition_mutex_);
+  return file_to_partition_.find(file_number) != file_to_partition_.end() ||
+         protected_blob_file_refs_.find(file_number) !=
+             protected_blob_file_refs_.end();
+}
+
 void BlobFilePartitionManager::ProtectSealedBlobFileNumbers(
     const std::vector<uint64_t>& file_numbers) {
   if (file_numbers.empty()) {
