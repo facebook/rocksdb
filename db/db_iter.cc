@@ -1578,9 +1578,7 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
 void DBIter::TrackContiguousTombstone(const Slice& user_key, SequenceNumber seq,
                                       bool always_update_first_key) {
   if (always_update_first_key || contiguous_tombstone_count_ == 0) {
-    bool copy =
-        !pin_thru_lifetime_ || !iter_.Valid() || !iter_.iter()->IsKeyPinned();
-    range_tomb_first_key_.SetUserKey(user_key, copy);
+    range_tomb_first_key_.SetUserKey(user_key, true /* copy */);
   }
   if (contiguous_tombstone_count_ == 0) {
     range_tomb_max_seq_ = seq;
