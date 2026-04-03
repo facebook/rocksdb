@@ -129,8 +129,6 @@ class UserDefinedIndexBuilder {
   virtual Status Finish(Slice* index_contents) = 0;
 
   // Returns an estimate of the current serialized index size in bytes.
-  // Used for compaction file size estimation when use_udi_as_primary_index
-  // is true (no standard index builder to delegate to).
   virtual uint64_t EstimatedSize() const = 0;
 };
 

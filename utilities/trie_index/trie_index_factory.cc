@@ -57,9 +57,6 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
     // impossible to distinguish the two blocks. Set the sticky flag so that
     // at Finish() time, ALL separators will include encoded seqnos.
     // This mirrors ShortenedIndexBuilder::must_use_separator_with_seq_.
-    if (!must_use_separator_with_seq_ && same_user_key) {
-      must_use_separator_with_seq_ = true;
-    }
 
     // Edge case: FindShortestSeparator may fail to shorten the key even when
     // the user keys are different. Example: FindShortestSeparator("abc","abd")
@@ -72,9 +69,6 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
     if (!same_user_key && !buffered_entries_.empty() &&
         buffered_entries_.back().separator_key == *separator_scratch) {
       same_user_key = true;
-      if (!must_use_separator_with_seq_) {
-        must_use_separator_with_seq_ = true;
-      }
     }
   } else {
     // Last block: use the last key itself as the separator, NOT a shortened
@@ -101,9 +95,6 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
         comparator_->Compare(buffered_entries_.back().separator_key,
                              separator) == 0) {
       same_user_key = true;
-      if (!must_use_separator_with_seq_) {
-        must_use_separator_with_seq_ = true;
-      }
     }
   }
 
@@ -137,9 +128,7 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
 
   // Seqno encoding must always be enabled so the post-seek correction
   // handles the last block correctly. The overhead is 8 bytes per leaf.
-  if (!must_use_separator_with_seq_) {
-    must_use_separator_with_seq_ = true;
-  }
+  must_use_separator_with_seq_ = true;
   entry.handle = handle;
   total_separator_bytes_ += entry.separator_key.size();
   buffered_entries_.push_back(std::move(entry));
@@ -159,12 +148,10 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
   }
   finished_ = true;
 
-  // Use seqno side-table when any same-user-key block boundary was detected.
-  // The must_use_separator_with_seq_ flag is set in AddIndexEntry() whenever
-  // the comparator finds two identical user keys at a block boundary. This
-  // always implies duplicate separators exist (since
-  // FindShortestSeparator("foo", "foo") = "foo"), so no separate scan is
-  // needed.
+  // Seqno encoding is unconditionally enabled: must_use_separator_with_seq_
+  // is always set to true at the end of AddIndexEntry(), so use_seqno
+  // is always true when at least one entry was added. The else branch below
+  // is only reachable for an empty trie (zero entries).
   bool use_seqno = must_use_separator_with_seq_;
   trie_builder_.SetHasSeqnoEncoding(use_seqno);
 
@@ -219,11 +206,11 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
       i = run_end;
     }
   } else {
-    // Common case: no same-user-key boundaries, add separators directly.
-    // Zero overhead — no seqno data stored.
-    for (const auto& entry : buffered_entries_) {
-      trie_builder_.AddKey(Slice(entry.separator_key), entry.handle);
-    }
+    // Only reachable when no entries were added (empty trie).
+    // must_use_separator_with_seq_ is unconditionally set to true in
+    // AddIndexEntry(), so this branch cannot be reached when there is at
+    // least one entry.
+    assert(buffered_entries_.empty());
   }
 
   // Release buffered entries — no longer needed after feeding to the trie.
@@ -388,7 +375,7 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
   // advance through overflow blocks.
   //
   // For non-boundary separators: leaf_seqno is 0. The comparison
-  // target_tag < 0 is always false, so no advancement occurs. This matches
+  // target_packed < 0 is always false, so no advancement occurs. This matches
   // the standard index's index_key_is_user_key=true mode where equal user
   // keys always match without seqno comparison.
   //

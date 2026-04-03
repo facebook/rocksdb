@@ -1316,7 +1316,9 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     std::string udi_name(table_options.user_defined_index_factory->Name());
     BlockHandle udi_block_handle;
 
-    // Should we use FindOptionalMetaBlock here?
+    // Use FindMetaBlock (not FindOptionalMetaBlock) so we get a non-OK status
+    // when the block is missing, allowing the fail_if_no_udi_on_open logic
+    // below to decide whether to error or warn.
     s = FindMetaBlock(meta_iter, kUserDefinedIndexPrefix + udi_name,
                       &udi_block_handle);
     if (!s.ok()) {
@@ -1325,16 +1327,16 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
       if (table_options.fail_if_no_udi_on_open ||
           table_options.use_udi_as_primary_index) {
         ROCKS_LOG_ERROR(rep_->ioptions.logger,
-                        "Failed to find the the UDI block %s in file %s; %s",
+                        "Failed to find the UDI block %s in file %s; %s",
                         udi_name.c_str(), rep_->file->file_name().c_str(),
                         s.ToString().c_str());
-        // MAke the status more informative
+        // Make the status more informative
         s = Status::Corruption(s.ToString(), rep_->file->file_name());
         return s;
       } else {
         // Emit a warning, but ignore the error status
         ROCKS_LOG_WARN(rep_->ioptions.logger,
-                       "Failed to find the the UDI block %s in file %s; %s",
+                       "Failed to find the UDI block %s in file %s; %s",
                        udi_name.c_str(), rep_->file->file_name().c_str(),
                        s.ToString().c_str());
         s = Status::OK();
@@ -1364,20 +1366,16 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
             udi_option, rep_->udi_block.GetValue()->data, udi_reader);
         if (s.ok()) {
           if (udi_reader) {
-            // Determine primary UDI mode:
-            // - udi_written_as_primary: SST was built with UDI-primary (stub
-            //   standard index). Affects CacheDependencies/EraseFromCache.
-            // - udi_use_as_primary: Use UDI for reads by default. True if
-            //   the SST was written as primary OR the config says primary
-            //   (enables reading old dual-index SSTs through the UDI too).
-            bool udi_written_as_primary =
+            // Determine primary UDI mode: use UDI for all reads if the SST
+            // was built with UDI-primary or the config says primary. This
+            // enables reading old dual-index SSTs through the UDI too.
+            bool udi_is_primary =
                 (rep_->table_properties &&
-                 rep_->table_properties->udi_is_primary_index != 0);
-            bool udi_is_primary = udi_written_as_primary ||
-                                  table_options.use_udi_as_primary_index;
+                 rep_->table_properties->udi_is_primary_index != 0) ||
+                table_options.use_udi_as_primary_index;
             index_reader = std::make_unique<UserDefinedIndexReaderWrapper>(
                 udi_name, std::move(index_reader), std::move(udi_reader),
-                udi_is_primary, udi_written_as_primary);
+                udi_is_primary);
           } else {
             s = Status::Corruption("Failed to create UDI reader for " +
                                    udi_name + " in file " +

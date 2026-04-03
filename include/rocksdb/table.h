@@ -540,17 +540,19 @@ struct BlockBasedTableOptions {
   // EXPERIMENTAL
   //
   // When true and user_defined_index_factory is set, the UDI becomes the
-  // primary index. The standard binary search index is not populated with
-  // real entries -- only a minimal stub is written to satisfy the SST footer
-  // format.
-  // This saves CPU during SST creation and space in every SST file.
+  // primary index for reads. All reads (including internal operations like
+  // compaction and VerifyChecksum) automatically route through the UDI
+  // without needing ReadOptions::table_index_factory.
+  //
+  // Both the standard binary search index and the UDI are always fully
+  // built. The standard index serves as a safety fallback (e.g., for
+  // backup/restore or rollback to a non-UDI configuration). A future
+  // refactor will extract the index abstraction to allow skipping the
+  // standard index build when the UDI is primary.
   //
   // When the UDI is primary:
   // - All reads automatically use the UDI (ReadOptions::table_index_factory
   //   does not need to be set)
-  // - The standard index block contains only a stub -- it cannot be used for
-  //   reads. SST files written with this option can only be read by RocksDB
-  //   versions that support UDI-primary mode
   // - Partitioned index (kTwoLevelIndexSearch) and partitioned filters are
   //   incompatible with this option
   // - fail_if_no_udi_on_open is automatically enforced to prevent silent
@@ -560,35 +562,26 @@ struct BlockBasedTableOptions {
   //
   // 1. Deploy with user_defined_index_factory set but
   //    use_udi_as_primary_index=false (secondary mode). New SSTs are written
-  //    with both indexes. Reads still use the standard index by default. This
-  //    is zero-risk -- rollback by removing user_defined_index_factory.
+  //    with both indexes. Reads use the standard index by default.
   //
   // 2. Validate reads through the UDI by setting
-  //    ReadOptions::table_index_factory on a subset of reads. Compare results
-  //    against the standard index to build confidence.
+  //    ReadOptions::table_index_factory on a subset of reads.
   //
-  // 3. Compact the entire DB to rewrite all pre-existing SSTs (from before
-  //    step 1) into SSTs with both indexes. All SSTs must have a UDI block
-  //    before proceeding -- use_udi_as_primary_index will refuse to open
-  //    SSTs without one.
+  // 3. Compact the entire DB to rewrite all pre-existing SSTs with both
+  //    indexes. All SSTs must have a UDI block before proceeding.
   //
-  // 4. Enable use_udi_as_primary_index=true. New SSTs use UDI only. Old SSTs
-  //    (from step 1/3) still have both indexes and are read through the UDI
-  //    automatically.
+  // 4. Enable use_udi_as_primary_index=true. All reads use the UDI.
   //
-  // Rollback from step 4: you must compact the entire DB with
-  // use_udi_as_primary_index=false to rewrite all SSTs with both indexes
-  // before removing user_defined_index_factory. Without this, SSTs written
-  // in primary mode have a stub standard index and cannot be read without
-  // UDI support.
+  // Rollback: set use_udi_as_primary_index=false. Since the standard index
+  // is always fully populated, SSTs are immediately readable without the
+  // UDI. No compaction is required.
   //
   // Backup/restore: the user_defined_index_factory is a shared_ptr that
   // cannot survive Options serialization (e.g., GetStringFromDBOptions).
-  // Tools or code paths that reconstruct Options from strings will lose
-  // the factory. In secondary mode this is safe (the standard index is
-  // fully populated). In primary mode, the restored DB cannot read
-  // primary-mode SSTs. Ensure the factory is explicitly set when opening
-  // a restored DB.
+  // Since the standard index is always fully populated, a restored DB can
+  // be opened and read without the factory (reads fall back to the standard
+  // index). Set the factory when opening the restored DB to resume using
+  // the UDI.
   //
   // Default: false (UDI is built alongside the standard index as a secondary)
   bool use_udi_as_primary_index = false;
@@ -597,6 +590,8 @@ struct BlockBasedTableOptions {
   //
   // Return an error Status if a user_defined_index_factory is configured,
   // but there's no corresponding UDI block in the SST file being opened.
+  // When use_udi_as_primary_index is true, this check is automatically
+  // enforced (a missing UDI block is always an error in primary mode).
   bool fail_if_no_udi_on_open = false;
 
   // If true, place whole keys in the filter (not just prefixes).

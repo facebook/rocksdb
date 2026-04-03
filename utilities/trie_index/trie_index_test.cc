@@ -2617,7 +2617,8 @@ TEST_F(TrieIndexFactoryTest, IteratorNoBounds) {
 }
 
 TEST_F(TrieIndexFactoryTest, UpperBoundDoesNotDropValidBlocks) {
-  // Regression test for Finding 1: the trie stores separator keys (upper
+  // Validates that CheckBounds uses the previous separator (not the current
+  // one) as the reference key. The trie stores separator keys (upper
   // bounds on block contents), NOT first-in-block keys. CheckBounds must
   // use the previous separator (or seek target) as the reference key, not
   // the current separator, to avoid prematurely rejecting blocks that
@@ -2686,7 +2687,7 @@ TEST_F(TrieIndexFactoryTest, UpperBoundDoesNotDropValidBlocks) {
 }
 
 TEST_F(TrieIndexFactoryTest, MultiScanBoundsAdvanceCorrectly) {
-  // Regression test for Finding 2: current_scan_idx_ must advance when
+  // Validates that current_scan_idx_ advances correctly when
   // the seek target is past the current scan's limit. Otherwise all
   // bounds checks evaluate against scan 0's limit.
   UserDefinedIndexOption option;
@@ -3017,9 +3018,9 @@ TEST_F(TrieIndexFactoryTest, NullComparator) {
   Slice index_contents;
   ASSERT_OK(builder->Finish(&index_contents));
 
-  // NewReader with nullptr comparator should also default to
-  // BytewiseComparator. Without the fix, this would store a null comparator
-  // in the reader and crash on Seek when CheckBounds dereferences it.
+  // NewReader with nullptr comparator must default to BytewiseComparator.
+  // Storing a null comparator would cause a crash on Seek when CheckBounds
+  // dereferences it.
   std::unique_ptr<UserDefinedIndexReader> reader;
   ASSERT_OK(factory_->NewReader(option, index_contents, reader));
   ASSERT_NE(reader, nullptr);
@@ -3855,16 +3856,18 @@ TEST_F(TrieIndexFactoryTest, SeekWithZeroSeqOnSameKeyBlocks) {
 }
 
 TEST_F(TrieIndexFactoryTest, ZeroSeqMustNotSkipLeafForSmallerUserKey) {
-  // Regression test for DBIter's forward-scan reseek path.
+  // Validates correctness of DBIter's forward-scan reseek path.
   //
   // Block 0 ends with user key "m" and block 1 starts with the same user key,
   // so the trie stores separator "m" with non-zero seqno metadata on block 0.
   // However, a seek target for a *smaller* user key "l"|0 must still land on
   // block 0, because block 0 can contain keys in ("l", "m"].
   //
-  // Current buggy behavior applies seqno-based post-seek correction whenever
-  // target_seq < leaf_seqno, even if target user key < separator user key. In
-  // that case it incorrectly advances to block 1.
+  // Verifies that seqno-based post-seek correction is NOT applied when the
+  // target user key is strictly less than the separator user key. The seqno
+  // comparison is only meaningful when user keys are equal. If the target
+  // user key "l" < separator "m", the seek must stay on block 0 regardless
+  // of seqno, because block 0 can contain keys up to "m".
   auto ctx = BuildTrieAndGetIterator({
       {"m", "m", 0, 1000, 300, 200},
       {"y", "zzz", 1000, 1000, 100, 1},
@@ -4087,7 +4090,7 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingReSeekAfterOverflow) {
 }
 
 TEST_F(TrieIndexFactoryTest, AllFfLastKeyWithSameKeyBoundary) {
-  // Regression test: all-0xFF last key with same-user-key boundary preceding
+  // Validates that an all-0xFF last key with same-user-key boundary preceding
   // it. The last block uses "\xff\xff" as its separator (no shortening), which
   // matches the previous entry's separator. AddIndexEntry detects the collision
   // and correctly treats it as a same-user-key continuation.
@@ -4446,21 +4449,11 @@ TEST_F(TrieIndexSSTTest, SmallSST) {
   ASSERT_EQ(count, 3);
 }
 
-// Regression test for a historical crash in
-// UserDefinedIndexBuilderWrapper::OnKeyAdded(). Originally, the UDI wrapper
-// rejected non-Put key types (e.g., Delete) by setting its internal status_
-// to non-OK and stopping OnKeyAdded() forwarding to the wrapped internal index
-// builder. However, AddIndexEntry() was always forwarded unconditionally.
-// This asymmetry caused the internal ShortenedIndexBuilder's
-// current_block_first_internal_key_ to remain empty, hitting an assertion
-// in GetFirstInternalKey() during the buffered-block replay in
-// MaybeEnterUnbuffered(). That bug was fixed by ensuring the internal builder
-// always receives OnKeyAdded() regardless of UDI-specific errors.
-//
-// Since then, the UDI wrapper has been updated to support all operation types
-// (Put, Delete, Merge, SingleDelete, etc.), so Finish() now succeeds. This
-// test remains valuable as a regression guard for the compression dictionary
-// buffered-mode code path with mixed key types.
+// Validates that mixed key types (Put, Delete, Merge, SingleDelete) work
+// correctly with the compression dictionary buffered-mode code path. The
+// UDI wrapper forwards OnKeyAdded() to the internal ShortenedIndexBuilder
+// for all value types, ensuring current_block_first_internal_key_ is always
+// populated before the buffered-block replay in MaybeEnterUnbuffered().
 TEST_F(TrieIndexSSTTest, MixedKeyTypesWithCompressionDict) {
   const auto& dict_compressions = GetSupportedDictCompressions();
   if (dict_compressions.empty()) {
@@ -5061,9 +5054,9 @@ TEST_F(TrieIndexFactoryTest, WrapperNextAndGetResultReturnsInternalKey) {
   ASSERT_TRUE(valid);
   ASSERT_OK(wrapper.status());
 
-  // result.key must also be an internal key, not a raw user key.
-  // Before the fix, result.key would be "b" (1 byte, raw user key).
-  // After the fix, result.key is "b" + 8-byte internal key suffix.
+  // result.key must be an internal key ("b" + 8-byte suffix), not a raw
+  // user key ("b" alone). Returning a raw user key would cause the
+  // BlockBasedTableIterator to misinterpret the key format.
   ASSERT_EQ(result.key.size(), 1u + 8u)
       << "NextAndGetResult key must be internal key (user_key + 8-byte "
          "footer), got size "
@@ -5090,10 +5083,10 @@ TEST_F(TrieIndexFactoryTest, WrapperNextAndGetResultReturnsInternalKey) {
   EXPECT_FALSE(valid);
 }
 
-// Regression test: overflow blocks must be BFS-reordered alongside primary
-// handles. Without BFS reordering, when separator keys have different lengths
-// (causing BFS leaf order to differ from key-sorted order), the overflow_base_
-// prefix sum maps overflow blocks to the wrong leaves.
+// Verifies that overflow blocks are BFS-reordered alongside primary handles.
+// If overflow blocks were stored in key-sorted order instead of BFS order,
+// the overflow_base_ prefix sum would map overflow blocks to the wrong
+// leaves when separator keys have different lengths.
 //
 // Key design:
 //   Trie entries: "ab"(bc=2), "ac"(bc=1), "b"(bc=2), "c"(bc=1), "e"(bc=1)
@@ -5276,8 +5269,9 @@ TEST_F(TrieIndexFactoryTest, OverflowBfsReordering) {
   // "b" overflow: Seek("b", 200) → offset=400
   // Primary seqno=300, 200<300 → advance to overflow. Overflow seqno=200,
   // 200>=200 → match.
-  // WITHOUT THE FIX: overflow[0] would be ab's data {offset=100,seqno=400},
-  // and 200<400 would fail to match, incorrectly advancing to "c".
+  // If overflow blocks were NOT BFS-reordered, overflow[0] would contain
+  // ab's data {offset=100,seqno=400}, and 200<400 would fail to match,
+  // incorrectly advancing to "c".
   ASSERT_OK(iter->SeekAndGetResult(Slice("b"), &result, SeekCtx(200)));
   EXPECT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   EXPECT_EQ(result.key.ToString(), "b")
@@ -5369,8 +5363,8 @@ TEST_F(TrieIndexFactoryTest, LastBlockSeekWithRealSeqno) {
   // stays on this block (matching the standard index which stores the full
   // internal key for the last block's separator).
   //
-  // Without this fix, the last block stored NonBoundaryTag() which caused
-  // seeks with real seqnos to incorrectly advance past the last block.
+  // The last block stores the real tag of its last key (not a sentinel),
+  // so seeks with real seqnos correctly stay on this block.
   auto ctx = BuildTrieAndGetIterator({
       {"apple", "cherry", 0, 1000, 100, 50},
       {"cherry", "", 1000, 1000, 50, 0},
@@ -5450,9 +5444,11 @@ TEST_F(TrieIndexFactoryTest, NonBoundarySeparatorSeekWhenShorteningFails) {
   // The separator "acc" has tag=0 (non-boundary sentinel), so
   // target_packed < 0 is always false → no advancement occurs.
   //
-  // Before the fix (NonBoundaryTag = kMaxSequenceNumber), the comparison
-  // target_packed < kMaxSequenceNumber was always true for real seqnos,
-  // causing incorrect advancement past block 1.
+  // Non-boundary separators use tag=0 (sentinel). For unsigned uint64_t,
+  // target_packed < 0 is always false, so no advancement occurs. This
+  // matches the standard index's user-key-only comparison semantics.
+  // If the sentinel were kMaxSequenceNumber instead, target_packed < kMax
+  // would be true for all real seqnos, causing incorrect advancement.
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(ctx.iter.get(), Slice("acc"), kMaxSequenceNumber, 1000));
   ASSERT_NO_FATAL_FAILURE(

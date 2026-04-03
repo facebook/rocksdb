@@ -2310,9 +2310,11 @@ struct ReadOptions {
   // own restrictions -- check the specific implementation's documentation.
   //
   // When BlockBasedTableOptions::use_udi_as_primary_index is true, this field
-  // does not need to be set -- all reads automatically use the UDI. This field
-  // is only needed when the UDI is a secondary index and you want to
-  // explicitly select it for reads.
+  // does not need to be set -- all reads automatically use the UDI. If set
+  // while use_udi_as_primary_index is true, the UDI from
+  // BlockBasedTableOptions takes precedence. This field is only needed when
+  // the UDI is a secondary index and you want to explicitly select it for
+  // reads.
   const UserDefinedIndexFactory* table_index_factory = nullptr;
 
   // *** END options only relevant to iterators or scans ***

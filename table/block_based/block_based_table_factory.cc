@@ -767,23 +767,18 @@ Status BlockBasedTableFactory::ValidateOptions(
           "user_defined_index_factory not supported with parallel compression");
     }
     if (table_options_.use_udi_as_primary_index) {
-      if (!table_options_.user_defined_index_factory) {
-        return Status::InvalidArgument(
-            "use_udi_as_primary_index requires user_defined_index_factory");
-      }
       if (table_options_.index_type ==
           BlockBasedTableOptions::kTwoLevelIndexSearch) {
         return Status::InvalidArgument(
             "use_udi_as_primary_index is incompatible with partitioned index "
-            "(kTwoLevelIndexSearch). Primary UDI skips the standard index "
-            "builder, but partitioned index requires it for partition "
-            "boundaries.");
+            "(kTwoLevelIndexSearch). The UDI wrapper currently only supports "
+            "flat (single-level) index builders.");
       }
       if (table_options_.partition_filters) {
         return Status::InvalidArgument(
             "use_udi_as_primary_index is incompatible with partitioned "
-            "filters. Partitioned filters require the standard "
-            "PartitionedIndexBuilder for partition boundaries.");
+            "filters. The UDI wrapper does not support the partitioned "
+            "index/filter layout.");
       }
     }
   } else if (table_options_.use_udi_as_primary_index) {

@@ -1301,8 +1301,7 @@ struct BlockBasedTableBuilder::Rep {
             index_builder = std::make_unique<UserDefinedIndexBuilderWrapper>(
                 std::string(table_options.user_defined_index_factory->Name()),
                 std::move(index_builder), std::move(user_defined_index_builder),
-                &internal_comparator, ts_sz, persist_user_defined_timestamps,
-                table_options.use_udi_as_primary_index);
+                &internal_comparator, ts_sz, persist_user_defined_timestamps);
           }
         }
       }
@@ -2507,12 +2506,11 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     if (rep_->table_options.use_udi_as_primary_index &&
         rep_->table_options.user_defined_index_factory != nullptr) {
       rep_->props.udi_is_primary_index = 1;
-      // The standard index is a stub -- these properties don't apply.
-      rep_->props.index_value_is_delta_encoded = 0;
-    } else {
-      rep_->props.index_value_is_delta_encoded =
-          rep_->use_delta_encoding_for_index_values;
     }
+    // The standard index is always fully populated (even in primary mode),
+    // so delta encoding applies normally.
+    rep_->props.index_value_is_delta_encoded =
+        rep_->use_delta_encoding_for_index_values;
     if (rep_->sampled_input_data_bytes.LoadRelaxed() > 0) {
       rep_->props.slow_compression_estimated_data_size = static_cast<uint64_t>(
           static_cast<double>(

@@ -1291,9 +1291,10 @@ TEST_P(TrieIndexDBTest, SameUserKeyAcrossBlockBoundaries) {
   // overflow block count so that Seek() can find the correct data block for
   // each version.
   //
-  // Without the seqno side-table fix (PR #14412), reads through the trie index
-  // would return incorrect data when multiple versions of the same key span
-  // different data blocks.
+  // Without the seqno side-table, reads through the trie index return
+  // incorrect data when multiple versions of the same key span different
+  // data blocks, because the trie cannot distinguish which block contains
+  // which version.
   options_.disable_auto_compactions = true;
   // Tiny block_size (64 bytes) forces each version of the key into its own
   // data block, creating same-user-key block boundaries that the trie must
@@ -2738,20 +2739,13 @@ TEST_P(TrieIndexDBTest, PrefixIterationMemtablePlusSST) {
 }
 
 // ---------------------------------------------------------------------------
-// Regression test for the FindShortSuccessor last-block bug.
-//
-// Before the fix, TrieIndexBuilder::AddIndexEntry called
-// FindShortSuccessor() on the last block's separator key, producing a
-// shorter key that covered a wider range than the actual data. For example,
-// if the last key's user key was "9\xff\xff", FindShortSuccessor would
-// produce ":" (0x3A), making the trie claim it covers keys up to ":". A
-// seek for "9\xff\xff\x01" (between the real last key and ":") would find a
-// block via the trie but not via the standard index, causing prefix scan
-// iterators to desynchronize.
-//
-// The standard ShortenedIndexBuilder (with default kShortenSeparators mode)
-// does NOT call FindShortSuccessor on the last block -- it uses the last key
-// as-is. The fix makes the trie builder match this behavior.
+// Verifies that the trie builder does NOT call FindShortSuccessor() on the
+// last block's separator key. FindShortSuccessor would produce a shorter
+// key covering a wider range than the actual data. For example, if the
+// last key's user key is "9\xff\xff", FindShortSuccessor produces ":"
+// (0x3A), making the trie claim it covers keys up to ":". A seek for
+// "9\xff\xff\x01" would then find a block via the trie but not via the
+// standard index, causing iterators to desynchronize.
 // ---------------------------------------------------------------------------
 TEST_P(TrieIndexDBTest, LastBlockSeparatorNotShortened) {
   // Use a small block size so each key lands in its own block.
@@ -2766,9 +2760,9 @@ TEST_P(TrieIndexDBTest, LastBlockSeparatorNotShortened) {
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   // The key "9\xff\xff\x01" is lexicographically after "9\xff\xff" but
-  // before ":" (0x3A). With the old bug, the trie would return a valid
-  // block for this key. With the fix, both indexes correctly say "not
-  // found".
+  // before ":" (0x3A). If FindShortSuccessor were applied, the trie would
+  // return a valid block for this key. Both indexes must correctly say
+  // "not found".
   std::string seek_target = std::string("9\xff\xff\x01", 4);
 
   for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
@@ -3538,9 +3532,10 @@ TEST_P(TrieIndexDBTest, MergeAcrossMultipleCompactions) {
 // Graceful degradation: reopen a DB that was written with UDI, but without
 // the UDI factory configured. Reads should fall back to the standard index.
 TEST_P(TrieIndexDBTest, ReopenWithoutTrieUDI) {
-  // In primary mode, the standard index is a stub -- reopening without UDI
-  // is expected to fail because there's no usable index. This test is only
-  // meaningful in secondary mode where both indexes are populated.
+  // In primary mode, reopening without UDI still works because the standard
+  // index is always fully populated. This test validates the secondary-mode
+  // behavior where the UDI block is optional and reads fall back to the
+  // standard index.
   if (IsPrimaryMode()) {
     ROCKSDB_GTEST_SKIP("Not applicable in primary mode");
     return;
@@ -3574,8 +3569,9 @@ TEST_P(TrieIndexDBTest, ReopenWithoutTrieUDI) {
 // through both index paths.
 TEST_P(TrieIndexDBTest, MixedSSTsWithAndWithoutUDI) {
   // This test mixes SSTs with and without UDI by reopening without UDI.
-  // In primary mode, the standard index is a stub, so SSTs written in
-  // primary mode can't be read without UDI. Only meaningful in secondary.
+  // In primary mode, SSTs can still be read without UDI (the standard
+  // index is always fully populated). This test validates the secondary-
+  // mode mixed-SST fallback path.
   if (IsPrimaryMode()) {
     ROCKSDB_GTEST_SKIP("Not applicable in primary mode");
     return;
@@ -4382,9 +4378,10 @@ TEST_P(TrieIndexDBTest, RollbackFromPrimaryToSecondary) {
   ASSERT_EQ(ScanAllKeys(ReadOptions()), all_keys);
 }
 
-TEST_P(TrieIndexDBTest, RollbackFromPrimaryWithoutCompactFails) {
+TEST_P(TrieIndexDBTest, RollbackFromPrimaryWithoutCompactSucceeds) {
   // Verifies that removing UDI from primary-mode SSTs WITHOUT compacting
-  // first fails (the stub standard index has no entries).
+  // first still works. The standard index is always fully populated (even
+  // in primary mode), so reads fall back to the standard index correctly.
   options_.disable_auto_compactions = true;
 
   // Write SSTs in primary mode.
@@ -4394,28 +4391,24 @@ TEST_P(TrieIndexDBTest, RollbackFromPrimaryWithoutCompactFails) {
   ASSERT_OK(db_->Close());
   db_.reset();
 
-  // Try to open without UDI -- the SST has a stub standard index.
-  // The open itself may succeed (the stub is valid), but reads return nothing.
-  Status s = OpenDBWithoutUDI(/*block_size=*/128);
-  if (s.ok()) {
-    // DB opened, but reads through the stub index find nothing.
-    std::string value;
-    Status get_s = db_->Get(ReadOptions(), "key_a", &value);
-    ASSERT_TRUE(get_s.IsNotFound()) << get_s.ToString();
+  // Open without UDI -- reads fall back to the standard index.
+  ASSERT_OK(OpenDBWithoutUDI(/*block_size=*/128));
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "key_a", &value));
+  ASSERT_EQ(value, "val_a");
 
-    // Scan returns nothing -- data is effectively lost.
-    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
-    iter->SeekToFirst();
-    ASSERT_FALSE(iter->Valid());
-    ASSERT_OK(iter->status());
-  }
-  // If open failed, that's also acceptable -- the SST is unusable without UDI.
+  // Scan also works.
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "key_a");
+  ASSERT_OK(iter->status());
 }
 
 TEST_P(TrieIndexDBTest, PrimaryModeTableProperties) {
   // Verifies primary-mode-specific behavior: the udi_is_primary_index table
-  // property is set, and SSTs are readable in secondary mode (the standard
-  // index is a valid stub).
+  // property is set, the standard index is fully populated (not a stub),
+  // and reads work without setting ReadOptions::table_index_factory.
   if (!IsPrimaryMode()) {
     ROCKSDB_GTEST_SKIP("Only applicable in primary mode");
     return;
@@ -4432,9 +4425,6 @@ TEST_P(TrieIndexDBTest, PrimaryModeTableProperties) {
   ASSERT_FALSE(props.empty());
   for (const auto& p : props) {
     ASSERT_EQ(p.second->udi_is_primary_index, 1u);
-    // Standard index should report user-key-only (since we set
-    // separator_is_key_plus_seq()=false for primary).
-    ASSERT_EQ(p.second->index_key_is_user_key, 1u);
   }
 
   // Reads work with default ReadOptions (no table_index_factory needed).
@@ -4447,10 +4437,6 @@ TEST_P(TrieIndexDBTest, PrimaryModeTableProperties) {
 TEST_P(TrieIndexDBTest, EstimatedSizeNonZero) {
   // Verifies that TrieIndexBuilder::EstimatedSize() returns non-zero after
   // adding entries, ensuring compaction file sizing works.
-  if (!IsPrimaryMode()) {
-    ROCKSDB_GTEST_SKIP("Only applicable in primary mode");
-    return;
-  }
   ASSERT_OK(OpenDB(/*block_size=*/128));
 
   // Write enough data to produce multiple blocks.
@@ -4467,10 +4453,10 @@ TEST_P(TrieIndexDBTest, EstimatedSizeNonZero) {
 }
 
 // ============================================================================
-// Issue #14561 DB-level reproducer: NonBoundary separator seek regression
+// Issue #14561 DB-level reproducer: non-boundary separator seek correctness
 // ============================================================================
 
-TEST_P(TrieIndexDBTest, NonBoundarySeparatorSeekRegression) {
+TEST_P(TrieIndexDBTest, NonBoundarySeparatorSeekCorrectness) {
   // DB-level reproducer for GitHub issue #14561. When FindShortestSeparator
   // cannot shorten the separator (e.g., "acc" -> "acd" stays "acc") and
   // seqno encoding is active from an earlier same-user-key boundary, the

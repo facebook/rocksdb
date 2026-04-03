@@ -239,7 +239,8 @@ struct TableProperties {
   uint64_t index_key_is_user_key = 0;
   // Whether delta encoding is used to encode the index values.
   uint64_t index_value_is_delta_encoded = 0;
-  // Whether the UDI is the primary index (standard index is a stub).
+  // Whether the UDI is the primary index for reads. The standard index is
+  // still fully populated alongside the UDI.
   uint64_t udi_is_primary_index = 0;
   // the size of filter block.
   uint64_t filter_size = 0;
