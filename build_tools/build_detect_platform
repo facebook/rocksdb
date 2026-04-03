@@ -649,6 +649,8 @@ EOF
 EOF
         if [ "$?" = 0 ]; then
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -luring"
+            JAVA_LDFLAGS="$JAVA_LDFLAGS -luring"
+            JAVA_STATIC_LDFLAGS="$JAVA_STATIC_LDFLAGS -luring"
             COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_IOURING_PRESENT"
         fi
     fi
@@ -786,13 +788,13 @@ rm -f test.o test_dl.o
 # Get the path for the folly installation dir
 if [ "$USE_FOLLY" ]; then
   if [ "$FOLLY_DIR" ]; then
-    FOLLY_PATH=`cd $FOLLY_DIR && $PYTHON build/fbcode_builder/getdeps.py show-inst-dir folly`
+    FOLLY_PATH=`cd "$FOLLY_DIR" && $PYTHON build/fbcode_builder/getdeps.py show-inst-dir folly --scratch-path "${GETDEPS_SCRATCH_PATH:-/tmp}"`
   fi
 fi
 if [ "$USE_FOLLY_LITE" ]; then
   if [ "$FOLLY_DIR" ]; then
-    BOOST_SOURCE_PATH=`cd $FOLLY_DIR && $PYTHON build/fbcode_builder/getdeps.py show-source-dir boost`
-    FMT_SOURCE_PATH=`cd $FOLLY_DIR && $PYTHON build/fbcode_builder/getdeps.py show-source-dir fmt`
+    BOOST_SOURCE_PATH=`cd $FOLLY_DIR && $PYTHON build/fbcode_builder/getdeps.py show-source-dir boost --scratch-path "${GETDEPS_SCRATCH_PATH:-/tmp}"`
+    FMT_SOURCE_PATH=`cd $FOLLY_DIR && $PYTHON build/fbcode_builder/getdeps.py show-source-dir fmt --scratch-path "${GETDEPS_SCRATCH_PATH:-/tmp}"`
   fi
 fi
 
