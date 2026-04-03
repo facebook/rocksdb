@@ -172,6 +172,7 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
   virtual ~ColumnFamilyHandleImpl();
   virtual ColumnFamilyData* cfd() const { return cfd_; }
   virtual DBImpl* db() const { return db_; }
+  InstrumentedMutex* mutex() const { return mutex_; }
 
   uint32_t GetID() const override;
   const std::string& GetName() const override;
@@ -202,6 +203,13 @@ class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
  private:
   ColumnFamilyData* internal_cfd_;
 };
+
+// Releases a ref() held on ColumnFamilyData using the same drop cleanup path
+// as ColumnFamilyHandleImpl destruction. This helper intentionally does not
+// invoke OnColumnFamilyHandleDeletionStarted() because no user-visible handle
+// is being destroyed.
+void ReleaseColumnFamilyDataReference(ColumnFamilyData* cfd, DBImpl* db,
+                                      InstrumentedMutex* mutex);
 
 // holds references to memtable, all immutable memtables and version
 struct SuperVersion {

@@ -284,6 +284,57 @@ TEST_F(DBBlobDirectWriteTest,
 }
 
 TEST_F(DBBlobDirectWriteTest,
+       DirectWriteOffWriteThreadTransformUsesAttachedColumnFamilyLookup) {
+  Options options = GetDirectWriteOptions();
+  Reopen(options);
+
+  auto* sync_point = SyncPoint::GetInstance();
+  sync_point->DisableProcessing();
+  sync_point->ClearAllCallBacks();
+
+  int attached_lookup_count = 0;
+  int fallback_lookup_count = 0;
+  sync_point->SetCallBack(
+      "DBImpl::BlobDirectWriteContext::AcquireReferencedSuperVersion:"
+      "UseAttachment",
+      [&](void*) { ++attached_lookup_count; });
+  sync_point->SetCallBack(
+      "DBImpl::BlobDirectWriteContext::AcquireReferencedSuperVersion:"
+      "FallbackLookup",
+      [&](void*) { ++fallback_lookup_count; });
+  sync_point->EnableProcessing();
+
+  auto run_transform = [&](WriteBatch* batch) {
+    WriteBatch transformed;
+    WriteBatch* batch_ptr = batch;
+    WriteOptions write_options;
+    write_options.disableWAL = true;
+    ASSERT_OK(
+        dbfull()->TEST_MaybeTransformBatchForBlobDirectWriteOffWriteThread(
+            write_options, &batch_ptr, &transformed));
+  };
+
+  WriteBatch attached_batch;
+  ASSERT_OK(attached_batch.Put(db_->DefaultColumnFamily(), "attached_key",
+                               std::string(128, 'a')));
+  run_transform(&attached_batch);
+  ASSERT_EQ(attached_lookup_count, 1);
+  ASSERT_EQ(fallback_lookup_count, 0);
+
+  attached_lookup_count = 0;
+  fallback_lookup_count = 0;
+
+  WriteBatch unattached_batch;
+  ASSERT_OK(unattached_batch.Put("unattached_key", std::string(128, 'b')));
+  run_transform(&unattached_batch);
+  ASSERT_EQ(attached_lookup_count, 0);
+  ASSERT_EQ(fallback_lookup_count, 1);
+
+  sync_point->DisableProcessing();
+  sync_point->ClearAllCallBacks();
+}
+
+TEST_F(DBBlobDirectWriteTest,
        DirectWriteCloseFlushesWhenShutdownFlushIsDisabled) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;

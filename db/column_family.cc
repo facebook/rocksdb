@@ -53,31 +53,39 @@ ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(
   }
 }
 
+void ReleaseColumnFamilyDataReference(ColumnFamilyData* cfd, DBImpl* db,
+                                      InstrumentedMutex* mutex) {
+  if (cfd == nullptr) {
+    return;
+  }
+
+  assert(db != nullptr);
+  assert(mutex != nullptr);
+
+  // Hold the shared_ptr-backed options long enough for any cleanup triggered by
+  // the final CFD ref release.
+  ColumnFamilyOptions initial_cf_options_copy = cfd->initial_cf_options();
+  JobContext job_context(0);
+  mutex->Lock();
+  const bool dropped = cfd->IsDropped();
+  if (cfd->UnrefAndTryDelete() && dropped) {
+    db->FindObsoleteFiles(&job_context, false, true);
+  }
+  mutex->Unlock();
+  if (job_context.HaveSomethingToDelete()) {
+    const bool defer_purge =
+        db->immutable_db_options().avoid_unnecessary_blocking_io;
+    db->PurgeObsoleteFiles(job_context, defer_purge);
+  }
+  job_context.Clean();
+}
+
 ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
   if (cfd_ != nullptr) {
     for (auto& listener : cfd_->ioptions().listeners) {
       listener->OnColumnFamilyHandleDeletionStarted(this);
     }
-    // Job id == 0 means that this is not our background process, but rather
-    // user thread
-    // Need to hold some shared pointers owned by the initial_cf_options
-    // before final cleaning up finishes.
-    ColumnFamilyOptions initial_cf_options_copy = cfd_->initial_cf_options();
-    JobContext job_context(0);
-    mutex_->Lock();
-    bool dropped = cfd_->IsDropped();
-    if (cfd_->UnrefAndTryDelete()) {
-      if (dropped) {
-        db_->FindObsoleteFiles(&job_context, false, true);
-      }
-    }
-    mutex_->Unlock();
-    if (job_context.HaveSomethingToDelete()) {
-      bool defer_purge =
-          db_->immutable_db_options().avoid_unnecessary_blocking_io;
-      db_->PurgeObsoleteFiles(job_context, defer_purge);
-    }
-    job_context.Clean();
+    ReleaseColumnFamilyDataReference(cfd_, db_, mutex_);
   }
 }
 

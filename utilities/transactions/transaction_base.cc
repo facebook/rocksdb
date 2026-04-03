@@ -78,6 +78,7 @@ TransactionBaseImpl::TransactionBaseImpl(
   if (dbimpl_->allow_2pc()) {
     InitWriteBatch();
   }
+  MaybeAttachDefaultColumnFamiliesForBlobDirectWrite();
 }
 
 TransactionBaseImpl::~TransactionBaseImpl() {
@@ -89,6 +90,7 @@ void TransactionBaseImpl::Clear() {
   save_points_.reset(nullptr);
   write_batch_.Clear();
   commit_time_batch_.Clear();
+  MaybeAttachDefaultColumnFamiliesForBlobDirectWrite();
   tracked_locks_->Clear();
   num_puts_ = 0;
   num_put_entities_ = 0;
@@ -120,6 +122,7 @@ void TransactionBaseImpl::Reinitialize(DB* db,
   WriteBatchInternal::UpdateProtectionInfo(
       &commit_time_batch_, write_options_.protection_bytes_per_key)
       .PermitUncheckedError();
+  MaybeAttachDefaultColumnFamiliesForBlobDirectWrite();
 }
 
 void TransactionBaseImpl::SetSnapshot() {
@@ -798,6 +801,23 @@ void TransactionBaseImpl::PutLogData(const Slice& blob) {
   assert(s.ok());
 }
 
+void TransactionBaseImpl::MaybeAttachDefaultColumnFamiliesForBlobDirectWrite() {
+  if (!dbimpl_->HasAnyBlobDirectWriteColumnFamily()) {
+    return;
+  }
+
+  const Status write_batch_status =
+      WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+          write_batch_.GetWriteBatch(), db_->DefaultColumnFamily());
+  if (!write_batch_status.ok()) {
+    ROCKS_LOG_WARN(
+        dbimpl_->immutable_db_options().info_log,
+        "Falling back to DB mutex lookup after failing to attach the default "
+        "column family to a transaction write batch for blob direct write: %s",
+        write_batch_status.ToString().c_str());
+  }
+}
+
 WriteBatchWithIndex* TransactionBaseImpl::GetWriteBatch() {
   return &write_batch_;
 }
@@ -976,6 +996,24 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
 }
 
 WriteBatch* TransactionBaseImpl::GetCommitTimeWriteBatch() {
+  if (dbimpl_->HasAnyBlobDirectWriteColumnFamily()) {
+    // Commit-time batches can accumulate user writes via
+    // Transaction::GetCommitTimeWriteBatch(), including writes against the
+    // default column family that otherwise would not carry a handle. This is a
+    // mutating accessor for BDW: the first call may allocate batch attachment
+    // bookkeeping and pin the default column family until the batch is cleared
+    // or the transaction is destroyed.
+    const Status s = WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+        &commit_time_batch_, db_->DefaultColumnFamily());
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(
+          dbimpl_->immutable_db_options().info_log,
+          "Falling back to DB mutex lookup after failing to attach the "
+          "default column family to a transaction commit-time batch for blob "
+          "direct write: %s",
+          s.ToString().c_str());
+    }
+  }
   return &commit_time_batch_;
 }
 }  // namespace ROCKSDB_NAMESPACE

@@ -702,6 +702,10 @@ class Transaction {
   // During bottommost compaction, RocksDB may
   // set the sequence numbers of both to zero once becoming committed, causing
   // output SST file to have two identical internal keys.
+  //
+  // This accessor may lazily initialize internal state for the returned batch.
+  // For example, blob direct write can attach and pin the default column
+  // family's metadata when the batch first becomes visible through this API.
   virtual WriteBatch* GetCommitTimeWriteBatch() = 0;
 
   virtual void SetLogNumber(uint64_t log) { log_number_ = log; }
