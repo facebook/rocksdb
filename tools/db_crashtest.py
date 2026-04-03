@@ -1513,12 +1513,12 @@ def gen_cmd_params(args):
     # Best-effort recovery, tiered storage are currently incompatible with
     # BlobDB and blob direct write. Test BE recovery if specified on the
     # command line; otherwise, apply one of the blob feature overrides with a
-    # 10% chance.
+    # 90% chance (increased from 10% to surface BDW+entity bugs faster).
     if (
         not args.test_best_efforts_recovery
         and not args.test_tiered_storage
         and params.get("test_secondary", 0) == 0
-        and random.choice([0] * 9 + [1]) == 1
+        and random.choice([0] + [1] * 9) == 1
     ):
         params.update(
             random.choice(
