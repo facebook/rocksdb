@@ -193,7 +193,10 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
   size_t IndexSize() const override { return index_size_; }
 
   uint64_t CurrentIndexSizeEstimate() const override {
-    return internal_index_builder_->CurrentIndexSizeEstimate();
+    // Include both the standard index and UDI sizes for accurate
+    // compaction file sizing.
+    return internal_index_builder_->CurrentIndexSizeEstimate() +
+           user_defined_index_builder_->EstimatedSize();
   }
 
   bool separator_is_key_plus_seq() override {

@@ -574,7 +574,12 @@ struct BlockBasedTableOptions {
   //
   // Rollback: set use_udi_as_primary_index=false. Since the standard index
   // is always fully populated, SSTs are immediately readable without the
-  // UDI. No compaction is required.
+  // UDI. No compaction is required. Note: SSTs written in primary mode
+  // retain the udi_is_primary_index table property, so reads on those
+  // SSTs will continue routing through the UDI as long as
+  // user_defined_index_factory is set. To fully revert to standard-
+  // index-only reads, also remove user_defined_index_factory and compact
+  // to rewrite all SSTs.
   //
   // Backup/restore: the user_defined_index_factory is a shared_ptr that
   // cannot survive Options serialization (e.g., GetStringFromDBOptions).

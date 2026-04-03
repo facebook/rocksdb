@@ -675,9 +675,9 @@ DEFINE_bool(use_trie_index, false,
 
 DEFINE_bool(use_udi_as_primary_index, false,
             "When use_trie_index is enabled, use the UDI as the primary "
-            "index. The standard binary search index is not populated -- "
-            "all reads automatically go through the UDI. When false, the "
-            "UDI is a secondary index and reads require "
+            "index. All reads automatically go through the UDI (both "
+            "the standard index and UDI are always built). When false, "
+            "the UDI is a secondary index and reads require "
             "ReadOptions::table_index_factory to be set.");
 
 DEFINE_bool(test_backward_scan, true,

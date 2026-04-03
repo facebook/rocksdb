@@ -4408,12 +4408,15 @@ void InitializeOptionsFromFlags(
     block_based_options.user_defined_index_factory = udi_factory;
     if (FLAGS_use_udi_as_primary_index) {
       block_based_options.use_udi_as_primary_index = true;
-      // Write fault injection can corrupt the UDI meta block during SST
-      // creation. A corrupted UDI block causes the reader to fail to
-      // create the UDI iterator, and in primary mode all reads route
-      // through the UDI. This can cause compaction to read zero keys
-      // from the affected SST, triggering a false positive in the
-      // compaction record count verification.
+    }
+    // Write fault injection can corrupt the UDI meta block during SST
+    // creation. A corrupted UDI block causes the reader to fail to
+    // create the UDI iterator, and all reads route through the UDI in
+    // primary mode. This can cause compaction to read zero keys from
+    // the affected SST, triggering a false positive in the compaction
+    // record count verification. Only disable when fault injection is
+    // active (write_fault_one_in or metadata_write_fault_one_in).
+    if (FLAGS_write_fault_one_in > 0 || FLAGS_metadata_write_fault_one_in > 0) {
       options.compaction_verify_record_count = false;
     }
   }
