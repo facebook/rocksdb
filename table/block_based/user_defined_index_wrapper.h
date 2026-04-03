@@ -7,7 +7,6 @@
 
 #include <memory>
 #include <string>
-#include <unordered_map>
 
 #include "db/seqno_to_time_mapping.h"
 #include "rocksdb/slice.h"
@@ -15,15 +14,14 @@
 #include "rocksdb/user_defined_index.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_type.h"
-#include "table/block_based/cachable_entry.h"
 #include "table/block_based/index_builder.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-// UserDefinedIndexWrapper wraps around the existing index types in block based
-// table, and supports plugging in an additional user defined index. The wrapper
-// class forwards calls to both the wrapped internal index, and a user defined
-// index builder.
+// UserDefinedIndexBuilderWrapper wraps around the existing index types in block
+// based table, and supports plugging in an additional user defined index. The
+// wrapper class forwards calls to both the wrapped internal index, and a user
+// defined index builder.
 class UserDefinedIndexBuilderWrapper : public IndexBuilder {
  public:
   UserDefinedIndexBuilderWrapper(
@@ -80,6 +78,15 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
           first_key_in_next_block ? &pkey_first.user_key : nullptr, handle,
           separator_scratch, ctx);
     }
+    // Always forward to the standard index builder, even in primary mode.
+    // The standard index is fully populated alongside the UDI. In primary
+    // mode the UDI handles all reads, but the standard index serves as a
+    // safety fallback (e.g., backup/restore, rollback to non-UDI config)
+    // and its presence is required for correct internal RocksDB behavior.
+    // The write-path cost is the standard index block in the SST (~1-2%
+    // of SST size). Skipping the standard index is deferred to a future
+    // refactor that extracts the index abstraction to put the binary
+    // index and UDI at the same level (see PR #14547 discussion).
     return internal_index_builder_->AddIndexEntry(
         last_key_in_current_block, first_key_in_next_block, block_handle,
         separator_scratch, skip_delta_encoding);
@@ -112,10 +119,9 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
 
   void OnKeyAdded(const Slice& key,
                   const std::optional<Slice>& value) override {
-    // Always forward to internal index builder first. It relies on receiving
-    // OnKeyAdded for every key to maintain state (e.g.,
-    // current_block_first_internal_key_) needed by AddIndexEntry, which is
-    // always forwarded regardless of UDI status.
+    // Always forward to the internal builder which needs OnKeyAdded for
+    // every key to maintain state (e.g., current_block_first_internal_key_).
+    // The standard index is always fully populated, even in primary mode.
     internal_index_builder_->OnKeyAdded(key, value);
 
     ParsedInternalKey pkey;
@@ -172,7 +178,8 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
       udi_finished_ = true;
     }
 
-    // Finish the internal index builder
+    // Finish the internal index builder. The standard index is always fully
+    // populated (even in primary mode), producing a real index block.
     status_ = internal_index_builder_->Finish(index_blocks,
                                               last_partition_block_handle);
     if (!status_.ok()) {
@@ -186,6 +193,13 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
   size_t IndexSize() const override { return index_size_; }
 
   uint64_t CurrentIndexSizeEstimate() const override {
+    // Only includes the standard index size. The UDI meta block size is
+    // not included because EstimatedSize() reads non-atomic fields that
+    // are written by AddIndexEntry, which would be a data race if
+    // parallel compression were enabled. The conservative tail-size
+    // estimates in BlockBasedTableBuilder (properties + meta-index)
+    // provide a rough buffer. A more accurate estimate would require
+    // making EstimatedSize() thread-safe.
     return internal_index_builder_->CurrentIndexSizeEstimate();
   }
 
@@ -356,45 +370,63 @@ class UserDefinedIndexIteratorWrapper
 
 class UserDefinedIndexReaderWrapper : public BlockBasedTable::IndexReader {
  public:
+  // @udi_is_primary: use UDI for all reads (default dispatch), including
+  //   internal operations like compaction and VerifyChecksum that don't
+  //   set ReadOptions::table_index_factory.
   UserDefinedIndexReaderWrapper(
       const std::string& name,
       std::unique_ptr<BlockBasedTable::IndexReader>&& reader,
-      std::unique_ptr<UserDefinedIndexReader>&& udi_reader)
+      std::unique_ptr<UserDefinedIndexReader>&& udi_reader, bool udi_is_primary)
       : name_(name),
         reader_(std::move(reader)),
-        udi_reader_(std::move(udi_reader)) {}
+        udi_reader_(std::move(udi_reader)),
+        udi_is_primary_(udi_is_primary) {}
 
   InternalIteratorBase<IndexValue>* NewIterator(
       const ReadOptions& read_options, bool disable_prefix_seek,
       IndexBlockIter* iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) override {
-    if (!read_options.table_index_factory) {
-      return reader_->NewIterator(read_options, disable_prefix_seek, iter,
-                                  get_context, lookup_context);
+    // Determine whether to use the UDI for this read:
+    // 1. UDI is primary -- always use it (standard index is present in the
+    //    SST but not used for reads in this mode)
+    // 2. ReadOptions::table_index_factory is set -- use it (explicit request)
+    // 3. Neither -- fall through to the standard index
+    bool use_udi = udi_is_primary_;
+    if (!use_udi && read_options.table_index_factory) {
+      if (name_ == read_options.table_index_factory->Name()) {
+        use_udi = true;
+      } else {
+        return NewErrorInternalIterator<IndexValue>(Status::InvalidArgument(
+            "Bad index name: " +
+            std::string(read_options.table_index_factory->Name()) +
+            ". Only supported UDI is " + name_));
+      }
     }
-    if (name_ != read_options.table_index_factory->Name()) {
-      return NewErrorInternalIterator<IndexValue>(Status::InvalidArgument(
-          "Bad index name: " +
-          std::string(read_options.table_index_factory->Name()) +
-          ". Only supported UDI is " + name_));
+
+    if (use_udi) {
+      std::unique_ptr<UserDefinedIndexIterator> udi_iter =
+          udi_reader_->NewIterator(read_options);
+      if (udi_iter) {
+        return new UserDefinedIndexIteratorWrapper(std::move(udi_iter));
+      }
+      return NewErrorInternalIterator<IndexValue>(
+          Status::Corruption("Could not create UDI iterator"));
     }
-    std::unique_ptr<UserDefinedIndexIterator> udi_iter =
-        udi_reader_->NewIterator(read_options);
-    if (udi_iter) {
-      return new UserDefinedIndexIteratorWrapper(std::move(udi_iter));
-    }
-    return NewErrorInternalIterator<IndexValue>(
-        Status::NotFound("Could not create UDI iterator"));
+
+    return reader_->NewIterator(read_options, disable_prefix_seek, iter,
+                                get_context, lookup_context);
   }
 
   Status CacheDependencies(const ReadOptions& ro, bool pin,
                            FilePrefetchBuffer* tail_prefetch_buffer) override {
+    // The standard index is always fully populated, even in primary mode.
     return reader_->CacheDependencies(ro, pin, tail_prefetch_buffer);
   }
 
   size_t ApproximateMemoryUsage() const override {
-    return reader_->ApproximateMemoryUsage() +
-           udi_reader_->ApproximateMemoryUsage();
+    size_t usage = udi_reader_->ApproximateMemoryUsage();
+    usage += reader_->ApproximateMemoryUsage();
+    return usage;
   }
 
   void EraseFromCacheBeforeDestruction(
@@ -403,8 +435,9 @@ class UserDefinedIndexReaderWrapper : public BlockBasedTable::IndexReader {
   }
 
  private:
-  std::string name_;
+  const std::string name_;
   std::unique_ptr<BlockBasedTable::IndexReader> reader_;
   std::unique_ptr<UserDefinedIndexReader> udi_reader_;
+  const bool udi_is_primary_;
 };
 }  // namespace ROCKSDB_NAMESPACE
