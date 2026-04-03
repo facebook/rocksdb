@@ -1066,15 +1066,10 @@ def finalize_and_sanitize(src_params):
             # filters are not compatible with the UDI wrapper layout.
             dest_params["index_type"] = random.choice([0, 0, 3])
             dest_params["partition_filters"] = 0
-            # Backup/restore verification opens the restored DB by
-            # serializing the current Options to a string and parsing it
-            # back (PrepareOptionsForRestoredDB). The user_defined_index_factory
-            # is a shared_ptr that cannot survive this round-trip -- the
-            # restored DB opens without UDI support. In secondary mode this
-            # In primary mode, backup serializes Options to strings,
-            # losing the user_defined_index_factory (shared_ptr). The
-            # restored DB opens without UDI support and cannot route
-            # reads through the trie.
+            # Backup/restore serializes Options to strings, losing the
+            # user_defined_index_factory (shared_ptr). The restored DB
+            # opens without UDI support and cannot route reads through
+            # the trie in primary mode.
             dest_params["backup_one_in"] = 0
             # Secondary DB opens SSTs with default Options (not a copy of
             # the primary's), losing the UDI factory. Without the factory,

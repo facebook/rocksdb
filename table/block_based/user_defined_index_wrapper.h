@@ -193,10 +193,14 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
   size_t IndexSize() const override { return index_size_; }
 
   uint64_t CurrentIndexSizeEstimate() const override {
-    // Include both the standard index and UDI sizes for accurate
-    // compaction file sizing.
-    return internal_index_builder_->CurrentIndexSizeEstimate() +
-           user_defined_index_builder_->EstimatedSize();
+    // Only includes the standard index size. The UDI meta block size is
+    // not included because EstimatedSize() reads non-atomic fields that
+    // are written by AddIndexEntry, which would be a data race if
+    // parallel compression were enabled. The conservative tail-size
+    // estimates in BlockBasedTableBuilder (properties + meta-index)
+    // provide a rough buffer. A more accurate estimate would require
+    // making EstimatedSize() thread-safe.
+    return internal_index_builder_->CurrentIndexSizeEstimate();
   }
 
   bool separator_is_key_plus_seq() override {
@@ -406,7 +410,7 @@ class UserDefinedIndexReaderWrapper : public BlockBasedTable::IndexReader {
         return new UserDefinedIndexIteratorWrapper(std::move(udi_iter));
       }
       return NewErrorInternalIterator<IndexValue>(
-          Status::NotFound("Could not create UDI iterator"));
+          Status::Corruption("Could not create UDI iterator"));
     }
 
     return reader_->NewIterator(read_options, disable_prefix_seek, iter,
