@@ -314,8 +314,13 @@ class StressTest {
   void VerifyIterator(ThreadState* thread, ColumnFamilyHandle* cmp_cfh,
                       const ReadOptions& ro, IterType* iter, Iterator* cmp_iter,
                       LastIterateOp op, const Slice& seek_key,
+                      const std::vector<int>& rand_column_families,
                       const std::string& op_logs, VerifyFuncType verifyFunc,
                       bool* diverged);
+
+  void DumpIteratorDivergenceDiagnostics(
+      ColumnFamilyHandle* cmp_cfh, const ReadOptions& ro, const Slice& seek_key,
+      const std::vector<int>& rand_column_families) const;
 
   virtual Status TestBackupRestore(ThreadState* thread,
                                    const std::vector<int>& rand_column_families,
