@@ -437,7 +437,9 @@ Status BlobFilePartitionManager::WriteBlob(
 
   // Partition selection is based on the logical write inputs. In particular,
   // strategies that inspect value contents or size see the original
-  // uncompressed value rather than `write_value`.
+  // uncompressed value rather than `write_value`. The modulo here is
+  // intentional so custom strategies can return arbitrary hashed or sentinel
+  // values without violating the partition bounds.
   const uint32_t partition_idx =
       strategy_->SelectPartition(num_partitions_, column_family_id, key,
                                  value) %

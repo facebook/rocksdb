@@ -15,6 +15,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "cache/compressed_secondary_cache.h"
 #include "db/blob/blob_file_partition_manager.h"
@@ -78,24 +79,21 @@ class RecordingBlobDirectWritePartitionStrategy
   uint32_t SelectPartition(uint32_t num_partitions, uint32_t column_family_id,
                            const Slice& key, const Slice& value) override {
     std::lock_guard<std::mutex> lock(mutex_);
-    last_call_.num_partitions = num_partitions;
-    last_call_.column_family_id = column_family_id;
-    last_call_.key = key.ToString();
-    last_call_.value = value.ToString();
-    last_call_.selected_partition = partition_;
-    ++last_call_.call_count;
+    calls_.push_back({num_partitions, column_family_id, key.ToString(),
+                      value.ToString(), partition_,
+                      static_cast<uint64_t>(calls_.size()) + 1});
     return partition_;
   }
 
-  Call GetLastCall() const {
+  std::vector<Call> GetCalls() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return last_call_;
+    return calls_;
   }
 
  private:
   const uint32_t partition_;
   mutable std::mutex mutex_;
-  Call last_call_;
+  std::vector<Call> calls_;
 };
 
 class DBBlobDirectWriteTest : public DBTestBase {
@@ -408,14 +406,16 @@ TEST_F(DBBlobDirectWriteTest,
   ASSERT_OK(Flush());
   ASSERT_EQ(Get(key), value);
 
-  const RecordingBlobDirectWritePartitionStrategy::Call call =
-      strategy->GetLastCall();
-  ASSERT_EQ(call.call_count, 1U);
+  const std::vector<RecordingBlobDirectWritePartitionStrategy::Call> calls =
+      strategy->GetCalls();
+  ASSERT_EQ(calls.size(), 1U);
+  const auto& call = calls.front();
   ASSERT_EQ(call.num_partitions, 4U);
   ASSERT_EQ(call.column_family_id, db_->DefaultColumnFamily()->GetID());
   ASSERT_EQ(call.key, key);
   ASSERT_EQ(call.value, value);
   ASSERT_EQ(call.selected_partition, 7U);
+  ASSERT_EQ(call.call_count, 1U);
 
   const std::vector<uint64_t> blob_file_numbers = GetBlobFileNumbers();
   ASSERT_EQ(blob_file_numbers.size(), 1U);
@@ -462,6 +462,99 @@ TEST_F(DBBlobDirectWriteTest,
     ASSERT_EQ(CountBlobFiles(), 1U);
     ASSERT_EQ(Get(key), value);
   }
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteCustomPartitionStrategyCalledForEachBlobInWriteBatch) {
+  auto strategy =
+      std::make_shared<RecordingBlobDirectWritePartitionStrategy>(2);
+  Options options = GetDirectWriteOptions();
+  options.blob_direct_write_partitions = 4;
+  options.blob_file_size = 1 << 20;
+  options.blob_direct_write_partition_strategy = strategy;
+
+  Reopen(options);
+
+  const std::array<std::string, 3> blob_keys{
+      "batch_blob_key_0", "batch_blob_key_1", "batch_blob_key_2"};
+  const std::array<std::string, 3> blob_values{
+      std::string(128, 'a'), std::string(128, 'b'), std::string(128, 'c')};
+  const std::string inline_key = "batch_inline_key";
+  const std::string inline_value = "tiny";
+
+  WriteBatch batch;
+  for (size_t i = 0; i < blob_keys.size(); ++i) {
+    ASSERT_OK(
+        batch.Put(db_->DefaultColumnFamily(), blob_keys[i], blob_values[i]));
+  }
+  ASSERT_OK(batch.Put(db_->DefaultColumnFamily(), inline_key, inline_value));
+  ASSERT_OK(batch.Delete(db_->DefaultColumnFamily(), "batch_deleted_key"));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  const auto calls = strategy->GetCalls();
+  ASSERT_EQ(calls.size(), blob_keys.size());
+  for (size_t i = 0; i < blob_keys.size(); ++i) {
+    ASSERT_EQ(calls[i].num_partitions, 4U);
+    ASSERT_EQ(calls[i].column_family_id, db_->DefaultColumnFamily()->GetID());
+    ASSERT_EQ(calls[i].key, blob_keys[i]);
+    ASSERT_EQ(calls[i].value, blob_values[i]);
+    ASSERT_EQ(calls[i].selected_partition, 2U);
+    ASSERT_EQ(calls[i].call_count, i + 1);
+    ASSERT_EQ(Get(blob_keys[i]), blob_values[i]);
+  }
+
+  ASSERT_EQ(Get(inline_key), inline_value);
+  ASSERT_EQ(CountBlobFiles(), 1U);
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteSharedCustomPartitionStrategyAcrossColumnFamilies) {
+  Reopen(GetBlobDirectWriteCompatibleOptions());
+
+  auto strategy =
+      std::make_shared<RecordingBlobDirectWritePartitionStrategy>(1);
+  Options options = GetDirectWriteOptions();
+  options.blob_direct_write_partitions = 4;
+  options.blob_file_size = 1 << 20;
+  options.blob_direct_write_partition_strategy = strategy;
+
+  ColumnFamilyHandle* first_cfh = nullptr;
+  ColumnFamilyHandle* second_cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(options, "bdw_one", &first_cfh));
+  ASSERT_OK(db_->CreateColumnFamily(options, "bdw_two", &second_cfh));
+
+  const std::string first_key = "shared_cf_key_0";
+  const std::string second_key = "shared_cf_key_1";
+  const std::string first_value(128, 'x');
+  const std::string second_value(128, 'y');
+
+  ASSERT_OK(db_->Put(WriteOptions(), first_cfh, first_key, first_value));
+  ASSERT_OK(db_->Put(WriteOptions(), second_cfh, second_key, second_value));
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), first_cfh, first_key, &value));
+  ASSERT_EQ(value, first_value);
+  ASSERT_OK(db_->Get(ReadOptions(), second_cfh, second_key, &value));
+  ASSERT_EQ(value, second_value);
+
+  const auto calls = strategy->GetCalls();
+  ASSERT_EQ(calls.size(), 2U);
+  std::set<uint32_t> seen_cf_ids;
+  std::set<std::string> seen_keys;
+  for (const auto& call : calls) {
+    ASSERT_EQ(call.num_partitions, 4U);
+    ASSERT_EQ(call.selected_partition, 1U);
+    seen_cf_ids.insert(call.column_family_id);
+    seen_keys.insert(call.key);
+  }
+  ASSERT_EQ(seen_cf_ids.size(), 2U);
+  ASSERT_TRUE(seen_cf_ids.count(first_cfh->GetID()) > 0);
+  ASSERT_TRUE(seen_cf_ids.count(second_cfh->GetID()) > 0);
+  ASSERT_TRUE(seen_keys.count(first_key) > 0);
+  ASSERT_TRUE(seen_keys.count(second_key) > 0);
+
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(first_cfh));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(second_cfh));
 }
 
 TEST_F(DBBlobDirectWriteTest,

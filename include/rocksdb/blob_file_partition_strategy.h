@@ -16,10 +16,12 @@ namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 
-// Public interface for customizing blob direct write partition assignment.
-// Implementations may keep internal state, but SelectPartition() may be called
-// concurrently from multiple writer threads, so any internal mutation must be
-// thread-safe.
+// Implementations may keep internal state, but SelectPartition() runs on the
+// write hot path and may be called concurrently from multiple writer threads,
+// so any internal mutation must be synchronized. Implementations should avoid
+// I/O, callbacks into RocksDB APIs, and other blocking or expensive work.
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe.
 class BlobFilePartitionStrategy {
  public:
   virtual ~BlobFilePartitionStrategy() = default;
