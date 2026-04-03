@@ -4010,6 +4010,10 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         }
       } else {
         TransactionDBOptions txn_db_options;
+        // Match the 10-minute lock_timeout used for explicit transactions
+        // in NewTxn(), rather than the 1-second default which is too short
+        // for stress tests under heavy contention (see T228932399).
+        txn_db_options.default_lock_timeout = 600000;
         assert(FLAGS_txn_write_policy <= TxnDBWritePolicy::WRITE_UNPREPARED);
         txn_db_options.write_policy =
             static_cast<TxnDBWritePolicy>(FLAGS_txn_write_policy);
