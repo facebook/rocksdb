@@ -35,6 +35,21 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class FixedBlobDirectWritePartitionStrategy : public BlobFilePartitionStrategy {
+ public:
+  explicit FixedBlobDirectWritePartitionStrategy(uint32_t partition)
+      : partition_(partition) {}
+
+  uint32_t SelectPartition(uint32_t /*num_partitions*/,
+                           uint32_t /*column_family_id*/, const Slice& /*key*/,
+                           const Slice& /*value*/) const override {
+    return partition_;
+  }
+
+ private:
+  const uint32_t partition_;
+};
+
 class DBBlobDirectWriteTest : public DBTestBase {
  protected:
   DBBlobDirectWriteTest()
@@ -277,6 +292,41 @@ TEST_F(DBBlobDirectWriteTest,
 
   Close();
   Reopen(options);
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_EQ(Get(keys[i]), values[i]);
+  }
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteCustomPartitionStrategyRoutesWritesToOneBlobFile) {
+  Options options = GetDirectWriteOptions();
+  options.blob_direct_write_partitions = 4;
+  options.blob_file_size = 1 << 20;
+  options.blob_direct_write_partition_strategy =
+      std::make_shared<FixedBlobDirectWritePartitionStrategy>(3);
+
+  Reopen(options);
+
+  const std::array<std::string, 4> keys{
+      "strategy_blob_key_0", "strategy_blob_key_1", "strategy_blob_key_2",
+      "strategy_blob_key_3"};
+  const std::array<std::string, 4> values{
+      std::string(128, 'a'), std::string(128, 'b'), std::string(128, 'c'),
+      std::string(128, 'd')};
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_OK(Put(keys[i], values[i]));
+  }
+
+  ASSERT_EQ(CountBlobFiles(), 1U);
+  ASSERT_OK(Flush());
+  ASSERT_EQ(CountBlobFiles(), 1U);
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_file_count, 1U);
+  ASSERT_EQ(cf_meta.blob_files.size(), 1U);
 
   for (size_t i = 0; i < keys.size(); ++i) {
     ASSERT_EQ(Get(keys[i]), values[i]);

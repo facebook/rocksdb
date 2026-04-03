@@ -23,6 +23,20 @@ class TablePropertiesCollectorFactory;
 class TableFactory;
 struct Options;
 
+// Public interface for customizing blob direct write partition assignment.
+// Implementations must be thread-safe because SelectPartition() may be called
+// concurrently from multiple writer threads.
+class BlobFilePartitionStrategy {
+ public:
+  virtual ~BlobFilePartitionStrategy() = default;
+
+  // Select a partition for the given blob direct write. The return value can
+  // be any uint32_t; the caller applies modulo num_partitions internally.
+  virtual uint32_t SelectPartition(uint32_t num_partitions,
+                                   uint32_t column_family_id, const Slice& key,
+                                   const Slice& value) const = 0;
+};
+
 enum CompactionStyle : char {
   // level based compaction style
   kCompactionStyleLevel = 0x0,
@@ -1217,13 +1231,25 @@ struct AdvancedColumnFamilyOptions {
   bool enable_blob_direct_write = false;
 
   // Number of direct-write blob partitions for this column family.
-  // Partition selection is round-robin.
   // Requires enable_blob_direct_write = true.
+  //
+  // If blob_direct_write_partition_strategy is null, partition selection uses
+  // the default round-robin strategy.
   //
   // Default: 1
   //
   // Not dynamically changeable through the SetOptions() API.
   uint32_t blob_direct_write_partitions = 1;
+
+  // Custom partition strategy for blob direct writes.
+  // If null, uses the default round-robin strategy.
+  // Requires enable_blob_direct_write = true.
+  //
+  // Default: nullptr
+  //
+  // Not dynamically changeable through the SetOptions() API.
+  std::shared_ptr<BlobFilePartitionStrategy>
+      blob_direct_write_partition_strategy = nullptr;
 
   // Enable memtable per key-value checksum protection.
   //

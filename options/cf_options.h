@@ -89,6 +89,11 @@ struct ImmutableCFOptions {
   // AdvancedColumnFamilyOptions::blob_direct_write_partitions.
   uint32_t blob_direct_write_partitions;
 
+  // Immutable snapshot of
+  // AdvancedColumnFamilyOptions::blob_direct_write_partition_strategy.
+  std::shared_ptr<BlobFilePartitionStrategy>
+      blob_direct_write_partition_strategy;
+
   bool persist_user_defined_timestamps;
 
   bool cf_allow_ingest_behind;
