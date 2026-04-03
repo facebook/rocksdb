@@ -1020,6 +1020,12 @@ def finalize_and_sanitize(src_params):
         dest_params["paranoid_memory_checks"] = 0
         dest_params["memtable_veirfy_per_key_checksum_on_seek"] = 0
 
+    if dest_params.get("disable_wal", 0) == 1:
+        # WAL-disabled crash recovery only validates sequence-prefix recovery.
+        # `test_batches_snapshots` expects full application-batch atomicity,
+        # which does not hold across crash/restart without WAL.
+        dest_params["test_batches_snapshots"] = 0
+
     if dest_params["test_batches_snapshots"] == 1:
         dest_params["enable_compaction_filter"] = 0
         dest_params["inplace_update_support"] = 0
@@ -1143,6 +1149,7 @@ def finalize_and_sanitize(src_params):
         else:
             dest_params["unordered_write"] = 0
     if dest_params.get("disable_wal", 0) == 1:
+        dest_params["test_batches_snapshots"] = 0
         # WAL-disabled stress runs do not support in-process reopen. Blob
         # direct write v1 relies on this path so crash testing stays within its
         # SST/blob-manifest recovery envelope rather than WAL replay.
