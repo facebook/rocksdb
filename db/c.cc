@@ -3056,6 +3056,7 @@ class H : public WriteBatch::Handler {
       (*log_data_)(state_, blob.data(), blob.size());
     }
   }
+  Status MarkNoop(bool /* empty_batch */) override { return Status::OK(); }
 };
 
 class HCF : public WriteBatch::Handler {
@@ -3089,6 +3090,7 @@ class HCF : public WriteBatch::Handler {
       (*log_data_)(state_, blob.data(), blob.size());
     }
   }
+  Status MarkNoop(bool /* empty_batch */) override { return Status::OK(); }
 };
 
 void rocksdb_writebatch_iterate(rocksdb_writebatch_t* b, void* state,
@@ -4755,6 +4757,26 @@ void rocksdb_options_set_blob_gc_force_threshold(rocksdb_options_t* opt,
 
 double rocksdb_options_get_blob_gc_force_threshold(rocksdb_options_t* opt) {
   return opt->rep.blob_garbage_collection_force_threshold;
+}
+
+void rocksdb_options_set_read_triggered_compaction_threshold(
+    rocksdb_options_t* opt, double val) {
+  opt->rep.read_triggered_compaction_threshold = val;
+}
+
+double rocksdb_options_get_read_triggered_compaction_threshold(
+    rocksdb_options_t* opt) {
+  return opt->rep.read_triggered_compaction_threshold;
+}
+
+void rocksdb_options_set_max_compaction_trigger_wakeup_seconds(
+    rocksdb_options_t* opt, uint64_t val) {
+  opt->rep.max_compaction_trigger_wakeup_seconds = val;
+}
+
+uint64_t rocksdb_options_get_max_compaction_trigger_wakeup_seconds(
+    rocksdb_options_t* opt) {
+  return opt->rep.max_compaction_trigger_wakeup_seconds;
 }
 
 void rocksdb_options_set_blob_compaction_readahead_size(rocksdb_options_t* opt,
@@ -8292,6 +8314,11 @@ void rocksdb_transaction_delete_cf(
     rocksdb_transaction_t* txn, rocksdb_column_family_handle_t* column_family,
     const char* key, size_t klen, char** errptr) {
   SaveError(errptr, txn->rep->Delete(column_family->rep, Slice(key, klen)));
+}
+
+void rocksdb_transaction_put_log_data(rocksdb_transaction_t* txn,
+                                      const char* blob, size_t len) {
+  txn->rep->PutLogData(Slice(blob, len));
 }
 
 // Delete a key outside a transaction

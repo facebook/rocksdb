@@ -32,12 +32,14 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/blob/blob_file_cache.cc",
         "db/blob/blob_file_garbage.cc",
         "db/blob/blob_file_meta.cc",
+        "db/blob/blob_file_partition_manager.cc",
         "db/blob/blob_file_reader.cc",
         "db/blob/blob_garbage_meter.cc",
         "db/blob/blob_log_format.cc",
         "db/blob/blob_log_sequential_reader.cc",
         "db/blob/blob_log_writer.cc",
         "db/blob/blob_source.cc",
+        "db/blob/blob_write_batch_transformer.cc",
         "db/blob/prefetch_buffer_collection.cc",
         "db/builder.cc",
         "db/c.cc",
@@ -331,6 +333,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/secondary_index/simple_secondary_index.cc",
         "utilities/simulator_cache/cache_simulator.cc",
         "utilities/simulator_cache/sim_cache.cc",
+        "utilities/sorted_run_builder/sorted_run_builder.cc",
         "utilities/table_properties_collectors/compact_for_tiering_collector.cc",
         "utilities/table_properties_collectors/compact_on_deletion_collector.cc",
         "utilities/trace/file_trace_reader_writer.cc",
@@ -4804,6 +4807,12 @@ cpp_unittest_wrapper(name="db_blob_corruption_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="db_blob_direct_write_test",
+            srcs=["db/blob/db_blob_direct_write_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="db_blob_index_test",
             srcs=["db/blob/db_blob_index_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5528,6 +5537,12 @@ cpp_unittest_wrapper(name="slice_test",
 
 cpp_unittest_wrapper(name="slice_transform_test",
             srcs=["util/slice_transform_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="sorted_run_builder_test",
+            srcs=["utilities/sorted_run_builder/sorted_run_builder_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

@@ -712,6 +712,7 @@ Status DecompressBlockData(Decompressor::Args& args, Decompressor& decompressor,
              args.compressed_data.size());
   RecordTick(ioptions.stats, BYTES_DECOMPRESSED_TO, out_contents->data.size());
   RecordTick(ioptions.stats, NUMBER_BLOCK_DECOMPRESSED);
+  PERF_COUNTER_ADD(block_decompress_count, 1);
 
   TEST_SYNC_POINT_CALLBACK("DecompressBlockData:TamperWithReturnValue",
                            static_cast<void*>(&s));

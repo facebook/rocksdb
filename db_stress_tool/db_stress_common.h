@@ -199,6 +199,7 @@ DECLARE_bool(statistics);
 DECLARE_bool(sync);
 DECLARE_bool(use_fsync);
 DECLARE_uint64(stats_dump_period_sec);
+DECLARE_uint64(max_compaction_trigger_wakeup_seconds);
 DECLARE_uint64(bytes_per_sync);
 DECLARE_uint64(wal_bytes_per_sync);
 DECLARE_int32(kill_random_test);
@@ -319,6 +320,8 @@ DECLARE_bool(blob_db_enable_gc);
 // Options for integrated BlobDB
 DECLARE_bool(allow_setting_blob_options_dynamically);
 DECLARE_bool(enable_blob_files);
+DECLARE_bool(enable_blob_direct_write);
+DECLARE_uint64(blob_direct_write_partitions);
 DECLARE_uint64(min_blob_size);
 DECLARE_uint64(blob_file_size);
 DECLARE_string(blob_compression_type);
@@ -459,6 +462,7 @@ DECLARE_uint64(compaction_on_deletion_min_file_size);
 DECLARE_int32(compaction_on_deletion_trigger_count);
 DECLARE_int32(compaction_on_deletion_window_size);
 DECLARE_double(compaction_on_deletion_ratio);
+DECLARE_double(read_triggered_compaction_threshold);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
@@ -496,6 +500,8 @@ inline enum RepFactory StringToRepFactory(const char* ctype) {
 extern enum RepFactory FLAGS_rep_factory;
 
 namespace ROCKSDB_NAMESPACE {
+void RegisterDbStressBdwFlagValidators();
+
 inline enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);

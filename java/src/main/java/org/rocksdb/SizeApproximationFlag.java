@@ -10,9 +10,10 @@ import java.util.List;
  * or file stats approximation or both.
  */
 public enum SizeApproximationFlag {
-  NONE((byte)0x0),
-  INCLUDE_MEMTABLES((byte)0x1),
-  INCLUDE_FILES((byte)0x2);
+  NONE((byte) 0x0),
+  INCLUDE_MEMTABLES((byte) 0x1),
+  INCLUDE_FILES((byte) 0x2),
+  INCLUDE_BLOB_FILES((byte) 0x4);
 
   private final byte value;
 

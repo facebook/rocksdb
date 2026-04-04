@@ -52,7 +52,7 @@ namespace trie_index {
 // The trie builder collects the separator keys from AddIndexEntry() and
 // builds a LOUDS-encoded trie during Finish().
 // ============================================================================
-class TrieIndexBuilder : public UserDefinedIndexBuilder {
+class TrieIndexBuilder final : public UserDefinedIndexBuilder {
  public:
   explicit TrieIndexBuilder(const Comparator* comparator);
   ~TrieIndexBuilder() override = default;
@@ -103,15 +103,17 @@ class TrieIndexBuilder : public UserDefinedIndexBuilder {
   // Once set, never cleared (sticky flag, same as internal index).
   bool must_use_separator_with_seq_;
 
-  // Buffered separator entries: (separator_key, seqno, handle).
+  // Buffered separator entries: (separator_key, tag, handle).
   // The separator_key is the user-key-only separator computed by
-  // FindShortestSeparator. The seqno is:
-  //   - For same-user-key boundaries: the actual seqno of last_key
-  //   - For different-user-key boundaries: kMaxSequenceNumber (mapped to 0
-  //     at Finish() time as a sentinel meaning "never advance")
+  // FindShortestSeparator. The seqno field stores a packed internal key
+  // tag ((sequence_number << 8) | value_type):
+  //   - For same-user-key boundaries: the tag of last_key
+  //   - For different-user-key boundaries:
+  //     PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek) --
+  //     the same tag the standard index uses for these separators
   struct BufferedEntry {
     std::string separator_key;
-    SequenceNumber seqno{};
+    uint64_t tag{};
     TrieBlockHandle handle;
   };
   std::vector<BufferedEntry> buffered_entries_;
@@ -124,7 +126,7 @@ class TrieIndexBuilder : public UserDefinedIndexBuilder {
 // Wraps LoudsTrieIterator and adapts it to the UDI iterator interface,
 // handling bounds checking against ScanOptions.
 // ============================================================================
-class TrieIndexIterator : public UserDefinedIndexIterator {
+class TrieIndexIterator final : public UserDefinedIndexIterator {
  public:
   // @param has_seqno_encoding: true if the trie was built with a seqno
   //   side-table (enabling post-seek correction for same-user-key boundaries).
@@ -140,9 +142,17 @@ class TrieIndexIterator : public UserDefinedIndexIterator {
   // leftmost leaf without a full seek traversal.
   Status SeekToFirstAndGetResult(IterateResult* result) override;
 
+  // Position at the very last index entry. Descends directly to the
+  // rightmost leaf without a full seek traversal.
+  Status SeekToLastAndGetResult(IterateResult* result) override;
+
+  // Move to the previous index entry. When in an overflow run, decrements
+  // within the run before moving to the previous trie leaf.
+  Status PrevAndGetResult(IterateResult* result) override;
+
   // Seek to the first index entry >= target. When has_seqno_encoding_ is
   // true, the trie is searched with user_key only, then post-seek correction
-  // uses target_seq from context to advance through overflow blocks as needed.
+  // uses target_tag from context to advance through overflow blocks.
   Status SeekAndGetResult(const Slice& target, IterateResult* result,
                           const SeekContext& context) override;
 
@@ -186,6 +196,34 @@ class TrieIndexIterator : public UserDefinedIndexIterator {
   //   - value() may return overflow block handles
   //   - NextAndGetResult advances within overflow runs before trie leaves
   bool has_seqno_encoding_;
+
+  // Reset overflow state to the default single-block position.
+  void ResetOverflowState() {
+    overflow_run_index_ = 0;
+    overflow_run_size_ = 1;
+    overflow_base_idx_ = 0;
+  }
+
+  // Set up overflow state for the current trie leaf. When position_at_last
+  // is true (reverse iteration), positions at the last block in the run.
+  void SetupOverflowForCurrentLeaf(bool position_at_last) {
+    if (has_seqno_encoding_ && iter_.Valid()) {
+      uint64_t leaf_idx = iter_.LeafIndex();
+      uint32_t block_count = trie_->GetLeafBlockCount(leaf_idx);
+      overflow_run_size_ = block_count;
+      overflow_base_idx_ = trie_->GetOverflowBase(leaf_idx);
+      if (position_at_last) {
+        overflow_run_index_ = block_count - 1;
+      }
+    }
+  }
+
+  // Copy the current trie key into current_key_scratch_ and set the result.
+  void CopyTrieKeyToResult(IterateResult* result) {
+    Slice trie_key = iter_.Key();
+    current_key_scratch_.assign(trie_key.data(), trie_key.size());
+    result->key = Slice(current_key_scratch_);
+  }
 
   // ---- Overflow run state ----
   //

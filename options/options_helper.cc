@@ -192,6 +192,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.verify_manifest_content_on_close =
       mutable_db_options.verify_manifest_content_on_close;
   options.daily_offpeak_time_utc = mutable_db_options.daily_offpeak_time_utc;
+  options.max_compaction_trigger_wakeup_seconds =
+      mutable_db_options.max_compaction_trigger_wakeup_seconds;
   options.follower_refresh_catchup_period_ms =
       immutable_db_options.follower_refresh_catchup_period_ms;
   options.follower_catchup_retry_count =
@@ -264,6 +266,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.max_bytes_for_level_multiplier;
   cf_opts->ttl = moptions.ttl;
   cf_opts->periodic_compaction_seconds = moptions.periodic_compaction_seconds;
+  cf_opts->read_triggered_compaction_threshold =
+      moptions.read_triggered_compaction_threshold;
   cf_opts->preclude_last_level_data_seconds =
       moptions.preclude_last_level_data_seconds;
   cf_opts->preserve_internal_time_seconds =
@@ -284,6 +288,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->min_blob_size = moptions.min_blob_size;
   cf_opts->blob_file_size = moptions.blob_file_size;
   cf_opts->blob_compression_type = moptions.blob_compression_type;
+  cf_opts->blob_compression_opts = moptions.blob_compression_opts;
   cf_opts->enable_blob_garbage_collection =
       moptions.enable_blob_garbage_collection;
   cf_opts->blob_garbage_collection_age_cutoff =
@@ -349,6 +354,10 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->compaction_thread_limiter = ioptions.compaction_thread_limiter;
   cf_opts->sst_partitioner_factory = ioptions.sst_partitioner_factory;
   cf_opts->blob_cache = ioptions.blob_cache;
+  cf_opts->enable_blob_direct_write = ioptions.enable_blob_direct_write;
+  cf_opts->blob_direct_write_partitions = ioptions.blob_direct_write_partitions;
+  cf_opts->blob_direct_write_partition_strategy =
+      ioptions.blob_direct_write_partition_strategy;
   cf_opts->persist_user_defined_timestamps =
       ioptions.persist_user_defined_timestamps;
   cf_opts->default_temperature = ioptions.default_temperature;

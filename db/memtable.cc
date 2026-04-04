@@ -15,6 +15,7 @@
 #include <memory>
 #include <optional>
 
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/dbformat.h"
 #include "db/kv_checksum.h"
 #include "db/merge_context.h"
@@ -40,6 +41,7 @@
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
 #include "table/merging_iterator.h"
+#include "util/atomic.h"
 #include "util/autovector.h"
 #include "util/coding.h"
 #include "util/mutexlock.h"
@@ -75,6 +77,51 @@ ImmutableMemTableOptions::ImmutableMemTableOptions(
           mutable_cf_options.memtable_veirfy_per_key_checksum_on_seek),
       memtable_batch_lookup_optimization(
           ioptions.memtable_batch_lookup_optimization) {}
+
+void ReadOnlyMemTable::ProtectSealedBlobFiles(
+    const std::shared_ptr<BlobFilePartitionManager>& blob_partition_manager,
+    const std::vector<uint64_t>& file_numbers) {
+  if (file_numbers.empty()) {
+    return;
+  }
+
+  assert(blob_partition_manager != nullptr);
+  if (protected_blob_file_manager_ == nullptr) {
+    protected_blob_file_manager_ = blob_partition_manager;
+  } else {
+    assert(protected_blob_file_manager_.get() == blob_partition_manager.get());
+  }
+
+  std::vector<uint64_t> newly_protected_file_numbers;
+  newly_protected_file_numbers.reserve(file_numbers.size());
+  for (uint64_t file_number : file_numbers) {
+    auto it = std::find(protected_blob_file_numbers_.begin(),
+                        protected_blob_file_numbers_.end(), file_number);
+    if (it != protected_blob_file_numbers_.end()) {
+      continue;
+    }
+    protected_blob_file_numbers_.push_back(file_number);
+    newly_protected_file_numbers.push_back(file_number);
+  }
+
+  if (!newly_protected_file_numbers.empty()) {
+    protected_blob_file_manager_->ProtectSealedBlobFileNumbers(
+        newly_protected_file_numbers);
+  }
+}
+
+void ReadOnlyMemTable::ReleaseProtectedSealedBlobFiles() {
+  if (protected_blob_file_manager_ == nullptr) {
+    assert(protected_blob_file_numbers_.empty());
+    return;
+  }
+
+  std::shared_ptr<BlobFilePartitionManager> blob_partition_manager =
+      std::move(protected_blob_file_manager_);
+  blob_partition_manager->UnprotectSealedBlobFileNumbers(
+      protected_blob_file_numbers_);
+  protected_blob_file_numbers_.clear();
+}
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableOptions& ioptions,
@@ -145,26 +192,14 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
   auto new_cache = std::make_shared<FragmentedRangeTombstoneListCache>();
   size_t size = cached_range_tombstone_.Size();
   for (size_t i = 0; i < size; ++i) {
-#if defined(__cpp_lib_atomic_shared_ptr)
-    std::atomic<std::shared_ptr<FragmentedRangeTombstoneListCache>>*
-        local_cache_ref_ptr = cached_range_tombstone_.AccessAtCore(i);
-    auto new_local_cache_ref = std::make_shared<
-        const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
-    std::shared_ptr<FragmentedRangeTombstoneListCache> aliased_ptr(
-        new_local_cache_ref, new_cache.get());
-    local_cache_ref_ptr->store(std::move(aliased_ptr),
-                               std::memory_order_relaxed);
-#else
     std::shared_ptr<FragmentedRangeTombstoneListCache>* local_cache_ref_ptr =
         cached_range_tombstone_.AccessAtCore(i);
     auto new_local_cache_ref = std::make_shared<
         const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
-    std::atomic_store_explicit(
-        local_cache_ref_ptr,
-        std::shared_ptr<FragmentedRangeTombstoneListCache>(new_local_cache_ref,
-                                                           new_cache.get()),
-        std::memory_order_relaxed);
-#endif
+    std::shared_ptr<FragmentedRangeTombstoneListCache> aliased_ptr(
+        new_local_cache_ref, new_cache.get());
+    AtomicSharedPtrStore(local_cache_ref_ptr, std::move(aliased_ptr),
+                         std::memory_order_relaxed);
   }
   const Comparator* ucmp = cmp.user_comparator();
   assert(ucmp);
@@ -822,13 +857,8 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
 
   // takes current cache
   std::shared_ptr<FragmentedRangeTombstoneListCache> cache =
-#if defined(__cpp_lib_atomic_shared_ptr)
-      cached_range_tombstone_.Access()->load(std::memory_order_relaxed)
-#else
-      std::atomic_load_explicit(cached_range_tombstone_.Access(),
-                                std::memory_order_relaxed)
-#endif
-      ;
+      AtomicSharedPtrLoad(cached_range_tombstone_.Access(),
+                          std::memory_order_relaxed);
   // construct fragmented tombstone list if necessary
   if (!cache->initialized.load(std::memory_order_acquire)) {
     cache->reader_mutex.lock();
@@ -1120,31 +1150,19 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       range_del_mutex_.lock();
     }
     for (size_t i = 0; i < size; ++i) {
-#if defined(__cpp_lib_atomic_shared_ptr)
-      std::atomic<std::shared_ptr<FragmentedRangeTombstoneListCache>>*
-          local_cache_ref_ptr = cached_range_tombstone_.AccessAtCore(i);
-      auto new_local_cache_ref = std::make_shared<
-          const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
-      std::shared_ptr<FragmentedRangeTombstoneListCache> aliased_ptr(
-          new_local_cache_ref, new_cache.get());
-      local_cache_ref_ptr->store(std::move(aliased_ptr),
-                                 std::memory_order_relaxed);
-#else
       std::shared_ptr<FragmentedRangeTombstoneListCache>* local_cache_ref_ptr =
           cached_range_tombstone_.AccessAtCore(i);
       auto new_local_cache_ref = std::make_shared<
           const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
+      std::shared_ptr<FragmentedRangeTombstoneListCache> aliased_ptr(
+          new_local_cache_ref, new_cache.get());
       // It is okay for some reader to load old cache during invalidation as
       // the new sequence number is not published yet.
       // Each core will have a shared_ptr to a shared_ptr to the cached
-      // fragmented range tombstones, so that ref count is maintianed locally
+      // fragmented range tombstones, so that ref count is maintained locally
       // per-core using the per-core shared_ptr.
-      std::atomic_store_explicit(
-          local_cache_ref_ptr,
-          std::shared_ptr<FragmentedRangeTombstoneListCache>(
-              new_local_cache_ref, new_cache.get()),
-          std::memory_order_relaxed);
-#endif
+      AtomicSharedPtrStore(local_cache_ref_ptr, std::move(aliased_ptr),
+                           std::memory_order_relaxed);
     }
 
     if (allow_concurrent) {

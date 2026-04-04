@@ -1096,9 +1096,11 @@ IOStatus PosixRandomAccessFile::ReadAsync(
 
   // Init failed, platform doesn't support io_uring.
   if (iu == nullptr) {
-    fprintf(stderr, "failed to init io_uring\n");
     return IOStatus::NotSupported("ReadAsync: failed to init io_uring");
   }
+
+  *io_handle = nullptr;
+  *del_fn = nullptr;
 
   // Allocate io_handle.
   IOHandleDeleter deletefn = [](void* args) -> void {
@@ -1113,12 +1115,19 @@ IOStatus PosixRandomAccessFile::ReadAsync(
   posix_handle->iov.iov_base = req.scratch;
   posix_handle->iov.iov_len = req.len;
 
-  *io_handle = static_cast<void*>(posix_handle);
-  *del_fn = deletefn;
-
   // Step 3: io_uring_sqe_set_data
   struct io_uring_sqe* sqe;
   sqe = io_uring_get_sqe(iu);
+  TEST_SYNC_POINT_CALLBACK("PosixRandomAccessFile::ReadAsync:io_uring_get_sqe",
+                           &sqe);
+  if (sqe == nullptr) {
+    // Submission queue is full, so outstanding completions have not been
+    // reaped yet. Submission never succeeded, so clean up the local handle and
+    // return Busy without publishing io_handle/del_fn to the caller.
+    delete posix_handle;
+    return IOStatus::Busy(
+        "PosixRandomAccessFile::ReadAsync: io_uring submission queue is full");
+  }
 
   io_uring_prep_readv(sqe, fd_, /*sqe->addr=*/&posix_handle->iov,
                       /*sqe->len=*/1, /*sqe->offset=*/posix_handle->offset);
@@ -1147,6 +1156,7 @@ IOStatus PosixRandomAccessFile::ReadAsync(
     }
   } while (ret < 1);
   if (ret <= 0) {
+    delete posix_handle;
     return IOStatus::IOError(
         "PosixRandomAccessFile::ReadAsync: io_uring_submit() returned " +
         std::to_string(ret));
@@ -1157,6 +1167,8 @@ IOStatus PosixRandomAccessFile::ReadAsync(
             "io_uring_submit() returned = %zd\n",
             ret);
   }
+  *io_handle = static_cast<void*>(posix_handle);
+  *del_fn = deletefn;
   return IOStatus::OK();
 #else
   (void)req;

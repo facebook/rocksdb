@@ -1999,19 +1999,11 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
 
     Slice key(key_str);
 
-    // UserDefinedIndexIterator supports Seek(target), Next(), and
-    // SeekToFirst(). However, SeekToLast, SeekForPrev, and Prev are not
-    // supported. Check if UDI is being used either via ReadOptions or
-    // CF-level configuration.
-    const bool using_udi =
-        (ro.table_index_factory != nullptr) || (udi_factory_ != nullptr);
-    // SeekToFirst is supported by UDI, so only total_order is required.
     const bool support_seek_to_first =
-        expect_total_order && (FLAGS_test_backward_scan || using_udi);
-    // SeekToLast requires backward scan support which UDI does not provide.
+        expect_total_order && FLAGS_test_backward_scan;
     const bool support_seek_to_last =
-        expect_total_order && FLAGS_test_backward_scan && !using_udi;
-    const bool support_seek_for_prev = FLAGS_test_backward_scan && !using_udi;
+        expect_total_order && FLAGS_test_backward_scan;
+    const bool support_seek_for_prev = FLAGS_test_backward_scan;
 
     // Write-prepared and Write-unprepared and multi-cf-iterator do not support
     // Refresh() yet.
@@ -2209,6 +2201,21 @@ void StressTest::VerifyIterator(
     // seek key or lower bound. Disable the check for now.
     *diverged = true;
     return;
+  }
+
+  if (!ro.total_order_seek && options_.prefix_extractor != nullptr &&
+      ro.iterate_lower_bound != nullptr) {
+    const SliceTransform* prefix_extractor = options_.prefix_extractor.get();
+    if (!prefix_extractor->InDomain(seek_key) ||
+        !prefix_extractor->InDomain(*ro.iterate_lower_bound) ||
+        prefix_extractor->Transform(seek_key) !=
+            prefix_extractor->Transform(*ro.iterate_lower_bound)) {
+      // ReadOptions requires the seek target and iterate_lower_bound to share
+      // a prefix when prefix iteration is enabled. Skip verification for this
+      // undefined configuration.
+      *diverged = true;
+      return;
+    }
   }
 
   const SliceTransform* pe = (ro.total_order_seek || ro.auto_prefix_mode)
@@ -2460,11 +2467,19 @@ Status StressTest::TestBackupRestore(
       // lock and wait on a background operation (flush).
       create_opts.flush_before_backup = true;
     }
+    if (FLAGS_atomic_flush) {
+      // When atomic flush is enabled for the DB, use it for backup too.
+      // This ensures cross-CF consistency without needing WAL files.
+      // flush_before_backup must be true for atomic_flush to take effect.
+      create_opts.flush_before_backup = true;
+      create_opts.atomic_flush = true;
+    }
     create_opts.decrease_background_thread_cpu_priority = thread->rand.OneIn(2);
     create_opts.background_thread_cpu_priority = static_cast<CpuPriority>(
         thread->rand.Next() % (static_cast<int>(CpuPriority::kHigh) + 1));
     create_backup_opt_oss << "flush_before_backup: "
                           << create_opts.flush_before_backup
+                          << ", atomic_flush: " << create_opts.atomic_flush
                           << ", decrease_background_thread_cpu_priority: "
                           << create_opts.decrease_background_thread_cpu_priority
                           << ", background_thread_cpu_priority: "
@@ -2782,7 +2797,8 @@ Status StressTest::TestApproximateSize(
     // Call GetApproximateSizes
     SizeApproximationOptions sao;
     sao.include_memtables = thread->rand.OneIn(2);
-    if (sao.include_memtables) {
+    sao.include_blob_files = thread->rand.OneIn(2);
+    if (sao.include_memtables || sao.include_blob_files) {
       sao.include_files = thread->rand.OneIn(2);
     }
     if (thread->rand.OneIn(2)) {
@@ -3745,12 +3761,14 @@ void StressTest::Open(SharedState* shared, bool reopen) {
 
   fprintf(stdout,
           "Integrated BlobDB: blob files enabled %d, min blob size %" PRIu64
+          ", direct write enabled %d, direct write partitions %" PRIu32
           ", blob file size %" PRIu64
           ", blob compression type %s, blob GC enabled %d, cutoff %f, force "
           "threshold %f, blob compaction readahead size %" PRIu64
           ", blob file starting level %d\n",
           options_.enable_blob_files, options_.min_blob_size,
-          options_.blob_file_size,
+          options_.enable_blob_direct_write,
+          options_.blob_direct_write_partitions, options_.blob_file_size,
           CompressionTypeToString(options_.blob_compression_type).c_str(),
           options_.enable_blob_garbage_collection,
           options_.blob_garbage_collection_age_cutoff,
@@ -3828,9 +3846,8 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     }
 
     options_.listeners.clear();
-    options_.listeners.emplace_back(
-        new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors,
-                             db_stress_listener_env, shared));
+    options_.listeners.emplace_back(new DbStressListener(
+        FLAGS_db, options_.db_paths, cf_descriptors, shared));
     RegisterAdditionalListeners();
 
     // If this is for DB reopen,  error injection may have been enabled.
@@ -3993,6 +4010,10 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         }
       } else {
         TransactionDBOptions txn_db_options;
+        // Match the 10-minute lock_timeout used for explicit transactions
+        // in NewTxn(), rather than the 1-second default which is too short
+        // for stress tests under heavy contention (see T228932399).
+        txn_db_options.default_lock_timeout = 600000;
         assert(FLAGS_txn_write_policy <= TxnDBWritePolicy::WRITE_UNPREPARED);
         txn_db_options.write_policy =
             static_cast<TxnDBWritePolicy>(FLAGS_txn_write_policy);
@@ -4504,6 +4525,8 @@ void InitializeOptionsFromFlags(
   options.daily_offpeak_time_utc = FLAGS_daily_offpeak_time_utc;
   options.stats_dump_period_sec =
       static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
+  options.max_compaction_trigger_wakeup_seconds =
+      FLAGS_max_compaction_trigger_wakeup_seconds;
   options.ttl = FLAGS_compaction_ttl;
   options.enable_pipelined_write = FLAGS_enable_pipelined_write;
   options.enable_write_thread_adaptive_yield =
@@ -4546,6 +4569,9 @@ void InitializeOptionsFromFlags(
 
   // Integrated BlobDB
   options.enable_blob_files = FLAGS_enable_blob_files;
+  options.enable_blob_direct_write = FLAGS_enable_blob_direct_write;
+  options.blob_direct_write_partitions =
+      static_cast<uint32_t>(FLAGS_blob_direct_write_partitions);
   options.min_blob_size = FLAGS_min_blob_size;
   options.blob_file_size = FLAGS_blob_file_size;
   options.blob_compression_type =
@@ -4557,6 +4583,8 @@ void InitializeOptionsFromFlags(
       FLAGS_blob_garbage_collection_force_threshold;
   options.blob_compaction_readahead_size = FLAGS_blob_compaction_readahead_size;
   options.blob_file_starting_level = FLAGS_blob_file_starting_level;
+  options.read_triggered_compaction_threshold =
+      FLAGS_read_triggered_compaction_threshold;
 
   if (FLAGS_use_blob_cache) {
     if (FLAGS_use_shared_block_and_blob_cache) {

@@ -274,6 +274,50 @@ TEST_P(TransactionTest, SuccessTest) {
   delete txn;
 }
 
+TEST_P(TransactionTest, DirectWriteCommitPath) {
+  if (options.two_write_queues || options.unordered_write) {
+    ROCKSDB_GTEST_BYPASS(
+        "Blob direct write v1 only supports the ordered single-write-queue "
+        "path");
+    return;
+  }
+
+  options.enable_blob_files = true;
+  options.enable_blob_direct_write = true;
+  options.allow_concurrent_memtable_write = false;
+  options.blob_direct_write_partitions = 2;
+  options.min_blob_size = 32;
+  options.use_direct_reads = true;
+  options.use_direct_io_for_flush_and_compaction = true;
+
+  Status s = ReOpen();
+  if (s.IsInvalidArgument()) {
+    ROCKSDB_GTEST_SKIP("This test requires direct IO support");
+    return;
+  }
+  ASSERT_OK(s);
+
+  WriteOptions write_options;
+  const std::string key = "txn_blob_key";
+  const std::string value(512, 'x');
+
+  std::unique_ptr<Transaction> txn(
+      db->BeginTransaction(write_options, TransactionOptions()));
+  ASSERT_TRUE(txn);
+  ASSERT_OK(txn->Put(key, value));
+  ASSERT_OK(txn->Commit());
+  txn.reset();
+
+  PinnableSlice result;
+  ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), key, &result));
+  ASSERT_EQ(result, value);
+
+  ASSERT_OK(db->Flush(FlushOptions()));
+  result.Reset();
+  ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), key, &result));
+  ASSERT_EQ(result, value);
+}
+
 // Test the basic API of the pinnable slice overload of GetForUpdate()
 TEST_P(TransactionTest, SuccessTestPinnable) {
   ASSERT_OK(db->ResetStats());

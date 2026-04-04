@@ -88,6 +88,13 @@ inline uint64_t Ctz(uint64_t x) {
   return x == 0 ? 64 : static_cast<uint64_t>(CountTrailingZeroBits(x));
 }
 
+// Count trailing zeros for a known-nonzero value. Avoids the zero-check
+// branch when the caller has already verified x != 0.
+inline uint64_t CtzNonZero(uint64_t x) {
+  assert(x != 0);
+  return static_cast<uint64_t>(CountTrailingZeroBits(x));
+}
+
 // Select the i-th set bit (0-indexed) within a 64-bit word.
 // Precondition: i < Popcount(word).
 #if defined(__BMI2__) && defined(__x86_64__)
@@ -340,15 +347,27 @@ class Bitvector {
     uint64_t sample_idx = pos / kBitsPerRankSample;
     uint64_t sample_rank = rank_lut_[sample_idx];
     // Count remaining 1-bits in words between the sample boundary and `pos`.
+    // Unrolled: kWordsPerRankSample is 4, so count is 0-3. The switch
+    // eliminates loop control overhead and guarantees no branch mispredictions
+    // from the loop counter.
     uint64_t word_start = sample_idx * kWordsPerRankSample;
     uint64_t word_end = pos / 64;
-    for (uint64_t w = word_start; w < word_end; w++) {
-      sample_rank += Popcount(words_[w]);
+    switch (word_end - word_start) {
+      case 3:
+        sample_rank += Popcount(words_[word_start + 2]);
+        [[fallthrough]];
+      case 2:
+        sample_rank += Popcount(words_[word_start + 1]);
+        [[fallthrough]];
+      case 1:
+        sample_rank += Popcount(words_[word_start]);
+        [[fallthrough]];
+      case 0:
+        break;
     }
     // Count bits within the final partial word [0, pos % 64).
     uint64_t remaining = pos % 64;
     if (remaining > 0) {
-      // Mask off the bits at and above position `remaining`.
       uint64_t mask = (uint64_t(1) << remaining) - 1;
       sample_rank += Popcount(words_[word_end] & mask);
     }
@@ -403,8 +422,55 @@ class Bitvector {
 
   // Find the next set bit at or after position `pos`.
   // Returns num_bits_ if no set bit is found.
-  // Used by the trie for finding the next sibling label in dense nodes.
-  uint64_t NextSetBit(uint64_t pos) const;
+  // Inlined for hot-path performance — called on every dense Seek, Advance,
+  // and DescendToLeftmostLeaf.
+  inline uint64_t NextSetBit(uint64_t pos) const {
+    if (pos >= num_bits_) {
+      return num_bits_;
+    }
+    uint64_t word_idx = pos / 64;
+    uint64_t bit_idx = pos % 64;
+    uint64_t word = words_[word_idx] >> bit_idx;
+    if (word != 0) {
+      uint64_t result = pos + CtzNonZero(word);
+      return (result < num_bits_) ? result : num_bits_;
+    }
+    for (uint64_t w = word_idx + 1; w < num_words_; w++) {
+      if (words_[w] != 0) {
+        uint64_t result = w * 64 + CtzNonZero(words_[w]);
+        return (result < num_bits_) ? result : num_bits_;
+      }
+    }
+    return num_bits_;
+  }
+
+  // Find the last set bit strictly before position `pos`.
+  // Returns num_bits_ (sentinel) if no set bit exists before pos.
+  // Inlined for hot-path performance during reverse iteration.
+  inline uint64_t PrevSetBit(uint64_t pos) const {
+    if (pos == 0 || num_bits_ == 0) {
+      return num_bits_;
+    }
+    if (pos > num_bits_) {
+      pos = num_bits_;
+    }
+    pos--;
+    uint64_t word_idx = pos / 64;
+    uint64_t bit_idx = pos % 64;
+    uint64_t mask =
+        (bit_idx == 63) ? ~uint64_t(0) : ((uint64_t(1) << (bit_idx + 1)) - 1);
+    uint64_t word = words_[word_idx] & mask;
+    if (word != 0) {
+      return word_idx * 64 + static_cast<uint64_t>(FloorLog2(word));
+    }
+    for (int64_t w = static_cast<int64_t>(word_idx) - 1; w >= 0; w--) {
+      if (words_[w] != 0) {
+        return static_cast<uint64_t>(w) * 64 +
+               static_cast<uint64_t>(FloorLog2(words_[w]));
+      }
+    }
+    return num_bits_;
+  }
 
   // Find the distance from `pos` to the next set bit (exclusive).
   // Returns the distance in bits. Used by sparse level to compute node size.

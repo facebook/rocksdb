@@ -293,6 +293,33 @@ TEST_F(PeriodicTaskSchedulerTest, TriggerCompactionPeriodComputation) {
     options.ttl = 3;  // 3 / 5 = 0, but clamped to 1
     test_period(options, 1);
   }
+
+  // Case 11: max_compaction_trigger_wakeup_seconds caps the period
+  {
+    Options options;
+    options.stats_dump_period_sec = 24 * 60 * 60;  // 24 hours
+    options.stats_persist_period_sec = 0;
+    options.max_compaction_trigger_wakeup_seconds = 600;  // 10 minutes
+    test_period(options, 600);
+  }
+
+  // Case 12: max_compaction_trigger_wakeup_seconds lower than stats_dump
+  {
+    Options options;
+    options.stats_dump_period_sec = 3600;  // 1 hour
+    options.stats_persist_period_sec = 0;
+    options.max_compaction_trigger_wakeup_seconds = 300;  // 5 minutes
+    test_period(options, 300);  // max_periodic cap wins
+  }
+
+  // Case 13: max_compaction_trigger_wakeup_seconds larger than stats_dump
+  {
+    Options options;
+    options.stats_dump_period_sec = 300;  // 5 minutes
+    options.stats_persist_period_sec = 0;
+    options.max_compaction_trigger_wakeup_seconds = 3600;  // 1 hour
+    test_period(options, 300);  // stats_dump wins (smaller)
+  }
 }
 
 // Test that TriggerPeriodicCompaction() properly considers CFs for compaction
@@ -343,15 +370,19 @@ TEST_F(TriggerCompactionTest, QueuesAllTimeBasedOptions) {
 
   // Create the additional CFs (using same options, will set specific options
   // on reopen)
-  CreateColumnFamilies(
-      {"cf_periodic", "cf_ttl", "cf_bottommost", "cf_fifo", "cf_none"},
-      options);
+  CreateColumnFamilies({"cf_periodic", "cf_ttl", "cf_bottommost", "cf_fifo",
+                        "cf_read_triggered", "cf_none"},
+                       options);
   Close();
 
   // Now reopen with specific options for each CF
-  std::vector<std::string> cf_names = {
-      kDefaultColumnFamilyName, "cf_periodic", "cf_ttl",
-      "cf_bottommost",          "cf_fifo",     "cf_none"};
+  std::vector<std::string> cf_names = {kDefaultColumnFamilyName,
+                                       "cf_periodic",
+                                       "cf_ttl",
+                                       "cf_bottommost",
+                                       "cf_fifo",
+                                       "cf_read_triggered",
+                                       "cf_none"};
   std::vector<Options> cf_options;
 
   // default: no time-based options
@@ -381,6 +412,11 @@ TEST_F(TriggerCompactionTest, QueuesAllTimeBasedOptions) {
       {Temperature::kWarm, 100}};
   cf_options.push_back(opt_fifo);
 
+  // cf_read_triggered: read_triggered_compaction_threshold
+  Options opt_read_triggered = options;
+  opt_read_triggered.read_triggered_compaction_threshold = 0.001;
+  cf_options.push_back(opt_read_triggered);
+
   // cf_none: explicitly no time-based options
   Options opt_none = options;
   opt_none.periodic_compaction_seconds = 0;
@@ -404,6 +440,8 @@ TEST_F(TriggerCompactionTest, QueuesAllTimeBasedOptions) {
       << "Expected cf_bottommost to have compaction score computed";
   EXPECT_GT(cfs_with_score_computed.count("cf_fifo"), 0u)
       << "Expected cf_fifo to have compaction score computed";
+  EXPECT_GT(cfs_with_score_computed.count("cf_read_triggered"), 0u)
+      << "Expected cf_read_triggered to have compaction score computed";
 
   // CFs without time-based options should NOT have score computed
   EXPECT_EQ(cfs_with_score_computed.count("default"), 0u)

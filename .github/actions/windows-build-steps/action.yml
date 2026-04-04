@@ -17,11 +17,15 @@ runs:
     uses: hendrikmuhs/ccache-action@v1.2
     with:
       max-size: "10GB"
+      key: ccache-windows-${{ github.workflow }}
+      restore-keys: |
+        ccache-windows-
   - name: Configure ccache
     shell: pwsh
     run: |
       ccache --set-config=base_dir=C:\a\rocksdb\rocksdb
       ccache --set-config=hash_dir=false
+      ccache --set-config=compiler_check=content
   - name: Custom steps
     env:
       THIRDPARTY_HOME: ${{ github.workspace }}/thirdparty

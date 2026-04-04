@@ -1103,6 +1103,25 @@ DEFINE_bool(
     ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().enable_blob_files,
     "[Integrated BlobDB] Enable writing large values to separate blob files.");
 
+DEFINE_bool(
+    enable_blob_direct_write,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().enable_blob_direct_write,
+    "[Integrated BlobDB] Enable direct-write blob file creation on "
+    "the write path.");
+
+DEFINE_uint64(blob_direct_write_partitions,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_direct_write_partitions,
+              "[Integrated BlobDB] Number of partitions for direct-write blob "
+              "files.");
+
+static void RegisterDbBenchBdwFlagValidators() {
+  static const bool blob_direct_write_partitions_validator_registered =
+      RegisterFlagValidator(&FLAGS_blob_direct_write_partitions,
+                            &ValidateUint32Range);
+  (void)blob_direct_write_partitions_validator_registered;
+}
+
 DEFINE_uint64(min_blob_size,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().min_blob_size,
               "[Integrated BlobDB] The size of the smallest value to be stored "
@@ -1137,6 +1156,15 @@ DEFINE_uint64(blob_compaction_readahead_size,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
                   .blob_compaction_readahead_size,
               "[Integrated BlobDB] Compaction readahead for blob files.");
+
+DEFINE_double(read_triggered_compaction_threshold,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .read_triggered_compaction_threshold,
+              "Threshold for read-triggered compaction. An SST file is marked "
+              "for compaction when its sampled read frequency "
+              "(sampled_reads / file_size) exceeds this value. Collapsible "
+              "reads (NotFound, Merge, Delete results) are sampled. "
+              "0 disables the feature.");
 
 DEFINE_int32(
     blob_file_starting_level,
@@ -1779,6 +1807,10 @@ DEFINE_bool(dump_malloc_stats, true, "Dump malloc stats in LOG ");
 DEFINE_uint64(stats_dump_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
+DEFINE_uint64(
+    max_compaction_trigger_wakeup_seconds,
+    ROCKSDB_NAMESPACE::Options().max_compaction_trigger_wakeup_seconds,
+    "Maximum interval in seconds between periodic compaction trigger checks.");
 DEFINE_uint64(stats_persist_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_persist_period_sec,
               "Gap between persisting stats in seconds");
@@ -4425,6 +4457,8 @@ class Benchmark {
     options.dump_malloc_stats = FLAGS_dump_malloc_stats;
     options.stats_dump_period_sec =
         static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
+    options.max_compaction_trigger_wakeup_seconds =
+        FLAGS_max_compaction_trigger_wakeup_seconds;
     options.stats_persist_period_sec =
         static_cast<unsigned int>(FLAGS_stats_persist_period_sec);
     options.persist_stats_to_disk = FLAGS_persist_stats_to_disk;
@@ -4991,6 +5025,9 @@ class Benchmark {
 
     // Integrated BlobDB
     options.enable_blob_files = FLAGS_enable_blob_files;
+    options.enable_blob_direct_write = FLAGS_enable_blob_direct_write;
+    options.blob_direct_write_partitions =
+        static_cast<uint32_t>(FLAGS_blob_direct_write_partitions);
     options.min_blob_size = FLAGS_min_blob_size;
     options.blob_file_size = FLAGS_blob_file_size;
     options.blob_compression_type =
@@ -5004,6 +5041,8 @@ class Benchmark {
     options.blob_compaction_readahead_size =
         FLAGS_blob_compaction_readahead_size;
     options.blob_file_starting_level = FLAGS_blob_file_starting_level;
+    options.read_triggered_compaction_threshold =
+        FLAGS_read_triggered_compaction_threshold;
 
     if (FLAGS_readonly && FLAGS_transaction_db) {
       fprintf(stderr, "Cannot use readonly flag with transaction_db\n");
@@ -9243,6 +9282,7 @@ int db_bench_tool(int argc, char** argv, ToolHooks& hooks) {
     SetVersionString(GetRocksVersionAsString(true));
     initialized = true;
   }
+  RegisterDbBenchBdwFlagValidators();
   ParseCommandLineFlags(&argc, &argv, true);
   FLAGS_compaction_style_e =
       (ROCKSDB_NAMESPACE::CompactionStyle)FLAGS_compaction_style;

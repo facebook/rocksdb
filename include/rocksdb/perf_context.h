@@ -106,7 +106,8 @@ struct PerfContextBase {
   uint64_t compressed_sec_cache_compressed_bytes;
 
   uint64_t block_checksum_time;    // total nanos spent on block checksum
-  uint64_t block_decompress_time;  // total nanos spent on block decompression
+  uint64_t block_decompress_time;   // total nanos spent on block decompression
+  uint64_t block_decompress_count;  // total number of block decompressions
 
   uint64_t get_read_bytes;       // bytes for vals returned by Get
   uint64_t multiget_read_bytes;  // bytes for vals returned by MultiGet

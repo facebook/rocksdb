@@ -56,18 +56,23 @@ class UserDefinedIndexBuilder {
   // boundaries. Passed as a struct for forward-compatible extensibility
   // (new fields can be added without breaking existing implementations).
   struct IndexEntryContext {
-    // Sequence number of last_key_in_current_block.
-    SequenceNumber last_key_seq = 0;
-    // Sequence number of first_key_in_next_block (valid only when
-    // first_key_in_next_block != nullptr).
-    SequenceNumber first_key_seq = 0;
+    // Tag (packed sequence number and type) of last_key_in_current_block:
+    //   (sequence_number << 8) | value_type
+    // This is the same format used by InternalKeyComparator for ordering.
+    // UDI implementations that encode sequence numbers should store this
+    // tag (not just the sequence number) to ensure correct block
+    // selection when the same user key spans multiple blocks.
+    uint64_t last_key_tag = 0;
+    // Tag (packed sequence number and type) of first_key_in_next_block (valid
+    // only when first_key_in_next_block != nullptr).
+    uint64_t first_key_tag = 0;
   };
 
   virtual ~UserDefinedIndexBuilder() = default;
 
   // Add a new index entry for a data block boundary.
   //
-  // The keys are user keys (without the 8-byte internal key trailer).
+  // The keys are user keys (without the 8-byte tag).
   //
   // The UDI is free to compute a separator between the two user keys and
   // store it along with the block handle. The separator must satisfy:
@@ -138,10 +143,13 @@ class UserDefinedIndexIterator {
   // Optional context for SeekAndGetResult providing the target sequence
   // number. Passed as a struct for forward-compatible extensibility.
   struct SeekContext {
-    // Sequence number of the target key. Used by UDI implementations that
-    // encode sequence numbers (when the same user key spans multiple data
-    // blocks) to locate the correct block.
-    SequenceNumber target_seq = 0;
+    // Tag (packed sequence number and type) of the target key:
+    //   (sequence_number << 8) | value_type
+    // Used by UDI implementations that encode sequence numbers (when the
+    // same user key spans multiple data blocks) to locate the correct block.
+    // Must match the format stored in
+    // IndexEntryContext::last_key_tag.
+    uint64_t target_tag = 0;
   };
 
   // Position the index iterator at the very first index entry. The result
@@ -153,6 +161,28 @@ class UserDefinedIndexIterator {
   // more efficiently or if they use a comparator where empty is not smallest.
   virtual Status SeekToFirstAndGetResult(IterateResult* result) {
     return SeekAndGetResult(Slice(), result, SeekContext{});
+  }
+
+  // Position the index iterator at the very last index entry. The result
+  // must be populated the same way as SeekAndGetResult.
+  //
+  // The default implementation returns NotSupported. Concrete UDI
+  // implementations must override this to support reverse iteration
+  // (SeekToLast, Prev), which is required for full iterator functionality.
+  virtual Status SeekToLastAndGetResult(IterateResult* result) {
+    (void)result;
+    return Status::NotSupported("SeekToLast not supported by this UDI");
+  }
+
+  // Move to the previous index entry. The result must be populated the
+  // same way as SeekAndGetResult.
+  //
+  // The default implementation returns NotSupported. Concrete UDI
+  // implementations must override this to support reverse iteration
+  // (SeekToLast, Prev), which is required for full iterator functionality.
+  virtual Status PrevAndGetResult(IterateResult* result) {
+    (void)result;
+    return Status::NotSupported("Prev not supported by this UDI");
   }
 
   // Given the target key, position the index iterator at the index entry

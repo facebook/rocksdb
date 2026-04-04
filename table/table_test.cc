@@ -7410,6 +7410,56 @@ TEST_F(ExternalTableTest, PinnedGetTest) {
   ASSERT_EQ(factory->last_reader()->pin_cleanup_count(), 4);
 }
 
+TEST_F(ExternalTableTest, SstReaderPinnableMultiGetTest) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
+  Options options = GetDefaultOptions();
+  std::string dbname =
+      test::PerThreadDBPath("sst_reader_pinnable_multiget_test");
+  std::string sst_file = dbname + "/test.sst";
+  ASSERT_OK(options.env->CreateDirIfMissing(dbname));
+
+  std::unique_ptr<SstFileWriter> writer(
+      new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(sst_file));
+  ASSERT_OK(writer->Put("a", "val_a"));
+  ASSERT_OK(writer->Put("b", "val_b"));
+  ASSERT_OK(writer->Put("c", "val_c"));
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  std::unique_ptr<SstFileReader> reader(new SstFileReader(options));
+  ASSERT_OK(reader->Open(sst_file));
+
+  // Test PinnableSlice MultiGet
+  std::vector<Slice> keys = {"a", "b", "missing", "c"};
+  std::vector<PinnableSlice> values;
+  std::vector<Status> statuses = reader->MultiGet(ReadOptions(), keys, &values);
+  ASSERT_EQ(values.size(), keys.size());
+  ASSERT_EQ(statuses.size(), keys.size());
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0].ToString(), "val_a");
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[1].ToString(), "val_b");
+  ASSERT_TRUE(statuses[2].IsNotFound());
+  ASSERT_OK(statuses[3]);
+  ASSERT_EQ(values[3].ToString(), "val_c");
+
+  // Verify std::string MultiGet wrapper still works
+  std::vector<std::string> str_values;
+  statuses = reader->MultiGet(ReadOptions(), keys, &str_values);
+  ASSERT_EQ(str_values.size(), keys.size());
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(str_values[0], "val_a");
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(str_values[1], "val_b");
+  ASSERT_TRUE(statuses[2].IsNotFound());
+  ASSERT_OK(statuses[3]);
+  ASSERT_EQ(str_values[3], "val_c");
+}
+
 TEST_F(ExternalTableTest, ExternalFileChecksumTest) {
   if (encrypted_env_) {
     ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");

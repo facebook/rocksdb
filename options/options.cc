@@ -103,6 +103,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       min_blob_size(options.min_blob_size),
       blob_file_size(options.blob_file_size),
       blob_compression_type(options.blob_compression_type),
+      blob_compression_opts(options.blob_compression_opts),
       enable_blob_garbage_collection(options.enable_blob_garbage_collection),
       blob_garbage_collection_age_cutoff(
           options.blob_garbage_collection_age_cutoff),
@@ -447,6 +448,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                    blob_file_size);
   ROCKS_LOG_HEADER(log, "                  Options.blob_compression_type: %s",
                    CompressionTypeToString(blob_compression_type).c_str());
+  ROCKS_LOG_HEADER(log, "            Options.blob_compression_opts.level: %d",
+                   blob_compression_opts.level);
   ROCKS_LOG_HEADER(log, "         Options.enable_blob_garbage_collection: %s",
                    enable_blob_garbage_collection ? "true" : "false");
   ROCKS_LOG_HEADER(log, "     Options.blob_garbage_collection_age_cutoff: %f",
@@ -477,6 +480,11 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                    cf_allow_ingest_behind ? "true" : "false");
   ROCKS_LOG_HEADER(log, "  Options.memtable_batch_lookup_optimization: %s",
                    memtable_batch_lookup_optimization ? "true" : "false");
+  ROCKS_LOG_HEADER(log, "             Options.enable_blob_direct_write: %s",
+                   enable_blob_direct_write ? "true" : "false");
+  ROCKS_LOG_HEADER(log,
+                   "           Options.blob_direct_write_partitions: %" PRIu32,
+                   blob_direct_write_partitions);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {

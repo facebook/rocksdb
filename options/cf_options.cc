@@ -582,6 +582,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, periodic_compaction_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"read_triggered_compaction_threshold",
+         {offsetof(struct MutableCFOptions,
+                   read_triggered_compaction_threshold),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"preclude_last_level_data_seconds",
          {offsetof(struct MutableCFOptions, preclude_last_level_data_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
@@ -617,6 +622,24 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, blob_compression_type),
           OptionType::kCompressionType, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"blob_compression_opts",
+         OptionTypeInfo::Struct(
+             "blob_compression_opts", &compression_options_type_info,
+             offsetof(struct MutableCFOptions, blob_compression_opts),
+             OptionVerificationType::kNormal,
+             (OptionTypeFlags::kMutable | OptionTypeFlags::kCompareNever),
+             [](const ConfigOptions& opts, const std::string& name,
+                const std::string& value, void* addr) {
+               if (name == "blob_compression_opts" &&
+                   value.find('=') == std::string::npos) {
+                 auto* compression = static_cast<CompressionOptions*>(addr);
+                 return ParseCompressionOptions(value, name, *compression);
+               } else {
+                 return OptionTypeInfo::ParseStruct(
+                     opts, "blob_compression_opts",
+                     &compression_options_type_info, name, value, addr);
+               }
+             })},
         {"enable_blob_garbage_collection",
          {offsetof(struct MutableCFOptions, enable_blob_garbage_collection),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -916,6 +939,19 @@ static std::unordered_map<std::string, OptionTypeInfo>
             auto* cache = static_cast<std::shared_ptr<Cache>*>(addr);
             return Cache::CreateFromString(opts, value, cache);
           }}},
+        {"enable_blob_direct_write",
+         {offsetof(struct ImmutableCFOptions, enable_blob_direct_write),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"blob_direct_write_partitions",
+         {offsetof(struct ImmutableCFOptions, blob_direct_write_partitions),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"blob_direct_write_partition_strategy",
+         {offsetof(struct ImmutableCFOptions,
+                   blob_direct_write_partition_strategy),
+          OptionType::kUnknown, OptionVerificationType::kNormal,
+          (OptionTypeFlags::kCompareNever | OptionTypeFlags::kDontSerialize)}},
         {"persist_user_defined_timestamps",
          {offsetof(struct ImmutableCFOptions, persist_user_defined_timestamps),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -1067,6 +1103,10 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       compaction_thread_limiter(cf_options.compaction_thread_limiter),
       sst_partitioner_factory(cf_options.sst_partitioner_factory),
       blob_cache(cf_options.blob_cache),
+      enable_blob_direct_write(cf_options.enable_blob_direct_write),
+      blob_direct_write_partitions(cf_options.blob_direct_write_partitions),
+      blob_direct_write_partition_strategy(
+          cf_options.blob_direct_write_partition_strategy),
       persist_user_defined_timestamps(
           cf_options.persist_user_defined_timestamps),
       cf_allow_ingest_behind(cf_options.cf_allow_ingest_behind),
@@ -1209,6 +1249,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  ttl);
   ROCKS_LOG_INFO(log, "              periodic_compaction_seconds: %" PRIu64,
                  periodic_compaction_seconds);
+  ROCKS_LOG_INFO(log, "    read_triggered_compaction_threshold: %f",
+                 read_triggered_compaction_threshold);
   ROCKS_LOG_INFO(log,
                  "              preclude_last_level_data_seconds: %" PRIu64,
                  preclude_last_level_data_seconds);
@@ -1296,6 +1338,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  blob_file_size);
   ROCKS_LOG_INFO(log, "                    blob_compression_type: %s",
                  CompressionTypeToString(blob_compression_type).c_str());
+  ROCKS_LOG_INFO(log, "             blob_compression_opts.level: %d",
+                 blob_compression_opts.level);
   ROCKS_LOG_INFO(log, "           enable_blob_garbage_collection: %s",
                  enable_blob_garbage_collection ? "true" : "false");
   ROCKS_LOG_INFO(log, "       blob_garbage_collection_age_cutoff: %f",

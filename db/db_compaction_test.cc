@@ -119,6 +119,17 @@ class DBCompactionTest : public DBTestBase {
   DBCompactionTest()
       : DBTestBase("db_compaction_test", /*env_do_fsync=*/false) {}
 
+  void TearDown() override {
+    // Reset Env::Default() thread pool state that tests may have modified.
+    // Under sharded execution multiple tests share a process, so leaked
+    // thread-pool sizes (especially BOTTOM) cause later tests to see
+    // unexpected compaction scheduling (e.g. ForwardToBottomPriPool).
+    Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
+    Env::Default()->SetBackgroundThreads(1, Env::Priority::LOW);
+    Env::Default()->SetBackgroundThreads(1, Env::Priority::HIGH);
+    DBTestBase::TearDown();
+  }
+
  protected:
   /*
    * Verifies compaction stats of cfd are valid.
@@ -11682,6 +11693,76 @@ TEST_F(DBCompactionTest, PeriodicTask) {
   Close();
 }
 
+TEST_F(DBCompactionTest, ReadTriggeredCompaction) {
+  Options options = CurrentOptions();
+  options.num_levels = 3;
+  options.level0_file_num_compaction_trigger = 10;
+  options.read_triggered_compaction_threshold = 0.001;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // Write data at L2 first so L1 is not the bottommost level
+  Random rnd(301);
+  for (int i = 0; i < 5; ++i) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(1024)));
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+  ASSERT_EQ("0,0,1", FilesPerLevel());
+
+  // Write more data and move to L1 (the hot level)
+  for (int i = 5; i < 10; ++i) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(1024)));
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_EQ("0,1,1", FilesPerLevel());
+
+  ColumnFamilyMetaData cf_meta;
+  dbfull()->GetColumnFamilyMetaData(dbfull()->DefaultColumnFamily(), &cf_meta);
+  ASSERT_EQ(cf_meta.levels[1].files.size(), 1);
+  uint64_t file_size = cf_meta.levels[1].files[0].size;
+  // Set reads high enough to exceed threshold (0.001 * file_size)
+  uint64_t reads_needed =
+      static_cast<uint64_t>(0.002 * static_cast<double>(file_size));
+
+  {
+    auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
+                    dbfull()->DefaultColumnFamily())
+                    ->cfd();
+    auto* vstorage = cfd->current()->storage_info();
+    for (auto* f : vstorage->LevelFiles(1)) {
+      f->stats.num_collapsible_entry_reads_sampled.store(reads_needed);
+    }
+  }
+
+  std::atomic<int> read_triggered_compactions{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = static_cast<Compaction*>(arg);
+        if (compaction->compaction_reason() ==
+            CompactionReason::kReadTriggered) {
+          read_triggered_compactions.fetch_add(1, std::memory_order_relaxed);
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Enable auto compactions to trigger
+  ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ASSERT_GE(read_triggered_compactions, 1);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  // Verify the L1 file was compacted down (L1 should be empty now)
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
+
+  // Verify data integrity: all keys are still readable
+  for (int i = 0; i < 10; ++i) {
+    ASSERT_NE(Get(Key(i)), "NOT_FOUND");
+  }
+}
+
 // Regression test for a bug in SetupOtherFilesWithRoundRobinExpansion where
 // duplicate files are added to the compaction input, corrupting
 // ExpandInputsToCleanCut and violating the clean-cut invariant. The bug
@@ -11809,6 +11890,88 @@ TEST_F(DBCompactionTest, LeakedTableCacheEntryOnCompactionFailure) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // Trigger compaction — fails after VerifyOutputFiles.
+  Status s = dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  ASSERT_NOK(s);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Enable metadata read fault injection on the main thread too, so
+  // Close()'s FindObsoleteFiles also fails to find the orphan file.
+  fault_fs->SetThreadLocalErrorContext(
+      FaultInjectionIOType::kMetadataRead, /*seed=*/0, /*one_in=*/1,
+      /*retryable=*/false, /*has_data_loss=*/false);
+  fault_fs->EnableThreadLocalErrorInjection(
+      FaultInjectionIOType::kMetadataRead);
+
+  // TEST_VerifyNoObsoleteFilesCached asserted within Close on ASAN builds
+  s = db_->Close();
+  ASSERT_OK(s);
+  // Release DB before fault_env goes out of scope to avoid use-after-free.
+  db_ = nullptr;
+}
+
+// Regression test for table cache leak when InstallCompactionResults fails.
+// Similar to LeakedTableCacheEntryOnCompactionFailure but the failure occurs
+// during Install() (MANIFEST write) rather than during Run().
+// 1. Compaction Run() succeeds: all subcompactions OK, VerifyOutputFiles
+//    inserts output files into the table cache, compact_->status = OK.
+// 2. Install() calls InstallCompactionResults() -> LogAndApply(), which
+//    fails (injected MANIFEST write error).
+// 3. Install()'s local status captures the error, but compact_->status
+//    was never updated (THE BUG). CleanupCompaction passes compact_->status
+//    (OK) to Cleanup(), which skips ReleaseObsolete.
+// 4. FaultInjection prevents FindObsoleteFiles backstop from working.
+// 5. Close()'s TEST_VerifyNoObsoleteFilesCached finds the leaked entry.
+TEST_F(DBCompactionTest, LeakedTableCacheEntryOnInstallFailure) {
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> fault_env(NewCompositeEnv(fault_fs));
+
+  Options options = CurrentOptions();
+  options.env = fault_env.get();
+  options.paranoid_file_checks = true;
+  options.level0_file_num_compaction_trigger = 2;
+  options.disable_auto_compactions = true;
+  options.num_levels = 3;
+  DestroyAndReopen(options);
+
+  // Write overlapping data to force a real (non-trivial) compaction.
+  ASSERT_OK(Put("a", std::string(1024, 'x')));
+  ASSERT_OK(Put("z", std::string(1024, 'x')));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("a", std::string(1024, 'y')));
+  ASSERT_OK(Put("z", std::string(1024, 'y')));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+
+  // After VerifyOutputFiles succeeds (cache entries created) and Run()
+  // completes successfully, inject an error into InstallCompactionResults()
+  // so that Install() fails while compact_->status remains OK.
+  // Also enable metadata read faults to prevent the FindObsoleteFiles
+  // backstop from evicting the leaked cache entries.
+  std::atomic<bool> inject_error{true};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::InstallCompactionResults:BeforeLogAndApply",
+      [&](void* arg) {
+        if (inject_error.exchange(false)) {
+          *static_cast<Status*>(arg) = Status::IOError("injected");
+        }
+      });
+
+  // After the compaction job finishes (including Install), enable metadata
+  // read faults so FindObsoleteFiles backstop cannot scan the directory.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BackgroundCallCompaction:1", [&](void*) {
+        fault_fs->SetThreadLocalErrorContext(
+            FaultInjectionIOType::kMetadataRead, /*seed=*/0, /*one_in=*/1,
+            /*retryable=*/false, /*has_data_loss=*/false);
+        fault_fs->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Trigger compaction — Run() succeeds but Install() fails.
   Status s = dbfull()->TEST_CompactRange(0, nullptr, nullptr);
   ASSERT_NOK(s);
 

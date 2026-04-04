@@ -1700,6 +1700,61 @@ TEST_F(EnvPosixTest, MultiReadIOUringError2) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
+TEST_F(EnvPosixTest, SupportedOpsNoAsyncIOOnIOUringInitFailure) {
+  // Verify that SupportedOps does not advertise kAsyncIO when CreateIOUring
+  // fails on the calling thread.
+  auto fs = FileSystem::Default();
+  int64_t supported_ops = 0;
+
+  // Check baseline on the current thread.
+  fs->SupportedOps(supported_ops);
+  bool baseline_has_async =
+      (supported_ops & (1 << FSSupportedOps::kAsyncIO)) != 0;
+
+  if (!baseline_has_async) {
+    // Platform doesn't support io_uring at all, nothing to test.
+    return;
+  }
+
+  // Simulate CreateIOUring failure by nullifying the returned pointer.
+  // Count how many times CreateIOUring is invoked to verify caching.
+  int create_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "PosixFileSystem::SupportedOps:CreateIOUring", [&](void* arg) {
+        ++create_count;
+        auto* iu_ptr = static_cast<struct io_uring**>(arg);
+        if (*iu_ptr != nullptr) {
+          DeleteIOUring(*iu_ptr);
+          *iu_ptr = nullptr;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Run SupportedOps on a new thread so the thread-local io_uring is
+  // uninitialized and CreateIOUring (+ our sync point) will be invoked.
+  // Call it twice on the same thread: the second call must NOT retry
+  // CreateIOUring (the failure should be cached).
+  int64_t thread_supported_ops = 0;
+  int64_t thread_supported_ops2 = 0;
+  std::thread t([&]() {
+    fs->SupportedOps(thread_supported_ops);
+    // Second call on the same thread — cached failure, no retry.
+    fs->SupportedOps(thread_supported_ops2);
+  });
+  t.join();
+
+  ASSERT_EQ(thread_supported_ops & (1 << FSSupportedOps::kAsyncIO), 0);
+  // kFSPrefetch should still be set.
+  ASSERT_NE(thread_supported_ops & (1 << FSSupportedOps::kFSPrefetch), 0);
+  // Second call should also lack kAsyncIO.
+  ASSERT_EQ(thread_supported_ops2 & (1 << FSSupportedOps::kAsyncIO), 0);
+  ASSERT_NE(thread_supported_ops2 & (1 << FSSupportedOps::kFSPrefetch), 0);
+  // CreateIOUring must have been called exactly once — not retried.
+  ASSERT_EQ(create_count, 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
 #endif  // ROCKSDB_IOURING_PRESENT
 
 // Only works in linux platforms
@@ -3728,6 +3783,71 @@ TEST_F(TestAsyncRead, InterleavingIOUringOperations) {
 #endif
 }
 
+// Test that ReadAsync returns IOStatus::Busy when io_uring_get_sqe returns
+// null (submission queue full), rather than crashing on a null SQE dereference.
+// Uses SyncPoint injection to simulate the null SQE since io_uring_submit is
+// called per-request, making it difficult to naturally saturate the SQ.
+TEST_F(TestAsyncRead, ReadAsyncQueueFull) {
+#if defined(ROCKSDB_IOURING_PRESENT)
+  std::shared_ptr<FileSystem> fs = env_->GetFileSystem();
+  std::string fname = test::PerThreadDBPath(env_, "testfile_queuefull");
+
+  constexpr size_t kSectorSize = 4096;
+
+  // 1. Create a test file.
+  {
+    std::unique_ptr<FSWritableFile> wfile;
+    ASSERT_OK(
+        fs->NewWritableFile(fname, FileOptions(), &wfile, nullptr /*dbg*/));
+    auto data = NewAligned(kSectorSize * 8, 'x');
+    Slice slice(data.get(), kSectorSize);
+    ASSERT_OK(wfile->Append(slice, IOOptions(), nullptr));
+    ASSERT_OK(wfile->Close(IOOptions(), nullptr));
+  }
+
+  // 2. Open the file and verify ReadAsync handles null SQE gracefully.
+  {
+    std::unique_ptr<FSRandomAccessFile> file;
+    ASSERT_OK(fs->NewRandomAccessFile(fname, FileOptions(), &file, nullptr));
+
+    // Force io_uring_get_sqe to appear to return null via SyncPoint.
+    SyncPoint::GetInstance()->SetCallBack(
+        "PosixRandomAccessFile::ReadAsync:io_uring_get_sqe",
+        [](void* arg) { *static_cast<io_uring_sqe**>(arg) = nullptr; });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    IOOptions opts;
+    auto scratch = NewAligned(kSectorSize, 0);
+    FSReadRequest req;
+    req.offset = 0;
+    req.len = kSectorSize;
+    req.scratch = scratch.get();
+
+    void* io_handle = nullptr;
+    IOHandleDeleter del_fn = nullptr;
+    std::function<void(FSReadRequest&, void*)> callback =
+        [](FSReadRequest& /*req*/, void* /*cb_arg*/) {};
+
+    IOStatus s = file->ReadAsync(req, opts, callback, nullptr, &io_handle,
+                                 &del_fn, nullptr);
+
+    if (s.IsNotSupported()) {
+      fprintf(stderr, "Skipping test - io_uring not supported: %s\n",
+              s.ToString().c_str());
+    } else {
+      ASSERT_TRUE(s.IsBusy()) << s.ToString();
+      ASSERT_EQ(io_handle, nullptr);
+      ASSERT_EQ(del_fn, nullptr);
+    }
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
+#else
+  fprintf(stderr, "Skipping test - ROCKSDB_IOURING_PRESENT not defined\n");
+#endif
+}
+
 // Helper function to run AbortIO test with parameterized read requests.
 // Each request is specified as {offset, length}.
 // use_direct_io: if true, opens the file with O_DIRECT to bypass page cache.
@@ -4156,6 +4276,70 @@ TEST_F(TestIOActivity, IOActivityToString) {
             "CustomIOActivityFE");
 
   ASSERT_EQ(Env::IOActivityToString(Env::IOActivity::kUnknown), "Unknown");
+}
+
+TEST_F(EnvTest, WriteStringToFileClosesFile) {
+  auto counted_fs = std::make_shared<CountedFileSystem>(FileSystem::Default());
+  std::string fname = test::PerThreadDBPath("write_string_close_test");
+
+  // Write a file using WriteStringToFile
+  ASSERT_OK(WriteStringToFile(counted_fs.get(), "hello world", fname,
+                              /*should_sync=*/false));
+
+  // Verify Close() was called (closes counter should be > 0)
+  ASSERT_GT(counted_fs->counters()->closes.load(), 0);
+
+  // Verify the content was written correctly
+  std::string result;
+  ASSERT_OK(ReadFileToString(counted_fs.get(), fname, &result));
+  ASSERT_EQ(result, "hello world");
+
+  // Clean up
+  ASSERT_OK(counted_fs->DeleteFile(fname, IOOptions(), nullptr));
+}
+
+// Writable file wrapper that injects a Close() failure.
+// Uses FSWritableFileOwnerWrapper to properly take ownership of the wrapped
+// file.
+class CloseFailWritableFile : public FSWritableFileOwnerWrapper {
+ public:
+  explicit CloseFailWritableFile(std::unique_ptr<FSWritableFile>&& target)
+      : FSWritableFileOwnerWrapper(std::move(target)) {}
+  IOStatus Close(const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    return IOStatus::IOError("injected close failure");
+  }
+};
+
+// FileSystem wrapper that wraps writable files with CloseFailWritableFile.
+class CloseFailFS : public FileSystemWrapper {
+ public:
+  explicit CloseFailFS(const std::shared_ptr<FileSystem>& base)
+      : FileSystemWrapper(base) {}
+  const char* Name() const override { return "CloseFailFS"; }
+  IOStatus NewWritableFile(const std::string& fname,
+                           const FileOptions& file_opts,
+                           std::unique_ptr<FSWritableFile>* result,
+                           IODebugContext* dbg) override {
+    IOStatus s = target()->NewWritableFile(fname, file_opts, result, dbg);
+    if (s.ok()) {
+      result->reset(new CloseFailWritableFile(std::move(*result)));
+    }
+    return s;
+  }
+};
+
+TEST_F(EnvTest, WriteStringToFileCloseFailureDeletesFile) {
+  auto close_fail_fs = std::make_shared<CloseFailFS>(FileSystem::Default());
+  std::string fname = test::PerThreadDBPath("write_string_close_fail_test");
+
+  auto s = WriteStringToFile(close_fail_fs.get(), "hello world", fname,
+                             /*should_sync=*/false);
+  ASSERT_NOK(s);
+
+  // The file should have been deleted on failure
+  auto exists = FileSystem::Default()->FileExists(fname, IOOptions(), nullptr);
+  ASSERT_TRUE(exists.IsNotFound()) << exists.ToString();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

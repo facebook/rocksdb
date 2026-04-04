@@ -39,6 +39,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class BlobFilePartitionManager;
 struct FlushJobInfo;
 class Mutex;
 class MemTableIterator;
@@ -363,10 +364,21 @@ class ReadOnlyMemTable {
     --refs_;
     assert(refs_ >= 0);
     if (refs_ <= 0) {
+      ReleaseProtectedSealedBlobFiles();
       return this;
     }
     return nullptr;
   }
+
+  // Registers sealed direct-write blob files that this memtable can still
+  // resolve through lazy blob indexes. The protection lasts until the
+  // memtable's final Unref(). The manager handle is shared here because
+  // immutable memtables can outlive the ColumnFamilyData that created them.
+  // REQUIRES: external synchronization to prevent simultaneous operations on
+  // the same MemTable.
+  void ProtectSealedBlobFiles(
+      const std::shared_ptr<BlobFilePartitionManager>& blob_partition_manager,
+      const std::vector<uint64_t>& file_numbers);
 
   // Returns the edits area that is needed for flushing the memtable
   VersionEdit* GetEdits() { return &edit_; }
@@ -551,6 +563,12 @@ class ReadOnlyMemTable {
   std::unique_ptr<FlushJobInfo> flush_job_info_;
 
   RelaxedAtomic<bool> marked_for_flush_{false};
+
+ private:
+  void ReleaseProtectedSealedBlobFiles();
+
+  std::shared_ptr<BlobFilePartitionManager> protected_blob_file_manager_;
+  std::vector<uint64_t> protected_blob_file_numbers_;
 };
 
 class MemTable final : public ReadOnlyMemTable {
@@ -982,15 +1000,8 @@ class MemTable final : public ReadOnlyMemTable {
 
   // makes sure there is a single range tombstone writer to invalidate cache
   std::mutex range_del_mutex_;
-#if defined(__cpp_lib_atomic_shared_ptr)
-  CoreLocalArray<
-      std::atomic<std::shared_ptr<FragmentedRangeTombstoneListCache>>>
-      cached_range_tombstone_;
-#else
   CoreLocalArray<std::shared_ptr<FragmentedRangeTombstoneListCache>>
       cached_range_tombstone_;
-
-#endif
   void UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
                            const Slice& key, const Slice& value, ValueType type,
                            SequenceNumber s, char* checksum_ptr);

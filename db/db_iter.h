@@ -21,6 +21,7 @@
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
+class BlobFileCache;
 class Version;
 
 // This file declares the factory functions of DBIter, in its original form
@@ -256,16 +257,18 @@ class DBIter final : public Iterator {
    public:
     BlobReader(const Version* version, ReadTier read_tier,
                bool verify_checksums, bool fill_cache,
-               Env::IOActivity io_activity)
+               Env::IOActivity io_activity, BlobFileCache* blob_file_cache)
         : version_(version),
           read_tier_(read_tier),
           verify_checksums_(verify_checksums),
           fill_cache_(fill_cache),
-          io_activity_(io_activity) {}
+          io_activity_(io_activity),
+          blob_file_cache_(blob_file_cache) {}
 
     const Slice& GetBlobValue() const { return blob_value_; }
     Status RetrieveAndSetBlobValue(const Slice& user_key,
-                                   const Slice& blob_index);
+                                   const Slice& blob_index,
+                                   bool allow_write_path_fallback);
     void ResetBlobValue() { blob_value_.Reset(); }
 
    private:
@@ -275,6 +278,9 @@ class DBIter final : public Iterator {
     bool verify_checksums_;
     bool fill_cache_;
     Env::IOActivity io_activity_;
+    // Cache used by the write-path fallback for in-flight direct-write blob
+    // files that are not yet reachable through Version.
+    BlobFileCache* blob_file_cache_;
   };
 
   // For all methods in this block:

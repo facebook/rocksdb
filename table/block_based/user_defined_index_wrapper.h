@@ -69,8 +69,12 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
       // cannot produce a separator that distinguishes the two blocks,
       // causing incorrect Seek results.
       UserDefinedIndexBuilder::IndexEntryContext ctx;
-      ctx.last_key_seq = pkey_last.sequence;
-      ctx.first_key_seq = first_key_in_next_block ? pkey_first.sequence : 0;
+      ctx.last_key_tag =
+          PackSequenceAndType(pkey_last.sequence, pkey_last.type);
+      ctx.first_key_tag =
+          first_key_in_next_block
+              ? PackSequenceAndType(pkey_first.sequence, pkey_first.type)
+              : 0;
       user_defined_index_builder_->AddIndexEntry(
           pkey_last.user_key,
           first_key_in_next_block ? &pkey_first.user_key : nullptr, handle,
@@ -234,19 +238,12 @@ class UserDefinedIndexIteratorWrapper
 
   void SeekToFirst() override {
     status_ = udi_iter_->SeekToFirstAndGetResult(&result_);
-    if (status_.ok()) {
-      valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
-      if (valid_) {
-        SetInternalKeyFromUDIResult();
-      }
-    } else {
-      valid_ = false;
-    }
+    UpdateValidAndKey();
   }
 
   void SeekToLast() override {
-    valid_ = false;
-    status_ = Status::NotSupported("SeekToLast not supported");
+    status_ = udi_iter_->SeekToLastAndGetResult(&result_);
+    UpdateValidAndKey();
   }
 
   void Seek(const Slice& target) override {
@@ -259,64 +256,47 @@ class UserDefinedIndexIteratorWrapper
       // due to snapshots). Without it, the UDI cannot distinguish which
       // block to return for a given (user_key, seqno) target.
       UserDefinedIndexIterator::SeekContext ctx;
-      ctx.target_seq = pkey.sequence;
+      ctx.target_tag = PackSequenceAndType(pkey.sequence, pkey.type);
       status_ = udi_iter_->SeekAndGetResult(pkey.user_key, &result_, ctx);
     }
-    if (status_.ok()) {
-      valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
-      if (valid_) {
-        SetInternalKeyFromUDIResult();
-      }
-    } else {
-      valid_ = false;
-    }
+    UpdateValidAndKey();
   }
 
   void Next() override {
     status_ = udi_iter_->NextAndGetResult(&result_);
-    if (status_.ok()) {
-      valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
-      if (valid_) {
-        SetInternalKeyFromUDIResult();
-      }
-    } else {
-      valid_ = false;
-    }
+    UpdateValidAndKey();
   }
 
   bool NextAndGetResult(IterateResult* result) override {
     status_ = udi_iter_->NextAndGetResult(&result_);
+    UpdateValidAndKey();
     if (status_.ok()) {
-      valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
       if (valid_) {
-        SetInternalKeyFromUDIResult();
         result->key = key();
       }
       result->bound_check_result = result_.bound_check_result;
       result->value_prepared = result_.value_prepared;
-    } else {
-      valid_ = false;
     }
     return valid_;
   }
 
   void SeekForPrev(const Slice& /*target*/) override {
+    // BlockBasedTableIterator never calls SeekForPrev on the index iterator.
+    // It uses Seek + FindKeyBackward(Prev) instead. The standard index's
+    // IndexBlockIter::SeekForPrevImpl is also assert(false). Keep this as
+    // NotSupported for safety.
     valid_ = false;
     status_ = Status::NotSupported("SeekForPrev not supported");
   }
 
   void Prev() override {
-    valid_ = false;
-    status_ = Status::NotSupported("Prev not supported");
+    status_ = udi_iter_->PrevAndGetResult(&result_);
+    UpdateValidAndKey();
   }
 
   Slice key() const override { return Slice(*ikey_.const_rep()); }
 
-  IndexValue value() const override {
-    auto handle = udi_iter_->value();
-    IndexValue val(BlockHandle(handle.offset, handle.size), Slice());
-    return val;
-  }
+  IndexValue value() const override { return cached_value_; }
 
   Status status() const override { return status_; }
 
@@ -332,20 +312,44 @@ class UserDefinedIndexIteratorWrapper
   }
 
  private:
+  // Common logic after every UDI positioning operation: check status, update
+  // valid_, and build the internal key + cache the IndexValue if valid.
+  void UpdateValidAndKey() {
+    if (status_.ok()) {
+      valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
+      if (valid_) {
+        SetInternalKeyFromUDIResult();
+      }
+    } else {
+      valid_ = false;
+    }
+  }
+
   // Convert the UDI result's user key into an internal key for the index
   // iterator contract. UDI separators are user keys, but
   // InternalIteratorBase<IndexValue> must expose internal keys (user key +
-  // 8-byte trailer). We use seq=0 / kTypeValue so that the resulting
+  // 8-byte tag). We use seq=0 / kTypeValue so that the resulting
   // internal key compares as "greater than or equal to" any real data key
   // with the same user key (lower seqno = later in internal key order),
   // which is the correct upper-bound semantics for an index separator.
   void SetInternalKeyFromUDIResult() {
     ikey_.Set(result_.key, 0, ValueType::kTypeValue);
+    CacheCurrentValue();
+  }
+
+  // Cache the IndexValue after each positioning operation so that repeated
+  // value() calls (5-10 per block in BlockBasedTableIterator) are a simple
+  // field return instead of a virtual dispatch through udi_iter_->value().
+  void CacheCurrentValue() {
+    auto handle = udi_iter_->value();
+    cached_value_ =
+        IndexValue(BlockHandle(handle.offset, handle.size), Slice());
   }
 
   std::unique_ptr<UserDefinedIndexIterator> udi_iter_;
   IterateResult result_;
   InternalKey ikey_;
+  IndexValue cached_value_;
   Status status_;
   bool valid_;
 };

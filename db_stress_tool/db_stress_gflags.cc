@@ -483,6 +483,29 @@ DEFINE_bool(
     ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().enable_blob_files,
     "[Integrated BlobDB] Enable writing large values to separate blob files.");
 
+DEFINE_bool(
+    enable_blob_direct_write,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().enable_blob_direct_write,
+    "[Integrated BlobDB] Enable direct-write blob file creation on "
+    "the write path.");
+
+DEFINE_uint64(blob_direct_write_partitions,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_direct_write_partitions,
+              "[Integrated BlobDB] Number of partitions for direct-write blob "
+              "files.");
+
+namespace ROCKSDB_NAMESPACE {
+
+void RegisterDbStressBdwFlagValidators() {
+  static const bool blob_direct_write_partitions_validator_registered =
+      RegisterFlagValidator(&FLAGS_blob_direct_write_partitions,
+                            &ValidateUint32Range);
+  (void)blob_direct_write_partitions_validator_registered;
+}
+
+}  // namespace ROCKSDB_NAMESPACE
+
 DEFINE_uint64(min_blob_size,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().min_blob_size,
               "[Integrated BlobDB] The size of the smallest value to be stored "
@@ -645,12 +668,11 @@ DEFINE_double(uniform_cv_threshold,
 
 DEFINE_bool(use_trie_index, false,
             "Use trie-based user defined index (UDI) for SST files. "
-            "Compatible with all operation types (Put, Delete, Merge, etc.). "
-            "Backward scan is disabled when this is enabled.");
+            "Compatible with all operation types (Put, Delete, Merge, etc.) "
+            "and all iteration directions (forward and reverse).");
 
 DEFINE_bool(test_backward_scan, true,
-            "Test backward iteration (Prev, SeekForPrev) in stress tests. "
-            "Automatically set to false when use_trie_index is enabled.");
+            "Test backward iteration (Prev, SeekForPrev) in stress tests.");
 
 DEFINE_string(db, "", "Use the db with the following name.");
 
@@ -1321,6 +1343,11 @@ DEFINE_uint64(stats_dump_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
 
+DEFINE_uint64(
+    max_compaction_trigger_wakeup_seconds,
+    ROCKSDB_NAMESPACE::Options().max_compaction_trigger_wakeup_seconds,
+    "Sets DB option max_compaction_trigger_wakeup_seconds.");
+
 DEFINE_bool(verification_only, false,
             "If true, tests will only execute verification step");
 extern "C" bool RocksDbIOUringEnable() { return true; }
@@ -1596,6 +1623,10 @@ DEFINE_int32(compaction_on_deletion_window_size, 100,
 DEFINE_double(compaction_on_deletion_ratio, 0.5,
               "Deletion ratio threshold for triggering compaction. "
               "Default: 0.5 (50%)");
+
+DEFINE_double(read_triggered_compaction_threshold,
+              ROCKSDB_NAMESPACE::Options().read_triggered_compaction_threshold,
+              "Sets CF option read_triggered_compaction_threshold.");
 
 DEFINE_bool(
     auto_refresh_iterator_with_snapshot,

@@ -692,6 +692,20 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  public DBOptions setMaxCompactionTriggerWakeupSeconds(
+      final long maxCompactionTriggerWakeupSeconds) {
+    assert (isOwningHandle());
+    setMaxCompactionTriggerWakeupSeconds(nativeHandle_, maxCompactionTriggerWakeupSeconds);
+    return this;
+  }
+
+  @Override
+  public long maxCompactionTriggerWakeupSeconds() {
+    assert (isOwningHandle());
+    return maxCompactionTriggerWakeupSeconds(nativeHandle_);
+  }
+
+  @Override
   public DBOptions setStatsPersistPeriodSec(
       final int statsPersistPeriodSec) {
     assert(isOwningHandle());
@@ -1335,6 +1349,9 @@ public class DBOptions extends RocksObject
   private static native boolean isFdCloseOnExec(long handle);
   private static native void setStatsDumpPeriodSec(long handle, int statsDumpPeriodSec);
   private static native int statsDumpPeriodSec(long handle);
+  private static native void setMaxCompactionTriggerWakeupSeconds(
+      long handle, long maxCompactionTriggerWakeupSeconds);
+  private static native long maxCompactionTriggerWakeupSeconds(long handle);
   private static native void setStatsPersistPeriodSec(
       final long handle, final int statsPersistPeriodSec);
   private static native int statsPersistPeriodSec(final long handle);
