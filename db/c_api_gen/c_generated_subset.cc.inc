@@ -10,9 +10,9 @@
 //     --section 'WriteBatch' --section 'Transaction'
 //     --section 'TransactionDB simple'
 //     --header-out
-//     /home/xbw/workspace/ws49/rocksdb/include/rocksdb/c_api_gen/c_generated_subset.h.inc
+//     include/rocksdb/c_api_gen/c_generated_subset.h.inc
 //     --source-out
-//     /home/xbw/workspace/ws49/rocksdb/db/c_api_gen/c_generated_subset.cc.inc
+//     db/c_api_gen/c_generated_subset.cc.inc
 
 /* DB data operations */
 

@@ -8,9 +8,9 @@
 //   python3 tools/c_api_gen/generate_c_api.py
 //     --spec tools/c_api_gen/spec.json --section 'JobInfo metadata simple'
 //     --header-out
-//     /home/xbw/workspace/ws49/rocksdb/include/rocksdb/c_api_gen/c_generated_jobinfo_metadata_subset.h.inc
+//     include/rocksdb/c_api_gen/c_generated_jobinfo_metadata_subset.h.inc
 //     --source-out
-//     /home/xbw/workspace/ws49/rocksdb/db/c_api_gen/c_generated_jobinfo_metadata_subset.cc.inc
+//     db/c_api_gen/c_generated_jobinfo_metadata_subset.cc.inc
 
 /* JobInfo metadata simple */
 

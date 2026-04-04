@@ -612,10 +612,18 @@ TEST_F(CompactFilesTest, TrivialMoveNonOverlappingFiles) {
   // Move the file from L1 to L6 - this should be a trivial move
   // because the file doesn't overlap with anything in L6
   std::vector<std::string> files_to_move = {l1_file_to_move};
-  ASSERT_OK(db->CompactFiles(compact_option, files_to_move, 6));
+  CompactionJobInfo compaction_job_info{};
+  ASSERT_OK(db->CompactFiles(compact_option, files_to_move, 6, -1, nullptr,
+                             &compaction_job_info));
 
   // Verify trivial move was executed
   ASSERT_TRUE(trivial_move_executed);
+  ASSERT_OK(compaction_job_info.status);
+  ASSERT_GT(compaction_job_info.job_id, 0);
+  ASSERT_EQ(compaction_job_info.base_input_level, 1);
+  ASSERT_EQ(compaction_job_info.output_level, 6);
+  ASSERT_EQ(compaction_job_info.compaction_reason,
+            CompactionReason::kManualCompaction);
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();

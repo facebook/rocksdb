@@ -20,6 +20,8 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
 from typing import Iterable
 
 
@@ -206,10 +208,18 @@ def section_comment_lines(
         else:
             current += addition
     lines.append(current)
+    try:
+        rel_header = header_out.relative_to(ROOT)
+    except ValueError:
+        rel_header = header_out
+    try:
+        rel_source = source_out.relative_to(ROOT)
+    except ValueError:
+        rel_source = source_out
     lines.append("//     --header-out")
-    lines.append(f"//     {header_out}")
+    lines.append(f"//     {rel_header}")
     lines.append("//     --source-out")
-    lines.append(f"//     {source_out}")
+    lines.append(f"//     {rel_source}")
     lines.append("")
     return lines
 

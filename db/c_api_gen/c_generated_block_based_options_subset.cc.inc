@@ -8,9 +8,9 @@
 //   python3 tools/c_api_gen/generate_c_api.py
 //     --spec tools/c_api_gen/spec.json --section 'BlockBasedOptions simple'
 //     --header-out
-//     /home/xbw/workspace/ws49/rocksdb/include/rocksdb/c_api_gen/c_generated_block_based_options_subset.h.inc
+//     include/rocksdb/c_api_gen/c_generated_block_based_options_subset.h.inc
 //     --source-out
-//     /home/xbw/workspace/ws49/rocksdb/db/c_api_gen/c_generated_block_based_options_subset.cc.inc
+//     db/c_api_gen/c_generated_block_based_options_subset.cc.inc
 
 /* BlockBasedOptions simple */
 
