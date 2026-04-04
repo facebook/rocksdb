@@ -70,6 +70,7 @@ using ROCKSDB_NAMESPACE::ColumnFamilyOptions;
 using ROCKSDB_NAMESPACE::CompactionFilter;
 using ROCKSDB_NAMESPACE::CompactionFilterFactory;
 using ROCKSDB_NAMESPACE::CompactionJobInfo;
+using ROCKSDB_NAMESPACE::CompactionOptions;
 using ROCKSDB_NAMESPACE::CompactionOptionsFIFO;
 using ROCKSDB_NAMESPACE::CompactionReason;
 using ROCKSDB_NAMESPACE::CompactionService;
@@ -213,6 +214,9 @@ struct rocksdb_options_t {
 struct rocksdb_compactoptions_t {
   CompactRangeOptions rep;
   Slice full_history_ts_low;
+};
+struct rocksdb_compaction_options_t {
+  CompactionOptions rep;
 };
 struct rocksdb_block_based_table_options_t {
   BlockBasedTableOptions rep;
@@ -2659,6 +2663,29 @@ void rocksdb_compact_range_cf_opt(rocksdb_t* db,
       // Pass nullptr Slice if corresponding "const char*" is nullptr
       (start_key ? (a = Slice(start_key, start_key_len), &a) : nullptr),
       (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : nullptr));
+}
+
+void rocksdb_compact_files(rocksdb_t* db,
+                           const rocksdb_compaction_options_t* opt,
+                           const char* const* input_file_names,
+                           size_t num_input_files, int output_level,
+                           int output_path_id, char** errptr) {
+  std::vector<std::string> files(input_file_names,
+                                 input_file_names + num_input_files);
+  SaveError(errptr, db->rep->CompactFiles(opt->rep, files, output_level,
+                                          output_path_id));
+}
+
+void rocksdb_compact_files_cf(rocksdb_t* db,
+                              rocksdb_column_family_handle_t* column_family,
+                              const rocksdb_compaction_options_t* opt,
+                              const char* const* input_file_names,
+                              size_t num_input_files, int output_level,
+                              int output_path_id, char** errptr) {
+  std::vector<std::string> files(input_file_names,
+                                 input_file_names + num_input_files);
+  SaveError(errptr, db->rep->CompactFiles(opt->rep, column_family->rep, files,
+                                          output_level, output_path_id));
 }
 
 void rocksdb_flush(rocksdb_t* db, const rocksdb_flushoptions_t* options,
@@ -6405,6 +6432,44 @@ void rocksdb_compactoptions_set_full_history_ts_low(
     opt->full_history_ts_low = Slice(ts, tslen);
     opt->rep.full_history_ts_low = &opt->full_history_ts_low;
   }
+}
+
+rocksdb_compaction_options_t* rocksdb_compaction_options_create() {
+  return new rocksdb_compaction_options_t;
+}
+
+void rocksdb_compaction_options_destroy(rocksdb_compaction_options_t* opt) {
+  delete opt;
+}
+
+void rocksdb_compaction_options_set_output_file_size_limit(
+    rocksdb_compaction_options_t* opt, uint64_t v) {
+  opt->rep.output_file_size_limit = v;
+}
+
+uint64_t rocksdb_compaction_options_get_output_file_size_limit(
+    rocksdb_compaction_options_t* opt) {
+  return opt->rep.output_file_size_limit;
+}
+
+void rocksdb_compaction_options_set_max_subcompactions(
+    rocksdb_compaction_options_t* opt, uint32_t v) {
+  opt->rep.max_subcompactions = v;
+}
+
+uint32_t rocksdb_compaction_options_get_max_subcompactions(
+    rocksdb_compaction_options_t* opt) {
+  return opt->rep.max_subcompactions;
+}
+
+void rocksdb_compaction_options_set_allow_trivial_move(
+    rocksdb_compaction_options_t* opt, unsigned char v) {
+  opt->rep.allow_trivial_move = v;
+}
+
+unsigned char rocksdb_compaction_options_get_allow_trivial_move(
+    rocksdb_compaction_options_t* opt) {
+  return static_cast<unsigned char>(opt->rep.allow_trivial_move);
 }
 
 rocksdb_flushoptions_t* rocksdb_flushoptions_create() {
