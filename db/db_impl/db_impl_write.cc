@@ -73,6 +73,13 @@ class BlobWriteRollbackGuard {
   bool active_ = true;
 };
 
+class PutEntityFastPathWriteCallback final : public WriteCallback {
+ public:
+  Status Callback(DB* /*db*/) override { return Status::OK(); }
+
+  bool AllowWriteBatching() override { return false; }
+};
+
 }  // namespace
 
 // Convenience methods
@@ -624,6 +631,17 @@ Status DBImpl::AppendPreprocessedPutEntityToBatch(
   WideColumns sorted_columns(columns);
   WideColumnsHelper::SortColumns(sorted_columns);
 
+  return AppendSortedPutEntityToBatch(write_options, batch, cf_id, key,
+                                      sorted_columns, blob_direct_write_ctx);
+}
+
+Status DBImpl::AppendSortedPutEntityToBatch(
+    const WriteOptions& write_options, WriteBatch* batch, uint32_t cf_id,
+    const Slice& key, const WideColumns& sorted_columns,
+    BlobDirectWriteContext* blob_direct_write_ctx) {
+  assert(batch != nullptr);
+
+  Status s;
   BlobDirectWriteSettings settings;
   BlobFilePartitionManager* partition_mgr = nullptr;
   std::vector<BlobWriteBatchTransformer::RollbackInfo>* rollback_infos =
@@ -679,34 +697,28 @@ Status DBImpl::PutEntityFastPath(const WriteOptions& write_options,
     }
   }
 
-  std::optional<BlobDirectWriteContext> blob_direct_write_ctx;
-  std::optional<BlobWriteRollbackGuard> blob_write_rollback_guard;
-  if (HasAnyBlobDirectWriteColumnFamily()) {
-    blob_direct_write_ctx.emplace(this);
-    blob_write_rollback_guard.emplace(&blob_direct_write_ctx->rollback_infos,
-                                      immutable_db_options_.info_log.get());
-  }
-
-  Status append_s = AppendPreprocessedPutEntityToBatch(
-      write_options, &batch, column_family, key, columns,
-      blob_direct_write_ctx ? &blob_direct_write_ctx.value() : nullptr);
-  if (!append_s.ok()) {
-    return append_s;
-  }
-
-  if (blob_direct_write_ctx.has_value()) {
-    Status blob_s = SyncBlobDirectWriteManagers(write_options,
-                                                blob_direct_write_ctx.value());
-    if (!blob_s.ok()) {
-      return blob_s;
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  const bool needs_deferred_transform =
+      cfh->cfd()->blob_partition_manager() != nullptr;
+  std::optional<DeferredPutEntityBatch> deferred_put_entities;
+  if (needs_deferred_transform) {
+    WideColumns sorted_columns(columns);
+    WideColumnsHelper::SortColumns(sorted_columns);
+    deferred_put_entities.emplace();
+    deferred_put_entities->ops.push_back(
+        {cfh->cfd()->GetID(), key.ToString(), std::move(sorted_columns)});
+  } else {
+    Status append_s = AppendPreprocessedPutEntityToBatch(
+        write_options, &batch, column_family, key, columns,
+        /*blob_direct_write_ctx=*/nullptr);
+    if (!append_s.ok()) {
+      return append_s;
     }
   }
 
   Status write_s = WritePreprocessedPutEntityBatch(
-      write_options, &batch, trace_batch ? trace_batch.get() : nullptr);
-  if (write_s.ok() && blob_write_rollback_guard.has_value()) {
-    blob_write_rollback_guard->Dismiss();
-  }
+      write_options, &batch, trace_batch ? trace_batch.get() : nullptr,
+      deferred_put_entities ? &deferred_put_entities.value() : nullptr);
   return write_s;
 }
 
@@ -737,56 +749,69 @@ Status DBImpl::PutEntityFastPath(const WriteOptions& write_options,
     }
   }
 
-  std::optional<BlobDirectWriteContext> blob_direct_write_ctx;
-  std::optional<BlobWriteRollbackGuard> blob_write_rollback_guard;
-  if (HasAnyBlobDirectWriteColumnFamily()) {
-    blob_direct_write_ctx.emplace(this);
-    blob_write_rollback_guard.emplace(&blob_direct_write_ctx->rollback_infos,
-                                      immutable_db_options_.info_log.get());
+  bool needs_deferred_transform = false;
+  for (const AttributeGroup& ag : attribute_groups) {
+    auto* cfh =
+        static_cast_with_check<ColumnFamilyHandleImpl>(ag.column_family());
+    if (cfh->cfd()->blob_partition_manager() != nullptr) {
+      needs_deferred_transform = true;
+      break;
+    }
+  }
+
+  std::optional<DeferredPutEntityBatch> deferred_put_entities;
+  if (needs_deferred_transform) {
+    deferred_put_entities.emplace();
   }
 
   for (const AttributeGroup& ag : attribute_groups) {
+    auto* cfh =
+        static_cast_with_check<ColumnFamilyHandleImpl>(ag.column_family());
+    if (deferred_put_entities.has_value()) {
+      WideColumns sorted_columns(ag.columns());
+      WideColumnsHelper::SortColumns(sorted_columns);
+      deferred_put_entities->ops.push_back(
+          {cfh->cfd()->GetID(), key.ToString(), std::move(sorted_columns)});
+      continue;
+    }
+
     Status append_s = AppendPreprocessedPutEntityToBatch(
         write_options, &batch, ag.column_family(), key, ag.columns(),
-        blob_direct_write_ctx ? &blob_direct_write_ctx.value() : nullptr);
+        /*blob_direct_write_ctx=*/nullptr);
     if (!append_s.ok()) {
       return append_s;
     }
   }
 
-  if (blob_direct_write_ctx.has_value()) {
-    Status blob_s = SyncBlobDirectWriteManagers(write_options,
-                                                blob_direct_write_ctx.value());
-    if (!blob_s.ok()) {
-      return blob_s;
-    }
-  }
-
   Status write_s = WritePreprocessedPutEntityBatch(
-      write_options, &batch, trace_batch ? trace_batch.get() : nullptr);
-  if (write_s.ok() && blob_write_rollback_guard.has_value()) {
-    blob_write_rollback_guard->Dismiss();
-  }
+      write_options, &batch, trace_batch ? trace_batch.get() : nullptr,
+      deferred_put_entities ? &deferred_put_entities.value() : nullptr);
   return write_s;
 }
 
 Status DBImpl::WritePreprocessedPutEntityBatch(
     const WriteOptions& write_options, WriteBatch* batch,
-    WriteBatch* trace_batch) {
+    WriteBatch* trace_batch,
+    const DeferredPutEntityBatch* deferred_put_entities) {
   Status s;
-  if (write_options.protection_bytes_per_key > 0) {
+  if (deferred_put_entities == nullptr &&
+      write_options.protection_bytes_per_key > 0) {
     s = WriteBatchInternal::UpdateProtectionInfo(
         batch, write_options.protection_bytes_per_key);
   }
   if (s.ok()) {
-    s = WriteImpl(write_options, batch, /*callback=*/nullptr,
+    PutEntityFastPathWriteCallback no_batching_callback;
+    WriteCallback* callback =
+        deferred_put_entities != nullptr ? &no_batching_callback : nullptr;
+    s = WriteImpl(write_options, batch, callback,
                   /*user_write_cb=*/nullptr,
                   /*wal_used=*/nullptr, /*log_ref=*/0,
                   /*disable_memtable=*/false, /*seq_used=*/nullptr,
                   /*batch_cnt=*/0, /*pre_release_callback=*/nullptr,
                   /*post_memtable_callback=*/nullptr,
                   /*wbwi=*/nullptr, trace_batch,
-                  /*skip_blob_direct_write_transform=*/true);
+                  /*skip_blob_direct_write_transform=*/true,
+                  deferred_put_entities);
   }
   return s;
 }
@@ -815,16 +840,16 @@ Status DBImpl::SyncBlobDirectWriteManagers(
   return Status::OK();
 }
 
-Status DBImpl::WriteImpl(const WriteOptions& write_options,
-                         WriteBatch* my_batch, WriteCallback* callback,
-                         UserWriteCallback* user_write_cb, uint64_t* wal_used,
-                         uint64_t log_ref, bool disable_memtable,
-                         uint64_t* seq_used, size_t batch_cnt,
-                         PreReleaseCallback* pre_release_callback,
-                         PostMemTableCallback* post_memtable_callback,
-                         std::shared_ptr<WriteBatchWithIndex> wbwi,
-                         WriteBatch* trace_batch_override,
-                         bool skip_blob_direct_write_transform) {
+Status DBImpl::WriteImpl(
+    const WriteOptions& write_options, WriteBatch* my_batch,
+    WriteCallback* callback, UserWriteCallback* user_write_cb,
+    uint64_t* wal_used, uint64_t log_ref, bool disable_memtable,
+    uint64_t* seq_used, size_t batch_cnt,
+    PreReleaseCallback* pre_release_callback,
+    PostMemTableCallback* post_memtable_callback,
+    std::shared_ptr<WriteBatchWithIndex> wbwi, WriteBatch* trace_batch_override,
+    bool skip_blob_direct_write_transform,
+    const DBImpl::DeferredPutEntityBatch* deferred_put_entities) {
   assert(!seq_per_batch_ || batch_cnt != 0);
   assert(my_batch == nullptr || my_batch->Count() == 0 ||
          write_options.protection_bytes_per_key == 0 ||
@@ -967,11 +992,14 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   const bool maybe_use_blob_direct_write = wbwi == nullptr &&
                                            !skip_blob_direct_write_transform &&
                                            HasAnyBlobDirectWriteColumnFamily();
+  const bool maybe_use_deferred_put_entity =
+      deferred_put_entities != nullptr && wbwi == nullptr &&
+      HasAnyBlobDirectWriteColumnFamily();
   std::optional<WriteBatch> transformed_batch_storage;
   std::optional<std::vector<WriteBatch>> transformed_write_group_batches;
   std::optional<BlobDirectWriteContext> blob_direct_write_ctx;
   std::optional<BlobWriteRollbackGuard> blob_write_rollback_guard;
-  if (maybe_use_blob_direct_write) {
+  if (maybe_use_blob_direct_write || maybe_use_deferred_put_entity) {
     blob_direct_write_ctx.emplace(this);
     blob_write_rollback_guard.emplace(&blob_direct_write_ctx->rollback_infos,
                                       immutable_db_options_.info_log.get());
@@ -1147,6 +1175,27 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   Status pre_release_cb_status;
   size_t seq_inc = 0;
   if (status.ok()) {
+    if (deferred_put_entities != nullptr) {
+      my_batch->Clear();
+      for (const auto& op : deferred_put_entities->ops) {
+        status = AppendSortedPutEntityToBatch(
+            write_options, my_batch, op.column_family_id, op.key,
+            op.sorted_columns,
+            blob_direct_write_ctx ? &blob_direct_write_ctx.value() : nullptr);
+        if (!status.ok()) {
+          break;
+        }
+      }
+      if (status.ok() && write_options.protection_bytes_per_key > 0) {
+        status = WriteBatchInternal::UpdateProtectionInfo(
+            my_batch, write_options.protection_bytes_per_key);
+      }
+      if (status.ok() && blob_direct_write_ctx.has_value()) {
+        status = SyncBlobDirectWriteManagers(write_options,
+                                             blob_direct_write_ctx.value());
+      }
+    }
+
     if (UNLIKELY(maybe_use_blob_direct_write) &&
         !immutable_db_options_.unordered_write &&
         !immutable_db_options_.enable_pipelined_write) {

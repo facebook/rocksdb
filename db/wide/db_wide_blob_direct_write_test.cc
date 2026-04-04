@@ -435,6 +435,78 @@ TEST_F(DBWideBlobDirectWriteTest, DirectWriteWideEntityBeforeAndAfterFlush) {
 }
 
 TEST_F(DBWideBlobDirectWriteTest,
+       DirectWriteAutoFlushPreservesWideEntityBlobGenerationOrder) {
+  Options options = GetDirectWriteOptions();
+  options.allow_concurrent_memtable_write = false;
+  options.disable_auto_compactions = true;
+  options.arena_block_size = 4096;
+  options.write_buffer_size = 500000;
+  options.max_write_buffer_number = 4;
+  options.write_buffer_manager =
+      std::make_shared<WriteBufferManager>(100, nullptr, false);
+  options.min_blob_size = 64;
+  options.blob_direct_write_partitions = 4;
+  options.blob_direct_write_partition_strategy =
+      std::make_shared<NameBasedWideColumnPartitionStrategy>();
+
+  Reopen(options);
+
+  WriteOptions write_options;
+  write_options.disableWAL = true;
+
+  const std::string first_value(128, 'a');
+  const std::string first_meta(96, 'b');
+  const WideColumns first_columns{{kDefaultWideColumnName, first_value},
+                                  {"meta", first_meta},
+                                  {"ttl", "00000001"}};
+  const std::string second_value(128, 'c');
+  const std::string second_meta(96, 'd');
+  const WideColumns second_columns{{kDefaultWideColumnName, second_value},
+                                   {"meta", second_meta},
+                                   {"ttl", "00000002"}};
+
+  ASSERT_OK(db_->PutEntity(write_options, db_->DefaultColumnFamily(),
+                           "first_entity", first_columns));
+  ASSERT_OK(db_->PutEntity(write_options, db_->DefaultColumnFamily(),
+                           "second_entity", second_columns));
+
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(Flush());
+
+  PinnableWideColumns first_result;
+  ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                           "first_entity", &first_result));
+  ASSERT_EQ(first_result.columns(), first_columns);
+
+  PinnableWideColumns second_result;
+  ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                           "second_entity", &second_result));
+  ASSERT_EQ(second_result.columns(), second_columns);
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_files.size(), 2U);
+
+  std::vector<uint64_t> blob_file_numbers;
+  blob_file_numbers.reserve(cf_meta.blob_files.size());
+  for (const auto& blob_meta : cf_meta.blob_files) {
+    blob_file_numbers.push_back(blob_meta.blob_file_number);
+  }
+  std::sort(blob_file_numbers.begin(), blob_file_numbers.end());
+
+  std::vector<LiveFileMetaData> live_files;
+  db_->GetLiveFilesMetaData(&live_files);
+  ASSERT_EQ(live_files.size(), 2U);
+  std::sort(live_files.begin(), live_files.end(),
+            [](const LiveFileMetaData& lhs, const LiveFileMetaData& rhs) {
+              return lhs.smallest_seqno < rhs.smallest_seqno;
+            });
+
+  ASSERT_EQ(live_files[0].oldest_blob_file_number, blob_file_numbers[0]);
+  ASSERT_EQ(live_files[1].oldest_blob_file_number, blob_file_numbers[1]);
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
        DirectWriteCustomPartitionStrategyUsesWideColumnOverload) {
   Options options = GetDirectWriteOptions();
   options.blob_direct_write_partitions = 4;
