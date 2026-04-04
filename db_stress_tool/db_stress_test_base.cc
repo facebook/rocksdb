@@ -4727,6 +4727,8 @@ void InitializeOptionsFromFlags(
   options.uncache_aggressiveness = FLAGS_uncache_aggressiveness;
 
   options.memtable_op_scan_flush_trigger = FLAGS_memtable_op_scan_flush_trigger;
+  options.min_tombstones_for_range_conversion =
+      FLAGS_min_tombstones_for_range_conversion;
   options.compaction_options_universal.reduce_file_locking =
       FLAGS_universal_reduce_file_locking;
 }

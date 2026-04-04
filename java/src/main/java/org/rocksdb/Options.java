@@ -1979,6 +1979,17 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setMinTombstonesForRangeConversion(final int minTombstonesForRangeConversion) {
+    setMinTombstonesForRangeConversion(nativeHandle_, minTombstonesForRangeConversion);
+    return this;
+  }
+
+  @Override
+  public int minTombstonesForRangeConversion() {
+    return minTombstonesForRangeConversion(nativeHandle_);
+  }
+
+  @Override
   public Options setCompactionThreadLimiter(final ConcurrentTaskLimiter compactionThreadLimiter) {
     setCompactionThreadLimiter(nativeHandle_, compactionThreadLimiter.nativeHandle_);
     this.compactionThreadLimiter_ = compactionThreadLimiter;
@@ -2480,6 +2491,9 @@ public class Options extends RocksObject
   private static native void setSstPartitionerFactory(long nativeHandle_, long newFactoryHandle);
   private static native void setMemtableMaxRangeDeletions(final long handle, final int count);
   private static native int memtableMaxRangeDeletions(final long handle);
+  private static native void setMinTombstonesForRangeConversion(
+      final long handle, final int minTombstonesForRangeConversion);
+  private static native int minTombstonesForRangeConversion(final long handle);
   private static native void setCompactionThreadLimiter(
       final long nativeHandle_, final long newLimiterHandle);
   private static native void setAvoidUnnecessaryBlockingIO(

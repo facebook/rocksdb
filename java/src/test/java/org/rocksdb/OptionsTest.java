@@ -1414,6 +1414,16 @@ public class OptionsTest {
   }
 
   @Test
+  public void minTombstonesForRangeConversion() {
+    try (final Options options = new Options()) {
+      assertThat(options.minTombstonesForRangeConversion()).isEqualTo(0);
+      final int val = 100;
+      assertThat(options.setMinTombstonesForRangeConversion(val)).isEqualTo(options);
+      assertThat(options.minTombstonesForRangeConversion()).isEqualTo(val);
+    }
+  }
+
+  @Test
   public void dailyOffpeakTimeUTC() {
     try (final Options options = new Options()) {
       assertThat(options.dailyOffpeakTimeUTC()).isEqualTo("");

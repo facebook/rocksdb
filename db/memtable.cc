@@ -142,6 +142,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       table_(ioptions.memtable_factory->CreateMemTableRep(
           comparator_, &arena_, mutable_cf_options.prefix_extractor.get(),
           ioptions.logger, column_family_id)),
+      // range del table must support concurrent inserts
       range_del_table_(SkipListFactory().CreateMemTableRep(
           comparator_, &arena_, nullptr /* transform */, ioptions.logger,
           column_family_id)),
@@ -893,6 +894,38 @@ void MemTable::ConstructFragmentedRangeTombstones() {
   }
 }
 
+bool MemTable::AddLogicallyRedundantRangeTombstone(SequenceNumber seq,
+                                                   const Slice& start_key,
+                                                   const Slice& end_key) {
+  // Fast path: skip if already immutable or empty. Some code paths (i.e.
+  // ExternalFileIngestion) rely ensuring memtable is empty after flushing.
+  if (is_immutable_.LoadRelaxed() || IsEmpty()) {
+    return false;
+  }
+
+#ifndef NDEBUG
+  std::pair<Slice, Slice> range{start_key, end_key};
+  TEST_SYNC_POINT_CALLBACK(
+      "MemTable::AddLogicallyRedundantRangeTombstone:AddRange", &range);
+#endif  // !NDEBUG
+
+  // Prevents racing with MarkImmutable()
+  ReadLock rl(&immutable_mutex_);
+  if (is_immutable_.LoadRelaxed()) {
+    return false;
+  }
+
+  MemTablePostProcessInfo post_process_info;
+  Status s = Add(seq, kTypeRangeDeletion, start_key, end_key,
+                 nullptr /* kv_prot_info */, true /* allow_concurrent */,
+                 &post_process_info);
+  if (s.ok()) {
+    BatchPostProcess(post_process_info);
+    return true;
+  }
+  return false;
+}
+
 port::RWMutex* MemTable::GetLock(const Slice& key) {
   return &locks_[GetSliceRangedNPHash(key, locks_.size())];
 }
@@ -998,6 +1031,11 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
   char* buf = nullptr;
   std::unique_ptr<MemTableRep>& table =
       type == kTypeRangeDeletion ? range_del_table_ : table_;
+  // Range deletion table always uses SkipList, which supports concurrent
+  // inserts. Inserts must be made concurrent because
+  // AddLogicallyRedundantRangeTombstone can also insert range tombstones.
+  assert(type != kTypeRangeDeletion || allow_concurrent);
+
   KeyHandle handle = table->Allocate(encoded_len, &buf);
 
   char* p = EncodeVarint32(buf, internal_key_size);
@@ -1042,6 +1080,10 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       }
     }
 
+    // Use atomic FetchAdd because even though this write path is serialized
+    // (non-concurrent), these counters may be concurrently modified by
+    // BatchPostProcess() (e.g., from AddLogicallyRedundantRangeTombstone
+    // called on a read path).
     num_entries_.FetchAddRelaxed(1);
     data_size_.FetchAddRelaxed(encoded_len);
     if (type == kTypeDeletion || type == kTypeSingleDeletion ||
@@ -1059,19 +1101,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       bloom_filter_->Add(key_without_ts);
     }
 
-    // The first sequence number inserted into the memtable
-    assert(first_seqno_ == 0 || s >= first_seqno_);
-    if (first_seqno_ == 0) {
-      first_seqno_.store(s, std::memory_order_relaxed);
-
-      if (earliest_seqno_ == kMaxSequenceNumber) {
-        earliest_seqno_.store(GetFirstSequenceNumber(),
-                              std::memory_order_relaxed);
-      }
-      assert(first_seqno_.load() >= earliest_seqno_.load());
-    }
     assert(post_process_info == nullptr);
-    MaybeUpdateNewestUDT(key_slice);
     UpdateFlushState();
   } else {
     bool res = (hint == nullptr)
@@ -1097,20 +1127,21 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
       bloom_filter_->AddConcurrently(key_without_ts);
     }
-
-    // atomically update first_seqno_ and earliest_seqno_.
-    uint64_t cur_seq_num = first_seqno_.load(std::memory_order_relaxed);
-    while ((cur_seq_num == 0 || s < cur_seq_num) &&
-           !first_seqno_.compare_exchange_weak(cur_seq_num, s)) {
-    }
-    uint64_t cur_earliest_seqno =
-        earliest_seqno_.load(std::memory_order_relaxed);
-    while (
-        (cur_earliest_seqno == kMaxSequenceNumber || s < cur_earliest_seqno) &&
-        !earliest_seqno_.compare_exchange_weak(cur_earliest_seqno, s)) {
-    }
-    MaybeUpdateNewestUDT(key_slice);
   }
+
+  // In the non-concurrent path, sequence numbers are non-decreasing.
+  assert(allow_concurrent || first_seqno_ == 0 || s >= first_seqno_);
+
+  // Atomically update first_seqno_ and earliest_seqno_.
+  uint64_t cur_seq_num = first_seqno_.load(std::memory_order_relaxed);
+  while ((cur_seq_num == 0 || s < cur_seq_num) &&
+         !first_seqno_.compare_exchange_weak(cur_seq_num, s)) {
+  }
+  uint64_t cur_earliest_seqno = earliest_seqno_.load(std::memory_order_relaxed);
+  while ((cur_earliest_seqno == kMaxSequenceNumber || s < cur_earliest_seqno) &&
+         !earliest_seqno_.compare_exchange_weak(cur_earliest_seqno, s)) {
+  }
+  MaybeUpdateNewestUDT(key_slice);
   if (type == kTypeRangeDeletion) {
     auto new_cache = std::make_shared<FragmentedRangeTombstoneListCache>();
     size_t size = cached_range_tombstone_.Size();

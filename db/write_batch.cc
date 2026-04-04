@@ -2499,10 +2499,24 @@ class MemTableInserter : public WriteBatch::Handler {
                     const ProtectionInfoKVOS64* kv_prot_info) {
     Status ret_status;
     MemTable* mem = cf_mems_->GetMemTable();
-    ret_status =
-        mem->Add(sequence_, delete_type, key, value, kv_prot_info,
-                 concurrent_memtable_writes_, get_post_process_info(mem),
-                 hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
+    if (delete_type == kTypeRangeDeletion &&
+        concurrent_memtable_writes_ == false) {
+      // Need to force range deletions to undergo concurrent writes since reads
+      // may concurrently also insert range deletions, see
+      // MemTable::AddLogicallyRedundantRangeTombstone
+      MemTablePostProcessInfo post_process_info;
+      ret_status = mem->Add(sequence_, delete_type, key, value, kv_prot_info,
+                            true /* allow_concurrent */, &post_process_info,
+                            hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
+      if (ret_status.ok()) {
+        mem->BatchPostProcess(post_process_info);
+      }
+    } else {
+      ret_status =
+          mem->Add(sequence_, delete_type, key, value, kv_prot_info,
+                   concurrent_memtable_writes_, get_post_process_info(mem),
+                   hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
+    }
     if (UNLIKELY(ret_status.IsTryAgain())) {
       assert(seq_per_batch_);
       const bool kBatchBoundary = true;
