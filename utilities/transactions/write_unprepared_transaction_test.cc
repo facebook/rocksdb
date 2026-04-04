@@ -748,14 +748,16 @@ std::vector<std::string> VerifyIterator(Iterator* iter, bool forward) {
 // Multiple unprepared batches write to the memtable with different seqno
 // ranges tracked in unprep_seqs. Committed tombstones (c-g) exist, and the
 // transaction's own Delete("h") extends the run with an uncommitted entry.
-// Since range_tomb_max_seq_ >= min_uncommitted, insertion is blocked for the
-// entire run. Verifies data correctness after commit.
+// Write-unprepared iterators widen their visible seqno to include own
+// unprepared writes, so synthesizing a range tombstone for a run containing
+// one of those deletes would insert it at a seqno that can cover uncommitted
+// entries. Verify insertion is blocked and data remains correct after commit.
 TEST_P(WriteUnpreparedTransactionTest, RangeTombstoneMultipleBatchesAndCommit) {
   // Test two scenarios:
   // 1) Txn Delete extends the END of a committed tombstone run.
   // 2) Txn Delete in the MIDDLE of a committed tombstone run.
-  // Both should block insertion because range_tomb_max_seq_ >=
-  // min_uncommitted.
+  // Both should block insertion because the visible seqno is widened by the
+  // transaction's own unprepared writes.
   for (bool middle_tombstone : {false, true}) {
     SCOPED_TRACE(middle_tombstone ? "middle tombstone" : "end tombstone");
     for (bool forward : {true, false}) {
@@ -803,8 +805,9 @@ TEST_P(WriteUnpreparedTransactionTest, RangeTombstoneMultipleBatchesAndCommit) {
       ASSERT_OK(txn->Put("i", "txn_i"));
       ASSERT_OK(txn->Put("z", "txn_z"));
 
-      // The txn Delete (whether at "e" or "h") has seqno >= min_uncommitted.
-      // It contaminates the run's range_tomb_max_seq_, blocking insertion.
+      // The txn Delete (whether at "e" or "h") is an own unprepared write.
+      // The iterator exposes it by widening its visible seqno, so a synthesized
+      // tombstone for the whole run must be discarded.
       {
         ReadOptions ro;
         std::unique_ptr<Iterator> iter(txn->GetIterator(ro));
@@ -841,8 +844,10 @@ TEST_P(WriteUnpreparedTransactionTest, RangeTombstoneMultipleBatchesAndCommit) {
 // WriteUnprepared computes max_visible_seq as max(max_unprepared_seqno,
 // snapshot_seq). With a snapshot taken before deletions and multiple unprepared
 // batches after, the iterator's visible range extends beyond the snapshot to
-// include both committed deletes and own writes. Since all tombstone seqnos
-// are < min_uncommitted, insertion is allowed with correct boundaries [c, h).
+// include both committed deletes and own writes. The committed deletes are
+// still visible to the iterator, but a synthesized range tombstone must be
+// discarded because it would be inserted at the widened visible seqno rather
+// than the original snapshot seqno.
 TEST_P(WriteUnpreparedTransactionTest,
        RangeTombstoneCalcMaxVisibleSeqExtendedVisibility) {
   for (bool forward : {true, false}) {
@@ -896,14 +901,16 @@ TEST_P(WriteUnpreparedTransactionTest,
                 (std::vector<std::string>{"a", "b", "h", "i", "j", "x", "y"}));
       ASSERT_OK(iter->status());
     }
-    // Committed tombstones c-g have seqno < min_uncommitted, so insertion
-    // is allowed.
+    // The committed tombstones are visible to the iterator, but insertion is
+    // discarded because the iterator's visible seqno was widened by its own
+    // unprepared writes.
     ASSERT_EQ(
         options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
-        1u);
-    ASSERT_EQ(inserted_ranges.size(), 1);
-    ASSERT_EQ(inserted_ranges[0].first, "c");
-    ASSERT_EQ(inserted_ranges[0].second, "h");
+        0u);
+    ASSERT_EQ(options.statistics->getTickerCount(
+                  READ_PATH_RANGE_TOMBSTONES_DISCARDED),
+              1u);
+    ASSERT_EQ(inserted_ranges.size(), 0);
 
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -914,10 +921,9 @@ TEST_P(WriteUnpreparedTransactionTest,
 
 // The transaction issues its own uncommitted contiguous Deletes (j-n) forming
 // a tombstone run visible to its iterator, alongside committed tombstones
-// (c-g). Committed tombstones are inserted with correct boundaries [c, h)
-// (seqno < min_uncommitted). Uncommitted tombstones are skipped (seqno >=
-// min_uncommitted). After rollback, own Deletes and Puts are undone while
-// committed deletes remain.
+// (c-g). Because the iterator's visible seqno is widened to include those own
+// writes, both candidate synthesized tombstones are discarded. After rollback,
+// own Deletes and Puts are undone while committed deletes remain.
 TEST_P(WriteUnpreparedTransactionTest, RangeTombstoneOwnDeletionsAndRollback) {
   for (bool forward : {true, false}) {
     SCOPED_TRACE(forward ? "forward" : "reverse");
@@ -972,17 +978,15 @@ TEST_P(WriteUnpreparedTransactionTest, RangeTombstoneOwnDeletionsAndRollback) {
                 (std::vector<std::string>{"a", "b", "h", "i", "o", "p"}));
       ASSERT_OK(iter->status());
     }
-    // Committed tombstones c-g are inserted (seqno < min_uncommitted).
-    // Uncommitted tombstones j-n are skipped (seqno >= min_uncommitted).
+    // Both visible tombstone runs are discarded because the iterator's visible
+    // seqno includes the transaction's own unprepared writes.
     ASSERT_EQ(
         options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
-        1u);
+        0u);
     ASSERT_EQ(options.statistics->getTickerCount(
                   READ_PATH_RANGE_TOMBSTONES_DISCARDED),
-              1u);
-    ASSERT_EQ(inserted_ranges.size(), 1);
-    ASSERT_EQ(inserted_ranges[0].first, "c");
-    ASSERT_EQ(inserted_ranges[0].second, "h");
+              2u);
+    ASSERT_EQ(inserted_ranges.size(), 0);
 
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();

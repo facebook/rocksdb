@@ -6809,12 +6809,11 @@ TEST_P(ReadPathRangeTombstoneTest, LowerBoundTruncatesReverse) {
   }
 }
 
-// Regression test: FindValueForCurrentKeyUsingSeek must set ikey_ to the entry
-// found by the seek. A stale (too-low) sequence feeds into range_tomb_max_seq_
-// and becomes the range tombstone's insertion seq. A reader whose snapshot
-// falls between the stale seq and the real deletion seq would see the range
-// tombstone but not the point delete, incorrectly hiding live data.
-TEST_P(ReadPathRangeTombstoneTest, ReseekStaleIkey) {
+// Regression test: a delete run discovered through the reseek path must be
+// materialized at the reader's sequence so older snapshots keep seeing the
+// pre-delete values.
+TEST_P(ReadPathRangeTombstoneTest,
+       ReseekDiscoveredDeleteRunPreservesOlderSnapshots) {
   Options options = CurrentOptions();
   options.min_tombstones_for_range_conversion = 2;
   // Low skip threshold forces FindValueForCurrentKeyUsingSeek for keys with
@@ -6848,19 +6847,16 @@ TEST_P(ReadPathRangeTombstoneTest, ReseekStaleIkey) {
   ASSERT_OK(Delete("b"));
   ASSERT_OK(Delete("c"));
 
-  // Iterate at the latest sequence. Both b and c hit the reseek path.
-  // This inserts a range tombstone [b, d). Without the fix, the tombstone's
-  // insertion seq would be based on stale intermediate Put seqs (~5-9) instead
-  // of the actual deletion seqs (11-12).
+  // Iterate at the latest sequence. Both b and c hit the reseek path and
+  // synthesize a range tombstone [b, d) for later readers at the same seq.
   inserted_ranges_.clear();
   VerifyIteration({"a", "d"});
 
   ASSERT_EQ(inserted_ranges_.size(), 1);
   AssertRange(0, "b", "d");
 
-  // Read with the earlier snapshot. The point deletes (seq 11-12) are NOT
-  // visible, so b and c must be live. But a range tombstone inserted at a
-  // stale seq <= 10 WOULD be visible and would incorrectly cover the Puts.
+  // Read with the earlier snapshot. The point deletes (seq 11-12) are not
+  // visible, so b and c must remain live after the latest iterator ran.
   ReadOptions ro;
   ro.snapshot = snap;
   VerifyIteration({"a", "b", "c", "d"}, ro);
@@ -6868,11 +6864,8 @@ TEST_P(ReadPathRangeTombstoneTest, ReseekStaleIkey) {
   db_->ReleaseSnapshot(snap);
 }
 
-// Regression test: when the forward scan sets ikey_ to a visible entry's
-// seqno, and then Prev() encounters keys that were written entirely AFTER
-// the snapshot (no visible entries at all), FindValueForCurrentKey breaks
-// early without updating ikey_.  The reverse tombstone tracking then uses
-// the stale ikey_.sequence, which can exceed sequence_.
+// Regression test: keys written entirely after the snapshot do not break a
+// tombstone run discovered by reverse iteration.
 TEST_P(ReadPathRangeTombstoneTest, InvisibleKeysDontBreakTombstoneRun) {
   Options options = CurrentOptions();
   options.min_tombstones_for_range_conversion = 2;
@@ -6908,6 +6901,131 @@ TEST_P(ReadPathRangeTombstoneTest, InvisibleKeysDontBreakTombstoneRun) {
   // 2 tombstones (b, d) ≥ threshold → range [b, f).
   ASSERT_EQ(inserted_ranges_.size(), 1);
   AssertRange(0, "b", "f");
+
+  db_->ReleaseSnapshot(snap);
+}
+
+// Regression test: SeekToLast() after Seek() must clear stale saved_key_ to
+// avoid corrupting range tombstone tracking bounds.
+TEST_P(ReadPathRangeTombstoneTest, SeekToLastStaleSavedKey) {
+  if (Forward()) {
+    return;
+  }
+
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 2;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  for (char c = 'a'; c <= 'z'; c++) {
+    ASSERT_OK(Put(std::string(1, c), std::string("v") + c));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Delete("x"));
+  ASSERT_OK(Delete("y"));
+
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+
+  // Seek populates saved_key_ with "a".
+  iter->Seek("a");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("a", iter->key().ToString());
+
+  // SeekToLast must not carry the stale saved_key_ into range tombstone bounds.
+  iter->SeekToLast();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("z", iter->key().ToString());
+
+  // Reverse iteration skips deleted x and y.
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("w", iter->key().ToString());
+}
+
+TEST_P(ReadPathRangeTombstoneTest, SeekToLastTombstones) {
+  if (Forward()) {
+    ROCKSDB_GTEST_SKIP("SeekToLast tombstone materialization is reverse-only.");
+  }
+
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 2;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  for (char c = 'a'; c <= 'z'; c++) {
+    ASSERT_OK(Put(std::string(1, c), std::string("v") + c));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Delete("x"));
+  ASSERT_OK(Delete("y"));
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+  inserted_ranges_.clear();
+
+  iter->Seek("a");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("a", iter->key().ToString());
+
+  iter->SeekToLast();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("z", iter->key().ToString());
+  ASSERT_EQ(inserted_ranges_.size(), 0u);
+
+  // Reverse iteration skips deleted x and y.
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("w", iter->key().ToString());
+  ASSERT_EQ(inserted_ranges_.size(), 1u);
+  AssertRange(0, "x", "z");
+}
+
+// Regression test for a crash-test pattern where the interior between two
+// point tombstones is hidden by a later DeleteRange. A latest iterator may
+// still synthesize a redundant range tombstone, but an older snapshot must
+// continue to see the pre-DeleteRange live key after iteration.
+TEST_P(ReadPathRangeTombstoneTest,
+       RangeDeletedInteriorPreservesOlderSnapshots) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 2;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  for (char c = 'a'; c <= 'n'; ++c) {
+    ASSERT_OK(Put(std::string(1, c), std::string("v") + c));
+  }
+  ASSERT_OK(Flush());
+
+  // Point tombstones at the boundaries of the future range-deleted interior.
+  ASSERT_OK(Delete("b"));
+  ASSERT_OK(Delete("m"));
+
+  const Snapshot* snap = db_->GetSnapshot();
+  ReadOptions snap_ro;
+  snap_ro.snapshot = snap;
+  std::string snap_value;
+  ASSERT_OK(db_->Get(snap_ro, "c", &snap_value));
+  ASSERT_EQ(snap_value, "vc");
+
+  // Latest readers now see c-l deleted by range tombstone, but the older
+  // snapshot above must still see them live.
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "c", "m"));
+
+  inserted_ranges_.clear();
+  VerifyIteration({"a", "n"});
+
+  // Materialize the redundant tombstone at the latest read sequence only.
+  ASSERT_EQ(inserted_ranges_.size(), 1);
+  AssertRange(0, "b", "n");
+
+  snap_value.clear();
+  ASSERT_OK(db_->Get(snap_ro, "c", &snap_value));
+  ASSERT_EQ(snap_value, "vc");
 
   db_->ReleaseSnapshot(snap);
 }

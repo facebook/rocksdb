@@ -1586,6 +1586,13 @@ Status TraceAnalyzer::PutCF(uint32_t column_family_id, const Slice& key,
                               column_family_id, key, value.size());
 }
 
+Status TraceAnalyzer::TimedPutCF(uint32_t column_family_id, const Slice& key,
+                                 const Slice& value,
+                                 uint64_t /*write_unix_time*/) {
+  return OutputAnalysisResult(TraceOperationType::kPut, write_batch_ts_,
+                              column_family_id, key, value.size());
+}
+
 Status TraceAnalyzer::PutEntityCF(uint32_t column_family_id, const Slice& key,
                                   const Slice& value) {
   return OutputAnalysisResult(TraceOperationType::kPutEntity, write_batch_ts_,
@@ -1633,14 +1640,21 @@ Status TraceAnalyzer::OutputAnalysisResult(TraceOperationType op_type,
   Status s;
 
   if (FLAGS_convert_to_human_readable_trace && trace_sequence_f_) {
-    // DeleteRane only writes the begin_key.
-    size_t cnt =
-        op_type == TraceOperationType::kRangeDelete ? 1 : cf_ids.size();
-    for (size_t i = 0; i < cnt; i++) {
-      s = WriteTraceSequence(op_type, cf_ids[i], keys[i], value_sizes[i],
-                             timestamp);
+    if (op_type == TraceOperationType::kRangeDelete) {
+      assert(cf_ids.size() == 2);
+      assert(keys.size() == 2);
+      s = WriteRangeDeleteTraceSequence(cf_ids[0], keys[0], keys[1], timestamp);
       if (!s.ok()) {
         return Status::Corruption("Failed to write the trace sequence to file");
+      }
+    } else {
+      for (size_t i = 0; i < cf_ids.size(); i++) {
+        s = WriteTraceSequence(op_type, cf_ids[i], keys[i], value_sizes[i],
+                               timestamp);
+        if (!s.ok()) {
+          return Status::Corruption(
+              "Failed to write the trace sequence to file");
+        }
       }
     }
   }
@@ -1864,6 +1878,28 @@ Status TraceAnalyzer::WriteTraceSequence(const uint32_t& type,
   std::string printout(buffer_);
   if (!FLAGS_no_key) {
     printout = hex_key + " " + printout;
+  }
+  return trace_sequence_f_->Append(printout);
+}
+
+Status TraceAnalyzer::WriteRangeDeleteTraceSequence(const uint32_t& cf_id,
+                                                    const Slice& begin_key,
+                                                    const Slice& end_key,
+                                                    const uint64_t ts) {
+  int ret;
+  ret = snprintf(buffer_, sizeof(buffer_), "%u %u %zu %" PRIu64 "\n",
+                 TraceOperationType::kRangeDelete, cf_id,
+                 static_cast<size_t>(0), ts);
+  if (ret < 0) {
+    return Status::IOError("failed to format the output");
+  }
+  std::string printout(buffer_);
+  if (!FLAGS_no_key) {
+    const std::string begin_hex =
+        ROCKSDB_NAMESPACE::LDBCommand::StringToHex(begin_key.ToString());
+    const std::string end_hex =
+        ROCKSDB_NAMESPACE::LDBCommand::StringToHex(end_key.ToString());
+    printout = begin_hex + " " + end_hex + " " + printout;
   }
   return trace_sequence_f_->Append(printout);
 }
