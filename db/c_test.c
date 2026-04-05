@@ -96,7 +96,7 @@ static void Free(char** ptr) {
   }
 }
 
-static long GetFileSize(const char* path) {
+static long GetLocalFileSize(const char* path) {
   FILE* file = fopen(path, "rb");
   long size;
   if (file == NULL) {
@@ -6213,7 +6213,7 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     rocksdb_end_trace(db, &err);
     CheckNoError(err);
-    CheckCondition(GetFileSize(trace_filename) > 0);
+    CheckCondition(GetLocalFileSize(trace_filename) > 0);
 
     rocksdb_start_io_trace(db, NULL, trace_env_options, trace_options,
                            io_trace_filename, &err);
@@ -6222,7 +6222,7 @@ int main(int argc, char** argv) {
     CheckValue(err, "tracev", &val, val_len);
     rocksdb_end_io_trace(db, &err);
     CheckNoError(err);
-    CheckCondition(GetFileSize(io_trace_filename) > 0);
+    CheckCondition(GetLocalFileSize(io_trace_filename) > 0);
 
     rocksdb_flush(db, flush_options, &err);
     CheckNoError(err);
@@ -6234,7 +6234,7 @@ int main(int argc, char** argv) {
     CheckValue(err, "tracev", &val, val_len);
     rocksdb_end_block_cache_trace(db, &err);
     CheckNoError(err);
-    CheckCondition(GetFileSize(block_trace_filename) > 0);
+    CheckCondition(GetLocalFileSize(block_trace_filename) > 0);
 
     rocksdb_start_block_cache_trace_with_options(
         db, NULL, trace_env_options, block_trace_options, writer_options,
@@ -6244,7 +6244,7 @@ int main(int argc, char** argv) {
     CheckValue(err, "tracev", &val, val_len);
     rocksdb_end_block_cache_trace(db, &err);
     CheckNoError(err);
-    CheckCondition(GetFileSize(block_trace_filename_2) > 0);
+    CheckCondition(GetLocalFileSize(block_trace_filename_2) > 0);
 
     {
       rocksdb_trace_reader_t* trace_reader;
