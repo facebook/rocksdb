@@ -217,6 +217,38 @@ void rocksdb_your_new_api_cf(rocksdb_t* db,
 }
 \`\`\`
 
+**Before writing C API code by hand, choose the right path:**
+
+- **Auto-managed simple struct fields:** If you added a new field to a managed
+  public struct such as `ReadOptions`, selected option structs, or managed
+  metadata structs, first check `tools/c_api_gen/auto_simple_bindings.py`.
+  Simple scalar/enum/string fields should be regenerated with
+  `python3 tools/c_api_gen/regen_all.py` rather than hand-editing
+  `include/rocksdb/c.h` / `db/c.cc`.
+  After regenerating, run
+  `python3 tools/c_api_gen/verify_generated_up_to_date.py` to confirm the
+  checked-in generated fragments are stable.
+- **Spec-driven wrappers:** If the API is still mechanically generated but needs
+  an explicit C shape, naming, or `Status`/`char** errptr` policy, add it to
+  `tools/c_api_gen/spec.json`.
+- **Fully manual wrappers:** If the API uses callbacks, ownership transfer,
+  vectors/maps, open flows, or otherwise irregular marshalling, keep the C API
+  hand-written.
+
+**Temporary deferral for auto-managed families:**
+
+If a new field lands in an auto-managed family but the C API shape is not ready
+yet, add a checked-in entry to
+`tools/c_api_gen/auto_simple_bindings_blocklist.json` with:
+
+- `policy: "manual"` when the field is intentionally outside simple auto-gen
+- `policy: "deferred"` when the field should be revisited later
+- a concrete `reason`
+- `tracking_issue` when available
+
+If a field in an auto-managed family is not supported by the generator and is
+not covered by the blocklist, regeneration should fail. That is intentional.
+
 **If you have options, also add:**
 
 \`\`\`cpp
