@@ -7184,6 +7184,41 @@ void rocksdb_optimistictransactiondb_options_set_shared_lock_buckets(
       lock_buckets != nullptr ? lock_buckets->rep : nullptr;
 }
 
+// Hand-written bindings for ABI-frozen options with type mismatches between
+// the legacy C API and the underlying C++ field types. These are blocklisted
+// from auto-generation to avoid conflicting declarations.
+void rocksdb_options_set_writable_file_max_buffer_size(rocksdb_options_t* opt,
+                                                       uint64_t v) {
+  opt->rep.writable_file_max_buffer_size = static_cast<size_t>(v);
+}
+uint64_t rocksdb_options_get_writable_file_max_buffer_size(
+    rocksdb_options_t* opt) {
+  return opt->rep.writable_file_max_buffer_size;
+}
+void rocksdb_options_set_soft_pending_compaction_bytes_limit(
+    rocksdb_options_t* opt, size_t v) {
+  opt->rep.soft_pending_compaction_bytes_limit = v;
+}
+size_t rocksdb_options_get_soft_pending_compaction_bytes_limit(
+    rocksdb_options_t* opt) {
+  return opt->rep.soft_pending_compaction_bytes_limit;
+}
+void rocksdb_options_set_hard_pending_compaction_bytes_limit(
+    rocksdb_options_t* opt, size_t v) {
+  opt->rep.hard_pending_compaction_bytes_limit = v;
+}
+size_t rocksdb_options_get_hard_pending_compaction_bytes_limit(
+    rocksdb_options_t* opt) {
+  return opt->rep.hard_pending_compaction_bytes_limit;
+}
+void rocksdb_options_set_max_manifest_file_size(rocksdb_options_t* opt,
+                                                size_t v) {
+  opt->rep.max_manifest_file_size = v;
+}
+size_t rocksdb_options_get_max_manifest_file_size(rocksdb_options_t* opt) {
+  return opt->rep.max_manifest_file_size;
+}
+
 #include "db/c_api_gen/c_generated_option_structs_auto.cc.inc"
 
 rocksdb_optimistictransaction_options_t*
