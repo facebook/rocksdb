@@ -4085,9 +4085,11 @@ TEST_P(WritePreparedTransactionTest, WC_WP_WALForwardIncompatibility) {
   CrossCompatibilityTest(WRITE_PREPARED, WRITE_COMMITTED, !empty_wal);
 }
 
-// Range tombstone insertion uses max_tombstone_seq to safely gate insertion:
-// only insert if max_tombstone_seq < min_uncommitted (all prepared entries
-// have seqno above the tombstone's seqno).
+// With insert_seq = read iterator seqno, insertion depends on the latest
+// published read seq. In one-write-queue mode, the latest read seq reaches the
+// prepared seq, so insertion is blocked. In two-write-queues mode, the latest
+// published seq can still lag the prepared seq, so insertion remains safe and
+// is allowed.
 TEST_P(WritePreparedTransactionTest, RangeTombstoneInsertionWithWritePrepared) {
   for (bool forward : {true, false}) {
     SCOPED_TRACE(forward ? "forward" : "reverse");
@@ -4124,8 +4126,9 @@ TEST_P(WritePreparedTransactionTest, RangeTombstoneInsertionWithWritePrepared) {
     ASSERT_OK(txn->Put("z", "txn_val"));
     ASSERT_OK(txn->Prepare());
 
-    // Pre-commit: tombstones have max_seq < prepare_seq == min_uncommitted,
-    // so range tombstone IS safely inserted.
+    // Pre-commit: one-write-queue mode publishes the prepare seq to readers,
+    // so insertion must be discarded. Two-write-queues mode can still expose
+    // an older published seq to readers, so insertion remains safe.
     {
       ReadOptions read_opts;
       std::unique_ptr<Iterator> iter(db->NewIterator(read_opts));
@@ -4136,14 +4139,17 @@ TEST_P(WritePreparedTransactionTest, RangeTombstoneInsertionWithWritePrepared) {
         for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
         }
       }
-      ASSERT_OK(iter->status());
+      EXPECT_OK(iter->status());
     }
-    ASSERT_EQ(
+    const size_t expected_insertions = options.two_write_queues ? 1u : 0u;
+    EXPECT_EQ(
         options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
-        1u);
-    ASSERT_EQ(inserted_ranges.size(), 1);
-    ASSERT_EQ(inserted_ranges[0].first, "c");
-    ASSERT_EQ(inserted_ranges[0].second, "h");
+        expected_insertions);
+    EXPECT_EQ(inserted_ranges.size(), expected_insertions);
+    if (options.two_write_queues) {
+      EXPECT_EQ(inserted_ranges[0].first, "c");
+      EXPECT_EQ(inserted_ranges[0].second, "h");
+    }
 
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -4180,8 +4186,8 @@ TEST_P(WritePreparedTransactionTest,
       ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));
     }
 
-    // Pre-commit: tombstone max_seq >= prepare_seq == min_uncommitted,
-    // so range tombstone is NOT inserted.
+    // Pre-commit: a prepared transaction is still outstanding, so the
+    // synthesized range tombstone must be discarded.
     {
       ReadOptions read_opts;
       std::unique_ptr<Iterator> iter(db->NewIterator(read_opts));

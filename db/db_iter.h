@@ -420,7 +420,7 @@ class DBIter final : public Iterator {
   // In forward iteration, first_key is set only for the first tombstone
   // (always_update_first_key=false). In reverse, keys arrive in decreasing
   // order so first_key is updated every time (always_update_first_key=true).
-  void TrackContiguousTombstone(const Slice& user_key, SequenceNumber seq,
+  void TrackContiguousTombstone(const Slice& user_key,
                                 bool always_update_first_key);
 
   // If a contiguous tombstone run is pending, insert a range tombstone
@@ -436,7 +436,6 @@ class DBIter final : public Iterator {
   void MaybeInsertRangeTombstone(const Slice& end_key);
   void ResetContiguousTombstoneTracking() {
     contiguous_tombstone_count_ = 0;
-    range_tomb_max_seq_ = 0;
   }
   void ResetRangeTombEndKey() { range_tomb_end_key_.Clear(); }
 
@@ -592,7 +591,6 @@ class DBIter final : public Iterator {
   bool is_blob_;
   bool arena_mode_;
 
-  SequenceNumber range_tomb_max_seq_;
   IterKey range_tomb_first_key_;
   IterKey range_tomb_end_key_;
 };
