@@ -984,7 +984,6 @@ static rocksdb_wal_file_t CaptureWalFile(const WalFile& wal_file) {
   return result;
 }
 
-
 static void SyncColumnFamilyMetadataOptionsRange(
     rocksdb_column_family_metadata_options_t* options) {
   options->rep.range.start = options->has_start_key
