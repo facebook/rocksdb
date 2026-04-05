@@ -123,6 +123,16 @@
           "field": "calculate_sst_write_lifetime_hint_set",
           "policy": "manual",
           "reason": "Stores external objects, callback collections, or nested aggregates that need explicit C ownership and lifetime policy."
+        },
+        {
+          "field": "max_manifest_file_size",
+          "policy": "manual",
+          "reason": "ABI type mismatch: legacy C API uses size_t but C++ field is uint64_t. Hand-written binding preserved for ABI compatibility."
+        },
+        {
+          "field": "writable_file_max_buffer_size",
+          "policy": "manual",
+          "reason": "ABI type mismatch: legacy C API uses uint64_t but C++ field is size_t. Hand-written binding preserved for ABI compatibility."
         }
       ]
     },
@@ -183,6 +193,16 @@
           "field": "blob_direct_write_partition_strategy",
           "policy": "manual",
           "reason": "std::shared_ptr<BlobFilePartitionStrategy> \u2014 factory/ownership-transfer type; needs explicit C bridging."
+        },
+        {
+          "field": "soft_pending_compaction_bytes_limit",
+          "policy": "manual",
+          "reason": "ABI type mismatch: legacy C API uses size_t but C++ field is uint64_t. Hand-written binding preserved for ABI compatibility."
+        },
+        {
+          "field": "hard_pending_compaction_bytes_limit",
+          "policy": "manual",
+          "reason": "ABI type mismatch: legacy C API uses size_t but C++ field is uint64_t. Hand-written binding preserved for ABI compatibility."
         }
       ]
     },

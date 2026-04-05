@@ -251,15 +251,6 @@ size_t rocksdb_options_get_recycle_log_file_num(rocksdb_options_t* opt) {
   return opt->rep.recycle_log_file_num;
 }
 
-void rocksdb_options_set_max_manifest_file_size(rocksdb_options_t* opt,
-                                                uint64_t v) {
-  opt->rep.max_manifest_file_size = v;
-}
-
-uint64_t rocksdb_options_get_max_manifest_file_size(rocksdb_options_t* opt) {
-  return opt->rep.max_manifest_file_size;
-}
-
 void rocksdb_options_set_verify_manifest_content_on_close(
     rocksdb_options_t* opt, unsigned char v) {
   opt->rep.verify_manifest_content_on_close = v;
@@ -432,16 +423,6 @@ void rocksdb_options_compaction_readahead_size(rocksdb_options_t* opt,
 
 size_t rocksdb_options_get_compaction_readahead_size(rocksdb_options_t* opt) {
   return opt->rep.compaction_readahead_size;
-}
-
-void rocksdb_options_set_writable_file_max_buffer_size(rocksdb_options_t* opt,
-                                                       size_t v) {
-  opt->rep.writable_file_max_buffer_size = v;
-}
-
-size_t rocksdb_options_get_writable_file_max_buffer_size(
-    rocksdb_options_t* opt) {
-  return opt->rep.writable_file_max_buffer_size;
 }
 
 void rocksdb_options_set_use_adaptive_mutex(rocksdb_options_t* opt,
@@ -1057,26 +1038,6 @@ void rocksdb_options_set_max_compaction_bytes(rocksdb_options_t* opt,
 
 uint64_t rocksdb_options_get_max_compaction_bytes(rocksdb_options_t* opt) {
   return opt->rep.max_compaction_bytes;
-}
-
-void rocksdb_options_set_soft_pending_compaction_bytes_limit(
-    rocksdb_options_t* opt, uint64_t v) {
-  opt->rep.soft_pending_compaction_bytes_limit = v;
-}
-
-uint64_t rocksdb_options_get_soft_pending_compaction_bytes_limit(
-    rocksdb_options_t* opt) {
-  return opt->rep.soft_pending_compaction_bytes_limit;
-}
-
-void rocksdb_options_set_hard_pending_compaction_bytes_limit(
-    rocksdb_options_t* opt, uint64_t v) {
-  opt->rep.hard_pending_compaction_bytes_limit = v;
-}
-
-uint64_t rocksdb_options_get_hard_pending_compaction_bytes_limit(
-    rocksdb_options_t* opt) {
-  return opt->rep.hard_pending_compaction_bytes_limit;
 }
 
 void rocksdb_options_set_compaction_style(rocksdb_options_t* opt, int v) {
