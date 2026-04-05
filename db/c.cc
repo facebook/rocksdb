@@ -986,7 +986,6 @@ static inline char** CopyStringVector(const std::vector<std::string>& values) {
   return result;
 }
 
-
 static void SyncColumnFamilyMetadataOptionsRange(
     rocksdb_column_family_metadata_options_t* options) {
   options->rep.range.start = options->has_start_key
@@ -996,6 +995,10 @@ static void SyncColumnFamilyMetadataOptionsRange(
       options->has_end_key ? options->end_key : ROCKSDB_NAMESPACE::OptSlice();
 }
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4190)  // C-linkage function returning C++ type
+#endif
 static Status LoadUserDefinedIndexFactoryFromString(
     const char* value, size_t value_len,
     std::shared_ptr<UserDefinedIndexFactory>* factory) {
@@ -1005,6 +1008,9 @@ static Status LoadUserDefinedIndexFactoryFromString(
   return UserDefinedIndexFactory::CreateFromString(
       config_options, std::string(value, value_len), factory);
 }
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 const char* rocksdb_compactionservice_jobinfo_t_get_db_name(
     const rocksdb_compactionservice_jobinfo_t* info, size_t* len) {
@@ -5988,6 +5994,10 @@ void rocksdb_envoptions_set_rate_limiter(rocksdb_envoptions_t* opt,
   opt->rep.rate_limiter = opt->rate_limiter.get();
 }
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4190)  // C-linkage function returning C++ type
+#endif
 static Status CreateFileTraceWriter(
     rocksdb_t* db, rocksdb_env_t* env, const rocksdb_envoptions_t* env_options,
     const char* trace_path,
@@ -6012,6 +6022,9 @@ static Status CreateFileTraceReader(
   return NewFileTraceReader(trace_env, resolved_env_options,
                             std::string(trace_path), trace_reader);
 }
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 rocksdb_trace_options_t* rocksdb_trace_options_create() {
   return new rocksdb_trace_options_t;
