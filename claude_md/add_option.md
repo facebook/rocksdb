@@ -430,6 +430,9 @@ Many simple option fields are no longer maintained by hand in
   `tools/c_api_gen/auto_simple_bindings.py`.
 - If it is a simple scalar/enum/string field in an auto-managed family, run
   `python3 tools/c_api_gen/regen_all.py` and let the generator add the C API.
+- After regenerating, run
+  `python3 tools/c_api_gen/verify_generated_up_to_date.py` to confirm the
+  checked-in generated fragments stay stable.
 - Do not edit generated `.inc` files under `include/rocksdb/c_api_gen/` or
   `db/c_api_gen/` by hand.
 - If the new field is not ready for C API support yet, add an entry to

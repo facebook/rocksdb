@@ -225,6 +225,9 @@ void rocksdb_your_new_api_cf(rocksdb_t* db,
   Simple scalar/enum/string fields should be regenerated with
   `python3 tools/c_api_gen/regen_all.py` rather than hand-editing
   `include/rocksdb/c.h` / `db/c.cc`.
+  After regenerating, run
+  `python3 tools/c_api_gen/verify_generated_up_to_date.py` to confirm the
+  checked-in generated fragments are stable.
 - **Spec-driven wrappers:** If the API is still mechanically generated but needs
   an explicit C shape, naming, or `Status`/`char** errptr` policy, add it to
   `tools/c_api_gen/spec.json`.

@@ -212,6 +212,13 @@ To verify the auto-discovered checked-in output is up to date:
 python3 tools/c_api_gen/auto_simple_bindings.py --check
 ```
 
+To verify the full checked-in generated set is stable without relying on Git
+worktree metadata:
+
+```bash
+python3 tools/c_api_gen/verify_generated_up_to_date.py
+```
+
 ## Maintaining Auto-Managed Families
 
 When a new public field is added to an auto-managed family, use this decision
@@ -266,8 +273,7 @@ in the equivalence checker.
 To refresh the full checked-in generated set and confirm nothing changes:
 
 ```bash
-python3 tools/c_api_gen/regen_all.py
-git diff --exit-code -- include/rocksdb/c_api_gen db/c_api_gen
+python3 tools/c_api_gen/verify_generated_up_to_date.py
 ```
 
 To verify active generated wrappers are equivalent to the handwritten wrappers
