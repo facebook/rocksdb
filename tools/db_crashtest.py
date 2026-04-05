@@ -1020,12 +1020,6 @@ def finalize_and_sanitize(src_params):
         dest_params["paranoid_memory_checks"] = 0
         dest_params["memtable_veirfy_per_key_checksum_on_seek"] = 0
 
-    if dest_params.get("disable_wal", 0) == 1:
-        # WAL-disabled crash recovery only validates sequence-prefix recovery.
-        # `test_batches_snapshots` expects full application-batch atomicity,
-        # which does not hold across crash/restart without WAL.
-        dest_params["test_batches_snapshots"] = 0
-
     if dest_params["test_batches_snapshots"] == 1:
         dest_params["enable_compaction_filter"] = 0
         dest_params["inplace_update_support"] = 0
@@ -1149,7 +1143,6 @@ def finalize_and_sanitize(src_params):
         else:
             dest_params["unordered_write"] = 0
     if dest_params.get("disable_wal", 0) == 1:
-        dest_params["test_batches_snapshots"] = 0
         # WAL-disabled stress runs do not support in-process reopen. Blob
         # direct write v1 relies on this path so crash testing stays within its
         # SST/blob-manifest recovery envelope rather than WAL replay.
@@ -1520,12 +1513,12 @@ def gen_cmd_params(args):
     # Best-effort recovery, tiered storage are currently incompatible with
     # BlobDB and blob direct write. Test BE recovery if specified on the
     # command line; otherwise, apply one of the blob feature overrides with a
-    # 90% chance (increased from 10% to surface BDW+entity bugs faster).
+    # 10% chance.
     if (
         not args.test_best_efforts_recovery
         and not args.test_tiered_storage
         and params.get("test_secondary", 0) == 0
-        and random.choice([0] + [1] * 9) == 1
+        and random.choice([0] * 9 + [1]) == 1
     ):
         params.update(
             random.choice(
