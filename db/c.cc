@@ -208,6 +208,19 @@ static typename MapType::const_iterator GetMapEntryAt(const MapType& map,
   return it;
 }
 
+static std::unique_ptr<Range[]> BuildRanges(int num_ranges,
+                                            const char* const* range_start_key,
+                                            const size_t* range_start_key_len,
+                                            const char* const* range_limit_key,
+                                            const size_t* range_limit_key_len) {
+  std::unique_ptr<Range[]> ranges(new Range[num_ranges]);
+  for (int i = 0; i < num_ranges; ++i) {
+    ranges[i].start = Slice(range_start_key[i], range_start_key_len[i]);
+    ranges[i].limit = Slice(range_limit_key[i], range_limit_key_len[i]);
+  }
+  return ranges;
+}
+
 extern "C" {
 
 struct rocksdb_t {
@@ -971,18 +984,6 @@ static rocksdb_wal_file_t CaptureWalFile(const WalFile& wal_file) {
   return result;
 }
 
-static std::unique_ptr<Range[]> BuildRanges(int num_ranges,
-                                            const char* const* range_start_key,
-                                            const size_t* range_start_key_len,
-                                            const char* const* range_limit_key,
-                                            const size_t* range_limit_key_len) {
-  std::unique_ptr<Range[]> ranges(new Range[num_ranges]);
-  for (int i = 0; i < num_ranges; ++i) {
-    ranges[i].start = Slice(range_start_key[i], range_start_key_len[i]);
-    ranges[i].limit = Slice(range_limit_key[i], range_limit_key_len[i]);
-  }
-  return ranges;
-}
 
 static void SyncColumnFamilyMetadataOptionsRange(
     rocksdb_column_family_metadata_options_t* options) {
