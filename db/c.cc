@@ -221,6 +221,24 @@ static std::unique_ptr<Range[]> BuildRanges(int num_ranges,
   return ranges;
 }
 
+struct rocksdb_wal_file_t {
+  std::string path_name;
+  uint64_t log_number = 0;
+  int type = 0;
+  uint64_t start_sequence = 0;
+  uint64_t size_file_bytes = 0;
+};
+
+static rocksdb_wal_file_t CaptureWalFile(const WalFile& wal_file) {
+  rocksdb_wal_file_t result;
+  result.path_name = wal_file.PathName();
+  result.log_number = wal_file.LogNumber();
+  result.type = static_cast<int>(wal_file.Type());
+  result.start_sequence = wal_file.StartSequence();
+  result.size_file_bytes = wal_file.SizeFileBytes();
+  return result;
+}
+
 extern "C" {
 
 struct rocksdb_t {
@@ -444,13 +462,7 @@ struct rocksdb_wal_iterator_t {
 struct rocksdb_wal_readoptions_t {
   TransactionLogIterator::ReadOptions rep;
 };
-struct rocksdb_wal_file_t {
-  std::string path_name;
-  uint64_t log_number = 0;
-  int type = 0;
-  uint64_t start_sequence = 0;
-  uint64_t size_file_bytes = 0;
-};
+
 struct rocksdb_wal_files_t {
   std::vector<rocksdb_wal_file_t> rep;
 };
@@ -974,15 +986,6 @@ static inline char** CopyStringVector(const std::vector<std::string>& values) {
   return result;
 }
 
-static rocksdb_wal_file_t CaptureWalFile(const WalFile& wal_file) {
-  rocksdb_wal_file_t result;
-  result.path_name = wal_file.PathName();
-  result.log_number = wal_file.LogNumber();
-  result.type = static_cast<int>(wal_file.Type());
-  result.start_sequence = wal_file.StartSequence();
-  result.size_file_bytes = wal_file.SizeFileBytes();
-  return result;
-}
 
 static void SyncColumnFamilyMetadataOptionsRange(
     rocksdb_column_family_metadata_options_t* options) {
