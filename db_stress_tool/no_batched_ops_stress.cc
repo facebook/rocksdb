@@ -1452,8 +1452,8 @@ class NonBatchedOpsStressTest : public StressTest {
         }
 
         if (!is_consistent) {
-          ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::
-                                                   OP_GET);
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_GET);
           cmp_value_s =
               db_->Get(read_opts_copy, cfh, key_slices[i], &cmp_value);
           ran_cmp_get = true;
@@ -1462,7 +1462,8 @@ class NonBatchedOpsStressTest : public StressTest {
                   "batch_index=%zu snapshot_seq=%" PRIu64
                   " batch_size=%zu check_get_entity=%d use_trie_index=%d "
                   "enable_blob_direct_write=%d enable_blob_files=%d "
-                  "min_blob_size=%" PRIu64 " read_tier=%d fill_cache=%d "
+                  "min_blob_size=%" PRIu64
+                  " read_tier=%d fill_cache=%d "
                   "verify_checksums=%d\n",
                   cfh->GetName().c_str(), StringToHex(keys[i]).c_str(), i,
                   snapshot_seq, num_keys, static_cast<int>(check_get_entity),
@@ -1473,18 +1474,14 @@ class NonBatchedOpsStressTest : public StressTest {
                   static_cast<int>(read_opts_copy.read_tier),
                   static_cast<int>(read_opts_copy.fill_cache),
                   static_cast<int>(read_opts_copy.verify_checksums));
-          fprintf(stderr,
-                  "  MultiGetEntity: %s verify=%s\n",
-                  format_entity_result(s, s.ok() ? &columns : nullptr).c_str(),
-                  s.ok() ? (VerifyWideColumns(columns) ? "true" : "false")
-                         : "n/a");
+          fprintf(
+              stderr, "  MultiGetEntity: %s verify=%s\n",
+              format_entity_result(s, s.ok() ? &columns : nullptr).c_str(),
+              s.ok() ? (VerifyWideColumns(columns) ? "true" : "false") : "n/a");
           if (ran_cmp_get_entity) {
-            fprintf(stderr,
-                    "  GetEntity: %s verify=%s\n",
-                    format_entity_result(cmp_s,
-                                         cmp_s.ok()
-                                             ? &cmp_result.columns()
-                                             : nullptr)
+            fprintf(stderr, "  GetEntity: %s verify=%s\n",
+                    format_entity_result(
+                        cmp_s, cmp_s.ok() ? &cmp_result.columns() : nullptr)
                         .c_str(),
                     cmp_s.ok()
                         ? (VerifyWideColumns(cmp_result.columns()) ? "true"
@@ -1506,15 +1503,14 @@ class NonBatchedOpsStressTest : public StressTest {
           for (size_t batch_idx = 0; batch_idx < num_keys; ++batch_idx) {
             const Status& batch_status = get_status(batch_idx);
             const WideColumns& batch_columns = get_columns(batch_idx);
-            const auto [it, inserted] = first_batch_index_by_key.emplace(
-                keys[batch_idx], batch_idx);
+            const auto [it, inserted] =
+                first_batch_index_by_key.emplace(keys[batch_idx], batch_idx);
             fprintf(stderr,
                     "  batch[%zu]%s key=%s duplicate_of=%s status=%s "
                     "verify=%s\n",
                     batch_idx, batch_idx == i ? " [focus]" : "",
                     StringToHex(keys[batch_idx]).c_str(),
-                    inserted ? "-"
-                             : std::to_string(it->second).c_str(),
+                    inserted ? "-" : std::to_string(it->second).c_str(),
                     batch_status.ToString().c_str(),
                     batch_status.ok()
                         ? (VerifyWideColumns(batch_columns) ? "true" : "false")

@@ -674,8 +674,8 @@ TEST_F(DBWideBlobDirectWriteTest,
       std::array<PinnableWideColumns, 3> multiget_results;
       std::array<Status, 3> multiget_statuses;
 
-      db_->MultiGetEntity(read_options, db_->DefaultColumnFamily(),
-                          keys.size(), keys.data(), multiget_results.data(),
+      db_->MultiGetEntity(read_options, db_->DefaultColumnFamily(), keys.size(),
+                          keys.data(), multiget_results.data(),
                           multiget_statuses.data());
 
       for (size_t i = 0; i < keys.size(); ++i) {

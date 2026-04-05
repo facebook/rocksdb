@@ -952,13 +952,12 @@ TEST_F(CoalescingIteratorTest,
   verify_same_entry("key_2");
 }
 
-TEST_F(CoalescingIteratorTest,
-       AllowUnpreparedValueWithSnapshotAutoRefresh) {
+TEST_F(CoalescingIteratorTest, AllowUnpreparedValueWithSnapshotAutoRefresh) {
   constexpr int kNumKeys = 32;
 
   auto make_value = [](int cf, const char* phase, int key) {
-    return "cf" + std::to_string(cf) + "_" + phase + "_" +
-           std::to_string(key) + std::string(32, static_cast<char>('a' + cf));
+    return "cf" + std::to_string(cf) + "_" + phase + "_" + std::to_string(key) +
+           std::string(32, static_cast<char>('a' + cf));
   };
 
   Options options = GetDefaultOptions();
@@ -1001,10 +1000,10 @@ TEST_F(CoalescingIteratorTest,
 
     if (seen == kNumKeys / 2) {
       ASSERT_OK(Flush({0, 1}));
-      ASSERT_OK(
-          db_->CompactRange(CompactRangeOptions(), handles_[0], nullptr, nullptr));
-      ASSERT_OK(
-          db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr));
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[0], nullptr,
+                                  nullptr));
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                                  nullptr));
     }
     ++seen;
   }
