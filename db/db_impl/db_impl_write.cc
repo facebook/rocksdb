@@ -321,7 +321,6 @@ Status DBImpl::IngestWBWIAsMemtable(
             "close and reopen the DB for WAL recovery. " +
             s.ToString());
         error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
-        s = error_handler_.GetBGError();
       }
 
       return s;
@@ -395,7 +394,6 @@ Status DBImpl::IngestWBWIAsMemtable(
             "close and reopen the DB for WAL recovery. " +
             s.ToString());
         error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
-        s = error_handler_.GetBGError();
       } else {
         // SwitchMemtable() already sets appropriate bg error
       }
