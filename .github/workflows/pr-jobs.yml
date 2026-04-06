@@ -385,8 +385,8 @@ jobs:
       with:
         artifact-prefix: "${{ github.job }}-${{ matrix.crash_test_target }}"
   # ======================= Linux with Sanitizers ===================== #
-  build-linux-clang18-asan-ubsan:
-    if: needs.config.outputs.only_job == 'build-linux-clang18-asan-ubsan' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+  build-linux-clang21-asan-ubsan:
+    if: needs.config.outputs.only_job == 'build-linux-clang21-asan-ubsan' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
       labels: 32-core-ubuntu
@@ -402,7 +402,7 @@ jobs:
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-ccache"
       with:
-        cache-key-prefix: clang18-asan-ubsan
+        cache-key-prefix: clang21-asan-ubsan
     - run: COMPILE_WITH_ASAN=1 COMPILE_WITH_UBSAN=1 CC=clang-21 CXX=clang++-21 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j40 check
       env:
         CI_SHARD_INDEX: ${{ matrix.shard }}
@@ -412,8 +412,8 @@ jobs:
     - uses: "./.github/actions/post-steps"
       with:
         artifact-prefix: "${{ github.job }}-shard${{ matrix.shard }}"
-  build-linux-clang18-mini-tsan:
-    if: needs.config.outputs.only_job == 'build-linux-clang18-mini-tsan' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+  build-linux-clang21-mini-tsan:
+    if: needs.config.outputs.only_job == 'build-linux-clang21-mini-tsan' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
       labels: 32-core-ubuntu
@@ -429,7 +429,7 @@ jobs:
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-ccache"
       with:
-        cache-key-prefix: clang18-tsan
+        cache-key-prefix: clang21-tsan
     - run: COMPILE_WITH_TSAN=1 CC=clang-21 CXX=clang++-21 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
       env:
         CI_SHARD_INDEX: ${{ matrix.shard }}

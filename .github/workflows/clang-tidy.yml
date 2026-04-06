@@ -36,7 +36,7 @@ jobs:
         echo "skip=false" >> "$GITHUB_OUTPUT"
     - name: Install clang-tidy
       if: steps.diff-base.outputs.skip != 'true'
-      run: apt-get update && apt-get install -y clang-tidy
+      run: apt-get update && apt-get install -y clang-tidy-21 && ln -sf /usr/bin/clang-tidy-21 /usr/local/bin/clang-tidy
     - name: Generate compile_commands.json
       if: steps.diff-base.outputs.skip != 'true'
       run: |
