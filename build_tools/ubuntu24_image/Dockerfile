@@ -5,6 +5,8 @@
 # the docker and docker-registry groups, and logging out and back in to pick
 # those up.)
 #
+# Meta employees: see https://fburl.com/rocksdb-docker to build this on a devvm.
+#
 # Follow https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-with-a-personal-access-token-classic
 # to login with your GitHub credentials, as in
 #
@@ -28,11 +30,15 @@ FROM ubuntu:24.04
 RUN apt-get update
 RUN apt-get upgrade -y
 # install basic tools
-RUN apt-get install -y vim wget curl
+RUN apt-get install -y vim wget curl ccache
 # install tzdata noninteractive
 RUN DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get -y install tzdata
 # install git and default compilers
 RUN apt-get install -y git gcc g++ clang clang-tools
+# install clang-21 from LLVM snapshot repo
+RUN curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /etc/apt/trusted.gpg.d/llvm.gpg && \
+    echo "deb https://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" > /etc/apt/sources.list.d/llvm-21.list && \
+    apt-get update && apt-get install -y clang-21
 # install basic package
 RUN apt-get install -y lsb-release software-properties-common gnupg
 # install gflags, tbb
