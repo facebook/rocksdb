@@ -26,6 +26,20 @@ namespace ROCKSDB_NAMESPACE {
 using wide_column_test_util::GenerateLargeValue;
 using wide_column_test_util::GetOptionsForBlobTest;
 
+using WideColumnStringPairs = std::vector<std::pair<std::string, std::string>>;
+
+// `WideColumns` only stores non-owning `Slice`s, so tests that synthesize
+// dynamic column data need separate backing storage that outlives the DB call
+// or comparison.
+static WideColumns ToWideColumns(const WideColumnStringPairs& columns) {
+  WideColumns wide_columns;
+  wide_columns.reserve(columns.size());
+  for (const auto& column : columns) {
+    wide_columns.emplace_back(column.first, column.second);
+  }
+  return wide_columns;
+}
+
 class DBWideBlobDirectWriteTest : public DBTestBase {
  protected:
   DBWideBlobDirectWriteTest()
@@ -58,26 +72,29 @@ class DBWideBlobDirectWriteTest : public DBTestBase {
     return key;
   }
 
-  static WideColumns MakeIteratorStressColumns(char fill, int index) {
-    return WideColumns{{kDefaultWideColumnName,
-                        std::string(128, fill) + "_" + std::to_string(index)},
-                       {"meta", std::string(96, static_cast<char>(fill + 1)) +
-                                    "_" + std::to_string(index)}};
+  static WideColumnStringPairs MakeIteratorStressColumnData(char fill,
+                                                            int index) {
+    return WideColumnStringPairs{
+        {"", std::string(128, fill) + "_" + std::to_string(index)},
+        {"meta", std::string(96, static_cast<char>(fill + 1)) + "_" +
+                     std::to_string(index)}};
   }
 
   void PopulateIteratorStressEntities(int num_keys) {
     for (int index = 0; index < num_keys; ++index) {
+      const auto columns_data = MakeIteratorStressColumnData('A', index);
       ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
                                MakeIteratorStressKey(index),
-                               MakeIteratorStressColumns('A', index)));
+                               ToWideColumns(columns_data)));
     }
     ASSERT_OK(Flush());
     MoveFilesToLevel(1);
 
     for (int index = 0; index < num_keys; ++index) {
+      const auto columns_data = MakeIteratorStressColumnData('C', index);
       ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
                                MakeIteratorStressKey(index),
-                               MakeIteratorStressColumns('C', index)));
+                               ToWideColumns(columns_data)));
     }
   }
 
@@ -126,11 +143,13 @@ class DBWideBlobDirectWriteTest : public DBTestBase {
 
     if (scenario.reuse_iterator_before_refresh) {
       const int first_index = kNumKeys / 8;
+      const auto expected_columns_data =
+          MakeIteratorStressColumnData('C', first_index);
+      const WideColumns expected_columns = ToWideColumns(expected_columns_data);
       coalescing->Seek(MakeIteratorStressKey(first_index));
       ASSERT_TRUE(coalescing->Valid());
       ASSERT_TRUE(coalescing->PrepareValue());
-      ASSERT_EQ(MakeIteratorStressColumns('C', first_index),
-                coalescing->columns());
+      ASSERT_EQ(expected_columns, coalescing->columns());
       coalescing->Next();
       ASSERT_TRUE(coalescing->Valid());
       ASSERT_TRUE(coalescing->PrepareValue());
@@ -191,9 +210,9 @@ char ValueFillForIndex(size_t index) {
   return static_cast<char>('A' + (index % 26));
 }
 
-WideColumns BuildTTLWideEntity(const std::string& value,
-                               const std::string& ttl) {
-  return WideColumns{{kDefaultWideColumnName, value}, {"ttl", ttl}};
+WideColumnStringPairs BuildTTLWideEntityData(const std::string& value,
+                                             const std::string& ttl) {
+  return WideColumnStringPairs{{"", value}, {"ttl", ttl}};
 }
 
 std::string BuildTTLKey(uint32_t partition, size_t cycle) {
@@ -854,7 +873,8 @@ TEST_F(DBWideBlobDirectWriteTest,
               GenerateLargeValue(kLargeValueSize, ValueFillForIndex(key_index));
           const std::string ttl =
               EncodeFixedTTL(expected_ttl_for(cycle, key_index));
-          const WideColumns columns = BuildTTLWideEntity(value, ttl);
+          const auto columns_data = BuildTTLWideEntityData(value, ttl);
+          const WideColumns columns = ToWideColumns(columns_data);
 
           ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
                                    key, columns));
@@ -923,8 +943,9 @@ TEST_F(DBWideBlobDirectWriteTest,
               GenerateLargeValue(kLargeValueSize, ValueFillForIndex(key_index));
           const std::string expected_ttl =
               EncodeFixedTTL(expected_ttl_for(cycle, key_index));
-          const WideColumns expected =
-              BuildTTLWideEntity(expected_value, expected_ttl);
+          const auto expected_data =
+              BuildTTLWideEntityData(expected_value, expected_ttl);
+          const WideColumns expected = ToWideColumns(expected_data);
 
           PinnableWideColumns result;
           ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
