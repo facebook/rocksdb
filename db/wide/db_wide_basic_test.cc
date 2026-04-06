@@ -1933,7 +1933,7 @@ TEST_F(DBWideBasicTest, GetEntityWithBlobResolution) {
                            second_key, second_columns));
 
   // Reset statistics before flush/compaction
-  options.statistics->Reset();
+  ASSERT_OK(options.statistics->Reset());
 
   // Flush and compact to ensure data goes to blob files
   ASSERT_OK(Flush());

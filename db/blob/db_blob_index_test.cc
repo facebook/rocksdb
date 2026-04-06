@@ -1286,7 +1286,7 @@ TEST_F(DBBlobIndexTest, EntityBlobLazyLoadingFilterSkipsBlobs) {
   ASSERT_OK(Flush());
 
   // Reset statistics before compaction
-  options.statistics->Reset();
+  ASSERT_OK(options.statistics->Reset());
 
   // Run compaction - this will invoke the compaction filter
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -1430,7 +1430,7 @@ TEST_F(DBBlobIndexTest, EntityBlobLazyLoadingFilterResolvesBlobs) {
   ASSERT_OK(Flush());
 
   // Reset statistics before compaction
-  options.statistics->Reset();
+  ASSERT_OK(options.statistics->Reset());
 
   // Run compaction - this will invoke the compaction filter
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -1505,7 +1505,7 @@ TEST_F(DBBlobIndexTest, EntityBlobCompactionFilterAccessesOnlySmallColumn) {
   ASSERT_OK(Flush());
 
   // Reset statistics before compaction
-  options.statistics->Reset();
+  ASSERT_OK(options.statistics->Reset());
 
   // Run compaction - this will invoke the compaction filter
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));

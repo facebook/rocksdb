@@ -777,7 +777,7 @@ TEST_F(DBWideBlobDirectWriteTest,
 
     Close();
     Reopen(options);
-    options.statistics->Reset();
+    ASSERT_OK(options.statistics->Reset());
 
     std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
     iter->SeekToFirst();
@@ -887,7 +887,7 @@ TEST_F(DBWideBlobDirectWriteTest,
     ASSERT_LT(blob_files_before.size(), kTotalKeys)
         << "Expected multiple keys to share direct-write blob files";
 
-    options.statistics->Reset();
+    ASSERT_OK(options.statistics->Reset());
     ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
     ASSERT_GE(filter_call_count.load(), static_cast<int>(kTotalKeys));
@@ -955,7 +955,7 @@ TEST_F(DBWideBlobDirectWriteTest,
 
     ttl_cutoff.store(std::numeric_limits<uint64_t>::max(),
                      std::memory_order_relaxed);
-    options.statistics->Reset();
+    ASSERT_OK(options.statistics->Reset());
     ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
     ASSERT_EQ(options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ),
