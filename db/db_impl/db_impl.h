@@ -1649,6 +1649,10 @@ class DBImpl : public DB {
       PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
       const PublishLastSeq publish_last_seq, const bool disable_memtable);
 
+  void MaybeTraceWriteGroupForPreservedWriteOrder(
+      const WriteThread::WriteGroup& write_group,
+      WriteBatchWithIndex* wbwi = nullptr, bool ingest_wbwi_for_commit = true);
+
   // write cached_recoverable_state_ to memtable if it is not empty
   // The writer must be the leader in write_thread_ and holding mutex_
   Status WriteRecoverableState();
