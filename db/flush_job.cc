@@ -23,6 +23,7 @@
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
 #include "db/range_tombstone_fragmenter.h"
+#include "db/table_cache.h"
 #include "db/version_edit.h"
 #include "db/version_set.h"
 #include "file/file_util.h"
@@ -303,6 +304,8 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
     s = MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT();
   }
 
+  TEST_SYNC_POINT_CALLBACK("FlushJob::Run:PostBuildTable", &s);
+
   if (!s.ok()) {
     cfd_->imm()->RollbackMemtableFlush(
         mems_, /*rollback_succeeding_memtables=*/!db_options_.atomic_flush);
@@ -330,6 +333,18 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
                               but 'false' if mempurge successful: no new min log number
                               or new level 0 file path to write to manifest. */);
     }
+  }
+
+  if (!s.ok() && meta_.fd.GetFileSize() > 0) {
+    // If BuildTable succeeded (file was cached in table cache for user reads)
+    // but the flush failed to install (e.g., LogAndApply MANIFEST I/O error,
+    // CF dropped, shutdown), evict the cached entry. Without this, the file
+    // is cached but not in any Version, and the FindObsoleteFiles backstop
+    // can fail under metadata read fault injection, causing
+    // TEST_VerifyNoObsoleteFilesCached to fire during Close().
+    TableCache::ReleaseObsolete(cfd_->table_cache()->get_cache().get(),
+                                meta_.fd.GetNumber(), nullptr /*handle*/,
+                                mutable_cf_options_.uncache_aggressiveness);
   }
 
   if (s.ok() && file_meta != nullptr) {
