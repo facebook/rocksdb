@@ -1506,7 +1506,6 @@ void CompactionIterator::ExtractLargeColumnValuesIfNeeded() {
   // Track which columns were extracted and their blob indices
   std::vector<std::pair<size_t, BlobIndex>> new_blob_columns;
   std::string temp_blob_index;
-  Status s;
 
   for (size_t i = 0; i < entity_columns_.size(); ++i) {
     const Slice& col_value = entity_columns_[i].value();
@@ -1517,9 +1516,10 @@ void CompactionIterator::ExtractLargeColumnValuesIfNeeded() {
     // Try to add the column value to blob file
     // blob_file_builder_->Add() will check min_blob_size internally
     // and only write to blob file if the value is large enough
-    s = blob_file_builder_->Add(user_key(), col_value, &temp_blob_index);
-    if (!s.ok()) {
-      status_ = s;
+    const Status add_status =
+        blob_file_builder_->Add(user_key(), col_value, &temp_blob_index);
+    if (!add_status.ok()) {
+      status_ = add_status;
       validity_info_.Invalidate();
       return;
     }
@@ -1527,9 +1527,9 @@ void CompactionIterator::ExtractLargeColumnValuesIfNeeded() {
     // If blob_index is not empty, the value was extracted to a blob file
     if (!temp_blob_index.empty()) {
       BlobIndex blob_idx;
-      s = blob_idx.DecodeFrom(temp_blob_index);
-      if (!s.ok()) {
-        status_ = s;
+      const Status decode_status = blob_idx.DecodeFrom(temp_blob_index);
+      if (!decode_status.ok()) {
+        status_ = decode_status;
         validity_info_.Invalidate();
         return;
       }
@@ -1551,10 +1551,10 @@ void CompactionIterator::ExtractLargeColumnValuesIfNeeded() {
   }
 
   rewritten_entity_.clear();
-  s = WideColumnSerialization::SerializeV2(entity_wide_columns_,
-                                           new_blob_columns, rewritten_entity_);
-  if (!s.ok()) {
-    status_ = s;
+  const Status serialize_status = WideColumnSerialization::SerializeV2(
+      entity_wide_columns_, new_blob_columns, rewritten_entity_);
+  if (!serialize_status.ok()) {
+    status_ = serialize_status;
     validity_info_.Invalidate();
     return;
   }
