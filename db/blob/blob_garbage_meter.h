@@ -15,6 +15,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class BlobIndex;
 struct ParsedInternalKey;
 class Slice;
 
@@ -94,11 +95,16 @@ class BlobGarbageMeter {
   }
 
  private:
+  static Status GetBlobReferenceDetails(const ParsedInternalKey& ikey,
+                                        const BlobIndex& blob_index,
+                                        uint64_t* blob_file_number,
+                                        uint64_t* bytes);
   static Status ParseBlobIndexReference(const ParsedInternalKey& ikey,
                                         const Slice& value,
                                         uint64_t* blob_file_number,
                                         uint64_t* bytes);
 
+  void AddFlow(uint64_t blob_file_number, uint64_t bytes, bool is_inflow);
   Status ProcessFlow(const Slice& key, const Slice& value, bool is_inflow);
   Status ProcessEntityBlobReferences(const ParsedInternalKey& ikey,
                                      const Slice& value, bool is_inflow);
