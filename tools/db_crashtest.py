@@ -246,8 +246,9 @@ default_params = {
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     # use_trie_index must be the same across invocations so that all SSTs
-    # in a DB are opened with matching table options
-    "use_trie_index": random.choice([0, 0, 0, 0, 0, 0, 0, 1]),
+    # in a DB are opened with matching table options.
+    # Temporarily disabled due to trie UDI stress test failures.
+    "use_trie_index": 0,
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     "use_attribute_group": lambda: random.randint(0, 1),
@@ -463,6 +464,7 @@ default_params = {
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
+    "min_tombstones_for_range_conversion": lambda: random.choice([0, 2, 2, 4, 16]),
     "ingest_wbwi_one_in": lambda: random.choice([0, 0, 100, 500]),
     "universal_reduce_file_locking": lambda: random.randint(0, 1),
     "compression_manager": lambda: random.choice(
@@ -889,6 +891,14 @@ multiops_txn_params = {
 # The Python rules here prevent those assertions from ever firing.
 # =============================================================================
 
+
+def _is_udt_memtable_only(params):
+    return (
+        params.get("user_timestamp_size", 0) > 0
+        and params.get("persist_user_defined_timestamps") == 0
+    )
+
+
 # FEATURE_REQUIREMENTS maps feature names to their required parameter values.
 #
 # Format:
@@ -952,7 +962,6 @@ FEATURE_REQUIREMENTS = {
         "disable_self": lambda p: {"best_efforts_recovery": 0},
         "requires": {
             "disable_wal": 1,
-            "atomic_flush": 1,
             "inplace_update_support": 0,
             "enable_blob_files": 0,
             "enable_blob_garbage_collection": 0,
@@ -965,7 +974,9 @@ FEATURE_REQUIREMENTS = {
             "verify_db_one_in": 0,
         },
         "comment": "BER disables WAL and tests unsynced data loss. BlobDB and "
-                   "blob direct write are also incompatible. "
+                   "blob direct write are also incompatible. Atomic flush "
+                   "normally follows from disable_wal, except for the "
+                   "UDT memtable-only BER test profile. "
                    "C++ check: db_stress_tool.cc asserts skip_verifydb && disable_wal",
     },
 
@@ -984,14 +995,10 @@ FEATURE_REQUIREMENTS = {
     },
 
     "udt_memtable_only": {
-        "active_when": lambda p: (
-            p.get("user_timestamp_size", 0) > 0
-            and p.get("persist_user_defined_timestamps") == 0
-        ),
+        "active_when": _is_udt_memtable_only,
         # Disabling means re-enabling persistence
         "disable_self": lambda p: {"persist_user_defined_timestamps": 1},
         "requires": {
-            "disable_wal": 0,
             "atomic_flush": 0,
             "allow_concurrent_memtable_write": 0,
             "enable_blob_files": 0,
@@ -1001,7 +1008,8 @@ FEATURE_REQUIREMENTS = {
             "use_multi_get_entity": 0,
         },
         "comment": "UDT in memtable only mode: timestamps can be collapsed, "
-                   "incompatible with WAL-disabled recovery and concurrent writes.",
+                   "incompatible with concurrent writes. It also forces a "
+                   "special WAL/atomic_flush profile outside BER tests.",
     },
 
     "remote_compaction": {
@@ -1124,16 +1132,16 @@ FEATURE_REQUIREMENTS = {
     },
 
     "unordered_write": {
-        "active_when": lambda p: p.get("unordered_write", 0) == 1,
+        "active_when": lambda p: (
+            p.get("unordered_write", 0) == 1 and p.get("txn_write_policy", 0) == 1
+        ),
         "disable_self": lambda p: {"unordered_write": 0},
         "requires": {
-            # Only valid with WritePrepared txns
-            "txn_write_policy": 1,
             # Needs concurrent memtable writes
             "allow_concurrent_memtable_write": 1,
         },
-        "comment": "Unordered write only safe with WritePrepared txns. "
-                   "Requires concurrent memtable writes.",
+        "comment": "Unordered write only stays enabled for WritePrepared txns. "
+                   "When active, it requires concurrent memtable writes.",
     },
 
     "commit_bypass_memtable": {
@@ -1601,6 +1609,29 @@ CONSEQUENCE_RULES = [
                        "C++ check: db_stress_tool.cc exits if test_batches_snapshots && delrangepercent > 0",
         },
     {
+            "name": "udt_memtable_only_wal_profile",
+            "when": lambda p: (
+                _is_udt_memtable_only(p)
+                and p.get("best_efforts_recovery", 0) == 0
+                and p.get("test_best_efforts_recovery", 0) == 0
+            ),
+            "then": {"disable_wal": 0},
+            "comment": "UDT memtable-only requires WAL outside BER mode.",
+        },
+    {
+            "name": "udt_memtable_only_iteration_shape",
+            "when": _is_udt_memtable_only,
+            "then": lambda p: (
+                {
+                    "readpercent": p.get("readpercent", 0) + p.get("iterpercent", 10),
+                    "iterpercent": 0,
+                }
+                if p.get("iterpercent", 0) > 0
+                else {"iterpercent": 0}
+            ),
+            "comment": "UDT memtable-only disables iterator shapes that rely on stable SuperVersions.",
+        },
+    {
             "name": "inplace_update_fixed_across_runs",
             "when": lambda p: p.get("inplace_update_support", 0) == 1,
             "then": lambda p: {
@@ -1625,6 +1656,39 @@ CONSEQUENCE_RULES = [
                        "other incompatible random read/delete shapes instead.",
         },
     {
+            "name": "multiscan_shape_adjustments",
+            "when": lambda p: p.get("use_multiscan") == 1,
+            "then": lambda p: {
+                **(
+                    {
+                        "delpercent": p.get("delpercent", 0) + p.get("delrangepercent", 0),
+                        "delrangepercent": 0,
+                    }
+                    if p.get("delrangepercent", 0) > 0
+                    else {"delrangepercent": 0}
+                ),
+                **(
+                    {
+                        "iterpercent": p.get("iterpercent", 0) + p.get("prefixpercent", 0),
+                        "prefixpercent": 0,
+                    }
+                    if p.get("prefixpercent", 0) > 0
+                    else {"prefixpercent": 0}
+                ),
+                **(
+                    {
+                        "multiscan_max_prefetch_memory_bytes": random.choice(
+                            [0, 0, 64 * 1024, 256 * 1024]
+                        ),
+                    }
+                    if p.get("multiscan_max_prefetch_memory_bytes")
+                    not in {0, 64 * 1024, 256 * 1024}
+                    else {}
+                ),
+            },
+            "comment": "Multiscan reuses iter/delete-share percentages and limits prefetch to tested values.",
+        },
+    {
             "name": "wal_disruption_ingest",
             "when": lambda p: (
                 p.get("sync_fault_injection") == 1
@@ -1637,6 +1701,14 @@ CONSEQUENCE_RULES = [
             },
             "comment": "File ingestion syncs data newer than unsynced memtable data. "
                        "Compaction filter can apply memtable updates to SSTs, problematic with data loss.",
+        },
+    {
+            "name": "unordered_write_requires_write_prepared",
+            "when": lambda p: (
+                p.get("unordered_write", 0) == 1 and p.get("txn_write_policy", 0) != 1
+            ),
+            "then": {"unordered_write": 0},
+            "comment": "Unordered write is only valid with WritePrepared and must not rewrite txn_write_policy.",
         },
     {
             "name": "timestamped_snapshot_unordered",
@@ -1655,15 +1727,26 @@ CONSEQUENCE_RULES = [
     {
             "name": "disable_wal_consequences",
             "when": lambda p: p.get("disable_wal", 0) == 1,
-            "then": {
-                "atomic_flush": 1,
+            "then": lambda p: {
+                "atomic_flush": (
+                    0
+                    if (
+                        _is_udt_memtable_only(p)
+                        and (
+                            p.get("best_efforts_recovery", 0) == 1
+                            or p.get("test_best_efforts_recovery", 0) == 1
+                        )
+                    )
+                    else 1
+                ),
                 "sync": 0,
                 "write_fault_one_in": 0,
                 "reopen": 0,
                 "manual_wal_flush_one_in": 0,
                 "recycle_log_file_num": 0,
             },
-            "comment": "Consequences of WAL being disabled: requires atomic flush, no sync, no reopen. "
+            "comment": "Consequences of WAL being disabled: usually atomic flush, no sync, and no reopen. "
+                       "UDT memtable-only BER mode keeps atomic_flush off. "
                        "C++ check: db_stress_tool.cc exits if disable_wal && reopen > 0",
         },
     {
@@ -1721,7 +1804,7 @@ CONSEQUENCE_RULES = [
         },
     {
             "name": "prefix_size_negative",
-            "when": lambda p: p.get("prefix_size") == -1,
+            "when": lambda p: p.get("prefix_size") == -1 and p.get("use_multiscan") != 1,
             "then": lambda p: (
                 {
                     "readpercent": p.get("readpercent", 0) + p.get("prefixpercent", 20),

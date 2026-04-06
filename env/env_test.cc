@@ -27,9 +27,14 @@
 #include <fcntl.h>
 #include <linux/fs.h>
 #include <sys/stat.h>
+#include <sys/statfs.h>
 #include <unistd.h>
 
 #include <cstdlib>
+#endif
+
+#if !defined(BTRFS_SUPER_MAGIC)
+#define BTRFS_SUPER_MAGIC 0x9123683E
 #endif
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
@@ -1247,24 +1252,41 @@ TEST_P(EnvPosixTestWithParam, AllocateTest) {
     struct stat f_stat;
     ASSERT_EQ(stat(fname.c_str(), &f_stat), 0);
     ASSERT_EQ((unsigned int)kDataSize, f_stat.st_size);
-    // verify that blocks are preallocated
-    // Note here that we don't check the exact number of blocks preallocated --
-    // we only require that number of allocated blocks is at least what we
-    // expect.
-    // It looks like some FS give us more blocks that we asked for. That's fine.
-    // It might be worth investigating further.
-    ASSERT_LE((unsigned int)(kPreallocateSize / kBlockSize), f_stat.st_blocks);
+    // btrfs accepts fallocate but uses copy-on-write, so preallocated extents
+    // are not reflected in st_blocks. Skip block-count verification there.
+    bool skip_block_checks = false;
+#ifdef OS_LINUX
+    struct statfs fs_stat;
+    if (statfs(fname.c_str(), &fs_stat) == 0 &&
+        fs_stat.f_type ==
+            static_cast<decltype(fs_stat.f_type)>(BTRFS_SUPER_MAGIC)) {
+      fprintf(stderr, "Skipping preallocation block count checks on btrfs\n");
+      skip_block_checks = true;
+    }
+#endif
+    if (!skip_block_checks) {
+      // verify that blocks are preallocated
+      // Note here that we don't check the exact number of blocks preallocated
+      // -- we only require that number of allocated blocks is at least what we
+      // expect.
+      // It looks like some FS give us more blocks that we asked for. That's
+      // fine. It might be worth investigating further.
+      ASSERT_LE((unsigned int)(kPreallocateSize / kBlockSize),
+                f_stat.st_blocks);
+    }
 
     // close the file, should deallocate the blocks
     wfile.reset();
 
     stat(fname.c_str(), &f_stat);
     ASSERT_EQ((unsigned int)kDataSize, f_stat.st_size);
-    // verify that preallocated blocks were deallocated on file close
-    // Because the FS might give us more blocks, we add a full page to the size
-    // and expect the number of blocks to be less or equal to that.
-    ASSERT_GE((f_stat.st_size + kPageSize + kBlockSize - 1) / kBlockSize,
-              (unsigned int)f_stat.st_blocks);
+    if (!skip_block_checks) {
+      // verify that preallocated blocks were deallocated on file close
+      // Because the FS might give us more blocks, we add a full page to the
+      // size and expect the number of blocks to be less or equal to that.
+      ASSERT_GE((f_stat.st_size + kPageSize + kBlockSize - 1) / kBlockSize,
+                (unsigned int)f_stat.st_blocks);
+    }
   }
 }
 #endif  // ROCKSDB_FALLOCATE_PRESENT
@@ -4276,6 +4298,70 @@ TEST_F(TestIOActivity, IOActivityToString) {
             "CustomIOActivityFE");
 
   ASSERT_EQ(Env::IOActivityToString(Env::IOActivity::kUnknown), "Unknown");
+}
+
+TEST_F(EnvTest, WriteStringToFileClosesFile) {
+  auto counted_fs = std::make_shared<CountedFileSystem>(FileSystem::Default());
+  std::string fname = test::PerThreadDBPath("write_string_close_test");
+
+  // Write a file using WriteStringToFile
+  ASSERT_OK(WriteStringToFile(counted_fs.get(), "hello world", fname,
+                              /*should_sync=*/false));
+
+  // Verify Close() was called (closes counter should be > 0)
+  ASSERT_GT(counted_fs->counters()->closes.load(), 0);
+
+  // Verify the content was written correctly
+  std::string result;
+  ASSERT_OK(ReadFileToString(counted_fs.get(), fname, &result));
+  ASSERT_EQ(result, "hello world");
+
+  // Clean up
+  ASSERT_OK(counted_fs->DeleteFile(fname, IOOptions(), nullptr));
+}
+
+// Writable file wrapper that injects a Close() failure.
+// Uses FSWritableFileOwnerWrapper to properly take ownership of the wrapped
+// file.
+class CloseFailWritableFile : public FSWritableFileOwnerWrapper {
+ public:
+  explicit CloseFailWritableFile(std::unique_ptr<FSWritableFile>&& target)
+      : FSWritableFileOwnerWrapper(std::move(target)) {}
+  IOStatus Close(const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    return IOStatus::IOError("injected close failure");
+  }
+};
+
+// FileSystem wrapper that wraps writable files with CloseFailWritableFile.
+class CloseFailFS : public FileSystemWrapper {
+ public:
+  explicit CloseFailFS(const std::shared_ptr<FileSystem>& base)
+      : FileSystemWrapper(base) {}
+  const char* Name() const override { return "CloseFailFS"; }
+  IOStatus NewWritableFile(const std::string& fname,
+                           const FileOptions& file_opts,
+                           std::unique_ptr<FSWritableFile>* result,
+                           IODebugContext* dbg) override {
+    IOStatus s = target()->NewWritableFile(fname, file_opts, result, dbg);
+    if (s.ok()) {
+      result->reset(new CloseFailWritableFile(std::move(*result)));
+    }
+    return s;
+  }
+};
+
+TEST_F(EnvTest, WriteStringToFileCloseFailureDeletesFile) {
+  auto close_fail_fs = std::make_shared<CloseFailFS>(FileSystem::Default());
+  std::string fname = test::PerThreadDBPath("write_string_close_fail_test");
+
+  auto s = WriteStringToFile(close_fail_fs.get(), "hello world", fname,
+                             /*should_sync=*/false);
+  ASSERT_NOK(s);
+
+  // The file should have been deleted on failure
+  auto exists = FileSystem::Default()->FileExists(fname, IOOptions(), nullptr);
+  ASSERT_TRUE(exists.IsNotFound()) << exists.ToString();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

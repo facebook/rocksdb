@@ -29,6 +29,7 @@
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/io_dispatcher.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/table_properties.h"
@@ -1715,6 +1716,14 @@ Status StressTest::TestMultiScan(ThreadState* thread,
       FLAGS_multiscan_use_async_io &&
       CheckFSFeatureSupport(options_.env->GetFileSystem().get(),
                             FSSupportedOps::kAsyncIO);
+  std::shared_ptr<IODispatcher> io_dispatcher;
+  if (FLAGS_multiscan_max_prefetch_memory_bytes > 0) {
+    IODispatcherOptions io_opts;
+    io_opts.max_prefetch_memory_bytes =
+        FLAGS_multiscan_max_prefetch_memory_bytes;
+    io_dispatcher.reset(NewIODispatcher(io_opts));
+    scan_opts.io_dispatcher = io_dispatcher;
+  }
   start_key_strs.reserve(num_scans);
   end_key_strs.reserve(num_scans);
 
@@ -4010,6 +4019,10 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         }
       } else {
         TransactionDBOptions txn_db_options;
+        // Match the 10-minute lock_timeout used for explicit transactions
+        // in NewTxn(), rather than the 1-second default which is too short
+        // for stress tests under heavy contention (see T228932399).
+        txn_db_options.default_lock_timeout = 600000;
         assert(FLAGS_txn_write_policy <= TxnDBWritePolicy::WRITE_UNPREPARED);
         txn_db_options.write_policy =
             static_cast<TxnDBWritePolicy>(FLAGS_txn_write_policy);
@@ -4723,6 +4736,8 @@ void InitializeOptionsFromFlags(
   options.uncache_aggressiveness = FLAGS_uncache_aggressiveness;
 
   options.memtable_op_scan_flush_trigger = FLAGS_memtable_op_scan_flush_trigger;
+  options.min_tombstones_for_range_conversion =
+      FLAGS_min_tombstones_for_range_conversion;
   options.compaction_options_universal.reduce_file_locking =
       FLAGS_universal_reduce_file_locking;
 }

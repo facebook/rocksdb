@@ -297,22 +297,22 @@ class DBIter final : public Iterator {
   // It might get adjusted if the seek key is larger than iterator upper bound.
   // target does not have timestamp.
   void SetSavedKeyToSeekForPrevTarget(const Slice& target);
-  bool FindValueForCurrentKey();
+  bool FindValueForCurrentKey(bool& found_visible);
   bool FindValueForCurrentKeyUsingSeek();
   bool FindUserKeyBeforeSavedKey();
   // If `skipping_saved_key` is true, the function will keep iterating until it
   // finds a user key that is larger than `saved_key_`.
-  // If `prefix` is not null, the iterator needs to stop when all keys for the
-  // prefix are exhausted and the iterator is set to invalid.
-  bool FindNextUserEntry(bool skipping_saved_key, const Slice* prefix);
+  // When prefix_ is set, the iterator stops when all keys for the prefix are
+  // exhausted and the iterator is set to invalid.
+  bool FindNextUserEntry(bool skipping_saved_key);
   // Internal implementation of FindNextUserEntry().
-  bool FindNextUserEntryInternal(bool skipping_saved_key, const Slice* prefix);
+  bool FindNextUserEntryInternal(bool skipping_saved_key);
   bool ParseKey(ParsedInternalKey* key);
   bool MergeValuesNewToOld();
 
-  // If prefix is not null, we need to set the iterator to invalid if no more
+  // When prefix_ is set, we need to set the iterator to invalid if no more
   // entry can be found within the prefix.
-  void PrevInternal(const Slice* prefix);
+  void PrevInternal();
   bool TooManyInternalKeysSkipped(bool increment = true);
   bool IsVisible(SequenceNumber sequence, const Slice& ts,
                  bool* more_recent = nullptr);
@@ -416,6 +416,57 @@ class DBIter final : public Iterator {
     return true;
   }
 
+  // Record a deletion into the current contiguous tombstone run.
+  // In forward iteration, first_key is set only for the first tombstone
+  // (always_update_first_key=false). In reverse, keys arrive in decreasing
+  // order so first_key is updated every time (always_update_first_key=true).
+  void TrackContiguousTombstone(const Slice& user_key,
+                                bool always_update_first_key);
+
+  // If a contiguous tombstone run is pending, insert a range tombstone
+  // (if threshold is met) and reset tracking state.  When
+  // check_prefix_match is true, the insertion is skipped (but tracking is
+  // still reset) if end_key is outside the seek prefix.
+  void FlushPendingTombstoneRun(const Slice& end_key,
+                                bool check_prefix_match = false);
+
+  // If enough contiguous tombstones have been tracked, insert a range
+  // tombstone [first_key, end_key) into the mutable memtable.
+  // end_key is the exclusive upper bound — typically the next live key.
+  void MaybeInsertRangeTombstone(const Slice& end_key);
+  void ResetContiguousTombstoneTracking() { contiguous_tombstone_count_ = 0; }
+  void ResetRangeTombEndKey() { range_tomb_end_key_.Clear(); }
+
+  // Returns true if there is no prefix constraint (prefix_ not set) or
+  // if `key` is in the prefix extractor's domain and its prefix matches.
+  // Out-of-domain keys return false when a prefix is set.
+  bool PrefixCheck(const Slice& key) const {
+    return !prefix_.has_value() || (prefix_extractor_->InDomain(key) &&
+                                    prefix_extractor_->Transform(key).compare(
+                                        prefix_->GetUserKey()) == 0);
+  }
+
+  // Returns true if a prefix should be extracted from the seek target and
+  // used for prefix boundary tracking. True when prefix_same_as_start is
+  // set, or when range tombstone conversion is enabled during a legacy
+  // prefix seek. If target is out of domain then false is returned.
+  bool ShouldSetPrefix(const Slice& target) const {
+    return (prefix_same_as_start_ ||
+            (min_tombstones_for_range_conversion_ > 0 &&
+             !expect_total_order_inner_iter_)) &&
+           prefix_extractor_->InDomain(target);
+  }
+
+  void ResetSeekState() {
+    ReleaseTempPinnedData();
+    ResetBlobData();
+    ResetValueAndColumns();
+    ResetInternalKeysSkippedCounter();
+    ResetContiguousTombstoneTracking();
+    ResetRangeTombEndKey();
+    prefix_.reset();
+  }
+
   void MarkMemtableForFlushForAvgTrigger() {
     if (avg_op_scan_flush_trigger_ &&
         mem_hidden_op_scanned_since_seek_ >= memtable_op_scan_flush_trigger_ &&
@@ -484,12 +535,16 @@ class DBIter final : public Iterator {
   const Slice* iterate_lower_bound_;
   const Slice* iterate_upper_bound_;
 
-  // The prefix of the seek key. It is only used when prefix_same_as_start_
-  // is true and prefix extractor is not null. In Next() or Prev(), current keys
-  // will be checked against this prefix, so that the iterator can be
-  // invalidated if the keys in this prefix has been exhausted. Set it using
-  // SetUserKey() and use it using GetUserKey().
-  IterKey prefix_;
+  // The prefix of the seek key. Set during Seek/SeekForPrev when either
+  // prefix_same_as_start_ is true or the iterator uses prefix filtering
+  // (!expect_total_order_inner_iter_ && InDomain(target)). Used in Next()
+  // and Prev() to:
+  //  - invalidate the iterator when prefix_same_as_start_ is true and keys
+  //    in this prefix have been exhausted.
+  //  - bound range tombstone tracking to the seek prefix when
+  //    min_tombstones_for_range_conversion_ > 0.
+  // Set via SetUserKey(), read via GetUserKey().
+  std::optional<IterKey> prefix_;
 
   Status status_;
   Slice lazy_blob_index_;
@@ -511,6 +566,8 @@ class DBIter final : public Iterator {
   uint32_t avg_op_scan_flush_trigger_;
   uint32_t iter_step_since_seek_;
   uint32_t mem_hidden_op_scanned_since_seek_;
+  uint32_t min_tombstones_for_range_conversion_;
+  uint32_t contiguous_tombstone_count_;
   Direction direction_;
   bool valid_;
   bool current_entry_is_merged_;
@@ -531,5 +588,8 @@ class DBIter final : public Iterator {
   bool allow_unprepared_value_;
   bool is_blob_;
   bool arena_mode_;
+
+  IterKey range_tomb_first_key_;
+  IterKey range_tomb_end_key_;
 };
 }  // namespace ROCKSDB_NAMESPACE

@@ -106,6 +106,29 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
   double experimentalMempurgeThreshold();
 
   /**
+   * During forward or reverse iteration, when this many or more
+   * strictly contiguous point tombstones are encountered with no live
+   * keys between them, a range tombstone is inserted into the current
+   * mutable memtable.
+   *
+   * Set to 0 to disable.
+   * Default: 0 (disabled)
+   *
+   * @param minTombstonesForRangeConversion the minimum number of contiguous
+   *     point tombstones to trigger range conversion
+   * @return the reference to the current options.
+   */
+  T setMinTombstonesForRangeConversion(int minTombstonesForRangeConversion);
+
+  /**
+   * Gets the current setting for minimum tombstones for range conversion.
+   * 0 (default) indicates that the feature is disabled.
+   *
+   * @return current value of min_tombstones_for_range_conversion
+   */
+  int minTombstonesForRangeConversion();
+
+  /**
    * Enable whole key bloom filter in memtable. Note this will only take effect
    * if memtable_prefix_bloom_size_ratio is not 0. Enabling whole key filtering
    * can potentially reduce CPU usage for point-look-ups.

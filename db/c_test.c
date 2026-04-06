@@ -2664,6 +2664,10 @@ int main(int argc, char** argv) {
     CheckCondition(150 ==
                    rocksdb_options_get_memtable_avg_op_scan_flush_trigger(o));
 
+    rocksdb_options_set_min_tombstones_for_range_conversion(o, 200);
+    CheckCondition(200 ==
+                   rocksdb_options_get_min_tombstones_for_range_conversion(o));
+
     rocksdb_options_set_ttl(o, 5000);
     CheckCondition(5000 == rocksdb_options_get_ttl(o));
 
@@ -3114,6 +3118,12 @@ int main(int argc, char** argv) {
         900 == rocksdb_options_get_memtable_avg_op_scan_flush_trigger(copy));
     CheckCondition(150 ==
                    rocksdb_options_get_memtable_avg_op_scan_flush_trigger(o));
+
+    rocksdb_options_set_min_tombstones_for_range_conversion(copy, 1000);
+    CheckCondition(
+        1000 == rocksdb_options_get_min_tombstones_for_range_conversion(copy));
+    CheckCondition(200 ==
+                   rocksdb_options_get_min_tombstones_for_range_conversion(o));
 
     rocksdb_options_set_ttl(copy, 8000);
     CheckCondition(8000 == rocksdb_options_get_ttl(copy));

@@ -6,6 +6,7 @@
 #include "db/blob/blob_file_partition_manager.h"
 
 #include <array>
+#include <atomic>
 #include <cinttypes>
 #include <memory>
 #include <utility>
@@ -30,6 +31,25 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+
+class RoundRobinBlobFilePartitionStrategy : public BlobFilePartitionStrategy {
+ public:
+  const char* Name() const override {
+    return "RoundRobinBlobFilePartitionStrategy";
+  }
+
+  uint32_t SelectPartition(uint32_t num_partitions,
+                           uint32_t /*column_family_id*/, const Slice& /*key*/,
+                           const Slice& /*value*/) override {
+    assert(num_partitions > 0);
+    return static_cast<uint32_t>(
+        next_partition_.fetch_add(1, std::memory_order_relaxed) %
+        static_cast<uint64_t>(num_partitions));
+  }
+
+ private:
+  std::atomic<uint64_t> next_partition_{0};
+};
 
 struct DirectWriteCompressionState {
   // `working_area` must be released before its owning compressor.
@@ -68,17 +88,22 @@ DirectWriteCompressionState& GetDirectWriteCompressionState(
 }  // namespace
 
 BlobFilePartitionManager::BlobFilePartitionManager(
-    uint32_t num_partitions, FileNumberAllocator file_number_allocator,
-    FileSystem* fs, SystemClock* clock, Statistics* statistics,
-    const FileOptions& file_options, std::string db_path,
-    std::string column_family_name, uint64_t blob_file_size, bool use_fsync,
-    BlobFileCache* blob_file_cache, BlobFileCompletionCallback* blob_callback,
+    uint32_t num_partitions,
+    std::shared_ptr<BlobFilePartitionStrategy> strategy,
+    FileNumberAllocator file_number_allocator, FileSystem* fs,
+    SystemClock* clock, Statistics* statistics, const FileOptions& file_options,
+    std::string db_path, std::string column_family_name,
+    uint64_t blob_file_size, bool use_fsync, BlobFileCache* blob_file_cache,
+    BlobFileCompletionCallback* blob_callback,
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     FileChecksumGenFactory* file_checksum_gen_factory,
     const FileTypeSet& checksum_handoff_file_types,
     const std::shared_ptr<IOTracer>& io_tracer, std::string db_id,
     std::string db_session_id, Logger* info_log)
     : num_partitions_(num_partitions == 0 ? 1 : num_partitions),
+      strategy_(strategy != nullptr
+                    ? std::move(strategy)
+                    : std::make_shared<RoundRobinBlobFilePartitionStrategy>()),
       file_number_allocator_(std::move(file_number_allocator)),
       fs_(fs),
       clock_(clock),
@@ -410,9 +435,15 @@ Status BlobFilePartitionManager::WriteBlob(
     write_value = Slice(compressed_value);
   }
 
-  const uint32_t partition_idx = static_cast<uint32_t>(
-      next_partition_.fetch_add(1, std::memory_order_relaxed) %
-      num_partitions_);
+  // Partition selection is based on the logical write inputs. In particular,
+  // strategies that inspect value contents or size see the original
+  // uncompressed value rather than `write_value`. The modulo here is
+  // intentional so custom strategies can return arbitrary hashed or sentinel
+  // values without violating the partition bounds.
+  const uint32_t partition_idx =
+      strategy_->SelectPartition(num_partitions_, column_family_id, key,
+                                 value) %
+      num_partitions_;
 
   {
     MutexLock lock(&mutex_);

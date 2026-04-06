@@ -53,6 +53,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/io_dispatcher.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
@@ -132,6 +133,7 @@ DEFINE_string(
     "waitforcompaction,"
     "multireadrandom,"
     "multiscan,"
+    "multiscanrandom,"
     "mixgraph,"
     "readseq,"
     "readtorowcache,"
@@ -325,6 +327,11 @@ DEFINE_int32(seek_nexts, 0,
              "How many times to call Next() after Seek() in "
              "fillseekseq, seekrandom, seekrandomwhilewriting and "
              "seekrandomwhilemerging");
+
+DEFINE_int32(seek_nexts_to_delete, 0,
+             "After completing seek_nexts iterations in seekrandom, delete "
+             "this many subsequent keys via point deletes. Useful for "
+             "benchmarking read-path range tombstone insertion.");
 
 DEFINE_bool(reverse_iterator, false,
             "When true use Prev rather than Next for iterators that do "
@@ -1348,6 +1355,11 @@ DEFINE_uint32(memtable_op_scan_flush_trigger,
                   .memtable_op_scan_flush_trigger,
               "Setting for CF option memtable_op_scan_flush_trigger.");
 
+DEFINE_uint32(min_tombstones_for_range_conversion,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .min_tombstones_for_range_conversion,
+              "Setting for CF option min_tombstones_for_range_conversion.");
+
 DEFINE_bool(verify_compression, false,
             "See BlockBasedTableOptions::verify_compression");
 
@@ -1924,6 +1936,23 @@ DEFINE_bool(
     ROCKSDB_NAMESPACE::MultiScanArgs(ROCKSDB_NAMESPACE::BytewiseComparator())
         .use_async_io,
     "Sets MultiScanArgs::use_async_io");
+
+DEFINE_uint64(io_dispatcher_max_prefetch_memory_bytes, 0,
+              "Maximum memory (in bytes) for IODispatcher prefetching across "
+              "all ReadSets. When this limit is reached, SubmitJob() blocks "
+              "until memory is released. 0 means unlimited.");
+
+DEFINE_uint64(
+    multiscan_max_prefetch_size,
+    ROCKSDB_NAMESPACE::MultiScanArgs(ROCKSDB_NAMESPACE::BytewiseComparator())
+        .max_prefetch_size,
+    "Maximum per-file prefetch size (in bytes) for MultiScan. "
+    "Limits cumulative compressed data block size pinned per SST file. "
+    "0 means unlimited.");
+
+DEFINE_bool(use_multiscan, true,
+            "If true, multiscanrandom uses MultiScan API. If false, uses "
+            "normal iterators (Seek + Next) for each range.");
 
 DEFINE_bool(openandcompact_allow_resumption, false,
             "Whether to keep existing progress and enable resume compaction in "
@@ -3787,7 +3816,29 @@ class Benchmark {
                 FLAGS_multiscan_stride);
         fprintf(stderr, "multiscan_size = %" PRIi64 "\n", FLAGS_multiscan_size);
         fprintf(stderr, "seek_nexts = %" PRIi32 "\n", FLAGS_seek_nexts);
+        fprintf(stderr,
+                "io_dispatcher_max_prefetch_memory_bytes = %" PRIu64 "\n",
+                FLAGS_io_dispatcher_max_prefetch_memory_bytes);
+        fprintf(stderr, "multiscan_max_prefetch_size = %" PRIu64 "\n",
+                FLAGS_multiscan_max_prefetch_size);
         method = &Benchmark::MultiScan;
+      } else if (name == "multiscanrandom") {
+        int64_t max_range_keys = std::max<int64_t>(
+            1, (1 << 20) / (FLAGS_key_size + FLAGS_value_size));
+        fprintf(stderr,
+                "multiscanrandom: batch_size=1..64, "
+                "max_range_keys=%" PRIi64 "\n",
+                max_range_keys);
+        fprintf(stderr,
+                "io_dispatcher_max_prefetch_memory_bytes = %" PRIu64 "\n",
+                FLAGS_io_dispatcher_max_prefetch_memory_bytes);
+        fprintf(stderr, "multiscan_max_prefetch_size = %" PRIu64 "\n",
+                FLAGS_multiscan_max_prefetch_size);
+        fprintf(stderr, "multiscan_use_async_io = %s\n",
+                FLAGS_multiscan_use_async_io ? "true" : "false");
+        fprintf(stderr, "use_multiscan = %s\n",
+                FLAGS_use_multiscan ? "true" : "false");
+        method = &Benchmark::MultiScanRandom;
       } else if (name == "multireadwhilewriting") {
         fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
                 entries_per_batch_);
@@ -5052,6 +5103,8 @@ class Benchmark {
         FLAGS_memtable_veirfy_per_key_checksum_on_seek;
     options.memtable_op_scan_flush_trigger =
         FLAGS_memtable_op_scan_flush_trigger;
+    options.min_tombstones_for_range_conversion =
+        FLAGS_min_tombstones_for_range_conversion;
     options.compaction_options_universal.reduce_file_locking =
         FLAGS_universal_reduce_file_locking;
   }
@@ -6824,6 +6877,18 @@ class Benchmark {
     thread->stats.AddMessage(msg);
   }
 
+  std::shared_ptr<IODispatcher> MaybeCreateIODispatcher() {
+    std::shared_ptr<IODispatcher> io_dispatcher;
+    if (FLAGS_io_dispatcher_max_prefetch_memory_bytes > 0) {
+      IODispatcherOptions disp_opts;
+      disp_opts.max_prefetch_memory_bytes =
+          FLAGS_io_dispatcher_max_prefetch_memory_bytes;
+      disp_opts.statistics = dbstats.get();
+      io_dispatcher.reset(NewIODispatcher(disp_opts));
+    }
+    return io_dispatcher;
+  }
+
   void MultiScan(ThreadState* thread) {
     const int64_t scan_size = FLAGS_seek_nexts ? FLAGS_seek_nexts : 50;
     const int64_t readahead =
@@ -6837,6 +6902,8 @@ class Benchmark {
     options.async_io = true;
     options.readahead_size = readahead;
 
+    auto io_dispatcher = MaybeCreateIODispatcher();
+
     Duration duration(FLAGS_duration, reads_);
     int64_t num_keys = 1;
     while (!duration.Done(num_keys)) {
@@ -6844,6 +6911,10 @@ class Benchmark {
       MultiScanArgs opts(open_options_.comparator);
       opts.io_coalesce_threshold = FLAGS_multiscan_coalesce_threshold;
       opts.use_async_io = FLAGS_multiscan_use_async_io;
+      opts.max_prefetch_size = FLAGS_multiscan_max_prefetch_size;
+      if (io_dispatcher) {
+        opts.io_dispatcher = io_dispatcher;
+      }
       std::vector<std::unique_ptr<const char[]>> guards;
       opts.reserve(multiscan_size);
       // We create 1 random start, and then multiscan will start from that
@@ -6871,11 +6942,15 @@ class Benchmark {
       auto iter =
           db->NewMultiScan(read_options_, db->DefaultColumnFamily(), opts);
       int64_t keys = 0;
-      for (auto rng : *iter) {
-        for ([[maybe_unused]] auto it : rng) {
-          keys++;
+      try {
+        for (auto rng : *iter) {
+          for ([[maybe_unused]] auto it : rng) {
+            keys++;
+          }
+          assert(keys > 0);
         }
-        assert(keys > 0);
+      } catch (const MultiScanException& e) {
+        fprintf(stderr, "MultiScanException: %s\n", e.what());
       }
       num_keys = std::max<int64_t>(1, keys);
 
@@ -6889,7 +6964,155 @@ class Benchmark {
     }
 
     char msg[100];
-    snprintf(msg, sizeof(msg), "(multscans:%" PRIu64 ")", multiscans_done);
+    snprintf(msg, sizeof(msg), "(multiscans:%" PRIu64 ")", multiscans_done);
+    thread->stats.AddMessage(msg);
+  }
+
+  void MultiScanRandom(ThreadState* thread) {
+    // Compute max keys per range from 1MB limit and per-key size
+    const int64_t kMaxRangeBytes = 1 << 20;  // 1MB
+    const int64_t per_key_size = FLAGS_key_size + FLAGS_value_size;
+    const int64_t max_range_keys =
+        std::max<int64_t>(1, kMaxRangeBytes / per_key_size);
+    const int64_t kMaxBatchSize = 64;
+
+    std::shared_ptr<IODispatcher> io_dispatcher;
+    if (FLAGS_use_multiscan) {
+      io_dispatcher = MaybeCreateIODispatcher();
+    }
+
+    int64_t multiscans_done = 0;
+    Duration duration(FLAGS_duration, reads_);
+    int64_t num_keys = 1;
+    while (!duration.Done(num_keys)) {
+      DB* db = SelectDB(thread);
+
+      // Random batch size: 1 to kMaxBatchSize
+      int64_t batch_size =
+          1 + static_cast<int64_t>(thread->rand.Uniform(kMaxBatchSize));
+
+      // Generate sorted non-overlapping ranges with random sizes
+      struct RangeSpec {
+        uint64_t start;
+        uint64_t size;
+      };
+      std::vector<RangeSpec> ranges(batch_size);
+      for (int64_t i = 0; i < batch_size; i++) {
+        ranges[i].size =
+            1 + static_cast<uint64_t>(thread->rand.Uniform(max_range_keys));
+        uint64_t max_start =
+            static_cast<uint64_t>(FLAGS_num) > ranges[i].size
+                ? static_cast<uint64_t>(FLAGS_num) - ranges[i].size
+                : 0;
+        ranges[i].start = thread->rand.Uniform(max_start + 1);
+      }
+
+      // Sort by start key
+      std::sort(ranges.begin(), ranges.end(),
+                [](const RangeSpec& a, const RangeSpec& b) {
+                  return a.start < b.start;
+                });
+
+      // Remove overlaps: trim or skip ranges that overlap with the previous
+      std::vector<RangeSpec> non_overlapping;
+      non_overlapping.reserve(batch_size);
+      for (auto& r : ranges) {
+        if (non_overlapping.empty()) {
+          non_overlapping.push_back(r);
+        } else {
+          uint64_t prev_end =
+              non_overlapping.back().start + non_overlapping.back().size;
+          if (r.start >= prev_end) {
+            non_overlapping.push_back(r);
+          } else if (r.start + r.size > prev_end) {
+            uint64_t new_start = prev_end;
+            uint64_t new_size = r.start + r.size - new_start;
+            non_overlapping.push_back({new_start, new_size});
+          }
+          // else: fully contained, skip
+        }
+      }
+
+      if (non_overlapping.empty()) {
+        continue;
+      }
+
+      int64_t keys = 0;
+      std::vector<std::unique_ptr<const char[]>> guards;
+
+      if (FLAGS_use_multiscan) {
+        // MultiScan path
+        MultiScanArgs opts(open_options_.comparator);
+        opts.io_coalesce_threshold = FLAGS_multiscan_coalesce_threshold;
+        opts.use_async_io = FLAGS_multiscan_use_async_io;
+        opts.max_prefetch_size = FLAGS_multiscan_max_prefetch_size;
+        if (io_dispatcher) {
+          opts.io_dispatcher = io_dispatcher;
+        }
+        opts.reserve(non_overlapping.size());
+
+        for (auto& r : non_overlapping) {
+          std::unique_ptr<const char[]> skey_guard;
+          Slice skey = AllocateKey(&skey_guard);
+          guards.push_back(std::move(skey_guard));
+          std::unique_ptr<const char[]> ekey_guard;
+          Slice ekey = AllocateKey(&ekey_guard);
+          guards.push_back(std::move(ekey_guard));
+
+          GenerateKeyFromInt(r.start, FLAGS_num, &skey);
+          GenerateKeyFromInt(r.start + r.size, FLAGS_num, &ekey);
+          opts.insert(skey, ekey);
+        }
+
+        auto iter =
+            db->NewMultiScan(read_options_, db->DefaultColumnFamily(), opts);
+        try {
+          for (auto rng : *iter) {
+            for ([[maybe_unused]] auto it : rng) {
+              keys++;
+            }
+          }
+        } catch (const MultiScanException& e) {
+          fprintf(stderr, "MultiScanException: %s\n", e.what());
+        }
+      } else {
+        // Normal iterator path: Seek + Next for each range
+        std::unique_ptr<const char[]> skey_guard;
+        Slice skey = AllocateKey(&skey_guard);
+        std::unique_ptr<const char[]> ekey_guard;
+        Slice ekey = AllocateKey(&ekey_guard);
+
+        std::unique_ptr<Iterator> iter(
+            db->NewIterator(read_options_, db->DefaultColumnFamily()));
+        for (auto& r : non_overlapping) {
+          GenerateKeyFromInt(r.start, FLAGS_num, &skey);
+          GenerateKeyFromInt(r.start + r.size, FLAGS_num, &ekey);
+          for (iter->Seek(skey); iter->Valid() && iter->key().compare(ekey) < 0;
+               iter->Next()) {
+            keys++;
+          }
+          if (!iter->status().ok()) {
+            fprintf(stderr, "Iterator error: %s\n",
+                    iter->status().ToString().c_str());
+            break;
+          }
+        }
+      }
+      num_keys = std::max<int64_t>(1, keys);
+
+      if (thread->shared->read_rate_limiter.get() != nullptr) {
+        thread->shared->read_rate_limiter->Request(
+            1, Env::IO_HIGH, nullptr /* stats */, RateLimiter::OpType::kRead);
+      }
+
+      thread->stats.FinishedOps(nullptr, db, 1, kMultiScan);
+      multiscans_done += 1;
+    }
+
+    char msg[100];
+    snprintf(msg, sizeof(msg),
+             "(multiscans:%" PRIu64 " max_range_keys:%" PRId64 ")",
+             multiscans_done, max_range_keys);
     thread->stats.AddMessage(msg);
   }
 
@@ -7519,6 +7742,25 @@ class Benchmark {
           iter_to_use->Prev();
         }
         assert(iter_to_use->status().ok());
+      }
+
+      // Delete subsequent keys after the seek+next scan to simulate
+      // workloads that create contiguous point tombstones.
+      if (FLAGS_seek_nexts_to_delete > 0 && iter_to_use->Valid()) {
+        DB* db_to_use =
+            (db_.db != nullptr) ? db_.db : multi_dbs_[db_idx_to_use].db;
+        for (int j = 0; j < FLAGS_seek_nexts_to_delete && iter_to_use->Valid();
+             ++j) {
+          Status s = db_to_use->Delete(WriteOptions(), iter_to_use->key());
+          if (!s.ok()) {
+            fprintf(stderr, "Delete failed: %s\n", s.ToString().c_str());
+          }
+          if (!FLAGS_reverse_iterator) {
+            iter_to_use->Next();
+          } else {
+            iter_to_use->Prev();
+          }
+        }
       }
 
       if (thread->shared->read_rate_limiter.get() != nullptr &&

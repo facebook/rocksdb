@@ -605,6 +605,7 @@ void DBImpl::MaybeInitBlobDirectWriteColumnFamily(
 
   auto mgr = std::make_shared<BlobFilePartitionManager>(
       cf_options.blob_direct_write_partitions,
+      cf_options.blob_direct_write_partition_strategy,
       [vs = versions_.get()]() { return vs->NewFileNumber(); }, fs_.get(),
       immutable_db_options_.clock, stats_, file_options_, dbname_,
       column_family_name, cf_options.blob_file_size,

@@ -1643,6 +1643,11 @@ DEFINE_uint32(
     ROCKSDB_NAMESPACE::ColumnFamilyOptions().memtable_avg_op_scan_flush_trigger,
     "Sets CF option memtable_avg_op_scan_flush_trigger.");
 
+DEFINE_uint32(min_tombstones_for_range_conversion,
+              ROCKSDB_NAMESPACE::ColumnFamilyOptions()
+                  .min_tombstones_for_range_conversion,
+              "Sets CF option min_tombstones_for_range_conversion.");
+
 DEFINE_bool(
     universal_reduce_file_locking,
     ROCKSDB_NAMESPACE::ColumnFamilyOptions()
@@ -1655,5 +1660,11 @@ DEFINE_bool(use_multiscan, false,
 
 DEFINE_bool(multiscan_use_async_io, false,
             "If set, enable async_io for MultiScan operations.");
+
+DEFINE_uint64(multiscan_max_prefetch_memory_bytes, 0,
+              "If non-zero, sets the max_prefetch_memory_bytes on the "
+              "IODispatcher used for MultiScan. This limits the total memory "
+              "used for prefetching data blocks across all concurrent "
+              "MultiScan ReadSets.");
 
 #endif  // GFLAGS

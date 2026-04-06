@@ -72,7 +72,8 @@ public class MutableColumnFamilyOptions extends AbstractMutableOptions {
     @Deprecated filter_deletes(ValueType.BOOLEAN),
     max_write_buffer_number(ValueType.INT),
     inplace_update_num_locks(ValueType.LONG),
-    experimental_mempurge_threshold(ValueType.DOUBLE);
+    experimental_mempurge_threshold(ValueType.DOUBLE),
+    min_tombstones_for_range_conversion(ValueType.INT);
 
     private final ValueType valueType;
     MemtableOption(final ValueType valueType) {
@@ -298,6 +299,18 @@ public class MutableColumnFamilyOptions extends AbstractMutableOptions {
     @Override
     public double experimentalMempurgeThreshold() {
       return getDouble(MemtableOption.experimental_mempurge_threshold);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setMinTombstonesForRangeConversion(
+        final int minTombstonesForRangeConversion) {
+      return setInt(
+          MemtableOption.min_tombstones_for_range_conversion, minTombstonesForRangeConversion);
+    }
+
+    @Override
+    public int minTombstonesForRangeConversion() {
+      return getInt(MemtableOption.min_tombstones_for_range_conversion);
     }
 
     @Override

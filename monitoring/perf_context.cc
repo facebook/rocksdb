@@ -73,6 +73,7 @@ struct PerfContextByLevelInt {
   defCmd(compressed_sec_cache_compressed_bytes)    \
   defCmd(block_checksum_time)                      \
   defCmd(block_decompress_time)                    \
+  defCmd(block_decompress_count)                   \
   defCmd(get_read_bytes)                           \
   defCmd(multiget_read_bytes)                      \
   defCmd(iter_read_bytes)                          \

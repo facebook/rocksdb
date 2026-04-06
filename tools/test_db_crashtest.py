@@ -184,9 +184,8 @@ class TestKnownConflicts(unittest.TestCase):
         return result
 
     def test_ber_plus_udt_memtable_only(self):
-        """BER + UDT memtable-only: BER needs WAL off, UDT wants WAL on."""
-        params = _resolve_params(db_crashtest.default_params)
-        params.update(_resolve_params(db_crashtest.blackbox_default_params))
+        """BER test keeps UDT memtable-only active with its WAL-disabled profile."""
+        params = _new_blackbox_params()
         params.update({
             "best_efforts_recovery": 1,
             "user_timestamp_size": 8,
@@ -194,8 +193,26 @@ class TestKnownConflicts(unittest.TestCase):
             "test_best_efforts_recovery": 1,
         })
         result = self._assert_converges(params, "BER + UDT memtable-only")
-        # BER should win: WAL must be disabled
         self.assertEqual(result["disable_wal"], 1)
+        self.assertEqual(result["atomic_flush"], 0)
+        self.assertEqual(result["persist_user_defined_timestamps"], 0)
+
+    def test_udt_memtable_only_requires_wal_outside_ber_test(self):
+        """UDT memtable-only re-enables WAL and disables iterator shapes outside BER tests."""
+        params = _new_blackbox_params()
+        params.update({
+            "user_timestamp_size": 8,
+            "persist_user_defined_timestamps": 0,
+            "disable_wal": 1,
+            "test_best_efforts_recovery": 0,
+            "readpercent": 17,
+            "iterpercent": 13,
+        })
+        result = self._assert_converges(params, "UDT memtable-only outside BER")
+        self.assertEqual(result["disable_wal"], 0)
+        self.assertEqual(result["atomic_flush"], 0)
+        self.assertEqual(result["iterpercent"], 0)
+        self.assertEqual(result["readpercent"], 30)
 
     def test_ber_plus_txn_non_wc_both_random(self):
         """BER + non-WC txn both random: deterministic tiebreak disables BER."""
@@ -312,6 +329,20 @@ class TestKnownConflicts(unittest.TestCase):
         self.assertEqual(result["inplace_update_support"], 0)
         self.assertEqual(result["allow_concurrent_memtable_write"], 1)
 
+    def test_unordered_write_requires_write_prepared(self):
+        """unordered_write is disabled instead of rewriting txn_write_policy."""
+        params = _new_blackbox_params()
+        params.update({
+            "unordered_write": 1,
+            "use_txn": 1,
+            "txn_write_policy": 0,
+            "allow_concurrent_memtable_write": 0,
+        })
+        result = self._assert_converges(params, "unordered_write requires WP")
+        self.assertEqual(result["unordered_write"], 0)
+        self.assertEqual(result["txn_write_policy"], 0)
+        self.assertEqual(result["allow_concurrent_memtable_write"], 0)
+
     def test_udt_memtable_only_plus_unordered_write_both_random(self):
         """UDT + unordered both random: deterministic tiebreak disables unordered."""
         params = _new_blackbox_params()
@@ -411,6 +442,36 @@ class TestKnownConflicts(unittest.TestCase):
         result = self._assert_converges(params, "extra-flags blob+txn")
         # commit_bypass_memtable should disable blob
         self.assertEqual(result["enable_blob_files"], 0)
+
+    def test_multiscan_shape_adjustments(self):
+        """Multiscan keeps its prefix/delete normalization and bounded prefetch."""
+        params = _new_blackbox_params()
+        params.update({
+            "use_multiscan": 1,
+            "test_batches_snapshots": 0,
+            "use_txn": 0,
+            "user_timestamp_size": 0,
+            "delpercent": 3,
+            "delrangepercent": 7,
+            "iterpercent": 13,
+            "prefixpercent": 11,
+            "prefix_size": 4,
+            "skip_stats_update_on_db_open": 1,
+            "open_files_async": 1,
+        })
+        result = self._assert_converges(params, "multiscan adjustments")
+        self.assertEqual(result["use_multiscan"], 1)
+        self.assertEqual(result["prefix_size"], -1)
+        self.assertEqual(result["delpercent"], 10)
+        self.assertEqual(result["delrangepercent"], 0)
+        self.assertEqual(result["iterpercent"], 24)
+        self.assertEqual(result["prefixpercent"], 0)
+        self.assertEqual(result["skip_stats_update_on_db_open"], 0)
+        self.assertEqual(result["open_files_async"], 0)
+        self.assertIn(
+            result["multiscan_max_prefetch_memory_bytes"],
+            {0, 64 * 1024, 256 * 1024},
+        )
 
     def test_optimistic_txn_bumps_write_buffer_maintain(self):
         """use_optimistic_txn=1 bumps max_write_buffer_size_to_maintain up."""

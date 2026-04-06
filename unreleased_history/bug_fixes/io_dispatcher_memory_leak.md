@@ -1,0 +1,1 @@
+Fix a memory accounting leak in IODispatcher where ReadIndex() moved block values out of ReadSet without releasing the associated prefetch memory, causing subsequent prefetches to be blocked when max_prefetch_memory_bytes was set.
