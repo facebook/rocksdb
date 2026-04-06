@@ -251,6 +251,21 @@ class TestKnownConflicts(unittest.TestCase):
         # txn_write_policy should be switched to write-committed (0)
         self.assertEqual(result.get("txn_write_policy"), 0)
 
+    def test_disable_wal_explicit_beats_random_ber(self):
+        """Explicit disable_wal=0 disables random BER instead of being rewritten."""
+        params = _resolve_params(db_crashtest.default_params)
+        params.update(_resolve_params(db_crashtest.blackbox_default_params))
+        params.update({
+            "best_efforts_recovery": 1,
+            "disable_wal": 0,
+        })
+        params.setdefault("db", "/tmp/test_db")
+        result = db_crashtest.finalize_and_sanitize(
+            params, explicit_keys={"disable_wal"}
+        )
+        self.assertEqual(result["disable_wal"], 0)
+        self.assertEqual(result["best_efforts_recovery"], 0)
+
     def test_txn_non_wc_explicit_beats_ber(self):
         """non-WC txn explicit: BER must be disabled."""
         params = _resolve_params(db_crashtest.default_params)
@@ -449,12 +464,15 @@ class TestKnownConflicts(unittest.TestCase):
 
     def test_multiscan_shape_adjustments(self):
         """Multiscan keeps its prefix/delete normalization and bounded prefetch."""
+        random.seed(0)
         params = _new_blackbox_params()
         params.update({
             "use_multiscan": 1,
             "test_batches_snapshots": 0,
             "use_txn": 0,
             "user_timestamp_size": 0,
+            "enable_compaction_filter": 0,
+            "inplace_update_support": 0,
             "delpercent": 3,
             "delrangepercent": 7,
             "iterpercent": 13,
@@ -514,7 +532,7 @@ class TestKnownConflicts(unittest.TestCase):
 
 
 class TestGenCmd(unittest.TestCase):
-    """Passthrough db_stress flags should be sanitized and diagnosed clearly."""
+    """Passthrough db_stress flags should take precedence and fail clearly."""
 
     def test_parse_extra_flag_value_normalizes_boolean_strings(self):
         self.assertEqual(db_crashtest._parse_extra_flag_value("true"), 1)
@@ -540,7 +558,7 @@ class TestGenCmd(unittest.TestCase):
         self.assertIn("--open_files_async=1", cmd)
         self.assertIn("--enable_blob_files=0", cmd)
 
-    def test_gen_cmd_logs_when_explicit_flag_is_sanitized(self):
+    def test_gen_cmd_preserves_explicit_open_files_async(self):
         random.seed(0)
         params = _new_blackbox_params()
         params.update({
@@ -554,10 +572,43 @@ class TestGenCmd(unittest.TestCase):
         ), mock.patch("sys.stderr", new=stderr):
             cmd = db_crashtest.gen_cmd(params, ["--open_files_async=true"])
 
-        self.assertIn("--open_files_async=0", cmd)
-        self.assertIn("sanitized explicit db_stress flag", stderr.getvalue())
-        self.assertIn("--open_files_async=1", stderr.getvalue())
-        self.assertIn("--open_files_async=0", stderr.getvalue())
+        self.assertIn("--open_files_async=1", cmd)
+        self.assertIn("--skip_stats_update_on_db_open=1", cmd)
+        self.assertNotIn("did not win after sanitization", stderr.getvalue())
+
+    def test_gen_cmd_preserves_explicit_reopen(self):
+        random.seed(0)
+        params = _new_blackbox_params()
+        params.update({
+            "best_efforts_recovery": 1,
+            "disable_wal": 1,
+            "reopen": 0,
+        })
+
+        with mock.patch.object(db_crashtest, "prepare_expected_values_dir"):
+            cmd = db_crashtest.gen_cmd(params, ["--reopen=20"])
+
+        self.assertIn("--reopen=20", cmd)
+        self.assertIn("--disable_wal=0", cmd)
+        self.assertIn("--best_efforts_recovery=0", cmd)
+
+    def test_gen_cmd_preserves_explicit_write_buffer_maintain(self):
+        random.seed(0)
+        params = _new_blackbox_params()
+        params.update({
+            "use_optimistic_txn": 1,
+            "use_txn": 1,
+            "write_buffer_size": 4 * 1024 * 1024,
+            "max_write_buffer_size_to_maintain": 4 * 1024 * 1024,
+        })
+
+        with mock.patch.object(db_crashtest, "prepare_expected_values_dir"):
+            cmd = db_crashtest.gen_cmd(
+                params, ["--max_write_buffer_size_to_maintain=1048576"]
+            )
+
+        self.assertIn("--max_write_buffer_size_to_maintain=1048576", cmd)
+        self.assertIn("--write_buffer_size=1048576", cmd)
 
     def test_gen_cmd_ignores_dbcrashtest_only_passthrough_flags(self):
         random.seed(0)

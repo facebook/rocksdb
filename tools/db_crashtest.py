@@ -878,8 +878,8 @@ multiops_txn_params = {
 # requirements contradict each other on the same parameter.
 #
 # When a conflict is detected, resolution depends on provenance:
-#   - Both features explicitly forced via --extra_flags: exit(1) with error
-#   - One explicit, one random: explicit feature wins; random feature disabled
+#   - Two explicit flags that demand incompatible states: exit(1) with error
+#   - Explicit vs random/default: explicit flag wins; random feature/rule yields
 #   - Both random: deterministic per-pair tiebreak disables one feature
 #
 # Adding a new incompatibility:
@@ -929,7 +929,7 @@ def _is_udt_memtable_only(params):
 #   - A condition affects params that no single feature "owns"
 #
 # Conflict resolution uses explicit_keys (params set via --extra_flags):
-#   - explicit + random  -> explicit wins, random feature disabled
+#   - explicit + random   -> explicit wins, random feature/rule disabled
 #   - explicit + explicit -> exit(1), user must fix their flags
 #   - random + random    -> deterministic per-pair tiebreak disables one feature
 #
@@ -1190,7 +1190,7 @@ def _check_and_resolve_feature_conflicts(dest_params, explicit_keys):
 
     Returns (changed, conflict_params) where conflict_params is a dict of
     params set by disable_self calls during conflict resolution. These params
-    are "protected" — Phase 2 must not undo them.
+    are "protected" — later phases must not undo them.
     """
     changed = False
     conflict_params = {}
@@ -1222,8 +1222,10 @@ def _check_and_resolve_feature_conflicts(dest_params, explicit_keys):
                 continue
 
             # We have a conflict between name_a and name_b
-            a_explicit = any(k in explicit_keys for k in _feature_trigger_keys(name_a, spec_a, dest_params))
-            b_explicit = any(k in explicit_keys for k in _feature_trigger_keys(name_b, spec_b, dest_params))
+            disable_a = spec_a["disable_self"](dest_params)
+            disable_b = spec_b["disable_self"](dest_params)
+            a_explicit = any(k in explicit_keys for k in disable_a)
+            b_explicit = any(k in explicit_keys for k in disable_b)
 
             if a_explicit and b_explicit:
                 # Both forced — hard error
@@ -1247,15 +1249,14 @@ def _check_and_resolve_feature_conflicts(dest_params, explicit_keys):
                 sys.exit(1)
             elif a_explicit:
                 # a wins, disable b
-                updates = spec_b["disable_self"](dest_params)
+                updates = disable_b
             elif b_explicit:
                 # b wins, disable a
-                updates = spec_a["disable_self"](dest_params)
+                updates = disable_a
             else:
                 # Both random: deterministic per-pair resolution.
                 loser_name = _pick_random_conflict_loser(name_a, name_b)
-                loser_spec = spec_a if loser_name == name_a else spec_b
-                updates = loser_spec["disable_self"](dest_params)
+                updates = disable_a if loser_name == name_a else disable_b
 
             for k, v in updates.items():
                 if dest_params.get(k) != v:
@@ -1294,6 +1295,54 @@ def _feature_trigger_keys(name, spec, params):
     return TRIGGER_KEYS.get(name, {name})
 
 
+def _merge_protected_params(protected_params, updates, context):
+    for key, value in updates.items():
+        existing = protected_params.get(key)
+        if existing is not None and existing != value:
+            print(
+                f"ERROR: incompatible protected updates while resolving {context}: "
+                f"{key} needs both {existing} and {value}.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        protected_params[key] = value
+
+
+def _resolve_consequence_explicit_conflict(rule, dest_params, explicit_conflicts, explicit_keys):
+    resolver = CONSEQUENCE_RULE_EXPLICIT_RESOLUTION.get(rule["name"])
+    if resolver is None:
+        conflict_desc = ", ".join(
+            f"{key}={dest_params.get(key)} vs required {value}"
+            for key, value in explicit_conflicts.items()
+        )
+        print(
+            f"ERROR: explicit passthrough flag conflicts with consequence rule "
+            f"'{rule['name']}': {conflict_desc}. "
+            f"Add supporting extra flags or extend the declarative resolver.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    alternative_updates = resolver(dest_params, explicit_conflicts)
+    conflicting_alternatives = {
+        key: value
+        for key, value in alternative_updates.items()
+        if key in explicit_keys and dest_params.get(key) != value
+    }
+    if conflicting_alternatives:
+        conflict_desc = ", ".join(
+            f"--{key}={dest_params.get(key)} vs alternate {value}"
+            for key, value in conflicting_alternatives.items()
+        )
+        print(
+            f"ERROR: explicit passthrough flags conflict while resolving "
+            f"consequence rule '{rule['name']}': {conflict_desc}.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return alternative_updates
+
+
 def _apply_feature_requirements(dest_params, explicit_keys, max_iterations=30):
     """Apply all sanitize rules in a fixed-point loop.
 
@@ -1312,6 +1361,7 @@ def _apply_feature_requirements(dest_params, explicit_keys, max_iterations=30):
 
     Loops until stable.
     """
+    explicit_protected_params = {}
     for _ in range(max_iterations):
         changed = _apply_special_rules(dest_params)
 
@@ -1322,23 +1372,52 @@ def _apply_feature_requirements(dest_params, explicit_keys, max_iterations=30):
         if changed_p1:
             changed = True
 
+        protected_params = dict(conflict_params)
+        _merge_protected_params(
+            protected_params,
+            explicit_protected_params,
+            "explicit passthrough precedence",
+        )
+
         # Phase 2: enforce requirements of each active feature.
         # If a feature's requirements would undo conflict resolution
         # (change a param that was set by disable_self in Phase 1),
         # disable the feature instead — it has a transitive conflict.
         for name, spec in FEATURE_REQUIREMENTS.items():
             if spec["active_when"](dest_params):
-                undoes_resolution = False
-                if conflict_params:
-                    for key, value in spec["requires"].items():
-                        if callable(value):
-                            value = value(dest_params)
-                        if key in conflict_params and value != conflict_params[key]:
-                            undoes_resolution = True
-                            break
+                requirement_conflicts_with_explicit = False
+                requirement_conflicts_with_protection = False
+                for key, value in spec["requires"].items():
+                    if callable(value):
+                        value = value(dest_params)
+                    if key in explicit_keys and dest_params.get(key) != value:
+                        requirement_conflicts_with_explicit = True
+                        break
+                    if key in protected_params and value != protected_params[key]:
+                        requirement_conflicts_with_protection = True
+                        break
 
-                if undoes_resolution:
+                if (
+                    requirement_conflicts_with_explicit
+                    or requirement_conflicts_with_protection
+                ):
                     updates = spec["disable_self"](dest_params)
+                    conflicting_disable_updates = {
+                        key: value
+                        for key, value in updates.items()
+                        if key in explicit_keys and dest_params.get(key) != value
+                    }
+                    if conflicting_disable_updates:
+                        conflict_desc = ", ".join(
+                            f"--{key}={dest_params.get(key)} vs disable_self {value}"
+                            for key, value in conflicting_disable_updates.items()
+                        )
+                        print(
+                            f"ERROR: explicit passthrough flags conflict with feature "
+                            f"'{name}': {conflict_desc}.",
+                            file=sys.stderr,
+                        )
+                        sys.exit(1)
                     for k, v in updates.items():
                         if dest_params.get(k) != v:
                             dest_params[k] = v
@@ -1352,14 +1431,37 @@ def _apply_feature_requirements(dest_params, explicit_keys, max_iterations=30):
                             changed = True
 
         # Phase 3: apply one-way consequence rules
+        new_explicit_protected_params = {}
         for rule in CONSEQUENCE_RULES:
             if rule["when"](dest_params):
                 then = rule["then"]
                 updates = then(dest_params) if callable(then) else then
+                explicit_conflicts = {
+                    key: value
+                    for key, value in updates.items()
+                    if key in explicit_keys and dest_params.get(key) != value
+                }
+                if explicit_conflicts:
+                    updates = _resolve_consequence_explicit_conflict(
+                        rule,
+                        dest_params,
+                        explicit_conflicts,
+                        explicit_keys,
+                    )
+                    _merge_protected_params(
+                        new_explicit_protected_params,
+                        updates,
+                        f"consequence rule '{rule['name']}'",
+                    )
+
                 for key, value in updates.items():
                     if dest_params.get(key) != value:
                         dest_params[key] = value
                         changed = True
+
+        if new_explicit_protected_params != explicit_protected_params:
+            changed = True
+        explicit_protected_params = new_explicit_protected_params
 
         if not changed:
             break
@@ -1467,10 +1569,10 @@ def finalize_and_sanitize(src_params, explicit_keys=None):
     Args:
         src_params: raw params dict (may contain lambdas for random values)
         explicit_keys: set of param names that were explicitly forced via
-            passthrough db_stress flags / --extra_flags. These are sanitized
-            before command construction, so explicit overrides may be rewritten
-            to compatible values or rejected if they conflict with each other.
-            If None, all params treated as random.
+            passthrough db_stress flags / --extra_flags. These take precedence
+            over randomized/default params. If explicit flags conflict with
+            each other or with a hard runtime constraint, sanitization exits
+            with an error instead of silently rewriting them.
     """
     if explicit_keys is None:
         explicit_keys = set()
@@ -2072,6 +2174,181 @@ CONSEQUENCE_RULES = [
         },
 ]
 
+
+CONSEQUENCE_RULE_EXPLICIT_RESOLUTION = {
+    "compression_dict_zero": lambda p, conflicts: {
+        "compression_max_dict_bytes": 1,
+    },
+    "compression_non_zstd": lambda p, conflicts: {
+        "compression_type": "zstd",
+    },
+    "vector_memtable": lambda p, conflicts: {
+        "memtablerep": "skip_list",
+    },
+    "non_skiplist_memtable": lambda p, conflicts: {
+        "memtablerep": "skip_list",
+    },
+    "test_batches_snapshots": lambda p, conflicts: {
+        "test_batches_snapshots": 0,
+    },
+    "trie_index": lambda p, conflicts: {
+        "use_trie_index": 0,
+    },
+    "multi_key_ops_ingest": lambda p, conflicts: {
+        "test_batches_snapshots": 0,
+        "use_txn": 0,
+        "use_optimistic_txn": 0,
+        "user_timestamp_size": 0,
+        "persist_user_defined_timestamps": 1,
+    },
+    "multi_key_ops_delrange": lambda p, conflicts: {
+        "test_batches_snapshots": 0,
+        "use_txn": 0,
+        "use_optimistic_txn": 0,
+    },
+    "udt_memtable_only_wal_profile": lambda p, conflicts: {
+        "persist_user_defined_timestamps": 1,
+    },
+    "udt_memtable_only_iteration_shape": lambda p, conflicts: {
+        "persist_user_defined_timestamps": 1,
+    },
+    "inplace_update_fixed_across_runs": lambda p, conflicts: {
+        "inplace_update_support": 0,
+    },
+    "multiscan_shape_adjustments": lambda p, conflicts: {
+        "use_multiscan": 0,
+    },
+    "wal_disruption_ingest": lambda p, conflicts: {
+        "sync_fault_injection": 0,
+        "disable_wal": 0,
+        "manual_wal_flush_one_in": 0,
+    },
+    "unordered_write_requires_write_prepared": lambda p, conflicts: {
+        "txn_write_policy": 1,
+        "use_txn": 1,
+    },
+    "timestamped_snapshot_unordered": lambda p, conflicts: (
+        {"txn_write_policy": 0}
+        if "create_timestamped_snapshot_one_in" in conflicts
+        else {"create_timestamped_snapshot_one_in": 0}
+    ),
+    "disable_wal_consequences": lambda p, conflicts: {
+        "disable_wal": 0,
+    },
+    "open_files_limited": lambda p, conflicts: {
+        "open_files": -1,
+    },
+    "fifo_compaction": lambda p, conflicts: {
+        "compaction_style": 0,
+    },
+    "non_fifo_compaction": lambda p, conflicts: {
+        "compaction_style": 2,
+    },
+    "partition_filters_index": lambda p, conflicts: {
+        "index_type": 2,
+    },
+    "atomic_flush_pipelined": lambda p, conflicts: {
+        "atomic_flush": 0,
+    },
+    "sst_file_manager_truncate": lambda p, conflicts: {
+        "sst_file_manager_bytes_per_sec": max(
+            1, p.get("sst_file_manager_bytes_per_sec", 0)
+        ),
+        "test_secondary": 0,
+    },
+    "prefix_size_negative": lambda p, conflicts: {
+        "prefix_size": 1,
+    },
+    "simple_blackbox_prefix_iteration": lambda p, conflicts: {
+        "prefix_size": -1,
+    },
+    "prefix_bloom_no_prefix": lambda p, conflicts: {
+        "memtable_whole_key_filtering": 1,
+    },
+    "two_write_queues": lambda p, conflicts: {
+        "two_write_queues": 0,
+    },
+    "multi_ops_txns_faults": lambda p, conflicts: {
+        "test_multi_ops_txns": 0,
+    },
+    "multi_ops_txns_write_prepared": lambda p, conflicts: {
+        "test_multi_ops_txns": 0,
+    },
+    "put_entity_merge": lambda p, conflicts: {
+        "use_put_entity_one_in": 0,
+    },
+    "file_checksum_none": lambda p, conflicts: {
+        "file_checksum_impl": "crc32c",
+    },
+    "write_fault_buffer": lambda p, conflicts: {
+        "write_fault_one_in": 0,
+    },
+    "write_buffer_manager_prereqs": lambda p, conflicts: {
+        "cache_size": max(p.get("cache_size", 0), 8388608),
+        "db_write_buffer_size": max(p.get("db_write_buffer_size", 0), 1),
+    },
+    "user_timestamps": lambda p, conflicts: {
+        "user_timestamp_size": 0,
+        "persist_user_defined_timestamps": 1,
+    },
+    "compaction_filter_or_inplace_snapshots": lambda p, conflicts: {
+        "enable_compaction_filter": 0,
+        "inplace_update_support": 0,
+    },
+    "wal_write_error_injection": lambda p, conflicts: {
+        "reopen": 0,
+        "manual_wal_flush_one_in": 0,
+        "use_txn": 0,
+        "use_optimistic_txn": 0,
+    },
+    "periodic_compaction_offpeak": lambda p, conflicts: {
+        "periodic_compaction_seconds": 1,
+    },
+    "read_triggered_compaction_wakeup": lambda p, conflicts: {
+        "read_triggered_compaction_threshold": 0,
+    },
+    "put_entity_timed_put_exclusive": lambda p, conflicts: {
+        "use_put_entity_one_in": 0,
+    },
+    "put_entity_timed_put_coexist": lambda p, conflicts: {
+        "use_put_entity_one_in": 0,
+    },
+    "identity_file": lambda p, conflicts: (
+        {"write_identity_file": 1}
+        if "write_dbid_to_manifest" in conflicts
+        else {"write_dbid_to_manifest": 1}
+    ),
+    "checkpoint_lock_wal": lambda p, conflicts: {
+        "checkpoint_one_in": 0,
+    },
+    "ingest_range_deletion": lambda p, conflicts: {
+        "ingest_external_file_one_in": max(
+            1, p.get("ingest_external_file_one_in", 0)
+        ),
+        "delrangepercent": max(1, p.get("delrangepercent", 0)),
+    },
+    "ingest_wbwi": lambda p, conflicts: {
+        "enable_pipelined_write": 0,
+        "unordered_write": 0,
+        "disable_wal": 1,
+        "user_timestamp_size": 0,
+        "persist_user_defined_timestamps": 1,
+    },
+    "test_secondary_continuous_verification": lambda p, conflicts: {
+        "test_secondary": 0,
+    },
+    "skip_stats_open_files_async": lambda p, conflicts: {
+        "skip_stats_update_on_db_open": 1,
+    },
+    "allow_resumption_requires_remote": lambda p, conflicts: {
+        "remote_compaction_worker_threads": 1,
+    },
+    "optimistic_txn_write_buffer_maintain": lambda p, conflicts: {
+        "write_buffer_size": p.get("max_write_buffer_size_to_maintain", 0),
+    },
+}
+
+
 def gen_cmd_params(args):
     params = {}
 
@@ -2171,7 +2448,8 @@ def _format_flag_assignment(key, value):
 def gen_cmd(params, unknown_params):
     # Merge passthrough db_stress flags into the params dict BEFORE
     # sanitization. This ensures forced flags participate in constraint
-    # resolution instead of silently overriding sanitized values.
+    # resolution and win over randomized/default params instead of being
+    # silently rewritten by later sanitize passes.
     #
     # Previously, unknown_params were appended to the CLI after sanitization,
     # which meant gflags last-one-wins would override incompatibility guards.
@@ -2214,12 +2492,13 @@ def gen_cmd(params, unknown_params):
         finalized_value = finalized_params.get(key)
         if explicit_value != finalized_value:
             print(
-                "WARNING: sanitized explicit db_stress flag "
-                f"{_format_flag_assignment(key, explicit_value)} to "
-                f"{_format_flag_assignment(key, finalized_value)} "
-                "to keep the generated config internally consistent.",
+                "ERROR: explicit db_stress flag did not win after sanitization: "
+                f"{_format_flag_assignment(key, explicit_value)} vs "
+                f"{_format_flag_assignment(key, finalized_value)}. "
+                "Add supporting explicit flags or extend the rule resolver.",
                 file=sys.stderr,
             )
+            sys.exit(1)
 
     prepare_expected_values_dir(
         finalized_params.get("expected_values_dir"),
