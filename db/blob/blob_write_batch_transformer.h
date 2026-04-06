@@ -63,6 +63,25 @@ class BlobWriteBatchTransformer : public WriteBatch::Handler {
     uint64_t bytes = 0;
   };
 
+  // Builds the final serialized entity for one PutEntity write.
+  //
+  // `columns` must already be sorted by column name. When direct-write blob
+  // separation is enabled and one or more columns meet `min_blob_size`, this
+  // writes those columns to blob files and returns a V2 entity containing
+  // BlobIndex references. Otherwise, if `serialize_inline_entity` is true, it
+  // returns a normal V1 entity with all columns inline.
+  //
+  // `rollback_infos`, when provided, is appended with the exact blob writes
+  // performed before the method returns, even if it later fails, so callers
+  // can account those bytes as initial garbage.
+  static Status MaybePreprocessWideColumns(
+      const WriteOptions& write_options, uint32_t column_family_id,
+      const Slice& key, const WideColumns& columns,
+      BlobFilePartitionManager* partition_mgr,
+      const BlobDirectWriteSettings& settings, bool serialize_inline_entity,
+      std::string* entity, bool* transformed,
+      std::vector<RollbackInfo>* rollback_infos = nullptr);
+
   // Constructs a per-batch transformer. Most callers should use
   // TransformBatch() instead of driving the handler directly.
   BlobWriteBatchTransformer(

@@ -8,6 +8,7 @@
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/dbformat.h"
+#include "db/wide/wide_column_serialization.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -20,13 +21,12 @@ Status BlobGarbageMeter::ProcessInFlow(const Slice& key, const Slice& value) {
     return s;
   }
 
-  if (blob_file_number == kInvalidBlobFileNumber) {
+  if (blob_file_number != kInvalidBlobFileNumber) {
+    flows_[blob_file_number].AddInFlow(bytes);
     return Status::OK();
   }
 
-  flows_[blob_file_number].AddInFlow(bytes);
-
-  return Status::OK();
+  return ProcessEntityBlobReferences(key, value, /*is_inflow=*/true);
 }
 
 Status BlobGarbageMeter::ProcessOutFlow(const Slice& key, const Slice& value) {
@@ -38,21 +38,15 @@ Status BlobGarbageMeter::ProcessOutFlow(const Slice& key, const Slice& value) {
     return s;
   }
 
-  if (blob_file_number == kInvalidBlobFileNumber) {
+  if (blob_file_number != kInvalidBlobFileNumber) {
+    auto it = flows_.find(blob_file_number);
+    if (it != flows_.end()) {
+      it->second.AddOutFlow(bytes);
+    }
     return Status::OK();
   }
 
-  // Note: in order to measure the amount of additional garbage, we only need to
-  // track the outflow for preexisting files, i.e. those that also had inflow.
-  // (Newly written files would only have outflow.)
-  auto it = flows_.find(blob_file_number);
-  if (it == flows_.end()) {
-    return Status::OK();
-  }
-
-  it->second.AddOutFlow(bytes);
-
-  return Status::OK();
+  return ProcessEntityBlobReferences(key, value, /*is_inflow=*/false);
 }
 
 Status BlobGarbageMeter::Parse(const Slice& key, const Slice& value,
@@ -95,6 +89,48 @@ Status BlobGarbageMeter::Parse(const Slice& key, const Slice& value,
       BlobLogRecord::CalculateAdjustmentForRecordHeader(ikey.user_key.size());
 
   return Status::OK();
+}
+
+Status BlobGarbageMeter::ProcessEntityBlobReferences(const Slice& key,
+                                                     const Slice& value,
+                                                     bool is_inflow) {
+  ParsedInternalKey ikey;
+
+  {
+    constexpr bool log_err_key = false;
+    const Status s = ParseInternalKey(key, &ikey, log_err_key);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  if (ikey.type != kTypeWideColumnEntity) {
+    return Status::OK();
+  }
+
+  return WideColumnSerialization::ForEachBlobFileNumber(
+      value, [&](const BlobIndex& blob_index) -> Status {
+        if (blob_index.IsInlined() || blob_index.HasTTL()) {
+          return Status::Corruption("Unexpected TTL/inlined blob index");
+        }
+
+        const uint64_t file_number = blob_index.file_number();
+        const uint64_t blob_bytes =
+            blob_index.size() +
+            BlobLogRecord::CalculateAdjustmentForRecordHeader(
+                ikey.user_key.size());
+
+        if (is_inflow) {
+          flows_[file_number].AddInFlow(blob_bytes);
+        } else {
+          // Only track outflow for preexisting files (those with inflow).
+          auto it = flows_.find(file_number);
+          if (it != flows_.end()) {
+            it->second.AddOutFlow(blob_bytes);
+          }
+        }
+        return Status::OK();
+      });
 }
 
 }  // namespace ROCKSDB_NAMESPACE

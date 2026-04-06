@@ -76,7 +76,14 @@ class BlobFilePartitionManager {
                    CompressionType compression, const Slice& key,
                    const Slice& value, uint64_t* blob_file_number,
                    uint64_t* blob_offset, uint64_t* blob_size,
-                   const BlobDirectWriteSettings* settings = nullptr);
+                   const BlobDirectWriteSettings* settings = nullptr,
+                   const uint32_t* partition_idx = nullptr);
+
+  // Selects the partition to use for all blob-backed columns of one PutEntity
+  // operation. The return value is already normalized to [0, num_partitions_).
+  uint32_t SelectWideColumnPartition(uint32_t column_family_id,
+                                     const Slice& key,
+                                     const WideColumns& columns) const;
 
   // Move the current active partition files into the next immutable
   // memtable-generation batch. Called from SwitchMemtable() while DB mutex is
@@ -116,6 +123,10 @@ class BlobFilePartitionManager {
   // Returns sealed blob files that are still reachable through live memtables
   // or old SuperVersions and therefore must not be purged yet.
   void GetProtectedBlobFileNumbers(UnorderedSet<uint64_t>* file_numbers) const;
+
+  // Returns true when the blob file is still owned by the write path or
+  // protected by a live memtable / old SuperVersion.
+  bool IsTrackedBlobFileNumber(uint64_t file_number) const;
 
   // Increments / decrements memtable-held protection on sealed blob files.
   void ProtectSealedBlobFileNumbers(const std::vector<uint64_t>& file_numbers);

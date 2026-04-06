@@ -1585,20 +1585,33 @@ class DBImpl : public DB {
   // The main write queue. This is the only write queue that updates
   // LastSequence. When using one write queue, the same sequence also indicates
   // the last published sequence.
-  Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
-                   WriteCallback* callback = nullptr,
-                   UserWriteCallback* user_write_cb = nullptr,
-                   uint64_t* wal_used = nullptr, uint64_t log_ref = 0,
-                   bool disable_memtable = false, uint64_t* seq_used = nullptr,
-                   size_t batch_cnt = 0,
-                   PreReleaseCallback* pre_release_callback = nullptr,
-                   PostMemTableCallback* post_memtable_callback = nullptr,
-                   std::shared_ptr<WriteBatchWithIndex> wbwi = nullptr);
+  struct DeferredPutEntityBatch;
+  Status WriteImpl(
+      const WriteOptions& options, WriteBatch* updates,
+      WriteCallback* callback = nullptr,
+      UserWriteCallback* user_write_cb = nullptr, uint64_t* wal_used = nullptr,
+      uint64_t log_ref = 0, bool disable_memtable = false,
+      uint64_t* seq_used = nullptr, size_t batch_cnt = 0,
+      PreReleaseCallback* pre_release_callback = nullptr,
+      PostMemTableCallback* post_memtable_callback = nullptr,
+      std::shared_ptr<WriteBatchWithIndex> wbwi = nullptr,
+      WriteBatch* trace_batch_override = nullptr,
+      bool skip_blob_direct_write_transform = false,
+      const DeferredPutEntityBatch* deferred_put_entities = nullptr);
 
   // Per-WriteImpl state that keeps BDW column families pinned through
   // referenced SuperVersions until the transformed write either commits or
   // rolls back.
   struct BlobDirectWriteContext;
+  struct DeferredPutEntityBatch {
+    struct Op {
+      uint32_t column_family_id = 0;
+      std::string key;
+      WideColumns sorted_columns;
+    };
+
+    std::vector<Op> ops;
+  };
   // Rewrites a write batch for blob direct write when the current DB and batch
   // shape are compatible, recording touched managers and rollback metadata in
   // `blob_direct_write_ctx`.
@@ -1607,6 +1620,25 @@ class DBImpl : public DB {
       bool should_write_to_memtable, bool lookup_from_write_thread,
       WriteBatch* transformed_storage,
       BlobDirectWriteContext* blob_direct_write_ctx);
+  Status AppendPreprocessedPutEntityToBatch(
+      const WriteOptions& write_options, WriteBatch* batch,
+      ColumnFamilyHandle* column_family, const Slice& key,
+      const WideColumns& columns,
+      BlobDirectWriteContext* blob_direct_write_ctx);
+  Status AppendSortedPutEntityToBatch(
+      const WriteOptions& write_options, WriteBatch* batch,
+      uint32_t column_family_id, const Slice& key,
+      const WideColumns& sorted_columns,
+      BlobDirectWriteContext* blob_direct_write_ctx);
+  Status PutEntityFastPath(const WriteOptions& write_options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           const WideColumns& columns);
+  Status PutEntityFastPath(const WriteOptions& write_options, const Slice& key,
+                           const AttributeGroups& attribute_groups);
+  Status WritePreprocessedPutEntityBatch(
+      const WriteOptions& write_options, WriteBatch* batch,
+      WriteBatch* trace_batch,
+      const DeferredPutEntityBatch* deferred_put_entities = nullptr);
   // Flushes or syncs all blob direct-write managers touched by the current
   // transformed write before the write can proceed.
   Status SyncBlobDirectWriteManagers(
@@ -2095,6 +2127,10 @@ class DBImpl : public DB {
   void DeleteObsoleteFileImpl(int job_id, const std::string& fname,
                               const std::string& path_to_sync, FileType type,
                               uint64_t number);
+  // Returns true when a blob file must be preserved because it is still
+  // tracked by blob direct write or is still footer-less on disk.
+  bool ShouldKeepBlobFileForPurge(uint64_t number,
+                                  const std::string& blob_file_path);
 
   // Background process needs to call
   //     auto x = CaptureCurrentFileNumberInPendingOutputs()
@@ -2819,6 +2855,11 @@ class DBImpl : public DB {
                                       std::string ts_low);
 
   bool ShouldReferenceSuperVersion(const MergeContext& merge_context);
+  static bool MaybeResolveWritePathValue(
+      const ReadOptions& read_options, const Slice& key,
+      bool resolve_write_path_value, const Version* current,
+      ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns,
+      Status* s, bool* is_blob_index, bool* value_found = nullptr);
 
   template <typename IterType, typename ImplType,
             typename ErrorIteratorFuncType>

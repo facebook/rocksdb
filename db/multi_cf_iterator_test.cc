@@ -921,6 +921,99 @@ TEST_F(CoalescingIteratorTest, AllowUnpreparedValue_Corruption) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_F(CoalescingIteratorTest,
+       SingleColumnFamilyAllowUnpreparedValueMatchesDirectIterator) {
+  Options options = GetDefaultOptions();
+  CreateAndReopenWithCF({"cf_1"}, options);
+
+  ASSERT_OK(Put(0, "key_1", "value_1"));
+  ASSERT_OK(Put(0, "key_2", "value_2"));
+
+  ReadOptions read_options;
+  read_options.allow_unprepared_value = true;
+
+  std::unique_ptr<Iterator> coalescing =
+      db_->NewCoalescingIterator(read_options, {handles_[0]});
+  std::unique_ptr<Iterator> direct(db_->NewIterator(read_options, handles_[0]));
+
+  auto verify_same_entry = [&](const Slice& target) {
+    coalescing->Seek(target);
+    direct->Seek(target);
+
+    ASSERT_EQ(direct->Valid(), coalescing->Valid());
+    ASSERT_EQ(direct->status(), coalescing->status());
+    ASSERT_TRUE(coalescing->Valid());
+    ASSERT_EQ(direct->key(), coalescing->key());
+    ASSERT_EQ(direct->value(), coalescing->value());
+    ASSERT_EQ(direct->columns(), coalescing->columns());
+  };
+
+  verify_same_entry("key_1");
+  verify_same_entry("key_2");
+}
+
+TEST_F(CoalescingIteratorTest, AllowUnpreparedValueWithSnapshotAutoRefresh) {
+  constexpr int kNumKeys = 32;
+
+  auto make_value = [](int cf, const char* phase, int key) {
+    return "cf" + std::to_string(cf) + "_" + phase + "_" + std::to_string(key) +
+           std::string(32, static_cast<char>('a' + cf));
+  };
+
+  Options options = GetDefaultOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 16;
+
+  CreateAndReopenWithCF({"cf_1"}, options);
+
+  for (int key = 0; key < kNumKeys; ++key) {
+    ASSERT_OK(Put(0, Key(key), make_value(0, "base", key)));
+    ASSERT_OK(Put(1, Key(key), make_value(1, "base", key)));
+  }
+  ASSERT_OK(Flush({0, 1}));
+  MoveFilesToLevel(1, 0);
+  MoveFilesToLevel(1, 1);
+
+  for (int key = 0; key < kNumKeys; ++key) {
+    ASSERT_OK(Put(0, Key(key), make_value(0, "visible", key)));
+    ASSERT_OK(Put(1, Key(key), make_value(1, "visible", key)));
+  }
+
+  ReadOptions read_options;
+  read_options.allow_unprepared_value = true;
+  read_options.auto_refresh_iterator_with_snapshot = true;
+  const Snapshot* snapshot = db_->GetSnapshot();
+  read_options.snapshot = snapshot;
+
+  std::vector<ColumnFamilyHandle*> cfhs_order_1_0 = {handles_[1], handles_[0]};
+  std::unique_ptr<Iterator> iter =
+      db_->NewCoalescingIterator(read_options, cfhs_order_1_0);
+
+  int seen = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_EQ(Key(seen), iter->key());
+    ASSERT_TRUE(iter->value().empty());
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(make_value(0, "visible", seen), iter->value().ToString());
+
+    if (seen == kNumKeys / 2) {
+      ASSERT_OK(Flush({0, 1}));
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[0], nullptr,
+                                  nullptr));
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                                  nullptr));
+    }
+    ++seen;
+  }
+
+  ASSERT_EQ(kNumKeys, seen);
+  ASSERT_OK(iter->status());
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
 class AttributeGroupIteratorTest : public DBTestBase {
  public:
   AttributeGroupIteratorTest()

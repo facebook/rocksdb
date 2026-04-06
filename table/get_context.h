@@ -7,6 +7,7 @@
 #include <string>
 
 #include "db/read_callback.h"
+#include "rocksdb/options.h"
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
