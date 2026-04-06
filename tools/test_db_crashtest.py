@@ -1,8 +1,7 @@
+#!/usr/bin/env python3
 #  Copyright (c) Meta Platforms, Inc. and affiliates.
 #  This source code is licensed under both the GPLv2 (found in the COPYING file in the root directory)
 #  and the Apache 2.0 License (found in the LICENSE.Apache file in the root directory).
-
-#!/usr/bin/env python3
 """Regression tests for finalize_and_sanitize() convergence and correctness.
 
 Run: python3 tools/test_db_crashtest.py
@@ -15,6 +14,7 @@ Tests:
 """
 
 import copy
+import io
 import os
 import random
 import sys
@@ -511,6 +511,84 @@ class TestKnownConflicts(unittest.TestCase):
         self.assertEqual(
             result["max_write_buffer_size_to_maintain"], 8 * 1024 * 1024,
         )
+
+
+class TestGenCmd(unittest.TestCase):
+    """Passthrough db_stress flags should be sanitized and diagnosed clearly."""
+
+    def test_parse_extra_flag_value_normalizes_boolean_strings(self):
+        self.assertEqual(db_crashtest._parse_extra_flag_value("true"), 1)
+        self.assertEqual(db_crashtest._parse_extra_flag_value("FALSE"), 0)
+        self.assertEqual(db_crashtest._parse_extra_flag_value("on"), 1)
+        self.assertEqual(db_crashtest._parse_extra_flag_value(""), "")
+
+    def test_gen_cmd_parses_boolean_string_passthrough_flags(self):
+        random.seed(0)
+        params = _new_blackbox_params()
+        params.update({
+            "skip_stats_update_on_db_open": 1,
+            "open_files_async": 0,
+            "enable_blob_files": 1,
+        })
+
+        with mock.patch.object(db_crashtest, "prepare_expected_values_dir"):
+            cmd = db_crashtest.gen_cmd(
+                params,
+                ["--open_files_async=true", "--enable_blob_files=false"],
+            )
+
+        self.assertIn("--open_files_async=1", cmd)
+        self.assertIn("--enable_blob_files=0", cmd)
+
+    def test_gen_cmd_logs_when_explicit_flag_is_sanitized(self):
+        random.seed(0)
+        params = _new_blackbox_params()
+        params.update({
+            "skip_stats_update_on_db_open": 0,
+            "open_files_async": 0,
+        })
+        stderr = io.StringIO()
+
+        with mock.patch.object(
+            db_crashtest, "prepare_expected_values_dir"
+        ), mock.patch("sys.stderr", new=stderr):
+            cmd = db_crashtest.gen_cmd(params, ["--open_files_async=true"])
+
+        self.assertIn("--open_files_async=0", cmd)
+        self.assertIn("sanitized explicit db_stress flag", stderr.getvalue())
+        self.assertIn("--open_files_async=1", stderr.getvalue())
+        self.assertIn("--open_files_async=0", stderr.getvalue())
+
+    def test_gen_cmd_ignores_dbcrashtest_only_passthrough_flags(self):
+        random.seed(0)
+        params = _new_blackbox_params()
+        stderr = io.StringIO()
+
+        with mock.patch.object(
+            db_crashtest, "prepare_expected_values_dir"
+        ), mock.patch("sys.stderr", new=stderr):
+            cmd = db_crashtest.gen_cmd(params, ["--duration=999"])
+
+        self.assertFalse(any(arg.startswith("--duration=") for arg in cmd))
+        self.assertIn("ignoring passthrough override", stderr.getvalue())
+        self.assertIn("--duration=999", stderr.getvalue())
+
+    def test_gen_cmd_exits_on_conflicting_explicit_flags(self):
+        random.seed(0)
+        params = _new_blackbox_params()
+        params.update({
+            "best_efforts_recovery": 0,
+            "inplace_update_support": 0,
+        })
+
+        with mock.patch.object(db_crashtest, "prepare_expected_values_dir"):
+            with self.assertRaises(SystemExit) as cm:
+                db_crashtest.gen_cmd(
+                    params,
+                    ["--best_efforts_recovery=1", "--inplace_update_support=1"],
+                )
+
+        self.assertEqual(cm.exception.code, 1)
 
 
 class TestSpecialRules(unittest.TestCase):

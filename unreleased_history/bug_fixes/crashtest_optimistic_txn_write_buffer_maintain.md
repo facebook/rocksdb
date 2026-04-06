@@ -1,0 +1,1 @@
+`tools/db_crashtest.py` now raises `max_write_buffer_size_to_maintain` to at least `write_buffer_size` when `use_optimistic_txn=1`, preventing invalid OptimisticTransactionDB stress configurations that would otherwise weaken OCC conflict detection against older memtable data.

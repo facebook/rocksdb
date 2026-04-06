@@ -1238,7 +1238,10 @@ def _check_and_resolve_feature_conflicts(dest_params, explicit_keys):
                     f"  --{list(_trigger_keys_a)[0]} activates feature '{name_a}'\n"
                     f"  --{list(_trigger_keys_b)[0]} activates feature '{name_b}'\n"
                     f"  Conflict on: {conflict_desc}\n"
-                    f"  These features cannot be active at the same time.",
+                    f"  These features cannot be active at the same time.\n"
+                    f"  db_crashtest now sanitizes explicit db_stress flags before\n"
+                    f"  launching db_stress, so conflicting explicit overrides fail\n"
+                    f"  fast instead of relying on last-one-wins behavior.",
                     file=sys.stderr,
                 )
                 sys.exit(1)
@@ -1464,8 +1467,10 @@ def finalize_and_sanitize(src_params, explicit_keys=None):
     Args:
         src_params: raw params dict (may contain lambdas for random values)
         explicit_keys: set of param names that were explicitly forced via
-            --extra_flags. These take priority over randomized params in
-            conflict resolution. If None, all params treated as random.
+            passthrough db_stress flags / --extra_flags. These are sanitized
+            before command construction, so explicit overrides may be rewritten
+            to compatible values or rejected if they conflict with each other.
+            If None, all params treated as random.
     """
     if explicit_keys is None:
         explicit_keys = set()
@@ -2122,37 +2127,100 @@ def gen_cmd_params(args):
     return params
 
 
+DBCRASHTEST_ONLY_PARAMS = {
+    "test_type",
+    "simple",
+    "duration",
+    "interval",
+    "random_kill_odd",
+    "cf_consistency",
+    "txn",
+    "optimistic_txn",
+    "test_best_efforts_recovery",
+    "enable_ts",
+    "test_multiops_txn",
+    "stress_cmd",
+    "test_tiered_storage",
+    "cleanup_cmd",
+    "print_stderr_separately",
+    "verify_timeout",
+}
+
+
+def _parse_extra_flag_value(raw_value):
+    lowered = raw_value.lower()
+    if lowered in {"true", "yes", "on"}:
+        return 1
+    if lowered in {"false", "no", "off"}:
+        return 0
+    if raw_value == "":
+        return raw_value
+    try:
+        return int(raw_value)
+    except ValueError:
+        try:
+            return float(raw_value)
+        except ValueError:
+            return raw_value
+
+
+def _format_flag_assignment(key, value):
+    return quote_arg_for_display(f"--{key}={value}")
+
+
 def gen_cmd(params, unknown_params):
-    # Merge unknown_params (from --extra_flags or command line) into the params
-    # dict BEFORE sanitization. This ensures that forced flags participate in
-    # constraint resolution instead of silently overriding sanitized values.
+    # Merge passthrough db_stress flags into the params dict BEFORE
+    # sanitization. This ensures forced flags participate in constraint
+    # resolution instead of silently overriding sanitized values.
     #
     # Previously, unknown_params were appended to the CLI after sanitization,
     # which meant gflags last-one-wins would override incompatibility guards.
     # For example, passing --enable_blob_direct_write=1 via extra flags would
     # re-enable BDW even after finalize_and_sanitize disabled it due to
-    # conflicts with transactions.
+    # conflicts with transactions. db_crashtest-only options (e.g. --duration)
+    # are not db_stress flags, so ignore them here if they leak into the
+    # passthrough list.
     merged_params = dict(params)
     explicit_keys = set()
+    explicit_overrides = {}
+    ignored_overrides = []
     remaining_unknown = []
     for arg in unknown_params:
         if arg.startswith("--") and "=" in arg:
             key_val = arg[2:]  # strip --
             key, val = key_val.split("=", 1)
-            # Convert to int/float to match param types
-            try:
-                val = int(val)
-            except ValueError:
-                try:
-                    val = float(val)
-                except ValueError:
-                    pass  # keep as string
+            if key in DBCRASHTEST_ONLY_PARAMS:
+                ignored_overrides.append(arg)
+                continue
+            val = _parse_extra_flag_value(val)
             merged_params[key] = val
             explicit_keys.add(key)
+            explicit_overrides[key] = val
         else:
             remaining_unknown.append(arg)
 
     finalized_params = finalize_and_sanitize(merged_params, explicit_keys=explicit_keys)
+
+    for arg in ignored_overrides:
+        print(
+            "WARNING: ignoring passthrough override "
+            f"{quote_arg_for_display(arg)} because it is handled by "
+            "db_crashtest.py, not forwarded to db_stress.",
+            file=sys.stderr,
+        )
+
+    for key in sorted(explicit_overrides):
+        explicit_value = explicit_overrides[key]
+        finalized_value = finalized_params.get(key)
+        if explicit_value != finalized_value:
+            print(
+                "WARNING: sanitized explicit db_stress flag "
+                f"{_format_flag_assignment(key, explicit_value)} to "
+                f"{_format_flag_assignment(key, finalized_value)} "
+                "to keep the generated config internally consistent.",
+                file=sys.stderr,
+            )
+
     prepare_expected_values_dir(
         finalized_params.get("expected_values_dir"),
         finalized_params.get("destroy_db_initially", 0),
@@ -2162,26 +2230,7 @@ def gen_cmd(params, unknown_params):
         + [
             f"--{k}={v}"
             for k, v in [(k, finalized_params[k]) for k in sorted(finalized_params)]
-            if k
-            not in {
-                "test_type",
-                "simple",
-                "duration",
-                "interval",
-                "random_kill_odd",
-                "cf_consistency",
-                "txn",
-                "optimistic_txn",
-                "test_best_efforts_recovery",
-                "enable_ts",
-                "test_multiops_txn",
-                "stress_cmd",
-                "test_tiered_storage",
-                "cleanup_cmd",
-                "print_stderr_separately",
-                "verify_timeout",
-            }
-            and v is not None
+            if k not in DBCRASHTEST_ONLY_PARAMS and v is not None
         ]
         + remaining_unknown
     )
