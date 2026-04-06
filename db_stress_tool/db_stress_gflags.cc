@@ -1661,4 +1661,10 @@ DEFINE_bool(use_multiscan, false,
 DEFINE_bool(multiscan_use_async_io, false,
             "If set, enable async_io for MultiScan operations.");
 
+DEFINE_uint64(multiscan_max_prefetch_memory_bytes, 0,
+              "If non-zero, sets the max_prefetch_memory_bytes on the "
+              "IODispatcher used for MultiScan. This limits the total memory "
+              "used for prefetching data blocks across all concurrent "
+              "MultiScan ReadSets.");
+
 #endif  // GFLAGS
