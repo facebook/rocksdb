@@ -15,6 +15,7 @@ import os
 import random
 import sys
 import unittest
+from unittest import mock
 
 # Import db_crashtest from same directory
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -112,28 +113,30 @@ def _build_fuzzed_params(seed):
     return params
 
 
+def _new_blackbox_params():
+    """Build a minimal blackbox config for targeted sanitize tests."""
+    params = _resolve_params(db_crashtest.default_params)
+    params.update(_resolve_params(db_crashtest.blackbox_default_params))
+    params.setdefault("db", "/tmp/test_db")
+    params.setdefault("column_families", 1)
+    params.setdefault("reopen", 0)
+    return params
+
+
 class TestConvergence(unittest.TestCase):
     """finalize_and_sanitize must always reach a fixed point."""
 
     NUM_TRIALS = 5000
 
     def test_convergence_random(self):
-        """Random configs converge within the iteration limit."""
-        import warnings
+        """Random configs converge within the iteration limit.
+
+        Non-convergence is now a hard sys.exit(1), so if
+        finalize_and_sanitize returns at all, it converged.
+        """
         for trial in range(self.NUM_TRIALS):
             params = _build_fuzzed_params(seed=trial)
-            with warnings.catch_warnings(record=True) as w:
-                warnings.simplefilter("always")
-                db_crashtest.finalize_and_sanitize(params)
-                convergence_warnings = [
-                    x for x in w
-                    if "did not converge" in str(x.message)
-                ]
-                self.assertEqual(
-                    len(convergence_warnings), 0,
-                    f"Trial {trial} did not converge. Seed={trial}. "
-                    f"Relevant params: {_extract_relevant(params)}"
-                )
+            db_crashtest.finalize_and_sanitize(params)
 
 
 class TestIdempotency(unittest.TestCase):
@@ -169,21 +172,15 @@ class TestKnownConflicts(unittest.TestCase):
     """Specific configs that previously caused oscillation."""
 
     def _assert_converges(self, params, desc):
-        """Assert params converge and return the result."""
-        import warnings
+        """Assert params converge and return the result.
+
+        Non-convergence is now a hard sys.exit(1), so if
+        finalize_and_sanitize returns at all, it converged.
+        """
         params.setdefault("db", "/tmp/test_db")
         params.setdefault("column_families", 1)
         params.setdefault("reopen", 0)
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            result = db_crashtest.finalize_and_sanitize(params)
-            convergence_warnings = [
-                x for x in w if "did not converge" in str(x.message)
-            ]
-            self.assertEqual(
-                len(convergence_warnings), 0,
-                f"{desc}: did not converge"
-            )
+        result = db_crashtest.finalize_and_sanitize(params)
         return result
 
     def test_ber_plus_udt_memtable_only(self):
@@ -201,9 +198,8 @@ class TestKnownConflicts(unittest.TestCase):
         self.assertEqual(result["disable_wal"], 1)
 
     def test_ber_plus_txn_non_wc_both_random(self):
-        """BER + non-WC txn both random: one must lose (conflict resolved)."""
-        params = _resolve_params(db_crashtest.default_params)
-        params.update(_resolve_params(db_crashtest.blackbox_default_params))
+        """BER + non-WC txn both random: deterministic tiebreak disables BER."""
+        params = _new_blackbox_params()
         params.update(_resolve_params(db_crashtest.txn_params))
         params.update({
             "best_efforts_recovery": 1,
@@ -211,15 +207,9 @@ class TestKnownConflicts(unittest.TestCase):
             "txn_write_policy": 1,
         })
         result = self._assert_converges(params, "BER + non-WC txn (both random)")
-        # Either BER loses (best_efforts_recovery=0)
-        #     or txn loses (txn_write_policy=0)
-        ber_off = result.get("best_efforts_recovery") == 0
-        txn_wc = result.get("txn_write_policy") == 0
-        self.assertTrue(
-            ber_off or txn_wc,
-            f"Conflict not resolved: ber={result.get('best_efforts_recovery')}, "
-            f"txn_write_policy={result.get('txn_write_policy')}"
-        )
+        self.assertEqual(result["best_efforts_recovery"], 0)
+        self.assertEqual(result["txn_write_policy"], 1)
+        self.assertEqual(result["disable_wal"], 0)
 
     def test_ber_explicit_beats_txn_non_wc(self):
         """BER explicit: non-WC txn must switch to write-committed."""
@@ -259,9 +249,8 @@ class TestKnownConflicts(unittest.TestCase):
         self.assertEqual(result["disable_wal"], 0)
 
     def test_inplace_plus_unordered_write_both_random(self):
-        """inplace_update + unordered_write both random: one must lose."""
-        params = _resolve_params(db_crashtest.default_params)
-        params.update(_resolve_params(db_crashtest.blackbox_default_params))
+        """inplace + unordered both random: deterministic tiebreak disables unordered."""
+        params = _new_blackbox_params()
         params.update({
             "inplace_update_support": 1,
             "unordered_write": 1,
@@ -270,18 +259,12 @@ class TestKnownConflicts(unittest.TestCase):
             "test_batches_snapshots": 0,
             "best_efforts_recovery": 0,
             "memtablerep": "skip_list",
+            "remote_compaction_worker_threads": 0,
         })
         result = self._assert_converges(params, "inplace + unordered (both random)")
-        # Both random: either inplace loses (inplace=0, concurrent=1)
-        #           or unordered loses (unordered=0, concurrent=0)
-        # Either way: the conflict must be resolved (no inconsistent state)
-        inplace_off = result.get("inplace_update_support") == 0
-        unordered_off = result.get("unordered_write") == 0
-        self.assertTrue(
-            inplace_off or unordered_off,
-            f"Conflict not resolved: inplace={result.get('inplace_update_support')}, "
-            f"unordered={result.get('unordered_write')}"
-        )
+        self.assertEqual(result["inplace_update_support"], 1)
+        self.assertEqual(result["unordered_write"], 0)
+        self.assertEqual(result["allow_concurrent_memtable_write"], 0)
 
     def test_inplace_explicit_beats_unordered_random(self):
         """inplace explicit via extra-flags: unordered_write must be disabled."""
@@ -295,6 +278,7 @@ class TestKnownConflicts(unittest.TestCase):
             "test_batches_snapshots": 0,
             "best_efforts_recovery": 0,
             "memtablerep": "skip_list",
+            "remote_compaction_worker_threads": 0,
         })
         # inplace is explicit, unordered is random → inplace wins
         params.setdefault("db", "/tmp/test_db")
@@ -317,6 +301,7 @@ class TestKnownConflicts(unittest.TestCase):
             "test_batches_snapshots": 0,
             "best_efforts_recovery": 0,
             "memtablerep": "skip_list",
+            "remote_compaction_worker_threads": 0,
         })
         # unordered is explicit, inplace is random → unordered wins
         params.setdefault("db", "/tmp/test_db")
@@ -328,9 +313,8 @@ class TestKnownConflicts(unittest.TestCase):
         self.assertEqual(result["allow_concurrent_memtable_write"], 1)
 
     def test_udt_memtable_only_plus_unordered_write_both_random(self):
-        """UDT memtable-only + unordered_write both random: one must lose."""
-        params = _resolve_params(db_crashtest.default_params)
-        params.update(_resolve_params(db_crashtest.blackbox_default_params))
+        """UDT + unordered both random: deterministic tiebreak disables unordered."""
+        params = _new_blackbox_params()
         params.update({
             "user_timestamp_size": 8,
             "persist_user_defined_timestamps": 0,
@@ -339,14 +323,9 @@ class TestKnownConflicts(unittest.TestCase):
             "use_txn": 1,
         })
         result = self._assert_converges(params, "UDT + unordered (both random)")
-        # Either UDT loses (persist=1) or unordered loses (unordered=0)
-        udt_off = result.get("persist_user_defined_timestamps") == 1
-        unordered_off = result.get("unordered_write") == 0
-        self.assertTrue(
-            udt_off or unordered_off,
-            f"Conflict not resolved: persist={result.get('persist_user_defined_timestamps')}, "
-            f"unordered={result.get('unordered_write')}"
-        )
+        self.assertEqual(result["persist_user_defined_timestamps"], 0)
+        self.assertEqual(result["unordered_write"], 0)
+        self.assertEqual(result["allow_concurrent_memtable_write"], 0)
 
     def test_udt_explicit_beats_unordered_random(self):
         """UDT memtable-only explicit: unordered_write must be disabled."""
@@ -467,6 +446,30 @@ class TestKnownConflicts(unittest.TestCase):
         self.assertEqual(
             result["max_write_buffer_size_to_maintain"], 8 * 1024 * 1024,
         )
+
+
+class TestSpecialRules(unittest.TestCase):
+    """Special rules must still hold in the final sanitized config."""
+
+    def test_release_mode_disables_unsupported_direct_io(self):
+        """Unsupported direct IO stays disabled after the full sanitize loop."""
+        params = _new_blackbox_params()
+        params.update({
+            "use_direct_reads": 1,
+            "use_direct_io_for_flush_and_compaction": 1,
+            "mock_direct_io": False,
+        })
+
+        with mock.patch.object(
+            db_crashtest, "is_release_mode", return_value=True
+        ), mock.patch.object(
+            db_crashtest, "is_direct_io_supported", return_value=False
+        ):
+            result = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(result["use_direct_reads"], 0)
+        self.assertEqual(result["use_direct_io_for_flush_and_compaction"], 0)
+        self.assertFalse(result["mock_direct_io"])
 
 
 def _extract_relevant(params):

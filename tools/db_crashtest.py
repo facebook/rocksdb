@@ -878,7 +878,7 @@ multiops_txn_params = {
 # When a conflict is detected, resolution depends on provenance:
 #   - Both features explicitly forced via --extra_flags: exit(1) with error
 #   - One explicit, one random: explicit feature wins; random feature disabled
-#   - Both random: 50/50 random choice of which feature to disable
+#   - Both random: deterministic per-pair tiebreak disables one feature
 #
 # Adding a new incompatibility:
 #   1. Add the new feature's requirements to FEATURE_REQUIREMENTS
@@ -913,7 +913,7 @@ multiops_txn_params = {
 # shared parameter (feature A requires param=X, feature B requires param=Y).
 # The engine auto-detects these conflicts — you just declare requirements.
 #
-# Use INCOMPATIBILITY_RULES (below) instead when:
+# Use CONSEQUENCE_RULES (below) instead when:
 #   - One feature forces a downstream consequence (one-way, not mutual)
 #   - The constraint involves numeric ranges or non-binary relationships
 #   - A condition affects params that no single feature "owns"
@@ -921,7 +921,7 @@ multiops_txn_params = {
 # Conflict resolution uses explicit_keys (params set via --extra_flags):
 #   - explicit + random  -> explicit wins, random feature disabled
 #   - explicit + explicit -> exit(1), user must fix their flags
-#   - random + random    -> 50/50 coin flip disables one feature
+#   - random + random    -> deterministic per-pair tiebreak disables one feature
 #
 # Worked example — adding a hypothetical "my_feature":
 #
@@ -1242,14 +1242,7 @@ def _check_and_resolve_feature_conflicts(dest_params, explicit_keys):
                 updates = spec_a["disable_self"](dest_params)
             else:
                 # Both random: deterministic per-pair resolution.
-                # Use a stable hash of the sorted feature names so the
-                # same pair always resolves identically regardless of
-                # other active features or the global random state.
-                sorted_pair = sorted([name_a, name_b])
-                h = 0
-                for ch in sorted_pair[0] + ":" + sorted_pair[1]:
-                    h = (h * 31 + ord(ch)) & 0xFFFFFFFF
-                loser_name = sorted_pair[1 - h % 2]
+                loser_name = _pick_random_conflict_loser(name_a, name_b)
                 loser_spec = spec_a if loser_name == name_a else spec_b
                 updates = loser_spec["disable_self"](dest_params)
 
@@ -1260,6 +1253,15 @@ def _check_and_resolve_feature_conflicts(dest_params, explicit_keys):
                 conflict_params[k] = v
 
     return changed, conflict_params
+
+
+def _pick_random_conflict_loser(name_a, name_b):
+    """Pick a stable loser for a conflict between two randomized features."""
+    sorted_pair = sorted([name_a, name_b])
+    h = 0
+    for ch in sorted_pair[0] + ":" + sorted_pair[1]:
+        h = (h * 31 + ord(ch)) & 0xFFFFFFFF
+    return sorted_pair[1 - h % 2]
 
 
 def _feature_trigger_keys(name, spec, params):
@@ -1282,7 +1284,11 @@ def _feature_trigger_keys(name, spec, params):
 
 
 def _apply_feature_requirements(dest_params, explicit_keys, max_iterations=30):
-    """Apply feature requirements + one-way rules in a fixed-point loop.
+    """Apply all sanitize rules in a fixed-point loop.
+
+    Phase 0 (special rules): normalize params that depend on external
+    state or derived computation. These rerun every iteration so later
+    phases cannot permanently overwrite them.
 
     Phase 1 (conflict resolution): detect and resolve conflicts between
     active features based on provenance (explicit vs random).
@@ -1295,8 +1301,8 @@ def _apply_feature_requirements(dest_params, explicit_keys, max_iterations=30):
 
     Loops until stable.
     """
-    for iteration in range(max_iterations):
-        changed = False
+    for _ in range(max_iterations):
+        changed = _apply_special_rules(dest_params)
 
         # Phase 1: resolve conflicts between active features
         changed_p1, conflict_params = _check_and_resolve_feature_conflicts(
@@ -1335,7 +1341,7 @@ def _apply_feature_requirements(dest_params, explicit_keys, max_iterations=30):
                             changed = True
 
         # Phase 3: apply one-way consequence rules
-        for rule in INCOMPATIBILITY_RULES:
+        for rule in CONSEQUENCE_RULES:
             if rule["when"](dest_params):
                 then = rule["then"]
                 updates = then(dest_params) if callable(then) else then
@@ -1350,7 +1356,7 @@ def _apply_feature_requirements(dest_params, explicit_keys, max_iterations=30):
         print(
             f"ERROR: finalize_and_sanitize did not converge after"
             f" {max_iterations} iterations in _apply_feature_requirements()."
-            f" Check FEATURE_REQUIREMENTS / INCOMPATIBILITY_RULES for cycles.",
+            f" Check FEATURE_REQUIREMENTS / CONSEQUENCE_RULES for cycles.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -1361,10 +1367,17 @@ def _apply_feature_requirements(dest_params, explicit_keys, max_iterations=30):
 
 def _apply_special_rules(dest_params):
     """Apply rules that depend on external functions or complex computation."""
+    changed = False
+
+    def set_param(key, value):
+        nonlocal changed
+        if dest_params.get(key) != value:
+            dest_params[key] = value
+            changed = True
 
     # 1. Release mode: disable read fault injection
     if is_release_mode():
-        dest_params["read_fault_one_in"] = 0
+        set_param("read_fault_one_in", 0)
 
     # 2. Direct IO support check (depends on filesystem)
     if (
@@ -1376,15 +1389,15 @@ def _apply_special_rules(dest_params):
                 "{} does not support direct IO. Disabling use_direct_reads and "
                 "use_direct_io_for_flush_and_compaction.\n".format(dest_params["db"])
             )
-            dest_params["use_direct_reads"] = 0
-            dest_params["use_direct_io_for_flush_and_compaction"] = 0
+            set_param("use_direct_reads", 0)
+            set_param("use_direct_io_for_flush_and_compaction", 0)
         else:
-            dest_params["mock_direct_io"] = True
+            set_param("mock_direct_io", True)
 
     # 3. Secondary cache / tiered cache computation
     if dest_params.get("secondary_cache_uri", "").find("compressed_secondary_cache") >= 0:
-        dest_params["compressed_secondary_cache_size"] = 0
-        dest_params["compressed_secondary_cache_ratio"] = 0.0
+        set_param("compressed_secondary_cache_size", 0)
+        set_param("compressed_secondary_cache_ratio", 0.0)
     if dest_params.get("cache_type", "").find("tiered_") >= 0:
         if dest_params.get("compressed_secondary_cache_size", 0) > 0:
             total = (
@@ -1392,76 +1405,49 @@ def _apply_special_rules(dest_params):
                 + dest_params.get("compressed_secondary_cache_size", 0)
             )
             if total > 0:
-                dest_params["compressed_secondary_cache_ratio"] = float(
-                    dest_params["compressed_secondary_cache_size"] / total
+                set_param(
+                    "compressed_secondary_cache_ratio",
+                    float(
+                        dest_params["compressed_secondary_cache_size"] / total
+                    ),
                 )
-            dest_params["compressed_secondary_cache_size"] = 0
+            set_param("compressed_secondary_cache_size", 0)
         else:
-            dest_params["compressed_secondary_cache_ratio"] = 0.0
-            dest_params["cache_type"] = dest_params["cache_type"].replace("tiered_", "")
+            set_param("compressed_secondary_cache_ratio", 0.0)
+            set_param("cache_type", dest_params["cache_type"].replace("tiered_", ""))
     else:
         if dest_params.get("secondary_cache_uri"):
-            dest_params["compressed_secondary_cache_size"] = 0
-            dest_params["compressed_secondary_cache_ratio"] = 0.0
+            set_param("compressed_secondary_cache_size", 0)
+            set_param("compressed_secondary_cache_ratio", 0.0)
 
     # 4. Compression manager (involves random.choice)
     cm = dest_params.get("compression_manager")
     if cm == "custom":
         if dest_params.get("block_align") == 1:
-            dest_params["block_align"] = 0
+            set_param("block_align", 0)
         if dest_params.get("format_version", 0) < 7:
-            dest_params["format_version"] = 7
+            set_param("format_version", 7)
     elif cm in ("mixed", "randommixed"):
-        dest_params["block_align"] = 0
+        set_param("block_align", 0)
     elif cm == "autoskip":
         if dest_params.get("compression_type") == "none":
-            dest_params["compression_type"] = random.choice(
-                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
+            set_param(
+                "compression_type",
+                random.choice(["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]),
             )
         if dest_params.get("bottommost_compression_type") == "none":
-            dest_params["bottommost_compression_type"] = random.choice(
-                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
+            set_param(
+                "bottommost_compression_type",
+                random.choice(["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]),
             )
-        dest_params["block_align"] = 0
+        set_param("block_align", 0)
     else:
         # Default: block_align requires no compression
         if dest_params.get("block_align") == 1:
-            dest_params["compression_type"] = "none"
-            dest_params["bottommost_compression_type"] = "none"
+            set_param("compression_type", "none")
+            set_param("bottommost_compression_type", "none")
 
-
-def _apply_declarative_rules(dest_params, max_iterations=20):
-    """Apply INCOMPATIBILITY_RULES in a fixed-point loop until stable."""
-    for iteration in range(max_iterations):
-        changed = False
-        for rule in INCOMPATIBILITY_RULES:
-            if rule["when"](dest_params):
-                # Get the updates
-                then = rule["then"]
-                if callable(then):
-                    updates = then(dest_params)
-                else:
-                    updates = then
-
-                # Apply updates, tracking changes
-                for key, value in updates.items():
-                    if dest_params.get(key) != value:
-                        dest_params[key] = value
-                        changed = True
-
-        if not changed:
-            break
-    else:
-        # Should never happen in practice, but safety valve
-        print(
-            f"ERROR: finalize_and_sanitize did not converge after"
-            f" {max_iterations} iterations in _apply_special_rules()."
-            f" Check FEATURE_REQUIREMENTS / INCOMPATIBILITY_RULES for cycles.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    return dest_params
+    return changed
 
 
 def finalize_and_sanitize(src_params, explicit_keys=None):
@@ -1478,27 +1464,27 @@ def finalize_and_sanitize(src_params, explicit_keys=None):
 
     dest_params = {k: v() if callable(v) else v for (k, v) in src_params.items()}
 
-    # Special rules first (external deps, cache computation, compression manager)
-    _apply_special_rules(dest_params)
-
-    # Feature requirements + one-way rules
     _apply_feature_requirements(dest_params, explicit_keys)
 
     return dest_params
 
 
-INCOMPATIBILITY_RULES = [
-    # One-way consequence rules: these propagate the effects of a feature
-    # being active. They do NOT resolve conflicts between features —
+CONSEQUENCE_RULES = [
+    # One-way consequence rules: these propagate the effects of a condition
+    # being true. They do NOT resolve conflicts between features —
     # that is handled by FEATURE_REQUIREMENTS above.
     #
-    # ---- Maintenance Guide: How to add a new incompatibility rule ----
+    # These stay separate from FEATURE_REQUIREMENTS because they often do not
+    # belong to a single feature with a meaningful disable_self(), or they
+    # normalize derived/numeric params instead of choosing between features.
     #
-    # Use INCOMPATIBILITY_RULES when a condition forces downstream param
+    # ---- Maintenance Guide: How to add a new consequence rule ----
+    #
+    # Use CONSEQUENCE_RULES when a condition forces downstream param
     # changes (one-way), NOT when two features are mutually incompatible
     # (use FEATURE_REQUIREMENTS for that).
     #
-    # Good fit for INCOMPATIBILITY_RULES:
+    # Good fit for CONSEQUENCE_RULES:
     #   - "if compression dict is 0, then training bytes must be 0"
     #   - "if WAL is disabled, then sync must be 0 and atomic_flush must be 1"
     #   - numeric constraints, conditional defaults, downstream side-effects
@@ -1514,7 +1500,8 @@ INCOMPATIBILITY_RULES = [
     #
     # Rules run in a fixed-point loop until no rule changes any param.
     # Order in the list does NOT matter — all rules re-evaluate each iteration.
-    # The loop exits with an error after 100 iterations (cycle detection).
+    # The loop exits with an error after the fixed-point iteration limit
+    # (cycle detection).
     #
     # Worked example — a hypothetical rule:
     #
