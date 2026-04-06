@@ -15,6 +15,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+struct ParsedInternalKey;
 class Slice;
 
 // A class that can be used to compute the amount of additional garbage
@@ -93,11 +94,14 @@ class BlobGarbageMeter {
   }
 
  private:
-  static Status Parse(const Slice& key, const Slice& value,
-                      uint64_t* blob_file_number, uint64_t* bytes);
+  static Status ParseBlobIndexReference(const ParsedInternalKey& ikey,
+                                        const Slice& value,
+                                        uint64_t* blob_file_number,
+                                        uint64_t* bytes);
 
-  Status ProcessEntityBlobReferences(const Slice& key, const Slice& value,
-                                     bool is_inflow);
+  Status ProcessFlow(const Slice& key, const Slice& value, bool is_inflow);
+  Status ProcessEntityBlobReferences(const ParsedInternalKey& ikey,
+                                     const Slice& value, bool is_inflow);
 
   std::unordered_map<uint64_t, BlobInOutFlow> flows_;
 };

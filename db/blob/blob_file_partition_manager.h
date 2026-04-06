@@ -31,6 +31,7 @@ class BlobFileCache;
 class BlobFileCompletionCallback;
 class BlobIndex;
 class BlobLogWriter;
+class FilePrefetchBuffer;
 class IOTracer;
 class Logger;
 class PinnableSlice;
@@ -147,12 +148,11 @@ class BlobFilePartitionManager {
   // blob file is still write-path-owned and therefore not yet tracked by
   // Version. Existing manifest-visible read results, including I/O failures,
   // are returned directly rather than masked by fallback logic.
-  static Status ResolveBlobDirectWriteIndex(const ReadOptions& read_options,
-                                            const Slice& user_key,
-                                            const BlobIndex& blob_idx,
-                                            const Version* version,
-                                            BlobFileCache* blob_file_cache,
-                                            PinnableSlice* blob_value);
+  static Status ResolveBlobDirectWriteIndex(
+      const ReadOptions& read_options, const Slice& user_key,
+      const BlobIndex& blob_idx, const Version* version,
+      BlobFileCache* blob_file_cache, FilePrefetchBuffer* prefetch_buffer,
+      PinnableSlice* blob_value, uint64_t* bytes_read);
 
  private:
   struct Partition {

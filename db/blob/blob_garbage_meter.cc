@@ -13,58 +13,21 @@
 namespace ROCKSDB_NAMESPACE {
 
 Status BlobGarbageMeter::ProcessInFlow(const Slice& key, const Slice& value) {
-  uint64_t blob_file_number = kInvalidBlobFileNumber;
-  uint64_t bytes = 0;
-
-  const Status s = Parse(key, value, &blob_file_number, &bytes);
-  if (!s.ok()) {
-    return s;
-  }
-
-  if (blob_file_number != kInvalidBlobFileNumber) {
-    flows_[blob_file_number].AddInFlow(bytes);
-    return Status::OK();
-  }
-
-  return ProcessEntityBlobReferences(key, value, /*is_inflow=*/true);
+  return ProcessFlow(key, value, /*is_inflow=*/true);
 }
 
 Status BlobGarbageMeter::ProcessOutFlow(const Slice& key, const Slice& value) {
-  uint64_t blob_file_number = kInvalidBlobFileNumber;
-  uint64_t bytes = 0;
-
-  const Status s = Parse(key, value, &blob_file_number, &bytes);
-  if (!s.ok()) {
-    return s;
-  }
-
-  if (blob_file_number != kInvalidBlobFileNumber) {
-    auto it = flows_.find(blob_file_number);
-    if (it != flows_.end()) {
-      it->second.AddOutFlow(bytes);
-    }
-    return Status::OK();
-  }
-
-  return ProcessEntityBlobReferences(key, value, /*is_inflow=*/false);
+  return ProcessFlow(key, value, /*is_inflow=*/false);
 }
 
-Status BlobGarbageMeter::Parse(const Slice& key, const Slice& value,
-                               uint64_t* blob_file_number, uint64_t* bytes) {
+Status BlobGarbageMeter::ParseBlobIndexReference(const ParsedInternalKey& ikey,
+                                                 const Slice& value,
+                                                 uint64_t* blob_file_number,
+                                                 uint64_t* bytes) {
   assert(blob_file_number);
   assert(*blob_file_number == kInvalidBlobFileNumber);
   assert(bytes);
   assert(*bytes == 0);
-
-  ParsedInternalKey ikey;
-
-  {
-    constexpr bool log_err_key = false;
-    const Status s = ParseInternalKey(key, &ikey, log_err_key);
-    if (!s.ok()) {
-      return s;
-    }
-  }
 
   if (ikey.type != kTypeBlobIndex) {
     return Status::OK();
@@ -91,9 +54,8 @@ Status BlobGarbageMeter::Parse(const Slice& key, const Slice& value,
   return Status::OK();
 }
 
-Status BlobGarbageMeter::ProcessEntityBlobReferences(const Slice& key,
-                                                     const Slice& value,
-                                                     bool is_inflow) {
+Status BlobGarbageMeter::ProcessFlow(const Slice& key, const Slice& value,
+                                     bool is_inflow) {
   ParsedInternalKey ikey;
 
   {
@@ -104,6 +66,31 @@ Status BlobGarbageMeter::ProcessEntityBlobReferences(const Slice& key,
     }
   }
 
+  uint64_t blob_file_number = kInvalidBlobFileNumber;
+  uint64_t bytes = 0;
+  if (Status s =
+          ParseBlobIndexReference(ikey, value, &blob_file_number, &bytes);
+      !s.ok()) {
+    return s;
+  }
+
+  if (blob_file_number != kInvalidBlobFileNumber) {
+    if (is_inflow) {
+      flows_[blob_file_number].AddInFlow(bytes);
+    } else {
+      auto it = flows_.find(blob_file_number);
+      if (it != flows_.end()) {
+        it->second.AddOutFlow(bytes);
+      }
+    }
+    return Status::OK();
+  }
+
+  return ProcessEntityBlobReferences(ikey, value, is_inflow);
+}
+
+Status BlobGarbageMeter::ProcessEntityBlobReferences(
+    const ParsedInternalKey& ikey, const Slice& value, bool is_inflow) {
   if (ikey.type != kTypeWideColumnEntity) {
     return Status::OK();
   }

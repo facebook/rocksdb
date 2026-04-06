@@ -764,11 +764,9 @@ void BlobFilePartitionManager::RemoveFilePartitionMappings(
 Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
     const ReadOptions& read_options, const Slice& user_key,
     const BlobIndex& blob_idx, const Version* version,
-    BlobFileCache* blob_file_cache, PinnableSlice* blob_value) {
+    BlobFileCache* blob_file_cache, FilePrefetchBuffer* prefetch_buffer,
+    PinnableSlice* blob_value, uint64_t* bytes_read) {
   assert(blob_value != nullptr);
-
-  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
-  constexpr uint64_t* bytes_read = nullptr;
 
   if (version != nullptr) {
     // Only fall back when the blob file is still owned exclusively by the

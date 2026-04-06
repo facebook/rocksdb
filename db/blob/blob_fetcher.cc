@@ -38,13 +38,9 @@ Status BlobFetcher::FetchBlob(const Slice& user_key,
                              prefetch_buffer, blob_value, bytes_read);
   }
 
-  // The write-path fallback currently ignores prefetch and bytes-read
-  // accounting. It is only used for pre-flush direct-write blobs, where
-  // correctness is the priority and the amount of data is bounded by live
-  // memtable state.
   return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
       read_options_, user_key, blob_index, version_, blob_file_cache_,
-      blob_value);
+      prefetch_buffer, blob_value, bytes_read);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -869,11 +869,11 @@ TEST_F(WideColumnSerializationTest, RandomizedSerializeDeserializeRoundTrip) {
 TEST_F(WideColumnSerializationTest, ResolveEntityForMergeNullBlobFetcher) {
   // Create a V2 entity with a blob column reference
   std::vector<std::pair<std::string, std::string>> columns;
-  columns.push_back({"", "default_val"});
-  columns.push_back({"col1", "inline_val"});
+  columns.emplace_back("", "default_val");
+  columns.emplace_back("col1", "inline_val");
 
   std::vector<std::pair<size_t, BlobIndex>> blob_columns;
-  blob_columns.push_back({0, MakeBlobIndex(42, 100, 50)});
+  blob_columns.emplace_back(0, MakeBlobIndex(42, 100, 50));
 
   std::string serialized;
   ASSERT_OK(

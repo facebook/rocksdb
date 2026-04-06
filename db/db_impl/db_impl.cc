@@ -2665,7 +2665,8 @@ bool DBImpl::MaybeResolveWritePathValue(
 
     return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
         read_options, key, blob_idx, current, cfd->blob_file_cache(),
-        resolved_value);
+        nullptr /* prefetch_buffer */, resolved_value,
+        nullptr /* bytes_read */);
   };
 
   if (needs_blob_index_resolution) {
@@ -2746,7 +2747,8 @@ bool DBImpl::MaybeResolveWritePathValue(
     } else {
       *s = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
           read_options, key, blob_idx, current, cfd->blob_file_cache(),
-          &resolved_blob_values[unresolved_blob_idx]);
+          nullptr /* prefetch_buffer */,
+          &resolved_blob_values[unresolved_blob_idx], nullptr /* bytes_read */);
       if (!s->ok()) {
         return true;
       }

@@ -90,8 +90,7 @@ TEST_F(DBOpenWithConfigTest, OpenWithComprehensiveConfig) {
 
   // Memtable settings
   // memtable_factory=SkipListFactory (default)
-  options.memtable_factory =
-      std::shared_ptr<SkipListFactory>(new SkipListFactory);
+  options.memtable_factory = std::make_shared<SkipListFactory>();
 
   // memtable_prefix_bloom_size_ratio=0.010000
   options.memtable_prefix_bloom_size_ratio = 0.01;
@@ -287,7 +286,8 @@ TEST_F(DBOpenWithConfigTest, OpenWithComprehensiveConfig) {
   options.force_consistency_checks = true;
 
   // verify_output_flags=2049 (kVerifyBlockChecksum | kEnableForLocalCompaction)
-  options.verify_output_flags = static_cast<VerifyOutputFlags>(2049);
+  options.verify_output_flags = VerifyOutputFlags::kVerifyBlockChecksum |
+                                VerifyOutputFlags::kEnableForLocalCompaction;
 
   // IO and stats settings
   // report_bg_io_stats=true

@@ -262,7 +262,7 @@ Status DBIter::BlobReader::RetrieveAndSetBlobValue(
 
   return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
       read_options, user_key, blob_idx, version_, blob_file_cache_,
-      &blob_value_);
+      prefetch_buffer, &blob_value_, bytes_read);
 }
 
 BlobFetcher DBIter::BlobReader::CreateBlobFetcher() const {

@@ -82,19 +82,17 @@ Status FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
 
   if (value_type == kTypeBlobIndex) {
     BlobIndex blob_index;
-    const Status s = blob_index.DecodeFrom(value);
-    if (!s.ok()) {
+    if (Status s = blob_index.DecodeFrom(value); !s.ok()) {
       return s;
     }
 
-    const Status su = update_oldest_blob(blob_index);
-    if (!su.ok()) {
-      return su;
+    if (Status s = update_oldest_blob(blob_index); !s.ok()) {
+      return s;
     }
   } else if (value_type == kTypeWideColumnEntity) {
-    Status s = WideColumnSerialization::ForEachBlobFileNumber(
-        value, update_oldest_blob);
-    if (!s.ok()) {
+    if (Status s = WideColumnSerialization::ForEachBlobFileNumber(
+            value, update_oldest_blob);
+        !s.ok()) {
       return s;
     }
   }
