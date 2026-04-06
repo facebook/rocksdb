@@ -32,6 +32,10 @@ class DBWideBlobDirectWriteTest : public DBTestBase {
       : DBTestBase("db_wide_blob_direct_write_test",
                    /*env_do_fsync=*/false) {}
 
+  Options GetBlobTestOptions() {
+    return wide_column_test_util::GetOptionsForBlobTest(GetDefaultOptions());
+  }
+
   Options GetDirectWriteOptions() {
     return wide_column_test_util::GetDirectWriteOptions(GetDefaultOptions());
   }
@@ -809,7 +813,7 @@ TEST_F(DBWideBlobDirectWriteTest,
                                  &ttl_columns_seen, &ttl_bad_size_count,
                                  &missing_ttl_count, &blob_columns_seen);
 
-    Options options = GetOptionsForBlobTest();
+    Options options = GetBlobTestOptions();
     options.statistics = CreateDBStatistics();
     options.allow_concurrent_memtable_write = false;
     options.enable_blob_direct_write = true;

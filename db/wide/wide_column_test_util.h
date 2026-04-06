@@ -28,15 +28,21 @@ inline std::string GenerateLargeValue(size_t size = 100, char fill_char = 'v') {
 inline std::string GenerateSmallValue() { return "small"; }
 
 // Get default options configured for blob file testing.
-// Sets enable_blob_files=true, a small min_blob_size threshold (10 bytes),
-// and disables auto compactions to allow manual control of flush/compaction.
-inline Options GetOptionsForBlobTest() {
-  Options options;
+// Start from the caller's defaults so DBTestBase fixtures preserve their env
+// wrappers (e.g. encrypted env). Then enable blob files, set a small
+// min_blob_size threshold (10 bytes), and disable auto compactions to allow
+// manual control of flush/compaction.
+inline Options GetOptionsForBlobTest(const Options& default_options) {
+  Options options = default_options;
   options.create_if_missing = true;
   options.enable_blob_files = true;
   options.min_blob_size = 10;  // Small threshold to force blob extraction
   options.disable_auto_compactions = true;
   return options;
+}
+
+inline Options GetOptionsForBlobTest() {
+  return GetOptionsForBlobTest(Options());
 }
 
 // Get options that are compatible with blob direct write.

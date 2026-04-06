@@ -26,6 +26,10 @@ class DBWideBasicTest : public DBTestBase {
   explicit DBWideBasicTest()
       : DBTestBase("db_wide_basic_test", /* env_do_fsync */ false) {}
 
+  Options GetBlobTestOptions() {
+    return wide_column_test_util::GetOptionsForBlobTest(GetDefaultOptions());
+  }
+
   // Helper: runs the EntityBlobAfterFlush test logic with the given options.
   void RunEntityBlobAfterFlush(const Options& options);
 
@@ -1824,7 +1828,7 @@ TEST_F(DBWideBasicTest, PutEntityWithBlobValue) {
   // Test that PutEntity works and after compaction with blob options,
   // large columns are stored as blobs
 
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.min_blob_size = 100;  // Values >= 100 bytes go to blob files
 
   Reopen(options);
@@ -1902,7 +1906,7 @@ TEST_F(DBWideBasicTest, GetEntityWithBlobResolution) {
   // Test GetEntity() returns the correct entity with blob values resolved
   // Also verify blob statistics to confirm data is stored in blob files
 
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.min_blob_size = 50;
   options.statistics = CreateDBStatistics();
 
@@ -1986,7 +1990,7 @@ TEST_F(DBWideBasicTest, GetEntityWithBlobResolution) {
 TEST_F(DBWideBasicTest, IterateEntityWithBlobResolution) {
   // Test that iterating over entities correctly resolves blob columns
 
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.min_blob_size = 50;
 
   Reopen(options);
@@ -2078,7 +2082,7 @@ TEST_F(DBWideBasicTest, IterateEntityWithBlobResolution) {
 TEST_F(DBWideBasicTest, MultiGetEntityWithBlobResolution) {
   // Test MultiGetEntity with entities that have blob columns
 
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.min_blob_size = 50;
 
   Reopen(options);
@@ -2248,7 +2252,7 @@ void DBWideBasicTest::RunEntityBlobAfterFlush(const Options& options) {
 }
 
 TEST_F(DBWideBasicTest, EntityBlobAfterFlush) {
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.min_blob_size = 64;
   RunEntityBlobAfterFlush(options);
 }
@@ -2400,7 +2404,7 @@ void DBWideBasicTest::RunEntityBlobAfterCompaction(const Options& options) {
 }
 
 TEST_F(DBWideBasicTest, EntityBlobAfterCompaction) {
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.min_blob_size = 64;
   RunEntityBlobAfterCompaction(options);
 }
@@ -2712,7 +2716,7 @@ TEST_F(DBWideBasicTest, CompactionFilterWithBlobGC) {
   std::atomic<int> ttl_threshold{0};
   TTLCompactionFilter filter(&ttl_threshold);
 
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.min_blob_size = 100;
   options.compaction_filter = &filter;
   options.enable_blob_garbage_collection = true;
@@ -2722,14 +2726,14 @@ TEST_F(DBWideBasicTest, CompactionFilterWithBlobGC) {
 }
 
 TEST_F(DBWideBasicTest, EntityBlobAfterFlushUniversal) {
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.min_blob_size = 64;
   options.compaction_style = kCompactionStyleUniversal;
   RunEntityBlobAfterFlush(options);
 }
 
 TEST_F(DBWideBasicTest, EntityBlobAfterCompactionUniversal) {
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.min_blob_size = 64;
   options.compaction_style = kCompactionStyleUniversal;
   RunEntityBlobAfterCompaction(options);
@@ -2739,7 +2743,7 @@ TEST_F(DBWideBasicTest, CompactionFilterWithBlobGCUniversal) {
   std::atomic<int> ttl_threshold{0};
   TTLCompactionFilter filter(&ttl_threshold);
 
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.min_blob_size = 100;
   options.compaction_filter = &filter;
   options.enable_blob_garbage_collection = true;
@@ -2752,7 +2756,7 @@ TEST_F(DBWideBasicTest, CompactionFilterWithBlobGCUniversal) {
 TEST_F(DBWideBasicTest, EntityBlobBlockCacheTierGet) {
   // Verify that Get with kBlockCacheTier handles blob cache misses
   // gracefully (not Corruption) when the entity has blob columns.
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.min_blob_size = 50;
 
   DestroyAndReopen(options);
@@ -2781,7 +2785,7 @@ TEST_F(DBWideBasicTest, EntityBlobBlockCacheTierGet) {
 TEST_F(DBWideBasicTest, EntityBlobBlockCacheTierGetEntity) {
   // Verify that GetEntity with kBlockCacheTier handles blob cache misses
   // gracefully (not Corruption).
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.min_blob_size = 50;
 
   DestroyAndReopen(options);
@@ -2811,7 +2815,7 @@ TEST_F(DBWideBasicTest, MergeEntityWithBlobColumns) {
   // (DBIter::MergeWithWideColumnBaseValue) and the compaction merge path
   // (MergeHelper::MergeUntil).
 
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.min_blob_size = 50;
   const std::string delim("|");
   options.merge_operator = MergeOperators::CreateStringAppendOperator(delim);
@@ -2905,7 +2909,7 @@ TEST_F(DBWideBasicTest, MergeEntityWithBlobColumnsNoDefault) {
   // should produce a valid entity with all original columns plus a default
   // column from the merge operand.
 
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.min_blob_size = 50;
   const std::string delim("|");
   options.merge_operator = MergeOperators::CreateStringAppendOperator(delim);
@@ -2962,7 +2966,7 @@ TEST_F(DBWideBasicTest, MergeEntityWithBlobColumnsNoDefault) {
 TEST_F(DBWideBasicTest, MergeEntityWithBlobColumnsBlockCacheTier) {
   // Test: Merge on a V2 entity with kBlockCacheTier should return
   // Incomplete (not Corruption) when blob values are not in cache.
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.min_blob_size = 50;
   const std::string delim("|");
   options.merge_operator = MergeOperators::CreateStringAppendOperator(delim);
@@ -2999,7 +3003,7 @@ TEST_F(DBWideBasicTest, MergeEntityWithBlobColumnsBlockCacheTier) {
 
 TEST_F(DBWideBasicTest, AllBlobColumnsEntity) {
   // Test entity where ALL columns exceed min_blob_size
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.min_blob_size = 50;
   Reopen(options);
 
@@ -3047,7 +3051,7 @@ TEST_F(DBWideBasicTest, AllBlobColumnsEntity) {
 
 TEST_F(DBWideBasicTest, EmptyEntityWithBlobOptions) {
   // Test empty entity (zero columns) with blob options enabled
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.min_blob_size = 50;
   Reopen(options);
 
@@ -3078,7 +3082,7 @@ TEST_F(DBWideBasicTest, EmptyEntityWithBlobOptions) {
 
 TEST_F(DBWideBasicTest, EntityBlobReverseIteration) {
   // Test SeekForPrev and SeekToLast with blob entities
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.min_blob_size = 50;
   Reopen(options);
 

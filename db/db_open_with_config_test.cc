@@ -10,6 +10,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/table.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -20,22 +21,56 @@ class DBOpenWithConfigTest : public DBTestBase {
       : DBTestBase("db_open_with_config_test", /* env_do_fsync */ false) {}
 };
 
+namespace {
+
+bool CompressionSupported(CompressionType compression) {
+  for (CompressionType supported : GetSupportedCompressions()) {
+    if (supported == compression) {
+      return true;
+    }
+  }
+  return false;
+}
+
+CompressionType GetPrimaryCompressionForTest() {
+  if (CompressionSupported(kLZ4Compression)) {
+    return kLZ4Compression;
+  }
+  if (CompressionSupported(kZSTD)) {
+    return kZSTD;
+  }
+  return kNoCompression;
+}
+
+CompressionType GetBottommostCompressionForTest(CompressionType compression) {
+  if (CompressionSupported(kZSTD)) {
+    return kZSTD;
+  }
+  return compression;
+}
+
+}  // namespace
+
 // Test opening a RocksDB instance with a comprehensive configuration
 // including FIFO compaction, blob files, compression settings, and
 // various memory/protection options.
 TEST_F(DBOpenWithConfigTest, OpenWithComprehensiveConfig) {
   Options options = GetDefaultOptions();
   options.max_open_files = -1;
+  const CompressionType primary_compression = GetPrimaryCompressionForTest();
+  const CompressionType bottommost_compression =
+      GetBottommostCompressionForTest(primary_compression);
 
   // Basic DB options
   options.create_if_missing = true;
 
-  // Compression settings
-  // compression=kLZ4Compression
-  options.compression = kLZ4Compression;
+  // Compression settings. Prefer LZ4 when linked, otherwise use another
+  // supported compression so this test remains portable across no-compression
+  // builds.
+  options.compression = primary_compression;
 
-  // bottommost_compression=kZSTD
-  options.bottommost_compression = kZSTD;
+  // Prefer ZSTD for bottommost compression when linked.
+  options.bottommost_compression = bottommost_compression;
 
   // compression_opts={checksum=true;max_dict_buffer_bytes=0;enabled=true;
   //   max_dict_bytes=0;max_compressed_bytes_per_kb=896;parallel_threads=1;
@@ -379,8 +414,8 @@ TEST_F(DBOpenWithConfigTest, OpenWithComprehensiveConfig) {
 
   // Verify some options are correctly set
   Options retrieved_options = db_->GetOptions();
-  ASSERT_EQ(retrieved_options.compression, kLZ4Compression);
-  ASSERT_EQ(retrieved_options.bottommost_compression, kZSTD);
+  ASSERT_EQ(retrieved_options.compression, primary_compression);
+  ASSERT_EQ(retrieved_options.bottommost_compression, bottommost_compression);
   ASSERT_EQ(retrieved_options.compaction_style, kCompactionStyleFIFO);
   ASSERT_TRUE(retrieved_options.enable_blob_files);
   ASSERT_EQ(retrieved_options.min_blob_size, 0);
@@ -404,10 +439,13 @@ TEST_F(DBOpenWithConfigTest, ReopenWithSameConfig) {
   Options options = GetDefaultOptions();
   options.max_open_files = -1;
   options.create_if_missing = true;
+  const CompressionType primary_compression = GetPrimaryCompressionForTest();
+  const CompressionType bottommost_compression =
+      GetBottommostCompressionForTest(primary_compression);
 
   // Set key configuration options
-  options.compression = kLZ4Compression;
-  options.bottommost_compression = kZSTD;
+  options.compression = primary_compression;
+  options.bottommost_compression = bottommost_compression;
   options.compaction_style = kCompactionStyleFIFO;
   options.enable_blob_files = true;
   options.min_blob_size = 0;
