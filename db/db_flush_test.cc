@@ -3913,6 +3913,57 @@ TEST_F(DBFlushTest, LeakedTableCacheEntryOnFlushInstallFailure) {
   db_ = nullptr;  // destructor handles Close
 }
 
+// Verify that ConstructFragmentedRangeTombstones runs after MarkImmutable
+// in SwitchMemtable. A range tombstone inserted between construction and
+// immutability would cause a flush entry count mismatch.
+TEST_F(DBFlushTest, FlushAfterReadPathRangeTombstoneInsertion) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 2;
+  options.flush_verify_memtable_count = true;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  // Write base data and flush to L0.
+  for (char c = 'a'; c <= 'h'; c++) {
+    ASSERT_OK(Put(std::string(1, c), std::string("v") + c));
+  }
+  ASSERT_OK(Flush());
+
+  // Delete contiguous keys in the memtable.
+  for (const auto& key : {"b", "c", "d", "e"}) {
+    ASSERT_OK(Delete(key));
+  }
+
+  // When SwitchMemtable hits the sync point after
+  // ConstructFragmentedRangeTombstones, directly call
+  // AddLogicallyRedundantRangeTombstone on the memtable being switched.
+  // We can't create an iterator here (would deadlock on the DB mutex).
+  auto* cfh = static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily());
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SwitchMemtable:AfterConstructFragmentedRangeTombstones",
+      [&](void*) {
+        // Try to insert a range tombstone. With the fix (Construct after
+        // MarkImmutable), this returns false because the memtable is
+        // already immutable. Without the fix, this succeeds and creates
+        // an entry count mismatch.
+        cfh->cfd()->mem()->AddLogicallyRedundantRangeTombstone(1 /* seq */, "b",
+                                                               "f");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = Flush();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(s);
+
+  ASSERT_EQ(Get("a"), "va");
+  ASSERT_EQ(Get("b"), "NOT_FOUND");
+  ASSERT_EQ(Get("d"), "NOT_FOUND");
+  ASSERT_EQ(Get("f"), "vf");
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

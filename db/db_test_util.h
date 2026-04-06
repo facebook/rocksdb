@@ -1433,6 +1433,8 @@ class DBTestBase : public testing::Test {
     tp->raw_key_size = 0;
     tp->raw_value_size = 0;
     tp->num_data_blocks = 0;
+    tp->num_data_blocks_compression_rejected = 0;
+    tp->num_data_blocks_compression_bypassed = 0;
     tp->num_entries = 0;
     tp->num_deletions = 0;
     tp->num_merge_operands = 0;
@@ -1446,22 +1448,25 @@ class DBTestBase : public testing::Test {
     ResetTableProperties(tp);
     int count = sscanf(
         tp_string.c_str(),
-        "# data blocks %" SCNu64 " # uniform blocks %" SCNu64
-        " # entries %" SCNu64 " # deletions %" SCNu64
-        " # merge operands %" SCNu64 " # range deletions %" SCNu64
-        " raw key size %" SCNu64
+        "# data blocks %" SCNu64 " # data blocks compression rejected %" SCNu64
+        " # data blocks compression bypassed %" SCNu64
+        " # uniform blocks %" SCNu64 " # entries %" SCNu64
+        " # deletions %" SCNu64 " # merge operands %" SCNu64
+        " # range deletions %" SCNu64 " raw key size %" SCNu64
         " raw average key size %lf "
         " raw value size %" SCNu64
         " raw average value size %lf "
         " data block size %" SCNu64 " data uncompressed size %" SCNu64
         " index block size (user-key? %" SCNu64 ", delta-value? %" SCNu64
         ") %" SCNu64 " filter block size %" SCNu64,
-        &tp->num_data_blocks, &tp->num_uniform_blocks, &tp->num_entries,
-        &tp->num_deletions, &tp->num_merge_operands, &tp->num_range_deletions,
-        &tp->raw_key_size, &dummy_double, &tp->raw_value_size, &dummy_double,
-        &tp->data_size, &tp->uncompressed_data_size, &tp->index_key_is_user_key,
+        &tp->num_data_blocks, &tp->num_data_blocks_compression_rejected,
+        &tp->num_data_blocks_compression_bypassed, &tp->num_uniform_blocks,
+        &tp->num_entries, &tp->num_deletions, &tp->num_merge_operands,
+        &tp->num_range_deletions, &tp->raw_key_size, &dummy_double,
+        &tp->raw_value_size, &dummy_double, &tp->data_size,
+        &tp->uncompressed_data_size, &tp->index_key_is_user_key,
         &tp->index_value_is_delta_encoded, &tp->index_size, &tp->filter_size);
-    ASSERT_EQ(count, 16);
+    ASSERT_EQ(count, 18);
   }
 
  private:  // Prone to error on direct use

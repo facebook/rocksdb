@@ -75,6 +75,10 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       avg_op_scan_flush_trigger_(0),
       iter_step_since_seek_(1),
       mem_hidden_op_scanned_since_seek_(0),
+      min_tombstones_for_range_conversion_(
+          active_mem ? mutable_cf_options.min_tombstones_for_range_conversion
+                     : 0),
+      contiguous_tombstone_count_(0),
       direction_(kForward),
       valid_(false),
       current_entry_is_merged_(false),
@@ -186,6 +190,7 @@ void DBIter::Next() {
   bool ok = true;
   if (direction_ == kReverse) {
     is_key_seqnum_zero_ = false;
+    ResetContiguousTombstoneTracking();
     if (!ReverseToForward()) {
       ok = false;
     }
@@ -204,13 +209,7 @@ void DBIter::Next() {
   if (ok && iter_.Valid()) {
     ClearSavedValue();
 
-    if (prefix_same_as_start_) {
-      assert(prefix_extractor_ != nullptr);
-      const Slice prefix = prefix_.GetUserKey();
-      FindNextUserEntry(true /* skipping the current user key */, &prefix);
-    } else {
-      FindNextUserEntry(true /* skipping the current user key */, nullptr);
-    }
+    FindNextUserEntry(true /* skipping the current user key */);
   } else {
     is_key_seqnum_zero_ = false;
     valid_ = false;
@@ -378,14 +377,13 @@ bool DBIter::PrepareValue() {
 // The prefix parameter, if not null, indicates that we need to iterate
 // within the prefix, and the iterator needs to be made invalid, if no
 // more entry for the prefix can be found.
-bool DBIter::FindNextUserEntry(bool skipping_saved_key, const Slice* prefix) {
+bool DBIter::FindNextUserEntry(bool skipping_saved_key) {
   PERF_TIMER_GUARD(find_next_user_entry_time);
-  return FindNextUserEntryInternal(skipping_saved_key, prefix);
+  return FindNextUserEntryInternal(skipping_saved_key);
 }
 
 // Actual implementation of DBIter::FindNextUserEntry()
-bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
-                                       const Slice* prefix) {
+bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
   // Loop until we hit an acceptable entry to yield
   assert(iter_.Valid());
   assert(status_.ok());
@@ -438,12 +436,18 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
       break;
     }
 
-    assert(prefix == nullptr || prefix_extractor_ != nullptr);
-    if (prefix != nullptr &&
-        prefix_extractor_->Transform(user_key_without_ts).compare(*prefix) !=
-            0) {
-      assert(prefix_same_as_start_);
-      break;
+    assert(!prefix_.has_value() || prefix_extractor_ != nullptr);
+    if (!PrefixCheck(user_key_without_ts)) {
+      // Insert any pending tombstone run using the last tracked delete
+      // (saved_key_) as the end key.  We cannot use the current key's
+      // prefix as the boundary because bloom filters may have hidden
+      // entire prefixes between the seek prefix and the current key.
+      // The tombstone covers n-1 of n deletes; the last remains as a
+      // point delete.
+      FlushPendingTombstoneRun(saved_key_.GetUserKey());
+      if (prefix_same_as_start_) {
+        break;
+      }
     }
 
     if (TooManyInternalKeysSkipped()) {
@@ -491,6 +495,15 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
               skipping_saved_key = true;
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
               MarkMemtableForFlushForPerOpTrigger(mem_hidden_op_scanned);
+              // Track contiguous tombstones for range conversion.
+              // Skip if outside seek prefix — the top-of-loop check
+              // flushed any pending run, but we must also avoid starting
+              // a new run outside the prefix.
+              if (min_tombstones_for_range_conversion_ > 0 &&
+                  PrefixCheck(user_key_without_ts)) {
+                TrackContiguousTombstone(ikey_.user_key,
+                                         /*always_update_first_key=*/false);
+              }
             }
             break;
           case kTypeValue:
@@ -500,6 +513,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             if (!PrepareValueInternal()) {
               return false;
             }
+            FlushPendingTombstoneRun(ikey_.user_key);
             if (timestamp_lb_) {
               saved_key_.SetInternalKey(ikey_);
             } else {
@@ -533,6 +547,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             if (!PrepareValueInternal()) {
               return false;
             }
+            FlushPendingTombstoneRun(ikey_.user_key);
             saved_key_.SetUserKey(
                 ikey_.user_key,
                 !pin_thru_lifetime_ || !iter_.iter()->IsKeyPinned() /* copy */);
@@ -633,6 +648,28 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
       return false;
     }
   } while (iter_.Valid());
+
+  // If we accumulated tombstones, insert the range tombstone.  Use
+  // iterate_upper_bound_ if within the seek prefix, otherwise fall back to
+  // saved_key_ (the last tracked delete, covering n-1 deletes).
+  if (contiguous_tombstone_count_ > 0 && iter_.status().ok()) {
+    if (iterate_upper_bound_ != nullptr && PrefixCheck(*iterate_upper_bound_)) {
+      if (timestamp_size_ == 0) {
+        MaybeInsertRangeTombstone(*iterate_upper_bound_);
+      } else {
+        // iterate_upper_bound_ is a plain user key without a timestamp
+        // suffix. Pad with min timestamp so it sorts after all entries with
+        // this user key, preserving the exclusive bound semantics.
+        std::string end_key_with_ts;
+        AppendKeyWithMinTimestamp(&end_key_with_ts, *iterate_upper_bound_,
+                                  timestamp_size_);
+        MaybeInsertRangeTombstone(end_key_with_ts);
+      }
+    } else if (prefix_.has_value()) {
+      MaybeInsertRangeTombstone(saved_key_.GetUserKey());
+    }
+  }
+  ResetContiguousTombstoneTracking();
 
   valid_ = false;
   return iter_.status().ok();
@@ -773,19 +810,20 @@ void DBIter::Prev() {
   ResetInternalKeysSkippedCounter();
   bool ok = true;
   if (direction_ == kForward) {
+    ResetContiguousTombstoneTracking();
     if (!ReverseToBackward()) {
       ok = false;
+    }
+    // Transitioning to reverse: current key is the end bound
+    if (ok && min_tombstones_for_range_conversion_ > 0) {
+      range_tomb_end_key_.SetUserKey(saved_key_.GetUserKey(),
+                                     !saved_key_.IsKeyPinned());
     }
   }
   if (ok) {
     ClearSavedValue();
 
-    Slice prefix;
-    if (prefix_same_as_start_) {
-      assert(prefix_extractor_ != nullptr);
-      prefix = prefix_.GetUserKey();
-    }
-    PrevInternal(prefix_same_as_start_ ? &prefix : nullptr);
+    PrevInternal();
   }
 
   if (statistics_ != nullptr) {
@@ -877,22 +915,34 @@ bool DBIter::ReverseToBackward() {
   return FindUserKeyBeforeSavedKey();
 }
 
-void DBIter::PrevInternal(const Slice* prefix) {
+void DBIter::PrevInternal() {
+  // Capture saved_key_ (previous live key) into range_tomb_end_key_ before
+  // saved_key_ is overwritten below.
+  if (min_tombstones_for_range_conversion_ > 0) {
+    range_tomb_end_key_.Swap(saved_key_);
+  }
+
   while (iter_.Valid()) {
     saved_key_.SetUserKey(
         ExtractUserKey(iter_.key()),
         !iter_.iter()->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
 
-    assert(prefix == nullptr || prefix_extractor_ != nullptr);
-    if (prefix != nullptr &&
-        prefix_extractor_
-                ->Transform(StripTimestampFromUserKey(saved_key_.GetUserKey(),
-                                                      timestamp_size_))
-                .compare(*prefix) != 0) {
-      assert(prefix_same_as_start_);
-      // Current key does not have the same prefix as start
-      valid_ = false;
-      return;
+    assert(!prefix_.has_value() || prefix_extractor_ != nullptr);
+    Slice saved_key_without_ts =
+        StripTimestampFromUserKey(saved_key_.GetUserKey(), timestamp_size_);
+    // When prefix filtering is active, insert any pending tombstone run
+    // before we leave the seek prefix.
+    if (!PrefixCheck(saved_key_without_ts)) {
+      // Insert any pending tombstone run before leaving the seek prefix.
+      // Only insert if end_key (previous live key) is within the seek prefix.
+      if (range_tomb_end_key_.Size() > 0) {
+        FlushPendingTombstoneRun(range_tomb_end_key_.GetUserKey(),
+                                 /*check_prefix_match=*/true);
+      }
+      if (prefix_same_as_start_) {
+        valid_ = false;
+        return;
+      }
     }
 
     assert(iterate_lower_bound_ == nullptr || iter_.MayBeOutOfLowerBound() ||
@@ -904,12 +954,37 @@ void DBIter::PrevInternal(const Slice* prefix) {
             saved_key_.GetUserKey(), /*a_has_ts=*/true, *iterate_lower_bound_,
             /*b_has_ts=*/false) < 0) {
       // We've iterated earlier than the user-specified lower bound.
+      if (range_tomb_end_key_.Size() > 0) {
+        FlushPendingTombstoneRun(range_tomb_end_key_.GetUserKey(),
+                                 /*check_prefix_match=*/true);
+      }
       valid_ = false;
       return;
     }
 
-    if (!FindValueForCurrentKey()) {  // assigns valid_
+    bool found_visible = false;
+    if (!FindValueForCurrentKey(found_visible)) {  // assigns valid_
       return;
+    }
+
+    // Track contiguous tombstones for reverse range tombstone conversion.
+    // Only track when FindValueForCurrentKey found a visible entry
+    // (found_visible == true).  When no visible entry exists (all seqno >
+    // snapshot), the key doesn't exist at this snapshot and must not be
+    // treated as a tombstone.  Additionally, ikey_ is only updated when a
+    // visible entry is found, so reading ikey_.sequence without this guard
+    // would use a stale value.
+    if (min_tombstones_for_range_conversion_ > 0 &&
+        range_tomb_end_key_.Size() > 0 && timestamp_lb_ == nullptr) {
+      if (!valid_ && found_visible && PrefixCheck(saved_key_without_ts)) {
+        // Key was deleted and is within the seek prefix — track it.
+        TrackContiguousTombstone(saved_key_.GetUserKey(),
+                                 /*always_update_first_key=*/true);
+      } else if (valid_) {
+        // Live key breaks the run.
+        FlushPendingTombstoneRun(range_tomb_end_key_.GetUserKey(),
+                                 /*check_prefix_match=*/true);
+      }
     }
 
     // Whether or not we found a value for current key, we need iter_ to end up
@@ -928,6 +1003,11 @@ void DBIter::PrevInternal(const Slice* prefix) {
     }
   }
 
+  if (range_tomb_end_key_.Size() > 0) {
+    FlushPendingTombstoneRun(range_tomb_end_key_.GetUserKey(),
+                             /*check_prefix_match=*/true);
+  }
+
   // We haven't found any key - iterator is not valid
   valid_ = false;
 }
@@ -937,13 +1017,19 @@ void DBIter::PrevInternal(const Slice* prefix) {
 // value for it, or executes a merge, or determines that the value was deleted.
 // Sets valid_ to true if the value is found and is ready to be presented to
 // the user through value().
-// Sets valid_ to false if the value was deleted, and we should try another key.
+// Sets valid_ to false if the value was deleted or no visible entry exists.
+// Sets ikey_ to the last visible entry's internal key.  When found_visible
+// is false, ikey_ is not updated and may contain stale data.
+// Sets found_visible to true if at least one entry passed the IsVisible()
+// check (seqno <= snapshot).  When false, no entry was visible — the key
+// does not exist at this snapshot and should not be treated as a tombstone.
 // Returns false if an error occurred, and !status().ok() and !valid_.
 //
 // PRE: iter_ is positioned on the last entry with user key equal to saved_key_.
 // POST: iter_ is positioned on one of the entries equal to saved_key_, or on
 //       the entry just before them, or on the entry just after them.
-bool DBIter::FindValueForCurrentKey() {
+bool DBIter::FindValueForCurrentKey(bool& found_visible) {
+  found_visible = false;
   assert(iter_.Valid());
   merge_context_.Clear();
   current_entry_is_merged_ = false;
@@ -990,6 +1076,10 @@ bool DBIter::FindValueForCurrentKey() {
       break;
     }
 
+    // Entry survived the visibility check — at least one visible version
+    // exists for this user key.
+    found_visible = true;
+
     if (!ts.empty()) {
       saved_timestamp_.assign(ts.data(), ts.size());
     }
@@ -1010,10 +1100,6 @@ bool DBIter::FindValueForCurrentKey() {
     }
 
     if (timestamp_lb_ != nullptr) {
-      // Only needed when timestamp_lb_ is not null
-      [[maybe_unused]] const bool ret = ParseKey(&ikey_);
-      // Since the preceding ParseKey(&ikey) succeeds, so must this.
-      assert(ret);
       saved_key_.SetInternalKey(ikey);
     } else if (user_comparator_.Compare(ikey.user_key,
                                         saved_key_.GetUserKey()) < 0) {
@@ -1022,6 +1108,8 @@ bool DBIter::FindValueForCurrentKey() {
           !pin_thru_lifetime_ || !iter_.iter()->IsKeyPinned() /* copy */);
     }
 
+    // Ensure ikey_ is only set to VISIBLE keys.
+    ikey_ = ikey;
     valid_entry_seen = true;
     last_key_entry_type = ikey.type;
     switch (last_key_entry_type) {
@@ -1224,6 +1312,11 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
     iter_.Next();
   }
+
+  // Keep ikey_ in sync with the entry found by the seek.
+  ikey_ = ikey;
+  TEST_SYNC_POINT_CALLBACK(
+      "DBIter::FindValueForCurrentKeyUsingSeek:ikey_updated", &ikey_);
 
   if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
       kTypeDeletionWithTimestamp == ikey.type) {
@@ -1506,6 +1599,101 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
   return true;
 }
 
+void DBIter::TrackContiguousTombstone(const Slice& user_key,
+                                      bool always_update_first_key) {
+  if (always_update_first_key || contiguous_tombstone_count_ == 0) {
+    range_tomb_first_key_.SetUserKey(user_key, true /* copy */);
+  }
+  contiguous_tombstone_count_++;
+}
+
+void DBIter::FlushPendingTombstoneRun(const Slice& end_key,
+                                      bool check_prefix_match) {
+  if (contiguous_tombstone_count_ == 0) {
+    return;
+  }
+
+  if (check_prefix_match) {
+    Slice end_key_without_ts =
+        StripTimestampFromUserKey(end_key, timestamp_size_);
+    if (PrefixCheck(end_key_without_ts)) {
+      MaybeInsertRangeTombstone(end_key);
+    }
+  } else {
+    MaybeInsertRangeTombstone(end_key);
+  }
+
+  ResetContiguousTombstoneTracking();
+}
+
+void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
+  if (contiguous_tombstone_count_ < min_tombstones_for_range_conversion_) {
+    return;
+  }
+
+  if (active_mem_ == nullptr) {
+    return;
+  }
+
+  assert(PrefixCheck(range_tomb_first_key_.GetUserKey()));
+  assert(PrefixCheck(end_key));
+  assert(user_comparator_.Compare(range_tomb_first_key_.GetUserKey(),
+                                  end_key) <= 0);
+
+  auto earliest_seq = active_mem_->GetEarliestSequenceNumber();
+  // Skip if the iterator's snapshot predates the memtable. Otherwise entries
+  // added with seqno between sequence_ and earliest_seq will be unintentionally
+  // covered.
+  if (sequence_ < earliest_seq) {
+    RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_DISCARDED);
+    return;
+  }
+
+  // Insert at the read sequence so the synthesized tombstone is visible only
+  // to readers that could already observe the deletion run.
+  SequenceNumber insert_seq = sequence_;
+
+  // Skip if the insertion seq could shadow prepared-but-uncommitted writes.
+  if (read_callback_ != nullptr &&
+      insert_seq >= read_callback_->min_uncommitted()) {
+    RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_DISCARDED);
+    return;
+  }
+
+  // Check if the memtable already has a range tombstone covering [start, end).
+  {
+    ReadOptions ro;
+    // Assumption is that this should be relatively cheap as other read requests
+    // should be building the cached core fragmented list.
+    std::unique_ptr<FragmentedRangeTombstoneIterator> range_iter(
+        active_mem_->NewRangeTombstoneIterator(ro, sequence_,
+                                               false /* immutable_memtable */));
+    if (range_iter) {
+      range_iter->Seek(range_tomb_first_key_.GetUserKey());
+      if (range_iter->Valid() &&
+          user_comparator_.Compare(range_iter->start_key(),
+                                   range_tomb_first_key_.GetUserKey()) <= 0 &&
+          user_comparator_.Compare(range_iter->end_key(), end_key) >= 0) {
+        RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_DISCARDED);
+        return;
+      }
+    }
+  }
+
+  if (active_mem_->AddLogicallyRedundantRangeTombstone(
+          insert_seq, range_tomb_first_key_.GetUserKey(), end_key)) {
+    RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_INSERTED);
+    ROCKS_LOG_DEBUG(logger_,
+                    "Inserted range tombstone [%s, %s) @ seq %" PRIu64
+                    " (count=%" PRIu32 ", snapshot=%" PRIu64 ")",
+                    range_tomb_first_key_.GetUserKey().ToString(true).c_str(),
+                    end_key.ToString(true).c_str(), insert_seq,
+                    contiguous_tombstone_count_, sequence_);
+  } else {
+    RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_DISCARDED);
+  }
+}
+
 bool DBIter::TooManyInternalKeysSkipped(bool increment) {
   if ((max_skippable_internal_keys_ > 0) &&
       (num_internal_keys_skipped_ > max_skippable_internal_keys_)) {
@@ -1723,10 +1911,8 @@ void DBIter::Seek(const Slice& target) {
   }
 
   status_ = Status::OK();
-  ReleaseTempPinnedData();
-  ResetBlobData();
-  ResetValueAndColumns();
-  ResetInternalKeysSkippedCounter();
+  ResetSeekState();
+
   MarkMemtableForFlushForAvgTrigger();
 
   // Seek the inner iterator based on the target key.
@@ -1747,20 +1933,14 @@ void DBIter::Seek(const Slice& target) {
   // Now the inner iterator is placed to the target position. From there,
   // we need to find out the next key that is visible to the user.
   ClearSavedValue();
-  if (prefix_same_as_start_) {
-    // The case where the iterator needs to be invalidated if it has exhausted
-    // keys within the same prefix of the seek key.
-    assert(prefix_extractor_ != nullptr);
-    Slice target_prefix = prefix_extractor_->Transform(target);
-    FindNextUserEntry(false /* not skipping saved_key */,
-                      &target_prefix /* prefix */);
-    if (valid_) {
-      // Remember the prefix of the seek key for the future Next() call to
-      // check.
-      prefix_.SetUserKey(target_prefix);
-    }
+  if (ShouldSetPrefix(target)) {
+    prefix_.emplace();
+    prefix_->SetUserKey(prefix_extractor_->Transform(target));
   } else {
-    FindNextUserEntry(false /* not skipping saved_key */, nullptr);
+  }
+  FindNextUserEntry(false /* not skipping saved_key */);
+  if (!valid_) {
+    prefix_.reset();
   }
   if (!valid_) {
     return;
@@ -1800,10 +1980,8 @@ void DBIter::SeekForPrev(const Slice& target) {
   }
 
   status_ = Status::OK();
-  ReleaseTempPinnedData();
-  ResetBlobData();
-  ResetValueAndColumns();
-  ResetInternalKeysSkippedCounter();
+  ResetSeekState();
+
   MarkMemtableForFlushForAvgTrigger();
 
   // Seek the inner iterator based on the target key.
@@ -1823,19 +2001,18 @@ void DBIter::SeekForPrev(const Slice& target) {
   // we need to find out the first key that is visible to the user in the
   // backward direction.
   ClearSavedValue();
-  if (prefix_same_as_start_) {
-    // The case where the iterator needs to be invalidated if it has exhausted
-    // keys within the same prefix of the seek key.
-    assert(prefix_extractor_ != nullptr);
-    Slice target_prefix = prefix_extractor_->Transform(target);
-    PrevInternal(&target_prefix);
-    if (valid_) {
-      // Remember the prefix of the seek key for the future Prev() call to
-      // check.
-      prefix_.SetUserKey(target_prefix);
-    }
-  } else {
-    PrevInternal(nullptr);
+  if (ShouldSetPrefix(target)) {
+    prefix_.emplace();
+    prefix_->SetUserKey(prefix_extractor_->Transform(target));
+  }
+  PrevInternal();
+  if (!valid_) {
+    prefix_.reset();
+  }
+  // Set end key for first Prev() call's tombstone tracking
+  if (valid_ && min_tombstones_for_range_conversion_ > 0) {
+    range_tomb_end_key_.SetUserKey(saved_key_.GetUserKey(),
+                                   !saved_key_.IsKeyPinned());
   }
 
   // Report stats and perf context.
@@ -1862,10 +2039,8 @@ void DBIter::SeekToFirst() {
   // if iterator is empty, this status_ could be unchecked.
   status_.PermitUncheckedError();
   direction_ = kForward;
-  ReleaseTempPinnedData();
-  ResetBlobData();
-  ResetValueAndColumns();
-  ResetInternalKeysSkippedCounter();
+  ResetSeekState();
+
   MarkMemtableForFlushForAvgTrigger();
   ClearSavedValue();
   is_key_seqnum_zero_ = false;
@@ -1880,8 +2055,8 @@ void DBIter::SeekToFirst() {
     saved_key_.SetUserKey(
         ExtractUserKey(iter_.key()),
         !iter_.iter()->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
-    FindNextUserEntry(false /* not skipping saved_key */,
-                      nullptr /* no prefix check */);
+    assert(!prefix_.has_value());
+    FindNextUserEntry(false /* not skipping saved_key */);
     if (statistics_ != nullptr) {
       if (valid_) {
         RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
@@ -1892,10 +2067,13 @@ void DBIter::SeekToFirst() {
   } else {
     valid_ = false;
   }
-  if (valid_ && prefix_same_as_start_) {
-    assert(prefix_extractor_ != nullptr);
-    prefix_.SetUserKey(prefix_extractor_->Transform(
-        StripTimestampFromUserKey(saved_key_.GetUserKey(), timestamp_size_)));
+  if (valid_) {
+    Slice user_key_without_ts =
+        StripTimestampFromUserKey(saved_key_.GetUserKey(), timestamp_size_);
+    if (ShouldSetPrefix(user_key_without_ts)) {
+      prefix_.emplace();
+      prefix_->SetUserKey(prefix_extractor_->Transform(user_key_without_ts));
+    }
   }
 }
 
@@ -1926,19 +2104,27 @@ void DBIter::SeekToLast() {
   // if iterator is empty, this status_ could be unchecked.
   status_.PermitUncheckedError();
   direction_ = kReverse;
-  ReleaseTempPinnedData();
-  ResetBlobData();
-  ResetValueAndColumns();
-  ResetInternalKeysSkippedCounter();
+  ResetSeekState();
+
   MarkMemtableForFlushForAvgTrigger();
   ClearSavedValue();
   is_key_seqnum_zero_ = false;
+
+  // Clear stale saved_key_ so PrevInternal()'s Swap does not pollute
+  // range_tomb_end_key_ with a key from a previous seek operation.
+  saved_key_.Clear();
 
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
     iter_.SeekToLast();
   }
-  PrevInternal(nullptr);
+  assert(!prefix_.has_value());
+  PrevInternal();
+  // Set end key for first Prev() call's tombstone tracking
+  if (valid_ && min_tombstones_for_range_conversion_ > 0) {
+    range_tomb_end_key_.SetUserKey(saved_key_.GetUserKey(),
+                                   !saved_key_.IsKeyPinned());
+  }
   if (statistics_ != nullptr) {
     RecordTick(statistics_, NUMBER_DB_SEEK);
     if (valid_) {
@@ -1947,10 +2133,13 @@ void DBIter::SeekToLast() {
       PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
     }
   }
-  if (valid_ && prefix_same_as_start_) {
-    assert(prefix_extractor_ != nullptr);
-    prefix_.SetUserKey(prefix_extractor_->Transform(
-        StripTimestampFromUserKey(saved_key_.GetUserKey(), timestamp_size_)));
+  if (valid_) {
+    Slice user_key_without_ts =
+        StripTimestampFromUserKey(saved_key_.GetUserKey(), timestamp_size_);
+    if (ShouldSetPrefix(user_key_without_ts)) {
+      prefix_.emplace();
+      prefix_->SetUserKey(prefix_extractor_->Transform(user_key_without_ts));
+    }
   }
 }
 }  // namespace ROCKSDB_NAMESPACE

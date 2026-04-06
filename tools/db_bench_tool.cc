@@ -326,6 +326,11 @@ DEFINE_int32(seek_nexts, 0,
              "fillseekseq, seekrandom, seekrandomwhilewriting and "
              "seekrandomwhilemerging");
 
+DEFINE_int32(seek_nexts_to_delete, 0,
+             "After completing seek_nexts iterations in seekrandom, delete "
+             "this many subsequent keys via point deletes. Useful for "
+             "benchmarking read-path range tombstone insertion.");
+
 DEFINE_bool(reverse_iterator, false,
             "When true use Prev rather than Next for iterators that do "
             "Seek and then Next");
@@ -1347,6 +1352,11 @@ DEFINE_uint32(memtable_op_scan_flush_trigger,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
                   .memtable_op_scan_flush_trigger,
               "Setting for CF option memtable_op_scan_flush_trigger.");
+
+DEFINE_uint32(min_tombstones_for_range_conversion,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .min_tombstones_for_range_conversion,
+              "Setting for CF option min_tombstones_for_range_conversion.");
 
 DEFINE_bool(verify_compression, false,
             "See BlockBasedTableOptions::verify_compression");
@@ -5052,6 +5062,8 @@ class Benchmark {
         FLAGS_memtable_veirfy_per_key_checksum_on_seek;
     options.memtable_op_scan_flush_trigger =
         FLAGS_memtable_op_scan_flush_trigger;
+    options.min_tombstones_for_range_conversion =
+        FLAGS_min_tombstones_for_range_conversion;
     options.compaction_options_universal.reduce_file_locking =
         FLAGS_universal_reduce_file_locking;
   }
@@ -7519,6 +7531,25 @@ class Benchmark {
           iter_to_use->Prev();
         }
         assert(iter_to_use->status().ok());
+      }
+
+      // Delete subsequent keys after the seek+next scan to simulate
+      // workloads that create contiguous point tombstones.
+      if (FLAGS_seek_nexts_to_delete > 0 && iter_to_use->Valid()) {
+        DB* db_to_use =
+            (db_.db != nullptr) ? db_.db : multi_dbs_[db_idx_to_use].db;
+        for (int j = 0; j < FLAGS_seek_nexts_to_delete && iter_to_use->Valid();
+             ++j) {
+          Status s = db_to_use->Delete(WriteOptions(), iter_to_use->key());
+          if (!s.ok()) {
+            fprintf(stderr, "Delete failed: %s\n", s.ToString().c_str());
+          }
+          if (!FLAGS_reverse_iterator) {
+            iter_to_use->Next();
+          } else {
+            iter_to_use->Prev();
+          }
+        }
       }
 
       if (thread->shared->read_rate_limiter.get() != nullptr &&

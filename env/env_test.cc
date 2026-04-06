@@ -4278,6 +4278,70 @@ TEST_F(TestIOActivity, IOActivityToString) {
   ASSERT_EQ(Env::IOActivityToString(Env::IOActivity::kUnknown), "Unknown");
 }
 
+TEST_F(EnvTest, WriteStringToFileClosesFile) {
+  auto counted_fs = std::make_shared<CountedFileSystem>(FileSystem::Default());
+  std::string fname = test::PerThreadDBPath("write_string_close_test");
+
+  // Write a file using WriteStringToFile
+  ASSERT_OK(WriteStringToFile(counted_fs.get(), "hello world", fname,
+                              /*should_sync=*/false));
+
+  // Verify Close() was called (closes counter should be > 0)
+  ASSERT_GT(counted_fs->counters()->closes.load(), 0);
+
+  // Verify the content was written correctly
+  std::string result;
+  ASSERT_OK(ReadFileToString(counted_fs.get(), fname, &result));
+  ASSERT_EQ(result, "hello world");
+
+  // Clean up
+  ASSERT_OK(counted_fs->DeleteFile(fname, IOOptions(), nullptr));
+}
+
+// Writable file wrapper that injects a Close() failure.
+// Uses FSWritableFileOwnerWrapper to properly take ownership of the wrapped
+// file.
+class CloseFailWritableFile : public FSWritableFileOwnerWrapper {
+ public:
+  explicit CloseFailWritableFile(std::unique_ptr<FSWritableFile>&& target)
+      : FSWritableFileOwnerWrapper(std::move(target)) {}
+  IOStatus Close(const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    return IOStatus::IOError("injected close failure");
+  }
+};
+
+// FileSystem wrapper that wraps writable files with CloseFailWritableFile.
+class CloseFailFS : public FileSystemWrapper {
+ public:
+  explicit CloseFailFS(const std::shared_ptr<FileSystem>& base)
+      : FileSystemWrapper(base) {}
+  const char* Name() const override { return "CloseFailFS"; }
+  IOStatus NewWritableFile(const std::string& fname,
+                           const FileOptions& file_opts,
+                           std::unique_ptr<FSWritableFile>* result,
+                           IODebugContext* dbg) override {
+    IOStatus s = target()->NewWritableFile(fname, file_opts, result, dbg);
+    if (s.ok()) {
+      result->reset(new CloseFailWritableFile(std::move(*result)));
+    }
+    return s;
+  }
+};
+
+TEST_F(EnvTest, WriteStringToFileCloseFailureDeletesFile) {
+  auto close_fail_fs = std::make_shared<CloseFailFS>(FileSystem::Default());
+  std::string fname = test::PerThreadDBPath("write_string_close_fail_test");
+
+  auto s = WriteStringToFile(close_fail_fs.get(), "hello world", fname,
+                             /*should_sync=*/false);
+  ASSERT_NOK(s);
+
+  // The file should have been deleted on failure
+  auto exists = FileSystem::Default()->FileExists(fname, IOOptions(), nullptr);
+  ASSERT_TRUE(exists.IsNotFound()) << exists.ToString();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

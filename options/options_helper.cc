@@ -288,6 +288,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->min_blob_size = moptions.min_blob_size;
   cf_opts->blob_file_size = moptions.blob_file_size;
   cf_opts->blob_compression_type = moptions.blob_compression_type;
+  cf_opts->blob_compression_opts = moptions.blob_compression_opts;
   cf_opts->enable_blob_garbage_collection =
       moptions.enable_blob_garbage_collection;
   cf_opts->blob_garbage_collection_age_cutoff =
@@ -319,6 +320,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.memtable_op_scan_flush_trigger;
   cf_opts->memtable_avg_op_scan_flush_trigger =
       moptions.memtable_avg_op_scan_flush_trigger;
+  cf_opts->min_tombstones_for_range_conversion =
+      moptions.min_tombstones_for_range_conversion;
 }
 
 void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
@@ -353,6 +356,8 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->blob_cache = ioptions.blob_cache;
   cf_opts->enable_blob_direct_write = ioptions.enable_blob_direct_write;
   cf_opts->blob_direct_write_partitions = ioptions.blob_direct_write_partitions;
+  cf_opts->blob_direct_write_partition_strategy =
+      ioptions.blob_direct_write_partition_strategy;
   cf_opts->persist_user_defined_timestamps =
       ioptions.persist_user_defined_timestamps;
   cf_opts->default_temperature = ioptions.default_temperature;

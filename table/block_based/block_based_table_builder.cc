@@ -853,6 +853,8 @@ struct BlockBasedTableBuilder::Rep {
   uint64_t sample_for_compression;
   RelaxedAtomic<uint64_t> compressible_input_data_bytes{0};
   RelaxedAtomic<uint64_t> uncompressible_input_data_bytes{0};
+  RelaxedAtomic<uint64_t> num_data_blocks_compression_rejected{0};
+  RelaxedAtomic<uint64_t> num_data_blocks_compression_bypassed{0};
   RelaxedAtomic<uint64_t> sampled_input_data_bytes{0};
   RelaxedAtomic<uint64_t> sampled_output_slow_data_bytes{0};
   RelaxedAtomic<uint64_t> sampled_output_fast_data_bytes{0};
@@ -2021,6 +2023,13 @@ Status BlockBasedTableBuilder::CompressAndVerifyBlock(
                compression_attempted ? BYTES_COMPRESSION_REJECTED
                                      : BYTES_COMPRESSION_BYPASSED,
                uncompressed_block_data.size());
+    if (is_data_block) {
+      if (compression_attempted) {
+        r->num_data_blocks_compression_rejected.FetchAddRelaxed(1);
+      } else {
+        r->num_data_blocks_compression_bypassed.FetchAddRelaxed(1);
+      }
+    }
   } else {
     RecordTick(r->ioptions.stats, NUMBER_BLOCK_COMPRESSED);
     RecordTick(r->ioptions.stats, BYTES_COMPRESSED_FROM,
@@ -2513,6 +2522,11 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     }
     rep_->props.user_defined_timestamps_persisted =
         rep_->persist_user_defined_timestamps;
+
+    rep_->props.num_data_blocks_compression_rejected =
+        rep_->num_data_blocks_compression_rejected.LoadRelaxed();
+    rep_->props.num_data_blocks_compression_bypassed =
+        rep_->num_data_blocks_compression_bypassed.LoadRelaxed();
 
     assert(IsEmpty() || rep_->props.key_largest_seqno != UINT64_MAX);
     // Add basic properties

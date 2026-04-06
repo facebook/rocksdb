@@ -586,6 +586,7 @@ Status FlushJob::MemPurge() {
         auto tombstone = range_del_it->Tombstone();
         new_first_seqno =
             tombstone.seq_ < new_first_seqno ? tombstone.seq_ : new_first_seqno;
+        MemTablePostProcessInfo post_process_info;
         s = new_mem->Add(
             tombstone.seq_,        // Sequence number
             kTypeRangeDeletion,    // KV type
@@ -594,12 +595,15 @@ Status FlushJob::MemPurge() {
             nullptr,               // KV protection info set as nullptr since it
                                    // should only be useful for the first add to
                                    // the original memtable.
-            false,                 // : allow concurrent_memtable_writes_
-                                   // Not seen as necessary for now.
-            nullptr,               // get_post_process_info(m) must be nullptr
-                      // when concurrent_memtable_writes is switched off.
+            true,                  // allow_concurrent: required for range
+                                   // deletions since range_del_table_ uses
+                                   // concurrent-safe SkipList.
+            &post_process_info,
             nullptr);  // hint, only used when concurrent_memtable_writes_
                        // is switched on.
+        if (s.ok()) {
+          new_mem->BatchPostProcess(post_process_info);
+        }
 
         if (!s.ok()) {
           break;
