@@ -281,7 +281,7 @@ Status DBImpl::IngestWBWIAsMemtable(
     std::shared_ptr<WriteBatchWithIndex> wbwi,
     const WBWIMemTable::SeqnoRange& assigned_seqno, uint64_t min_prep_log,
     SequenceNumber last_seqno_after_ingest, bool memtable_updated,
-    bool ignore_missing_cf) {
+    bool ingest_wbwi_for_commit, bool ignore_missing_cf) {
   // Keys in new memtable have seqno > last_seqno_after_ingest >= keys in wbwi.
   assert(assigned_seqno.upper_bound <= last_seqno_after_ingest);
   // Keys in the current memtable have seqno <= LastSequence() < keys in wbwi.
@@ -314,6 +314,14 @@ Status DBImpl::IngestWBWIAsMemtable(
             "state. " +
             s.ToString());
         error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
+      } else if (ingest_wbwi_for_commit) {
+        s = Status::Corruption(
+            "Commit marker is durable in WAL, but publishing committed WBWI "
+            "data to memtable failed. This DB instance cannot safely resume; "
+            "close and reopen the DB for WAL recovery. " +
+            s.ToString());
+        error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
+        s = error_handler_.GetBGError();
       }
 
       return s;
@@ -380,6 +388,14 @@ Status DBImpl::IngestWBWIAsMemtable(
             "state. " +
             s.ToString());
         error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
+      } else if (ingest_wbwi_for_commit) {
+        s = Status::Corruption(
+            "Commit marker is durable in WAL, but publishing committed WBWI "
+            "data to memtable failed. This DB instance cannot safely resume; "
+            "close and reopen the DB for WAL recovery. " +
+            s.ToString());
+        error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
+        s = error_handler_.GetBGError();
       } else {
         // SwitchMemtable() already sets appropriate bg error
       }
@@ -1251,11 +1267,12 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       if (two_write_queues_) {
         assert(ub <= versions_->LastAllocatedSequence());
       }
-      status =
-          IngestWBWIAsMemtable(wbwi, {/*lower_bound=*/lb, /*upper_bound=*/ub},
-                               /*min_prep_log=*/log_ref, last_sequence,
-                               /*memtable_updated=*/memtable_update_count > 0,
-                               write_options.ignore_missing_column_families);
+      status = IngestWBWIAsMemtable(
+          wbwi, {/*lower_bound=*/lb, /*upper_bound=*/ub},
+          /*min_prep_log=*/log_ref, last_sequence,
+          /*memtable_updated=*/memtable_update_count > 0,
+          /*ingest_wbwi_for_commit=*/
+          ingest_wbwi_for_commit, write_options.ignore_missing_column_families);
       RecordTick(stats_, NUMBER_WBWI_INGEST);
     }
   }
@@ -2898,6 +2915,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
     // of mutable_cf_options.write_buffer_size.
     io_s = CreateWAL(write_options, new_log_number, recycle_log_number,
                      preallocate_block_size, info, &new_log);
+    TEST_SYNC_POINT_CALLBACK("DBImpl::SwitchMemtable:AfterCreateWAL", &io_s);
     if (s.ok()) {
       s = io_s;
     }

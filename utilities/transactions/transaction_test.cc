@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <functional>
 #include <numeric>
 #include <string>
@@ -9634,6 +9635,63 @@ TEST_P(CommitBypassMemtableTest, AtomicFlushTest) {
     ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
     ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
   }
+}
+
+TEST_P(CommitBypassMemtableTest, SwitchMemtableFailureStopsDBUntilReopen) {
+  SetUpTransactionDB(/*atomic_flush=*/false);
+
+  auto* db_impl = static_cast_with_check<DBImpl>(txn_db->GetRootDB());
+
+  WriteOptions wopts;
+  wopts.sync = true;
+  TransactionOptions txn_opts;
+  txn_opts.commit_bypass_memtable = true;
+  std::unique_ptr<Transaction> txn{
+      txn_db->BeginTransaction(wopts, txn_opts, nullptr)};
+  ASSERT_NE(txn, nullptr);
+  ASSERT_OK(txn->SetName("xid_switch_memtable_failure"));
+  ASSERT_OK(txn->Put("k1", "v1"));
+  ASSERT_OK(txn->Put("k2", "v2"));
+  ASSERT_OK(txn->Prepare());
+
+  IOStatus injected_error =
+      IOStatus::IOError("Injected WAL creation failure in SwitchMemtable");
+  injected_error.SetRetryable(true);
+  bool failure_injected = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SwitchMemtable:AfterCreateWAL", [&](void* arg) {
+        if (failure_injected) {
+          return;
+        }
+        *static_cast<IOStatus*>(arg) = injected_error;
+        failure_injected = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status commit_status = txn->Commit();
+  ASSERT_TRUE(commit_status.IsCorruption()) << commit_status.ToString();
+  ASSERT_TRUE(failure_injected);
+
+  txn.reset();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  Status bg_error = db_impl->TEST_GetBGError();
+  ASSERT_TRUE(bg_error.IsCorruption()) << bg_error.ToString();
+  ASSERT_EQ(bg_error.severity(), Status::Severity::kFatalError);
+
+  Status put_status = txn_db->Put(wopts, "k3", "v3");
+  ASSERT_TRUE(put_status.IsCorruption()) << put_status.ToString();
+  ASSERT_EQ(put_status.severity(), Status::Severity::kFatalError);
+
+  ASSERT_OK(txn_db->Close());
+  db_.reset();  // destroys txn_db (owned by db_)
+  ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
+  db_.reset(txn_db);
+
+  VerifyDBFromMap({{"k1", "v1"}, {"k2", "v2"}});
+  ASSERT_OK(txn_db->Put(wopts, "k3", "v3"));
 }
 
 TEST_P(CommitBypassMemtableTest, MergeAndMultiCF) {
