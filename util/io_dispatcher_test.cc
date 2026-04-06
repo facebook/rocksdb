@@ -1791,6 +1791,125 @@ TEST_F(IODispatcherTest, CoalescedGroupsSplitByMemoryBudget) {
   }
 }
 
+// Regression tests for a bug where ReadIndex moved values out of
+// pinned_blocks_ via std::move, but neither ReleaseBlock() nor the destructor
+// released memory accounting because they checked pinned_blocks_.GetValue()
+// which was null after the move.
+// Tests run with both sync and async IO modes to cover Case 1 and Case 2
+// in ReadIndex().
+TEST_F(IODispatcherTest, MemoryReleasedAfterReadIndexThenReleaseBlock) {
+  for (bool async : {false, true}) {
+    // Skip async if io_uring not available
+    if (async && !kIOUringPresent) {
+      continue;
+    }
+    SCOPED_TRACE("async_io=" + std::to_string(async));
+
+    auto stats = CreateDBStatistics();
+    IODispatcherOptions opts;
+    opts.max_prefetch_memory_bytes = 100 * 1024;  // 100KB
+    opts.statistics = stats.get();
+    std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(opts));
+
+    std::unique_ptr<BlockBasedTable> table;
+    std::vector<BlockHandle> block_handles;
+    Status s = CreateAndOpenSST(20, &table, &block_handles);
+    ASSERT_OK(s);
+    ASSERT_GT(block_handles.size(), 0);
+
+    auto job = std::make_shared<IOJob>();
+    job->block_handles = block_handles;
+    job->table = table.get();
+    job->job_options.read_options.async_io = async;
+
+    std::shared_ptr<ReadSet> read_set;
+    s = dispatcher->SubmitJob(job, &read_set);
+    ASSERT_OK(s);
+    ASSERT_NE(read_set, nullptr);
+
+    // Some memory should have been granted for prefetch
+    ASSERT_GT(stats->getTickerCount(PREFETCH_MEMORY_BYTES_GRANTED), 0);
+
+    // Read all blocks — ReadIndex moves values out of pinned_blocks_.
+    // This also triggers TryDispatchPendingPrefetches as memory is released,
+    // which acquires more memory for pending groups. So granted grows during
+    // this loop.
+    for (size_t i = 0; i < block_handles.size(); ++i) {
+      CachableEntry<Block> block;
+      ASSERT_OK(read_set->ReadIndex(i, &block));
+      ASSERT_NE(block.GetValue(), nullptr);
+    }
+
+    // Release all blocks — should be a no-op for memory accounting since
+    // ReadIndex already released memory when moving values out
+    for (size_t i = 0; i < block_handles.size(); ++i) {
+      read_set->ReleaseBlock(i);
+    }
+
+    // Read both counters after all operations complete, since
+    // TryDispatchPendingPrefetches during ReadIndex may have granted additional
+    // memory for pending groups
+    uint64_t granted = stats->getTickerCount(PREFETCH_MEMORY_BYTES_GRANTED);
+    uint64_t released = stats->getTickerCount(PREFETCH_MEMORY_BYTES_RELEASED);
+    // With the bug, released < granted because ReleaseBlock skips
+    // ReleaseMemory when pinned_blocks_ value was already moved out
+    EXPECT_EQ(released, granted);
+  }
+}
+
+// Test that ReadSet destructor releases memory for blocks that were read
+// via ReadIndex but never explicitly released via ReleaseBlock.
+TEST_F(IODispatcherTest, DestructorReleasesMemoryAfterReadIndex) {
+  for (bool async : {false, true}) {
+    // Skip async if io_uring not available
+    if (async && !kIOUringPresent) {
+      continue;
+    }
+    SCOPED_TRACE("async_io=" + std::to_string(async));
+
+    auto stats = CreateDBStatistics();
+    IODispatcherOptions opts;
+    opts.max_prefetch_memory_bytes = 100 * 1024;  // 100KB
+    opts.statistics = stats.get();
+    std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(opts));
+
+    std::unique_ptr<BlockBasedTable> table;
+    std::vector<BlockHandle> block_handles;
+    Status s = CreateAndOpenSST(20, &table, &block_handles);
+    ASSERT_OK(s);
+    ASSERT_GT(block_handles.size(), 0);
+
+    {
+      auto job = std::make_shared<IOJob>();
+      job->block_handles = block_handles;
+      job->table = table.get();
+      job->job_options.read_options.async_io = async;
+
+      std::shared_ptr<ReadSet> read_set;
+      s = dispatcher->SubmitJob(job, &read_set);
+      ASSERT_OK(s);
+      ASSERT_NE(read_set, nullptr);
+
+      uint64_t granted = stats->getTickerCount(PREFETCH_MEMORY_BYTES_GRANTED);
+      ASSERT_GT(granted, 0);
+
+      // Read all blocks via ReadIndex (moves values out of pinned_blocks_)
+      // but do NOT call ReleaseBlock — let the destructor handle cleanup
+      for (size_t i = 0; i < block_handles.size(); ++i) {
+        CachableEntry<Block> block;
+        ASSERT_OK(read_set->ReadIndex(i, &block));
+      }
+      // read_set goes out of scope — destructor should release all memory
+    }
+
+    uint64_t granted = stats->getTickerCount(PREFETCH_MEMORY_BYTES_GRANTED);
+    uint64_t released = stats->getTickerCount(PREFETCH_MEMORY_BYTES_RELEASED);
+    // Destructor should release memory for all prefetched blocks,
+    // even those whose values were moved out by ReadIndex
+    EXPECT_EQ(released, granted);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
