@@ -1710,9 +1710,10 @@ TEST_F(EventListenerTest, BackgroundJobPressure) {
     ASSERT_FALSE(s.compaction_speedup_active);
     ASSERT_LT(s.write_stall_proximity_pct, 100);
   }
-  // Note: we don't assert flush_running/flush_scheduled == 0 here because
-  // MaybeScheduleFlushOrCompaction() runs before the pressure callback and
-  // may schedule new flush work, making flush counts non-deterministic.
+  // Latest: flush completed
+  const auto& latest1 = snapshots.back();
+  ASSERT_EQ(latest1.flush_running, 0);
+  ASSERT_EQ(latest1.flush_scheduled, 0);
 
   // Phase 2: Build pressure — flush past slowdown trigger (4 L0 SST files).
   // Compaction is blocked, so L0 SST files pile up.
@@ -1758,6 +1759,10 @@ TEST_F(EventListenerTest, BackgroundJobPressure) {
 
   snapshots = listener->GetSnapshots();
   CheckInvariants(snapshots);
+  for (const auto& s : snapshots) {
+    ASSERT_EQ(s.flush_running, 0);
+    ASSERT_EQ(s.flush_scheduled, 0);
+  }
   // Latest: all compactions finished, healthy
   const auto& latest3 = snapshots.back();
   ASSERT_EQ(latest3.compaction_running, 0);

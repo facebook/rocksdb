@@ -1,0 +1,137 @@
+name: Documentation Staleness Check
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      base_sha:
+        description: 'Base SHA to diff against (default: origin/main)'
+        required: false
+        default: 'origin/main'
+
+jobs:
+  doc-check:
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate PR diff
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            BASE_SHA="${{ github.event.inputs.base_sha || 'origin/main' }}"
+            HEAD_SHA="HEAD"
+          else
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          fi
+          git diff "$BASE_SHA" "$HEAD_SHA" > /tmp/pr_diff.txt
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" > /tmp/changed_files.txt
+          echo "=== Changed files ==="
+          cat /tmp/changed_files.txt
+
+      - name: Select model based on diff size
+        id: model-select
+        run: |
+          DIFF_LINES=$(wc -l < /tmp/pr_diff.txt)
+          DIFF_FILES=$(wc -l < /tmp/changed_files.txt)
+          echo "diff_lines=$DIFF_LINES"
+          echo "diff_files=$DIFF_FILES"
+
+          # Use Opus for complex changes (>300 lines or >10 files),
+          # Sonnet for smaller ones
+          if [ "$DIFF_LINES" -gt 300 ] || [ "$DIFF_FILES" -gt 10 ]; then
+            echo "model=claude-opus-4-20250514" >> "$GITHUB_OUTPUT"
+            echo "Selected: Opus (complex change: $DIFF_LINES lines, $DIFF_FILES files)"
+          else
+            echo "model=claude-sonnet-4-20250514" >> "$GITHUB_OUTPUT"
+            echo "Selected: Sonnet (standard change: $DIFF_LINES lines, $DIFF_FILES files)"
+          fi
+
+      - name: Build Claude prompt
+        run: |
+          # Start with the template prompt
+          cat docs/doc-check-prompt.md > /tmp/review_prompt.txt
+          # Append the actual diff
+          printf "\n" >> /tmp/review_prompt.txt
+          cat /tmp/pr_diff.txt >> /tmp/review_prompt.txt
+
+      - name: Run Claude AI doc review
+        if: env.HAS_KEY == 'true'
+        id: claude-review
+        uses: anthropics/claude-code-base-action@e8132bc5e637a42c27763fc757faa37e1ee43b34
+        with:
+          prompt_file: /tmp/review_prompt.txt
+          model: ${{ steps.model-select.outputs.model }}
+          max_turns: "100"
+          allowed_tools: "View,GlobTool,GrepTool"
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+        env:
+          DIFF_CONTENT: /tmp/pr_diff.txt
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+
+      - name: Parse Claude result
+        if: env.HAS_KEY == 'true'
+        run: |
+          # Extract result from the execution log
+          LOG="/home/runner/work/_temp/claude-execution-output.json"
+          if [ ! -f "$LOG" ]; then
+            echo "::error::Claude execution log not found at $LOG"
+            exit 1
+          fi
+
+          # Extract result and check for errors
+          python3 << 'PYEOF'
+          import json, sys
+
+          with open("/home/runner/work/_temp/claude-execution-output.json") as f:
+              raw = json.load(f)
+
+          # Handle both single object and array of objects
+          if isinstance(raw, list):
+              data = None
+              for entry in raw:
+                  if isinstance(entry, dict) and entry.get("type") == "result":
+                      data = entry
+                      break
+              if data is None:
+                  data = raw[-1] if raw else {}
+          else:
+              data = raw
+
+          subtype = data.get("subtype", "")
+          result = data.get("result", "")
+          is_error = data.get("is_error", False)
+
+          print("=== Claude's Assessment ===")
+          print(result if result else "(no result text)")
+          print("===========================")
+          print(f"subtype={subtype}, is_error={is_error}, num_turns={data.get('num_turns', 'N/A')}")
+
+          if subtype == "error_max_turns":
+              print("::error::Claude ran out of turns before producing a verdict. Increase max_turns.")
+              sys.exit(1)
+          elif is_error:
+              print(f"::error::Claude returned an error: {subtype}")
+              sys.exit(1)
+          elif "RESULT: FAIL" in result:
+              print("Documentation updates are needed. See Claude's assessment above.")
+              sys.exit(1)
+          elif "RESULT: PASS" in result:
+              print("Documentation check passed.")
+              sys.exit(0)
+          else:
+              print("::error::Could not determine PASS/FAIL from Claude's response. Failing to be safe.")
+              sys.exit(1)
+          PYEOF
+
+      - name: Fail if no API key
+        if: env.HAS_KEY != 'true'
+        run: |
+          echo "::error::ANTHROPIC_API_KEY not configured. Add it to repository secrets to enable AI doc review."
+          exit 1

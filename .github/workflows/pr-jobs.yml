@@ -45,7 +45,7 @@ jobs:
 
   # ======================== Fast Initial Checks ====================== #
   check-format-and-targets:
-    if: needs.config.outputs.only_job == 'check-format-and-targets' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'check-format-and-targets' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on: ubuntu-24.04
     steps:
@@ -82,7 +82,7 @@ jobs:
         SANITY_CHECK=1 LONG_TEST=1 tools/check_format_compatible.sh
   # ========================= Linux With Tests ======================== #
   build-linux:
-    if: needs.config.outputs.only_job == 'build-linux' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 16-core-ubuntu
@@ -100,7 +100,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-mingw:
-    if: needs.config.outputs.only_job == 'build-linux-cmake-mingw' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-cmake-mingw' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 4-core-ubuntu
@@ -125,7 +125,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-make-with-folly:
-    if: needs.config.outputs.only_job == 'build-linux-make-with-folly' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-make-with-folly' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 32-core-ubuntu
@@ -150,7 +150,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-make-with-folly-lite-no-test:
-    if: needs.config.outputs.only_job == 'build-linux-make-with-folly-lite-no-test' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-make-with-folly-lite-no-test' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 16-core-ubuntu
@@ -170,7 +170,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-coroutines:
-    if: needs.config.outputs.only_job == 'build-linux-cmake-with-folly-coroutines' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-cmake-with-folly-coroutines' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 32-core-ubuntu
@@ -195,7 +195,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-benchmark-no-thread-status:
-    if: needs.config.outputs.only_job == 'build-linux-cmake-with-benchmark-no-thread-status' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-cmake-with-benchmark-no-thread-status' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 16-core-ubuntu
@@ -222,7 +222,7 @@ jobs:
       with:
         artifact-prefix: "${{ github.job }}-shard${{ matrix.shard }}"
   build-linux-encrypted_env-no_compression:
-    if: needs.config.outputs.only_job == 'build-linux-encrypted_env-no_compression' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-encrypted_env-no_compression' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 16-core-ubuntu
@@ -242,7 +242,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ======================== Linux No Test Runs ======================= #
   build-linux-release:
-    if: needs.config.outputs.only_job == 'build-linux-release' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-release' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 16-core-ubuntu
@@ -274,7 +274,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-clang-13-no_test_run:
-    if: needs.config.outputs.only_job == 'build-linux-clang-13-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-clang-13-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 8-core-ubuntu
@@ -296,7 +296,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-clang-18-no_test_run:
-    if: needs.config.outputs.only_job == 'build-linux-clang-18-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-clang-18-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 16-core-ubuntu
@@ -316,7 +316,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-14-no_test_run:
-    if: needs.config.outputs.only_job == 'build-linux-gcc-14-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-gcc-14-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 16-core-ubuntu
@@ -337,7 +337,7 @@ jobs:
   # ======================== Linux Other Checks ======================= #
 
   build-linux-unity-and-headers:
-    if: needs.config.outputs.only_job == 'build-linux-unity-and-headers' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-unity-and-headers' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 4-core-ubuntu
@@ -357,7 +357,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-mini-crashtest:
-    if: needs.config.outputs.only_job == 'build-linux-mini-crashtest' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-mini-crashtest' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 4-core-ubuntu
@@ -386,7 +386,7 @@ jobs:
         artifact-prefix: "${{ github.job }}-${{ matrix.crash_test_target }}"
   # ======================= Linux with Sanitizers ===================== #
   build-linux-clang18-asan-ubsan:
-    if: needs.config.outputs.only_job == 'build-linux-clang18-asan-ubsan' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-clang18-asan-ubsan' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 32-core-ubuntu
@@ -413,7 +413,7 @@ jobs:
       with:
         artifact-prefix: "${{ github.job }}-shard${{ matrix.shard }}"
   build-linux-clang18-mini-tsan:
-    if: needs.config.outputs.only_job == 'build-linux-clang18-mini-tsan' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-clang18-mini-tsan' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 32-core-ubuntu
@@ -440,7 +440,7 @@ jobs:
       with:
         artifact-prefix: "${{ github.job }}-shard${{ matrix.shard }}"
   build-linux-static_lib-alt_namespace-status_checked:
-    if: needs.config.outputs.only_job == 'build-linux-static_lib-alt_namespace-status_checked' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-static_lib-alt_namespace-status_checked' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 16-core-ubuntu
@@ -459,7 +459,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ========================= MacOS build only ======================== #
   build-macos:
-    if: needs.config.outputs.only_job == 'build-macos' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-macos' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on: macos-15-xlarge
     env:
@@ -482,7 +482,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ========================= MacOS with Tests ======================== #
   build-macos-cmake:
-    if: needs.config.outputs.only_job == 'build-macos-cmake' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-macos-cmake' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on: macos-15-xlarge
     strategy:
@@ -521,7 +521,7 @@ jobs:
   # ======================== Windows with Tests ======================= #
   # NOTE: some windows jobs are in "nightly" to save resources
   build-windows-vs2022:
-    if: needs.config.outputs.only_job == 'build-windows-vs2022' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-windows-vs2022' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on: windows-8-core
     strategy:
@@ -548,7 +548,7 @@ jobs:
         run-java: ${{ matrix.run_java }}
   # ============================ Java Jobs ============================ #
   build-linux-java:
-    if: needs.config.outputs.only_job == 'build-linux-java' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-java' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 4-core-ubuntu
@@ -571,7 +571,7 @@ jobs:
     - uses: "./.github/actions/teardown-ccache"
       if: always()
   build-linux-java-static:
-    if: needs.config.outputs.only_job == 'build-linux-java-static' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-java-static' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 4-core-ubuntu
@@ -594,7 +594,7 @@ jobs:
     - uses: "./.github/actions/teardown-ccache"
       if: always()
   build-macos-java:
-    if: needs.config.outputs.only_job == 'build-macos-java' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-macos-java' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on: macos-15-xlarge
     env:
@@ -623,7 +623,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-macos-java-static:
-    if: needs.config.outputs.only_job == 'build-macos-java-static' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-macos-java-static' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on: macos-15-xlarge
     env:
@@ -651,7 +651,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-macos-java-static-universal:
-    if: needs.config.outputs.only_job == 'build-macos-java-static-universal' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-macos-java-static-universal' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on: macos-15-xlarge
     env:
@@ -679,7 +679,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-java-pmd:
-    if: needs.config.outputs.only_job == 'build-linux-java-pmd' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-java-pmd' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 4-core-ubuntu
@@ -706,7 +706,7 @@ jobs:
         name: maven-site
         path: "${{ github.workspace }}/java/target/site"
   build-linux-arm:
-    if: needs.config.outputs.only_job == 'build-linux-arm' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    if: needs.config.outputs.only_job == 'build-linux-arm' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook' && !contains(github.event.pull_request.title, '[docs-only]'))
     needs: config
     runs-on:
       labels: 4-core-ubuntu-arm
