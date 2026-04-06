@@ -375,7 +375,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // TODO: if we're in compaction and it's a put, it would be nice to run
       // compaction filter on it.
       std::string merge_result;
-      ValueType merge_result_type;
+      ValueType merge_result_type = kTypeValue;
       MergeOperator::OpFailureScope op_failure_scope =
           MergeOperator::OpFailureScope::kDefault;
 
@@ -598,8 +598,9 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     assert(merge_context_.GetNumOperands() >= 1);
     assert(merge_context_.GetNumOperands() == keys_.size());
     std::string merge_result;
-    ValueType merge_result_type;
-    MergeOperator::OpFailureScope op_failure_scope;
+    ValueType merge_result_type = kTypeValue;
+    MergeOperator::OpFailureScope op_failure_scope =
+        MergeOperator::OpFailureScope::kDefault;
     s = TimedFullMerge(user_merge_operator_, orig_ikey.user_key, kNoBaseValue,
                        merge_context_.GetOperands(), logger_, stats_, clock_,
                        /* update_num_ops_stats */ false, &op_failure_scope,
