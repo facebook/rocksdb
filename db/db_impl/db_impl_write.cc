@@ -358,6 +358,7 @@ Status DBImpl::IngestWBWIAsMemtable(
 
   // Switch memtable and add WBWIMemTables
   Status s;
+  TEST_SYNC_POINT("DBImpl::IngestWBWIAsMemtable:BeforeSwitchMemtable");
   for (size_t i = 0; i < cfds.size(); ++i) {
     WriteContext write_context;
     // TODO: not switch on empty memtable, may need to update metadata
@@ -390,6 +391,8 @@ Status DBImpl::IngestWBWIAsMemtable(
       break;
     }
   }
+  TEST_SYNC_POINT_CALLBACK("DBImpl::IngestWBWIAsMemtable:AfterSwitchMemtable",
+                           &s);
   for (size_t i = 0; i < cfds.size(); ++i) {
     if (cfds[i]->UnrefAndTryDelete()) {
       cfds[i] = nullptr;
@@ -1257,6 +1260,15 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                                /*memtable_updated=*/memtable_update_count > 0,
                                write_options.ignore_missing_column_families);
       RecordTick(stats_, NUMBER_WBWI_INGEST);
+      if (!status.ok()) {
+        // IngestWBWIAsMemtable failed but WAL write (w.status) succeeded.
+        // The commit marker is already in the WAL and will be replayed
+        // during recovery, consuming sequence numbers up to last_sequence.
+        // We must advance LastSequence to prevent subsequent writes from
+        // reusing these sequence numbers, which would cause "sequence
+        // number set backwards" corruption during recovery.
+        versions_->SetLastSequence(last_sequence);
+      }
     }
   }
 

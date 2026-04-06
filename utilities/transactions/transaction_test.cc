@@ -9636,6 +9636,81 @@ TEST_P(CommitBypassMemtableTest, AtomicFlushTest) {
   }
 }
 
+TEST_P(CommitBypassMemtableTest, IngestWBWIFailureAdvancesSeqno) {
+  // Test that when IngestWBWIAsMemtable fails after commit marker is written
+  // to WAL, LastSequence is still advanced to prevent "sequence number set
+  // backwards" corruption during recovery.
+  //
+  // This reproduces the bug from T261950675.
+  SetUpTransactionDB();
+
+  // Step 1: Initial write to establish some sequence numbers
+  WriteOptions wo;
+  ASSERT_OK(db_->Put(wo, "k0", "v0"));
+
+  // Step 2: Prepare a transaction with commit_bypass_memtable
+  TransactionOptions to;
+  to.commit_bypass_memtable = true;
+  auto* txn = txn_db->BeginTransaction(wo, to);
+  ASSERT_OK(txn->SetName("xid1"));
+  for (int i = 0; i < 5; i++) {
+    ASSERT_OK(txn->Put("key" + std::to_string(i), "val" + std::to_string(i)));
+  }
+  ASSERT_OK(txn->Prepare());
+
+  // Step 3: Use SyncPoint to override IngestWBWIAsMemtable's status AFTER
+  // SwitchMemtable succeeds. This simulates a scenario where the commit marker
+  // is written to WAL and SwitchMemtable runs, but IngestWBWI reports failure.
+  // No bg_error is set (SwitchMemtable succeeded), but WriteImpl sees non-OK
+  // status and (before the fix) skips SetLastSequence.
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::IngestWBWIAsMemtable:AfterSwitchMemtable", [](void* arg) {
+        auto* s = static_cast<Status*>(arg);
+        *s = Status::IOError("Injected IngestWBWI failure");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Step 4: Commit should fail because IngestWBWI returns non-OK
+  Status s = txn->Commit();
+  ASSERT_NOK(s);
+  delete txn;
+
+  // Step 5: Clear SyncPoint
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Step 6: Do another write. Before the fix, this would use stale
+  // LastSequence, writing to WAL with a sequence number that's lower
+  // than what the commit marker consumed. With the fix, LastSequence
+  // was properly advanced.
+  ASSERT_OK(db_->Put(wo, "k1", "v1"));
+
+  // Step 7: Close and reopen
+  std::string db_name = dbname_;
+  db_.reset();
+
+  // Step 8: Reopen. Before the fix, this would fail with:
+  // "Corruption: Sequence number is being set backwards"
+  TransactionDB* reopen_db = nullptr;
+  ASSERT_OK(TransactionDB::Open(options, txn_db_opts, db_name, &reopen_db));
+
+  // Verify data
+  std::string value;
+  ASSERT_OK(reopen_db->Get(ReadOptions(), "k0", &value));
+  ASSERT_EQ(value, "v0");
+  ASSERT_OK(reopen_db->Get(ReadOptions(), "k1", &value));
+  ASSERT_EQ(value, "v1");
+  // Committed transaction data should also be recovered from WAL
+  for (int i = 0; i < 5; i++) {
+    ASSERT_OK(
+        reopen_db->Get(ReadOptions(), "key" + std::to_string(i), &value));
+    ASSERT_EQ(value, "val" + std::to_string(i));
+  }
+
+  db_.reset(reopen_db);
+  txn_db = reopen_db;
+}
+
 TEST_P(CommitBypassMemtableTest, MergeAndMultiCF) {
   // disable_flush allows testing Get path with memtables.
   for (bool disable_flush : {false, true}) {
