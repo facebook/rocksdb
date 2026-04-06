@@ -310,15 +310,16 @@ Status DBImpl::IngestWBWIAsMemtable(
           std::to_string(cf_id));
       if (memtable_updated) {
         s = Status::Corruption(
-            "Part of the write batch is applied. Memtable is in a inconsistent "
-            "state. " +
+            "Part of the write batch is applied. Memtable is in an "
+            "inconsistent state due to invalid column family. " +
             s.ToString());
         error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
       } else if (ingest_wbwi_for_commit) {
         s = Status::Corruption(
             "Commit marker is durable in WAL, but publishing committed WBWI "
-            "data to memtable failed. This DB instance cannot safely resume; "
-            "close and reopen the DB for WAL recovery. " +
+            "data to memtable failed due to invalid column family. This DB "
+            "instance cannot safely resume; close and reopen the DB for WAL "
+            "recovery. " +
             s.ToString());
         error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
       }
@@ -383,15 +384,16 @@ Status DBImpl::IngestWBWIAsMemtable(
       if (i != 0 || memtable_updated) {
         // escalate error to non-recoverable
         s = Status::Corruption(
-            "Part of the write batch is applied. Memtable is in a inconsistent "
-            "state. " +
+            "Part of the write batch is applied. Memtable is in an "
+            "inconsistent state due to SwitchMemtable failure. " +
             s.ToString());
         error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
       } else if (ingest_wbwi_for_commit) {
         s = Status::Corruption(
             "Commit marker is durable in WAL, but publishing committed WBWI "
-            "data to memtable failed. This DB instance cannot safely resume; "
-            "close and reopen the DB for WAL recovery. " +
+            "data to memtable failed due to SwitchMemtable failure. This DB "
+            "instance cannot safely resume; close and reopen the DB for WAL "
+            "recovery. " +
             s.ToString());
         error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
       } else {
@@ -1269,7 +1271,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           wbwi, {/*lower_bound=*/lb, /*upper_bound=*/ub},
           /*min_prep_log=*/log_ref, last_sequence,
           /*memtable_updated=*/memtable_update_count > 0,
-          /*ingest_wbwi_for_commit=*/
           ingest_wbwi_for_commit, write_options.ignore_missing_column_families);
       RecordTick(stats_, NUMBER_WBWI_INGEST);
     }

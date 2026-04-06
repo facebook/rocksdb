@@ -1558,6 +1558,8 @@ class DBImpl : public DB {
   // @param ingest_wbwi_for_commit Whether wbwi ingestion is publishing the
   // committed data of a prepared transaction. This means a failure can leave
   // committed data durable in WAL but not published in memtables.
+  // @param ignore_missing_cf If true, skip column families not found in the DB
+  // instead of returning an error.
   Status IngestWBWIAsMemtable(std::shared_ptr<WriteBatchWithIndex> wbwi,
                               const WBWIMemTable::SeqnoRange& assigned_seqno,
                               uint64_t min_prep_log, SequenceNumber last_seqno,
