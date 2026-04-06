@@ -1483,6 +1483,12 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("read_triggered_compaction_threshold", 0) > 0:
         dest_params["max_compaction_trigger_wakeup_seconds"] = 20
 
+    # Batch/snapshot stress relies on WAL-backed recovery semantics. Keep it
+    # off for every finalized WAL-disabled profile, including blob direct
+    # write presets that force disable_wal=1 earlier in sanitization.
+    if dest_params.get("disable_wal", 0) == 1:
+        dest_params["test_batches_snapshots"] = 0
+
     return dest_params
 
 
