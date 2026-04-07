@@ -1734,6 +1734,10 @@ Status DBImpl::WriteImplWALOnly(
     }
   }
   if (status.ok()) {
+    // Write trace  after WAL right. This ensures the replayer does not replay a
+    // record that has not been recorded in the DB. However, it is not a full
+    // solution as a crash may still happen before the trace write and after the
+    // WAL write. TODO: Atomically write WAL and trace.
     MaybeTraceWriteGroupForPreservedWriteOrder(write_group);
   }
   PERF_TIMER_START(write_pre_and_post_process_time);
