@@ -1169,6 +1169,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       }
     }
 
+    if (status.ok()) {
+      MaybeTraceWriteGroupForPreservedWriteOrder(write_group, wbwi.get(),
+                                                 ingest_wbwi_for_commit);
+    }
+
     // PreReleaseCallback is called after WAL write and before memtable write
     if (status.ok()) {
       SequenceNumber next_sequence = current_sequence;
@@ -1300,8 +1305,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       // Note: if we are to resume after non-OK statuses we need to revisit how
       // we react to non-OK statuses here.
       if (w.status.ok()) {  // Don't publish a partial batch write
-        MaybeTraceWriteGroupForPreservedWriteOrder(write_group, wbwi.get(),
-                                                   ingest_wbwi_for_commit);
         versions_->SetLastSequence(last_sequence);
       }
     }
@@ -1435,6 +1438,9 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       const ReadOptions read_options;
       w.status = ApplyWALToManifest(read_options, write_options, &synced_wals);
     }
+    if (w.status.ok()) {
+      MaybeTraceWriteGroupForPreservedWriteOrder(wal_write_group);
+    }
     write_thread_.ExitAsBatchGroupLeader(wal_write_group, w.status);
   }
 
@@ -1459,7 +1465,6 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
           seq_per_batch_, batch_per_txn_);
       if (memtable_write_group.status
               .ok()) {  // Don't publish a partial batch write
-        MaybeTraceWriteGroupForPreservedWriteOrder(memtable_write_group);
         versions_->SetLastSequence(memtable_write_group.last_sequence);
       } else {
         HandleMemTableInsertFailure(memtable_write_group.status);
@@ -1493,7 +1498,6 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
 
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {
       if (w.status.ok()) {  // Don't publish a partial batch write
-        MaybeTraceWriteGroupForPreservedWriteOrder(*w.write_group);
         versions_->SetLastSequence(w.write_group->last_sequence);
       } else {
         HandleMemTableInsertFailure(w.status);
@@ -1729,6 +1733,13 @@ Status DBImpl::WriteImplWALOnly(
       status = SyncWAL();
     }
   }
+  if (status.ok()) {
+    // Write trace  after WAL right. This ensures the replayer does not replay a
+    // record that has not been recorded in the DB. However, it is not a full
+    // solution as a crash may still happen before the trace write and after the
+    // WAL write. TODO: Atomically write WAL and trace.
+    MaybeTraceWriteGroupForPreservedWriteOrder(write_group);
+  }
   PERF_TIMER_START(write_pre_and_post_process_time);
 
   if (!w.CallbackFailed()) {
@@ -1748,9 +1759,6 @@ Status DBImpl::WriteImplWALOnly(
         }
       }
     }
-  }
-  if (status.ok()) {
-    MaybeTraceWriteGroupForPreservedWriteOrder(write_group);
   }
   if (publish_last_seq == kDoPublishLastSeq) {
     versions_->SetLastSequence(last_sequence + seq_inc);
