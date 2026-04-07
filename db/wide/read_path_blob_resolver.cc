@@ -82,9 +82,9 @@ Status ReadPathBlobResolver::ResolveColumn(size_t column_index,
           constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
           constexpr uint64_t* bytes_read = nullptr;
 
-          status = blob_fetcher_.FetchBlob(user_key_, blob_index,
-                                           prefetch_buffer,
-                                           new_entry.second.get(), bytes_read);
+          status =
+              blob_fetcher_.FetchBlob(user_key_, blob_index, prefetch_buffer,
+                                      new_entry.second.get(), bytes_read);
           if (!status.ok()) {
             resolved_cache_.pop_back();
           } else {

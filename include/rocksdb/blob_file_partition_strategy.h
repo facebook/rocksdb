@@ -45,6 +45,10 @@ class BlobFilePartitionStrategy {
   // that entity. The default behavior delegates to the plain-value overload
   // using the default column value when present, otherwise the first column
   // value, or an empty Slice for an empty entity.
+  //
+  // Derived classes that override only the Slice-based overload should add
+  // `using BlobFilePartitionStrategy::SelectPartition;` so this overload
+  // remains visible.
   virtual uint32_t SelectPartition(uint32_t num_partitions,
                                    uint32_t column_family_id, const Slice& key,
                                    const WideColumns& columns) {

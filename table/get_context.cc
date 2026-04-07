@@ -143,9 +143,8 @@ Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
   std::vector<WideColumn> entity_columns;
   std::vector<std::pair<size_t, BlobIndex>> blob_cols;
   Slice entity_ref = entity;
-  Status status = WideColumnSerialization::DeserializeV2(entity_ref,
-                                                         entity_columns,
-                                                         blob_cols);
+  Status status = WideColumnSerialization::DeserializeV2(
+      entity_ref, entity_columns, blob_cols);
   if (status.ok()) {
     if (LIKELY(blob_cols.empty())) {
       return columns_->SetWideColumnValue(entity, value_pinner);

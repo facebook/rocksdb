@@ -2209,12 +2209,13 @@ class WideColumnEntityBlobGCTest : public testing::Test {
   }
 
   // Run compaction with blob GC enabled
-  void RunCompactionWithBlobGC(const std::vector<std::string>& input_keys,
-                               const std::vector<std::string>& input_values,
-                               uint64_t gc_cutoff_file_number,
-                               uint64_t min_blob_size,
-                               std::vector<std::string>* output_keys,
-                               std::vector<std::string>* output_values) {
+  void RunCompactionWithBlobGC(
+      const std::vector<std::string>& input_keys,
+      const std::vector<std::string>& input_values,
+      uint64_t gc_cutoff_file_number, uint64_t min_blob_size,
+      std::vector<std::string>* output_keys,
+      std::vector<std::string>* output_values,
+      const CompactionFilter* compaction_filter = nullptr) {
     // Set up options with blob files enabled
     Options options;
     options.cf_paths.emplace_back(
@@ -2285,7 +2286,7 @@ class WideColumnEntityBlobGCTest : public testing::Test {
         blob_file_builder.get(), true /*allow_data_in_errors*/,
         true /*enforce_single_del_contracts*/, manual_compaction_canceled,
         std::move(fake_compaction), false /*must_count_input_entries*/,
-        nullptr /*compaction_filter*/, &shutting_down);
+        compaction_filter, &shutting_down);
 
     c_iter.SeekToFirst();
     while (c_iter.Valid()) {
@@ -2626,6 +2627,33 @@ class KeepAllCompactionFilter : public CompactionFilter {
   const char* Name() const override { return "KeepAllCompactionFilter"; }
 };
 
+class DropKeyKeepRestCompactionFilter : public CompactionFilter {
+ public:
+  explicit DropKeyKeepRestCompactionFilter(std::string dropped_key)
+      : dropped_key_(std::move(dropped_key)) {}
+
+  Decision FilterV4(
+      int /*level*/, const Slice& key, ValueType value_type,
+      const Slice* /*existing_value*/, const WideColumns* /*existing_columns*/,
+      std::string* /*new_value*/,
+      std::vector<std::pair<std::string, std::string>>* /*new_columns*/,
+      std::string* /*skip_until*/,
+      WideColumnBlobResolver* /*blob_resolver*/) const override {
+    if (value_type == ValueType::kWideColumnEntity && key == dropped_key_) {
+      return Decision::kRemove;
+    }
+    return Decision::kKeep;
+  }
+
+  bool SupportsFilterV4() const override { return true; }
+  const char* Name() const override {
+    return "DropKeyKeepRestCompactionFilter";
+  }
+
+ private:
+  std::string dropped_key_;
+};
+
 // Test that when a compaction filter is active and returns kKeep for a
 // wide column entity with blob columns, PrepareOutput skips redundant
 // deserialization (since InvokeFilterIfNeeded already deserialized it).
@@ -2693,6 +2721,71 @@ TEST_F(WideColumnEntityBlobGCTest,
   // (deserialize_count == 1).
   ASSERT_EQ(deserialize_count, 0);
   ASSERT_EQ(skip_count, 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+// Test that state from a dropped blob-backed entity does not leak into the
+// next entity processed within the same NextFromInput() loop iteration.
+TEST_F(WideColumnEntityBlobGCTest,
+       EntityDeserializedStateResetAfterDroppedEntity) {
+  const std::string dropped_key = "drop_key";
+  const std::string kept_key = "keep_key";
+  const std::string kept_large_value(128, 'K');
+
+  const std::string dropped_entity = CreateEntityWithBlobIndices(
+      {{"alpha", "small"}, {"zeta", std::string(128, 'D')}},
+      {{1 /*col_idx*/, 5 /*file_number*/, 0 /*offset*/, 128 /*size*/}});
+  const std::string kept_entity = CreateEntityWithBlobIndices(
+      {{"alpha", kept_large_value}, {"zeta", "inline"}}, {});
+
+  std::vector<std::string> input_keys = {
+      test::KeyStr(dropped_key, 10, kTypeWideColumnEntity),
+      test::KeyStr(kept_key, 9, kTypeWideColumnEntity)};
+  std::vector<std::string> input_values = {dropped_entity, kept_entity};
+
+  int deserialize_count = 0;
+  int skip_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::PrepareOutput:DeserializeEntity",
+      [&](void*) { ++deserialize_count; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::PrepareOutput:SkipDeserializeEntity",
+      [&](void*) { ++skip_count; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  DropKeyKeepRestCompactionFilter filter(dropped_key);
+  std::vector<std::string> output_keys;
+  std::vector<std::string> output_values;
+  RunCompactionWithBlobGC(input_keys, input_values,
+                          /*gc_cutoff_file_number=*/5,
+                          /*min_blob_size=*/100, &output_keys, &output_values,
+                          &filter);
+
+  ASSERT_EQ(1, output_keys.size());
+  ASSERT_EQ(1, output_values.size());
+  ASSERT_EQ(deserialize_count, 1);
+  ASSERT_EQ(skip_count, 0);
+
+  ParsedInternalKey ikey;
+  ASSERT_OK(ParseInternalKey(output_keys[0], &ikey, true));
+  ASSERT_EQ(ikey.user_key.ToString(), kept_key);
+  ASSERT_EQ(ikey.type, kTypeWideColumnEntity);
+
+  Slice value_slice(output_values[0]);
+  std::vector<WideColumn> output_columns;
+  std::vector<std::pair<size_t, BlobIndex>> output_blob_columns;
+  ASSERT_OK(WideColumnSerialization::DeserializeV2(value_slice, output_columns,
+                                                   output_blob_columns));
+
+  ASSERT_EQ(2, output_columns.size());
+  ASSERT_EQ("alpha", output_columns[0].name().ToString());
+  ASSERT_EQ("zeta", output_columns[1].name().ToString());
+  ASSERT_EQ("inline", output_columns[1].value().ToString());
+  ASSERT_EQ(1, output_blob_columns.size());
+  ASSERT_EQ(0U, output_blob_columns[0].first);
+  ASSERT_EQ(kept_large_value.size(), output_blob_columns[0].second.size());
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();

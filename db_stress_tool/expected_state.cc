@@ -561,10 +561,10 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
       bool should_buffer_write = !(buffered_writes_ == nullptr);
       if (should_buffer_write) {
-        MaybeLogKeyOperation(
-            "PutCF", column_family_id, true /* buffered */, key_info,
-            "value_base=" + std::to_string(value_base) +
-                " value_size=" + std::to_string(value.size()));
+        MaybeLogKeyOperation("PutCF", column_family_id, true /* buffered */,
+                             key_info,
+                             "value_base=" + std::to_string(value_base) +
+                                 " value_size=" + std::to_string(value.size()));
         return WriteBatchInternal::Put(buffered_writes_.get(), column_family_id,
                                        key, value);
       }
@@ -575,11 +575,11 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
       const ExpectedValue after =
           state_->Get(column_family_id, expected_key_id);
       NoteWriteOpApplied();
-      MaybeLogKeyOperation(
-          "PutCF", column_family_id, false /* buffered */, key_info,
-          "value_base=" + std::to_string(value_base) +
-              " value_size=" + std::to_string(value.size()),
-          &before, &after);
+      MaybeLogKeyOperation("PutCF", column_family_id, false /* buffered */,
+                           key_info,
+                           "value_base=" + std::to_string(value_base) +
+                               " value_size=" + std::to_string(value.size()),
+                           &before, &after);
       status = Status::OK();
     }
     return status;
@@ -693,8 +693,8 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
       bool should_buffer_write = !(buffered_writes_ == nullptr);
       if (should_buffer_write) {
-        MaybeLogKeyOperation(
-            "DeleteCF", column_family_id, true /* buffered */, key_info, "");
+        MaybeLogKeyOperation("DeleteCF", column_family_id, true /* buffered */,
+                             key_info, "");
         return WriteBatchInternal::Delete(buffered_writes_.get(),
                                           column_family_id, key);
       }

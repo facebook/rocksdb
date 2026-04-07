@@ -576,9 +576,10 @@ class CompactionIterator {
   // Reusable blob resolver for compaction filter, avoiding per-key heap
   // allocation. Init() is called once; Reset() is called per entity.
   CompactionBlobResolver blob_resolver_;
-  // True when entity_columns_/entity_blob_columns_ are already populated
-  // (e.g., by InvokeFilterIfNeeded) and PrepareOutput can skip
-  // re-deserialization. Reset when the filter changes the entity value.
+  // True when entity_columns_/entity_blob_columns_ already describe the
+  // current input record (e.g., because InvokeFilterIfNeeded() deserialized
+  // it) and PrepareOutput() can skip redundant work. Reset for each candidate
+  // input record and whenever the filter rewrites the entity value.
   bool entity_deserialized_{false};
   // "level_ptrs" holds indices that remember which file of an associated
   // level we were last checking during the last call to compaction->

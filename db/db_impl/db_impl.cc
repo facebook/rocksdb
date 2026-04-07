@@ -2617,8 +2617,8 @@ static Status DecodeDirectWriteBlobIndex(const Slice& blob_index_slice,
 
   Status status = blob_idx->DecodeFrom(blob_index_slice);
   if (status.ok() && blob_idx->HasTTL()) {
-    status = Status::Corruption(
-        "Unexpected TTL blob index for blob direct write");
+    status =
+        Status::Corruption("Unexpected TTL blob index for blob direct write");
   }
   return status;
 }

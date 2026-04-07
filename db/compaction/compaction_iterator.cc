@@ -415,9 +415,10 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
       // heap allocations. Cleared at start of each use.
       entity_columns_.clear();
       entity_blob_columns_.clear();
-      // Storage for eagerly resolved blob values (FilterV3 compat path).
-      // Must outlive filter_existing_columns_ which holds Slices into this
-      // data.
+      // Storage for eagerly resolved blob values used by the FilterV3
+      // compatibility path. Keep this in the same scope as the FilterV4()
+      // invocation below because filter_existing_columns_ stores Slices into
+      // these buffers.
       autovector<PinnableSlice, 4> resolved_blobs_storage;
 
       if (ikey_.type != kTypeWideColumnEntity) {
@@ -521,6 +522,9 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
         existing_col = &filter_existing_columns_;
       }
 
+      // existing_val / existing_col point into value_, blob_value_,
+      // entity_columns_, and resolved_blobs_storage, all of which stay alive
+      // until this call returns.
       decision = compaction_filter_->FilterV4(
           level_, filter_key, value_type, existing_val, existing_col,
           &compaction_filter_value_, &new_columns,
@@ -646,6 +650,10 @@ void CompactionIterator::NextFromInput() {
 
   while (!Valid() && input_.Valid() && !IsPausingManualCompaction() &&
          !IsShuttingDown()) {
+    // A filtered-out key can advance directly to the next input record without
+    // returning to PrepareOutput(), so clear the per-record deserialization
+    // cache at the start of each loop iteration.
+    entity_deserialized_ = false;
     key_ = input_.key();
     value_ = input_.value();
     blob_value_.Reset();

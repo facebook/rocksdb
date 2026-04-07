@@ -22,6 +22,7 @@
 #include "db/dbformat.h"
 #include "db/wide/wide_column_test_util.h"
 #include "db/write_batch_internal.h"
+#include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "util/string_util.h"
@@ -1745,6 +1746,42 @@ TEST_F(DBBlobIndexTest, EntityBlobFilterV3BackwardCompatibility) {
   // BlobIndex bytes. BlobIndex bytes would be much shorter than the original
   // value.
   ASSERT_EQ(observed_large_col_value, large_value);
+}
+
+TEST_F(DBBlobIndexTest, EntityBlobFilterV3MissingBlobFailsCompaction) {
+  std::atomic<int> filter_call_count{0};
+  std::string observed_large_col_value;
+
+  Options options = GetBlobTestOptions();
+  options.enable_blob_garbage_collection = false;
+  options.compaction_filter_factory =
+      std::make_shared<FilterV3OnlyEntityFilterFactory>(
+          &filter_call_count, &observed_large_col_value);
+
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "missing_blob_key";
+  const std::string large_value(10 * 1024, 'L');
+  WideColumns columns{{"large_col", large_value}, {"small_col", "small"}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  const auto blob_files = GetBlobFileNumbers();
+  ASSERT_EQ(blob_files.size(), 1U);
+  ASSERT_OK(env_->DeleteFile(BlobFileName(dbname_, blob_files.front())));
+
+  const Status status =
+      db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_FALSE(status.ok()) << "Compaction should fail when a FilterV3-only "
+                               "filter cannot eagerly resolve a blob-backed "
+                               "entity";
+  ASSERT_TRUE(status.IsCorruption() || status.IsIOError() ||
+              status.IsNotFound())
+      << status.ToString();
+  ASSERT_EQ(filter_call_count.load(), 0);
+  ASSERT_TRUE(observed_large_col_value.empty());
 }
 
 // FilterV3-only filter that removes entities with blob columns.
