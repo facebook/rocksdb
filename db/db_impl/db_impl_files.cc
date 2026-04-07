@@ -696,7 +696,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
         if (!keep) {
           const std::string blob_file_path =
               BlobFileName(candidate_file.file_path, number);
-          if (ShouldKeepBlobFileForPurge(number, blob_file_path)) {
+          if (ShouldKeepBlobFileDuringPurge(number, blob_file_path)) {
             keep = true;
             break;
           }
@@ -861,8 +861,8 @@ void DBImpl::DeleteObsoleteFiles() {
   mutex_.Lock();
 }
 
-bool DBImpl::ShouldKeepBlobFileForPurge(uint64_t number,
-                                        const std::string& blob_file_path) {
+bool DBImpl::ShouldKeepBlobFileDuringPurge(
+    uint64_t number, const std::string& blob_file_path) {
   {
     InstrumentedMutexLock lock(&mutex_);
     for (auto* cfd : *versions_->GetColumnFamilySet()) {

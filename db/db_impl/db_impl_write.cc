@@ -688,6 +688,8 @@ Status DBImpl::PutEntityFastPath(const WriteOptions& write_options,
     needs_trace_batch = tracer_ != nullptr;
   }
   if (needs_trace_batch) {
+    // Keep tracing on the original logical `PutEntity()` op. The applied batch
+    // can stay empty here and be materialized later inside `WriteImpl()`.
     trace_batch = std::make_unique<WriteBatch>(
         /*reserved_bytes=*/0, /*max_bytes=*/0,
         /*protection_bytes_per_key=*/0, default_cf_ucmp->timestamp_size());
@@ -740,6 +742,8 @@ Status DBImpl::PutEntityFastPath(const WriteOptions& write_options,
     needs_trace_batch = tracer_ != nullptr;
   }
   if (needs_trace_batch) {
+    // Keep tracing on the original logical `PutEntity()` op. The applied batch
+    // can stay empty here and be materialized later inside `WriteImpl()`.
     trace_batch = std::make_unique<WriteBatch>(
         /*reserved_bytes=*/0, /*max_bytes=*/0,
         /*protection_bytes_per_key=*/0, default_cf_ucmp->timestamp_size());
@@ -803,6 +807,8 @@ Status DBImpl::WritePreprocessedPutEntityBatch(
     PutEntityFastPathWriteCallback no_batching_callback;
     WriteCallback* callback =
         deferred_put_entities != nullptr ? &no_batching_callback : nullptr;
+    // Pass the logical trace batch separately since `batch` may be rebuilt in
+    // `WriteImpl()` after `PreprocessWrite()` selects the target generation.
     s = WriteImpl(write_options, batch, callback,
                   /*user_write_cb=*/nullptr,
                   /*wal_used=*/nullptr, /*log_ref=*/0,
@@ -862,6 +868,8 @@ void DBImpl::MaybeTraceWriteGroupForPreservedWriteOrder(
         WriteBatch* trace_batch = wbwi_trace_batch != nullptr
                                       ? wbwi_trace_batch
                                       : writer->trace_batch;
+        // Preserve user-visible ordering while still tracing the logical batch
+        // for writers whose applied batch was rewritten earlier on the path.
         // TODO: maybe handle the tracing status?
         tracer_->Write(trace_batch).PermitUncheckedError();
       }
@@ -927,6 +935,9 @@ Status DBImpl::WriteImpl(
   }
   WriteBatch* trace_batch =
       trace_batch_override != nullptr ? trace_batch_override : my_batch;
+  // Non-preserved-order tracing runs before the write joins a group, so choose
+  // the logical batch here. Preserved-order tracing later uses
+  // `Writer::trace_batch` on each grouped writer.
 
   // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
   // grabs but does not seem thread-safe.

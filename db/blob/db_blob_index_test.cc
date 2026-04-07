@@ -117,13 +117,13 @@ class DBBlobIndexTest : public DBTestBase {
         true /*expose_blob_index*/);
   }
 
-  bool MaybeResolveWritePathValueForTest(
+  bool MaybeResolveDirectWriteValueForTest(
       const ReadOptions& read_options, const Slice& key,
-      bool resolve_write_path_value, const Version* current,
+      bool resolve_direct_write_value, const Version* current,
       PinnableSlice* value, PinnableWideColumns* columns, Status* s,
       bool* is_blob_index, bool* value_found = nullptr) {
-    return DBImpl::MaybeResolveWritePathValue(
-        read_options, key, resolve_write_path_value, current, cfd(), value,
+    return DBImpl::MaybeResolveDirectWriteValue(
+        read_options, key, resolve_direct_write_value, current, cfd(), value,
         columns, s, is_blob_index, value_found);
   }
 
@@ -243,7 +243,7 @@ TEST_F(DBBlobIndexTest, Get) {
 }
 
 TEST_F(DBBlobIndexTest,
-       MaybeResolveWritePathValueDecodesPinnedBlobIndexBeforeReset) {
+       MaybeResolveDirectWriteValueDecodesPinnedBlobIndexBeforeReset) {
   DestroyAndReopen(GetTestOptions());
 
   std::string blob_index;
@@ -256,8 +256,8 @@ TEST_F(DBBlobIndexTest,
 
   Status s = Status::OK();
   bool is_blob_index = true;
-  ASSERT_TRUE(MaybeResolveWritePathValueForTest(
-      ReadOptions(), Slice("key"), /*resolve_write_path_value=*/true,
+  ASSERT_TRUE(MaybeResolveDirectWriteValueForTest(
+      ReadOptions(), Slice("key"), /*resolve_direct_write_value=*/true,
       /*current=*/nullptr, &value, /*columns=*/nullptr, &s, &is_blob_index));
 
   ASSERT_FALSE(s.IsCorruption()) << s.ToString();
