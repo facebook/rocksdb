@@ -896,6 +896,15 @@ def finalize_and_sanitize(src_params):
         else:
             dest_params["mock_direct_io"] = True
 
+    # Blob direct write requires concurrent read visibility of files still open
+    # for writing (BlobFileReader calls GetFileSize() on active partition files).
+    # Remote file systems such as Warm Storage do not guarantee that writes from
+    # a WritableFile are visible to a separate RandomAccessFile until the writer
+    # is closed, causing "Malformed blob file" corruption.  Disable BDW when a
+    # remote --env_uri / --fs_uri is in use.
+    if is_remote_db:
+        dest_params["enable_blob_direct_write"] = 0
+
     if dest_params.get("enable_blob_direct_write", 0) == 1:
         # Keep blob direct write in its reduced-scope v1 profile.
         #
