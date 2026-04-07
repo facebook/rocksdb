@@ -481,9 +481,7 @@ class DBIter final : public Iterator {
   bool SetValueAndColumnsFromMergeResult(const Status& merge_status,
                                          ValueType result_type);
 
-  void ResetValueAndColumns() {
-    value_columns_state_.Reset();
-  }
+  void ResetValueAndColumns() { value_columns_state_.Reset(); }
 
   void ResetBlobData() {
     blob_reader_.ResetBlobValue();

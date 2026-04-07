@@ -20,9 +20,10 @@ Status BlobGarbageMeter::ProcessOutFlow(const Slice& key, const Slice& value) {
   return ProcessFlow(key, value, /*is_inflow=*/false);
 }
 
-Status BlobGarbageMeter::GetBlobReferenceDetails(
-    const ParsedInternalKey& ikey, const BlobIndex& blob_index,
-    uint64_t* blob_file_number, uint64_t* bytes) {
+Status BlobGarbageMeter::GetBlobReferenceDetails(const ParsedInternalKey& ikey,
+                                                 const BlobIndex& blob_index,
+                                                 uint64_t* blob_file_number,
+                                                 uint64_t* bytes) {
   assert(blob_file_number);
   assert(*blob_file_number == kInvalidBlobFileNumber);
   assert(bytes);
@@ -119,8 +120,8 @@ Status BlobGarbageMeter::ProcessEntityBlobReferences(
       value, [&](const BlobIndex& blob_index) -> Status {
         uint64_t file_number = kInvalidBlobFileNumber;
         uint64_t blob_bytes = 0;
-        if (const Status s = GetBlobReferenceDetails(
-                ikey, blob_index, &file_number, &blob_bytes);
+        if (const Status s = GetBlobReferenceDetails(ikey, blob_index,
+                                                     &file_number, &blob_bytes);
             !s.ok()) {
           return s;
         }

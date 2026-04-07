@@ -18,8 +18,8 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics_impl.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/status.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/status.h"
 #include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -117,9 +117,8 @@ Status GetContext::SaveWideColumnEntityToPinnable(const Slice& user_key,
   // returns NotSupported only when the default column is a blob reference.
   Slice value_of_default;
   Slice entity_ref = entity;
-  Status s =
-      WideColumnSerialization::GetValueOfDefaultColumn(entity_ref,
-                                                       value_of_default);
+  Status s = WideColumnSerialization::GetValueOfDefaultColumn(entity_ref,
+                                                              value_of_default);
   if (s.ok()) {
     if (LIKELY(value_pinner != nullptr)) {
       pinnable_val_->PinSlice(value_of_default, value_pinner);
@@ -171,10 +170,9 @@ Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
       continue;
     }
 
-    s = blob_fetcher_->FetchBlob(user_key, blob_idx,
-                                 nullptr /* prefetch_buffer */,
-                                 &resolved_blob_values[bi],
-                                 nullptr /* bytes_read */);
+    s = blob_fetcher_->FetchBlob(
+        user_key, blob_idx, nullptr /* prefetch_buffer */,
+        &resolved_blob_values[bi], nullptr /* bytes_read */);
     if (!s.ok()) {
       return s;
     }

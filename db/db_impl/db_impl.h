@@ -2917,16 +2917,19 @@ class DBImpl : public DB {
   // Resolves a plain value whose current payload is an encoded direct-write
   // blob index, either through `value` directly or through the default-column
   // view layered on `columns`.
-  static Status ResolveDirectWritePlainValue(
-      const ReadOptions& read_options, const Slice& key,
-      const Version* current, ColumnFamilyData* cfd, PinnableSlice* value,
-      PinnableWideColumns* columns);
+  static Status ResolveDirectWritePlainValue(const ReadOptions& read_options,
+                                             const Slice& key,
+                                             const Version* current,
+                                             ColumnFamilyData* cfd,
+                                             PinnableSlice* value,
+                                             PinnableWideColumns* columns);
   // Resolves each unresolved direct-write blob-valued column in `columns` and
   // rebuilds the serialized wide-column entity in place.
-  static Status ResolveDirectWriteWideColumns(
-      const ReadOptions& read_options, const Slice& key,
-      const Version* current, ColumnFamilyData* cfd,
-      PinnableWideColumns* columns);
+  static Status ResolveDirectWriteWideColumns(const ReadOptions& read_options,
+                                              const Slice& key,
+                                              const Version* current,
+                                              ColumnFamilyData* cfd,
+                                              PinnableWideColumns* columns);
   // Dispatches between plain-value and wide-column direct-write resolution for
   // read results observed before flush makes the corresponding blob file
   // visible through normal Version metadata.

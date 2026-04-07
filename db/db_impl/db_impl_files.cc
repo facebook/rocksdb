@@ -861,8 +861,8 @@ void DBImpl::DeleteObsoleteFiles() {
   mutex_.Lock();
 }
 
-bool DBImpl::ShouldKeepBlobFileDuringPurge(
-    uint64_t number, const std::string& blob_file_path) {
+bool DBImpl::ShouldKeepBlobFileDuringPurge(uint64_t number,
+                                           const std::string& blob_file_path) {
   {
     InstrumentedMutexLock lock(&mutex_);
     for (auto* cfd : *versions_->GetColumnFamilySet()) {

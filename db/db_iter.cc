@@ -363,7 +363,8 @@ bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
   // Guard: if slice already aliases that saved buffer (e.g., when called from
   // SetValueAndColumnsFromMergeResult), skip the redundant copy to
   // avoid self-aliased std::string::assign (undefined behavior).
-  if (slice.data() != saved_value.data() || slice.size() != saved_value.size()) {
+  if (slice.data() != saved_value.data() ||
+      slice.size() != saved_value.size()) {
     saved_value.assign(slice.data(), slice.size());
   }
 
@@ -429,9 +430,8 @@ bool DBIter::MaterializeLazyEntityColumns() const {
 
   for (const auto& blob_col : state.lazy_blob_columns()) {
     Slice resolved_value;
-    const Status s =
-        mutable_state.entity_blob_resolver().ResolveColumn(blob_col.first,
-                                                           &resolved_value);
+    const Status s = mutable_state.entity_blob_resolver().ResolveColumn(
+        blob_col.first, &resolved_value);
     if (!s.ok()) {
       mutable_this->status_ = s;
       mutable_this->valid_ = false;
@@ -465,9 +465,9 @@ bool DBIter::SetValueAndColumnsFromMergeResult(const Status& merge_status,
   }
 
   assert(result_type == kTypeValue);
-  SetValueAndColumnsFromPlain(pinned_value_.data() ? pinned_value_
-                                                   : value_columns_state_
-                                                         .saved_value());
+  SetValueAndColumnsFromPlain(pinned_value_.data()
+                                  ? pinned_value_
+                                  : value_columns_state_.saved_value());
   valid_ = true;
   return true;
 }

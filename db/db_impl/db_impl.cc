@@ -2630,8 +2630,7 @@ static Status DecodeDirectWriteBlobIndex(const Slice& blob_index_slice,
 
 Status DBImpl::ResolveDirectWritePlainValue(
     const ReadOptions& read_options, const Slice& key, const Version* current,
-    ColumnFamilyData* cfd, PinnableSlice* value,
-    PinnableWideColumns* columns) {
+    ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns) {
   Slice blob_index_slice;
   std::string blob_index_storage;
   if (value != nullptr) {
@@ -2659,7 +2658,8 @@ Status DBImpl::ResolveDirectWritePlainValue(
       // We reuse `value` as the destination for the resolved blob payload.
       // If it is still pinned to a table block, Reset() will drop that cleanup
       // chain, so preserve the encoded blob-index bytes first.
-      blob_index_storage.assign(blob_index_slice.data(), blob_index_slice.size());
+      blob_index_storage.assign(blob_index_slice.data(),
+                                blob_index_slice.size());
       blob_index_slice = Slice(blob_index_storage);
     }
     value->Reset();
@@ -2681,9 +2681,11 @@ Status DBImpl::ResolveDirectWritePlainValue(
   return s;
 }
 
-Status DBImpl::ResolveDirectWriteWideColumns(
-    const ReadOptions& read_options, const Slice& key, const Version* current,
-    ColumnFamilyData* cfd, PinnableWideColumns* columns) {
+Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
+                                             const Slice& key,
+                                             const Version* current,
+                                             ColumnFamilyData* cfd,
+                                             PinnableWideColumns* columns) {
   assert(columns != nullptr);
 
   const WideColumns& unresolved_columns = columns->columns();
@@ -2710,9 +2712,8 @@ Status DBImpl::ResolveDirectWriteWideColumns(
     }
 
     BlobIndex blob_idx;
-    Status s =
-        DecodeDirectWriteBlobIndex(unresolved_columns[column_idx].value(),
-                                   &blob_idx);
+    Status s = DecodeDirectWriteBlobIndex(
+        unresolved_columns[column_idx].value(), &blob_idx);
     if (!s.ok()) {
       return s;
     }
@@ -2744,8 +2745,8 @@ Status DBImpl::ResolveDirectWriteWideColumns(
   }
 
   std::string resolved_entity;
-  Status s = WideColumnSerialization::Serialize(resolved_columns,
-                                                resolved_entity);
+  Status s =
+      WideColumnSerialization::Serialize(resolved_columns, resolved_entity);
   if (!s.ok()) {
     return s;
   }
