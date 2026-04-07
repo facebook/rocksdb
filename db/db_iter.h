@@ -19,6 +19,7 @@
 #include "db/blob/blob_index.h"
 #include "db/db_impl/db_impl.h"
 #include "db/wide/read_path_blob_resolver.h"
+#include "db/wide/wide_columns_helper.h"
 #include "memory/arena.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
@@ -353,6 +354,15 @@ class DBIter final : public Iterator {
       return lazy_entity_columns_mutex_;
     }
 
+    // DBIter calls this after ResetValueAndColumns() before repopulating the
+    // current entry from a serialized wide-column entity.
+    void AssertReadyForEntity() const {
+      assert(value_.empty());
+      assert(wide_columns_.empty());
+      assert(lazy_entity_columns_.empty());
+      assert(lazy_blob_columns_.empty());
+    }
+
     inline void ClearSavedValue() {
       if (saved_value_.capacity() > 1048576) {
         std::string empty;
@@ -360,6 +370,63 @@ class DBIter final : public Iterator {
       } else {
         saved_value_.clear();
       }
+    }
+
+    // Preserve the serialized entity bytes when DBIter needs stable backing
+    // storage for lazy column slices across iterator movement.
+    void SaveEntitySliceIfNeeded(const Slice& slice) {
+      if (slice.data() != saved_value_.data() ||
+          slice.size() != saved_value_.size()) {
+        saved_value_.assign(slice.data(), slice.size());
+      }
+    }
+
+    // Clears the previous lazy entity metadata and returns the saved entity
+    // buffer as input for DeserializeV2().
+    Slice PrepareForLazyEntityDeserialize() {
+      ClearLazyEntity();
+      return Slice(saved_value_);
+    }
+
+    // Publishes the deserialized lazy entity metadata to the blob resolver.
+    void BindLazyEntity(const Slice& user_key) {
+      entity_blob_resolver_.Reset(user_key, &lazy_entity_columns_,
+                                  &lazy_blob_columns_);
+    }
+
+    // Drops the lazy entity metadata and any resolver aliases into it.
+    void ClearLazyEntity() {
+      lazy_entity_columns_.clear();
+      lazy_blob_columns_.clear();
+      entity_blob_resolver_.Reset(Slice(), nullptr, nullptr);
+    }
+
+    // Clears materialized wide columns on error before DBIter invalidates
+    // itself.
+    void ClearWideColumns() { wide_columns_.clear(); }
+
+    // Fast path for inline entities whose default column is already
+    // materialized in wide_columns_.
+    void MaybeSetValueFromMaterializedDefaultColumn() {
+      if (WideColumnsHelper::HasDefaultColumn(wide_columns_)) {
+        value_ = WideColumnsHelper::GetDefaultColumn(wide_columns_);
+      }
+    }
+
+    // Returns true when the deserialized lazy entity has the default column.
+    bool HasLazyDefaultColumn() const {
+      return WideColumnsHelper::HasDefaultColumn(lazy_entity_columns_);
+    }
+
+    // Resolves the lazy default column and stores it in value_.
+    Status ResolveDefaultLazyColumn() {
+      Slice resolved_default_value;
+      Status s = entity_blob_resolver_.ResolveColumn(/*column_index=*/0,
+                                                     &resolved_default_value);
+      if (s.ok()) {
+        value_ = resolved_default_value;
+      }
+      return s;
     }
 
     void SetFromPlain(const Slice& slice) {
@@ -375,9 +442,7 @@ class DBIter final : public Iterator {
     void Reset() {
       value_.clear();
       wide_columns_.clear();
-      lazy_entity_columns_.clear();
-      lazy_blob_columns_.clear();
-      entity_blob_resolver_.Reset(Slice(), nullptr, nullptr);
+      ClearLazyEntity();
     }
 
    private:

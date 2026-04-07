@@ -318,17 +318,7 @@ bool DBIter::SetValueAndColumnsFromBlob(const Slice& user_key,
 
 bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
   auto& state = value_columns_state_;
-  auto& value = state.value();
-  auto& wide_columns = state.wide_columns();
-  auto& saved_value = state.saved_value();
-  auto& lazy_entity_columns = state.lazy_entity_columns();
-  auto& lazy_blob_columns = state.lazy_blob_columns();
-  auto& entity_blob_resolver = state.entity_blob_resolver();
-
-  assert(value.empty());
-  assert(wide_columns.empty());
-  assert(lazy_entity_columns.empty());
-  assert(lazy_blob_columns.empty());
+  state.AssertReadyForEntity();
 
   // Fast path: if no blob columns, use the simpler Deserialize
   bool has_blob_columns = false;
@@ -342,19 +332,17 @@ bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
     }
   }
   if (LIKELY(!has_blob_columns)) {
+    WideColumns& wide_columns = state.wide_columns();
     const Status s = WideColumnSerialization::Deserialize(slice, wide_columns);
 
     if (!s.ok()) {
       status_ = s;
       valid_ = false;
-      wide_columns.clear();
+      state.ClearWideColumns();
       return false;
     }
 
-    if (WideColumnsHelper::HasDefaultColumn(wide_columns)) {
-      value = WideColumnsHelper::GetDefaultColumn(wide_columns);
-    }
-
+    state.MaybeSetValueFromMaterializedDefaultColumn();
     return true;
   }
 
@@ -364,47 +352,33 @@ bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
   // Guard: if slice already aliases that saved buffer (e.g., when called from
   // SetValueAndColumnsFromMergeResult), skip the redundant copy to
   // avoid self-aliased std::string::assign (undefined behavior).
-  if (slice.data() != saved_value.data() ||
-      slice.size() != saved_value.size()) {
-    saved_value.assign(slice.data(), slice.size());
-  }
-
-  // Deserialize columns and blob column info from the saved copy
-  lazy_entity_columns.clear();
-  lazy_blob_columns.clear();
+  state.SaveEntitySliceIfNeeded(slice);
 
   {
-    Slice input_copy(saved_value);
+    Slice input_copy = state.PrepareForLazyEntityDeserialize();
     const Status s = WideColumnSerialization::DeserializeV2(
-        input_copy, lazy_entity_columns, lazy_blob_columns);
+        input_copy, state.lazy_entity_columns(), state.lazy_blob_columns());
 
     if (!s.ok()) {
       status_ = s;
       valid_ = false;
-      lazy_entity_columns.clear();
-      lazy_blob_columns.clear();
+      state.ClearLazyEntity();
       return false;
     }
   }
 
   // Resolve only the default column on iterator positioning. Non-default blob
   // columns stay lazy until columns() is explicitly requested.
-  entity_blob_resolver.Reset(saved_key_.GetUserKey(), &lazy_entity_columns,
-                             &lazy_blob_columns);
+  state.BindLazyEntity(saved_key_.GetUserKey());
 
-  if (UNLIKELY(WideColumnsHelper::HasDefaultColumn(lazy_entity_columns))) {
-    Slice resolved_default_value;
-    const Status s = entity_blob_resolver.ResolveColumn(
-        /*column_index=*/0, &resolved_default_value);
+  if (UNLIKELY(state.HasLazyDefaultColumn())) {
+    const Status s = state.ResolveDefaultLazyColumn();
     if (!s.ok()) {
       status_ = s;
       valid_ = false;
-      lazy_entity_columns.clear();
-      lazy_blob_columns.clear();
-      entity_blob_resolver.Reset(Slice(), nullptr, nullptr);
+      state.ClearLazyEntity();
       return false;
     }
-    value = resolved_default_value;
   }
 
   return true;
