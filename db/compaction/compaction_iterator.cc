@@ -442,7 +442,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
             return false;
           }
         }
-        if (has_blob_columns) {
+        if (UNLIKELY(has_blob_columns)) {
           // Entity has blob columns - use lazy loading via resolver
           Slice input_copy = value_;
           Status s = WideColumnSerialization::DeserializeV2(
@@ -1498,7 +1498,7 @@ void CompactionIterator::ExtractLargeColumnValuesIfNeeded() {
   // blob refs) would require merging old and new blob column sets during
   // serialization, and the benefit is marginal since full rewrites happen
   // naturally during blob GC.
-  if (!entity_blob_columns_.empty()) {
+  if (UNLIKELY(!entity_blob_columns_.empty())) {
     return;
   }
 
@@ -1810,7 +1810,7 @@ void CompactionIterator::PrepareOutput() {
               "CompactionIterator::PrepareOutput:SkipDeserializeEntity");
         }
         entity_deserialized_ = false;  // Reset for next iteration
-        if (!entity_blob_columns_.empty()) {
+        if (UNLIKELY(!entity_blob_columns_.empty())) {
           GarbageCollectEntityBlobsIfNeeded();
         } else {
           ExtractLargeColumnValuesIfNeeded();

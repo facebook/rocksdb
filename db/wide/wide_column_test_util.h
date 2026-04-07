@@ -41,10 +41,6 @@ inline Options GetOptionsForBlobTest(const Options& default_options) {
   return options;
 }
 
-inline Options GetOptionsForBlobTest() {
-  return GetOptionsForBlobTest(Options());
-}
-
 // Get options that are compatible with blob direct write.
 // `allow_concurrent_memtable_write` must be disabled because direct write
 // currently only supports the ordered single-writer memtable path.

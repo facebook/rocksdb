@@ -2765,8 +2765,10 @@ TEST_F(DBWideBasicTest, EntityBlobBlockCacheTierGet) {
   const std::string large_value = GenerateLargeValue(100);
   const std::string small_value = GenerateSmallValue();
 
-  // Write entity with a blob column, flush to create blob file
-  WideColumns columns{{"col_large", large_value}, {"col_small", small_value}};
+  // Write entity with a blob-backed default column so DB::Get() must touch the
+  // blob-backed path rather than returning an inline empty default column.
+  WideColumns columns{{kDefaultWideColumnName, large_value},
+                      {"col_small", small_value}};
   ASSERT_OK(
       db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
   ASSERT_OK(Flush());
@@ -2780,6 +2782,9 @@ TEST_F(DBWideBasicTest, EntityBlobBlockCacheTierGet) {
   PinnableSlice result;
   Status s = db_->Get(read_opts, db_->DefaultColumnFamily(), key, &result);
   ASSERT_TRUE(s.ok() || s.IsIncomplete()) << s.ToString();
+  if (s.ok()) {
+    ASSERT_EQ(result, large_value);
+  }
 }
 
 TEST_F(DBWideBasicTest, EntityBlobBlockCacheTierGetEntity) {

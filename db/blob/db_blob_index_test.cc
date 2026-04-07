@@ -140,6 +140,10 @@ class DBBlobIndexTest : public DBTestBase {
     return options;
   }
 
+  Options GetBlobTestOptions() {
+    return wide_column_test_util::GetOptionsForBlobTest(GetTestOptions());
+  }
+
   void MoveDataTo(Tier tier) {
     switch (tier) {
       case Tier::kMemtable:
@@ -540,12 +544,11 @@ TEST_F(DBBlobIndexTest, Iterate) {
 // Use shared test utilities for Wide Column + Blob integration tests
 using wide_column_test_util::GenerateLargeValue;
 using wide_column_test_util::GenerateSmallValue;
-using wide_column_test_util::GetOptionsForBlobTest;
 
 // Test 1: Full roundtrip test: PutEntity with large columns -> flush ->
 // compaction with blob extraction -> read back with blob resolution -> verify
 TEST_F(DBBlobIndexTest, EntityBlobFlushCompactionRoundtrip) {
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.enable_blob_garbage_collection = true;
   options.blob_garbage_collection_age_cutoff = 1.0;
   options.statistics = CreateDBStatistics();
@@ -761,7 +764,7 @@ TEST_F(DBBlobIndexTest, EntityBlobFlushCompactionRoundtrip) {
 // Test 2: Entity blob GC respects snapshots - blobs referenced by snapshotted
 // entities should not be GC'd
 TEST_F(DBBlobIndexTest, EntityBlobGCWithSnapshot) {
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.enable_blob_garbage_collection = true;
   options.blob_garbage_collection_age_cutoff = 1.0;
 
@@ -836,9 +839,11 @@ TEST_F(DBBlobIndexTest, EntityBlobGCWithSnapshot) {
   Close();
 }
 
-// Test 3: DB recovery after crash with entities that have blob columns
-TEST_F(DBBlobIndexTest, EntityBlobRecoveryAfterCrash) {
-  Options options = GetOptionsForBlobTest();
+// Test 3: DB recovery replays unflushed WAL entries for entities with blob
+// columns.
+TEST_F(DBBlobIndexTest, EntityBlobRecoveryReplaysUnflushedWAL) {
+  Options options = GetBlobTestOptions();
+  options.avoid_flush_during_shutdown = true;
 
   DestroyAndReopen(options);
 
@@ -873,7 +878,8 @@ TEST_F(DBBlobIndexTest, EntityBlobRecoveryAfterCrash) {
   // Compact to ensure blob extraction
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
-  // Write more data to WAL (not flushed - simulates data in memtable at crash)
+  // Write more data to WAL (not flushed) so recovery has live memtable data to
+  // replay.
   constexpr char key4[] = "recovery_key4";
   // Store large values in persistent strings to avoid dangling Slice references
   std::string columns4_default = GenerateLargeValue(120);
@@ -882,7 +888,7 @@ TEST_F(DBBlobIndexTest, EntityBlobRecoveryAfterCrash) {
   ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key4,
                            columns4));
 
-  // Close and reopen (simulates crash + recovery)
+  // Skip shutdown flush so key4 stays in WAL and must be recovered on reopen.
   Close();
   Reopen(options);
 
@@ -920,7 +926,15 @@ TEST_F(DBBlobIndexTest, EntityBlobRecoveryAfterCrash) {
     ASSERT_EQ(count, 4);
   }
 
-  // Test recovery with avoid_flush_during_recovery
+  // Add another unflushed entity so reopening with
+  // `avoid_flush_during_recovery` also has WAL-backed recovery work to do.
+  constexpr char key5[] = "recovery_key5";
+  std::string columns5_default = GenerateLargeValue(140);
+  WideColumns columns5{{kDefaultWideColumnName, columns5_default},
+                       {"attr1", "recovered_with_avoid_flush"}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key5,
+                           columns5));
+
   Close();
   options.avoid_flush_during_recovery = true;
   Reopen(options);
@@ -930,6 +944,7 @@ TEST_F(DBBlobIndexTest, EntityBlobRecoveryAfterCrash) {
   verify_entity(key2, columns2);
   verify_entity(key3, columns3);
   verify_entity(key4, columns4);
+  verify_entity(key5, columns5);
 
   Close();
 }
@@ -937,7 +952,7 @@ TEST_F(DBBlobIndexTest, EntityBlobRecoveryAfterCrash) {
 // Test 5: Entities with blob columns work correctly mixed with regular Put
 // operations that also use blobs
 TEST_F(DBBlobIndexTest, EntityBlobMixedWithRegularPut) {
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.enable_blob_garbage_collection = true;
   options.blob_garbage_collection_age_cutoff = 1.0;
 
@@ -1259,7 +1274,7 @@ TEST_F(DBBlobIndexTest, EntityBlobLazyLoadingFilterSkipsBlobs) {
   std::string last_small_col_value;
   std::atomic<int> resolver_check_count{0};
 
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.statistics = CreateDBStatistics();
   options.enable_blob_garbage_collection = false;
   options.compaction_filter_factory =
@@ -1403,7 +1418,7 @@ TEST_F(DBBlobIndexTest, EntityBlobLazyLoadingFilterResolvesBlobs) {
   std::atomic<int> filter_call_count{0};
   std::string resolved_large_col_value;
 
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.statistics = CreateDBStatistics();
   options.enable_blob_garbage_collection = false;
   options.compaction_filter_factory =
@@ -1476,7 +1491,7 @@ TEST_F(DBBlobIndexTest, EntityBlobCompactionFilterAccessesOnlySmallColumn) {
   std::string last_small_col_value;
   std::atomic<int> resolver_check_count{0};
 
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.statistics = CreateDBStatistics();
   options.enable_blob_garbage_collection = false;
   // Reuse the LazyLoadingSmallColumnFilter which uses IsBlobColumn() check
@@ -1701,7 +1716,7 @@ TEST_F(DBBlobIndexTest, EntityBlobFilterV3BackwardCompatibility) {
   std::atomic<int> filter_call_count{0};
   std::string observed_large_col_value;
 
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.statistics = CreateDBStatistics();
   options.enable_blob_garbage_collection = false;
   options.compaction_filter_factory =
@@ -1767,7 +1782,7 @@ TEST_F(DBBlobIndexTest, EntityBlobFilterV3Remove) {
   // Test: A FilterV3-only filter returning kRemove should correctly delete
   // entities with eagerly resolved blob columns.
 
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.compaction_filter_factory =
       std::make_shared<FilterV3RemoveEntityFilterFactory>();
 
@@ -1876,7 +1891,7 @@ TEST_F(DBBlobIndexTest, PassiveGCForWideColumnEntitiesWithBlobColumns) {
 
   auto filter_factory = std::make_shared<TTLBasedEntityDropFilterFactory>();
 
-  Options options = GetOptionsForBlobTest();
+  Options options = GetBlobTestOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.blob_file_size = 500;  // Small: ~1 entity per blob file
   options.enable_blob_garbage_collection = false;

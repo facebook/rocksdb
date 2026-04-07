@@ -407,10 +407,10 @@ TEST_F(DBOpenWithConfigTest, OpenWithComprehensiveConfig) {
 
   std::string value;
   ASSERT_OK(db_->Get(ReadOptions(), "key1", &value));
-  // ASSERT_EQ(value, "value1");
+  ASSERT_EQ(value, "value1");
 
   ASSERT_OK(db_->Get(ReadOptions(), "key2", &value));
-  // ASSERT_EQ(value, std::string(1000, 'x'));
+  ASSERT_EQ(value, second_value);
 
   // Verify some options are correctly set
   Options retrieved_options = db_->GetOptions();
@@ -472,10 +472,10 @@ TEST_F(DBOpenWithConfigTest, ReopenWithSameConfig) {
   // Verify data persisted
   std::string value;
   ASSERT_OK(db_->Get(ReadOptions(), "key1", &value));
-  // ASSERT_EQ(value, "value1");
+  ASSERT_EQ(value, "value1");
 
   ASSERT_OK(db_->Get(ReadOptions(), "key2", &value));
-  // ASSERT_EQ(value, std::string(1000, 'x'));
+  ASSERT_EQ(value, std::string(1000, 'x'));
 
   Close();
 }

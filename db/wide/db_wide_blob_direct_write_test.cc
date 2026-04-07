@@ -14,9 +14,12 @@
 #include <vector>
 
 #include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_index.h"
 #include "db/column_family.h"
 #include "db/db_test_util.h"
+#include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_column_test_util.h"
+#include "db/write_batch_internal.h"
 #include "port/stack_trace.h"
 #include "util/coding.h"
 #include "utilities/trie_index/trie_index_factory.h"
@@ -80,6 +83,27 @@ class DBWideBlobDirectWriteTest : public DBTestBase {
                      std::to_string(index)}};
   }
 
+  static WideColumnStringPairs MakeSecondaryIteratorStressColumnData(
+      char fill, int index) {
+    return WideColumnStringPairs{
+        {"aux", std::string(112, fill) + "_" + std::to_string(index)},
+        {"zeta", std::string(80, static_cast<char>(fill + 1)) + "_" +
+                     std::to_string(index)}};
+  }
+
+  static WideColumnStringPairs MakeCoalescedIteratorStressColumnData(
+      char primary_fill, char secondary_fill, int index) {
+    const auto primary = MakeIteratorStressColumnData(primary_fill, index);
+    const auto secondary =
+        MakeSecondaryIteratorStressColumnData(secondary_fill, index);
+    return WideColumnStringPairs{
+        {primary[0].first, primary[0].second},
+        {secondary[0].first, secondary[0].second},
+        {primary[1].first, primary[1].second},
+        {secondary[1].first, secondary[1].second},
+    };
+  }
+
   void PopulateIteratorStressEntities(int num_keys) {
     for (int index = 0; index < num_keys; ++index) {
       const auto columns_data = MakeIteratorStressColumnData('A', index);
@@ -98,6 +122,32 @@ class DBWideBlobDirectWriteTest : public DBTestBase {
     }
   }
 
+  void PopulateMultiCfIteratorStressEntities(
+      int num_keys, ColumnFamilyHandle* secondary_cfh) {
+    for (int index = 0; index < num_keys; ++index) {
+      ASSERT_OK(db_->PutEntity(
+          WriteOptions(), db_->DefaultColumnFamily(),
+          MakeIteratorStressKey(index),
+          ToWideColumns(MakeIteratorStressColumnData('A', index))));
+      ASSERT_OK(db_->PutEntity(
+          WriteOptions(), secondary_cfh, MakeIteratorStressKey(index),
+          ToWideColumns(MakeSecondaryIteratorStressColumnData('K', index))));
+    }
+    ASSERT_OK(Flush({0, 1}));
+    MoveFilesToLevel(1, 0);
+    MoveFilesToLevel(1, 1);
+
+    for (int index = 0; index < num_keys; ++index) {
+      ASSERT_OK(db_->PutEntity(
+          WriteOptions(), db_->DefaultColumnFamily(),
+          MakeIteratorStressKey(index),
+          ToWideColumns(MakeIteratorStressColumnData('C', index))));
+      ASSERT_OK(db_->PutEntity(
+          WriteOptions(), secondary_cfh, MakeIteratorStressKey(index),
+          ToWideColumns(MakeSecondaryIteratorStressColumnData('M', index))));
+    }
+  }
+
   struct SingleCfCoalescingIteratorScenario {
     bool use_trie_index = false;
     bool refresh_before_seek = false;
@@ -106,6 +156,9 @@ class DBWideBlobDirectWriteTest : public DBTestBase {
     bool create_control_before_refresh = true;
   };
 
+  // DBImpl::NewCoalescingIterator() intentionally returns the plain child
+  // iterator when only one CF is requested. Keep this direct-iterator fast
+  // path covered since it is what single-CF callers actually exercise.
   void VerifySingleCfCoalescingIteratorMatchesDirectIterator(
       const SingleCfCoalescingIteratorScenario& scenario) {
     constexpr int kNumKeys = 32;
@@ -337,6 +390,36 @@ TEST_F(DBWideBlobDirectWriteTest, PutEntityRejectsEmptyAttributeGroups) {
       db_->PutEntity(WriteOptions(), "empty_attribute_groups", attribute_groups)
           .IsInvalidArgument());
   ASSERT_EQ("NOT_FOUND", Get("empty_attribute_groups"));
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       PutEntitySerializedRejectsExistingBlobReferencesWhenDirectWriteEnabled) {
+  Options options = GetDirectWriteOptions();
+  options.min_blob_size = 64;
+
+  Reopen(options);
+
+  const auto columns_data = MakeIteratorStressColumnData('Q', 0);
+  const WideColumns columns = ToWideColumns(columns_data);
+
+  std::string blob_index_encoding;
+  BlobIndex::EncodeBlob(&blob_index_encoding, /*file_number=*/123,
+                        /*offset=*/0, columns[1].value().size(),
+                        kNoCompression);
+  BlobIndex blob_index;
+  ASSERT_OK(blob_index.DecodeFrom(blob_index_encoding));
+
+  std::string entity;
+  ASSERT_OK(
+      WideColumnSerialization::SerializeV2(columns, {{1, blob_index}}, entity));
+
+  WriteBatch batch;
+  ASSERT_OK(WriteBatchInternal::PutEntitySerialized(
+      &batch, /*column_family_id=*/0, "serialized_blob_entity", entity));
+
+  const Status s = db_->Write(WriteOptions(), &batch);
+  ASSERT_TRUE(s.IsNotSupported()) << s.ToString();
+  ASSERT_EQ("NOT_FOUND", Get("serialized_blob_entity"));
 }
 
 TEST_F(DBWideBlobDirectWriteTest, DirectWriteWideEntityBeforeAndAfterFlush) {
@@ -607,6 +690,83 @@ TEST_F(
   scenario.reuse_iterator_before_refresh = true;
   scenario.create_control_before_refresh = false;
   VerifySingleCfCoalescingIteratorMatchesDirectIterator(scenario);
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       MultiCfCoalescingIteratorResolvesBlobBackedColumnsAfterSeekRefresh) {
+  constexpr int kNumKeys = 32;
+
+  Options options = GetDirectWriteOptions();
+  options.min_blob_size = 64;
+  options.disable_auto_compactions = true;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(7));
+
+  Reopen(options);
+  CreateColumnFamilies({"cf_1"}, options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "cf_1"}, options);
+  PopulateMultiCfIteratorStressEntities(kNumKeys, handles_[1]);
+
+  ReadOptions read_options;
+  read_options.allow_unprepared_value = true;
+  read_options.auto_refresh_iterator_with_snapshot = true;
+  read_options.pin_data = true;
+  const Snapshot* snapshot = db_->GetSnapshot();
+  read_options.snapshot = snapshot;
+
+  trie_index::TrieIndexFactory trie_index_factory;
+  read_options.table_index_factory = &trie_index_factory;
+
+  std::vector<ColumnFamilyHandle*> cfhs{handles_[1], handles_[0]};
+  std::unique_ptr<Iterator> coalescing =
+      db_->NewCoalescingIterator(read_options, cfhs);
+
+  const int first_index = kNumKeys / 8;
+  const auto expected_first_data =
+      MakeCoalescedIteratorStressColumnData('C', 'M', first_index);
+  const WideColumns expected_first = ToWideColumns(expected_first_data);
+  coalescing->Seek(MakeIteratorStressKey(first_index));
+  ASSERT_TRUE(coalescing->Valid());
+  ASSERT_TRUE(coalescing->value().empty());
+  ASSERT_TRUE(coalescing->PrepareValue());
+  ASSERT_EQ(expected_first.front().value().ToString(),
+            coalescing->value().ToString());
+  ASSERT_EQ(expected_first, coalescing->columns());
+
+  coalescing->Next();
+  ASSERT_TRUE(coalescing->Valid());
+  ASSERT_TRUE(coalescing->PrepareValue());
+
+  ASSERT_OK(Flush({0, 1}));
+  ASSERT_OK(
+      db_->CompactRange(CompactRangeOptions(), handles_[0], nullptr, nullptr));
+  ASSERT_OK(
+      db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr));
+
+  const int start_index = kNumKeys / 4;
+  const std::string start_key = MakeIteratorStressKey(start_index);
+  coalescing->Seek(start_key);
+
+  for (int index = start_index; index < kNumKeys; ++index) {
+    const auto expected_columns_data =
+        MakeCoalescedIteratorStressColumnData('C', 'M', index);
+    const WideColumns expected_columns = ToWideColumns(expected_columns_data);
+
+    ASSERT_TRUE(coalescing->Valid());
+    ASSERT_EQ(MakeIteratorStressKey(index), coalescing->key().ToString());
+    ASSERT_TRUE(coalescing->value().empty());
+    ASSERT_TRUE(coalescing->PrepareValue());
+    ASSERT_EQ(expected_columns.front().value().ToString(),
+              coalescing->value().ToString());
+    ASSERT_EQ(expected_columns, coalescing->columns());
+
+    coalescing->Next();
+  }
+
+  ASSERT_FALSE(coalescing->Valid());
+  ASSERT_OK(coalescing->status());
+
+  coalescing.reset();
+  db_->ReleaseSnapshot(snapshot);
 }
 
 TEST_F(DBWideBlobDirectWriteTest,

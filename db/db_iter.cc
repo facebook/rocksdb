@@ -26,6 +26,7 @@
 #include "logging/logging.h"
 #include "memory/arena.h"
 #include "monitoring/perf_context_imp.h"
+#include "port/likely.h"
 #include "rocksdb/env.h"
 #include "rocksdb/io_dispatcher.h"
 #include "rocksdb/iterator.h"
@@ -340,7 +341,7 @@ bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
       return false;
     }
   }
-  if (!has_blob_columns) {
+  if (LIKELY(!has_blob_columns)) {
     const Status s = WideColumnSerialization::Deserialize(slice, wide_columns);
 
     if (!s.ok()) {
@@ -391,7 +392,7 @@ bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
   entity_blob_resolver.Reset(saved_key_.GetUserKey(), &lazy_entity_columns,
                              &lazy_blob_columns);
 
-  if (WideColumnsHelper::HasDefaultColumn(lazy_entity_columns)) {
+  if (UNLIKELY(WideColumnsHelper::HasDefaultColumn(lazy_entity_columns))) {
     Slice resolved_default_value;
     const Status s = entity_blob_resolver.ResolveColumn(
         /*column_index=*/0, &resolved_default_value);

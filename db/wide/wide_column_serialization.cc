@@ -127,10 +127,10 @@ Status WideColumnSerialization::SerializeV2Impl(
 
   Slice prev_name_storage;
   bool has_prev = false;
-  uint32_t name_sizes_bytes = 0;
-  uint32_t names_bytes = 0;
-  uint32_t total_value_sizes_bytes = 0;
-  uint32_t total_values_bytes = 0;
+  uint64_t name_sizes_bytes = 0;
+  uint64_t names_bytes = 0;
+  uint64_t total_value_sizes_bytes = 0;
+  uint64_t total_values_bytes = 0;
   size_t blob_ser_idx = 0;
 
   for (size_t i = 0; i < num_columns; ++i) {
@@ -177,15 +177,35 @@ Status WideColumnSerialization::SerializeV2Impl(
     has_prev = true;
   }
 
+  const uint64_t kMaxWideColumnComponent =
+      static_cast<uint64_t>(std::numeric_limits<uint32_t>::max());
+  if (name_sizes_bytes > kMaxWideColumnComponent ||
+      total_value_sizes_bytes > kMaxWideColumnComponent) {
+    return Status::InvalidArgument("Wide column metadata too large");
+  }
+  if (names_bytes > kMaxWideColumnComponent) {
+    return Status::InvalidArgument("Wide column names too large");
+  }
+  if (total_values_bytes > kMaxWideColumnComponent) {
+    return Status::InvalidArgument("Wide column values too large");
+  }
+
+  const auto name_sizes_bytes32 = static_cast<uint32_t>(name_sizes_bytes);
+  const auto names_bytes32 = static_cast<uint32_t>(names_bytes);
+  const auto total_value_sizes_bytes32 =
+      static_cast<uint32_t>(total_value_sizes_bytes);
+  const auto total_values_bytes32 = static_cast<uint32_t>(total_values_bytes);
+
   // Second pass: write all V2 sections to output.
   // Pre-allocate output string.
-  const size_t total_size =
-      VarintLength(kVersion2) +
-      VarintLength(static_cast<uint32_t>(num_columns)) +
-      num_columns +  // column types
-      VarintLength(name_sizes_bytes) + VarintLength(total_value_sizes_bytes) +
-      VarintLength(names_bytes) + name_sizes_bytes + total_value_sizes_bytes +
-      names_bytes + total_values_bytes;
+  const size_t total_size = VarintLength(kVersion2) +
+                            VarintLength(static_cast<uint32_t>(num_columns)) +
+                            num_columns +  // column types
+                            VarintLength(name_sizes_bytes32) +
+                            VarintLength(total_value_sizes_bytes32) +
+                            VarintLength(names_bytes32) + name_sizes_bytes32 +
+                            total_value_sizes_bytes32 + names_bytes32 +
+                            total_values_bytes32;
 
   const size_t base_offset = output.size();
   output.reserve(base_offset + total_size);
@@ -193,9 +213,9 @@ Status WideColumnSerialization::SerializeV2Impl(
   // Sections 1-3: header, skip info, column types
   PutVarint32(&output, kVersion2);
   PutVarint32(&output, static_cast<uint32_t>(num_columns));
-  PutVarint32(&output, name_sizes_bytes);
-  PutVarint32(&output, total_value_sizes_bytes);
-  PutVarint32(&output, names_bytes);
+  PutVarint32(&output, name_sizes_bytes32);
+  PutVarint32(&output, total_value_sizes_bytes32);
+  PutVarint32(&output, names_bytes32);
   output.append(column_types);
 
   // Sections 4-7: resize to final size, then write all 4 sections in a
@@ -208,10 +228,10 @@ Status WideColumnSerialization::SerializeV2Impl(
   const size_t sec4_offset = output.size();
   output.resize(base_offset + total_size);
 
-  char* s4 = &output[sec4_offset];          // section 4: name sizes
-  char* s5 = s4 + name_sizes_bytes;         // section 5: value sizes
-  char* s6 = s5 + total_value_sizes_bytes;  // section 6: names
-  char* s7 = s6 + names_bytes;              // section 7: values
+  char* s4 = &output[sec4_offset];            // section 4: name sizes
+  char* s5 = s4 + name_sizes_bytes32;         // section 5: value sizes
+  char* s6 = s5 + total_value_sizes_bytes32;  // section 6: names
+  char* s7 = s6 + names_bytes32;              // section 7: values
 
   size_t blob_write_idx = 0;
   for (size_t i = 0; i < num_columns; ++i) {

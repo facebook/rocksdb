@@ -15,6 +15,7 @@
 #include "db/blob/blob_log_format.h"
 #include "db/wide/wide_column_serialization.h"
 #include "db/write_batch_internal.h"
+#include "port/likely.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -223,12 +224,14 @@ Status BlobWriteBatchTransformer::PutEntityCF(uint32_t column_family_id,
     return s;
   }
 
-  // Keep the first reduced-scope implementation aligned with compaction's
-  // current behavior: if an entity already contains blob references, preserve
-  // it as-is instead of trying to partially merge old and new blob columns.
-  if (!existing_blob_columns.empty()) {
-    return WriteBatchInternal::PutEntitySerialized(
-        output_batch_, column_family_id, key, entity);
+  // Reject pre-serialized entities that already contain blob references.
+  // Passing them through would preserve references to blob files outside this
+  // batch's direct-write lifetime tracking, which can later turn into stale
+  // reads after blob GC.
+  if (UNLIKELY(!existing_blob_columns.empty())) {
+    return Status::NotSupported(
+        "Blob direct write does not support pre-serialized wide entities "
+        "with blob references");
   }
 
   std::string rewritten_entity;

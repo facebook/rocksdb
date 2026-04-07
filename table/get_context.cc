@@ -17,6 +17,7 @@
 #include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics_impl.h"
+#include "port/likely.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
@@ -151,7 +152,7 @@ Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
     return s;
   }
 
-  if (blob_cols.empty()) {
+  if (LIKELY(blob_cols.empty())) {
     return columns_->SetWideColumnValue(entity, value_pinner);
   }
 
