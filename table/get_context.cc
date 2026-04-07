@@ -118,24 +118,21 @@ Status GetContext::SaveWideColumnEntityToPinnable(const Slice& user_key,
   // returns NotSupported only when the default column is a blob reference.
   Slice value_of_default;
   Slice entity_ref = entity;
-  Status s = WideColumnSerialization::GetValueOfDefaultColumn(entity_ref,
-                                                              value_of_default);
-  if (s.ok()) {
+  Status status = WideColumnSerialization::GetValueOfDefaultColumn(
+      entity_ref, value_of_default);
+  if (status.ok()) {
     if (LIKELY(value_pinner != nullptr)) {
       pinnable_val_->PinSlice(value_of_default, value_pinner);
     } else {
       pinnable_val_->PinSelf(value_of_default);
     }
-    return Status::OK();
+  } else if (status.IsNotSupported()) {
+    // Default column is a blob reference, so resolve it into the output value.
+    bool resolved = false;
+    status = WideColumnSerialization::GetValueOfDefaultColumnResolvingBlobs(
+        entity, user_key, blob_fetcher_, *pinnable_val_, resolved);
   }
-  if (!s.IsNotSupported()) {
-    return s;
-  }
-
-  // Default column is a blob reference, so resolve it into the output value.
-  bool resolved = false;
-  return WideColumnSerialization::GetValueOfDefaultColumnResolvingBlobs(
-      entity, user_key, blob_fetcher_, *pinnable_val_, resolved);
+  return status;
 }
 
 Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
@@ -146,63 +143,63 @@ Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
   std::vector<WideColumn> entity_columns;
   std::vector<std::pair<size_t, BlobIndex>> blob_cols;
   Slice entity_ref = entity;
-  Status s = WideColumnSerialization::DeserializeV2(entity_ref, entity_columns,
-                                                    blob_cols);
-  if (!s.ok()) {
-    return s;
-  }
-
-  if (LIKELY(blob_cols.empty())) {
-    return columns_->SetWideColumnValue(entity, value_pinner);
-  }
-
-  // TODO: Add lazy resolution support for GetEntity point lookups. This
-  // requires SuperVersion pinning on PinnableWideColumns to keep the Version*
-  // alive after GetImpl returns. Currently, lazy_column_resolution only takes
-  // effect for iterators (DBIter path).
-  //
-  // Eager path: resolve blob columns inline to avoid intermediate std::string
-  // copies per blob value. Keep fetched blob values as PinnableSlice.
-  std::vector<PinnableSlice> resolved_blob_values(blob_cols.size());
-  for (size_t bi = 0; bi < blob_cols.size(); ++bi) {
-    const BlobIndex& blob_idx = blob_cols[bi].second;
-    if (blob_idx.IsInlined()) {
-      resolved_blob_values[bi].PinSelf(blob_idx.value());
-      continue;
+  Status status = WideColumnSerialization::DeserializeV2(entity_ref,
+                                                         entity_columns,
+                                                         blob_cols);
+  if (status.ok()) {
+    if (LIKELY(blob_cols.empty())) {
+      return columns_->SetWideColumnValue(entity, value_pinner);
     }
 
-    s = blob_fetcher_->FetchBlob(
-        user_key, blob_idx, nullptr /* prefetch_buffer */,
-        &resolved_blob_values[bi], nullptr /* bytes_read */);
-    if (!s.ok()) {
-      return s;
+    // TODO: Add lazy resolution support for GetEntity point lookups. This
+    // requires SuperVersion pinning on PinnableWideColumns to keep the
+    // Version* alive after GetImpl returns. Currently, lazy_column_resolution
+    // only takes effect for iterators (DBIter path).
+    //
+    // Eager path: resolve blob columns inline to avoid intermediate
+    // std::string copies per blob value. Keep fetched blob values as
+    // PinnableSlice.
+    std::vector<PinnableSlice> resolved_blob_values(blob_cols.size());
+    for (size_t bi = 0; bi < blob_cols.size() && status.ok(); ++bi) {
+      const BlobIndex& blob_idx = blob_cols[bi].second;
+      if (blob_idx.IsInlined()) {
+        resolved_blob_values[bi].PinSelf(blob_idx.value());
+        continue;
+      }
+
+      status = blob_fetcher_->FetchBlob(
+          user_key, blob_idx, nullptr /* prefetch_buffer */,
+          &resolved_blob_values[bi], nullptr /* bytes_read */);
+    }
+
+    if (status.ok()) {
+      WideColumns result_columns;
+      result_columns.reserve(entity_columns.size());
+      size_t blob_cursor = 0;
+      for (size_t ci = 0; ci < entity_columns.size(); ++ci) {
+        if (blob_cursor < blob_cols.size() &&
+            blob_cols[blob_cursor].first == ci) {
+          result_columns.emplace_back(entity_columns[ci].name(),
+                                      Slice(resolved_blob_values[blob_cursor]));
+          ++blob_cursor;
+        } else {
+          result_columns.emplace_back(entity_columns[ci].name(),
+                                      entity_columns[ci].value());
+        }
+      }
+
+      std::string resolved_entity;
+      status =
+          WideColumnSerialization::Serialize(result_columns, resolved_entity);
+      if (status.ok()) {
+        // TODO: A combined SerializeAndBuildIndex method could avoid the
+        // serialize + deserialize round trip inside
+        // SetWideColumnValue -> CreateIndexForWideColumns.
+        return columns_->SetWideColumnValue(std::move(resolved_entity));
+      }
     }
   }
-
-  WideColumns result_columns;
-  result_columns.reserve(entity_columns.size());
-  size_t blob_cursor = 0;
-  for (size_t ci = 0; ci < entity_columns.size(); ++ci) {
-    if (blob_cursor < blob_cols.size() && blob_cols[blob_cursor].first == ci) {
-      result_columns.emplace_back(entity_columns[ci].name(),
-                                  Slice(resolved_blob_values[blob_cursor]));
-      ++blob_cursor;
-    } else {
-      result_columns.emplace_back(entity_columns[ci].name(),
-                                  entity_columns[ci].value());
-    }
-  }
-
-  std::string resolved_entity;
-  s = WideColumnSerialization::Serialize(result_columns, resolved_entity);
-  if (!s.ok()) {
-    return s;
-  }
-
-  // TODO: A combined SerializeAndBuildIndex method could avoid the
-  // serialize + deserialize round trip inside
-  // SetWideColumnValue -> CreateIndexForWideColumns.
-  return columns_->SetWideColumnValue(std::move(resolved_entity));
+  return status;
 }
 
 void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/) {

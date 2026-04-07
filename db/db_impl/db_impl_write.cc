@@ -623,16 +623,16 @@ Status DBImpl::AppendPreprocessedPutEntityToBatch(
   std::tie(s, cf_id, ts_sz) =
       WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(batch,
                                                             column_family);
-  if (!s.ok()) {
-    return s;
+  if (s.ok()) {
+    assert(ts_sz == 0);
+
+    WideColumns sorted_columns(columns);
+    WideColumnsHelper::SortColumns(sorted_columns);
+
+    return AppendSortedPutEntityToBatch(write_options, batch, cf_id, key,
+                                        sorted_columns, blob_direct_write_ctx);
   }
-  assert(ts_sz == 0);
-
-  WideColumns sorted_columns(columns);
-  WideColumnsHelper::SortColumns(sorted_columns);
-
-  return AppendSortedPutEntityToBatch(write_options, batch, cf_id, key,
-                                      sorted_columns, blob_direct_write_ctx);
+  return s;
 }
 
 Status DBImpl::AppendSortedPutEntityToBatch(
@@ -659,14 +659,14 @@ Status DBImpl::AppendSortedPutEntityToBatch(
   s = BlobWriteBatchTransformer::MaybePreprocessWideColumns(
       write_options, cf_id, key, sorted_columns, partition_mgr, settings,
       /*serialize_inline_entity=*/true, &entity, &transformed, rollback_infos);
-  if (!s.ok()) {
-    return s;
-  }
-  if (transformed && blob_direct_write_ctx != nullptr) {
-    blob_direct_write_ctx->touched_managers.insert(partition_mgr);
-  }
+  if (s.ok()) {
+    if (transformed && blob_direct_write_ctx != nullptr) {
+      blob_direct_write_ctx->touched_managers.insert(partition_mgr);
+    }
 
-  return WriteBatchInternal::PutEntitySerialized(batch, cf_id, key, entity);
+    return WriteBatchInternal::PutEntitySerialized(batch, cf_id, key, entity);
+  }
+  return s;
 }
 
 Status DBImpl::PutEntityFastPath(const WriteOptions& write_options,

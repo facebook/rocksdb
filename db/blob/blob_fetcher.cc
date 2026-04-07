@@ -17,13 +17,12 @@ Status BlobFetcher::FetchBlob(const Slice& user_key,
                               PinnableSlice* blob_value,
                               uint64_t* bytes_read) const {
   BlobIndex blob_index;
-  Status s = blob_index.DecodeFrom(blob_index_slice);
-  if (!s.ok()) {
-    return s;
+  Status status = blob_index.DecodeFrom(blob_index_slice);
+  if (status.ok()) {
+    status = FetchBlob(user_key, blob_index, prefetch_buffer, blob_value,
+                       bytes_read);
   }
-
-  return FetchBlob(user_key, blob_index, prefetch_buffer, blob_value,
-                   bytes_read);
+  return status;
 }
 
 Status BlobFetcher::FetchBlob(const Slice& user_key,

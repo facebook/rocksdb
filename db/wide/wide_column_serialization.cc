@@ -919,30 +919,25 @@ Status WideColumnSerialization::ResolveEntityForMerge(
     const BlobFetcher* blob_fetcher, PrefetchBufferCollection* prefetch_buffers,
     std::string& resolved_entity, Slice& effective_entity) {
   bool has_blob_columns = false;
-  Status s = HasBlobColumns(entity_value, has_blob_columns);
-  if (!s.ok()) {
-    return s;
+  Status status = HasBlobColumns(entity_value, has_blob_columns);
+  if (status.ok()) {
+    if (!has_blob_columns) {
+      effective_entity = entity_value;
+    } else if (!blob_fetcher) {
+      status = Status::Corruption(
+          "Cannot resolve blob columns in entity without a blob fetcher");
+    } else {
+      bool resolved = false;
+      status = ResolveEntityBlobColumns(
+          entity_value, user_key, blob_fetcher, prefetch_buffers,
+          resolved_entity, resolved, nullptr /* total_bytes_read */,
+          nullptr /* num_blobs_resolved */);
+      if (status.ok()) {
+        effective_entity = resolved ? Slice(resolved_entity) : entity_value;
+      }
+    }
   }
-  if (!has_blob_columns) {
-    effective_entity = entity_value;
-    return Status::OK();
-  }
-
-  if (!blob_fetcher) {
-    return Status::Corruption(
-        "Cannot resolve blob columns in entity without a blob fetcher");
-  }
-
-  bool resolved = false;
-  s = ResolveEntityBlobColumns(entity_value, user_key, blob_fetcher,
-                               prefetch_buffers, resolved_entity, resolved,
-                               nullptr /* total_bytes_read */,
-                               nullptr /* num_blobs_resolved */);
-  if (!s.ok()) {
-    return s;
-  }
-  effective_entity = resolved ? Slice(resolved_entity) : entity_value;
-  return Status::OK();
+  return status;
 }
 
 Status WideColumnSerialization::SerializeResolvedEntity(

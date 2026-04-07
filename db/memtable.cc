@@ -56,20 +56,18 @@ Status GetDefaultColumnBlobIndexSlice(Slice entity, Slice* blob_index_slice) {
 
   std::vector<WideColumn> columns;
   std::vector<std::pair<size_t, BlobIndex>> blob_columns;
-  Status s =
+  Status status =
       WideColumnSerialization::DeserializeV2(entity, columns, blob_columns);
-  if (!s.ok()) {
-    return s;
+  if (status.ok()) {
+    if (columns.empty() || columns.front().name() != kDefaultWideColumnName ||
+        blob_columns.empty() || blob_columns.front().first != 0) {
+      status = Status::Corruption(
+          "Wide column default column blob reference missing");
+    } else {
+      *blob_index_slice = columns.front().value();
+    }
   }
-
-  if (columns.empty() || columns.front().name() != kDefaultWideColumnName ||
-      blob_columns.empty() || blob_columns.front().first != 0) {
-    return Status::Corruption(
-        "Wide column default column blob reference missing");
-  }
-
-  *blob_index_slice = columns.front().value();
-  return Status::OK();
+  return status;
 }
 
 }  // namespace

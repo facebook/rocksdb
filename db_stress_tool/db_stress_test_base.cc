@@ -2182,7 +2182,7 @@ void StressTest::DumpIteratorDivergenceDiagnostics(
     return std::unique_ptr<Iterator>(db_->NewIterator(debug_ro, cmp_cfh));
   };
 
-  auto dump_debug_iter = [&](const char* label, ReadOptions debug_ro,
+  auto dump_debug_iter = [&](const char* label, const ReadOptions& debug_ro,
                              bool use_multi_cf_iter) {
     auto debug_iter = make_debug_iter(debug_ro, use_multi_cf_iter);
     debug_iter->Seek(seek_key);

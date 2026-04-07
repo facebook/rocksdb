@@ -2615,17 +2615,12 @@ static Status DecodeDirectWriteBlobIndex(const Slice& blob_index_slice,
                                          BlobIndex* blob_idx) {
   assert(blob_idx != nullptr);
 
-  Status s = blob_idx->DecodeFrom(blob_index_slice);
-  if (!s.ok()) {
-    return s;
-  }
-
-  if (blob_idx->HasTTL()) {
-    return Status::Corruption(
+  Status status = blob_idx->DecodeFrom(blob_index_slice);
+  if (status.ok() && blob_idx->HasTTL()) {
+    status = Status::Corruption(
         "Unexpected TTL blob index for blob direct write");
   }
-
-  return Status::OK();
+  return status;
 }
 
 Status DBImpl::ResolveDirectWritePlainValue(
@@ -2666,19 +2661,16 @@ Status DBImpl::ResolveDirectWritePlainValue(
   }
 
   BlobIndex blob_idx;
-  Status s = DecodeDirectWriteBlobIndex(blob_index_slice, &blob_idx);
-  if (!s.ok()) {
-    return s;
+  Status status = DecodeDirectWriteBlobIndex(blob_index_slice, &blob_idx);
+  if (status.ok()) {
+    status = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
+        read_options, key, blob_idx, current, cfd->blob_file_cache(),
+        nullptr /* prefetch_buffer */, target, nullptr /* bytes_read */);
+    if (status.ok() && columns != nullptr) {
+      columns->SetPlainValue(std::move(*target));
+    }
   }
-
-  s = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
-      read_options, key, blob_idx, current, cfd->blob_file_cache(),
-      nullptr /* prefetch_buffer */, target, nullptr /* bytes_read */);
-  if (s.ok() && columns != nullptr) {
-    columns->SetPlainValue(std::move(*target));
-  }
-
-  return s;
+  return status;
 }
 
 Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
@@ -2745,13 +2737,12 @@ Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
   }
 
   std::string resolved_entity;
-  Status s =
+  Status status =
       WideColumnSerialization::Serialize(resolved_columns, resolved_entity);
-  if (!s.ok()) {
-    return s;
+  if (status.ok()) {
+    status = columns->SetWideColumnValue(std::move(resolved_entity));
   }
-
-  return columns->SetWideColumnValue(std::move(resolved_entity));
+  return status;
 }
 
 bool DBImpl::MaybeResolveDirectWriteValue(

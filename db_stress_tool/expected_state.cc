@@ -553,33 +553,36 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
         StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
     uint64_t key_id = 0;
     TraceKeyDebugInfo key_info;
-    Status s = ParseTracedKey(key, "unable to parse key", &key_id, &key_info);
-    if (!s.ok()) {
-      return s;
-    }
-    const int64_t expected_key_id = static_cast<int64_t>(key_id);
-    const uint32_t value_base = GetValueBase(value);
+    Status status =
+        ParseTracedKey(key, "unable to parse key", &key_id, &key_info);
+    if (status.ok()) {
+      const int64_t expected_key_id = static_cast<int64_t>(key_id);
+      const uint32_t value_base = GetValueBase(value);
 
-    bool should_buffer_write = !(buffered_writes_ == nullptr);
-    if (should_buffer_write) {
-      MaybeLogKeyOperation("PutCF", column_family_id, true /* buffered */,
-                           key_info,
-                           "value_base=" + std::to_string(value_base) +
-                               " value_size=" + std::to_string(value.size()));
-      return WriteBatchInternal::Put(buffered_writes_.get(), column_family_id,
-                                     key, value);
-    }
+      bool should_buffer_write = !(buffered_writes_ == nullptr);
+      if (should_buffer_write) {
+        MaybeLogKeyOperation(
+            "PutCF", column_family_id, true /* buffered */, key_info,
+            "value_base=" + std::to_string(value_base) +
+                " value_size=" + std::to_string(value.size()));
+        return WriteBatchInternal::Put(buffered_writes_.get(), column_family_id,
+                                       key, value);
+      }
 
-    const ExpectedValue before = state_->Get(column_family_id, expected_key_id);
-    state_->SyncPut(column_family_id, expected_key_id, value_base);
-    const ExpectedValue after = state_->Get(column_family_id, expected_key_id);
-    NoteWriteOpApplied();
-    MaybeLogKeyOperation("PutCF", column_family_id, false /* buffered */,
-                         key_info,
-                         "value_base=" + std::to_string(value_base) +
-                             " value_size=" + std::to_string(value.size()),
-                         &before, &after);
-    return Status::OK();
+      const ExpectedValue before =
+          state_->Get(column_family_id, expected_key_id);
+      state_->SyncPut(column_family_id, expected_key_id, value_base);
+      const ExpectedValue after =
+          state_->Get(column_family_id, expected_key_id);
+      NoteWriteOpApplied();
+      MaybeLogKeyOperation(
+          "PutCF", column_family_id, false /* buffered */, key_info,
+          "value_base=" + std::to_string(value_base) +
+              " value_size=" + std::to_string(value.size()),
+          &before, &after);
+      status = Status::OK();
+    }
+    return status;
   }
 
   Status TimedPutCF(uint32_t column_family_id, const Slice& key_with_ts,
@@ -588,36 +591,39 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
         StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
     uint64_t key_id = 0;
     TraceKeyDebugInfo key_info;
-    Status s = ParseTracedKey(key, "unable to parse key", &key_id, &key_info);
-    if (!s.ok()) {
-      return s;
-    }
-    const int64_t expected_key_id = static_cast<int64_t>(key_id);
-    const uint32_t value_base = GetValueBase(value);
+    Status status =
+        ParseTracedKey(key, "unable to parse key", &key_id, &key_info);
+    if (status.ok()) {
+      const int64_t expected_key_id = static_cast<int64_t>(key_id);
+      const uint32_t value_base = GetValueBase(value);
 
-    bool should_buffer_write = !(buffered_writes_ == nullptr);
-    if (should_buffer_write) {
+      bool should_buffer_write = !(buffered_writes_ == nullptr);
+      if (should_buffer_write) {
+        MaybeLogKeyOperation(
+            "TimedPutCF", column_family_id, true /* buffered */, key_info,
+            "value_base=" + std::to_string(value_base) +
+                " value_size=" + std::to_string(value.size()) +
+                " write_unix_time=" + std::to_string(write_unix_time));
+        return WriteBatchInternal::TimedPut(buffered_writes_.get(),
+                                            column_family_id, key, value,
+                                            write_unix_time);
+      }
+
+      const ExpectedValue before =
+          state_->Get(column_family_id, expected_key_id);
+      state_->SyncPut(column_family_id, expected_key_id, value_base);
+      const ExpectedValue after =
+          state_->Get(column_family_id, expected_key_id);
+      NoteWriteOpApplied();
       MaybeLogKeyOperation(
-          "TimedPutCF", column_family_id, true /* buffered */, key_info,
+          "TimedPutCF", column_family_id, false /* buffered */, key_info,
           "value_base=" + std::to_string(value_base) +
               " value_size=" + std::to_string(value.size()) +
-              " write_unix_time=" + std::to_string(write_unix_time));
-      return WriteBatchInternal::TimedPut(buffered_writes_.get(),
-                                          column_family_id, key, value,
-                                          write_unix_time);
+              " write_unix_time=" + std::to_string(write_unix_time),
+          &before, &after);
+      status = Status::OK();
     }
-
-    const ExpectedValue before = state_->Get(column_family_id, expected_key_id);
-    state_->SyncPut(column_family_id, expected_key_id, value_base);
-    const ExpectedValue after = state_->Get(column_family_id, expected_key_id);
-    NoteWriteOpApplied();
-    MaybeLogKeyOperation(
-        "TimedPutCF", column_family_id, false /* buffered */, key_info,
-        "value_base=" + std::to_string(value_base) +
-            " value_size=" + std::to_string(value.size()) +
-            " write_unix_time=" + std::to_string(write_unix_time),
-        &before, &after);
-    return Status::OK();
+    return status;
   }
 
   Status PutEntityCF(uint32_t column_family_id, const Slice& key_with_ts,
@@ -627,48 +633,51 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
     uint64_t key_id = 0;
     TraceKeyDebugInfo key_info;
-    Status s = ParseTracedKey(key, "Unable to parse key", &key_id, &key_info);
-    if (!s.ok()) {
-      return s;
-    }
-    const int64_t expected_key_id = static_cast<int64_t>(key_id);
+    Status status =
+        ParseTracedKey(key, "Unable to parse key", &key_id, &key_info);
+    if (status.ok()) {
+      const int64_t expected_key_id = static_cast<int64_t>(key_id);
 
-    Slice entity_copy = entity;
-    WideColumns columns;
-    if (!WideColumnSerialization::Deserialize(entity_copy, columns).ok()) {
-      return Status::Corruption("Unable to deserialize entity",
-                                entity.ToString(/* hex */ true));
-    }
+      Slice entity_copy = entity;
+      WideColumns columns;
+      if (!WideColumnSerialization::Deserialize(entity_copy, columns).ok()) {
+        return Status::Corruption("Unable to deserialize entity",
+                                  entity.ToString(/* hex */ true));
+      }
 
-    if (!VerifyWideColumns(columns)) {
-      return Status::Corruption("Wide columns in entity inconsistent",
-                                entity.ToString(/* hex */ true));
-    }
+      if (!VerifyWideColumns(columns)) {
+        return Status::Corruption("Wide columns in entity inconsistent",
+                                  entity.ToString(/* hex */ true));
+      }
 
-    if (buffered_writes_) {
+      if (buffered_writes_) {
+        MaybeLogKeyOperation(
+            "PutEntityCF", column_family_id, true /* buffered */, key_info,
+            "entity_size=" + std::to_string(entity.size()) +
+                " num_columns=" + std::to_string(columns.size()));
+        return WriteBatchInternal::PutEntity(buffered_writes_.get(),
+                                             column_family_id, key, columns);
+      }
+
+      const uint32_t value_base =
+          GetValueBase(WideColumnsHelper::GetDefaultColumn(columns));
+
+      const ExpectedValue before =
+          state_->Get(column_family_id, expected_key_id);
+      state_->SyncPut(column_family_id, expected_key_id, value_base);
+      const ExpectedValue after =
+          state_->Get(column_family_id, expected_key_id);
+      NoteWriteOpApplied();
       MaybeLogKeyOperation(
-          "PutEntityCF", column_family_id, true /* buffered */, key_info,
+          "PutEntityCF", column_family_id, false /* buffered */, key_info,
           "entity_size=" + std::to_string(entity.size()) +
-              " num_columns=" + std::to_string(columns.size()));
-      return WriteBatchInternal::PutEntity(buffered_writes_.get(),
-                                           column_family_id, key, columns);
+              " num_columns=" + std::to_string(columns.size()) +
+              " default_value_base=" + std::to_string(value_base),
+          &before, &after);
+
+      status = Status::OK();
     }
-
-    const uint32_t value_base =
-        GetValueBase(WideColumnsHelper::GetDefaultColumn(columns));
-
-    const ExpectedValue before = state_->Get(column_family_id, expected_key_id);
-    state_->SyncPut(column_family_id, expected_key_id, value_base);
-    const ExpectedValue after = state_->Get(column_family_id, expected_key_id);
-    NoteWriteOpApplied();
-    MaybeLogKeyOperation(
-        "PutEntityCF", column_family_id, false /* buffered */, key_info,
-        "entity_size=" + std::to_string(entity.size()) +
-            " num_columns=" + std::to_string(columns.size()) +
-            " default_value_base=" + std::to_string(value_base),
-        &before, &after);
-
-    return Status::OK();
+    return status;
   }
 
   Status DeleteCF(uint32_t column_family_id,
@@ -677,27 +686,30 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
         StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
     uint64_t key_id = 0;
     TraceKeyDebugInfo key_info;
-    Status s = ParseTracedKey(key, "unable to parse key", &key_id, &key_info);
-    if (!s.ok()) {
-      return s;
-    }
-    const int64_t expected_key_id = static_cast<int64_t>(key_id);
+    Status status =
+        ParseTracedKey(key, "unable to parse key", &key_id, &key_info);
+    if (status.ok()) {
+      const int64_t expected_key_id = static_cast<int64_t>(key_id);
 
-    bool should_buffer_write = !(buffered_writes_ == nullptr);
-    if (should_buffer_write) {
-      MaybeLogKeyOperation("DeleteCF", column_family_id, true /* buffered */,
-                           key_info, "");
-      return WriteBatchInternal::Delete(buffered_writes_.get(),
-                                        column_family_id, key);
-    }
+      bool should_buffer_write = !(buffered_writes_ == nullptr);
+      if (should_buffer_write) {
+        MaybeLogKeyOperation(
+            "DeleteCF", column_family_id, true /* buffered */, key_info, "");
+        return WriteBatchInternal::Delete(buffered_writes_.get(),
+                                          column_family_id, key);
+      }
 
-    const ExpectedValue before = state_->Get(column_family_id, expected_key_id);
-    state_->SyncDelete(column_family_id, expected_key_id);
-    const ExpectedValue after = state_->Get(column_family_id, expected_key_id);
-    NoteWriteOpApplied();
-    MaybeLogKeyOperation("DeleteCF", column_family_id, false /* buffered */,
-                         key_info, "", &before, &after);
-    return Status::OK();
+      const ExpectedValue before =
+          state_->Get(column_family_id, expected_key_id);
+      state_->SyncDelete(column_family_id, expected_key_id);
+      const ExpectedValue after =
+          state_->Get(column_family_id, expected_key_id);
+      NoteWriteOpApplied();
+      MaybeLogKeyOperation("DeleteCF", column_family_id, false /* buffered */,
+                           key_info, "", &before, &after);
+      status = Status::OK();
+    }
+    return status;
   }
 
   Status SingleDeleteCF(uint32_t column_family_id,
@@ -728,55 +740,54 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     uint64_t end_key_id = 0;
     TraceKeyDebugInfo begin_info;
     TraceKeyDebugInfo end_info;
-    Status s = ParseTracedKey(begin_key, "unable to parse begin key",
-                              &begin_key_id, &begin_info);
-    if (!s.ok()) {
-      return s;
+    Status status = ParseTracedKey(begin_key, "unable to parse begin key",
+                                   &begin_key_id, &begin_info);
+    if (status.ok()) {
+      status = ParseTracedKey(end_key, "unable to parse end key", &end_key_id,
+                              &end_info);
     }
-    s = ParseTracedKey(end_key, "unable to parse end key", &end_key_id,
-                       &end_info);
-    if (!s.ok()) {
-      return s;
-    }
+    if (status.ok()) {
+      bool should_buffer_write = !(buffered_writes_ == nullptr);
+      if (should_buffer_write) {
+        const uint64_t affected_keys =
+            end_key_id > begin_key_id ? end_key_id - begin_key_id : 0;
+        MaybeLogRangeOperation(
+            "DeleteRangeCF", column_family_id, true /* buffered */, begin_info,
+            end_info,
+            "affected_keys=" + std::to_string(affected_keys) +
+                " inverted_range=" +
+                std::to_string(end_key_id < begin_key_id ? 1 : 0));
+        return WriteBatchInternal::DeleteRange(
+            buffered_writes_.get(), column_family_id, begin_key, end_key);
+      }
 
-    bool should_buffer_write = !(buffered_writes_ == nullptr);
-    if (should_buffer_write) {
+      const bool focus_in_range = FocusKeyInRange(begin_key_id, end_key_id);
       const uint64_t affected_keys =
           end_key_id > begin_key_id ? end_key_id - begin_key_id : 0;
+      ExpectedValue focus_before;
+      ExpectedValue focus_after;
+      if (focus_in_range) {
+        focus_before = state_->Get(column_family_id, debug_focus_key_);
+      }
+      state_->SyncDeleteRange(column_family_id,
+                              static_cast<int64_t>(begin_key_id),
+                              static_cast<int64_t>(end_key_id));
+      if (focus_in_range) {
+        focus_after = state_->Get(column_family_id, debug_focus_key_);
+      }
+      NoteWriteOpApplied();
       MaybeLogRangeOperation(
-          "DeleteRangeCF", column_family_id, true /* buffered */, begin_info,
+          "DeleteRangeCF", column_family_id, false /* buffered */, begin_info,
           end_info,
           "affected_keys=" + std::to_string(affected_keys) +
               " inverted_range=" +
-              std::to_string(end_key_id < begin_key_id ? 1 : 0));
-      return WriteBatchInternal::DeleteRange(
-          buffered_writes_.get(), column_family_id, begin_key, end_key);
+              std::to_string(end_key_id < begin_key_id ? 1 : 0) +
+              " focus_in_range=" + std::to_string(focus_in_range ? 1 : 0),
+          focus_in_range ? &focus_before : nullptr,
+          focus_in_range ? &focus_after : nullptr);
+      status = Status::OK();
     }
-
-    const bool focus_in_range = FocusKeyInRange(begin_key_id, end_key_id);
-    const uint64_t affected_keys =
-        end_key_id > begin_key_id ? end_key_id - begin_key_id : 0;
-    ExpectedValue focus_before;
-    ExpectedValue focus_after;
-    if (focus_in_range) {
-      focus_before = state_->Get(column_family_id, debug_focus_key_);
-    }
-    state_->SyncDeleteRange(column_family_id,
-                            static_cast<int64_t>(begin_key_id),
-                            static_cast<int64_t>(end_key_id));
-    if (focus_in_range) {
-      focus_after = state_->Get(column_family_id, debug_focus_key_);
-    }
-    NoteWriteOpApplied();
-    MaybeLogRangeOperation(
-        "DeleteRangeCF", column_family_id, false /* buffered */, begin_info,
-        end_info,
-        "affected_keys=" + std::to_string(affected_keys) + " inverted_range=" +
-            std::to_string(end_key_id < begin_key_id ? 1 : 0) +
-            " focus_in_range=" + std::to_string(focus_in_range ? 1 : 0),
-        focus_in_range ? &focus_before : nullptr,
-        focus_in_range ? &focus_after : nullptr);
-    return Status::OK();
+    return status;
   }
 
   Status MergeCF(uint32_t column_family_id, const Slice& key_with_ts,
@@ -799,36 +810,39 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
         StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
     uint64_t key_id = 0;
     TraceKeyDebugInfo key_info;
-    Status s = ParseTracedKey(key, "unable to parse key", &key_id, &key_info);
-    if (!s.ok()) {
-      return s;
-    }
-    const int64_t expected_key_id = static_cast<int64_t>(key_id);
+    Status status =
+        ParseTracedKey(key, "unable to parse key", &key_id, &key_info);
+    if (status.ok()) {
+      const int64_t expected_key_id = static_cast<int64_t>(key_id);
 
-    bool should_buffer_write = !(buffered_writes_ == nullptr);
-    if (should_buffer_write) {
-      MaybeLogKeyOperation("PutBlobIndexCF", column_family_id,
-                           true /* buffered */, key_info,
-                           "blob_index_size=" + std::to_string(value.size()));
-      return WriteBatchInternal::PutBlobIndex(buffered_writes_.get(),
-                                              column_family_id, key, value);
-    }
+      bool should_buffer_write = !(buffered_writes_ == nullptr);
+      if (should_buffer_write) {
+        MaybeLogKeyOperation("PutBlobIndexCF", column_family_id,
+                             true /* buffered */, key_info,
+                             "blob_index_size=" + std::to_string(value.size()));
+        return WriteBatchInternal::PutBlobIndex(buffered_writes_.get(),
+                                                column_family_id, key, value);
+      }
 
-    // Blob direct-write traces record the transformed BlobIndex write rather
-    // than the original value bytes. For expected-state replay we only need the
-    // logical effect of "another put to this key", and db_stress values advance
-    // deterministically by one value_base per committed write.
-    const ExpectedValue before = state_->Get(column_family_id, expected_key_id);
-    const uint32_t value_base = before.NextValueBase();
-    state_->SyncPut(column_family_id, expected_key_id, value_base);
-    const ExpectedValue after = state_->Get(column_family_id, expected_key_id);
-    NoteWriteOpApplied();
-    MaybeLogKeyOperation(
-        "PutBlobIndexCF", column_family_id, false /* buffered */, key_info,
-        "blob_index_size=" + std::to_string(value.size()) +
-            " derived_value_base=" + std::to_string(value_base),
-        &before, &after);
-    return Status::OK();
+      // Blob direct-write traces record the transformed BlobIndex write rather
+      // than the original value bytes. For expected-state replay we only need
+      // the logical effect of "another put to this key", and db_stress values
+      // advance deterministically by one value_base per committed write.
+      const ExpectedValue before =
+          state_->Get(column_family_id, expected_key_id);
+      const uint32_t value_base = before.NextValueBase();
+      state_->SyncPut(column_family_id, expected_key_id, value_base);
+      const ExpectedValue after =
+          state_->Get(column_family_id, expected_key_id);
+      NoteWriteOpApplied();
+      MaybeLogKeyOperation(
+          "PutBlobIndexCF", column_family_id, false /* buffered */, key_info,
+          "blob_index_size=" + std::to_string(value.size()) +
+              " derived_value_base=" + std::to_string(value_base),
+          &before, &after);
+      status = Status::OK();
+    }
+    return status;
   }
 
   Status MarkBeginPrepare(bool = false) override {

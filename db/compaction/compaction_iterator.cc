@@ -46,64 +46,60 @@ void CompactionBlobResolver::Reset(
 
 Status CompactionBlobResolver::ResolveColumn(size_t column_index,
                                              Slice* resolved_value) {
+  Status status = Status::OK();
   if (columns_ == nullptr || column_index >= columns_->size()) {
-    return Status::InvalidArgument("Column index out of bounds");
+    status = Status::InvalidArgument("Column index out of bounds");
+  } else {
+    const BlobIndex* blob_index_ptr =
+        blob_resolver_util::FindBlobColumn(blob_columns_, column_index);
+
+    if (blob_index_ptr == nullptr) {
+      // Not a blob column - return the inline value directly
+      *resolved_value = (*columns_)[column_index].value();
+    } else {
+      // Check if we've already resolved this column
+      PinnableSlice* cached =
+          blob_resolver_util::FindInCache(resolved_cache_, column_index);
+      if (cached != nullptr) {
+        *resolved_value = Slice(*cached);
+      } else if (blob_fetcher_ == nullptr) {
+        status = Status::NotSupported("Blob fetcher not available");
+      } else {
+        const BlobIndex& blob_index = *blob_index_ptr;
+
+        // Handle inlined blobs (e.g., from legacy stacked BlobDB with TTL)
+        if (blob_index.IsInlined()) {
+          *resolved_value = blob_resolver_util::CacheInlinedBlob(
+              resolved_cache_, column_index, blob_index);
+        } else {
+          FilePrefetchBuffer* prefetch_buffer =
+              prefetch_buffers_ ? prefetch_buffers_->GetOrCreatePrefetchBuffer(
+                                      blob_index.file_number())
+                                : nullptr;
+
+          uint64_t bytes_read = 0;
+          resolved_cache_.emplace_back(column_index,
+                                       std::make_unique<PinnableSlice>());
+          auto& new_entry = resolved_cache_.back();
+
+          status =
+              blob_fetcher_->FetchBlob(user_key_, blob_index, prefetch_buffer,
+                                       new_entry.second.get(), &bytes_read);
+          if (!status.ok()) {
+            resolved_cache_.pop_back();
+          } else {
+            if (iter_stats_ != nullptr) {
+              ++iter_stats_->num_blobs_read;
+              iter_stats_->total_blob_bytes_read += bytes_read;
+            }
+
+            *resolved_value = Slice(*new_entry.second);
+          }
+        }
+      }
+    }
   }
-
-  const BlobIndex* blob_index_ptr =
-      blob_resolver_util::FindBlobColumn(blob_columns_, column_index);
-
-  if (blob_index_ptr == nullptr) {
-    // Not a blob column - return the inline value directly
-    *resolved_value = (*columns_)[column_index].value();
-    return Status::OK();
-  }
-
-  // Check if we've already resolved this column
-  PinnableSlice* cached =
-      blob_resolver_util::FindInCache(resolved_cache_, column_index);
-  if (cached != nullptr) {
-    *resolved_value = Slice(*cached);
-    return Status::OK();
-  }
-
-  // Need to fetch the blob
-  if (blob_fetcher_ == nullptr) {
-    return Status::NotSupported("Blob fetcher not available");
-  }
-
-  const BlobIndex& blob_index = *blob_index_ptr;
-
-  // Handle inlined blobs (e.g., from legacy stacked BlobDB with TTL)
-  if (blob_index.IsInlined()) {
-    *resolved_value = blob_resolver_util::CacheInlinedBlob(
-        resolved_cache_, column_index, blob_index);
-    return Status::OK();
-  }
-
-  FilePrefetchBuffer* prefetch_buffer =
-      prefetch_buffers_ ? prefetch_buffers_->GetOrCreatePrefetchBuffer(
-                              blob_index.file_number())
-                        : nullptr;
-
-  uint64_t bytes_read = 0;
-  resolved_cache_.emplace_back(column_index, std::make_unique<PinnableSlice>());
-  auto& new_entry = resolved_cache_.back();
-
-  Status s = blob_fetcher_->FetchBlob(user_key_, blob_index, prefetch_buffer,
-                                      new_entry.second.get(), &bytes_read);
-  if (!s.ok()) {
-    resolved_cache_.pop_back();
-    return s;
-  }
-
-  if (iter_stats_ != nullptr) {
-    ++iter_stats_->num_blobs_read;
-    iter_stats_->total_blob_bytes_read += bytes_read;
-  }
-
-  *resolved_value = Slice(*new_entry.second);
-  return Status::OK();
+  return status;
 }
 
 bool CompactionBlobResolver::IsBlobColumn(size_t column_index) const {
@@ -1616,37 +1612,38 @@ CompactionIterator::RelocateBlobValues(
     const std::vector<std::pair<size_t, PinnableSlice>>& fetched_blob_values) {
   std::vector<std::pair<size_t, BlobIndex>> new_blob_columns;
 
-  if (!blob_file_builder_) {
-    return new_blob_columns;
-  }
+  if (blob_file_builder_) {
+    for (const auto& fv : fetched_blob_values) {
+      const size_t col_idx = fv.first;
+      const Slice col_value(fv.second);
 
-  for (const auto& fv : fetched_blob_values) {
-    const size_t col_idx = fv.first;
-    const Slice col_value(fv.second);
-
-    std::string temp_blob_index;
-    Status s = blob_file_builder_->Add(user_key(), col_value, &temp_blob_index);
-    if (!s.ok()) {
-      status_ = s;
-      validity_info_.Invalidate();
-      return {};  // Return empty on error
-    }
-
-    if (!temp_blob_index.empty()) {
-      BlobIndex blob_idx;
-      s = blob_idx.DecodeFrom(temp_blob_index);
-      if (!s.ok()) {
-        status_ = s;
+      std::string temp_blob_index;
+      Status status =
+          blob_file_builder_->Add(user_key(), col_value, &temp_blob_index);
+      if (!status.ok()) {
+        status_ = status;
         validity_info_.Invalidate();
-        return {};
+        new_blob_columns.clear();
+        break;
       }
-      new_blob_columns.emplace_back(col_idx, blob_idx);
 
-      // Track relocation stats here (after successful relocation)
-      ++iter_stats_.num_blobs_relocated;
-      iter_stats_.total_blob_bytes_relocated += col_value.size();
+      if (!temp_blob_index.empty()) {
+        BlobIndex blob_idx;
+        status = blob_idx.DecodeFrom(temp_blob_index);
+        if (!status.ok()) {
+          status_ = status;
+          validity_info_.Invalidate();
+          new_blob_columns.clear();
+          break;
+        }
+        new_blob_columns.emplace_back(col_idx, blob_idx);
+
+        // Track relocation stats here (after successful relocation)
+        ++iter_stats_.num_blobs_relocated;
+        iter_stats_.total_blob_bytes_relocated += col_value.size();
+      }
+      // If temp_blob_index is empty, the value will be inlined
     }
-    // If temp_blob_index is empty, the value will be inlined
   }
 
   return new_blob_columns;

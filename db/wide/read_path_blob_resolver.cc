@@ -51,51 +51,50 @@ Status ReadPathBlobResolver::ResolveColumn(size_t column_index,
   assert(columns_);
   assert(resolved_value);
 
+  Status status = Status::OK();
   if (column_index >= columns_->size()) {
-    return Status::InvalidArgument("Column index out of bounds");
+    status = Status::InvalidArgument("Column index out of bounds");
+  } else {
+    const BlobIndex* blob_index_ptr =
+        blob_resolver_util::FindBlobColumn(blob_columns_, column_index);
+
+    if (blob_index_ptr == nullptr) {
+      // Inline column — return the value directly
+      *resolved_value = (*columns_)[column_index].value();
+    } else {
+      // Check if already resolved
+      PinnableSlice* cached =
+          blob_resolver_util::FindInCache(resolved_cache_, column_index);
+      if (cached != nullptr) {
+        *resolved_value = *cached;
+      } else {
+        const BlobIndex& blob_index = *blob_index_ptr;
+
+        // Handle inlined blobs
+        if (blob_index.IsInlined()) {
+          *resolved_value = blob_resolver_util::CacheInlinedBlob(
+              resolved_cache_, column_index, blob_index);
+        } else {
+          resolved_cache_.emplace_back(column_index,
+                                       std::make_unique<PinnableSlice>());
+          auto& new_entry = resolved_cache_.back();
+
+          constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+          constexpr uint64_t* bytes_read = nullptr;
+
+          status = blob_fetcher_.FetchBlob(user_key_, blob_index,
+                                           prefetch_buffer,
+                                           new_entry.second.get(), bytes_read);
+          if (!status.ok()) {
+            resolved_cache_.pop_back();
+          } else {
+            *resolved_value = *new_entry.second;
+          }
+        }
+      }
+    }
   }
-
-  const BlobIndex* blob_index_ptr =
-      blob_resolver_util::FindBlobColumn(blob_columns_, column_index);
-
-  if (blob_index_ptr == nullptr) {
-    // Inline column — return the value directly
-    *resolved_value = (*columns_)[column_index].value();
-    return Status::OK();
-  }
-
-  // Check if already resolved
-  PinnableSlice* cached =
-      blob_resolver_util::FindInCache(resolved_cache_, column_index);
-  if (cached != nullptr) {
-    *resolved_value = *cached;
-    return Status::OK();
-  }
-
-  const BlobIndex& blob_index = *blob_index_ptr;
-
-  // Handle inlined blobs
-  if (blob_index.IsInlined()) {
-    *resolved_value = blob_resolver_util::CacheInlinedBlob(
-        resolved_cache_, column_index, blob_index);
-    return Status::OK();
-  }
-
-  resolved_cache_.emplace_back(column_index, std::make_unique<PinnableSlice>());
-  auto& new_entry = resolved_cache_.back();
-
-  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
-  constexpr uint64_t* bytes_read = nullptr;
-
-  Status s = blob_fetcher_.FetchBlob(user_key_, blob_index, prefetch_buffer,
-                                     new_entry.second.get(), bytes_read);
-  if (!s.ok()) {
-    resolved_cache_.pop_back();
-    return s;
-  }
-
-  *resolved_value = *new_entry.second;
-  return Status::OK();
+  return status;
 }
 
 Status ReadPathBlobResolver::ResolveAllColumns() {

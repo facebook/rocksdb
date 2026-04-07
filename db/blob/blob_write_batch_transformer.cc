@@ -218,41 +218,38 @@ Status BlobWriteBatchTransformer::PutEntityCF(uint32_t column_family_id,
   Slice entity_ref = entity;
   std::vector<WideColumn> columns;
   std::vector<std::pair<size_t, BlobIndex>> existing_blob_columns;
-  Status s = WideColumnSerialization::DeserializeV2(entity_ref, columns,
-                                                    existing_blob_columns);
-  if (!s.ok()) {
-    return s;
-  }
+  Status status = WideColumnSerialization::DeserializeV2(
+      entity_ref, columns, existing_blob_columns);
+  if (status.ok()) {
+    // Reject pre-serialized entities that already contain blob references.
+    // Passing them through would preserve references to blob files outside this
+    // batch's direct-write lifetime tracking, which can later turn into stale
+    // reads after blob GC.
+    if (UNLIKELY(!existing_blob_columns.empty())) {
+      return Status::NotSupported(
+          "Blob direct write does not support pre-serialized wide entities "
+          "with blob references");
+    }
 
-  // Reject pre-serialized entities that already contain blob references.
-  // Passing them through would preserve references to blob files outside this
-  // batch's direct-write lifetime tracking, which can later turn into stale
-  // reads after blob GC.
-  if (UNLIKELY(!existing_blob_columns.empty())) {
-    return Status::NotSupported(
-        "Blob direct write does not support pre-serialized wide entities "
-        "with blob references");
-  }
+    std::string rewritten_entity;
+    bool transformed = false;
+    status = MaybePreprocessWideColumns(
+        write_options_, column_family_id, key, columns, cached_partition_mgr_,
+        settings, /*serialize_inline_entity=*/false, &rewritten_entity,
+        &transformed, &rollback_infos_);
+    if (status.ok()) {
+      if (!transformed) {
+        return WriteBatchInternal::PutEntitySerialized(
+            output_batch_, column_family_id, key, entity);
+      }
 
-  std::string rewritten_entity;
-  bool transformed = false;
-  s = MaybePreprocessWideColumns(write_options_, column_family_id, key, columns,
-                                 cached_partition_mgr_, settings,
-                                 /*serialize_inline_entity=*/false,
-                                 &rewritten_entity, &transformed,
-                                 &rollback_infos_);
-  if (!s.ok()) {
-    return s;
+      has_transformed_ = true;
+      used_managers_.insert(cached_partition_mgr_);
+      return WriteBatchInternal::PutEntitySerialized(
+          output_batch_, column_family_id, key, rewritten_entity);
+    }
   }
-  if (!transformed) {
-    return WriteBatchInternal::PutEntitySerialized(
-        output_batch_, column_family_id, key, entity);
-  }
-
-  has_transformed_ = true;
-  used_managers_.insert(cached_partition_mgr_);
-  return WriteBatchInternal::PutEntitySerialized(
-      output_batch_, column_family_id, key, rewritten_entity);
+  return status;
 }
 
 Status BlobWriteBatchTransformer::DeleteCF(uint32_t column_family_id,

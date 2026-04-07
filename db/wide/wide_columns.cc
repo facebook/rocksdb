@@ -19,29 +19,25 @@ Status PinnableWideColumns::CreateIndexForWideColumns() {
   unresolved_blob_column_indices_.clear();
 
   Slice value_copy = value_;
-  Status s = WideColumnSerialization::Deserialize(value_copy, columns_);
-  if (s.ok() || !s.IsNotSupported()) {
-    return s;
+  Status status = WideColumnSerialization::Deserialize(value_copy, columns_);
+  if (status.IsNotSupported()) {
+    // Deserialize() may already populate columns_ before discovering V2 blob
+    // references and returning NotSupported. Clear the partial result before
+    // falling back to DeserializeV2(), which requires an empty output vector.
+    columns_.clear();
+    value_copy = value_;
+    std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+    status = WideColumnSerialization::DeserializeV2(value_copy, columns_,
+                                                    blob_columns);
+    if (status.ok()) {
+      unresolved_blob_column_indices_.reserve(blob_columns.size());
+      for (const auto& blob_column : blob_columns) {
+        unresolved_blob_column_indices_.push_back(blob_column.first);
+      }
+    }
   }
 
-  // Deserialize() may already populate columns_ before discovering V2 blob
-  // references and returning NotSupported. Clear the partial result before
-  // falling back to DeserializeV2(), which requires an empty output vector.
-  columns_.clear();
-  value_copy = value_;
-  std::vector<std::pair<size_t, BlobIndex>> blob_columns;
-  s = WideColumnSerialization::DeserializeV2(value_copy, columns_,
-                                             blob_columns);
-  if (!s.ok()) {
-    return s;
-  }
-
-  unresolved_blob_column_indices_.reserve(blob_columns.size());
-  for (const auto& blob_column : blob_columns) {
-    unresolved_blob_column_indices_.push_back(blob_column.first);
-  }
-
-  return Status::OK();
+  return status;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
