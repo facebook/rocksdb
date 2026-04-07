@@ -546,6 +546,23 @@ TEST_F(RangeTombstoneFragmenterTest, SeekOutOfBounds) {
                     {{"", {}, true /* out of range */}, {"z", {"l", "n", 4}}});
 }
 
+TEST_F(RangeTombstoneFragmenterTest, CountsAllTombstonesWhenInputNeedsSorting) {
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+  for (const auto& tombstone : std::vector<RangeTombstone>{
+           {"c", "e", 10}, {"a", "d", 8}, {"b", "f", 6}, {"d", "g", 4}}) {
+    auto key_and_value = tombstone.Serialize();
+    keys.emplace_back(key_and_value.first.Encode().ToString());
+    values.emplace_back(key_and_value.second.ToString());
+  }
+
+  auto unsorted_iter = std::make_unique<VectorIterator>(keys, values, nullptr);
+  FragmentedRangeTombstoneList fragment_list(std::move(unsorted_iter),
+                                             bytewise_icmp);
+
+  ASSERT_EQ(fragment_list.num_unfragmented_tombstones(), 4);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
