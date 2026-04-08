@@ -163,6 +163,50 @@ class StalePathSizeFileSystem : public FileSystemWrapper {
   const std::string stale_path_;
 };
 
+class FailingOpenFileSizeRandomAccessFile
+    : public FSRandomAccessFileOwnerWrapper {
+ public:
+  explicit FailingOpenFileSizeRandomAccessFile(
+      std::unique_ptr<FSRandomAccessFile>&& target)
+      : FSRandomAccessFileOwnerWrapper(std::move(target)) {}
+
+  IOStatus GetFileSize(uint64_t* /*result*/) override {
+    return IOStatus::IOError("open file size failed");
+  }
+};
+
+class FailingOpenFileSizeFileSystem : public FileSystemWrapper {
+ public:
+  static const char* kClassName() { return "FailingOpenFileSizeFileSystem"; }
+
+  FailingOpenFileSizeFileSystem(const std::shared_ptr<FileSystem>& target,
+                                std::string target_path)
+      : FileSystemWrapper(target), target_path_(std::move(target_path)) {}
+
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& options,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    std::unique_ptr<FSRandomAccessFile> file;
+    IOStatus s =
+        FileSystemWrapper::NewRandomAccessFile(fname, options, &file, dbg);
+    if (!s.ok()) {
+      return s;
+    }
+    if (fname == target_path_ && IsBlobFileActiveDirectWriteOpenMode(options)) {
+      result->reset(new FailingOpenFileSizeRandomAccessFile(std::move(file)));
+    } else {
+      *result = std::move(file);
+    }
+    return IOStatus::OK();
+  }
+
+ private:
+  const std::string target_path_;
+};
+
 }  // namespace
 
 TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
@@ -508,6 +552,53 @@ TEST_F(BlobFileReaderTest, CreateReaderUsesOpenedFileSizeWhenPathSizeIsStale) {
   ASSERT_NE(value, nullptr);
   ASSERT_EQ(value->data(), Slice(blob));
   ASSERT_EQ(bytes_read, blob_size);
+}
+
+TEST_F(BlobFileReaderTest,
+       CreateReaderPropagatesOpenedFileSizeErrorForActiveDirectWrite) {
+  const std::string db_path = test::PerThreadDBPath(
+      mock_env_.get(),
+      "BlobFileReaderTest_"
+      "CreateReaderPropagatesOpenedFileSizeErrorForActiveDirectWrite");
+
+  constexpr uint64_t blob_file_number = 1;
+  const std::string blob_file_path = BlobFileName(db_path, blob_file_number);
+
+  auto failing_open_file_size_fs =
+      std::make_shared<FailingOpenFileSizeFileSystem>(
+          mock_env_->GetFileSystem(), blob_file_path);
+  CompositeEnvWrapper failing_open_file_size_env(mock_env_.get(),
+                                                 failing_open_file_size_fs);
+
+  Options options;
+  options.env = &failing_open_file_size_env;
+  options.cf_paths.emplace_back(db_path, 0);
+  options.enable_blob_files = true;
+
+  ImmutableOptions immutable_options(options);
+
+  constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+  constexpr char key[] = "key";
+  constexpr char blob[] = "blob";
+
+  uint64_t blob_offset = 0;
+  uint64_t blob_size = 0;
+  WriteBlobFile(immutable_options, column_family_id, has_ttl, expiration_range,
+                expiration_range, blob_file_number, key, blob, kNoCompression,
+                &blob_offset, &blob_size);
+
+  std::unique_ptr<BlobFileReader> reader;
+  ReadOptions read_options;
+  FileOptions file_options;
+  SetBlobFileActiveDirectWriteOpenMode(&file_options);
+  Status s = BlobFileReader::Create(
+      immutable_options, read_options, file_options, column_family_id,
+      /*blob_file_read_hist=*/nullptr, blob_file_number, nullptr /*IOTracer*/,
+      &reader);
+  ASSERT_TRUE(s.IsIOError());
+  ASSERT_EQ(reader, nullptr);
 }
 
 TEST_F(BlobFileReaderTest, Malformed) {

@@ -145,6 +145,8 @@ Status BlobFileReader::OpenFile(
       // active direct-write blob file while the opened read handle sees the
       // latest visible bytes. Prefer the open-handle size when it is larger.
       *file_size = std::max(*file_size, open_file_size);
+    } else if (!open_file_size_status.IsNotSupported()) {
+      return open_file_size_status;
     }
   }
 
