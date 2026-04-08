@@ -11,10 +11,29 @@
 
 #include "db/dbformat.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace trie_index {
+
+namespace {
+
+FactoryFunc<UserDefinedIndexFactory> RegisterBuiltinTrieIndexFactory() {
+  return ObjectLibrary::Default()->AddFactory<UserDefinedIndexFactory>(
+      TrieIndexFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<UserDefinedIndexFactory>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new TrieIndexFactory());
+        return guard->get();
+      });
+}
+
+[[maybe_unused]] static FactoryFunc<UserDefinedIndexFactory>
+    builtin_trie_index_factory = RegisterBuiltinTrieIndexFactory();
+
+}  // namespace
 
 // Tag used for non-boundary separators (between blocks with different user
 // keys). This is the same tag the standard index uses:

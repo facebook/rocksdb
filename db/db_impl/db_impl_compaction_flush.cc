@@ -1718,7 +1718,6 @@ Status DBImpl::CompactFilesImpl(
     TEST_SYNC_POINT("DBImpl::CompactFilesImpl:TrivialMove");
 
     bool compaction_released = false;
-    CompactionJobStats compaction_job_stats;
     size_t moved_files = 0;
     size_t moved_bytes = 0;
     Status status = PerformTrivialMove(
@@ -1735,10 +1734,6 @@ Status DBImpl::CompactFilesImpl(
               c->immutable_options().cf_paths, newf.second.fd.GetNumber(),
               newf.second.fd.GetPathId()));
         }
-      }
-      if (compaction_job_info != nullptr) {
-        BuildCompactionJobInfo(cfd, c.get(), status, compaction_job_stats,
-                               job_context->job_id, compaction_job_info);
       }
 
       ROCKS_LOG_BUFFER(
