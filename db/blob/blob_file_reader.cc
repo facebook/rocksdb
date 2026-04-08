@@ -9,8 +9,8 @@
 #include <string>
 
 #include "db/blob/blob_contents.h"
-#include "db/blob/blob_log_format.h"
 #include "db/blob/blob_file_open_options.h"
+#include "db/blob/blob_log_format.h"
 #include "file/file_prefetch_buffer.h"
 #include "file/filename.h"
 #include "monitoring/statistics_impl.h"
