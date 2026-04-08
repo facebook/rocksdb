@@ -4333,14 +4333,16 @@ TEST_P(TrieIndexDBTest, RollbackFromPrimaryToSecondary) {
   db_.reset();
 
   // Rollback step 1: Reopen as secondary (with UDI factory still set).
-  // The primary-mode SSTs are readable because udi_written_as_primary=true
-  // in the table property causes the reader to use the trie automatically.
+  // Primary UDI routing is purely config-driven, so reopening as secondary
+  // immediately reverts all reads to the standard index path. The trie is
+  // still accessible via explicit ReadOptions::table_index_factory.
   ASSERT_OK(OpenDBSecondary(/*block_size=*/128));
 
   // Verify the primary-mode SST is readable through both paths.
+  // Explicit trie read:
   ASSERT_OK(db_->Get(TrieIndexReadOptions(), "key_0015", &value));
   ASSERT_EQ(value, "val_0015");
-  // Default ReadOptions also works because udi_is_primary_=true for this SST.
+  // Standard index read (default ReadOptions, no table_index_factory):
   ASSERT_OK(db_->Get(ReadOptions(), "key_0015", &value));
   ASSERT_EQ(value, "val_0015");
 
@@ -4407,8 +4409,8 @@ TEST_P(TrieIndexDBTest, RollbackFromPrimaryWithoutCompactSucceeds) {
 
 TEST_P(TrieIndexDBTest, PrimaryModeTableProperties) {
   // Verifies primary-mode-specific behavior: the udi_is_primary_index table
-  // property is set, the standard index is fully populated (not a stub),
-  // and reads work without setting ReadOptions::table_index_factory.
+  // property is set (informational, does not affect read routing), and
+  // reads work without setting ReadOptions::table_index_factory.
   if (!IsPrimaryMode()) {
     ROCKSDB_GTEST_SKIP("Only applicable in primary mode");
     return;
@@ -4419,7 +4421,7 @@ TEST_P(TrieIndexDBTest, PrimaryModeTableProperties) {
   ASSERT_OK(db_->Put(WriteOptions(), "key2", "val2"));
   ASSERT_OK(db_->Flush(FlushOptions()));
 
-  // Verify the table property is set.
+  // Verify the informational table property is set.
   TablePropertiesCollection props;
   ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
   ASSERT_FALSE(props.empty());

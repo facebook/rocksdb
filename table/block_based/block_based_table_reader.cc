@@ -1366,16 +1366,15 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
             udi_option, rep_->udi_block.GetValue()->data, udi_reader);
         if (s.ok()) {
           if (udi_reader) {
-            // Determine primary UDI mode: use UDI for all reads if the SST
-            // was built with UDI-primary or the config says primary. This
-            // enables reading old dual-index SSTs through the UDI too.
-            bool udi_is_primary =
-                (rep_->table_properties &&
-                 rep_->table_properties->udi_is_primary_index != 0) ||
-                table_options.use_udi_as_primary_index;
+            // Primary UDI mode is purely config-driven. The
+            // udi_is_primary_index table property is informational only
+            // (for diagnostics / sst_dump) and does not affect routing.
+            // This keeps rollback simple: setting
+            // use_udi_as_primary_index=false immediately reverts all SSTs
+            // to standard-index reads without needing compaction.
             index_reader = std::make_unique<UserDefinedIndexReaderWrapper>(
                 udi_name, std::move(index_reader), std::move(udi_reader),
-                udi_is_primary);
+                table_options.use_udi_as_primary_index);
           } else {
             s = Status::Corruption("Failed to create UDI reader for " +
                                    udi_name + " in file " +
