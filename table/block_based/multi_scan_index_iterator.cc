@@ -143,6 +143,12 @@ void MultiScanIndexIterator::Seek(const Slice& target) {
     // max_sequential_skip_in_iterations can trigger a reseek on the start
     // key of a scan range, even though we're already past cur_scan_start_idx
     size_t block_idx = std::max(cur_scan_start_idx, cur_idx_);
+    if (block_idx >= cur_scan_end_idx) {
+      // cur_idx_ has advanced past this range's blocks (e.g., due to a
+      // reseek after all ranges were exhausted). Treat as exhausted.
+      SetExhausted();
+      return;
+    }
     SeekToBlockIdx(block_idx);
   }
 }
