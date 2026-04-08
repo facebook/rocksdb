@@ -144,6 +144,9 @@ class StressTest {
   void PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
                                     SharedState* shared);
 
+  // Rebuilds the latest expected state from the recovered DB contents.
+  Status RebuildExpectedStateFromDb(SharedState* shared);
+
   Status SetOptions(ThreadState* thread);
 
   // For transactionsDB, there can be txns prepared but not yet committeed

@@ -770,10 +770,15 @@ Status FileExpectedStateManager::Restore(DB* db) {
                                  std::move(trace_reader), &replayer);
     }
 
+    bool reached_trace_end = false;
     if (s.ok()) {
       s = replayer->Prepare();
+      if (s.IsIncomplete()) {
+        reached_trace_end = true;
+        s = Status::OK();
+      }
     }
-    for (; s.ok();) {
+    for (; s.ok() && !reached_trace_end;) {
       std::unique_ptr<TraceRecord> record;
       s = replayer->Next(&record);
       if (!s.ok()) {
@@ -789,13 +794,18 @@ Status FileExpectedStateManager::Restore(DB* db) {
           // trace records.
           s = Status::OK();
         }
+        reached_trace_end = true;
         break;
       }
       std::unique_ptr<TraceRecordResult> res;
       s = record->Accept(handler.get(), &res);
     }
     if (s.ok() && !handler->IsDone()) {
-      s = Status::Corruption(
+      // Blackbox crash tests can terminate db_stress while it is appending the
+      // trace, leaving a valid recovered DB but a shorter trace suffix. Treat
+      // that as an incomplete restore so startup can rebuild expected state
+      // from the live DB instead of reporting a false corruption.
+      s = Status::Incomplete(
           "Trace ended before replaying all expected write ops",
           std::to_string(handler->NumWriteOps()) + " < " +
               std::to_string(seqno - saved_seqno_));

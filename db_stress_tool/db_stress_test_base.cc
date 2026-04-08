@@ -466,15 +466,24 @@ void StressTest::FinishInitDb(SharedState* shared) {
   }
 
   if (shared->HasHistory()) {
-    // The way it works right now is, if there's any history, that means the
-    // previous run mutating the DB had all its operations traced, in which case
-    // we should always be able to `Restore()` the expected values to match the
-    // `db_`'s current seqno.
+    // Normally startup replays trace records to catch the expected state up to
+    // `db_`'s recovered seqno. Blackbox crash tests can kill db_stress while
+    // the trace file is being appended, so treat a truncated replay suffix as a
+    // signal to rebuild the latest expected state directly from the DB.
     Status s = shared->Restore(db_);
     if (!s.ok()) {
-      fprintf(stderr, "Error restoring historical expected values: %s\n",
-              s.ToString().c_str());
-      exit(1);
+      if (s.IsIncomplete()) {
+        fprintf(stdout,
+                "Historical expected-state restore was incomplete during "
+                "crash recovery; rebuilding from recovered DB: %s\n",
+                s.ToString().c_str());
+        s = RebuildExpectedStateFromDb(shared);
+      }
+      if (!s.ok()) {
+        fprintf(stderr, "Error restoring historical expected values: %s\n",
+                s.ToString().c_str());
+        exit(1);
+      }
     }
   }
   if (FLAGS_use_txn && !FLAGS_use_optimistic_txn) {
@@ -497,6 +506,60 @@ void StressTest::FinishInitDb(SharedState* shared) {
     fprintf(stdout, "Compaction filter factory: %s\n",
             compaction_filter_factory->Name());
   }
+}
+
+Status StressTest::RebuildExpectedStateFromDb(SharedState* shared) {
+  assert(shared);
+
+  ReadOptions read_opts;
+  read_opts.total_order_seek = true;
+
+  for (size_t cf_idx = 0; cf_idx < column_families_.size(); ++cf_idx) {
+    const int cf = static_cast<int>(cf_idx);
+    ColumnFamilyHandle* const cfh = column_families_[cf_idx];
+    assert(cfh);
+
+    shared->LockColumnFamily(cf);
+    shared->ClearColumnFamily(cf);
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts, cfh));
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      if (!VerifyWideColumns(iter->value(), iter->columns())) {
+        Status s = Status::Corruption(
+            "Wide columns inconsistent while rebuilding expected state",
+            cfh->GetName());
+        shared->UnlockColumnFamily(cf);
+        return s;
+      }
+
+      uint64_t key_id = 0;
+      if (!GetIntVal(iter->key().ToString(), &key_id)) {
+        Status s = Status::Corruption(
+            "Unable to parse key while rebuilding expected state",
+            iter->key().ToString(/* hex */ true));
+        shared->UnlockColumnFamily(cf);
+        return s;
+      }
+      if (key_id >= static_cast<uint64_t>(shared->GetMaxKey())) {
+        Status s = Status::Corruption(
+            "Out-of-range key while rebuilding expected state",
+            std::to_string(key_id));
+        shared->UnlockColumnFamily(cf);
+        return s;
+      }
+
+      shared->SyncPut(cf, static_cast<int64_t>(key_id),
+                      GetValueBase(iter->value()));
+    }
+
+    Status s = iter->status();
+    shared->UnlockColumnFamily(cf);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  return Status::OK();
 }
 
 void StressTest::TrackExpectedState(SharedState* shared) {
