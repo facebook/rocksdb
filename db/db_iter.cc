@@ -75,9 +75,12 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       avg_op_scan_flush_trigger_(0),
       iter_step_since_seek_(1),
       mem_hidden_op_scanned_since_seek_(0),
+      // Read-path range conversion assumes the scan can observe all interior
+      // live keys. table_filter can hide whole SSTs and break that invariant.
       min_tombstones_for_range_conversion_(
-          active_mem ? mutable_cf_options.min_tombstones_for_range_conversion
-                     : 0),
+          active_mem != nullptr && !read_options.table_filter
+              ? mutable_cf_options.min_tombstones_for_range_conversion
+              : 0),
       contiguous_tombstone_count_(0),
       direction_(kForward),
       valid_(false),
