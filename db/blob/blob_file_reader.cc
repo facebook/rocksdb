@@ -10,6 +10,7 @@
 
 #include "db/blob/blob_contents.h"
 #include "db/blob/blob_log_format.h"
+#include "db/blob/blob_file_open_options.h"
 #include "file/file_prefetch_buffer.h"
 #include "file/filename.h"
 #include "monitoring/statistics_impl.h"
@@ -136,13 +137,15 @@ Status BlobFileReader::OpenFile(
   assert(file);
 
   *file_size = path_file_size;
-  uint64_t open_file_size = 0;
-  const Status open_file_size_status = file->GetFileSize(&open_file_size);
-  if (open_file_size_status.ok()) {
-    // Some remote filesystems can report a stale path-level size for an active
-    // file while the opened read handle sees the latest visible bytes. Prefer
-    // the open-handle size when it is larger.
-    *file_size = std::max(*file_size, open_file_size);
+  if (IsBlobFileActiveDirectWriteOpenMode(file_opts)) {
+    uint64_t open_file_size = 0;
+    const Status open_file_size_status = file->GetFileSize(&open_file_size);
+    if (open_file_size_status.ok()) {
+      // Some remote filesystems can report a stale path-level size for an
+      // active direct-write blob file while the opened read handle sees the
+      // latest visible bytes. Prefer the open-handle size when it is larger.
+      *file_size = std::max(*file_size, open_file_size);
+    }
   }
 
   if (!skip_footer_size_check &&

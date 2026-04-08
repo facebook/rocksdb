@@ -10,6 +10,7 @@
 
 #include "db/blob/blob_contents.h"
 #include "db/blob/blob_log_format.h"
+#include "db/blob/blob_file_open_options.h"
 #include "db/blob/blob_log_writer.h"
 #include "env/composite_env_wrapper.h"
 #include "env/mock_env.h"
@@ -490,8 +491,10 @@ TEST_F(BlobFileReaderTest, CreateReaderUsesOpenedFileSizeWhenPathSizeIsStale) {
   std::unique_ptr<BlobFileReader> reader;
   ReadOptions read_options;
   read_options.verify_checksums = false;
+  FileOptions file_options;
+  SetBlobFileActiveDirectWriteOpenMode(&file_options);
   ASSERT_OK(BlobFileReader::Create(
-      immutable_options, read_options, FileOptions(), column_family_id,
+      immutable_options, read_options, file_options, column_family_id,
       /*blob_file_read_hist=*/nullptr, blob_file_number, nullptr /*IOTracer*/,
       &reader));
   ASSERT_NE(reader, nullptr);
