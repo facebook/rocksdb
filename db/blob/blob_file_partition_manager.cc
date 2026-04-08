@@ -16,6 +16,7 @@
 #include "db/blob/blob_contents.h"
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_completion_callback.h"
+#include "db/blob/blob_file_open_options.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_writer.h"
@@ -193,7 +194,9 @@ Status BlobFilePartitionManager::OpenNewBlobFile(Partition* partition,
   }
 
   std::unique_ptr<FSWritableFile> file;
-  Status s = NewWritableFile(fs_, blob_file_path, &file, file_options_);
+  FileOptions writer_file_options = file_options_;
+  SetBlobFileActiveDirectWriteOpenMode(&writer_file_options);
+  Status s = NewWritableFile(fs_, blob_file_path, &file, writer_file_options);
   if (!s.ok()) {
     RemoveFilePartitionMapping(blob_file_number);
     return s;
@@ -202,7 +205,7 @@ Status BlobFilePartitionManager::OpenNewBlobFile(Partition* partition,
   const bool perform_data_verification =
       checksum_handoff_file_types_.Contains(FileType::kBlobFile);
   auto file_writer = std::make_unique<WritableFileWriter>(
-      std::move(file), blob_file_path, file_options_, clock_, io_tracer_,
+      std::move(file), blob_file_path, writer_file_options, clock_, io_tracer_,
       statistics_, Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS, listeners_,
       file_checksum_gen_factory_, perform_data_verification);
 

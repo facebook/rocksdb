@@ -10,14 +10,17 @@
 
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <limits>
 #include <mutex>
 #include <set>
 #include <sstream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "cache/compressed_secondary_cache.h"
+#include "db/blob/blob_file_open_options.h"
 #include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
@@ -25,6 +28,7 @@
 #include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
+#include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
 #include "port/stack_trace.h"
@@ -95,6 +99,179 @@ class RecordingBlobDirectWritePartitionStrategy
   mutable std::mutex mutex_;
   std::vector<Call> calls_;
 };
+
+namespace {
+
+bool IsBlobFilePath(const std::string& fname) {
+  const size_t basename_pos = fname.find_last_of("/\\");
+  const std::string basename = basename_pos == std::string::npos
+                                   ? fname
+                                   : fname.substr(basename_pos + 1);
+  uint64_t file_number = 0;
+  FileType file_type = kWalFile;
+  return ParseFileName(basename, &file_number, &file_type) &&
+         file_type == kBlobFile;
+}
+
+class ActiveBlobVisibilityWritableFile : public FSWritableFileOwnerWrapper {
+ public:
+  ActiveBlobVisibilityWritableFile(std::unique_ptr<FSWritableFile>&& target,
+                                   std::function<void()> on_close)
+      : FSWritableFileOwnerWrapper(std::move(target)),
+        on_close_(std::move(on_close)) {}
+
+  ~ActiveBlobVisibilityWritableFile() override { DeactivateOnce(); }
+
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) override {
+    IOStatus s = target()->Close(options, dbg);
+    DeactivateOnce();
+    return s;
+  }
+
+ private:
+  void DeactivateOnce() {
+    if (on_close_) {
+      on_close_();
+      on_close_ = nullptr;
+    }
+  }
+
+  std::function<void()> on_close_;
+};
+
+class ActiveBlobVisibilityRandomAccessFile
+    : public FSRandomAccessFileOwnerWrapper {
+ public:
+  ActiveBlobVisibilityRandomAccessFile(
+      std::unique_ptr<FSRandomAccessFile>&& target, bool expose_current_size,
+      std::shared_ptr<FileSystem> underlying_fs, std::string fname)
+      : FSRandomAccessFileOwnerWrapper(std::move(target)),
+        expose_current_size_(expose_current_size),
+        underlying_fs_(std::move(underlying_fs)),
+        fname_(std::move(fname)) {}
+
+  IOStatus GetFileSize(uint64_t* result) override {
+    if (!expose_current_size_) {
+      *result = 0;
+      return IOStatus::OK();
+    }
+    // Delegate to the underlying FS path-level GetFileSize (bypassing the
+    // wrapper that reports 0 for active blobs) to simulate a remote FS that
+    // exposes the current file size through the open handle.
+    return underlying_fs_->GetFileSize(fname_, IOOptions(), result,
+                                       /*dbg=*/nullptr);
+  }
+
+ private:
+  const bool expose_current_size_;
+  std::shared_ptr<FileSystem> underlying_fs_;
+  std::string fname_;
+};
+
+class RemoteBlobVisibilityFileSystem : public FileSystemWrapper {
+ public:
+  explicit RemoteBlobVisibilityFileSystem(const std::shared_ptr<FileSystem>& fs)
+      : FileSystemWrapper(fs) {}
+
+  static const char* kClassName() { return "RemoteBlobVisibilityFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewWritableFile(const std::string& fname, const FileOptions& opts,
+                           std::unique_ptr<FSWritableFile>* result,
+                           IODebugContext* dbg) override {
+    std::unique_ptr<FSWritableFile> file;
+    IOStatus s = target()->NewWritableFile(fname, opts, &file, dbg);
+    if (!s.ok() || !IsBlobFilePath(fname)) {
+      *result = std::move(file);
+      return s;
+    }
+
+    const bool active_hint = IsBlobFileActiveDirectWriteOpenMode(opts);
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      saw_active_writer_hint_ |= active_hint;
+      if (active_hint) {
+        active_blob_paths_.insert(fname);
+      }
+    }
+
+    if (!active_hint) {
+      *result = std::move(file);
+      return IOStatus::OK();
+    }
+
+    const std::string tracked_path = fname;
+    result->reset(new ActiveBlobVisibilityWritableFile(
+        std::move(file),
+        [this, tracked_path]() { DeactivateBlobPath(tracked_path); }));
+    return IOStatus::OK();
+  }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    std::unique_ptr<FSRandomAccessFile> file;
+    IOStatus s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+    if (!s.ok() || !IsBlobFilePath(fname)) {
+      *result = std::move(file);
+      return s;
+    }
+
+    const bool active_hint = IsBlobFileActiveDirectWriteOpenMode(opts);
+    const bool active_blob = IsActiveBlobPath(fname);
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      saw_active_reader_hint_ |= active_hint;
+    }
+
+    if (!active_blob) {
+      *result = std::move(file);
+      return IOStatus::OK();
+    }
+
+    result->reset(new ActiveBlobVisibilityRandomAccessFile(
+        std::move(file), active_hint, target_, fname));
+    return IOStatus::OK();
+  }
+
+  IOStatus GetFileSize(const std::string& fname, const IOOptions& options,
+                       uint64_t* file_size, IODebugContext* dbg) override {
+    if (IsActiveBlobPath(fname)) {
+      *file_size = 0;
+      return IOStatus::OK();
+    }
+    return target()->GetFileSize(fname, options, file_size, dbg);
+  }
+
+  bool SawActiveWriterHint() const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return saw_active_writer_hint_;
+  }
+
+  bool SawActiveReaderHint() const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return saw_active_reader_hint_;
+  }
+
+ private:
+  void DeactivateBlobPath(const std::string& fname) {
+    std::lock_guard<std::mutex> lock(mu_);
+    active_blob_paths_.erase(fname);
+  }
+
+  bool IsActiveBlobPath(const std::string& fname) const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return active_blob_paths_.find(fname) != active_blob_paths_.end();
+  }
+
+  mutable std::mutex mu_;
+  bool saw_active_writer_hint_ = false;
+  bool saw_active_reader_hint_ = false;
+  std::unordered_set<std::string> active_blob_paths_;
+};
+
+}  // namespace
 
 class DBBlobDirectWriteTest : public DBTestBase {
  protected:
@@ -795,6 +972,27 @@ TEST_F(DBBlobDirectWriteTest, DirectWriteImmutableMemtableRead) {
   verify_reads();
   ASSERT_OK(dbfull()->TEST_FlushMemTable(true));
   verify_reads();
+}
+
+TEST_F(DBBlobDirectWriteTest, DirectWriteUsesActiveFileOpenHintForRemoteFile) {
+  auto remote_fs =
+      std::make_shared<RemoteBlobVisibilityFileSystem>(env_->GetFileSystem());
+  std::unique_ptr<Env> remote_env(new CompositeEnvWrapper(env_, remote_fs));
+
+  Options options = GetDirectWriteOptions();
+  options.env = remote_env.get();
+  Reopen(options);
+
+  const std::string key = "remote_blob_key";
+  const std::string value(128, 'w');
+
+  ASSERT_OK(Put(key, value));
+  ASSERT_TRUE(remote_fs->SawActiveWriterHint());
+
+  ASSERT_EQ(Get(key), value);
+  ASSERT_TRUE(remote_fs->SawActiveReaderHint());
+
+  Close();
 }
 
 TEST_F(DBBlobDirectWriteTest, DirectWriteRefreshesReaderAfterFlush) {

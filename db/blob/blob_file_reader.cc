@@ -104,23 +104,16 @@ Status BlobFileReader::OpenFile(
   assert(fs);
 
   constexpr IODebugContext* dbg = nullptr;
+  uint64_t path_file_size = 0;
 
   {
     TEST_SYNC_POINT("BlobFileReader::OpenFile:GetFileSize");
 
     const Status s =
-        fs->GetFileSize(blob_file_path, IOOptions(), file_size, dbg);
+        fs->GetFileSize(blob_file_path, IOOptions(), &path_file_size, dbg);
     if (!s.ok()) {
       return s;
     }
-  }
-
-  if (!skip_footer_size_check &&
-      *file_size < BlobLogHeader::kSize + BlobLogFooter::kSize) {
-    return Status::Corruption("Malformed blob file");
-  }
-  if (skip_footer_size_check && *file_size < BlobLogHeader::kSize) {
-    return Status::Corruption("Malformed blob file");
   }
 
   std::unique_ptr<FSRandomAccessFile> file;
@@ -141,6 +134,24 @@ Status BlobFileReader::OpenFile(
   }
 
   assert(file);
+
+  *file_size = path_file_size;
+  uint64_t open_file_size = 0;
+  const Status open_file_size_status = file->GetFileSize(&open_file_size);
+  if (open_file_size_status.ok()) {
+    // Some remote filesystems can report a stale path-level size for an active
+    // file while the opened read handle sees the latest visible bytes. Prefer
+    // the open-handle size when it is larger.
+    *file_size = std::max(*file_size, open_file_size);
+  }
+
+  if (!skip_footer_size_check &&
+      *file_size < BlobLogHeader::kSize + BlobLogFooter::kSize) {
+    return Status::Corruption("Malformed blob file");
+  }
+  if (skip_footer_size_check && *file_size < BlobLogHeader::kSize) {
+    return Status::Corruption("Malformed blob file");
+  }
 
   if (immutable_options.advise_random_on_open) {
     file->Hint(FSRandomAccessFile::kRandom);

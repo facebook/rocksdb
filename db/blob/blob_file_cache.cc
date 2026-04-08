@@ -8,6 +8,7 @@
 #include <cassert>
 #include <memory>
 
+#include "db/blob/blob_file_open_options.h"
 #include "db/blob/blob_file_reader.h"
 #include "logging/logging.h"
 #include "options/cf_options.h"
@@ -75,15 +76,19 @@ Status BlobFileCache::GetBlobFileReader(
 
   {
     assert(file_options_);
+    FileOptions open_file_options = *file_options_;
+    if (allow_footer_skip_retry) {
+      SetBlobFileActiveDirectWriteOpenMode(&open_file_options);
+    }
     Status s = BlobFileReader::Create(
-        *immutable_options_, read_options, *file_options_, column_family_id_,
+        *immutable_options_, read_options, open_file_options, column_family_id_,
         blob_file_read_hist_, blob_file_number, io_tracer_,
         /*skip_footer_validation=*/false, &reader);
     if (!s.ok() && s.IsCorruption() && allow_footer_skip_retry) {
       reader.reset();
       s = BlobFileReader::Create(
-          *immutable_options_, read_options, *file_options_, column_family_id_,
-          blob_file_read_hist_, blob_file_number, io_tracer_,
+          *immutable_options_, read_options, open_file_options,
+          column_family_id_, blob_file_read_hist_, blob_file_number, io_tracer_,
           /*skip_footer_validation=*/true, &reader);
     }
     if (!s.ok()) {
@@ -123,14 +128,19 @@ Status BlobFileCache::OpenBlobFileReaderUncached(
   Statistics* const statistics = immutable_options_->stats;
   RecordTick(statistics, NO_FILE_OPENS);
 
+  FileOptions open_file_options = *file_options_;
+  if (allow_footer_skip_retry) {
+    SetBlobFileActiveDirectWriteOpenMode(&open_file_options);
+  }
+
   Status s = BlobFileReader::Create(
-      *immutable_options_, read_options, *file_options_, column_family_id_,
+      *immutable_options_, read_options, open_file_options, column_family_id_,
       blob_file_read_hist_, blob_file_number, io_tracer_,
       /*skip_footer_validation=*/false, blob_file_reader);
   if (!s.ok() && s.IsCorruption() && allow_footer_skip_retry) {
     blob_file_reader->reset();
     s = BlobFileReader::Create(
-        *immutable_options_, read_options, *file_options_, column_family_id_,
+        *immutable_options_, read_options, open_file_options, column_family_id_,
         blob_file_read_hist_, blob_file_number, io_tracer_,
         /*skip_footer_validation=*/true, blob_file_reader);
   }

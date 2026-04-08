@@ -11,6 +11,7 @@
 #include "db/blob/blob_contents.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_writer.h"
+#include "env/composite_env_wrapper.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
@@ -135,6 +136,33 @@ class BlobFileReaderTest : public testing::Test {
   BlobFileReaderTest() { mock_env_.reset(MockEnv::Create(Env::Default())); }
   std::unique_ptr<Env> mock_env_;
 };
+
+namespace {
+
+class StalePathSizeFileSystem : public FileSystemWrapper {
+ public:
+  static const char* kClassName() { return "StalePathSizeFileSystem"; }
+
+  StalePathSizeFileSystem(const std::shared_ptr<FileSystem>& target,
+                          std::string stale_path)
+      : FileSystemWrapper(target), stale_path_(std::move(stale_path)) {}
+
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus GetFileSize(const std::string& fname, const IOOptions& options,
+                       uint64_t* file_size, IODebugContext* dbg) override {
+    if (fname == stale_path_) {
+      *file_size = 0;
+      return IOStatus::OK();
+    }
+    return FileSystemWrapper::GetFileSize(fname, options, file_size, dbg);
+  }
+
+ private:
+  const std::string stale_path_;
+};
+
+}  // namespace
 
 TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
   Options options;
@@ -426,6 +454,57 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
       }
     }
   }
+}
+
+TEST_F(BlobFileReaderTest, CreateReaderUsesOpenedFileSizeWhenPathSizeIsStale) {
+  const std::string db_path = test::PerThreadDBPath(
+      mock_env_.get(),
+      "BlobFileReaderTest_CreateReaderUsesOpenedFileSizeWhenPathSizeIsStale");
+
+  constexpr uint64_t blob_file_number = 1;
+  const std::string blob_file_path = BlobFileName(db_path, blob_file_number);
+
+  auto stale_size_fs = std::make_shared<StalePathSizeFileSystem>(
+      mock_env_->GetFileSystem(), blob_file_path);
+  CompositeEnvWrapper stale_size_env(mock_env_.get(), stale_size_fs);
+
+  Options options;
+  options.env = &stale_size_env;
+  options.cf_paths.emplace_back(db_path, 0);
+  options.enable_blob_files = true;
+
+  ImmutableOptions immutable_options(options);
+
+  constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+  constexpr char key[] = "key";
+  constexpr char blob[] = "blob";
+
+  uint64_t blob_offset = 0;
+  uint64_t blob_size = 0;
+  WriteBlobFile(immutable_options, column_family_id, has_ttl, expiration_range,
+                expiration_range, blob_file_number, key, blob, kNoCompression,
+                &blob_offset, &blob_size);
+
+  std::unique_ptr<BlobFileReader> reader;
+  ReadOptions read_options;
+  read_options.verify_checksums = false;
+  ASSERT_OK(BlobFileReader::Create(
+      immutable_options, read_options, FileOptions(), column_family_id,
+      /*blob_file_read_hist=*/nullptr, blob_file_number, nullptr /*IOTracer*/,
+      &reader));
+  ASSERT_NE(reader, nullptr);
+
+  std::unique_ptr<BlobContents> value;
+  uint64_t bytes_read = 0;
+  ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, blob_size,
+                            kNoCompression,
+                            /*prefetch_buffer=*/nullptr,
+                            /*allocator=*/nullptr, &value, &bytes_read));
+  ASSERT_NE(value, nullptr);
+  ASSERT_EQ(value->data(), Slice(blob));
+  ASSERT_EQ(bytes_read, blob_size);
 }
 
 TEST_F(BlobFileReaderTest, Malformed) {
