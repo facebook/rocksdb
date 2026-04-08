@@ -4238,6 +4238,85 @@ TEST_F(DBTest2, TracePreserveWriteOrderSkipsFailedWrite) {
   }
 }
 
+TEST_F(DBTest2, TracePreserveWriteOrderSkipsFailedDisableWALWBWIIngest) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+
+  TraceOptions trace_opts;
+  trace_opts.preserve_write_order = true;
+  const std::string trace_filename = dbname_ + "/rocksdb.trace_failed_wbwi";
+
+  std::unique_ptr<TraceWriter> trace_writer;
+  ASSERT_OK(
+      NewFileTraceWriter(env_, EnvOptions(), trace_filename, &trace_writer));
+  ASSERT_OK(db_->StartTrace(trace_opts, std::move(trace_writer)));
+
+  // Make a subsequent WBWI memtable switch attempt create a new WAL so we can
+  // fail after tracing on the disableWAL path if tracing happens too early.
+  ASSERT_OK(Put("anchor", "1"));
+
+  auto wbwi = std::make_shared<WriteBatchWithIndex>(options.comparator, 0,
+                                                    /*overwrite_key=*/true);
+  ASSERT_OK(wbwi->Put("bad", "2"));
+
+  IOStatus injected_error =
+      IOStatus::IOError("Injected WAL creation failure in SwitchMemtable");
+  injected_error.SetRetryable(true);
+  bool failure_injected = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SwitchMemtable:AfterCreateWAL", [&](void* arg) {
+        if (failure_injected) {
+          return;
+        }
+        *static_cast<IOStatus*>(arg) = injected_error;
+        failure_injected = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteOptions wo;
+  // With disableWAL there is no durable recovery source until memtable ingest
+  // succeeds, so preserved-order tracing must not happen earlier.
+  wo.disableWAL = true;
+  ASSERT_NOK(db_->IngestWriteBatchWithIndex(wo, wbwi));
+  ASSERT_TRUE(failure_injected);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(db_->EndTrace());
+  Close();
+
+  Reopen(options);
+  ASSERT_EQ("1", Get("anchor"));
+  ASSERT_EQ("NOT_FOUND", Get("bad"));
+  Close();
+
+  const std::string replay_dbname =
+      test::PerThreadDBPath(env_, "/db_replay_failed_wbwi");
+  ASSERT_OK(DestroyDB(replay_dbname, options));
+
+  options.create_if_missing = true;
+  std::unique_ptr<DB> replay_db;
+  ASSERT_OK(DB::Open(options, replay_dbname, &replay_db));
+
+  std::unique_ptr<TraceReader> trace_reader;
+  ASSERT_OK(
+      NewFileTraceReader(env_, EnvOptions(), trace_filename, &trace_reader));
+  std::unique_ptr<Replayer> replayer;
+  ASSERT_OK(replay_db->NewDefaultReplayer({replay_db->DefaultColumnFamily()},
+                                          std::move(trace_reader), &replayer));
+  ASSERT_OK(replayer->Prepare());
+  ASSERT_OK(replayer->Replay(ReplayOptions(), nullptr));
+
+  std::string value;
+  ASSERT_OK(replay_db->Get(ReadOptions(), "anchor", &value));
+  ASSERT_EQ("1", value);
+  ASSERT_TRUE(replay_db->Get(ReadOptions(), "bad", &value).IsNotFound());
+
+  replay_db.reset();
+  ASSERT_OK(DestroyDB(replay_dbname, options));
+}
+
 TEST_F(DBTest2, TraceWithLimit) {
   Options options = CurrentOptions();
   options.merge_operator = MergeOperators::CreatePutOperator();

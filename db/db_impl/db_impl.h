@@ -1630,9 +1630,9 @@ class DBImpl : public DB {
 
   // Write only to memtables without joining any write queue
   Status UnorderedWriteMemtable(const WriteOptions& write_options,
-                                WriteBatch* my_batch, WriteCallback* callback,
-                                uint64_t log_ref, SequenceNumber seq,
-                                const size_t sub_batch_cnt);
+                                WriteBatch* my_batch, WriteBatch* trace_batch,
+                                WriteCallback* callback, uint64_t log_ref,
+                                SequenceNumber seq, const size_t sub_batch_cnt);
 
   // Whether the batch requires to be assigned with an order
   enum AssignOrder : bool { kDontAssignOrder, kDoAssignOrder };
@@ -1656,8 +1656,17 @@ class DBImpl : public DB {
       PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
       const PublishLastSeq publish_last_seq, const bool disable_memtable);
 
-  void MaybeTraceWriteGroupForPreservedWriteOrder(
+  void TraceWriteGroupForPreservedWriteOrder(
       const WriteThread::WriteGroup& write_group,
+      WriteBatchWithIndex* wbwi = nullptr, bool ingest_wbwi_for_commit = true,
+      bool trace_only_memtable_writers = false);
+  void MaybeTraceWriteGroupForPreservedWriteOrderAfterWAL(
+      const Status& wal_status, const WriteThread::WriteGroup& write_group,
+      const WriteOptions& write_options, WriteBatchWithIndex* wbwi = nullptr,
+      bool ingest_wbwi_for_commit = true);
+  void MaybeTraceWriteGroupForPreservedWriteOrderAfterMemtable(
+      const WriteThread::WriteGroup& write_group,
+      const WriteOptions& write_options, bool disable_memtable,
       WriteBatchWithIndex* wbwi = nullptr, bool ingest_wbwi_for_commit = true);
 
   // write cached_recoverable_state_ to memtable if it is not empty

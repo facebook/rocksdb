@@ -637,9 +637,9 @@ Status DBImpl::SyncBlobDirectWriteManagers(
   return Status::OK();
 }
 
-void DBImpl::MaybeTraceWriteGroupForPreservedWriteOrder(
+void DBImpl::TraceWriteGroupForPreservedWriteOrder(
     const WriteThread::WriteGroup& write_group, WriteBatchWithIndex* wbwi,
-    bool ingest_wbwi_for_commit) {
+    bool ingest_wbwi_for_commit, bool trace_only_memtable_writers) {
   // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
   // grabs but does not seem thread-safe.
   if (tracer_) {
@@ -653,7 +653,8 @@ void DBImpl::MaybeTraceWriteGroupForPreservedWriteOrder(
         wbwi_trace_batch = wbwi->GetWriteBatch();
       }
       for (auto* writer : write_group) {
-        if (writer->CallbackFailed()) {
+        if (writer->CallbackFailed() ||
+            (trace_only_memtable_writers && writer->disable_memtable)) {
           continue;
         }
         WriteBatch* trace_batch = wbwi_trace_batch != nullptr
@@ -664,6 +665,32 @@ void DBImpl::MaybeTraceWriteGroupForPreservedWriteOrder(
       }
     }
   }
+}
+
+void DBImpl::MaybeTraceWriteGroupForPreservedWriteOrderAfterWAL(
+    const Status& wal_status, const WriteThread::WriteGroup& write_group,
+    const WriteOptions& write_options, WriteBatchWithIndex* wbwi,
+    bool ingest_wbwi_for_commit) {
+  if (write_options.disableWAL || !wal_status.ok()) {
+    return;
+  }
+  // WAL-backed writes become recoverable once the WAL update succeeds, so
+  // trace them before later callback/memtable steps can crash.
+  TraceWriteGroupForPreservedWriteOrder(write_group, wbwi,
+                                        ingest_wbwi_for_commit);
+}
+
+void DBImpl::MaybeTraceWriteGroupForPreservedWriteOrderAfterMemtable(
+    const WriteThread::WriteGroup& write_group,
+    const WriteOptions& write_options, bool disable_memtable,
+    WriteBatchWithIndex* wbwi, bool ingest_wbwi_for_commit) {
+  if (!write_options.disableWAL || disable_memtable) {
+    return;
+  }
+  // Without WAL, trace only after the memtable path succeeds.
+  TraceWriteGroupForPreservedWriteOrder(write_group, wbwi,
+                                        ingest_wbwi_for_commit,
+                                        /*trace_only_memtable_writers=*/true);
 }
 
 Status DBImpl::WriteImpl(const WriteOptions& write_options,
@@ -871,8 +898,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     }
     if (!disable_memtable) {
       TEST_SYNC_POINT("DBImpl::WriteImpl:BeforeUnorderedWriteMemtable");
-      status = UnorderedWriteMemtable(write_options, my_batch, callback,
-                                      log_ref, seq, sub_batch_cnt);
+      status = UnorderedWriteMemtable(write_options, my_batch, trace_batch,
+                                      callback, log_ref, seq, sub_batch_cnt);
     }
     return finish_write(status);
   }
@@ -928,6 +955,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         }
       }
       if (w.status.ok()) {  // Don't publish a partial batch write
+        MaybeTraceWriteGroupForPreservedWriteOrderAfterMemtable(
+            *w.write_group, write_options, disable_memtable);
         versions_->SetLastSequence(last_sequence);
       } else {
         HandleMemTableInsertFailure(w.status);
@@ -1169,10 +1198,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       }
     }
 
-    if (status.ok()) {
-      MaybeTraceWriteGroupForPreservedWriteOrder(write_group, wbwi.get(),
-                                                 ingest_wbwi_for_commit);
-    }
+    MaybeTraceWriteGroupForPreservedWriteOrderAfterWAL(
+        status, write_group, write_options, wbwi.get(), ingest_wbwi_for_commit);
 
     // PreReleaseCallback is called after WAL write and before memtable write
     if (status.ok()) {
@@ -1305,6 +1332,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       // Note: if we are to resume after non-OK statuses we need to revisit how
       // we react to non-OK statuses here.
       if (w.status.ok()) {  // Don't publish a partial batch write
+        MaybeTraceWriteGroupForPreservedWriteOrderAfterMemtable(
+            write_group, write_options, disable_memtable, wbwi.get(),
+            ingest_wbwi_for_commit);
         versions_->SetLastSequence(last_sequence);
       }
     }
@@ -1438,9 +1468,8 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       const ReadOptions read_options;
       w.status = ApplyWALToManifest(read_options, write_options, &synced_wals);
     }
-    if (w.status.ok()) {
-      MaybeTraceWriteGroupForPreservedWriteOrder(wal_write_group);
-    }
+    MaybeTraceWriteGroupForPreservedWriteOrderAfterWAL(
+        w.status, wal_write_group, write_options);
     write_thread_.ExitAsBatchGroupLeader(wal_write_group, w.status);
   }
 
@@ -1465,6 +1494,8 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
           seq_per_batch_, batch_per_txn_);
       if (memtable_write_group.status
               .ok()) {  // Don't publish a partial batch write
+        MaybeTraceWriteGroupForPreservedWriteOrderAfterMemtable(
+            memtable_write_group, write_options, disable_memtable);
         versions_->SetLastSequence(memtable_write_group.last_sequence);
       } else {
         HandleMemTableInsertFailure(memtable_write_group.status);
@@ -1498,6 +1529,8 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
 
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {
       if (w.status.ok()) {  // Don't publish a partial batch write
+        MaybeTraceWriteGroupForPreservedWriteOrderAfterMemtable(
+            *w.write_group, write_options, disable_memtable);
         versions_->SetLastSequence(w.write_group->last_sequence);
       } else {
         HandleMemTableInsertFailure(w.status);
@@ -1515,6 +1548,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
 
 Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
                                       WriteBatch* my_batch,
+                                      WriteBatch* trace_batch,
                                       WriteCallback* callback, uint64_t log_ref,
                                       SequenceNumber seq,
                                       const size_t sub_batch_cnt) {
@@ -1523,7 +1557,10 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
 
   WriteThread::Writer w(write_options, my_batch, callback,
                         /*user_write_cb=*/nullptr, log_ref,
-                        false /*disable_memtable*/);
+                        false /*disable_memtable*/, /*_batch_cnt=*/0,
+                        /*_pre_release_callback=*/nullptr,
+                        /*_post_memtable_callback=*/nullptr,
+                        /*_ingest_wbwi=*/false, trace_batch);
 
   if (w.CheckCallback(this) && w.ShouldWriteToMemtable()) {
     w.sequence = seq;
@@ -1543,6 +1580,14 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
         0 /*log_number*/, this, true /*concurrent_memtable_writes*/,
         seq_per_batch_, sub_batch_cnt, true /*batch_per_txn*/,
         write_options.memtable_insert_hint_per_batch);
+    if (w.status.ok()) {
+      WriteThread::WriteGroup write_group;
+      write_group.leader = &w;
+      write_group.last_writer = &w;
+      MaybeTraceWriteGroupForPreservedWriteOrderAfterMemtable(
+          write_group, write_options,
+          /*disable_memtable=*/false);
+    }
     if (write_options.disableWAL) {
       has_unpersisted_data_.store(true, std::memory_order_relaxed);
     }
@@ -1733,13 +1778,8 @@ Status DBImpl::WriteImplWALOnly(
       status = SyncWAL();
     }
   }
-  if (status.ok()) {
-    // Write trace  after WAL right. This ensures the replayer does not replay a
-    // record that has not been recorded in the DB. However, it is not a full
-    // solution as a crash may still happen before the trace write and after the
-    // WAL write. TODO: Atomically write WAL and trace.
-    MaybeTraceWriteGroupForPreservedWriteOrder(write_group);
-  }
+  MaybeTraceWriteGroupForPreservedWriteOrderAfterWAL(status, write_group,
+                                                     write_options);
   PERF_TIMER_START(write_pre_and_post_process_time);
 
   if (!w.CallbackFailed()) {
