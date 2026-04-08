@@ -1582,8 +1582,12 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
         write_options.memtable_insert_hint_per_batch);
     if (w.status.ok()) {
       WriteThread::WriteGroup write_group;
+      // This temporary group only reuses the common tracing helper; it never
+      // participates in batch-group coordination, so its status is unused.
+      write_group.status.PermitUncheckedError();
       write_group.leader = &w;
       write_group.last_writer = &w;
+      write_group.size = 1;
       MaybeTraceWriteGroupForPreservedWriteOrderAfterMemtable(
           write_group, write_options,
           /*disable_memtable=*/false);
