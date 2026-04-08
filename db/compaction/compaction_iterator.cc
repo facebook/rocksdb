@@ -440,7 +440,11 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           }
         }
         if (UNLIKELY(has_blob_columns)) {
-          // Entity has blob columns - use lazy loading via resolver
+          // Entity has blob columns. DeserializeV2() populates
+          // entity_columns_ with the full column set; blob-backed entries still
+          // carry the serialized BlobIndex bytes in value(). The companion
+          // entity_blob_columns_ side list identifies which column indexes are
+          // blob references and provides the decoded BlobIndex objects.
           Slice input_copy = value_;
           Status s = WideColumnSerialization::DeserializeV2(
               input_copy, entity_columns_, entity_blob_columns_);
@@ -1467,6 +1471,21 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
   }
 }
 
+// Wide-column entity compaction flow after InvokeFilterIfNeeded():
+//   1. PrepareOutput() is the only caller of the helper block below.
+//   2. PrepareOutput() ensures entity_columns_/entity_blob_columns_ describe
+//      the current entity, either by reusing the filter-time deserialization or
+//      by deserializing once itself.
+//   3. PrepareOutput() then picks exactly one follow-up path:
+//        - inline-only entity:
+//            ExtractLargeColumnValuesIfNeeded()
+//          This is the flush/compaction extraction path. It may rewrite large
+//          inline columns into blob references.
+//        - entity already containing blob references:
+//            GarbageCollectEntityBlobsIfNeeded()
+//          This is the blob-GC path. It only fetches / relocates references
+//          that fall below the current GC cutoff.
+// Both helpers leave value_ unchanged when no rewrite is needed.
 void CompactionIterator::ExtractLargeColumnValuesIfNeeded() {
   assert(ikey_.type == kTypeWideColumnEntity);
 
@@ -1738,6 +1757,10 @@ void CompactionIterator::GarbageCollectEntityBlobsIfNeeded() {
   if (!compaction_ || !compaction_->enable_blob_garbage_collection()) {
     return;
   }
+
+  // This is the second branch in the flow above: the entity already has V2
+  // blob references, so compaction considers only relocating the subset of
+  // referenced blob files that are old enough for blob GC.
 
   // Use member variables already populated by PrepareOutput's combined
   // deserialization path. If not yet populated, deserialize here.

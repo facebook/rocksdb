@@ -148,9 +148,11 @@ class WideColumnSerialization {
   // Deserialize columns (version 1 format only)
   static Status Deserialize(Slice& input, WideColumns& columns);
 
-  // Deserialize columns and separate inline columns from blob columns
-  // columns: receives inline column values
-  // blob_columns: receives (column_index, blob_index) pairs for blob references
+  // Deserialize a V2 entity.
+  // columns: receives the full sorted column set. For blob-backed columns,
+  // value() is initially the serialized BlobIndex bytes from the entity.
+  // blob_columns: receives (column_index, blob_index) pairs identifying which
+  // entries in `columns` are blob references and their decoded BlobIndex data.
   static Status DeserializeV2(
       Slice& input, std::vector<WideColumn>& columns,
       std::vector<std::pair<size_t, BlobIndex>>& blob_columns);

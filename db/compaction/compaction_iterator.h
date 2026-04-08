@@ -565,10 +565,17 @@ class CompactionIterator {
   // Buffer for storing rewritten entity with blob references after
   // extracting large column values to blob files.
   std::string rewritten_entity_;
-  // Cached storage for entity column deserialization, reused across
-  // iterations to avoid per-key heap allocations.
+  // Cached deserialized columns for the current wide-column entity, reused
+  // across iterations to avoid per-key heap allocations. This is the full
+  // sorted column set. For blob-backed columns, value() initially contains the
+  // serialized BlobIndex bytes from the entity.
   std::vector<WideColumn> entity_columns_;
+  // Side list for the blob-backed subset of entity_columns_. Each pair is
+  // (column_index_in_entity_columns_, decoded_blob_index), so callers can tell
+  // which entries in entity_columns_ are blob references without reparsing.
   std::vector<std::pair<size_t, BlobIndex>> entity_blob_columns_;
+  // Temporary Slice-based view over entity_columns_ used when reserializing an
+  // entity after blob extraction, to avoid copying names/values into strings.
   WideColumns entity_wide_columns_;
   // Reusable storage for existing_columns in InvokeFilterIfNeeded,
   // avoiding per-key heap allocations.
