@@ -34,9 +34,9 @@
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
-#include "utilities/trie_index/trie_index_factory.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
+#include "utilities/trie_index/trie_index_factory.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -44,8 +44,8 @@ namespace {
 
 // Register built-in UDIs at lookup time instead of relying on translation-unit
 // static initialization in optional utility code.
-int RegisterBuiltinUserDefinedIndexFactories(
-    ObjectLibrary& library, const std::string& /*arg*/) {
+int RegisterBuiltinUserDefinedIndexFactories(ObjectLibrary& library,
+                                             const std::string& /*arg*/) {
   library.AddFactory<UserDefinedIndexFactory>(
       trie_index::TrieIndexFactory::kClassName(),
       [](const std::string& /*uri*/,
@@ -1151,8 +1151,8 @@ Status UserDefinedIndexFactory::CreateFromString(
     std::shared_ptr<UserDefinedIndexFactory>* factory) {
   static std::once_flag once;
   std::call_once(once, [&]() {
-    RegisterBuiltinUserDefinedIndexFactories(
-        *(ObjectLibrary::Default().get()), "");
+    RegisterBuiltinUserDefinedIndexFactories(*(ObjectLibrary::Default().get()),
+                                             "");
   });
   return LoadSharedObject<UserDefinedIndexFactory>(config_options, value,
                                                    factory);
