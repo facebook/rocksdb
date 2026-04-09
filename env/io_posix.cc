@@ -1324,6 +1324,7 @@ IOStatus PosixMmapFile::MapNewRegion() {
   if (ptr == MAP_FAILED) {
     return IOStatus::IOError("MMap failed on " + filename_);
   }
+  TsanAnnotateMappedMemory(ptr, map_size_);
   TEST_KILL_RANDOM("PosixMmapFile::Append:2");
 
   base_ = static_cast<char*>(ptr);
