@@ -211,6 +211,7 @@ class TestKnownConflicts(unittest.TestCase):
             "test_best_efforts_recovery": 0,
             "readpercent": 17,
             "iterpercent": 13,
+            "prefixpercent": 0,
         })
         result = self._assert_converges(params, "UDT memtable-only outside BER")
         self.assertEqual(result["disable_wal"], 0)
