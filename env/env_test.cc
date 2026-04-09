@@ -47,7 +47,9 @@
 #include "env/env_chroot.h"
 #include "env/env_encryption_ctr.h"
 #include "env/fs_readonly.h"
+#ifdef OS_LINUX
 #include "env/io_posix.h"
+#endif
 #include "env/mock_env.h"
 #include "env/unique_id_gen.h"
 #include "logging/log_buffer.h"
