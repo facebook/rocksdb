@@ -2881,7 +2881,9 @@ int main(int argc, char** argv) {
       rocksdb_continue_background_work(db, &err);
       CheckNoError(err);
 
-      rocksdb_put_cf(db, woptions, handles[1], "walkeep", 7, "1", 1, &err);
+      // Rewrite an existing key to guarantee WAL activity without changing
+      // the number of visible keys in cf1.
+      rocksdb_put_cf(db, woptions, handles[1], "buff", 4, "rocksdb", 7, &err);
       CheckNoError(err);
 
       rocksdb_disable_file_deletions(db, &err);
