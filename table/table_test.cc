@@ -7976,6 +7976,8 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
 
       int GetEntriesAdded() const { return entries_added_; }
 
+      uint64_t EstimatedSize() const override { return 0; }
+
       // When true, skip the EXPECT_EQ(key.size(), 5) checks, allowing
       // variable-length keys (e.g., from DB flush/compaction).
       bool skip_key_size_check_ = false;
