@@ -329,6 +329,8 @@ static const std::string live_blob_file_garbage_size =
 static const std::string blob_cache_capacity = "blob-cache-capacity";
 static const std::string blob_cache_usage = "blob-cache-usage";
 static const std::string blob_cache_pinned_usage = "blob-cache-pinned-usage";
+static const std::string last_recovered_wal_batch_write_count =
+    "last-recovered-wal-batch-write-count";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
     rocksdb_prefix + num_files_at_level_prefix;
@@ -403,6 +405,8 @@ const std::string DB::Properties::kEstimateLiveDataSize =
     rocksdb_prefix + estimate_live_data_size;
 const std::string DB::Properties::kMinLogNumberToKeep =
     rocksdb_prefix + min_log_number_to_keep_str;
+const std::string DB::Properties::kLastRecoveredWalBatchWriteCount =
+    rocksdb_prefix + last_recovered_wal_batch_write_count;
 const std::string DB::Properties::kMinObsoleteSstNumberToKeep =
     rocksdb_prefix + min_obsolete_sst_number_to_keep_str;
 const std::string DB::Properties::kTotalSstFilesSize =
@@ -568,6 +572,9 @@ const UnorderedMap<std::string, DBPropertyInfo>
         {DB::Properties::kMinLogNumberToKeep,
          {false, nullptr, &InternalStats::HandleMinLogNumberToKeep, nullptr,
           nullptr}},
+        {DB::Properties::kLastRecoveredWalBatchWriteCount,
+         {false, nullptr, &InternalStats::HandleLastRecoveredWalBatchWriteCount,
+          nullptr, nullptr}},
         {DB::Properties::kMinObsoleteSstNumberToKeep,
          {false, nullptr, &InternalStats::HandleMinObsoleteSstNumberToKeep,
           nullptr, nullptr}},
@@ -1476,6 +1483,12 @@ bool InternalStats::HandleEstimateLiveDataSize(uint64_t* value, DBImpl* /*db*/,
 bool InternalStats::HandleMinLogNumberToKeep(uint64_t* value, DBImpl* db,
                                              Version* /*version*/) {
   *value = db->MinLogNumberToKeep();
+  return true;
+}
+
+bool InternalStats::HandleLastRecoveredWalBatchWriteCount(
+    uint64_t* value, DBImpl* db, Version* /*version*/) {
+  *value = db->last_recovered_wal_batch_write_count_;
   return true;
 }
 

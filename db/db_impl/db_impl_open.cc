@@ -1190,6 +1190,8 @@ Status DBImpl::ProcessLogFiles(
     bool* corrupted_wal_found, RecoveryContext* recovery_ctx) {
   Status status;
 
+  last_recovered_wal_batch_write_count_ = 0;
+
   bool stop_replay_by_wal_filter = false;
   bool stop_replay_for_corruption = false;
   bool flushed = false;
@@ -1506,6 +1508,9 @@ Status DBImpl::ProcessLogRecord(
     process_status = Status::OK();
     return process_status;
   }
+
+  last_recovered_wal_batch_write_count_ =
+      WriteBatchInternal::Count(batch_to_use);
 
   process_status = MaybeWriteLevel0TableForRecovery(
       has_valid_writes, read_only, wal_number, job_id, next_sequence,

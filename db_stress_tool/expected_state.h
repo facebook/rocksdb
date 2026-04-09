@@ -23,6 +23,14 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+// Encodes/parses the incomplete restore status returned when the trace ends
+// before replaying all expected write ops.
+Status MakeExpectedStateRestoreShortfallStatus(uint64_t replayed_write_ops,
+                                               uint64_t expected_write_ops);
+bool ParseExpectedStateRestoreShortfallStatus(const Status& status,
+                                              uint64_t* replayed_write_ops,
+                                              uint64_t* expected_write_ops);
+
 // `ExpectedState` provides read/write access to expected values stored in
 // `ExpectedState` for every key.
 class ExpectedState {

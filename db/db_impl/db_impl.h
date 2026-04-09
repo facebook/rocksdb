@@ -2902,6 +2902,10 @@ class DBImpl : public DB {
   // from the same write_thread_ without any locks.
   uint64_t cur_wal_number_ = 0;
 
+  // Protected by mutex_. Tracks the data-op count in the last WAL batch
+  // recovered during DB::Open().
+  uint64_t last_recovered_wal_batch_write_count_ = 0;
+
   // Log files that we can recycle. Must be protected by db mutex_.
   std::deque<uint64_t> wal_recycle_files_;
 

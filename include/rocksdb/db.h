@@ -1260,6 +1260,12 @@ class DB {
     //      log files that should be kept.
     static const std::string kMinLogNumberToKeep;
 
+    //  "rocksdb.last-recovered-wal-batch-write-count" - returns the number of
+    //      data write operations in the last WAL batch recovered during DB
+    //      open. Returns 0 when no WAL batch was recovered during the most
+    //      recent open.
+    static const std::string kLastRecoveredWalBatchWriteCount;
+
     //  "rocksdb.min-obsolete-sst-number-to-keep" - return the minimum file
     //      number for an obsolete SST to be kept. The max value of `uint64_t`
     //      will be returned if all obsolete files can be deleted.
@@ -1414,6 +1420,7 @@ class DB {
   //  "rocksdb.current-super-version-number"
   //  "rocksdb.estimate-live-data-size"
   //  "rocksdb.min-log-number-to-keep"
+  //  "rocksdb.last-recovered-wal-batch-write-count"
   //  "rocksdb.min-obsolete-sst-number-to-keep"
   //  "rocksdb.total-sst-files-size"
   //  "rocksdb.live-sst-files-size"

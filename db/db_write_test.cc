@@ -50,6 +50,40 @@ TEST_P(DBWriteTest, SyncAndDisableWAL) {
   ASSERT_TRUE(dbfull()->Write(write_options, &batch).IsInvalidArgument());
 }
 
+TEST_F(DBWriteTestUnparameterized, LastRecoveredWalBatchWriteCountProperty) {
+  Options options = CurrentOptions();
+  options.avoid_flush_during_shutdown = true;
+  options.write_buffer_size = 1024 * 1024;
+  Reopen(options);
+
+  WriteBatch batch;
+  ASSERT_OK(batch.Put("a", "1"));
+  ASSERT_OK(batch.Put("b", "2"));
+  ASSERT_OK(batch.Delete("c"));
+  ASSERT_OK(dbfull()->Write(WriteOptions(), &batch));
+
+  Close();
+  Reopen(options);
+
+  uint64_t recovered_batch_write_count = 0;
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kLastRecoveredWalBatchWriteCount,
+                          &recovered_batch_write_count));
+  ASSERT_EQ(3U, recovered_batch_write_count);
+  ASSERT_EQ("1", Get("a"));
+  ASSERT_EQ("2", Get("b"));
+  ASSERT_EQ("NOT_FOUND", Get("c"));
+
+  ASSERT_OK(Flush());
+  Close();
+  Reopen(options);
+
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kLastRecoveredWalBatchWriteCount,
+                          &recovered_batch_write_count));
+  ASSERT_EQ(0U, recovered_batch_write_count);
+}
+
 TEST_P(DBWriteTest, WriteStallRemoveNoSlowdownWrite) {
   Options options = GetOptions();
   options.level0_stop_writes_trigger = options.level0_slowdown_writes_trigger =

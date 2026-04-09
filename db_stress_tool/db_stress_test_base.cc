@@ -63,6 +63,40 @@ std::shared_ptr<const FilterPolicy> CreateFilterPolicy() {
   return std::shared_ptr<const FilterPolicy>(new_policy);
 }
 
+bool GetExpectedStateRestoreShortfallInfo(
+    DB* db, const Status& restore_status, uint64_t* missing_write_ops,
+    uint64_t* last_recovered_wal_batch_write_count) {
+  assert(db != nullptr);
+  assert(missing_write_ops != nullptr);
+  assert(last_recovered_wal_batch_write_count != nullptr);
+
+  uint64_t replayed_write_ops = 0;
+  uint64_t expected_write_ops = 0;
+  if (!ParseExpectedStateRestoreShortfallStatus(
+          restore_status, &replayed_write_ops, &expected_write_ops) ||
+      expected_write_ops < replayed_write_ops) {
+    return false;
+  }
+
+  if (!db->GetIntProperty(DB::Properties::kLastRecoveredWalBatchWriteCount,
+                          last_recovered_wal_batch_write_count)) {
+    return false;
+  }
+
+  *missing_write_ops = expected_write_ops - replayed_write_ops;
+  return true;
+}
+
+Status AppendExpectedStateRestoreShortfallContext(
+    const Status& restore_status, uint64_t missing_write_ops,
+    uint64_t last_recovered_wal_batch_write_count) {
+  return Status::CopyAppendMessage(
+      restore_status, "; ",
+      "missing_write_ops=" + std::to_string(missing_write_ops) +
+          ", last_recovered_wal_batch_write_count=" +
+          std::to_string(last_recovered_wal_batch_write_count));
+}
+
 }  // namespace
 
 StressTest::StressTest()
@@ -473,11 +507,24 @@ void StressTest::FinishInitDb(SharedState* shared) {
     Status s = shared->Restore(db_);
     if (!s.ok()) {
       if (s.IsIncomplete()) {
-        fprintf(stdout,
-                "Historical expected-state restore was incomplete during "
-                "crash recovery; rebuilding from recovered DB: %s\n",
-                s.ToString().c_str());
-        s = RebuildExpectedStateFromDb(shared);
+        uint64_t missing_write_ops = 0;
+        uint64_t last_recovered_wal_batch_write_count = 0;
+        if (GetExpectedStateRestoreShortfallInfo(
+                db_, s, &missing_write_ops,
+                &last_recovered_wal_batch_write_count)) {
+          if (missing_write_ops == last_recovered_wal_batch_write_count) {
+            fprintf(stdout,
+                    "Historical expected-state restore was incomplete during "
+                    "crash recovery; rebuilding from recovered DB because the "
+                    "shortfall matches the last recovered WAL batch (%" PRIu64
+                    " write ops): %s\n",
+                    missing_write_ops, s.ToString().c_str());
+            s = RebuildExpectedStateFromDb(shared);
+          } else {
+            s = AppendExpectedStateRestoreShortfallContext(
+                s, missing_write_ops, last_recovered_wal_batch_write_count);
+          }
+        }
       }
       if (!s.ok()) {
         fprintf(stderr, "Error restoring historical expected values: %s\n",

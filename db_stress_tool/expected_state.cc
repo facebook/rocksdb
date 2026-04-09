@@ -421,6 +421,13 @@ bool FileExpectedStateManager::HasHistory() {
 
 namespace {
 
+constexpr char kExpectedStateRestoreShortfallMessage[] =
+    "Trace ended before replaying all expected write ops";
+constexpr char kExpectedStateRestoreShortfallReplayedPrefix[] =
+    "replayed_write_ops=";
+constexpr char kExpectedStateRestoreShortfallExpectedPrefix[] =
+    "; expected_write_ops=";
+
 // An `ExpectedStateTraceRecordHandler` applies a configurable number of traced
 // write operations to the configured expected state. It is used in
 // `FileExpectedStateManager::Restore()` to sync the expected state with the
@@ -714,6 +721,53 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
 }  // anonymous namespace
 
+Status MakeExpectedStateRestoreShortfallStatus(uint64_t replayed_write_ops,
+                                               uint64_t expected_write_ops) {
+  return Status::Incomplete(
+      kExpectedStateRestoreShortfallMessage,
+      std::string(kExpectedStateRestoreShortfallReplayedPrefix) +
+          std::to_string(replayed_write_ops) +
+          kExpectedStateRestoreShortfallExpectedPrefix +
+          std::to_string(expected_write_ops));
+}
+
+bool ParseExpectedStateRestoreShortfallStatus(const Status& status,
+                                              uint64_t* replayed_write_ops,
+                                              uint64_t* expected_write_ops) {
+  assert(replayed_write_ops != nullptr);
+  assert(expected_write_ops != nullptr);
+
+  if (!status.IsIncomplete() || status.getState() == nullptr) {
+    return false;
+  }
+
+  const std::string prefix =
+      std::string(kExpectedStateRestoreShortfallMessage) + ": " +
+      kExpectedStateRestoreShortfallReplayedPrefix;
+  std::string state = status.getState();
+  if (!StartsWith(state, prefix)) {
+    return false;
+  }
+
+  Slice remainder(state);
+  remainder.remove_prefix(prefix.size());
+  if (!ConsumeDecimalNumber(&remainder, replayed_write_ops)) {
+    return false;
+  }
+
+  const std::string expected_prefix =
+      kExpectedStateRestoreShortfallExpectedPrefix;
+  if (!StartsWith(remainder.ToString(), expected_prefix)) {
+    return false;
+  }
+  remainder.remove_prefix(expected_prefix.size());
+  if (!ConsumeDecimalNumber(&remainder, expected_write_ops)) {
+    return false;
+  }
+
+  return remainder.empty();
+}
+
 Status FileExpectedStateManager::Restore(DB* db) {
   assert(HasHistory());
   SequenceNumber seqno = db->GetLatestSequenceNumber();
@@ -805,10 +859,8 @@ Status FileExpectedStateManager::Restore(DB* db) {
       // trace, leaving a valid recovered DB but a shorter trace suffix. Treat
       // that as an incomplete restore so startup can rebuild expected state
       // from the live DB instead of reporting a false corruption.
-      s = Status::Incomplete(
-          "Trace ended before replaying all expected write ops",
-          std::to_string(handler->NumWriteOps()) + " < " +
-              std::to_string(seqno - saved_seqno_));
+      s = MakeExpectedStateRestoreShortfallStatus(handler->NumWriteOps(),
+                                                  seqno - saved_seqno_);
     }
   }
 
