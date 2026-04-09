@@ -8,6 +8,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #ifdef GFLAGS
+#include <algorithm>
+#include <deque>
+#include <mutex>
+#include <string>
+#include <vector>
+
+#include "db/wide/wide_columns_helper.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "file/file_util.h"
 
@@ -33,12 +40,15 @@ class CfConsistencyStressTest : public StressTest {
     const uint32_t value_base = batch_id_.fetch_add(1);
     const size_t sz = GenerateValue(value_base, value, sizeof(value));
     const Slice v(value, sz);
+    DebugOpKind debug_op = DebugOpKind::kPut;
+    uint64_t write_unix_time = 0;
 
     WriteBatch batch;
 
     Status status;
     if (FLAGS_use_attribute_group && FLAGS_use_put_entity_one_in > 0 &&
         (value_base % FLAGS_use_put_entity_one_in) == 0) {
+      debug_op = DebugOpKind::kAttributeGroupPutEntity;
       std::vector<ColumnFamilyHandle*> cfhs;
       cfhs.reserve(rand_column_families.size());
       for (auto cf : rand_column_families) {
@@ -52,13 +62,16 @@ class CfConsistencyStressTest : public StressTest {
 
         if (FLAGS_use_put_entity_one_in > 0 &&
             (value_base % FLAGS_use_put_entity_one_in) == 0) {
+          debug_op = DebugOpKind::kPutEntity;
           status = batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
         } else if (FLAGS_use_timed_put_one_in > 0 &&
                    ((value_base + kLargePrimeForCommonFactorSkew) %
                     FLAGS_use_timed_put_one_in) == 0) {
-          uint64_t write_unix_time = GetWriteUnixTime(thread);
+          debug_op = DebugOpKind::kTimedPut;
+          write_unix_time = GetWriteUnixTime(thread);
           status = batch.TimedPut(cfh, k, v, write_unix_time);
         } else if (FLAGS_use_merge) {
+          debug_op = DebugOpKind::kMerge;
           status = batch.Merge(cfh, k, v);
         } else {
           status = batch.Put(cfh, k, v);
@@ -69,8 +82,25 @@ class CfConsistencyStressTest : public StressTest {
       }
     }
 
+    const SequenceNumber latest_seq_before = db_->GetLatestSequenceNumber();
+    const uint32_t batch_count = batch.Count();
+
     if (status.ok()) {
       status = db_->Write(write_opts, &batch);
+    }
+
+    if (status.ok()) {
+      const SequenceNumber latest_seq_after = db_->GetLatestSequenceNumber();
+      RecordDebugEvent({debug_op, k,
+                        /* end_key */ "", latest_seq_before, latest_seq_after,
+                        batch_count, value_base, write_unix_time,
+                        rand_column_families});
+      if (latest_seq_after <
+          latest_seq_before + static_cast<SequenceNumber>(batch_count)) {
+        ReportInvalidWriteSequenceBounds(thread, k, latest_seq_before,
+                                         latest_seq_after, batch_count,
+                                         value_base);
+      }
     }
 
     if (status.ok()) {
@@ -95,8 +125,21 @@ class CfConsistencyStressTest : public StressTest {
       ColumnFamilyHandle* cfh = column_families_[cf];
       batch.Delete(cfh, key);
     }
+    const SequenceNumber latest_seq_before = db_->GetLatestSequenceNumber();
     Status s = db_->Write(write_opts, &batch);
     if (s.ok()) {
+      const SequenceNumber latest_seq_after = db_->GetLatestSequenceNumber();
+      RecordDebugEvent({DebugOpKind::kDelete, key_str,
+                        /* end_key */ "", latest_seq_before, latest_seq_after,
+                        batch.Count(),
+                        /* value_base */ 0,
+                        /* write_unix_time */ 0, rand_column_families});
+      if (latest_seq_after <
+          latest_seq_before + static_cast<SequenceNumber>(batch.Count())) {
+        ReportInvalidWriteSequenceBounds(thread, key_str, latest_seq_before,
+                                         latest_seq_after, batch.Count(),
+                                         /* value_base */ 0);
+      }
       thread->stats.AddDeletes(static_cast<long>(rand_column_families.size()));
     } else if (!IsErrorInjectedAndRetryable(s)) {
       fprintf(stderr, "multidel error: %s\n", s.ToString().c_str());
@@ -124,8 +167,20 @@ class CfConsistencyStressTest : public StressTest {
       ColumnFamilyHandle* cfh = column_families_[rand_column_families[cf]];
       batch.DeleteRange(cfh, key, end_key);
     }
+    const SequenceNumber latest_seq_before = db_->GetLatestSequenceNumber();
     Status s = db_->Write(write_opts, &batch);
     if (s.ok()) {
+      const SequenceNumber latest_seq_after = db_->GetLatestSequenceNumber();
+      RecordDebugEvent({DebugOpKind::kDeleteRange, key_str, end_key_str,
+                        latest_seq_before, latest_seq_after, batch.Count(),
+                        /* value_base */ 0,
+                        /* write_unix_time */ 0, rand_column_families});
+      if (latest_seq_after <
+          latest_seq_before + static_cast<SequenceNumber>(batch.Count())) {
+        ReportInvalidWriteSequenceBounds(thread, key_str, latest_seq_before,
+                                         latest_seq_after, batch.Count(),
+                                         /* value_base */ 0);
+      }
       thread->stats.AddRangeDeletions(
           static_cast<long>(rand_column_families.size()));
     } else if (!IsErrorInjectedAndRetryable(s)) {
@@ -326,6 +381,8 @@ class CfConsistencyStressTest : public StressTest {
     } else {
       // With a 1/2 chance, compare one key across all CFs
       ManagedSnapshot snapshot_guard(db_);
+      const SequenceNumber snapshot_seq =
+          snapshot_guard.snapshot()->GetSequenceNumber();
 
       ReadOptions read_opts_copy = read_opts;
       read_opts_copy.snapshot = snapshot_guard.snapshot();
@@ -445,11 +502,17 @@ class CfConsistencyStressTest : public StressTest {
               if (!cmp_found && found) {
                 fprintf(stderr,
                         "GetEntity returns different results for key %s: CF %s "
-                        "returns not found, CF %s returns entity %s\n",
+                        "returns not found, CF %s returns entity %s"
+                        " [snapshot_seq=%" PRIu64 " latest_seq=%" PRIu64 "]\n",
                         StringToHex(key).c_str(),
                         column_family_names_[0].c_str(),
                         column_family_names_[i].c_str(),
-                        WideColumnsToHex(result.columns()).c_str());
+                        WideColumnsToHex(result.columns()).c_str(),
+                        snapshot_seq, db_->GetLatestSequenceNumber());
+                DumpGetEntityMismatchDebug(key, read_opts_copy, snapshot_seq,
+                                           rand_column_families,
+                                           /* cmp_cf_idx */ 0,
+                                           /* mismatch_cf_idx */ i);
                 is_consistent = false;
                 break;
               }
@@ -457,11 +520,17 @@ class CfConsistencyStressTest : public StressTest {
               if (cmp_found && !found) {
                 fprintf(stderr,
                         "GetEntity returns different results for key %s: CF %s "
-                        "returns entity %s, CF %s returns not found\n",
+                        "returns entity %s, CF %s returns not found"
+                        " [snapshot_seq=%" PRIu64 " latest_seq=%" PRIu64 "]\n",
                         StringToHex(key).c_str(),
                         column_family_names_[0].c_str(),
                         WideColumnsToHex(cmp_result.columns()).c_str(),
-                        column_family_names_[i].c_str());
+                        column_family_names_[i].c_str(), snapshot_seq,
+                        db_->GetLatestSequenceNumber());
+                DumpGetEntityMismatchDebug(key, read_opts_copy, snapshot_seq,
+                                           rand_column_families,
+                                           /* cmp_cf_idx */ 0,
+                                           /* mismatch_cf_idx */ i);
                 is_consistent = false;
                 break;
               }
@@ -469,12 +538,18 @@ class CfConsistencyStressTest : public StressTest {
               if (found && result != cmp_result) {
                 fprintf(stderr,
                         "GetEntity returns different results for key %s: CF %s "
-                        "returns entity %s, CF %s returns entity %s\n",
+                        "returns entity %s, CF %s returns entity %s"
+                        " [snapshot_seq=%" PRIu64 " latest_seq=%" PRIu64 "]\n",
                         StringToHex(key).c_str(),
                         column_family_names_[0].c_str(),
                         WideColumnsToHex(cmp_result.columns()).c_str(),
                         column_family_names_[i].c_str(),
-                        WideColumnsToHex(result.columns()).c_str());
+                        WideColumnsToHex(result.columns()).c_str(),
+                        snapshot_seq, db_->GetLatestSequenceNumber());
+                DumpGetEntityMismatchDebug(key, read_opts_copy, snapshot_seq,
+                                           rand_column_families,
+                                           /* cmp_cf_idx */ 0,
+                                           /* mismatch_cf_idx */ i);
                 is_consistent = false;
                 break;
               }
@@ -695,10 +770,18 @@ class CfConsistencyStressTest : public StressTest {
               fprintf(
                   stderr,
                   "MultiGetEntity returns different results for key %s: CF %s "
-                  "returns entity %s, CF %s returns not found\n",
+                  "returns entity %s, CF %s returns not found"
+                  " [snapshot_seq=%" PRIu64 " latest_seq=%" PRIu64 "]\n",
                   StringToHex(key).c_str(), column_family_names_[0].c_str(),
                   WideColumnsToHex(cmp_columns).c_str(),
-                  column_family_names_[j].c_str());
+                  column_family_names_[j].c_str(),
+                  snapshot_guard.snapshot()->GetSequenceNumber(),
+                  db_->GetLatestSequenceNumber());
+              DumpGetEntityMismatchDebug(
+                  key, read_opts_copy,
+                  snapshot_guard.snapshot()->GetSequenceNumber(),
+                  rand_column_families, /* cmp_cf_idx */ 0,
+                  /* mismatch_cf_idx */ j);
               is_consistent = false;
               break;
             }
@@ -711,10 +794,18 @@ class CfConsistencyStressTest : public StressTest {
             fprintf(
                 stderr,
                 "MultiGetEntity returns different results for key %s: CF %s "
-                "returns not found, CF %s returns entity %s\n",
+                "returns not found, CF %s returns entity %s"
+                " [snapshot_seq=%" PRIu64 " latest_seq=%" PRIu64 "]\n",
                 StringToHex(key).c_str(), column_family_names_[0].c_str(),
                 column_family_names_[j].c_str(),
-                WideColumnsToHex(columns).c_str());
+                WideColumnsToHex(columns).c_str(),
+                snapshot_guard.snapshot()->GetSequenceNumber(),
+                db_->GetLatestSequenceNumber());
+            DumpGetEntityMismatchDebug(
+                key, read_opts_copy,
+                snapshot_guard.snapshot()->GetSequenceNumber(),
+                rand_column_families, /* cmp_cf_idx */ 0,
+                /* mismatch_cf_idx */ j);
             is_consistent = false;
             break;
           }
@@ -723,11 +814,19 @@ class CfConsistencyStressTest : public StressTest {
             fprintf(
                 stderr,
                 "MultiGetEntity returns different results for key %s: CF %s "
-                "returns entity %s, CF %s returns entity %s\n",
+                "returns entity %s, CF %s returns entity %s"
+                " [snapshot_seq=%" PRIu64 " latest_seq=%" PRIu64 "]\n",
                 StringToHex(key).c_str(), column_family_names_[0].c_str(),
                 WideColumnsToHex(cmp_columns).c_str(),
                 column_family_names_[j].c_str(),
-                WideColumnsToHex(columns).c_str());
+                WideColumnsToHex(columns).c_str(),
+                snapshot_guard.snapshot()->GetSequenceNumber(),
+                db_->GetLatestSequenceNumber());
+            DumpGetEntityMismatchDebug(
+                key, read_opts_copy,
+                snapshot_guard.snapshot()->GetSequenceNumber(),
+                rand_column_families, /* cmp_cf_idx */ 0,
+                /* mismatch_cf_idx */ j);
             is_consistent = false;
             break;
           }
@@ -1145,7 +1244,303 @@ class CfConsistencyStressTest : public StressTest {
   }
 
  private:
+  enum class DebugOpKind : uint8_t {
+    kPut,
+    kPutEntity,
+    kAttributeGroupPutEntity,
+    kTimedPut,
+    kMerge,
+    kDelete,
+    kDeleteRange,
+  };
+
+  struct DebugEvent {
+    DebugOpKind op;
+    std::string key;
+    std::string end_key;
+    // [seq_before, seq_after] is the observed latest-sequence window around
+    // the write. Exact per-CF sequence mapping is only available when
+    // seq_after == seq_before + batch_count.
+    SequenceNumber seq_before;
+    SequenceNumber seq_after;
+    uint32_t batch_count;
+    uint32_t value_base;
+    uint64_t write_unix_time;
+    std::vector<int> cfs;
+  };
+
+  static constexpr size_t kMaxRecentDebugEvents = 512;
+  static const char* DebugOpKindName(DebugOpKind op) {
+    switch (op) {
+      case DebugOpKind::kPut:
+        return "Put";
+      case DebugOpKind::kPutEntity:
+        return "PutEntity";
+      case DebugOpKind::kAttributeGroupPutEntity:
+        return "AttributeGroupPutEntity";
+      case DebugOpKind::kTimedPut:
+        return "TimedPut";
+      case DebugOpKind::kMerge:
+        return "Merge";
+      case DebugOpKind::kDelete:
+        return "Delete";
+      case DebugOpKind::kDeleteRange:
+        return "DeleteRange";
+    }
+    return "Unknown";
+  }
+
+  std::string DebugCfName(int cf) const {
+    if (cf >= 0 && static_cast<size_t>(cf) < column_family_names_.size()) {
+      return column_family_names_[cf] + "#" + std::to_string(cf);
+    }
+    return "cf#" + std::to_string(cf);
+  }
+
+  void RecordDebugEvent(DebugEvent event) {
+    std::lock_guard<std::mutex> lock(debug_mu_);
+    recent_debug_events_.emplace_back(std::move(event));
+    if (recent_debug_events_.size() > kMaxRecentDebugEvents) {
+      recent_debug_events_.pop_front();
+    }
+  }
+
+  static bool EventTouchesKey(const DebugEvent& event, const std::string& key) {
+    if (event.op == DebugOpKind::kDeleteRange) {
+      return event.key <= key && key < event.end_key;
+    }
+    return event.key == key;
+  }
+
+  void ReportInvalidWriteSequenceBounds(ThreadState* thread,
+                                        const std::string& key,
+                                        SequenceNumber latest_seq_before,
+                                        SequenceNumber latest_seq_after,
+                                        uint32_t batch_count,
+                                        uint32_t value_base) {
+    fprintf(stderr,
+            "Write sequence bounds invalid for key %s: latest_before=%" PRIu64
+            " batch_count=%u latest_after=%" PRIu64 " value_base=%u\n",
+            Slice(key).ToString(true).c_str(), latest_seq_before, batch_count,
+            latest_seq_after, value_base);
+    thread->stats.AddErrors(1);
+    thread->shared->SetVerificationFailure();
+  }
+
+  static bool HasExactCfSequenceMapping(const DebugEvent& event) {
+    return event.seq_after ==
+           event.seq_before + static_cast<SequenceNumber>(event.batch_count);
+  }
+
+  bool TryGetEventSequenceForCf(const DebugEvent& event, int cf,
+                                SequenceNumber* seq) const {
+    if (!HasExactCfSequenceMapping(event)) {
+      return false;
+    }
+    const size_t count =
+        std::min(event.cfs.size(), static_cast<size_t>(event.batch_count));
+    for (size_t i = 0; i < count; ++i) {
+      if (event.cfs[i] == cf) {
+        *seq = event.seq_before + static_cast<SequenceNumber>(i + 1);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  std::string FormatCfSequenceSummary(const DebugEvent& event,
+                                      SequenceNumber snapshot_seq) const {
+    if (!HasExactCfSequenceMapping(event)) {
+      return "interleaved-with-other-writes";
+    }
+    const size_t count =
+        std::min(event.cfs.size(), static_cast<size_t>(event.batch_count));
+    std::string summary;
+    for (size_t i = 0; i < count; ++i) {
+      if (!summary.empty()) {
+        summary.append(", ");
+      }
+      const SequenceNumber seq =
+          event.seq_before + static_cast<SequenceNumber>(i + 1);
+      summary.append(DebugCfName(event.cfs[i]));
+      summary.push_back('@');
+      summary.append(std::to_string(seq));
+      summary.append(seq <= snapshot_seq ? ":visible" : ":hidden");
+    }
+    if (event.batch_count != event.cfs.size()) {
+      if (!summary.empty()) {
+        summary.push_back(' ');
+      }
+      summary.append("(batch_count=");
+      summary.append(std::to_string(event.batch_count));
+      summary.append(", cf_count=");
+      summary.append(std::to_string(event.cfs.size()));
+      summary.push_back(')');
+    }
+    return summary;
+  }
+
+  static std::string FormatValueResult(const Status& status,
+                                       const std::string& value) {
+    if (status.ok()) {
+      return Slice(value).ToString(true);
+    }
+    if (status.IsNotFound()) {
+      return "not found";
+    }
+    return status.ToString();
+  }
+
+  static std::string FormatEntityResult(const Status& status,
+                                        const PinnableWideColumns& columns) {
+    if (status.ok()) {
+      return WideColumnsToHex(columns.columns());
+    }
+    if (status.IsNotFound()) {
+      return "not found";
+    }
+    return status.ToString();
+  }
+
+  void DumpRecentDebugEvents(const std::string& key,
+                             SequenceNumber snapshot_seq, int cmp_cf,
+                             int mismatch_cf) const {
+    std::vector<DebugEvent> matched_events;
+    {
+      std::lock_guard<std::mutex> lock(debug_mu_);
+      for (const auto& event : recent_debug_events_) {
+        if (EventTouchesKey(event, key)) {
+          matched_events.push_back(event);
+        }
+      }
+    }
+
+    fprintf(stdout,
+            "[cf_consistency_debug] recent_events key=%s snapshot_seq=%" PRIu64
+            " matched_events=%" ROCKSDB_PRIszt "\n",
+            StringToHex(key).c_str(), snapshot_seq, matched_events.size());
+
+    for (const auto& event : matched_events) {
+      SequenceNumber cmp_seq = 0;
+      SequenceNumber mismatch_seq = 0;
+      const bool has_cmp_seq =
+          TryGetEventSequenceForCf(event, cmp_cf, &cmp_seq);
+      const bool has_mismatch_seq =
+          TryGetEventSequenceForCf(event, mismatch_cf, &mismatch_seq);
+      const bool snapshot_splits_focus_cfs = has_cmp_seq && has_mismatch_seq &&
+                                             cmp_seq <= snapshot_seq &&
+                                             snapshot_seq < mismatch_seq;
+
+      fprintf(stdout,
+              "[cf_consistency_debug] event op=%s key=%s end_key=%s "
+              "seq_before=%" PRIu64 " seq_after=%" PRIu64
+              " batch_count=%u exact_mapping=%s value_base=%u "
+              "write_unix_time=%" PRIu64
+              " focus_split=%s focus_cmp_seq=%s "
+              "focus_mismatch_seq=%s per_cf=%s\n",
+              DebugOpKindName(event.op), StringToHex(event.key).c_str(),
+              event.end_key.empty() ? "-" : StringToHex(event.end_key).c_str(),
+              event.seq_before, event.seq_after, event.batch_count,
+              HasExactCfSequenceMapping(event) ? "true" : "false",
+              event.value_base, event.write_unix_time,
+              snapshot_splits_focus_cfs ? "true" : "false",
+              has_cmp_seq ? std::to_string(cmp_seq).c_str() : "-",
+              has_mismatch_seq ? std::to_string(mismatch_seq).c_str() : "-",
+              FormatCfSequenceSummary(event, snapshot_seq).c_str());
+    }
+  }
+
+  void DumpGetEntityMismatchDebug(const std::string& key,
+                                  const ReadOptions& snapshot_read_opts,
+                                  SequenceNumber snapshot_seq,
+                                  const std::vector<int>& rand_column_families,
+                                  size_t cmp_cf_idx, size_t mismatch_cf_idx) {
+    fprintf(stdout,
+            "[cf_consistency_debug] begin key=%s snapshot_seq=%" PRIu64
+            " latest_seq=%" PRIu64 " cmp_cf=%s mismatch_cf=%s\n",
+            StringToHex(key).c_str(), snapshot_seq,
+            db_->GetLatestSequenceNumber(),
+            DebugCfName(rand_column_families[cmp_cf_idx]).c_str(),
+            DebugCfName(rand_column_families[mismatch_cf_idx]).c_str());
+
+    ReadOptions latest_read_opts(snapshot_read_opts);
+    latest_read_opts.snapshot = nullptr;
+
+    for (int cf : rand_column_families) {
+      ColumnFamilyHandle* const cfh = column_families_[cf];
+
+      PinnableWideColumns snapshot_entity;
+      const Status snapshot_entity_status =
+          db_->GetEntity(snapshot_read_opts, cfh, key, &snapshot_entity);
+      std::string snapshot_value;
+      const Status snapshot_value_status =
+          db_->Get(snapshot_read_opts, cfh, key, &snapshot_value);
+
+      PinnableWideColumns latest_entity;
+      const Status latest_entity_status =
+          db_->GetEntity(latest_read_opts, cfh, key, &latest_entity);
+      std::string latest_value;
+      const Status latest_value_status =
+          db_->Get(latest_read_opts, cfh, key, &latest_value);
+
+      std::string snapshot_verify = "n/a";
+      if (snapshot_entity_status.ok()) {
+        snapshot_verify =
+            VerifyWideColumns(snapshot_entity.columns()) ? "true" : "false";
+      }
+
+      std::string latest_verify = "n/a";
+      if (latest_entity_status.ok()) {
+        latest_verify =
+            VerifyWideColumns(latest_entity.columns()) ? "true" : "false";
+      }
+
+      std::string snapshot_default_matches_get = "n/a";
+      if (snapshot_entity_status.ok() && snapshot_value_status.ok()) {
+        snapshot_default_matches_get =
+            WideColumnsHelper::GetDefaultColumn(snapshot_entity.columns()) ==
+                    Slice(snapshot_value)
+                ? "true"
+                : "false";
+      }
+
+      std::string latest_default_matches_get = "n/a";
+      if (latest_entity_status.ok() && latest_value_status.ok()) {
+        latest_default_matches_get =
+            WideColumnsHelper::GetDefaultColumn(latest_entity.columns()) ==
+                    Slice(latest_value)
+                ? "true"
+                : "false";
+      }
+
+      fprintf(
+          stdout,
+          "[cf_consistency_debug] cf=%s snapshot_get_entity=%s "
+          "snapshot_entity_verify=%s snapshot_get=%s "
+          "snapshot_default_matches_get=%s latest_get_entity=%s "
+          "latest_entity_verify=%s latest_get=%s "
+          "latest_default_matches_get=%s\n",
+          DebugCfName(cf).c_str(),
+          FormatEntityResult(snapshot_entity_status, snapshot_entity).c_str(),
+          snapshot_verify.c_str(),
+          FormatValueResult(snapshot_value_status, snapshot_value).c_str(),
+          snapshot_default_matches_get.c_str(),
+          FormatEntityResult(latest_entity_status, latest_entity).c_str(),
+          latest_verify.c_str(),
+          FormatValueResult(latest_value_status, latest_value).c_str(),
+          latest_default_matches_get.c_str());
+    }
+
+    DumpRecentDebugEvents(key, snapshot_seq, rand_column_families[cmp_cf_idx],
+                          rand_column_families[mismatch_cf_idx]);
+    fprintf(stdout, "[cf_consistency_debug] end key=%s\n",
+            StringToHex(key).c_str());
+    fflush(stdout);
+  }
+
   std::atomic<uint32_t> batch_id_;
+  mutable std::mutex debug_mu_;
+  std::deque<DebugEvent> recent_debug_events_;
 };
 
 StressTest* CreateCfConsistencyStressTest() {

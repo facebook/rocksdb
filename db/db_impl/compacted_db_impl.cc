@@ -5,6 +5,7 @@
 
 #include "db/db_impl/compacted_db_impl.h"
 
+#include "db/blob/blob_fetcher.h"
 #include "db/db_impl/db_impl.h"
 #include "db/version_set.h"
 #include "logging/logging.h"
@@ -75,13 +76,16 @@ Status CompactedDBImpl::Get(const ReadOptions& _read_options,
   }
 
   GetWithTimestampReadCallback read_cb(kMaxSequenceNumber);
+  BlobFetcher blob_fetcher(version_, read_options);
   std::string* ts =
       user_comparator_->timestamp_size() > 0 ? timestamp : nullptr;
   LookupKey lkey(key, kMaxSequenceNumber, read_options.timestamp);
   GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, lkey.user_key(), value,
                          /*columns=*/nullptr, ts, nullptr, nullptr, true,
-                         nullptr, nullptr, nullptr, nullptr, &read_cb);
+                         nullptr, nullptr, nullptr, nullptr, &read_cb,
+                         nullptr /* is_blob_index */, 0 /* tracing_get_id */,
+                         &blob_fetcher);
 
   const FdWithKeyRange& f = files_.files[FindFile(lkey.user_key())];
   if (user_comparator_->CompareWithoutTimestamp(
@@ -165,6 +169,7 @@ void CompactedDBImpl::MultiGet(const ReadOptions& _read_options,
   }
 
   GetWithTimestampReadCallback read_cb(kMaxSequenceNumber);
+  BlobFetcher blob_fetcher(version_, read_options);
   for (size_t i = 0; i < num_keys; ++i) {
     const Slice& key = keys[i];
     LookupKey lkey(key, kMaxSequenceNumber, read_options.timestamp);
@@ -177,13 +182,15 @@ void CompactedDBImpl::MultiGet(const ReadOptions& _read_options,
       statuses[i] = Status::NotFound();
       continue;
     }
+
     PinnableSlice& pinnable_val = values[i];
     std::string* timestamp = timestamps ? &timestamps[i] : nullptr;
     GetContext get_context(
         user_comparator_, nullptr, nullptr, nullptr, GetContext::kNotFound,
         lkey.user_key(), &pinnable_val, /*columns=*/nullptr,
         user_comparator_->timestamp_size() > 0 ? timestamp : nullptr, nullptr,
-        nullptr, true, nullptr, nullptr, nullptr, nullptr, &read_cb);
+        nullptr, true, nullptr, nullptr, nullptr, nullptr, &read_cb,
+        nullptr /* is_blob_index */, 0 /* tracing_get_id */, &blob_fetcher);
     TableReader* t = nullptr;
     TableCache::TypedHandle* handle = nullptr;
     Status status = cfd_->table_cache()->FindTable(
@@ -201,12 +208,10 @@ void CompactedDBImpl::MultiGet(const ReadOptions& _read_options,
     }
     if (!status.ok() && !status.IsNotFound()) {
       statuses[i] = status;
+    } else if (get_context.State() == GetContext::kFound) {
+      statuses[i] = Status::OK();
     } else {
-      if (get_context.State() == GetContext::kFound) {
-        statuses[i] = Status::OK();
-      } else {
-        statuses[i] = Status::NotFound();
-      }
+      statuses[i] = Status::NotFound();
     }
   }
 }
