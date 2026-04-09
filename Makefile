@@ -804,7 +804,8 @@ endif  # PLATFORM_SHARED_EXT
 .PHONY: check clean coverage ldb_tests package dbg gen-pc build_size \
 	release tags tags0 valgrind_check format static_lib shared_lib all \
 	rocksdbjavastatic rocksdbjava install install-static install-shared \
-	uninstall analyze tools tools_lib check-headers checkout_folly clang-tidy
+	uninstall analyze tools tools_lib check-headers checkout_folly clang-tidy \
+	check-c-api-c_test
 
 # Auto-configure git hooks on first build so developers do not need to run
 # "make install-hooks" manually. This is a no-op if already set.
@@ -1086,6 +1087,24 @@ else ifndef GITHUB_ACTIONS
 else
 	@echo "Skipping C API staleness check (set CHECK_C_API_GEN=1 to enable in CI)"
 endif
+
+# Quick local validation for C API generation plus the focused C API test.
+# This verifies the checked-in generated fragments as well as the inlined
+# include/rocksdb/c.h and db/c.cc outputs, then runs c_test in an isolated
+# TEST_TMPDIR to avoid stale-state failures.
+check-c-api-c_test:
+	$(PYTHON) tools/c_api_gen/verify_generated_up_to_date.py
+	$(MAKE) c_test
+	@tmpdir=$$(mktemp -d); \
+	  trap 'rm -rf "$$tmpdir"' EXIT; \
+	  echo "===== Running c_test with TEST_TMPDIR=$$tmpdir"; \
+	  if command -v timeout >/dev/null 2>&1; then \
+	    TEST_TMPDIR="$$tmpdir" timeout 60 ./c_test; \
+	  elif command -v gtimeout >/dev/null 2>&1; then \
+	    TEST_TMPDIR="$$tmpdir" gtimeout 60 ./c_test; \
+	  else \
+	    TEST_TMPDIR="$$tmpdir" ./c_test; \
+	  fi
 
 # TODO add ldb_tests
 check_some: $(ROCKSDBTESTS_SUBSET)
