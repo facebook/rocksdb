@@ -895,6 +895,13 @@ multiops_txn_params = {
 }
 
 
+def _is_udt_memtable_only(params):
+    return (
+        params.get("user_timestamp_size", 0) > 0
+        and params.get("persist_user_defined_timestamps") == 0
+    )
+
+
 # =============================================================================
 # Feature Requirements System
 # =============================================================================
@@ -916,15 +923,6 @@ multiops_txn_params = {
 # multi_ops_txns_stress.cc enforce these at runtime with exit(1).
 # The Python rules here prevent those assertions from ever firing.
 # =============================================================================
-
-
-def _is_udt_memtable_only(params):
-    return (
-        params.get("user_timestamp_size", 0) > 0
-        and params.get("persist_user_defined_timestamps") == 0
-    )
-
-
 # FEATURE_REQUIREMENTS maps feature names to their required parameter values.
 #
 # Format:
