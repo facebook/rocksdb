@@ -1081,12 +1081,7 @@ struct BlockBasedTableBuilder::Rep {
             false /* use_separated_kv_storage */),
         internal_prefix_transform(prefix_extractor.get()),
         sample_for_compression(tbo.moptions.sample_for_compression),
-        compression_parallel_threads(
-            ((table_opt.partition_filters &&
-              !table_opt.decouple_partitioned_filters) ||
-             table_options.user_defined_index_factory)
-                ? uint32_t{1}
-                : tbo.compression_opts.parallel_threads),
+        compression_parallel_threads(tbo.compression_opts.parallel_threads),
         max_compressed_bytes_per_kb(
             tbo.compression_opts.max_compressed_bytes_per_kb),
         use_delta_encoding_for_index_values(table_opt.format_version >= 4 &&
@@ -1217,6 +1212,20 @@ struct BlockBasedTableBuilder::Rep {
       }
     }
 
+    // Allow Compressor to override parallel_threads
+    if (basic_compressor) {
+      uint32_t recommended = basic_compressor->GetRecommendedParallelThreads();
+      if (recommended > 0) {
+        compression_parallel_threads = recommended;
+      }
+    }
+    // Hard structural constraints override any recommendation
+    if ((table_opt.partition_filters &&
+         !table_opt.decouple_partitioned_filters) ||
+        table_options.user_defined_index_factory) {
+      compression_parallel_threads = 1;
+    }
+
     if (sample_for_compression > 0) {
       auto builtin = GetBuiltinV2CompressionManager();
       if (builtin->SupportsCompressionType(kLZ4Compression)) {
@@ -1267,12 +1276,29 @@ struct BlockBasedTableBuilder::Rep {
 
     // If user_defined_index_factory is provided, wrap the index builder with
     // UserDefinedIndexWrapper
+    if (table_options.use_udi_as_primary_index &&
+        table_options.user_defined_index_factory == nullptr) {
+      SetStatus(Status::InvalidArgument(
+          "use_udi_as_primary_index requires user_defined_index_factory to "
+          "be set"));
+    }
     if (table_options.user_defined_index_factory != nullptr) {
       if (tbo.moptions.compression_opts.parallel_threads > 1 ||
           tbo.moptions.bottommost_compression_opts.parallel_threads > 1) {
         SetStatus(
             Status::InvalidArgument("user_defined_index_factory not supported "
                                     "with parallel compression"));
+      } else if (table_options.use_udi_as_primary_index &&
+                 table_options.index_type ==
+                     BlockBasedTableOptions::kTwoLevelIndexSearch) {
+        SetStatus(Status::InvalidArgument(
+            "use_udi_as_primary_index is incompatible with partitioned index "
+            "(kTwoLevelIndexSearch)"));
+      } else if (table_options.use_udi_as_primary_index &&
+                 table_options.partition_filters) {
+        SetStatus(Status::InvalidArgument(
+            "use_udi_as_primary_index is incompatible with partitioned "
+            "filters"));
       } else {
         std::unique_ptr<UserDefinedIndexBuilder> user_defined_index_builder;
         UserDefinedIndexOption udi_options;
@@ -2217,6 +2243,9 @@ void BlockBasedTableBuilder::MaybeStartParallelCompression() {
     // Force the generally best configuration for no compression: no parallelism
     return;
   }
+  TEST_SYNC_POINT_CALLBACK(
+      "BlockBasedTableBuilder::MaybeStartParallelCompression:Started",
+      &rep_->compression_parallel_threads);
   rep_->pc_rep = std::make_unique<ParallelCompressionRep>(
       rep_->compression_parallel_threads);
   auto& pc_rep = *rep_->pc_rep;
@@ -2495,6 +2524,12 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     }
     rep_->props.index_key_is_user_key =
         !rep_->index_builder->separator_is_key_plus_seq();
+    if (rep_->table_options.use_udi_as_primary_index &&
+        rep_->table_options.user_defined_index_factory != nullptr) {
+      rep_->props.udi_is_primary_index = 1;
+    }
+    // The standard index is always fully populated (even in primary mode),
+    // so delta encoding applies normally.
     rep_->props.index_value_is_delta_encoded =
         rep_->use_delta_encoding_for_index_values;
     if (rep_->sampled_input_data_bytes.LoadRelaxed() > 0) {

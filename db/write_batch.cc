@@ -2466,13 +2466,8 @@ class MemTableInserter : public WriteBatch::Handler {
 
     auto rebuild_txn_op = [](WriteBatch* rebuilding_trx, uint32_t cf_id,
                              const Slice& k, Slice entity) -> Status {
-      WideColumns columns;
-      const Status st = WideColumnSerialization::Deserialize(entity, columns);
-      if (!st.ok()) {
-        return st;
-      }
-
-      return WriteBatchInternal::PutEntity(rebuilding_trx, cf_id, k, columns);
+      return WriteBatchInternal::PutEntitySerialized(rebuilding_trx, cf_id, k,
+                                                     entity);
     };
 
     if (kv_prot_info) {

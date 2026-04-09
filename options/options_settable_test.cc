@@ -208,6 +208,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "initial_auto_readahead_size=0;"
       "num_file_reads_for_auto_readahead=0;"
       "fail_if_no_udi_on_open=true;"
+      "use_udi_as_primary_index=true;"
       "separate_key_value_in_data_block=true;"
       "uniform_cv_threshold=0.2",
       new_bbto));
@@ -298,7 +299,8 @@ TEST_F(OptionsSettableTest, TablePropertiesAllFieldsSettable) {
       "external_sst_file_global_seqno_offset=0;num_merge_operands=0;index_key_"
       "is_user_key=0;key_largest_seqno=18446744073709551615;key_smallest_seqno="
       "18;data_block_restart_interval=16;index_block_restart_interval=1;"
-      "separate_key_value_in_data_block=0;num_uniform_blocks=0;",
+      "separate_key_value_in_data_block=0;num_uniform_blocks=0;"
+      "udi_is_primary_index=0;",
       new_tp));
 
   // All bytes are set from the parse

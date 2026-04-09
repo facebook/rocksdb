@@ -12,6 +12,7 @@ namespace ROCKSDB_NAMESPACE {
 void CoalescingIterator::Coalesce(
     const autovector<MultiCfIteratorInfo>& items) {
   assert(wide_columns_.empty());
+  assert(owned_columns_.empty());
   MinHeap heap;
   for (const auto& item : items) {
     assert(item.iterator);
@@ -22,13 +23,22 @@ void CoalescingIterator::Coalesce(
   if (heap.empty()) {
     return;
   }
+  // Own the coalesced bytes so the result stays valid even if a child iterator
+  // refreshes or reuses its internal buffers.
+  owned_columns_.reserve(heap.size());
   wide_columns_.reserve(heap.size());
+  auto add_column = [this](const WideColumn& column) {
+    owned_columns_.emplace_back(column.name().ToString(),
+                                column.value().ToString());
+    const auto& owned = owned_columns_.back();
+    wide_columns_.emplace_back(owned.first, owned.second);
+  };
   auto current = heap.top();
   heap.pop();
   while (!heap.empty()) {
     int comparison = current.column->name().compare(heap.top().column->name());
     if (comparison < 0) {
-      wide_columns_.push_back(*current.column);
+      add_column(*current.column);
     } else if (comparison > 0) {
       // Shouldn't reach here.
       // Current item in the heap is greater than the top item in the min heap
@@ -37,7 +47,7 @@ void CoalescingIterator::Coalesce(
     current = heap.top();
     heap.pop();
   }
-  wide_columns_.push_back(*current.column);
+  add_column(*current.column);
 
   if (WideColumnsHelper::HasDefaultColumn(wide_columns_)) {
     value_ = WideColumnsHelper::GetDefaultColumn(wide_columns_);

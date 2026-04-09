@@ -11,6 +11,7 @@
 #include <cstdint>
 
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -37,6 +38,33 @@ class BlobFilePartitionStrategy {
   virtual uint32_t SelectPartition(uint32_t num_partitions,
                                    uint32_t column_family_id, const Slice& key,
                                    const Slice& value) = 0;
+
+  // Select a partition for the given wide-column blob direct write. This is
+  // called once per PutEntity() before writing any blob-backed columns from the
+  // entity, and the chosen partition is reused for all blob-backed columns in
+  // that entity. The default behavior delegates to the plain-value overload
+  // using the default column value when present, otherwise the first column
+  // value, or an empty Slice for an empty entity.
+  //
+  // Derived classes that override only the Slice-based overload should add
+  // `using BlobFilePartitionStrategy::SelectPartition;` so this overload
+  // remains visible.
+  virtual uint32_t SelectPartition(uint32_t num_partitions,
+                                   uint32_t column_family_id, const Slice& key,
+                                   const WideColumns& columns) {
+    const Slice* value = nullptr;
+    for (const auto& column : columns) {
+      if (column.name() == kDefaultWideColumnName) {
+        value = &column.value();
+        break;
+      }
+    }
+    if (value == nullptr && !columns.empty()) {
+      value = &columns.front().value();
+    }
+    return SelectPartition(num_partitions, column_family_id, key,
+                           value != nullptr ? *value : Slice());
+  }
 };
 
 }  // namespace ROCKSDB_NAMESPACE
