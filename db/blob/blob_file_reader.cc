@@ -9,7 +9,6 @@
 #include <string>
 
 #include "db/blob/blob_contents.h"
-#include "db/blob/blob_file_open_options.h"
 #include "db/blob/blob_log_format.h"
 #include "file/file_prefetch_buffer.h"
 #include "file/filename.h"
@@ -105,17 +104,6 @@ Status BlobFileReader::OpenFile(
   assert(fs);
 
   constexpr IODebugContext* dbg = nullptr;
-  uint64_t path_file_size = 0;
-
-  {
-    TEST_SYNC_POINT("BlobFileReader::OpenFile:GetFileSize");
-
-    const Status s =
-        fs->GetFileSize(blob_file_path, IOOptions(), &path_file_size, dbg);
-    if (!s.ok()) {
-      return s;
-    }
-  }
 
   std::unique_ptr<FSRandomAccessFile> file;
   FileOptions reader_file_opts = file_opts;
@@ -136,18 +124,23 @@ Status BlobFileReader::OpenFile(
 
   assert(file);
 
-  *file_size = path_file_size;
-  if (IsBlobFileActiveDirectWriteOpenMode(file_opts)) {
-    uint64_t open_file_size = 0;
-    const Status open_file_size_status = file->GetFileSize(&open_file_size);
-    if (open_file_size_status.ok()) {
-      // Some remote filesystems can report a stale path-level size for an
-      // active direct-write blob file while the opened read handle sees the
-      // latest visible bytes. Prefer the open-handle size when it is larger.
-      *file_size = std::max(*file_size, open_file_size);
-    } else if (!open_file_size_status.IsNotSupported()) {
-      return open_file_size_status;
+  uint64_t open_file_size = 0;
+  const Status open_file_size_status = file->GetFileSize(&open_file_size);
+  if (open_file_size_status.ok()) {
+    // Prefer the size from the opened handle when available. This avoids an
+    // extra path metadata lookup and lets filesystems surface a more current
+    // size than a separate stat-style query.
+    *file_size = open_file_size;
+  } else if (open_file_size_status.IsNotSupported()) {
+    TEST_SYNC_POINT("BlobFileReader::OpenFile:GetFileSize");
+
+    const Status s =
+        fs->GetFileSize(blob_file_path, IOOptions(), file_size, dbg);
+    if (!s.ok()) {
+      return s;
     }
+  } else {
+    return open_file_size_status;
   }
 
   if (!skip_footer_size_check &&
