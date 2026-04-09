@@ -1651,6 +1651,10 @@ rocksdb_table_properties_index_value_is_delta_encoded(
     const rocksdb_table_properties_t* props);
 
 extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_table_properties_udi_is_primary_index(
+    const rocksdb_table_properties_t* props);
+
+extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_table_properties_filter_size(const rocksdb_table_properties_t* props);
 
 extern ROCKSDB_LIBRARY_API uint64_t
@@ -5923,6 +5927,14 @@ rocksdb_block_based_options_set_use_delta_encoding(
 
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_block_based_options_get_use_delta_encoding(
+    rocksdb_block_based_table_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_block_based_options_set_use_udi_as_primary_index(
+    rocksdb_block_based_table_options_t* opt, unsigned char v);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_block_based_options_get_use_udi_as_primary_index(
     rocksdb_block_based_table_options_t* opt);
 
 extern ROCKSDB_LIBRARY_API void

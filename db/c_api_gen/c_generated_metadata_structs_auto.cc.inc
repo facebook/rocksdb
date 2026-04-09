@@ -57,6 +57,11 @@ uint64_t rocksdb_table_properties_index_value_is_delta_encoded(
   return props->rep.index_value_is_delta_encoded;
 }
 
+uint64_t rocksdb_table_properties_udi_is_primary_index(
+    const rocksdb_table_properties_t* props) {
+  return props->rep.udi_is_primary_index;
+}
+
 uint64_t rocksdb_table_properties_filter_size(
     const rocksdb_table_properties_t* props) {
   return props->rep.filter_size;

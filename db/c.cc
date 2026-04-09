@@ -4830,6 +4830,11 @@ uint64_t rocksdb_table_properties_index_value_is_delta_encoded(
   return props->rep.index_value_is_delta_encoded;
 }
 
+uint64_t rocksdb_table_properties_udi_is_primary_index(
+    const rocksdb_table_properties_t* props) {
+  return props->rep.udi_is_primary_index;
+}
+
 uint64_t rocksdb_table_properties_filter_size(
     const rocksdb_table_properties_t* props) {
   return props->rep.filter_size;
@@ -11130,6 +11135,16 @@ void rocksdb_block_based_options_set_use_delta_encoding(
 unsigned char rocksdb_block_based_options_get_use_delta_encoding(
     rocksdb_block_based_table_options_t* opt) {
   return opt->rep.use_delta_encoding;
+}
+
+void rocksdb_block_based_options_set_use_udi_as_primary_index(
+    rocksdb_block_based_table_options_t* opt, unsigned char v) {
+  opt->rep.use_udi_as_primary_index = v;
+}
+
+unsigned char rocksdb_block_based_options_get_use_udi_as_primary_index(
+    rocksdb_block_based_table_options_t* opt) {
+  return opt->rep.use_udi_as_primary_index;
 }
 
 void rocksdb_block_based_options_set_fail_if_no_udi_on_open(

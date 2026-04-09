@@ -2321,6 +2321,16 @@ unsigned char rocksdb_block_based_options_get_use_delta_encoding(
   return opt->rep.use_delta_encoding;
 }
 
+void rocksdb_block_based_options_set_use_udi_as_primary_index(
+    rocksdb_block_based_table_options_t* opt, unsigned char v) {
+  opt->rep.use_udi_as_primary_index = v;
+}
+
+unsigned char rocksdb_block_based_options_get_use_udi_as_primary_index(
+    rocksdb_block_based_table_options_t* opt) {
+  return opt->rep.use_udi_as_primary_index;
+}
+
 void rocksdb_block_based_options_set_fail_if_no_udi_on_open(
     rocksdb_block_based_table_options_t* opt, unsigned char v) {
   opt->rep.fail_if_no_udi_on_open = v;
