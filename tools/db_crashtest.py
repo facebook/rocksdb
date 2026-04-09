@@ -247,8 +247,11 @@ default_params = {
     "use_merge": lambda: random.randint(0, 1),
     # use_trie_index must be the same across invocations so that all SSTs
     # in a DB are opened with matching table options.
-    # Temporarily disabled due to trie UDI stress test failures.
-    "use_trie_index": 0,
+    "use_trie_index": random.choice([0] * 15 + [1]),
+    # use_udi_as_primary_index must be the same across invocations (like
+    # use_trie_index) so that SSTs written in primary mode can be read on
+    # reopen.
+    "use_udi_as_primary_index": random.choice([0, 0, 0, 1]),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     "use_attribute_group": lambda: random.randint(0, 1),
@@ -754,6 +757,29 @@ blob_direct_write_params = {
     "remote_compaction_worker_threads": 0,
 }
 
+# Wide-column entity stress needs `use_put_entity_one_in` fixed across the
+# repeated db_stress invocations in one crash-test run series, so keep it as a
+# once-per-process random choice rather than a lambda.
+blob_direct_write_get_entity_params = dict(blob_direct_write_params)
+blob_direct_write_get_entity_params.update(
+    {
+        "use_put_entity_one_in": random.choice([1, 5, 10]),
+        "use_get_entity": 1,
+        "use_multi_get_entity": 0,
+        "use_attribute_group": 0,
+    }
+)
+
+blob_direct_write_multi_get_entity_params = dict(blob_direct_write_params)
+blob_direct_write_multi_get_entity_params.update(
+    {
+        "use_put_entity_one_in": random.choice([1, 5, 10]),
+        "use_get_entity": 0,
+        "use_multi_get_entity": 1,
+        "use_attribute_group": 0,
+    }
+)
+
 ts_params = {
     "test_cf_consistency": 0,
     "test_batches_snapshots": 0,
@@ -1056,9 +1082,6 @@ FEATURE_REQUIREMENTS = {
             "blob_file_starting_level": 0,
             "use_merge": 0,
             "use_full_merge_v1": 0,
-            "use_put_entity_one_in": 0,
-            "use_get_entity": 0,
-            "use_multi_get_entity": 0,
             "use_timed_put_one_in": 0,
             "use_attribute_group": 0,
             "user_timestamp_size": 0,
@@ -1097,8 +1120,9 @@ FEATURE_REQUIREMENTS = {
             "ingest_external_file_one_in": 0,
             "ingest_wbwi_one_in": 0,
         },
-        "comment": "Blob direct write v1 keeps a reduced WAL-disabled profile for "
-                   "crash testing and disables unsupported write/recovery modes.",
+        "comment": "Blob direct write keeps a reduced WAL-disabled crash-test "
+                   "profile. PutEntity/GetEntity/MultiGetEntity are allowed, "
+                   "but AttributeGroup and broader WAL/recovery modes stay off.",
     },
 
     "mmap_read": {
@@ -1507,7 +1531,12 @@ def _apply_special_rules(dest_params):
         else:
             set_param("mock_direct_io", True)
 
-    # 3. Secondary cache / tiered cache computation
+    # 3. Remote DBs do not guarantee active blob-file visibility across file
+    # handles, so blob direct write must stay disabled there.
+    if is_remote_db:
+        set_param("enable_blob_direct_write", 0)
+
+    # 4. Secondary cache / tiered cache computation
     if dest_params.get("secondary_cache_uri", "").find("compressed_secondary_cache") >= 0:
         set_param("compressed_secondary_cache_size", 0)
         set_param("compressed_secondary_cache_ratio", 0.0)
@@ -1533,7 +1562,7 @@ def _apply_special_rules(dest_params):
             set_param("compressed_secondary_cache_size", 0)
             set_param("compressed_secondary_cache_ratio", 0.0)
 
-    # 4. Compression manager (involves random.choice)
+    # 5. Compression manager (involves random.choice)
     cm = dest_params.get("compression_manager")
     if cm == "custom":
         if dest_params.get("block_align") == 1:
@@ -1687,6 +1716,31 @@ CONSEQUENCE_RULES = [
             "comment": "Trie UDI uses zero-copy pointers incompatible with mmap; "
                        "parallel compression incompatible with UDI. "
                        "C++ check: db_stress_tool.cc exits if use_trie_index && mmap_read",
+        },
+    {
+            "name": "udi_primary_index_requires_trie",
+            "when": lambda p: (
+                p.get("use_udi_as_primary_index", 0) == 1
+                and p.get("use_trie_index", 0) != 1
+            ),
+            "then": {"use_udi_as_primary_index": 0},
+            "comment": "Primary UDI mode requires trie index support on every reopen.",
+        },
+    {
+            "name": "udi_primary_index_constraints",
+            "when": lambda p: p.get("use_udi_as_primary_index", 0) == 1,
+            "then": lambda p: {
+                **(
+                    {"index_type": random.choice([0, 0, 3])}
+                    if p.get("index_type") not in {0, 3}
+                    else {}
+                ),
+                "partition_filters": 0,
+                "backup_one_in": 0,
+                "test_secondary": 0,
+            },
+            "comment": "Primary UDI mode requires trie-compatible index layouts and no "
+                       "secondary/backup paths that reopen without the UDI factory.",
         },
     {
             "name": "multi_key_ops_ingest",
@@ -1848,12 +1902,14 @@ CONSEQUENCE_RULES = [
                 ),
                 "sync": 0,
                 "write_fault_one_in": 0,
+                "test_batches_snapshots": 0,
                 "reopen": 0,
                 "manual_wal_flush_one_in": 0,
                 "recycle_log_file_num": 0,
             },
-            "comment": "Consequences of WAL being disabled: usually atomic flush, no sync, and no reopen. "
-                       "UDT memtable-only BER mode keeps atomic_flush off. "
+            "comment": "Consequences of WAL being disabled: usually atomic flush, no sync, "
+                       "no batched ops, and no reopen. UDT memtable-only BER mode keeps "
+                       "atomic_flush off. "
                        "C++ check: db_stress_tool.cc exits if disable_wal && reopen > 0",
         },
     {
@@ -2018,6 +2074,7 @@ CONSEQUENCE_RULES = [
             "then": {
                 "index_block_search_type": 0,
                 "use_trie_index": 0,
+                "use_udi_as_primary_index": 0,
             },
             "comment": "Timestamps use BytewiseComparator.u64ts, incompatible with interpolation "
                        "search and TrieIndexFactory. "
@@ -2193,6 +2250,12 @@ CONSEQUENCE_RULE_EXPLICIT_RESOLUTION = {
     },
     "trie_index": lambda p, conflicts: {
         "use_trie_index": 0,
+    },
+    "udi_primary_index_requires_trie": lambda p, conflicts: {
+        "use_trie_index": 1,
+    },
+    "udi_primary_index_constraints": lambda p, conflicts: {
+        "use_udi_as_primary_index": 0,
     },
     "multi_key_ops_ingest": lambda p, conflicts: {
         "test_batches_snapshots": 0,
@@ -2388,7 +2451,16 @@ def gen_cmd_params(args):
         and params.get("test_secondary", 0) == 0
         and random.choice([0] * 9 + [1]) == 1
     ):
-        params.update(random.choice([blob_params, blob_direct_write_params]))
+        params.update(
+            random.choice(
+                [
+                    blob_params,
+                    blob_direct_write_params,
+                    blob_direct_write_get_entity_params,
+                    blob_direct_write_multi_get_entity_params,
+                ]
+            )
+        )
 
     if "compaction_style" not in params:
         # Default to leveled compaction
@@ -2901,6 +2973,8 @@ def main():
         + list(whitebox_simple_default_params.items())
         + list(blob_params.items())
         + list(blob_direct_write_params.items())
+        + list(blob_direct_write_get_entity_params.items())
+        + list(blob_direct_write_multi_get_entity_params.items())
         + list(ts_params.items())
         + list(multiops_txn_params.items())
         + list(best_efforts_recovery_params.items())

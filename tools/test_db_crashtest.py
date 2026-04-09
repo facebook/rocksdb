@@ -47,6 +47,9 @@ def _build_base_params(seed):
         db_crashtest.best_efforts_recovery_params,
         db_crashtest.ts_params,
         db_crashtest.blob_params,
+        db_crashtest.blob_direct_write_params,
+        db_crashtest.blob_direct_write_get_entity_params,
+        db_crashtest.blob_direct_write_multi_get_entity_params,
     ]
     for attr in ["tiered_params", "multiops_txn_params", "cf_consistency_params"]:
         if hasattr(db_crashtest, attr):
@@ -62,9 +65,11 @@ def _build_base_params(seed):
     return params
 
 
-# Flags that stress tests commonly override via --extra_flags
+# Common extra-flag overrides, including the high-conflict ones touched by the
+# declarative incompatibility rules.
 _OVERRIDE_CANDIDATES = {
     "enable_blob_files": [0, 1],
+    "enable_blob_direct_write": [0, 1],
     "enable_blob_garbage_collection": [0, 1],
     "use_txn": [0, 1],
     "use_optimistic_txn": [0, 1],
@@ -72,6 +77,7 @@ _OVERRIDE_CANDIDATES = {
     "remote_compaction_worker_threads": [0, 4],
     "mmap_read": [0, 1],
     "use_trie_index": [0, 1],
+    "use_udi_as_primary_index": [0, 1],
     "disable_wal": [0, 1],
     "atomic_flush": [0, 1],
     "inplace_update_support": [0, 1],
@@ -89,6 +95,9 @@ _OVERRIDE_CANDIDATES = {
     "prefix_size": [-1, 0, 4, 8],
     "two_write_queues": [0, 1],
     "use_put_entity_one_in": [0, 1, 5],
+    "use_get_entity": [0, 1],
+    "use_multi_get_entity": [0, 1],
+    "use_attribute_group": [0, 1],
     "commit_bypass_memtable_one_in": [0, 100],
     "checkpoint_one_in": [0, 1000],
     "create_timestamped_snapshot_one_in": [0, 100],
@@ -98,6 +107,9 @@ _OVERRIDE_CANDIDATES = {
     "block_align": [0, 1],
     "compression_max_dict_bytes": [0, 16384],
     "open_files": [-1, 100],
+    "index_type": [0, 2, 3],
+    "partition_filters": [0, 1],
+    "backup_one_in": [0, 1000],
     "write_fault_one_in": [0, 100],
     "use_write_buffer_manager": [0, 1],
     "skip_stats_update_on_db_open": [0, 1],
@@ -433,6 +445,86 @@ class TestKnownConflicts(unittest.TestCase):
         self.assertEqual(result["reopen"], 0)
         self.assertEqual(result["enable_pipelined_write"], 0)
 
+    def test_blob_direct_write_keeps_entity_paths(self):
+        """BDW keeps PutEntity/GetEntity active while disabling unsupported paths."""
+        params = _new_blackbox_params()
+        params.update(_resolve_params(db_crashtest.blob_direct_write_get_entity_params))
+        params.update({
+            "test_batches_snapshots": 1,
+            "use_attribute_group": 1,
+        })
+        result = self._assert_converges(params, "blob direct write entity profile")
+        self.assertEqual(result["enable_blob_direct_write"], 1)
+        self.assertEqual(result["disable_wal"], 1)
+        self.assertEqual(result["test_batches_snapshots"], 0)
+        self.assertGreater(result["use_put_entity_one_in"], 0)
+        self.assertEqual(result["use_get_entity"], 1)
+        self.assertEqual(result["use_multi_get_entity"], 0)
+        self.assertEqual(result["use_attribute_group"], 0)
+
+    def test_primary_udi_random_disables_when_trie_is_off(self):
+        """Random primary UDI yields when trie index is not enabled."""
+        params = _new_blackbox_params()
+        params.update({
+            "use_trie_index": 0,
+            "use_udi_as_primary_index": 1,
+        })
+        result = self._assert_converges(params, "primary UDI requires trie")
+        self.assertEqual(result["use_trie_index"], 0)
+        self.assertEqual(result["use_udi_as_primary_index"], 0)
+
+    def test_primary_udi_explicit_enables_trie(self):
+        """Explicit primary UDI keeps primary mode and forces trie support on."""
+        params = _new_blackbox_params()
+        params.update({
+            "use_trie_index": 0,
+            "use_udi_as_primary_index": 1,
+            "mmap_read": 1,
+        })
+        params.setdefault("db", "/tmp/test_db")
+        result = db_crashtest.finalize_and_sanitize(
+            params, explicit_keys={"use_udi_as_primary_index"}
+        )
+        self.assertEqual(result["use_udi_as_primary_index"], 1)
+        self.assertEqual(result["use_trie_index"], 1)
+        self.assertEqual(result["mmap_read"], 0)
+
+    def test_primary_udi_constraints(self):
+        """Primary UDI enforces trie-compatible index and reopen constraints."""
+        random.seed(0)
+        params = _new_blackbox_params()
+        params.update({
+            "use_trie_index": 1,
+            "use_udi_as_primary_index": 1,
+            "index_type": 2,
+            "partition_filters": 1,
+            "backup_one_in": 1000,
+            "test_secondary": 1,
+        })
+        result = self._assert_converges(params, "primary UDI constraints")
+        self.assertEqual(result["use_trie_index"], 1)
+        self.assertEqual(result["use_udi_as_primary_index"], 1)
+        self.assertIn(result["index_type"], {0, 3})
+        self.assertEqual(result["partition_filters"], 0)
+        self.assertEqual(result["backup_one_in"], 0)
+        self.assertEqual(result["test_secondary"], 0)
+
+    def test_conflicting_explicit_primary_udi_flags_exit(self):
+        """Explicit primary UDI plus explicit incompatible index type fails fast."""
+        params = _new_blackbox_params()
+        params.update({
+            "use_trie_index": 1,
+            "use_udi_as_primary_index": 1,
+            "index_type": 2,
+        })
+        params.setdefault("db", "/tmp/test_db")
+        with self.assertRaises(SystemExit) as cm:
+            db_crashtest.finalize_and_sanitize(
+                params,
+                explicit_keys={"use_udi_as_primary_index", "index_type"},
+            )
+        self.assertEqual(cm.exception.code, 1)
+
     def test_conflicting_explicit_flags_exits(self):
         """Two conflicting explicit flags should cause exit(1)."""
         params = _resolve_params(db_crashtest.default_params)
@@ -593,6 +685,22 @@ class TestGenCmd(unittest.TestCase):
         self.assertIn("--disable_wal=0", cmd)
         self.assertIn("--best_efforts_recovery=0", cmd)
 
+    def test_gen_cmd_preserves_explicit_primary_udi(self):
+        random.seed(0)
+        params = _new_blackbox_params()
+        params.update({
+            "use_trie_index": 0,
+            "use_udi_as_primary_index": 0,
+            "mmap_read": 1,
+        })
+
+        with mock.patch.object(db_crashtest, "prepare_expected_values_dir"):
+            cmd = db_crashtest.gen_cmd(params, ["--use_udi_as_primary_index=1"])
+
+        self.assertIn("--use_udi_as_primary_index=1", cmd)
+        self.assertIn("--use_trie_index=1", cmd)
+        self.assertIn("--mmap_read=0", cmd)
+
     def test_gen_cmd_preserves_explicit_write_buffer_maintain(self):
         random.seed(0)
         params = _new_blackbox_params()
@@ -610,6 +718,19 @@ class TestGenCmd(unittest.TestCase):
 
         self.assertIn("--max_write_buffer_size_to_maintain=1048576", cmd)
         self.assertIn("--write_buffer_size=1048576", cmd)
+
+    def test_gen_cmd_exits_on_conflicting_explicit_primary_udi_flags(self):
+        random.seed(0)
+        params = _new_blackbox_params()
+
+        with mock.patch.object(db_crashtest, "prepare_expected_values_dir"):
+            with self.assertRaises(SystemExit) as cm:
+                db_crashtest.gen_cmd(
+                    params,
+                    ["--use_udi_as_primary_index=1", "--use_trie_index=0"],
+                )
+
+        self.assertEqual(cm.exception.code, 1)
 
     def test_gen_cmd_ignores_dbcrashtest_only_passthrough_flags(self):
         random.seed(0)
@@ -666,6 +787,16 @@ class TestSpecialRules(unittest.TestCase):
         self.assertEqual(result["use_direct_io_for_flush_and_compaction"], 0)
         self.assertFalse(result["mock_direct_io"])
 
+    def test_remote_db_disables_blob_direct_write(self):
+        """Remote DB paths keep blob direct write disabled."""
+        params = _new_blackbox_params()
+        params.update(_resolve_params(db_crashtest.blob_direct_write_params))
+
+        with mock.patch.object(db_crashtest, "is_remote_db", True):
+            result = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(result["enable_blob_direct_write"], 0)
+
 
 def _extract_relevant(params):
     """Extract the most relevant params for debugging."""
@@ -676,6 +807,9 @@ def _extract_relevant(params):
         "persist_user_defined_timestamps", "allow_concurrent_memtable_write",
         "test_best_efforts_recovery", "use_optimistic_txn",
         "write_buffer_size", "max_write_buffer_size_to_maintain",
+        "enable_blob_direct_write", "use_get_entity", "use_multi_get_entity",
+        "use_trie_index", "use_udi_as_primary_index", "index_type",
+        "partition_filters",
     ]
     return {k: params.get(k) for k in keys}
 

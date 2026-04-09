@@ -1316,24 +1316,27 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     std::string udi_name(table_options.user_defined_index_factory->Name());
     BlockHandle udi_block_handle;
 
-    // Should we use FindOptionalMetaBlock here?
+    // Use FindMetaBlock (not FindOptionalMetaBlock) so we get a non-OK status
+    // when the block is missing, allowing the fail_if_no_udi_on_open logic
+    // below to decide whether to error or warn.
     s = FindMetaBlock(meta_iter, kUserDefinedIndexPrefix + udi_name,
                       &udi_block_handle);
     if (!s.ok()) {
       RecordTick(rep_->ioptions.statistics.get(),
                  SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT);
-      if (table_options.fail_if_no_udi_on_open) {
+      if (table_options.fail_if_no_udi_on_open ||
+          table_options.use_udi_as_primary_index) {
         ROCKS_LOG_ERROR(rep_->ioptions.logger,
-                        "Failed to find the the UDI block %s in file %s; %s",
+                        "Failed to find the UDI block %s in file %s; %s",
                         udi_name.c_str(), rep_->file->file_name().c_str(),
                         s.ToString().c_str());
-        // MAke the status more informative
+        // Make the status more informative
         s = Status::Corruption(s.ToString(), rep_->file->file_name());
         return s;
       } else {
         // Emit a warning, but ignore the error status
         ROCKS_LOG_WARN(rep_->ioptions.logger,
-                       "Failed to find the the UDI block %s in file %s; %s",
+                       "Failed to find the UDI block %s in file %s; %s",
                        udi_name.c_str(), rep_->file->file_name().c_str(),
                        s.ToString().c_str());
         s = Status::OK();
@@ -1363,8 +1366,15 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
             udi_option, rep_->udi_block.GetValue()->data, udi_reader);
         if (s.ok()) {
           if (udi_reader) {
+            // Primary UDI mode is purely config-driven. The
+            // udi_is_primary_index table property is informational only
+            // (for diagnostics / sst_dump) and does not affect routing.
+            // This keeps rollback simple: setting
+            // use_udi_as_primary_index=false immediately reverts all SSTs
+            // to standard-index reads without needing compaction.
             index_reader = std::make_unique<UserDefinedIndexReaderWrapper>(
-                udi_name, std::move(index_reader), std::move(udi_reader));
+                udi_name, std::move(index_reader), std::move(udi_reader),
+                table_options.use_udi_as_primary_index);
           } else {
             s = Status::Corruption("Failed to create UDI reader for " +
                                    udi_name + " in file " +

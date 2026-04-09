@@ -25,10 +25,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
 import db_crashtest
 
 
-# All override candidates for fuzzing — covers every flag that participates
-# in incompatibility rules
+# Broad override set for fuzzing, with emphasis on high-conflict flags in the
+# declarative incompatibility rules.
 _OVERRIDE_CANDIDATES = {
     "enable_blob_files": [0, 1],
+    "enable_blob_direct_write": [0, 1],
     "enable_blob_garbage_collection": [0, 1],
     "use_txn": [0, 1],
     "use_optimistic_txn": [0, 1],
@@ -36,6 +37,7 @@ _OVERRIDE_CANDIDATES = {
     "remote_compaction_worker_threads": [0, 4],
     "mmap_read": [0, 1],
     "use_trie_index": [0, 1],
+    "use_udi_as_primary_index": [0, 1],
     "disable_wal": [0, 1],
     "atomic_flush": [0, 1],
     "inplace_update_support": [0, 1],
@@ -53,6 +55,9 @@ _OVERRIDE_CANDIDATES = {
     "prefix_size": [-1, 0, 4, 8],
     "two_write_queues": [0, 1],
     "use_put_entity_one_in": [0, 1, 5],
+    "use_get_entity": [0, 1],
+    "use_multi_get_entity": [0, 1],
+    "use_attribute_group": [0, 1],
     "commit_bypass_memtable_one_in": [0, 100],
     "checkpoint_one_in": [0, 1000],
     "create_timestamped_snapshot_one_in": [0, 100],
@@ -72,12 +77,12 @@ _OVERRIDE_CANDIDATES = {
     "manual_wal_flush_one_in": [0, 1000],
     "reopen": [0, 20],
     "column_families": [1, 4],
-    "use_put_entity_one_in": [0, 1, 5],
     "write_dbid_to_manifest": [0, 1],
     "write_identity_file": [0, 1],
     "use_full_merge_v1": [0, 1],
     "index_type": [0, 2, 3],
     "partition_filters": [0, 1],
+    "backup_one_in": [0, 1000],
     "sst_file_manager_bytes_per_sec": [0, 1048576],
     "compression_manager": ["", "custom", "mixed", "autoskip"],
 }
@@ -93,6 +98,9 @@ def _init_feature_sets():
         db_crashtest.best_efforts_recovery_params,
         db_crashtest.ts_params,
         db_crashtest.blob_params,
+        db_crashtest.blob_direct_write_params,
+        db_crashtest.blob_direct_write_get_entity_params,
+        db_crashtest.blob_direct_write_multi_get_entity_params,
     ]
     for attr in ["tiered_params", "multiops_txn_params", "cf_consistency_params",
                  "simple_default_params"]:
@@ -134,6 +142,9 @@ def _extract_relevant(params):
         "test_best_efforts_recovery", "enable_compaction_filter",
         "sync_fault_injection", "commit_bypass_memtable_one_in",
         "enable_pipelined_write", "two_write_queues", "compaction_style",
+        "enable_blob_direct_write", "use_get_entity", "use_multi_get_entity",
+        "use_trie_index", "use_udi_as_primary_index", "index_type",
+        "partition_filters",
     ]
     return {k: params.get(k) for k in keys if params.get(k) is not None}
 

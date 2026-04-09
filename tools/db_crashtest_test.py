@@ -1,8 +1,7 @@
+#!/usr/bin/env python3
 #  Copyright (c) Meta Platforms, Inc. and affiliates.
 #  This source code is licensed under both the GPLv2 (found in the COPYING file in the root directory)
 #  and the Apache 2.0 License (found in the LICENSE.Apache file in the root directory).
-
-#!/usr/bin/env python3
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 import importlib.util
@@ -56,13 +55,23 @@ class DBCrashTestTest(unittest.TestCase):
 
         shutil.rmtree(self.test_tmpdir)
 
+    def load_db_crashtest(self):
+        return load_db_crashtest_module()
+
+    def build_params(self, base_params, overrides=None):
+        params = dict(base_params)
+        params["db"] = self.test_tmpdir
+        if overrides:
+            params.update(overrides)
+        return params
+
     def test_setup_expected_values_dir_preserves_existing_contents(self):
         os.makedirs(self.expected_dir)
         marker = os.path.join(self.expected_dir, "marker")
         with open(marker, "w") as f:
             f.write("keep")
 
-        db_crashtest = load_db_crashtest_module()
+        db_crashtest = self.load_db_crashtest()
 
         expected_dir = db_crashtest.setup_expected_values_dir()
 
@@ -75,12 +84,42 @@ class DBCrashTestTest(unittest.TestCase):
         with open(marker, "w") as f:
             f.write("remove")
 
-        db_crashtest = load_db_crashtest_module()
+        db_crashtest = self.load_db_crashtest()
 
         db_crashtest.prepare_expected_values_dir(self.expected_dir, True)
 
         self.assertTrue(os.path.isdir(self.expected_dir))
         self.assertFalse(os.path.exists(marker))
+
+    def test_finalize_disables_test_batches_snapshots_when_disable_wal(self):
+        db_crashtest = self.load_db_crashtest()
+        params = self.build_params(
+            db_crashtest.default_params,
+            {"disable_wal": 1, "test_batches_snapshots": 1},
+        )
+
+        finalized = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(1, finalized["disable_wal"])
+        self.assertEqual(0, finalized["test_batches_snapshots"])
+
+    def test_finalize_disables_test_batches_snapshots_for_blob_direct_write(self):
+        db_crashtest = self.load_db_crashtest()
+        params = self.build_params(
+            dict(
+                list(db_crashtest.default_params.items())
+                + list(db_crashtest.blob_direct_write_multi_get_entity_params.items())
+            ),
+            {
+                "test_batches_snapshots": 1,
+            },
+        )
+
+        finalized = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(1, finalized["enable_blob_direct_write"])
+        self.assertEqual(1, finalized["disable_wal"])
+        self.assertEqual(0, finalized["test_batches_snapshots"])
 
 
 if __name__ == "__main__":

@@ -127,6 +127,9 @@ class UserDefinedIndexBuilder {
   // The memory backing the contents should not be freed until this builder
   // object is destructed.
   virtual Status Finish(Slice* index_contents) = 0;
+
+  // Returns an estimate of the current serialized index size in bytes.
+  virtual uint64_t EstimatedSize() const = 0;
 };
 
 // The interface for iterating the user defined index. This will be

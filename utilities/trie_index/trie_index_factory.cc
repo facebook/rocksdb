@@ -16,13 +16,6 @@
 namespace ROCKSDB_NAMESPACE {
 namespace trie_index {
 
-// Tag used for non-boundary separators (between blocks with different user
-// keys). This is the same tag the standard index uses:
-// the smallest possible internal key for a given user key.
-static uint64_t NonBoundaryTag() {
-  return PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek);
-}
-
 // ============================================================================
 // TrieIndexBuilder
 // ============================================================================
@@ -64,9 +57,6 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
     // impossible to distinguish the two blocks. Set the sticky flag so that
     // at Finish() time, ALL separators will include encoded seqnos.
     // This mirrors ShortenedIndexBuilder::must_use_separator_with_seq_.
-    if (!must_use_separator_with_seq_ && same_user_key) {
-      must_use_separator_with_seq_ = true;
-    }
 
     // Edge case: FindShortestSeparator may fail to shorten the key even when
     // the user keys are different. Example: FindShortestSeparator("abc","abd")
@@ -79,9 +69,6 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
     if (!same_user_key && !buffered_entries_.empty() &&
         buffered_entries_.back().separator_key == *separator_scratch) {
       same_user_key = true;
-      if (!must_use_separator_with_seq_) {
-        must_use_separator_with_seq_ = true;
-      }
     }
   } else {
     // Last block: use the last key itself as the separator, NOT a shortened
@@ -108,9 +95,6 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
         comparator_->Compare(buffered_entries_.back().separator_key,
                              separator) == 0) {
       same_user_key = true;
-      if (!must_use_separator_with_seq_) {
-        must_use_separator_with_seq_ = true;
-      }
     }
   }
 
@@ -123,21 +107,30 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
 
   BufferedEntry entry;
   entry.separator_key = separator.ToString();
-  // For same-user-key boundaries, use the actual seqno of the last key.
-  // For different-user-key boundaries, use the maximum tag as a
-  // non-boundary tag meaning "use the same comparison semantics as the
-  // standard index's InternalKeyComparator".
   if (same_user_key) {
+    // Same-user-key boundary: store the real tag for correct block
+    // selection within the overflow run.
+    entry.tag = last_key_tag;
+  } else if (first_key_in_next_block == nullptr) {
+    // Last block: store the real tag. The standard index stores the full
+    // internal key (user key + seqno) as the last block's separator. The
+    // real tag ensures the post-seek correction correctly handles seeks
+    // where the target user key matches but the seqno differs.
     entry.tag = last_key_tag;
   } else {
-    // Not a same-user-key boundary. Use a sentinel value that ensures
-    // Use the same tag the standard index uses for non-boundary
-    // separators: kMaxSequenceNumber | kValueTypeForSeek. This ensures the
-    // trie's post-seek comparison exactly matches the standard index's
-    // InternalKeyComparator behavior.
-    entry.tag = NonBoundaryTag();
+    // Non-boundary separator between blocks with different user keys.
+    // Store 0 (sentinel meaning "no seqno correction needed"). When the
+    // standard index has index_key_is_user_key=true, it compares user keys
+    // only and always stays on equal user keys. The trie matches this by
+    // ensuring target_tag < 0 is always false.
+    entry.tag = 0;
   }
+
+  // Seqno encoding must always be enabled so the post-seek correction
+  // handles the last block correctly. The overhead is 8 bytes per leaf.
+  must_use_separator_with_seq_ = true;
   entry.handle = handle;
+  total_separator_bytes_ += entry.separator_key.size();
   buffered_entries_.push_back(std::move(entry));
 
   return separator;
@@ -155,12 +148,10 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
   }
   finished_ = true;
 
-  // Use seqno side-table when any same-user-key block boundary was detected.
-  // The must_use_separator_with_seq_ flag is set in AddIndexEntry() whenever
-  // the comparator finds two identical user keys at a block boundary. This
-  // always implies duplicate separators exist (since
-  // FindShortestSeparator("foo", "foo") = "foo"), so no separate scan is
-  // needed.
+  // Seqno encoding is unconditionally enabled: must_use_separator_with_seq_
+  // is always set to true at the end of AddIndexEntry(), so use_seqno
+  // is always true when at least one entry was added. The else branch below
+  // is only reachable for an empty trie (zero entries).
   bool use_seqno = must_use_separator_with_seq_;
   trie_builder_.SetHasSeqnoEncoding(use_seqno);
 
@@ -170,11 +161,10 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
     // goes into the trie (as the primary block). The remaining blocks in the
     // run are stored as overflow blocks in the side-table.
     //
-    // For non-boundary separators (different user keys), the tag
-    // is PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek) -- the
-    // same tag the standard index uses. This is stored directly in the
-    // seqno side-table, ensuring the post-seek correction correctly matches
-    // the standard index's InternalKeyComparator behavior.
+    // For non-boundary separators (different user keys), the tag is 0
+    // (sentinel meaning "no seqno correction needed"), matching the standard
+    // index's user-key-only comparison mode. For the last block, the real
+    // tag is stored to match the standard index's full internal key behavior.
     size_t i = 0;
     while (i < buffered_entries_.size()) {
       const auto& entry = buffered_entries_[i];
@@ -188,11 +178,10 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
       }
       uint32_t block_count = static_cast<uint32_t>(run_end - run_start);
 
-      // For non-boundary separators (between blocks with different user keys),
-      // store the same tag the standard index uses:
-      // PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek). This
-      // makes the trie's post-seek comparison exactly match the standard
-      // index's InternalKeyComparator behavior.
+      // Non-boundary entries have tag=0 (sentinel meaning "no seqno
+      // correction needed"). Same-user-key boundary and last-block entries
+      // have real tags. The trie builder stores these directly in the seqno
+      // side-table.
       //
       // For boundary separators (same user key), store the actual packed
       // tag for correct seqno-based block selection.
@@ -208,7 +197,8 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
       // The tag may be 0 when bottommost compaction zeroes all sequence
       // numbers -- this is valid; see AddOverflowBlock comment.
       for (size_t j = run_start + 1; j < run_end; j++) {
-        assert(buffered_entries_[j].tag != NonBoundaryTag());
+        assert(buffered_entries_[j].tag !=
+               PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek));
         trie_builder_.AddOverflowBlock(buffered_entries_[j].handle,
                                        buffered_entries_[j].tag);
       }
@@ -216,11 +206,11 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
       i = run_end;
     }
   } else {
-    // Common case: no same-user-key boundaries, add separators directly.
-    // Zero overhead — no seqno data stored.
-    for (const auto& entry : buffered_entries_) {
-      trie_builder_.AddKey(Slice(entry.separator_key), entry.handle);
-    }
+    // Only reachable when no entries were added (empty trie).
+    // must_use_separator_with_seq_ is unconditionally set to true in
+    // AddIndexEntry(), so this branch cannot be reached when there is at
+    // least one entry.
+    assert(buffered_entries_.empty());
   }
 
   // Release buffered entries — no longer needed after feeding to the trie.
@@ -239,6 +229,14 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
 // ============================================================================
 // TrieIndexIterator
 // ============================================================================
+
+uint64_t TrieIndexBuilder::EstimatedSize() const {
+  // Estimate the serialized trie size from the running counters. A LOUDS trie
+  // uses ~2.5 bits per node plus the label data, rank/select tables, and block
+  // handle arrays. For a rough estimate:
+  // ~3 bytes per unique key byte + 16 bytes per entry for handles/metadata.
+  return total_separator_bytes_ * 3 + buffered_entries_.size() * 16;
+}
 
 TrieIndexIterator::TrieIndexIterator(const LoudsTrie* trie,
                                      const Comparator* comparator,
@@ -376,11 +374,14 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
   // within a run of same-key blocks is correct. If target_packed < leaf_packed,
   // advance through overflow blocks.
   //
-  // For non-boundary separators: leaf_seqno stores the same tag
-  // the standard index uses for these separators:
-  // PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek). The comparison
-  // target_packed < leaf_seqno determines whether to advance, exactly matching
-  // the standard index's InternalKeyComparator behavior.
+  // For non-boundary separators: leaf_seqno is 0. The comparison
+  // target_packed < 0 is always false, so no advancement occurs. This matches
+  // the standard index's index_key_is_user_key=true mode where equal user
+  // keys always match without seqno comparison.
+  //
+  // For the last block: leaf_seqno stores the real tag of the last key.
+  // This matches the standard index which stores the full internal key
+  // as the last block's separator.
   if (has_seqno_encoding_ && iter_.Valid()) {
     uint64_t leaf_idx = iter_.LeafIndex();
     uint64_t leaf_seqno = trie_->GetLeafSeqno(leaf_idx);
