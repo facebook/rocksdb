@@ -34,6 +34,8 @@ namespace {
 
 class RoundRobinBlobFilePartitionStrategy : public BlobFilePartitionStrategy {
  public:
+  using BlobFilePartitionStrategy::SelectPartition;
+
   const char* Name() const override {
     return "RoundRobinBlobFilePartitionStrategy";
   }
@@ -405,11 +407,19 @@ Status BlobFilePartitionManager::MaybePrepopulateBlobCache(
                                 CacheTier::kVolatileTier);
 }
 
+uint32_t BlobFilePartitionManager::SelectWideColumnPartition(
+    uint32_t column_family_id, const Slice& key,
+    const WideColumns& columns) const {
+  return strategy_->SelectPartition(num_partitions_, column_family_id, key,
+                                    columns) %
+         num_partitions_;
+}
+
 Status BlobFilePartitionManager::WriteBlob(
     const WriteOptions& write_options, uint32_t column_family_id,
     CompressionType compression, const Slice& key, const Slice& value,
     uint64_t* blob_file_number, uint64_t* blob_offset, uint64_t* blob_size,
-    const BlobDirectWriteSettings* settings) {
+    const BlobDirectWriteSettings* settings, const uint32_t* partition_idx) {
   assert(blob_file_number != nullptr);
   assert(blob_offset != nullptr);
   assert(blob_size != nullptr);
@@ -440,14 +450,16 @@ Status BlobFilePartitionManager::WriteBlob(
   // uncompressed value rather than `write_value`. The modulo here is
   // intentional so custom strategies can return arbitrary hashed or sentinel
   // values without violating the partition bounds.
-  const uint32_t partition_idx =
-      strategy_->SelectPartition(num_partitions_, column_family_id, key,
-                                 value) %
-      num_partitions_;
+  const uint32_t selected_partition_idx =
+      partition_idx != nullptr
+          ? (*partition_idx % num_partitions_)
+          : (strategy_->SelectPartition(num_partitions_, column_family_id, key,
+                                        value) %
+             num_partitions_);
 
   {
     MutexLock lock(&mutex_);
-    Partition* partition = partitions_[partition_idx].get();
+    Partition* partition = partitions_[selected_partition_idx].get();
 
     auto seal_current_file = [&]() -> Status {
       if (!partition->writer) {
@@ -478,7 +490,7 @@ Status BlobFilePartitionManager::WriteBlob(
 
     if (!partition->writer) {
       Status s = OpenNewBlobFile(partition, column_family_id, compression,
-                                 partition_idx);
+                                 selected_partition_idx);
       if (!s.ok()) {
         return s;
       }
@@ -678,6 +690,14 @@ void BlobFilePartitionManager::GetProtectedBlobFileNumbers(
   }
 }
 
+bool BlobFilePartitionManager::IsTrackedBlobFileNumber(
+    uint64_t file_number) const {
+  ReadLock lock(&file_partition_mutex_);
+  return file_to_partition_.find(file_number) != file_to_partition_.end() ||
+         protected_blob_file_refs_.find(file_number) !=
+             protected_blob_file_refs_.end();
+}
+
 void BlobFilePartitionManager::ProtectSealedBlobFileNumbers(
     const std::vector<uint64_t>& file_numbers) {
   if (file_numbers.empty()) {
@@ -744,11 +764,9 @@ void BlobFilePartitionManager::RemoveFilePartitionMappings(
 Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
     const ReadOptions& read_options, const Slice& user_key,
     const BlobIndex& blob_idx, const Version* version,
-    BlobFileCache* blob_file_cache, PinnableSlice* blob_value) {
+    BlobFileCache* blob_file_cache, FilePrefetchBuffer* prefetch_buffer,
+    PinnableSlice* blob_value, uint64_t* bytes_read) {
   assert(blob_value != nullptr);
-
-  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
-  constexpr uint64_t* bytes_read = nullptr;
 
   if (version != nullptr) {
     // Only fall back when the blob file is still owned exclusively by the

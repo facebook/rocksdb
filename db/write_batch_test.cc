@@ -10,9 +10,11 @@
 #include <memory>
 #include <unordered_map>
 
+#include "db/blob/blob_index.h"
 #include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "db/memtable.h"
+#include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
 #include "dbformat.h"
@@ -899,6 +901,43 @@ TEST_F(WriteBatchTest, AttributeGroupSavePointTest) {
       "PutEntity(foo, 0_c_1_n:0_c_1_v 0_c_2_n:0_c_2_v)"
       "PutEntityCF(2, foo, 2_c_1_n:2_c_1_v 2_c_2_n:2_c_2_v)",
       handler.seen);
+}
+
+TEST_F(WriteBatchTest, IterateCanRebuildSerializedV2Entity) {
+  WriteBatch batch;
+
+  BlobIndex blob_index;
+  std::string encoded_blob_index;
+  BlobIndex::EncodeBlob(&encoded_blob_index, 9 /* file_number */,
+                        123 /* offset */, 456 /* size */, kNoCompression);
+  ASSERT_OK(blob_index.DecodeFrom(encoded_blob_index));
+
+  const std::vector<std::pair<std::string, std::string>> columns = {
+      {"", "default_inline"},
+      {"ttl", "00000001"},
+  };
+  std::string serialized_entity;
+  ASSERT_OK(WideColumnSerialization::SerializeV2(columns, {{0, blob_index}},
+                                                 serialized_entity));
+  ASSERT_OK(WriteBatchInternal::PutEntitySerialized(&batch, 7 /* cf_id */,
+                                                    "key", serialized_entity));
+
+  struct RebuildHandler : public WriteBatch::Handler {
+    WriteBatch rebuilt;
+
+    Status PutCF(uint32_t cf, const Slice& key, const Slice& value) override {
+      return WriteBatchInternal::Put(&rebuilt, cf, key, value);
+    }
+
+    Status PutEntityCF(uint32_t cf, const Slice& key,
+                       const Slice& entity) override {
+      return WriteBatchInternal::PutEntitySerialized(&rebuilt, cf, key, entity);
+    }
+  } handler;
+
+  ASSERT_OK(batch.Iterate(&handler));
+  ASSERT_EQ(handler.rebuilt.Count(), batch.Count());
+  ASSERT_EQ(handler.rebuilt.Data(), batch.Data());
 }
 
 TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {

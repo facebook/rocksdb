@@ -9,9 +9,17 @@
 
 #pragma once
 #include <cstdint>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <utility>
+#include <vector>
 
+#include "db/blob/blob_fetcher.h"
+#include "db/blob/blob_index.h"
 #include "db/db_impl/db_impl.h"
+#include "db/wide/read_path_blob_resolver.h"
+#include "db/wide/wide_columns_helper.h"
 #include "memory/arena.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
@@ -187,13 +195,22 @@ class DBIter final : public Iterator {
   Slice value() const override {
     assert(valid_);
 
-    return value_;
+    return value_columns_state_.value();
   }
 
   const WideColumns& columns() const override {
     assert(valid_);
 
-    return wide_columns_;
+    if (value_columns_state_.HasMaterializedColumns() ||
+        !value_columns_state_.HasLazyEntityColumns()) {
+      return value_columns_state_.wide_columns();
+    }
+
+    if (!MaterializeLazyEntityColumns()) {
+      return kNoWideColumns;
+    }
+
+    return value_columns_state_.wide_columns();
   }
 
   Status status() const override {
@@ -257,19 +274,23 @@ class DBIter final : public Iterator {
    public:
     BlobReader(const Version* version, ReadTier read_tier,
                bool verify_checksums, bool fill_cache,
-               Env::IOActivity io_activity, BlobFileCache* blob_file_cache)
+               Env::IOActivity io_activity, BlobFileCache* blob_file_cache,
+               bool allow_write_path_fallback)
         : version_(version),
           read_tier_(read_tier),
           verify_checksums_(verify_checksums),
           fill_cache_(fill_cache),
           io_activity_(io_activity),
-          blob_file_cache_(blob_file_cache) {}
+          blob_file_cache_(blob_file_cache),
+          allow_write_path_fallback_(allow_write_path_fallback) {}
 
     const Slice& GetBlobValue() const { return blob_value_; }
     Status RetrieveAndSetBlobValue(const Slice& user_key,
                                    const Slice& blob_index,
                                    bool allow_write_path_fallback);
     void ResetBlobValue() { blob_value_.Reset(); }
+    // Create a BlobFetcher with the same read options as this BlobReader.
+    BlobFetcher CreateBlobFetcher() const;
 
    private:
     PinnableSlice blob_value_;
@@ -281,6 +302,160 @@ class DBIter final : public Iterator {
     // Cache used by the write-path fallback for in-flight direct-write blob
     // files that are not yet reachable through Version.
     BlobFileCache* blob_file_cache_;
+    bool allow_write_path_fallback_;
+  };
+
+  // Groups the current iterator result together with the backing storage and
+  // lazy entity-resolution metadata it depends on. Resetting this object drops
+  // all aliases into the saved entity buffer and resolver cache at once.
+  class ValueColumnsState {
+   public:
+    ValueColumnsState(const Version* version, const ReadOptions& read_options,
+                      ColumnFamilyHandleImpl* cfh)
+        : entity_blob_resolver_(
+              version, read_options.read_tier, read_options.verify_checksums,
+              read_options.fill_cache, read_options.io_activity,
+              cfh ? cfh->cfd()->blob_file_cache() : nullptr,
+              cfh != nullptr &&
+                  cfh->cfd()->blob_partition_manager() != nullptr) {}
+
+    Slice& value() { return value_; }
+    const Slice& value() const { return value_; }
+    WideColumns& wide_columns() { return wide_columns_; }
+    const WideColumns& wide_columns() const { return wide_columns_; }
+    bool HasMaterializedColumns() const { return !wide_columns_.empty(); }
+    bool HasLazyEntityColumns() const { return !lazy_entity_columns_.empty(); }
+
+    std::string& saved_value() { return saved_value_; }
+    const std::string& saved_value() const { return saved_value_; }
+
+    std::vector<WideColumn>& lazy_entity_columns() {
+      return lazy_entity_columns_;
+    }
+    const std::vector<WideColumn>& lazy_entity_columns() const {
+      return lazy_entity_columns_;
+    }
+
+    std::vector<std::pair<size_t, BlobIndex>>& lazy_blob_columns() {
+      return lazy_blob_columns_;
+    }
+    const std::vector<std::pair<size_t, BlobIndex>>& lazy_blob_columns() const {
+      return lazy_blob_columns_;
+    }
+
+    ReadPathBlobResolver& entity_blob_resolver() {
+      return entity_blob_resolver_;
+    }
+    const ReadPathBlobResolver& entity_blob_resolver() const {
+      return entity_blob_resolver_;
+    }
+
+    std::mutex& lazy_entity_columns_mutex() const {
+      return lazy_entity_columns_mutex_;
+    }
+
+    // DBIter calls this after ResetValueAndColumns() before repopulating the
+    // current entry from a serialized wide-column entity.
+    void AssertReadyForEntity() const {
+      assert(value_.empty());
+      assert(wide_columns_.empty());
+      assert(lazy_entity_columns_.empty());
+      assert(lazy_blob_columns_.empty());
+    }
+
+    inline void ClearSavedValue() {
+      if (saved_value_.capacity() > 1048576) {
+        std::string empty;
+        swap(empty, saved_value_);
+      } else {
+        saved_value_.clear();
+      }
+    }
+
+    // Preserve the serialized entity bytes when DBIter needs stable backing
+    // storage for lazy column slices across iterator movement.
+    void SaveEntitySliceIfNeeded(const Slice& slice) {
+      if (slice.data() != saved_value_.data() ||
+          slice.size() != saved_value_.size()) {
+        saved_value_.assign(slice.data(), slice.size());
+      }
+    }
+
+    // Clears the previous lazy entity metadata and returns the saved entity
+    // buffer as input for DeserializeV2().
+    Slice PrepareForLazyEntityDeserialize() {
+      ClearLazyEntity();
+      return Slice(saved_value_);
+    }
+
+    // Publishes the deserialized lazy entity metadata to the blob resolver.
+    void BindLazyEntity(const Slice& user_key) {
+      entity_blob_resolver_.Reset(user_key, &lazy_entity_columns_,
+                                  &lazy_blob_columns_);
+    }
+
+    // Drops the lazy entity metadata and any resolver aliases into it.
+    void ClearLazyEntity() {
+      lazy_entity_columns_.clear();
+      lazy_blob_columns_.clear();
+      entity_blob_resolver_.Reset(Slice(), nullptr, nullptr);
+    }
+
+    // Clears materialized wide columns on error before DBIter invalidates
+    // itself.
+    void ClearWideColumns() { wide_columns_.clear(); }
+
+    // Fast path for inline entities whose default column is already
+    // materialized in wide_columns_.
+    void MaybeSetValueFromMaterializedDefaultColumn() {
+      if (WideColumnsHelper::HasDefaultColumn(wide_columns_)) {
+        value_ = WideColumnsHelper::GetDefaultColumn(wide_columns_);
+      }
+    }
+
+    // Returns true when the deserialized lazy entity has the default column.
+    bool HasLazyDefaultColumn() const {
+      return WideColumnsHelper::HasDefaultColumn(lazy_entity_columns_);
+    }
+
+    // Resolves the lazy default column and stores it in value_.
+    Status ResolveDefaultLazyColumn() {
+      Slice resolved_default_value;
+      Status s = entity_blob_resolver_.ResolveColumn(/*column_index=*/0,
+                                                     &resolved_default_value);
+      if (s.ok()) {
+        value_ = resolved_default_value;
+      }
+      return s;
+    }
+
+    void SetFromPlain(const Slice& slice) {
+      assert(value_.empty());
+      assert(wide_columns_.empty());
+      assert(lazy_entity_columns_.empty());
+      assert(lazy_blob_columns_.empty());
+
+      value_ = slice;
+      wide_columns_.emplace_back(kDefaultWideColumnName, slice);
+    }
+
+    void Reset() {
+      value_.clear();
+      wide_columns_.clear();
+      ClearLazyEntity();
+    }
+
+   private:
+    std::string saved_value_;
+    // Value of the default column.
+    Slice value_;
+    // All columns (i.e. name-value pairs).
+    WideColumns wide_columns_;
+    // Lazy resolution state for V2 entities with blob columns.
+    ReadPathBlobResolver entity_blob_resolver_;
+    std::vector<WideColumn> lazy_entity_columns_;
+    std::vector<std::pair<size_t, BlobIndex>> lazy_blob_columns_;
+    mutable std::mutex lazy_entity_columns_mutex_;
   };
 
   // For all methods in this block:
@@ -332,14 +507,7 @@ class DBIter final : public Iterator {
     }
   }
 
-  inline void ClearSavedValue() {
-    if (saved_value_.capacity() > 1048576) {
-      std::string empty;
-      swap(empty, saved_value_);
-    } else {
-      saved_value_.clear();
-    }
-  }
+  inline void ClearSavedValue() { value_columns_state_.ClearSavedValue(); }
 
   inline void ResetInternalKeysSkippedCounter() {
     local_stats_.skip_count_ += num_internal_keys_skipped_;
@@ -364,11 +532,7 @@ class DBIter final : public Iterator {
   }
 
   void SetValueAndColumnsFromPlain(const Slice& slice) {
-    assert(value_.empty());
-    assert(wide_columns_.empty());
-
-    value_ = slice;
-    wide_columns_.emplace_back(kDefaultWideColumnName, slice);
+    value_columns_state_.SetFromPlain(slice);
   }
 
   bool SetValueAndColumnsFromBlobImpl(const Slice& user_key,
@@ -377,14 +541,12 @@ class DBIter final : public Iterator {
                                   const Slice& blob_index);
 
   bool SetValueAndColumnsFromEntity(Slice slice);
+  bool MaterializeLazyEntityColumns() const;
 
   bool SetValueAndColumnsFromMergeResult(const Status& merge_status,
                                          ValueType result_type);
 
-  void ResetValueAndColumns() {
-    value_.clear();
-    wide_columns_.clear();
-  }
+  void ResetValueAndColumns() { value_columns_state_.Reset(); }
 
   void ResetBlobData() {
     blob_reader_.ResetBlobValue();
@@ -523,13 +685,8 @@ class DBIter final : public Iterator {
   // kTypeValuePreferredSeqno entry, this is the write time specified by the
   // user.
   uint64_t saved_write_unix_time_;
-  std::string saved_value_;
+  ValueColumnsState value_columns_state_;
   Slice pinned_value_;
-  // for prefix seek mode to support prev()
-  // Value of the default column
-  Slice value_;
-  // All columns (i.e. name-value pairs)
-  WideColumns wide_columns_;
   Statistics* statistics_;
   uint64_t max_skip_;
   uint64_t max_skippable_internal_keys_;

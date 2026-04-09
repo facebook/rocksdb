@@ -124,7 +124,8 @@ class WriteThread {
   struct Writer {
     WriteBatch* batch;
     // The logical user batch to record in query traces. This can differ from
-    // `batch` when the write path rewrites the applied batch.
+    // `batch` when the write path rewrites the applied batch, and preserved-
+    // order tracing consumes it later from each grouped writer.
     WriteBatch* trace_batch;
     bool sync;
     bool no_slowdown;

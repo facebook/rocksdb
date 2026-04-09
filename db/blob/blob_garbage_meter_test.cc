@@ -11,9 +11,22 @@
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/dbformat.h"
+#include "db/wide/wide_column_serialization.h"
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+BlobIndex MakeBlobIndex(uint64_t file_number, uint64_t offset, uint64_t size) {
+  std::string encoded;
+  BlobIndex::EncodeBlob(&encoded, file_number, offset, size, kNoCompression);
+  BlobIndex blob_index;
+  EXPECT_OK(blob_index.DecodeFrom(encoded));
+  return blob_index;
+}
+
+}  // namespace
 
 TEST(BlobGarbageMeterTest, MeasureGarbage) {
   BlobGarbageMeter blob_garbage_meter;
@@ -186,6 +199,67 @@ TEST(BlobGarbageMeterTest, InlinedTTLBlobIndex) {
 
   ASSERT_NOK(blob_garbage_meter.ProcessInFlow(key_slice, value_slice));
   ASSERT_NOK(blob_garbage_meter.ProcessOutFlow(key_slice, value_slice));
+}
+
+TEST(BlobGarbageMeterTest, WideColumnEntity) {
+  constexpr char user_key[] = "entity_key";
+  constexpr SequenceNumber seq = 123;
+  const InternalKey key(user_key, seq, kTypeWideColumnEntity);
+  const Slice key_slice = key.Encode();
+
+  const std::vector<std::pair<std::string, std::string>> columns = {
+      {"", "default_inline"},
+      {"blob_attr", "blob_inline"},
+      {"ttl", "00000001"},
+  };
+
+  const BlobIndex default_blob = MakeBlobIndex(4, 123, 555);
+  const BlobIndex attr_blob = MakeBlobIndex(5, 456, 777);
+
+  std::string inflow_value;
+  ASSERT_OK(WideColumnSerialization::SerializeV2(
+      columns, {{0, default_blob}, {1, attr_blob}}, inflow_value));
+
+  std::string outflow_value;
+  ASSERT_OK(WideColumnSerialization::SerializeV2(columns, {{0, default_blob}},
+                                                 outflow_value));
+
+  BlobGarbageMeter blob_garbage_meter;
+  ASSERT_OK(blob_garbage_meter.ProcessInFlow(key_slice, inflow_value));
+  ASSERT_OK(blob_garbage_meter.ProcessOutFlow(key_slice, outflow_value));
+
+  const auto& flows = blob_garbage_meter.flows();
+  ASSERT_EQ(flows.size(), 2);
+
+  constexpr size_t kUserKeySize = sizeof(user_key) - 1;
+  const uint64_t default_bytes =
+      default_blob.size() +
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(kUserKeySize);
+  const uint64_t attr_bytes =
+      attr_blob.size() +
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(kUserKeySize);
+
+  {
+    const auto it = flows.find(default_blob.file_number());
+    ASSERT_NE(it, flows.end());
+    ASSERT_EQ(it->second.GetInFlow().GetCount(), 1);
+    ASSERT_EQ(it->second.GetInFlow().GetBytes(), default_bytes);
+    ASSERT_EQ(it->second.GetOutFlow().GetCount(), 1);
+    ASSERT_EQ(it->second.GetOutFlow().GetBytes(), default_bytes);
+    ASSERT_FALSE(it->second.HasGarbage());
+  }
+
+  {
+    const auto it = flows.find(attr_blob.file_number());
+    ASSERT_NE(it, flows.end());
+    ASSERT_EQ(it->second.GetInFlow().GetCount(), 1);
+    ASSERT_EQ(it->second.GetInFlow().GetBytes(), attr_bytes);
+    ASSERT_EQ(it->second.GetOutFlow().GetCount(), 0);
+    ASSERT_EQ(it->second.GetOutFlow().GetBytes(), 0);
+    ASSERT_TRUE(it->second.HasGarbage());
+    ASSERT_EQ(it->second.GetGarbageCount(), 1);
+    ASSERT_EQ(it->second.GetGarbageBytes(), attr_bytes);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

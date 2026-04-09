@@ -290,6 +290,8 @@ const std::string TablePropertiesNames::kIndexKeyIsUserKey =
     "rocksdb.index.key.is.user.key";
 const std::string TablePropertiesNames::kIndexValueIsDeltaEncoded =
     "rocksdb.index.value.is.delta.encoded";
+const std::string TablePropertiesNames::kUDIIsPrimaryIndex =
+    "rocksdb.udi.is.primary.index";
 const std::string TablePropertiesNames::kFilterSize = "rocksdb.filter.size";
 const std::string TablePropertiesNames::kRawKeySize = "rocksdb.raw.key.size";
 const std::string TablePropertiesNames::kRawValueSize =
@@ -387,6 +389,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"index_value_is_delta_encoded",
          {offsetof(struct TableProperties, index_value_is_delta_encoded),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"udi_is_primary_index",
+         {offsetof(struct TableProperties, udi_is_primary_index),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"filter_size",
