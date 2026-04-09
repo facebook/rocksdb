@@ -97,6 +97,27 @@ Status ReadPathBlobResolver::ResolveColumn(size_t column_index,
   return status;
 }
 
+Status ReadPathBlobResolver::ResolveColumns(
+    const std::vector<size_t>& column_indices,
+    std::vector<Slice>* resolved_values) {
+  assert(resolved_values != nullptr);
+
+  resolved_values->clear();
+  resolved_values->reserve(column_indices.size());
+
+  for (size_t column_index : column_indices) {
+    Slice resolved_value;
+    Status s = ResolveColumn(column_index, &resolved_value);
+    if (!s.ok()) {
+      resolved_values->clear();
+      return s;
+    }
+    resolved_values->push_back(resolved_value);
+  }
+
+  return Status::OK();
+}
+
 Status ReadPathBlobResolver::ResolveAllColumns() {
   assert(columns_);
 

@@ -64,6 +64,12 @@ class ReadPathBlobResolver {
   // - I/O error occurred while fetching the blob
   Status ResolveColumn(size_t column_index, Slice* resolved_value);
 
+  // Resolve multiple columns in the order provided by `column_indices`.
+  // Resolved blob values are cached exactly as if ResolveColumn() were called
+  // repeatedly.
+  Status ResolveColumns(const std::vector<size_t>& column_indices,
+                        std::vector<Slice>* resolved_values);
+
   // Resolve all unresolved blob columns at once.
   Status ResolveAllColumns();
 

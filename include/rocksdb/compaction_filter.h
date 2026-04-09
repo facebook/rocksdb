@@ -62,6 +62,31 @@ class WideColumnBlobResolver {
   // kKeep to avoid data loss.
   virtual Status ResolveColumn(size_t column_index, Slice* resolved_value) = 0;
 
+  // Resolve multiple columns in the order provided by `column_indices`.
+  // The returned slices remain valid until FilterV4 returns.
+  //
+  // The default implementation calls ResolveColumn() repeatedly. Resolver
+  // implementations may override this to batch or optimize I/O in the future.
+  virtual Status ResolveColumns(const std::vector<size_t>& column_indices,
+                                std::vector<Slice>* resolved_values) {
+    assert(resolved_values != nullptr);
+
+    resolved_values->clear();
+    resolved_values->reserve(column_indices.size());
+
+    for (size_t column_index : column_indices) {
+      Slice resolved_value;
+      Status s = ResolveColumn(column_index, &resolved_value);
+      if (!s.ok()) {
+        resolved_values->clear();
+        return s;
+      }
+      resolved_values->push_back(resolved_value);
+    }
+
+    return Status::OK();
+  }
+
   // Check if the column at the given index is a blob reference (vs inline).
   // Returns false if column_index is out of bounds.
   virtual bool IsBlobColumn(size_t column_index) const = 0;
@@ -356,7 +381,8 @@ class CompactionFilter : public Customizable {
   // - `existing_columns` contains all columns, but blob columns will have
   //   blob index references as their values (not the actual blob data)
   // - Call `blob_resolver->IsBlobColumn(idx)` to check if a column is a blob
-  // - Call `blob_resolver->ResolveColumn(idx, &value)` to fetch the blob value
+  // - Call `blob_resolver->ResolveColumn(idx, &value)` or
+  //   `blob_resolver->ResolveColumns(indices, &values)` to fetch blob values
   //
   // This lazy loading mechanism allows filters to avoid I/O for blob columns
   // they don't need to access.

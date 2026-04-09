@@ -2583,7 +2583,8 @@ TEST_F(WideColumnEntityBlobGCTest, WideColumnEntityBlobGCToInline) {
 // Test that CompactionBlobResolver handles nullptr blob_fetcher gracefully
 TEST_F(WideColumnEntityBlobGCTest, BlobResolverNullFetcher) {
   // Create a resolver with nullptr blob_fetcher
-  std::vector<WideColumn> columns{{"col1", "value1"}};
+  std::vector<WideColumn> columns{{"blob_col", "blob_ref_placeholder"},
+                                  {"inline_col", "value1"}};
 
   BlobIndex blob_idx;
   std::string encoded;
@@ -2603,15 +2604,26 @@ TEST_F(WideColumnEntityBlobGCTest, BlobResolverNullFetcher) {
   // IsBlobColumn should work without blob_fetcher
   ASSERT_TRUE(resolver.IsBlobColumn(0));
   ASSERT_FALSE(resolver.IsBlobColumn(1));
-  ASSERT_EQ(resolver.NumColumns(), 1);
+  ASSERT_EQ(resolver.NumColumns(), 2);
 
   // ResolveColumn on a blob column with null fetcher should return error
   Slice resolved_value;
   Status s = resolver.ResolveColumn(0, &resolved_value);
   ASSERT_TRUE(s.IsNotSupported());
 
-  // ResolveColumn on non-blob column should still work
-  // (but this column is a blob column, so we can't test non-blob here)
+  // ResolveColumn on a non-blob column should still work.
+  ASSERT_OK(resolver.ResolveColumn(1, &resolved_value));
+  ASSERT_EQ("value1", resolved_value.ToString());
+
+  // ResolveColumns uses the same behavior as repeated ResolveColumn calls.
+  std::vector<Slice> resolved_values;
+  ASSERT_OK(resolver.ResolveColumns({1}, &resolved_values));
+  ASSERT_EQ(1U, resolved_values.size());
+  ASSERT_EQ("value1", resolved_values[0].ToString());
+
+  s = resolver.ResolveColumns({1, 0}, &resolved_values);
+  ASSERT_TRUE(s.IsNotSupported());
+  ASSERT_TRUE(resolved_values.empty());
 }
 
 // A compaction filter that always returns kKeep (no changes).
