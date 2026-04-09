@@ -493,6 +493,7 @@ _TEST_EXPECTED_DIR_ENV_VAR = "TEST_TMPDIR_EXPECTED"
 _DEBUG_LEVEL_ENV_VAR = "DEBUG_LEVEL"
 
 stress_cmd = "./db_stress"
+_REMOTE_COMPACTION_OUTPUT_PREFIX = "tmp_output_"
 
 
 def is_release_mode():
@@ -1733,6 +1734,24 @@ def print_and_cleanup_fault_injection_log(pid):
             pass
 
 
+def cleanup_stale_remote_compaction_outputs(dbname):
+    if is_remote_db or dbname is None or dbname == "" or not os.path.isdir(dbname):
+        return
+
+    for entry in os.listdir(dbname):
+        if not entry.startswith(_REMOTE_COMPACTION_OUTPUT_PREFIX):
+            continue
+
+        path = os.path.join(dbname, entry)
+        try:
+            if os.path.isdir(path):
+                shutil.rmtree(path, True)
+            else:
+                os.remove(path)
+        except OSError:
+            pass
+
+
 # This script runs and kills db_stress multiple times. It checks consistency
 # in case of unsafe crashes in RocksDB.
 def blackbox_crash_main(args, unknown_args):
@@ -1770,6 +1789,7 @@ def blackbox_crash_main(args, unknown_args):
             sys.exit(2)
 
         print_output_and_exit_on_error(outs, errs, args.print_stderr_separately)
+        cleanup_stale_remote_compaction_outputs(dbname)
 
         time.sleep(1)  # time to stabilize before the next run
 
@@ -1777,6 +1797,7 @@ def blackbox_crash_main(args, unknown_args):
 
     # We should run the test one more time with VerifyOnly setup and no-timeout
     # Only do this if the tests are not failed for total-duration
+    cleanup_stale_remote_compaction_outputs(dbname)
     print("Running final time for verification")
     cmd_params.update({"verification_only": 1})
     cmd_params.update({"skip_verifydb": 0})
@@ -1971,6 +1992,7 @@ def whitebox_crash_main(args, unknown_args):
             cmd_params["destroy_db_initially"] = 1
             check_mode = (check_mode + 1) % total_check_mode
 
+        cleanup_stale_remote_compaction_outputs(dbname)
         time.sleep(1)  # time to stabilize after a kill
 
     # If successfully finished or timed out (we currently treat timed out test as passing)

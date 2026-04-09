@@ -122,6 +122,38 @@ class DBCrashTestTest(unittest.TestCase):
         self.assertEqual(1, finalized["disable_wal"])
         self.assertEqual(0, finalized["test_batches_snapshots"])
 
+    def test_cleanup_stale_remote_compaction_outputs_removes_only_tmp_output_dirs(
+        self,
+    ):
+        db_crashtest = self.load_db_crashtest()
+        dbname = os.path.join(self.test_tmpdir, "rocksdb_crashtest_blackbox")
+        os.makedirs(dbname)
+
+        stale_dir = os.path.join(dbname, "tmp_output_stale")
+        os.makedirs(stale_dir)
+        with open(os.path.join(stale_dir, "orphan.sst"), "w") as f:
+            f.write("old remote compaction output")
+
+        backup_dir = os.path.join(dbname, ".backup0")
+        os.makedirs(backup_dir)
+        live_sst = os.path.join(dbname, "000123.sst")
+        with open(live_sst, "w") as f:
+            f.write("keep")
+
+        db_crashtest.cleanup_stale_remote_compaction_outputs(dbname)
+
+        self.assertFalse(os.path.exists(stale_dir))
+        self.assertTrue(os.path.isdir(backup_dir))
+        self.assertTrue(os.path.isfile(live_sst))
+
+    def test_cleanup_stale_remote_compaction_outputs_ignores_missing_db_dir(self):
+        db_crashtest = self.load_db_crashtest()
+        missing_db = os.path.join(self.test_tmpdir, "missing_db")
+
+        db_crashtest.cleanup_stale_remote_compaction_outputs(missing_db)
+
+        self.assertFalse(os.path.exists(missing_db))
+
 
 if __name__ == "__main__":
     unittest.main()
