@@ -952,6 +952,18 @@ def _is_udt_memtable_only(params):
 #   - The constraint involves numeric ranges or non-binary relationships
 #   - A condition affects params that no single feature "owns"
 #
+# Litmus test:
+#   - "feature A and feature B disagree on param X" -> FEATURE_REQUIREMENTS
+#   - "given the current params, normalize derived/downstream values" ->
+#     CONSEQUENCE_RULES
+#
+# Examples:
+#   - FEATURE_REQUIREMENTS: blob_direct_write vs best_efforts_recovery both
+#     need contradictory values for disable_wal / recovery-related params.
+#   - CONSEQUENCE_RULES: disable_wal_consequences and
+#     optimistic_txn_write_buffer_maintain do not represent two features
+#     fighting; there is no meaningful losing feature to disable_self().
+#
 # Conflict resolution uses explicit_keys (params set via --extra_flags):
 #   - explicit + random   -> explicit wins, random feature/rule disabled
 #   - explicit + explicit -> exit(1), user must fix their flags
@@ -1615,6 +1627,10 @@ CONSEQUENCE_RULES = [
     # One-way consequence rules: these propagate the effects of a condition
     # being true. They do NOT resolve conflicts between features —
     # that is handled by FEATURE_REQUIREMENTS above.
+    #
+    # Earlier revisions called this bucket INCOMPATIBILITY_RULES. Keeping it
+    # separate is intentional: these rules often describe one-way normalization
+    # rather than "feature A loses to feature B."
     #
     # These stay separate from FEATURE_REQUIREMENTS because they often do not
     # belong to a single feature with a meaningful disable_self(), or they
