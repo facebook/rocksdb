@@ -434,17 +434,6 @@ class FileSystem : public Customizable {
   virtual IOStatus NewRandomAccessFile(
       const std::string& fname, const FileOptions& file_opts,
       std::unique_ptr<FSRandomAccessFile>* result, IODebugContext* dbg) = 0;
-  // These values match Linux definition
-  // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/fcntl.h#n56
-  enum WriteLifeTimeHint {
-    kWLTHNotSet = 0,  // No hint information set
-    kWLTHNone,        // No hints about write life time
-    kWLTHShort,       // Data written has a short life time
-    kWLTHMedium,      // Data written has a medium life time
-    kWLTHLong,        // Data written has a long life time
-    kWLTHExtreme,     // Data written has an extremely long life time
-  };
-
   // Create an object that writes to a new file with the specified
   // name.  Deletes any existing file with the same name and creates a
   // new file.  On success, stores a pointer to the new file in
@@ -1198,12 +1187,27 @@ class FSWritableFile {
   virtual IOStatus Close(const IOOptions& /*options*/,
                          IODebugContext* /*dbg*/) = 0;
 
+  // Flush any internally buffered data to the underlying storage, so that
+  // the data is no longer dependent on this process's memory. After this
+  // call, the data should survive a process crash but is not necessarily
+  // persisted to stable storage. Use Sync() for that guarantee.
+  // All flushed data must be readable through file access APIs (e.g.
+  // FSRandomAccessFile), though path-level metadata queries such as
+  // FileSystem::GetFileSize() might lag on some implementations.
+  // Not thread-safe; see IsSyncThreadSafe().
   virtual IOStatus Flush(const IOOptions& options, IODebugContext* dbg) = 0;
-  virtual IOStatus Sync(const IOOptions& options,
-                        IODebugContext* dbg) = 0;  // sync data
+
+  // Persist data to stable storage. After this call, the data should
+  // survive power failures. Does not necessarily persist file metadata
+  // (e.g. file size); see Fsync().
+  // Sync() implies Flush(): implementations must ensure all internally
+  // buffered data is also flushed.
+  // Not safe to call concurrently with Append() or Flush() unless
+  // IsSyncThreadSafe() returns true.
+  virtual IOStatus Sync(const IOOptions& options, IODebugContext* dbg) = 0;
 
   /*
-   * Sync data and/or metadata as well.
+   * Persist data and metadata to stable storage.
    * By default, sync only data.
    * Override this method for environments where we need to sync
    * metadata as well.
