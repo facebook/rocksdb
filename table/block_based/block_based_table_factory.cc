@@ -12,6 +12,7 @@
 #include <cinttypes>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "cache/cache_entry_roles.h"
@@ -28,14 +29,36 @@
 #include "rocksdb/table.h"
 #include "rocksdb/user_defined_index.h"
 #include "rocksdb/utilities/customizable_util.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
+#include "utilities/trie_index/trie_index_factory.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+// Register built-in UDIs at lookup time instead of relying on translation-unit
+// static initialization in optional utility code.
+int RegisterBuiltinUserDefinedIndexFactories(
+    ObjectLibrary& library, const std::string& /*arg*/) {
+  library.AddFactory<UserDefinedIndexFactory>(
+      trie_index::TrieIndexFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<UserDefinedIndexFactory>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new trie_index::TrieIndexFactory());
+        return guard->get();
+      });
+  size_t num_types;
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
+
+}  // namespace
 
 void TailPrefetchStats::RecordEffectiveSize(size_t len) {
   MutexLock l(&mutex_);
@@ -1126,6 +1149,11 @@ TableFactory* NewBlockBasedTableFactory(
 Status UserDefinedIndexFactory::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<UserDefinedIndexFactory>* factory) {
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    RegisterBuiltinUserDefinedIndexFactories(
+        *(ObjectLibrary::Default().get()), "");
+  });
   return LoadSharedObject<UserDefinedIndexFactory>(config_options, value,
                                                    factory);
 }
