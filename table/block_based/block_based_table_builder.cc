@@ -1081,12 +1081,7 @@ struct BlockBasedTableBuilder::Rep {
             false /* use_separated_kv_storage */),
         internal_prefix_transform(prefix_extractor.get()),
         sample_for_compression(tbo.moptions.sample_for_compression),
-        compression_parallel_threads(
-            ((table_opt.partition_filters &&
-              !table_opt.decouple_partitioned_filters) ||
-             table_options.user_defined_index_factory)
-                ? uint32_t{1}
-                : tbo.compression_opts.parallel_threads),
+        compression_parallel_threads(tbo.compression_opts.parallel_threads),
         max_compressed_bytes_per_kb(
             tbo.compression_opts.max_compressed_bytes_per_kb),
         use_delta_encoding_for_index_values(table_opt.format_version >= 4 &&
@@ -1215,6 +1210,20 @@ struct BlockBasedTableBuilder::Rep {
                   data_block_compressor->GetPreferredCompressionType());
         }
       }
+    }
+
+    // Allow Compressor to override parallel_threads
+    if (basic_compressor) {
+      uint32_t recommended = basic_compressor->GetRecommendedParallelThreads();
+      if (recommended > 0) {
+        compression_parallel_threads = recommended;
+      }
+    }
+    // Hard structural constraints override any recommendation
+    if ((table_opt.partition_filters &&
+         !table_opt.decouple_partitioned_filters) ||
+        table_options.user_defined_index_factory) {
+      compression_parallel_threads = 1;
     }
 
     if (sample_for_compression > 0) {
@@ -2234,6 +2243,9 @@ void BlockBasedTableBuilder::MaybeStartParallelCompression() {
     // Force the generally best configuration for no compression: no parallelism
     return;
   }
+  TEST_SYNC_POINT_CALLBACK(
+      "BlockBasedTableBuilder::MaybeStartParallelCompression:Started",
+      &rep_->compression_parallel_threads);
   rep_->pc_rep = std::make_unique<ParallelCompressionRep>(
       rep_->compression_parallel_threads);
   auto& pc_rep = *rep_->pc_rep;

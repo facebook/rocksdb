@@ -1717,6 +1717,57 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerCustomCompression) {
   options.compression = kCustomCompression8B;
   ASSERT_EQ(TryReopen(options).code(), Status::Code::kInvalidArgument);
 
+  // Write data with mgr_claim_compatible (BuiltinV2 compat name) at fv=7
+  // using a built-in compression type. This should produce the new format
+  // compression_name property ("BuiltinV2;04;") and still be readable
+  // without the original compression manager.
+  options.compression_manager = mgr_claim_compatible;
+  options.compression = kLZ4Compression;
+  Reopen(options);
+  ASSERT_OK(Put("a1", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(Get("a1"), value);
+
+  // Verify it was compressed with the new format property
+  r = {"a1", "a10"};
+  tables_properties.clear();
+  ASSERT_OK(db_->GetPropertiesOfTablesInRange(db_->DefaultColumnFamily(), &r, 1,
+                                              &tables_properties));
+  ASSERT_EQ(tables_properties.size(), 1U);
+  EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
+  EXPECT_EQ(tables_properties.begin()->second->compression_name,
+            "BuiltinV2;04;");
+
+  // Re-open without original compression manager, just with defaults.
+  // Should work because the compat name is the built-in one.
+  // As a sanity check to ensure the custom compression manager isn't leaking
+  // into the re-open, verify that neither GetId() (used in OPTIONS files) nor
+  // CompatibilityName() (used in SST files) resolves to the custom manager.
+  // Both should resolve to the built-in manager instead.
+  {
+    ConfigOptions config_options;
+    std::shared_ptr<CompressionManager> tmp;
+    // GetId() is used in OPTIONS files. The custom manager's GetId()
+    // ("MyManager:BuiltinV2") is not registered, so CreateFromString
+    // returns OK with nullptr (unsupported options are ignored by default).
+    ASSERT_OK(CompressionManager::CreateFromString(
+        config_options, mgr_claim_compatible->GetId(), &tmp));
+    ASSERT_EQ(tmp, nullptr);
+    // CompatibilityName() is used in SST files. "BuiltinV2" resolves to
+    // the built-in manager, not MyManager.
+    ASSERT_OK(CompressionManager::CreateFromString(
+        config_options, mgr_claim_compatible->CompatibilityName(), &tmp));
+    ASSERT_NE(tmp, nullptr);
+    EXPECT_STREQ(tmp->CompatibilityName(), "BuiltinV2");
+    EXPECT_STRNE(tmp->Name(), mgr_claim_compatible->Name());
+  }
+  options.compression_manager = nullptr;
+  Reopen(options);
+  // Key "a" from fv=6 section still readable
+  ASSERT_EQ(Get("a").size(), kValueSize);
+  // Key "a1" from fv=7 section with BuiltinV2 compat name also readable
+  ASSERT_EQ(Get("a1"), value);
+
   // Custom compression schema, but specifying a custom compression type it
   // doesn't support.
   options.compression_manager = mgr_foo;
@@ -1728,7 +1779,7 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerCustomCompression) {
   Reopen(options);
   ASSERT_OK(Put("b", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
   ASSERT_OK(Flush());
-  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 3);
   ASSERT_EQ(Get("b"), value);
 
   // Verify it was compressed with LZ4
@@ -1749,7 +1800,7 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerCustomCompression) {
   ASSERT_OK(Put("c", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
   EXPECT_EQ(mgr_foo->used_compressor8A_count_, 0);
   ASSERT_OK(Flush());
-  ASSERT_EQ(NumTableFilesAtLevel(0), 3);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 4);
   ASSERT_EQ(Get("c"), value);
   EXPECT_EQ(mgr_foo->used_compressor8A_count_, 1);
 
@@ -1769,7 +1820,7 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerCustomCompression) {
   ASSERT_OK(dbfull()->SetOptions({{"compression", "kLZ4Compression"}}));
   ASSERT_OK(Put("d", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
   ASSERT_OK(Flush());
-  ASSERT_EQ(NumTableFilesAtLevel(0), 4);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 5);
   ASSERT_EQ(Get("d"), value);
 
   // Verify it was compressed with LZ4
@@ -1787,7 +1838,7 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerCustomCompression) {
   ASSERT_OK(dbfull()->SetOptions({{"compression", "kCustomCompression8B"}}));
   ASSERT_OK(Put("e", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
   ASSERT_OK(Flush());
-  ASSERT_EQ(NumTableFilesAtLevel(0), 5);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 6);
   ASSERT_EQ(Get("e"), value);
 
   // Verify it was compressed with custom format
@@ -1813,6 +1864,7 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerCustomCompression) {
 
   // Can still read everything
   ASSERT_EQ(Get("a").size(), kValueSize);
+  ASSERT_EQ(Get("a1").size(), kValueSize);
   ASSERT_EQ(Get("b").size(), kValueSize);
   ASSERT_EQ(Get("c").size(), kValueSize);
   ASSERT_EQ(Get("d").size(), kValueSize);
@@ -1821,7 +1873,7 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerCustomCompression) {
   // Add a file using mgr_bar
   ASSERT_OK(Put("f", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
   ASSERT_OK(Flush());
-  ASSERT_EQ(NumTableFilesAtLevel(0), 6);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 7);
   ASSERT_EQ(Get("f"), value);
 
   // Verify it was compressed appropriately
@@ -1853,6 +1905,7 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerCustomCompression) {
 
   // Can still read everything
   ASSERT_EQ(Get("a").size(), kValueSize);
+  ASSERT_EQ(Get("a1").size(), kValueSize);
   ASSERT_EQ(Get("b").size(), kValueSize);
   ASSERT_EQ(Get("c").size(), kValueSize);
   ASSERT_EQ(Get("d").size(), kValueSize);
@@ -2425,6 +2478,112 @@ TEST_F(DBCompressionTest, PreDefinedDictionaryCompression) {
   std::string value;
   ASSERT_EQ(db_->Get(ReadOptions(), Key(0), &value).code(),
             Status::kCorruption);
+}
+
+TEST_F(DBCompressionTest, GetRecommendedParallelThreads) {
+  // Verify that built-in compressors return parallel_threads from their
+  // CompressionOptions
+  auto mgr = GetBuiltinV2CompressionManager();
+  CompressionOptions opts;
+
+  // Default parallel_threads is 1
+  opts.parallel_threads = 1;
+  for (auto type : {kSnappyCompression, kZlibCompression, kLZ4Compression,
+                    kLZ4HCCompression, kZSTD}) {
+    if (!mgr->SupportsCompressionType(type)) {
+      continue;
+    }
+    auto compressor = mgr->GetCompressor(opts, type);
+    ASSERT_NE(compressor, nullptr);
+    ASSERT_EQ(compressor->GetRecommendedParallelThreads(), 1U);
+  }
+
+  // Custom parallel_threads value is returned
+  opts.parallel_threads = 8;
+  for (auto type : {kSnappyCompression, kZlibCompression, kLZ4Compression,
+                    kLZ4HCCompression, kZSTD}) {
+    if (!mgr->SupportsCompressionType(type)) {
+      continue;
+    }
+    auto compressor = mgr->GetCompressor(opts, type);
+    ASSERT_NE(compressor, nullptr);
+    ASSERT_EQ(compressor->GetRecommendedParallelThreads(), 8U);
+  }
+}
+
+TEST_F(DBCompressionTest, CompressionManagerOverridesParallelThreads) {
+  // Test that a custom CompressionManager can override parallel_threads
+  // by modifying CompressionOptions in GetCompressorForSST, and that the
+  // override actually activates parallel compression.
+  if (!ZSTD_Supported()) {
+    ROCKSDB_GTEST_SKIP("ZSTD not supported");
+    return;
+  }
+
+  // A manager that forces parallel_threads to a specific value
+  class ParallelOverrideManager : public CompressionManagerWrapper {
+   public:
+    ParallelOverrideManager(std::shared_ptr<CompressionManager> wrapped,
+                            uint32_t forced_threads)
+        : CompressionManagerWrapper(std::move(wrapped)),
+          forced_threads_(forced_threads) {}
+
+    const char* Name() const override { return "ParallelOverrideManager"; }
+
+    const char* CompatibilityName() const override {
+      return wrapped_->CompatibilityName();
+    }
+
+    std::unique_ptr<Compressor> GetCompressorForSST(
+        const FilterBuildingContext& context, const CompressionOptions& opts,
+        CompressionType preferred) override {
+      CompressionOptions modified_opts = opts;
+      modified_opts.parallel_threads = forced_threads_;
+      return wrapped_->GetCompressorForSST(context, modified_opts, preferred);
+    }
+
+   private:
+    uint32_t forced_threads_;
+  };
+
+  Options options = CurrentOptions();
+  options.compression = kZSTD;
+  // Set parallel_threads=1 in the options, but the manager will override to 4
+  options.compression_opts.parallel_threads = 1;
+
+  auto mgr = std::make_shared<ParallelOverrideManager>(
+      GetBuiltinV2CompressionManager(), 4);
+  options.compression_manager = mgr;
+
+  // Use sync point to verify parallel compression is activated with the
+  // overridden thread count
+  uint32_t observed_threads = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::MaybeStartParallelCompression:Started",
+      [&](void* arg) { observed_threads = *static_cast<uint32_t*>(arg); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  DestroyAndReopen(options);
+
+  // Write enough data to produce some blocks
+  Random rnd(301);
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Verify parallel compression was activated with overridden thread count
+  ASSERT_EQ(observed_threads, 4U);
+
+  // Verify data is readable (parallel compression produced correct output)
+  for (int i = 0; i < 100; i++) {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), Key(i), &value));
+    ASSERT_EQ(value.size(), 100);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
