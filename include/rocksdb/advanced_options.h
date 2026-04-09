@@ -1240,6 +1240,10 @@ struct AdvancedColumnFamilyOptions {
 
   // Custom partition strategy for blob direct writes.
   // If null, uses the default round-robin strategy.
+  // Put()/Merge-style value separation uses SelectPartition(..., Slice value),
+  // while PutEntity() wide-column separation calls
+  // SelectPartition(..., WideColumns columns) once per entity and reuses the
+  // selected partition for all blob-backed columns in that entity.
   // Requires enable_blob_direct_write = true.
   //
   // RocksDB treats this as an application-supplied callback rather than a

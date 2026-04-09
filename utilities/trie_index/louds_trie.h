@@ -384,11 +384,11 @@ class LoudsTrie {
   // separator maps to multiple blocks.
   //
   // leaf_seqnos_[i]: seqno for the i-th leaf (BFS order).
-  //   For non-boundary leaves: stores
-  //   PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek) -- the same
-  //   tag the standard index uses for non-boundary separators.
-  //   For boundary leaves: stores the actual tag
-  //   ((sequence_number << 8) | value_type).
+  //   For non-boundary leaves: stores 0 (sentinel meaning "no seqno
+  //   correction needed"), matching the standard index's user-key-only
+  //   comparison mode.
+  //   For same-user-key boundary and last-block leaves: stores the actual
+  //   tag ((sequence_number << 8) | value_type).
   //
   // leaf_block_counts_[i]: how many consecutive blocks share this separator.
   //   1 = no overflow (the common case). >1 = same-user-key run.

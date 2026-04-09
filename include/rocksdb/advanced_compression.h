@@ -151,6 +151,13 @@ class Compressor {
     return CompressionType::kDisableCompressionOption;
   }
 
+  // Returns a recommended number of parallel compression threads for SST
+  // file building, or 0 to defer to CompressionOptions::parallel_threads.
+  // Built-in compressors return the parallel_threads from their
+  // CompressionOptions, enabling CompressionManager to override this by
+  // customizing the options passed to GetCompressor().
+  virtual uint32_t GetRecommendedParallelThreads() const { return 0; }
+
   // Return a distinct but functionally equivalent Compressor. This is often
   // needed to implement MaybeCloneSpecialized() in wrapper compressors.
   virtual std::unique_ptr<Compressor> Clone() const = 0;
@@ -526,6 +533,10 @@ class CompressorWrapper : public Compressor {
 
   CompressionType GetPreferredCompressionType() const override {
     return wrapped_->GetPreferredCompressionType();
+  }
+
+  uint32_t GetRecommendedParallelThreads() const override {
+    return wrapped_->GetRecommendedParallelThreads();
   }
 
   // NOTE: Clone() not implemented here because it needs to be in the derived

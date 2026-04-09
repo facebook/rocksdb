@@ -247,8 +247,11 @@ default_params = {
     "use_merge": lambda: random.randint(0, 1),
     # use_trie_index must be the same across invocations so that all SSTs
     # in a DB are opened with matching table options.
-    # Temporarily disabled due to trie UDI stress test failures.
-    "use_trie_index": 0,
+    "use_trie_index": random.choice([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    # use_udi_as_primary_index must be the same across invocations (like
+    # use_trie_index) so that SSTs written in primary mode can be read on
+    # reopen.
+    "use_udi_as_primary_index": random.choice([0, 0, 0, 1]),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     "use_attribute_group": lambda: random.randint(0, 1),
@@ -754,6 +757,29 @@ blob_direct_write_params = {
     "remote_compaction_worker_threads": 0,
 }
 
+# Wide-column entity stress needs `use_put_entity_one_in` fixed across the
+# repeated db_stress invocations in one crash-test run series, so keep it as a
+# once-per-process random choice rather than a lambda.
+blob_direct_write_get_entity_params = dict(blob_direct_write_params)
+blob_direct_write_get_entity_params.update(
+    {
+        "use_put_entity_one_in": random.choice([1, 5, 10]),
+        "use_get_entity": 1,
+        "use_multi_get_entity": 0,
+        "use_attribute_group": 0,
+    }
+)
+
+blob_direct_write_multi_get_entity_params = dict(blob_direct_write_params)
+blob_direct_write_multi_get_entity_params.update(
+    {
+        "use_put_entity_one_in": random.choice([1, 5, 10]),
+        "use_get_entity": 0,
+        "use_multi_get_entity": 1,
+        "use_attribute_group": 0,
+    }
+)
+
 ts_params = {
     "test_cf_consistency": 0,
     "test_batches_snapshots": 0,
@@ -906,12 +932,12 @@ def finalize_and_sanitize(src_params):
         dest_params["enable_blob_direct_write"] = 0
 
     if dest_params.get("enable_blob_direct_write", 0) == 1:
-        # Keep blob direct write in its reduced-scope v1 profile.
+        # Keep blob direct write in its reduced-scope crash-test profile.
         #
         # Supported recovery shape:
         #   * clean shutdown / flush
         #   * crash restart that only relies on SST + manifest-visible blob
-        #     state
+        #     state, including wide-column entities stored through PutEntity
         #
         # Unsupported here:
         #   * WAL replay / best-efforts recovery
@@ -946,12 +972,12 @@ def finalize_and_sanitize(src_params):
         dest_params["blob_file_starting_level"] = 0
         dest_params["use_merge"] = 0
         dest_params["use_full_merge_v1"] = 0
-        dest_params["use_put_entity_one_in"] = 0
-        dest_params["use_get_entity"] = 0
-        dest_params["use_multi_get_entity"] = 0
         dest_params["use_timed_put_one_in"] = 0
+        # Wide-column PutEntity/GetEntity/MultiGetEntity are now compatible
+        # with this profile. AttributeGroup exercises a different path that
+        # still stays disabled here.
         dest_params["use_attribute_group"] = 0
-        # Direct write v1 only supports the plain comparator / key encoding
+        # Direct write stress only supports the plain comparator / key encoding
         # path. User-defined timestamps and the TransactionDB-only timestamped
         # snapshot API are outside this feature envelope.
         dest_params["user_timestamp_size"] = 0
@@ -1067,6 +1093,24 @@ def finalize_and_sanitize(src_params):
         dest_params["mmap_read"] = 0
         # Parallel compression is incompatible with UDI
         dest_params["compression_parallel_threads"] = 1
+        if dest_params.get("use_udi_as_primary_index") == 1:
+            # Primary UDI mode: the standard index is still fully populated,
+            # but partitioned index (kTwoLevelIndexSearch) and partitioned
+            # filters are not compatible with the UDI wrapper layout.
+            dest_params["index_type"] = random.choice([0, 0, 3])
+            dest_params["partition_filters"] = 0
+            # Backup/restore serializes Options to strings, losing the
+            # user_defined_index_factory (shared_ptr). The restored DB
+            # opens without UDI support and cannot route reads through
+            # the trie in primary mode.
+            dest_params["backup_one_in"] = 0
+            # Secondary DB opens SSTs with default Options (not a copy of
+            # the primary's), losing the UDI factory. Without the factory,
+            # reads cannot be routed through the trie.
+            dest_params["test_secondary"] = 0
+    else:
+        # use_udi_as_primary_index requires use_trie_index
+        dest_params["use_udi_as_primary_index"] = 0
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
@@ -1469,6 +1513,12 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("read_triggered_compaction_threshold", 0) > 0:
         dest_params["max_compaction_trigger_wakeup_seconds"] = 20
 
+    # Batch/snapshot stress relies on WAL-backed recovery semantics. Keep it
+    # off for every finalized WAL-disabled profile, including blob direct
+    # write presets that force disable_wal=1 earlier in sanitization.
+    if dest_params.get("disable_wal", 0) == 1:
+        dest_params["test_batches_snapshots"] = 0
+
     return dest_params
 
 
@@ -1511,7 +1561,16 @@ def gen_cmd_params(args):
         and params.get("test_secondary", 0) == 0
         and random.choice([0] * 9 + [1]) == 1
     ):
-        params.update(random.choice([blob_params, blob_direct_write_params]))
+        params.update(
+            random.choice(
+                [
+                    blob_params,
+                    blob_direct_write_params,
+                    blob_direct_write_get_entity_params,
+                    blob_direct_write_multi_get_entity_params,
+                ]
+            )
+        )
 
     if "compaction_style" not in params:
         # Default to leveled compaction
@@ -1949,6 +2008,8 @@ def main():
         + list(whitebox_simple_default_params.items())
         + list(blob_params.items())
         + list(blob_direct_write_params.items())
+        + list(blob_direct_write_get_entity_params.items())
+        + list(blob_direct_write_multi_get_entity_params.items())
         + list(ts_params.items())
         + list(multiops_txn_params.items())
         + list(best_efforts_recovery_params.items())

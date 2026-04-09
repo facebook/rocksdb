@@ -419,6 +419,10 @@ class CompressorBase : public Compressor {
  public:
   explicit CompressorBase(const CompressionOptions& opts) : opts_(opts) {}
 
+  uint32_t GetRecommendedParallelThreads() const override {
+    return opts_.parallel_threads;
+  }
+
  protected:
   CompressionOptions opts_;
 };
