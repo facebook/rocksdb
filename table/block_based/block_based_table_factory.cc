@@ -430,6 +430,9 @@ static struct BlockBasedTableTypeInfo {
         {"fail_if_no_udi_on_open",
          {offsetof(struct BlockBasedTableOptions, fail_if_no_udi_on_open),
           OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"use_udi_as_primary_index",
+         {offsetof(struct BlockBasedTableOptions, use_udi_as_primary_index),
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
     };
   }
 } block_based_table_type_info;
@@ -757,11 +760,30 @@ Status BlockBasedTableFactory::ValidateOptions(
         "data_block_hash_table_util_ratio should be greater than 0 when "
         "data_block_index_type is set to kDataBlockBinaryAndHash");
   }
-  if (table_options_.user_defined_index_factory &&
-      (cf_opts.compression_opts.parallel_threads > 1 ||
-       cf_opts.bottommost_compression_opts.parallel_threads > 1)) {
+  if (table_options_.user_defined_index_factory) {
+    if (cf_opts.compression_opts.parallel_threads > 1 ||
+        cf_opts.bottommost_compression_opts.parallel_threads > 1) {
+      return Status::InvalidArgument(
+          "user_defined_index_factory not supported with parallel compression");
+    }
+    if (table_options_.use_udi_as_primary_index) {
+      if (table_options_.index_type ==
+          BlockBasedTableOptions::kTwoLevelIndexSearch) {
+        return Status::InvalidArgument(
+            "use_udi_as_primary_index is incompatible with partitioned index "
+            "(kTwoLevelIndexSearch). The UDI wrapper currently only supports "
+            "flat (single-level) index builders.");
+      }
+      if (table_options_.partition_filters) {
+        return Status::InvalidArgument(
+            "use_udi_as_primary_index is incompatible with partitioned "
+            "filters. The UDI wrapper does not support the partitioned "
+            "index/filter layout.");
+      }
+    }
+  } else if (table_options_.use_udi_as_primary_index) {
     return Status::InvalidArgument(
-        "user_defined_index_factory not supported with parallel compression");
+        "use_udi_as_primary_index requires user_defined_index_factory");
   }
   if (db_opts.unordered_write && cf_opts.max_successive_merges > 0) {
     // TODO(myabandeh): support it
@@ -938,6 +960,9 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
            table_options_.user_defined_index_factory == nullptr
                ? "nullptr"
                : table_options_.user_defined_index_factory->Name());
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  use_udi_as_primary_index: %d\n",
+           table_options_.use_udi_as_primary_index);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  fail_if_no_udi_on_open: %d\n",
            table_options_.fail_if_no_udi_on_open);

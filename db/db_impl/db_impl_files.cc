@@ -696,8 +696,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
         if (!keep) {
           const std::string blob_file_path =
               BlobFileName(candidate_file.file_path, number);
-          if (ShouldKeepFooterlessBlobFile(fs_.get(), file_options_,
-                                           blob_file_path)) {
+          if (ShouldKeepBlobFileDuringPurge(number, blob_file_path)) {
             keep = true;
             break;
           }
@@ -860,6 +859,21 @@ void DBImpl::DeleteObsoleteFiles() {
   }
   job_context.Clean();
   mutex_.Lock();
+}
+
+bool DBImpl::ShouldKeepBlobFileDuringPurge(uint64_t number,
+                                           const std::string& blob_file_path) {
+  {
+    InstrumentedMutexLock lock(&mutex_);
+    for (auto* cfd : *versions_->GetColumnFamilySet()) {
+      auto* mgr = cfd->blob_partition_manager();
+      if (mgr != nullptr && mgr->IsTrackedBlobFileNumber(number)) {
+        return true;
+      }
+    }
+  }
+
+  return ShouldKeepFooterlessBlobFile(fs_.get(), file_options_, blob_file_path);
 }
 
 VersionEdit GetDBRecoveryEditForObsoletingMemTables(

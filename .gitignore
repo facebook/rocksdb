@@ -108,3 +108,5 @@ third-party/folly/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+tools/__pycache__/

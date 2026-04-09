@@ -79,44 +79,45 @@ class TrieIndexBuilder final : public UserDefinedIndexBuilder {
   // Finalize the trie and return the serialized index data.
   Status Finish(Slice* index_contents) override;
 
+  // Returns an estimate of the current serialized index size.
+  uint64_t EstimatedSize() const override;
+
  private:
   const Comparator* comparator_;
   LoudsTrieBuilder trie_builder_;
   bool finished_;
 
-  // --- Sequence number handling for same-user-key boundaries ---
+  // --- Sequence number handling ---
   //
-  // When the same user key spans a data block boundary (e.g., "foo"|seq=100
-  // ends block N, "foo"|seq=50 starts block N+1), the trie's
-  // FindShortestSeparator("foo", "foo") returns "foo" — which cannot
-  // distinguish the two blocks. To handle this, we use the same all-or-nothing
-  // strategy as ShortenedIndexBuilder::must_use_separator_with_seq_:
+  // Seqno encoding is always enabled: AddIndexEntry() unconditionally sets
+  // must_use_separator_with_seq_ to true (the unconditional set at the end of
+  // AddIndexEntry()). This means the 8-byte-per-leaf seqno side-table overhead
+  // is always incurred. The flag exists so that Finish() can check it to decide
+  // whether to serialize the seqno side-table (true path) or emit a plain
+  // trie without seqno data (false/else path, only reachable for an empty
+  // trie with zero entries).
   //
-  // - Common case: all separators are user-key-only (zero overhead).
-  // - Rare case (any same-user-key boundary detected): ALL separators include
-  //   an 8-byte encoded seqno suffix. This decision is made at Finish() time.
+  // We buffer all separator entries during building, then at Finish() feed
+  // them to the trie with seqno side-table metadata.
   //
-  // We buffer all separator entries during building, then at Finish() either
-  // feed them to the trie as-is (common case) or re-encode them with seqnos.
-  //
-  // True if any same-user-key block boundary was detected during building.
-  // Once set, never cleared (sticky flag, same as internal index).
+  // Always set to true in AddIndexEntry() — seqno encoding is
+  // unconditionally enabled. The 8-byte per-leaf overhead is always incurred.
   bool must_use_separator_with_seq_;
 
   // Buffered separator entries: (separator_key, tag, handle).
   // The separator_key is the user-key-only separator computed by
-  // FindShortestSeparator. The seqno field stores a packed internal key
-  // tag ((sequence_number << 8) | value_type):
-  //   - For same-user-key boundaries: the tag of last_key
-  //   - For different-user-key boundaries:
-  //     PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek) --
-  //     the same tag the standard index uses for these separators
+  // FindShortestSeparator. The tag field stores:
+  //   - For same-user-key boundaries: the real tag of last_key
+  //   - For the last block: the real tag of last_key
+  //   - For intermediate non-boundary entries: 0 (sentinel)
   struct BufferedEntry {
     std::string separator_key;
     uint64_t tag{};
     TrieBlockHandle handle;
   };
   std::vector<BufferedEntry> buffered_entries_;
+  // Running total of separator key bytes for O(1) EstimatedSize().
+  uint64_t total_separator_bytes_ = 0;
 };
 
 // ============================================================================

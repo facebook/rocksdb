@@ -11,6 +11,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 class BlobFetcher;
+class Cleanable;
 class Comparator;
 class Logger;
 class MergeContext;
@@ -18,6 +19,7 @@ class MergeOperator;
 class PinnableWideColumns;
 class PinnedIteratorsManager;
 class Statistics;
+class Status;
 class SystemClock;
 struct ParsedInternalKey;
 
@@ -194,6 +196,13 @@ class GetContext {
   void push_operand(const Slice& value, Cleanable* value_pinner);
 
  private:
+  Status SaveWideColumnEntityToPinnable(const Slice& user_key,
+                                        const Slice& entity,
+                                        Cleanable* value_pinner);
+  Status SaveWideColumnEntityToColumns(const Slice& user_key,
+                                       const Slice& entity,
+                                       Cleanable* value_pinner);
+
   // Helper method that postprocesses the results of merge operations, e.g. it
   // sets the state correctly upon merge errors.
   void PostprocessMerge(const Status& merge_status);

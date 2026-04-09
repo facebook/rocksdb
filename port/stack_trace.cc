@@ -431,6 +431,9 @@ void RegisterCrashCallback(CrashCallback callback) {
 void InstallStackTraceHandler() {
   // just use the plain old signal as it's simple and sufficient
   // for this use case
+  // Ignore SIGPIPE so that broken-pipe writes (e.g. to a closed stdout)
+  // return EPIPE instead of killing the process.
+  signal(SIGPIPE, SIG_IGN);
   // Crash signals — invoke full stack trace + ring buffer
   signal(SIGILL, StackTraceHandler);
   signal(SIGSEGV, StackTraceHandler);

@@ -46,6 +46,7 @@ struct TablePropertiesNames {
   static const std::string kTopLevelIndexSize;
   static const std::string kIndexKeyIsUserKey;
   static const std::string kIndexValueIsDeltaEncoded;
+  static const std::string kUDIIsPrimaryIndex;
   static const std::string kFilterSize;
   static const std::string kRawKeySize;
   static const std::string kRawValueSize;
@@ -240,6 +241,9 @@ struct TableProperties {
   uint64_t index_key_is_user_key = 0;
   // Whether delta encoding is used to encode the index values.
   uint64_t index_value_is_delta_encoded = 0;
+  // Whether the UDI is the primary index for reads. The standard index is
+  // still fully populated alongside the UDI.
+  uint64_t udi_is_primary_index = 0;
   // the size of filter block.
   uint64_t filter_size = 0;
   // total raw (uncompressed, undelineated) key size

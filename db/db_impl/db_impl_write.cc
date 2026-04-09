@@ -15,6 +15,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
+#include "db/wide/wide_columns_helper.h"
 #include "logging/logging.h"
 #include "memtable/wbwi_memtable.h"
 #include "monitoring/perf_context_imp.h"
@@ -72,6 +73,13 @@ class BlobWriteRollbackGuard {
   bool active_ = true;
 };
 
+class PutEntityFastPathWriteCallback final : public WriteCallback {
+ public:
+  Status Callback(DB* /*db*/) override { return Status::OK(); }
+
+  bool AllowWriteBatching() override { return false; }
+};
+
 }  // namespace
 
 // Convenience methods
@@ -101,18 +109,23 @@ Status DBImpl::PutEntity(const WriteOptions& options,
     return s;
   }
 
-  return DB::PutEntity(options, column_family, key, columns);
+  return PutEntityFastPath(options, column_family, key, columns);
 }
 
 Status DBImpl::PutEntity(const WriteOptions& options, const Slice& key,
                          const AttributeGroups& attribute_groups) {
+  if (attribute_groups.empty()) {
+    return Status::InvalidArgument(
+        "Cannot call this method with empty attribute groups");
+  }
+
   for (const AttributeGroup& ag : attribute_groups) {
     const Status s = FailIfCfHasTs(ag.column_family());
     if (!s.ok()) {
       return s;
     }
   }
-  return DB::PutEntity(options, key, attribute_groups);
+  return PutEntityFastPath(options, key, attribute_groups);
 }
 
 Status DBImpl::Merge(const WriteOptions& o, ColumnFamilyHandle* column_family,
@@ -281,7 +294,7 @@ Status DBImpl::IngestWBWIAsMemtable(
     std::shared_ptr<WriteBatchWithIndex> wbwi,
     const WBWIMemTable::SeqnoRange& assigned_seqno, uint64_t min_prep_log,
     SequenceNumber last_seqno_after_ingest, bool memtable_updated,
-    bool ignore_missing_cf) {
+    bool ingest_wbwi_for_commit, bool ignore_missing_cf) {
   // Keys in new memtable have seqno > last_seqno_after_ingest >= keys in wbwi.
   assert(assigned_seqno.upper_bound <= last_seqno_after_ingest);
   // Keys in the current memtable have seqno <= LastSequence() < keys in wbwi.
@@ -310,8 +323,16 @@ Status DBImpl::IngestWBWIAsMemtable(
           std::to_string(cf_id));
       if (memtable_updated) {
         s = Status::Corruption(
-            "Part of the write batch is applied. Memtable is in a inconsistent "
-            "state. " +
+            "Part of the write batch is applied. Memtable is in an "
+            "inconsistent state due to invalid column family. " +
+            s.ToString());
+        error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
+      } else if (ingest_wbwi_for_commit) {
+        s = Status::Corruption(
+            "Commit marker is durable in WAL, but publishing committed WBWI "
+            "data to memtable failed due to invalid column family. This DB "
+            "instance cannot safely resume; close and reopen the DB for WAL "
+            "recovery. " +
             s.ToString());
         error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
       }
@@ -376,8 +397,16 @@ Status DBImpl::IngestWBWIAsMemtable(
       if (i != 0 || memtable_updated) {
         // escalate error to non-recoverable
         s = Status::Corruption(
-            "Part of the write batch is applied. Memtable is in a inconsistent "
-            "state. " +
+            "Part of the write batch is applied. Memtable is in an "
+            "inconsistent state due to SwitchMemtable failure. " +
+            s.ToString());
+        error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
+      } else if (ingest_wbwi_for_commit) {
+        s = Status::Corruption(
+            "Commit marker is durable in WAL, but publishing committed WBWI "
+            "data to memtable failed due to SwitchMemtable failure. This DB "
+            "instance cannot safely resume; close and reopen the DB for WAL "
+            "recovery. " +
             s.ToString());
         error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
       } else {
@@ -554,7 +583,8 @@ Status DBImpl::MaybeTransformBatchForBlobDirectWrite(
   assert(transformed_storage != nullptr);
   assert(blob_direct_write_ctx != nullptr);
 
-  if (!should_write_to_memtable || *batch == nullptr || !(*batch)->HasPut() ||
+  if (!should_write_to_memtable || *batch == nullptr ||
+      (!(*batch)->HasPut() && !(*batch)->HasPutEntity()) ||
       (*batch)->HasMerge()) {
     return Status::OK();
   }
@@ -595,6 +625,217 @@ Status DBImpl::MaybeTransformBatchForBlobDirectWrite(
         batch_rollbacks.end());
   }
   return Status::OK();
+}
+
+Status DBImpl::AppendPreprocessedPutEntityToBatch(
+    const WriteOptions& write_options, WriteBatch* batch,
+    ColumnFamilyHandle* column_family, const Slice& key,
+    const WideColumns& columns, BlobDirectWriteContext* blob_direct_write_ctx) {
+  assert(batch != nullptr);
+
+  Status s;
+  uint32_t cf_id = 0;
+  size_t ts_sz = 0;
+  std::tie(s, cf_id, ts_sz) =
+      WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(batch,
+                                                            column_family);
+  if (s.ok()) {
+    assert(ts_sz == 0);
+
+    WideColumns sorted_columns(columns);
+    WideColumnsHelper::SortColumns(sorted_columns);
+
+    return AppendSortedPutEntityToBatch(write_options, batch, cf_id, key,
+                                        sorted_columns, blob_direct_write_ctx);
+  }
+  return s;
+}
+
+Status DBImpl::AppendSortedPutEntityToBatch(
+    const WriteOptions& write_options, WriteBatch* batch, uint32_t cf_id,
+    const Slice& key, const WideColumns& sorted_columns,
+    BlobDirectWriteContext* blob_direct_write_ctx) {
+  assert(batch != nullptr);
+
+  Status s;
+  BlobDirectWriteSettings settings;
+  BlobFilePartitionManager* partition_mgr = nullptr;
+  std::vector<BlobWriteBatchTransformer::RollbackInfo>* rollback_infos =
+      nullptr;
+  if (blob_direct_write_ctx != nullptr) {
+    settings = blob_direct_write_ctx->GetSettings(
+        cf_id, /*lookup_from_write_thread=*/false);
+    partition_mgr = blob_direct_write_ctx->GetPartitionManager(
+        cf_id, /*lookup_from_write_thread=*/false);
+    rollback_infos = &blob_direct_write_ctx->rollback_infos;
+  }
+
+  std::string entity;
+  bool transformed = false;
+  s = BlobWriteBatchTransformer::MaybePreprocessWideColumns(
+      write_options, cf_id, key, sorted_columns, partition_mgr, settings,
+      /*serialize_inline_entity=*/true, &entity, &transformed, rollback_infos);
+  if (s.ok()) {
+    if (transformed && blob_direct_write_ctx != nullptr) {
+      blob_direct_write_ctx->touched_managers.insert(partition_mgr);
+    }
+
+    return WriteBatchInternal::PutEntitySerialized(batch, cf_id, key, entity);
+  }
+  return s;
+}
+
+Status DBImpl::PutEntityFastPath(const WriteOptions& write_options,
+                                 ColumnFamilyHandle* column_family,
+                                 const Slice& key, const WideColumns& columns) {
+  const ColumnFamilyHandle* const default_cf = DefaultColumnFamily();
+  assert(default_cf);
+
+  const Comparator* const default_cf_ucmp = default_cf->GetComparator();
+  assert(default_cf_ucmp);
+
+  WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
+                   write_options.protection_bytes_per_key,
+                   default_cf_ucmp->timestamp_size());
+  std::unique_ptr<WriteBatch> trace_batch;
+  bool needs_trace_batch = false;
+  {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    needs_trace_batch = tracer_ != nullptr;
+  }
+  if (needs_trace_batch) {
+    // Keep tracing on the original logical `PutEntity()` op. The applied batch
+    // can stay empty here and be materialized later inside `WriteImpl()`.
+    trace_batch = std::make_unique<WriteBatch>(
+        /*reserved_bytes=*/0, /*max_bytes=*/0,
+        /*protection_bytes_per_key=*/0, default_cf_ucmp->timestamp_size());
+    Status trace_s = trace_batch->PutEntity(column_family, key, columns);
+    if (!trace_s.ok()) {
+      return trace_s;
+    }
+  }
+
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  const bool needs_deferred_transform =
+      cfh->cfd()->blob_partition_manager() != nullptr;
+  std::optional<DeferredPutEntityBatch> deferred_put_entities;
+  if (needs_deferred_transform) {
+    WideColumns sorted_columns(columns);
+    WideColumnsHelper::SortColumns(sorted_columns);
+    deferred_put_entities.emplace();
+    deferred_put_entities->ops.push_back(
+        {cfh->cfd()->GetID(), key.ToString(), std::move(sorted_columns)});
+  } else {
+    Status append_s = AppendPreprocessedPutEntityToBatch(
+        write_options, &batch, column_family, key, columns,
+        /*blob_direct_write_ctx=*/nullptr);
+    if (!append_s.ok()) {
+      return append_s;
+    }
+  }
+
+  Status write_s = WritePreprocessedPutEntityBatch(
+      write_options, &batch, trace_batch ? trace_batch.get() : nullptr,
+      deferred_put_entities ? &deferred_put_entities.value() : nullptr);
+  return write_s;
+}
+
+Status DBImpl::PutEntityFastPath(const WriteOptions& write_options,
+                                 const Slice& key,
+                                 const AttributeGroups& attribute_groups) {
+  ColumnFamilyHandle* default_cf = DefaultColumnFamily();
+  assert(default_cf);
+  const Comparator* const default_cf_ucmp = default_cf->GetComparator();
+  assert(default_cf_ucmp);
+
+  WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
+                   write_options.protection_bytes_per_key,
+                   default_cf_ucmp->timestamp_size());
+  std::unique_ptr<WriteBatch> trace_batch;
+  bool needs_trace_batch = false;
+  {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    needs_trace_batch = tracer_ != nullptr;
+  }
+  if (needs_trace_batch) {
+    // Keep tracing on the original logical `PutEntity()` op. The applied batch
+    // can stay empty here and be materialized later inside `WriteImpl()`.
+    trace_batch = std::make_unique<WriteBatch>(
+        /*reserved_bytes=*/0, /*max_bytes=*/0,
+        /*protection_bytes_per_key=*/0, default_cf_ucmp->timestamp_size());
+    Status trace_s = trace_batch->PutEntity(key, attribute_groups);
+    if (!trace_s.ok()) {
+      return trace_s;
+    }
+  }
+
+  bool needs_deferred_transform = false;
+  for (const AttributeGroup& ag : attribute_groups) {
+    auto* cfh =
+        static_cast_with_check<ColumnFamilyHandleImpl>(ag.column_family());
+    if (cfh->cfd()->blob_partition_manager() != nullptr) {
+      needs_deferred_transform = true;
+      break;
+    }
+  }
+
+  std::optional<DeferredPutEntityBatch> deferred_put_entities;
+  if (needs_deferred_transform) {
+    deferred_put_entities.emplace();
+  }
+
+  for (const AttributeGroup& ag : attribute_groups) {
+    auto* cfh =
+        static_cast_with_check<ColumnFamilyHandleImpl>(ag.column_family());
+    if (deferred_put_entities.has_value()) {
+      WideColumns sorted_columns(ag.columns());
+      WideColumnsHelper::SortColumns(sorted_columns);
+      deferred_put_entities->ops.push_back(
+          {cfh->cfd()->GetID(), key.ToString(), std::move(sorted_columns)});
+      continue;
+    }
+
+    Status append_s = AppendPreprocessedPutEntityToBatch(
+        write_options, &batch, ag.column_family(), key, ag.columns(),
+        /*blob_direct_write_ctx=*/nullptr);
+    if (!append_s.ok()) {
+      return append_s;
+    }
+  }
+
+  Status write_s = WritePreprocessedPutEntityBatch(
+      write_options, &batch, trace_batch ? trace_batch.get() : nullptr,
+      deferred_put_entities ? &deferred_put_entities.value() : nullptr);
+  return write_s;
+}
+
+Status DBImpl::WritePreprocessedPutEntityBatch(
+    const WriteOptions& write_options, WriteBatch* batch,
+    WriteBatch* trace_batch,
+    const DeferredPutEntityBatch* deferred_put_entities) {
+  Status s;
+  if (deferred_put_entities == nullptr &&
+      write_options.protection_bytes_per_key > 0) {
+    s = WriteBatchInternal::UpdateProtectionInfo(
+        batch, write_options.protection_bytes_per_key);
+  }
+  if (s.ok()) {
+    PutEntityFastPathWriteCallback no_batching_callback;
+    WriteCallback* callback =
+        deferred_put_entities != nullptr ? &no_batching_callback : nullptr;
+    // Pass the logical trace batch separately since `batch` may be rebuilt in
+    // `WriteImpl()` after `PreprocessWrite()` selects the target generation.
+    s = WriteImpl(write_options, batch, callback,
+                  /*user_write_cb=*/nullptr,
+                  /*wal_used=*/nullptr, /*log_ref=*/0,
+                  /*disable_memtable=*/false, /*seq_used=*/nullptr,
+                  /*batch_cnt=*/0, /*pre_release_callback=*/nullptr,
+                  /*post_memtable_callback=*/nullptr,
+                  /*wbwi=*/nullptr, trace_batch,
+                  /*skip_blob_direct_write_transform=*/true,
+                  deferred_put_entities);
+  }
+  return s;
 }
 
 Status DBImpl::SyncBlobDirectWriteManagers(
@@ -643,6 +884,8 @@ void DBImpl::MaybeTraceWriteGroupForPreservedWriteOrder(
         WriteBatch* trace_batch = wbwi_trace_batch != nullptr
                                       ? wbwi_trace_batch
                                       : writer->trace_batch;
+        // Preserve user-visible ordering while still tracing the logical batch
+        // for writers whose applied batch was rewritten earlier on the path.
         // TODO: maybe handle the tracing status?
         tracer_->Write(trace_batch).PermitUncheckedError();
       }
@@ -650,14 +893,16 @@ void DBImpl::MaybeTraceWriteGroupForPreservedWriteOrder(
   }
 }
 
-Status DBImpl::WriteImpl(const WriteOptions& write_options,
-                         WriteBatch* my_batch, WriteCallback* callback,
-                         UserWriteCallback* user_write_cb, uint64_t* wal_used,
-                         uint64_t log_ref, bool disable_memtable,
-                         uint64_t* seq_used, size_t batch_cnt,
-                         PreReleaseCallback* pre_release_callback,
-                         PostMemTableCallback* post_memtable_callback,
-                         std::shared_ptr<WriteBatchWithIndex> wbwi) {
+Status DBImpl::WriteImpl(
+    const WriteOptions& write_options, WriteBatch* my_batch,
+    WriteCallback* callback, UserWriteCallback* user_write_cb,
+    uint64_t* wal_used, uint64_t log_ref, bool disable_memtable,
+    uint64_t* seq_used, size_t batch_cnt,
+    PreReleaseCallback* pre_release_callback,
+    PostMemTableCallback* post_memtable_callback,
+    std::shared_ptr<WriteBatchWithIndex> wbwi, WriteBatch* trace_batch_override,
+    bool skip_blob_direct_write_transform,
+    const DBImpl::DeferredPutEntityBatch* deferred_put_entities) {
   assert(!seq_per_batch_ || batch_cnt != 0);
   assert(my_batch == nullptr || my_batch->Count() == 0 ||
          write_options.protection_bytes_per_key == 0 ||
@@ -704,6 +949,12 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         "WriteOptions::disableWAL option is not supported if "
         "DBOptions::recycle_log_file_num > 0");
   }
+  WriteBatch* trace_batch =
+      trace_batch_override != nullptr ? trace_batch_override : my_batch;
+  // Non-preserved-order tracing runs before the write joins a group, so choose
+  // the logical batch here. Preserved-order tracing later uses
+  // `Writer::trace_batch` on each grouped writer.
+
   // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
   // grabs but does not seem thread-safe.
   if (tracer_) {
@@ -713,7 +964,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       // efficient to trace here than to add latency to a phase of the log/apply
       // pipeline.
       // TODO: maybe handle the tracing status?
-      tracer_->Write(my_batch).PermitUncheckedError();
+      tracer_->Write(trace_batch).PermitUncheckedError();
     }
   }
   if (write_options.sync && write_options.disableWAL) {
@@ -794,13 +1045,17 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                             disable_memtable);
   }
 
-  const bool maybe_use_blob_direct_write =
-      wbwi == nullptr && HasAnyBlobDirectWriteColumnFamily();
+  const bool maybe_use_blob_direct_write = wbwi == nullptr &&
+                                           !skip_blob_direct_write_transform &&
+                                           HasAnyBlobDirectWriteColumnFamily();
+  const bool maybe_use_deferred_put_entity =
+      deferred_put_entities != nullptr && wbwi == nullptr &&
+      HasAnyBlobDirectWriteColumnFamily();
   std::optional<WriteBatch> transformed_batch_storage;
   std::optional<std::vector<WriteBatch>> transformed_write_group_batches;
   std::optional<BlobDirectWriteContext> blob_direct_write_ctx;
   std::optional<BlobWriteRollbackGuard> blob_write_rollback_guard;
-  if (maybe_use_blob_direct_write) {
+  if (maybe_use_blob_direct_write || maybe_use_deferred_put_entity) {
     blob_direct_write_ctx.emplace(this);
     blob_write_rollback_guard.emplace(&blob_direct_write_ctx->rollback_infos,
                                       immutable_db_options_.info_log.get());
@@ -811,10 +1066,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     }
     return s;
   };
-  // Ordered query traces should reflect the original user batch even if the
-  // applied batch is rewritten for blob direct write.
-  WriteBatch* trace_batch = my_batch;
-
   if (UNLIKELY(maybe_use_blob_direct_write) &&
       (immutable_db_options_.unordered_write ||
        immutable_db_options_.enable_pipelined_write)) {
@@ -980,6 +1231,27 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   Status pre_release_cb_status;
   size_t seq_inc = 0;
   if (status.ok()) {
+    if (deferred_put_entities != nullptr) {
+      my_batch->Clear();
+      for (const auto& op : deferred_put_entities->ops) {
+        status = AppendSortedPutEntityToBatch(
+            write_options, my_batch, op.column_family_id, op.key,
+            op.sorted_columns,
+            blob_direct_write_ctx ? &blob_direct_write_ctx.value() : nullptr);
+        if (!status.ok()) {
+          break;
+        }
+      }
+      if (status.ok() && write_options.protection_bytes_per_key > 0) {
+        status = WriteBatchInternal::UpdateProtectionInfo(
+            my_batch, write_options.protection_bytes_per_key);
+      }
+      if (status.ok() && blob_direct_write_ctx.has_value()) {
+        status = SyncBlobDirectWriteManagers(write_options,
+                                             blob_direct_write_ctx.value());
+      }
+    }
+
     if (UNLIKELY(maybe_use_blob_direct_write) &&
         !immutable_db_options_.unordered_write &&
         !immutable_db_options_.enable_pipelined_write) {
@@ -1153,6 +1425,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       }
     }
 
+    if (status.ok()) {
+      MaybeTraceWriteGroupForPreservedWriteOrder(write_group, wbwi.get(),
+                                                 ingest_wbwi_for_commit);
+    }
+
     // PreReleaseCallback is called after WAL write and before memtable write
     if (status.ok()) {
       SequenceNumber next_sequence = current_sequence;
@@ -1260,11 +1537,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       if (two_write_queues_) {
         assert(ub <= versions_->LastAllocatedSequence());
       }
-      status =
-          IngestWBWIAsMemtable(wbwi, {/*lower_bound=*/lb, /*upper_bound=*/ub},
-                               /*min_prep_log=*/log_ref, last_sequence,
-                               /*memtable_updated=*/memtable_update_count > 0,
-                               write_options.ignore_missing_column_families);
+      status = IngestWBWIAsMemtable(
+          wbwi, {/*lower_bound=*/lb, /*upper_bound=*/ub},
+          /*min_prep_log=*/log_ref, last_sequence,
+          /*memtable_updated=*/memtable_update_count > 0,
+          ingest_wbwi_for_commit, write_options.ignore_missing_column_families);
       RecordTick(stats_, NUMBER_WBWI_INGEST);
     }
   }
@@ -1284,8 +1561,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       // Note: if we are to resume after non-OK statuses we need to revisit how
       // we react to non-OK statuses here.
       if (w.status.ok()) {  // Don't publish a partial batch write
-        MaybeTraceWriteGroupForPreservedWriteOrder(write_group, wbwi.get(),
-                                                   ingest_wbwi_for_commit);
         versions_->SetLastSequence(last_sequence);
       }
     }
@@ -1419,6 +1694,9 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       const ReadOptions read_options;
       w.status = ApplyWALToManifest(read_options, write_options, &synced_wals);
     }
+    if (w.status.ok()) {
+      MaybeTraceWriteGroupForPreservedWriteOrder(wal_write_group);
+    }
     write_thread_.ExitAsBatchGroupLeader(wal_write_group, w.status);
   }
 
@@ -1443,7 +1721,6 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
           seq_per_batch_, batch_per_txn_);
       if (memtable_write_group.status
               .ok()) {  // Don't publish a partial batch write
-        MaybeTraceWriteGroupForPreservedWriteOrder(memtable_write_group);
         versions_->SetLastSequence(memtable_write_group.last_sequence);
       } else {
         HandleMemTableInsertFailure(memtable_write_group.status);
@@ -1477,7 +1754,6 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
 
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {
       if (w.status.ok()) {  // Don't publish a partial batch write
-        MaybeTraceWriteGroupForPreservedWriteOrder(*w.write_group);
         versions_->SetLastSequence(w.write_group->last_sequence);
       } else {
         HandleMemTableInsertFailure(w.status);
@@ -1713,6 +1989,13 @@ Status DBImpl::WriteImplWALOnly(
       status = SyncWAL();
     }
   }
+  if (status.ok()) {
+    // Write trace  after WAL right. This ensures the replayer does not replay a
+    // record that has not been recorded in the DB. However, it is not a full
+    // solution as a crash may still happen before the trace write and after the
+    // WAL write. TODO: Atomically write WAL and trace.
+    MaybeTraceWriteGroupForPreservedWriteOrder(write_group);
+  }
   PERF_TIMER_START(write_pre_and_post_process_time);
 
   if (!w.CallbackFailed()) {
@@ -1732,9 +2015,6 @@ Status DBImpl::WriteImplWALOnly(
         }
       }
     }
-  }
-  if (status.ok()) {
-    MaybeTraceWriteGroupForPreservedWriteOrder(write_group);
   }
   if (publish_last_seq == kDoPublishLastSeq) {
     versions_->SetLastSequence(last_sequence + seq_inc);
@@ -2884,6 +3164,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
     // of mutable_cf_options.write_buffer_size.
     io_s = CreateWAL(write_options, new_log_number, recycle_log_number,
                      preallocate_block_size, info, &new_log);
+    TEST_SYNC_POINT_CALLBACK("DBImpl::SwitchMemtable:AfterCreateWAL", &io_s);
     if (s.ok()) {
       s = io_s;
     }

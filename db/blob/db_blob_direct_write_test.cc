@@ -25,6 +25,7 @@
 #include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
+#include "db/wide/wide_column_test_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
 #include "port/stack_trace.h"
@@ -40,6 +41,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class FixedBlobDirectWritePartitionStrategy : public BlobFilePartitionStrategy {
  public:
+  using BlobFilePartitionStrategy::SelectPartition;
+
   explicit FixedBlobDirectWritePartitionStrategy(uint32_t partition)
       : partition_(partition) {}
 
@@ -60,6 +63,8 @@ class FixedBlobDirectWritePartitionStrategy : public BlobFilePartitionStrategy {
 class RecordingBlobDirectWritePartitionStrategy
     : public BlobFilePartitionStrategy {
  public:
+  using BlobFilePartitionStrategy::SelectPartition;
+
   struct Call {
     uint32_t num_partitions = 0;
     uint32_t column_family_id = 0;
@@ -102,20 +107,12 @@ class DBBlobDirectWriteTest : public DBTestBase {
       : DBTestBase("db_blob_direct_write_test", /* env_do_fsync */ false) {}
 
   Options GetBlobDirectWriteCompatibleOptions() {
-    Options options = GetDefaultOptions();
-    // `allow_concurrent_memtable_write` is a DB option, so mixed-CF tests must
-    // open the DB with it disabled before creating or reopening a BDW CF.
-    options.allow_concurrent_memtable_write = false;
-    return options;
+    return wide_column_test_util::GetBlobDirectWriteCompatibleOptions(
+        GetDefaultOptions());
   }
 
   Options GetDirectWriteOptions() {
-    Options options = GetBlobDirectWriteCompatibleOptions();
-    options.enable_blob_files = true;
-    options.enable_blob_direct_write = true;
-    options.min_blob_size = 32;
-    options.blob_direct_write_partitions = 1;
-    return options;
+    return wide_column_test_util::GetDirectWriteOptions(GetDefaultOptions());
   }
 
   size_t CountBlobFiles() {
@@ -129,25 +126,6 @@ class DBBlobDirectWriteTest : public DBTestBase {
       }
     }
     return blob_files;
-  }
-
-  std::vector<uint64_t> GetBlobFileNumbers() {
-    std::vector<std::string> files;
-    EXPECT_OK(env_->GetChildren(dbname_, &files));
-
-    std::vector<uint64_t> blob_file_numbers;
-    for (const auto& file : files) {
-      uint64_t file_number = 0;
-      FileType type;
-      if (ParseFileName(file, &file_number, /*info_log_name_prefix=*/"",
-                        &type) &&
-          type == kBlobFile) {
-        blob_file_numbers.push_back(file_number);
-      }
-    }
-
-    std::sort(blob_file_numbers.begin(), blob_file_numbers.end());
-    return blob_file_numbers;
   }
 
   Status ReadBlobFileHeader(uint64_t blob_file_number, BlobLogHeader* header) {
@@ -556,7 +534,6 @@ TEST_F(DBBlobDirectWriteTest,
   ASSERT_OK(db_->DestroyColumnFamilyHandle(first_cfh));
   ASSERT_OK(db_->DestroyColumnFamilyHandle(second_cfh));
 }
-
 TEST_F(DBBlobDirectWriteTest,
        DirectWriteCloseFlushesWhenShutdownFlushIsDisabled) {
   Options options = GetDefaultOptions();

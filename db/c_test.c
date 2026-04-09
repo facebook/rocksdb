@@ -2796,21 +2796,18 @@ int main(int argc, char** argv) {
     }
 
     {
-      char* input_file_names[2] = {NULL, NULL};
+      char* input_file_name = NULL;
       rocksdb_compaction_options_t* compaction_options =
           rocksdb_compaction_options_create();
       rocksdb_compactionjobinfo_t* compaction_info =
           rocksdb_compactionjobinfo_create();
-      rocksdb_flushoptions_t* overlap_flush_options =
-          rocksdb_flushoptions_create();
       unsigned char* canceled = rocksdb_compaction_options_canceled_create();
       char** output_files = NULL;
-      const char overlap_start[] = "zz-manual-overlap-a";
-      const char overlap_end[] = "zz-manual-overlap-z";
-      size_t input_file_count = 0;
       size_t num_output_files = 0;
       rocksdb_column_family_metadata_t* cf_meta =
           rocksdb_get_column_family_metadata_cf(db, handles[1]);
+      size_t level_count =
+          rocksdb_column_family_metadata_get_level_count(cf_meta);
 
       rocksdb_compaction_options_set_compression(compaction_options, 0);
       CheckCondition(
@@ -2831,68 +2828,32 @@ int main(int argc, char** argv) {
       rocksdb_compaction_options_set_allow_trivial_move(compaction_options, 1);
       CheckCondition(1 == rocksdb_compaction_options_get_allow_trivial_move(
                               compaction_options));
-      rocksdb_flushoptions_set_wait(overlap_flush_options, 1);
+      rocksdb_compaction_options_set_allow_trivial_move(compaction_options, 0);
+      CheckCondition(0 == rocksdb_compaction_options_get_allow_trivial_move(
+                              compaction_options));
       rocksdb_compaction_options_canceled_set(canceled, 0);
       rocksdb_compaction_options_set_canceled(compaction_options, canceled);
 
-      // Force a non-trivial compaction so CompactionJobInfo is populated.
-      rocksdb_flush_cf(db, overlap_flush_options, handles[1], &err);
-      CheckNoError(err);
-
-      rocksdb_put_cf(db, woptions, handles[1], overlap_start,
-                     sizeof(overlap_start) - 1, "v1", 2, &err);
-      CheckNoError(err);
-      rocksdb_put_cf(db, woptions, handles[1], overlap_end,
-                     sizeof(overlap_end) - 1, "v1", 2, &err);
-      CheckNoError(err);
-      rocksdb_flush_cf(db, overlap_flush_options, handles[1], &err);
-      CheckNoError(err);
-
-      rocksdb_put_cf(db, woptions, handles[1], overlap_start,
-                     sizeof(overlap_start) - 1, "v2", 2, &err);
-      CheckNoError(err);
-      rocksdb_put_cf(db, woptions, handles[1], overlap_end,
-                     sizeof(overlap_end) - 1, "v2", 2, &err);
-      CheckNoError(err);
-      rocksdb_flush_cf(db, overlap_flush_options, handles[1], &err);
-      CheckNoError(err);
-
-      rocksdb_column_family_metadata_destroy(cf_meta);
-      cf_meta = rocksdb_get_column_family_metadata_cf(db, handles[1]);
-      {
+      for (size_t l = 0; l < level_count && input_file_name == NULL; ++l) {
         rocksdb_level_metadata_t* level_meta =
-            rocksdb_column_family_metadata_get_level_metadata(cf_meta, 0);
+            rocksdb_column_family_metadata_get_level_metadata(cf_meta, l);
         size_t file_count = rocksdb_level_metadata_get_file_count(level_meta);
-        for (size_t f = 0; f < file_count && input_file_count < 2; ++f) {
+        if (file_count > 0) {
           rocksdb_sst_file_metadata_t* file_meta =
-              rocksdb_level_metadata_get_sst_file_metadata(level_meta, f);
-          size_t smallest_key_len = 0;
-          size_t largest_key_len = 0;
-          char* smallest_key = rocksdb_sst_file_metadata_get_smallestkey(
-              file_meta, &smallest_key_len);
-          char* largest_key = rocksdb_sst_file_metadata_get_largestkey(
-              file_meta, &largest_key_len);
-          if (smallest_key_len == sizeof(overlap_start) - 1 &&
-              largest_key_len == sizeof(overlap_end) - 1 &&
-              memcmp(smallest_key, overlap_start, sizeof(overlap_start) - 1) ==
-                  0 &&
-              memcmp(largest_key, overlap_end, sizeof(overlap_end) - 1) == 0) {
-            input_file_names[input_file_count++] =
-                rocksdb_sst_file_metadata_get_relative_filename(file_meta);
-          }
-          rocksdb_free(smallest_key);
-          rocksdb_free(largest_key);
+              rocksdb_level_metadata_get_sst_file_metadata(level_meta, 0);
+          input_file_name =
+              rocksdb_sst_file_metadata_get_relative_filename(file_meta);
           rocksdb_sst_file_metadata_destroy(file_meta);
         }
         rocksdb_level_metadata_destroy(level_meta);
       }
-      CheckCondition(input_file_count == 2);
+      CheckCondition(input_file_name != NULL);
 
       {
-        const char* input_files[2] = {input_file_names[0], input_file_names[1]};
-        rocksdb_compact_files_cf(
-            db, handles[1], compaction_options, input_files, input_file_count,
-            1, -1, &output_files, &num_output_files, compaction_info, &err);
+        const char* input_files[1] = {input_file_name};
+        rocksdb_compact_files_cf(db, handles[1], compaction_options,
+                                 input_files, 1, 1, -1, &output_files,
+                                 &num_output_files, compaction_info, &err);
       }
       CheckNoError(err);
       CheckCondition(output_files != NULL);
@@ -2901,13 +2862,11 @@ int main(int argc, char** argv) {
 
       rocksdb_compact_files_output_file_names_destroy(output_files,
                                                       num_output_files);
-      rocksdb_flushoptions_destroy(overlap_flush_options);
       rocksdb_compaction_options_canceled_destroy(canceled);
       rocksdb_compactionjobinfo_destroy(compaction_info);
       rocksdb_compaction_options_destroy(compaction_options);
       rocksdb_column_family_metadata_destroy(cf_meta);
-      Free(&input_file_names[0]);
-      Free(&input_file_names[1]);
+      Free(&input_file_name);
     }
 
     {
@@ -2920,6 +2879,9 @@ int main(int argc, char** argv) {
       rocksdb_pause_background_work(db, &err);
       CheckNoError(err);
       rocksdb_continue_background_work(db, &err);
+      CheckNoError(err);
+
+      rocksdb_put_cf(db, woptions, handles[1], "walkeep", 7, "1", 1, &err);
       CheckNoError(err);
 
       rocksdb_disable_file_deletions(db, &err);
