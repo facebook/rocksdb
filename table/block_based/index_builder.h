@@ -19,6 +19,7 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_builder.h"
 #include "table/block_based/flush_block_policy_impl.h"
+#include "table/block_based/partition_coordinator.h"
 #include "table/format.h"
 #include "util/atomic.h"
 
@@ -665,7 +666,8 @@ class HashIndexBuilder : public IndexBuilder {
  * containing a secondary index on the partitions, built using
  * ShortenedIndexBuilder.
  */
-class PartitionedIndexBuilder : public IndexBuilder {
+class PartitionedIndexBuilder : public IndexBuilder,
+                                public PartitionCoordinator {
  public:
   static PartitionedIndexBuilder* CreateIndexBuilder(
       const InternalKeyComparator* comparator, bool use_value_delta_encoding,
@@ -710,7 +712,7 @@ class PartitionedIndexBuilder : public IndexBuilder {
     return estimated_index_size_.LoadRelaxed();
   }
 
-  inline bool ShouldCutFilterBlock() {
+  inline bool ShouldCutFilterBlock() override {
     // Current policy is to align the partitions of index and filters
     if (cut_filter_block) {
       cut_filter_block = false;
@@ -719,14 +721,14 @@ class PartitionedIndexBuilder : public IndexBuilder {
     return false;
   }
 
-  const std::string& GetPartitionKey() {
+  const std::string& GetPartitionKey() override {
     static const std::string kEmptyKey;
     return entries_.empty() ? kEmptyKey : entries_.back().key;
   }
 
   // Called when an external entity (such as filter partition builder) request
   // cutting the next partition
-  void RequestPartitionCut();
+  void RequestPartitionCut() override;
 
   // This function must be thread safe because multiple worker threads might
   // update the index builder state during parallel compression.
