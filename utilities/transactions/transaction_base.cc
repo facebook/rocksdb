@@ -920,38 +920,84 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
       assert(dynamic_cast<TransactionBaseImpl*>(txn_) != nullptr);
     }
 
+    Status GetColumnFamilyHandle(uint32_t cf,
+                                 std::unique_ptr<ColumnFamilyHandle>* cfh) {
+      assert(cfh != nullptr);
+      *cfh = db_->GetColumnFamilyHandleUnlocked(cf);
+      if (*cfh == nullptr) {
+        return Status::InvalidArgument(
+            "Invalid column family specified in write batch");
+      }
+      return Status::OK();
+    }
+
+    Slice GetUserKey(ColumnFamilyHandle* cfh, const Slice& key) {
+      assert(cfh != nullptr);
+      const Comparator* ucmp = cfh->GetComparator();
+      assert(ucmp != nullptr);
+      size_t ts_sz = ucmp->timestamp_size();
+      if (ts_sz == 0) {
+        return key;
+      }
+      assert(key.size() >= ts_sz);
+      return Slice(key.data(), key.size() - ts_sz);
+    }
+
     Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
-      Slice user_key = GetUserKey(cf, key);
-      return txn_->Put(db_->GetColumnFamilyHandle(cf), user_key, val);
+      std::unique_ptr<ColumnFamilyHandle> cfh;
+      Status s = GetColumnFamilyHandle(cf, &cfh);
+      if (!s.ok()) {
+        return s;
+      }
+      Slice user_key = GetUserKey(cfh.get(), key);
+      return txn_->Put(cfh.get(), user_key, val);
     }
 
     Status PutEntityCF(uint32_t cf, const Slice& key,
                        const Slice& entity) override {
-      Slice user_key = GetUserKey(cf, key);
-      Slice entity_copy = entity;
-      WideColumns columns;
-      const Status s =
-          WideColumnSerialization::Deserialize(entity_copy, columns);
+      std::unique_ptr<ColumnFamilyHandle> cfh;
+      Status s = GetColumnFamilyHandle(cf, &cfh);
       if (!s.ok()) {
         return s;
       }
-
-      return txn_->PutEntity(db_->GetColumnFamilyHandle(cf), user_key, columns);
+      Slice user_key = GetUserKey(cfh.get(), key);
+      Slice entity_copy = entity;
+      WideColumns columns;
+      s = WideColumnSerialization::Deserialize(entity_copy, columns);
+      if (!s.ok()) {
+        return s;
+      }
+      return txn_->PutEntity(cfh.get(), user_key, columns);
     }
 
     Status DeleteCF(uint32_t cf, const Slice& key) override {
-      Slice user_key = GetUserKey(cf, key);
-      return txn_->Delete(db_->GetColumnFamilyHandle(cf), user_key);
+      std::unique_ptr<ColumnFamilyHandle> cfh;
+      Status s = GetColumnFamilyHandle(cf, &cfh);
+      if (!s.ok()) {
+        return s;
+      }
+      Slice user_key = GetUserKey(cfh.get(), key);
+      return txn_->Delete(cfh.get(), user_key);
     }
 
     Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
-      Slice user_key = GetUserKey(cf, key);
-      return txn_->SingleDelete(db_->GetColumnFamilyHandle(cf), user_key);
+      std::unique_ptr<ColumnFamilyHandle> cfh;
+      Status s = GetColumnFamilyHandle(cf, &cfh);
+      if (!s.ok()) {
+        return s;
+      }
+      Slice user_key = GetUserKey(cfh.get(), key);
+      return txn_->SingleDelete(cfh.get(), user_key);
     }
 
     Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
-      Slice user_key = GetUserKey(cf, key);
-      return txn_->Merge(db_->GetColumnFamilyHandle(cf), user_key, val);
+      std::unique_ptr<ColumnFamilyHandle> cfh;
+      Status s = GetColumnFamilyHandle(cf, &cfh);
+      if (!s.ok()) {
+        return s;
+      }
+      Slice user_key = GetUserKey(cfh.get(), key);
+      return txn_->Merge(cfh.get(), user_key, val);
     }
 
     // this is used for reconstructing prepared transactions upon
@@ -973,21 +1019,6 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
 
     Status MarkRollback(const Slice&) override {
       return Status::InvalidArgument();
-    }
-    size_t GetTimestampSize(uint32_t cf_id) {
-      auto cfd = db_->versions_->GetColumnFamilySet()->GetColumnFamily(cf_id);
-      const Comparator* ucmp = cfd->user_comparator();
-      assert(ucmp);
-      return ucmp->timestamp_size();
-    }
-
-    Slice GetUserKey(uint32_t cf_id, const Slice& key) {
-      size_t ts_sz = GetTimestampSize(cf_id);
-      if (ts_sz == 0) {
-        return key;
-      }
-      assert(key.size() >= ts_sz);
-      return Slice(key.data(), key.size() - ts_sz);
     }
   };
 

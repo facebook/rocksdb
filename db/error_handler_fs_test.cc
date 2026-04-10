@@ -439,8 +439,10 @@ TEST_F(DBErrorHandlingFSTest, FlushWALWriteRetryableError) {
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs_->SetFilesystemActive(true);
-  auto cfh = dbfull()->GetColumnFamilyHandle(1);
-  s = dbfull()->DropColumnFamily(cfh);
+  auto cfh = dbfull()->GetColumnFamilyHandleUnlocked(1);
+  ASSERT_NE(cfh, nullptr);
+  s = dbfull()->DropColumnFamily(cfh.get());
+  cfh.reset();
 
   s = dbfull()->Resume();
   ASSERT_OK(s);
@@ -484,8 +486,10 @@ TEST_F(DBErrorHandlingFSTest, FlushWALAtomicWriteRetryableError) {
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs_->SetFilesystemActive(true);
-  auto cfh = dbfull()->GetColumnFamilyHandle(1);
-  s = dbfull()->DropColumnFamily(cfh);
+  auto cfh = dbfull()->GetColumnFamilyHandleUnlocked(1);
+  ASSERT_NE(cfh, nullptr);
+  s = dbfull()->DropColumnFamily(cfh.get());
+  cfh.reset();
 
   s = dbfull()->Resume();
   ASSERT_OK(s);

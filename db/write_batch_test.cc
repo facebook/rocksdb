@@ -1235,17 +1235,28 @@ namespace {
 class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
  public:
   explicit ColumnFamilyHandleImplDummy(int id)
-      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr), id_(id) {}
+      : ColumnFamilyHandleImpl(DetachedHandleTag{}), id_(id) {}
   explicit ColumnFamilyHandleImplDummy(int id, const Comparator* ucmp)
-      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr),
-        id_(id),
-        ucmp_(ucmp) {}
+      : ColumnFamilyHandleImpl(DetachedHandleTag{}), id_(id), ucmp_(ucmp) {}
+  ColumnFamilyData* cfd() const override { return nullptr; }
+  DBImpl* db() const override { return nullptr; }
+  InstrumentedMutex* mutex() const override { return nullptr; }
+  const std::shared_ptr<ColumnFamilyLease>& lease() const override {
+    static const std::shared_ptr<ColumnFamilyLease> kNoLease;
+    return kNoLease;
+  }
+  const std::string& GetName() const override { return name_; }
+  Status GetDescriptor(ColumnFamilyDescriptor* desc) override {
+    *desc = ColumnFamilyDescriptor(name_, ColumnFamilyOptions());
+    return Status::OK();
+  }
   uint32_t GetID() const override { return id_; }
   const Comparator* GetComparator() const override { return ucmp_; }
 
  private:
   uint32_t id_;
   const Comparator* const ucmp_ = BytewiseComparator();
+  const std::string name_ = "dummy";
 };
 }  // anonymous namespace
 

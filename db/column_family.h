@@ -205,15 +205,21 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
   // destroy without mutex
   virtual ~ColumnFamilyHandleImpl();
   virtual ColumnFamilyData* cfd() const {
-    return lease_ != nullptr ? lease_->cfd() : nullptr;
+    assert(lease_ != nullptr);
+    return lease_->cfd();
   }
   virtual DBImpl* db() const {
-    return lease_ != nullptr ? lease_->db() : nullptr;
+    assert(lease_ != nullptr);
+    return lease_->db();
   }
-  InstrumentedMutex* mutex() const {
-    return lease_ != nullptr ? lease_->mutex() : nullptr;
+  virtual InstrumentedMutex* mutex() const {
+    assert(lease_ != nullptr);
+    return lease_->mutex();
   }
-  const std::shared_ptr<ColumnFamilyLease>& lease() const { return lease_; }
+  virtual const std::shared_ptr<ColumnFamilyLease>& lease() const {
+    assert(lease_ != nullptr);
+    return lease_;
+  }
 
   uint32_t GetID() const override;
   const std::string& GetName() const override;
@@ -222,25 +228,12 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
 
  private:
   std::shared_ptr<ColumnFamilyLease> lease_;
-};
 
-// Does not ref-count ColumnFamilyData
-// We use this dummy ColumnFamilyHandleImpl because sometimes MemTableInserter
-// calls DBImpl methods. When this happens, MemTableInserter need access to
-// ColumnFamilyHandle (same as the client would need). In that case, we feed
-// MemTableInserter dummy ColumnFamilyHandle and enable it to call DBImpl
-// methods
-class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
- public:
-  ColumnFamilyHandleInternal()
-      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr),
-        internal_cfd_(nullptr) {}
-
-  void SetCFD(ColumnFamilyData* _cfd) { internal_cfd_ = _cfd; }
-  ColumnFamilyData* cfd() const override { return internal_cfd_; }
-
- private:
-  ColumnFamilyData* internal_cfd_;
+ protected:
+  // Only for detached test doubles that need the ColumnFamilyHandleImpl type
+  // without a backing CFD lease.
+  struct DetachedHandleTag {};
+  explicit ColumnFamilyHandleImpl(DetachedHandleTag) {}
 };
 
 // Releases a ref() held on ColumnFamilyData using the same drop cleanup path
@@ -988,11 +981,6 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
   //           under a DB mutex OR from a write thread
   MemTable* GetMemTable() const override;
 
-  // Returns column family handle for the selected column family
-  // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
-  //           under a DB mutex OR from a write thread
-  ColumnFamilyHandle* GetColumnFamilyHandle() override;
-
   // Cannot be called while another thread is calling Seek().
   // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
   //           under a DB mutex OR from a write thread
@@ -1001,7 +989,6 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
  private:
   ColumnFamilySet* column_family_set_;
   ColumnFamilyData* current_;
-  ColumnFamilyHandleInternal handle_;
 };
 
 uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family);

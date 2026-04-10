@@ -61,11 +61,11 @@ ColumnFamilyLease::~ColumnFamilyLease() {
 ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(
     ColumnFamilyData* column_family_data, DBImpl* db, InstrumentedMutex* mutex)
     : lease_() {
-  if (column_family_data != nullptr) {
-    assert(db != nullptr);
-    assert(mutex != nullptr);
-    lease_ = column_family_data->GetOrCreateLease(db, mutex);
-  }
+  assert(column_family_data != nullptr);
+  assert(db != nullptr);
+  assert(mutex != nullptr);
+  lease_ = column_family_data->GetOrCreateLease(db, mutex);
+  assert(lease_ != nullptr);
 }
 
 void ReleaseColumnFamilyDataReference(ColumnFamilyData* cfd, DBImpl* db,
@@ -1988,7 +1988,6 @@ bool ColumnFamilyMemTablesImpl::Seek(uint32_t column_family_id) {
   } else {
     current_ = column_family_set_->GetColumnFamily(column_family_id);
   }
-  handle_.SetCFD(current_);
   return current_ != nullptr;
 }
 
@@ -2000,11 +1999,6 @@ uint64_t ColumnFamilyMemTablesImpl::GetLogNumber() const {
 MemTable* ColumnFamilyMemTablesImpl::GetMemTable() const {
   assert(current_ != nullptr);
   return current_->mem();
-}
-
-ColumnFamilyHandle* ColumnFamilyMemTablesImpl::GetColumnFamilyHandle() {
-  assert(current_ != nullptr);
-  return &handle_;
 }
 
 uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family) {

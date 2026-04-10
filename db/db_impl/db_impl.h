@@ -711,6 +711,15 @@ class DBImpl : public DB {
                  ColumnFamilyHandle* column_family, const Slice& key,
                  PinnableSlice* value, std::string* timestamp);
 
+  Status GetByColumnFamilyData(const ReadOptions& read_options,
+                               ColumnFamilyData* cfd, const Slice& key,
+                               PinnableSlice* value,
+                               std::string* timestamp = nullptr);
+
+  Status GetEntityByColumnFamilyData(const ReadOptions& read_options,
+                                     ColumnFamilyData* cfd, const Slice& key,
+                                     PinnableWideColumns* columns);
+
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
   // This function is also called by GetMergeOperands
@@ -720,6 +729,10 @@ class DBImpl : public DB {
   // get_impl_options.key via get_impl_options.merge_operands
   virtual Status GetImpl(const ReadOptions& options, const Slice& key,
                          GetImplOptions& get_impl_options);
+
+  Status GetImpl(const ReadOptions& options, const Slice& key,
+                 GetImplOptions& get_impl_options,
+                 ColumnFamilyData* column_family_data);
 
   // If `snapshot` == kMaxSequenceNumber, set a recent one inside the file.
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
@@ -964,11 +977,6 @@ class DBImpl : public DB {
   // nullptr will be returned if this column family no longer exists.
   // REQUIRED: this function should only be called on the write thread.
   void ReturnAndCleanupSuperVersion(uint32_t colun_family_id, SuperVersion* sv);
-
-  // REQUIRED: this function should only be called on the write thread or if the
-  // mutex is held.  Return value only valid until next call to this function or
-  // mutex is released.
-  ColumnFamilyHandle* GetColumnFamilyHandle(uint32_t column_family_id);
 
   // Same as above, should called without mutex held and not on write thread.
   std::unique_ptr<ColumnFamilyHandle> GetColumnFamilyHandleUnlocked(
@@ -1826,8 +1834,10 @@ class DBImpl : public DB {
   void SetDbSessionId();
 
   Status FailIfCfHasTs(const ColumnFamilyHandle* column_family) const;
+  Status FailIfCfHasTs(const ColumnFamilyData* cfd) const;
   Status FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
                             const Slice& ts) const;
+  Status FailIfTsMismatchCf(const ColumnFamilyData* cfd, const Slice& ts) const;
 
   // Check that the read timestamp `ts` is at or above the `full_history_ts_low`
   // timestamp in a `SuperVersion`. It's necessary to do this check after
@@ -3518,6 +3528,21 @@ inline Status DBImpl::FailIfCfHasTs(
   return Status::OK();
 }
 
+inline Status DBImpl::FailIfCfHasTs(const ColumnFamilyData* cfd) const {
+  if (cfd == nullptr) {
+    return Status::InvalidArgument("column family data cannot be null");
+  }
+  const Comparator* const ucmp = cfd->user_comparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() > 0) {
+    std::ostringstream oss;
+    oss << "cannot call this method on column family " << cfd->GetName()
+        << " that enables timestamp";
+    return Status::InvalidArgument(oss.str());
+  }
+  return Status::OK();
+}
+
 inline Status DBImpl::FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
                                          const Slice& ts) const {
   if (!column_family) {
@@ -3537,6 +3562,29 @@ inline Status DBImpl::FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
     std::stringstream oss;
     oss << "Timestamp sizes mismatch: expect " << ucmp->timestamp_size() << ", "
         << ts_sz << " given";
+    return Status::InvalidArgument(oss.str());
+  }
+  return Status::OK();
+}
+
+inline Status DBImpl::FailIfTsMismatchCf(const ColumnFamilyData* cfd,
+                                         const Slice& ts) const {
+  if (cfd == nullptr) {
+    return Status::InvalidArgument("column family data cannot be null");
+  }
+  const Comparator* const ucmp = cfd->user_comparator();
+  assert(ucmp);
+  if (0 == ucmp->timestamp_size()) {
+    std::stringstream oss;
+    oss << "cannot call this method on column family " << cfd->GetName()
+        << " that does not enable timestamp";
+    return Status::InvalidArgument(oss.str());
+  }
+  const size_t ts_sz = ts.size();
+  if (ts_sz != ucmp->timestamp_size()) {
+    std::stringstream oss;
+    oss << "Timestamp sizes mismatch: expect " << ucmp->timestamp_size() << ", "
+        << "got " << ts_sz;
     return Status::InvalidArgument(oss.str());
   }
   return Status::OK();

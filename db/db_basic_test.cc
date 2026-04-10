@@ -1478,9 +1478,11 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
         }
         if (get_sv_count == 11) {
           for (int i = 0; i < 8; ++i) {
-            auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
-                            db->GetColumnFamilyHandle(i))
-                            ->cfd();
+            auto cfh = db->GetColumnFamilyHandleUnlocked(i);
+            ASSERT_NE(cfh, nullptr);
+            auto* cfd =
+                static_cast_with_check<ColumnFamilyHandleImpl>(cfh.get())
+                    ->cfd();
             ASSERT_EQ(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
           }
         }
@@ -1532,9 +1534,10 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
   ASSERT_EQ(values[2], std::get<2>(cf_kv_vec[1]) + "_2");
 
   for (int cf = 0; cf < 8; ++cf) {
-    auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
-                    dbfull()->GetColumnFamilyHandle(cf))
-                    ->cfd();
+    auto cfh = dbfull()->GetColumnFamilyHandleUnlocked(cf);
+    ASSERT_NE(cfh, nullptr);
+    auto* cfd =
+        static_cast_with_check<ColumnFamilyHandleImpl>(cfh.get())->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
   }
@@ -1620,9 +1623,10 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
               "cf" + std::to_string(j) + "_val" + std::to_string(retries));
   }
   for (int i = 0; i < 8; ++i) {
-    auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
-                    dbfull()->GetColumnFamilyHandle(i))
-                    ->cfd();
+    auto cfh = dbfull()->GetColumnFamilyHandleUnlocked(i);
+    ASSERT_NE(cfh, nullptr);
+    auto* cfd =
+        static_cast_with_check<ColumnFamilyHandleImpl>(cfh.get())->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
   }
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -1658,9 +1662,11 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
         }
         if (get_sv_count == 8) {
           for (int i = 0; i < 8; ++i) {
-            auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
-                            db->GetColumnFamilyHandle(i))
-                            ->cfd();
+            auto cfh = db->GetColumnFamilyHandleUnlocked(i);
+            ASSERT_NE(cfh, nullptr);
+            auto* cfd =
+                static_cast_with_check<ColumnFamilyHandleImpl>(cfh.get())
+                    ->cfd();
             ASSERT_TRUE(
                 (cfd->TEST_GetLocalSV()->Get() == SuperVersion::kSVInUse) ||
                 (cfd->TEST_GetLocalSV()->Get() == SuperVersion::kSVObsolete));
@@ -1687,9 +1693,10 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
     ASSERT_EQ(values[j], "cf" + std::to_string(j) + "_val");
   }
   for (int i = 0; i < 8; ++i) {
-    auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
-                    dbfull()->GetColumnFamilyHandle(i))
-                    ->cfd();
+    auto cfh = dbfull()->GetColumnFamilyHandleUnlocked(i);
+    ASSERT_NE(cfh, nullptr);
+    auto* cfd =
+        static_cast_with_check<ColumnFamilyHandleImpl>(cfh.get())->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
   }
 }

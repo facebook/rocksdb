@@ -30,15 +30,28 @@ namespace {
 class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
  public:
   explicit ColumnFamilyHandleImplDummy(int id, const Comparator* comparator)
-      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr),
+      : ColumnFamilyHandleImpl(DetachedHandleTag{}),
         id_(id),
         comparator_(comparator) {}
+  ColumnFamilyData* cfd() const override { return nullptr; }
+  DBImpl* db() const override { return nullptr; }
+  InstrumentedMutex* mutex() const override { return nullptr; }
+  const std::shared_ptr<ColumnFamilyLease>& lease() const override {
+    static const std::shared_ptr<ColumnFamilyLease> kNoLease;
+    return kNoLease;
+  }
+  const std::string& GetName() const override { return name_; }
+  Status GetDescriptor(ColumnFamilyDescriptor* desc) override {
+    *desc = ColumnFamilyDescriptor(name_, ColumnFamilyOptions());
+    return Status::OK();
+  }
   uint32_t GetID() const override { return id_; }
   const Comparator* GetComparator() const override { return comparator_; }
 
  private:
   uint32_t id_;
   const Comparator* comparator_;
+  const std::string name_ = "dummy";
 };
 
 struct Entry {

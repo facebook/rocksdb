@@ -45,7 +45,7 @@ class DuplicateDetector {
   using CFKeys = std::set<Slice, SetComparator>;
   std::map<uint32_t, CFKeys> keys_;
   void InitWithComp(const uint32_t cf) {
-    auto h = db_->GetColumnFamilyHandle(cf);
+    auto h = db_->GetColumnFamilyHandleUnlocked(cf);
     if (!h) {
       // TODO(myabandeh): This is not a concern in MyRocks as drop cf is not
       // implemented yet. When it does, we should return proper error instead

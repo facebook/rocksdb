@@ -2413,14 +2413,18 @@ class MemTableInserter : public WriteBatch::Handler {
         std::string prev_value;
         std::string merged_value;
 
-        auto cf_handle = cf_mems_->GetColumnFamilyHandle();
+        auto* cfd = cf_mems_->current();
         Status get_status = Status::NotSupported();
         if (db_ != nullptr && recovering_log_number_ == 0) {
-          if (cf_handle == nullptr) {
-            cf_handle = db_->DefaultColumnFamily();
-          }
+          assert(cfd != nullptr);
           // TODO (yanqin): fix when user-defined timestamp is enabled.
-          get_status = db_->Get(ropts, cf_handle, key, &prev_value);
+          PinnableSlice prev_value_pinned;
+          get_status =
+              db_->GetByColumnFamilyData(ropts, cfd, key, &prev_value_pinned);
+          if (get_status.ok()) {
+            prev_value.assign(prev_value_pinned.data(),
+                              prev_value_pinned.size());
+          }
         }
         // Intentionally overwrites the `NotFound` in `ret_status`.
         if (!get_status.ok() && !get_status.IsNotFound()) {
@@ -2787,12 +2791,8 @@ class MemTableInserter : public WriteBatch::Handler {
     assert(ret_status.ok());
 
     if (db_ != nullptr) {
-      auto cf_handle = cf_mems_->GetColumnFamilyHandle();
-      if (cf_handle == nullptr) {
-        cf_handle = db_->DefaultColumnFamily();
-      }
-      auto* cfd =
-          static_cast_with_check<ColumnFamilyHandleImpl>(cf_handle)->cfd();
+      auto* cfd = cf_mems_->current();
+      assert(cfd != nullptr);
       if (!cfd->is_delete_range_supported()) {
         // TODO(ajkr): refactor `SeekToColumnFamily()` so it returns a `Status`.
         ret_status.PermitUncheckedError();
@@ -2924,13 +2924,11 @@ class MemTableInserter : public WriteBatch::Handler {
       }
       read_options.snapshot = &read_from_snapshot;
 
-      auto cf_handle = cf_mems_->GetColumnFamilyHandle();
-      if (cf_handle == nullptr) {
-        cf_handle = db_->DefaultColumnFamily();
-      }
+      auto* cfd = cf_mems_->current();
+      assert(cfd != nullptr);
 
       Status get_status =
-          db_->GetEntity(read_options, cf_handle, key, &existing);
+          db_->GetEntityByColumnFamilyData(read_options, cfd, key, &existing);
       if (!get_status.ok()) {
         // Failed to read a key we know exists. Store the delta in memtable.
         perform_merge = false;

@@ -38,7 +38,6 @@ class ColumnFamilyMemTables {
   // been processed)
   virtual uint64_t GetLogNumber() const = 0;
   virtual MemTable* GetMemTable() const = 0;
-  virtual ColumnFamilyHandle* GetColumnFamilyHandle() = 0;
   virtual ColumnFamilyData* current() { return nullptr; }
 };
 
@@ -58,8 +57,6 @@ class ColumnFamilyMemTablesDefault : public ColumnFamilyMemTables {
     assert(ok_);
     return mem_;
   }
-
-  ColumnFamilyHandle* GetColumnFamilyHandle() override { return nullptr; }
 
  private:
   bool ok_;
