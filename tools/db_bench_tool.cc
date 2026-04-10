@@ -2963,7 +2963,7 @@ class Benchmark {
   int64_t max_num_range_tombstones_;
   ReadOptions read_options_;
   WriteOptions write_options_;
-  std::shared_ptr<ROCKSDB_NAMESPACE::UserDefinedIndexFactory> udi_factory_;
+  std::shared_ptr<ROCKSDB_NAMESPACE::IndexFactory> udi_factory_;
   Options open_options_;  // keep options around to properly destroy db later
   TraceOptions trace_options_;
   TraceOptions block_cache_trace_options_;
@@ -3749,7 +3749,7 @@ class Benchmark {
       read_options_.auto_refresh_iterator_with_snapshot =
           FLAGS_auto_refresh_iterator_with_snapshot;
       if (FLAGS_use_trie_index && udi_factory_) {
-        read_options_.table_index_factory = udi_factory_.get();
+        read_options_.read_index = ReadOptions::ReadIndex::kCustom;
       }
 
       void (Benchmark::*method)(ThreadState*) = nullptr;
@@ -5030,6 +5030,8 @@ class Benchmark {
       if (FLAGS_use_trie_index) {
         udi_factory_ = std::make_shared<trie_index::TrieIndexFactory>();
         block_based_options.user_defined_index_factory = udi_factory_;
+        block_based_options.index_mode =
+            BlockBasedTableOptions::IndexMode::kSecondary;
       }
 
       options.table_factory.reset(

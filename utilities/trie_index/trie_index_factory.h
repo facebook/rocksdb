@@ -9,7 +9,7 @@
 //
 //  Trie-based User Defined Index (UDI) for RocksDB's block-based tables.
 //
-//  This provides a TrieIndexFactory that implements the UserDefinedIndexFactory
+//  This provides a TrieIndexFactory that implements the IndexFactory
 //  interface, building a Fast Succinct Trie (FST) index from the separator keys
 //  generated during SST file construction. Based on the SuRF paper results, the
 //  trie is expected to achieve significant space reduction compared to the
@@ -19,12 +19,15 @@
 //    auto trie_factory = std::make_shared<TrieIndexFactory>();
 //    BlockBasedTableOptions table_options;
 //    table_options.user_defined_index_factory = trie_factory;
+//    table_options.index_mode = BlockBasedTableOptions::IndexMode::kSecondary;
 //
-//  At read time, set ReadOptions::table_index_factory to the same factory
-//  to use the trie for iteration:
+//  In kSecondary mode, reads use the standard index by default.
+//  Set ReadOptions::read_index to kCustom to use the trie:
 //    ReadOptions ro;
-//    ro.table_index_factory = trie_factory.get();
+//    ro.read_index = ReadOptions::ReadIndex::kCustom;
 //    auto iter = db->NewIterator(ro);
+//
+//  In kPrimary/kPrimaryOnly mode, all reads use the trie automatically.
 
 #pragma once
 
@@ -34,15 +37,15 @@
 #include <vector>
 
 #include "rocksdb/comparator.h"
+#include "rocksdb/index_factory.h"
 #include "rocksdb/types.h"
-#include "rocksdb/user_defined_index.h"
 #include "utilities/trie_index/louds_trie.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace trie_index {
 
 // ============================================================================
-// TrieIndexBuilder: Implements UserDefinedIndexBuilder using LoudsTrieBuilder.
+// TrieIndexBuilder: Implements IndexFactoryBuilder using LoudsTrieBuilder.
 //
 // During SST file construction, RocksDB calls:
 //   1. OnKeyAdded() for each key-value pair.
@@ -52,7 +55,7 @@ namespace trie_index {
 // The trie builder collects the separator keys from AddIndexEntry() and
 // builds a LOUDS-encoded trie during Finish().
 // ============================================================================
-class TrieIndexBuilder final : public UserDefinedIndexBuilder {
+class TrieIndexBuilder final : public IndexFactoryBuilder {
  public:
   explicit TrieIndexBuilder(const Comparator* comparator);
   ~TrieIndexBuilder() override = default;
@@ -121,13 +124,13 @@ class TrieIndexBuilder final : public UserDefinedIndexBuilder {
 };
 
 // ============================================================================
-// TrieIndexIterator: Implements UserDefinedIndexIterator using
+// TrieIndexIterator: Implements IndexFactoryIterator using
 // LoudsTrieIterator.
 //
 // Wraps LoudsTrieIterator and adapts it to the UDI iterator interface,
 // handling bounds checking against ScanOptions.
 // ============================================================================
-class TrieIndexIterator final : public UserDefinedIndexIterator {
+class TrieIndexIterator final : public IndexFactoryIterator {
  public:
   // @param has_seqno_encoding: true if the trie was built with a seqno
   //   side-table (enabling post-seek correction for same-user-key boundaries).
@@ -164,7 +167,7 @@ class TrieIndexIterator final : public UserDefinedIndexIterator {
   // Return the BlockHandle of the current block. When positioned on an
   // overflow block, returns the overflow block's handle instead of the
   // trie leaf's handle.
-  UserDefinedIndexBuilder::BlockHandle value() override;
+  IndexFactoryBuilder::BlockHandle value() override;
 
  private:
   // Check if the current block is within the active scan bounds.
@@ -243,12 +246,12 @@ class TrieIndexIterator final : public UserDefinedIndexIterator {
 };
 
 // ============================================================================
-// TrieIndexReader: Implements UserDefinedIndexReader.
+// TrieIndexReader: Implements IndexFactoryReader.
 //
 // Owns (or references) the deserialized LoudsTrie and creates iterators
 // for read operations.
 // ============================================================================
-class TrieIndexReader : public UserDefinedIndexReader {
+class TrieIndexReader : public IndexFactoryReader {
  public:
   explicit TrieIndexReader(const Comparator* comparator);
   ~TrieIndexReader() override = default;
@@ -258,7 +261,7 @@ class TrieIndexReader : public UserDefinedIndexReader {
   Status InitFromSlice(const Slice& data);
 
   // Create a new iterator for scanning.
-  std::unique_ptr<UserDefinedIndexIterator> NewIterator(
+  std::unique_ptr<IndexFactoryIterator> NewIterator(
       const ReadOptions& read_options) override;
 
   // Approximate memory usage of the deserialized trie.
@@ -271,13 +274,13 @@ class TrieIndexReader : public UserDefinedIndexReader {
 };
 
 // ============================================================================
-// TrieIndexFactory: Implements UserDefinedIndexFactory.
+// TrieIndexFactory: Implements IndexFactory.
 //
 // Factory for creating TrieIndexBuilder (during SST file writes) and
 // TrieIndexReader (during SST file reads). Registered as a Customizable
 // with name "trie_index".
 // ============================================================================
-class TrieIndexFactory : public UserDefinedIndexFactory {
+class TrieIndexFactory : public IndexFactory {
  public:
   TrieIndexFactory() = default;
   ~TrieIndexFactory() override = default;
@@ -285,29 +288,12 @@ class TrieIndexFactory : public UserDefinedIndexFactory {
   static const char* kClassName() { return "trie_index"; }
   const char* Name() const override { return kClassName(); }
 
-  // Deprecated API (required by base class). Use the overloads that accept
-  // UserDefinedIndexOption instead. These must never be called; the new
-  // overloads with UserDefinedIndexOption are always used by the block-based
-  // table builder/reader. Abort unconditionally (in both debug and release
-  // builds) to surface programming errors immediately.
-  UserDefinedIndexBuilder* NewBuilder() const override {
-    abort();
-    return nullptr;
-  }
-  std::unique_ptr<UserDefinedIndexReader> NewReader(
-      Slice& /*index_block*/) const override {
-    abort();
-    return nullptr;
-  }
-
-  // New API with comparator.
   Status NewBuilder(
-      const UserDefinedIndexOption& option,
-      std::unique_ptr<UserDefinedIndexBuilder>& builder) const override;
+      const IndexFactoryOptions& option,
+      std::unique_ptr<IndexFactoryBuilder>& builder) const override;
 
-  Status NewReader(
-      const UserDefinedIndexOption& option, Slice& index_block,
-      std::unique_ptr<UserDefinedIndexReader>& reader) const override;
+  Status NewReader(const IndexFactoryOptions& option, Slice& index_block,
+                   std::unique_ptr<IndexFactoryReader>& reader) const override;
 };
 
 }  // namespace trie_index

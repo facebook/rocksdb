@@ -44,7 +44,7 @@ class TableReader;
 class WritableFileWriter;
 struct ConfigOptions;
 struct EnvOptions;
-class UserDefinedIndexFactory;
+class IndexFactory;
 
 // Types of checksums to use for checking integrity of logical blocks within
 // files. All checksums currently use 32 bits of checking power (1 in 4B
@@ -533,67 +533,64 @@ struct BlockBasedTableOptions {
   // This allows users to define their own index format and build the index
   // during table building.
   //
-  // NOTE: UserDefinedIndexFactory currently disables parallel compression
+  // NOTE: IndexFactory currently disables parallel compression
   // (CompressionOptions::parallel_threads sanitized to 1).
-  std::shared_ptr<UserDefinedIndexFactory> user_defined_index_factory = nullptr;
+  std::shared_ptr<IndexFactory> user_defined_index_factory = nullptr;
 
   // EXPERIMENTAL
   //
-  // When true and user_defined_index_factory is set, the UDI becomes the
-  // primary index for reads. All reads (including internal operations like
-  // compaction and VerifyChecksum) automatically route through the UDI
-  // without needing ReadOptions::table_index_factory.
+  // Controls how the custom IndexFactory interacts with the built-in
+  // binary search index. Requires user_defined_index_factory to be set
+  // for any mode other than kBuiltinOnly.
   //
-  // Both the standard binary search index and the UDI are always fully
-  // built. The standard index serves as a safety fallback (e.g., for
-  // backup/restore or rollback to a non-UDI configuration). A future
-  // refactor will extract the index abstraction to allow skipping the
-  // standard index build when the UDI is primary.
+  //   kBuiltinOnly (default):
+  //     Only the built-in binary search index is used.
+  //     user_defined_index_factory is ignored if set.
   //
-  // When the UDI is primary:
-  // - All reads automatically use the UDI (ReadOptions::table_index_factory
-  //   does not need to be set)
-  // - Partitioned index (kTwoLevelIndexSearch) and partitioned filters are
-  //   incompatible with this option
-  // - fail_if_no_udi_on_open is automatically enforced to prevent silent
-  //   data loss if these SSTs are opened without UDI support
+  //   kSecondary:
+  //     Both indexes are built. Reads use the built-in index by default.
+  //     The custom index is accessible via ReadOptions::read_index
+  //     for per-read override. When opening SSTs that lack the custom
+  //     index block, falls back to the standard index with a warning
+  //     (not a hard error).
+  //
+  //   kPrimary:
+  //     Both indexes are built. All reads (including internal operations
+  //     like compaction and VerifyChecksum) route through the custom
+  //     index. The built-in index serves as a safety fallback for
+  //     backup/restore and rollback.
+  //
+  //   kPrimaryOnly:
+  //     Only the custom index is built. The built-in index is not
+  //     populated (a minimal stub satisfies the SST footer format).
+  //     Maximum efficiency but no fallback — rollback requires
+  //     compacting with a mode that builds the standard index.
   //
   // Recommended migration path:
+  //   kBuiltinOnly → kSecondary → kPrimary → kPrimaryOnly
   //
-  // 1. Deploy with user_defined_index_factory set but
-  //    use_udi_as_primary_index=false (secondary mode). New SSTs are written
-  //    with both indexes. Reads use the standard index by default.
+  // Rollback:
+  //   From kPrimary: switch to kSecondary or kBuiltinOnly. The standard
+  //     index is fully populated, so SSTs are immediately readable.
+  //   From kPrimaryOnly: switch to kPrimary and compact to rewrite all
+  //     SSTs with both indexes before downgrading further.
   //
-  // 2. Validate reads through the UDI by setting
-  //    ReadOptions::table_index_factory on a subset of reads.
+  // Backup/restore: user_defined_index_factory (shared_ptr) does not
+  //   survive Options serialization. In kSecondary/kPrimary, the
+  //   restored DB falls back to the standard index. In kPrimaryOnly,
+  //   the factory must be explicitly set after restore.
   //
-  // 3. Compact the entire DB to rewrite all pre-existing SSTs with both
-  //    indexes. All SSTs must have a UDI block before proceeding.
-  //
-  // 4. Enable use_udi_as_primary_index=true. All reads use the UDI.
-  //
-  // Rollback: set use_udi_as_primary_index=false. Since the standard index
-  // is always fully populated, SSTs are immediately readable through the
-  // standard index. No compaction is required. All reads immediately
-  // revert to the standard index path.
-  //
-  // Backup/restore: the user_defined_index_factory is a shared_ptr that
-  // cannot survive Options serialization (e.g., GetStringFromDBOptions).
-  // Since the standard index is always fully populated, a restored DB can
-  // be opened and read without the factory (reads fall back to the standard
-  // index). Set the factory when opening the restored DB to resume using
-  // the UDI.
-  //
-  // Default: false (UDI is built alongside the standard index as a secondary)
-  bool use_udi_as_primary_index = false;
-
-  // EXPERIMENTAL
-  //
-  // Return an error Status if a user_defined_index_factory is configured,
-  // but there's no corresponding UDI block in the SST file being opened.
-  // When use_udi_as_primary_index is true, this check is automatically
-  // enforced (a missing UDI block is always an error in primary mode).
-  bool fail_if_no_udi_on_open = false;
+  // Incompatible with:
+  //   - Partitioned index (kTwoLevelIndexSearch) in kPrimary/kPrimaryOnly
+  //   - Partitioned filters in kPrimary/kPrimaryOnly
+  //   - Parallel compression in any mode that uses a custom index
+  enum class IndexMode {
+    kBuiltinOnly = 0,
+    kSecondary = 1,
+    kPrimary = 2,
+    kPrimaryOnly = 3,
+  };
+  IndexMode index_mode = IndexMode::kBuiltinOnly;
 
   // If true, place whole keys in the filter (not just prefixes).
   // This must generally be true for gets to be efficient.

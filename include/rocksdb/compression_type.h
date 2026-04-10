@@ -233,7 +233,7 @@ struct CompressionOptions {
   //
   // This option is valid only when BlockBasedTable is used and is disabled
   // (sanitized to 1) with any of these:
-  // * User-defined index (UserDefinedIndexFactory)
+  // * User-defined index (IndexFactory)
   // * partition_filters == true && decouple_partitioned_filters == false
   //
   // When parallel compression is enabled, SST size file sizes might be
