@@ -100,8 +100,7 @@ class BlockBuilder {
   inline void AddWithLastKeyImpl(const Slice& key, const Slice& value,
                                  const Slice& last_key,
                                  const Slice* const delta_value,
-                                 bool skip_delta_encoding,
-                                 uint32_t buffer_size);
+                                 bool skip_delta_encoding, size_t buffer_size);
 
   bool ScanForUniformity() const;
 
@@ -140,8 +139,8 @@ class BlockBuilder {
   std::string buffer_;              // Destination buffer
   std::vector<uint32_t> restarts_;  // Restart points
   size_t estimate_;
-  int counter_;    // Number of entries emitted since restart
-  bool finished_;  // Has Finish() been called?
+  int counter_;      // Number of entries emitted since restart
+  bool finished_;    // Has Finish() been called?
   bool is_uniform_;  // Was the last Finish()'d block uniform?
   std::string last_key_;
   DataBlockHashIndexBuilder data_block_hash_index_builder_;

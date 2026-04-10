@@ -225,9 +225,8 @@ void BlockBuilder::Add(const Slice& key, const Slice& value,
   // Ensure no unsafe mixing of Add and AddWithLastKey
   assert(!add_with_last_key_called_);
 
-  // FIXME: check/enforce that buffer_ hasn't exceeded 4GB
   AddWithLastKeyImpl(key, value, last_key_, delta_value, skip_delta_encoding,
-                     static_cast<uint32_t>(buffer_.size()));
+                     buffer_.size());
   if (use_delta_encoding_) {
     // Update state
     // We used to just copy the changed data, but it appears to be
@@ -252,8 +251,7 @@ void BlockBuilder::AddWithLastKey(const Slice& key, const Slice& value,
   // conditional jumps like `buffer_.empty() ? ... : ...` so we can use a
   // fast arithmetic operation instead, with an assertion to be sure our logic
   // is sound.
-  // FIXME: check/enforce that buffer_ hasn't exceeded 4GB
-  uint32_t buffer_size = static_cast<uint32_t>(buffer_.size());
+  size_t buffer_size = buffer_.size();
   size_t last_key_size = last_key_param.size();
   assert(buffer_size == 0 || buffer_size >= last_key_size - strip_ts_sz_);
 
@@ -268,7 +266,7 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
                                              const Slice& last_key,
                                              const Slice* const delta_value,
                                              bool skip_delta_encoding,
-                                             uint32_t buffer_size) {
+                                             size_t buffer_size) {
   assert(!finished_);
   assert(counter_ <= block_restart_interval_);
   // Verify < 4GB assumption (see API comments on Add())
@@ -285,11 +283,17 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
       last_key.size() == 0
           ? last_key
           : MaybeStripTimestampFromKey(&last_key_buf, last_key);
+
+  // FIXME: check/enforce that buffer_ hasn't exceeded 4GB. The concern
+  // with adding that check and propagating the result is inner-loop
+  // performance. This case is HIGH concern because blocks like range deletions
+  // and non-partitioned indexes could pile large keys together into one block.
+  const uint32_t buffer_size32 = static_cast<uint32_t>(buffer_size);
   // NOTE: assuming all slice sizes < 4GB (see API comments on Add())
   uint32_t shared = 0;  // number of bytes shared with prev key
   if (counter_ >= block_restart_interval_) {
     // Restart compression
-    restarts_.push_back(buffer_size);
+    restarts_.push_back(buffer_size32);
     estimate_ += sizeof(uint32_t);
     counter_ = 0;
   } else if (use_delta_encoding_ && !skip_delta_encoding) {
@@ -300,15 +304,19 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
 
   const uint32_t non_shared =
       static_cast<uint32_t>(key_to_persist.size()) - shared;
-  const size_t previous_value_offset = values_buffer_.size();
-  // FIXME: check/enforce that values_buffer_ hasn't exceeded 4GB
-  const uint32_t curr_values_size =
-      static_cast<uint32_t>(values_buffer_.size());
+  const size_t prev_values_size = values_buffer_.size();
+
+  // FIXME: check/enforce that values_buffer_ hasn't exceeded 4GB. The concern
+  // with adding that check and propagating the result is inner-loop
+  // performance. This case is low concern because it (at time of writing) only
+  // applies to data blocks and those are flushed as soon as the size exceeds
+  // the block size.
+  const uint32_t prev_values_size32 = static_cast<uint32_t>(prev_values_size);
   const uint32_t value_size = static_cast<uint32_t>(value.size());
   if (use_value_delta_encoding_) {
     if (use_separated_kv_storage_ && counter_ == 0) {
       // Add "<shared><non_shared><value_offset>" to buffer_
-      PutVarint32(&buffer_, shared, non_shared, curr_values_size);
+      PutVarint32(&buffer_, shared, non_shared, prev_values_size32);
     } else {
       // Add "<shared><non_shared>" to buffer_
       PutVarint32(&buffer_, shared, non_shared);
@@ -316,7 +324,7 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
   } else {
     if (use_separated_kv_storage_ && counter_ == 0) {
       // Add "<shared><non_shared><value_size><value_offset>" to buffer_
-      PutVarint32(&buffer_, shared, non_shared, value_size, curr_values_size);
+      PutVarint32(&buffer_, shared, non_shared, value_size, prev_values_size32);
     } else {
       // Add "<shared><non_shared><value_size>" to buffer_
       PutVarint32(&buffer_, shared, non_shared, value_size);
@@ -354,8 +362,8 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
   }
 
   counter_++;
-  estimate_ += buffer_.size() - buffer_size + values_buffer_.size() -
-               previous_value_offset;
+  estimate_ +=
+      buffer_.size() - buffer_size + values_buffer_.size() - prev_values_size;
 }
 
 const Slice BlockBuilder::MaybeStripTimestampFromKey(std::string* key_buf,
