@@ -10,9 +10,12 @@
 
 #include <algorithm>
 #include <array>
+#include <limits>
+#include <mutex>
 #include <set>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "cache/compressed_secondary_cache.h"
 #include "db/blob/blob_file_partition_manager.h"
@@ -22,6 +25,7 @@
 #include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
+#include "db/wide/wide_column_test_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
 #include "port/stack_trace.h"
@@ -35,26 +39,80 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class FixedBlobDirectWritePartitionStrategy : public BlobFilePartitionStrategy {
+ public:
+  using BlobFilePartitionStrategy::SelectPartition;
+
+  explicit FixedBlobDirectWritePartitionStrategy(uint32_t partition)
+      : partition_(partition) {}
+
+  const char* Name() const override {
+    return "FixedBlobDirectWritePartitionStrategy";
+  }
+
+  uint32_t SelectPartition(uint32_t /*num_partitions*/,
+                           uint32_t /*column_family_id*/, const Slice& /*key*/,
+                           const Slice& /*value*/) override {
+    return partition_;
+  }
+
+ private:
+  const uint32_t partition_;
+};
+
+class RecordingBlobDirectWritePartitionStrategy
+    : public BlobFilePartitionStrategy {
+ public:
+  using BlobFilePartitionStrategy::SelectPartition;
+
+  struct Call {
+    uint32_t num_partitions = 0;
+    uint32_t column_family_id = 0;
+    std::string key;
+    std::string value;
+    uint32_t selected_partition = 0;
+    uint64_t call_count = 0;
+  };
+
+  explicit RecordingBlobDirectWritePartitionStrategy(uint32_t partition)
+      : partition_(partition) {}
+
+  const char* Name() const override {
+    return "RecordingBlobDirectWritePartitionStrategy";
+  }
+
+  uint32_t SelectPartition(uint32_t num_partitions, uint32_t column_family_id,
+                           const Slice& key, const Slice& value) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    calls_.push_back({num_partitions, column_family_id, key.ToString(),
+                      value.ToString(), partition_,
+                      static_cast<uint64_t>(calls_.size()) + 1});
+    return partition_;
+  }
+
+  std::vector<Call> GetCalls() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return calls_;
+  }
+
+ private:
+  const uint32_t partition_;
+  mutable std::mutex mutex_;
+  std::vector<Call> calls_;
+};
+
 class DBBlobDirectWriteTest : public DBTestBase {
  protected:
   DBBlobDirectWriteTest()
       : DBTestBase("db_blob_direct_write_test", /* env_do_fsync */ false) {}
 
   Options GetBlobDirectWriteCompatibleOptions() {
-    Options options = GetDefaultOptions();
-    // `allow_concurrent_memtable_write` is a DB option, so mixed-CF tests must
-    // open the DB with it disabled before creating or reopening a BDW CF.
-    options.allow_concurrent_memtable_write = false;
-    return options;
+    return wide_column_test_util::GetBlobDirectWriteCompatibleOptions(
+        GetDefaultOptions());
   }
 
   Options GetDirectWriteOptions() {
-    Options options = GetBlobDirectWriteCompatibleOptions();
-    options.enable_blob_files = true;
-    options.enable_blob_direct_write = true;
-    options.min_blob_size = 32;
-    options.blob_direct_write_partitions = 1;
-    return options;
+    return wide_column_test_util::GetDirectWriteOptions(GetDefaultOptions());
   }
 
   size_t CountBlobFiles() {
@@ -68,25 +126,6 @@ class DBBlobDirectWriteTest : public DBTestBase {
       }
     }
     return blob_files;
-  }
-
-  std::vector<uint64_t> GetBlobFileNumbers() {
-    std::vector<std::string> files;
-    EXPECT_OK(env_->GetChildren(dbname_, &files));
-
-    std::vector<uint64_t> blob_file_numbers;
-    for (const auto& file : files) {
-      uint64_t file_number = 0;
-      FileType type;
-      if (ParseFileName(file, &file_number, /*info_log_name_prefix=*/"",
-                        &type) &&
-          type == kBlobFile) {
-        blob_file_numbers.push_back(file_number);
-      }
-    }
-
-    std::sort(blob_file_numbers.begin(), blob_file_numbers.end());
-    return blob_file_numbers;
   }
 
   Status ReadBlobFileHeader(uint64_t blob_file_number, BlobLogHeader* header) {
@@ -197,8 +236,9 @@ class DBBlobDirectWriteTest : public DBTestBase {
   }
 };
 
-TEST_F(DBBlobDirectWriteTest,
-       DirectWriteWriteBatchManyPartitionsBeforeAndAfterFlush) {
+TEST_F(
+    DBBlobDirectWriteTest,
+    DirectWriteDefaultRoundRobinSpreadsWriteBatchAcrossPartitionsBeforeAndAfterFlush) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.enable_blob_direct_write = true;
@@ -207,6 +247,7 @@ TEST_F(DBBlobDirectWriteTest,
   options.min_blob_size = 32;
   options.use_direct_reads = true;
   options.use_direct_io_for_flush_and_compaction = true;
+  ASSERT_EQ(options.blob_direct_write_partition_strategy, nullptr);
 
   Status s = TryReopen(options);
   if (s.IsInvalidArgument()) {
@@ -332,6 +373,217 @@ TEST_F(DBBlobDirectWriteTest,
 
   sync_point->DisableProcessing();
   sync_point->ClearAllCallBacks();
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteCustomPartitionStrategyRoutesWritesToOneBlobFile) {
+  Options options = GetDirectWriteOptions();
+  options.blob_direct_write_partitions = 4;
+  options.blob_file_size = 1 << 20;
+  options.blob_direct_write_partition_strategy =
+      std::make_shared<FixedBlobDirectWritePartitionStrategy>(3);
+
+  Reopen(options);
+
+  const std::array<std::string, 4> keys{
+      "strategy_blob_key_0", "strategy_blob_key_1", "strategy_blob_key_2",
+      "strategy_blob_key_3"};
+  const std::array<std::string, 4> values{
+      std::string(128, 'a'), std::string(128, 'b'), std::string(128, 'c'),
+      std::string(128, 'd')};
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_OK(Put(keys[i], values[i]));
+  }
+
+  ASSERT_EQ(CountBlobFiles(), 1U);
+  ASSERT_OK(Flush());
+  ASSERT_EQ(CountBlobFiles(), 1U);
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_file_count, 1U);
+  ASSERT_EQ(cf_meta.blob_files.size(), 1U);
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_EQ(Get(keys[i]), values[i]);
+  }
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteCustomPartitionStrategyReceivesOriginalWriteParameters) {
+  const CompressionType compression = GetSupportedCompressedBlobCompression();
+  if (compression == kNoCompression) {
+    ROCKSDB_GTEST_SKIP("This test requires a supported blob compression");
+    return;
+  }
+
+  auto strategy =
+      std::make_shared<RecordingBlobDirectWritePartitionStrategy>(7);
+  Options options = GetDirectWriteOptions();
+  options.blob_direct_write_partitions = 4;
+  options.blob_file_size = 1 << 20;
+  options.blob_compression_type = compression;
+  options.blob_direct_write_partition_strategy = strategy;
+
+  Reopen(options);
+
+  const std::string key = "strategy_params_key";
+  const std::string value(256, 'z');
+
+  ASSERT_OK(Put(key, value));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(Get(key), value);
+
+  const std::vector<RecordingBlobDirectWritePartitionStrategy::Call> calls =
+      strategy->GetCalls();
+  ASSERT_EQ(calls.size(), 1U);
+  const auto& call = calls.front();
+  ASSERT_EQ(call.num_partitions, 4U);
+  ASSERT_EQ(call.column_family_id, db_->DefaultColumnFamily()->GetID());
+  ASSERT_EQ(call.key, key);
+  ASSERT_EQ(call.value, value);
+  ASSERT_EQ(call.selected_partition, 7U);
+  ASSERT_EQ(call.call_count, 1U);
+
+  const std::vector<uint64_t> blob_file_numbers = GetBlobFileNumbers();
+  ASSERT_EQ(blob_file_numbers.size(), 1U);
+
+  BlobLogHeader header;
+  ASSERT_OK(ReadBlobFileHeader(blob_file_numbers[0], &header));
+  ASSERT_EQ(header.column_family_id, db_->DefaultColumnFamily()->GetID());
+  ASSERT_EQ(header.compression, compression);
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteCustomPartitionStrategyAppliesModuloToOutOfRangeReturns) {
+  struct TestCase {
+    uint32_t raw_partition;
+    const char* suffix;
+  };
+
+  const std::array<TestCase, 3> cases{{
+      {4, "equal"},
+      {9, "greater"},
+      {std::numeric_limits<uint32_t>::max(), "max"},
+  }};
+
+  for (const auto& test_case : cases) {
+    SCOPED_TRACE(test_case.suffix);
+
+    Options options = GetDirectWriteOptions();
+    options.create_if_missing = true;
+    options.blob_direct_write_partitions = 4;
+    options.blob_file_size = 1 << 20;
+    options.blob_direct_write_partition_strategy =
+        std::make_shared<FixedBlobDirectWritePartitionStrategy>(
+            test_case.raw_partition);
+
+    DestroyAndReopen(options);
+
+    const std::string key =
+        std::string("partition_mod_key_") + test_case.suffix;
+    const std::string value(128, test_case.suffix[0]);
+
+    ASSERT_OK(Put(key, value));
+    ASSERT_EQ(CountBlobFiles(), 1U);
+    ASSERT_OK(Flush());
+    ASSERT_EQ(CountBlobFiles(), 1U);
+    ASSERT_EQ(Get(key), value);
+  }
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteCustomPartitionStrategyCalledForEachBlobInWriteBatch) {
+  auto strategy =
+      std::make_shared<RecordingBlobDirectWritePartitionStrategy>(2);
+  Options options = GetDirectWriteOptions();
+  options.blob_direct_write_partitions = 4;
+  options.blob_file_size = 1 << 20;
+  options.blob_direct_write_partition_strategy = strategy;
+
+  Reopen(options);
+
+  const std::array<std::string, 3> blob_keys{
+      "batch_blob_key_0", "batch_blob_key_1", "batch_blob_key_2"};
+  const std::array<std::string, 3> blob_values{
+      std::string(128, 'a'), std::string(128, 'b'), std::string(128, 'c')};
+  const std::string inline_key = "batch_inline_key";
+  const std::string inline_value = "tiny";
+
+  WriteBatch batch;
+  for (size_t i = 0; i < blob_keys.size(); ++i) {
+    ASSERT_OK(
+        batch.Put(db_->DefaultColumnFamily(), blob_keys[i], blob_values[i]));
+  }
+  ASSERT_OK(batch.Put(db_->DefaultColumnFamily(), inline_key, inline_value));
+  ASSERT_OK(batch.Delete(db_->DefaultColumnFamily(), "batch_deleted_key"));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  const auto calls = strategy->GetCalls();
+  ASSERT_EQ(calls.size(), blob_keys.size());
+  for (size_t i = 0; i < blob_keys.size(); ++i) {
+    ASSERT_EQ(calls[i].num_partitions, 4U);
+    ASSERT_EQ(calls[i].column_family_id, db_->DefaultColumnFamily()->GetID());
+    ASSERT_EQ(calls[i].key, blob_keys[i]);
+    ASSERT_EQ(calls[i].value, blob_values[i]);
+    ASSERT_EQ(calls[i].selected_partition, 2U);
+    ASSERT_EQ(calls[i].call_count, i + 1);
+    ASSERT_EQ(Get(blob_keys[i]), blob_values[i]);
+  }
+
+  ASSERT_EQ(Get(inline_key), inline_value);
+  ASSERT_EQ(CountBlobFiles(), 1U);
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteSharedCustomPartitionStrategyAcrossColumnFamilies) {
+  Reopen(GetBlobDirectWriteCompatibleOptions());
+
+  auto strategy =
+      std::make_shared<RecordingBlobDirectWritePartitionStrategy>(1);
+  Options options = GetDirectWriteOptions();
+  options.blob_direct_write_partitions = 4;
+  options.blob_file_size = 1 << 20;
+  options.blob_direct_write_partition_strategy = strategy;
+
+  ColumnFamilyHandle* first_cfh = nullptr;
+  ColumnFamilyHandle* second_cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(options, "bdw_one", &first_cfh));
+  ASSERT_OK(db_->CreateColumnFamily(options, "bdw_two", &second_cfh));
+
+  const std::string first_key = "shared_cf_key_0";
+  const std::string second_key = "shared_cf_key_1";
+  const std::string first_value(128, 'x');
+  const std::string second_value(128, 'y');
+
+  ASSERT_OK(db_->Put(WriteOptions(), first_cfh, first_key, first_value));
+  ASSERT_OK(db_->Put(WriteOptions(), second_cfh, second_key, second_value));
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), first_cfh, first_key, &value));
+  ASSERT_EQ(value, first_value);
+  ASSERT_OK(db_->Get(ReadOptions(), second_cfh, second_key, &value));
+  ASSERT_EQ(value, second_value);
+
+  const auto calls = strategy->GetCalls();
+  ASSERT_EQ(calls.size(), 2U);
+  std::set<uint32_t> seen_cf_ids;
+  std::set<std::string> seen_keys;
+  for (const auto& call : calls) {
+    ASSERT_EQ(call.num_partitions, 4U);
+    ASSERT_EQ(call.selected_partition, 1U);
+    seen_cf_ids.insert(call.column_family_id);
+    seen_keys.insert(call.key);
+  }
+  ASSERT_EQ(seen_cf_ids.size(), 2U);
+  ASSERT_TRUE(seen_cf_ids.count(first_cfh->GetID()) > 0);
+  ASSERT_TRUE(seen_cf_ids.count(second_cfh->GetID()) > 0);
+  ASSERT_TRUE(seen_keys.count(first_key) > 0);
+  ASSERT_TRUE(seen_keys.count(second_key) > 0);
+
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(first_cfh));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(second_cfh));
 }
 
 TEST_F(DBBlobDirectWriteTest,

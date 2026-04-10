@@ -5,6 +5,8 @@
 
 #include "db/blob/blob_fetcher.h"
 
+#include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_index.h"
 #include "db/version_set.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -14,10 +16,13 @@ Status BlobFetcher::FetchBlob(const Slice& user_key,
                               FilePrefetchBuffer* prefetch_buffer,
                               PinnableSlice* blob_value,
                               uint64_t* bytes_read) const {
-  assert(version_);
-
-  return version_->GetBlob(read_options_, user_key, blob_index_slice,
-                           prefetch_buffer, blob_value, bytes_read);
+  BlobIndex blob_index;
+  Status status = blob_index.DecodeFrom(blob_index_slice);
+  if (status.ok()) {
+    status = FetchBlob(user_key, blob_index, prefetch_buffer, blob_value,
+                       bytes_read);
+  }
+  return status;
 }
 
 Status BlobFetcher::FetchBlob(const Slice& user_key,
@@ -25,10 +30,16 @@ Status BlobFetcher::FetchBlob(const Slice& user_key,
                               FilePrefetchBuffer* prefetch_buffer,
                               PinnableSlice* blob_value,
                               uint64_t* bytes_read) const {
-  assert(version_);
+  if (!allow_write_path_fallback_) {
+    assert(version_);
 
-  return version_->GetBlob(read_options_, user_key, blob_index, prefetch_buffer,
-                           blob_value, bytes_read);
+    return version_->GetBlob(read_options_, user_key, blob_index,
+                             prefetch_buffer, blob_value, bytes_read);
+  }
+
+  return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
+      read_options_, user_key, blob_index, version_, blob_file_cache_,
+      prefetch_buffer, blob_value, bytes_read);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

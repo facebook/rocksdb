@@ -46,10 +46,13 @@ struct TablePropertiesNames {
   static const std::string kTopLevelIndexSize;
   static const std::string kIndexKeyIsUserKey;
   static const std::string kIndexValueIsDeltaEncoded;
+  static const std::string kUDIIsPrimaryIndex;
   static const std::string kFilterSize;
   static const std::string kRawKeySize;
   static const std::string kRawValueSize;
   static const std::string kNumDataBlocks;
+  static const std::string kNumDataBlocksCompressionRejected;
+  static const std::string kNumDataBlocksCompressionBypassed;
   static const std::string kNumUniformBlocks;
   static const std::string kNumEntries;
   static const std::string kNumFilterEntries;
@@ -238,6 +241,9 @@ struct TableProperties {
   uint64_t index_key_is_user_key = 0;
   // Whether delta encoding is used to encode the index values.
   uint64_t index_value_is_delta_encoded = 0;
+  // Whether the UDI is the primary index for reads. The standard index is
+  // still fully populated alongside the UDI.
+  uint64_t udi_is_primary_index = 0;
   // the size of filter block.
   uint64_t filter_size = 0;
   // total raw (uncompressed, undelineated) key size
@@ -246,6 +252,13 @@ struct TableProperties {
   uint64_t raw_value_size = 0;
   // the number of blocks in this table
   uint64_t num_data_blocks = 0;
+  // Number of data blocks stored uncompressed because compression was
+  // attempted but the compressed output exceeded the ratio limit set by
+  // CompressionOptions::max_compressed_bytes_per_kb.
+  uint64_t num_data_blocks_compression_rejected = 0;
+  // Number of data blocks stored uncompressed because compression was
+  // never attempted (e.g., kNoCompression, no compressor available).
+  uint64_t num_data_blocks_compression_bypassed = 0;
   // the number of uniform blocks in this table
   uint64_t num_uniform_blocks = 0;
   // the number of entries in this table

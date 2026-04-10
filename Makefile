@@ -807,7 +807,18 @@ endif  # PLATFORM_SHARED_EXT
 	rocksdbjavastatic rocksdbjava install install-static install-shared \
 	uninstall analyze tools tools_lib check-headers checkout_folly clang-tidy
 
-all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
+# Auto-configure git hooks on first build so developers do not need to run
+# "make install-hooks" manually. This is a no-op if already set.
+setup-hooks:
+	@if [ -d .git ] && [ -d githooks ]; then \
+		cur=$$(git config core.hooksPath 2>/dev/null); \
+		if [ "$$cur" != "githooks" ]; then \
+			git config core.hooksPath githooks; \
+			echo "git hooks: configured core.hooksPath = githooks"; \
+		fi; \
+	fi
+
+all: setup-hooks $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
 
 all_but_some_tests: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(ROCKSDBTESTS_SUBSET)
 
@@ -1255,6 +1266,31 @@ format-auto:
 check-format:
 	build_tools/format-diff.sh -c
 
+
+install-hooks:
+	@echo "Installing git hooks from githooks/..."
+	@if [ -d githooks ]; then \
+		for hook in githooks/*; do \
+			hook_name=$$(basename "$$hook"); \
+			cp "$$hook" .git/hooks/"$$hook_name"; \
+			chmod +x .git/hooks/"$$hook_name"; \
+			echo "  Installed $$hook_name"; \
+		done; \
+		echo "Done. Hooks installed to .git/hooks/"; \
+	else \
+		echo "Error: githooks/ directory not found"; \
+		exit 1; \
+	fi
+
+uninstall-hooks:
+	@echo "Removing installed git hooks..."
+	@for hook in githooks/*; do \
+		hook_name=$$(basename "$$hook"); \
+		rm -f .git/hooks/"$$hook_name"; \
+		echo "  Removed $$hook_name"; \
+	done
+	@echo "Done."
+
 check-buck-targets:
 	buckifier/check_buck_targets.sh
 
@@ -1460,6 +1496,9 @@ db_readonly_with_timestamp_test: $(OBJ_DIR)/db/db_readonly_with_timestamp_test.o
 db_wide_basic_test: $(OBJ_DIR)/db/wide/db_wide_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+db_wide_blob_direct_write_test: $(OBJ_DIR)/db/wide/db_wide_blob_direct_write_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 db_with_timestamp_basic_test: $(OBJ_DIR)/db/db_with_timestamp_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1467,6 +1506,9 @@ db_with_timestamp_compaction_test: db/db_with_timestamp_compaction_test.o $(TEST
 	$(AM_LINK)
 
 db_encryption_test: $(OBJ_DIR)/db/db_encryption_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+db_open_with_config_test: $(OBJ_DIR)/db/db_open_with_config_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 db_test: $(OBJ_DIR)/db/db_test.o $(TEST_LIBRARY) $(LIBRARY)

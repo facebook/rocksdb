@@ -1106,11 +1106,28 @@ class WritableFile {
   // (However, implementations must also clean up properly in the destructor
   // even if Close() is not called.)
   virtual Status Close() = 0;
+
+  // Flush any internally buffered data to the underlying storage, so that
+  // the data is no longer dependent on this process's memory. After this
+  // call, the data should survive a process crash but is not necessarily
+  // persisted to stable storage. Use Sync() for that guarantee.
+  // All flushed data must be readable through file access APIs (e.g.
+  // RandomAccessFile), though path-level metadata queries such as
+  // Env::GetFileSize() might lag on some implementations.
+  // Not thread-safe; see IsSyncThreadSafe().
   virtual Status Flush() = 0;
-  virtual Status Sync() = 0;  // sync data
+
+  // Persist data to stable storage. After this call, the data should
+  // survive power failures. Does not necessarily persist file metadata
+  // (e.g. file size); see Fsync().
+  // Sync() implies Flush(): implementations must ensure all internally
+  // buffered data is also flushed.
+  // Not safe to call concurrently with Append() or Flush() unless
+  // IsSyncThreadSafe() returns true.
+  virtual Status Sync() = 0;
 
   /*
-   * Sync data and/or metadata as well.
+   * Persist data and metadata to stable storage.
    * By default, sync only data.
    * Override this method for environments where we need to sync
    * metadata as well.

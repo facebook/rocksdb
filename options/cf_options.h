@@ -89,6 +89,11 @@ struct ImmutableCFOptions {
   // AdvancedColumnFamilyOptions::blob_direct_write_partitions.
   uint32_t blob_direct_write_partitions;
 
+  // Immutable snapshot of
+  // AdvancedColumnFamilyOptions::blob_direct_write_partition_strategy.
+  std::shared_ptr<BlobFilePartitionStrategy>
+      blob_direct_write_partition_strategy;
+
   bool persist_user_defined_timestamps;
 
   bool cf_allow_ingest_behind;
@@ -162,6 +167,7 @@ struct MutableCFOptions {
         min_blob_size(options.min_blob_size),
         blob_file_size(options.blob_file_size),
         blob_compression_type(options.blob_compression_type),
+        blob_compression_opts(options.blob_compression_opts),
         enable_blob_garbage_collection(options.enable_blob_garbage_collection),
         blob_garbage_collection_age_cutoff(
             options.blob_garbage_collection_age_cutoff),
@@ -196,7 +202,9 @@ struct MutableCFOptions {
         uncache_aggressiveness(options.uncache_aggressiveness),
         memtable_op_scan_flush_trigger(options.memtable_op_scan_flush_trigger),
         memtable_avg_op_scan_flush_trigger(
-            options.memtable_avg_op_scan_flush_trigger) {
+            options.memtable_avg_op_scan_flush_trigger),
+        min_tombstones_for_range_conversion(
+            options.min_tombstones_for_range_conversion) {
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
 
@@ -235,6 +243,7 @@ struct MutableCFOptions {
         min_blob_size(0),
         blob_file_size(0),
         blob_compression_type(kNoCompression),
+        blob_compression_opts(),
         enable_blob_garbage_collection(false),
         blob_garbage_collection_age_cutoff(0.0),
         blob_garbage_collection_force_threshold(0.0),
@@ -257,7 +266,8 @@ struct MutableCFOptions {
         bottommost_file_compaction_delay(0),
         uncache_aggressiveness(0),
         memtable_op_scan_flush_trigger(0),
-        memtable_avg_op_scan_flush_trigger(0) {}
+        memtable_avg_op_scan_flush_trigger(0),
+        min_tombstones_for_range_conversion(0) {}
 
   explicit MutableCFOptions(const Options& options);
 
@@ -340,6 +350,7 @@ struct MutableCFOptions {
   uint64_t min_blob_size;
   uint64_t blob_file_size;
   CompressionType blob_compression_type;
+  CompressionOptions blob_compression_opts;
   bool enable_blob_garbage_collection;
   double blob_garbage_collection_age_cutoff;
   double blob_garbage_collection_force_threshold;
@@ -370,6 +381,7 @@ struct MutableCFOptions {
   uint32_t uncache_aggressiveness;
   uint32_t memtable_op_scan_flush_trigger;
   uint32_t memtable_avg_op_scan_flush_trigger;
+  uint32_t min_tombstones_for_range_conversion;
 
   // Derived options
   // Per-level target file size.

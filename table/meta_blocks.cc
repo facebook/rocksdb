@@ -91,12 +91,23 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   Add(TablePropertiesNames::kIndexKeyIsUserKey, props.index_key_is_user_key);
   Add(TablePropertiesNames::kIndexValueIsDeltaEncoded,
       props.index_value_is_delta_encoded);
+  if (props.udi_is_primary_index != 0) {
+    Add(TablePropertiesNames::kUDIIsPrimaryIndex, props.udi_is_primary_index);
+  }
   Add(TablePropertiesNames::kNumEntries, props.num_entries);
   Add(TablePropertiesNames::kNumFilterEntries, props.num_filter_entries);
   Add(TablePropertiesNames::kDeletedKeys, props.num_deletions);
   Add(TablePropertiesNames::kMergeOperands, props.num_merge_operands);
   Add(TablePropertiesNames::kNumRangeDeletions, props.num_range_deletions);
   Add(TablePropertiesNames::kNumDataBlocks, props.num_data_blocks);
+  if (props.num_data_blocks_compression_rejected > 0) {
+    Add(TablePropertiesNames::kNumDataBlocksCompressionRejected,
+        props.num_data_blocks_compression_rejected);
+  }
+  if (props.num_data_blocks_compression_bypassed > 0) {
+    Add(TablePropertiesNames::kNumDataBlocksCompressionBypassed,
+        props.num_data_blocks_compression_bypassed);
+  }
   Add(TablePropertiesNames::kNumUniformBlocks, props.num_uniform_blocks);
   Add(TablePropertiesNames::kFilterSize, props.filter_size);
   Add(TablePropertiesNames::kFormatVersion, props.format_version);
@@ -286,12 +297,18 @@ Status ParsePropertiesBlock(
        &new_table_properties->index_key_is_user_key},
       {TablePropertiesNames::kIndexValueIsDeltaEncoded,
        &new_table_properties->index_value_is_delta_encoded},
+      {TablePropertiesNames::kUDIIsPrimaryIndex,
+       &new_table_properties->udi_is_primary_index},
       {TablePropertiesNames::kFilterSize, &new_table_properties->filter_size},
       {TablePropertiesNames::kRawKeySize, &new_table_properties->raw_key_size},
       {TablePropertiesNames::kRawValueSize,
        &new_table_properties->raw_value_size},
       {TablePropertiesNames::kNumDataBlocks,
        &new_table_properties->num_data_blocks},
+      {TablePropertiesNames::kNumDataBlocksCompressionRejected,
+       &new_table_properties->num_data_blocks_compression_rejected},
+      {TablePropertiesNames::kNumDataBlocksCompressionBypassed,
+       &new_table_properties->num_data_blocks_compression_bypassed},
       {TablePropertiesNames::kNumUniformBlocks,
        &new_table_properties->num_uniform_blocks},
       {TablePropertiesNames::kNumEntries, &new_table_properties->num_entries},

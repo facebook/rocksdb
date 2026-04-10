@@ -16,6 +16,7 @@
 #include <optional>
 
 #include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_index.h"
 #include "db/dbformat.h"
 #include "db/kv_checksum.h"
 #include "db/merge_context.h"
@@ -47,6 +48,29 @@
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+Status GetDefaultColumnBlobIndexSlice(Slice entity, Slice* blob_index_slice) {
+  assert(blob_index_slice != nullptr);
+
+  std::vector<WideColumn> columns;
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+  Status status =
+      WideColumnSerialization::DeserializeV2(entity, columns, blob_columns);
+  if (status.ok()) {
+    if (columns.empty() || columns.front().name() != kDefaultWideColumnName ||
+        blob_columns.empty() || blob_columns.front().first != 0) {
+      status = Status::Corruption(
+          "Wide column default column blob reference missing");
+    } else {
+      *blob_index_slice = columns.front().value();
+    }
+  }
+  return status;
+}
+
+}  // namespace
 
 ImmutableMemTableOptions::ImmutableMemTableOptions(
     const ImmutableOptions& ioptions,
@@ -142,6 +166,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       table_(ioptions.memtable_factory->CreateMemTableRep(
           comparator_, &arena_, mutable_cf_options.prefix_extractor.get(),
           ioptions.logger, column_family_id)),
+      // range del table must support concurrent inserts
       range_del_table_(SkipListFactory().CreateMemTableRep(
           comparator_, &arena_, nullptr /* transform */, ioptions.logger,
           column_family_id)),
@@ -893,6 +918,38 @@ void MemTable::ConstructFragmentedRangeTombstones() {
   }
 }
 
+bool MemTable::AddLogicallyRedundantRangeTombstone(SequenceNumber seq,
+                                                   const Slice& start_key,
+                                                   const Slice& end_key) {
+  // Fast path: skip if already immutable or empty. Some code paths (i.e.
+  // ExternalFileIngestion) rely ensuring memtable is empty after flushing.
+  if (is_immutable_.LoadRelaxed() || IsEmpty()) {
+    return false;
+  }
+
+#ifndef NDEBUG
+  std::pair<Slice, Slice> range{start_key, end_key};
+  TEST_SYNC_POINT_CALLBACK(
+      "MemTable::AddLogicallyRedundantRangeTombstone:AddRange", &range);
+#endif  // !NDEBUG
+
+  // Prevents racing with MarkImmutable()
+  ReadLock rl(&immutable_mutex_);
+  if (is_immutable_.LoadRelaxed()) {
+    return false;
+  }
+
+  MemTablePostProcessInfo post_process_info;
+  Status s = Add(seq, kTypeRangeDeletion, start_key, end_key,
+                 nullptr /* kv_prot_info */, true /* allow_concurrent */,
+                 &post_process_info);
+  if (s.ok()) {
+    BatchPostProcess(post_process_info);
+    return true;
+  }
+  return false;
+}
+
 port::RWMutex* MemTable::GetLock(const Slice& key) {
   return &locks_[GetSliceRangedNPHash(key, locks_.size())];
 }
@@ -998,6 +1055,11 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
   char* buf = nullptr;
   std::unique_ptr<MemTableRep>& table =
       type == kTypeRangeDeletion ? range_del_table_ : table_;
+  // Range deletion table always uses SkipList, which supports concurrent
+  // inserts. Inserts must be made concurrent because
+  // AddLogicallyRedundantRangeTombstone can also insert range tombstones.
+  assert(type != kTypeRangeDeletion || allow_concurrent);
+
   KeyHandle handle = table->Allocate(encoded_len, &buf);
 
   char* p = EncodeVarint32(buf, internal_key_size);
@@ -1042,6 +1104,10 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       }
     }
 
+    // Use atomic FetchAdd because even though this write path is serialized
+    // (non-concurrent), these counters may be concurrently modified by
+    // BatchPostProcess() (e.g., from AddLogicallyRedundantRangeTombstone
+    // called on a read path).
     num_entries_.FetchAddRelaxed(1);
     data_size_.FetchAddRelaxed(encoded_len);
     if (type == kTypeDeletion || type == kTypeSingleDeletion ||
@@ -1059,19 +1125,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       bloom_filter_->Add(key_without_ts);
     }
 
-    // The first sequence number inserted into the memtable
-    assert(first_seqno_ == 0 || s >= first_seqno_);
-    if (first_seqno_ == 0) {
-      first_seqno_.store(s, std::memory_order_relaxed);
-
-      if (earliest_seqno_ == kMaxSequenceNumber) {
-        earliest_seqno_.store(GetFirstSequenceNumber(),
-                              std::memory_order_relaxed);
-      }
-      assert(first_seqno_.load() >= earliest_seqno_.load());
-    }
     assert(post_process_info == nullptr);
-    MaybeUpdateNewestUDT(key_slice);
     UpdateFlushState();
   } else {
     bool res = (hint == nullptr)
@@ -1097,20 +1151,21 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
       bloom_filter_->AddConcurrently(key_without_ts);
     }
-
-    // atomically update first_seqno_ and earliest_seqno_.
-    uint64_t cur_seq_num = first_seqno_.load(std::memory_order_relaxed);
-    while ((cur_seq_num == 0 || s < cur_seq_num) &&
-           !first_seqno_.compare_exchange_weak(cur_seq_num, s)) {
-    }
-    uint64_t cur_earliest_seqno =
-        earliest_seqno_.load(std::memory_order_relaxed);
-    while (
-        (cur_earliest_seqno == kMaxSequenceNumber || s < cur_earliest_seqno) &&
-        !earliest_seqno_.compare_exchange_weak(cur_earliest_seqno, s)) {
-    }
-    MaybeUpdateNewestUDT(key_slice);
   }
+
+  // In the non-concurrent path, sequence numbers are non-decreasing.
+  assert(allow_concurrent || first_seqno_ == 0 || s >= first_seqno_);
+
+  // Atomically update first_seqno_ and earliest_seqno_.
+  uint64_t cur_seq_num = first_seqno_.load(std::memory_order_relaxed);
+  while ((cur_seq_num == 0 || s < cur_seq_num) &&
+         !first_seqno_.compare_exchange_weak(cur_seq_num, s)) {
+  }
+  uint64_t cur_earliest_seqno = earliest_seqno_.load(std::memory_order_relaxed);
+  while ((cur_earliest_seqno == kMaxSequenceNumber || s < cur_earliest_seqno) &&
+         !earliest_seqno_.compare_exchange_weak(cur_earliest_seqno, s)) {
+  }
+  MaybeUpdateNewestUDT(key_slice);
   if (type == kTypeRangeDeletion) {
     auto new_cache = std::make_shared<FragmentedRangeTombstoneListCache>();
     size_t size = cached_range_tombstone_.Size();
@@ -1331,6 +1386,7 @@ static bool SaveValue(void* arg, const char* entry) {
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
 
         *(s->status) = Status::OK();
+        bool default_blob_index_returned = false;
 
         if (!s->do_merge) {
           // Preserve the value with the goal of returning it as part of
@@ -1364,6 +1420,15 @@ static bool SaveValue(void* arg, const char* entry) {
               v, value_of_default);
           if (s->status->ok()) {
             s->value->assign(value_of_default.data(), value_of_default.size());
+          } else if (s->status->IsNotSupported() &&
+                     s->is_blob_index != nullptr) {
+            Slice blob_index_slice;
+            *(s->status) = GetDefaultColumnBlobIndexSlice(v, &blob_index_slice);
+            if (s->status->ok()) {
+              s->value->assign(blob_index_slice.data(),
+                               blob_index_slice.size());
+              default_blob_index_returned = true;
+            }
           }
         } else if (s->columns) {
           *(s->status) = s->columns->SetWideColumnValue(v);
@@ -1372,7 +1437,7 @@ static bool SaveValue(void* arg, const char* entry) {
         *(s->found_final_value) = true;
 
         if (s->is_blob_index != nullptr) {
-          *(s->is_blob_index) = false;
+          *(s->is_blob_index) = default_blob_index_returned;
         }
 
         return false;

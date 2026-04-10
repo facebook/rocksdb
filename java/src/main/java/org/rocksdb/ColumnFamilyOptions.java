@@ -957,6 +957,18 @@ public class ColumnFamilyOptions
     return memtableMaxRangeDeletions(nativeHandle_);
   }
 
+  @Override
+  public ColumnFamilyOptions setMinTombstonesForRangeConversion(
+      final int minTombstonesForRangeConversion) {
+    setMinTombstonesForRangeConversion(nativeHandle_, minTombstonesForRangeConversion);
+    return this;
+  }
+
+  @Override
+  public int minTombstonesForRangeConversion() {
+    return minTombstonesForRangeConversion(nativeHandle_);
+  }
+
   //
   // BEGIN options for blobs (integrated BlobDB)
   //
@@ -1488,6 +1500,9 @@ public class ColumnFamilyOptions
       final long nativeHandle_, final long compactionThreadLimiterHandle);
   private static native void setMemtableMaxRangeDeletions(final long handle, final int count);
   private static native int memtableMaxRangeDeletions(final long handle);
+  private static native void setMinTombstonesForRangeConversion(
+      final long handle, final int minTombstonesForRangeConversion);
+  private static native int minTombstonesForRangeConversion(final long handle);
 
   private static native void setEnableBlobFiles(
       final long nativeHandle_, final boolean enableBlobFiles);

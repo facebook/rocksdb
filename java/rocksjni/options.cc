@@ -3909,6 +3909,29 @@ jint Java_org_rocksdb_Options_memtableMaxRangeDeletions(JNIEnv*, jclass,
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setMinTombstonesForRangeConversion
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setMinTombstonesForRangeConversion(
+    JNIEnv*, jclass, jlong jhandle, jint jmin_tombstones_for_range_conversion) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opts->min_tombstones_for_range_conversion =
+      static_cast<uint32_t>(jmin_tombstones_for_range_conversion);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    minTombstonesForRangeConversion
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_Options_minTombstonesForRangeConversion(JNIEnv*, jclass,
+                                                              jlong jhandle) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return static_cast<jint>(opts->min_tombstones_for_range_conversion);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    tablePropertiesCollectorFactory
  * Signature: (J)[J
  */
@@ -5844,6 +5867,31 @@ jint Java_org_rocksdb_ColumnFamilyOptions_memtableMaxRangeDeletions(
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
   return static_cast<jint>(opts->memtable_max_range_deletions);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setMinTombstonesForRangeConversion
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setMinTombstonesForRangeConversion(
+    JNIEnv*, jclass, jlong jhandle, jint jmin_tombstones_for_range_conversion) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  opts->min_tombstones_for_range_conversion =
+      static_cast<uint32_t>(jmin_tombstones_for_range_conversion);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    minTombstonesForRangeConversion
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_ColumnFamilyOptions_minTombstonesForRangeConversion(
+    JNIEnv*, jclass, jlong jhandle) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  return static_cast<jint>(opts->min_tombstones_for_range_conversion);
 }
 
 /////////////////////////////////////////////////////////////////////

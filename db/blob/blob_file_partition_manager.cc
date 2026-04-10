@@ -6,6 +6,7 @@
 #include "db/blob/blob_file_partition_manager.h"
 
 #include <array>
+#include <atomic>
 #include <cinttypes>
 #include <memory>
 #include <utility>
@@ -30,6 +31,27 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+
+class RoundRobinBlobFilePartitionStrategy : public BlobFilePartitionStrategy {
+ public:
+  using BlobFilePartitionStrategy::SelectPartition;
+
+  const char* Name() const override {
+    return "RoundRobinBlobFilePartitionStrategy";
+  }
+
+  uint32_t SelectPartition(uint32_t num_partitions,
+                           uint32_t /*column_family_id*/, const Slice& /*key*/,
+                           const Slice& /*value*/) override {
+    assert(num_partitions > 0);
+    return static_cast<uint32_t>(
+        next_partition_.fetch_add(1, std::memory_order_relaxed) %
+        static_cast<uint64_t>(num_partitions));
+  }
+
+ private:
+  std::atomic<uint64_t> next_partition_{0};
+};
 
 struct DirectWriteCompressionState {
   // `working_area` must be released before its owning compressor.
@@ -68,17 +90,22 @@ DirectWriteCompressionState& GetDirectWriteCompressionState(
 }  // namespace
 
 BlobFilePartitionManager::BlobFilePartitionManager(
-    uint32_t num_partitions, FileNumberAllocator file_number_allocator,
-    FileSystem* fs, SystemClock* clock, Statistics* statistics,
-    const FileOptions& file_options, std::string db_path,
-    std::string column_family_name, uint64_t blob_file_size, bool use_fsync,
-    BlobFileCache* blob_file_cache, BlobFileCompletionCallback* blob_callback,
+    uint32_t num_partitions,
+    std::shared_ptr<BlobFilePartitionStrategy> strategy,
+    FileNumberAllocator file_number_allocator, FileSystem* fs,
+    SystemClock* clock, Statistics* statistics, const FileOptions& file_options,
+    std::string db_path, std::string column_family_name,
+    uint64_t blob_file_size, bool use_fsync, BlobFileCache* blob_file_cache,
+    BlobFileCompletionCallback* blob_callback,
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     FileChecksumGenFactory* file_checksum_gen_factory,
     const FileTypeSet& checksum_handoff_file_types,
     const std::shared_ptr<IOTracer>& io_tracer, std::string db_id,
     std::string db_session_id, Logger* info_log)
     : num_partitions_(num_partitions == 0 ? 1 : num_partitions),
+      strategy_(strategy != nullptr
+                    ? std::move(strategy)
+                    : std::make_shared<RoundRobinBlobFilePartitionStrategy>()),
       file_number_allocator_(std::move(file_number_allocator)),
       fs_(fs),
       clock_(clock),
@@ -380,11 +407,19 @@ Status BlobFilePartitionManager::MaybePrepopulateBlobCache(
                                 CacheTier::kVolatileTier);
 }
 
+uint32_t BlobFilePartitionManager::SelectWideColumnPartition(
+    uint32_t column_family_id, const Slice& key,
+    const WideColumns& columns) const {
+  return strategy_->SelectPartition(num_partitions_, column_family_id, key,
+                                    columns) %
+         num_partitions_;
+}
+
 Status BlobFilePartitionManager::WriteBlob(
     const WriteOptions& write_options, uint32_t column_family_id,
     CompressionType compression, const Slice& key, const Slice& value,
     uint64_t* blob_file_number, uint64_t* blob_offset, uint64_t* blob_size,
-    const BlobDirectWriteSettings* settings) {
+    const BlobDirectWriteSettings* settings, const uint32_t* partition_idx) {
   assert(blob_file_number != nullptr);
   assert(blob_offset != nullptr);
   assert(blob_size != nullptr);
@@ -410,13 +445,21 @@ Status BlobFilePartitionManager::WriteBlob(
     write_value = Slice(compressed_value);
   }
 
-  const uint32_t partition_idx = static_cast<uint32_t>(
-      next_partition_.fetch_add(1, std::memory_order_relaxed) %
-      num_partitions_);
+  // Partition selection is based on the logical write inputs. In particular,
+  // strategies that inspect value contents or size see the original
+  // uncompressed value rather than `write_value`. The modulo here is
+  // intentional so custom strategies can return arbitrary hashed or sentinel
+  // values without violating the partition bounds.
+  const uint32_t selected_partition_idx =
+      partition_idx != nullptr
+          ? (*partition_idx % num_partitions_)
+          : (strategy_->SelectPartition(num_partitions_, column_family_id, key,
+                                        value) %
+             num_partitions_);
 
   {
     MutexLock lock(&mutex_);
-    Partition* partition = partitions_[partition_idx].get();
+    Partition* partition = partitions_[selected_partition_idx].get();
 
     auto seal_current_file = [&]() -> Status {
       if (!partition->writer) {
@@ -447,7 +490,7 @@ Status BlobFilePartitionManager::WriteBlob(
 
     if (!partition->writer) {
       Status s = OpenNewBlobFile(partition, column_family_id, compression,
-                                 partition_idx);
+                                 selected_partition_idx);
       if (!s.ok()) {
         return s;
       }
@@ -647,6 +690,14 @@ void BlobFilePartitionManager::GetProtectedBlobFileNumbers(
   }
 }
 
+bool BlobFilePartitionManager::IsTrackedBlobFileNumber(
+    uint64_t file_number) const {
+  ReadLock lock(&file_partition_mutex_);
+  return file_to_partition_.find(file_number) != file_to_partition_.end() ||
+         protected_blob_file_refs_.find(file_number) !=
+             protected_blob_file_refs_.end();
+}
+
 void BlobFilePartitionManager::ProtectSealedBlobFileNumbers(
     const std::vector<uint64_t>& file_numbers) {
   if (file_numbers.empty()) {
@@ -713,11 +764,9 @@ void BlobFilePartitionManager::RemoveFilePartitionMappings(
 Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
     const ReadOptions& read_options, const Slice& user_key,
     const BlobIndex& blob_idx, const Version* version,
-    BlobFileCache* blob_file_cache, PinnableSlice* blob_value) {
+    BlobFileCache* blob_file_cache, FilePrefetchBuffer* prefetch_buffer,
+    PinnableSlice* blob_value, uint64_t* bytes_read) {
   assert(blob_value != nullptr);
-
-  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
-  constexpr uint64_t* bytes_read = nullptr;
 
   if (version != nullptr) {
     // Only fall back when the blob file is still owned exclusively by the

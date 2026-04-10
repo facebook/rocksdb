@@ -76,6 +76,7 @@ FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
       values.emplace_back(value.data(), value.size());
     }
   }
+  num_unfragmented_tombstones_ = keys.size();
   if (pad_min_ts_for_end) {
     total_tombstone_payload_bytes_ += num_unfragmented_tombstones_ * ts_sz;
   }

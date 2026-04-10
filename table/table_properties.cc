@@ -47,6 +47,10 @@ std::string TableProperties::ToString(const std::string& prop_delim,
   // Basic Info
   AppendProperty(result, "# data blocks", num_data_blocks, prop_delim,
                  kv_delim);
+  AppendProperty(result, "# data blocks compression rejected",
+                 num_data_blocks_compression_rejected, prop_delim, kv_delim);
+  AppendProperty(result, "# data blocks compression bypassed",
+                 num_data_blocks_compression_bypassed, prop_delim, kv_delim);
   AppendProperty(result, "# uniform blocks", num_uniform_blocks, prop_delim,
                  kv_delim);
   AppendProperty(result, "# entries", num_entries, prop_delim, kv_delim);
@@ -194,6 +198,10 @@ void TableProperties::Add(const TableProperties& tp) {
   raw_key_size += tp.raw_key_size;
   raw_value_size += tp.raw_value_size;
   num_data_blocks += tp.num_data_blocks;
+  num_data_blocks_compression_rejected +=
+      tp.num_data_blocks_compression_rejected;
+  num_data_blocks_compression_bypassed +=
+      tp.num_data_blocks_compression_bypassed;
   num_uniform_blocks += tp.num_uniform_blocks;
   num_entries += tp.num_entries;
   num_filter_entries += tp.num_filter_entries;
@@ -218,6 +226,10 @@ TableProperties::GetAggregatablePropertiesAsMap() const {
   rv["raw_key_size"] = raw_key_size;
   rv["raw_value_size"] = raw_value_size;
   rv["num_data_blocks"] = num_data_blocks;
+  rv["num_data_blocks_compression_rejected"] =
+      num_data_blocks_compression_rejected;
+  rv["num_data_blocks_compression_bypassed"] =
+      num_data_blocks_compression_bypassed;
   rv["num_uniform_blocks"] = num_uniform_blocks;
   rv["num_entries"] = num_entries;
   rv["num_filter_entries"] = num_filter_entries;
@@ -278,12 +290,18 @@ const std::string TablePropertiesNames::kIndexKeyIsUserKey =
     "rocksdb.index.key.is.user.key";
 const std::string TablePropertiesNames::kIndexValueIsDeltaEncoded =
     "rocksdb.index.value.is.delta.encoded";
+const std::string TablePropertiesNames::kUDIIsPrimaryIndex =
+    "rocksdb.udi.is.primary.index";
 const std::string TablePropertiesNames::kFilterSize = "rocksdb.filter.size";
 const std::string TablePropertiesNames::kRawKeySize = "rocksdb.raw.key.size";
 const std::string TablePropertiesNames::kRawValueSize =
     "rocksdb.raw.value.size";
 const std::string TablePropertiesNames::kNumDataBlocks =
     "rocksdb.num.data.blocks";
+const std::string TablePropertiesNames::kNumDataBlocksCompressionRejected =
+    "rocksdb.num.data.blocks.compression.rejected";
+const std::string TablePropertiesNames::kNumDataBlocksCompressionBypassed =
+    "rocksdb.num.data.blocks.compression.bypassed";
 const std::string TablePropertiesNames::kNumUniformBlocks =
     "rocksdb.num.uniform.blocks";
 const std::string TablePropertiesNames::kNumEntries = "rocksdb.num.entries";
@@ -373,6 +391,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct TableProperties, index_value_is_delta_encoded),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"udi_is_primary_index",
+         {offsetof(struct TableProperties, udi_is_primary_index),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"filter_size",
          {offsetof(struct TableProperties, filter_size), OptionType::kUInt64T,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
@@ -385,6 +407,16 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"num_data_blocks",
          {offsetof(struct TableProperties, num_data_blocks),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"num_data_blocks_compression_rejected",
+         {offsetof(struct TableProperties,
+                   num_data_blocks_compression_rejected),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"num_data_blocks_compression_bypassed",
+         {offsetof(struct TableProperties,
+                   num_data_blocks_compression_bypassed),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"num_uniform_blocks",

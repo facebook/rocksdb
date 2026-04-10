@@ -4085,6 +4085,197 @@ TEST_P(WritePreparedTransactionTest, WC_WP_WALForwardIncompatibility) {
   CrossCompatibilityTest(WRITE_PREPARED, WRITE_COMMITTED, !empty_wal);
 }
 
+// With insert_seq = read iterator seqno, insertion depends on the latest
+// published read seq. In one-write-queue mode, the latest read seq reaches the
+// prepared seq, so insertion is blocked. In two-write-queues mode, the latest
+// published seq can still lag the prepared seq, so insertion remains safe and
+// is allowed.
+TEST_P(WritePreparedTransactionTest, RangeTombstoneInsertionWithWritePrepared) {
+  for (bool forward : {true, false}) {
+    SCOPED_TRACE(forward ? "forward" : "reverse");
+    options.min_tombstones_for_range_conversion = 4;
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    ASSERT_OK(ReOpenNoDelete());
+
+    std::vector<std::pair<std::string, std::string>> inserted_ranges;
+    SyncPoint::GetInstance()->SetCallBack(
+        "MemTable::AddLogicallyRedundantRangeTombstone:AddRange",
+        [&](void* arg) {
+          auto* range = static_cast<std::pair<Slice, Slice>*>(arg);
+          inserted_ranges.emplace_back(range->first.ToString(),
+                                       range->second.ToString());
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    for (char c = 'a'; c <= 'j'; c++) {
+      ASSERT_OK(db->Put(WriteOptions(), std::string(1, c), "val"));
+    }
+    ASSERT_OK(db->Flush(FlushOptions()));
+
+    // Delete 5 contiguous keys (> threshold of 4) directly (not in txn).
+    // These tombstones get sequence numbers lower than any prepared entry.
+    for (char c = 'c'; c <= 'g'; c++) {
+      ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));
+    }
+
+    // Begin a transaction and prepare it — the prepare_seq will be higher
+    // than the tombstone seqnos above.
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+    ASSERT_NE(txn, nullptr);
+    ASSERT_OK(txn->SetName("txn1"));
+    ASSERT_OK(txn->Put("z", "txn_val"));
+    ASSERT_OK(txn->Prepare());
+
+    // Pre-commit: one-write-queue mode publishes the prepare seq to readers,
+    // so insertion must be discarded. Two-write-queues mode can still expose
+    // an older published seq to readers, so insertion remains safe.
+    {
+      ReadOptions read_opts;
+      std::unique_ptr<Iterator> iter(db->NewIterator(read_opts));
+      if (forward) {
+        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        }
+      } else {
+        for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        }
+      }
+      EXPECT_OK(iter->status());
+    }
+    const size_t expected_insertions = options.two_write_queues ? 1u : 0u;
+    EXPECT_EQ(
+        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+        expected_insertions);
+    EXPECT_EQ(inserted_ranges.size(), expected_insertions);
+    if (options.two_write_queues) {
+      EXPECT_EQ(inserted_ranges[0].first, "c");
+      EXPECT_EQ(inserted_ranges[0].second, "h");
+    }
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    ASSERT_OK(txn->Commit());
+  }
+}
+
+// When prepared entries have seqno <= max_tombstone_seq, range tombstone
+// insertion is blocked to prevent covering invisible prepared entries.
+TEST_P(WritePreparedTransactionTest,
+       RangeTombstoneInsertionBlockedByPreparedEntry) {
+  for (bool forward : {true, false}) {
+    SCOPED_TRACE(forward ? "forward" : "reverse");
+    options.min_tombstones_for_range_conversion = 4;
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    ASSERT_OK(ReOpenNoDelete());
+
+    // Write old keys.
+    for (char c = 'a'; c <= 'j'; c++) {
+      ASSERT_OK(db->Put(WriteOptions(), std::string(1, c), "val"));
+    }
+    ASSERT_OK(db->Flush(FlushOptions()));
+
+    // Prepare a transaction first — the prepare_seq will be low.
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+    ASSERT_NE(txn, nullptr);
+    ASSERT_OK(txn->SetName("txn1"));
+    ASSERT_OK(txn->Put("z", "txn_val"));
+    ASSERT_OK(txn->Prepare());
+
+    // Now delete 5 contiguous keys — these tombstones get seqnos AFTER
+    // the prepare_seq, so max_tombstone_seq >= min_uncommitted.
+    for (char c = 'c'; c <= 'g'; c++) {
+      ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));
+    }
+
+    // Pre-commit: a prepared transaction is still outstanding, so the
+    // synthesized range tombstone must be discarded.
+    {
+      ReadOptions read_opts;
+      std::unique_ptr<Iterator> iter(db->NewIterator(read_opts));
+      if (forward) {
+        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        }
+      } else {
+        for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        }
+      }
+      ASSERT_OK(iter->status());
+    }
+    ASSERT_EQ(
+        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+        0u);
+
+    ASSERT_OK(txn->Rollback());
+  }
+}
+
+// Regression test: when range tombstone insertion bumps the seqno to
+// earliest_seq of the active memtable, it can shadow a prepared-but-
+// uncommitted Put whose prepare_seq falls between range_tomb_max_seq_
+// and earliest_seq.  After the txn commits, the Put is incorrectly hidden.
+TEST_P(WritePreparedTransactionTest,
+       RangeTombstoneSeqnoBumpShadowsPreparedWrite) {
+  for (bool forward : {true, false}) {
+    SCOPED_TRACE(forward ? "forward" : "reverse");
+    options.min_tombstones_for_range_conversion = 2;
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    ASSERT_OK(ReOpenNoDelete());
+
+    // Step 1: Write base data and flush so it's in an SST.
+    for (char c = 'a'; c <= 'j'; c++) {
+      ASSERT_OK(db->Put(WriteOptions(), std::string(1, c), "val"));
+    }
+    ASSERT_OK(db->Flush(FlushOptions()));
+
+    // Step 2: Delete contiguous keys (committed, low seqnos).
+    for (char c = 'c'; c <= 'g'; c++) {
+      ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));
+    }
+
+    // Step 3: Prepare a Put for key "e" (inside the deleted range).
+    // Its prepare_seq will be higher than the delete seqnos.
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+    ASSERT_NE(txn, nullptr);
+    ASSERT_OK(txn->SetName("txn_put_e"));
+    ASSERT_OK(txn->Put("e", "txn_value"));
+    ASSERT_OK(txn->Prepare());
+
+    // Step 4: Force a memtable switch so that earliest_seq of the new
+    // memtable is higher than the prepare_seq.
+    ASSERT_OK(db->Flush(FlushOptions()));
+
+    // Write something to ensure the new memtable is active and has a
+    // high earliest_seq.
+    ASSERT_OK(db->Put(WriteOptions(), "z_dummy", "dummy"));
+
+    // Step 5: Iterate to trigger MaybeInsertRangeTombstone.
+    // The tombstones have max_seq < min_uncommitted (prepare_seq),
+    // so the check passes.  But insert_seq gets bumped to earliest_seq
+    // of the new memtable, which is > prepare_seq.
+    {
+      ReadOptions read_opts;
+      std::unique_ptr<Iterator> iter(db->NewIterator(read_opts));
+      if (forward) {
+        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        }
+      } else {
+        for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        }
+      }
+      ASSERT_OK(iter->status());
+    }
+
+    // Step 6: Commit the prepared transaction.
+    ASSERT_OK(txn->Commit());
+
+    // Step 7: The committed Put("e", "txn_value") should be visible.
+    // BUG: If the range tombstone was inserted with a bumped seqno >
+    // prepare_seq, it shadows this committed write.
+    std::string value;
+    ASSERT_OK(db->Get(ReadOptions(), "e", &value));
+    ASSERT_EQ(value, "txn_value");
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

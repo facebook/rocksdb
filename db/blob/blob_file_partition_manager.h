@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#include <atomic>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -32,6 +31,7 @@ class BlobFileCache;
 class BlobFileCompletionCallback;
 class BlobIndex;
 class BlobLogWriter;
+class FilePrefetchBuffer;
 class IOTracer;
 class Logger;
 class PinnableSlice;
@@ -55,8 +55,10 @@ class BlobFilePartitionManager {
 
   // Creates the per-column-family manager for write-path blob files.
   BlobFilePartitionManager(
-      uint32_t num_partitions, FileNumberAllocator file_number_allocator,
-      FileSystem* fs, SystemClock* clock, Statistics* statistics,
+      uint32_t num_partitions,
+      std::shared_ptr<BlobFilePartitionStrategy> strategy,
+      FileNumberAllocator file_number_allocator, FileSystem* fs,
+      SystemClock* clock, Statistics* statistics,
       const FileOptions& file_options, std::string db_path,
       std::string column_family_name, uint64_t blob_file_size, bool use_fsync,
       BlobFileCache* blob_file_cache, BlobFileCompletionCallback* blob_callback,
@@ -75,7 +77,14 @@ class BlobFilePartitionManager {
                    CompressionType compression, const Slice& key,
                    const Slice& value, uint64_t* blob_file_number,
                    uint64_t* blob_offset, uint64_t* blob_size,
-                   const BlobDirectWriteSettings* settings = nullptr);
+                   const BlobDirectWriteSettings* settings = nullptr,
+                   const uint32_t* partition_idx = nullptr);
+
+  // Selects the partition to use for all blob-backed columns of one PutEntity
+  // operation. The return value is already normalized to [0, num_partitions_).
+  uint32_t SelectWideColumnPartition(uint32_t column_family_id,
+                                     const Slice& key,
+                                     const WideColumns& columns) const;
 
   // Move the current active partition files into the next immutable
   // memtable-generation batch. Called from SwitchMemtable() while DB mutex is
@@ -116,6 +125,10 @@ class BlobFilePartitionManager {
   // or old SuperVersions and therefore must not be purged yet.
   void GetProtectedBlobFileNumbers(UnorderedSet<uint64_t>* file_numbers) const;
 
+  // Returns true when the blob file is still owned by the write path or
+  // protected by a live memtable / old SuperVersion.
+  bool IsTrackedBlobFileNumber(uint64_t file_number) const;
+
   // Increments / decrements memtable-held protection on sealed blob files.
   void ProtectSealedBlobFileNumbers(const std::vector<uint64_t>& file_numbers);
   void UnprotectSealedBlobFileNumbers(
@@ -135,12 +148,11 @@ class BlobFilePartitionManager {
   // blob file is still write-path-owned and therefore not yet tracked by
   // Version. Existing manifest-visible read results, including I/O failures,
   // are returned directly rather than masked by fallback logic.
-  static Status ResolveBlobDirectWriteIndex(const ReadOptions& read_options,
-                                            const Slice& user_key,
-                                            const BlobIndex& blob_idx,
-                                            const Version* version,
-                                            BlobFileCache* blob_file_cache,
-                                            PinnableSlice* blob_value);
+  static Status ResolveBlobDirectWriteIndex(
+      const ReadOptions& read_options, const Slice& user_key,
+      const BlobIndex& blob_idx, const Version* version,
+      BlobFileCache* blob_file_cache, FilePrefetchBuffer* prefetch_buffer,
+      PinnableSlice* blob_value, uint64_t* bytes_read);
 
  private:
   struct Partition {
@@ -233,9 +245,9 @@ class BlobFilePartitionManager {
                                    uint64_t blob_file_number,
                                    uint64_t blob_offset);
 
-  // Configured partition fanout and round-robin write selector.
+  // Configured partition fanout and write-selection strategy.
   const uint32_t num_partitions_;
-  std::atomic<uint64_t> next_partition_{0};
+  std::shared_ptr<BlobFilePartitionStrategy> strategy_;
   // Shared services needed to create, track, and cache blob files.
   FileNumberAllocator file_number_allocator_;
   FileSystem* fs_;

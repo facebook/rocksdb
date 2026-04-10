@@ -11,6 +11,7 @@
 
 #include "db/blob/blob_index.h"
 #include "db/version_set.h"
+#include "db/wide/wide_column_serialization.h"
 #include "logging/event_logger.h"
 #include "rocksdb/slice.h"
 #include "table/unique_id_impl.h"
@@ -64,13 +65,8 @@ uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
 Status FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
                                       SequenceNumber seqno,
                                       ValueType value_type) {
-  if (value_type == kTypeBlobIndex) {
-    BlobIndex blob_index;
-    const Status s = blob_index.DecodeFrom(value);
-    if (!s.ok()) {
-      return s;
-    }
-
+  // Helper: update oldest_blob_file_number from a single BlobIndex.
+  auto update_oldest_blob = [&](const BlobIndex& blob_index) -> Status {
     if (!blob_index.IsInlined() && !blob_index.HasTTL()) {
       if (blob_index.file_number() == kInvalidBlobFileNumber) {
         return Status::Corruption("Invalid blob file number");
@@ -80,6 +76,24 @@ Status FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
           oldest_blob_file_number > blob_index.file_number()) {
         oldest_blob_file_number = blob_index.file_number();
       }
+    }
+    return Status::OK();
+  };
+
+  if (value_type == kTypeBlobIndex) {
+    BlobIndex blob_index;
+    if (Status s = blob_index.DecodeFrom(value); !s.ok()) {
+      return s;
+    }
+
+    if (Status s = update_oldest_blob(blob_index); !s.ok()) {
+      return s;
+    }
+  } else if (value_type == kTypeWideColumnEntity) {
+    if (Status s = WideColumnSerialization::ForEachBlobFileNumber(
+            value, update_oldest_blob);
+        !s.ok()) {
+      return s;
     }
   }
 

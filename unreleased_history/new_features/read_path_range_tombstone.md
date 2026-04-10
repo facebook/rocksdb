@@ -1,0 +1,1 @@
+Added new option `min_tombstones_for_range_conversion` in `AdvancedColumnFamilyOptions`. When set to a non-zero value N, forward or reverse iteration will convert N or more contiguous point tombstones into a range tombstone in the mutable memtable. Future read operations will then be able to benefit from range tombstone optimizations.

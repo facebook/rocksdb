@@ -4650,6 +4650,16 @@ uint32_t rocksdb_options_get_memtable_avg_op_scan_flush_trigger(
   return opt->rep.memtable_avg_op_scan_flush_trigger;
 }
 
+void rocksdb_options_set_min_tombstones_for_range_conversion(
+    rocksdb_options_t* opt, uint32_t n) {
+  opt->rep.min_tombstones_for_range_conversion = n;
+}
+
+uint32_t rocksdb_options_get_min_tombstones_for_range_conversion(
+    rocksdb_options_t* opt) {
+  return opt->rep.min_tombstones_for_range_conversion;
+}
+
 void rocksdb_options_enable_statistics(rocksdb_options_t* opt) {
   opt->rep.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
 }

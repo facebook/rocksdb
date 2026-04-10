@@ -669,7 +669,16 @@ DEFINE_double(uniform_cv_threshold,
 DEFINE_bool(use_trie_index, false,
             "Use trie-based user defined index (UDI) for SST files. "
             "Compatible with all operation types (Put, Delete, Merge, etc.) "
-            "and all iteration directions (forward and reverse).");
+            "and all iteration directions (forward and reverse). "
+            "Combined with use_udi_as_primary_index to control whether the "
+            "UDI is the primary or secondary index.");
+
+DEFINE_bool(use_udi_as_primary_index, false,
+            "When use_trie_index is enabled, use the UDI as the primary "
+            "index. All reads automatically go through the UDI (both "
+            "the standard index and UDI are always built). When false, "
+            "the UDI is a secondary index and reads require "
+            "ReadOptions::table_index_factory to be set.");
 
 DEFINE_bool(test_backward_scan, true,
             "Test backward iteration (Prev, SeekForPrev) in stress tests.");
@@ -692,6 +701,20 @@ DEFINE_string(
     "that use the same --expected_values_dir. Currently historical values are "
     "only tracked when --sync_fault_injection is set. See --seed and "
     "--nooverwritepercent for further requirements.");
+
+DEFINE_bool(expected_state_trace_debug, true,
+            "If true, print debug logs while replaying expected-state trace "
+            "records during crash recovery verification.");
+
+DEFINE_int64(
+    expected_state_trace_debug_key, -1,
+    "If non-negative, restrict expected-state trace debug logs to the "
+    "specified logical key where possible. Raw-key roundtrip mismatches for "
+    "that logical key are still logged.");
+
+DEFINE_int32(expected_state_trace_debug_max_logs, 200,
+             "Maximum number of expected-state trace debug log lines to emit "
+             "per restore attempt.");
 
 DEFINE_bool(verify_checksum, false,
             "Verify checksum for every block read from storage");
@@ -1643,6 +1666,11 @@ DEFINE_uint32(
     ROCKSDB_NAMESPACE::ColumnFamilyOptions().memtable_avg_op_scan_flush_trigger,
     "Sets CF option memtable_avg_op_scan_flush_trigger.");
 
+DEFINE_uint32(min_tombstones_for_range_conversion,
+              ROCKSDB_NAMESPACE::ColumnFamilyOptions()
+                  .min_tombstones_for_range_conversion,
+              "Sets CF option min_tombstones_for_range_conversion.");
+
 DEFINE_bool(
     universal_reduce_file_locking,
     ROCKSDB_NAMESPACE::ColumnFamilyOptions()
@@ -1655,5 +1683,11 @@ DEFINE_bool(use_multiscan, false,
 
 DEFINE_bool(multiscan_use_async_io, false,
             "If set, enable async_io for MultiScan operations.");
+
+DEFINE_uint64(multiscan_max_prefetch_memory_bytes, 0,
+              "If non-zero, sets the max_prefetch_memory_bytes on the "
+              "IODispatcher used for MultiScan. This limits the total memory "
+              "used for prefetching data blocks across all concurrent "
+              "MultiScan ReadSets.");
 
 #endif  // GFLAGS

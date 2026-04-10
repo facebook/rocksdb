@@ -13,6 +13,9 @@
 #include "db_stress_tool/expected_state.h"
 #include "rocksdb/status.h"
 #ifdef GFLAGS
+#include <cinttypes>
+#include <unordered_map>
+
 #include "db/wide/wide_columns_helper.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -1361,12 +1364,33 @@ class NonBatchedOpsStressTest : public StressTest {
       }
       const bool check_get_entity =
           !injected_error_count && FLAGS_check_multiget_entity_consistency;
+      const SequenceNumber snapshot_seq =
+          read_opts_copy.snapshot != nullptr
+              ? read_opts_copy.snapshot->GetSequenceNumber()
+              : kMaxSequenceNumber;
+      const auto format_entity_result =
+          [](const Status& status, const WideColumns* entity) -> std::string {
+        if (status.ok()) {
+          assert(entity != nullptr);
+          return WideColumnsToHex(*entity);
+        }
+        if (status.IsNotFound()) {
+          return "not found";
+        }
+        return status.ToString();
+      };
 
       for (size_t i = 0; i < num_keys; ++i) {
         const WideColumns& columns = get_columns(i);
         const Status& s = get_status(i);
 
         bool is_consistent = true;
+        Status cmp_s;
+        PinnableWideColumns cmp_result;
+        bool ran_cmp_get_entity = false;
+        bool ran_cmp_get = false;
+        Status cmp_value_s;
+        std::string cmp_value;
 
         if (s.ok() && !VerifyWideColumns(columns)) {
           fprintf(
@@ -1379,10 +1403,10 @@ class NonBatchedOpsStressTest : public StressTest {
           if (!do_extra_check(keys[i], columns, s)) {
             is_consistent = false;
           } else if (check_get_entity) {
-            PinnableWideColumns cmp_result;
             ThreadStatusUtil::SetThreadOperation(
                 ThreadStatus::OperationType::OP_GETENTITY);
-            const Status cmp_s = call_get_entity(key_slices[i], &cmp_result);
+            cmp_s = call_get_entity(key_slices[i], &cmp_result);
+            ran_cmp_get_entity = true;
 
             if (!cmp_s.ok() && !cmp_s.IsNotFound()) {
               fprintf(stderr, "GetEntity error: %s\n",
@@ -1428,6 +1452,74 @@ class NonBatchedOpsStressTest : public StressTest {
         }
 
         if (!is_consistent) {
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_GET);
+          cmp_value_s =
+              db_->Get(read_opts_copy, cfh, key_slices[i], &cmp_value);
+          ran_cmp_get = true;
+          fprintf(stderr,
+                  "TestMultiGetEntity mismatch details: cf=%s key=%s "
+                  "batch_index=%zu snapshot_seq=%" PRIu64
+                  " batch_size=%zu check_get_entity=%d use_trie_index=%d "
+                  "enable_blob_direct_write=%d enable_blob_files=%d "
+                  "min_blob_size=%" PRIu64
+                  " read_tier=%d fill_cache=%d "
+                  "verify_checksums=%d\n",
+                  cfh->GetName().c_str(), StringToHex(keys[i]).c_str(), i,
+                  snapshot_seq, num_keys, static_cast<int>(check_get_entity),
+                  static_cast<int>(FLAGS_use_trie_index),
+                  static_cast<int>(FLAGS_enable_blob_direct_write),
+                  static_cast<int>(FLAGS_enable_blob_files),
+                  static_cast<uint64_t>(FLAGS_min_blob_size),
+                  static_cast<int>(read_opts_copy.read_tier),
+                  static_cast<int>(read_opts_copy.fill_cache),
+                  static_cast<int>(read_opts_copy.verify_checksums));
+          fprintf(
+              stderr, "  MultiGetEntity: %s verify=%s\n",
+              format_entity_result(s, s.ok() ? &columns : nullptr).c_str(),
+              s.ok() ? (VerifyWideColumns(columns) ? "true" : "false") : "n/a");
+          if (ran_cmp_get_entity) {
+            fprintf(stderr, "  GetEntity: %s verify=%s\n",
+                    format_entity_result(
+                        cmp_s, cmp_s.ok() ? &cmp_result.columns() : nullptr)
+                        .c_str(),
+                    cmp_s.ok()
+                        ? (VerifyWideColumns(cmp_result.columns()) ? "true"
+                                                                   : "false")
+                        : "n/a");
+          }
+          if (ran_cmp_get) {
+            if (cmp_value_s.ok()) {
+              fprintf(stderr, "  Get: %s\n",
+                      Slice(cmp_value).ToString(true).c_str());
+            } else if (cmp_value_s.IsNotFound()) {
+              fprintf(stderr, "  Get: not found\n");
+            } else {
+              fprintf(stderr, "  Get: %s\n", cmp_value_s.ToString().c_str());
+            }
+          }
+
+          std::unordered_map<std::string, size_t> first_batch_index_by_key;
+          for (size_t batch_idx = 0; batch_idx < num_keys; ++batch_idx) {
+            const Status& batch_status = get_status(batch_idx);
+            const WideColumns& batch_columns = get_columns(batch_idx);
+            const auto [it, inserted] =
+                first_batch_index_by_key.emplace(keys[batch_idx], batch_idx);
+            fprintf(stderr,
+                    "  batch[%zu]%s key=%s duplicate_of=%s status=%s "
+                    "verify=%s\n",
+                    batch_idx, batch_idx == i ? " [focus]" : "",
+                    StringToHex(keys[batch_idx]).c_str(),
+                    inserted ? "-" : std::to_string(it->second).c_str(),
+                    batch_status.ToString().c_str(),
+                    batch_status.ok()
+                        ? (VerifyWideColumns(batch_columns) ? "true" : "false")
+                        : "n/a");
+            if (batch_status.ok()) {
+              fprintf(stderr, "    columns=%s\n",
+                      WideColumnsToHex(batch_columns).c_str());
+            }
+          }
           fprintf(stderr,
                   "TestMultiGetEntity error: results are not consistent\n");
           thread->stats.AddErrors(1);

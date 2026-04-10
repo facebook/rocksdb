@@ -3849,6 +3849,121 @@ TEST_F(DBFlushTest, BuilderWriteFaultPropagationDuringFlush) {
 
   Close();
 }
+// Regression test for table cache leak when flush install fails.
+// BuildTable caches the flush output file (for user reads) but if the
+// subsequent TryInstallMemtableFlushResults (LogAndApply) fails, the
+// cache entry was never evicted. The FindObsoleteFiles backstop normally
+// catches this, but fails under metadata read fault injection
+// (open_metadata_read_fault_one_in), causing
+// TEST_VerifyNoObsoleteFilesCached to fire during Close().
+TEST_F(DBFlushTest, LeakedTableCacheEntryOnFlushInstallFailure) {
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> fault_env(NewCompositeEnv(fault_fs));
+
+  Options options = CurrentOptions();
+  options.env = fault_env.get();
+  options.paranoid_file_checks = true;
+  // Disable auto-recovery so it doesn't clean up the orphan on a separate
+  // thread where metadata faults aren't enabled.
+  options.max_bgerror_resume_count = 0;
+  DestroyAndReopen(options);
+
+  // Write data so flush produces a non-empty file.
+  ASSERT_OK(Put("a", std::string(1024, 'x')));
+
+  // After BuildTable succeeds (caching the output file), inject a failure
+  // before the install-or-rollback decision. This simulates scenarios like
+  // CF dropped or shutdown after BuildTable. Also deactivate the filesystem
+  // so the post-flush FindObsoleteFiles backstop cannot scan the directory.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::Run:PostBuildTable", [&](void* arg) {
+        *static_cast<Status*>(arg) = Status::IOError("injected");
+        fault_fs->SetFilesystemActive(false);
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Trigger flush — BuildTable succeeds but LogAndApply fails.
+  Status s = Flush();
+  ASSERT_NOK(s);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // With the fix, the leaked cache entry was already evicted by
+  // ReleaseObsolete in FlushJob::Run(). Without the fix, it persists.
+  // We can verify by counting non-live cache entries. The quarantine
+  // includes the file (BG error is active), but that's only a workaround --
+  // the cache entry should not exist at all with the fix.
+  //
+  // Check: with the fix, the table cache should be empty (the flush output
+  // was never installed and the fix evicted it). Without the fix, there's
+  // a leaked entry.
+  int cache_entries = 0;
+  auto count_fn = [&cache_entries](const Slice&, Cache::ObjectPtr, size_t,
+                                   const Cache::CacheItemHelper*) {
+    cache_entries++;
+  };
+  dbfull()->TEST_table_cache()->ApplyToAllEntries(count_fn, {});
+  ASSERT_EQ(cache_entries, 0)
+      << "Leaked table cache entry for flush output that was never installed";
+
+  // Reactivate filesystem for clean shutdown.
+  fault_fs->SetFilesystemActive(true);
+  db_ = nullptr;  // destructor handles Close
+}
+
+// Verify that ConstructFragmentedRangeTombstones runs after MarkImmutable
+// in SwitchMemtable. A range tombstone inserted between construction and
+// immutability would cause a flush entry count mismatch.
+TEST_F(DBFlushTest, FlushAfterReadPathRangeTombstoneInsertion) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 2;
+  options.flush_verify_memtable_count = true;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  // Write base data and flush to L0.
+  for (char c = 'a'; c <= 'h'; c++) {
+    ASSERT_OK(Put(std::string(1, c), std::string("v") + c));
+  }
+  ASSERT_OK(Flush());
+
+  // Delete contiguous keys in the memtable.
+  for (const auto& key : {"b", "c", "d", "e"}) {
+    ASSERT_OK(Delete(key));
+  }
+
+  // When SwitchMemtable hits the sync point after
+  // ConstructFragmentedRangeTombstones, directly call
+  // AddLogicallyRedundantRangeTombstone on the memtable being switched.
+  // We can't create an iterator here (would deadlock on the DB mutex).
+  auto* cfh = static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily());
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SwitchMemtable:AfterConstructFragmentedRangeTombstones",
+      [&](void*) {
+        // Try to insert a range tombstone. With the fix (Construct after
+        // MarkImmutable), this returns false because the memtable is
+        // already immutable. Without the fix, this succeeds and creates
+        // an entry count mismatch.
+        cfh->cfd()->mem()->AddLogicallyRedundantRangeTombstone(1 /* seq */, "b",
+                                                               "f");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = Flush();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(s);
+
+  ASSERT_EQ(Get("a"), "va");
+  ASSERT_EQ(Get("b"), "NOT_FOUND");
+  ASSERT_EQ(Get("d"), "NOT_FOUND");
+  ASSERT_EQ(Get("f"), "vf");
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

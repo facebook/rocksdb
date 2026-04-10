@@ -1558,10 +1558,17 @@ class DBImpl : public DB {
   // @param memtable_updated Whether the same write that ingests wbwi has
   // updated memtable. This is useful for determining whether to set bg
   // error when IngestWBWIAsMemtable fails.
+  // @param ingest_wbwi_for_commit Whether wbwi ingestion is publishing the
+  // committed data of a prepared transaction. This means a failure can leave
+  // committed data durable in WAL but not published in memtables.
+  // @param ignore_missing_cf If true, skip column families not found in the DB
+  // instead of returning an error.
   Status IngestWBWIAsMemtable(std::shared_ptr<WriteBatchWithIndex> wbwi,
                               const WBWIMemTable::SeqnoRange& assigned_seqno,
                               uint64_t min_prep_log, SequenceNumber last_seqno,
-                              bool memtable_updated, bool ignore_missing_cf);
+                              bool memtable_updated,
+                              bool ingest_wbwi_for_commit,
+                              bool ignore_missing_cf);
 
   // If disable_memtable is set the application logic must guarantee that the
   // batch will still be skipped from memtable during the recovery. An excption
@@ -1584,24 +1591,80 @@ class DBImpl : public DB {
   // See more in comment above PreReleaseCallback::Callback().
   // post_memtable_callback is called after memtable write but before publishing
   // the sequence number to readers.
+  // `trace_batch_override`, when non-null, supplies the logical batch to trace
+  // instead of `updates`. Fast paths may rewrite or rebuild `updates` before
+  // apply, but tracing should still record the original user-visible batch.
+  // `skip_blob_direct_write_transform` indicates the caller has already
+  // performed any needed batch-level blob direct-write preprocessing.
+  // `deferred_put_entities`, when non-null, carries structured `PutEntity()`
+  // ops that should be materialized into `updates` after `PreprocessWrite()`
+  // has selected the target memtable/blob generation.
   //
   // The main write queue. This is the only write queue that updates
   // LastSequence. When using one write queue, the same sequence also indicates
   // the last published sequence.
-  Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
-                   WriteCallback* callback = nullptr,
-                   UserWriteCallback* user_write_cb = nullptr,
-                   uint64_t* wal_used = nullptr, uint64_t log_ref = 0,
-                   bool disable_memtable = false, uint64_t* seq_used = nullptr,
-                   size_t batch_cnt = 0,
-                   PreReleaseCallback* pre_release_callback = nullptr,
-                   PostMemTableCallback* post_memtable_callback = nullptr,
-                   std::shared_ptr<WriteBatchWithIndex> wbwi = nullptr);
+  struct DeferredPutEntityBatch;
+  Status WriteImpl(
+      const WriteOptions& options, WriteBatch* updates,
+      WriteCallback* callback = nullptr,
+      UserWriteCallback* user_write_cb = nullptr, uint64_t* wal_used = nullptr,
+      uint64_t log_ref = 0, bool disable_memtable = false,
+      uint64_t* seq_used = nullptr, size_t batch_cnt = 0,
+      PreReleaseCallback* pre_release_callback = nullptr,
+      PostMemTableCallback* post_memtable_callback = nullptr,
+      std::shared_ptr<WriteBatchWithIndex> wbwi = nullptr,
+      WriteBatch* trace_batch_override = nullptr,
+      bool skip_blob_direct_write_transform = false,
+      const DeferredPutEntityBatch* deferred_put_entities = nullptr);
 
   // Per-WriteImpl state that keeps BDW column families pinned through
   // referenced SuperVersions until the transformed write either commits or
   // rolls back.
   struct BlobDirectWriteContext;
+  // High-level `PutEntity()` fast-path flow:
+  //
+  //   non-BDW target CF:
+  //     PutEntityFastPath()
+  //       -> AppendPreprocessedPutEntityToBatch()
+  //       -> WritePreprocessedPutEntityBatch()
+  //       -> WriteImpl(skip_blob_direct_write_transform = true)
+  //
+  //   BDW-enabled target CF:
+  //     PutEntityFastPath()
+  //       -> sort columns and stash DeferredPutEntityBatch::Op
+  //       -> WritePreprocessedPutEntityBatch()
+  //       -> WriteImpl(..., deferred_put_entities)
+  //       -> after PreprocessWrite() picks the memtable/blob generation:
+  //            AppendSortedPutEntityToBatch()
+  //
+  // The BDW branch defers final serialization until `WriteImpl()` knows the
+  // target memtable/blob generation, avoiding the old
+  // serialize -> deserialize -> serialize cycle on the write hot path.
+  // Staging buffer for the `PutEntity()` fast path when blob direct write may
+  // need to rewrite wide-column values. `PutEntityFastPath()` records the
+  // logical operations here instead of serializing them into a `WriteBatch`
+  // immediately, then passes this struct to `WriteImpl()`. Once
+  // `PreprocessWrite()` has selected the memtable/blob-file generation,
+  // `WriteImpl()` materializes each op directly into the final batch with blob
+  // direct-write preprocessing applied. This avoids the old
+  // serialize-deserialize-serialize cycle on the write hot path.
+  struct DeferredPutEntityBatch {
+    // The fast path sorts columns up front so `WriteImpl()` can append the
+    // final serialized entity without redoing that work.
+    struct Op {
+      // Target column family for the logical `PutEntity()` op.
+      uint32_t column_family_id = 0;
+      // Owned key bytes kept alive until `WriteImpl()` rebuilds the batch.
+      std::string key;
+      // Pre-sorted columns ready for final serialization and blob
+      // direct-write preprocessing.
+      WideColumns sorted_columns;
+    };
+
+    // Logical `PutEntity()` ops collected by the fast path and replayed into
+    // the final `WriteBatch` inside `WriteImpl()`.
+    std::vector<Op> ops;
+  };
   // Rewrites a write batch for blob direct write when the current DB and batch
   // shape are compatible, recording touched managers and rollback metadata in
   // `blob_direct_write_ctx`.
@@ -1610,6 +1673,41 @@ class DBImpl : public DB {
       bool should_write_to_memtable, bool lookup_from_write_thread,
       WriteBatch* transformed_storage,
       BlobDirectWriteContext* blob_direct_write_ctx);
+  // Sorts and preprocesses one `PutEntity()` op, then appends the final
+  // serialized form to `batch`.
+  Status AppendPreprocessedPutEntityToBatch(
+      const WriteOptions& write_options, WriteBatch* batch,
+      ColumnFamilyHandle* column_family, const Slice& key,
+      const WideColumns& columns,
+      BlobDirectWriteContext* blob_direct_write_ctx);
+  // Appends a `PutEntity()` op whose columns are already sorted, allowing the
+  // fast path to avoid re-sorting before final serialization.
+  Status AppendSortedPutEntityToBatch(
+      const WriteOptions& write_options, WriteBatch* batch,
+      uint32_t column_family_id, const Slice& key,
+      const WideColumns& sorted_columns,
+      BlobDirectWriteContext* blob_direct_write_ctx);
+  // Specialized `PutEntity()` write path for a single column family. This
+  // avoids building an intermediate serialized entity when blob direct write
+  // needs to rewrite the final batch inside `WriteImpl()`.
+  Status PutEntityFastPath(const WriteOptions& write_options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           const WideColumns& columns);
+  // Specialized `PutEntity(AttributeGroups)` path that defers final batch
+  // materialization until `WriteImpl()` when any target CF may use blob direct
+  // write.
+  Status PutEntityFastPath(const WriteOptions& write_options, const Slice& key,
+                           const AttributeGroups& attribute_groups);
+  // Writes a batch prepared by the `PutEntity()` fast path. When
+  // `deferred_put_entities` is present, `WriteImpl()` rebuilds `batch`
+  // internally after `PreprocessWrite()` and disables normal write batching to
+  // keep the staging state local to this write. `trace_batch` stays separate
+  // so tracing can still emit the logical `PutEntity()` batch even when the
+  // applied batch is materialized later inside `WriteImpl()`.
+  Status WritePreprocessedPutEntityBatch(
+      const WriteOptions& write_options, WriteBatch* batch,
+      WriteBatch* trace_batch,
+      const DeferredPutEntityBatch* deferred_put_entities = nullptr);
   // Flushes or syncs all blob direct-write managers touched by the current
   // transformed write before the write can proceed.
   Status SyncBlobDirectWriteManagers(
@@ -1651,6 +1749,10 @@ class DBImpl : public DB {
       const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
       PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
       const PublishLastSeq publish_last_seq, const bool disable_memtable);
+
+  void MaybeTraceWriteGroupForPreservedWriteOrder(
+      const WriteThread::WriteGroup& write_group,
+      WriteBatchWithIndex* wbwi = nullptr, bool ingest_wbwi_for_commit = true);
 
   // write cached_recoverable_state_ to memtable if it is not empty
   // The writer must be the leader in write_thread_ and holding mutex_
@@ -2094,6 +2196,10 @@ class DBImpl : public DB {
   void DeleteObsoleteFileImpl(int job_id, const std::string& fname,
                               const std::string& path_to_sync, FileType type,
                               uint64_t number);
+  // Returns true when a blob file must be preserved because it is still
+  // tracked by blob direct write or is still footer-less on disk.
+  bool ShouldKeepBlobFileDuringPurge(uint64_t number,
+                                     const std::string& blob_file_path);
 
   // Background process needs to call
   //     auto x = CaptureCurrentFileNumberInPendingOutputs()
@@ -2818,6 +2924,30 @@ class DBImpl : public DB {
                                       std::string ts_low);
 
   bool ShouldReferenceSuperVersion(const MergeContext& merge_context);
+  // Resolves a plain value whose current payload is an encoded direct-write
+  // blob index, either through `value` directly or through the default-column
+  // view layered on `columns`.
+  static Status ResolveDirectWritePlainValue(const ReadOptions& read_options,
+                                             const Slice& key,
+                                             const Version* current,
+                                             ColumnFamilyData* cfd,
+                                             PinnableSlice* value,
+                                             PinnableWideColumns* columns);
+  // Resolves each unresolved direct-write blob-valued column in `columns` and
+  // rebuilds the serialized wide-column entity in place.
+  static Status ResolveDirectWriteWideColumns(const ReadOptions& read_options,
+                                              const Slice& key,
+                                              const Version* current,
+                                              ColumnFamilyData* cfd,
+                                              PinnableWideColumns* columns);
+  // Dispatches between plain-value and wide-column direct-write resolution for
+  // read results observed before flush makes the corresponding blob file
+  // visible through normal Version metadata.
+  static bool MaybeResolveDirectWriteValue(
+      const ReadOptions& read_options, const Slice& key,
+      bool resolve_direct_write_value, const Version* current,
+      ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns,
+      Status* s, bool* is_blob_index, bool* value_found = nullptr);
 
   template <typename IterType, typename ImplType,
             typename ErrorIteratorFuncType>

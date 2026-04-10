@@ -57,6 +57,7 @@
 #include "db/table_properties_collector.h"
 #include "db/transaction_log_impl.h"
 #include "db/version_set.h"
+#include "db/wide/wide_column_serialization.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
 #include "env/unique_id_gen.h"
@@ -605,6 +606,7 @@ void DBImpl::MaybeInitBlobDirectWriteColumnFamily(
 
   auto mgr = std::make_shared<BlobFilePartitionManager>(
       cf_options.blob_direct_write_partitions,
+      cf_options.blob_direct_write_partition_strategy,
       [vs = versions_.get()]() { return vs->NewFileNumber(); }, fs_.get(),
       immutable_db_options_.clock, stats_, file_options_, dbname_,
       column_family_name, cf_options.blob_file_size,
@@ -2268,6 +2270,10 @@ void DBImpl::BackgroundCallPurge() {
     purge_files_.erase(it);
 
     mutex_.Unlock();
+    if (type == kBlobFile && ShouldKeepBlobFileDuringPurge(number, fname)) {
+      mutex_.Lock();
+      continue;
+    }
     DeleteObsoleteFileImpl(job_id, fname, dir_to_sync, type, number);
     mutex_.Lock();
   }
@@ -2605,22 +2611,170 @@ static Slice GetBlobLookupUserKey(const Slice& user_key,
   return Slice(*user_key_with_ts);
 }
 
-static bool MaybeResolveDirectWriteBlobIndex(
+static Status DecodeDirectWriteBlobIndex(const Slice& blob_index_slice,
+                                         BlobIndex* blob_idx) {
+  assert(blob_idx != nullptr);
+
+  Status status = blob_idx->DecodeFrom(blob_index_slice);
+  if (status.ok() && blob_idx->HasTTL()) {
+    status =
+        Status::Corruption("Unexpected TTL blob index for blob direct write");
+  }
+  return status;
+}
+
+Status DBImpl::ResolveDirectWritePlainValue(
+    const ReadOptions& read_options, const Slice& key, const Version* current,
+    ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns) {
+  Slice blob_index_slice;
+  std::string blob_index_storage;
+  if (value != nullptr) {
+    if (value->size() > 0) {
+      blob_index_slice = Slice(value->data(), value->size());
+    } else {
+      blob_index_slice = Slice(*(value->GetSelf()));
+    }
+  } else {
+    assert(columns != nullptr);
+
+    const WideColumns& plain_value_columns = columns->columns();
+    // A plain value exposed through `PinnableWideColumns` is represented as a
+    // single default column at index 0. Resolve that default-column payload as
+    // the user's value.
+    assert(plain_value_columns.size() == 1);
+    assert(plain_value_columns.front().name() == kDefaultWideColumnName);
+    blob_index_slice = plain_value_columns.front().value();
+  }
+
+  PinnableSlice resolved_value;
+  PinnableSlice* target = value != nullptr ? value : &resolved_value;
+  if (value != nullptr) {
+    if (value->IsPinned()) {
+      // We reuse `value` as the destination for the resolved blob payload.
+      // If it is still pinned to a table block, Reset() will drop that cleanup
+      // chain, so preserve the encoded blob-index bytes first.
+      blob_index_storage.assign(blob_index_slice.data(),
+                                blob_index_slice.size());
+      blob_index_slice = Slice(blob_index_storage);
+    }
+    value->Reset();
+  }
+
+  BlobIndex blob_idx;
+  Status status = DecodeDirectWriteBlobIndex(blob_index_slice, &blob_idx);
+  if (status.ok()) {
+    status = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
+        read_options, key, blob_idx, current, cfd->blob_file_cache(),
+        nullptr /* prefetch_buffer */, target, nullptr /* bytes_read */);
+    if (status.ok() && columns != nullptr) {
+      columns->SetPlainValue(std::move(*target));
+    }
+  }
+  return status;
+}
+
+Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
+                                             const Slice& key,
+                                             const Version* current,
+                                             ColumnFamilyData* cfd,
+                                             PinnableWideColumns* columns) {
+  assert(columns != nullptr);
+
+  const WideColumns& unresolved_columns = columns->columns();
+  WideColumns resolved_columns;
+  resolved_columns.reserve(unresolved_columns.size());
+
+  // `unresolved_blob_column_indices_` stores sorted column positions whose
+  // values still hold encoded blob indexes. Keep resolved blob payloads alive
+  // in a side array until the rebuilt entity is serialized back into `columns`.
+  std::vector<PinnableSlice> resolved_blob_values(
+      columns->unresolved_blob_column_indices_.size());
+  size_t unresolved_blob_idx = 0;
+
+  for (size_t column_idx = 0; column_idx < unresolved_columns.size();
+       ++column_idx) {
+    const bool is_unresolved_blob =
+        unresolved_blob_idx < columns->unresolved_blob_column_indices_.size() &&
+        columns->unresolved_blob_column_indices_[unresolved_blob_idx] ==
+            column_idx;
+    if (!is_unresolved_blob) {
+      resolved_columns.emplace_back(unresolved_columns[column_idx].name(),
+                                    unresolved_columns[column_idx].value());
+      continue;
+    }
+
+    BlobIndex blob_idx;
+    Status s = DecodeDirectWriteBlobIndex(
+        unresolved_columns[column_idx].value(), &blob_idx);
+    if (!s.ok()) {
+      return s;
+    }
+
+    Slice resolved_value;
+    if (blob_idx.IsInlined()) {
+      // V2 entities can still encode inline blob indexes. In that case the
+      // bytes are already present in the entity, so no blob file read is
+      // needed.
+      resolved_value = blob_idx.value();
+    } else {
+      s = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
+          read_options, key, blob_idx, current, cfd->blob_file_cache(),
+          nullptr /* prefetch_buffer */,
+          &resolved_blob_values[unresolved_blob_idx], nullptr /* bytes_read */);
+      if (!s.ok()) {
+        return s;
+      }
+      resolved_value = Slice(resolved_blob_values[unresolved_blob_idx]);
+    }
+
+    resolved_columns.emplace_back(unresolved_columns[column_idx].name(),
+                                  resolved_value);
+    ++unresolved_blob_idx;
+  }
+
+  if (unresolved_blob_idx != columns->unresolved_blob_column_indices_.size()) {
+    return Status::Corruption("Wide column blob metadata out of sync");
+  }
+
+  std::string resolved_entity;
+  Status status =
+      WideColumnSerialization::Serialize(resolved_columns, resolved_entity);
+  if (status.ok()) {
+    status = columns->SetWideColumnValue(std::move(resolved_entity));
+  }
+  return status;
+}
+
+bool DBImpl::MaybeResolveDirectWriteValue(
     const ReadOptions& read_options, const Slice& key,
-    bool resolve_direct_write_blob_index, const Version* current,
+    bool resolve_direct_write_value, const Version* current,
     ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns,
-    Status* s, bool* is_blob_index, bool* value_found = nullptr) {
-  if (!s->ok() || !*is_blob_index || !resolve_direct_write_blob_index ||
-      (!value && !columns)) {
+    Status* s, bool* is_blob_index, bool* value_found) {
+  if (!s->ok() || !resolve_direct_write_value || (!value && !columns)) {
     return false;
   }
 
+  const bool needs_plain_value_resolution =
+      is_blob_index != nullptr && *is_blob_index;
+  const bool needs_wide_column_resolution =
+      columns != nullptr && !columns->unresolved_blob_column_indices_.empty();
+  if (!needs_plain_value_resolution && !needs_wide_column_resolution) {
+    return false;
+  }
+
+  // This helper only handles the temporary read-time gap for blob direct write
+  // references that can appear before flush makes the blob file visible through
+  // normal Version metadata. There are two shapes to patch up here:
+  //   1. a plain value encoded as a blob index
+  //   2. a wide-column entity with some unresolved blob-valued columns
   // Once a blob file is registered in Version metadata, the normal integrated
   // blob read path is already agnostic to whether the file came from direct
   // write or flush/compaction. This helper only covers the pre-flush gap where
   // a memtable can already reference a blob file that is not yet
   // manifest-visible.
   if (read_options.read_tier == kBlockCacheTier) {
+    // Resolving a pre-flush direct-write reference can require blob file I/O.
+    // `kBlockCacheTier` forbids that, so surface the result as incomplete.
     if (value != nullptr) {
       value->Reset();
     } else {
@@ -2631,65 +2785,28 @@ static bool MaybeResolveDirectWriteBlobIndex(
       *value_found = false;
     }
     *s = Status::Incomplete();
+    if (is_blob_index != nullptr) {
+      *is_blob_index = false;
+    }
+    return true;
+  }
+
+  if (needs_plain_value_resolution) {
+    *s = ResolveDirectWritePlainValue(read_options, key, current, cfd, value,
+                                      columns);
+    assert(is_blob_index != nullptr);
     *is_blob_index = false;
     return true;
   }
 
-  Slice blob_index_slice;
-  if (value != nullptr) {
-    if (value->size() > 0) {
-      blob_index_slice = Slice(value->data(), value->size());
-    } else {
-      blob_index_slice = Slice(*(value->GetSelf()));
-    }
-  } else {
-    assert(columns != nullptr);
-    assert(!columns->columns().empty());
-    blob_index_slice = columns->columns().front().value();
+  assert(columns != nullptr);
+  *s = ResolveDirectWriteWideColumns(read_options, key, current, cfd, columns);
+
+  if (is_blob_index != nullptr) {
+    *is_blob_index = false;
   }
 
-  BlobIndex blob_idx;
-  *s = blob_idx.DecodeFrom(blob_index_slice);
-  if (s->ok()) {
-    if (blob_idx.HasTTL()) {
-      *s =
-          Status::Corruption("Unexpected TTL blob index for blob direct write");
-    } else {
-      PinnableSlice resolved_value;
-      PinnableSlice* target = value ? value : &resolved_value;
-      if (value != nullptr) {
-        value->Reset();
-      }
-      *s = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
-          read_options, key, blob_idx, current, cfd->blob_file_cache(), target);
-      if (s->ok() && columns != nullptr) {
-        columns->SetPlainValue(std::move(*target));
-      }
-    }
-  }
-
-  *is_blob_index = false;
   return true;
-}
-
-static void MaybeResolveDirectWriteBlobIndexFromMemtable(
-    const ReadOptions& read_options, const Slice& user_key,
-    const std::string* timestamp, std::string* blob_lookup_key_storage,
-    bool resolve_direct_write_blob_index, const Version* current,
-    ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns,
-    Status* s, bool* is_blob_index, bool* value_found = nullptr) {
-  if (resolve_direct_write_blob_index) {
-    const bool blob_resolved = MaybeResolveDirectWriteBlobIndex(
-        read_options,
-        GetBlobLookupUserKey(user_key, timestamp, blob_lookup_key_storage),
-        resolve_direct_write_blob_index, current, cfd, value, columns, s,
-        is_blob_index, value_found);
-    if (!blob_resolved && value != nullptr) {
-      value->PinSelf();
-    }
-  } else if (value != nullptr) {
-    value->PinSelf();
-  }
 }
 
 Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
@@ -2841,9 +2958,25 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   if (partition_mgr != nullptr && !is_blob_ptr && get_impl_options.get_value) {
     is_blob_ptr = &is_blob_index;
   }
-  const bool resolve_direct_write_blob_index =
+  const bool resolve_direct_write_value =
       partition_mgr != nullptr && (is_blob_ptr == &is_blob_index);
   std::string blob_lookup_key_storage;
+  auto get_blob_lookup_key = [&]() -> Slice {
+    return GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage);
+  };
+  auto maybe_resolve_memtable_value = [&]() {
+    if (resolve_direct_write_value) {
+      const bool value_resolved = MaybeResolveDirectWriteValue(
+          read_options, get_blob_lookup_key(), resolve_direct_write_value,
+          sv->current, cfd, get_impl_options.value, get_impl_options.columns,
+          &s, &is_blob_index, get_impl_options.value_found);
+      if (!value_resolved && get_impl_options.value != nullptr) {
+        get_impl_options.value->PinSelf();
+      }
+    } else if (get_impl_options.value != nullptr) {
+      get_impl_options.value->PinSelf();
+    }
+  };
   if (!skip_memtable) {
     // Get value associated with key
     if (get_impl_options.get_value) {
@@ -2856,11 +2989,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        false /* immutable_memtable */,
                        get_impl_options.callback, is_blob_ptr)) {
         done = true;
-        MaybeResolveDirectWriteBlobIndexFromMemtable(
-            read_options, key, timestamp, &blob_lookup_key_storage,
-            resolve_direct_write_blob_index, sv->current, cfd,
-            get_impl_options.value, get_impl_options.columns, &s,
-            &is_blob_index, get_impl_options.value_found);
+        maybe_resolve_memtable_value();
 
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
@@ -2872,11 +3001,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                      &max_covering_tombstone_seq, read_options,
                      get_impl_options.callback, is_blob_ptr)) {
         done = true;
-        MaybeResolveDirectWriteBlobIndexFromMemtable(
-            read_options, key, timestamp, &blob_lookup_key_storage,
-            resolve_direct_write_blob_index, sv->current, cfd,
-            get_impl_options.value, get_impl_options.columns, &s,
-            &is_blob_index, get_impl_options.value_found);
+        maybe_resolve_memtable_value();
 
         RecordTick(stats_, MEMTABLE_HIT);
       }
@@ -2918,13 +3043,11 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
         get_impl_options.get_value ? is_blob_ptr : nullptr,
         get_impl_options.get_value);
-    if (get_impl_options.get_value && resolve_direct_write_blob_index) {
-      MaybeResolveDirectWriteBlobIndex(
-          read_options,
-          GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage),
-          resolve_direct_write_blob_index, sv->current, cfd,
-          get_impl_options.value, get_impl_options.columns, &s, &is_blob_index,
-          get_impl_options.value_found);
+    if (get_impl_options.get_value && resolve_direct_write_value) {
+      MaybeResolveDirectWriteValue(
+          read_options, get_blob_lookup_key(), resolve_direct_write_value,
+          sv->current, cfd, get_impl_options.value, get_impl_options.columns,
+          &s, &is_blob_index, get_impl_options.value_found);
     }
     RecordTick(stats_, MEMTABLE_MISS);
   }
@@ -3675,13 +3798,13 @@ Status DBImpl::MultiGetImpl(
     assert(key);
     assert(key->s);
 
-    if (partition_mgr != nullptr && key->s->ok() && key->is_blob_index) {
+    if (partition_mgr != nullptr && key->s->ok()) {
       std::string blob_lookup_key_storage;
-      MaybeResolveDirectWriteBlobIndex(
+      MaybeResolveDirectWriteValue(
           read_options,
           GetBlobLookupUserKey(*key->key, key->timestamp,
                                &blob_lookup_key_storage),
-          /*resolve_direct_write_blob_index=*/true, super_version->current, cfd,
+          /*resolve_direct_write_value=*/true, super_version->current, cfd,
           key->value, key->columns, key->s, &key->is_blob_index);
     }
 
@@ -4403,6 +4526,12 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
 std::unique_ptr<Iterator> DBImpl::NewCoalescingIterator(
     const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families) {
+  if (column_families.size() == 1) {
+    // Preserve direct iterator semantics, including lazy value preparation,
+    // when callers route a single CF through the multi-CF API.
+    return std::unique_ptr<Iterator>(
+        NewIterator(_read_options, column_families.front()));
+  }
   return NewMultiCfIterator<Iterator, CoalescingIterator>(
       _read_options, column_families, [](const Status& s) {
         return std::unique_ptr<Iterator>(NewErrorIterator(s));

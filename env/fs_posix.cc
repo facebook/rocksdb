@@ -247,6 +247,7 @@ class PosixFileSystem : public FileSystem {
       if (s.ok()) {
         void* base = mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0);
         if (base != MAP_FAILED) {
+          TsanAnnotateMappedMemory(base, static_cast<size_t>(size));
           result->reset(
               new PosixMmapReadableFile(fd, fname, base, size, options));
         } else {
@@ -520,6 +521,8 @@ class PosixFileSystem : public FileSystem {
                   MAP_SHARED, fd, 0);
       if (base == MAP_FAILED) {
         status = IOError("while mmap file for read", fname, errno);
+      } else {
+        TsanAnnotateMappedMemory(base, static_cast<size_t>(size));
       }
     }
     if (status.ok()) {

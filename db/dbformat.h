@@ -830,6 +830,85 @@ class IterKey {
 
   bool IsUserKey() const { return is_user_key_; }
 
+  void Swap(IterKey& other) {
+    // Record pointer relationships before any mutation.
+    bool this_key_in_buf = (key_ == buf_);
+    bool this_key_in_sec = (key_ == secondary_buf_);
+    bool other_key_in_buf = (other.key_ == other.buf_);
+    bool other_key_in_sec = (other.key_ == other.secondary_buf_);
+    const char* orig_this_key = key_;
+    const char* orig_other_key = other.key_;
+
+    // --- Swap primary buffer ---
+    bool this_buf_inline = (buf_ == space_);
+    bool other_buf_inline = (other.buf_ == other.space_);
+    if (this_buf_inline && other_buf_inline) {
+      char temp[kInlineBufferSize];
+      size_t max_sz =
+          std::min(std::max(key_size_, other.key_size_), kInlineBufferSize);
+      memcpy(temp, space_, max_sz);
+      memcpy(space_, other.space_, max_sz);
+      memcpy(other.space_, temp, max_sz);
+    } else if (this_buf_inline) {
+      memcpy(other.space_, space_, key_size_);
+      buf_ = other.buf_;
+      other.buf_ = other.space_;
+    } else if (other_buf_inline) {
+      memcpy(space_, other.space_, other.key_size_);
+      other.buf_ = buf_;
+      buf_ = space_;
+    } else {
+      std::swap(buf_, other.buf_);
+    }
+
+    // --- Swap secondary buffer ---
+    bool this_sec_inline = (secondary_buf_ == space_for_secondary_buf_);
+    bool other_sec_inline =
+        (other.secondary_buf_ == other.space_for_secondary_buf_);
+    if (this_sec_inline && other_sec_inline) {
+      char temp[kInlineBufferSize];
+      memcpy(temp, space_for_secondary_buf_, kInlineBufferSize);
+      memcpy(space_for_secondary_buf_, other.space_for_secondary_buf_,
+             kInlineBufferSize);
+      memcpy(other.space_for_secondary_buf_, temp, kInlineBufferSize);
+    } else if (this_sec_inline) {
+      memcpy(other.space_for_secondary_buf_, space_for_secondary_buf_,
+             secondary_buf_size_);
+      secondary_buf_ = other.secondary_buf_;
+      other.secondary_buf_ = other.space_for_secondary_buf_;
+    } else if (other_sec_inline) {
+      memcpy(space_for_secondary_buf_, other.space_for_secondary_buf_,
+             other.secondary_buf_size_);
+      other.secondary_buf_ = secondary_buf_;
+      secondary_buf_ = space_for_secondary_buf_;
+    } else {
+      std::swap(secondary_buf_, other.secondary_buf_);
+    }
+
+    // --- Redirect key_ pointers ---
+    if (other_key_in_buf) {
+      key_ = buf_;
+    } else if (other_key_in_sec) {
+      key_ = secondary_buf_;
+    } else {
+      key_ = orig_other_key;
+    }
+
+    if (this_key_in_buf) {
+      other.key_ = other.buf_;
+    } else if (this_key_in_sec) {
+      other.key_ = other.secondary_buf_;
+    } else {
+      other.key_ = orig_this_key;
+    }
+
+    std::swap(key_size_, other.key_size_);
+    std::swap(buf_size_, other.buf_size_);
+    std::swap(secondary_buf_size_, other.secondary_buf_size_);
+    std::swap(is_user_key_, other.is_user_key_);
+    std::swap(key_slices_, other.key_slices_);
+  }
+
  private:
   char* buf_;
   const char* key_;
