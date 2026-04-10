@@ -2542,6 +2542,11 @@ jlongArray Java_org_rocksdb_RocksDB_getApproximateSizes(
         (include_flags |
          ROCKSDB_NAMESPACE::DB::SizeApproximationFlags::INCLUDE_FILES);
   }
+  if (jinclude_flags & 4) {
+    include_flags =
+        (include_flags |
+         ROCKSDB_NAMESPACE::DB::SizeApproximationFlags::INCLUDE_BLOB_FILES);
+  }
 
   db->GetApproximateSizes(cf_handle, ranges.get(),
                           static_cast<int>(range_count), sizes.get(),

@@ -102,3 +102,8 @@ cmake-build-*
 third-party/folly/
 .cache
 *.sublime-*
+
+# Claude Code local settings
+.claude/settings.local.json
+
+tools/__pycache__/

@@ -44,6 +44,7 @@
 #include <assert.h>
 #include <stdlib.h>
 
+#include <functional>
 #include <type_traits>
 
 #include "memory/allocator.h"
@@ -138,6 +139,25 @@ class InlineSkipList {
 
   // Returns true iff an entry that compares equal to key is in the list.
   bool Contains(const char* key) const;
+
+  // Batch lookup of sorted keys using finger search. For each key, finds the
+  // first entry >= key and calls callback_func with callback_args[i] and the
+  // entry. Continues calling for subsequent entries until callback_func returns
+  // false. Keys must be in non-decreasing order according to compare_.
+  //
+  // Uses a "finger" (cached search path from the previous lookup) to reduce
+  // per-key cost from O(log N) to O(log d) where d is the distance between
+  // consecutive keys in the skip list.
+  //
+  // When detect_key_out_of_order is true, validates key ordering during
+  // traversal and returns Corruption if out-of-order keys are found.
+  // When key_validation_callback is non-null, calls it on each visited node.
+  Status MultiGet(
+      size_t num_keys, const char* const* keys, void** callback_args,
+      bool (*callback_func)(void* arg, const char* entry),
+      bool allow_data_in_errors = false, bool detect_key_out_of_order = false,
+      const std::function<Status(const char*, bool)>& key_validation_callback =
+          nullptr) const;
 
   // Return estimated number of entries from `start_ikey` to `end_ikey`.
   uint64_t ApproximateNumEntries(const Slice& start_ikey,
@@ -255,6 +275,22 @@ class InlineSkipList {
                             const std::function<Status(const char*, bool)>&
                                 key_validation_callback) const;
 
+  // Like FindGreaterOrEqual, but uses a Splice as a "finger" to accelerate
+  // lookups when keys are searched in sorted order. On the first call
+  // (finger->height_ == 0), performs a full top-down search and populates the
+  // finger. On subsequent calls, walks up from the finger's cached search
+  // path to find the starting level, then descends from there.
+  // Cost: O(log d) where d is the distance from the previous lookup position.
+  //
+  // When detect_key_out_of_order is true, validates key ordering during
+  // traversal. When key_validation_callback is non-null, calls it on each
+  // visited node.
+  Status FindGreaterOrEqualWithFinger(
+      const char* key, Node** node, Splice* finger,
+      bool allow_data_in_errors = false, bool detect_key_out_of_order = false,
+      const std::function<Status(const char*, bool)>& key_validation_callback =
+          nullptr) const;
+
   // Returns the latest node with a key < key.
   // Returns head_ if there is no such node.
   // Fills prev[level] with pointer to previous node at "level" for every
@@ -279,12 +315,21 @@ class InlineSkipList {
   // node isn't conveniently available.
   template <bool prefetch_before>
   void FindSpliceForLevel(const DecodedKey& key, Node* before, Node* after,
-                          int level, Node** out_prev, Node** out_next);
+                          int level, Node** out_prev, Node** out_next) const;
+
+  // Like FindSpliceForLevel, but validates key ordering and checksums.
+  template <bool prefetch_before>
+  Status FindSpliceForLevelValidated(
+      const DecodedKey& key, Node* before, Node* after, int level,
+      Node** out_prev, Node** out_next, bool allow_data_in_errors,
+      bool detect_key_out_of_order,
+      const std::function<Status(const char*, bool)>& key_validation_callback)
+      const;
 
   // Recomputes Splice levels from highest_level (inclusive) down to
   // lowest_level (inclusive).
   void RecomputeSpliceLevels(const DecodedKey& key, Splice* splice,
-                             int recompute_level);
+                             int recompute_level) const;
 
   static Status Corruption(Node* prev, Node* next, bool allow_data_in_errors);
 };
@@ -902,7 +947,7 @@ template <bool prefetch_before>
 void InlineSkipList<Comparator>::FindSpliceForLevel(const DecodedKey& key,
                                                     Node* before, Node* after,
                                                     int level, Node** out_prev,
-                                                    Node** out_next) {
+                                                    Node** out_next) const {
   while (true) {
     Node* next = before->Next(level);
     if (next != nullptr) {
@@ -927,9 +972,49 @@ void InlineSkipList<Comparator>::FindSpliceForLevel(const DecodedKey& key,
 }
 
 template <class Comparator>
-void InlineSkipList<Comparator>::RecomputeSpliceLevels(const DecodedKey& key,
-                                                       Splice* splice,
-                                                       int recompute_level) {
+template <bool prefetch_before>
+Status InlineSkipList<Comparator>::FindSpliceForLevelValidated(
+    const DecodedKey& key, Node* before, Node* after, int level,
+    Node** out_prev, Node** out_next, bool allow_data_in_errors,
+    bool detect_key_out_of_order,
+    const std::function<Status(const char*, bool)>& key_validation_callback)
+    const {
+  while (true) {
+    Node* next = before->Next(level);
+    if (next != nullptr) {
+      PREFETCH(next->Next(level), 0, 1);
+      if (detect_key_out_of_order && before != head_ &&
+          compare_(before->Key(), next->Key()) >= 0) {
+        return Corruption(before, next, allow_data_in_errors);
+      }
+      if (key_validation_callback != nullptr) {
+        Status s = key_validation_callback(next->Key(), allow_data_in_errors);
+        if (!s.ok()) {
+          return s;
+        }
+      }
+    }
+    if (prefetch_before == true) {
+      if (next != nullptr && level > 0) {
+        PREFETCH(next->Next(level - 1), 0, 1);
+      }
+    }
+    assert(before == head_ || next == nullptr ||
+           KeyIsAfterNode(next->Key(), before));
+    assert(before == head_ || KeyIsAfterNode(key, before));
+    if (next == after || !KeyIsAfterNode(key, next)) {
+      // found it
+      *out_prev = before;
+      *out_next = next;
+      return Status::OK();
+    }
+    before = next;
+  }
+}
+
+template <class Comparator>
+void InlineSkipList<Comparator>::RecomputeSpliceLevels(
+    const DecodedKey& key, Splice* splice, int recompute_level) const {
   assert(recompute_level > 0);
   assert(recompute_level <= splice->height_);
   for (int i = recompute_level - 1; i >= 0; --i) {
@@ -1136,6 +1221,139 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
     splice->height_ = 0;
   }
   return true;
+}
+
+template <class Comparator>
+Status InlineSkipList<Comparator>::FindGreaterOrEqualWithFinger(
+    const char* key, Node** out, Splice* finger, bool allow_data_in_errors,
+    bool detect_key_out_of_order,
+    const std::function<Status(const char*, bool)>& key_validation_callback)
+    const {
+  bool validate = detect_key_out_of_order || key_validation_callback != nullptr;
+  const DecodedKey key_decoded = compare_.decode_key(key);
+  int max_height = GetMaxHeight();
+
+  int start_level;
+  if (finger->height_ == 0) {
+    // First call: start from top and initialize finger
+    start_level = max_height - 1;
+    finger->prev_[start_level] = head_;
+    finger->next_[start_level] = nullptr;
+    finger->height_ = max_height;
+  } else {
+    // Handle skip list height growth since last search
+    while (finger->height_ < max_height) {
+      finger->prev_[finger->height_] = head_;
+      finger->next_[finger->height_] = nullptr;
+      finger->height_++;
+    }
+
+    // Walk up from level 0 to find the lowest level where the key is
+    // still bracketed by the finger (i.e., next_[level] >= key).
+    // KeyIsAfterNode returns true when key > node, false when key <= node
+    // or node is nullptr.
+    start_level = 0;
+    while (start_level < max_height - 1 &&
+           KeyIsAfterNode(key_decoded, finger->next_[start_level])) {
+      start_level++;
+    }
+
+    // If we walked all the way to the top and the key is still beyond
+    // the finger's bracket, reset to a full top-down search.
+    if (KeyIsAfterNode(key_decoded, finger->next_[start_level])) {
+      finger->prev_[start_level] = head_;
+      finger->next_[start_level] = nullptr;
+    }
+  }
+
+  if (validate) {
+    // Find the bracket at start_level with validation
+    Status s = FindSpliceForLevelValidated<false>(
+        key_decoded, finger->prev_[start_level], finger->next_[start_level],
+        start_level, &finger->prev_[start_level], &finger->next_[start_level],
+        allow_data_in_errors, detect_key_out_of_order, key_validation_callback);
+    if (!s.ok()) {
+      return s;
+    }
+
+    // Descend through remaining levels, using the level above as bounds
+    for (int level = start_level - 1; level >= 0; --level) {
+      s = FindSpliceForLevelValidated<true>(
+          key_decoded, finger->prev_[level + 1], finger->next_[level + 1],
+          level, &finger->prev_[level], &finger->next_[level],
+          allow_data_in_errors, detect_key_out_of_order,
+          key_validation_callback);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+  } else {
+    // Find the bracket at start_level
+    FindSpliceForLevel<false>(
+        key_decoded, finger->prev_[start_level], finger->next_[start_level],
+        start_level, &finger->prev_[start_level], &finger->next_[start_level]);
+
+    // Descend through remaining levels, using the level above as bounds
+    for (int level = start_level - 1; level >= 0; --level) {
+      FindSpliceForLevel<true>(key_decoded, finger->prev_[level + 1],
+                               finger->next_[level + 1], level,
+                               &finger->prev_[level], &finger->next_[level]);
+    }
+  }
+
+  *out = finger->next_[0];
+  return Status::OK();
+}
+
+template <class Comparator>
+Status InlineSkipList<Comparator>::MultiGet(
+    size_t num_keys, const char* const* keys, void** callback_args,
+    bool (*callback_func)(void* arg, const char* entry),
+    bool allow_data_in_errors, bool detect_key_out_of_order,
+    const std::function<Status(const char*, bool)>& key_validation_callback)
+    const {
+  Node* prev_nodes[kMaxPossibleHeight];
+  Node* next_nodes[kMaxPossibleHeight];
+  Splice finger;
+  finger.prev_ = prev_nodes;
+  finger.next_ = next_nodes;
+  finger.height_ = 0;
+
+  for (size_t i = 0; i < num_keys; ++i) {
+    Node* node = nullptr;
+    Status s = FindGreaterOrEqualWithFinger(
+        keys[i], &node, &finger, allow_data_in_errors, detect_key_out_of_order,
+        key_validation_callback);
+    if (!s.ok()) {
+      return s;
+    }
+    for (; node != nullptr && callback_func(callback_args[i], node->Key());) {
+      Node* prev_node = node;
+      node = node->Next(0);
+      if (node != nullptr) {
+        if (key_validation_callback != nullptr) {
+          Status vs =
+              key_validation_callback(node->Key(), allow_data_in_errors);
+          if (!vs.ok()) {
+            return vs;
+          }
+        }
+        if (detect_key_out_of_order && prev_node != head_ &&
+            compare_(prev_node->Key(), node->Key()) >= 0) {
+          return Corruption(prev_node, node, allow_data_in_errors);
+        }
+      }
+      // Update finger.next_[0] to track walk-forward position so the next
+      // key's walk-up knows where the right bracket moved to. Do NOT update
+      // finger.prev_[0]: the callback walks through entries with the same
+      // user key (e.g., merge operands), and those entries sort AFTER the
+      // lookup key (which has kMaxSequenceNumber). If the next MultiGet key
+      // is a duplicate, its lookup key would sort BEFORE the advanced
+      // prev_[0], violating the FindSpliceForLevel precondition.
+      finger.next_[0] = node;
+    }
+  }
+  return Status::OK();
 }
 
 template <class Comparator>

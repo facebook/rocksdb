@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "rocksdb/blob_file_partition_strategy.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/memtablerep.h"
@@ -940,6 +941,61 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   uint64_t periodic_compaction_seconds = 0xfffffffffffffffe;
 
+  // When set to a positive value, enables read-triggered compaction. An SST
+  // file is marked for compaction when its estimated read frequency
+  // (estimated_reads / file_size) exceeds this threshold. This helps reduce
+  // read amplification for hot keys by compacting frequently-read files.
+  //
+  // Only "collapsible" reads are counted — lookups that return NotFound
+  // (bloom filter false positive), Delete/SingleDeletion (tombstone), or
+  // Merge (partial result). These are reads where the file contributed no
+  // final value and compaction would eliminate the wasted work.
+  //
+  // Choosing a value: the threshold balances read IO saved against the
+  // write amplification (WA) of an extra compaction. This assumes the
+  // block-based table format is being used,
+  //
+  // Break-even derivation (no block cache):
+  //   Let r = estimated_reads / file_size  (the threshold)
+  //       S = file_size
+  //       B = block_size             (typically 4 KB)
+  //       F = level fanout           (typically ~10)
+  //
+  //   Each collapsible read wastes one data-block read = B bytes of IO.
+  //   Total wasted read IO for a file = r * S * B.
+  //
+  //   Compaction cost: one level-L file overlaps ~F files in level L+1,
+  //   so we read (1 + F) files and write (1 + F) files.
+  //   Total compaction IO = 2 * (1 + F) * S.
+  //
+  //   Break-even when wasted read IO equals compaction IO:
+  //     r * S * B = 2 * (1 + F) * S
+  //     r = 2 * (1 + F) / B
+  //
+  //   With F = 10, B = 4096:  r = 22 / 4096 ≈ 0.005.
+  //
+  // With a block-cache hit rate h (0 ≤ h < 1), each collapsible read
+  // only costs (1 - h) * B bytes of actual disk IO, so:
+  //     r = 2 * (1 + F) / ((1 - h) * B)
+  //
+  //   h = 0   → r ≈ 0.005
+  //   h = 0.5 → r ≈ 0.01
+  //   h = 0.9 → r ≈ 0.05
+  //
+  // A recommended starting point is 0.01, which avoids triggering
+  // compactions that cost more IO than they save for most cache-friendly
+  // workloads, while still being responsive enough to compact files with
+  // significant wasted reads.
+  //
+  // For this feature to take effect on a "quiet" DB (no writes), the DB-level
+  // option `max_compaction_trigger_wakeup_seconds` must also be set to a
+  // non-zero value so the periodic background job can re-evaluate files.
+  //
+  // Valid range: >= 0.0 (must be finite). Use 0.0 to disable.
+  //
+  // Dynamically changeable through SetOptions() API
+  double read_triggered_compaction_threshold = 0.0;
+
   // If this option is set then 1 in N blocks are compressed
   // using a fast (lz4) and slow (zstd) compression algorithm.
   // The compressibility is reported as stats and the stored
@@ -1055,6 +1111,16 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   CompressionType blob_compression_type = kNoCompression;
 
+  // The compression options for blob files. This allows fine-tuning of
+  // compression parameters (e.g. level, window_bits) independently of SST file
+  // compression. For example, setting level=1 with ZSTD uses the "fast"
+  // strategy (single hash table) vs the default level=3 "doubleFast" strategy.
+  //
+  // Default: default CompressionOptions (level = kDefaultCompressionLevel)
+  //
+  // Dynamically changeable through the SetOptions() API
+  CompressionOptions blob_compression_opts;
+
   // Enables garbage collection of blobs. Blob GC is performed as part of
   // compaction. Valid blobs residing in blob files older than a cutoff get
   // relocated to new files as they are encountered during compaction, which
@@ -1132,6 +1198,63 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through the SetOptions() API
   PrepopulateBlobCache prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
+
+  // When enabled, values >= min_blob_size are written directly to blob files
+  // during the write path and replaced in WAL and memtable with BlobIndex
+  // references.
+  //
+  // Requires enable_blob_files = true.
+  // Experimental reduced-scope v1 restrictions. These limitations keep the v1
+  // implementation intentionally small; follow-up PRs are expected to improve
+  // feature compatibility over time:
+  //  - only supports the ordered single-memtable-writer path; unordered,
+  //    pipelined, two_write_queues, and allow_concurrent_memtable_write are
+  //    not supported.
+  //  - crash recovery only supports blob files that were already made
+  //    manifest-visible by flush/SST creation; WAL replay of active
+  //    direct-write blob files is not currently supported.
+  //  - checkpoint/backup/live-files enumeration must flush pending
+  //    direct-write state first; APIs that intentionally skip the flush, or
+  //    run while WAL is locked, can return NotSupported.
+  //  - not compatible with MemPurge or user-defined timestamps.
+  //  - DB::IngestWriteBatchWithIndex() is not supported while any live column
+  //    family enables this option.
+  //  - read-only and secondary opens can read flushed/manifest-visible blob
+  //    files, but do not resolve still-active direct-write blob files.
+  //
+  // Default: false
+  //
+  // Not dynamically changeable through the SetOptions() API.
+  bool enable_blob_direct_write = false;
+
+  // Number of direct-write blob partitions for this column family.
+  // Requires enable_blob_direct_write = true.
+  //
+  // If blob_direct_write_partition_strategy is null, partition selection uses
+  // the default round-robin strategy.
+  //
+  // Default: 1
+  //
+  // Not dynamically changeable through the SetOptions() API.
+  uint32_t blob_direct_write_partitions = 1;
+
+  // Custom partition strategy for blob direct writes.
+  // If null, uses the default round-robin strategy.
+  // Put()/Merge-style value separation uses SelectPartition(..., Slice value),
+  // while PutEntity() wide-column separation calls
+  // SelectPartition(..., WideColumns columns) once per entity and reuses the
+  // selected partition for all blob-backed columns in that entity.
+  // Requires enable_blob_direct_write = true.
+  //
+  // RocksDB treats this as an application-supplied callback rather than a
+  // serialized OPTIONS object. Applications must provide it again on every DB
+  // open when they rely on custom partitioning behavior.
+  //
+  // Default: nullptr
+  //
+  // Not dynamically changeable through the SetOptions() API.
+  std::shared_ptr<BlobFilePartitionStrategy>
+      blob_direct_write_partition_strategy = nullptr;
 
   // Enable memtable per key-value checksum protection.
   //
@@ -1278,6 +1401,21 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API.
   uint32_t memtable_avg_op_scan_flush_trigger = 0;
 
+  // EXPERIMENTAL
+  //
+  // During forward or reverse iteration, when this many or more strictly
+  // contiguous point tombstones (kTypeDeletion, kTypeDeletionWithTimestamp,
+  // kTypeSingleDeletion) are encountered with no live keys between them,
+  // a range tombstone [first_tombstone_key, next_live_key) is inserted into
+  // the current mutable memtable (only if memtable is not empty). This is a
+  // logically redundant entry that does not change any data, but optimizes
+  // future iterators by potentially skipping a large number of tombstone scans.
+  //
+  // Set to 0 to disable.
+  //
+  // Dynamically changeable through SetOptions() API
+  uint32_t min_tombstones_for_range_conversion = 0;
+
   // If either DBOptions::allow_ingest_behind or this option is set to true,
   // this column family will prepare for ingesting files to the last level
   // (IngestExternalFiles() with ingest_behind=true). Users should set only
@@ -1304,6 +1442,18 @@ struct AdvancedColumnFamilyOptions {
   // Default: false
   // Immutable.
   bool cf_allow_ingest_behind = false;
+
+  // If true, use batch lookup optimization for memtable MultiGet. For skip
+  // list memtables, after looking up each key, the search path is cached and
+  // reused for the next key, reducing per-key cost from O(log N) to O(log d)
+  // where d is the distance between consecutive keys.
+  //
+  // This optimization exploits the fact that MultiGet keys are sorted.
+  // Non-skip-list memtable implementations fall back to per-key lookups.
+  //
+  // Default: false
+  // Immutable.
+  bool memtable_batch_lookup_optimization = false;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

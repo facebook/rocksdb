@@ -13,11 +13,14 @@
 #include <string>
 #include <vector>
 
+#include "db/blob/blob_log_writer.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
+#include "file/read_write_util.h"
+#include "file/writable_file_writer.h"
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -28,6 +31,63 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+void WriteFooterlessBlobFile(const ImmutableOptions& immutable_options,
+                             uint64_t blob_file_number) {
+  assert(!immutable_options.cf_paths.empty());
+
+  const std::string blob_file_path =
+      BlobFileName(immutable_options.cf_paths.front().path, blob_file_number);
+
+  std::unique_ptr<FSWritableFile> file;
+  ASSERT_OK(NewWritableFile(immutable_options.fs.get(), blob_file_path, &file,
+                            FileOptions()));
+
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      std::move(file), blob_file_path, FileOptions(), immutable_options.clock));
+
+  constexpr Statistics* statistics = nullptr;
+  constexpr bool use_fsync = false;
+  constexpr bool do_flush = false;
+  BlobLogWriter blob_log_writer(std::move(file_writer), immutable_options.clock,
+                                statistics, blob_file_number, use_fsync,
+                                do_flush);
+
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+  BlobLogHeader header(/*column_family_id=*/0, kNoCompression, has_ttl,
+                       expiration_range);
+  ASSERT_OK(blob_log_writer.WriteHeader(WriteOptions(), header));
+
+  uint64_t key_offset = 0;
+  uint64_t blob_offset = 0;
+  ASSERT_OK(blob_log_writer.AddRecord(WriteOptions(), "key", "blob",
+                                      &key_offset, &blob_offset));
+  ASSERT_OK(blob_log_writer.file()->Close(IOOptions()));
+}
+
+std::vector<uint64_t> ListBlobFileNumbers(Env* env, const std::string& path) {
+  assert(env != nullptr);
+
+  std::vector<std::string> children;
+  EXPECT_OK(env->GetChildren(path, &children));
+
+  std::vector<uint64_t> blob_file_numbers;
+  for (const auto& child : children) {
+    uint64_t number = 0;
+    FileType type;
+    if (ParseFileName(child, &number, &type) && type == kBlobFile) {
+      blob_file_numbers.push_back(number);
+    }
+  }
+
+  std::sort(blob_file_numbers.begin(), blob_file_numbers.end());
+  return blob_file_numbers;
+}
+
+}  // namespace
 
 class ObsoleteFilesTest : public DBTestBase {
  public:
@@ -269,6 +329,7 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
       BlobFileName(pending_blob_file_number), path);
 
   job_context.min_pending_output = pending_blob_file_number;
+  job_context.min_blob_file_number_to_keep = pending_blob_file_number;
 
   // Purge obsolete files and make sure we purge the old file and the first file
   // (and keep the second file and the pending file).
@@ -301,6 +362,138 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
       BlobFileName(path, first_blob_file_number)};
 
   ASSERT_EQ(deleted_files, expected_deleted_files);
+}
+
+TEST_F(ObsoleteFilesTest, FooterlessBlobFileIsKeptDuringPurge) {
+  ReopenDB();
+
+  VersionSet* const versions = dbfull()->GetVersionSet();
+  assert(versions);
+  assert(versions->GetColumnFamilySet());
+
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  const auto& cf_paths = cfd->ioptions().cf_paths;
+  assert(!cf_paths.empty());
+  const std::string& path = cf_paths.front().path;
+
+  constexpr uint64_t blob_file_number = 777;
+  const std::string blob_file_path = BlobFileName(path, blob_file_number);
+  WriteFooterlessBlobFile(cfd->ioptions(), blob_file_number);
+  ASSERT_OK(env_->FileExists(blob_file_path));
+
+  constexpr int job_id = 0;
+  JobContext job_context{job_id};
+  dbfull()->TEST_LockMutex();
+  constexpr bool force_full_scan = false;
+  dbfull()->FindObsoleteFiles(&job_context, force_full_scan);
+  dbfull()->TEST_UnlockMutex();
+
+  job_context.full_scan_candidate_files.emplace_back(
+      BlobFileName(blob_file_number), path);
+  job_context.min_pending_output = blob_file_number + 1;
+  job_context.min_blob_file_number_to_keep = blob_file_number + 1;
+
+  bool deleted = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::DeleteObsoleteFileImpl::BeforeDeletion", [&](void* arg) {
+        const std::string* file = static_cast<std::string*>(arg);
+        assert(file);
+        if (*file == blob_file_path) {
+          deleted = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  dbfull()->PurgeObsoleteFiles(job_context);
+  job_context.Clean();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_FALSE(deleted);
+  ASSERT_OK(env_->FileExists(blob_file_path));
+}
+
+TEST_F(ObsoleteFilesTest, SealedDirectWriteBlobFileIsKeptDuringPurge) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.delete_obsolete_files_period_micros = 0;
+  options.enable_blob_files = true;
+  options.enable_blob_direct_write = true;
+  options.allow_concurrent_memtable_write = false;
+  options.blob_direct_write_partitions = 1;
+  options.min_blob_size = 16;
+  options.blob_file_size = 200;
+  options.write_buffer_size = 1024 * 1024;
+  options.target_file_size_base = 1024 * 1024;
+  options.max_bytes_for_level_base = 1024 * 1024;
+
+  Destroy(options);
+  Reopen(options);
+
+  constexpr int job_id = 0;
+  JobContext job_context{job_id};
+  dbfull()->TEST_LockMutex();
+  constexpr bool force_full_scan = false;
+  dbfull()->FindObsoleteFiles(&job_context, force_full_scan);
+  dbfull()->TEST_UnlockMutex();
+
+  const std::string key1 = "blob_key_1";
+  const std::string key2 = "blob_key_2";
+  const std::string value1(128, 'a');
+  const std::string value2(128, 'b');
+
+  ASSERT_OK(db_->Put(WriteOptions(), key1, value1));
+  ASSERT_OK(db_->Put(WriteOptions(), key2, value2));
+
+  VersionSet* const versions = dbfull()->GetVersionSet();
+  assert(versions);
+  assert(versions->GetColumnFamilySet());
+
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+  assert(!cfd->ioptions().cf_paths.empty());
+  const std::string& path = cfd->ioptions().cf_paths.front().path;
+
+  const std::vector<uint64_t> blob_file_numbers =
+      ListBlobFileNumbers(env_, path);
+  ASSERT_EQ(blob_file_numbers.size(), 2U);
+
+  const uint64_t sealed_blob_file_number = blob_file_numbers.front();
+  const std::string sealed_blob_file_path =
+      BlobFileName(path, sealed_blob_file_number);
+
+  job_context.full_scan_candidate_files.emplace_back(
+      BlobFileName(sealed_blob_file_number), path);
+  job_context.min_pending_output = sealed_blob_file_number + 1;
+  job_context.min_blob_file_number_to_keep = sealed_blob_file_number + 1;
+
+  bool deleted = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::DeleteObsoleteFileImpl::BeforeDeletion", [&](void* arg) {
+        const std::string* file = static_cast<std::string*>(arg);
+        assert(file);
+        if (*file == sealed_blob_file_path) {
+          deleted = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  dbfull()->PurgeObsoleteFiles(job_context, /*schedule_only=*/true);
+  job_context.Clean();
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), key1, &value));
+  ASSERT_EQ(value, value1);
+  ASSERT_FALSE(deleted);
+  ASSERT_OK(env_->FileExists(sealed_blob_file_path));
 }
 
 TEST_F(ObsoleteFilesTest, GetSortedWalFilesHangsAfterNoopPurge) {

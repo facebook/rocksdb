@@ -2637,7 +2637,7 @@ void Version::MultiGetBlob(
     BlobReadContexts& blobs_in_file = ctx.second;
     for (auto& blob : blobs_in_file) {
       const BlobIndex& blob_index = blob.blob_index;
-      const KeyContext* const key_context = blob.key_context;
+      KeyContext* const key_context = blob.key_context;
       assert(key_context);
       assert(key_context->get_context);
       assert(key_context->s);
@@ -2679,7 +2679,7 @@ void Version::MultiGetBlob(
   for (auto& ctx : blob_ctxs) {
     BlobReadContexts& blobs_in_file = ctx.second;
     for (auto& blob : blobs_in_file) {
-      const KeyContext* const key_context = blob.key_context;
+      KeyContext* const key_context = blob.key_context;
       assert(key_context);
       assert(key_context->get_context);
       assert(key_context->s);
@@ -2693,6 +2693,10 @@ void Version::MultiGetBlob(
           key_context->columns->SetPlainValue(std::move(blob.result));
           range.AddValueSize(key_context->columns->serialized_size());
         }
+        // MultiGetBlob() has already materialized the blob reference into the
+        // user-visible value, so clear this flag before later MultiGet
+        // post-processing checks whether further blob resolution is needed.
+        key_context->is_blob_index = false;
 
         if (range.GetValueSize() > read_options.value_size_soft_limit) {
           *key_context->s = Status::Aborted();
@@ -3980,6 +3984,9 @@ void VersionStorageInfo::ComputeCompactionScore(
       mutable_cf_options.blob_garbage_collection_age_cutoff,
       mutable_cf_options.blob_garbage_collection_force_threshold,
       mutable_cf_options.enable_blob_garbage_collection);
+  ComputeFilesMarkedForReadTriggeredCompaction(
+      mutable_cf_options.read_triggered_compaction_threshold,
+      immutable_options.compaction_style);
 
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
@@ -4201,6 +4208,65 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
 
     files_marked_for_forced_blob_gc_.emplace_back(level, sst_meta);
   }
+}
+
+void VersionStorageInfo::ComputeFilesMarkedForReadTriggeredCompaction(
+    double threshold, CompactionStyle compaction_style) {
+  read_triggered_compaction_files_.clear();
+  if (threshold <= 0.0 || compaction_style == kCompactionStyleFIFO) {
+    return;
+  }
+
+  // Skip files at the last non-empty level — there is no lower level to
+  // compact into. Exception: L0 files are allowed even when L0 is the last
+  // non-empty level, because in single-level universal or FIFO compaction, L0
+  // files can be compacted together (L0 → L0).
+  int last_non_empty = num_non_empty_levels_ - 1;
+
+  for (int level = 0; level < num_levels(); level++) {
+    if (level >= last_non_empty && level != 0) {
+      continue;
+    }
+    for (auto* f : files_[level]) {
+      if (f->being_compacted) {
+        continue;
+      }
+      uint64_t file_size = f->fd.GetFileSize();
+      if (file_size == 0) {
+        continue;
+      }
+      double reads_per_byte =
+          static_cast<double>(f->stats.num_collapsible_entry_reads_sampled.load(
+              std::memory_order_relaxed)) /
+          static_cast<double>(file_size);
+      if (reads_per_byte > threshold) {
+        read_triggered_compaction_files_.emplace_back(level, f);
+      }
+    }
+  }
+
+  // Snapshot reads_per_byte for each file so the sort comparator sees stable
+  // values.
+  std::unordered_map<const FileMetaData*, double> reads_per_byte_snapshot;
+  reads_per_byte_snapshot.reserve(read_triggered_compaction_files_.size());
+  for (const auto& entry : read_triggered_compaction_files_) {
+    const auto* f = entry.second;
+    uint64_t file_size = f->fd.GetFileSize();
+    reads_per_byte_snapshot[f] =
+        file_size > 0 ? static_cast<double>(
+                            f->stats.num_collapsible_entry_reads_sampled.load(
+                                std::memory_order_relaxed)) /
+                            static_cast<double>(file_size)
+                      : 0.0;
+  }
+
+  // Sort by reads_per_byte descending so the hottest files are picked first
+  std::sort(read_triggered_compaction_files_.begin(),
+            read_triggered_compaction_files_.end(),
+            [&reads_per_byte_snapshot](const auto& a, const auto& b) {
+              return reads_per_byte_snapshot.at(a.second) >
+                     reads_per_byte_snapshot.at(b.second);
+            });
 }
 
 namespace {
@@ -5607,6 +5673,96 @@ Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
     s = LogAndApply(cfd, ReadOptions(), WriteOptions(), &edit, mu, db_dir);
   }
 
+  // Content validation: read back the manifest and verify CRC + decode.
+  // Loop up to 2 checks with 1 rewrite attempt in between, so we also verify
+  // the rewritten manifest is healthy.
+  if (s.ok() && verify_manifest_content_on_close_) {
+    TEST_SYNC_POINT("VersionSet::Close:BeforeContentValidation");
+    constexpr int kMaxContentChecks = 2;
+    for (int content_check = 0; s.ok() && content_check < kMaxContentChecks;
+         ++content_check) {
+      // Re-read the manifest file name in case it was rotated by a rewrite
+      std::string content_manifest_name =
+          DescriptorFileName(dbname_, manifest_file_number_);
+      std::unique_ptr<FSSequentialFile> manifest_file;
+      IOStatus content_io_s = fs_->NewSequentialFile(
+          content_manifest_name, fs_->OptimizeForManifestRead(file_options_),
+          &manifest_file, nullptr);
+      if (!content_io_s.ok()) {
+        // Surface I/O errors to the caller — users who call DB::Close() and
+        // check the status should know about filesystem problems.
+        s = content_io_s;
+        ROCKS_LOG_ERROR(db_options_->info_log,
+                        "MANIFEST content verification on Close: "
+                        "could not open %s for reading: %s\n",
+                        content_manifest_name.c_str(),
+                        content_io_s.ToString().c_str());
+        break;
+      }
+      std::unique_ptr<SequentialFileReader> manifest_file_reader(
+          new SequentialFileReader(std::move(manifest_file),
+                                   content_manifest_name,
+                                   db_options_->log_readahead_size, io_tracer_,
+                                   db_options_->listeners));
+      LogReporter reporter;
+      Status log_read_status;
+      reporter.status = &log_read_status;
+      log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
+                         /*checksum=*/true, /*log_num=*/0);
+      Slice record;
+      std::string scratch;
+      bool content_corrupt = false;
+      while (reader.ReadRecord(&record, &scratch,
+                               WALRecoveryMode::kAbsoluteConsistency)) {
+        VersionEdit edit;
+        Status decode_s = edit.DecodeFrom(record);
+        if (!decode_s.ok()) {
+          content_corrupt = true;
+          break;
+        }
+      }
+      if (!content_corrupt && !log_read_status.ok()) {
+        content_corrupt = true;
+      }
+      if (!content_corrupt) {
+        // Manifest is healthy, no need to check again
+        break;
+      }
+      IOStatus corrupt_io_s =
+          IOStatus::Corruption("MANIFEST content validation failed");
+      IOErrorInfo io_error_info(corrupt_io_s, FileOperationType::kVerify,
+                                content_manifest_name, /*length=*/0,
+                                /*offset=*/0);
+      for (auto& listener : db_options_->listeners) {
+        listener->OnIOError(io_error_info);
+      }
+      corrupt_io_s.PermitUncheckedError();
+      io_error_info.io_status.PermitUncheckedError();
+      if (content_check == 0) {
+        // First check failed — rewrite and verify again
+        ROCKS_LOG_ERROR(db_options_->info_log,
+                        "MANIFEST content verification on Close failed, "
+                        "filename %s, rewriting manifest\n",
+                        content_manifest_name.c_str());
+        ColumnFamilyData* cfd = GetColumnFamilySet()->GetDefault();
+        VersionEdit recovery_edit;
+        assert(cfd);
+        s = LogAndApply(cfd, ReadOptions(), WriteOptions(), &recovery_edit, mu,
+                        db_dir);
+      } else {
+        // Rewritten manifest is also corrupt — likely a recurring filesystem
+        // issue. Surface it so DB::Close() callers can detect the problem.
+        ROCKS_LOG_ERROR(db_options_->info_log,
+                        "MANIFEST content verification on Close failed again "
+                        "after rewrite, filename %s\n",
+                        content_manifest_name.c_str());
+        s = Status::Corruption(
+            "MANIFEST content verification failed after rewrite: " +
+            content_manifest_name);
+      }
+    }
+  }
+
   closed_ = true;
   return s;
 }
@@ -5690,6 +5846,8 @@ void VersionSet::UpdatedMutableDbOptions(
   max_manifest_space_amp_pct_ = static_cast<unsigned>(
       std::max(updated_options.max_manifest_space_amp_pct, 0));
   manifest_preallocation_size_ = updated_options.manifest_preallocation_size;
+  verify_manifest_content_on_close_ =
+      updated_options.verify_manifest_content_on_close;
   TuneMaxManifestFileSize();
 }
 

@@ -7,10 +7,11 @@
 #include <algorithm>
 #include <cinttypes>
 #include <deque>
+#include <memory>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
+#include "db/blob/blob_index.h"
 #include "db/compaction/compaction.h"
 #include "db/compaction/compaction_iteration_stats.h"
 #include "db/merge_helper.h"
@@ -19,12 +20,54 @@
 #include "db/snapshot_checker.h"
 #include "options/cf_options.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class BlobFileBuilder;
 class BlobFetcher;
 class PrefetchBufferCollection;
+class FilePrefetchBuffer;
+
+// Internal implementation of WideColumnBlobResolver for compaction.
+// This class enables lazy loading of blob column values during compaction
+// filter processing.
+class CompactionBlobResolver : public WideColumnBlobResolver {
+ public:
+  CompactionBlobResolver()
+      : columns_(nullptr),
+        blob_columns_(nullptr),
+        blob_fetcher_(nullptr),
+        prefetch_buffers_(nullptr),
+        iter_stats_(nullptr) {}
+
+  // Set the fixed context (blob fetcher, prefetch buffers, stats) once.
+  void Init(BlobFetcher* blob_fetcher,
+            PrefetchBufferCollection* prefetch_buffers,
+            CompactionIterationStats* iter_stats);
+
+  Status ResolveColumn(size_t column_index, Slice* resolved_value) override;
+  bool IsBlobColumn(size_t column_index) const override;
+  size_t NumColumns() const override;
+
+  // Reset the resolver for a new entity. Clears resolved cache.
+  void Reset(const Slice& user_key, const std::vector<WideColumn>* columns,
+             const std::vector<std::pair<size_t, BlobIndex>>* blob_columns);
+
+ private:
+  Slice user_key_;
+  const std::vector<WideColumn>* columns_;
+  const std::vector<std::pair<size_t, BlobIndex>>* blob_columns_;
+  BlobFetcher* blob_fetcher_;
+  PrefetchBufferCollection* prefetch_buffers_;
+  CompactionIterationStats* iter_stats_;
+
+  // Cache for resolved blob values to avoid re-fetching. Uses a vector of
+  // (column_index, PinnableSlice) pairs — typical entities have few blob
+  // columns (<5), making linear scan cheaper than hash map overhead.
+  std::vector<std::pair<size_t, std::unique_ptr<PinnableSlice>>>
+      resolved_cache_;
+};
 
 // A wrapper of internal iterator whose purpose is to count how
 // many entries there are in the iterator.
@@ -302,6 +345,12 @@ class CompactionIterator {
   // for regular values (kTypeValue).
   void ExtractLargeValueIfNeeded();
 
+  // Extracts large column values from wide column entities to blob files.
+  // For each column whose value size >= min_blob_size, the value is written
+  // to a blob file and replaced with a blob index reference. Should only be
+  // called for wide column entities (kTypeWideColumnEntity).
+  void ExtractLargeColumnValuesIfNeeded();
+
   // Relocates valid blobs residing in the oldest blob files if garbage
   // collection is enabled. Relocated blobs are written to new blob files or
   // inlined in the LSM tree depending on the current settings (i.e.
@@ -311,6 +360,39 @@ class CompactionIterator {
   // Note: the stacked BlobDB implementation's compaction filter based GC
   // algorithm is also called from here.
   void GarbageCollectBlobIfNeeded();
+
+  // Garbage collects blob references within wide column entities. For entities
+  // that contain blob column references, this method checks if any of the
+  // referenced blob files need garbage collection. If so, the blob values are
+  // fetched and either relocated to new blob files or inlined based on
+  // current settings. Should only be called for wide column entities
+  // (kTypeWideColumnEntity) that have blob columns.
+  void GarbageCollectEntityBlobsIfNeeded();
+
+  // Helper for GarbageCollectEntityBlobsIfNeeded: Fetches blob values that need
+  // garbage collection based on the cutoff file number.
+  // Returns true if any blobs were fetched, false otherwise.
+  // On error, sets status_ and returns false.
+  bool FetchBlobsNeedingGC(
+      const std::vector<WideColumn>& columns,
+      const std::vector<std::pair<size_t, BlobIndex>>& blob_columns,
+      std::vector<std::pair<size_t, PinnableSlice>>* fetched_blob_values);
+
+  // Helper for GarbageCollectEntityBlobsIfNeeded: Relocates fetched blob
+  // values to new blob files if blob_file_builder_ is available.
+  // Returns the new blob column indices. On error, sets status_ and returns
+  // empty.
+  std::vector<std::pair<size_t, BlobIndex>> RelocateBlobValues(
+      const std::vector<std::pair<size_t, PinnableSlice>>& fetched_blob_values);
+
+  // Helper for GarbageCollectEntityBlobsIfNeeded: Serializes the entity after
+  // garbage collection, combining original columns with fetched values and
+  // new blob indices. On error, sets status_.
+  void SerializeEntityAfterGC(
+      const std::vector<WideColumn>& columns,
+      const std::vector<std::pair<size_t, BlobIndex>>& original_blob_columns,
+      const std::vector<std::pair<size_t, PinnableSlice>>& fetched_blob_values,
+      const std::vector<std::pair<size_t, BlobIndex>>& new_blob_columns);
 
   // Invoke compaction filter if needed.
   // Return true on success, false on failures (e.g.: kIOError).
@@ -376,6 +458,7 @@ class CompactionIterator {
   BlobFileBuilder* blob_file_builder_;
   std::unique_ptr<CompactionProxy> compaction_;
   const CompactionFilter* compaction_filter_;
+  const bool filter_supports_v4_;
   const std::atomic<bool>* shutting_down_;
   const std::atomic<bool>& manual_compaction_canceled_;
   const bool bottommost_level_;
@@ -479,6 +562,32 @@ class CompactionIterator {
   PinnableSlice blob_value_;
   std::string compaction_filter_value_;
   InternalKey compaction_filter_skip_until_;
+  // Buffer for storing rewritten entity with blob references after
+  // extracting large column values to blob files.
+  std::string rewritten_entity_;
+  // Cached deserialized columns for the current wide-column entity, reused
+  // across iterations to avoid per-key heap allocations. This is the full
+  // sorted column set. For blob-backed columns, value() initially contains the
+  // serialized BlobIndex bytes from the entity.
+  std::vector<WideColumn> entity_columns_;
+  // Side list for the blob-backed subset of entity_columns_. Each pair is
+  // (column_index_in_entity_columns_, decoded_blob_index), so callers can tell
+  // which entries in entity_columns_ are blob references without reparsing.
+  std::vector<std::pair<size_t, BlobIndex>> entity_blob_columns_;
+  // Temporary Slice-based view over entity_columns_ used when reserializing an
+  // entity after blob extraction, to avoid copying names/values into strings.
+  WideColumns entity_wide_columns_;
+  // Reusable storage for existing_columns in InvokeFilterIfNeeded,
+  // avoiding per-key heap allocations.
+  WideColumns filter_existing_columns_;
+  // Reusable blob resolver for compaction filter, avoiding per-key heap
+  // allocation. Init() is called once; Reset() is called per entity.
+  CompactionBlobResolver blob_resolver_;
+  // True when entity_columns_/entity_blob_columns_ already describe the
+  // current input record (e.g., because InvokeFilterIfNeeded() deserialized
+  // it) and PrepareOutput() can skip redundant work. Reset for each candidate
+  // input record and whenever the filter rewrites the entity value.
+  bool entity_deserialized_{false};
   // "level_ptrs" holds indices that remember which file of an associated
   // level we were last checking during the last call to compaction->
   // KeyNotExistsBeyondOutputLevel(). This allows future calls to the function

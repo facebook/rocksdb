@@ -166,8 +166,10 @@ default_params = {
     "expected_values_dir": lambda: setup_expected_values_dir(),
     "flush_one_in": lambda: random.choice([1000, 1000000]),
     "manual_wal_flush_one_in": lambda: random.choice([0, 1000]),
+    "sync_wal_one_in": 0,
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
     "get_live_files_apis_one_in": lambda: random.choice([10000, 1000000]),
+    "checkpoint_atomic_flush": lambda: random.choice([0, 1]),
     "get_all_column_family_metadata_one_in": lambda: random.choice([10000, 1000000]),
     # Note: the following two are intentionally disabled as the corresponding
     # APIs are not guaranteed to succeed.
@@ -199,6 +201,7 @@ default_params = {
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
     "partition_filters": lambda: random.randint(0, 1),
     "partition_pinning": lambda: random.randint(0, 3),
+    "rate_limit_auto_wal_flush": 0,
     "reset_stats_one_in": lambda: random.choice([10000, 1000000]),
     "pause_background_one_in": lambda: random.choice([10000, 1000000]),
     "disable_file_deletions_one_in": lambda: random.choice([10000, 1000000]),
@@ -242,9 +245,13 @@ default_params = {
     "uncache_aggressiveness": lambda: int(math.pow(10, 4.0 * random.random()) - 1.0),
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
-    # use_trie_index must be the same across invocations because it restricts
-    # operations (no deletes/merges) and existing SSTs may contain non-Put types
-    "use_trie_index": random.choice([0, 0, 0, 0, 0, 0, 0, 1]),
+    # use_trie_index must be the same across invocations so that all SSTs
+    # in a DB are opened with matching table options.
+    "use_trie_index": random.choice([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    # use_udi_as_primary_index must be the same across invocations (like
+    # use_trie_index) so that SSTs written in primary mode can be read on
+    # reopen.
+    "use_udi_as_primary_index": random.choice([0, 0, 0, 1]),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     "use_attribute_group": lambda: random.randint(0, 1),
@@ -265,6 +272,8 @@ default_params = {
     "use_get_entity": lambda: random.choice([0] * 7 + [1]),
     "use_multi_get_entity": lambda: random.choice([0] * 7 + [1]),
     "periodic_compaction_seconds": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
+    "max_compaction_trigger_wakeup_seconds": lambda: random.choice([43200, 600, 30]),
+    "read_triggered_compaction_threshold": lambda: random.choice([0.0, 0.001, 0.01]),
     "daily_offpeak_time_utc": lambda: random.choice(
         ["", "", "00:00-23:59", "04:00-08:00", "23:30-03:15"]
     ),
@@ -272,13 +281,24 @@ default_params = {
     "stats_dump_period_sec": lambda: random.choice([0, 10, 600]),
     "compaction_ttl": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
     "fifo_allow_compaction": lambda: random.randint(0, 1),
-    "fifo_compaction_max_data_files_size_mb": lambda: random.choice([0, 100, 500]),
+    # TODO(T260692223): FIFO compaction drops old SST files when total size
+    # exceeds the limit, but the stress test expected state can't track these
+    # drops. max_table_files_size is always active (default 1GB) so set it
+    # very high. max_data_files_size when non-zero overrides max_table_files_size;
+    # randomize between 0 (fallback to max_table_files_size) and very high.
+    # Long-term, handle drops via OnCompactionBegin + SetPendingDel() as
+    # concurrent deletes.
+    "fifo_compaction_max_data_files_size_mb": lambda: random.choice(
+        [0, 100 * 1024]  # 0 = disabled (defers to max_table_files_size), 100GB
+    ),
+    "fifo_compaction_max_table_files_size_mb": 100 * 1024,  # 100GB, always high
     "fifo_compaction_use_kv_ratio_compaction": lambda: random.randint(0, 1),
     # Test small max_manifest_file_size in a smaller chance, as most of the
     # time we wnat manifest history to be preserved to help debug
     "max_manifest_file_size": lambda: random.choice(
         [t * 2048 if t < 5 else 1024 * 1024 * 1024 for t in range(1, 30)]
     ),
+    "verify_manifest_content_on_close": lambda: random.randint(0, 1),
     "max_manifest_space_amp_pct": lambda: random.choice([0, 10, 100, 1000]),
     # Sync mode might make test runs slower so running it in a smaller chance
     "sync": lambda: random.choice([1 if t == 0 else 0 for t in range(0, 20)]),
@@ -433,11 +453,10 @@ default_params = {
     # (block checksum, iteration, file checksum), bits 10-11 are when to
     # enable (local compaction, remote compaction). 0x407 = all types +
     # local, 0xC07 = all types + local + remote, 0xFFFFFFFF = all.
-    "verify_output_flags": lambda: random.choice(
-        [0] * 3 + [0x407, 0xC07, 0xFFFFFFFF]
-    ),
+    "verify_output_flags": lambda: random.choice([0] * 3 + [0x407, 0xC07, 0xFFFFFFFF]),
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
     "memtable_veirfy_per_key_checksum_on_seek": lambda: random.choice([0] * 7 + [1]),
+    "memtable_batch_lookup_optimization": lambda: random.randint(0, 1),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
     # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
     "track_and_verify_wals": lambda: random.choice([0]),
@@ -448,6 +467,7 @@ default_params = {
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
+    "min_tombstones_for_range_conversion": lambda: random.choice([0, 2, 2, 4, 16]),
     "ingest_wbwi_one_in": lambda: random.choice([0, 0, 100, 500]),
     "universal_reduce_file_locking": lambda: random.randint(0, 1),
     "compression_manager": lambda: random.choice(
@@ -509,10 +529,18 @@ def setup_expected_values_dir():
     else:
         # if tmpdir is specified, store the expected_values_dir under that dir
         expected_values_dir = test_exp_tmpdir + "/rocksdb_crashtest_expected"
-        if os.path.exists(expected_values_dir):
-            shutil.rmtree(expected_values_dir)
-        os.mkdir(expected_values_dir)
+        os.makedirs(expected_values_dir, exist_ok=True)
     return expected_values_dir
+
+
+def prepare_expected_values_dir(expected_dir, destroy_db_initially):
+    if expected_dir is None or expected_dir == "":
+        return
+
+    if destroy_db_initially and os.path.exists(expected_dir):
+        shutil.rmtree(expected_dir, True)
+
+    os.makedirs(expected_dir, exist_ok=True)
 
 
 multiops_txn_key_spaces_file = None
@@ -706,6 +734,52 @@ blob_params = {
     "remote_compaction_worker_threads": 0,
 }
 
+blob_direct_write_params = {
+    "enable_blob_files": 1,
+    "enable_blob_direct_write": 1,
+    "blob_direct_write_partitions": lambda: random.choice([1, 2, 4, 8]),
+    "allow_setting_blob_options_dynamically": 0,
+    # Keep the fixed-across-runs write mode within the reduced WAL-disabled
+    # direct-write profile.
+    "inplace_update_support": 0,
+    "min_blob_size": lambda: random.choice([8, 16, 64]),
+    "blob_file_size": lambda: random.choice([1048576, 16777216, 268435456]),
+    "blob_compression_type": lambda: random.choice(["none", "snappy", "lz4", "zstd"]),
+    "enable_blob_garbage_collection": 0,
+    "blob_garbage_collection_age_cutoff": 0.0,
+    "blob_garbage_collection_force_threshold": 1.0,
+    "blob_compaction_readahead_size": 0,
+    "blob_file_starting_level": 0,
+    "use_blob_cache": lambda: random.randint(0, 1),
+    "use_shared_block_and_blob_cache": lambda: random.randint(0, 1),
+    "blob_cache_size": lambda: random.choice([1048576, 2097152, 4194304, 8388608]),
+    "prepopulate_blob_cache": lambda: random.randint(0, 1),
+    "remote_compaction_worker_threads": 0,
+}
+
+# Wide-column entity stress needs `use_put_entity_one_in` fixed across the
+# repeated db_stress invocations in one crash-test run series, so keep it as a
+# once-per-process random choice rather than a lambda.
+blob_direct_write_get_entity_params = dict(blob_direct_write_params)
+blob_direct_write_get_entity_params.update(
+    {
+        "use_put_entity_one_in": random.choice([1, 5, 10]),
+        "use_get_entity": 1,
+        "use_multi_get_entity": 0,
+        "use_attribute_group": 0,
+    }
+)
+
+blob_direct_write_multi_get_entity_params = dict(blob_direct_write_params)
+blob_direct_write_multi_get_entity_params.update(
+    {
+        "use_put_entity_one_in": random.choice([1, 5, 10]),
+        "use_get_entity": 0,
+        "use_multi_get_entity": 1,
+        "use_attribute_group": 0,
+    }
+)
+
 ts_params = {
     "test_cf_consistency": 0,
     "test_batches_snapshots": 0,
@@ -722,6 +796,9 @@ ts_params = {
     "use_put_entity_one_in": 0,
     # TimedPut is not compatible with user-defined timestamps yet.
     "use_timed_put_one_in": 0,
+    # TrieIndexFactory requires plain BytewiseComparator, but timestamps use
+    # BytewiseComparator.u64ts.
+    "use_trie_index": 0,
     # when test_best_efforts_recovery == true, disable_wal becomes 0.
     # TODO: Re-enable this once we fix WAL + Remote Compaction in Stress Test
     "remote_compaction_worker_threads": 0,
@@ -845,6 +922,110 @@ def finalize_and_sanitize(src_params):
         else:
             dest_params["mock_direct_io"] = True
 
+    # Blob direct write requires concurrent read visibility of files still open
+    # for writing (BlobFileReader calls GetFileSize() on active partition files).
+    # Remote file systems such as Warm Storage do not guarantee that writes from
+    # a WritableFile are visible to a separate RandomAccessFile until the writer
+    # is closed, causing "Malformed blob file" corruption.  Disable BDW when a
+    # remote --env_uri / --fs_uri is in use.
+    if is_remote_db:
+        dest_params["enable_blob_direct_write"] = 0
+
+    if dest_params.get("enable_blob_direct_write", 0) == 1:
+        # Keep blob direct write in its reduced-scope crash-test profile.
+        #
+        # Supported recovery shape:
+        #   * clean shutdown / flush
+        #   * crash restart that only relies on SST + manifest-visible blob
+        #     state, including wide-column entities stored through PutEntity
+        #
+        # Unsupported here:
+        #   * WAL replay / best-efforts recovery
+        #   * broad dynamic blob option changes and blob GC
+        #   * merge / transaction variants and parallel write queue modes
+        #   * secondary / backup / checkpoint / ingest style APIs that reason
+        #     about active files directly
+        dest_params["enable_blob_files"] = 1
+        dest_params["blob_direct_write_partitions"] = max(
+            1, dest_params.get("blob_direct_write_partitions", 1)
+        )
+        # BDW can still run with multiple application threads as long as writes
+        # stay on the ordered write path. Disable the write modes that would
+        # let memtable/WAL publication diverge from the transformed blob-file
+        # write ordering.
+        dest_params["allow_concurrent_memtable_write"] = 0
+        dest_params["enable_pipelined_write"] = 0
+        dest_params["two_write_queues"] = 0
+        dest_params["unordered_write"] = 0
+        # Keep inplace updates off. The later inplace_update_support
+        # sanitization intentionally forces disable_wal=0 for its own recovery
+        # assumptions, which would silently undo the BDW crash-test profile.
+        dest_params["inplace_update_support"] = 0
+        # Direct write is implemented only for integrated BlobDB, without
+        # dynamic blob option changes or background blob GC.
+        dest_params["use_blob_db"] = 0
+        dest_params["allow_setting_blob_options_dynamically"] = 0
+        dest_params["enable_blob_garbage_collection"] = 0
+        dest_params["blob_garbage_collection_age_cutoff"] = 0.0
+        dest_params["blob_garbage_collection_force_threshold"] = 1.0
+        dest_params["blob_compaction_readahead_size"] = 0
+        dest_params["blob_file_starting_level"] = 0
+        dest_params["use_merge"] = 0
+        dest_params["use_full_merge_v1"] = 0
+        dest_params["use_timed_put_one_in"] = 0
+        # Wide-column PutEntity/GetEntity/MultiGetEntity are now compatible
+        # with this profile. AttributeGroup exercises a different path that
+        # still stays disabled here.
+        dest_params["use_attribute_group"] = 0
+        # Direct write stress only supports the plain comparator / key encoding
+        # path. User-defined timestamps and the TransactionDB-only timestamped
+        # snapshot API are outside this feature envelope.
+        dest_params["user_timestamp_size"] = 0
+        dest_params["persist_user_defined_timestamps"] = 0
+        dest_params["create_timestamped_snapshot_one_in"] = 0
+        dest_params["use_txn"] = 0
+        dest_params["txn_write_policy"] = 0
+        dest_params["use_optimistic_txn"] = 0
+        dest_params["test_multi_ops_txns"] = 0
+        dest_params["commit_bypass_memtable_one_in"] = 0
+        # Force the WAL-disabled crash-test profile. The generic disable_wal
+        # sanitization below still applies, but keep the WAL-dependent stress
+        # features explicitly off here so later sanitizers or explicit command
+        # line overrides do not silently re-enable them.
+        dest_params["disable_wal"] = 1
+        dest_params["best_efforts_recovery"] = 0
+        # Direct write v1 crash testing does not cover reopen with unlogged
+        # data, manual/sync WAL persistence, or WAL metadata/locking APIs.
+        dest_params["reopen"] = 0
+        dest_params["manual_wal_flush_one_in"] = 0
+        dest_params["sync_wal_one_in"] = 0
+        dest_params["lock_wal_one_in"] = 0
+        dest_params["get_sorted_wal_files_one_in"] = 0
+        dest_params["get_current_wal_file_one_in"] = 0
+        dest_params["track_and_verify_wals"] = 0
+        dest_params["rate_limit_auto_wal_flush"] = 0
+        dest_params["recycle_log_file_num"] = 0
+        # Write/open fault injection currently assumes WAL-based recovery or
+        # error-retry behavior that direct write v1 does not provide.
+        dest_params["sync_fault_injection"] = 0
+        dest_params["write_fault_one_in"] = 0
+        dest_params["metadata_write_fault_one_in"] = 0
+        dest_params["read_fault_one_in"] = 0
+        dest_params["metadata_read_fault_one_in"] = 0
+        dest_params["open_metadata_write_fault_one_in"] = 0
+        dest_params["open_metadata_read_fault_one_in"] = 0
+        dest_params["open_write_fault_one_in"] = 0
+        dest_params["open_read_fault_one_in"] = 0
+        # Remote compaction, secondary readers, file snapshot style APIs, and
+        # ingest APIs are outside the initial direct-write feature envelope.
+        dest_params["remote_compaction_worker_threads"] = 0
+        dest_params["test_secondary"] = 0
+        dest_params["backup_one_in"] = 0
+        dest_params["checkpoint_one_in"] = 0
+        dest_params["get_live_files_apis_one_in"] = 0
+        dest_params["ingest_external_file_one_in"] = 0
+        dest_params["ingest_wbwi_one_in"] = 0
+
     if dest_params.get("memtablerep") == "vector":
         dest_params["inplace_update_support"] = 0
 
@@ -866,9 +1047,15 @@ def finalize_and_sanitize(src_params):
             dest_params["prefix_size"] = 1
 
     # BER disables WAL and tests unsynced data loss which
-    # does not work with inplace_update_support.
+    # does not work with inplace_update_support. Integrated BlobDB is also
+    # incompatible, so force blob-related toggles off even if they came from
+    # command-line overrides or another preset.
     if dest_params.get("best_efforts_recovery") == 1:
         dest_params["inplace_update_support"] = 0
+        dest_params["enable_blob_files"] = 0
+        dest_params["enable_blob_garbage_collection"] = 0
+        dest_params["allow_setting_blob_options_dynamically"] = 0
+        dest_params["enable_blob_direct_write"] = 0
 
     # Remote Compaction Incompatible Tests and Features
     if dest_params.get("remote_compaction_worker_threads", 0) > 0:
@@ -876,8 +1063,6 @@ def finalize_and_sanitize(src_params):
         dest_params["enable_blob_files"] = 0
         dest_params["enable_blob_garbage_collection"] = 0
         dest_params["allow_setting_blob_options_dynamically"] = 0
-        # TODO Fix - Remote worker shouldn't recover from WAL
-        dest_params["disable_wal"] = 1
         # Disable Incompatible Ones
         dest_params["inplace_update_support"] = 0
         dest_params["checkpoint_one_in"] = 0
@@ -899,47 +1084,33 @@ def finalize_and_sanitize(src_params):
         dest_params["open_write_fault_one_in"] = 0
         dest_params["open_read_fault_one_in"] = 0
         dest_params["sync_fault_injection"] = 0
-    else:
-        dest_params["allow_resumption_one_in"] = 0
 
-    # Trie UDI only supports Put (kTypeValue). Disable incompatible operations.
+    # UDI now supports all operation types and all iteration directions.
+    # Only parallel compression and mmap_read remain incompatible.
     if dest_params.get("use_trie_index") == 1:
-        dest_params["use_merge"] = 0
-        dest_params["use_put_entity_one_in"] = 0
-        dest_params["use_timed_put_one_in"] = 0
-        dest_params["use_get_entity"] = 0
-        dest_params["use_multi_get_entity"] = 0
-        # TransactionDB ROLLBACK writes DELETE entries to WAL to undo
-        # uncommitted changes. These DELETEs violate UDI's Put-only restriction.
-        dest_params["use_txn"] = 0
-        dest_params["use_optimistic_txn"] = 0
-        dest_params["test_multi_ops_txns"] = 0
         # Trie UDI uses zero-copy pointers into block data, which is
         # incompatible with mmap_read.
         dest_params["mmap_read"] = 0
-        # Redistribute delete/delrange percents to write percent
-        dest_params["writepercent"] += dest_params["delpercent"]
-        dest_params["writepercent"] += dest_params["delrangepercent"]
-        dest_params["delpercent"] = 0
-        dest_params["delrangepercent"] = 0
-        # Ingestion with standalone range deletions is incompatible
-        dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
         # Parallel compression is incompatible with UDI
         dest_params["compression_parallel_threads"] = 1
-        # Trie UDI does not support SeekToFirst/SeekToLast. Prefix scanning
-        # calls SeekToFirst internally, so disable it. Additionally,
-        # LevelIterator::SkipEmptyFileForward() calls SeekToFirst() when
-        # Next() crosses file boundaries, so general iteration (iterpercent)
-        # also fails with trie UDI. Redistribute both to reads.
-        dest_params["readpercent"] += dest_params.get("prefixpercent", 0)
-        dest_params["prefixpercent"] = 0
-        dest_params["readpercent"] += dest_params.get("iterpercent", 0)
-        dest_params["iterpercent"] = 0
-        # BlobDB writes kTypeBlobIndex entries in SSTs instead of kTypeValue,
-        # which violates UDI's Put-only restriction. Also disable dynamic
-        # blob options to prevent SetOptions from re-enabling blob files.
-        dest_params["enable_blob_files"] = 0
-        dest_params["allow_setting_blob_options_dynamically"] = 0
+        if dest_params.get("use_udi_as_primary_index") == 1:
+            # Primary UDI mode: the standard index is still fully populated,
+            # but partitioned index (kTwoLevelIndexSearch) and partitioned
+            # filters are not compatible with the UDI wrapper layout.
+            dest_params["index_type"] = random.choice([0, 0, 3])
+            dest_params["partition_filters"] = 0
+            # Backup/restore serializes Options to strings, losing the
+            # user_defined_index_factory (shared_ptr). The restored DB
+            # opens without UDI support and cannot route reads through
+            # the trie in primary mode.
+            dest_params["backup_one_in"] = 0
+            # Secondary DB opens SSTs with default Options (not a copy of
+            # the primary's), losing the UDI factory. Without the factory,
+            # reads cannot be routed through the trie.
+            dest_params["test_secondary"] = 0
+    else:
+        # use_udi_as_primary_index requires use_trie_index
+        dest_params["use_udi_as_primary_index"] = 0
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
@@ -1004,6 +1175,9 @@ def finalize_and_sanitize(src_params):
         else:
             dest_params["unordered_write"] = 0
     if dest_params.get("disable_wal", 0) == 1:
+        # WAL-disabled stress runs do not support in-process reopen. Blob
+        # direct write v1 relies on this path so crash testing stays within its
+        # SST/blob-manifest recovery envelope rather than WAL replay.
         dest_params["atomic_flush"] = 1
         dest_params["sync"] = 0
         dest_params["write_fault_one_in"] = 0
@@ -1032,6 +1206,7 @@ def finalize_and_sanitize(src_params):
         dest_params["file_temperature_age_thresholds"] = ""
         # Disable FIFO-specific options for non-FIFO compaction styles
         dest_params["fifo_compaction_max_data_files_size_mb"] = 0
+        dest_params["fifo_compaction_max_table_files_size_mb"] = 0
         dest_params["fifo_compaction_use_kv_ratio_compaction"] = 0
     if dest_params["partition_filters"] == 1:
         if dest_params["index_type"] != 2:
@@ -1050,6 +1225,13 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("prefix_size") == -1:
         dest_params["readpercent"] += dest_params.get("prefixpercent", 20)
         dest_params["prefixpercent"] = 0
+    elif dest_params.get("simple") and dest_params.get("test_type") == "blackbox":
+        # `db_stress` randomizes iterate_lower_bound independently of the seek
+        # target. With a configured prefix extractor this can violate
+        # ReadOptions' same-prefix requirement, so disable random iterator
+        # operations in simple blackbox mode.
+        dest_params["readpercent"] += dest_params.get("iterpercent", 10)
+        dest_params["iterpercent"] = 0
     if (
         dest_params.get("prefix_size") == -1
         and dest_params.get("memtable_whole_key_filtering") == 0
@@ -1163,6 +1345,8 @@ def finalize_and_sanitize(src_params):
         # Interpolation search requires BytewiseComparator but user-defined
         # timestamps use BytewiseComparatorWithU64TsWrapper.
         dest_params["index_block_search_type"] = 0
+        # TrieIndexFactory requires BytewiseComparator.
+        dest_params["use_trie_index"] = 0
     if (
         dest_params.get("enable_compaction_filter", 0) == 1
         or dest_params.get("inplace_update_support", 0) == 1
@@ -1213,9 +1397,6 @@ def finalize_and_sanitize(src_params):
             # have to disable metadata write fault injection to other file
             dest_params["exclude_wal_from_write_fault_injection"] = 1
             dest_params["metadata_write_fault_one_in"] = 0
-
-            # TODO Fix - Remote worker shouldn't recover from WAL
-            dest_params["remote_compaction_worker_threads"] = 0
     # Disabling block align if mixed manager is being used
     if dest_params.get("compression_manager") == "custom":
         if dest_params.get("block_align") == 1:
@@ -1309,6 +1490,9 @@ def finalize_and_sanitize(src_params):
         # LevelIterator multiscan currently relies on num_entries and num_range_deletions,
         # which are not updated if skip_stats_update_on_db_open is true
         dest_params["skip_stats_update_on_db_open"] = 0
+        dest_params["multiscan_max_prefetch_memory_bytes"] = random.choice(
+            [0, 0, 64 * 1024, 256 * 1024]
+        )
 
     # open_files_async requires skip_stats_update_on_db_open to avoid
     # synchronous I/O in UpdateAccumulatedStats during DB open
@@ -1319,6 +1503,21 @@ def finalize_and_sanitize(src_params):
     # Therefore, when inplace_update_support is enabled, disable memtable_veirfy_per_key_checksum_on_seek
     if dest_params["inplace_update_support"] == 1:
         dest_params["memtable_veirfy_per_key_checksum_on_seek"] = 0
+
+    # allow_resumption requires remote compaction
+    if dest_params.get("remote_compaction_worker_threads", 0) == 0:
+        dest_params["allow_resumption_one_in"] = 0
+
+    # When read-triggered compaction is enabled, use a short periodic trigger
+    # interval so that the feature gets exercised on a quiet DB.
+    if dest_params.get("read_triggered_compaction_threshold", 0) > 0:
+        dest_params["max_compaction_trigger_wakeup_seconds"] = 20
+
+    # Batch/snapshot stress relies on WAL-backed recovery semantics. Keep it
+    # off for every finalized WAL-disabled profile, including blob direct
+    # write presets that force disable_wal=1 earlier in sanitization.
+    if dest_params.get("disable_wal", 0) == 1:
+        dest_params["test_batches_snapshots"] = 0
 
     return dest_params
 
@@ -1352,16 +1551,26 @@ def gen_cmd_params(args):
     if args.test_tiered_storage:
         params.update(tiered_params)
 
-    # Best-effort recovery, tiered storage are currently incompatible with BlobDB.
-    # Test BE recovery if specified on the command line; otherwise, apply BlobDB
-    # related overrides with a 10% chance.
+    # Best-effort recovery, tiered storage are currently incompatible with
+    # BlobDB and blob direct write. Test BE recovery if specified on the
+    # command line; otherwise, apply one of the blob feature overrides with a
+    # 10% chance.
     if (
         not args.test_best_efforts_recovery
         and not args.test_tiered_storage
         and params.get("test_secondary", 0) == 0
         and random.choice([0] * 9 + [1]) == 1
     ):
-        params.update(blob_params)
+        params.update(
+            random.choice(
+                [
+                    blob_params,
+                    blob_direct_write_params,
+                    blob_direct_write_get_entity_params,
+                    blob_direct_write_multi_get_entity_params,
+                ]
+            )
+        )
 
     if "compaction_style" not in params:
         # Default to leveled compaction
@@ -1379,6 +1588,10 @@ def gen_cmd_params(args):
 
 def gen_cmd(params, unknown_params):
     finalzied_params = finalize_and_sanitize(params)
+    prepare_expected_values_dir(
+        finalzied_params.get("expected_values_dir"),
+        finalzied_params.get("destroy_db_initially", 0),
+    )
     cmd = (
         [stress_cmd]
         + [
@@ -1435,7 +1648,13 @@ def execute_cmd(cmd, timeout=None, timeout_pstack=False):
             print("KILLED %d (SIGTERM did not work)\n" % child.pid)
             outs, errs = child.communicate()
 
-    return hit_timeout, child.returncode, outs.decode("utf-8"), errs.decode("utf-8"), pid
+    return (
+        hit_timeout,
+        child.returncode,
+        outs.decode("utf-8"),
+        errs.decode("utf-8"),
+        pid,
+    )
 
 
 def print_output_and_exit_on_error(stdout, stderr, print_stderr_separately=False):
@@ -1750,9 +1969,6 @@ def whitebox_crash_main(args, unknown_args):
         if time.time() > half_time:
             # Set next iteration to destroy DB (works for remote DB)
             cmd_params["destroy_db_initially"] = 1
-            if expected_values_dir is not None:
-                shutil.rmtree(expected_values_dir, True)
-                os.mkdir(expected_values_dir)
             check_mode = (check_mode + 1) % total_check_mode
 
         time.sleep(1)  # time to stabilize after a kill
@@ -1791,6 +2007,9 @@ def main():
         + list(blackbox_simple_default_params.items())
         + list(whitebox_simple_default_params.items())
         + list(blob_params.items())
+        + list(blob_direct_write_params.items())
+        + list(blob_direct_write_get_entity_params.items())
+        + list(blob_direct_write_multi_get_entity_params.items())
         + list(ts_params.items())
         + list(multiops_txn_params.items())
         + list(best_efforts_recovery_params.items())

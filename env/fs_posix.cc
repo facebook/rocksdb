@@ -247,6 +247,7 @@ class PosixFileSystem : public FileSystem {
       if (s.ok()) {
         void* base = mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0);
         if (base != MAP_FAILED) {
+          TsanAnnotateMappedMemory(base, static_cast<size_t>(size));
           result->reset(
               new PosixMmapReadableFile(fd, fname, base, size, options));
         } else {
@@ -520,6 +521,8 @@ class PosixFileSystem : public FileSystem {
                   MAP_SHARED, fd, 0);
       if (base == MAP_FAILED) {
         status = IOError("while mmap file for read", fname, errno);
+      } else {
+        TsanAnnotateMappedMemory(base, static_cast<size_t>(size));
       }
     }
     if (status.ok()) {
@@ -1275,8 +1278,31 @@ class PosixFileSystem : public FileSystem {
     supported_ops = 0;
 #if defined(ROCKSDB_IOURING_PRESENT)
     if (IsIOUringEnabled() && thread_local_async_read_io_urings_) {
-      // Underlying FS supports async_io
-      supported_ops |= (1 << FSSupportedOps::kAsyncIO);
+      // Eagerly initialize the thread-local io_uring instance to verify that
+      // io_uring actually works on the calling thread before advertising
+      // kAsyncIO support. CreateIOUring() can fail per-thread even when the
+      // constructor's one-time probe on the main thread succeeded (e.g. due to
+      // kernel resource limits or flag incompatibilities).
+      static thread_local bool io_uring_init_attempted = false;
+      struct io_uring* iu = static_cast<struct io_uring*>(
+          thread_local_async_read_io_urings_->Get());
+      if (iu == nullptr && !io_uring_init_attempted) {
+        iu = CreateIOUring();
+        TEST_SYNC_POINT_CALLBACK("PosixFileSystem::SupportedOps:CreateIOUring",
+                                 &iu);
+        if (iu != nullptr) {
+          thread_local_async_read_io_urings_->Reset(iu);
+        } else {
+          fprintf(stdout,
+                  "SupportedOps: failed to init io_uring, disabling async IO "
+                  "support on thread %lu\n",
+                  static_cast<unsigned long>(pthread_self()));
+        }
+        io_uring_init_attempted = true;
+      }
+      if (iu != nullptr) {
+        supported_ops |= (1 << FSSupportedOps::kAsyncIO);
+      }
     }
 #endif
     supported_ops |= (1 << FSSupportedOps::kFSPrefetch);
@@ -1346,7 +1372,7 @@ PosixFileSystem::PosixFileSystem()
   if (new_io_uring != nullptr) {
     thread_local_async_read_io_urings_.reset(new ThreadLocalPtr(DeleteIOUring));
     thread_local_multi_read_io_urings_.reset(new ThreadLocalPtr(DeleteIOUring));
-    delete new_io_uring;
+    DeleteIOUring(new_io_uring);
   }
 #endif
 }

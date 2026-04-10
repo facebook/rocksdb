@@ -1044,6 +1044,156 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
   }
 }
 
+TEST_F(BlobSourceTest, GetBlobPreservesCorruptionDetailsWhenRefreshOpenFails) {
+  options_.cf_paths.emplace_back(
+      test::PerThreadDBPath(env_,
+                            "BlobSourceTest_GetBlobPreservesCorruptionDetails"),
+      0);
+
+  DestroyAndReopen(options_);
+
+  ImmutableOptions immutable_options(options_);
+  MutableCFOptions mutable_cf_options(options_);
+
+  constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+  constexpr uint64_t blob_file_number = 1;
+
+  const std::string key_str = "key0";
+  const std::string blob_str = "blob0";
+  std::vector<Slice> keys{Slice(key_str)};
+  std::vector<Slice> blobs{Slice(blob_str)};
+  std::vector<uint64_t> blob_offsets(1);
+  std::vector<uint64_t> blob_sizes(1);
+
+  const uint64_t file_size = BlobLogHeader::kSize + BlobLogRecord::kHeaderSize +
+                             key_str.size() + blob_str.size() +
+                             BlobLogFooter::kSize;
+
+  WriteBlobFile(immutable_options, column_family_id, has_ttl, expiration_range,
+                expiration_range, blob_file_number, keys, blobs, kNoCompression,
+                blob_offsets, blob_sizes);
+
+  constexpr size_t capacity = 1024;
+  std::shared_ptr<Cache> backing_cache = NewLRUCache(capacity);
+
+  FileOptions file_options;
+  std::unique_ptr<BlobFileCache> blob_file_cache =
+      std::make_unique<BlobFileCache>(
+          backing_cache.get(), &immutable_options, &file_options,
+          column_family_id, nullptr /*HistogramImpl*/, nullptr /*IOTracer*/);
+
+  BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
+                         db_session_id_, blob_file_cache.get());
+
+  ReadOptions read_options;
+  read_options.verify_checksums = true;
+  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+
+  PinnableSlice value;
+  uint64_t bytes_read = 0;
+  ASSERT_OK(blob_source.GetBlob(
+      read_options, keys[0], blob_file_number, blob_offsets[0], file_size,
+      blob_sizes[0], kNoCompression, prefetch_buffer, &value, &bytes_read));
+  ASSERT_EQ(value, blobs[0]);
+
+  const std::string blob_file_path =
+      BlobFileName(immutable_options.cf_paths.front().path, blob_file_number);
+  ASSERT_OK(env_->DeleteFile(blob_file_path));
+
+  PinnableSlice invalid_value;
+  bytes_read = 0;
+  Status s =
+      blob_source.GetBlob(read_options, keys[0], blob_file_number, file_size,
+                          file_size, blob_sizes[0], kNoCompression,
+                          prefetch_buffer, &invalid_value, &bytes_read);
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_EQ(bytes_read, 0);
+
+  const std::string status_str = s.ToString();
+  ASSERT_NE(status_str.find("Invalid blob offset"), std::string::npos);
+  ASSERT_NE(status_str.find("refresh retry failed"), std::string::npos);
+  ASSERT_NE(status_str.find("IO error"), std::string::npos);
+}
+
+TEST_F(BlobSourceTest,
+       MultiGetBlobPreservesCorruptionDetailsWhenRefreshOpenFails) {
+  options_.cf_paths.emplace_back(
+      test::PerThreadDBPath(
+          env_, "BlobSourceTest_MultiGetBlobPreservesCorruptionDetails"),
+      0);
+
+  DestroyAndReopen(options_);
+
+  ImmutableOptions immutable_options(options_);
+  MutableCFOptions mutable_cf_options(options_);
+
+  constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+  constexpr uint64_t blob_file_number = 1;
+
+  const std::string key_str = "key0";
+  const std::string blob_str = "blob0";
+  std::vector<Slice> keys{Slice(key_str)};
+  std::vector<Slice> blobs{Slice(blob_str)};
+  std::vector<uint64_t> blob_offsets(1);
+  std::vector<uint64_t> blob_sizes(1);
+
+  const uint64_t file_size = BlobLogHeader::kSize + BlobLogRecord::kHeaderSize +
+                             key_str.size() + blob_str.size() +
+                             BlobLogFooter::kSize;
+
+  WriteBlobFile(immutable_options, column_family_id, has_ttl, expiration_range,
+                expiration_range, blob_file_number, keys, blobs, kNoCompression,
+                blob_offsets, blob_sizes);
+
+  constexpr size_t capacity = 1024;
+  std::shared_ptr<Cache> backing_cache = NewLRUCache(capacity);
+
+  FileOptions file_options;
+  std::unique_ptr<BlobFileCache> blob_file_cache =
+      std::make_unique<BlobFileCache>(
+          backing_cache.get(), &immutable_options, &file_options,
+          column_family_id, nullptr /*HistogramImpl*/, nullptr /*IOTracer*/);
+
+  BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
+                         db_session_id_, blob_file_cache.get());
+
+  ReadOptions read_options;
+  read_options.verify_checksums = true;
+  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+
+  PinnableSlice value;
+  uint64_t bytes_read = 0;
+  ASSERT_OK(blob_source.GetBlob(
+      read_options, keys[0], blob_file_number, blob_offsets[0], file_size,
+      blob_sizes[0], kNoCompression, prefetch_buffer, &value, &bytes_read));
+  ASSERT_EQ(value, blobs[0]);
+
+  const std::string blob_file_path =
+      BlobFileName(immutable_options.cf_paths.front().path, blob_file_number);
+  ASSERT_OK(env_->DeleteFile(blob_file_path));
+
+  std::array<Status, 1> statuses;
+  std::array<PinnableSlice, 1> values;
+  autovector<BlobReadRequest> blob_reqs;
+  blob_reqs.emplace_back(keys[0], file_size, blob_sizes[0], kNoCompression,
+                         &values[0], &statuses[0]);
+
+  bytes_read = 0;
+  blob_source.MultiGetBlobFromOneFile(read_options, blob_file_number, file_size,
+                                      blob_reqs, &bytes_read);
+  ASSERT_TRUE(statuses[0].IsCorruption());
+  ASSERT_EQ(bytes_read, 0);
+
+  const std::string status_str = statuses[0].ToString();
+  ASSERT_NE(status_str.find("Invalid blob offset"), std::string::npos);
+  ASSERT_NE(status_str.find("refresh retry failed"), std::string::npos);
+  ASSERT_NE(status_str.find("IO error"), std::string::npos);
+}
+
 class BlobSecondaryCacheTest : public DBTestBase {
  protected:
  public:

@@ -4,6 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <atomic>
+#include <iomanip>
+#include <sstream>
 #ifdef GFLAGS
 
 #include "db/wide/wide_column_serialization.h"
@@ -211,6 +213,8 @@ Status AnonExpectedState::Open(bool /* create */) {
       new std::atomic<uint32_t>[GetValuesLen() /
                                 sizeof(std::atomic<uint32_t>)]);
   values_ = &values_allocation_[0];
+  persisted_seqno_allocation_.reset(new std::atomic<SequenceNumber>(0));
+  persisted_seqno_ = persisted_seqno_allocation_.get();
   Reset();
   return Status::OK();
 }
@@ -419,8 +423,69 @@ bool FileExpectedStateManager::HasHistory() {
 
 namespace {
 
-// An `ExpectedStateTraceRecordHandler` applies a configurable number of
-// write operation trace records to the configured expected state. It is used in
+std::string DescribeExpectedValue(const ExpectedValue& value) {
+  std::ostringstream oss;
+  oss << "{raw=0x" << std::hex << std::setw(8) << std::setfill('0')
+      << value.Read() << std::dec << std::setfill(' ')
+      << " value_base=" << value.GetValueBase()
+      << " next_value_base=" << value.NextValueBase()
+      << " del_counter=" << value.GetDelCounter()
+      << " pending_write=" << value.PendingWrite()
+      << " pending_delete=" << value.PendingDelete()
+      << " deleted=" << value.IsDeleted() << "}";
+  return oss.str();
+}
+
+size_t CountTrailingXs(const std::string& key) {
+  size_t trailing_xs = 0;
+  while (trailing_xs < key.size() && key[key.size() - trailing_xs - 1] == 'x') {
+    ++trailing_xs;
+  }
+  return trailing_xs;
+}
+
+struct TraceKeyDebugInfo {
+  std::string raw_key;
+  std::string raw_key_hex;
+  bool parse_ok = false;
+  uint64_t parsed_key_id = 0;
+  std::string roundtrip_key;
+  std::string roundtrip_key_hex;
+  bool roundtrip_matches_raw = false;
+  bool raw_matches_focus_key = false;
+  bool parsed_matches_focus_key = false;
+  bool roundtrip_matches_focus_key = false;
+  size_t trailing_bytes = 0;
+  size_t trailing_xs = 0;
+
+  bool MatchesFocusKey() const {
+    return raw_matches_focus_key || parsed_matches_focus_key ||
+           roundtrip_matches_focus_key;
+  }
+};
+
+std::string DescribeTraceKeyDebugInfo(const TraceKeyDebugInfo& info) {
+  std::ostringstream oss;
+  oss << "{raw_key=" << info.raw_key_hex << " size=" << info.raw_key.size()
+      << " trailing_bytes=" << info.trailing_bytes
+      << " trailing_xs=" << info.trailing_xs << " parse_ok=" << info.parse_ok;
+  if (info.parse_ok) {
+    oss << " parsed_key=" << info.parsed_key_id
+        << " roundtrip_key=" << info.roundtrip_key_hex
+        << " roundtrip_matches_raw=" << info.roundtrip_matches_raw;
+  }
+  if (FLAGS_expected_state_trace_debug_key >= 0) {
+    oss << " focus_key=" << FLAGS_expected_state_trace_debug_key
+        << " raw_matches_focus_key=" << info.raw_matches_focus_key
+        << " parsed_matches_focus_key=" << info.parsed_matches_focus_key
+        << " roundtrip_matches_focus_key=" << info.roundtrip_matches_focus_key;
+  }
+  oss << "}";
+  return oss.str();
+}
+
+// An `ExpectedStateTraceRecordHandler` applies a configurable number of traced
+// write operations to the configured expected state. It is used in
 // `FileExpectedStateManager::Restore()` to sync the expected state with the
 // DB's post-recovery state.
 class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
@@ -429,12 +494,27 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
   ExpectedStateTraceRecordHandler(uint64_t max_write_ops, ExpectedState* state)
       : max_write_ops_(max_write_ops),
         state_(state),
+        debug_enabled_(FLAGS_expected_state_trace_debug),
+        debug_focus_key_(FLAGS_expected_state_trace_debug_key),
+        debug_focus_key_raw_(debug_focus_key_ >= 0 ? Key(debug_focus_key_)
+                                                   : std::string()),
+        debug_max_logs_(static_cast<uint64_t>(
+            std::max(0, FLAGS_expected_state_trace_debug_max_logs))),
         buffered_writes_(nullptr) {}
 
-  ~ExpectedStateTraceRecordHandler() { assert(IsDone()); }
-
   // True if we have already reached the limit on write operations to apply.
-  bool IsDone() { return num_write_ops_ == max_write_ops_; }
+  bool IsDone() const { return num_write_ops_ >= max_write_ops_; }
+
+  uint64_t NumWriteOps() const { return num_write_ops_; }
+  uint64_t NumKeyDecodeFailures() const { return key_decode_failures_; }
+  uint64_t NumKeyRoundtripMismatches() const {
+    return key_roundtrip_mismatches_;
+  }
+  uint64_t NumFocusKeyOpHits() const { return focus_key_op_hits_; }
+  uint64_t NumLogsEmitted() const { return emitted_debug_logs_; }
+  uint64_t NumLogsSuppressed() const { return suppressed_debug_logs_; }
+
+  bool Continue() override { return !IsDone(); }
 
   Status Handle(const WriteQueryTraceRecord& record,
                 std::unique_ptr<TraceRecordResult>* /* result */) override {
@@ -471,43 +551,79 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                const Slice& value) override {
     Slice key =
         StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
-    uint64_t key_id;
-    if (!GetIntVal(key.ToString(), &key_id)) {
-      return Status::Corruption("unable to parse key", key.ToString());
-    }
-    uint32_t value_base = GetValueBase(value);
+    uint64_t key_id = 0;
+    TraceKeyDebugInfo key_info;
+    Status status =
+        ParseTracedKey(key, "unable to parse key", &key_id, &key_info);
+    if (status.ok()) {
+      const int64_t expected_key_id = static_cast<int64_t>(key_id);
+      const uint32_t value_base = GetValueBase(value);
 
-    bool should_buffer_write = !(buffered_writes_ == nullptr);
-    if (should_buffer_write) {
-      return WriteBatchInternal::Put(buffered_writes_.get(), column_family_id,
-                                     key, value);
-    }
+      bool should_buffer_write = !(buffered_writes_ == nullptr);
+      if (should_buffer_write) {
+        MaybeLogKeyOperation("PutCF", column_family_id, true /* buffered */,
+                             key_info,
+                             "value_base=" + std::to_string(value_base) +
+                                 " value_size=" + std::to_string(value.size()));
+        return WriteBatchInternal::Put(buffered_writes_.get(), column_family_id,
+                                       key, value);
+      }
 
-    state_->SyncPut(column_family_id, static_cast<int64_t>(key_id), value_base);
-    ++num_write_ops_;
-    return Status::OK();
+      const ExpectedValue before =
+          state_->Get(column_family_id, expected_key_id);
+      state_->SyncPut(column_family_id, expected_key_id, value_base);
+      const ExpectedValue after =
+          state_->Get(column_family_id, expected_key_id);
+      NoteWriteOpApplied();
+      MaybeLogKeyOperation("PutCF", column_family_id, false /* buffered */,
+                           key_info,
+                           "value_base=" + std::to_string(value_base) +
+                               " value_size=" + std::to_string(value.size()),
+                           &before, &after);
+      status = Status::OK();
+    }
+    return status;
   }
 
   Status TimedPutCF(uint32_t column_family_id, const Slice& key_with_ts,
                     const Slice& value, uint64_t write_unix_time) override {
     Slice key =
         StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
-    uint64_t key_id;
-    if (!GetIntVal(key.ToString(), &key_id)) {
-      return Status::Corruption("unable to parse key", key.ToString());
-    }
-    uint32_t value_base = GetValueBase(value);
+    uint64_t key_id = 0;
+    TraceKeyDebugInfo key_info;
+    Status status =
+        ParseTracedKey(key, "unable to parse key", &key_id, &key_info);
+    if (status.ok()) {
+      const int64_t expected_key_id = static_cast<int64_t>(key_id);
+      const uint32_t value_base = GetValueBase(value);
 
-    bool should_buffer_write = !(buffered_writes_ == nullptr);
-    if (should_buffer_write) {
-      return WriteBatchInternal::TimedPut(buffered_writes_.get(),
-                                          column_family_id, key, value,
-                                          write_unix_time);
-    }
+      bool should_buffer_write = !(buffered_writes_ == nullptr);
+      if (should_buffer_write) {
+        MaybeLogKeyOperation(
+            "TimedPutCF", column_family_id, true /* buffered */, key_info,
+            "value_base=" + std::to_string(value_base) +
+                " value_size=" + std::to_string(value.size()) +
+                " write_unix_time=" + std::to_string(write_unix_time));
+        return WriteBatchInternal::TimedPut(buffered_writes_.get(),
+                                            column_family_id, key, value,
+                                            write_unix_time);
+      }
 
-    state_->SyncPut(column_family_id, static_cast<int64_t>(key_id), value_base);
-    ++num_write_ops_;
-    return Status::OK();
+      const ExpectedValue before =
+          state_->Get(column_family_id, expected_key_id);
+      state_->SyncPut(column_family_id, expected_key_id, value_base);
+      const ExpectedValue after =
+          state_->Get(column_family_id, expected_key_id);
+      NoteWriteOpApplied();
+      MaybeLogKeyOperation(
+          "TimedPutCF", column_family_id, false /* buffered */, key_info,
+          "value_base=" + std::to_string(value_base) +
+              " value_size=" + std::to_string(value.size()) +
+              " write_unix_time=" + std::to_string(write_unix_time),
+          &before, &after);
+      status = Status::OK();
+    }
+    return status;
   }
 
   Status PutEntityCF(uint32_t column_family_id, const Slice& key_with_ts,
@@ -516,55 +632,84 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
         StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
 
     uint64_t key_id = 0;
-    if (!GetIntVal(key.ToString(), &key_id)) {
-      return Status::Corruption("Unable to parse key", key.ToString());
+    TraceKeyDebugInfo key_info;
+    Status status =
+        ParseTracedKey(key, "Unable to parse key", &key_id, &key_info);
+    if (status.ok()) {
+      const int64_t expected_key_id = static_cast<int64_t>(key_id);
+
+      Slice entity_copy = entity;
+      WideColumns columns;
+      if (!WideColumnSerialization::Deserialize(entity_copy, columns).ok()) {
+        return Status::Corruption("Unable to deserialize entity",
+                                  entity.ToString(/* hex */ true));
+      }
+
+      if (!VerifyWideColumns(columns)) {
+        return Status::Corruption("Wide columns in entity inconsistent",
+                                  entity.ToString(/* hex */ true));
+      }
+
+      if (buffered_writes_) {
+        MaybeLogKeyOperation(
+            "PutEntityCF", column_family_id, true /* buffered */, key_info,
+            "entity_size=" + std::to_string(entity.size()) +
+                " num_columns=" + std::to_string(columns.size()));
+        return WriteBatchInternal::PutEntity(buffered_writes_.get(),
+                                             column_family_id, key, columns);
+      }
+
+      const uint32_t value_base =
+          GetValueBase(WideColumnsHelper::GetDefaultColumn(columns));
+
+      const ExpectedValue before =
+          state_->Get(column_family_id, expected_key_id);
+      state_->SyncPut(column_family_id, expected_key_id, value_base);
+      const ExpectedValue after =
+          state_->Get(column_family_id, expected_key_id);
+      NoteWriteOpApplied();
+      MaybeLogKeyOperation(
+          "PutEntityCF", column_family_id, false /* buffered */, key_info,
+          "entity_size=" + std::to_string(entity.size()) +
+              " num_columns=" + std::to_string(columns.size()) +
+              " default_value_base=" + std::to_string(value_base),
+          &before, &after);
+
+      status = Status::OK();
     }
-
-    Slice entity_copy = entity;
-    WideColumns columns;
-    if (!WideColumnSerialization::Deserialize(entity_copy, columns).ok()) {
-      return Status::Corruption("Unable to deserialize entity",
-                                entity.ToString(/* hex */ true));
-    }
-
-    if (!VerifyWideColumns(columns)) {
-      return Status::Corruption("Wide columns in entity inconsistent",
-                                entity.ToString(/* hex */ true));
-    }
-
-    if (buffered_writes_) {
-      return WriteBatchInternal::PutEntity(buffered_writes_.get(),
-                                           column_family_id, key, columns);
-    }
-
-    const uint32_t value_base =
-        GetValueBase(WideColumnsHelper::GetDefaultColumn(columns));
-
-    state_->SyncPut(column_family_id, static_cast<int64_t>(key_id), value_base);
-
-    ++num_write_ops_;
-
-    return Status::OK();
+    return status;
   }
 
   Status DeleteCF(uint32_t column_family_id,
                   const Slice& key_with_ts) override {
     Slice key =
         StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
-    uint64_t key_id;
-    if (!GetIntVal(key.ToString(), &key_id)) {
-      return Status::Corruption("unable to parse key", key.ToString());
-    }
+    uint64_t key_id = 0;
+    TraceKeyDebugInfo key_info;
+    Status status =
+        ParseTracedKey(key, "unable to parse key", &key_id, &key_info);
+    if (status.ok()) {
+      const int64_t expected_key_id = static_cast<int64_t>(key_id);
 
-    bool should_buffer_write = !(buffered_writes_ == nullptr);
-    if (should_buffer_write) {
-      return WriteBatchInternal::Delete(buffered_writes_.get(),
-                                        column_family_id, key);
-    }
+      bool should_buffer_write = !(buffered_writes_ == nullptr);
+      if (should_buffer_write) {
+        MaybeLogKeyOperation("DeleteCF", column_family_id, true /* buffered */,
+                             key_info, "");
+        return WriteBatchInternal::Delete(buffered_writes_.get(),
+                                          column_family_id, key);
+      }
 
-    state_->SyncDelete(column_family_id, static_cast<int64_t>(key_id));
-    ++num_write_ops_;
-    return Status::OK();
+      const ExpectedValue before =
+          state_->Get(column_family_id, expected_key_id);
+      state_->SyncDelete(column_family_id, expected_key_id);
+      const ExpectedValue after =
+          state_->Get(column_family_id, expected_key_id);
+      NoteWriteOpApplied();
+      MaybeLogKeyOperation("DeleteCF", column_family_id, false /* buffered */,
+                           key_info, "", &before, &after);
+      status = Status::OK();
+    }
+    return status;
   }
 
   Status SingleDeleteCF(uint32_t column_family_id,
@@ -591,26 +736,58 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
         StripTimestampFromUserKey(begin_key_with_ts, FLAGS_user_timestamp_size);
     Slice end_key =
         StripTimestampFromUserKey(end_key_with_ts, FLAGS_user_timestamp_size);
-    uint64_t begin_key_id, end_key_id;
-    if (!GetIntVal(begin_key.ToString(), &begin_key_id)) {
-      return Status::Corruption("unable to parse begin key",
-                                begin_key.ToString());
+    uint64_t begin_key_id = 0;
+    uint64_t end_key_id = 0;
+    TraceKeyDebugInfo begin_info;
+    TraceKeyDebugInfo end_info;
+    Status status = ParseTracedKey(begin_key, "unable to parse begin key",
+                                   &begin_key_id, &begin_info);
+    if (status.ok()) {
+      status = ParseTracedKey(end_key, "unable to parse end key", &end_key_id,
+                              &end_info);
     }
-    if (!GetIntVal(end_key.ToString(), &end_key_id)) {
-      return Status::Corruption("unable to parse end key", end_key.ToString());
-    }
+    if (status.ok()) {
+      bool should_buffer_write = !(buffered_writes_ == nullptr);
+      if (should_buffer_write) {
+        const uint64_t affected_keys =
+            end_key_id > begin_key_id ? end_key_id - begin_key_id : 0;
+        MaybeLogRangeOperation(
+            "DeleteRangeCF", column_family_id, true /* buffered */, begin_info,
+            end_info,
+            "affected_keys=" + std::to_string(affected_keys) +
+                " inverted_range=" +
+                std::to_string(end_key_id < begin_key_id ? 1 : 0));
+        return WriteBatchInternal::DeleteRange(
+            buffered_writes_.get(), column_family_id, begin_key, end_key);
+      }
 
-    bool should_buffer_write = !(buffered_writes_ == nullptr);
-    if (should_buffer_write) {
-      return WriteBatchInternal::DeleteRange(
-          buffered_writes_.get(), column_family_id, begin_key, end_key);
+      const bool focus_in_range = FocusKeyInRange(begin_key_id, end_key_id);
+      const uint64_t affected_keys =
+          end_key_id > begin_key_id ? end_key_id - begin_key_id : 0;
+      ExpectedValue focus_before;
+      ExpectedValue focus_after;
+      if (focus_in_range) {
+        focus_before = state_->Get(column_family_id, debug_focus_key_);
+      }
+      state_->SyncDeleteRange(column_family_id,
+                              static_cast<int64_t>(begin_key_id),
+                              static_cast<int64_t>(end_key_id));
+      if (focus_in_range) {
+        focus_after = state_->Get(column_family_id, debug_focus_key_);
+      }
+      NoteWriteOpApplied();
+      MaybeLogRangeOperation(
+          "DeleteRangeCF", column_family_id, false /* buffered */, begin_info,
+          end_info,
+          "affected_keys=" + std::to_string(affected_keys) +
+              " inverted_range=" +
+              std::to_string(end_key_id < begin_key_id ? 1 : 0) +
+              " focus_in_range=" + std::to_string(focus_in_range ? 1 : 0),
+          focus_in_range ? &focus_before : nullptr,
+          focus_in_range ? &focus_after : nullptr);
+      status = Status::OK();
     }
-
-    state_->SyncDeleteRange(column_family_id,
-                            static_cast<int64_t>(begin_key_id),
-                            static_cast<int64_t>(end_key_id));
-    ++num_write_ops_;
-    return Status::OK();
+    return status;
   }
 
   Status MergeCF(uint32_t column_family_id, const Slice& key_with_ts,
@@ -625,6 +802,47 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     }
 
     return PutCF(column_family_id, key, value);
+  }
+
+  Status PutBlobIndexCF(uint32_t column_family_id, const Slice& key_with_ts,
+                        const Slice& value) override {
+    Slice key =
+        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+    uint64_t key_id = 0;
+    TraceKeyDebugInfo key_info;
+    Status status =
+        ParseTracedKey(key, "unable to parse key", &key_id, &key_info);
+    if (status.ok()) {
+      const int64_t expected_key_id = static_cast<int64_t>(key_id);
+
+      bool should_buffer_write = !(buffered_writes_ == nullptr);
+      if (should_buffer_write) {
+        MaybeLogKeyOperation("PutBlobIndexCF", column_family_id,
+                             true /* buffered */, key_info,
+                             "blob_index_size=" + std::to_string(value.size()));
+        return WriteBatchInternal::PutBlobIndex(buffered_writes_.get(),
+                                                column_family_id, key, value);
+      }
+
+      // Blob direct-write traces record the transformed BlobIndex write rather
+      // than the original value bytes. For expected-state replay we only need
+      // the logical effect of "another put to this key", and db_stress values
+      // advance deterministically by one value_base per committed write.
+      const ExpectedValue before =
+          state_->Get(column_family_id, expected_key_id);
+      const uint32_t value_base = before.NextValueBase();
+      state_->SyncPut(column_family_id, expected_key_id, value_base);
+      const ExpectedValue after =
+          state_->Get(column_family_id, expected_key_id);
+      NoteWriteOpApplied();
+      MaybeLogKeyOperation(
+          "PutBlobIndexCF", column_family_id, false /* buffered */, key_info,
+          "blob_index_size=" + std::to_string(value.size()) +
+              " derived_value_base=" + std::to_string(value_base),
+          &before, &after);
+      status = Status::OK();
+    }
+    return status;
   }
 
   Status MarkBeginPrepare(bool = false) override {
@@ -669,9 +887,179 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
   }
 
  private:
+  bool HasFocusKey() const { return debug_focus_key_ >= 0; }
+
+  bool FocusKeyInRange(uint64_t begin_key_id, uint64_t end_key_id) const {
+    return HasFocusKey() &&
+           begin_key_id <= static_cast<uint64_t>(debug_focus_key_) &&
+           static_cast<uint64_t>(debug_focus_key_) < end_key_id;
+  }
+
+  void MaybeNoteFocusKeyHit(bool hit) {
+    if (hit) {
+      ++focus_key_op_hits_;
+    }
+  }
+
+  void MaybeEmitDebugLog(const std::string& line) {
+    if (!debug_enabled_) {
+      return;
+    }
+    if (emitted_debug_logs_ >= debug_max_logs_) {
+      ++suppressed_debug_logs_;
+      return;
+    }
+    ++emitted_debug_logs_;
+    fprintf(stdout, "[expected_state_trace_debug] %s\n", line.c_str());
+    fflush(stdout);
+  }
+
+  TraceKeyDebugInfo BuildTraceKeyDebugInfo(const std::string& raw_key,
+                                           bool parse_ok,
+                                           uint64_t parsed_key_id) {
+    TraceKeyDebugInfo info;
+    if (!debug_enabled_) {
+      return info;
+    }
+
+    info.raw_key = raw_key;
+    info.raw_key_hex = Slice(raw_key).ToString(/* hex */ true);
+    info.parse_ok = parse_ok;
+    info.trailing_bytes = raw_key.size() % sizeof(uint64_t);
+    info.trailing_xs = CountTrailingXs(raw_key);
+    info.raw_matches_focus_key =
+        HasFocusKey() && raw_key == debug_focus_key_raw_;
+
+    if (!parse_ok) {
+      ++key_decode_failures_;
+      return info;
+    }
+
+    info.parsed_key_id = parsed_key_id;
+    info.roundtrip_key = Key(static_cast<int64_t>(parsed_key_id));
+    info.roundtrip_key_hex = Slice(info.roundtrip_key).ToString(/* hex */ true);
+    info.roundtrip_matches_raw = raw_key == info.roundtrip_key;
+    info.parsed_matches_focus_key =
+        HasFocusKey() &&
+        parsed_key_id == static_cast<uint64_t>(debug_focus_key_);
+    info.roundtrip_matches_focus_key =
+        HasFocusKey() && info.roundtrip_key == debug_focus_key_raw_;
+
+    if (!info.roundtrip_matches_raw) {
+      ++key_roundtrip_mismatches_;
+    }
+
+    return info;
+  }
+
+  Status ParseTracedKey(const Slice& key, const char* error_msg,
+                        uint64_t* key_id, TraceKeyDebugInfo* debug_info) {
+    const std::string raw_key = key.ToString();
+    const bool parse_ok = GetIntVal(raw_key, key_id);
+    if (debug_enabled_) {
+      *debug_info =
+          BuildTraceKeyDebugInfo(raw_key, parse_ok, parse_ok ? *key_id : 0);
+      if (!parse_ok && (!HasFocusKey() || debug_info->MatchesFocusKey())) {
+        std::ostringstream oss;
+        oss << "parse_failure error=\"" << error_msg << "\" "
+            << DescribeTraceKeyDebugInfo(*debug_info);
+        MaybeEmitDebugLog(oss.str());
+      }
+    }
+    if (!parse_ok) {
+      return Status::Corruption(error_msg, raw_key);
+    }
+    return Status::OK();
+  }
+
+  bool ShouldLogKeyOperation(const TraceKeyDebugInfo& info) {
+    if (!debug_enabled_) {
+      return false;
+    }
+    const bool focus_hit = info.MatchesFocusKey();
+    MaybeNoteFocusKeyHit(focus_hit);
+    return !HasFocusKey() || focus_hit;
+  }
+
+  bool ShouldLogRangeOperation(const TraceKeyDebugInfo& begin_info,
+                               const TraceKeyDebugInfo& end_info) {
+    if (!debug_enabled_) {
+      return false;
+    }
+    const bool focus_hit =
+        begin_info.MatchesFocusKey() || end_info.MatchesFocusKey() ||
+        (begin_info.parse_ok && end_info.parse_ok &&
+         FocusKeyInRange(begin_info.parsed_key_id, end_info.parsed_key_id));
+    MaybeNoteFocusKeyHit(focus_hit);
+    return !HasFocusKey() || focus_hit;
+  }
+
+  void MaybeLogKeyOperation(const char* op, uint32_t column_family_id,
+                            bool buffered, const TraceKeyDebugInfo& key_info,
+                            const std::string& details,
+                            const ExpectedValue* before = nullptr,
+                            const ExpectedValue* after = nullptr) {
+    if (!ShouldLogKeyOperation(key_info)) {
+      return;
+    }
+    std::ostringstream oss;
+    oss << op << " cf=" << column_family_id << " buffered=" << buffered << " "
+        << DescribeTraceKeyDebugInfo(key_info);
+    if (!details.empty()) {
+      oss << " " << details;
+    }
+    if (before != nullptr) {
+      oss << " before=" << DescribeExpectedValue(*before);
+    }
+    if (after != nullptr) {
+      oss << " after=" << DescribeExpectedValue(*after);
+    }
+    MaybeEmitDebugLog(oss.str());
+  }
+
+  void MaybeLogRangeOperation(const char* op, uint32_t column_family_id,
+                              bool buffered,
+                              const TraceKeyDebugInfo& begin_info,
+                              const TraceKeyDebugInfo& end_info,
+                              const std::string& details,
+                              const ExpectedValue* focus_before = nullptr,
+                              const ExpectedValue* focus_after = nullptr) {
+    if (!ShouldLogRangeOperation(begin_info, end_info)) {
+      return;
+    }
+    std::ostringstream oss;
+    oss << op << " cf=" << column_family_id << " buffered=" << buffered
+        << " begin=" << DescribeTraceKeyDebugInfo(begin_info)
+        << " end=" << DescribeTraceKeyDebugInfo(end_info);
+    if (!details.empty()) {
+      oss << " " << details;
+    }
+    if (focus_before != nullptr) {
+      oss << " focus_before=" << DescribeExpectedValue(*focus_before);
+    }
+    if (focus_after != nullptr) {
+      oss << " focus_after=" << DescribeExpectedValue(*focus_after);
+    }
+    MaybeEmitDebugLog(oss.str());
+  }
+
+  void NoteWriteOpApplied() {
+    ++num_write_ops_;
+    assert(num_write_ops_ <= max_write_ops_);
+  }
+
   uint64_t num_write_ops_ = 0;
   uint64_t max_write_ops_;
   ExpectedState* state_;
+  bool debug_enabled_;
+  int64_t debug_focus_key_;
+  std::string debug_focus_key_raw_;
+  uint64_t debug_max_logs_;
+  uint64_t key_decode_failures_ = 0;
+  uint64_t key_roundtrip_mismatches_ = 0;
+  uint64_t focus_key_op_hits_ = 0;
+  uint64_t emitted_debug_logs_ = 0;
+  uint64_t suppressed_debug_logs_ = 0;
   std::unordered_map<std::string, std::unique_ptr<WriteBatch>>
       xid_to_buffered_writes_;
   std::unique_ptr<WriteBatch> buffered_writes_;
@@ -685,6 +1073,8 @@ Status FileExpectedStateManager::Restore(DB* db) {
   if (seqno < saved_seqno_) {
     return Status::Corruption("DB is older than any restorable expected state");
   }
+  const bool trace_debug = FLAGS_expected_state_trace_debug;
+  const uint64_t replay_write_ops = seqno - saved_seqno_;
 
   std::string state_filename =
       std::to_string(saved_seqno_) + kStateFilenameSuffix;
@@ -699,12 +1089,37 @@ Status FileExpectedStateManager::Restore(DB* db) {
       std::to_string(saved_seqno_) + kTraceFilenameSuffix;
   std::string trace_file_path = GetPathForFilename(trace_filename);
 
+  if (trace_debug) {
+    std::string focus_key_hex = "<unset>";
+    if (FLAGS_expected_state_trace_debug_key >= 0) {
+      focus_key_hex = Slice(Key(FLAGS_expected_state_trace_debug_key))
+                          .ToString(/* hex */ true);
+    }
+    fprintf(stdout,
+            "[expected_state_trace_debug] restore_begin saved_seqno=%" PRIu64
+            " db_seqno=%" PRIu64 " replay_write_ops=%" PRIu64
+            " state_path=%s trace_path=%s focus_key=%" PRIi64
+            " focus_key_hex=%s max_logs=%d\n",
+            static_cast<uint64_t>(saved_seqno_), static_cast<uint64_t>(seqno),
+            replay_write_ops, state_file_path.c_str(), trace_file_path.c_str(),
+            FLAGS_expected_state_trace_debug_key, focus_key_hex.c_str(),
+            FLAGS_expected_state_trace_debug_max_logs);
+    fflush(stdout);
+  }
+
   std::unique_ptr<TraceReader> trace_reader;
   Status s = NewFileTraceReader(Env::Default(), EnvOptions(), trace_file_path,
                                 &trace_reader);
 
   std::string persisted_seqno_file_path = GetPathForFilename(
       kPersistedSeqnoBasename + kPersistedSeqnoFilenameSuffix);
+
+  uint64_t replayed_write_ops = 0;
+  uint64_t key_decode_failures = 0;
+  uint64_t key_roundtrip_mismatches = 0;
+  uint64_t focus_key_op_hits = 0;
+  uint64_t logs_emitted = 0;
+  uint64_t logs_suppressed = 0;
 
   if (s.ok()) {
     // We are going to replay on top of "`seqno`.state" to create a new
@@ -742,6 +1157,14 @@ Status FileExpectedStateManager::Restore(DB* db) {
       std::unique_ptr<TraceRecord> record;
       s = replayer->Next(&record);
       if (!s.ok()) {
+        if (trace_debug) {
+          fprintf(stdout,
+                  "[expected_state_trace_debug] restore_replay_next status=%s "
+                  "handler_done=%d\n",
+                  s.ToString().c_str(),
+                  handler != nullptr && handler->IsDone());
+          fflush(stdout);
+        }
         if (s.IsCorruption() && handler->IsDone()) {
           // There could be a corruption reading the tail record of the trace
           // due to `db_stress` crashing while writing it. It shouldn't matter
@@ -759,6 +1182,33 @@ Status FileExpectedStateManager::Restore(DB* db) {
       std::unique_ptr<TraceRecordResult> res;
       s = record->Accept(handler.get(), &res);
     }
+    if (s.ok() && !handler->IsDone()) {
+      s = Status::Corruption(
+          "Trace ended before replaying all expected write ops",
+          std::to_string(handler->NumWriteOps()) + " < " +
+              std::to_string(seqno - saved_seqno_));
+    }
+    if (handler) {
+      replayed_write_ops = handler->NumWriteOps();
+      key_decode_failures = handler->NumKeyDecodeFailures();
+      key_roundtrip_mismatches = handler->NumKeyRoundtripMismatches();
+      focus_key_op_hits = handler->NumFocusKeyOpHits();
+      logs_emitted = handler->NumLogsEmitted();
+      logs_suppressed = handler->NumLogsSuppressed();
+    }
+  }
+
+  if (trace_debug) {
+    fprintf(stdout,
+            "[expected_state_trace_debug] restore_replay_summary status=%s "
+            "replayed_write_ops=%" PRIu64 "/%" PRIu64
+            " key_decode_failures=%" PRIu64 " key_roundtrip_mismatches=%" PRIu64
+            " focus_key_op_hits=%" PRIu64 " logs_emitted=%" PRIu64
+            " logs_suppressed=%" PRIu64 "\n",
+            s.ToString().c_str(), replayed_write_ops, replay_write_ops,
+            key_decode_failures, key_roundtrip_mismatches, focus_key_op_hits,
+            logs_emitted, logs_suppressed);
+    fflush(stdout);
   }
 
   if (s.ok()) {
@@ -805,6 +1255,11 @@ Status FileExpectedStateManager::Restore(DB* db) {
     if (s.ok()) {
       saved_seqno_ = kMaxSequenceNumber;
     }
+  }
+  if (trace_debug) {
+    fprintf(stdout, "[expected_state_trace_debug] restore_end status=%s\n",
+            s.ToString().c_str());
+    fflush(stdout);
   }
   return s;
 }

@@ -803,6 +803,7 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
     bool expect_uniform = reader.NumRestarts() >= 3 &&
                           keyDistribution() == KeyDistribution::kUniform;
     EXPECT_EQ(reader.IsUniform(), expect_uniform);
+    EXPECT_EQ(builder.IsUniform(), expect_uniform);
   }
 
   // read block contents randomly

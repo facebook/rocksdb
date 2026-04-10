@@ -1,0 +1,146 @@
+# Claude Code Review — Comment Posting Workflow
+#
+# Companion to claude-review.yml. Downloads the review artifact and posts
+# it as a PR comment. This workflow has write permissions but never runs
+# AI or processes untrusted code.
+#
+# Security: Separating analysis (has ANTHROPIC_API_KEY, no write perms)
+# from posting (has GITHUB_TOKEN write perms, no AI) prevents a crafted
+# PR from tricking Claude into exfiltrating tokens.
+
+name: Post Claude Review Comment
+
+on:
+  workflow_run:
+    workflows: ["Claude Code Review"]
+    types: [completed]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  comment:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout scripts
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: true
+
+      - name: Download review artifact
+        id: download
+        uses: actions/download-artifact@v4
+        with:
+          name: claude-review-result
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Post or update PR comment
+        if: steps.download.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (!fs.existsSync('claude-review-comment.md') || !fs.existsSync('pr_number.txt')) {
+              core.info('No review results found; skipping.');
+              return;
+            }
+
+            const body = fs.readFileSync('claude-review-comment.md', 'utf8');
+            const prNumber = parseInt(fs.readFileSync('pr_number.txt', 'utf8').trim());
+            const trigger = fs.existsSync('trigger_type.txt')
+              ? fs.readFileSync('trigger_type.txt', 'utf8').trim()
+              : 'auto';
+
+            // Use different markers for auto vs manual so they don't
+            // overwrite each other. Auto-reviews update in place (one
+            // per PR). Manual reviews always create new comments.
+            const marker = trigger === 'auto'
+              ? '<!-- claude-review-auto -->'
+              : `<!-- claude-review-manual-${Date.now()} -->`;
+
+            const post = require('./.github/scripts/post-pr-comment.js');
+
+            await post({
+              github,
+              context,
+              core,
+              prNumber,
+              body,
+              marker,
+            });
+
+      - name: Add reaction to trigger comment
+        if: steps.download.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (!fs.existsSync('trigger_type.txt')) return;
+            const trigger = fs.readFileSync('trigger_type.txt', 'utf8').trim();
+            if (trigger !== 'manual') return;
+            if (!fs.existsSync('comment_id.txt')) return;
+            const commentId = parseInt(fs.readFileSync('comment_id.txt', 'utf8').trim());
+            if (!commentId) return;
+
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: commentId,
+              content: 'rocket'
+            });
+
+  # Notify on failure (for manual triggers)
+  failure-notice:
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact for PR number
+        id: download
+        uses: actions/download-artifact@v4
+        with:
+          name: claude-review-result
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: React with failure
+        if: steps.download.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (!fs.existsSync('comment_id.txt')) return;
+            const commentId = parseInt(fs.readFileSync('comment_id.txt', 'utf8').trim());
+            if (!commentId) return;
+
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: commentId,
+              content: 'confused'
+            });
+
+  # Unauthorized user notice
+  unauthorized-notice:
+    runs-on: ubuntu-latest
+
+    if: >-
+      github.event.workflow_run.event == 'issue_comment' &&
+      github.event.workflow_run.conclusion == 'skipped'
+
+    steps:
+      - name: Check if unauthorized
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // This job only runs when the analysis workflow was skipped,
+            // which happens when the user is not in the authorized list.
+            // We cannot easily get the original comment from workflow_run,
+            // so this is a best-effort notice via workflow logs.
+            core.info('Analysis workflow was skipped — likely unauthorized user.');

@@ -1459,7 +1459,8 @@ class DB {
   enum class SizeApproximationFlags : uint8_t {
     NONE = 0,
     INCLUDE_MEMTABLES = 1 << 0,
-    INCLUDE_FILES = 1 << 1
+    INCLUDE_FILES = 1 << 1,
+    INCLUDE_BLOB_FILES = 1 << 2
   };
 
   // For each i in [0,n-1], store in "sizes[i]", the approximate
@@ -2260,6 +2261,7 @@ inline Status DB::GetApproximateSizes(ColumnFamilyHandle* column_family,
   using enum SizeApproximationFlags;  // Require C++20 support
   options.include_memtables = ((include_flags & INCLUDE_MEMTABLES) != NONE);
   options.include_files = ((include_flags & INCLUDE_FILES) != NONE);
+  options.include_blob_files = ((include_flags & INCLUDE_BLOB_FILES) != NONE);
   return GetApproximateSizes(options, column_family, ranges, n, sizes);
 }
 

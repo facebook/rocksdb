@@ -524,6 +524,30 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
   int memtableMaxRangeDeletions();
 
   /**
+   * During forward or reverse iteration, when this many or more strictly contiguous
+   * point tombstones are encountered with no live keys between them,
+   * a range tombstone is inserted into the current mutable memtable.
+   *
+   * Set to 0 to disable.
+   * Default: 0 (disabled)
+   *
+   * Dynamically changeable through SetOptions() API
+   *
+   * @param minTombstonesForRangeConversion the minimum number of contiguous
+   *     point tombstones to trigger range conversion
+   * @return the reference of the current options.
+   */
+  T setMinTombstonesForRangeConversion(int minTombstonesForRangeConversion);
+
+  /**
+   * Gets the current setting for minimum tombstones for range conversion.
+   * 0 (default) indicates that the feature is disabled.
+   *
+   * @return current value of min_tombstones_for_range_conversion
+   */
+  int minTombstonesForRangeConversion();
+
+  /**
    * Compaction concurrent thread limiter for the column family.
    * If non-nullptr, use given concurrent thread limiter to control
    * the max outstanding compaction tasks. Limiter can be shared with

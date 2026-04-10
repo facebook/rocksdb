@@ -630,6 +630,7 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
                (ContentFlags::DEFERRED | ContentFlags::HAS_BLOB_INDEX));
         s = handler->PutBlobIndexCF(column_family, key, value);
         if (LIKELY(s.ok())) {
+          empty_batch = false;
           found++;
         }
         break;
@@ -1092,6 +1093,23 @@ Status WriteBatchInternal::PutEntity(WriteBatch* b, uint32_t column_family_id,
   const Status s = WideColumnSerialization::Serialize(sorted_columns, entity);
   if (!s.ok()) {
     return s;
+  }
+
+  if (entity.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+    return Status::InvalidArgument("wide column entity is too large");
+  }
+
+  return PutEntitySerialized(b, column_family_id, key, entity);
+}
+
+Status WriteBatchInternal::PutEntitySerialized(WriteBatch* b,
+                                               uint32_t column_family_id,
+                                               const Slice& key,
+                                               const Slice& entity) {
+  assert(b);
+
+  if (key.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+    return Status::InvalidArgument("key is too large");
   }
 
   if (entity.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
@@ -2477,13 +2495,8 @@ class MemTableInserter : public WriteBatch::Handler {
 
     auto rebuild_txn_op = [](WriteBatch* rebuilding_trx, uint32_t cf_id,
                              const Slice& k, Slice entity) -> Status {
-      WideColumns columns;
-      const Status st = WideColumnSerialization::Deserialize(entity, columns);
-      if (!st.ok()) {
-        return st;
-      }
-
-      return WriteBatchInternal::PutEntity(rebuilding_trx, cf_id, k, columns);
+      return WriteBatchInternal::PutEntitySerialized(rebuilding_trx, cf_id, k,
+                                                     entity);
     };
 
     if (kv_prot_info) {
@@ -2510,10 +2523,24 @@ class MemTableInserter : public WriteBatch::Handler {
                     const ProtectionInfoKVOS64* kv_prot_info) {
     Status ret_status;
     MemTable* mem = cf_mems_->GetMemTable();
-    ret_status =
-        mem->Add(sequence_, delete_type, key, value, kv_prot_info,
-                 concurrent_memtable_writes_, get_post_process_info(mem),
-                 hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
+    if (delete_type == kTypeRangeDeletion &&
+        concurrent_memtable_writes_ == false) {
+      // Need to force range deletions to undergo concurrent writes since reads
+      // may concurrently also insert range deletions, see
+      // MemTable::AddLogicallyRedundantRangeTombstone
+      MemTablePostProcessInfo post_process_info;
+      ret_status = mem->Add(sequence_, delete_type, key, value, kv_prot_info,
+                            true /* allow_concurrent */, &post_process_info,
+                            hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
+      if (ret_status.ok()) {
+        mem->BatchPostProcess(post_process_info);
+      }
+    } else {
+      ret_status =
+          mem->Add(sequence_, delete_type, key, value, kv_prot_info,
+                   concurrent_memtable_writes_, get_post_process_info(mem),
+                   hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
+    }
     if (UNLIKELY(ret_status.IsTryAgain())) {
       assert(seq_per_batch_);
       const bool kBatchBoundary = true;

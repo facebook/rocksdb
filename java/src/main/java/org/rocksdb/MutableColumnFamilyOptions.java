@@ -72,7 +72,8 @@ public class MutableColumnFamilyOptions extends AbstractMutableOptions {
     @Deprecated filter_deletes(ValueType.BOOLEAN),
     max_write_buffer_number(ValueType.INT),
     inplace_update_num_locks(ValueType.LONG),
-    experimental_mempurge_threshold(ValueType.DOUBLE);
+    experimental_mempurge_threshold(ValueType.DOUBLE),
+    min_tombstones_for_range_conversion(ValueType.INT);
 
     private final ValueType valueType;
     MemtableOption(final ValueType valueType) {
@@ -99,7 +100,8 @@ public class MutableColumnFamilyOptions extends AbstractMutableOptions {
     max_bytes_for_level_multiplier(ValueType.INT),
     max_bytes_for_level_multiplier_additional(ValueType.INT_ARRAY),
     ttl(ValueType.LONG),
-    periodic_compaction_seconds(ValueType.LONG);
+    periodic_compaction_seconds(ValueType.LONG),
+    read_triggered_compaction_threshold(ValueType.DOUBLE);
 
     private final ValueType valueType;
     CompactionOption(final ValueType valueType) {
@@ -297,6 +299,18 @@ public class MutableColumnFamilyOptions extends AbstractMutableOptions {
     @Override
     public double experimentalMempurgeThreshold() {
       return getDouble(MemtableOption.experimental_mempurge_threshold);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setMinTombstonesForRangeConversion(
+        final int minTombstonesForRangeConversion) {
+      return setInt(
+          MemtableOption.min_tombstones_for_range_conversion, minTombstonesForRangeConversion);
+    }
+
+    @Override
+    public int minTombstonesForRangeConversion() {
+      return getInt(MemtableOption.min_tombstones_for_range_conversion);
     }
 
     @Override
@@ -583,6 +597,18 @@ public class MutableColumnFamilyOptions extends AbstractMutableOptions {
     @Override
     public double blobGarbageCollectionForceThreshold() {
       return getDouble(BlobOption.blob_garbage_collection_force_threshold);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setReadTriggeredCompactionThreshold(
+        final double readTriggeredCompactionThreshold) {
+      return setDouble(
+          CompactionOption.read_triggered_compaction_threshold, readTriggeredCompactionThreshold);
+    }
+
+    @Override
+    public double readTriggeredCompactionThreshold() {
+      return getDouble(CompactionOption.read_triggered_compaction_threshold);
     }
 
     @Override

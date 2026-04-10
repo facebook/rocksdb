@@ -163,6 +163,10 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
       mem->Add(seq, kTypeSingleDeletion, "key", "", nullptr /* kv_prot_info */)
           .IsTryAgain());
 
+  ASSERT_EQ(mem->NumEntries(), 2u);
+  ASSERT_EQ(mem->NumDeletion(), 0u);
+  ASSERT_EQ(mem->NumRangeDeletion(), 0u);
+
   // Test the duplicate keys under stress
   for (int i = 0; i < 10000; i++) {
     bool insert_dup = i % 10 == 1;
@@ -204,6 +208,11 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
   ASSERT_TRUE(mem->Add(seq, kTypeValue, "key", "value",
                        nullptr /* kv_prot_info */, true, &post_process_info)
                   .IsTryAgain());
+
+  mem->BatchPostProcess(post_process_info);
+  ASSERT_EQ(mem->NumEntries(), 1u);
+  ASSERT_EQ(mem->NumDeletion(), 0u);
+  ASSERT_EQ(mem->NumRangeDeletion(), 0u);
   delete mem;
 }
 
@@ -242,6 +251,7 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
                          true, &post_process_info1));
       v1.clear();
     }
+    mem->BatchPostProcess(post_process_info1);
   });
   ROCKSDB_NAMESPACE::port::Thread write_thread2([&]() {
     MemTablePostProcessInfo post_process_info2;
@@ -252,9 +262,14 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
                          true, &post_process_info2));
       v2.clear();
     }
+    mem->BatchPostProcess(post_process_info2);
   });
   write_thread1.join();
   write_thread2.join();
+  // 1 non-concurrent Put + (num_ops - 1) concurrent Merges
+  ASSERT_EQ(mem->NumEntries(), static_cast<uint64_t>(num_ops));
+  ASSERT_EQ(mem->NumDeletion(), 0u);
+  ASSERT_EQ(mem->NumRangeDeletion(), 0u);
 
   Status status;
   ReadOptions roptions;

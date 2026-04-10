@@ -1601,7 +1601,7 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
         } /* create_file_cb */,
         &sequence_number,
         options.flush_before_backup ? 0 : std::numeric_limits<uint64_t>::max(),
-        compare_checksum));
+        compare_checksum, options.atomic_flush));
     if (io_s.ok()) {
       new_backup->SetSequenceNumber(sequence_number);
     }
@@ -1886,7 +1886,10 @@ void BackupEngineImpl::SetBackupInfoFromBackupMeta(
       finfo.directory = dir;
       uint64_t number;
       FileType type;
-      bool ok = ParseFileName(file_ptr->filename, &number, &type);
+      // file_ptr->filename may contain directory components (e.g.
+      // "private/1/000008.log"). ParseFileName expects a bare filename,
+      // so use GetDbFileName() to extract it.
+      bool ok = ParseFileName(file_ptr->GetDbFileName(), &number, &type);
       if (ok) {
         finfo.file_number = number;
         finfo.file_type = type;

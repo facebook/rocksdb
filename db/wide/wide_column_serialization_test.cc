@@ -10,6 +10,7 @@
 
 #include "db/blob/blob_index.h"
 #include "db/wide/wide_columns_helper.h"
+#include "rocksdb/wide_columns.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/random.h"
@@ -570,6 +571,32 @@ TEST_F(WideColumnSerializationTest, V2BlobColumnRejectsDeserialize) {
                   .IsNotSupported());
 }
 
+TEST_F(WideColumnSerializationTest, PinnableWideColumnsFallbacksToV2) {
+  const std::vector<std::pair<std::string, std::string>> columns = {
+      {"", "placeholder"}, {"ttl", "00000001"}, {"type", "cold"}};
+  const std::vector<std::pair<size_t, BlobIndex>> blob_columns = {
+      {0, MakeBlobIndex(10, 20, 30)}};
+
+  std::string serialized;
+  ASSERT_OK(
+      WideColumnSerialization::SerializeV2(columns, blob_columns, serialized));
+
+  std::vector<WideColumn> expected_columns;
+  std::vector<std::pair<size_t, BlobIndex>> expected_blob_columns;
+  Slice input(serialized);
+  ASSERT_OK(WideColumnSerialization::DeserializeV2(input, expected_columns,
+                                                   expected_blob_columns));
+
+  PinnableWideColumns result;
+  ASSERT_OK(result.SetWideColumnValue(serialized));
+
+  ASSERT_EQ(result.columns().size(), expected_columns.size());
+  for (size_t i = 0; i < expected_columns.size(); ++i) {
+    ASSERT_EQ(result.columns()[i].name(), expected_columns[i].name());
+    ASSERT_EQ(result.columns()[i].value(), expected_columns[i].value());
+  }
+}
+
 TEST_F(WideColumnSerializationTest, V2GetValueOfDefaultColumnBlobRef) {
   // When default column (index 0) is a blob reference,
   // GetValueOfDefaultColumn should return NotSupported.
@@ -837,6 +864,35 @@ TEST_F(WideColumnSerializationTest, RandomizedSerializeDeserializeRoundTrip) {
       VerifyDeserialize(serialized_v1, columns);
     }
   }
+}
+
+TEST_F(WideColumnSerializationTest, ResolveEntityForMergeNullBlobFetcher) {
+  // Create a V2 entity with a blob column reference
+  std::vector<std::pair<std::string, std::string>> columns;
+  columns.emplace_back("", "default_val");
+  columns.emplace_back("col1", "inline_val");
+
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+  blob_columns.emplace_back(0, MakeBlobIndex(42, 100, 50));
+
+  std::string serialized;
+  ASSERT_OK(
+      WideColumnSerialization::SerializeV2(columns, blob_columns, serialized));
+
+  // Verify it has blob columns
+  bool has_blob_columns = false;
+  ASSERT_OK(WideColumnSerialization::HasBlobColumns(Slice(serialized),
+                                                    has_blob_columns));
+  ASSERT_TRUE(has_blob_columns);
+
+  // Call ResolveEntityForMerge with null blob_fetcher - should return an error
+  // status rather than crashing.
+  std::string resolved_entity;
+  Slice effective_entity;
+  Status s = WideColumnSerialization::ResolveEntityForMerge(
+      Slice(serialized), "user_key", nullptr /* blob_fetcher */,
+      nullptr /* prefetch_buffers */, resolved_entity, effective_entity);
+  ASSERT_TRUE(s.IsCorruption());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -994,6 +994,13 @@ struct DBOptions {
   // manifest write (e.g. completed DB compaction or flush).
   uint64_t max_manifest_file_size = 1024 * 1024 * 1024;
 
+  // If true, on DB close, read back the entire MANIFEST file and validate
+  // CRC checksums and logical record content. If corruption is detected,
+  // a fresh MANIFEST is written from in-memory state before closing.
+  //
+  // This option is mutable with SetDBOptions().
+  bool verify_manifest_content_on_close = false;
+
   // This option mostly replaces max_manifest_file_size to control an auto-tuned
   // balance of manifest write amplification and space amplification. A new
   // manifest file is created with the "compacted" contents of the old one when
@@ -1702,6 +1709,28 @@ struct DBOptions {
   // this field blank. Default: Empty string (no offpeak).
   std::string daily_offpeak_time_utc = "";
 
+  // Maximum interval in seconds between periodic compaction trigger checks.
+  // The periodic trigger re-evaluates compaction scores for all column
+  // families, which is necessary for features like read-triggered compaction
+  // and time-based compaction to work on a "quiet" DB with no writes.
+  //
+  // This is an upper bound: the actual check interval may be reduced to
+  // align with stats_dump_period_sec, stats_persist_period_sec, or per-CF
+  // time-based compaction intervals (periodic_compaction_seconds, ttl, etc.).
+  //
+  // Note: this option controls how often RocksDB *checks* whether compaction
+  // is needed. It is different from the CF option `periodic_compaction_seconds`
+  // which controls the *age threshold* at which SST files become eligible for
+  // periodic compaction.
+  //
+  // The minimum effective period is 1 second (values below 1 are clamped to 1).
+  // Setting this to 0 results in the most aggressive 1-second polling.
+  //
+  // Default: 43200 (12 hours)
+  //
+  // Dynamically changeable through SetDBOptions() API.
+  uint64_t max_compaction_trigger_wakeup_seconds = 43200;
+
   // EXPERIMENTAL
 
   // When a RocksDB database is opened in follower mode, this option
@@ -2275,9 +2304,17 @@ struct ReadOptions {
   // block based table index. The table_factory used for the column family
   // must support building/reading this index.
   //
-  // Currently, only forward scans are supported. For forward scans, only Seek()
-  // is supported. SeekToFirst() is not supported. If the caller wishes to scan
-  // from start to end, the native index must be used.
+  // The UDI framework supports all iterator operations: forward scans
+  // (SeekToFirst, Seek, Next), reverse scans (SeekToLast, SeekForPrev, Prev),
+  // and point lookups (Get). Concrete UDI implementations may impose their
+  // own restrictions -- check the specific implementation's documentation.
+  //
+  // When BlockBasedTableOptions::use_udi_as_primary_index is true, this field
+  // does not need to be set -- all reads automatically use the UDI. If set
+  // while use_udi_as_primary_index is true, the UDI from
+  // BlockBasedTableOptions takes precedence. This field is only needed when
+  // the UDI is a secondary index and you want to explicitly select it for
+  // reads.
   const UserDefinedIndexFactory* table_index_factory = nullptr;
 
   // *** END options only relevant to iterators or scans ***
@@ -2409,8 +2446,15 @@ struct FlushOptions {
   // is performed by someone else (foreground call or background thread).
   // Default: false
   bool allow_write_stall;
+  // If true, use atomic flush to flush all column families atomically,
+  // regardless of the DBOptions::atomic_flush setting. When used with
+  // DB::Flush() or internally via GetLiveFilesStorageInfo(), this forces
+  // all column families to be flushed in a single atomic operation.
+  // Default: false (uses DBOptions::atomic_flush setting).
+  bool force_atomic_flush;
 
-  FlushOptions() : wait(true), allow_write_stall(false) {}
+  FlushOptions()
+      : wait(true), allow_write_stall(false), force_atomic_flush(false) {}
 };
 
 struct FlushWALOptions {
@@ -2846,11 +2890,26 @@ struct ImportColumnFamilyOptions {
 // Options used with DB::GetApproximateSizes()
 struct SizeApproximationOptions {
   // Defines whether the returned size should include the recently written
-  // data in the memtables. If set to false, include_files must be true.
+  // data in the memtables. If set to false, at least one of include_files or
+  // include_blob_files must be true.
   bool include_memtables = false;
   // Defines whether the returned size should include data serialized to disk.
-  // If set to false, include_memtables must be true.
+  // If set to false, at least one of include_memtables or include_blob_files
+  // must be true.
   bool include_files = true;
+  // Defines whether the returned size should include an approximation of
+  // blob file data in the key range. When enabled, the total blob file size
+  // is prorated by the ratio of SST data in the range to the total SST data:
+  //
+  //   blob_size_in_range ≈ total_blob_size * (sst_in_range / total_sst)
+  //
+  // Limitations of this approximation:
+  // - Assumes blob data is distributed proportionally to SST data, which
+  //   may not hold if blob value sizes vary significantly across keys.
+  // - If there are no SST files (all data in memtables), the blob size
+  //   contribution will be 0 even if blob files exist on disk.
+  // Default: false (for backward compatibility).
+  bool include_blob_files = false;
   // When approximating the files total size that is used to store a keys range
   // using DB::GetApproximateSizes, allow approximation with an error margin of
   // up to total_files_size * files_size_error_margin. This allows to take some
@@ -2949,6 +3008,13 @@ struct LiveFilesStorageInfoOptions {
   // number (and DB is not read-only).
   // Default: always force a flush without checking sizes.
   uint64_t wal_size_for_flush = 0;
+  // If true, use atomic flush to flush all column families atomically,
+  // regardless of the DBOptions::atomic_flush setting. This ensures that the
+  // checkpoint captures a consistent view across all column families.
+  // Only takes effect when a flush is actually performed (i.e., not suppressed
+  // by wal_size_for_flush).
+  // Default: false (uses DBOptions::atomic_flush setting).
+  bool atomic_flush = false;
 };
 
 struct WaitForCompactOptions {

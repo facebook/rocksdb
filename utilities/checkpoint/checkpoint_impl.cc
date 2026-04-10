@@ -230,12 +230,13 @@ Status CheckpointImpl::CreateCustomCheckpoint(
                          FileType type)>
         create_file_cb,
     uint64_t* sequence_number, uint64_t log_size_for_flush,
-    bool get_live_table_checksum) {
+    bool get_live_table_checksum, bool atomic_flush) {
   *sequence_number = db_->GetLatestSequenceNumber();
 
   LiveFilesStorageInfoOptions opts;
   opts.include_checksum_info = get_live_table_checksum;
   opts.wal_size_for_flush = log_size_for_flush;
+  opts.atomic_flush = atomic_flush;
 
   std::vector<LiveFileStorageInfo> infos;
   {
@@ -419,8 +420,8 @@ Status CheckpointImpl::ExportColumnFamily(
         live_file_metadata.largest = file_metadata.largest;
         result_metadata->files.push_back(live_file_metadata);
       }
-      *metadata = result_metadata;
     }
+    *metadata = result_metadata;
     ROCKS_LOG_INFO(db_options.info_log, "[%s] Export succeeded.",
                    cf_name.c_str());
   } else {

@@ -146,10 +146,10 @@ def generate_buck(repo_path, deps_map):
         src_mk["RANGE_TREE_SOURCES"] + src_mk["TOOL_LIB_SOURCES"],
         deps=[
             "//folly/container:f14_hash",
-            "//folly/experimental/coro:blocking_wait",
-            "//folly/experimental/coro:collect",
-            "//folly/experimental/coro:coroutine",
-            "//folly/experimental/coro:task",
+            "//folly/coro:blocking_wait",
+            "//folly/coro:collect",
+            "//folly/coro:coroutine",
+            "//folly/coro:task",
             "//folly/synchronization:distributed_mutex",
         ],
         headers=LiteralValue("glob([\"**/*.h\"])")

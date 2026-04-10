@@ -208,6 +208,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "initial_auto_readahead_size=0;"
       "num_file_reads_for_auto_readahead=0;"
       "fail_if_no_udi_on_open=true;"
+      "use_udi_as_primary_index=true;"
       "separate_key_value_in_data_block=true;"
       "uniform_cv_threshold=0.2",
       new_bbto));
@@ -279,7 +280,9 @@ TEST_F(OptionsSettableTest, TablePropertiesAllFieldsSettable) {
       "7265616461626C655F76616C7565;};compression_options=;compression_name=;"
       "property_collectors_names=;prefix_extractor_name=;db_host_id="
       "64625F686F73745F6964;db_session_id=64625F73657373696F6E5F6964;creation_"
-      "time=0;num_data_blocks=123;index_value_is_delta_encoded=0;top_level_"
+      "time=0;num_data_blocks=123;num_data_blocks_compression_rejected=42;"
+      "num_data_blocks_compression_bypassed=7;"
+      "index_value_is_delta_encoded=0;top_level_"
       "index_size=0;data_size=100;uncompressed_data_size=1234;"
       "merge_operator_name=;index_partitions=0;file_"
       "creation_time=0;raw_value_size=0;index_size=200;user_collected_"
@@ -296,7 +299,8 @@ TEST_F(OptionsSettableTest, TablePropertiesAllFieldsSettable) {
       "external_sst_file_global_seqno_offset=0;num_merge_operands=0;index_key_"
       "is_user_key=0;key_largest_seqno=18446744073709551615;key_smallest_seqno="
       "18;data_block_restart_interval=16;index_block_restart_interval=1;"
-      "separate_key_value_in_data_block=0;",
+      "separate_key_value_in_data_block=0;num_uniform_blocks=0;"
+      "udi_is_primary_index=0;",
       new_tp));
 
   // All bytes are set from the parse
@@ -476,6 +480,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "allow_data_in_errors=false;"
       "enforce_single_del_contracts=false;"
       "daily_offpeak_time_utc=08:30-19:00;"
+      "max_compaction_trigger_wakeup_seconds=43200;"
       "follower_refresh_catchup_period_ms=123;"
       "follower_catchup_retry_count=456;"
       "follower_catchup_retry_wait_ms=789;"
@@ -484,6 +489,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "background_close_inactive_wals=true;"
       "write_dbid_to_manifest=true;"
       "write_identity_file=true;"
+      "verify_manifest_content_on_close=false;"
       "prefix_seek_opt_in_only=true;",
       new_options));
 
@@ -533,8 +539,13 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(uint64_t)},
       {offsetof(struct ColumnFamilyOptions, preserve_internal_time_seconds),
        sizeof(uint64_t)},
+      {offsetof(struct ColumnFamilyOptions, blob_compression_opts),
+       sizeof(CompressionOptions)},
       {offsetof(struct ColumnFamilyOptions, blob_cache),
        sizeof(std::shared_ptr<Cache>)},
+      {offsetof(struct ColumnFamilyOptions,
+                blob_direct_write_partition_strategy),
+       sizeof(std::shared_ptr<BlobFilePartitionStrategy>)},
       {offsetof(struct ColumnFamilyOptions, comparator), sizeof(Comparator*)},
       {offsetof(struct ColumnFamilyOptions, merge_operator),
        sizeof(std::shared_ptr<MergeOperator>)},
@@ -661,16 +672,24 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "disallow_memtable_writes=true;"
       "ttl=60;"
       "periodic_compaction_seconds=3600;"
+      "read_triggered_compaction_threshold=0.5;"
       "sample_for_compression=0;"
       "enable_blob_files=true;"
+      "enable_blob_direct_write=true;"
       "min_blob_size=256;"
       "blob_file_size=1000000;"
       "blob_compression_type=kBZip2Compression;"
+      "blob_compression_opts={window_bits=-14;level=1;strategy=0;max_dict_"
+      "bytes=0;"
+      "zstd_max_train_bytes=0;enabled=true;parallel_threads=1;"
+      "max_dict_buffer_bytes=0;use_zstd_dict_trainer=true;"
+      "max_compressed_bytes_per_kb=896;checksum=false};"
       "enable_blob_garbage_collection=true;"
       "blob_garbage_collection_age_cutoff=0.5;"
       "blob_garbage_collection_force_threshold=0.75;"
       "blob_compaction_readahead_size=262144;"
       "blob_file_starting_level=1;"
+      "blob_direct_write_partitions=3;"
       "prepopulate_blob_cache=kDisable;"
       "bottommost_temperature=kWarm;"
       "last_level_temperature=kWarm;"
@@ -693,7 +712,9 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "memtable_veirfy_per_key_checksum_on_seek=1;"
       "memtable_op_scan_flush_trigger=123;"
       "memtable_avg_op_scan_flush_trigger=12;"
+      "min_tombstones_for_range_conversion=8;"
       "cf_allow_ingest_behind=1;"
+      "memtable_batch_lookup_optimization=1;"
       "verify_output_flags=2053;",
       new_options));
 
@@ -705,6 +726,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
 
   // Custom verification since compaction_options_fifo was in
   // kColumnFamilyOptionsExcluded
+  ASSERT_TRUE(new_options->enable_blob_direct_write);
+  ASSERT_EQ(new_options->blob_direct_write_partitions, 3U);
   ASSERT_EQ(new_options->compaction_options_fifo.max_table_files_size, 3);
   ASSERT_EQ(new_options->compaction_options_fifo.allow_compaction, true);
   ASSERT_EQ(new_options->compaction_options_fifo.file_temperature_age_thresholds

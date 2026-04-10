@@ -21,6 +21,8 @@
 // different behavior. See comment of the flag for details.
 
 #ifdef GFLAGS
+#include <iostream>
+
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_shared_state.h"
@@ -36,6 +38,11 @@ static std::shared_ptr<ROCKSDB_NAMESPACE::Env> legacy_env_wrapper_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::CompositeEnvWrapper>
     dbsl_env_wrapper_guard;
 static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
+
+int ReturnFlagValidationError(const char* message) {
+  std::cerr << "Error: " << message << '\n';
+  return 1;
+}
 }  // namespace
 
 KeyGenContext key_gen_ctx;
@@ -43,6 +50,7 @@ KeyGenContext key_gen_ctx;
 int db_stress_tool(int argc, char** argv) {
   SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                   " [OPTIONS]...");
+  RegisterDbStressBdwFlagValidators();
   ParseCommandLineFlags(&argc, &argv, true);
 
   SanitizeDoubleParam(&FLAGS_bloom_bits);
@@ -213,6 +221,85 @@ int db_stress_tool(int argc, char** argv) {
         "Error: nooverwritepercent must not be 100 when using merge operands");
     exit(1);
   }
+  if (FLAGS_enable_blob_direct_write) {
+    // Blob direct write is intentionally validated as a reduced-scope stress
+    // feature. We allow the WAL-disabled crash-test profile, including
+    // wide-column PutEntity/GetEntity coverage, but reject best-efforts
+    // recovery, parallel memtable/write-queue variants, transactions, remote
+    // compaction, and APIs/features that depend on active-file snapshotting or
+    // unsupported blob option transitions.
+    if (!FLAGS_enable_blob_files) {
+      return ReturnFlagValidationError(
+          "enable_blob_direct_write requires enable_blob_files");
+    }
+    if (FLAGS_allow_concurrent_memtable_write) {
+      return ReturnFlagValidationError(
+          "blob direct write stress requires "
+          "allow_concurrent_memtable_write=0");
+    }
+    if (FLAGS_enable_pipelined_write) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support "
+          "enable_pipelined_write");
+    }
+    if (FLAGS_unordered_write) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support unordered_write");
+    }
+    if (FLAGS_two_write_queues) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support two_write_queues");
+    }
+    if (FLAGS_use_blob_db) {
+      return ReturnFlagValidationError(
+          "blob direct write is only supported with integrated BlobDB");
+    }
+    if (FLAGS_use_merge || FLAGS_use_full_merge_v1) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support merge");
+    }
+    if (FLAGS_experimental_mempurge_threshold > 0.0) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support MemPurge");
+    }
+    if (FLAGS_user_timestamp_size > 0) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support user-defined timestamps");
+    }
+    if (FLAGS_allow_setting_blob_options_dynamically ||
+        FLAGS_enable_blob_garbage_collection) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support dynamic blob options or "
+          "blob GC");
+    }
+    if (FLAGS_best_efforts_recovery) {
+      return ReturnFlagValidationError(
+          "blob direct write stress supports disable_wal-based crash "
+          "testing, not best-efforts recovery");
+    }
+    if (FLAGS_remote_compaction_worker_threads > 0) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support remote compaction");
+    }
+    if (FLAGS_use_txn || FLAGS_txn_write_policy != 0 ||
+        FLAGS_use_optimistic_txn || FLAGS_test_multi_ops_txns ||
+        FLAGS_commit_bypass_memtable_one_in > 0) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support TransactionDB modes");
+    }
+    if (FLAGS_test_secondary || FLAGS_backup_one_in > 0 ||
+        FLAGS_checkpoint_one_in > 0 || FLAGS_get_live_files_apis_one_in > 0 ||
+        FLAGS_ingest_external_file_one_in > 0) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support secondary, backup, "
+          "checkpoint, get_live_files, or ingest_external_file modes");
+    }
+    if (FLAGS_ingest_wbwi_one_in > 0) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support "
+          "IngestWriteBatchWithIndex");
+    }
+  }
   if (FLAGS_ingest_external_file_one_in > 0 &&
       FLAGS_nooverwritepercent == 100) {
     fprintf(
@@ -229,65 +316,24 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_atomic_flush = true;
   }
 
-  // Trie UDI only supports Seek + Next. Disable backward scan testing so
-  // that other features lacking backward scan support can reuse this flag.
-  if (FLAGS_use_trie_index) {
-    FLAGS_test_backward_scan = false;
+  // Trie UDI uses zero-copy pointers into block data, which is
+  // incompatible with mmap_read.
+  if (FLAGS_use_trie_index && FLAGS_mmap_read) {
+    fprintf(stderr,
+            "Error: use_trie_index is incompatible with mmap_read. "
+            "The trie index uses zero-copy pointers into block data "
+            "which is unsafe with mmap'd reads.\n");
+    exit(1);
   }
 
-  // Trie UDI only supports kTypeValue (Put) entries. Reject incompatible
-  // operations that would produce non-Put types during flush/compaction.
-  if (FLAGS_use_trie_index) {
-    if (FLAGS_delpercent > 0) {
-      fprintf(stderr,
-              "Error: use_trie_index is incompatible with delpercent > 0\n");
-      exit(1);
-    }
-    if (FLAGS_delrangepercent > 0) {
-      fprintf(stderr,
-              "Error: use_trie_index is incompatible with "
-              "delrangepercent > 0\n");
-      exit(1);
-    }
-    if (FLAGS_use_merge) {
-      fprintf(stderr, "Error: use_trie_index is incompatible with use_merge\n");
-      exit(1);
-    }
-    if (FLAGS_use_put_entity_one_in > 0) {
-      fprintf(stderr,
-              "Error: use_trie_index is incompatible with "
-              "use_put_entity_one_in > 0\n");
-      exit(1);
-    }
-    if (FLAGS_use_timed_put_one_in > 0) {
-      fprintf(stderr,
-              "Error: use_trie_index is incompatible with "
-              "use_timed_put_one_in > 0\n");
-      exit(1);
-    }
-    if (FLAGS_use_txn) {
-      fprintf(stderr,
-              "Error: use_trie_index is incompatible with use_txn. "
-              "TransactionDB rollback is executed as delete operation during "
-              "crash recovery, which are non-Put types, not supported by "
-              "user-defined index.\n");
-      exit(1);
-    }
-    if (FLAGS_mmap_read) {
-      fprintf(stderr,
-              "Error: use_trie_index is incompatible with mmap_read. "
-              "The trie index uses zero-copy pointers into block data "
-              "which is unsafe with mmap'd reads.\n");
-      exit(1);
-    }
-    if (FLAGS_enable_blob_files ||
-        FLAGS_allow_setting_blob_options_dynamically) {
-      fprintf(stderr,
-              "Error: use_trie_index is incompatible with BlobDB. "
-              "BlobDB writes kTypeBlobIndex entries in SSTs which are "
-              "non-Put types, not supported by user-defined index.\n");
-      exit(1);
-    }
+  // TrieIndexFactory requires plain BytewiseComparator, but timestamps use
+  // BytewiseComparator.u64ts.
+  if (FLAGS_use_trie_index && FLAGS_user_timestamp_size > 0) {
+    fprintf(stderr,
+            "Error: use_trie_index is incompatible with user-defined "
+            "timestamps. TrieIndexFactory requires BytewiseComparator "
+            "but timestamps use BytewiseComparator.u64ts.\n");
+    exit(1);
   }
 
   if (FLAGS_read_only) {

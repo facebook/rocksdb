@@ -928,6 +928,13 @@ Status WriteCommittedTxn::CommitInternal() {
       }
     }
   }
+  // Blob direct write must go through the normal WriteBatch path in
+  // DBImpl::WriteImpl() so large values can be transformed into BlobIndex
+  // entries. The bypass-memtable optimization commits through WBWI ingestion,
+  // which skips that transformation and does not support kTypeBlobIndex.
+  if (bypass_memtable && db_impl_->HasAnyBlobDirectWriteColumnFamily()) {
+    bypass_memtable = false;
+  }
   if (!bypass_memtable) {
     // insert prepared batch into Memtable only skipping WAL.
     // Memtable will ignore BeginPrepare/EndPrepare markers

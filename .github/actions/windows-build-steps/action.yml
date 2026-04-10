@@ -1,4 +1,13 @@
 name: windows-build-steps
+inputs:
+  suite-run:
+    description: Comma-separated list of test suites to run (empty to skip C++ tests)
+    required: false
+    default: arena_test,db_basic_test,db_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test
+  run-java:
+    description: Whether to run Java tests
+    required: false
+    default: "true"
 runs:
   using: composite
   steps:
@@ -8,11 +17,15 @@ runs:
     uses: hendrikmuhs/ccache-action@v1.2
     with:
       max-size: "10GB"
+      key: ccache-windows-${{ github.workflow }}
+      restore-keys: |
+        ccache-windows-
   - name: Configure ccache
     shell: pwsh
     run: |
       ccache --set-config=base_dir=C:\a\rocksdb\rocksdb
       ccache --set-config=hash_dir=false
+      ccache --set-config=compiler_check=content
   - name: Custom steps
     env:
       THIRDPARTY_HOME: ${{ github.workspace }}/thirdparty
@@ -55,12 +68,22 @@ runs:
       msbuild build/rocksdb.sln /m:32 /p:LinkIncremental=false -property:Configuration=Debug -property:Platform=x64
       if(!$?) { Exit $LASTEXITCODE }
       echo ========================= Test RocksDB =========================
-      build_tools\run_ci_db_test.ps1 -SuiteRun arena_test,db_basic_test,db_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test -Concurrency 16
-      if(!$?) { Exit $LASTEXITCODE }
-      echo ======================== Test RocksJava ========================
-      cd build\java
-      & ctest -C Debug -j 16
-      if(!$?) { Exit $LASTEXITCODE }
+      $suiteRun = "${{ inputs.suite-run }}"
+      if ($suiteRun -ne "") {
+        $suiteArray = $suiteRun -split ','
+        build_tools\run_ci_db_test.ps1 -SuiteRun $suiteArray -Concurrency 16
+        if(!$?) { Exit $LASTEXITCODE }
+      } else {
+        echo "Skipping C++ tests (suite-run is empty)"
+      }
+      if ("${{ inputs.run-java }}" -eq "true") {
+        echo ======================== Test RocksJava ========================
+        cd build\java
+        & ctest -C Debug -j 16
+        if(!$?) { Exit $LASTEXITCODE }
+      } else {
+        echo "Skipping Java tests"
+      }
     shell: pwsh
   - name: Show ccache stats
     shell: pwsh

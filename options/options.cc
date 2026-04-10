@@ -103,6 +103,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       min_blob_size(options.min_blob_size),
       blob_file_size(options.blob_file_size),
       blob_compression_type(options.blob_compression_type),
+      blob_compression_opts(options.blob_compression_opts),
       enable_blob_garbage_collection(options.enable_blob_garbage_collection),
       blob_garbage_collection_age_cutoff(
           options.blob_garbage_collection_age_cutoff),
@@ -115,7 +116,11 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       persist_user_defined_timestamps(options.persist_user_defined_timestamps),
       memtable_op_scan_flush_trigger(options.memtable_op_scan_flush_trigger),
       memtable_avg_op_scan_flush_trigger(
-          options.memtable_avg_op_scan_flush_trigger) {
+          options.memtable_avg_op_scan_flush_trigger),
+      min_tombstones_for_range_conversion(
+          options.min_tombstones_for_range_conversion),
+      memtable_batch_lookup_optimization(
+          options.memtable_batch_lookup_optimization) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -297,6 +302,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                    "     Options.memtable_avg_op_scan_flush_trigger: %" PRIu32,
                    memtable_avg_op_scan_flush_trigger);
   ROCKS_LOG_HEADER(log,
+                   "     Options.min_tombstones_for_range_conversion: %" PRIu32,
+                   min_tombstones_for_range_conversion);
+  ROCKS_LOG_HEADER(log,
                    "                   Options.max_compaction_bytes: %" PRIu64,
                    max_compaction_bytes);
   ROCKS_LOG_HEADER(
@@ -440,6 +448,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                    blob_file_size);
   ROCKS_LOG_HEADER(log, "                  Options.blob_compression_type: %s",
                    CompressionTypeToString(blob_compression_type).c_str());
+  ROCKS_LOG_HEADER(log, "            Options.blob_compression_opts.level: %d",
+                   blob_compression_opts.level);
   ROCKS_LOG_HEADER(log, "         Options.enable_blob_garbage_collection: %s",
                    enable_blob_garbage_collection ? "true" : "false");
   ROCKS_LOG_HEADER(log, "     Options.blob_garbage_collection_age_cutoff: %f",
@@ -468,6 +478,13 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                    memtable_max_range_deletions);
   ROCKS_LOG_HEADER(log, "                 Options.cf_allow_ingest_behind: %s",
                    cf_allow_ingest_behind ? "true" : "false");
+  ROCKS_LOG_HEADER(log, "  Options.memtable_batch_lookup_optimization: %s",
+                   memtable_batch_lookup_optimization ? "true" : "false");
+  ROCKS_LOG_HEADER(log, "             Options.enable_blob_direct_write: %s",
+                   enable_blob_direct_write ? "true" : "false");
+  ROCKS_LOG_HEADER(log,
+                   "           Options.blob_direct_write_partitions: %" PRIu32,
+                   blob_direct_write_partitions);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {

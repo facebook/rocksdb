@@ -374,17 +374,16 @@ bool MemTableListVersion::TrimHistory(autovector<ReadOnlyMemTable*>* to_delete,
   return ret;
 }
 
-const Slice& MemTableListVersion::GetNewestUDT() const {
-  static Slice kEmptySlice;
+Slice MemTableListVersion::GetNewestUDT() const {
   for (auto it = memlist_.begin(); it != memlist_.end(); ++it) {
     ReadOnlyMemTable* m = *it;
     Slice timestamp = m->GetNewestUDT();
     assert(!timestamp.empty() || m->IsEmpty());
     if (!timestamp.empty()) {
-      return m->GetNewestUDT();
+      return timestamp;
     }
   }
-  return kEmptySlice;
+  return Slice();
 }
 
 // Returns true if there is at least one memtable on which flush has
@@ -673,7 +672,6 @@ void MemTableList::Add(ReadOnlyMemTable* m,
   // we don't have to ref the memtable here. we just take over the
   // reference from the DBImpl.
   current_->Add(m, to_delete);
-  m->MarkImmutable();
   num_flush_not_started_++;
   if (num_flush_not_started_ == 1) {
     imm_flush_needed.store(true, std::memory_order_release);

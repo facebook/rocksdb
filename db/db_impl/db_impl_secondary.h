@@ -78,8 +78,9 @@ class DBImplSecondary : public DBImpl {
                   std::string secondary_path);
   ~DBImplSecondary() override;
 
-  // Recover by replaying MANIFEST and WAL. Also initialize manifest_reader_
-  // and log_readers_ to facilitate future operations.
+  // Recover by replaying MANIFEST only. Also initialize manifest_reader_
+  // to facilitate future operations. WAL recovery, if needed, is done
+  // separately after opening (see DB::OpenAsSecondary).
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only, bool error_if_wal_file_exists,
                  bool error_if_data_exists_in_wals, bool is_retry = false,
@@ -194,10 +195,11 @@ class DBImplSecondary : public DBImpl {
     return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
-  Status GetLiveFiles(std::vector<std::string>&,
-                      uint64_t* /*manifest_file_size*/,
-                      bool /*flush_memtable*/ = true) override {
-    return Status::NotSupported("Not supported operation in secondary mode.");
+  Status GetLiveFiles(std::vector<std::string>& ret,
+                      uint64_t* manifest_file_size,
+                      bool /*flush_memtable*/) override {
+    return DBImpl::GetLiveFiles(ret, manifest_file_size,
+                                false /* flush_memtable */);
   }
 
   using DBImpl::Flush;
@@ -258,7 +260,7 @@ class DBImplSecondary : public DBImpl {
 #endif  // NDEBUG
 
  protected:
-  Status FlushForGetLiveFiles() override {
+  Status FlushForGetLiveFiles(bool /*force_atomic_flush*/) override {
     // No-op for read-only DB
     return Status::OK();
   }
@@ -383,6 +385,17 @@ class DBImplSecondary : public DBImpl {
 
   uint64_t CalculateResumedCompactionBytes(
       const CompactionProgress& compaction_progress) const;
+
+  // Internal helper for opening a secondary instance. Recover() replays
+  // MANIFEST only. When recover_wal is true, WAL files are also replayed
+  // (needed by DB::OpenAsSecondary). When false, WAL replay is skipped
+  // (used by DB::OpenAndCompact which only needs LSM state).
+  static Status OpenAsSecondaryImpl(
+      const DBOptions& db_options, const std::string& dbname,
+      const std::string& secondary_path,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
+      bool recover_wal);
 
   // Cache log readers for each log number, used for continue WAL replay
   // after recovery

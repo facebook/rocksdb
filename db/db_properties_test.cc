@@ -772,6 +772,72 @@ TEST_F(DBPropertiesTest, NumImmutableMemTable) {
   } while (ChangeCompactOptions());
 }
 
+TEST_F(DBPropertiesTest, ConcurrentWriteMemTableProperties) {
+  Options options = CurrentOptions();
+  options.allow_concurrent_memtable_write = true;
+  options.memtable_factory = std::make_shared<SkipListFactory>();
+  options.flush_verify_memtable_count = true;
+  DestroyAndReopen(options);
+
+  // Multi-threaded writes that go through the concurrent Add() +
+  // BatchPostProcess path.
+  const int kNumThreads = 4;
+  const int kEntriesPerThread = 100;
+  std::vector<port::Thread> threads;
+  threads.reserve(kNumThreads);
+  for (int t = 0; t < kNumThreads; t++) {
+    threads.emplace_back([&, t]() {
+      for (int i = 0; i < kEntriesPerThread; i++) {
+        std::string key = "k_" + std::to_string(t) + "_" + std::to_string(i);
+        ASSERT_OK(Put(key, "val"));
+      }
+    });
+  }
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  uint64_t num_entries;
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.num-entries-active-mem-table",
+                                       &num_entries));
+  ASSERT_EQ(num_entries,
+            static_cast<uint64_t>(kNumThreads * kEntriesPerThread));
+
+  // Write deletes and single deletes via concurrent path
+  threads.clear();
+  for (int t = 0; t < kNumThreads; t++) {
+    threads.emplace_back([&, t]() {
+      for (int i = 0; i < kEntriesPerThread; i++) {
+        std::string key = "d_" + std::to_string(t) + "_" + std::to_string(i);
+        if (i % 2 == 0) {
+          ASSERT_OK(Delete(key));
+        } else {
+          ASSERT_OK(SingleDelete(key));
+        }
+      }
+    });
+  }
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  uint64_t total_entries;
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.num-entries-active-mem-table",
+                                       &total_entries));
+  ASSERT_EQ(total_entries,
+            static_cast<uint64_t>(kNumThreads * kEntriesPerThread * 2));
+
+  uint64_t num_deletes;
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.num-deletes-active-mem-table",
+                                       &num_deletes));
+  ASSERT_EQ(num_deletes,
+            static_cast<uint64_t>(kNumThreads * kEntriesPerThread));
+
+  // Flush exercises the integrity check (flush_verify_memtable_count = true).
+  // If stat counters are wrong, this would return Corruption.
+  ASSERT_OK(Flush());
+}
+
 // TODO(techdept) : Disabled flaky test #12863555
 TEST_F(DBPropertiesTest, DISABLED_GetProperty) {
   // Set sizes to both background thread pool to be 1 and block them.

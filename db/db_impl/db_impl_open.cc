@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cinttypes>
 
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
@@ -2603,6 +2604,14 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           break;
         }
       }
+    }
+  }
+
+  if (s.ok()) {
+    for (size_t i = 0; i < column_families.size(); ++i) {
+      const auto& cf = column_families[i];
+      auto* cfd = static_cast<ColumnFamilyHandleImpl*>((*handles)[i])->cfd();
+      impl->MaybeInitBlobDirectWriteColumnFamily(cfd, cf.options, cf.name);
     }
   }
 

@@ -274,6 +274,50 @@ TEST_P(TransactionTest, SuccessTest) {
   delete txn;
 }
 
+TEST_P(TransactionTest, DirectWriteCommitPath) {
+  if (options.two_write_queues || options.unordered_write) {
+    ROCKSDB_GTEST_BYPASS(
+        "Blob direct write v1 only supports the ordered single-write-queue "
+        "path");
+    return;
+  }
+
+  options.enable_blob_files = true;
+  options.enable_blob_direct_write = true;
+  options.allow_concurrent_memtable_write = false;
+  options.blob_direct_write_partitions = 2;
+  options.min_blob_size = 32;
+  options.use_direct_reads = true;
+  options.use_direct_io_for_flush_and_compaction = true;
+
+  Status s = ReOpen();
+  if (s.IsInvalidArgument()) {
+    ROCKSDB_GTEST_SKIP("This test requires direct IO support");
+    return;
+  }
+  ASSERT_OK(s);
+
+  WriteOptions write_options;
+  const std::string key = "txn_blob_key";
+  const std::string value(512, 'x');
+
+  std::unique_ptr<Transaction> txn(
+      db->BeginTransaction(write_options, TransactionOptions()));
+  ASSERT_TRUE(txn);
+  ASSERT_OK(txn->Put(key, value));
+  ASSERT_OK(txn->Commit());
+  txn.reset();
+
+  PinnableSlice result;
+  ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), key, &result));
+  ASSERT_EQ(result, value);
+
+  ASSERT_OK(db->Flush(FlushOptions()));
+  result.Reset();
+  ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), key, &result));
+  ASSERT_EQ(result, value);
+}
+
 // Test the basic API of the pinnable slice overload of GetForUpdate()
 TEST_P(TransactionTest, SuccessTestPinnable) {
   ASSERT_OK(db->ResetStats());
@@ -9590,6 +9634,63 @@ TEST_P(CommitBypassMemtableTest, AtomicFlushTest) {
     ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
     ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
   }
+}
+
+TEST_P(CommitBypassMemtableTest, SwitchMemtableFailureStopsDBUntilReopen) {
+  SetUpTransactionDB(/*atomic_flush=*/false);
+
+  auto* db_impl = static_cast_with_check<DBImpl>(txn_db->GetRootDB());
+
+  WriteOptions wopts;
+  wopts.sync = true;
+  TransactionOptions txn_opts;
+  txn_opts.commit_bypass_memtable = true;
+  std::unique_ptr<Transaction> txn{
+      txn_db->BeginTransaction(wopts, txn_opts, nullptr)};
+  ASSERT_NE(txn, nullptr);
+  ASSERT_OK(txn->SetName("xid_switch_memtable_failure"));
+  ASSERT_OK(txn->Put("k1", "v1"));
+  ASSERT_OK(txn->Put("k2", "v2"));
+  ASSERT_OK(txn->Prepare());
+
+  IOStatus injected_error =
+      IOStatus::IOError("Injected WAL creation failure in SwitchMemtable");
+  injected_error.SetRetryable(true);
+  bool failure_injected = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SwitchMemtable:AfterCreateWAL", [&](void* arg) {
+        if (failure_injected) {
+          return;
+        }
+        *static_cast<IOStatus*>(arg) = injected_error;
+        failure_injected = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status commit_status = txn->Commit();
+  ASSERT_TRUE(commit_status.IsCorruption()) << commit_status.ToString();
+  ASSERT_TRUE(failure_injected);
+
+  txn.reset();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  Status bg_error = db_impl->TEST_GetBGError();
+  ASSERT_TRUE(bg_error.IsCorruption()) << bg_error.ToString();
+  ASSERT_EQ(bg_error.severity(), Status::Severity::kFatalError);
+
+  Status put_status = txn_db->Put(wopts, "k3", "v3");
+  ASSERT_TRUE(put_status.IsCorruption()) << put_status.ToString();
+  ASSERT_EQ(put_status.severity(), Status::Severity::kFatalError);
+
+  ASSERT_OK(txn_db->Close());
+  db_.reset();  // destroys txn_db (owned by db_)
+  ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
+  db_.reset(txn_db);
+
+  VerifyDBFromMap({{"k1", "v1"}, {"k2", "v2"}});
+  ASSERT_OK(txn_db->Put(wopts, "k3", "v3"));
 }
 
 TEST_P(CommitBypassMemtableTest, MergeAndMultiCF) {

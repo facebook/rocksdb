@@ -1,6 +1,22 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.1.0 (03/23/2026)
+### New Features
+* Add a new option `open_files_async`. The existing behavior is on DB open, we open all sst files and do basic validations. For very large DBs on remote filesystems with many ssts, this may take very long. This option performs these validations instead in the background. Open errors found by this async background task are surfaced as a new background error kAsyncFileOpen.
+* Added `BlockBasedTableOptions::kAuto` index block search type that automatically selects between binary and interpolation search on a per-index-block basis. During SST construction, each index block's key distribution uniformity is analyzed using the coefficient of variation of key gaps, and index blocks with uniform keys use interpolation search while others fall back to binary search. The uniformity threshold is configurable via `BlockBasedTableOptions::uniform_cv_threshold` (default: 0.2).
+* Introduced enforce_write_buffer_manager_during_recovery option to allow WriteBufferManager to be enforced during WAL recovery. (Default: true)
+* Add `memtable_batch_lookup_optimization` option to use batch lookup optimization for memtable MultiGet. For skip list memtables, after each key lookup, the search path is cached and reused for the next key, reducing per-key cost from O(log N) to O(log d) where d is the distance between consecutive keys. Benchmarks show ~7% improvement in memtable-resident MultiGet throughput.
+* Added `BlockBasedTableOptions::PrepopulateBlockCache::kFlushAndCompaction` to prepopulate the block cache during both flush and compaction. Compaction-warmed blocks are inserted at `BOTTOM` priority (vs `LOW` for flush) so they are evicted first under cache pressure. Recommended only for use cases where most or all of the database is expected to reside in cache (e.g., tiered or remote storage where the working set fits in cache).
+* Added new mutable DB option `verify_manifest_content_on_close` (default: false). When enabled, on DB close the MANIFEST file is read back and all records are validated (CRC checksums and logical content). If corruption is detected, a fresh MANIFEST is written from in-memory state.
+
+### Behavior Changes
+* num_reads_sampled now factors in re-seeks and next/prev() on file iterators for files in L1+. next/prev() is discounted by 64x compared to seek due to being a much cheaper call.
+* Remote compaction workers now skip WAL recovery when opening the secondary DB instance, since only the LSM state from MANIFEST is needed for compaction. This reduces I/O and speeds up remote compaction startup.
+
+### Bug Fixes
+* Fix a bug in round-robin compaction that missed selecting input files that are needed to guarantee data correctness and cause crashing in debug builds or silent data corruption in release builds for Get().
+
 ## 11.0.0 (02/23/2026)
 ### New Features
 * Added support for storing wide-column entity column values in blob files. When `min_blob_size` is configured, large column values in wide-column entities will be stored in blob files, reducing SST file size and improving read performance.

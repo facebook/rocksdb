@@ -91,6 +91,37 @@ class FlushJob {
   void Cancel();
   const autovector<ReadOnlyMemTable*>& GetMemTables() const { return mems_; }
 
+  // Returns the log number recorded in the flush VersionEdit after
+  // PickMemTable() initializes `edit_`.
+  uint64_t GetLogNumber() const {
+    assert(edit_ != nullptr);
+    return edit_->GetLogNumber();
+  }
+
+  // Stashes write-path blob files so WriteLevel0Table() can add them to the
+  // same VersionEdit as the flushed SST.
+  void AddExternalBlobFileAdditions(std::vector<BlobFileAddition>&& additions) {
+    external_blob_file_additions_ = std::move(additions);
+  }
+
+  // Stashes write-path initial-garbage updates so they are committed with the
+  // same VersionEdit as the matching blob-file additions and flushed SST.
+  void AddExternalBlobFileGarbages(std::vector<BlobFileGarbage>&& garbages) {
+    external_blob_file_garbages_ = std::move(garbages);
+  }
+
+  // Transfers back any prepared blob file additions that were not consumed by
+  // the flush.
+  std::vector<BlobFileAddition> TakeExternalBlobFileAdditions() {
+    return std::move(external_blob_file_additions_);
+  }
+
+  // Transfers back any prepared blob-file garbage updates that were not
+  // consumed by the flush.
+  std::vector<BlobFileGarbage> TakeExternalBlobFileGarbages() {
+    return std::move(external_blob_file_garbages_);
+  }
+
   std::list<std::unique_ptr<FlushJobInfo>>* GetCommittedFlushJobsInfo() {
     return &committed_flush_jobs_info_;
   }
@@ -213,6 +244,11 @@ class FlushJob {
 
   const std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
+  // Write-path blob files that should be committed with this flush.
+  std::vector<BlobFileAddition> external_blob_file_additions_;
+  // Initial garbage for write-path blob files that were partially abandoned
+  // before their owning flush committed.
+  std::vector<BlobFileGarbage> external_blob_file_garbages_;
 
   // Shared copy of DB's seqno to time mapping stored in SuperVersion. The
   // ownership is shared with this FlushJob when it's created.

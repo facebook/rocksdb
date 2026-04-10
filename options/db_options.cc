@@ -136,9 +136,18 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableDBOptions, manifest_preallocation_size),
           OptionType::kSizeT, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"verify_manifest_content_on_close",
+         {offsetof(struct MutableDBOptions, verify_manifest_content_on_close),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"daily_offpeak_time_utc",
          {offsetof(struct MutableDBOptions, daily_offpeak_time_utc),
           OptionType::kString, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"max_compaction_trigger_wakeup_seconds",
+         {offsetof(struct MutableDBOptions,
+                   max_compaction_trigger_wakeup_seconds),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
 };
 
@@ -1058,7 +1067,11 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       max_manifest_file_size(options.max_manifest_file_size),
       max_manifest_space_amp_pct(options.max_manifest_space_amp_pct),
       manifest_preallocation_size(options.manifest_preallocation_size),
-      daily_offpeak_time_utc(options.daily_offpeak_time_utc) {}
+      verify_manifest_content_on_close(
+          options.verify_manifest_content_on_close),
+      daily_offpeak_time_utc(options.daily_offpeak_time_utc),
+      max_compaction_trigger_wakeup_seconds(
+          options.max_compaction_trigger_wakeup_seconds) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
@@ -1111,8 +1124,13 @@ void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(
       log, "            Options.manifest_preallocation_size: %" ROCKSDB_PRIszt,
       manifest_preallocation_size);
+  ROCKS_LOG_HEADER(log, "      Options.verify_manifest_content_on_close: %d",
+                   verify_manifest_content_on_close);
   ROCKS_LOG_HEADER(log, "Options.daily_offpeak_time_utc: %s",
                    daily_offpeak_time_utc.c_str());
+  ROCKS_LOG_HEADER(log,
+                   "Options.max_compaction_trigger_wakeup_seconds: %" PRIu64,
+                   max_compaction_trigger_wakeup_seconds);
 }
 
 Status GetMutableDBOptionsFromStrings(

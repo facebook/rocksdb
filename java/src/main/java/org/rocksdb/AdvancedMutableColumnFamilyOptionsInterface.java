@@ -106,6 +106,29 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
   double experimentalMempurgeThreshold();
 
   /**
+   * During forward or reverse iteration, when this many or more
+   * strictly contiguous point tombstones are encountered with no live
+   * keys between them, a range tombstone is inserted into the current
+   * mutable memtable.
+   *
+   * Set to 0 to disable.
+   * Default: 0 (disabled)
+   *
+   * @param minTombstonesForRangeConversion the minimum number of contiguous
+   *     point tombstones to trigger range conversion
+   * @return the reference to the current options.
+   */
+  T setMinTombstonesForRangeConversion(int minTombstonesForRangeConversion);
+
+  /**
+   * Gets the current setting for minimum tombstones for range conversion.
+   * 0 (default) indicates that the feature is disabled.
+   *
+   * @return current value of min_tombstones_for_range_conversion
+   */
+  int minTombstonesForRangeConversion();
+
+  /**
    * Enable whole key bloom filter in memtable. Note this will only take effect
    * if memtable_prefix_bloom_size_ratio is not 0. Enabling whole key filtering
    * can potentially reduce CPU usage for point-look-ups.
@@ -755,6 +778,23 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    * @return the current threshold at which garbage collection of blobs is forced
    */
   double blobGarbageCollectionForceThreshold();
+
+  /**
+   * Set threshold for read-triggered compaction. An SST file is marked for
+   * compaction when its sampled read frequency (sampled_reads / file_size)
+   * exceeds this value. Use 0.0 to disable.
+   *
+   * @param readTriggeredCompactionThreshold the threshold value
+   * @return the reference to the current options
+   */
+  T setReadTriggeredCompactionThreshold(double readTriggeredCompactionThreshold);
+
+  /**
+   * Get the current value for read-triggered compaction threshold.
+   *
+   * @return the current threshold
+   */
+  double readTriggeredCompactionThreshold();
 
   /**
    * Set compaction readahead for blob files.

@@ -53,6 +53,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/io_dispatcher.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
@@ -132,6 +133,7 @@ DEFINE_string(
     "waitforcompaction,"
     "multireadrandom,"
     "multiscan,"
+    "multiscanrandom,"
     "mixgraph,"
     "readseq,"
     "readtorowcache,"
@@ -326,6 +328,11 @@ DEFINE_int32(seek_nexts, 0,
              "fillseekseq, seekrandom, seekrandomwhilewriting and "
              "seekrandomwhilemerging");
 
+DEFINE_int32(seek_nexts_to_delete, 0,
+             "After completing seek_nexts iterations in seekrandom, delete "
+             "this many subsequent keys via point deletes. Useful for "
+             "benchmarking read-path range tombstone insertion.");
+
 DEFINE_bool(reverse_iterator, false,
             "When true use Prev rather than Next for iterators that do "
             "Seek and then Next");
@@ -455,6 +462,10 @@ DEFINE_int64(max_manifest_file_size,
 DEFINE_int32(max_manifest_space_amp_pct,
              ROCKSDB_NAMESPACE::Options().max_manifest_space_amp_pct,
              "Max manifest space amp percentage for auto-tuning");
+
+DEFINE_bool(verify_manifest_content_on_close,
+            ROCKSDB_NAMESPACE::Options().verify_manifest_content_on_close,
+            "If true, verify MANIFEST content (CRC + decode) on DB close");
 
 DEFINE_bool(cost_write_buffer_to_cache, false,
             "The usage of memtable is costed to the block cache");
@@ -808,6 +819,8 @@ DEFINE_bool(memtable_whole_key_filtering, false,
             "Try to use whole key bloom filter in memtables.");
 DEFINE_bool(memtable_use_huge_page, false,
             "Try to use huge page in memtables.");
+DEFINE_bool(memtable_batch_lookup_optimization, false,
+            "Use batch lookup optimization for memtable MultiGet.");
 
 DEFINE_bool(whole_key_filtering,
             ROCKSDB_NAMESPACE::BlockBasedTableOptions().whole_key_filtering,
@@ -1092,6 +1105,25 @@ DEFINE_bool(
     ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().enable_blob_files,
     "[Integrated BlobDB] Enable writing large values to separate blob files.");
 
+DEFINE_bool(
+    enable_blob_direct_write,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().enable_blob_direct_write,
+    "[Integrated BlobDB] Enable direct-write blob file creation on "
+    "the write path.");
+
+DEFINE_uint64(blob_direct_write_partitions,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_direct_write_partitions,
+              "[Integrated BlobDB] Number of partitions for direct-write blob "
+              "files.");
+
+static void RegisterDbBenchBdwFlagValidators() {
+  static const bool blob_direct_write_partitions_validator_registered =
+      RegisterFlagValidator(&FLAGS_blob_direct_write_partitions,
+                            &ValidateUint32Range);
+  (void)blob_direct_write_partitions_validator_registered;
+}
+
 DEFINE_uint64(min_blob_size,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().min_blob_size,
               "[Integrated BlobDB] The size of the smallest value to be stored "
@@ -1126,6 +1158,15 @@ DEFINE_uint64(blob_compaction_readahead_size,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
                   .blob_compaction_readahead_size,
               "[Integrated BlobDB] Compaction readahead for blob files.");
+
+DEFINE_double(read_triggered_compaction_threshold,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .read_triggered_compaction_threshold,
+              "Threshold for read-triggered compaction. An SST file is marked "
+              "for compaction when its sampled read frequency "
+              "(sampled_reads / file_size) exceeds this value. Collapsible "
+              "reads (NotFound, Merge, Delete results) are sampled. "
+              "0 disables the feature.");
 
 DEFINE_int32(
     blob_file_starting_level,
@@ -1313,6 +1354,11 @@ DEFINE_uint32(memtable_op_scan_flush_trigger,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
                   .memtable_op_scan_flush_trigger,
               "Setting for CF option memtable_op_scan_flush_trigger.");
+
+DEFINE_uint32(min_tombstones_for_range_conversion,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .min_tombstones_for_range_conversion,
+              "Setting for CF option min_tombstones_for_range_conversion.");
 
 DEFINE_bool(verify_compression, false,
             "See BlockBasedTableOptions::verify_compression");
@@ -1763,6 +1809,10 @@ DEFINE_bool(dump_malloc_stats, true, "Dump malloc stats in LOG ");
 DEFINE_uint64(stats_dump_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
+DEFINE_uint64(
+    max_compaction_trigger_wakeup_seconds,
+    ROCKSDB_NAMESPACE::Options().max_compaction_trigger_wakeup_seconds,
+    "Maximum interval in seconds between periodic compaction trigger checks.");
 DEFINE_uint64(stats_persist_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_persist_period_sec,
               "Gap between persisting stats in seconds");
@@ -1886,6 +1936,23 @@ DEFINE_bool(
     ROCKSDB_NAMESPACE::MultiScanArgs(ROCKSDB_NAMESPACE::BytewiseComparator())
         .use_async_io,
     "Sets MultiScanArgs::use_async_io");
+
+DEFINE_uint64(io_dispatcher_max_prefetch_memory_bytes, 0,
+              "Maximum memory (in bytes) for IODispatcher prefetching across "
+              "all ReadSets. When this limit is reached, SubmitJob() blocks "
+              "until memory is released. 0 means unlimited.");
+
+DEFINE_uint64(
+    multiscan_max_prefetch_size,
+    ROCKSDB_NAMESPACE::MultiScanArgs(ROCKSDB_NAMESPACE::BytewiseComparator())
+        .max_prefetch_size,
+    "Maximum per-file prefetch size (in bytes) for MultiScan. "
+    "Limits cumulative compressed data block size pinned per SST file. "
+    "0 means unlimited.");
+
+DEFINE_bool(use_multiscan, true,
+            "If true, multiscanrandom uses MultiScan API. If false, uses "
+            "normal iterators (Seek + Next) for each range.");
 
 DEFINE_bool(openandcompact_allow_resumption, false,
             "Whether to keep existing progress and enable resume compaction in "
@@ -3749,7 +3816,29 @@ class Benchmark {
                 FLAGS_multiscan_stride);
         fprintf(stderr, "multiscan_size = %" PRIi64 "\n", FLAGS_multiscan_size);
         fprintf(stderr, "seek_nexts = %" PRIi32 "\n", FLAGS_seek_nexts);
+        fprintf(stderr,
+                "io_dispatcher_max_prefetch_memory_bytes = %" PRIu64 "\n",
+                FLAGS_io_dispatcher_max_prefetch_memory_bytes);
+        fprintf(stderr, "multiscan_max_prefetch_size = %" PRIu64 "\n",
+                FLAGS_multiscan_max_prefetch_size);
         method = &Benchmark::MultiScan;
+      } else if (name == "multiscanrandom") {
+        int64_t max_range_keys = std::max<int64_t>(
+            1, (1 << 20) / (FLAGS_key_size + FLAGS_value_size));
+        fprintf(stderr,
+                "multiscanrandom: batch_size=1..64, "
+                "max_range_keys=%" PRIi64 "\n",
+                max_range_keys);
+        fprintf(stderr,
+                "io_dispatcher_max_prefetch_memory_bytes = %" PRIu64 "\n",
+                FLAGS_io_dispatcher_max_prefetch_memory_bytes);
+        fprintf(stderr, "multiscan_max_prefetch_size = %" PRIu64 "\n",
+                FLAGS_multiscan_max_prefetch_size);
+        fprintf(stderr, "multiscan_use_async_io = %s\n",
+                FLAGS_multiscan_use_async_io ? "true" : "false");
+        fprintf(stderr, "use_multiscan = %s\n",
+                FLAGS_use_multiscan ? "true" : "false");
+        method = &Benchmark::MultiScanRandom;
       } else if (name == "multireadwhilewriting") {
         fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
                 entries_per_batch_);
@@ -4409,6 +4498,8 @@ class Benchmark {
     options.dump_malloc_stats = FLAGS_dump_malloc_stats;
     options.stats_dump_period_sec =
         static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
+    options.max_compaction_trigger_wakeup_seconds =
+        FLAGS_max_compaction_trigger_wakeup_seconds;
     options.stats_persist_period_sec =
         static_cast<unsigned int>(FLAGS_stats_persist_period_sec);
     options.persist_stats_to_disk = FLAGS_persist_stats_to_disk;
@@ -4435,6 +4526,8 @@ class Benchmark {
     }
     options.max_manifest_file_size = FLAGS_max_manifest_file_size;
     options.max_manifest_space_amp_pct = FLAGS_max_manifest_space_amp_pct;
+    options.verify_manifest_content_on_close =
+        FLAGS_verify_manifest_content_on_close;
     options.arena_block_size = FLAGS_arena_block_size;
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;
@@ -4478,6 +4571,8 @@ class Benchmark {
     options.memtable_huge_page_size = FLAGS_memtable_use_huge_page ? 2048 : 0;
     options.memtable_prefix_bloom_size_ratio = FLAGS_memtable_bloom_size_ratio;
     options.memtable_whole_key_filtering = FLAGS_memtable_whole_key_filtering;
+    options.memtable_batch_lookup_optimization =
+        FLAGS_memtable_batch_lookup_optimization;
     if (FLAGS_memtable_insert_with_hint_prefix_size > 0) {
       options.memtable_insert_with_hint_prefix_extractor.reset(
           NewCappedPrefixTransform(
@@ -4971,6 +5066,9 @@ class Benchmark {
 
     // Integrated BlobDB
     options.enable_blob_files = FLAGS_enable_blob_files;
+    options.enable_blob_direct_write = FLAGS_enable_blob_direct_write;
+    options.blob_direct_write_partitions =
+        static_cast<uint32_t>(FLAGS_blob_direct_write_partitions);
     options.min_blob_size = FLAGS_min_blob_size;
     options.blob_file_size = FLAGS_blob_file_size;
     options.blob_compression_type =
@@ -4984,6 +5082,8 @@ class Benchmark {
     options.blob_compaction_readahead_size =
         FLAGS_blob_compaction_readahead_size;
     options.blob_file_starting_level = FLAGS_blob_file_starting_level;
+    options.read_triggered_compaction_threshold =
+        FLAGS_read_triggered_compaction_threshold;
 
     if (FLAGS_readonly && FLAGS_transaction_db) {
       fprintf(stderr, "Cannot use readonly flag with transaction_db\n");
@@ -5003,6 +5103,8 @@ class Benchmark {
         FLAGS_memtable_veirfy_per_key_checksum_on_seek;
     options.memtable_op_scan_flush_trigger =
         FLAGS_memtable_op_scan_flush_trigger;
+    options.min_tombstones_for_range_conversion =
+        FLAGS_min_tombstones_for_range_conversion;
     options.compaction_options_universal.reduce_file_locking =
         FLAGS_universal_reduce_file_locking;
   }
@@ -6775,6 +6877,18 @@ class Benchmark {
     thread->stats.AddMessage(msg);
   }
 
+  std::shared_ptr<IODispatcher> MaybeCreateIODispatcher() {
+    std::shared_ptr<IODispatcher> io_dispatcher;
+    if (FLAGS_io_dispatcher_max_prefetch_memory_bytes > 0) {
+      IODispatcherOptions disp_opts;
+      disp_opts.max_prefetch_memory_bytes =
+          FLAGS_io_dispatcher_max_prefetch_memory_bytes;
+      disp_opts.statistics = dbstats.get();
+      io_dispatcher.reset(NewIODispatcher(disp_opts));
+    }
+    return io_dispatcher;
+  }
+
   void MultiScan(ThreadState* thread) {
     const int64_t scan_size = FLAGS_seek_nexts ? FLAGS_seek_nexts : 50;
     const int64_t readahead =
@@ -6788,6 +6902,8 @@ class Benchmark {
     options.async_io = true;
     options.readahead_size = readahead;
 
+    auto io_dispatcher = MaybeCreateIODispatcher();
+
     Duration duration(FLAGS_duration, reads_);
     int64_t num_keys = 1;
     while (!duration.Done(num_keys)) {
@@ -6795,6 +6911,10 @@ class Benchmark {
       MultiScanArgs opts(open_options_.comparator);
       opts.io_coalesce_threshold = FLAGS_multiscan_coalesce_threshold;
       opts.use_async_io = FLAGS_multiscan_use_async_io;
+      opts.max_prefetch_size = FLAGS_multiscan_max_prefetch_size;
+      if (io_dispatcher) {
+        opts.io_dispatcher = io_dispatcher;
+      }
       std::vector<std::unique_ptr<const char[]>> guards;
       opts.reserve(multiscan_size);
       // We create 1 random start, and then multiscan will start from that
@@ -6822,11 +6942,15 @@ class Benchmark {
       auto iter =
           db->NewMultiScan(read_options_, db->DefaultColumnFamily(), opts);
       int64_t keys = 0;
-      for (auto rng : *iter) {
-        for ([[maybe_unused]] auto it : rng) {
-          keys++;
+      try {
+        for (auto rng : *iter) {
+          for ([[maybe_unused]] auto it : rng) {
+            keys++;
+          }
+          assert(keys > 0);
         }
-        assert(keys > 0);
+      } catch (const MultiScanException& e) {
+        fprintf(stderr, "MultiScanException: %s\n", e.what());
       }
       num_keys = std::max<int64_t>(1, keys);
 
@@ -6840,7 +6964,155 @@ class Benchmark {
     }
 
     char msg[100];
-    snprintf(msg, sizeof(msg), "(multscans:%" PRIu64 ")", multiscans_done);
+    snprintf(msg, sizeof(msg), "(multiscans:%" PRIu64 ")", multiscans_done);
+    thread->stats.AddMessage(msg);
+  }
+
+  void MultiScanRandom(ThreadState* thread) {
+    // Compute max keys per range from 1MB limit and per-key size
+    const int64_t kMaxRangeBytes = 1 << 20;  // 1MB
+    const int64_t per_key_size = FLAGS_key_size + FLAGS_value_size;
+    const int64_t max_range_keys =
+        std::max<int64_t>(1, kMaxRangeBytes / per_key_size);
+    const int64_t kMaxBatchSize = 64;
+
+    std::shared_ptr<IODispatcher> io_dispatcher;
+    if (FLAGS_use_multiscan) {
+      io_dispatcher = MaybeCreateIODispatcher();
+    }
+
+    int64_t multiscans_done = 0;
+    Duration duration(FLAGS_duration, reads_);
+    int64_t num_keys = 1;
+    while (!duration.Done(num_keys)) {
+      DB* db = SelectDB(thread);
+
+      // Random batch size: 1 to kMaxBatchSize
+      int64_t batch_size =
+          1 + static_cast<int64_t>(thread->rand.Uniform(kMaxBatchSize));
+
+      // Generate sorted non-overlapping ranges with random sizes
+      struct RangeSpec {
+        uint64_t start;
+        uint64_t size;
+      };
+      std::vector<RangeSpec> ranges(batch_size);
+      for (int64_t i = 0; i < batch_size; i++) {
+        ranges[i].size =
+            1 + static_cast<uint64_t>(thread->rand.Uniform(max_range_keys));
+        uint64_t max_start =
+            static_cast<uint64_t>(FLAGS_num) > ranges[i].size
+                ? static_cast<uint64_t>(FLAGS_num) - ranges[i].size
+                : 0;
+        ranges[i].start = thread->rand.Uniform(max_start + 1);
+      }
+
+      // Sort by start key
+      std::sort(ranges.begin(), ranges.end(),
+                [](const RangeSpec& a, const RangeSpec& b) {
+                  return a.start < b.start;
+                });
+
+      // Remove overlaps: trim or skip ranges that overlap with the previous
+      std::vector<RangeSpec> non_overlapping;
+      non_overlapping.reserve(batch_size);
+      for (auto& r : ranges) {
+        if (non_overlapping.empty()) {
+          non_overlapping.push_back(r);
+        } else {
+          uint64_t prev_end =
+              non_overlapping.back().start + non_overlapping.back().size;
+          if (r.start >= prev_end) {
+            non_overlapping.push_back(r);
+          } else if (r.start + r.size > prev_end) {
+            uint64_t new_start = prev_end;
+            uint64_t new_size = r.start + r.size - new_start;
+            non_overlapping.push_back({new_start, new_size});
+          }
+          // else: fully contained, skip
+        }
+      }
+
+      if (non_overlapping.empty()) {
+        continue;
+      }
+
+      int64_t keys = 0;
+      std::vector<std::unique_ptr<const char[]>> guards;
+
+      if (FLAGS_use_multiscan) {
+        // MultiScan path
+        MultiScanArgs opts(open_options_.comparator);
+        opts.io_coalesce_threshold = FLAGS_multiscan_coalesce_threshold;
+        opts.use_async_io = FLAGS_multiscan_use_async_io;
+        opts.max_prefetch_size = FLAGS_multiscan_max_prefetch_size;
+        if (io_dispatcher) {
+          opts.io_dispatcher = io_dispatcher;
+        }
+        opts.reserve(non_overlapping.size());
+
+        for (auto& r : non_overlapping) {
+          std::unique_ptr<const char[]> skey_guard;
+          Slice skey = AllocateKey(&skey_guard);
+          guards.push_back(std::move(skey_guard));
+          std::unique_ptr<const char[]> ekey_guard;
+          Slice ekey = AllocateKey(&ekey_guard);
+          guards.push_back(std::move(ekey_guard));
+
+          GenerateKeyFromInt(r.start, FLAGS_num, &skey);
+          GenerateKeyFromInt(r.start + r.size, FLAGS_num, &ekey);
+          opts.insert(skey, ekey);
+        }
+
+        auto iter =
+            db->NewMultiScan(read_options_, db->DefaultColumnFamily(), opts);
+        try {
+          for (auto rng : *iter) {
+            for ([[maybe_unused]] auto it : rng) {
+              keys++;
+            }
+          }
+        } catch (const MultiScanException& e) {
+          fprintf(stderr, "MultiScanException: %s\n", e.what());
+        }
+      } else {
+        // Normal iterator path: Seek + Next for each range
+        std::unique_ptr<const char[]> skey_guard;
+        Slice skey = AllocateKey(&skey_guard);
+        std::unique_ptr<const char[]> ekey_guard;
+        Slice ekey = AllocateKey(&ekey_guard);
+
+        std::unique_ptr<Iterator> iter(
+            db->NewIterator(read_options_, db->DefaultColumnFamily()));
+        for (auto& r : non_overlapping) {
+          GenerateKeyFromInt(r.start, FLAGS_num, &skey);
+          GenerateKeyFromInt(r.start + r.size, FLAGS_num, &ekey);
+          for (iter->Seek(skey); iter->Valid() && iter->key().compare(ekey) < 0;
+               iter->Next()) {
+            keys++;
+          }
+          if (!iter->status().ok()) {
+            fprintf(stderr, "Iterator error: %s\n",
+                    iter->status().ToString().c_str());
+            break;
+          }
+        }
+      }
+      num_keys = std::max<int64_t>(1, keys);
+
+      if (thread->shared->read_rate_limiter.get() != nullptr) {
+        thread->shared->read_rate_limiter->Request(
+            1, Env::IO_HIGH, nullptr /* stats */, RateLimiter::OpType::kRead);
+      }
+
+      thread->stats.FinishedOps(nullptr, db, 1, kMultiScan);
+      multiscans_done += 1;
+    }
+
+    char msg[100];
+    snprintf(msg, sizeof(msg),
+             "(multiscans:%" PRIu64 " max_range_keys:%" PRId64 ")",
+             multiscans_done, max_range_keys);
     thread->stats.AddMessage(msg);
   }
 
@@ -7470,6 +7742,25 @@ class Benchmark {
           iter_to_use->Prev();
         }
         assert(iter_to_use->status().ok());
+      }
+
+      // Delete subsequent keys after the seek+next scan to simulate
+      // workloads that create contiguous point tombstones.
+      if (FLAGS_seek_nexts_to_delete > 0 && iter_to_use->Valid()) {
+        DB* db_to_use =
+            (db_.db != nullptr) ? db_.db : multi_dbs_[db_idx_to_use].db;
+        for (int j = 0; j < FLAGS_seek_nexts_to_delete && iter_to_use->Valid();
+             ++j) {
+          Status s = db_to_use->Delete(WriteOptions(), iter_to_use->key());
+          if (!s.ok()) {
+            fprintf(stderr, "Delete failed: %s\n", s.ToString().c_str());
+          }
+          if (!FLAGS_reverse_iterator) {
+            iter_to_use->Next();
+          } else {
+            iter_to_use->Prev();
+          }
+        }
       }
 
       if (thread->shared->read_rate_limiter.get() != nullptr &&
@@ -9202,6 +9493,7 @@ int db_bench_tool(int argc, char** argv, ToolHooks& hooks) {
     SetVersionString(GetRocksVersionAsString(true));
     initialized = true;
   }
+  RegisterDbBenchBdwFlagValidators();
   ParseCommandLineFlags(&argc, &argv, true);
   FLAGS_compaction_style_e =
       (ROCKSDB_NAMESPACE::CompactionStyle)FLAGS_compaction_style;

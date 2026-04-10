@@ -157,6 +157,8 @@ enum class CompactionReason : int {
   // [InternalOnly] DBImpl::ReFitLevel treated as a compaction,
   // Used only for internal conflict checking with other compactions
   kRefitLevel,
+  // Compaction triggered by high read frequency on SST files
+  kReadTriggered,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
 };
@@ -554,6 +556,34 @@ struct IOErrorInfo {
   uint64_t offset;
 };
 
+// EXPERIMENTAL — under active development, fields may change.
+// Point-in-time snapshot of background job pressure for one DB: how busy
+// compaction and flush are, and how close the DB is to write-stalling.
+struct BackgroundJobPressure {
+  // Compaction scheduling (LOW + BOTTOM priority combined)
+  int compaction_scheduled = 0;
+  int compaction_running = 0;
+
+  // Per-priority compaction breakdown
+  int compaction_low_scheduled = 0;
+  int compaction_low_running = 0;
+  int compaction_bottom_scheduled = 0;
+  int compaction_bottom_running = 0;
+
+  // Flush scheduling
+  int flush_scheduled = 0;
+  int flush_running = 0;
+
+  // How close the DB is to a write stall, as a percentage (0 = healthy,
+  // 100 = at stall threshold). Can exceed 100 when already stalling.
+  // Max across all column families based on write-stall triggers.
+  int write_stall_proximity_pct = 0;
+  // Whether RocksDB has activated compaction speedup due to write pressure
+  bool compaction_speedup_active = false;
+
+  bool operator==(const BackgroundJobPressure&) const = default;
+};
+
 // EventListener class contains a set of callback functions that will
 // be called when specific RocksDB event happens such as flush.  It can
 // be used as a building block for developing custom features such as
@@ -869,6 +899,17 @@ class EventListener : public Customizable {
   // A callback function for RocksDB which will be called whenever an IO error
   // happens. ShouldBeNotifiedOnFileIO should be set to true to get a callback.
   virtual void OnIOError(const IOErrorInfo& /*info*/) {}
+
+  // EXPERIMENTAL
+  // Called after a flush or compaction background job completes, providing a
+  // snapshot of current background job scheduling pressure and write-stall
+  // proximity. Fires on the background thread that completed the job, without
+  // holding db_mutex_. This callback fires on every completion, even if
+  // pressure values have not changed from the previous call.
+  // Implementations should not run for an extended period of time before
+  // returning, as this blocks RocksDB background work.
+  virtual void OnBackgroundJobPressureChanged(
+      DB* /*db*/, const BackgroundJobPressure& /*pressure*/) {}
 
   ~EventListener() override {}
 };

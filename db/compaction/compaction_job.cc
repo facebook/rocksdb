@@ -104,6 +104,8 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "RoundRobinTtl";
     case CompactionReason::kRefitLevel:
       return "RefitLevel";
+    case CompactionReason::kReadTriggered:
+      return "ReadTriggered";
     case CompactionReason::kNumOfReasons:
       // fall through
     default:
@@ -1116,6 +1118,9 @@ Status CompactionJob::Run() {
     status = VerifyOutputFiles();
   }
 
+  TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():AfterVerifyOutputFiles",
+                           &status);
+
   if (status.ok()) {
     SetOutputTableProperties();
   }
@@ -1300,6 +1305,16 @@ Status CompactionJob::Install(bool* compaction_released) {
            << pl_stats.num_output_files_blob;
     stream << "proximal_level_bytes_written_blob"
            << pl_stats.bytes_written_blob;
+  }
+
+  // Propagate Install failure to compact_->status so that
+  // CleanupCompaction() -> SubcompactionState::Cleanup() sees the failure and
+  // calls ReleaseObsolete on output files' table cache entries. Without this,
+  // if Run() succeeds but InstallCompactionResults() fails, Cleanup would see
+  // overall_status = OK and skip ReleaseObsolete, leaking entries for output
+  // files that were never installed into any Version.
+  if (!status.ok() && compact_->status.ok()) {
+    compact_->status = status;
   }
 
   CleanupCompaction();
@@ -2350,11 +2365,16 @@ Status CompactionJob::InstallCompactionResults(bool* compaction_released) {
     *compaction_released = true;
   };
 
-  return versions_->LogAndApply(compaction->column_family_data(), read_options,
-                                write_options, edit, db_mutex_, db_directory_,
-                                /*new_descriptor_log=*/false,
-                                /*column_family_options=*/nullptr,
-                                manifest_wcb);
+  Status s;
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionJob::InstallCompactionResults:BeforeLogAndApply", &s);
+  if (s.ok()) {
+    s = versions_->LogAndApply(compaction->column_family_data(), read_options,
+                               write_options, edit, db_mutex_, db_directory_,
+                               /*new_descriptor_log=*/false,
+                               /*column_family_options=*/nullptr, manifest_wcb);
+  }
+  return s;
 }
 
 void CompactionJob::RecordCompactionIOStats() {
@@ -2544,7 +2564,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
 
 void CompactionJob::CleanupCompaction() {
   for (SubcompactionState& sub_compact : compact_->sub_compact_states) {
-    sub_compact.Cleanup(table_cache_.get());
+    sub_compact.Cleanup(table_cache_.get(), compact_->status);
   }
   delete compact_;
   compact_ = nullptr;

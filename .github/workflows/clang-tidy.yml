@@ -11,7 +11,7 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: ghcr.io/facebook/rocksdb_ubuntu:24.0
+      image: ghcr.io/facebook/rocksdb_ubuntu:24.1
     steps:
     - uses: actions/checkout@v4.1.0
       with:
@@ -36,14 +36,14 @@ jobs:
         echo "skip=false" >> "$GITHUB_OUTPUT"
     - name: Install clang-tidy
       if: steps.diff-base.outputs.skip != 'true'
-      run: apt-get update && apt-get install -y clang-tidy
+      run: apt-get update && apt-get install -y clang-tidy-21 && ln -sf /usr/bin/clang-tidy-21 /usr/local/bin/clang-tidy
     - name: Generate compile_commands.json
       if: steps.diff-base.outputs.skip != 'true'
       run: |
         mkdir build && cd build
         cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-              -DCMAKE_C_COMPILER=clang-18 \
-              -DCMAKE_CXX_COMPILER=clang++-18 ..
+              -DCMAKE_C_COMPILER=clang-21 \
+              -DCMAKE_CXX_COMPILER=clang++-21 ..
         cd ..
         ln -sf build/compile_commands.json compile_commands.json
     - name: Run clang-tidy on changed files

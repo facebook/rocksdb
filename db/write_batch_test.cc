@@ -8,10 +8,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <memory>
+#include <unordered_map>
 
+#include "db/blob/blob_index.h"
 #include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "db/memtable.h"
+#include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
 #include "dbformat.h"
@@ -391,6 +394,68 @@ struct TestHandler : public WriteBatch::Handler {
     return Status::OK();
   }
 };
+
+struct ReplayUntilCountHandler : public WriteBatch::Handler {
+  explicit ReplayUntilCountHandler(uint32_t max_write_ops)
+      : max_write_ops_(max_write_ops) {}
+
+  bool Continue() override { return num_write_ops_ < max_write_ops_; }
+
+  Status PutCF(uint32_t column_family_id, const Slice& key,
+               const Slice& value) override {
+    if (buffered_writes_) {
+      return WriteBatchInternal::Put(buffered_writes_.get(), column_family_id,
+                                     key, value);
+    }
+    seen += "Put(" + key.ToString() + ", " + value.ToString() + ")";
+    ++num_write_ops_;
+    return Status::OK();
+  }
+
+  Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
+    if (buffered_writes_) {
+      return WriteBatchInternal::Delete(buffered_writes_.get(),
+                                        column_family_id, key);
+    }
+    seen += "Delete(" + key.ToString() + ")";
+    ++num_write_ops_;
+    return Status::OK();
+  }
+
+  Status MarkBeginPrepare(bool /* unprepare */) override {
+    assert(!buffered_writes_);
+    buffered_writes_ = std::make_unique<WriteBatch>();
+    return Status::OK();
+  }
+
+  Status MarkEndPrepare(const Slice& xid) override {
+    assert(buffered_writes_);
+    prepared_writes_[xid.ToString()] = std::move(buffered_writes_);
+    return Status::OK();
+  }
+
+  Status MarkNoop(bool /* empty_batch */) override { return Status::OK(); }
+
+  Status MarkCommit(const Slice& xid) override {
+    auto it = prepared_writes_.find(xid.ToString());
+    if (it == prepared_writes_.end() || !it->second) {
+      return Status::Corruption("Missing prepared batch for commit");
+    }
+    Status s = it->second->Iterate(this);
+    prepared_writes_.erase(it);
+    return s;
+  }
+
+  uint32_t NumWriteOps() const { return num_write_ops_; }
+
+  std::string seen;
+
+ private:
+  const uint32_t max_write_ops_;
+  uint32_t num_write_ops_ = 0;
+  std::unordered_map<std::string, std::unique_ptr<WriteBatch>> prepared_writes_;
+  std::unique_ptr<WriteBatch> buffered_writes_;
+};
 }  // anonymous namespace
 
 TEST_F(WriteBatchTest, PutNotImplemented) {
@@ -518,6 +583,39 @@ TEST_F(WriteBatchTest, PrepareCommit) {
       "MarkCommit(xid1)"
       "MarkRollback(xid1)",
       handler.seen);
+}
+
+// Expected-state restore can target a sequence number in the middle of a traced
+// multi-op write batch. Verify `Continue()` stops iteration cleanly there.
+TEST_F(WriteBatchTest, ContinueStopsMidBatch) {
+  WriteBatch batch;
+  ASSERT_OK(batch.Put(Slice("k1"), Slice("v1")));
+  ASSERT_OK(batch.Delete(Slice("k2")));
+  ASSERT_OK(batch.Put(Slice("k3"), Slice("v3")));
+
+  ReplayUntilCountHandler handler(/* max_write_ops */ 2);
+  ASSERT_OK(batch.Iterate(&handler));
+  ASSERT_EQ(2u, handler.NumWriteOps());
+  ASSERT_EQ("Put(k1, v1)Delete(k2)", handler.seen);
+}
+
+// Regression test for restore replay stopping inside a committed prepared
+// batch. The handler buffers prepare contents and replays them on commit,
+// matching the expected-state restore logic.
+TEST_F(WriteBatchTest, ContinueStopsMidPreparedCommitReplay) {
+  WriteBatch batch;
+  ASSERT_OK(WriteBatchInternal::InsertNoop(&batch));
+  ASSERT_OK(batch.Put(Slice("k1"), Slice("v1")));
+  ASSERT_OK(batch.Put(Slice("k2"), Slice("v2")));
+  batch.SetSavePoint();
+  ASSERT_OK(WriteBatchInternal::MarkEndPrepare(&batch, Slice("xid1")));
+  ASSERT_EQ(Status::NotFound(), batch.RollbackToSavePoint());
+  ASSERT_OK(WriteBatchInternal::MarkCommit(&batch, Slice("xid1")));
+
+  ReplayUntilCountHandler handler(/* max_write_ops */ 1);
+  ASSERT_OK(batch.Iterate(&handler));
+  ASSERT_EQ(1u, handler.NumWriteOps());
+  ASSERT_EQ("Put(k1, v1)", handler.seen);
 }
 
 // It requires more than 30GB of memory to run the test. With single memory
@@ -851,6 +949,43 @@ TEST_F(WriteBatchTest, AttributeGroupSavePointTest) {
       "PutEntity(foo, 0_c_1_n:0_c_1_v 0_c_2_n:0_c_2_v)"
       "PutEntityCF(2, foo, 2_c_1_n:2_c_1_v 2_c_2_n:2_c_2_v)",
       handler.seen);
+}
+
+TEST_F(WriteBatchTest, IterateCanRebuildSerializedV2Entity) {
+  WriteBatch batch;
+
+  BlobIndex blob_index;
+  std::string encoded_blob_index;
+  BlobIndex::EncodeBlob(&encoded_blob_index, 9 /* file_number */,
+                        123 /* offset */, 456 /* size */, kNoCompression);
+  ASSERT_OK(blob_index.DecodeFrom(encoded_blob_index));
+
+  const std::vector<std::pair<std::string, std::string>> columns = {
+      {"", "default_inline"},
+      {"ttl", "00000001"},
+  };
+  std::string serialized_entity;
+  ASSERT_OK(WideColumnSerialization::SerializeV2(columns, {{0, blob_index}},
+                                                 serialized_entity));
+  ASSERT_OK(WriteBatchInternal::PutEntitySerialized(&batch, 7 /* cf_id */,
+                                                    "key", serialized_entity));
+
+  struct RebuildHandler : public WriteBatch::Handler {
+    WriteBatch rebuilt;
+
+    Status PutCF(uint32_t cf, const Slice& key, const Slice& value) override {
+      return WriteBatchInternal::Put(&rebuilt, cf, key, value);
+    }
+
+    Status PutEntityCF(uint32_t cf, const Slice& key,
+                       const Slice& entity) override {
+      return WriteBatchInternal::PutEntitySerialized(&rebuilt, cf, key, entity);
+    }
+  } handler;
+
+  ASSERT_OK(batch.Iterate(&handler));
+  ASSERT_EQ(handler.rebuilt.Count(), batch.Count());
+  ASSERT_EQ(handler.rebuilt.Data(), batch.Data());
 }
 
 TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
