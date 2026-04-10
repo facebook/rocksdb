@@ -890,9 +890,14 @@ TEST_F(MergeTest, FullMergeV3FallbackFailure) {
   }
 }
 
-// The test requires more than 8GB memory to run it. Not all platforms can run
-// it, so disable it.
-TEST_F(MergeTest, DISABLED_LargeMergeResultRejected) {
+// Uses anonymous mmap (lazy-zeroed) so the large operands don't consume
+// physical memory -- only the merge result does (~4GB peak).
+TEST_F(MergeTest, LargeMergeResultRejected) {
+  if (!test::HasBigMem()) {
+    ROCKSDB_GTEST_BYPASS("insufficient memory for reliable continuous testing");
+    return;
+  }
+
   // A merge operator that produces a result > 4GB by concatenating operands
   class ConcatOperator : public MergeOperator {
    public:
@@ -914,9 +919,11 @@ TEST_F(MergeTest, DISABLED_LargeMergeResultRejected) {
   // Use TimedFullMerge directly - two operands that sum to > 4GB
   constexpr size_t kHalfSize =
       (size_t{std::numeric_limits<uint32_t>::max()} + 1) / 2;
-  std::string op1(kHalfSize, 'A');
-  std::string op2(kHalfSize, 'B');
-  std::vector<Slice> operands{op1, op2};
+  MemMapping mm1 = MemMapping::AllocateLazyZeroed(kHalfSize);
+  ASSERT_NE(nullptr, mm1.Get());
+  MemMapping mm2 = MemMapping::AllocateLazyZeroed(kHalfSize);
+  ASSERT_NE(nullptr, mm2.Get());
+  std::vector<Slice> operands{mm1.AsSlice(), mm2.AsSlice()};
   std::string result;
   Slice result_operand;
   ValueType result_type;
@@ -932,8 +939,7 @@ TEST_F(MergeTest, DISABLED_LargeMergeResultRejected) {
   // Control: just under 4GB should be accepted
   result.clear();
   result.shrink_to_fit();
-  op2.resize(kHalfSize - 1);
-  operands = {op1, op2};
+  operands = {mm1.AsSlice(), Slice(mm2.AsSlice().data(), kHalfSize - 1)};
   s = MergeHelper::TimedFullMerge(&concat_op, "key", MergeHelper::kNoBaseValue,
                                   operands, nullptr, nullptr,
                                   SystemClock::Default().get(), false, nullptr,

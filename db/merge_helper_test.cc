@@ -289,9 +289,14 @@ TEST_F(MergeHelperTest, DontFilterMergeOperandsBeforeSnapshotTest) {
   ASSERT_FALSE(merge_output_iter.Valid());
 }
 
-// The test requires more than 8GB memory to run it. Not all platforms can run
-// it, so disable it.
-TEST_F(MergeHelperTest, DISABLED_LargePartialMergeResultRejected) {
+// Requires ~8GB+ RAM due to large std::string operands that are copied into
+// the MergeHelper's internal iterator.
+TEST_F(MergeHelperTest, LargePartialMergeResultRejected) {
+  if (!test::HasBigMem()) {
+    ROCKSDB_GTEST_BYPASS("insufficient memory for reliable continuous testing");
+    return;
+  }
+
   // A merge operator whose PartialMergeMulti concatenates operands
   class ConcatMergeOp : public MergeOperator {
    public:

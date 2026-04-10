@@ -3272,48 +3272,54 @@ INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
                                         std::make_tuple(false, true),
                                         std::make_tuple(false, false)));
 
-// The test requires more than 8GB memory to run it. Not all platforms can run
-// it, so disable it.
-TEST_F(ExternalSSTFileBasicTest, DISABLED_LargeKeySstFileWriter) {
-  // Key size limit: internal key (user key + 8 bytes) must fit in uint32_t.
+// Uses anonymous mmap (lazy-zeroed) so the large data itself doesn't consume
+// physical memory -- only the SstFileWriter's internal copy does (~4GB peak
+// during the acceptance case).
+TEST_F(ExternalSSTFileBasicTest, LargeSizeSstFileWriter) {
+  if (!test::HasBigMem()) {
+    ROCKSDB_GTEST_BYPASS("insufficient memory for reliable continuous testing");
+    return;
+  }
+
   constexpr size_t kMaxKeySize =
       size_t{std::numeric_limits<uint32_t>::max()} - 8;
-
-  Options options = CurrentOptions();
-  SstFileWriter sst_file_writer(EnvOptions(), options);
-  std::string sst_file = dbname_ + "/too_large_key.sst";
-  ASSERT_OK(sst_file_writer.Open(sst_file));
-
-  // A key one byte over the limit should be rejected
-  std::string large_key(kMaxKeySize + 1, 'K');
-  ASSERT_TRUE(sst_file_writer.Put(large_key, "val").IsInvalidArgument());
-
-  // A key at the limit should be accepted
-  large_key.resize(kMaxKeySize);
-  ASSERT_OK(sst_file_writer.Put(large_key, "val"));
-
-  ASSERT_OK(sst_file_writer.Finish());
-}
-
-// The test requires more than 8GB memory to run it. Not all platforms can run
-// it, so disable it.
-TEST_F(ExternalSSTFileBasicTest, DISABLED_LargeValueSstFileWriter) {
   constexpr size_t kMaxValueSize = size_t{std::numeric_limits<uint32_t>::max()};
 
-  Options options = CurrentOptions();
-  SstFileWriter sst_file_writer(EnvOptions(), options);
-  std::string sst_file = dbname_ + "/too_large_value.sst";
-  ASSERT_OK(sst_file_writer.Open(sst_file));
+  // --- Large key ---
+  {
+    Options options = CurrentOptions();
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    ASSERT_OK(sst_file_writer.Open(dbname_ + "/large_key.sst"));
 
-  // A value one byte over the limit should be rejected
-  std::string large_value(kMaxValueSize + 1, 'V');
-  ASSERT_TRUE(sst_file_writer.Put("key", large_value).IsInvalidArgument());
+    MemMapping mm = MemMapping::AllocateLazyZeroed(kMaxKeySize + 1);
+    ASSERT_NE(nullptr, mm.Get());
 
-  // A value at the limit should be accepted
-  large_value.resize(kMaxValueSize);
-  ASSERT_OK(sst_file_writer.Put("key", large_value));
+    // A key one byte over the limit should be rejected
+    ASSERT_TRUE(sst_file_writer.Put(mm.AsSlice(), "val").IsInvalidArgument());
 
-  ASSERT_OK(sst_file_writer.Finish());
+    // A key at the limit should be accepted
+    ASSERT_OK(
+        sst_file_writer.Put(Slice(mm.AsSlice().data(), kMaxKeySize), "val"));
+    ASSERT_OK(sst_file_writer.Finish());
+  }
+
+  // --- Large value ---
+  {
+    Options options = CurrentOptions();
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    ASSERT_OK(sst_file_writer.Open(dbname_ + "/large_value.sst"));
+
+    MemMapping mm = MemMapping::AllocateLazyZeroed(kMaxValueSize + 1);
+    ASSERT_NE(nullptr, mm.Get());
+
+    // A value one byte over the limit should be rejected
+    ASSERT_TRUE(sst_file_writer.Put("key", mm.AsSlice()).IsInvalidArgument());
+
+    // A value at the limit should be accepted
+    ASSERT_OK(
+        sst_file_writer.Put("key", Slice(mm.AsSlice().data(), kMaxValueSize)));
+    ASSERT_OK(sst_file_writer.Finish());
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

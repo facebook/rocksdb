@@ -12121,9 +12121,14 @@ TEST_F(DBCompactionTest, VerifyAllOutputFlagsWithoutParanoidFileChecks) {
   }
 }
 
-// The test requires more than 8GB memory to run it. Not all platforms can run
-// it, so disable it.
-TEST_F(DBCompactionTest, DISABLED_CompactionFilterLargeValueRejected) {
+// Requires ~8GB+ RAM because the compaction filter internally creates a ~4GB
+// value via std::string::assign().
+TEST_F(DBCompactionTest, CompactionFilterLargeValueRejected) {
+  if (!test::HasBigMem()) {
+    ROCKSDB_GTEST_BYPASS("insufficient memory for reliable continuous testing");
+    return;
+  }
+
   // A compaction filter that inflates every value to a configurable size
   class InflatingFilter : public CompactionFilter {
    public:
