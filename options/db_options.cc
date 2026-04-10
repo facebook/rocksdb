@@ -615,6 +615,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, wal_write_temperature),
           OptionType::kTemperature, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"fast_sst_open",
+         {offsetof(struct ImmutableDBOptions, fast_sst_open),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
 };
 
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
@@ -821,7 +825,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       metadata_write_temperature(options.metadata_write_temperature),
       wal_write_temperature(options.wal_write_temperature),
       calculate_sst_write_lifetime_hint_set(
-          options.calculate_sst_write_lifetime_hint_set) {
+          options.calculate_sst_write_lifetime_hint_set),
+      fast_sst_open(options.fast_sst_open) {
   fs = env->GetFileSystem();
   clock = env->GetSystemClock().get();
   logger = info_log.get();
@@ -1006,6 +1011,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    temperature_to_string[metadata_write_temperature].c_str());
   ROCKS_LOG_HEADER(log, "            Options.wal_write_temperature: %s",
                    temperature_to_string[wal_write_temperature].c_str());
+  ROCKS_LOG_HEADER(log, "                      Options.fast_sst_open: %d",
+                   fast_sst_open);
 }
 
 bool ImmutableDBOptions::IsWalDirSameAsDBPath() const {

@@ -1781,6 +1781,11 @@ struct DBOptions {
   // Default: Enabled in kCompactionStyleLevel mode.
   CompactionStyleSet calculate_sst_write_lifetime_hint_set = {
       CompactionStyle::kCompactionStyleLevel};
+
+  // When true, save file system metadata (if supported by the FS) for SST
+  // files added to the DB in the MANIFEST, and use it to accelerate
+  // reopening those files later.
+  bool fast_sst_open = false;
   // End EXPERIMENTAL
 };
 

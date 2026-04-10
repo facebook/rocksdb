@@ -168,6 +168,8 @@ struct IngestedFileInfo : public KeyRangeInfo {
   std::string file_checksum;
   // The name of checksum function that generate the checksum
   std::string file_checksum_func_name;
+  // Opaque filesystem metadata that can accelerate future opens.
+  std::string file_open_metadata;
   // The temperature of the file to be ingested
   Temperature file_temperature = Temperature::kUnknown;
   // Unique id of the file to be ingested

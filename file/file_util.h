@@ -86,6 +86,10 @@ IOStatus GenerateOneFileChecksum(
     const ReadOptions& read_options, Statistics* stats, SystemClock* clock,
     const FileOptions& file_options);
 
+IOStatus MaybeGetFileOpenMetadata(FileSystem* fs, const std::string& file_path,
+                                  const FileOptions& file_options,
+                                  std::string* file_open_metadata);
+
 inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro,
                                          SystemClock* clock, IOOptions& opts,
                                          IODebugContext* dbg = nullptr) {

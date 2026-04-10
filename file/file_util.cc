@@ -285,6 +285,27 @@ IOStatus GenerateOneFileChecksum(
   return IOStatus::OK();
 }
 
+IOStatus MaybeGetFileOpenMetadata(FileSystem* fs, const std::string& file_path,
+                                  const FileOptions& file_options,
+                                  std::string* file_open_metadata) {
+  assert(file_open_metadata != nullptr);
+  file_open_metadata->clear();
+
+  std::unique_ptr<FSRandomAccessFile> file;
+  FileOptions fopts = file_options;
+  fopts.file_metadata = nullptr;
+  IOStatus io_s = fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+  io_s = file->GetFileOpenMetadata(file_open_metadata);
+  if (io_s.IsNotSupported()) {
+    file_open_metadata->clear();
+    return IOStatus::OK();
+  }
+  return io_s;
+}
+
 Status DestroyDir(Env* env, const std::string& dir) {
   Status s;
   if (env->FileExists(dir).IsNotFound()) {

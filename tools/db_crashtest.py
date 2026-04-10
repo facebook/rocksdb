@@ -198,6 +198,7 @@ default_params = {
     "nooverwritepercent": 1,
     "open_files": lambda: random.choice([-1, -1, 100, 500000]),
     "open_files_async": lambda: random.choice([0, 1]),
+    "fast_sst_open": lambda: random.choice([0, 1]),
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
     "partition_filters": lambda: random.randint(0, 1),
     "partition_pinning": lambda: random.randint(0, 3),
@@ -273,6 +274,7 @@ default_params = {
     "use_multi_get_entity": lambda: random.choice([0] * 7 + [1]),
     "periodic_compaction_seconds": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
     "max_compaction_trigger_wakeup_seconds": lambda: random.choice([43200, 600, 30]),
+    "fast_sst_open": lambda: random.choice([0, 1]),
     "read_triggered_compaction_threshold": lambda: random.choice([0.0, 0.001, 0.01]),
     "daily_offpeak_time_utc": lambda: random.choice(
         ["", "", "00:00-23:59", "04:00-08:00", "23:30-03:15"]

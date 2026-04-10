@@ -258,6 +258,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     meta.file_checksum_func_name = file.file_checksum_func_name;
     meta.marked_for_compaction = file.marked_for_compaction;
     meta.unique_id = file.unique_id;
+    meta.file_open_metadata = file.file_open_metadata;
     meta.temperature = file.file_temperature;
     meta.tail_size =
         FileMetaData::CalculateTailSize(file_size, file.table_properties);
@@ -445,6 +446,7 @@ Status CompactionServiceCompactionJob::Run() {
           meta.file_checksum, meta.file_checksum_func_name,
           output_file.validator.GetHash(), meta.marked_for_compaction,
           meta.unique_id, *output_file.table_properties,
+          meta.file_open_metadata,
           output_file.is_proximal_level, meta.temperature);
     }
   }
@@ -622,6 +624,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
             const auto that_one = static_cast<const TableProperties*>(addr2);
             return this_one->AreEqual(opts, that_one, mismatch);
           }}},
+        {"file_open_metadata",
+         {offsetof(struct CompactionServiceOutputFile, file_open_metadata),
+          OptionType::kEncodedString, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"is_proximal_level_output",
          {offsetof(struct CompactionServiceOutputFile,
                    is_proximal_level_output),

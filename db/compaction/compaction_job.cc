@@ -2133,6 +2133,18 @@ Status CompactionJob::FinishCompactionOutputFile(
     meta = nullptr;
   }
 
+  if (s.ok() && meta != nullptr && db_options_.fast_sst_open) {
+    FileOptions metadata_file_options = file_options_;
+    metadata_file_options.temperature = meta->temperature;
+    metadata_file_options.file_checksum = meta->file_checksum;
+    metadata_file_options.file_checksum_func_name =
+        meta->file_checksum_func_name;
+    IOStatus metadata_io_s = MaybeGetFileOpenMetadata(
+        cfd->ioptions().fs.get(), GetTableFileName(meta->fd.GetNumber()),
+        metadata_file_options, &meta->file_open_metadata);
+    metadata_io_s.PermitUncheckedError();
+  }
+
   if (s.ok() && (current_entries > 0 || tp.num_range_deletions > 0)) {
     // Output to event logger and fire events.
     outputs.UpdateTableProperties();
@@ -2862,6 +2874,11 @@ Status CompactionJob::ReadTablePropertiesDirectly(
   FileOptions fopts = file_options_;
   fopts.file_checksum = file_meta->file_checksum;
   fopts.file_checksum_func_name = file_meta->file_checksum_func_name;
+  std::string file_open_metadata;
+  if (ioptions.fast_sst_open && !file_meta->file_open_metadata.empty()) {
+    file_open_metadata = file_meta->file_open_metadata;
+    fopts.file_metadata = &file_open_metadata;
+  }
   Status s = ioptions.fs->NewRandomAccessFile(file_name, fopts, &file,
                                               nullptr /* dbg */);
   if (!s.ok()) {

@@ -198,8 +198,20 @@ Status ImportColumnFamilyJob::Run() {
         cfd_->GetLatestMutableCFOptions().bottommost_file_compaction_delay,
         cfd_->current()->version_set()->offpeak_time_option());
     for (size_t j = 0; s.ok() && j < files_to_import_[i].size(); ++j) {
-      const auto& f = files_to_import_[i][j];
+      auto& f = files_to_import_[i][j];
       const auto& file_metadata = *metadatas_[i][j];
+
+      if (db_options_.fast_sst_open) {
+        FileOptions metadata_file_options{env_options_};
+        metadata_file_options.temperature = file_metadata.temperature;
+        metadata_file_options.file_checksum = file_metadata.file_checksum;
+        metadata_file_options.file_checksum_func_name =
+            file_metadata.file_checksum_func_name;
+        IOStatus metadata_io_s = MaybeGetFileOpenMetadata(
+            fs_.get(), f.internal_file_path, metadata_file_options,
+            &f.file_open_metadata);
+        metadata_io_s.PermitUncheckedError();
+      }
 
       uint64_t tail_size = FileMetaData::CalculateTailSize(f.fd.GetFileSize(),
                                                            f.table_properties);
@@ -214,7 +226,10 @@ Status ImportColumnFamilyJob::Run() {
           kUnknownFileChecksum, kUnknownFileChecksumFuncName, f.unique_id, 0,
           tail_size,
           static_cast<bool>(
-              f.table_properties.user_defined_timestamps_persisted));
+              f.table_properties.user_defined_timestamps_persisted),
+          "",
+          "",
+          f.file_open_metadata);
       s = dummy_version_builder.Apply(&dummy_version_edit);
     }
     if (s.ok()) {

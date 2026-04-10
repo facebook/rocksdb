@@ -486,6 +486,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "follower_catchup_retry_wait_ms=789;"
       "metadata_write_temperature=kCold;"
       "wal_write_temperature=kHot;"
+      "fast_sst_open=true;"
       "background_close_inactive_wals=true;"
       "write_dbid_to_manifest=true;"
       "write_identity_file=true;"

@@ -22,6 +22,89 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class CloseDBOnExit {
+ public:
+  explicit CloseDBOnExit(DBTestBase* test) : test_(test) {}
+  ~CloseDBOnExit() { test_->Close(); }
+
+ private:
+  DBTestBase* test_;
+};
+
+class MetadataAwareRandomAccessFile : public FSRandomAccessFileWrapper {
+ public:
+  MetadataAwareRandomAccessFile(std::unique_ptr<FSRandomAccessFile> target,
+                                std::string metadata)
+      : FSRandomAccessFileWrapper(target.get()),
+        guard_(std::move(target)),
+        metadata_(std::move(metadata)) {}
+
+  IOStatus GetFileOpenMetadata(std::string* metadata) override {
+    *metadata = metadata_;
+    return IOStatus::OK();
+  }
+
+ private:
+  std::unique_ptr<FSRandomAccessFile> guard_;
+  std::string metadata_;
+};
+
+class FileOpenMetadataCapturingFS : public FileSystemWrapper {
+ public:
+  explicit FileOpenMetadataCapturingFS(const std::shared_ptr<FileSystem>& base)
+      : FileSystemWrapper(base) {}
+
+  static const char* kClassName() { return "FileOpenMetadataCapturingFS"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    if (fname.find(".sst") != std::string::npos) {
+      std::lock_guard<std::mutex> lock(mu_);
+      captured_has_file_metadata_ = opts.file_metadata != nullptr;
+      captured_file_metadata_ =
+          opts.file_metadata != nullptr ? *opts.file_metadata : "";
+      capture_count_++;
+    }
+    IOStatus io_s = target()->NewRandomAccessFile(fname, opts, result, dbg);
+    if (io_s.ok() && fname.find(".sst") != std::string::npos) {
+      *result = std::make_unique<MetadataAwareRandomAccessFile>(
+          std::move(*result), "fast-open-metadata:" + fname);
+    }
+    return io_s;
+  }
+
+  void Reset() {
+    std::lock_guard<std::mutex> lock(mu_);
+    captured_has_file_metadata_ = false;
+    captured_file_metadata_.clear();
+    capture_count_ = 0;
+  }
+
+  bool HasCapturedFileMetadata() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return captured_has_file_metadata_;
+  }
+
+  std::string GetCapturedFileMetadata() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return captured_file_metadata_;
+  }
+
+  int GetCaptureCount() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return capture_count_;
+  }
+
+ private:
+  std::mutex mu_;
+  bool captured_has_file_metadata_ = false;
+  std::string captured_file_metadata_;
+  int capture_count_ = 0;
+};
+
 class ExternalSSTFileBasicTest
     : public DBTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
@@ -262,6 +345,37 @@ TEST_F(ExternalSSTFileBasicTest, Basic) {
   ASSERT_NOK(s) << s.ToString();
 
   DestroyAndRecreateExternalSSTFilesDir();
+}
+
+TEST_F(ExternalSSTFileBasicTest, FastSstOpenAfterExternalIngestion) {
+  auto capturing_fs =
+      std::make_shared<FileOpenMetadataCapturingFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, capturing_fs));
+
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.env = env.get();
+  options.fast_sst_open = true;
+  Reopen(options);
+  CloseDBOnExit close_db(this);
+
+  std::map<std::string, std::string> true_data;
+  ASSERT_OK(GenerateAndAddExternalFile(options, {1, 2, 3}, kTypeValue,
+                                       /*file_id=*/1,
+                                       /*write_global_seqno=*/true,
+                                       /*verify_checksums_before_ingest=*/false,
+                                       &true_data));
+
+  capturing_fs->Reset();
+  Reopen(options);
+
+  ASSERT_EQ(Key(1) + "1", Get(Key(1)));
+  ASSERT_GT(capturing_fs->GetCaptureCount(), 0);
+  ASSERT_TRUE(capturing_fs->HasCapturedFileMetadata());
+  ASSERT_TRUE(capturing_fs->GetCapturedFileMetadata().find(
+                  "fast-open-metadata:") == 0);
+
+  Close();
 }
 
 TEST_F(ExternalSSTFileBasicTest, AlignedBufferedWrite) {

@@ -660,7 +660,8 @@ Status DBImpl::Recover(
                            f->file_checksum, f->file_checksum_func_name,
                            f->unique_id, f->compensated_range_deletion_size,
                            f->tail_size, f->user_defined_timestamps_persisted,
-                           f->min_timestamp, f->max_timestamp);
+                           f->min_timestamp, f->max_timestamp,
+                           f->file_open_metadata);
               ROCKS_LOG_WARN(immutable_db_options_.info_log,
                              "[%s] Moving #%" PRIu64
                              " from from_level-%d to from_level-%d %" PRIu64
@@ -2182,7 +2183,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                   meta.file_creation_time, meta.epoch_number,
                   meta.file_checksum, meta.file_checksum_func_name,
                   meta.unique_id, meta.compensated_range_deletion_size,
-                  meta.tail_size, meta.user_defined_timestamps_persisted);
+                  meta.tail_size, meta.user_defined_timestamps_persisted, "",
+                  "", meta.file_open_metadata);
 
     for (const auto& blob : blob_file_additions) {
       edit->AddBlobFile(blob);

@@ -467,7 +467,9 @@ Status BuildTable(
           MaxFileSizeForL0MetaPin(mutable_cf_options),
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key*/ nullptr,
-          /*allow_unprepared_value*/ false));
+          /*allow_unprepared_value*/ false,
+          /*range_del_read_seqno=*/nullptr, /*range_del_iter=*/nullptr,
+          /*maybe_pin_table_handle=*/false, &meta->file_open_metadata));
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
         OutputValidator file_validator(tboptions.internal_comparator,

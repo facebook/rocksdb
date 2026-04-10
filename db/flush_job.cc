@@ -1122,7 +1122,8 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.file_checksum, meta_.file_checksum_func_name,
                    meta_.unique_id, meta_.compensated_range_deletion_size,
                    meta_.tail_size, meta_.user_defined_timestamps_persisted,
-                   meta_.min_timestamp, meta_.max_timestamp);
+                   meta_.min_timestamp, meta_.max_timestamp,
+                   meta_.file_open_metadata);
     edit_->SetBlobFileAdditions(std::move(blob_file_additions));
 
     for (auto& addition : external_blob_file_additions_) {

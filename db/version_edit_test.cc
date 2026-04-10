@@ -130,6 +130,27 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   ASSERT_FALSE(parsed.GetPersistUserDefinedTimestamps());
 }
 
+TEST_F(VersionEditTest, EncodeDecodeFileOpenMetadata) {
+  FileMetaData file;
+  file.fd = FileDescriptor(300, 0, 100, 500, 600);
+  file.smallest = InternalKey("foo", 500, kTypeValue);
+  file.largest = InternalKey("zoo", 600, kTypeDeletion);
+  file.epoch_number = 300;
+  file.file_open_metadata = "opaque-open-metadata";
+
+  VersionEdit edit;
+  edit.AddFile(3, file);
+
+  std::string encoded;
+  ASSERT_TRUE(edit.EncodeTo(&encoded, 0 /* ts_sz */));
+
+  VersionEdit parsed;
+  ASSERT_OK(parsed.DecodeFrom(encoded));
+  ASSERT_EQ(parsed.GetNewFiles().size(), 1U);
+  ASSERT_EQ(parsed.GetNewFiles()[0].second.file_open_metadata,
+            file.file_open_metadata);
+}
+
 TEST_F(VersionEditTest, EncodeDecodeNewFile4HandleFileBoundary) {
   static const uint64_t kBig = 1ull << 50;
   size_t ts_sz = 16;
@@ -815,6 +836,7 @@ class SubcompactionProgressTest : public VersionEditTest {
     file.epoch_number = kTestEpochNumber;
     file.file_checksum = "checksum_" + std::to_string(file_number);
     file.file_checksum_func_name = kTestChecksumFuncName;
+    file.file_open_metadata = "open_metadata_" + std::to_string(file_number);
     file.marked_for_compaction = false;
     file.temperature = Temperature::kUnknown;
     return file;
@@ -883,6 +905,7 @@ class SubcompactionProgressTest : public VersionEditTest {
     ASSERT_EQ(actual.epoch_number, expected.epoch_number);
     ASSERT_EQ(actual.file_checksum, expected.file_checksum);
     ASSERT_EQ(actual.file_checksum_func_name, expected.file_checksum_func_name);
+    ASSERT_EQ(actual.file_open_metadata, expected.file_open_metadata);
     ASSERT_EQ(actual.marked_for_compaction, expected.marked_for_compaction);
     ASSERT_EQ(actual.temperature, expected.temperature);
   }

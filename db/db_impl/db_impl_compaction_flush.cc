@@ -1587,7 +1587,8 @@ Status DBImpl::PerformTrivialMove(Compaction& c, LogBuffer* log_buffer,
                         f->file_checksum, f->file_checksum_func_name,
                         f->unique_id, f->compensated_range_deletion_size,
                         f->tail_size, f->user_defined_timestamps_persisted,
-                        f->min_timestamp, f->max_timestamp);
+                        f->min_timestamp, f->max_timestamp,
+                        f->file_open_metadata);
       moved_bytes += static_cast<size_t>(c.input(l, i)->fd.GetFileSize());
       ROCKS_LOG_BUFFER(
           log_buffer, "[%s] Moved #%" PRIu64 " to level-%d %" PRIu64 " bytes\n",
@@ -2120,7 +2121,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
           f->file_checksum, f->file_checksum_func_name, f->unique_id,
           f->compensated_range_deletion_size, f->tail_size,
           f->user_defined_timestamps_persisted, f->min_timestamp,
-          f->max_timestamp);
+          f->max_timestamp, f->file_open_metadata);
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
@@ -4431,6 +4432,17 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           in_file->user_defined_timestamps_persisted,
           in_file->min_timestamp,
           in_file->max_timestamp};
+
+      if (immutable_db_options_.fast_sst_open) {
+        FileOptions metadata_file_options = copied_file_options;
+        metadata_file_options.file_checksum = out_file_metadata.file_checksum;
+        metadata_file_options.file_checksum_func_name =
+            out_file_metadata.file_checksum_func_name;
+        IOStatus metadata_io_s = MaybeGetFileOpenMetadata(
+            immutable_db_options_.fs.get(), out_fname, metadata_file_options,
+            &out_file_metadata.file_open_metadata);
+        metadata_io_s.PermitUncheckedError();
+      }
 
       out_files.push_back(std::move(out_file_metadata));
     }

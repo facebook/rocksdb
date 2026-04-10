@@ -636,7 +636,9 @@ class DBImpl : public DB {
   Status VerifyFullFileChecksum(const std::string& file_checksum_expected,
                                 const std::string& func_name_expected,
                                 const std::string& fpath,
-                                const ReadOptions& read_options);
+                                const ReadOptions& read_options,
+                                const std::string* file_open_metadata =
+                                    nullptr);
 
   using DB::StartTrace;
   Status StartTrace(const TraceOptions& options,
