@@ -11,10 +11,26 @@
 
 #include "db/dbformat.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace trie_index {
+
+int RegisterBuiltinTrieIndexFactory(ObjectLibrary& library,
+                                    const std::string& /*arg*/) {
+  library.AddFactory<UserDefinedIndexFactory>(
+      TrieIndexFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<UserDefinedIndexFactory>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new TrieIndexFactory());
+        return guard->get();
+      });
+  size_t num_types;
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
+
 // ============================================================================
 // TrieIndexBuilder
 // ============================================================================

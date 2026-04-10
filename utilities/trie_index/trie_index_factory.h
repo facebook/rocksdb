@@ -39,7 +39,13 @@
 #include "utilities/trie_index/louds_trie.h"
 
 namespace ROCKSDB_NAMESPACE {
+class ObjectLibrary;
+
 namespace trie_index {
+
+// Registers the built-in trie UDI in the supplied object library.
+int RegisterBuiltinTrieIndexFactory(ObjectLibrary& library,
+                                    const std::string& arg);
 
 // ============================================================================
 // TrieIndexBuilder: Implements UserDefinedIndexBuilder using LoudsTrieBuilder.

@@ -40,26 +40,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
-// Register built-in UDIs at lookup time instead of relying on translation-unit
-// static initialization in optional utility code.
-int RegisterBuiltinUserDefinedIndexFactories(ObjectLibrary& library,
-                                             const std::string& /*arg*/) {
-  library.AddFactory<UserDefinedIndexFactory>(
-      trie_index::TrieIndexFactory::kClassName(),
-      [](const std::string& /*uri*/,
-         std::unique_ptr<UserDefinedIndexFactory>* guard,
-         std::string* /*errmsg*/) {
-        guard->reset(new trie_index::TrieIndexFactory());
-        return guard->get();
-      });
-  size_t num_types;
-  return static_cast<int>(library.GetFactoryCount(&num_types));
-}
-
-}  // namespace
-
 void TailPrefetchStats::RecordEffectiveSize(size_t len) {
   MutexLock l(&mutex_);
   if (num_records_ < kNumTracked) {
@@ -1151,8 +1131,8 @@ Status UserDefinedIndexFactory::CreateFromString(
     std::shared_ptr<UserDefinedIndexFactory>* factory) {
   static std::once_flag once;
   std::call_once(once, [&]() {
-    RegisterBuiltinUserDefinedIndexFactories(*(ObjectLibrary::Default().get()),
-                                             "");
+    trie_index::RegisterBuiltinTrieIndexFactory(
+        *(ObjectLibrary::Default().get()), "");
   });
   return LoadSharedObject<UserDefinedIndexFactory>(config_options, value,
                                                    factory);
