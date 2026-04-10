@@ -169,30 +169,6 @@ struct BatchContentClassifier : public WriteBatch::Handler {
 
 }  // anonymous namespace
 
-struct AttachedColumnFamily {
-  // Mirrors ColumnFamilyHandleImpl's lifetime contract: the originating DB
-  // must outlive any batch that still holds BDW attachments.
-  explicit AttachedColumnFamily(ColumnFamilyHandleImpl* handle)
-      : cfd(handle != nullptr ? handle->cfd() : nullptr),
-        db(handle != nullptr ? handle->db() : nullptr),
-        mutex(handle != nullptr ? handle->mutex() : nullptr) {
-    assert(cfd != nullptr);
-    assert(db != nullptr);
-    assert(mutex != nullptr);
-    cfd->Ref();
-  }
-  AttachedColumnFamily(const AttachedColumnFamily&) = delete;
-  AttachedColumnFamily& operator=(const AttachedColumnFamily&) = delete;
-  AttachedColumnFamily(AttachedColumnFamily&&) = delete;
-  AttachedColumnFamily& operator=(AttachedColumnFamily&&) = delete;
-
-  ~AttachedColumnFamily() { ReleaseColumnFamilyDataReference(cfd, db, mutex); }
-
-  ColumnFamilyData* cfd = nullptr;
-  DBImpl* db = nullptr;
-  InstrumentedMutex* mutex = nullptr;
-};
-
 struct SavePoints {
   struct State {
     State() = default;
@@ -208,7 +184,7 @@ struct SavePoints {
   };
 
   using AttachedBlobDirectWriteColumnFamilies =
-      std::unordered_map<uint32_t, std::shared_ptr<AttachedColumnFamily>>;
+      std::unordered_map<uint32_t, std::shared_ptr<ColumnFamilyLease>>;
 
   void Clear() {
     while (!stack.empty()) {
@@ -219,14 +195,15 @@ struct SavePoints {
   }
 
   Status AddAttachedBlobDirectWriteColumnFamily(
-      uint32_t cf_id, const std::shared_ptr<AttachedColumnFamily>& attached) {
+      uint32_t cf_id, const std::shared_ptr<ColumnFamilyLease>& attached) {
     auto [it, inserted] =
         attached_blob_direct_write_column_families.emplace(cf_id, attached);
     if (inserted) {
       attached_blob_direct_write_column_family_order.push_back(cf_id);
       return Status::OK();
     }
-    if (it->second->db != attached->db || it->second->cfd != attached->cfd) {
+    if (it->second->db() != attached->db() ||
+        it->second->cfd() != attached->cfd()) {
       return Status::InvalidArgument(
           "Cannot combine WriteBatch instances with conflicting blob direct "
           "write column family attachments");
@@ -243,6 +220,25 @@ struct SavePoints {
     }
     assert(attached_blob_direct_write_column_family_order.size() ==
            attached_blob_direct_write_column_families.size());
+  }
+
+  void DetachAttachedBlobDirectWriteColumnFamilies() {
+    attached_blob_direct_write_column_families.clear();
+    attached_blob_direct_write_column_family_order.clear();
+
+    if (stack.empty()) {
+      return;
+    }
+
+    autovector<State> saved_states;
+    while (!stack.empty()) {
+      saved_states.push_back(stack.top());
+      stack.pop();
+    }
+    for (auto it = saved_states.rbegin(); it != saved_states.rend(); ++it) {
+      it->attached_blob_direct_write_column_families_size = 0;
+      stack.push(std::move(*it));
+    }
   }
 
   std::stack<State, autovector<State>> stack;
@@ -1946,10 +1942,10 @@ void WriteBatch::SetSavePoint() {
     save_points_.reset(new SavePoints());
   }
   // Record length and count of current batch of writes.
-  save_points_->stack.push(SavePoints::State(
+  save_points_->stack.emplace(
       SavePoint(GetDataSize(), Count(),
                 content_flags_.load(std::memory_order_relaxed)),
-      save_points_->attached_blob_direct_write_column_family_order.size()));
+      save_points_->attached_blob_direct_write_column_family_order.size());
 }
 
 Status WriteBatch::RollbackToSavePoint() {
@@ -3542,6 +3538,25 @@ Status WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
   return Status::OK();
 }
 
+namespace {
+
+Status InvalidColumnFamilyAdmissionStatus(ColumnFamilyLeaseState state) {
+  switch (state) {
+    case ColumnFamilyLeaseState::kActive:
+      return Status::OK();
+    case ColumnFamilyLeaseState::kClosing:
+      return Status::InvalidArgument(
+          "WriteBatch cannot admit a closing column family handle");
+    case ColumnFamilyLeaseState::kDropped:
+      return Status::InvalidArgument(
+          "WriteBatch cannot admit a dropped column family handle");
+  }
+  return Status::InvalidArgument(
+      "WriteBatch cannot admit a column family handle in an unknown state");
+}
+
+}  // anonymous namespace
+
 Status WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
     WriteBatch* b, ColumnFamilyHandle* column_family) {
   if (b == nullptr || column_family == nullptr) {
@@ -3549,6 +3564,14 @@ Status WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
   }
 
   auto* handle = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  const auto& lease = handle->lease();
+  if (lease != nullptr) {
+    Status state_s = InvalidColumnFamilyAdmissionStatus(lease->state());
+    if (!state_s.ok()) {
+      return state_s;
+    }
+  }
+
   if (handle->db() != nullptr &&
       !handle->db()->HasAnyBlobDirectWriteColumnFamily()) {
     return Status::OK();
@@ -3562,12 +3585,16 @@ Status WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
     return Status::InvalidArgument(
         "Blob direct write attachment requires a live column family handle");
   }
+  if (lease == nullptr) {
+    return Status::InvalidArgument(
+        "Blob direct write attachment requires a live column family handle");
+  }
 
   if (b->save_points_ == nullptr) {
     b->save_points_.reset(new SavePoints());
   }
   return b->save_points_->AddAttachedBlobDirectWriteColumnFamily(
-      handle->GetID(), std::make_shared<AttachedColumnFamily>(handle));
+      handle->GetID(), lease);
 }
 
 ColumnFamilyData* WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
@@ -3588,7 +3615,16 @@ ColumnFamilyData* WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
     return nullptr;
   }
 
-  return iter->second->db == db ? iter->second->cfd : nullptr;
+  return iter->second->db() == db ? iter->second->cfd() : nullptr;
+}
+
+void WriteBatchInternal::DetachBlobDirectWriteColumnFamilies(
+    WriteBatch* batch) {
+  if (batch == nullptr || batch->save_points_ == nullptr) {
+    return;
+  }
+
+  batch->save_points_->DetachAttachedBlobDirectWriteColumnFamilies();
 }
 
 Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
@@ -3632,8 +3668,8 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
               entry.first);
       if (it != dst->save_points_->attached_blob_direct_write_column_families
                     .end() &&
-          (it->second->db != entry.second->db ||
-           it->second->cfd != entry.second->cfd)) {
+          (it->second->db() != entry.second->db() ||
+           it->second->cfd() != entry.second->cfd())) {
         return Status::InvalidArgument(
             "Cannot combine WriteBatch instances with conflicting blob direct "
             "write column family attachments");

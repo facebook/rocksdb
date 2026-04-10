@@ -416,10 +416,11 @@ class DB {
       const std::vector<ColumnFamilyHandle*>& column_families);
 
   // Release and deallocate a column family handle. A column family is only
-  // removed once it is dropped (DropColumnFamily) and all handles have been
-  // destroyed (DestroyColumnFamilyHandle). Use this method to destroy
-  // column family handles (except for DefaultColumnFamily()!) before closing
-  // a DB.
+  // removed once it is dropped (DropColumnFamily), all handles have been
+  // destroyed (DestroyColumnFamilyHandle), and any internal derived
+  // references (such as attached WriteBatch state) are released. Use this
+  // method to destroy column family handles (except for
+  // DefaultColumnFamily()!) before closing a DB.
   virtual Status DestroyColumnFamilyHandle(ColumnFamilyHandle* column_family);
 
   // Set the database entry for "key" to "value".

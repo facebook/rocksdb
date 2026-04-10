@@ -45,11 +45,26 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+ColumnFamilyLease::ColumnFamilyLease(ColumnFamilyData* cfd, DBImpl* db,
+                                     InstrumentedMutex* mutex)
+    : cfd_(cfd), db_(db), mutex_(mutex) {
+  assert(cfd_ != nullptr);
+  assert(db_ != nullptr);
+  assert(mutex_ != nullptr);
+  cfd_->Ref();
+}
+
+ColumnFamilyLease::~ColumnFamilyLease() {
+  ReleaseColumnFamilyDataReference(cfd_, db_, mutex_);
+}
+
 ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(
     ColumnFamilyData* column_family_data, DBImpl* db, InstrumentedMutex* mutex)
-    : cfd_(column_family_data), db_(db), mutex_(mutex) {
-  if (cfd_ != nullptr) {
-    cfd_->Ref();
+    : lease_() {
+  if (column_family_data != nullptr) {
+    assert(db != nullptr);
+    assert(mutex != nullptr);
+    lease_ = column_family_data->GetOrCreateLease(db, mutex);
   }
 }
 
@@ -81,11 +96,12 @@ void ReleaseColumnFamilyDataReference(ColumnFamilyData* cfd, DBImpl* db,
 }
 
 ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
-  if (cfd_ != nullptr) {
-    for (auto& listener : cfd_->ioptions().listeners) {
+  if (lease_ != nullptr) {
+    ColumnFamilyData* cfd = lease_->cfd();
+    for (auto& listener : cfd->ioptions().listeners) {
       listener->OnColumnFamilyHandleDeletionStarted(this);
     }
-    ReleaseColumnFamilyDataReference(cfd_, db_, mutex_);
+    lease_.reset();
   }
 }
 
@@ -97,13 +113,30 @@ const std::string& ColumnFamilyHandleImpl::GetName() const {
 
 Status ColumnFamilyHandleImpl::GetDescriptor(ColumnFamilyDescriptor* desc) {
   // accessing mutable cf-options requires db mutex.
-  InstrumentedMutexLock l(mutex_);
+  InstrumentedMutexLock l(mutex());
   *desc = ColumnFamilyDescriptor(cfd()->GetName(), cfd()->GetLatestCFOptions());
   return Status::OK();
 }
 
 const Comparator* ColumnFamilyHandleImpl::GetComparator() const {
   return cfd()->user_comparator();
+}
+
+std::shared_ptr<ColumnFamilyLease> ColumnFamilyData::GetOrCreateLease(
+    DBImpl* db, InstrumentedMutex* mutex) {
+  assert(db != nullptr);
+  assert(mutex != nullptr);
+  mutex->AssertHeld();
+  auto lease = lease_.lock();
+  if (lease == nullptr) {
+    lease = std::make_shared<ColumnFamilyLease>(this, db, mutex);
+    lease_ = lease;
+  } else {
+    assert(lease->cfd() == this);
+    assert(lease->db() == db);
+    assert(lease->mutex() == mutex);
+  }
+  return lease;
 }
 
 void GetInternalTblPropCollFactory(
@@ -839,6 +872,9 @@ void ColumnFamilyData::SetDropped() {
   // can't drop default CF
   assert(id_ != 0);
   dropped_ = true;
+  if (auto lease = lease_.lock()) {
+    lease->SetState(ColumnFamilyLeaseState::kDropped);
+  }
   write_controller_token_.reset();
 
   // remove from column_family_set

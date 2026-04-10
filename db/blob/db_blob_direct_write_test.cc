@@ -26,6 +26,7 @@
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
 #include "db/wide/wide_column_test_util.h"
+#include "db/write_batch_internal.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
 #include "port/stack_trace.h"
@@ -161,6 +162,12 @@ class DBBlobDirectWriteTest : public DBTestBase {
       }
     }
     return kNoCompression;
+  }
+
+  ColumnFamilyData* GetAttached(const WriteBatch* batch,
+                                ColumnFamilyHandle* cfh) {
+    return WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+        batch, cfh->GetID(), dbfull());
   }
 
   void AssertOrderedTraceStoresLogicalPut(const Options& options,
@@ -1056,6 +1063,38 @@ TEST_F(DBBlobDirectWriteTest, DirectWriteFailedBatchTrackedAsInitialGarbage) {
   ASSERT_EQ(cf_meta.blob_files[0].total_blob_count, 2U);
   ASSERT_EQ(cf_meta.blob_files[0].garbage_blob_count, 1U);
   ASSERT_EQ(cf_meta.blob_files[0].garbage_blob_bytes, failed_record_bytes);
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteFailedWriteDetachesOriginalBatchAttachments) {
+  Options options = GetDirectWriteOptions();
+  options.blob_file_size = 1 << 20;
+  options.blob_compression_type = kNoCompression;
+
+  Reopen(options);
+
+  const std::string key = "failed_attached_key";
+  const std::string value(128, 'f');
+
+  WriteBatch batch;
+  ASSERT_OK(batch.Put(db_->DefaultColumnFamily(), key, value));
+  ASSERT_NE(GetAttached(&batch, db_->DefaultColumnFamily()), nullptr);
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteImpl:AfterBlobDirectWrite", [](void* arg) {
+        auto* status = static_cast<Status*>(arg);
+        assert(status != nullptr);
+        *status = Status::IOError("Injected post-BDW failure");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = db_->Write(WriteOptions(), &batch);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(s.IsIOError()) << s.ToString();
+  ASSERT_EQ(GetAttached(&batch, db_->DefaultColumnFamily()), nullptr);
 }
 
 TEST_F(DBBlobDirectWriteTest, DirectWriteRollbackMismatchReturnsCorruption) {

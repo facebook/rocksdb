@@ -24,6 +24,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_buffer_manager.h"
+#include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/string_util.h"
@@ -186,6 +187,16 @@ class WriteBatchAttachedColumnFamilyTest : public DBTestBase {
                                 ColumnFamilyHandle* cfh, DBImpl* db = nullptr) {
     return WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
         batch, cfh->GetID(), db != nullptr ? db : dbfull());
+  }
+
+  ColumnFamilyData* GetAttached(const WriteBatch* batch, uint32_t cf_id,
+                                DBImpl* db = nullptr) {
+    return WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+        batch, cf_id, db != nullptr ? db : dbfull());
+  }
+
+  std::shared_ptr<ColumnFamilyLease> GetLease(ColumnFamilyHandle* cfh) {
+    return static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->lease();
   }
 };
 
@@ -357,6 +368,21 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
 }
 
 TEST_F(WriteBatchAttachedColumnFamilyTest,
+       NonBlobDirectWriteNonDefaultColumnFamiliesDoNotAttach) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(options, "regular", &cfh));
+
+  WriteBatch batch;
+  ASSERT_OK(batch.Put(cfh, "key", "value"));
+  ASSERT_EQ(GetAttached(&batch, cfh), nullptr);
+
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(cfh));
+}
+
+TEST_F(WriteBatchAttachedColumnFamilyTest,
        AppendRejectsConflictingAttachedBlobDirectWriteColumnFamilies) {
   const Options options = GetBlobDirectWriteOptions();
   DestroyAndReopen(options);
@@ -388,6 +414,69 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
 }
 
 TEST_F(WriteBatchAttachedColumnFamilyTest,
+       NewAdmissionsFailAfterDropForNonBlobDirectWriteColumnFamily) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(options, "regular", &cfh));
+
+  WriteBatch admitted_batch;
+  ASSERT_OK(admitted_batch.Put(cfh, "admitted_key", "value"));
+  ASSERT_EQ(GetAttached(&admitted_batch, cfh), nullptr);
+
+  ASSERT_OK(db_->DropColumnFamily(cfh));
+  ASSERT_EQ(GetLease(cfh)->state(), ColumnFamilyLeaseState::kDropped);
+
+  WriteBatch rejected_batch;
+  Status s = rejected_batch.Put(cfh, "late_key", "value");
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_NE(s.ToString().find("dropped column family handle"),
+            std::string::npos);
+
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(cfh));
+}
+
+TEST_F(WriteBatchAttachedColumnFamilyTest,
+       NewAdmissionsFailWhileDropIsClosingColumnFamily) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(options, "regular", &cfh));
+
+  auto* sync_point = SyncPoint::GetInstance();
+  sync_point->LoadDependency(
+      {{"DBImpl::DropColumnFamilyImpl:AfterSetLeaseClosing",
+        "WriteBatchAttachedColumnFamilyTest::BeforeAdmissionWhileClosing"},
+       {"WriteBatchAttachedColumnFamilyTest::AfterAdmissionWhileClosing",
+        "DBImpl::DropColumnFamilyImpl:BeforeLogAndApplyDrop"}});
+  sync_point->EnableProcessing();
+
+  port::Thread drop_thread([&]() { ASSERT_OK(db_->DropColumnFamily(cfh)); });
+
+  TEST_SYNC_POINT(
+      "WriteBatchAttachedColumnFamilyTest::BeforeAdmissionWhileClosing");
+  ASSERT_EQ(GetLease(cfh)->state(), ColumnFamilyLeaseState::kClosing);
+
+  WriteBatch rejected_batch;
+  Status s = rejected_batch.Put(cfh, "late_key", "value");
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_NE(s.ToString().find("closing column family handle"),
+            std::string::npos);
+
+  TEST_SYNC_POINT(
+      "WriteBatchAttachedColumnFamilyTest::AfterAdmissionWhileClosing");
+  drop_thread.join();
+
+  sync_point->DisableProcessing();
+  sync_point->ClearAllCallBacks();
+
+  ASSERT_EQ(GetLease(cfh)->state(), ColumnFamilyLeaseState::kDropped);
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(cfh));
+}
+
+TEST_F(WriteBatchAttachedColumnFamilyTest,
        ClearReleasesAttachedBlobDirectWriteColumnFamiliesBeforeDbClose) {
   const Options options = GetBlobDirectWriteOptions();
 
@@ -414,6 +503,57 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
 }
 
 TEST_F(WriteBatchAttachedColumnFamilyTest,
+       WriteDetachesAttachedBlobDirectWriteColumnFamiliesBeforeDbClose) {
+  const Options options = GetBlobDirectWriteOptions();
+  DestroyAndReopen(options);
+
+  const std::string value(128, 'x');
+
+  WriteBatch batch;
+  ASSERT_OK(batch.Put(db_->DefaultColumnFamily(), "persisted_key", value));
+  ASSERT_NE(GetAttached(&batch, db_->DefaultColumnFamily()), nullptr);
+
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+  ASSERT_EQ(GetAttached(&batch, db_->DefaultColumnFamily()), nullptr);
+
+  Close();
+  Reopen(options);
+  ASSERT_EQ(Get("persisted_key"), value);
+}
+
+TEST_F(WriteBatchAttachedColumnFamilyTest,
+       DuplicateHandlesShareLeaseAndAttachedBatchKeepsItAlive) {
+  const Options options = GetBlobDirectWriteOptions();
+  DestroyAndReopen(options);
+
+  ColumnFamilyHandle* bdw_cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(options, "bdw", &bdw_cfh));
+
+  const uint32_t cf_id = bdw_cfh->GetID();
+  auto* bdw_cfd = GetCfd(bdw_cfh);
+
+  std::unique_ptr<ColumnFamilyHandle> duplicate_handle =
+      dbfull()->GetColumnFamilyHandleUnlocked(cf_id);
+  ASSERT_NE(duplicate_handle, nullptr);
+  ASSERT_EQ(GetLease(bdw_cfh).get(), GetLease(duplicate_handle.get()).get());
+  ASSERT_EQ(GetLease(bdw_cfh)->state(), ColumnFamilyLeaseState::kActive);
+
+  WriteBatch batch;
+  ASSERT_OK(batch.Put(bdw_cfh, "cf_key", std::string(128, 'x')));
+  ASSERT_EQ(GetAttached(&batch, cf_id), bdw_cfd);
+
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
+  ASSERT_EQ(GetAttached(&batch, cf_id), bdw_cfd);
+
+  ColumnFamilyHandle* duplicate_cfh = duplicate_handle.release();
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(duplicate_cfh));
+  ASSERT_EQ(GetAttached(&batch, cf_id), bdw_cfd);
+
+  batch.Clear();
+  ASSERT_EQ(GetAttached(&batch, cf_id), nullptr);
+}
+
+TEST_F(WriteBatchAttachedColumnFamilyTest,
        AttachedBlobDirectWriteColumnFamilySurvivesDropAndHandleDestruction) {
   const Options options = GetBlobDirectWriteOptions();
   DestroyAndReopen(options);
@@ -421,17 +561,53 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   ColumnFamilyHandle* bdw_cfh = nullptr;
   ASSERT_OK(db_->CreateColumnFamily(options, "bdw", &bdw_cfh));
 
+  const uint32_t cf_id = bdw_cfh->GetID();
+  auto* bdw_cfd = GetCfd(bdw_cfh);
+  std::unique_ptr<ColumnFamilyHandle> duplicate_handle =
+      dbfull()->GetColumnFamilyHandleUnlocked(cf_id);
+  ASSERT_NE(duplicate_handle, nullptr);
+
   {
     WriteBatch batch;
     ASSERT_OK(batch.Put(bdw_cfh, "cf_key", "cf_value"));
-    ASSERT_NE(GetAttached(&batch, bdw_cfh), nullptr);
+    ASSERT_EQ(GetAttached(&batch, cf_id), bdw_cfd);
+    ASSERT_EQ(GetLease(bdw_cfh)->state(), ColumnFamilyLeaseState::kActive);
 
     ASSERT_OK(db_->DropColumnFamily(bdw_cfh));
+    ASSERT_EQ(GetAttached(&batch, cf_id), bdw_cfd);
+    ASSERT_EQ(GetLease(duplicate_handle.get())->state(),
+              ColumnFamilyLeaseState::kDropped);
     ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
+    ASSERT_EQ(GetAttached(&batch, cf_id), bdw_cfd);
+
+    ColumnFamilyHandle* duplicate_cfh = duplicate_handle.release();
+    ASSERT_OK(db_->DestroyColumnFamilyHandle(duplicate_cfh));
+    ASSERT_EQ(GetAttached(&batch, cf_id), bdw_cfd);
   }
 
   ASSERT_OK(Put("default_key", "default_value"));
   ASSERT_EQ(Get("default_key"), "default_value");
+}
+
+TEST_F(WriteBatchAttachedColumnFamilyTest,
+       AttachedBlobDirectWriteBatchMayFailAfterDrop) {
+  const Options options = GetBlobDirectWriteOptions();
+  DestroyAndReopen(options);
+
+  ColumnFamilyHandle* bdw_cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(options, "bdw", &bdw_cfh));
+
+  WriteBatch batch;
+  ASSERT_OK(batch.Put(bdw_cfh, "cf_key", std::string(128, 'x')));
+  ASSERT_NE(GetAttached(&batch, bdw_cfh), nullptr);
+
+  ASSERT_OK(db_->DropColumnFamily(bdw_cfh));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
+
+  Status s = db_->Write(WriteOptions(), &batch);
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_NE(s.ToString().find("Invalid column family specified in write batch"),
+            std::string::npos);
 }
 
 TEST_F(WriteBatchTest, Corruption) {

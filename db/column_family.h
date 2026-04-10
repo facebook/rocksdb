@@ -10,6 +10,7 @@
 #pragma once
 
 #include <atomic>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -51,6 +52,7 @@ struct SuperVersionContext;
 class BlobFileCache;
 class BlobFilePartitionManager;
 class BlobSource;
+class ColumnFamilyLease;
 
 extern const double kIncSlowdownRatio;
 // This file contains a list of data structures for managing column family
@@ -163,6 +165,38 @@ extern const double kIncSlowdownRatio;
 // ColumnFamilyHandleImpl is the class that clients use to access different
 // column families. It has non-trivial destructor, which gets called when client
 // is done using the column family
+enum class ColumnFamilyLeaseState : uint8_t {
+  kActive,
+  kClosing,
+  kDropped,
+};
+
+class ColumnFamilyLease {
+ public:
+  ColumnFamilyLease(ColumnFamilyData* cfd, DBImpl* db,
+                    InstrumentedMutex* mutex);
+  ~ColumnFamilyLease();
+  ColumnFamilyLease(const ColumnFamilyLease&) = delete;
+  ColumnFamilyLease& operator=(const ColumnFamilyLease&) = delete;
+
+  ColumnFamilyData* cfd() const { return cfd_; }
+  DBImpl* db() const { return db_; }
+  InstrumentedMutex* mutex() const { return mutex_; }
+
+  ColumnFamilyLeaseState state() const {
+    return state_.load(std::memory_order_acquire);
+  }
+  void SetState(ColumnFamilyLeaseState state) {
+    state_.store(state, std::memory_order_release);
+  }
+
+ private:
+  ColumnFamilyData* cfd_;
+  DBImpl* db_;
+  InstrumentedMutex* mutex_;
+  std::atomic<ColumnFamilyLeaseState> state_{ColumnFamilyLeaseState::kActive};
+};
+
 class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
  public:
   // create while holding the mutex
@@ -170,9 +204,16 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
                          InstrumentedMutex* mutex);
   // destroy without mutex
   virtual ~ColumnFamilyHandleImpl();
-  virtual ColumnFamilyData* cfd() const { return cfd_; }
-  virtual DBImpl* db() const { return db_; }
-  InstrumentedMutex* mutex() const { return mutex_; }
+  virtual ColumnFamilyData* cfd() const {
+    return lease_ != nullptr ? lease_->cfd() : nullptr;
+  }
+  virtual DBImpl* db() const {
+    return lease_ != nullptr ? lease_->db() : nullptr;
+  }
+  InstrumentedMutex* mutex() const {
+    return lease_ != nullptr ? lease_->mutex() : nullptr;
+  }
+  const std::shared_ptr<ColumnFamilyLease>& lease() const { return lease_; }
 
   uint32_t GetID() const override;
   const std::string& GetName() const override;
@@ -180,9 +221,7 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
   const Comparator* GetComparator() const override;
 
  private:
-  ColumnFamilyData* cfd_;
-  DBImpl* db_;
-  InstrumentedMutex* mutex_;
+  std::shared_ptr<ColumnFamilyLease> lease_;
 };
 
 // Does not ref-count ColumnFamilyData
@@ -329,8 +368,9 @@ class ColumnFamilyData {
   // 3) from single-threaded VersionSet::LogAndApply()
   // After dropping column family no other operation on that column family
   // will be executed. All the files and memory will be, however, kept around
-  // until client drops the column family handle. That way, client can still
-  // access data from dropped column family.
+  // until client drops the column family handle and any derived internal lease
+  // holders (e.g. attached WriteBatch state) are released. That way, client
+  // can still access data from dropped column family.
   // Column family can be dropped and still alive. In that state:
   // *) Compaction and flush is not executed on the dropped column family.
   // *) Client can continue reading from column family. Writes will fail unless
@@ -499,6 +539,9 @@ class ColumnFamilyData {
   // thread-safe
   // Return a already referenced SuperVersion to be used safely.
   SuperVersion* GetReferencedSuperVersion(DBImpl* db);
+  // REQUIRES: DB mutex held.
+  std::shared_ptr<ColumnFamilyLease> GetOrCreateLease(DBImpl* db,
+                                                      InstrumentedMutex* mutex);
   // thread-safe
   // Get SuperVersion stored in thread local storage. If it does not exist,
   // get a reference from a current SuperVersion.
@@ -734,6 +777,7 @@ class ColumnFamilyData {
   // For charging memory usage of file metadata created for newly added files to
   // a Version associated with this CFD
   std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr_;
+  std::weak_ptr<ColumnFamilyLease> lease_;
   bool mempurge_used_;
 
   std::atomic<uint64_t> next_epoch_number_;

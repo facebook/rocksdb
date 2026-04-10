@@ -928,8 +928,10 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
   ASSERT_NOK(txn->Commit());
 
   txn2 = txn_db->BeginTransaction(write_options, txn_options);
-  ASSERT_OK(txn2->Delete(handles[2], "AAA"));
-  ASSERT_NOK(txn2->Commit());
+  s = txn2->Delete(handles[2], "AAA");
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_NE(s.ToString().find("dropped column family handle"),
+            std::string::npos);
 
   delete txn;
   delete txn2;

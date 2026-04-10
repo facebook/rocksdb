@@ -4269,6 +4269,7 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
 
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
+  const auto& lease = cfh->lease();
   if (cfd->GetID() == 0) {
     return Status::InvalidArgument("Can't drop default column family");
   }
@@ -4288,9 +4289,14 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
     if (cfd->IsDropped()) {
       s = Status::InvalidArgument("Column family already dropped!\n");
     }
+    if (s.ok() && lease != nullptr) {
+      lease->SetState(ColumnFamilyLeaseState::kClosing);
+      TEST_SYNC_POINT("DBImpl::DropColumnFamilyImpl:AfterSetLeaseClosing");
+    }
     if (s.ok()) {
       // we drop column family from a single write thread
       WriteThread::Writer w;
+      TEST_SYNC_POINT("DBImpl::DropColumnFamilyImpl:BeforeLogAndApplyDrop");
       write_thread_.EnterUnbatched(&w, &mutex_);
       s = versions_->LogAndApply(cfd, read_options, write_options, &edit,
                                  &mutex_, directories_.GetDbDir());
@@ -4298,6 +4304,10 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
       if (s.ok() && cfd->blob_partition_manager() != nullptr) {
         UnregisterBlobDirectWriteColumnFamily();
       }
+    }
+    if (!s.ok() && lease != nullptr &&
+        lease->state() == ColumnFamilyLeaseState::kClosing) {
+      lease->SetState(ColumnFamilyLeaseState::kActive);
     }
     if (s.ok()) {
       auto& moptions = cfd->GetLatestMutableCFOptions();

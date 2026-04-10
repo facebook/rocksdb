@@ -180,10 +180,11 @@ class WriteBatchInternal {
   static Status MaybeAttachBlobDirectWriteColumnFamily(
       WriteBatch* batch, ColumnFamilyHandle* column_family);
 
-  // Returns the attached CFD for `column_family_id` when it belongs to `db`;
-  // otherwise returns null and callers must fall back to normal lookup.
   static ColumnFamilyData* GetAttachedBlobDirectWriteColumnFamily(
       const WriteBatch* batch, uint32_t column_family_id, DBImpl* db);
+  // Drops non-serialized BDW CFD attachments after a write completes so the
+  // batch does not keep column family refs alive longer than needed.
+  static void DetachBlobDirectWriteColumnFamilies(WriteBatch* batch);
 
   static Status CheckSlicePartsLength(const SliceParts& key,
                                       const SliceParts& value);

@@ -84,6 +84,14 @@ class BlobDirectWriteAttachmentCleanupGuard {
  public:
   explicit BlobDirectWriteAttachmentCleanupGuard(WriteBatch* batch)
       : batch_(batch) {}
+  BlobDirectWriteAttachmentCleanupGuard(
+      const BlobDirectWriteAttachmentCleanupGuard&) = delete;
+  BlobDirectWriteAttachmentCleanupGuard& operator=(
+      const BlobDirectWriteAttachmentCleanupGuard&) = delete;
+  BlobDirectWriteAttachmentCleanupGuard(
+      BlobDirectWriteAttachmentCleanupGuard&&) = delete;
+  BlobDirectWriteAttachmentCleanupGuard& operator=(
+      BlobDirectWriteAttachmentCleanupGuard&&) = delete;
 
   ~BlobDirectWriteAttachmentCleanupGuard() {
     WriteBatchInternal::DetachBlobDirectWriteColumnFamilies(batch_);
@@ -503,8 +511,8 @@ struct DBImpl::BlobDirectWriteContext {
     return GetOrCreate(batch, cf_id, lookup_from_write_thread).partition_mgr;
   }
 
-  BlobFilePartitionManager* GetPartitionManager(
-      uint32_t cf_id, bool lookup_from_write_thread) {
+  BlobFilePartitionManager* GetPartitionManager(uint32_t cf_id,
+                                                bool lookup_from_write_thread) {
     return GetPartitionManager(/*batch=*/nullptr, cf_id,
                                lookup_from_write_thread);
   }
