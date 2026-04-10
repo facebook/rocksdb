@@ -24,9 +24,9 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
+#include "rocksdb/index_factory.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/table.h"
-#include "rocksdb/user_defined_index.h"
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/block_based/block_based_table_builder.h"
@@ -226,6 +226,13 @@ static std::unordered_map<std::string, OptionTypeInfo>
              offsetof(struct MetadataCacheOptions, unpartitioned_pinning),
              &pinning_tier_type_string_map)}};
 
+static const std::unordered_map<std::string, BlockBasedTableOptions::IndexMode>
+    block_base_table_index_mode_string_map = {
+        {"kBuiltinOnly", BlockBasedTableOptions::IndexMode::kBuiltinOnly},
+        {"kSecondary", BlockBasedTableOptions::IndexMode::kSecondary},
+        {"kPrimary", BlockBasedTableOptions::IndexMode::kPrimary},
+        {"kPrimaryOnly", BlockBasedTableOptions::IndexMode::kPrimaryOnly}};
+
 static std::unordered_map<std::string,
                           BlockBasedTableOptions::PrepopulateBlockCache>
     block_base_table_prepopulate_block_cache_string_map = {
@@ -329,7 +336,7 @@ static struct BlockBasedTableTypeInfo {
              offsetof(struct BlockBasedTableOptions, filter_policy),
              OptionVerificationType::kByNameAllowFromNull)},
         {"user_defined_index_factory",
-         OptionTypeInfo::AsCustomSharedPtr<UserDefinedIndexFactory>(
+         OptionTypeInfo::AsCustomSharedPtr<IndexFactory>(
              offsetof(struct BlockBasedTableOptions,
                       user_defined_index_factory),
              OptionVerificationType::kByNameAllowFromNull)},
@@ -427,12 +434,16 @@ static struct BlockBasedTableTypeInfo {
          {offsetof(struct BlockBasedTableOptions,
                    num_file_reads_for_auto_readahead),
           OptionType::kUInt64T, OptionVerificationType::kNormal}},
+        {"index_mode", OptionTypeInfo::Enum<BlockBasedTableOptions::IndexMode>(
+                           offsetof(struct BlockBasedTableOptions, index_mode),
+                           &block_base_table_index_mode_string_map)},
+        // Old boolean names are accepted as deprecated aliases.
         {"fail_if_no_udi_on_open",
-         {offsetof(struct BlockBasedTableOptions, fail_if_no_udi_on_open),
-          OptionType::kBoolean, OptionVerificationType::kNormal}},
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated}},
         {"use_udi_as_primary_index",
-         {offsetof(struct BlockBasedTableOptions, use_udi_as_primary_index),
-          OptionType::kBoolean, OptionVerificationType::kNormal}},
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated}},
+        {"skip_standard_index",
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated}},
     };
   }
 } block_based_table_type_info;
@@ -760,30 +771,31 @@ Status BlockBasedTableFactory::ValidateOptions(
         "data_block_hash_table_util_ratio should be greater than 0 when "
         "data_block_index_type is set to kDataBlockBinaryAndHash");
   }
-  if (table_options_.user_defined_index_factory) {
+  if (table_options_.index_mode >=
+      BlockBasedTableOptions::IndexMode::kSecondary) {
+    if (!table_options_.user_defined_index_factory) {
+      return Status::InvalidArgument(
+          "index_mode >= kSecondary requires user_defined_index_factory");
+    }
     if (cf_opts.compression_opts.parallel_threads > 1 ||
         cf_opts.bottommost_compression_opts.parallel_threads > 1) {
       return Status::InvalidArgument(
           "user_defined_index_factory not supported with parallel compression");
     }
-    if (table_options_.use_udi_as_primary_index) {
+    if (table_options_.index_mode >=
+        BlockBasedTableOptions::IndexMode::kPrimary) {
       if (table_options_.index_type ==
           BlockBasedTableOptions::kTwoLevelIndexSearch) {
         return Status::InvalidArgument(
-            "use_udi_as_primary_index is incompatible with partitioned index "
-            "(kTwoLevelIndexSearch). The UDI wrapper currently only supports "
-            "flat (single-level) index builders.");
+            "index_mode kPrimary/kPrimaryOnly is incompatible with "
+            "partitioned index (kTwoLevelIndexSearch).");
       }
       if (table_options_.partition_filters) {
         return Status::InvalidArgument(
-            "use_udi_as_primary_index is incompatible with partitioned "
-            "filters. The UDI wrapper does not support the partitioned "
-            "index/filter layout.");
+            "index_mode kPrimary/kPrimaryOnly is incompatible with "
+            "partitioned filters.");
       }
     }
-  } else if (table_options_.use_udi_as_primary_index) {
-    return Status::InvalidArgument(
-        "use_udi_as_primary_index requires user_defined_index_factory");
   }
   if (db_opts.unordered_write && cf_opts.max_successive_merges > 0) {
     // TODO(myabandeh): support it
@@ -961,11 +973,8 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
                ? "nullptr"
                : table_options_.user_defined_index_factory->Name());
   ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  use_udi_as_primary_index: %d\n",
-           table_options_.use_udi_as_primary_index);
-  ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  fail_if_no_udi_on_open: %d\n",
-           table_options_.fail_if_no_udi_on_open);
+  snprintf(buffer, kBufferSize, "  index_mode: %d\n",
+           static_cast<int>(table_options_.index_mode));
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  whole_key_filtering: %d\n",
            table_options_.whole_key_filtering);
@@ -1123,11 +1132,10 @@ TableFactory* NewBlockBasedTableFactory(
   return new BlockBasedTableFactory(_table_options);
 }
 
-Status UserDefinedIndexFactory::CreateFromString(
-    const ConfigOptions& config_options, const std::string& value,
-    std::shared_ptr<UserDefinedIndexFactory>* factory) {
-  return LoadSharedObject<UserDefinedIndexFactory>(config_options, value,
-                                                   factory);
+Status IndexFactory::CreateFromString(const ConfigOptions& config_options,
+                                      const std::string& value,
+                                      std::shared_ptr<IndexFactory>* factory) {
+  return LoadSharedObject<IndexFactory>(config_options, value, factory);
 }
 
 const std::string BlockBasedTablePropertyNames::kIndexType =

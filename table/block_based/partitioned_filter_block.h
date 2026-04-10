@@ -18,6 +18,7 @@
 #include "table/block_based/filter_block_reader_common.h"
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/index_builder.h"
+#include "table/block_based/partition_coordinator.h"
 #include "util/atomic.h"
 #include "util/autovector.h"
 #include "util/hash_containers.h"
@@ -31,7 +32,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
       const SliceTransform* prefix_extractor, bool whole_key_filtering,
       FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
       const bool use_value_delta_encoding,
-      PartitionedIndexBuilder* const p_index_builder,
+      PartitionCoordinator* const partition_coordinator,
       const uint32_t partition_size, size_t ts_sz,
       const bool persist_user_defined_timestamps,
       bool decouple_from_index_partitions);
@@ -87,8 +88,8 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   // Currently we keep the same number of partitions for filters and indexes.
   // This would allow for some potentioal optimizations in future. If such
   // optimizations did not realize we can use different number of partitions and
-  // eliminate p_index_builder_
-  PartitionedIndexBuilder* const p_index_builder_;
+  // eliminate partition_coordinator_
+  PartitionCoordinator* const partition_coordinator_;
   const size_t ts_sz_;
   const bool decouple_from_index_partitions_;
 

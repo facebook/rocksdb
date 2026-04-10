@@ -1003,8 +1003,13 @@ void StressTest::OperateDb(ThreadState* thread) {
   read_opts.allow_unprepared_value = FLAGS_allow_unprepared_value;
   read_opts.auto_refresh_iterator_with_snapshot =
       FLAGS_auto_refresh_iterator_with_snapshot;
-  if (FLAGS_use_trie_index && !FLAGS_use_udi_as_primary_index && udi_factory_) {
-    read_opts.table_index_factory = udi_factory_.get();
+  if (FLAGS_use_trie_index && udi_factory_) {
+    if (FLAGS_index_mode == 1) {
+      // kSecondary: custom index is secondary, select explicitly per-read
+      read_opts.read_index = ReadOptions::ReadIndex::kCustom;
+    }
+    // kPrimary/kPrimaryOnly: custom index is default, no override needed
+    // kBuiltinOnly: custom index not built, don't select it
   }
   WriteOptions write_opts;
   if (FLAGS_rate_limit_auto_wal_flush) {
@@ -1054,8 +1059,8 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
       // Commenting this out as we don't want to reset stats on each open.
       // thread->stats.Start();
-      if (FLAGS_use_trie_index && udi_factory_) {
-        read_opts.table_index_factory = udi_factory_.get();
+      if (FLAGS_use_trie_index && FLAGS_index_mode == 1 && udi_factory_) {
+        read_opts.read_index = ReadOptions::ReadIndex::kCustom;
       }
     }
 
@@ -2163,7 +2168,7 @@ void StressTest::DumpIteratorDivergenceDiagnostics(
           "selected_cf_count=%zu\n",
           seek_key.ToString(/*hex=*/true).c_str(), cmp_cfh->GetName().c_str(),
           static_cast<int>(options_.prefix_extractor != nullptr),
-          static_cast<int>(ro.table_index_factory != nullptr),
+          static_cast<int>(ro.read_index != ReadOptions::ReadIndex::kDefault),
           static_cast<int>(FLAGS_use_multi_cf_iterator),
           rand_column_families.size());
 
@@ -2224,13 +2229,13 @@ void StressTest::DumpIteratorDivergenceDiagnostics(
   };
 
   ReadOptions standard_ro = ro;
-  standard_ro.table_index_factory = nullptr;
+  standard_ro.read_index = ReadOptions::ReadIndex::kDefault;
   dump_debug_iter("Debug standard direct", standard_ro,
                   /*use_multi_cf_iter=*/false);
 
   if (udi_factory_) {
     ReadOptions trie_ro = ro;
-    trie_ro.table_index_factory = udi_factory_.get();
+    trie_ro.read_index = ReadOptions::ReadIndex::kCustom;
     dump_debug_iter("Debug trie direct", trie_ro,
                     /*use_multi_cf_iter=*/false);
   }
@@ -2240,7 +2245,7 @@ void StressTest::DumpIteratorDivergenceDiagnostics(
                     /*use_multi_cf_iter=*/true);
     if (udi_factory_) {
       ReadOptions trie_ro = ro;
-      trie_ro.table_index_factory = udi_factory_.get();
+      trie_ro.read_index = ReadOptions::ReadIndex::kCustom;
       dump_debug_iter("Debug trie coalescing", trie_ro,
                       /*use_multi_cf_iter=*/true);
     }
@@ -4431,8 +4436,7 @@ bool InitializeOptionsFromFile(Options& options) {
 void InitializeOptionsFromFlags(
     const std::shared_ptr<Cache>& cache,
     const std::shared_ptr<const FilterPolicy>& filter_policy,
-    const std::shared_ptr<UserDefinedIndexFactory>& udi_factory,
-    Options& options) {
+    const std::shared_ptr<IndexFactory>& udi_factory, Options& options) {
   BlockBasedTableOptions block_based_options;
   block_based_options.decouple_partitioned_filters =
       FLAGS_decouple_partitioned_filters;
@@ -4517,18 +4521,32 @@ void InitializeOptionsFromFlags(
       fLU64::FLAGS_super_block_alignment_space_overhead_ratio;
   if (udi_factory) {
     block_based_options.user_defined_index_factory = udi_factory;
-    if (FLAGS_use_udi_as_primary_index) {
-      block_based_options.use_udi_as_primary_index = true;
+    if (FLAGS_index_mode < 0 || FLAGS_index_mode > 3) {
+      fprintf(stderr, "Invalid --index_mode=%d (must be 0-3)\n",
+              FLAGS_index_mode);
+      abort();
     }
-    // Write fault injection can corrupt the UDI meta block during SST
-    // creation. In primary mode all reads route through the UDI, so a
-    // corrupted UDI block causes the reader to fail, making compaction
-    // read zero keys from the affected SST and triggering a false
-    // positive in record count verification. In secondary mode this is
-    // not an issue because reads fall back to the standard index.
-    if (FLAGS_use_udi_as_primary_index &&
-        (FLAGS_write_fault_one_in > 0 ||
-         FLAGS_metadata_write_fault_one_in > 0)) {
+    block_based_options.index_mode =
+        static_cast<BlockBasedTableOptions::IndexMode>(FLAGS_index_mode);
+    // Disable compaction record count verification when write fault
+    // injection is active in custom index modes (kPrimary/kPrimaryOnly).
+    //
+    // The custom index is stored as a meta block in the SST. Write fault
+    // injection (metadata_write_fault_one_in, write_fault_one_in) can
+    // corrupt this meta block during SST creation. In kPrimaryOnly, a
+    // corrupted custom index causes the compaction iterator to read zero
+    // keys (no standard index fallback). In kPrimary, the SST open
+    // returns an error on corrupted custom index. Either way, the
+    // compaction record count check produces a false positive.
+    //
+    // Without fault injection, all modes (including kPrimaryOnly) pass
+    // the compaction record count check correctly.
+    //
+    // Non-UDI modes (kBuiltinOnly, kSecondary) are not affected because
+    // the standard binary search index is written as a main block (not a
+    // meta block), so write faults do not corrupt it.
+    if (FLAGS_index_mode >= 2 && (FLAGS_write_fault_one_in > 0 ||
+                                  FLAGS_metadata_write_fault_one_in > 0)) {
       options.compaction_verify_record_count = false;
     }
   }

@@ -478,17 +478,17 @@ Status TrieIndexIterator::NextAndGetResult(IterateResult* result) {
   return Status::OK();
 }
 
-UserDefinedIndexBuilder::BlockHandle TrieIndexIterator::value() {
+IndexFactoryBuilder::BlockHandle TrieIndexIterator::value() {
   if (overflow_run_index_ == 0) {
     // Primary block — use the trie leaf's handle.
     auto handle = iter_.Value();
-    return UserDefinedIndexBuilder::BlockHandle{handle.offset, handle.size};
+    return IndexFactoryBuilder::BlockHandle{handle.offset, handle.size};
   }
   // Overflow block — use the side-table handle.
   // overflow_run_index_ is 1-based, overflow array is 0-based.
   uint32_t overflow_idx = overflow_base_idx_ + overflow_run_index_ - 1;
   auto handle = trie_->GetOverflowHandle(overflow_idx);
-  return UserDefinedIndexBuilder::BlockHandle{handle.offset, handle.size};
+  return IndexFactoryBuilder::BlockHandle{handle.offset, handle.size};
 }
 
 IterBoundCheck TrieIndexIterator::CheckBounds(
@@ -538,7 +538,7 @@ Status TrieIndexReader::InitFromSlice(const Slice& data) {
   return trie_.InitFromData(data);
 }
 
-std::unique_ptr<UserDefinedIndexIterator> TrieIndexReader::NewIterator(
+std::unique_ptr<IndexFactoryIterator> TrieIndexReader::NewIterator(
     const ReadOptions& /*read_options*/) {
   return std::make_unique<TrieIndexIterator>(&trie_, comparator_,
                                              trie_.HasSeqnoEncoding());
@@ -558,8 +558,8 @@ size_t TrieIndexReader::ApproximateMemoryUsage() const {
 // ============================================================================
 
 Status TrieIndexFactory::NewBuilder(
-    const UserDefinedIndexOption& option,
-    std::unique_ptr<UserDefinedIndexBuilder>& builder) const {
+    const IndexFactoryOptions& option,
+    std::unique_ptr<IndexFactoryBuilder>& builder) const {
   // The trie traverses keys byte-by-byte in lexicographic order, so it
   // requires a bytewise comparator. Non-bytewise comparators (e.g.,
   // ReverseBytewiseComparator or custom comparators) would produce separator
@@ -581,8 +581,8 @@ Status TrieIndexFactory::NewBuilder(
 }
 
 Status TrieIndexFactory::NewReader(
-    const UserDefinedIndexOption& option, Slice& index_block,
-    std::unique_ptr<UserDefinedIndexReader>& reader) const {
+    const IndexFactoryOptions& option, Slice& index_block,
+    std::unique_ptr<IndexFactoryReader>& reader) const {
   const Comparator* cmp =
       option.comparator ? option.comparator : BytewiseComparator();
   if (cmp != BytewiseComparator()) {
