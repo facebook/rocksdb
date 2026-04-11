@@ -110,6 +110,10 @@ void StressTest::CleanUpColumnFamilies() {
     delete cf;
   }
   column_families_.clear();
+  for (auto* cf : old_column_families_) {
+    delete cf;
+  }
+  old_column_families_.clear();
   for (auto* cf : secondary_cfhs_) {
     delete cf;
   }
@@ -796,9 +800,17 @@ Status StressTest::SetOptions(ThreadState* thread) {
 }
 
 Options StressTest::GetOptions(int cf_id) {
-  auto cfh = column_families_[cf_id];
-  assert(cfh);
-  return db_->GetOptions(cfh);
+  // cf_id is the RocksDB internal column family ID, not the index into
+  // column_families_. After a CF drop+recreate, the new CF gets a higher ID
+  // that may exceed column_families_.size(). Search for the matching handle.
+  for (auto* cfh : column_families_) {
+    if (cfh && cfh->GetID() == static_cast<uint32_t>(cf_id)) {
+      return db_->GetOptions(cfh);
+    }
+  }
+  // CF was dropped and recreated with a new ID. Return base options since the
+  // remote compaction for the old CF will fail anyway.
+  return options_;
 }
 
 void StressTest::ProcessRecoveredPreparedTxns(SharedState* shared) {
