@@ -43,6 +43,7 @@ void MetaIndexBuilder::Add(const std::string& key, const BlockHandle& handle) {
 
 Slice MetaIndexBuilder::Finish() {
   for (const auto& metablock : meta_block_handles_) {
+    // NOTE: meta index keys and block handles are guaranteed < 4GB
     meta_index_block_->Add(metablock.first, metablock.second);
   }
   return meta_index_block_->Finish();
@@ -198,7 +199,11 @@ Slice PropertyBlockBuilder::Finish() {
   for (const auto& prop : props_) {
     assert(last_prop_added_to_block_.empty() ||
            comparator_->Compare(prop.first, last_prop_added_to_block_) > 0);
-    properties_block_->Add(prop.first, prop.second);
+    // Use first 4GB of key and value strings to avoid overflow, e.g. from
+    // user property collector (see BlockBuilder::Add API comments)
+    Slice key(prop.first.data(), static_cast<uint32_t>(prop.first.size()));
+    Slice value(prop.second.data(), static_cast<uint32_t>(prop.second.size()));
+    properties_block_->Add(key, value);
 #ifndef NDEBUG
     last_prop_added_to_block_ = prop.first;
 #endif /* !NDEBUG */

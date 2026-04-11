@@ -291,6 +291,7 @@ Status PartitionedFilterBlockBuilder::Finish(
     last_encoded_handle_ = last_partition_block_handle;
     const Slice handle_delta_encoding_slice(handle_delta_encoding);
 
+    // NOTE: WriteBatch guarantees keys < 4GB; handle values are also small
     index_on_filter_block_builder_.Add(e.ikey, handle_encoding,
                                        &handle_delta_encoding_slice);
     if (!p_index_builder_->separator_is_key_plus_seq()) {

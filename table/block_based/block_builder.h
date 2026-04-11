@@ -47,6 +47,10 @@ class BlockBuilder {
   // DO NOT mix with AddWithLastKey() between Resets. For efficiency, use
   // AddWithLastKey() in contexts where previous added key is already known
   // and delta encoding might be used.
+  // For efficiency, the implementation assumes the sizes of the input slices
+  // are each < 4GB, and only uses the bottom 32 bits of each size. (Using a
+  // dedicated Slice32 type would likely incur data movement overheads for this
+  // inner-loop code.)
   void Add(const Slice& key, const Slice& value,
            const Slice* const delta_value = nullptr,
            bool skip_delta_encoding = false);
@@ -60,6 +64,8 @@ class BlockBuilder {
   // is the key from most recent AddWithLastKey. (For convenience, last_key
   // is ignored on first call after creation or Reset().)
   // DO NOT mix with Add() between Resets.
+  // For efficiency, the implementation assumes the sizes of the input slices
+  // are each < 4GB, and only uses the bottom 32 bits of each size.
   void AddWithLastKey(const Slice& key, const Slice& value,
                       const Slice& last_key,
                       const Slice* const delta_value = nullptr,
@@ -100,6 +106,9 @@ class BlockBuilder {
 
   Slice GetRestartKey(uint32_t index, const char* limit) const;
 
+  // Returns key with timestamp stripped if applicable.
+  // For efficiency and internal consistency, only uses the bottom 32 bits of
+  // the key size (see API comments on Add()).
   inline const Slice MaybeStripTimestampFromKey(std::string* key_buf,
                                                 const Slice& key);
 
@@ -130,8 +139,8 @@ class BlockBuilder {
   std::string buffer_;              // Destination buffer
   std::vector<uint32_t> restarts_;  // Restart points
   size_t estimate_;
-  int counter_;    // Number of entries emitted since restart
-  bool finished_;  // Has Finish() been called?
+  int counter_;      // Number of entries emitted since restart
+  bool finished_;    // Has Finish() been called?
   bool is_uniform_;  // Was the last Finish()'d block uniform?
   std::string last_key_;
   DataBlockHashIndexBuilder data_block_hash_index_builder_;
