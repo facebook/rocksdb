@@ -596,7 +596,11 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
 void GetContext::PostprocessMerge(const Status& merge_status) {
   if (!merge_status.ok()) {
-    if (merge_status.subcode() == Status::SubCode::kMergeOperatorFailed) {
+    if (merge_status.IsNotFound()) {
+      // Merge operator signaled deletion (std::monostate result).
+      state_ = kDeleted;
+    } else if (merge_status.subcode() ==
+               Status::SubCode::kMergeOperatorFailed) {
       state_ = kMergeOperatorFailed;
     } else {
       state_ = kCorrupt;

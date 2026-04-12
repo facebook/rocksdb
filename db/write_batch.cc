@@ -2893,6 +2893,21 @@ class MemTableInserter : public WriteBatch::Handler {
           // Failed to merge!
           // Store the delta in memtable
           perform_merge = false;
+        } else if (new_value_type == kTypeDeletion) {
+          // Merge operator signaled deletion. Add a deletion entry to the
+          // memtable instead of a value.
+          assert(!concurrent_memtable_writes_);
+          if (kv_prot_info != nullptr) {
+            auto merged_kv_prot_info =
+                kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
+            merged_kv_prot_info.UpdateV(value, Slice());
+            merged_kv_prot_info.UpdateO(kTypeMerge, kTypeDeletion);
+            ret_status = mem->Add(sequence_, kTypeDeletion, key, Slice(),
+                                  &merged_kv_prot_info);
+          } else {
+            ret_status = mem->Add(sequence_, kTypeDeletion, key, Slice(),
+                                  nullptr /* kv_prot_info */);
+          }
         } else {
           // 3) Add value to memtable
           assert(!concurrent_memtable_writes_);

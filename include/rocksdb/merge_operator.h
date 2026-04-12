@@ -188,11 +188,22 @@ class MergeOperator : public Customizable {
 
   struct MergeOperationOutputV3 {
     using NewColumns = std::vector<std::pair<std::string, std::string>>;
-    using NewValue = std::variant<std::string, NewColumns, Slice>;
+    using NewValue =
+        std::variant<std::string, NewColumns, Slice, std::monostate>;
 
-    // The result of the merge operation. Can be one of three things (see the
-    // NewValue variant above): a new plain value, a new wide-column value, or
-    // an existing merge operand.
+    // The result of the merge operation. Can be one of four things (see the
+    // NewValue variant above):
+    //  - std::string: a new plain value
+    //  - NewColumns: a new wide-column value
+    //  - Slice: an existing merge operand (zero-copy reference)
+    //  - std::monostate: the key should be deleted
+    //
+    // When std::monostate is set, the merge result is treated as a deletion:
+    //  - During Get()/MultiGet(): returns Status::NotFound()
+    //  - During iteration: the key is skipped (not visible)
+    //  - During compaction: produces a deletion tombstone, or drops the key
+    //    entirely when the full history of the key has been seen (bottommost
+    //    level with no pending snapshot boundaries)
     NewValue new_value;
     // The scope of the failure if applicable. See above for more details.
     OpFailureScope op_failure_scope = OpFailureScope::kDefault;

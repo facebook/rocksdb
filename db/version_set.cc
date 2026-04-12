@@ -3150,13 +3150,17 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           iter->merge_context.GetOperands(), info_log_, db_statistics_, clock_,
           /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
           iter->value ? iter->value->GetSelf() : nullptr, iter->columns);
-      if (LIKELY(iter->value != nullptr)) {
-        iter->value->PinSelf();
-        range->AddValueSize(iter->value->size());
-      } else {
-        assert(iter->columns);
-        range->AddValueSize(iter->columns->serialized_size());
+      if (status->ok()) {
+        if (LIKELY(iter->value != nullptr)) {
+          iter->value->PinSelf();
+          range->AddValueSize(iter->value->size());
+        } else {
+          assert(iter->columns);
+          range->AddValueSize(iter->columns->serialized_size());
+        }
       }
+      // Note: if merge produced deletion (status is NotFound), the key is
+      // correctly marked as done with NotFound status below.
 
       range->MarkKeyDone(iter);
       if (range->GetValueSize() > read_options.value_size_soft_limit) {

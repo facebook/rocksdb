@@ -443,6 +443,9 @@ class ReadOnlyMemTable {
             value, merge_context->GetOperands(), info_log, statistics, clock,
             /* update_num_ops_stats */ true,
             /* op_failure_scope */ nullptr, out_value, out_columns);
+        // Note: if the merge operator returns std::monostate (deletion),
+        // TimedFullMerge returns Status::NotFound(), which is the correct
+        // result for point lookups.
       }
     } else if (out_value) {
       out_value->assign(value.data(), value.size());
@@ -470,6 +473,9 @@ class ReadOnlyMemTable {
             merge_context->GetOperands(), logger, statistics, clock,
             /* update_num_ops_stats */ true,
             /* op_failure_scope */ nullptr, out_value, out_columns);
+        // Note: if the merge operator returns std::monostate (deletion),
+        // TimedFullMerge returns Status::NotFound(), which is the correct
+        // result for point lookups.
       } else {
         // We have found a final value (a base deletion) and have newer
         // merge operands that we do not intend to merge. Nothing remains
@@ -512,6 +518,9 @@ class ReadOnlyMemTable {
             merge_context->GetOperands(), logger, statistics, clock,
             /* update_num_ops_stats */ true,
             /* op_failure_scope */ nullptr, out_value, out_columns);
+        // Note: if the merge operator returns std::monostate (deletion),
+        // TimedFullMerge returns Status::NotFound(), which is the correct
+        // result for point lookups.
       }
       return true;
     }
