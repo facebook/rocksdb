@@ -103,6 +103,19 @@ Status MergeHelper::TimedFullMergeCommonImpl(
     return Status::Corruption(Status::SubCode::kMergeOperatorFailed);
   }
 
+  // `op_failure_scope` is only meaningful when the operator returns `false`.
+  // When the operator returns `true` AND chooses `std::monostate` (deletion),
+  // any user-set `op_failure_scope` is silently ignored because monostate is
+  // a successful outcome, not a failure. In debug builds, defensively assert
+  // the user didn't set both -- it indicates a confused contract on the
+  // caller's side.
+#ifndef NDEBUG
+  if (std::holds_alternative<std::monostate>(merge_out.new_value)) {
+    assert(merge_out.op_failure_scope ==
+           MergeOperator::OpFailureScope::kDefault);
+  }
+#endif
+
   return std::visit(std::forward<Visitor>(visitor),
                     std::move(merge_out.new_value));
 }
@@ -159,6 +172,17 @@ Status MergeHelper::TimedFullMergeImpl(
         } else {
           result->assign(operand.data(), operand.size());
         }
+
+        return Status::OK();
+      },
+      [&](std::monostate) -> Status {
+        *result_type = kTypeDeletion;
+
+        if (result_operand) {
+          *result_operand = Slice(nullptr, 0);
+        }
+
+        result->clear();
 
         return Status::OK();
       }};
@@ -247,6 +271,15 @@ Status MergeHelper::TimedFullMergeImpl(
         result_entity->SetPlainValue(operand);
 
         return Status::OK();
+      },
+      [&](std::monostate) -> Status {
+        // Merge operator signaled deletion. Return NotFound with the
+        // dedicated `kMergeOperatorDeletion` subcode so that point-lookup
+        // callers (Get/MultiGet) and downstream consumers
+        // (WriteBatchWithIndex / transactions) can distinguish "merge
+        // resolved to delete" from a true "key absent" NotFound without
+        // overloading the plain `IsNotFound()` predicate.
+        return Status::NotFound(Status::SubCode::kMergeOperatorDeletion);
       }};
 
   Status s = TimedFullMergeCommonImpl(
@@ -320,6 +353,21 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
 
   bool hit_the_next_user_key = false;
   int cmp_with_full_history_ts_low = 0;
+  auto is_same_user_key_history = [&](const ParsedInternalKey& parsed_key,
+                                      const Slice& user_key,
+                                      int cmp_with_history_low) {
+    return user_comparator_->EqualWithoutTimestamp(parsed_key.user_key,
+                                                   user_key) &&
+           (ts_sz == 0 ||
+            user_comparator_->Equal(parsed_key.user_key, user_key) ||
+            cmp_with_history_low < 0);
+  };
+  auto should_stop_before_snapshot = [&](SequenceNumber sequence) {
+    return stop_before > 0 && sequence <= stop_before &&
+           LIKELY(snapshot_checker_ == nullptr ||
+                  snapshot_checker_->CheckInSnapshot(sequence, stop_before) !=
+                      SnapshotCheckerResult::kNotInSnapshot);
+  };
   for (; iter->Valid(); iter->Next(), original_key_is_iter = false) {
     if (IsShuttingDown()) {
       s = Status::ShutdownInProgress();
@@ -354,21 +402,14 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // timestamps are equal, as a sanity check.
       assert(user_comparator_->Equal(ikey.user_key, orig_ikey.user_key));
       first_key = false;
-    } else if (!user_comparator_->EqualWithoutTimestamp(ikey.user_key,
-                                                        orig_ikey.user_key) ||
-               (ts_sz > 0 &&
-                !user_comparator_->Equal(ikey.user_key, orig_ikey.user_key) &&
-                cmp_with_full_history_ts_low >= 0)) {
+    } else if (!is_same_user_key_history(ikey, orig_ikey.user_key,
+                                         cmp_with_full_history_ts_low)) {
       // 1) hit a different user key, or
       // 2) user-defined timestamp is enabled, and hit a version of user key NOT
       // eligible for GC, then stop right here.
       hit_the_next_user_key = true;
       break;
-    } else if (stop_before > 0 && ikey.sequence <= stop_before &&
-               LIKELY(snapshot_checker_ == nullptr ||
-                      snapshot_checker_->CheckInSnapshot(ikey.sequence,
-                                                         stop_before) !=
-                          SnapshotCheckerResult::kNotInSnapshot)) {
+    } else if (should_stop_before_snapshot(ikey.sequence)) {
       // hit an entry that's possibly visible by the previous snapshot, can't
       // touch that
       break;
@@ -484,21 +525,107 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // We store the result in keys_.back() and operands_.back()
       // if nothing went wrong (i.e.: no operand corruption on disk)
       if (s.ok()) {
-        // The original key encountered
-        original_key = std::move(keys_.back());
+        if (merge_result_type == kTypeDeletion) {
+          if (at_bottom) {
+            // At the bottommost level: no lower levels can hold older
+            // versions of this key, so we can drop it entirely. We must
+            // not emit a kTypeDeletion tombstone here because the
+            // compaction iterator's PrepareOutput() asserts that deletion
+            // entries have already been removed at the bottommost level.
+            //
+            // CRITICAL: when the chain is dropped at the bottommost level,
+            // we must ALSO consume older entries for the same user key that
+            // are hidden by the consumed base. Otherwise the compaction
+            // iterator -- which will see `has_current_user_key_` reset to
+            // false because no output was produced -- would start a new merge
+            // chain from those older entries and surface them as a live value.
+            // Stop at snapshot and timestamp-GC boundaries, though: entries
+            // past those boundaries may still be visible and must be emitted
+            // separately.
+            //
+            // Snapshot the user key into stable scratch storage BEFORE
+            // clearing `keys_`, because `orig_ikey.user_key` is a Slice
+            // backed by `keys_.back()` and the clear() below would free
+            // that storage. Reading it afterwards inside the skip-loop
+            // would be a use-after-free.
+            user_key_to_skip_.assign(orig_ikey.user_key.data(),
+                                     orig_ikey.user_key.size());
+            keys_.clear();
+            merge_context_.Clear();
+            orig_ikey.user_key = Slice();
+            iter->Next();
+            while (iter->Valid()) {
+              if (iter->IsDeleteRangeSentinelKey()) {
+                iter->Next();
+                continue;
+              }
+              ParsedInternalKey next_ikey;
+              Status pik_s = ParseInternalKey(iter->key(), &next_ikey,
+                                              allow_data_in_errors);
+              if (!pik_s.ok()) {
+                if (assert_valid_internal_key_) {
+                  return pik_s;
+                }
+                break;
+              }
+              int next_cmp_with_full_history_ts_low = 0;
+              if (full_history_ts_low) {
+                Slice next_ts =
+                    ExtractTimestampFromUserKey(next_ikey.user_key, ts_sz);
+                next_cmp_with_full_history_ts_low =
+                    user_comparator_->CompareTimestamp(next_ts,
+                                                       *full_history_ts_low);
+              }
+              if (!is_same_user_key_history(
+                      next_ikey, user_key_to_skip_,
+                      next_cmp_with_full_history_ts_low)) {
+                break;
+              }
+              if (should_stop_before_snapshot(next_ikey.sequence)) {
+                break;
+              }
+              iter->Next();
+            }
+          } else {
+            // Not at the bottommost level: produce a deletion tombstone
+            // so that older versions on lower levels are properly
+            // suppressed.
+            original_key = std::move(keys_.back());
+            orig_ikey.type = kTypeDeletion;
+            UpdateInternalKey(&original_key, orig_ikey.sequence,
+                              orig_ikey.type);
 
-        assert(merge_result_type == kTypeValue ||
-               merge_result_type == kTypeWideColumnEntity);
-        orig_ikey.type = merge_result_type;
-        UpdateInternalKey(&original_key, orig_ikey.sequence, orig_ikey.type);
+            keys_.clear();
+            merge_context_.Clear();
+            keys_.emplace_front(std::move(original_key));
+            // Empty operand body for the synthesized deletion. Use
+            // `Slice("", 0)` (a static empty string) rather than a default-
+            // constructed `Slice()` whose `data()` is `nullptr`, so callers
+            // that may dereference `data()` on an empty operand (defensive
+            // memcpy implementations, etc.) remain safe. Pinning is OK
+            // because the static empty string outlives the merge context.
+            merge_context_.PushOperand(Slice("", 0), true /* operand_pinned */);
 
-        keys_.clear();
-        merge_context_.Clear();
-        keys_.emplace_front(std::move(original_key));
-        merge_context_.PushOperand(merge_result);
+            // move iter to the next entry
+            iter->Next();
+          }
+        } else {
+          // The original key encountered
+          original_key = std::move(keys_.back());
 
-        // move iter to the next entry
-        iter->Next();
+          assert(merge_result_type == kTypeValue ||
+                 merge_result_type == kTypeWideColumnEntity);
+          orig_ikey.type = merge_result_type;
+          UpdateInternalKey(&original_key, orig_ikey.sequence, orig_ikey.type);
+
+          keys_.clear();
+          merge_context_.Clear();
+          keys_.emplace_front(std::move(original_key));
+          merge_context_.PushOperand(merge_result);
+
+          // move iter to the next entry
+          iter->Next();
+        }
       } else if (op_failure_scope ==
                  MergeOperator::OpFailureScope::kMustMerge) {
         // Change to `Status::MergeInProgress()` to denote output consists of
@@ -626,20 +753,27 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                        &merge_result,
                        /* result_operand */ nullptr, &merge_result_type);
     if (s.ok()) {
-      // The original key encountered
-      // We are certain that keys_ is not empty here (see assertions couple of
-      // lines before).
-      original_key = std::move(keys_.back());
+      if (merge_result_type == kTypeDeletion) {
+        // Merge operator signaled deletion. We've seen the entire history
+        // of this key (at bottom), so we can safely drop it entirely.
+        keys_.clear();
+        merge_context_.Clear();
+      } else {
+        // The original key encountered
+        // We are certain that keys_ is not empty here (see assertions couple
+        // of lines before).
+        original_key = std::move(keys_.back());
 
-      assert(merge_result_type == kTypeValue ||
-             merge_result_type == kTypeWideColumnEntity);
-      orig_ikey.type = merge_result_type;
-      UpdateInternalKey(&original_key, orig_ikey.sequence, orig_ikey.type);
+        assert(merge_result_type == kTypeValue ||
+               merge_result_type == kTypeWideColumnEntity);
+        orig_ikey.type = merge_result_type;
+        UpdateInternalKey(&original_key, orig_ikey.sequence, orig_ikey.type);
 
-      keys_.clear();
-      merge_context_.Clear();
-      keys_.emplace_front(std::move(original_key));
-      merge_context_.PushOperand(merge_result);
+        keys_.clear();
+        merge_context_.Clear();
+        keys_.emplace_front(std::move(original_key));
+        merge_context_.PushOperand(merge_result);
+      }
     } else if (op_failure_scope == MergeOperator::OpFailureScope::kMustMerge) {
       // Change to `Status::MergeInProgress()` to denote output consists of
       // merge operands only.

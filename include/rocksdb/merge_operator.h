@@ -188,13 +188,84 @@ class MergeOperator : public Customizable {
 
   struct MergeOperationOutputV3 {
     using NewColumns = std::vector<std::pair<std::string, std::string>>;
-    using NewValue = std::variant<std::string, NewColumns, Slice>;
+    // IMPORTANT: the order of alternatives in `NewValue` is load-bearing.
+    // `std::string` MUST remain the FIRST alternative so that a
+    // default-constructed `NewValue` holds an empty `std::string`, NOT a
+    // `std::monostate` (which would silently mean "delete this key").
+    // FullMergeV3 implementations that return `true` without explicitly
+    // assigning to `new_value` thus produce an empty value -- the same
+    // behavior they had before `std::monostate` was added. Reordering
+    // alternatives in this variant is a silent semantic change and is
+    // forbidden without a major version bump.
+    using NewValue =
+        std::variant<std::string, NewColumns, Slice, std::monostate>;
 
-    // The result of the merge operation. Can be one of three things (see the
-    // NewValue variant above): a new plain value, a new wide-column value, or
-    // an existing merge operand.
+    // Static check to make the invariant above mechanically enforced.
+    static_assert(
+        std::is_same_v<std::variant_alternative_t<0, NewValue>, std::string>,
+        "std::string must remain the first alternative of "
+        "MergeOperationOutputV3::NewValue so that default "
+        "construction yields an empty value, not a deletion.");
+    static_assert(
+        std::is_same_v<std::variant_alternative_t<3, NewValue>, std::monostate>,
+        "std::monostate must remain the last alternative of "
+        "MergeOperationOutputV3::NewValue. Reordering changes the "
+        "default-constructed semantics and silently breaks "
+        "FullMergeV3 implementations that rely on the existing "
+        "default-of-empty-string contract.");
+
+    // The result of the merge operation. Can be one of four things (see the
+    // NewValue variant above):
+    //  - std::string: a new plain value
+    //  - NewColumns: a new wide-column value
+    //  - Slice: an existing merge operand (zero-copy reference)
+    //  - std::monostate: the key should be deleted
+    //
+    // When std::monostate is set, the merge result is treated as a deletion:
+    //  - During Get() / MultiGet(): returns Status::NotFound() (with the
+    //    subcode Status::SubCode::kMergeOperatorDeletion -- see notes below).
+    //  - During iteration: the key is skipped (not visible) in both forward
+    //    and reverse iteration.
+    //  - During compaction: produces a kTypeDeletion tombstone for use by
+    //    lower levels, or drops the key entirely when the full history of
+    //    the key has been seen (bottommost level with no pending snapshot
+    //    boundaries between the merge and the bottom of the LSM).
+    //  - For merge-on-write (max_successive_merges): the merge is folded
+    //    into the memtable as a kTypeDeletion entry.
+    //
+    // Typical use cases enabled by std::monostate:
+    //  - Counters that auto-delete when they reach zero -- without needing
+    //    a separate compaction filter.
+    //  - Conditional mutations (e.g. "delete the key if the operand sequence
+    //    represents a tombstoning command").
+    //  - Cassandra-style row expiration based on TTLs embedded in operands.
+    //
+    // On-disk format: there is no new SST format. Compaction materializes
+    // the deletion as an ordinary `kTypeDeletion` entry, so SSTs produced
+    // by a build with this feature are readable by older RocksDB binaries.
+    //
+    // Interaction with PartialMerge / PartialMergeMulti: deletion can only
+    // be signaled from FullMergeV3. Operand-only partial merges have no
+    // base value and therefore cannot decide a final outcome; if your merge
+    // operator may need to delete the key, return `false` from
+    // `PartialMerge` / `PartialMergeMulti` so the operands are deferred to
+    // the next full merge.
+    //
+    // Interaction with `op_failure_scope`: `op_failure_scope` is only
+    // meaningful when the operator returns `false`. When the operator
+    // returns `true` AND `new_value` is `std::monostate`, the merge is a
+    // SUCCESS and `op_failure_scope` is IGNORED. Setting both is a
+    // contract error and will trip a debug assertion.
+    //
+    // Interaction with `WriteBatchWithIndex` and transactions: monostate
+    // results are propagated correctly through `GetFromBatchAndDB`,
+    // `Transaction::Get`, and the WBWI base+delta iterator: deletions
+    // appear as `Status::NotFound()` (with subcode
+    // `kMergeOperatorDeletion`) and iterator entries are skipped.
     NewValue new_value;
     // The scope of the failure if applicable. See above for more details.
+    // Note: ignored when `new_value` holds `std::monostate` because in that
+    // case the merge is a success, not a failure.
     OpFailureScope op_failure_scope = OpFailureScope::kDefault;
   };
 
