@@ -266,6 +266,14 @@ The following patterns emerged as frequent sources of review feedback:
 ### Stress test
 * When adding a new feature, make sure stress test covers the new option.
 
+### Component docs
+* For component-level design notes and implementation walkthroughs, start with
+    `docs/components/index.md`.
+* Documentation under `docs/components/` is organized by subsystem in
+    `docs/components/<area>/`.
+* Each subsystem directory should have an `index.md` entry point plus focused
+    chapter files for deeper topics.
+
 ### DB bench update
 * When adding a performance related feature, support it in db_bench
 
