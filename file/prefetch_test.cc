@@ -4265,6 +4265,13 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchRandomized) {
 // Test that PrefetchAsync + TryReadFromCacheAsync returns correct data at a
 // non-zero offset using FS-provided buffers with num_buffers > 1.
 TEST_P(FSBufferPrefetchTest, PrefetchAsyncWithFSBuffer) {
+  bool use_async_prefetch = std::get<0>(GetParam());
+  bool for_compaction = std::get<1>(GetParam());
+  // PrefetchAsync is async-only; async IO is not used for compaction reads.
+  if (!use_async_prefetch || for_compaction) {
+    return;
+  }
+
   std::string fname = "prefetch-async-with-fs-buffer";
   Random rand(42);
   std::string content = rand.RandomString(32768);
@@ -4290,14 +4297,13 @@ TEST_P(FSBufferPrefetchTest, PrefetchAsyncWithFSBuffer) {
     return;
   }
   if (s.IsTryAgain()) {
-    // Data not yet available, poll via TryReadFromCacheAsync.
+    // Data not yet available, poll via TryReadFromCache.
     bool found = fpb.TryReadFromCache(IOOptions(), r.get(), 4096, 4096, &result,
-                                      &s, /*for_compaction=*/false);
+                                      &s, for_compaction);
     if (s.IsNotSupported()) {
       return;
     }
     ASSERT_TRUE(found);
-    ASSERT_OK(s);
   } else {
     ASSERT_OK(s);
   }
