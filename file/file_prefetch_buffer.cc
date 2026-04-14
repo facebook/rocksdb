@@ -530,7 +530,36 @@ Status FilePrefetchBuffer::HandleOverlappingAsyncData(
     size_t length, size_t readahead_size, bool& copy_to_overlap_buffer,
     uint64_t& tmp_offset, size_t& tmp_length) {
   // No Overlapping of data between 2 buffers.
-  if (IsBufferQueueEmpty() || NumBuffersAllocated() == 1) {
+  if (IsBufferQueueEmpty() || num_buffers_ == 1) {
+    return Status::OK();
+  }
+
+  if (NumBuffersAllocated() == 1) {
+    if (UseFSBuffer(reader)) {
+      BufferInfo* buf = GetFirstBuffer();
+      // Poll if the remaining buffer has an async read in progress.
+      if (buf->async_read_in_progress_ &&
+          buf->IsOffsetInBufferWithAsyncProgress(offset)) {
+        Status poll_status = PollIfNeeded(offset, length);
+        if (!poll_status.ok()) {
+          return poll_status;
+        }
+      }
+      // Single buffer remaining with partial data and FS buffer reuse:
+      // copy available bytes to overlap_buf_ for PrefetchInternal to complete.
+      if (!buf->async_read_in_progress_ && buf->DoesBufferContainData() &&
+          buf->IsOffsetInBuffer(offset) &&
+          buf->offset_ + buf->CurrentSize() < offset + length) {
+        size_t alignment = GetRequiredBufferAlignment(reader);
+        overlap_buf_->ClearBuffer();
+        overlap_buf_->buffer_.Alignment(alignment);
+        overlap_buf_->buffer_.AllocateNewBuffer(length);
+        overlap_buf_->offset_ = offset;
+        copy_to_overlap_buffer = true;
+        CopyDataToOverlapBuffer(buf, tmp_offset, tmp_length);
+        UpdateStats(/*found_in_buffer=*/false, overlap_buf_->CurrentSize());
+      }
+    }
     return Status::OK();
   }
 

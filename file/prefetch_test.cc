@@ -3845,6 +3845,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   }
   size_t num_buffers = use_async_prefetch ? 2 : 1;
   readahead_params.num_buffers = num_buffers;
+  bool use_fs_buffer = CheckFSFeatureSupport(fs(), FSSupportedOps::kFSBuffer);
 
   FilePrefetchBuffer fpb(
       readahead_params, true /* enable */, false /* track_min_offset */, fs(),
@@ -3926,17 +3927,29 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
 
   if (use_async_prefetch) {
-    // Our buffers were 0-8192, 8192-12288 at the start so we had some
-    // overlapping data in the second buffer
-    // We clean up outdated buffers so 0-8192 gets freed for more prefetching.
-    // Our remaining buffer 8192-12288 has data that we want, so we can reuse it
-    // We end up with: 8192-20480, 20480-24576
-    ASSERT_EQ(overlap_buffer_info.first, 0);
-    ASSERT_EQ(overlap_buffer_info.second, 0);
-    ASSERT_EQ(std::get<0>(buffer_info[0]), 8192);
-    ASSERT_EQ(std::get<1>(buffer_info[0]), 8192 + 8192 / 2);
-    ASSERT_EQ(std::get<0>(buffer_info[1]), 8192 + (8192 + 8192 / 2));
-    ASSERT_EQ(std::get<1>(buffer_info[1]), 8192 / 2);
+    if (use_fs_buffer) {
+      // With FS buffer reuse, the remaining buffer 8192-12288 has partial data.
+      // We poll it and copy to overlap_buf_, then sync read fills the rest.
+      ASSERT_EQ(overlap_buffer_info.first, 8192);
+      ASSERT_EQ(overlap_buffer_info.second, 8192);
+      ASSERT_EQ(overlap_buffer_write_ct, 2);
+      ASSERT_EQ(std::get<0>(buffer_info[0]), 12288);
+      ASSERT_EQ(std::get<1>(buffer_info[0]), 8192);
+      ASSERT_EQ(std::get<0>(buffer_info[1]), 20480);
+      ASSERT_EQ(std::get<1>(buffer_info[1]), 8192 / 2);
+    } else {
+      // Our buffers were 0-8192, 8192-12288 at the start so we had some
+      // overlapping data in the second buffer
+      // We clean up outdated buffers so 0-8192 gets freed for more prefetching.
+      // Our remaining buffer 8192-12288 has data that we want, so we can reuse
+      // it. We end up with: 8192-20480, 20480-24576
+      ASSERT_EQ(overlap_buffer_info.first, 0);
+      ASSERT_EQ(overlap_buffer_info.second, 0);
+      ASSERT_EQ(std::get<0>(buffer_info[0]), 8192);
+      ASSERT_EQ(std::get<1>(buffer_info[0]), 8192 + 8192 / 2);
+      ASSERT_EQ(std::get<0>(buffer_info[1]), 8192 + (8192 + 8192 / 2));
+      ASSERT_EQ(std::get<1>(buffer_info[1]), 8192 / 2);
+    }
   } else {
     // We only have 0-12288 cached, so reading from 8192-16384 will trigger a
     // prefetch up through 16384 + 8192 = 24576.
@@ -3966,13 +3979,24 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
 
   if (use_async_prefetch) {
-    // Same as before: 8192-20480, 20480-24576 (cache hit in first buffer)
-    ASSERT_EQ(overlap_buffer_info.first, 0);
-    ASSERT_EQ(overlap_buffer_info.second, 0);
-    ASSERT_EQ(std::get<0>(buffer_info[0]), 8192);
-    ASSERT_EQ(std::get<1>(buffer_info[0]), 8192 + 8192 / 2);
-    ASSERT_EQ(std::get<0>(buffer_info[1]), 8192 + (8192 + 8192 / 2));
-    ASSERT_EQ(std::get<1>(buffer_info[1]), 8192 / 2);
+    if (use_fs_buffer) {
+      // Cache hit in first buffer 12288-20480, state unchanged.
+      ASSERT_EQ(overlap_buffer_info.first, 8192);
+      ASSERT_EQ(overlap_buffer_info.second, 8192);
+      ASSERT_EQ(overlap_buffer_write_ct, 2);
+      ASSERT_EQ(std::get<0>(buffer_info[0]), 12288);
+      ASSERT_EQ(std::get<1>(buffer_info[0]), 8192);
+      ASSERT_EQ(std::get<0>(buffer_info[1]), 20480);
+      ASSERT_EQ(std::get<1>(buffer_info[1]), 8192 / 2);
+    } else {
+      // Same as before: 8192-20480, 20480-24576 (cache hit in first buffer)
+      ASSERT_EQ(overlap_buffer_info.first, 0);
+      ASSERT_EQ(overlap_buffer_info.second, 0);
+      ASSERT_EQ(std::get<0>(buffer_info[0]), 8192);
+      ASSERT_EQ(std::get<1>(buffer_info[0]), 8192 + 8192 / 2);
+      ASSERT_EQ(std::get<0>(buffer_info[1]), 8192 + (8192 + 8192 / 2));
+      ASSERT_EQ(std::get<1>(buffer_info[1]), 8192 / 2);
+    }
   } else {
     // The main buffer has 12288-24576, so 12288-16384 is a cache hit.
     // Overlap buffer does not get used
@@ -4002,19 +4026,33 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
   if (use_async_prefetch) {
-    // Overlap buffer reuses bytes 16000 to 20480
-    ASSERT_EQ(overlap_buffer_info.first, 16000);
-    ASSERT_EQ(overlap_buffer_info.second, 10000);
-    // First 2 writes are reusing existing 2 buffers. Last write fills in
-    // what could not be found in either.
-    ASSERT_EQ(overlap_buffer_write_ct, 3);
-    ASSERT_EQ(std::get<0>(buffer_info[0]), 24576);
-    ASSERT_EQ(std::get<1>(buffer_info[0]), 32768 - 24576);
-    ASSERT_EQ(std::get<0>(buffer_info[1]), 32768);
-    ASSERT_EQ(std::get<1>(buffer_info[1]), 4096);
-    ASSERT_TRUE(std::get<2>(
-        buffer_info[1]));  // in progress async request (otherwise we should not
-                           // be getting 4096 for the size)
+    if (use_fs_buffer) {
+      // Overlap buffer reuses bytes 16000 to 20480 from buf[0], 20480-24576
+      // from buf[1], and sync read fills 24576-26000.
+      ASSERT_EQ(overlap_buffer_info.first, 16000);
+      ASSERT_EQ(overlap_buffer_info.second, 10000);
+      // 2 writes from Read 2 overlap + 3 writes from this read.
+      ASSERT_EQ(overlap_buffer_write_ct, 5);
+      ASSERT_EQ(std::get<0>(buffer_info[0]), 24576);
+      ASSERT_EQ(std::get<1>(buffer_info[0]), 30096 - 24576);
+      ASSERT_EQ(std::get<0>(buffer_info[1]), 30096);
+      ASSERT_EQ(std::get<1>(buffer_info[1]), 4096);
+      ASSERT_TRUE(std::get<2>(buffer_info[1]));
+    } else {
+      // Overlap buffer reuses bytes 16000 to 20480
+      ASSERT_EQ(overlap_buffer_info.first, 16000);
+      ASSERT_EQ(overlap_buffer_info.second, 10000);
+      // First 2 writes are reusing existing 2 buffers. Last write fills in
+      // what could not be found in either.
+      ASSERT_EQ(overlap_buffer_write_ct, 3);
+      ASSERT_EQ(std::get<0>(buffer_info[0]), 24576);
+      ASSERT_EQ(std::get<1>(buffer_info[0]), 32768 - 24576);
+      ASSERT_EQ(std::get<0>(buffer_info[1]), 32768);
+      ASSERT_EQ(std::get<1>(buffer_info[1]), 4096);
+      ASSERT_TRUE(std::get<2>(
+          buffer_info[1]));  // in progress async request (otherwise we should
+                             // not be getting 4096 for the size)
+    }
   } else {
     // Overlap buffer reuses bytes 16000 to 24576
     ASSERT_EQ(overlap_buffer_info.first, 16000);
