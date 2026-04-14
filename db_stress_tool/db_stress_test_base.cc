@@ -1396,11 +1396,11 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (thread->rand.OneInOpt(FLAGS_key_may_exist_one_in)) {
         TestKeyMayExist(thread, read_opts, rand_column_families, rand_keys);
       }
-      // Prefix-recoverability relies on tracing successful user writes.
-      // Currently we trace all user writes regardless of whether it later
-      // succeeds or not. To simplify, we disable any fault injection during
-      // user write.
-      // TODO(hx235): support tracing user writes with fault injection.
+      // Historical expected-state restore replays exactly
+      // `db->GetLatestSequenceNumber() - saved_seqno_` write ops from the
+      // trace. Missing trace entries are fatal, while extra suffix entries are
+      // tolerated. Keep fault injection disabled during user writes until each
+      // injected failure mode is audited against that contract.
       bool disable_fault_injection_during_user_write =
           fault_fs_guard && MightHaveUnsyncedDataLoss();
       int prob_op = thread->rand.Uniform(100);
