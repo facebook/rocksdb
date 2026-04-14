@@ -9,10 +9,14 @@
 
 #include "table/merging_iterator.h"
 
+#include <utility>
+
 #include "db/arena_wrapped_db_iter.h"
 #include "monitoring/file_read_sample.h"
+#include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
+
 // MergingIterator uses a min/max heap to combine data from point iterators.
 // Range tombstones can be added and keys covered by range tombstones will be
 // skipped.
@@ -1084,10 +1088,6 @@ void MergingIterator::SeekForPrevImpl(const Slice& target,
   // active range tombstones before `starting_level` remain active
   ClearHeaps(false /* clear_active */);
   InitMaxHeap();
-  ParsedInternalKey pik;
-  if (!range_tombstone_iters_.empty()) {
-    ParseInternalKey(target, &pik, false).PermitUncheckedError();
-  }
   for (size_t level = 0; level < starting_level; ++level) {
     PERF_TIMER_GUARD(seek_max_heap_time);
     AddToMaxHeapOrCheckStatus(&children_[level]);
@@ -1138,9 +1138,20 @@ void MergingIterator::SeekForPrevImpl(const Slice& target,
       if (range_tombstone_iter) {
         range_tombstone_iter->SeekForPrev(current_search_key.GetUserKey());
         if (range_tombstone_iter->Valid()) {
-          InsertRangeTombstoneToMaxHeap(
-              level, comparator_->Compare(range_tombstone_iter->end_key(),
-                                          pik) <= 0 /* end_key */);
+          // Reverse cascading seek can move left after encountering a newer
+          // tombstone. Classify this tombstone against the moved seek key, not
+          // the original target, or older tombstones can be inserted in the
+          // wrong active/inactive state.
+          const bool choose_end =
+              comparator_->Compare(range_tombstone_iter->end_key(),
+                                   current_search_key.GetInternalKey()) <= 0;
+#ifndef NDEBUG
+          std::pair<size_t, bool> sync_point_arg(level, choose_end);
+          TEST_SYNC_POINT_CALLBACK(
+              "MergingIterator::SeekForPrevImpl:RangeTombstoneChoice",
+              &sync_point_arg);
+#endif
+          InsertRangeTombstoneToMaxHeap(level, choose_end);
           // start key <= current_search_key guaranteed by the Seek() call above
           // Only interested in user key coverage since older sorted runs must
           // have smaller sequence numbers than this tombstone.
