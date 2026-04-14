@@ -122,6 +122,69 @@ class DBCrashTestTest(unittest.TestCase):
         self.assertEqual(1, finalized["disable_wal"])
         self.assertEqual(0, finalized["test_batches_snapshots"])
 
+    def test_strip_expected_sigterm_stderr_suppresses_only_known_lines(self):
+        db_crashtest = self.load_db_crashtest()
+        stdout = "Received signal 15 (Terminated)\n"
+        stderr = (
+            "PosixRandomAccessFile::MultiRead: io_uring_submit_and_wait "
+            "returned terminal error: -9.\n"
+            "PosixRandomAccessFile::MultiRead: io_uring_submit_and_wait "
+            "returned terminal error: -9.\n"
+        )
+
+        filtered_stdout, filtered_stderr = db_crashtest.strip_expected_sigterm_stderr(
+            stdout, stderr, True
+        )
+
+        self.assertEqual("", filtered_stderr)
+        self.assertEqual(
+            stdout
+            + "Ignored expected post-SIGTERM stderr while handling timeout:\n"
+            + stderr,
+            filtered_stdout,
+        )
+
+    def test_strip_expected_sigterm_stderr_preserves_other_stderr(self):
+        db_crashtest = self.load_db_crashtest()
+        stdout = "Received signal 15 (Terminated)\n"
+        ignored_line = (
+            "PosixRandomAccessFile::MultiRead: io_uring_submit_and_wait "
+            "returned terminal error: -9.\n"
+        )
+        kept_line = "Different stderr line\n"
+        stderr = ignored_line + kept_line
+
+        filtered_stdout, filtered_stderr = db_crashtest.strip_expected_sigterm_stderr(
+            stdout, stderr, True
+        )
+
+        self.assertEqual(kept_line, filtered_stderr)
+        self.assertEqual(
+            stdout
+            + "Ignored expected post-SIGTERM stderr while handling timeout:\n"
+            + ignored_line,
+            filtered_stdout,
+        )
+
+    def test_strip_expected_sigterm_stderr_requires_timeout_and_sigterm_marker(self):
+        db_crashtest = self.load_db_crashtest()
+        stderr = (
+            "PosixRandomAccessFile::MultiRead: io_uring_submit_and_wait "
+            "returned terminal error: -9.\n"
+        )
+
+        filtered_stdout, filtered_stderr = db_crashtest.strip_expected_sigterm_stderr(
+            "Received signal 15 (Terminated)\n", stderr, False
+        )
+        self.assertEqual("Received signal 15 (Terminated)\n", filtered_stdout)
+        self.assertEqual(stderr, filtered_stderr)
+
+        filtered_stdout, filtered_stderr = db_crashtest.strip_expected_sigterm_stderr(
+            "other stdout\n", stderr, True
+        )
+        self.assertEqual("other stdout\n", filtered_stdout)
+        self.assertEqual(stderr, filtered_stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
