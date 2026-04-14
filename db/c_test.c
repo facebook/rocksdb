@@ -948,6 +948,19 @@ int main(int argc, char** argv) {
   CheckNoError(err);
   CheckGet(db, roptions, "foo", "hello");
 
+  StartPhase("set_db_options");
+  {
+    const char* keys[] = {"stats_dump_period_sec"};
+    const char* values[] = {"10"};
+    rocksdb_set_db_options(db, 1, keys, values, &err);
+    CheckNoError(err);
+
+    keys[0] = "not_a_db_option";
+    rocksdb_set_db_options(db, 1, keys, values, &err);
+    CheckCondition(err != NULL);
+    Free(&err);
+  }
+
   StartPhase("backup_and_restore");
   {
     rocksdb_destroy_db(options, dbbackupname, &err);
