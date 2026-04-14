@@ -60,6 +60,19 @@ void AppendVarint64(IterKey* key, uint64_t v) {
   key->TrimAppend(key->Size(), buf, ptr - buf);
 }
 
+void MaybeCaptureFileOpenMetadata(bool fast_sst_open,
+                                  FSRandomAccessFile* file,
+                                  std::string* file_open_metadata) {
+  if (!fast_sst_open || file == nullptr || file_open_metadata == nullptr) {
+    return;
+  }
+  file_open_metadata->clear();
+  IOStatus io_s = file->GetFileOpenMetadata(file_open_metadata);
+  if (!io_s.ok()) {
+    file_open_metadata->clear();
+  }
+}
+
 }  // anonymous namespace
 
 const int kLoadConcurency = 128;
@@ -95,7 +108,8 @@ Status TableCache::GetTableReader(
     HistogramImpl* file_read_hist, std::unique_ptr<TableReader>* table_reader,
     const MutableCFOptions& mutable_cf_options, bool skip_filters, int level,
     bool prefetch_index_and_filter_in_cache,
-    size_t max_file_size_for_l0_meta_pin, Temperature file_temperature) {
+    size_t max_file_size_for_l0_meta_pin, Temperature file_temperature,
+    std::string* file_open_metadata) {
   std::string fname = TableFileName(
       ioptions_.cf_paths, file_meta.fd.GetNumber(), file_meta.fd.GetPathId());
   std::unique_ptr<FSRandomAccessFile> file;
@@ -103,6 +117,11 @@ Status TableCache::GetTableReader(
   fopts.temperature = file_temperature;
   fopts.file_checksum = file_meta.file_checksum;
   fopts.file_checksum_func_name = file_meta.file_checksum_func_name;
+  std::string attached_file_open_metadata;
+  if (ioptions_.fast_sst_open && !file_meta.file_open_metadata.empty()) {
+    attached_file_open_metadata = file_meta.file_open_metadata;
+    fopts.file_metadata = &attached_file_open_metadata;
+  }
   Status s = PrepareIOFromReadOptions(ro, ioptions_.clock, fopts.io_options);
   TEST_SYNC_POINT_CALLBACK("TableCache::GetTableReader:BeforeOpenFile",
                            const_cast<Status*>(&s));
@@ -127,6 +146,8 @@ Status TableCache::GetTableReader(
   }
 
   if (s.ok()) {
+    MaybeCaptureFileOpenMetadata(ioptions_.fast_sst_open, file.get(),
+                                 file_open_metadata);
     if (!sequential_mode && ioptions_.advise_random_on_open) {
       file->Hint(FSRandomAccessFile::kRandom);
     }
@@ -181,7 +202,7 @@ Status TableCache::FindTable(
     const bool no_io, HistogramImpl* file_read_hist, bool skip_filters,
     int level, bool prefetch_index_and_filter_in_cache,
     size_t max_file_size_for_l0_meta_pin, Temperature file_temperature,
-    bool pin_table_handle) {
+    bool pin_table_handle, std::string* file_open_metadata) {
   assert(out_table_reader != nullptr && *out_table_reader == nullptr);
   assert(handle != nullptr && *handle == nullptr);
   PERF_TIMER_GUARD_WITH_CLOCK(find_table_nanos, ioptions_.clock);
@@ -226,7 +247,8 @@ Status TableCache::FindTable(
                          false /* sequential mode */, file_read_hist,
                          &table_reader, mutable_cf_options, skip_filters, level,
                          prefetch_index_and_filter_in_cache,
-                         max_file_size_for_l0_meta_pin, file_temperature);
+                         max_file_size_for_l0_meta_pin, file_temperature,
+                         file_open_metadata);
       if (!s.ok()) {
         assert(table_reader == nullptr);
         RecordTick(ioptions_.stats, NO_FILE_ERRORS);
@@ -280,7 +302,7 @@ InternalIterator* TableCache::NewIterator(
     const InternalKey* largest_compaction_key, bool allow_unprepared_value,
     const SequenceNumber* read_seqno,
     std::unique_ptr<TruncatedRangeDelIterator>* range_del_iter,
-    bool maybe_pin_table_handle) {
+    bool maybe_pin_table_handle, std::string* file_open_metadata) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   Status s;
@@ -298,7 +320,8 @@ InternalIterator* TableCache::NewIterator(
                 file_read_hist, skip_filters, level,
                 true /* prefetch_index_and_filter_in_cache */,
                 max_file_size_for_l0_meta_pin, file_meta.temperature,
-                maybe_pin_table_handle && should_pin_table_handles_);
+                maybe_pin_table_handle && should_pin_table_handles_,
+                file_open_metadata);
   InternalIterator* result = nullptr;
   if (s.ok()) {
     if (options.table_filter &&

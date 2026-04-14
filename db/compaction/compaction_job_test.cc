@@ -1686,6 +1686,7 @@ TEST_F(CompactionJobTest, ResultSerialization) {
         file_checksum_func_name /* file_checksum_func_name */,
         rnd64.Uniform(UINT64_MAX) /* paranoid_hash */,
         rnd.OneIn(2) /* marked_for_compaction */, id /* unique_id */, tp,
+        rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen)) /* file_open_metadata */,
         false /* is_proximal_level_output */, Temperature::kHot);
   }
   result.output_level = rnd.Uniform(10);

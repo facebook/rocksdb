@@ -88,6 +88,15 @@ class DBBasicTest : public DBTestBase {
   DBBasicTest() : DBTestBase("db_basic_test", /*env_do_fsync=*/false) {}
 };
 
+class CloseDBOnExit {
+ public:
+  explicit CloseDBOnExit(DBTestBase* test) : test_(test) {}
+  ~CloseDBOnExit() { test_->Close(); }
+
+ private:
+  DBTestBase* test_;
+};
+
 TEST_F(DBBasicTest, OpenWhenOpen) {
   Options options = CurrentOptions();
   options.env = env_;
@@ -5782,7 +5791,24 @@ INSTANTIATE_TEST_CASE_P(DBBasicTestDeadline, DBBasicTestDeadline,
                                           std::make_tuple(true, true)));
 
 // FileSystemWrapper that captures FileOptions passed to NewRandomAccessFile
-// for .sst files, so we can verify file_checksum fields are populated.
+// for .sst files, so we can verify file_checksum and file_metadata fields are
+// populated.
+class MetadataAwareRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
+ public:
+  MetadataAwareRandomAccessFile(std::unique_ptr<FSRandomAccessFile>&& target,
+                                std::string metadata)
+      : FSRandomAccessFileOwnerWrapper(std::move(target)),
+        metadata_(std::move(metadata)) {}
+
+  IOStatus GetFileOpenMetadata(std::string* metadata) override {
+    *metadata = metadata_;
+    return IOStatus::OK();
+  }
+
+ private:
+  std::string metadata_;
+};
+
 class ChecksumCapturingFS : public FileSystemWrapper {
  public:
   explicit ChecksumCapturingFS(const std::shared_ptr<FileSystem>& base)
@@ -5799,9 +5825,17 @@ class ChecksumCapturingFS : public FileSystemWrapper {
       std::lock_guard<std::mutex> lock(mu_);
       captured_file_checksum_ = opts.file_checksum;
       captured_file_checksum_func_name_ = opts.file_checksum_func_name;
+      captured_has_file_metadata_ = opts.file_metadata != nullptr;
+      captured_file_metadata_ =
+          opts.file_metadata != nullptr ? *opts.file_metadata : "";
       capture_count_++;
     }
-    return target()->NewRandomAccessFile(fname, opts, result, dbg);
+    IOStatus io_s = target()->NewRandomAccessFile(fname, opts, result, dbg);
+    if (io_s.ok() && fname.find(".sst") != std::string::npos) {
+      *result = std::make_unique<MetadataAwareRandomAccessFile>(
+          std::move(*result), "fast-open-metadata:" + fname);
+    }
+    return io_s;
   }
 
   std::string GetCapturedFileChecksum() {
@@ -5819,10 +5853,22 @@ class ChecksumCapturingFS : public FileSystemWrapper {
     return capture_count_;
   }
 
+  bool HasCapturedFileMetadata() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return captured_has_file_metadata_;
+  }
+
+  std::string GetCapturedFileMetadata() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return captured_file_metadata_;
+  }
+
   void Reset() {
     std::lock_guard<std::mutex> lock(mu_);
     captured_file_checksum_.clear();
     captured_file_checksum_func_name_.clear();
+    captured_file_metadata_.clear();
+    captured_has_file_metadata_ = false;
     capture_count_ = 0;
   }
 
@@ -5830,8 +5876,258 @@ class ChecksumCapturingFS : public FileSystemWrapper {
   std::mutex mu_;
   std::string captured_file_checksum_;
   std::string captured_file_checksum_func_name_;
+  std::string captured_file_metadata_;
+  bool captured_has_file_metadata_ = false;
   int capture_count_ = 0;
 };
+
+class FileOpenMetadataCapturingFS : public FileSystemWrapper {
+ public:
+  explicit FileOpenMetadataCapturingFS(const std::shared_ptr<FileSystem>& base,
+                                       bool metadata_supported = true)
+      : FileSystemWrapper(base), metadata_supported_(metadata_supported) {}
+
+  static const char* kClassName() { return "FileOpenMetadataCapturingFS"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    if (fname.find(".sst") != std::string::npos) {
+      std::lock_guard<std::mutex> lock(mu_);
+      last_open_metadata_ =
+          opts.file_metadata != nullptr ? *opts.file_metadata : "";
+      if (!last_open_metadata_.empty()) {
+        ++open_with_metadata_count_;
+      }
+    }
+
+    std::unique_ptr<FSRandomAccessFile> file;
+    IOStatus s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+    if (!s.ok()) {
+      return s;
+    }
+    if (fname.find(".sst") == std::string::npos) {
+      *result = std::move(file);
+      return s;
+    }
+    result->reset(new MetadataRandomAccessFile(
+        std::move(file), MetadataForFile(fname), metadata_supported_, this));
+    return s;
+  }
+
+  std::string GetLastGeneratedMetadata() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return last_generated_metadata_;
+  }
+
+  std::string GetLastOpenMetadata() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return last_open_metadata_;
+  }
+
+  int GetMetadataRequestCount() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return metadata_request_count_;
+  }
+
+  int GetOpenWithMetadataCount() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return open_with_metadata_count_;
+  }
+
+  void Reset() {
+    std::lock_guard<std::mutex> lock(mu_);
+    last_generated_metadata_.clear();
+    last_open_metadata_.clear();
+    metadata_request_count_ = 0;
+    open_with_metadata_count_ = 0;
+  }
+
+ private:
+  class MetadataRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
+   public:
+    MetadataRandomAccessFile(std::unique_ptr<FSRandomAccessFile>&& base,
+                             std::string metadata, bool metadata_supported,
+                             FileOpenMetadataCapturingFS* owner)
+        : FSRandomAccessFileOwnerWrapper(std::move(base)),
+          metadata_(std::move(metadata)),
+          metadata_supported_(metadata_supported),
+          owner_(owner) {}
+
+    IOStatus GetFileOpenMetadata(std::string* metadata) override {
+      owner_->RecordMetadataRequest(metadata_);
+      if (!metadata_supported_) {
+        return IOStatus::NotSupported("GetFileOpenMetadata not supported");
+      }
+      *metadata = metadata_;
+      return IOStatus::OK();
+    }
+
+   private:
+    std::string metadata_;
+    bool metadata_supported_;
+    FileOpenMetadataCapturingFS* owner_;
+  };
+
+  static std::string MetadataForFile(const std::string& fname) {
+    return "file-open-metadata:" + fname;
+  }
+
+  void RecordMetadataRequest(const std::string& metadata) {
+    std::lock_guard<std::mutex> lock(mu_);
+    last_generated_metadata_ = metadata;
+    ++metadata_request_count_;
+  }
+
+  std::mutex mu_;
+  bool metadata_supported_;
+  std::string last_generated_metadata_;
+  std::string last_open_metadata_;
+  int metadata_request_count_ = 0;
+  int open_with_metadata_count_ = 0;
+};
+
+TEST_F(DBBasicTest, FastSstOpenFlushPersistsAndReusesMetadata) {
+  auto capturing_fs =
+      std::make_shared<FileOpenMetadataCapturingFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, capturing_fs));
+
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env.get();
+  options.fast_sst_open = true;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  CloseDBOnExit close_db(this);
+
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Flush());
+  ASSERT_GT(capturing_fs->GetMetadataRequestCount(), 0);
+  std::string expected_metadata = capturing_fs->GetLastGeneratedMetadata();
+  ASSERT_FALSE(expected_metadata.empty());
+
+  capturing_fs->Reset();
+  Reopen(options);
+  ASSERT_EQ("value1", Get("key1"));
+  ASSERT_GT(capturing_fs->GetOpenWithMetadataCount(), 0);
+  ASSERT_EQ(capturing_fs->GetLastOpenMetadata(), expected_metadata);
+
+}
+
+TEST_F(DBBasicTest, FastSstOpenCompactionPersistsAndReusesMetadata) {
+  auto capturing_fs =
+      std::make_shared<FileOpenMetadataCapturingFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, capturing_fs));
+
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env.get();
+  options.fast_sst_open = true;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  CloseDBOnExit close_db(this);
+
+  ASSERT_OK(Put("a", "1"));
+  ASSERT_OK(Put("b", "1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("a", "2"));
+  ASSERT_OK(Put("c", "2"));
+  ASSERT_OK(Flush());
+
+  capturing_fs->Reset();
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  EXPECT_GT(capturing_fs->GetMetadataRequestCount(), 0);
+  std::string expected_metadata = capturing_fs->GetLastGeneratedMetadata();
+  EXPECT_FALSE(expected_metadata.empty());
+
+  capturing_fs->Reset();
+  Reopen(options);
+  ASSERT_EQ("2", Get("a"));
+  EXPECT_GT(capturing_fs->GetOpenWithMetadataCount(), 0);
+  EXPECT_EQ(capturing_fs->GetLastOpenMetadata(), expected_metadata);
+}
+
+TEST_F(DBBasicTest, FastSstOpenCanBeDisabledOnReopen) {
+  auto capturing_fs =
+      std::make_shared<FileOpenMetadataCapturingFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, capturing_fs));
+
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env.get();
+  options.fast_sst_open = true;
+  DestroyAndReopen(options);
+  CloseDBOnExit close_db(this);
+
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Flush());
+  ASSERT_GT(capturing_fs->GetMetadataRequestCount(), 0);
+
+  options.fast_sst_open = false;
+  capturing_fs->Reset();
+  Reopen(options);
+  ASSERT_EQ("value1", Get("key1"));
+  ASSERT_EQ(capturing_fs->GetOpenWithMetadataCount(), 0);
+  ASSERT_TRUE(capturing_fs->GetLastOpenMetadata().empty());
+
+}
+
+TEST_F(DBBasicTest, FastSstOpenHandlesUnsupportedMetadataGracefully) {
+  auto capturing_fs = std::make_shared<FileOpenMetadataCapturingFS>(
+      env_->GetFileSystem(), /*metadata_supported=*/false);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, capturing_fs));
+
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env.get();
+  options.fast_sst_open = true;
+  DestroyAndReopen(options);
+  CloseDBOnExit close_db(this);
+
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Flush());
+  ASSERT_GT(capturing_fs->GetMetadataRequestCount(), 0);
+
+  capturing_fs->Reset();
+  Reopen(options);
+  ASSERT_EQ("value1", Get("key1"));
+  ASSERT_EQ(capturing_fs->GetOpenWithMetadataCount(), 0);
+
+}
+
+TEST_F(DBBasicTest, FastSstOpenPersistsMetadataForIngestedFiles) {
+  auto capturing_fs =
+      std::make_shared<FileOpenMetadataCapturingFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, capturing_fs));
+
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env.get();
+  options.fast_sst_open = true;
+  DestroyAndReopen(options);
+  CloseDBOnExit close_db(this);
+
+  const std::string external_sst = dbname_ + "/external.sst";
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+  ASSERT_OK(sst_file_writer.Open(external_sst));
+  ASSERT_OK(sst_file_writer.Put("ingest-key", "ingest-value"));
+  ASSERT_OK(sst_file_writer.Finish());
+
+  capturing_fs->Reset();
+  ASSERT_OK(db_->IngestExternalFile({external_sst}, IngestExternalFileOptions()));
+  ASSERT_GT(capturing_fs->GetMetadataRequestCount(), 0);
+  std::string expected_metadata = capturing_fs->GetLastGeneratedMetadata();
+  ASSERT_FALSE(expected_metadata.empty());
+
+  capturing_fs->Reset();
+  Reopen(options);
+  ASSERT_EQ("ingest-value", Get("ingest-key"));
+  ASSERT_GT(capturing_fs->GetOpenWithMetadataCount(), 0);
+  ASSERT_EQ(capturing_fs->GetLastOpenMetadata(), expected_metadata);
+
+}
 
 TEST_F(DBBasicTest, FileChecksumInFileOptions) {
   // Verify that file_checksum and file_checksum_func_name from FileMetaData
@@ -5864,6 +6160,58 @@ TEST_F(DBBasicTest, FileChecksumInFileOptions) {
             capturing_fs->GetCapturedFileChecksum());
   ASSERT_EQ(capturing_fs->GetCapturedFileChecksumFuncName(),
             "FileChecksumCrc32c");
+
+  Close();
+}
+
+TEST_F(DBBasicTest, FastSstOpenInFileOptions) {
+  auto capturing_fs =
+      std::make_shared<ChecksumCapturingFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, capturing_fs));
+
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env.get();
+  options.fast_sst_open = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Flush());
+
+  capturing_fs->Reset();
+  Reopen(options);
+  ASSERT_EQ("value1", Get("key1"));
+
+  ASSERT_GT(capturing_fs->GetCaptureCount(), 0);
+  ASSERT_TRUE(capturing_fs->HasCapturedFileMetadata());
+  ASSERT_FALSE(capturing_fs->GetCapturedFileMetadata().empty());
+  ASSERT_TRUE(capturing_fs->GetCapturedFileMetadata().find(
+                  "fast-open-metadata:") == 0);
+
+  Close();
+}
+
+TEST_F(DBBasicTest, FastSstOpenDisabledDoesNotPassFileMetadata) {
+  auto capturing_fs =
+      std::make_shared<ChecksumCapturingFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, capturing_fs));
+
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env.get();
+  options.fast_sst_open = false;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Flush());
+
+  capturing_fs->Reset();
+  Reopen(options);
+  ASSERT_EQ("value1", Get("key1"));
+
+  ASSERT_GT(capturing_fs->GetCaptureCount(), 0);
+  ASSERT_FALSE(capturing_fs->HasCapturedFileMetadata());
+  ASSERT_TRUE(capturing_fs->GetCapturedFileMetadata().empty());
 
   Close();
 }

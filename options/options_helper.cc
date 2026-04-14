@@ -206,6 +206,7 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.compaction_service = immutable_db_options.compaction_service;
   options.calculate_sst_write_lifetime_hint_set =
       immutable_db_options.calculate_sst_write_lifetime_hint_set;
+  options.fast_sst_open = immutable_db_options.fast_sst_open;
 }
 
 ColumnFamilyOptions BuildColumnFamilyOptions(

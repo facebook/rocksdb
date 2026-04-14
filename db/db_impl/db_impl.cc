@@ -6985,13 +6985,19 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
         std::string fname = TableFileName(cfd->ioptions().cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
         if (use_file_checksum) {
-          s = VerifyFullFileChecksum(fmeta->file_checksum,
-                                     fmeta->file_checksum_func_name, fname,
-                                     read_options);
+          s = VerifyFullFileChecksum(
+              fmeta->file_checksum, fmeta->file_checksum_func_name, fname,
+              read_options, &fmeta->file_open_metadata);
         } else {
           FileOptions fopts = file_options_;
           fopts.file_checksum = fmeta->file_checksum;
           fopts.file_checksum_func_name = fmeta->file_checksum_func_name;
+          std::string file_open_metadata;
+          if (immutable_db_options_.fast_sst_open &&
+              !fmeta->file_open_metadata.empty()) {
+            file_open_metadata = fmeta->file_open_metadata;
+            fopts.file_metadata = &file_open_metadata;
+          }
           s = ROCKSDB_NAMESPACE::VerifySstFileChecksumInternal(
               opts, fopts, read_options, fname, fd.largest_seqno);
         }
@@ -7054,7 +7060,8 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
 Status DBImpl::VerifyFullFileChecksum(const std::string& file_checksum_expected,
                                       const std::string& func_name_expected,
                                       const std::string& fname,
-                                      const ReadOptions& read_options) {
+                                      const ReadOptions& read_options,
+                                      const std::string* file_open_metadata) {
   Status s;
   if (file_checksum_expected == kUnknownFileChecksum) {
     return s;
@@ -7064,6 +7071,12 @@ Status DBImpl::VerifyFullFileChecksum(const std::string& file_checksum_expected,
   FileOptions fopts;
   fopts.file_checksum = file_checksum_expected;
   fopts.file_checksum_func_name = func_name_expected;
+  std::string copied_file_open_metadata;
+  if (immutable_db_options_.fast_sst_open && file_open_metadata != nullptr &&
+      !file_open_metadata->empty()) {
+    copied_file_open_metadata = *file_open_metadata;
+    fopts.file_metadata = &copied_file_open_metadata;
+  }
   s = ROCKSDB_NAMESPACE::GenerateOneFileChecksum(
       fs_.get(), fname, immutable_db_options_.file_checksum_gen_factory.get(),
       func_name_expected, &file_checksum, &func_name,

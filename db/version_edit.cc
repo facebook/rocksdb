@@ -295,6 +295,10 @@ void VersionEdit::EncodeToNewFile4(const FileMetaData& f, int level,
     PutVarint32(dst, NewFileCustomTag::kFileChecksumFuncName);
     PutLengthPrefixedSlice(dst, Slice(f.file_checksum_func_name));
   }
+  if (!f.file_open_metadata.empty()) {
+    PutVarint32(dst, NewFileCustomTag::kFileOpenMetadata);
+    PutLengthPrefixedSlice(dst, Slice(f.file_open_metadata));
+  }
 
   if (f.fd.GetPathId() != 0) {
     PutVarint32(dst, NewFileCustomTag::kPathId);
@@ -448,6 +452,9 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input, int& max_level,
           break;
         case kFileChecksumFuncName:
           f.file_checksum_func_name = field.ToString();
+          break;
+        case kFileOpenMetadata:
+          f.file_open_metadata = field.ToString();
           break;
         case kNeedCompaction:
           if (field.size() != 1) {
@@ -980,6 +987,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append(Slice(f.file_checksum).ToString(true));
     r.append(" file_checksum_func_name: ");
     r.append(f.file_checksum_func_name);
+    if (!f.file_open_metadata.empty()) {
+      r.append(" file_open_metadata: ");
+      r.append(Slice(f.file_open_metadata).ToString(true));
+    }
     if (f.temperature != Temperature::kUnknown) {
       r.append(" temperature: ");
       // Maybe change to human readable format whenthe feature becomes
@@ -1106,6 +1117,9 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
       jw << "EpochNumber" << f.epoch_number;
       jw << "FileChecksum" << Slice(f.file_checksum).ToString(true);
       jw << "FileChecksumFuncName" << f.file_checksum_func_name;
+      if (!f.file_open_metadata.empty()) {
+        jw << "FileOpenMetadata" << Slice(f.file_open_metadata).ToString(true);
+      }
       if (f.temperature != Temperature::kUnknown) {
         jw << "temperature" << std::to_string(static_cast<int>(f.temperature));
       }

@@ -1371,6 +1371,9 @@ DEFINE_uint64(
     ROCKSDB_NAMESPACE::Options().max_compaction_trigger_wakeup_seconds,
     "Sets DB option max_compaction_trigger_wakeup_seconds.");
 
+DEFINE_bool(fast_sst_open, ROCKSDB_NAMESPACE::Options().fast_sst_open,
+            "Sets DB option fast_sst_open.");
+
 DEFINE_bool(verification_only, false,
             "If true, tests will only execute verification step");
 extern "C" bool RocksDbIOUringEnable() { return true; }

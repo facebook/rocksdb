@@ -168,7 +168,8 @@ Status UpdateManifestForFilesState(
                            lf->file_checksum_func_name, lf->unique_id,
                            lf->compensated_range_deletion_size, lf->tail_size,
                            lf->user_defined_timestamps_persisted,
-                           lf->min_timestamp, lf->max_timestamp);
+                           lf->min_timestamp, lf->max_timestamp,
+                           lf->file_open_metadata);
             }
           }
         } else {

@@ -617,6 +617,7 @@ struct CompactionServiceOutputFile {
   bool marked_for_compaction;
   UniqueId64x2 unique_id{};
   TableProperties table_properties;
+  std::string file_open_metadata;
   bool is_proximal_level_output;
   Temperature file_temperature = Temperature::kUnknown;
 
@@ -629,7 +630,8 @@ struct CompactionServiceOutputFile {
       const std::string& _file_checksum,
       const std::string& _file_checksum_func_name, uint64_t _paranoid_hash,
       bool _marked_for_compaction, UniqueId64x2 _unique_id,
-      const TableProperties& _table_properties, bool _is_proximal_level_output,
+      const TableProperties& _table_properties,
+      std::string _file_open_metadata, bool _is_proximal_level_output,
       Temperature _file_temperature)
       : file_name(name),
         file_size(size),
@@ -646,6 +648,7 @@ struct CompactionServiceOutputFile {
         marked_for_compaction(_marked_for_compaction),
         unique_id(std::move(_unique_id)),
         table_properties(_table_properties),
+        file_open_metadata(std::move(_file_open_metadata)),
         is_proximal_level_output(_is_proximal_level_output),
         file_temperature(_file_temperature) {}
 };

@@ -15,6 +15,138 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class CloseDBOnExit {
+ public:
+  explicit CloseDBOnExit(DBTestBase* test) : test_(test) {}
+  ~CloseDBOnExit() { test_->Close(); }
+
+ private:
+  DBTestBase* test_;
+};
+
+class ImportMetadataAwareRandomAccessFile : public FSRandomAccessFileWrapper {
+ public:
+  ImportMetadataAwareRandomAccessFile(
+      std::unique_ptr<FSRandomAccessFile> target, std::string metadata)
+      : FSRandomAccessFileWrapper(target.get()),
+        guard_(std::move(target)),
+        metadata_(std::move(metadata)) {}
+
+  IOStatus GetFileOpenMetadata(std::string* metadata) override {
+    *metadata = metadata_;
+    return IOStatus::OK();
+  }
+
+ private:
+  std::unique_ptr<FSRandomAccessFile> guard_;
+  std::string metadata_;
+};
+
+class ImportFileOpenMetadataCapturingFS : public FileSystemWrapper {
+ public:
+  explicit ImportFileOpenMetadataCapturingFS(
+      const std::shared_ptr<FileSystem>& base)
+      : FileSystemWrapper(base) {}
+
+  static const char* kClassName() {
+    return "ImportFileOpenMetadataCapturingFS";
+  }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    if (fname.find(".sst") != std::string::npos) {
+      std::lock_guard<std::mutex> lock(mu_);
+      last_open_metadata_ =
+          opts.file_metadata != nullptr ? *opts.file_metadata : "";
+      if (!last_open_metadata_.empty()) {
+        ++open_with_metadata_count_;
+      }
+    }
+
+    std::unique_ptr<FSRandomAccessFile> file;
+    IOStatus s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+    if (!s.ok() || fname.find(".sst") == std::string::npos) {
+      *result = std::move(file);
+      return s;
+    }
+
+    result->reset(
+        new CapturingRandomAccessFile(std::move(file), MetadataForFile(fname),
+                                      this));
+    return s;
+  }
+
+  std::string GetLastGeneratedMetadata() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return last_generated_metadata_;
+  }
+
+  std::string GetLastOpenMetadata() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return last_open_metadata_;
+  }
+
+  int GetMetadataRequestCount() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return metadata_request_count_;
+  }
+
+  int GetOpenWithMetadataCount() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return open_with_metadata_count_;
+  }
+
+  void Reset() {
+    std::lock_guard<std::mutex> lock(mu_);
+    last_generated_metadata_.clear();
+    last_open_metadata_.clear();
+    metadata_request_count_ = 0;
+    open_with_metadata_count_ = 0;
+  }
+
+ private:
+  class CapturingRandomAccessFile : public FSRandomAccessFileWrapper {
+   public:
+    CapturingRandomAccessFile(std::unique_ptr<FSRandomAccessFile>&& target,
+                              std::string metadata,
+                              ImportFileOpenMetadataCapturingFS* owner)
+        : FSRandomAccessFileWrapper(target.get()),
+          guard_(std::move(target)),
+          metadata_(std::move(metadata)),
+          owner_(owner) {}
+
+    IOStatus GetFileOpenMetadata(std::string* metadata) override {
+      owner_->RecordMetadataRequest(metadata_);
+      *metadata = metadata_;
+      return IOStatus::OK();
+    }
+
+   private:
+    std::unique_ptr<FSRandomAccessFile> guard_;
+    std::string metadata_;
+    ImportFileOpenMetadataCapturingFS* owner_;
+  };
+
+  static std::string MetadataForFile(const std::string& fname) {
+    return "file-open-metadata:" + fname;
+  }
+
+  void RecordMetadataRequest(const std::string& metadata) {
+    std::lock_guard<std::mutex> lock(mu_);
+    last_generated_metadata_ = metadata;
+    ++metadata_request_count_;
+  }
+
+  std::mutex mu_;
+  std::string last_generated_metadata_;
+  std::string last_open_metadata_;
+  int metadata_request_count_ = 0;
+  int open_with_metadata_count_ = 0;
+};
+
 class ImportColumnFamilyTest : public DBTestBase {
  public:
   ImportColumnFamilyTest()
@@ -450,6 +582,52 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherCF) {
     ASSERT_OK(db_->Get(ReadOptions(), import_cfh2_, Key(i), &value2));
     ASSERT_EQ(Get(1, Key(i)), value2);
   }
+}
+
+TEST_F(ImportColumnFamilyTest, FastSstOpenAfterImportColumnFamily) {
+  auto capturing_fs = std::make_shared<ImportFileOpenMetadataCapturingFS>(
+      env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, capturing_fs));
+
+  Options options = CurrentOptions();
+  options.env = env.get();
+  options.fast_sst_open = true;
+  CreateAndReopenWithCF({"koko"}, options);
+  CloseDBOnExit close_db(this);
+
+  for (int i = 0; i < 20; ++i) {
+    ASSERT_OK(Put(1, Key(i), Key(i) + "_value"));
+  }
+  ASSERT_OK(Flush(1));
+
+  Checkpoint* checkpoint = nullptr;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  ASSERT_OK(checkpoint->ExportColumnFamily(handles_[1], export_files_dir_,
+                                           &metadata_ptr_));
+  ASSERT_NE(metadata_ptr_, nullptr);
+  delete checkpoint;
+
+  ASSERT_OK(db_->CreateColumnFamilyWithImport(options, "toto",
+                                              ImportColumnFamilyOptions(),
+                                              *metadata_ptr_, &import_cfh_));
+  ASSERT_NE(import_cfh_, nullptr);
+  ASSERT_GT(capturing_fs->GetMetadataRequestCount(), 0);
+  std::string expected_metadata = capturing_fs->GetLastGeneratedMetadata();
+  ASSERT_FALSE(expected_metadata.empty());
+
+  handles_.push_back(import_cfh_);
+  import_cfh_ = nullptr;
+  delete metadata_ptr_;
+  metadata_ptr_ = nullptr;
+
+  capturing_fs->Reset();
+  ReopenWithColumnFamilies({"default", "koko", "toto"}, options);
+
+  ASSERT_EQ(Key(0) + "_value", Get(2, Key(0)));
+  ASSERT_GT(capturing_fs->GetOpenWithMetadataCount(), 0);
+  ASSERT_EQ(expected_metadata, capturing_fs->GetLastOpenMetadata());
+
+  Close();
 }
 
 TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherDB) {

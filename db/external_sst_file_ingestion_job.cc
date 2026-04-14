@@ -676,6 +676,17 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
                      status.ToString().c_str());
       return status;
     }
+    if (db_options_.fast_sst_open) {
+      FileOptions metadata_file_options{env_options_};
+      metadata_file_options.temperature = file->file_temperature;
+      metadata_file_options.file_checksum = file->file_checksum;
+      metadata_file_options.file_checksum_func_name =
+          file->file_checksum_func_name;
+      IOStatus metadata_io_s = MaybeGetFileOpenMetadata(
+          fs_.get(), file->internal_file_path, metadata_file_options,
+          &file->file_open_metadata);
+      metadata_io_s.PermitUncheckedError();
+    }
 
     // We use the import time as the ancester time. This is the time the data
     // is written to the database.
@@ -713,6 +724,7 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
             : cfd_->NewEpochNumber(),  // orders files ingested to L0
         file->file_checksum, file->file_checksum_func_name, file->unique_id, 0,
         tail_size, file->user_defined_timestamps_persisted, "", "");
+    f_metadata.file_open_metadata = file->file_open_metadata;
     f_metadata.temperature = file->file_temperature;
     f_metadata.marked_for_compaction = marked_for_compaction;
     // Extract min/max timestamps from table properties for UDT support.

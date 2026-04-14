@@ -1845,6 +1845,11 @@ Status Version::GetTableProperties(const ReadOptions& read_options,
   FileOptions fopts = file_options_;
   fopts.file_checksum = file_meta->file_checksum;
   fopts.file_checksum_func_name = file_meta->file_checksum_func_name;
+  std::string file_open_metadata;
+  if (ioptions.fast_sst_open && !file_meta->file_open_metadata.empty()) {
+    file_open_metadata = file_meta->file_open_metadata;
+    fopts.file_metadata = &file_open_metadata;
+  }
   s = ioptions.fs->NewRandomAccessFile(file_name, fopts, &file, nullptr);
   if (!s.ok()) {
     return s;
@@ -7337,7 +7342,7 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->file_checksum_func_name, f->unique_id,
                        f->compensated_range_deletion_size, f->tail_size,
                        f->user_defined_timestamps_persisted, f->min_timestamp,
-                       f->max_timestamp);
+                       f->max_timestamp, f->file_open_metadata);
         }
       }
 
