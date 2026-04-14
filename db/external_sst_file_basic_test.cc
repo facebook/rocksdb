@@ -3272,6 +3272,56 @@ INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
                                         std::make_tuple(false, true),
                                         std::make_tuple(false, false)));
 
+// Uses anonymous mmap (lazy-zeroed) so the large data itself doesn't consume
+// physical memory -- only the SstFileWriter's internal copy does (~4GB peak
+// during the acceptance case).
+TEST_F(ExternalSSTFileBasicTest, LargeSizeSstFileWriter) {
+  if (!test::HasBigMem()) {
+    ROCKSDB_GTEST_BYPASS("insufficient memory for reliable continuous testing");
+    return;
+  }
+
+  constexpr size_t kMaxKeySize =
+      size_t{std::numeric_limits<uint32_t>::max()} - 8;
+  constexpr size_t kMaxValueSize = size_t{std::numeric_limits<uint32_t>::max()};
+
+  // --- Large key ---
+  {
+    Options options = CurrentOptions();
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    ASSERT_OK(sst_file_writer.Open(dbname_ + "/large_key.sst"));
+
+    MemMapping mm = MemMapping::AllocateLazyZeroed(kMaxKeySize + 1);
+    ASSERT_NE(nullptr, mm.Get());
+
+    // A key one byte over the limit should be rejected
+    ASSERT_TRUE(sst_file_writer.Put(mm.AsSlice(), "val").IsInvalidArgument());
+
+    // A key at the limit should be accepted
+    ASSERT_OK(
+        sst_file_writer.Put(Slice(mm.AsSlice().data(), kMaxKeySize), "val"));
+    ASSERT_OK(sst_file_writer.Finish());
+  }
+
+  // --- Large value ---
+  {
+    Options options = CurrentOptions();
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    ASSERT_OK(sst_file_writer.Open(dbname_ + "/large_value.sst"));
+
+    MemMapping mm = MemMapping::AllocateLazyZeroed(kMaxValueSize + 1);
+    ASSERT_NE(nullptr, mm.Get());
+
+    // A value one byte over the limit should be rejected
+    ASSERT_TRUE(sst_file_writer.Put("key", mm.AsSlice()).IsInvalidArgument());
+
+    // A value at the limit should be accepted
+    ASSERT_OK(
+        sst_file_writer.Put("key", Slice(mm.AsSlice().data(), kMaxValueSize)));
+    ASSERT_OK(sst_file_writer.Finish());
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

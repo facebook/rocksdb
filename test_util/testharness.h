@@ -77,6 +77,12 @@ std::string PerThreadDBPath(std::string dir, std::string name);
 // runs may be able to vary the seed.
 int RandomSeed();
 
+// Returns true if the system has enough memory to run expensive
+// large-allocation tests (~128GB+ RAM or environment variable
+// ROCKSDB_BIGMEM_TESTS is set). There should generally be only one "big mem"
+// test per unit test file, to reduce OOM risks in parallel runs.
+bool HasBigMem();
+
 ::testing::AssertionResult AssertStatus(const char* s_expr, const Status& s);
 
 #define ASSERT_OK(s) \

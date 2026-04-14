@@ -6,6 +6,7 @@ import glob
 import math
 import os
 import random
+import re
 import shlex
 import shutil
 import subprocess
@@ -16,6 +17,12 @@ import time
 per_iteration_random_seed_override = 0
 remain_argv = None
 is_remote_db = False
+
+_SIGTERM_STDOUT_MARKER = "Received signal 15 (Terminated)"
+_IGNORED_SIGTERM_STDERR_RE = re.compile(
+    r"^PosixRandomAccessFile::MultiRead: io_uring_submit_and_wait "
+    r"returned terminal error: -9\.$"
+)
 
 
 def get_random_seed(override):
@@ -1676,6 +1683,35 @@ def print_output_and_exit_on_error(stdout, stderr, print_stderr_separately=False
     sys.exit(2)
 
 
+def strip_expected_sigterm_stderr(stdout, stderr, hit_timeout):
+    # Blackbox crash tests intentionally terminate db_stress with SIGTERM.
+    # Filter this known post-SIGTERM io_uring stderr so it does not mask other
+    # stderr or fail the timeout path spuriously.
+    if not hit_timeout or _SIGTERM_STDOUT_MARKER not in stdout or len(stderr) == 0:
+        return stdout, stderr
+
+    kept_lines = []
+    ignored_lines = []
+    for line in stderr.splitlines(keepends=True):
+        if _IGNORED_SIGTERM_STDERR_RE.fullmatch(line.rstrip("\n")):
+            ignored_lines.append(line)
+        else:
+            kept_lines.append(line)
+
+    if len(ignored_lines) == 0:
+        return stdout, stderr
+
+    if stdout and not stdout.endswith("\n"):
+        stdout += "\n"
+    stdout += "Ignored expected post-SIGTERM stderr while handling timeout:\n"
+    stdout += "".join(ignored_lines)
+
+    stderr = "".join(kept_lines)
+    if not stderr.strip():
+        stderr = ""
+    return stdout, stderr
+
+
 def cleanup_after_success(dbname):
     # Use db_stress --destroy_db_and_exit, which simplifies remote DB cleanup
     cleanup_cmd_parts = [stress_cmd, "--destroy_db_and_exit=1", "--db=" + dbname]
@@ -1765,6 +1801,7 @@ def blackbox_crash_main(args, unknown_args):
         hit_timeout, retcode, outs, errs, pid = execute_cmd(cmd, cmd_params["interval"])
 
         print_and_cleanup_fault_injection_log(pid)
+        outs, errs = strip_expected_sigterm_stderr(outs, errs, hit_timeout)
 
         # Reset destroy_db_initially after each run (it may have been set by
         # command line for first run only)
