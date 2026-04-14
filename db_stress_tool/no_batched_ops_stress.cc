@@ -105,7 +105,7 @@ class NonBatchedOpsStressTest : public StressTest {
         }
 
         std::unique_ptr<Iterator> iter(
-            db_->NewIterator(options, column_families_[cf]));
+            NewTraceIterator(db_, options, column_families_[cf]));
 
         std::string seek_key = Key(start);
         iter->Seek(seek_key);
@@ -525,7 +525,8 @@ class NonBatchedOpsStressTest : public StressTest {
 
     {
       uint32_t crc = 0;
-      std::unique_ptr<Iterator> it(secondary_db_->NewIterator(read_opts));
+      std::unique_ptr<Iterator> it(
+          NewTraceIterator(secondary_db_.get(), read_opts));
       s = checksum_column_family(it.get(), &crc);
       if (!s.ok()) {
         fprintf(stderr, "Computing checksum of default cf: %s\n",
@@ -552,7 +553,7 @@ class NonBatchedOpsStressTest : public StressTest {
           read_opts.snapshot = snapshot->snapshot();
         }
         std::unique_ptr<Iterator> iter(
-            secondary_db_->NewIterator(read_opts, handle));
+            NewTraceIterator(secondary_db_.get(), read_opts, handle));
         // Skip SeekToFirst, SeekToLast, SeekForPrev, and Prev when backward
         // scan is disabled.
         uint32_t rnd =
@@ -1747,7 +1748,7 @@ class NonBatchedOpsStressTest : public StressTest {
       snapshot = std::make_unique<ManagedSnapshot>(db_);
       ro_copy.snapshot = snapshot->snapshot();
     }
-    std::unique_ptr<Iterator> iter(db_->NewIterator(ro_copy, cfh));
+    std::unique_ptr<Iterator> iter(NewTraceIterator(db_, ro_copy, cfh));
 
     uint64_t count = 0;
     Status s;
@@ -2588,9 +2589,10 @@ class NonBatchedOpsStressTest : public StressTest {
         for (auto cf_index : rand_column_families) {
           cfhs.emplace_back(column_families_[cf_index]);
         }
-        return db_->NewCoalescingIterator(debug_ro, cfhs);
+        return WrapTraceIterator(db_->NewCoalescingIterator(debug_ro, cfhs),
+                                 debug_ro);
       }
-      return std::unique_ptr<Iterator>(db_->NewIterator(debug_ro, cfh));
+      return NewTraceIterator(db_, debug_ro, cfh);
     };
 
     auto dump_debug_iter = [&](const char* label, const ReadOptions& debug_ro,
@@ -2750,9 +2752,9 @@ class NonBatchedOpsStressTest : public StressTest {
         cfhs.emplace_back(column_families_[cf_index]);
       }
       assert(!cfhs.empty());
-      iter = db_->NewCoalescingIterator(ro, cfhs);
+      iter = WrapTraceIterator(db_->NewCoalescingIterator(ro, cfhs), ro);
     } else {
-      iter = std::unique_ptr<Iterator>(db_->NewIterator(ro, cfh));
+      iter = NewTraceIterator(db_, ro, cfh);
     }
 
     for (int64_t i = 0; i < static_cast<int64_t>(expected_values_size); ++i) {

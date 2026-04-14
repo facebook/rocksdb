@@ -193,6 +193,7 @@ DECLARE_string(expected_values_dir);
 DECLARE_bool(expected_state_trace_debug);
 DECLARE_int64(expected_state_trace_debug_key);
 DECLARE_int32(expected_state_trace_debug_max_logs);
+DECLARE_bool(trace_public_iterator_api);
 DECLARE_bool(verify_checksum);
 DECLARE_bool(mmap_read);
 DECLARE_bool(mmap_write);

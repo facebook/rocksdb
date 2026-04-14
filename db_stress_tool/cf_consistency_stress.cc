@@ -897,7 +897,7 @@ class CfConsistencyStressTest : public StressTest {
             static_cast<int>(rand_column_families.size()))]];
     assert(cfh);
 
-    std::unique_ptr<Iterator> iter(db_->NewIterator(ro_copy, cfh));
+    std::unique_ptr<Iterator> iter(NewTraceIterator(db_, ro_copy, cfh));
 
     uint64_t count = 0;
     Status s;
@@ -971,7 +971,7 @@ class CfConsistencyStressTest : public StressTest {
     iters.reserve(num);
 
     for (size_t i = 0; i < num; ++i) {
-      iters.emplace_back(db_->NewIterator(options, column_families_[i]));
+      iters.emplace_back(NewTraceIterator(db_, options, column_families_[i]));
       iters.back()->SeekToFirst();
     }
 
@@ -1196,7 +1196,7 @@ class CfConsistencyStressTest : public StressTest {
     uint32_t crc = 0;
     {
       // Compute crc for all key-values of default column family.
-      std::unique_ptr<Iterator> it(db_ptr->NewIterator(ropts));
+      std::unique_ptr<Iterator> it(NewTraceIterator(db_ptr, ropts));
       status = checksum_column_family(it.get(), &crc);
       if (!status.ok()) {
         fprintf(stderr, "Computing checksum of default cf: %s\n",
@@ -1215,7 +1215,7 @@ class CfConsistencyStressTest : public StressTest {
         if (cfh == db_ptr->DefaultColumnFamily()) {
           continue;
         }
-        std::unique_ptr<Iterator> it(db_ptr->NewIterator(ropts, cfh));
+        std::unique_ptr<Iterator> it(NewTraceIterator(db_ptr, ropts, cfh));
         status = checksum_column_family(it.get(), &tmp_crc);
         if (!status.ok() || tmp_crc != crc) {
           break;

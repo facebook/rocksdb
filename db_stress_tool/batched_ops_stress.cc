@@ -604,7 +604,7 @@ class BatchedOpsStressTest : public StressTest {
         ro_copies[i].prefix_same_as_start = true;
       }
 
-      iters[i].reset(db_->NewIterator(ro_copies[i], cfh));
+      iters[i] = NewTraceIterator(db_, ro_copies[i], cfh);
       iters[i]->Seek(prefix_slices[i]);
     }
 

@@ -716,6 +716,12 @@ DEFINE_int32(expected_state_trace_debug_max_logs, 200,
              "Maximum number of expected-state trace debug log lines to emit "
              "per restore attempt.");
 
+DEFINE_bool(
+    trace_public_iterator_api, false,
+    "If true, enable a fixed-size 32 MiB per-process ring buffer that records "
+    "public iterator API calls in db_stress. The trace is dumped on crash and "
+    "on verification failure.");
+
 DEFINE_bool(verify_checksum, false,
             "Verify checksum for every block read from storage");
 

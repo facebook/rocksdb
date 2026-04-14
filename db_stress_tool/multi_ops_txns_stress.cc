@@ -355,7 +355,7 @@ void MultiOpsTxnsStressTest::ReopenAndPreloadDbIfNeeded(SharedState* shared) {
       ropt.snapshot = snapshot->snapshot();
       ropt.auto_refresh_iterator_with_snapshot = true;
     }
-    std::unique_ptr<Iterator> iter(db_->NewIterator(ropt));
+    std::unique_ptr<Iterator> iter(NewTraceIterator(db_, ropt));
     iter->SeekToFirst();
     if (!iter->Valid()) {
       db_empty = true;
@@ -1154,7 +1154,7 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
           sqfc_factory_->GetTableFilterForRangeQuery(start_key, iter_ub);
     }
 
-    std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
+    std::unique_ptr<Iterator> it(NewTraceIterator(db_, ropts));
     for (it->Seek(start_key); it->Valid(); it->Next()) {
       Record record;
       Status s = record.DecodePrimaryIndexEntry(it->key(), it->value());
@@ -1206,7 +1206,7 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
         FLAGS_auto_refresh_iterator_with_snapshot;
     ropts.total_order_seek = true;
 
-    std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
+    std::unique_ptr<Iterator> it(NewTraceIterator(db_, ropts));
     for (it->Seek(start_key); it->Valid(); it->Next()) {
       ++secondary_index_entries_count;
       Record record;
@@ -1307,7 +1307,7 @@ void MultiOpsTxnsStressTest::VerifyPkSkFast(const ReadOptions& read_options,
   ropts.total_order_seek = true;
   ropts.io_activity = read_options.io_activity;
 
-  std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
+  std::unique_ptr<Iterator> it(NewTraceIterator(db_, ropts));
   for (it->Seek(start_key); it->Valid(); it->Next()) {
     Record record;
     Status s = record.DecodeSecondaryIndexEntry(it->key(), it->value());
@@ -1682,7 +1682,7 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
       ropts.table_filter =
           sqfc_factory_->GetTableFilterForRangeQuery(pk_lb, pk_ub);
     }
-    std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
+    std::unique_ptr<Iterator> it(NewTraceIterator(db_, ropts));
 
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
       Record record;

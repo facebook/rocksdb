@@ -6,14 +6,20 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 import importlib.util
+import io
 import os
 import shutil
+import struct
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 
 
 _DB_CRASHTEST_PATH = os.path.join(os.path.dirname(__file__), "db_crashtest.py")
+_DB_STRESS_TRACE_PARSER_PATH = os.path.join(
+    os.path.dirname(__file__), "db_stress_trace_parser.py"
+)
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 _TEST_EXPECTED_DIR_ENV_VAR = "TEST_TMPDIR_EXPECTED"
 
@@ -29,6 +35,15 @@ def load_db_crashtest_module():
         spec.loader.exec_module(module)
     finally:
         sys.argv = old_argv
+    return module
+
+
+def load_db_stress_trace_parser_module():
+    spec = importlib.util.spec_from_file_location(
+        "db_stress_trace_parser_under_test", _DB_STRESS_TRACE_PARSER_PATH
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
     return module
 
 
@@ -59,12 +74,75 @@ class DBCrashTestTest(unittest.TestCase):
     def load_db_crashtest(self):
         return load_db_crashtest_module()
 
+    def load_db_stress_trace_parser(self):
+        return load_db_stress_trace_parser_module()
+
     def build_params(self, base_params, overrides=None):
         params = dict(base_params)
         params["db"] = self.test_tmpdir
         if overrides:
             params.update(overrides)
         return params
+
+    def write_sample_public_iterator_trace(self, raw_trace):
+        trace_parser = self.load_db_stress_trace_parser()
+
+        def key_sample(key):
+            head = key[:32]
+            tail = key[len(head) :][-16:] if len(key) > len(head) else b""
+            return struct.pack(
+                "<HBB32s16s",
+                len(key),
+                len(head),
+                len(tail),
+                head.ljust(32, b"\0"),
+                tail.ljust(16, b"\0"),
+            )
+
+        header = struct.pack(
+            "<8sQQQQQIIIIIIII",
+            trace_parser.TRACE_FILE_MAGIC,
+            32 << 20,
+            0,
+            2,
+            1,
+            123456,
+            trace_parser.TRACE_FILE_VERSION,
+            80,
+            32,
+            256,
+            32,
+            4096,
+            1,
+            0,
+        )
+        slot_header = struct.pack("<QQIIII", 99, 1, 0, 1, 0, 0)
+        entry = struct.pack(
+            "<QQQQQIII8B52s52s92s",
+            123456789,
+            1,
+            7,
+            0,
+            0,
+            99,
+            3,
+            0,
+            0,
+            2,
+            0,
+            0,
+            0,
+            1,
+            0xFF,
+            0,
+            key_sample(b"k1"),
+            key_sample(b"k2"),
+            b"\0" * 92,
+        )
+        with open(raw_trace, "wb") as f:
+            f.write(header)
+            f.write(slot_header)
+            f.write(entry)
 
     def test_setup_expected_values_dir_preserves_existing_contents(self):
         os.makedirs(self.expected_dir)
@@ -254,6 +332,74 @@ class DBCrashTestTest(unittest.TestCase):
             diagnostics,
         )
 
+    def test_print_and_cleanup_public_iterator_trace_decodes_raw_trace(self):
+        db_crashtest = self.load_db_crashtest()
+        pid = 4242
+        raw_trace = os.path.join(
+            self.test_tmpdir, f"db_stress_public_iterator_trace_{pid}_1.bin"
+        )
+        self.write_sample_public_iterator_trace(raw_trace)
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            archived = db_crashtest.print_and_cleanup_public_iterator_trace(
+                pid, "blackbox_run_0001_exit-0"
+            )
+
+        self.assertEqual(1, len(archived))
+        archived_raw, decoded_trace = archived[0]
+        self.assertTrue(os.path.exists(archived_raw))
+        self.assertTrue(os.path.exists(decoded_trace))
+        self.assertIn("blackbox_run_0001_exit-0", os.path.basename(decoded_trace))
+        with open(decoded_trace) as f:
+            decoded_text = f.read()
+
+        self.assertIn("op=Seek", decoded_text)
+        self.assertIn("target=len=2:6b31", decoded_text)
+        self.assertIn("result=len=2:6b32", decoded_text)
+        self.assertIn(archived_raw, stdout.getvalue())
+        self.assertIn(decoded_trace, stdout.getvalue())
+
+    def test_print_and_cleanup_public_iterator_trace_keeps_last_five_runs(self):
+        db_crashtest = self.load_db_crashtest()
+        archived = []
+        for run_index in range(6):
+            raw_trace = os.path.join(
+                self.test_tmpdir,
+                "db_stress_public_iterator_trace_%d_%d.bin"
+                % (5000 + run_index, run_index + 1),
+            )
+            self.write_sample_public_iterator_trace(raw_trace)
+            archived.extend(
+                db_crashtest.print_and_cleanup_public_iterator_trace(
+                    5000 + run_index,
+                    "blackbox_run_%04d_exit-0" % run_index,
+                    keep_last_runs=5,
+                )
+            )
+
+        artifact_dir = os.path.join(
+            self.test_tmpdir, db_crashtest._TRACE_ARTIFACT_DIRNAME
+        )
+        raw_logs = sorted(
+            os.path.basename(path)
+            for path in os.listdir(artifact_dir)
+            if path.endswith(".bin")
+        )
+        decoded_logs = sorted(
+            os.path.basename(path)
+            for path in os.listdir(artifact_dir)
+            if path.endswith(".log")
+        )
+
+        self.assertEqual(5, len(raw_logs))
+        self.assertEqual(5, len(decoded_logs))
+        self.assertFalse(
+            any("blackbox_run_0000_exit-0" in path for path in raw_logs + decoded_logs)
+        )
+        self.assertTrue(
+            any("blackbox_run_0005_exit-0" in path for path in raw_logs + decoded_logs)
+        )
 
 if __name__ == "__main__":
     unittest.main()

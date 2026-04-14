@@ -24,6 +24,7 @@
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_filters.h"
 #include "db_stress_tool/db_stress_table_properties_collector.h"
+#include "db_stress_tool/db_stress_trace.h"
 #include "db_stress_tool/db_stress_wide_merge_operator.h"
 #include "file/file_util.h"
 #include "options/options_parser.h"
@@ -92,6 +93,19 @@ StressTest::StressTest()
             s.ToString().c_str());
     exit(1);
   }
+}
+
+std::unique_ptr<Iterator> StressTest::NewTraceIterator(
+    DB* db, const ReadOptions& read_opts,
+    ColumnFamilyHandle* column_family) const {
+  return NewDbStressTraceIterator(db, read_opts, column_family);
+}
+
+std::unique_ptr<Iterator> StressTest::WrapTraceIterator(
+    std::unique_ptr<Iterator> iter, const ReadOptions& read_opts,
+    ColumnFamilyHandle* column_family) const {
+  return MaybeWrapDbStressTraceIterator(std::move(iter), read_opts,
+                                        column_family);
 }
 
 void StressTest::CleanUp() {
@@ -561,7 +575,7 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
     // When `prefix_extractor` is set, seeking to beginning and scanning
     // across prefixes are only supported with `total_order_seek` set.
     ropt.total_order_seek = true;
-    std::unique_ptr<Iterator> iterator(db->NewIterator(ropt));
+    std::unique_ptr<Iterator> iterator(NewTraceIterator(db, ropt));
     std::unique_ptr<std::vector<bool>> tmp_bitvec(
         new std::vector<bool>(FLAGS_max_key));
     for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
@@ -1632,11 +1646,11 @@ Status StressTest::TestIterate(ThreadState* thread,
         cfhs.emplace_back(column_families_[cf_index]);
       }
       assert(!cfhs.empty());
-      return db_->NewCoalescingIterator(ro, cfhs);
+      return WrapTraceIterator(db_->NewCoalescingIterator(ro, cfhs), ro);
     } else {
       ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
       assert(cfh);
-      return std::unique_ptr<Iterator>(db_->NewIterator(ro, cfh));
+      return NewTraceIterator(db_, ro, cfh);
     }
   };
 
@@ -1743,7 +1757,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
   assert(options_.prefix_extractor.get() == nullptr);
 
   std::unique_ptr<Iterator> iter;
-  iter.reset(db_->NewIterator(ro, column_families_[rand_column_families[0]]));
+  iter = NewTraceIterator(db_, ro, column_families_[rand_column_families[0]]);
   iter->Prepare(scan_opts);
 
   constexpr size_t kOpLogsLimit = 50000;
@@ -1786,7 +1800,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
         GetControlCfh(thread, rand_column_families[0]);
     assert(cmp_cfh);
 
-    std::unique_ptr<Iterator> cmp_iter(db_->NewIterator(cmp_ro, cmp_cfh));
+    std::unique_ptr<Iterator> cmp_iter(NewTraceIterator(db_, cmp_ro, cmp_cfh));
 
     bool diverged = false;
 
@@ -2002,7 +2016,7 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
         GetControlCfh(thread, rand_column_families[0]);
     assert(cmp_cfh);
 
-    std::unique_ptr<Iterator> cmp_iter(db_->NewIterator(cmp_ro, cmp_cfh));
+    std::unique_ptr<Iterator> cmp_iter(NewTraceIterator(db_, cmp_ro, cmp_cfh));
 
     bool diverged = false;
 
@@ -2176,9 +2190,10 @@ void StressTest::DumpIteratorDivergenceDiagnostics(
       for (int cf_index : rand_column_families) {
         cfhs.emplace_back(column_families_[cf_index]);
       }
-      return db_->NewCoalescingIterator(debug_ro, cfhs);
+      return WrapTraceIterator(db_->NewCoalescingIterator(debug_ro, cfhs),
+                               debug_ro);
     }
-    return std::unique_ptr<Iterator>(db_->NewIterator(debug_ro, cmp_cfh));
+    return NewTraceIterator(db_, debug_ro, cmp_cfh);
   };
 
   auto dump_debug_iter = [&](const char* label, const ReadOptions& debug_ro,
@@ -3358,7 +3373,7 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
     // When `prefix_extractor` is set, seeking to beginning and scanning
     // across prefixes are only supported with `total_order_seek` set.
     ropt.total_order_seek = true;
-    std::unique_ptr<Iterator> iterator(db_->NewIterator(ropt));
+    std::unique_ptr<Iterator> iterator(NewTraceIterator(db_, ropt));
     for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
       uint64_t key_val;
       if (GetIntVal(iterator->key().ToString(), &key_val)) {
@@ -3549,7 +3564,7 @@ uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
     ro.timestamp = &ts;
   }
 
-  std::unique_ptr<Iterator> it(db_->NewIterator(ro, column_family));
+  std::unique_ptr<Iterator> it(NewTraceIterator(db_, ro, column_family));
 
   constexpr char kCrcCalculatorSepearator = ';';
 

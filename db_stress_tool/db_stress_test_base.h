@@ -249,6 +249,13 @@ class StressTest {
                         ColumnFamilyHandle* column_family,
                         const Slice& start_key, const Slice& end_key);
 
+  std::unique_ptr<Iterator> NewTraceIterator(
+      DB* db, const ReadOptions& read_opts,
+      ColumnFamilyHandle* column_family = nullptr) const;
+  std::unique_ptr<Iterator> WrapTraceIterator(
+      std::unique_ptr<Iterator> iter, const ReadOptions& read_opts,
+      ColumnFamilyHandle* column_family = nullptr) const;
+
   // Return a column family handle that mirrors what is pointed by
   // `column_family_id`, which will be used to validate data to be correct.
   // By default, the column family itself will be returned.

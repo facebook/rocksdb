@@ -21,11 +21,13 @@
 // different behavior. See comment of the flag for details.
 
 #ifdef GFLAGS
+#include <cstdlib>
 #include <iostream>
 
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_shared_state.h"
+#include "db_stress_tool/db_stress_trace.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "utilities/fault_injection_fs.h"
@@ -42,6 +44,24 @@ static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
 int ReturnFlagValidationError(const char* message) {
   std::cerr << "Error: " << message << '\n';
   return 1;
+}
+
+void DumpDbStressPublicIteratorTraceAtExit() {
+  DumpDbStressPublicIteratorTrace();
+}
+
+void DumpAndReportDbStressPublicIteratorTrace(const char* reason) {
+  if (!IsDbStressPublicIteratorTraceEnabled()) {
+    return;
+  }
+  const std::string trace_path = GetDbStressPublicIteratorTracePath();
+  DumpDbStressPublicIteratorTrace();
+  fprintf(stdout, "db_stress public iterator raw trace written to %s",
+          trace_path.empty() ? "<unavailable>" : trace_path.c_str());
+  if (reason != nullptr && reason[0] != '\0') {
+    fprintf(stdout, " %s", reason);
+  }
+  fputc('\n', stdout);
 }
 }  // namespace
 
@@ -102,14 +122,6 @@ int db_stress_tool(int argc, char** argv) {
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();
 
-    // Register a crash callback so that recently injected errors are
-    // printed to stderr when the process crashes (SIGABRT, SIGSEGV, etc.).
-    // This helps diagnose stress test failures caused by fault injection.
-    port::RegisterCrashCallback([]() {
-      if (fault_fs_guard) {
-        fault_fs_guard->PrintRecentInjectedErrors();
-      }
-    });
   }
 
   auto db_stress_fs =
@@ -376,6 +388,30 @@ int db_stress_tool(int argc, char** argv) {
     fault_fs_guard->SetInjectedErrorLogPath(log_path);
   }
 
+  if (FLAGS_trace_public_iterator_api) {
+    std::string log_dir;
+    const char* test_tmpdir = getenv("TEST_TMPDIR");
+    if (test_tmpdir && test_tmpdir[0] != '\0') {
+      log_dir = test_tmpdir;
+    } else {
+      log_dir = "/tmp";
+    }
+    std::string log_path = log_dir + "/db_stress_public_iterator_trace_" +
+                           std::to_string(getpid()) + "_" +
+                           std::to_string(time(nullptr)) + ".bin";
+    InitDbStressPublicIteratorTrace(log_path);
+    std::atexit(DumpDbStressPublicIteratorTraceAtExit);
+  }
+
+  if (fault_fs_guard || IsDbStressPublicIteratorTraceEnabled()) {
+    port::RegisterCrashCallback([]() {
+      if (fault_fs_guard) {
+        fault_fs_guard->PrintRecentInjectedErrors();
+      }
+      DumpDbStressPublicIteratorTrace();
+    });
+  }
+
   if ((FLAGS_test_secondary || FLAGS_continuous_verification_interval > 0) &&
       FLAGS_secondaries_base.empty()) {
     std::string default_secondaries_path;
@@ -525,6 +561,7 @@ int db_stress_tool(int argc, char** argv) {
   // Close DB in CleanUp() before destructor to prevent race between destructor
   // and operations in listener callbacks (e.g. MultiOpsTxnsStressListener).
   stress->CleanUp();
+  DumpAndReportDbStressPublicIteratorTrace("on exit");
   return run_stress_test ? 0 : 1;
 }
 

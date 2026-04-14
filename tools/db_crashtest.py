@@ -2,6 +2,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 import argparse
+import db_stress_trace_parser
 import glob
 import math
 import os
@@ -507,6 +508,9 @@ _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # except on remote filesystem
 _TEST_EXPECTED_DIR_ENV_VAR = "TEST_TMPDIR_EXPECTED"
 _DEBUG_LEVEL_ENV_VAR = "DEBUG_LEVEL"
+_TRACE_ARTIFACT_DIRNAME = "db_stress_trace_artifacts"
+_PUBLIC_ITERATOR_TRACE_PREFIX = "db_stress_public_iterator_trace"
+_PUBLIC_ITERATOR_TRACE_KEEP_LAST_RUNS = 5
 
 stress_cmd = "./db_stress"
 
@@ -2004,6 +2008,102 @@ def cleanup_after_success(dbname):
         sys.exit(2)
 
 
+def _get_trace_artifact_dir():
+    artifact_dir = os.path.join(
+        os.environ.get(_TEST_DIR_ENV_VAR) or "/tmp", _TRACE_ARTIFACT_DIRNAME
+    )
+    os.makedirs(artifact_dir, exist_ok=True)
+    return artifact_dir
+
+
+def _sanitize_trace_label(label):
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", str(label))
+    sanitized = sanitized.strip(".-")
+    return sanitized or "run"
+
+
+def _format_trace_timestamp(unix_seconds):
+    try:
+        return time.strftime("%Y%m%d-%H%M%S", time.localtime(unix_seconds))
+    except (OverflowError, OSError, ValueError):
+        return "unknown-time"
+
+
+def _parse_trace_pid_and_timestamp(raw_log, raw_prefix):
+    match = re.fullmatch(
+        rf"{re.escape(raw_prefix)}_(\d+)_(\d+)\.bin$", os.path.basename(raw_log)
+    )
+    if match is None:
+        return None, None
+    return int(match.group(1)), int(match.group(2))
+
+
+def _allocate_trace_archive_base(raw_log, raw_prefix, run_label):
+    pid, unix_seconds = _parse_trace_pid_and_timestamp(raw_log, raw_prefix)
+    parts = [raw_prefix, _sanitize_trace_label(run_label)]
+    if unix_seconds is not None:
+        parts.append(_format_trace_timestamp(unix_seconds))
+        parts.append(f"ts{unix_seconds}")
+    if pid is not None:
+        parts.append(f"pid{pid}")
+    if pid is None and unix_seconds is None:
+        parts.append(os.path.splitext(os.path.basename(raw_log))[0])
+
+    base = os.path.join(_get_trace_artifact_dir(), ".".join(parts))
+    candidate = base
+    suffix = 1
+    while os.path.exists(candidate + ".bin") or os.path.exists(candidate + ".log"):
+        suffix += 1
+        candidate = f"{base}.dup{suffix}"
+    return candidate
+
+
+def _prune_archived_public_iterator_traces(keep_last_runs):
+    if keep_last_runs <= 0:
+        return
+
+    archived = []
+    pattern = os.path.join(_get_trace_artifact_dir(), _PUBLIC_ITERATOR_TRACE_PREFIX + ".*.bin")
+    for raw_path in glob.glob(pattern):
+        base, _ = os.path.splitext(raw_path)
+        newest_mtime = os.path.getmtime(raw_path)
+        decoded_log = base + ".log"
+        if os.path.exists(decoded_log):
+            newest_mtime = max(newest_mtime, os.path.getmtime(decoded_log))
+        archived.append((newest_mtime, base))
+
+    archived.sort(reverse=True)
+    for _, base in archived[keep_last_runs:]:
+        for ext in (".bin", ".log"):
+            path = base + ext
+            if os.path.exists(path):
+                os.remove(path)
+
+
+def _print_public_iterator_trace_log(decoded_log, max_tail_lines):
+    print("=== db_stress public iterator trace: %s ===" % decoded_log)
+    with open(decoded_log) as f:
+        lines = f.readlines()
+    if len(lines) <= max_tail_lines:
+        print("".join(lines), end="")
+    else:
+        print("".join(lines[:2]), end="")
+        skipped = len(lines) - max_tail_lines
+        print(
+            "... (%d lines omitted, showing last %d)\n" % (skipped, max_tail_lines),
+            end="",
+        )
+        print("".join(lines[-max_tail_lines:]), end="")
+
+
+def _format_process_exit_label(returncode, hit_timeout):
+    if hit_timeout:
+        return "sigterm-timeout"
+    if returncode is None:
+        return "unknown-exit"
+    if returncode < 0:
+        return f"signal-{abs(returncode)}"
+    return f"exit-{returncode}"
 def print_and_cleanup_fault_injection_log(pid):
     # Fault injection logs are stored in TEST_TMPDIR (or /tmp) to survive
     # DB reopen cleanup, and to be included in sandcastle's db.tar.gz artifact.
@@ -2052,12 +2152,50 @@ def print_and_cleanup_fault_injection_log(pid):
             pass
 
 
+def print_and_cleanup_public_iterator_trace(
+    pid, run_label=None, keep_last_runs=_PUBLIC_ITERATOR_TRACE_KEEP_LAST_RUNS
+):
+    max_tail_lines = 64
+    run_label = run_label or f"pid-{pid}"
+    log_dir = os.environ.get(_TEST_DIR_ENV_VAR) or "/tmp"
+    pattern = os.path.join(log_dir, _PUBLIC_ITERATOR_TRACE_PREFIX + "_%d_*.bin" % pid)
+    archived_paths = []
+    for raw_log in sorted(glob.glob(pattern)):
+        archive_base = _allocate_trace_archive_base(
+            raw_log, _PUBLIC_ITERATOR_TRACE_PREFIX, run_label
+        )
+        archived_raw = archive_base + ".bin"
+        decoded_log = archive_base + ".log"
+        try:
+            shutil.move(raw_log, archived_raw)
+            db_stress_trace_parser.decode_public_iterator_trace(archived_raw, decoded_log)
+            print("Saved db_stress public iterator trace raw: %s" % archived_raw)
+            print("Saved db_stress public iterator trace log: %s" % decoded_log)
+            _print_public_iterator_trace_log(decoded_log, max_tail_lines)
+            archived_paths.append((archived_raw, decoded_log))
+        except (OSError, ValueError) as exc:
+            if os.path.exists(raw_log) and not os.path.exists(archived_raw):
+                try:
+                    shutil.move(raw_log, archived_raw)
+                except OSError:
+                    archived_raw = raw_log
+            print("Saved db_stress public iterator trace raw: %s" % archived_raw)
+            print(
+                "WARNING: failed to decode db_stress public iterator trace %s: %s\n"
+                % (archived_raw, exc)
+            )
+            archived_paths.append((archived_raw, None))
+    _prune_archived_public_iterator_traces(keep_last_runs)
+    return archived_paths
+
+
 # This script runs and kills db_stress multiple times. It checks consistency
 # in case of unsafe crashes in RocksDB.
 def blackbox_crash_main(args, unknown_args):
     cmd_params = gen_cmd_params(args)
     dbname = get_dbname("blackbox")
     exit_time = time.time() + cmd_params["duration"]
+    run_index = 0
 
     print(
         "Running blackbox-crash-test with \n"
@@ -2070,6 +2208,7 @@ def blackbox_crash_main(args, unknown_args):
     )
 
     while time.time() < exit_time:
+        run_index += 1
         apply_random_seed_per_iteration()
         cmd, finalized_params = gen_cmd(
             dict(list(cmd_params.items()) + list({"db": dbname}.items())), unknown_args
@@ -2078,6 +2217,11 @@ def blackbox_crash_main(args, unknown_args):
         hit_timeout, retcode, outs, errs, pid = execute_cmd(cmd, cmd_params["interval"])
 
         print_and_cleanup_fault_injection_log(pid)
+        print_and_cleanup_public_iterator_trace(
+            pid,
+            "blackbox_run_%04d_%s"
+            % (run_index, _format_process_exit_label(retcode, hit_timeout)),
+        )
         outs, errs = strip_expected_sigterm_stderr(outs, errs, hit_timeout)
 
         # Reset destroy_db_initially after each run (it may have been set by
@@ -2109,6 +2253,11 @@ def blackbox_crash_main(args, unknown_args):
     )
 
     print_and_cleanup_fault_injection_log(pid)
+    print_and_cleanup_public_iterator_trace(
+        pid,
+        "blackbox_verify_run_%04d_%s"
+        % (run_index + 1, _format_process_exit_label(retcode, hit_timeout)),
+    )
 
     # For the final run
     print_run_output_and_exit_on_error(args, finalized_params, outs, errs)
@@ -2141,7 +2290,9 @@ def whitebox_crash_main(args, unknown_args):
     prev_compaction_style = -1
     succeeded = True
     hit_timeout = False
+    run_index = 0
     while time.time() < exit_time:
+        run_index += 1
         apply_random_seed_per_iteration()
         if check_mode == 0:
             additional_opts = {
@@ -2252,6 +2403,18 @@ def whitebox_crash_main(args, unknown_args):
         # hits a hanging bug.
         hit_timeout, retncode, stdoutdata, stderrdata, pid = execute_cmd(
             cmd, exit_time - time.time() + 900
+        )
+
+        print_and_cleanup_fault_injection_log(pid)
+        print_and_cleanup_public_iterator_trace(
+            pid,
+            "whitebox_run_%04d_check_%d_%s_%s"
+            % (
+                run_index,
+                check_mode,
+                "kill" if additional_opts["kill_random_test"] is not None else "normal",
+                _format_process_exit_label(retncode, hit_timeout),
+            ),
         )
 
         # Reset destroy_db_initially after each run (it may have been set by
