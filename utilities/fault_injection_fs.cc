@@ -39,6 +39,40 @@ namespace ROCKSDB_NAMESPACE {
 
 const std::string kNewFileNoOverwrite;
 
+namespace {
+
+bool TryParseInfoLogFileName(const std::string& file_name, uint64_t* number) {
+  auto try_parse_suffix = [number](Slice suffix) {
+    if (suffix.empty() || suffix == ".old") {
+      *number = 0;
+      return true;
+    }
+    if (!suffix.starts_with(".old.")) {
+      return false;
+    }
+    suffix.remove_prefix(sizeof(".old.") - 1);
+    return ConsumeDecimalNumber(&suffix, number) && suffix.empty();
+  };
+
+  Slice base(file_name);
+  if (base.starts_with("LOG")) {
+    Slice suffix = base;
+    suffix.remove_prefix(sizeof("LOG") - 1);
+    return try_parse_suffix(suffix);
+  }
+
+  size_t info_log_pos = file_name.rfind("_LOG");
+  if (info_log_pos == std::string::npos) {
+    return false;
+  }
+
+  Slice suffix(file_name);
+  suffix.remove_prefix(info_log_pos + sizeof("_LOG") - 1);
+  return try_parse_suffix(suffix);
+}
+
+}  // namespace
+
 // Assume a filename, and not a directory name like "/foo/bar/"
 std::string TestFSGetDirName(const std::string filename) {
   size_t found = filename.find_last_of("/\\");
@@ -1501,9 +1535,17 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
 
 bool FaultInjectionTestFS::TryParseFileName(const std::string& file_name,
                                             uint64_t* number, FileType* type) {
-  std::size_t found = file_name.find_last_of('/');
-  std::string file = file_name.substr(found);
-  return ParseFileName(file, number, type);
+  std::size_t found = file_name.find_last_of("/\\");
+  std::string file =
+      found == std::string::npos ? file_name : file_name.substr(found + 1);
+  if (ParseFileName(file, number, type)) {
+    return true;
+  }
+  if (!TryParseInfoLogFileName(file, number)) {
+    return false;
+  }
+  *type = kInfoLogFile;
+  return true;
 }
 
 IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(
@@ -1521,7 +1563,12 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in ||
       ShouldIOActivitiesExcludedFromFaultInjection(io_options.io_activity) ||
       (type == FaultInjectionIOType::kWrite &&
-       ShouldExcludeFromWriteFaultInjection(file_name))) {
+       ShouldExcludeFromFaultInjection(
+           file_name, file_types_excluded_from_write_fault_injection_)) ||
+      (type == FaultInjectionIOType::kMetadataRead &&
+       ShouldExcludeFromFaultInjection(
+           file_name,
+           file_types_excluded_from_metadata_read_fault_injection_))) {
     return IOStatus::OK();
   }
 

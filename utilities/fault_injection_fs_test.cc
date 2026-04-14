@@ -14,6 +14,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class InjectedErrorLogTest : public testing::Test {};
+class FaultInjectionTestFSTest : public testing::Test {};
 
 // Test basic Record and PrintAll functionality.
 TEST_F(InjectedErrorLogTest, BasicRecordAndPrint) {
@@ -83,6 +84,39 @@ TEST_F(InjectedErrorLogTest, HexHead) {
 
   result = InjectedErrorLog::HexHead(data, 4, 2);
   ASSERT_EQ(result, "01 02 ...");
+}
+
+TEST_F(FaultInjectionTestFSTest, MetadataReadFaultExcludesInfoLogFiles) {
+  Env* env = Env::Default();
+  const std::string dbname =
+      test::PerThreadDBPath("fault_injection_fs_test_metadata_read");
+  ASSERT_OK(env->CreateDirIfMissing(dbname));
+
+  const std::string old_info_log = OldInfoLogFileName(dbname, 123);
+  const std::string manifest = DescriptorFileName(dbname, 1);
+  ASSERT_OK(
+      WriteStringToFile(env, "old log", old_info_log, false /* should_sync */));
+  ASSERT_OK(
+      WriteStringToFile(env, "manifest", manifest, false /* should_sync */));
+
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(env->GetFileSystem());
+  fault_fs->SetFileTypesExcludedFromMetadataReadFaultInjection(
+      {FileType::kInfoLogFile});
+  fault_fs->SetThreadLocalErrorContext(
+      FaultInjectionIOType::kMetadataRead, /*seed=*/0, /*one_in=*/1,
+      /*retryable=*/false, /*has_data_loss=*/false);
+  fault_fs->EnableThreadLocalErrorInjection(
+      FaultInjectionIOType::kMetadataRead);
+
+  ASSERT_OK(fault_fs->FileExists(old_info_log, IOOptions(), nullptr));
+  ASSERT_EQ(0, fault_fs->GetAndResetInjectedThreadLocalErrorCount(
+                   FaultInjectionIOType::kMetadataRead));
+
+  IOStatus s = fault_fs->FileExists(manifest, IOOptions(), nullptr);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsIOError()) << s.ToString();
+  ASSERT_EQ(1, fault_fs->GetAndResetInjectedThreadLocalErrorCount(
+                   FaultInjectionIOType::kMetadataRead));
 }
 
 }  // namespace ROCKSDB_NAMESPACE
