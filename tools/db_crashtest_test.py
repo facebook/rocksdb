@@ -122,6 +122,21 @@ class DBCrashTestTest(unittest.TestCase):
         self.assertEqual(1, finalized["disable_wal"])
         self.assertEqual(0, finalized["test_batches_snapshots"])
 
+    def test_finalize_disables_sqfc_range_queries_with_range_conversion(self):
+        db_crashtest = self.load_db_crashtest()
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "use_sqfc_for_range_queries": 1,
+                "min_tombstones_for_range_conversion": 2,
+            },
+        )
+
+        finalized = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(2, finalized["min_tombstones_for_range_conversion"])
+        self.assertEqual(0, finalized["use_sqfc_for_range_queries"])
+
 
 if __name__ == "__main__":
     unittest.main()

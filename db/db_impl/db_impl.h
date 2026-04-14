@@ -1825,6 +1825,9 @@ class DBImpl : public DB {
   Status FailIfCfHasTs(const ColumnFamilyHandle* column_family) const;
   Status FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
                             const Slice& ts) const;
+  Status FailIfTableFilterWithRangeConversion(
+      const ReadOptions& read_options,
+      const MutableCFOptions& mutable_cf_options) const;
 
   // Check that the read timestamp `ts` is at or above the `full_history_ts_low`
   // timestamp in a `SuperVersion`. It's necessary to do this check after
@@ -3535,6 +3538,18 @@ inline Status DBImpl::FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
     oss << "Timestamp sizes mismatch: expect " << ucmp->timestamp_size() << ", "
         << ts_sz << " given";
     return Status::InvalidArgument(oss.str());
+  }
+  return Status::OK();
+}
+
+inline Status DBImpl::FailIfTableFilterWithRangeConversion(
+    const ReadOptions& read_options,
+    const MutableCFOptions& mutable_cf_options) const {
+  if (read_options.table_filter &&
+      mutable_cf_options.min_tombstones_for_range_conversion > 0) {
+    return Status::InvalidArgument(
+        "ReadOptions::table_filter is not supported when "
+        "min_tombstones_for_range_conversion > 0");
   }
   return Status::OK();
 }

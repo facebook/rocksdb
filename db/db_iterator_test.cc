@@ -5666,6 +5666,16 @@ class ReadPathRangeTombstoneTest : public DBIteratorBaseTest,
     ASSERT_OK(iter->status());
   }
 
+  void AssertTableFilterRangeConversionRejected(
+      const ReadOptions& ro, ColumnFamilyHandle* cfh = nullptr) {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(
+        ro, cfh != nullptr ? cfh : db_->DefaultColumnFamily()));
+    ASSERT_TRUE(iter->status().IsInvalidArgument());
+    ASSERT_TRUE(iter->status().ToString().find(
+                    "table_filter is not supported") != std::string::npos)
+        << iter->status().ToString();
+  }
+
   std::vector<std::pair<std::string, std::string>> inserted_ranges_;
 };
 
@@ -6381,100 +6391,59 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterOutOfDomainSeek) {
   AssertRange(0, "bbbb", "bbdd");
 }
 
-TEST_P(ReadPathRangeTombstoneTest, TableFilterHiddenInteriorKey) {
-  if (!Forward()) {
-    ROCKSDB_GTEST_SKIP(
-        "The crash-test regression reproduces in the forward seek/scan path.");
-    return;
-  }
+TEST_P(ReadPathRangeTombstoneTest, TableFilterNotAllowed) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 2;
+  options.statistics = CreateDBStatistics();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
 
-  for (bool use_udt : {false, true}) {
-    SCOPED_TRACE(use_udt ? "with UDT" : "without UDT");
-    Options options = CurrentOptions();
-    options.min_tombstones_for_range_conversion = 2;
-    options.statistics = CreateDBStatistics();
-    options.disable_auto_compactions = true;
-    if (use_udt) {
-      options.comparator = test::BytewiseComparatorWithU64TsWrapper();
-    }
-    DestroyAndReopen(options);
+  // Base data lives in one SST.
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Put("c", "vc"));
+  ASSERT_OK(Put("d", "vd"));
+  ASSERT_OK(Flush());
 
-    std::string ts;
-    Slice ts_slice;
-    std::string read_ts;
-    Slice read_ts_slice;
-    if (use_udt) {
-      PutFixed64(&ts, 1);
-      ts_slice = Slice(ts);
-      read_ts_slice = MaxTimestamp(&read_ts);
-    }
+  // Two point tombstones in a second SST are enough to trigger range
+  // conversion during a subsequent unfiltered scan.
+  ASSERT_OK(Delete("a"));
+  ASSERT_OK(Delete("b"));
+  ASSERT_OK(Flush());
 
-    auto put = [&](const std::string& key, const std::string& value) {
-      return use_udt ? db_->Put(WriteOptions(), key, ts_slice, value)
-                     : Put(key, value);
-    };
-    auto del = [&](const std::string& key) {
-      return use_udt ? db_->Delete(WriteOptions(), key, ts_slice) : Delete(key);
-    };
+  // Keep the active memtable non-empty so the read path has somewhere to store
+  // the synthesized memtable range tombstone.
+  ASSERT_OK(Put("zz", "tail_mem"));
 
-    // Build five SSTs:
-    //   1 entry : base key "a"
-    //   2 entry : live interior key "b" (hidden by table_filter)
-    //   3 entry : visible tail keys ending at live key "d"
-    //   1 entry : tombstone for "a"
-    //   1 entry : tombstone for "c"
-    ASSERT_OK(put("a", "va"));
-    ASSERT_OK(Flush());
-
-    ASSERT_OK(put("b", "vb"));
-    ASSERT_OK(put("bx", "vbx"));
-    ASSERT_OK(Flush());
-
-    ASSERT_OK(put("c", "vc"));
-    ASSERT_OK(put("d", "vd"));
-    ASSERT_OK(put("dx", "vdx"));
-    ASSERT_OK(Flush());
-
-    ASSERT_OK(del("a"));
-    ASSERT_OK(Flush());
-
-    ASSERT_OK(del("c"));
-    ASSERT_OK(Flush());
-
-    // Keep the active memtable non-empty; otherwise read-path range conversion
-    // has nowhere to insert a synthesized tombstone and the reproducer becomes
-    // a false negative.
-    ASSERT_OK(put("zz", "tail_mem"));
-
-    ReadOptions filtered_ro;
-    filtered_ro.table_filter = [](const TableProperties& props) {
-      // Hide the SST that contains live key "b".
-      return props.num_entries != 2;
-    };
-    if (use_udt) {
-      filtered_ro.timestamp = &read_ts_slice;
-    }
-
-    inserted_ranges_.clear();
-    auto it = std::unique_ptr<Iterator>(db_->NewIterator(filtered_ro));
-    it->Seek("a");
+  inserted_ranges_.clear();
+  {
+    // First iterator sees the full SST set, so converting [a, c) into a
+    // memtable range tombstone is safe.
+    ReadOptions ro;
+    auto it = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    it->SeekToFirst();
     while (it->Valid()) {
       it->Next();
     }
     ASSERT_OK(it->status());
-
-    // Range conversion is unsafe when table_filter can hide an interior live
-    // key from the iterator's view.
-    ASSERT_EQ(inserted_ranges_.size(), 0u);
-
-    std::string value;
-    ReadOptions get_ro;
-    if (use_udt) {
-      get_ro.timestamp = &read_ts_slice;
-    }
-    ASSERT_OK(db_->Get(get_ro, db_->DefaultColumnFamily(), "b", &value));
-    ASSERT_EQ(value, "vb");
   }
+
+  ASSERT_GE(inserted_ranges_.size(), 1u);
+  AssertRange(0, "a", "c");
+
+  {
+    ReadOptions filtered_ro;
+    filtered_ro.table_filter = [](const TableProperties& props) {
+      return props.num_entries != 2;
+    };
+    // Hiding the two-delete SST would otherwise leave this iterator with a
+    // partial SST view plus the previously synthesized memtable tombstone,
+    // allowing hidden SST state to affect the filtered read result.
+    AssertTableFilterRangeConversionRejected(filtered_ro);
+  }
+
+  // Rejecting the filtered iterator preserves the correct full-DB view.
+  VerifyIteration({"c", "d", "zz"});
 }
 
 TEST_P(ReadPathRangeTombstoneTest, SnapshotPredatesMemtable) {

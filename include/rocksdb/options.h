@@ -2233,6 +2233,12 @@ struct ReadOptions {
   // properties of each table during iteration. If the callback returns false,
   // the table will not be scanned. This option only affects Iterators and has
   // no impact on point lookups.
+  //
+  // Iterator creation on read-write DB variants returns InvalidArgument when
+  // the target column family's min_tombstones_for_range_conversion is
+  // non-zero, since read-path range tombstone conversion requires visibility
+  // into all relevant SSTs before synthesizing a memtable tombstone.
+  //
   // Default: empty (every table will be scanned)
   std::function<bool(const TableProperties&)> table_filter;
 

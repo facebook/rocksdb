@@ -1411,6 +1411,11 @@ struct AdvancedColumnFamilyOptions {
   // logically redundant entry that does not change any data, but optimizes
   // future iterators by potentially skipping a large number of tombstone scans.
   //
+  // Read-write iterators using ReadOptions::table_filter are rejected while
+  // this option is enabled, since filtering out SSTs can hide live keys needed
+  // to determine a safe tombstone run boundary before synthesizing a memtable
+  // tombstone.
+  //
   // Set to 0 to disable.
   //
   // Dynamically changeable through SetOptions() API
