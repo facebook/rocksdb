@@ -240,8 +240,8 @@ class DbStressPublicIteratorTraceLog {
         dropped_threads_(0),
         dump_started_(0),
         log_fd_(-1),
-        log_path_{},
-        logs_{} {}
+        logs_{},
+        log_path_{} {}
 
   DbStressPublicIteratorTraceLog(const DbStressPublicIteratorTraceLog&) =
       delete;
