@@ -75,6 +75,7 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.track_and_verify_wals = immutable_db_options.track_and_verify_wals;
   options.verify_sst_unique_id_in_manifest =
       immutable_db_options.verify_sst_unique_id_in_manifest;
+  options.fast_sst_open = mutable_db_options.fast_sst_open;
   options.env = immutable_db_options.env;
   options.rate_limiter = immutable_db_options.rate_limiter;
   options.sst_file_manager = immutable_db_options.sst_file_manager;

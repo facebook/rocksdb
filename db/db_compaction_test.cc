@@ -12121,6 +12121,56 @@ TEST_F(DBCompactionTest, VerifyAllOutputFlagsWithoutParanoidFileChecks) {
   }
 }
 
+// Requires ~8GB+ RAM because the compaction filter internally creates a ~4GB
+// value via std::string::assign().
+TEST_F(DBCompactionTest, CompactionFilterLargeValueRejected) {
+  if (!test::HasBigMem()) {
+    ROCKSDB_GTEST_BYPASS("insufficient memory for reliable continuous testing");
+    return;
+  }
+
+  // A compaction filter that inflates every value to a configurable size
+  class InflatingFilter : public CompactionFilter {
+   public:
+    std::atomic<size_t> target_size{0};
+    Decision FilterV2(int /*level*/, const Slice& /*key*/,
+                      ValueType /*value_type*/, const Slice& /*existing_value*/,
+                      std::string* new_value,
+                      std::string* /*skip_until*/) const override {
+      new_value->assign(target_size.load(), 'X');
+      return Decision::kChangeValue;
+    }
+    const char* Name() const override { return "InflatingFilter"; }
+  };
+
+  InflatingFilter inflating_filter;
+  Options options = CurrentOptions();
+  options.compaction_filter = &inflating_filter;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // Control: value at exactly 4GB - 1 should be accepted
+  inflating_filter.target_size = size_t{std::numeric_limits<uint32_t>::max()};
+  ASSERT_OK(Put("key", "small_value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key", "small_value2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Now test rejection: value at 4GB should be rejected
+  inflating_filter.target_size =
+      size_t{std::numeric_limits<uint32_t>::max()} + 1;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("key", "small_value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key", "small_value2"));
+  ASSERT_OK(Flush());
+
+  Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+  ASSERT_TRUE(s.ToString().find("4GB") != std::string::npos) << s.ToString();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

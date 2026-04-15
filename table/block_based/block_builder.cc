@@ -269,6 +269,11 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
                                              size_t buffer_size) {
   assert(!finished_);
   assert(counter_ <= block_restart_interval_);
+  // Verify < 4GB assumption (see API comments on Add())
+  assert(key.size() < uint64_t{1} << 32);
+  assert(value.size() < uint64_t{1} << 32);
+  assert(last_key.size() < uint64_t{1} << 32);
+  assert(delta_value == nullptr || delta_value->size() < uint64_t{1} << 32);
   std::string key_buf;
   std::string last_key_buf;
   const Slice key_to_persist = MaybeStripTimestampFromKey(&key_buf, key);
@@ -278,46 +283,56 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
       last_key.size() == 0
           ? last_key
           : MaybeStripTimestampFromKey(&last_key_buf, last_key);
-  size_t shared = 0;  // number of bytes shared with prev key
+
+  // FIXME: check/enforce that buffer_ hasn't exceeded 4GB. The concern
+  // with adding that check and propagating the result is inner-loop
+  // performance. This case is HIGH concern because blocks like range deletions
+  // and non-partitioned indexes could pile large keys together into one block.
+  const uint32_t buffer_size32 = static_cast<uint32_t>(buffer_size);
+  // NOTE: assuming all slice sizes < 4GB (see API comments on Add())
+  uint32_t shared = 0;  // number of bytes shared with prev key
   if (counter_ >= block_restart_interval_) {
     // Restart compression
-    restarts_.push_back(static_cast<uint32_t>(buffer_size));
+    restarts_.push_back(buffer_size32);
     estimate_ += sizeof(uint32_t);
     counter_ = 0;
   } else if (use_delta_encoding_ && !skip_delta_encoding) {
     // See how much sharing to do with previous string
-    shared = key_to_persist.difference_offset(last_key_persisted);
+    shared = static_cast<uint32_t>(
+        key_to_persist.difference_offset(last_key_persisted));
   }
 
-  const size_t non_shared = key_to_persist.size() - shared;
-  const size_t previous_value_offset = values_buffer_.size();
+  const uint32_t non_shared =
+      static_cast<uint32_t>(key_to_persist.size()) - shared;
+  const size_t prev_values_size = values_buffer_.size();
+
+  // FIXME: check/enforce that values_buffer_ hasn't exceeded 4GB. The concern
+  // with adding that check and propagating the result is inner-loop
+  // performance. This case is low concern because it (at time of writing) only
+  // applies to data blocks and those are flushed as soon as the size exceeds
+  // the block size.
+  const uint32_t prev_values_size32 = static_cast<uint32_t>(prev_values_size);
+  const uint32_t value_size = static_cast<uint32_t>(value.size());
   if (use_value_delta_encoding_) {
     if (use_separated_kv_storage_ && counter_ == 0) {
       // Add "<shared><non_shared><value_offset>" to buffer_
-      PutVarint32(&buffer_, static_cast<uint32_t>(shared),
-                  static_cast<uint32_t>(non_shared),
-                  static_cast<uint32_t>(values_buffer_.size()));
+      PutVarint32(&buffer_, shared, non_shared, prev_values_size32);
     } else {
       // Add "<shared><non_shared>" to buffer_
-      PutVarint32(&buffer_, static_cast<uint32_t>(shared),
-                  static_cast<uint32_t>(non_shared));
+      PutVarint32(&buffer_, shared, non_shared);
     }
   } else {
     if (use_separated_kv_storage_ && counter_ == 0) {
       // Add "<shared><non_shared><value_size><value_offset>" to buffer_
-      PutVarint32(&buffer_, static_cast<uint32_t>(shared),
-                  static_cast<uint32_t>(non_shared),
-                  static_cast<uint32_t>(value.size()),
-                  static_cast<uint32_t>(values_buffer_.size()));
+      PutVarint32(&buffer_, shared, non_shared, value_size, prev_values_size32);
     } else {
       // Add "<shared><non_shared><value_size>" to buffer_
-      PutVarint32(&buffer_, static_cast<uint32_t>(shared),
-                  static_cast<uint32_t>(non_shared),
-                  static_cast<uint32_t>(value.size()));
+      PutVarint32(&buffer_, shared, non_shared, value_size);
     }
   }
 
-  // Add string delta to buffer_
+  // Add string delta to buffer_ (using only bottom 32 bits of size for
+  // consistent treatment in case of corruption)
   buffer_.append(key_to_persist.data() + shared, non_shared);
 
   auto& values_buffer = use_separated_kv_storage_ ? values_buffer_ : buffer_;
@@ -325,10 +340,15 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
   // simplify the decoding, where it can figure which decoding to use simply by
   // looking at the shared bytes size.
   if (shared != 0 && use_value_delta_encoding_) {
+    // Using only bottom 32 bits of size for consistent treatment in case of
+    // corruption
     assert(delta_value != nullptr);
-    values_buffer.append(delta_value->data(), delta_value->size());
+    values_buffer.append(delta_value->data(),
+                         static_cast<uint32_t>(delta_value->size()));
   } else {
-    values_buffer.append(value.data(), value.size());
+    // Using only bottom 32 bits of size for consistent treatment in case of
+    // corruption
+    values_buffer.append(value.data(), value_size);
   }
 
   // TODO(yuzhangyu): make user defined timestamp work with block hash index.
@@ -342,18 +362,20 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
   }
 
   counter_++;
-  estimate_ += buffer_.size() - buffer_size + values_buffer_.size() -
-               previous_value_offset;
+  estimate_ +=
+      buffer_.size() - buffer_size + values_buffer_.size() - prev_values_size;
 }
 
 const Slice BlockBuilder::MaybeStripTimestampFromKey(std::string* key_buf,
                                                      const Slice& key) {
-  Slice stripped_key = key;
+  // Only use bottom 32 bits of size for internal consistency (see API
+  // comments on Add())
+  Slice stripped_key(key.data(), static_cast<uint32_t>(key.size()));
   if (strip_ts_sz_ > 0) {
     if (is_user_key_) {
       stripped_key.remove_suffix(strip_ts_sz_);
     } else {
-      StripTimestampFromInternalKey(key_buf, key, strip_ts_sz_);
+      StripTimestampFromInternalKey(key_buf, stripped_key, strip_ts_sz_);
       stripped_key = *key_buf;
     }
   }

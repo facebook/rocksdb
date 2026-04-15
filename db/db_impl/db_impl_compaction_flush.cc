@@ -217,7 +217,8 @@ Status DBImpl::FlushMemTableToOutputFile(
       &event_logger_, mutable_cf_options.report_bg_io_stats,
       true /* sync_output_directory */, true /* write_manifest */, thread_pri,
       io_tracer_, cfd->GetSuperVersion()->ShareSeqnoToTimeMapping(), db_id_,
-      db_session_id_, cfd->GetFullHistoryTsLow(), &blob_callback_);
+      db_session_id_, cfd->GetFullHistoryTsLow(), &blob_callback_,
+      mutable_db_options_.fast_sst_open);
   FileMetaData file_meta;
 
   Status s;
@@ -548,7 +549,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         false /* sync_output_directory */, false /* write_manifest */,
         thread_pri, io_tracer_,
         cfd->GetSuperVersion()->ShareSeqnoToTimeMapping(), db_id_,
-        db_session_id_, cfd->GetFullHistoryTsLow(), &blob_callback_));
+        db_session_id_, cfd->GetFullHistoryTsLow(), &blob_callback_,
+        mutable_db_options_.fast_sst_open));
   }
 
   std::vector<FileMetaData> file_meta(num_cfs);

@@ -95,7 +95,13 @@ jobs:
             }
 
             if (!prNumber) {
-              core.setFailed(`Could not find PR for SHA ${headSha} after retries`);
+              core.warning(
+                `Could not find PR for SHA ${headSha} after retries. ` +
+                `This can happen when the PR head advanced before this ` +
+                `workflow_run-triggered job started. Skipping stale review run.`
+              );
+              core.setOutput('skip', 'true');
+              core.setOutput('skip_reason', `stale_sha:${headSha}`);
               return;
             }
 
@@ -105,6 +111,7 @@ jobs:
               pull_number: prNumber
             });
 
+            core.setOutput('skip', 'false');
             core.setOutput('pr_number', prNumber.toString());
             core.setOutput('head_repo', pr.data.head.repo.clone_url);
             core.setOutput('head_ref', pr.data.head.ref);
@@ -115,7 +122,12 @@ jobs:
             core.setOutput('pr_body', pr.data.body || '');
             core.setOutput('pr_author', pr.data.user.login);
 
+      - name: Skip stale run
+        if: steps.pr_info.outputs.skip == 'true'
+        run: echo "Skipping stale auto-review run: ${{ steps.pr_info.outputs.skip_reason }}"
+
       - name: Check for existing review
+        if: steps.pr_info.outputs.skip != 'true'
         id: check_existing
         uses: actions/github-script@v7
         env:
@@ -137,7 +149,7 @@ jobs:
             core.setOutput('skip', existing ? 'true' : 'false');
 
       - name: Checkout base repository
-        if: steps.check_existing.outputs.skip != 'true'
+        if: steps.pr_info.outputs.skip != 'true' && steps.check_existing.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.pr_info.outputs.base_ref }}
@@ -145,7 +157,7 @@ jobs:
           persist-credentials: false
 
       - name: Generate diff and prompt
-        if: steps.check_existing.outputs.skip != 'true'
+        if: steps.pr_info.outputs.skip != 'true' && steps.check_existing.outputs.skip != 'true'
         env:
           HEAD_REPO: ${{ steps.pr_info.outputs.head_repo }}
           HEAD_REF: ${{ steps.pr_info.outputs.head_ref }}
@@ -189,7 +201,7 @@ jobs:
           cat /tmp/pr.diff >> /tmp/prompt.txt
 
       - name: Run Claude
-        if: steps.check_existing.outputs.skip != 'true'
+        if: steps.pr_info.outputs.skip != 'true' && steps.check_existing.outputs.skip != 'true'
         id: claude
         uses: anthropics/claude-code-base-action@beta
         with:
@@ -201,7 +213,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - name: Recover partial review on turn limit
-        if: steps.check_existing.outputs.skip != 'true'
+        if: steps.pr_info.outputs.skip != 'true' && steps.check_existing.outputs.skip != 'true'
         id: recover
         uses: actions/github-script@v7
         env:
@@ -219,6 +231,7 @@ jobs:
 
       - name: Format partial findings
         if: >-
+          steps.pr_info.outputs.skip != 'true' &&
           steps.check_existing.outputs.skip != 'true' &&
           steps.recover.outputs.needs_recovery == 'true'
         id: format_recovery
@@ -231,7 +244,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - name: Build review comment
-        if: steps.check_existing.outputs.skip != 'true'
+        if: steps.pr_info.outputs.skip != 'true' && steps.check_existing.outputs.skip != 'true'
         uses: actions/github-script@v7
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
@@ -264,15 +277,15 @@ jobs:
             fs.writeFileSync('claude-review-comment.md', body);
 
       - name: Save PR number
-        if: steps.check_existing.outputs.skip != 'true'
+        if: steps.pr_info.outputs.skip != 'true' && steps.check_existing.outputs.skip != 'true'
         run: echo "${{ steps.pr_info.outputs.pr_number }}" > pr_number.txt
 
       - name: Save trigger metadata
-        if: steps.check_existing.outputs.skip != 'true'
+        if: steps.pr_info.outputs.skip != 'true' && steps.check_existing.outputs.skip != 'true'
         run: echo "auto" > trigger_type.txt
 
       - name: Upload review artifact
-        if: always() && steps.check_existing.outputs.skip != 'true'
+        if: always() && steps.pr_info.outputs.skip != 'true' && steps.check_existing.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: claude-review-result
@@ -284,7 +297,7 @@ jobs:
           retention-days: 1
 
       - name: Upload execution log
-        if: always() && steps.check_existing.outputs.skip != 'true'
+        if: always() && steps.pr_info.outputs.skip != 'true' && steps.check_existing.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: claude-review-execution-log
@@ -293,7 +306,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload recovery execution log
-        if: always() && steps.recover.outputs.needs_recovery == 'true'
+        if: always() && steps.pr_info.outputs.skip != 'true' && steps.recover.outputs.needs_recovery == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: claude-review-recovery-log

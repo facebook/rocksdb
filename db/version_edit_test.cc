@@ -1127,6 +1127,93 @@ TEST_F(SubcompactionProgressTest, UnknownTags) {
   ASSERT_TRUE(critical_status.IsNotSupported());
 }
 
+TEST_F(VersionEditTest, FileOpenMetadataEncodeDecode) {
+  static const uint64_t kBig = 1ull << 50;
+
+  // Test 1: File with file_open_metadata set
+  VersionEdit edit;
+  edit.AddFile(3, 300, 0, 100, InternalKey("foo", kBig + 500, kTypeValue),
+               InternalKey("zoo", kBig + 600, kTypeDeletion), kBig + 500,
+               kBig + 600, false, Temperature::kUnknown, kInvalidBlobFileNumber,
+               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+               300 /* epoch_number */, kUnknownFileChecksum,
+               kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0, true);
+  // Set file_open_metadata on the added file
+  auto& new_files = edit.GetMutableNewFiles();
+  ASSERT_EQ(1u, new_files.size());
+  new_files[0].second.file_open_metadata = "test_metadata_content_12345";
+
+  // Test 2: File without file_open_metadata (empty)
+  edit.AddFile(4, 301, 0, 200, InternalKey("bar", kBig + 501, kTypeValue),
+               InternalKey("zap", kBig + 601, kTypeDeletion), kBig + 501,
+               kBig + 601, false, Temperature::kUnknown, kInvalidBlobFileNumber,
+               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+               301 /* epoch_number */, kUnknownFileChecksum,
+               kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0, true);
+
+  // Encode and decode
+  std::string encoded;
+  edit.EncodeTo(&encoded, 0 /* ts_sz */);
+  VersionEdit parsed;
+  Status s = parsed.DecodeFrom(encoded);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+
+  auto& parsed_files = parsed.GetNewFiles();
+  ASSERT_EQ(2u, parsed_files.size());
+
+  // First file should have metadata
+  ASSERT_EQ("test_metadata_content_12345",
+            parsed_files[0].second.file_open_metadata);
+
+  // Second file should have empty metadata
+  ASSERT_TRUE(parsed_files[1].second.file_open_metadata.empty());
+}
+
+TEST_F(VersionEditTest, FileOpenMetadataForwardCompatibility) {
+  // Test that a VersionEdit with kFileOpenMetadata can be decoded even if the
+  // reader doesn't know the tag. Tag 17 < kCustomTagNonSafeIgnoreMask (64),
+  // so it should be safely ignored.
+  static const uint64_t kBig = 1ull << 50;
+
+  VersionEdit edit;
+  edit.AddFile(3, 300, 0, 100, InternalKey("foo", kBig + 500, kTypeValue),
+               InternalKey("zoo", kBig + 600, kTypeDeletion), kBig + 500,
+               kBig + 600, false, Temperature::kUnknown, kInvalidBlobFileNumber,
+               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+               300 /* epoch_number */, kUnknownFileChecksum,
+               kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0, true);
+  auto& new_files = edit.GetMutableNewFiles();
+  new_files[0].second.file_open_metadata = std::string(1024, 'x');
+
+  // Encode
+  std::string encoded;
+  edit.EncodeTo(&encoded, 0 /* ts_sz */);
+
+  // Decode should succeed
+  VersionEdit parsed;
+  ASSERT_OK(parsed.DecodeFrom(encoded));
+  ASSERT_EQ(1u, parsed.GetNewFiles().size());
+  ASSERT_EQ(std::string(1024, 'x'),
+            parsed.GetNewFiles()[0].second.file_open_metadata);
+
+  // Verify the tag value is safe-to-ignore
+  ASSERT_EQ(0u, NewFileCustomTag::kFileOpenMetadata &
+                    NewFileCustomTag::kCustomTagNonSafeIgnoreMask);
+}
+
+TEST_F(VersionEditTest, FileOpenMetadataInApproximateMemoryUsage) {
+  // Use heap allocation because ApproximateMemoryUsage uses
+  // malloc_usable_size which requires heap-allocated memory
+  std::unique_ptr<FileMetaData> meta(new FileMetaData());
+  size_t base_usage = meta->ApproximateMemoryUsage();
+
+  meta->file_open_metadata = std::string(500, 'z');
+  size_t with_metadata_usage = meta->ApproximateMemoryUsage();
+
+  // The metadata should add to the memory usage
+  ASSERT_GE(with_metadata_usage, base_usage + 500);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

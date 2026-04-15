@@ -163,10 +163,20 @@ Status MergeHelper::TimedFullMergeImpl(
         return Status::OK();
       }};
 
-  return TimedFullMergeCommonImpl(merge_operator, key,
-                                  std::move(existing_value), operands, logger,
-                                  statistics, clock, update_num_ops_stats,
-                                  op_failure_scope, std::move(visitor));
+  Status s = TimedFullMergeCommonImpl(
+      merge_operator, key, std::move(existing_value), operands, logger,
+      statistics, clock, update_num_ops_stats, op_failure_scope,
+      std::move(visitor));
+  if (s.ok()) {
+    // Check merge result fits in uint32_t (a BlockBuilder assumption)
+    size_t result_size = (result_operand && !result_operand->empty())
+                             ? result_operand->size()
+                             : result->size();
+    if (UNLIKELY(result_size > std::numeric_limits<uint32_t>::max())) {
+      return Status::Corruption("Merge result exceeds 4GB limit");
+    }
+  }
+  return s;
 }
 
 Status MergeHelper::TimedFullMergeImpl(
@@ -239,10 +249,19 @@ Status MergeHelper::TimedFullMergeImpl(
         return Status::OK();
       }};
 
-  return TimedFullMergeCommonImpl(merge_operator, key,
-                                  std::move(existing_value), operands, logger,
-                                  statistics, clock, update_num_ops_stats,
-                                  op_failure_scope, std::move(visitor));
+  Status s = TimedFullMergeCommonImpl(
+      merge_operator, key, std::move(existing_value), operands, logger,
+      statistics, clock, update_num_ops_stats, op_failure_scope,
+      std::move(visitor));
+  if (s.ok()) {
+    // Check merge result fits in uint32_t (a BlockBuilder assumption)
+    size_t result_size =
+        result_value ? result_value->size() : result_entity->serialized_size();
+    if (UNLIKELY(result_size > std::numeric_limits<uint32_t>::max())) {
+      return Status::Corruption("Merge result exceeds 4GB");
+    }
+  }
+  return s;
 }
 
 // PRE:  iter points to the first merge type entry
@@ -649,6 +668,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       if (merge_success) {
         // Merging of operands (associative merge) was successful.
         // Replace operands with the merge result
+        if (UNLIKELY(merge_result.size() >
+                     std::numeric_limits<uint32_t>::max())) {
+          return Status::Corruption("PartialMerge result exceeds 4GB limit");
+        }
         merge_context_.Clear();
         merge_context_.PushOperand(merge_result);
         keys_.erase(keys_.begin(), keys_.end() - 1);

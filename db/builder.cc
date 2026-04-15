@@ -87,7 +87,7 @@ Status BuildTable(
     Env::WriteLifeTimeHint write_hint, const std::string* full_history_ts_low,
     BlobFileCompletionCallback* blob_callback, Version* version,
     uint64_t* memtable_payload_bytes, uint64_t* memtable_garbage_bytes,
-    InternalStats::CompactionStats* flush_stats) {
+    InternalStats::CompactionStats* flush_stats, bool fast_sst_open) {
   assert((tboptions.column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          tboptions.column_family_name.empty());
@@ -457,6 +457,8 @@ Status BuildTable(
       // here because this is a special case after we finish the table building.
       // No matter whether use_direct_io_for_flush_and_compaction is true,
       // the goal is to cache it here for further user reads.
+      std::string* file_open_metadata_ptr =
+          fast_sst_open ? &meta->file_open_metadata : nullptr;
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
           tboptions.read_options, file_options, tboptions.internal_comparator,
           *meta, nullptr /* range_del_agg */, mutable_cf_options, nullptr,
@@ -467,7 +469,10 @@ Status BuildTable(
           MaxFileSizeForL0MetaPin(mutable_cf_options),
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key*/ nullptr,
-          /*allow_unprepared_value*/ false));
+          /*allow_unprepared_value*/ false,
+          /*range_del_read_seqno=*/nullptr,
+          /*range_del_iter=*/nullptr,
+          /*maybe_pin_table_handle=*/false, file_open_metadata_ptr));
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
         OutputValidator file_validator(tboptions.internal_comparator,
