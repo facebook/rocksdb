@@ -93,12 +93,6 @@ int db_stress_tool(int argc, char** argv) {
     FaultInjectionTestFS* fs =
         new FaultInjectionTestFS(raw_env->GetFileSystem());
     fault_fs_guard.reset(fs);
-    // AutoRollLogger probes old/current info log paths with FileExists() and
-    // may ignore those errors. Excluding info log metadata reads keeps
-    // db_stress fault accounting focused on operations whose failures can
-    // propagate back to the stressed DB operation.
-    fault_fs_guard->SetFileTypesExcludedFromMetadataReadFaultInjection(
-        {FileType::kInfoLogFile});
     // Set it to direct writable here to initially bypass any fault injection
     // during DB open This will correspondingly be overwritten in
     // StressTest::Open() for open fault injection and in RunStressTestImpl()

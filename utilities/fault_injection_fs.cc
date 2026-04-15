@@ -41,34 +41,29 @@ const std::string kNewFileNoOverwrite;
 
 namespace {
 
-bool TryParseInfoLogFileName(const std::string& file_name, uint64_t* number) {
-  auto try_parse_suffix = [number](Slice suffix) {
-    if (suffix.empty() || suffix == ".old") {
-      *number = 0;
-      return true;
+bool TryParseInfoLogFileName(const std::string& file_name, uint64_t* number,
+                             FileType* type) {
+  size_t prefix_len = std::string::npos;
+  if (file_name == "LOG" ||
+      (file_name.size() > 3 && file_name.compare(0, 7, "LOG.old") == 0)) {
+    prefix_len = sizeof("LOG") - 1;
+  } else {
+    size_t info_log_pos = file_name.rfind("_LOG");
+    if (info_log_pos != std::string::npos) {
+      size_t suffix_pos = info_log_pos + sizeof("_LOG") - 1;
+      if (suffix_pos == file_name.size() ||
+          (suffix_pos < file_name.size() &&
+           file_name.compare(suffix_pos, 4, ".old") == 0)) {
+        prefix_len = suffix_pos;
+      }
     }
-    if (!suffix.starts_with(".old.")) {
-      return false;
-    }
-    suffix.remove_prefix(sizeof(".old.") - 1);
-    return ConsumeDecimalNumber(&suffix, number) && suffix.empty();
-  };
-
-  Slice base(file_name);
-  if (base.starts_with("LOG")) {
-    Slice suffix = base;
-    suffix.remove_prefix(sizeof("LOG") - 1);
-    return try_parse_suffix(suffix);
   }
-
-  size_t info_log_pos = file_name.rfind("_LOG");
-  if (info_log_pos == std::string::npos) {
+  if (prefix_len == std::string::npos) {
     return false;
   }
-
-  Slice suffix(file_name);
-  suffix.remove_prefix(info_log_pos + sizeof("_LOG") - 1);
-  return try_parse_suffix(suffix);
+  Slice info_log_name_prefix(file_name.data(), prefix_len);
+  return ParseFileName(file_name, number, info_log_name_prefix, type) &&
+         *type == kInfoLogFile;
 }
 
 }  // namespace
@@ -1541,11 +1536,7 @@ bool FaultInjectionTestFS::TryParseFileName(const std::string& file_name,
   if (ParseFileName(file, number, type)) {
     return true;
   }
-  if (!TryParseInfoLogFileName(file, number)) {
-    return false;
-  }
-  *type = kInfoLogFile;
-  return true;
+  return TryParseInfoLogFileName(file, number, type);
 }
 
 IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(

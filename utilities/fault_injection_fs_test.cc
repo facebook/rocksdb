@@ -90,9 +90,12 @@ TEST_F(FaultInjectionTestFSTest, MetadataReadFaultExcludesInfoLogFiles) {
   Env* env = Env::Default();
   const std::string dbname =
       test::PerThreadDBPath("fault_injection_fs_test_metadata_read");
+  const std::string log_dir = dbname + "_logs";
   ASSERT_OK(env->CreateDirIfMissing(dbname));
+  ASSERT_OK(env->CreateDirIfMissing(log_dir));
 
-  const std::string old_info_log = OldInfoLogFileName(dbname, 123);
+  const std::string old_info_log = OldInfoLogFileName(dbname, 123, dbname,
+                                                      log_dir);
   const std::string manifest = DescriptorFileName(dbname, 1);
   ASSERT_OK(
       WriteStringToFile(env, "old log", old_info_log, false /* should_sync */));
