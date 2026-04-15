@@ -23,6 +23,13 @@ _IGNORED_SIGTERM_STDERR_RE = re.compile(
     r"^PosixRandomAccessFile::MultiRead: io_uring_submit_and_wait "
     r"returned terminal error: -9\.$"
 )
+_NO_SPACE_SUBSTRINGS = (
+    "no space left on device",
+    "out of disk space",
+    "out of space",
+    "enospc",
+)
+_OUTPUT_PATH_RE = re.compile(r"(/[^\s]+)")
 
 
 def get_random_seed(override):
@@ -1629,7 +1636,264 @@ def gen_cmd(params, unknown_params):
         ]
         + unknown_params
     )
-    return cmd
+    return cmd, finalzied_params
+
+
+def human_readable_bytes(num_bytes):
+    units = ("B", "KiB", "MiB", "GiB", "TiB", "PiB")
+    value = float(num_bytes)
+    unit_index = 0
+    while value >= 1024.0 and unit_index + 1 < len(units):
+        value /= 1024.0
+        unit_index += 1
+    if unit_index == 0:
+        return f"{num_bytes}{units[unit_index]}"
+    return f"{value:.2f}{units[unit_index]}"
+
+
+def message_matches_no_space(message):
+    lowered = message.lower()
+    return any(needle in lowered for needle in _NO_SPACE_SUBSTRINGS)
+
+
+def output_matches_no_space(stdout, stderr):
+    return message_matches_no_space("\n".join([stdout, stderr]))
+
+
+def file_type_suffix(path):
+    basename = os.path.basename(path)
+    dot_pos = basename.find(".")
+    if dot_pos <= 0:
+        return "<no_ext>"
+    return basename[dot_pos:]
+
+
+def add_existing_directory(roots, seen, candidate):
+    if not candidate:
+        return
+    normalized = os.path.normpath(candidate)
+    if normalized in seen:
+        return
+    try:
+        if not os.path.isdir(normalized):
+            return
+    except OSError:
+        return
+    roots.append(normalized)
+    seen.add(normalized)
+
+
+def collect_diagnostic_roots(base_paths, stdout, stderr):
+    roots = []
+    seen = set()
+    for path in base_paths:
+        add_existing_directory(roots, seen, path)
+
+    for output in [stdout, stderr]:
+        for match in _OUTPUT_PATH_RE.finditer(output):
+            candidate = match.group(1).rstrip(",:;.)]}")
+            if not candidate.startswith("/"):
+                continue
+            if os.path.isdir(candidate):
+                add_existing_directory(roots, seen, candidate)
+                continue
+            parent = os.path.dirname(candidate)
+            if parent:
+                add_existing_directory(roots, seen, parent)
+
+    pruned_roots = []
+    for root in sorted(roots, key=lambda path: (len(path), path)):
+        if any(
+            root == existing
+            or existing == os.sep
+            or root.startswith(existing + os.sep)
+            for existing in pruned_roots
+        ):
+            continue
+        pruned_roots.append(root)
+    return pruned_roots
+
+
+def format_filesystem_usage(path):
+    if not hasattr(os, "statvfs"):
+        return f"  {path}: filesystem usage unavailable on this platform"
+
+    try:
+        stats = os.statvfs(path)
+    except OSError as exc:
+        return f"  {path}: failed to collect filesystem usage: {exc}"
+
+    block_size = stats.f_frsize or stats.f_bsize
+    total_bytes = stats.f_blocks * block_size
+    available_bytes = stats.f_bavail * block_size
+    used_bytes = max(total_bytes - available_bytes, 0)
+    used_pct = 0.0 if total_bytes == 0 else 100.0 * used_bytes / total_bytes
+    return (
+        f"  {path}: total={human_readable_bytes(total_bytes)} "
+        f"used={human_readable_bytes(used_bytes)} "
+        f"avail={human_readable_bytes(available_bytes)} "
+        f"use={used_pct:.1f}%"
+    )
+
+
+def new_directory_usage():
+    return {
+        "local_file_count": 0,
+        "local_dir_count": 0,
+        "local_bytes": 0,
+        "subtree_file_count": 0,
+        "subtree_bytes": 0,
+        "local_suffixes": {},
+    }
+
+
+def collect_directory_usage(root):
+    entries = []
+    errors = []
+    global_suffixes = {}
+
+    def walk(dirpath):
+        summary = new_directory_usage()
+        try:
+            with os.scandir(dirpath) as iterator:
+                children = sorted(list(iterator), key=lambda entry: entry.name)
+        except OSError as exc:
+            errors.append(
+                (dirpath, f"failed to enumerate directory contents: {exc}")
+            )
+            return summary
+
+        for child in children:
+            try:
+                if child.is_dir(follow_symlinks=False):
+                    summary["local_dir_count"] += 1
+                    child_summary = walk(child.path)
+                    summary["subtree_file_count"] += child_summary[
+                        "subtree_file_count"
+                    ]
+                    summary["subtree_bytes"] += child_summary["subtree_bytes"]
+                    continue
+
+                file_size = child.stat(follow_symlinks=False).st_size
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                errors.append((child.path, f"failed to stat child path: {exc}"))
+                continue
+
+            summary["local_file_count"] += 1
+            summary["subtree_file_count"] += 1
+            summary["local_bytes"] += file_size
+            summary["subtree_bytes"] += file_size
+
+            suffix = file_type_suffix(child.name)
+            local_usage = summary["local_suffixes"].setdefault(
+                suffix, {"count": 0, "bytes": 0}
+            )
+            local_usage["count"] += 1
+            local_usage["bytes"] += file_size
+
+            global_usage = global_suffixes.setdefault(
+                suffix, {"count": 0, "bytes": 0}
+            )
+            global_usage["count"] += 1
+            global_usage["bytes"] += file_size
+
+        entries.append((dirpath, summary))
+        return summary
+
+    root_summary = walk(root)
+    return root_summary, entries, global_suffixes, errors
+
+
+def sorted_suffix_usage(suffixes):
+    return sorted(
+        suffixes.items(), key=lambda item: (-item[1]["bytes"], item[0])
+    )
+
+
+def format_directory_usage(root):
+    root_summary, entries, global_suffixes, errors = collect_directory_usage(root)
+    lines = [
+        "Directory usage for {}: subtree={} files={} descendant_dirs={}".format(
+            root,
+            human_readable_bytes(root_summary["subtree_bytes"]),
+            root_summary["subtree_file_count"],
+            max(len(entries) - 1, 0),
+        )
+    ]
+
+    if not global_suffixes:
+        lines.append(f"  No files found under {root}")
+    else:
+        lines.append("  Aggregate suffix totals:")
+        for suffix, usage in sorted_suffix_usage(global_suffixes):
+            lines.append(
+                "    {} files={} bytes={}".format(
+                    suffix,
+                    usage["count"],
+                    human_readable_bytes(usage["bytes"]),
+                )
+            )
+
+        lines.append("  Per-directory suffix totals:")
+        for dirpath, usage in sorted(
+            entries,
+            key=lambda item: (-item[1]["subtree_bytes"], item[0]),
+        ):
+            lines.append(
+                "    {} subtree={} local={} local_files={} local_dirs={}".format(
+                    dirpath,
+                    human_readable_bytes(usage["subtree_bytes"]),
+                    human_readable_bytes(usage["local_bytes"]),
+                    usage["local_file_count"],
+                    usage["local_dir_count"],
+                )
+            )
+            for suffix, suffix_usage in sorted_suffix_usage(usage["local_suffixes"]):
+                lines.append(
+                    "      {} files={} bytes={}".format(
+                        suffix,
+                        suffix_usage["count"],
+                        human_readable_bytes(suffix_usage["bytes"]),
+                    )
+                )
+
+    if errors:
+        lines.append("  Collection errors:")
+        for path, error in errors:
+            lines.append(f"    {path}: {error}")
+
+    return lines
+
+
+def build_out_of_space_diagnostics(
+    stdout, stderr, diagnostic_paths=None, include_dev_shm=True
+):
+    if not output_matches_no_space(stdout, stderr):
+        return ""
+
+    roots = collect_diagnostic_roots(diagnostic_paths or [], stdout, stderr)
+    lines = ["=== Out-of-space diagnostics ===", "Filesystem usage:"]
+    if include_dev_shm and os.path.isdir("/dev/shm"):
+        lines.append(format_filesystem_usage("/dev/shm"))
+    for root in roots:
+        lines.append(format_filesystem_usage(root))
+
+    lines.append("Directory usage:")
+    if not roots:
+        lines.append("  no existing db_stress roots found")
+    else:
+        for root in roots:
+            lines.extend(format_directory_usage(root))
+    return "\n".join(lines) + "\n"
+
+
+def diagnostic_paths(finalized_params):
+    return [
+        finalized_params.get("db"),
+        finalized_params.get("expected_values_dir"),
+    ]
 
 
 def execute_cmd(cmd, timeout=None, timeout_pstack=False):
@@ -1666,7 +1930,15 @@ def execute_cmd(cmd, timeout=None, timeout_pstack=False):
     )
 
 
-def print_output_and_exit_on_error(stdout, stderr, print_stderr_separately=False):
+def print_output_and_exit_on_error(
+    stdout, stderr, print_stderr_separately=False, diagnostic_paths=None
+):
+    diagnostics = build_out_of_space_diagnostics(stdout, stderr, diagnostic_paths)
+    if diagnostics:
+        if stdout and not stdout.endswith("\n"):
+            stdout += "\n"
+        stdout += diagnostics
+
     print("stdout:\n", stdout)
     if len(stderr) == 0:
         return
@@ -1677,6 +1949,15 @@ def print_output_and_exit_on_error(stdout, stderr, print_stderr_separately=False
         print("stderr:\n", stderr)
 
     sys.exit(2)
+
+
+def print_run_output_and_exit_on_error(args, finalized_params, stdout, stderr):
+    print_output_and_exit_on_error(
+        stdout,
+        stderr,
+        args.print_stderr_separately,
+        diagnostic_paths(finalized_params),
+    )
 
 
 def strip_expected_sigterm_stderr(stdout, stderr, hit_timeout):
@@ -1790,7 +2071,7 @@ def blackbox_crash_main(args, unknown_args):
 
     while time.time() < exit_time:
         apply_random_seed_per_iteration()
-        cmd = gen_cmd(
+        cmd, finalized_params = gen_cmd(
             dict(list(cmd_params.items()) + list({"db": dbname}.items())), unknown_args
         )
 
@@ -1805,10 +2086,10 @@ def blackbox_crash_main(args, unknown_args):
 
         if not hit_timeout:
             print("Exit Before Killing")
-            print_output_and_exit_on_error(outs, errs, args.print_stderr_separately)
+            print_run_output_and_exit_on_error(args, finalized_params, outs, errs)
             sys.exit(2)
 
-        print_output_and_exit_on_error(outs, errs, args.print_stderr_separately)
+        print_run_output_and_exit_on_error(args, finalized_params, outs, errs)
 
         time.sleep(1)  # time to stabilize before the next run
 
@@ -1820,7 +2101,7 @@ def blackbox_crash_main(args, unknown_args):
     cmd_params.update({"verification_only": 1})
     cmd_params.update({"skip_verifydb": 0})
 
-    cmd = gen_cmd(
+    cmd, finalized_params = gen_cmd(
         dict(list(cmd_params.items()) + list({"db": dbname}.items())), unknown_args
     )
     hit_timeout, retcode, outs, errs, pid = execute_cmd(
@@ -1830,7 +2111,7 @@ def blackbox_crash_main(args, unknown_args):
     print_and_cleanup_fault_injection_log(pid)
 
     # For the final run
-    print_output_and_exit_on_error(outs, errs, args.print_stderr_separately)
+    print_run_output_and_exit_on_error(args, finalized_params, outs, errs)
 
     # we need to clean up after ourselves -- only do this on test success
     cleanup_after_success(dbname)
@@ -1950,7 +2231,7 @@ def whitebox_crash_main(args, unknown_args):
             cmd_params["destroy_db_initially"] = 1
         prev_compaction_style = cur_compaction_style
 
-        cmd = gen_cmd(
+        cmd, finalized_params = gen_cmd(
             dict(
                 list(cmd_params.items())
                 + list(additional_opts.items())
@@ -1982,8 +2263,8 @@ def whitebox_crash_main(args, unknown_args):
         )
 
         print(msg)
-        print_output_and_exit_on_error(
-            stdoutdata, stderrdata, args.print_stderr_separately
+        print_run_output_and_exit_on_error(
+            args, finalized_params, stdoutdata, stderrdata
         )
 
         if hit_timeout:
