@@ -2883,17 +2883,10 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     cfd = cfh->cfd();
   }
 
-  Status cf_status;
-  if (read_options.timestamp) {
-    cf_status = column_family_data != nullptr
-                    ? FailIfTsMismatchCf(cfd, *(read_options.timestamp))
-                    : FailIfTsMismatchCf(get_impl_options.column_family,
-                                         *(read_options.timestamp));
-  } else {
-    cf_status = column_family_data != nullptr
-                    ? FailIfCfHasTs(cfd)
-                    : FailIfCfHasTs(get_impl_options.column_family);
-  }
+  const Status cf_status =
+      read_options.timestamp
+          ? FailIfTsMismatchCf(cfd, *(read_options.timestamp))
+          : FailIfCfHasTs(cfd);
   if (!cf_status.ok()) {
     return cf_status;
   }
@@ -2982,7 +2975,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   // only if t <= read_opts.timestamp and s <= snapshot.
   // HACK: temporarily overwrite input struct field but restore
   SaveAndRestore<ReadCallback*> restore_callback(&get_impl_options.callback);
-  const Comparator* ucmp = get_impl_options.column_family->GetComparator();
+  const Comparator* ucmp = cfd->user_comparator();
   assert(ucmp);
   if (ucmp->timestamp_size() > 0) {
     assert(!get_impl_options

@@ -185,13 +185,13 @@ class WriteBatchAttachedColumnFamilyTest : public DBTestBase {
 
   ColumnFamilyData* GetAttached(const WriteBatch* batch,
                                 ColumnFamilyHandle* cfh, DBImpl* db = nullptr) {
-    return WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+    return WriteBatchInternal::GetAttachedColumnFamily(
         batch, cfh->GetID(), db != nullptr ? db : dbfull());
   }
 
   ColumnFamilyData* GetAttached(const WriteBatch* batch, uint32_t cf_id,
                                 DBImpl* db = nullptr) {
-    return WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+    return WriteBatchInternal::GetAttachedColumnFamily(
         batch, cf_id, db != nullptr ? db : dbfull());
   }
 
@@ -225,8 +225,7 @@ TEST_F(WriteBatchTest, Multiple) {
   ASSERT_EQ(4u, batch.Count());
 }
 
-TEST_F(WriteBatchAttachedColumnFamilyTest,
-       AttachedBlobDirectWriteColumnFamiliesFollowBatchState) {
+TEST_F(WriteBatchAttachedColumnFamilyTest, AttachmentsFollowBatchState) {
   const Options options = GetBlobDirectWriteOptions();
   DestroyAndReopen(options);
 
@@ -236,8 +235,11 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   auto* default_cfd = GetCfd(db_->DefaultColumnFamily());
   auto* bdw_cfd = GetCfd(bdw_cfh);
 
+  // Attachments are in-memory metadata parallel to `rep_`. Copy/move/append
+  // should preserve them, while replacing or clearing the batch contents should
+  // drop them.
   WriteBatch batch;
-  ASSERT_OK(WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+  ASSERT_OK(WriteBatchInternal::MaybeAttachColumnFamily(
       &batch, db_->DefaultColumnFamily()));
   ASSERT_OK(batch.Put("default_key", "default_value"));
   ASSERT_OK(batch.Put(bdw_cfh, "cf_key", "cf_value"));
@@ -283,8 +285,7 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
 }
 
-TEST_F(WriteBatchAttachedColumnFamilyTest,
-       WriteBatchWithIndexRetainsAttachedBlobDirectWriteColumnFamilies) {
+TEST_F(WriteBatchAttachedColumnFamilyTest, WBWIRetainsAttachments) {
   const Options options = GetBlobDirectWriteOptions();
   DestroyAndReopen(options);
 
@@ -294,8 +295,10 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   auto* default_cfd = GetCfd(db_->DefaultColumnFamily());
   auto* bdw_cfd = GetCfd(bdw_cfh);
 
+  // WBWI stores writes indirectly, but its underlying WriteBatch still owns the
+  // same attachment metadata used by the BDW rewrite path.
   WriteBatchWithIndex wbwi;
-  ASSERT_OK(WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+  ASSERT_OK(WriteBatchInternal::MaybeAttachColumnFamily(
       wbwi.GetWriteBatch(), db_->DefaultColumnFamily()));
   ASSERT_OK(wbwi.Put("default_key", "default_value"));
   ASSERT_OK(wbwi.Put(bdw_cfh, "cf_key", "cf_value"));
@@ -307,8 +310,7 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
 }
 
-TEST_F(WriteBatchAttachedColumnFamilyTest,
-       RollbackToSavePointRemovesLaterAttachments) {
+TEST_F(WriteBatchAttachedColumnFamilyTest, RollbackRemovesLaterAttachments) {
   const Options options = GetBlobDirectWriteOptions();
   DestroyAndReopen(options);
 
@@ -318,6 +320,8 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   auto* default_cfd = GetCfd(db_->DefaultColumnFamily());
   auto* bdw_cfd = GetCfd(bdw_cfh);
 
+  // Rolling back to the save point must restore both the serialized writes and
+  // the attachment prefix recorded at that point.
   WriteBatch batch;
   ASSERT_OK(
       batch.Put(db_->DefaultColumnFamily(), "default_key", "default_value"));
@@ -334,7 +338,7 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
 }
 
-TEST_F(WriteBatchAttachedColumnFamilyTest, PopSavePointKeepsLaterAttachments) {
+TEST_F(WriteBatchAttachedColumnFamilyTest, PopKeepsLaterAttachments) {
   const Options options = GetBlobDirectWriteOptions();
   DestroyAndReopen(options);
 
@@ -344,6 +348,8 @@ TEST_F(WriteBatchAttachedColumnFamilyTest, PopSavePointKeepsLaterAttachments) {
   auto* default_cfd = GetCfd(db_->DefaultColumnFamily());
   auto* bdw_cfd = GetCfd(bdw_cfh);
 
+  // PopSavePoint() commits everything added after the save point into the
+  // current batch state, so the later attachment must stay.
   WriteBatch batch;
   ASSERT_OK(
       batch.Put(db_->DefaultColumnFamily(), "default_key", "default_value"));
@@ -357,24 +363,26 @@ TEST_F(WriteBatchAttachedColumnFamilyTest, PopSavePointKeepsLaterAttachments) {
   ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
 }
 
-TEST_F(WriteBatchAttachedColumnFamilyTest,
-       NonBlobDirectWriteColumnFamiliesDoNotAttach) {
+TEST_F(WriteBatchAttachedColumnFamilyTest, RegularDefaultCfDoesNotAttach) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
 
+  // Attachment bookkeeping is only needed for BDW-enabled CFs. Ordinary writes
+  // to the default CF should leave the batch unattached.
   WriteBatch batch;
   ASSERT_OK(batch.Put(db_->DefaultColumnFamily(), "key", "value"));
   ASSERT_EQ(GetAttached(&batch, db_->DefaultColumnFamily()), nullptr);
 }
 
-TEST_F(WriteBatchAttachedColumnFamilyTest,
-       NonBlobDirectWriteNonDefaultColumnFamiliesDoNotAttach) {
+TEST_F(WriteBatchAttachedColumnFamilyTest, RegularCfDoesNotAttach) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
 
   ColumnFamilyHandle* cfh = nullptr;
   ASSERT_OK(db_->CreateColumnFamily(options, "regular", &cfh));
 
+  // Non-default CFs follow the same rule: if BDW is disabled there is nothing
+  // to pin in the batch.
   WriteBatch batch;
   ASSERT_OK(batch.Put(cfh, "key", "value"));
   ASSERT_EQ(GetAttached(&batch, cfh), nullptr);
@@ -382,13 +390,14 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   ASSERT_OK(db_->DestroyColumnFamilyHandle(cfh));
 }
 
-TEST_F(WriteBatchAttachedColumnFamilyTest,
-       AppendRejectsConflictingAttachedBlobDirectWriteColumnFamilies) {
+TEST_F(WriteBatchAttachedColumnFamilyTest, AppendRejectsConflictingAttachments) {
   const Options options = GetBlobDirectWriteOptions();
   DestroyAndReopen(options);
 
+  // The same CF id from a different DB/CFD identity must be rejected before
+  // append mutates the destination batch.
   WriteBatch first_batch;
-  ASSERT_OK(WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+  ASSERT_OK(WriteBatchInternal::MaybeAttachColumnFamily(
       &first_batch, db_->DefaultColumnFamily()));
 
   const std::string other_dbname =
@@ -399,7 +408,7 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
 
   {
     WriteBatch second_batch;
-    ASSERT_OK(WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+    ASSERT_OK(WriteBatchInternal::MaybeAttachColumnFamily(
         &second_batch, other_db->DefaultColumnFamily()));
 
     Status s = WriteBatchInternal::Append(&first_batch, &second_batch);
@@ -413,14 +422,15 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   ASSERT_OK(DestroyDB(other_dbname, options));
 }
 
-TEST_F(WriteBatchAttachedColumnFamilyTest,
-       NewAdmissionsFailAfterDropForNonBlobDirectWriteColumnFamily) {
+TEST_F(WriteBatchAttachedColumnFamilyTest, PostDropAdmissionFails) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
 
   ColumnFamilyHandle* cfh = nullptr;
   ASSERT_OK(db_->CreateColumnFamily(options, "regular", &cfh));
 
+  // Even without BDW attachments, the handle lease still fences off new batch
+  // admissions once drop has already completed.
   WriteBatch admitted_batch;
   ASSERT_OK(admitted_batch.Put(cfh, "admitted_key", "value"));
   ASSERT_EQ(GetAttached(&admitted_batch, cfh), nullptr);
@@ -437,8 +447,7 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   ASSERT_OK(db_->DestroyColumnFamilyHandle(cfh));
 }
 
-TEST_F(WriteBatchAttachedColumnFamilyTest,
-       NewAdmissionsFailWhileDropIsClosingColumnFamily) {
+TEST_F(WriteBatchAttachedColumnFamilyTest, ClosingAdmissionFails) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
 
@@ -446,6 +455,8 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   ASSERT_OK(db_->CreateColumnFamily(options, "regular", &cfh));
 
   auto* sync_point = SyncPoint::GetInstance();
+  // Pause drop after it publishes kClosing so a new batch admission can verify
+  // the transient closing state is rejected, not silently admitted.
   sync_point->LoadDependency(
       {{"DBImpl::DropColumnFamilyImpl:AfterSetLeaseClosing",
         "WriteBatchAttachedColumnFamilyTest::BeforeAdmissionWhileClosing"},
@@ -477,7 +488,7 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
 }
 
 TEST_F(WriteBatchAttachedColumnFamilyTest,
-       ClearReleasesAttachedBlobDirectWriteColumnFamiliesBeforeDbClose) {
+       ClearReleasesAttachmentsBeforeDbClose) {
   const Options options = GetBlobDirectWriteOptions();
 
   const std::string other_dbname =
@@ -488,8 +499,10 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
 
   auto* other_db_impl = static_cast_with_check<DBImpl>(other_db->GetRootDB());
 
+  // Clearing the batch must release its borrowed CF lease so the DB can close
+  // and destroy the default CF without a lingering user batch pin.
   WriteBatch batch;
-  ASSERT_OK(WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+  ASSERT_OK(WriteBatchInternal::MaybeAttachColumnFamily(
       &batch, other_db->DefaultColumnFamily()));
   ASSERT_NE(GetAttached(&batch, other_db->DefaultColumnFamily(), other_db_impl),
             nullptr);
@@ -502,13 +515,14 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   ASSERT_OK(DestroyDB(other_dbname, options));
 }
 
-TEST_F(WriteBatchAttachedColumnFamilyTest,
-       WriteDetachesAttachedBlobDirectWriteColumnFamiliesBeforeDbClose) {
+TEST_F(WriteBatchAttachedColumnFamilyTest, WriteDetachesAttachments) {
   const Options options = GetBlobDirectWriteOptions();
   DestroyAndReopen(options);
 
   const std::string value(128, 'x');
 
+  // A successful write consumes the batch attachments. The original user batch
+  // must not keep the default CF pinned after Write() returns.
   WriteBatch batch;
   ASSERT_OK(batch.Put(db_->DefaultColumnFamily(), "persisted_key", value));
   ASSERT_NE(GetAttached(&batch, db_->DefaultColumnFamily()), nullptr);
@@ -521,8 +535,7 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   ASSERT_EQ(Get("persisted_key"), value);
 }
 
-TEST_F(WriteBatchAttachedColumnFamilyTest,
-       DuplicateHandlesShareLeaseAndAttachedBatchKeepsItAlive) {
+TEST_F(WriteBatchAttachedColumnFamilyTest, DuplicateHandlesShareLease) {
   const Options options = GetBlobDirectWriteOptions();
   DestroyAndReopen(options);
 
@@ -532,6 +545,8 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   const uint32_t cf_id = bdw_cfh->GetID();
   auto* bdw_cfd = GetCfd(bdw_cfh);
 
+  // Multiple handles for the same CF should share one long-lived lease, and an
+  // attached batch should keep that lease alive after all handles are gone.
   std::unique_ptr<ColumnFamilyHandle> duplicate_handle =
       dbfull()->GetColumnFamilyHandleUnlocked(cf_id);
   ASSERT_NE(duplicate_handle, nullptr);
@@ -554,7 +569,7 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
 }
 
 TEST_F(WriteBatchAttachedColumnFamilyTest,
-       AttachedBlobDirectWriteColumnFamilySurvivesDropAndHandleDestruction) {
+       AttachmentSurvivesDropAndHandleDestruction) {
   const Options options = GetBlobDirectWriteOptions();
   DestroyAndReopen(options);
 
@@ -567,6 +582,8 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
       dbfull()->GetColumnFamilyHandleUnlocked(cf_id);
   ASSERT_NE(duplicate_handle, nullptr);
 
+  // Once admitted, the batch's attachment keeps the dropped CFD alive long
+  // enough for the batch object itself to decide when to release it.
   {
     WriteBatch batch;
     ASSERT_OK(batch.Put(bdw_cfh, "cf_key", "cf_value"));
@@ -589,8 +606,7 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   ASSERT_EQ(Get("default_key"), "default_value");
 }
 
-TEST_F(WriteBatchAttachedColumnFamilyTest,
-       AttachedBlobDirectWriteBatchMayFailAfterDrop) {
+TEST_F(WriteBatchAttachedColumnFamilyTest, AttachedBatchMayFailAfterDrop) {
   const Options options = GetBlobDirectWriteOptions();
   DestroyAndReopen(options);
 
@@ -601,6 +617,8 @@ TEST_F(WriteBatchAttachedColumnFamilyTest,
   ASSERT_OK(batch.Put(bdw_cfh, "cf_key", std::string(128, 'x')));
   ASSERT_NE(GetAttached(&batch, bdw_cfh), nullptr);
 
+  // Admission only guarantees the batch can hold onto the CFD metadata. Once
+  // the CF leaves the live set, the later write is allowed to fail.
   ASSERT_OK(db_->DropColumnFamily(bdw_cfh));
   ASSERT_OK(db_->DestroyColumnFamilyHandle(bdw_cfh));
 
@@ -1232,11 +1250,11 @@ TEST_F(WriteBatchTest, PutGatherSlices) {
 }
 
 namespace {
-class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
+class DetachedColumnFamilyHandleTestStub : public ColumnFamilyHandleImpl {
  public:
-  explicit ColumnFamilyHandleImplDummy(int id)
+  explicit DetachedColumnFamilyHandleTestStub(int id)
       : ColumnFamilyHandleImpl(DetachedHandleTag{}), id_(id) {}
-  explicit ColumnFamilyHandleImplDummy(int id, const Comparator* ucmp)
+  explicit DetachedColumnFamilyHandleTestStub(int id, const Comparator* ucmp)
       : ColumnFamilyHandleImpl(DetachedHandleTag{}), id_(id), ucmp_(ucmp) {}
   ColumnFamilyData* cfd() const override { return nullptr; }
   DBImpl* db() const override { return nullptr; }
@@ -1262,7 +1280,7 @@ class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
 
 TEST_F(WriteBatchTest, AttributeGroupTest) {
   WriteBatch batch;
-  ColumnFamilyHandleImplDummy zero(0), two(2);
+  DetachedColumnFamilyHandleTestStub zero(0), two(2);
   AttributeGroups foo_ags;
   WideColumn zero_col_1{"0_c_1_n", "0_c_1_v"};
   WideColumn zero_col_2{"0_c_2_n", "0_c_2_v"};
@@ -1291,7 +1309,7 @@ TEST_F(WriteBatchTest, AttributeGroupSavePointTest) {
   WriteBatch batch;
   batch.SetSavePoint();
 
-  ColumnFamilyHandleImplDummy zero(0), two(2), three(3);
+  DetachedColumnFamilyHandleTestStub zero(0), two(2), three(3);
   AttributeGroups foo_ags;
   WideColumn zero_col_1{"0_c_1_n", "0_c_1_v"};
   WideColumn zero_col_2{"0_c_2_n", "0_c_2_v"};
@@ -1375,7 +1393,7 @@ TEST_F(WriteBatchTest, IterateCanRebuildSerializedV2Entity) {
 
 TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
   WriteBatch batch;
-  ColumnFamilyHandleImplDummy zero(0), two(2), three(3), eight(8);
+  DetachedColumnFamilyHandleTestStub zero(0), two(2), three(3), eight(8);
   ASSERT_OK(batch.Put(&zero, Slice("foo"), Slice("bar")));
   ASSERT_OK(batch.Put(&two, Slice("twofoo"), Slice("bar2")));
   ASSERT_OK(batch.Put(&eight, Slice("eightfoo"), Slice("bar8")));
@@ -1406,7 +1424,7 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
 
 TEST_F(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
   WriteBatchWithIndex batch;
-  ColumnFamilyHandleImplDummy zero(0), two(2), three(3), eight(8);
+  DetachedColumnFamilyHandleTestStub zero(0), two(2), three(3), eight(8);
   ASSERT_OK(batch.Put(&zero, Slice("foo"), Slice("bar")));
   ASSERT_OK(batch.Put(&two, Slice("twofoo"), Slice("bar2")));
   ASSERT_OK(batch.Put(&eight, Slice("eightfoo"), Slice("bar8")));
@@ -1680,9 +1698,9 @@ Status CheckTimestampsInWriteBatch(
 }  // anonymous namespace
 
 TEST_F(WriteBatchTest, SanityChecks) {
-  ColumnFamilyHandleImplDummy cf0(0,
+  DetachedColumnFamilyHandleTestStub cf0(0,
                                   test::BytewiseComparatorWithU64TsWrapper());
-  ColumnFamilyHandleImplDummy cf4(4);
+  DetachedColumnFamilyHandleTestStub cf4(4);
 
   WriteBatch wb(0, 0, 0, /*default_cf_ts_sz=*/sizeof(uint64_t));
 
@@ -1728,10 +1746,10 @@ TEST_F(WriteBatchTest, UpdateTimestamps) {
   constexpr size_t num_of_keys = 10;
   std::vector<std::string> key_strs(num_of_keys, std::string(key_size, '\0'));
 
-  ColumnFamilyHandleImplDummy cf0(0);
-  ColumnFamilyHandleImplDummy cf4(4,
+  DetachedColumnFamilyHandleTestStub cf0(0);
+  DetachedColumnFamilyHandleTestStub cf4(4,
                                   test::BytewiseComparatorWithU64TsWrapper());
-  ColumnFamilyHandleImplDummy cf5(5,
+  DetachedColumnFamilyHandleTestStub cf5(5,
                                   test::BytewiseComparatorWithU64TsWrapper());
 
   const std::unordered_map<uint32_t, const Comparator*> cf_to_ucmps = {

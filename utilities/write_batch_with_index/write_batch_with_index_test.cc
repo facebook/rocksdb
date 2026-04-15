@@ -27,9 +27,9 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
-class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
+class DetachedColumnFamilyHandleTestStub : public ColumnFamilyHandleImpl {
  public:
-  explicit ColumnFamilyHandleImplDummy(int id, const Comparator* comparator)
+  explicit DetachedColumnFamilyHandleTestStub(int id, const Comparator* comparator)
       : ColumnFamilyHandleImpl(DetachedHandleTag{}),
         id_(id),
         comparator_(comparator) {}
@@ -504,8 +504,8 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
     std::reverse(v.begin(), v.end());
   }
 
-  ColumnFamilyHandleImplDummy data(6, BytewiseComparator());
-  ColumnFamilyHandleImplDummy index(8, BytewiseComparator());
+  DetachedColumnFamilyHandleTestStub data(6, BytewiseComparator());
+  DetachedColumnFamilyHandleTestStub index(8, BytewiseComparator());
   for (auto& e : entries) {
     if (e.type == kPutRecord) {
       ASSERT_OK(batch->Put(&data, e.key, e.value));
@@ -871,9 +871,9 @@ TEST_P(WriteBatchWithIndexTest, WBWIIteratorImpl) {
 }
 
 TEST_P(WriteBatchWithIndexTest, TestComparatorForCF) {
-  ColumnFamilyHandleImplDummy cf1(6, nullptr);
-  ColumnFamilyHandleImplDummy reverse_cf(66, ReverseBytewiseComparator());
-  ColumnFamilyHandleImplDummy cf2(88, BytewiseComparator());
+  DetachedColumnFamilyHandleTestStub cf1(6, nullptr);
+  DetachedColumnFamilyHandleTestStub reverse_cf(66, ReverseBytewiseComparator());
+  DetachedColumnFamilyHandleTestStub cf2(88, BytewiseComparator());
 
   ASSERT_OK(batch_->Put(&cf1, "ddd", ""));
   ASSERT_OK(batch_->Put(&cf2, "aaa", ""));
@@ -957,9 +957,9 @@ TEST_P(WriteBatchWithIndexTest, TestComparatorForCF) {
 }
 
 TEST_F(WBWIOverwriteTest, TestOverwriteKey) {
-  ColumnFamilyHandleImplDummy cf1(6, nullptr);
-  ColumnFamilyHandleImplDummy reverse_cf(66, ReverseBytewiseComparator());
-  ColumnFamilyHandleImplDummy cf2(88, BytewiseComparator());
+  DetachedColumnFamilyHandleTestStub cf1(6, nullptr);
+  DetachedColumnFamilyHandleTestStub reverse_cf(66, ReverseBytewiseComparator());
+  DetachedColumnFamilyHandleTestStub cf2(88, BytewiseComparator());
 
   ASSERT_OK(batch_->Merge(&cf1, "ddd", ""));
   ASSERT_OK(batch_->Put(&cf1, "ddd", ""));
@@ -1060,8 +1060,8 @@ TEST_F(WBWIOverwriteTest, TestOverwriteKey) {
 }
 
 TEST_P(WriteBatchWithIndexTest, TestWBWIIterator) {
-  ColumnFamilyHandleImplDummy cf1(1, BytewiseComparator());
-  ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
+  DetachedColumnFamilyHandleTestStub cf1(1, BytewiseComparator());
+  DetachedColumnFamilyHandleTestStub cf2(2, BytewiseComparator());
   ASSERT_OK(batch_->Put(&cf1, "a", "a1"));
   ASSERT_OK(batch_->Put(&cf1, "c", "c1"));
   ASSERT_OK(batch_->Put(&cf1, "c", "c2"));
@@ -1094,9 +1094,9 @@ TEST_P(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
   for (int rand_seed = 301; rand_seed < 366; rand_seed++) {
     Random rnd(rand_seed);
 
-    ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
-    ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
-    ColumnFamilyHandleImplDummy cf3(8, BytewiseComparator());
+    DetachedColumnFamilyHandleTestStub cf1(6, BytewiseComparator());
+    DetachedColumnFamilyHandleTestStub cf2(2, BytewiseComparator());
+    DetachedColumnFamilyHandleTestStub cf3(8, BytewiseComparator());
     batch_->Clear();
 
     if (rand_seed % 2 == 0) {
@@ -1216,8 +1216,8 @@ TEST_P(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
 }
 
 TEST_P(WriteBatchWithIndexTest, TestIteraratorWithBase) {
-  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
-  ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
+  DetachedColumnFamilyHandleTestStub cf1(6, BytewiseComparator());
+  DetachedColumnFamilyHandleTestStub cf2(2, BytewiseComparator());
   {
     KVMap map;
     map["a"] = "aa";
@@ -1377,8 +1377,8 @@ TEST_P(WriteBatchWithIndexTest, TestIteraratorWithBase) {
 }
 
 TEST_P(WriteBatchWithIndexTest, TestIteraratorWithBaseReverseCmp) {
-  ColumnFamilyHandleImplDummy cf1(6, ReverseBytewiseComparator());
-  ColumnFamilyHandleImplDummy cf2(2, ReverseBytewiseComparator());
+  DetachedColumnFamilyHandleTestStub cf1(6, ReverseBytewiseComparator());
+  DetachedColumnFamilyHandleTestStub cf2(2, ReverseBytewiseComparator());
 
   // Test the case that there is one element in the write batch
   ASSERT_OK(batch_->Put(&cf2, "zoo", "bar"));
@@ -1978,7 +1978,7 @@ TEST_F(WBWIOverwriteTest, MutateWhileIteratingBaseStressTest) {
 }
 
 TEST_P(WriteBatchWithIndexTest, TestNewIteratorWithBaseFromWbwi) {
-  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  DetachedColumnFamilyHandleTestStub cf1(6, BytewiseComparator());
   KVMap map;
   map["a"] = "aa";
   map["c"] = "cc";
@@ -1994,7 +1994,7 @@ TEST_P(WriteBatchWithIndexTest, TestNewIteratorWithBaseFromWbwi) {
 TEST_P(WriteBatchWithIndexTest, NewIteratorWithBasePrepareValue) {
   // BaseDeltaIterator by default should call PrepareValue if it lands on the
   // base iterator in case it was created with allow_unprepared_value=true.
-  ColumnFamilyHandleImplDummy cf1(1, BytewiseComparator());
+  DetachedColumnFamilyHandleTestStub cf1(1, BytewiseComparator());
   KVMap map{{"a", "aa"}, {"c", "cc"}, {"e", "ee"}};
 
   ASSERT_OK(batch_->Put(&cf1, "c", "cc1"));
@@ -2065,7 +2065,7 @@ TEST_P(WriteBatchWithIndexTest, NewIteratorWithBasePrepareValue) {
 }
 
 TEST_P(WriteBatchWithIndexTest, NewIteratorWithBaseAllowUnpreparedValue) {
-  ColumnFamilyHandleImplDummy cf1(1, BytewiseComparator());
+  DetachedColumnFamilyHandleTestStub cf1(1, BytewiseComparator());
   KVMap map{{"a", "aa"}, {"c", "cc"}, {"e", "ee"}};
 
   ASSERT_OK(batch_->Put(&cf1, "c", "cc1"));
@@ -2363,7 +2363,7 @@ TEST_P(WriteBatchWithIndexTest,
 }
 
 TEST_P(WriteBatchWithIndexTest, SavePointTest) {
-  ColumnFamilyHandleImplDummy cf1(1, BytewiseComparator());
+  DetachedColumnFamilyHandleTestStub cf1(1, BytewiseComparator());
   KVMap empty_map;
   std::unique_ptr<Iterator> cf0_iter(
       batch_->NewIteratorWithBase(new KVIter(&empty_map)));
@@ -2971,7 +2971,7 @@ TEST_P(WriteBatchWithIndexTest, TestBadMergeOperator) {
 TEST_P(WriteBatchWithIndexTest, ColumnFamilyWithTimestamp) {
   ASSERT_OK(OpenDB());
 
-  ColumnFamilyHandleImplDummy cf2(2,
+  DetachedColumnFamilyHandleTestStub cf2(2,
                                   test::BytewiseComparatorWithU64TsWrapper());
 
   // Sanity checks
@@ -3103,7 +3103,7 @@ TEST_P(WriteBatchWithIndexTest, ColumnFamilyWithTimestamp) {
 
 TEST_P(WriteBatchWithIndexTest, IndexNoTs) {
   const Comparator* const ucmp = test::BytewiseComparatorWithU64TsWrapper();
-  ColumnFamilyHandleImplDummy cf(1, ucmp);
+  DetachedColumnFamilyHandleTestStub cf(1, ucmp);
   WriteBatchWithIndex wbwi;
   ASSERT_OK(wbwi.Put(&cf, "a", "a0"));
   ASSERT_OK(wbwi.Put(&cf, "a", "a1"));
@@ -3675,7 +3675,7 @@ TEST_P(WriteBatchWithIndexTest, TrackAndClearCFStats) {
   ASSERT_OK(batch_->Put("A", "val"));
   ASSERT_OK(batch_->SingleDelete("B"));
 
-  ColumnFamilyHandleImplDummy cf1(/*id=*/1, BytewiseComparator());
+  DetachedColumnFamilyHandleTestStub cf1(/*id=*/1, BytewiseComparator());
   ASSERT_OK(batch_->Put(&cf1, "bar", "foo"));
 
   {
@@ -3806,7 +3806,7 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
   ASSERT_FALSE(wbwi_mem->IsEmpty());
 
   // Some data with same key in another CF
-  ColumnFamilyHandleImplDummy meta_cf(/*id=*/1, BytewiseComparator());
+  DetachedColumnFamilyHandleTestStub meta_cf(/*id=*/1, BytewiseComparator());
   ASSERT_OK(wbwi->Put(&meta_cf, DBTestBase::Key(0), "foo"));
 
   // Sort keys to compare with iterator

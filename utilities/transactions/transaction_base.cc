@@ -807,7 +807,7 @@ void TransactionBaseImpl::MaybeAttachDefaultColumnFamiliesForBlobDirectWrite() {
   }
 
   const Status write_batch_status =
-      WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+      WriteBatchInternal::MaybeAttachColumnFamily(
           write_batch_.GetWriteBatch(), db_->DefaultColumnFamily());
   if (!write_batch_status.ok()) {
     ROCKS_LOG_WARN(
@@ -912,22 +912,62 @@ void TransactionBaseImpl::UndoGetForUpdate(ColumnFamilyHandle* column_family,
 }
 
 Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
+  return RebuildFromWriteBatchInternal(src_batch, nullptr);
+}
+
+Status TransactionBaseImpl::RebuildFromWriteBatchInternal(
+    WriteBatch* src_batch,
+    const UnorderedMap<uint32_t, ColumnFamilyHandle*>* recovery_cfh_map) {
   struct IndexedWriteBatchBuilder : public WriteBatch::Handler {
     Transaction* txn_;
     DBImpl* db_;
-    IndexedWriteBatchBuilder(Transaction* txn, DBImpl* db)
-        : txn_(txn), db_(db) {
+    const UnorderedMap<uint32_t, ColumnFamilyHandle*>* recovery_cfh_map_;
+    // Recovery rebuild may replay many records for the same CF. Cache one
+    // real handle per CF so we do not repeatedly take DB mutex, allocate a
+    // handle, and acquire/release the shared CFD lease for every record.
+    UnorderedMap<uint32_t, std::unique_ptr<ColumnFamilyHandle>> cfh_cache_;
+    IndexedWriteBatchBuilder(
+        Transaction* txn, DBImpl* db,
+        const UnorderedMap<uint32_t, ColumnFamilyHandle*>* recovery_cfh_map)
+        : txn_(txn), db_(db), recovery_cfh_map_(recovery_cfh_map) {
       assert(dynamic_cast<TransactionBaseImpl*>(txn_) != nullptr);
     }
 
-    Status GetColumnFamilyHandle(uint32_t cf,
-                                 std::unique_ptr<ColumnFamilyHandle>* cfh) {
+    // Returns a live handle for `cf` for the duration of this rebuild.
+    // During DB open recovery we can reuse already-open handles from
+    // `PessimisticTransactionDB::Initialize()` to avoid taking DB mutex,
+    // allocating a fresh handle, and acquiring/releasing a CFD lease per
+    // record. For generic callers, fall back to a rebuild-local cache.
+    // Unlike normal WAL replay, transaction rebuild does not currently skip
+    // writes for CFs that manifest recovery already dropped. Rebuilding needs
+    // the live handle for comparator/timestamp interpretation and to reconstruct
+    // the transaction state. If the CF is already absent from the live set, we
+    // currently treat the recovered batch as invalid and fail the rebuild.
+    Status GetColumnFamilyHandle(uint32_t cf, ColumnFamilyHandle** cfh) {
       assert(cfh != nullptr);
-      *cfh = db_->GetColumnFamilyHandleUnlocked(cf);
-      if (*cfh == nullptr) {
+
+      if (recovery_cfh_map_ != nullptr) {
+        auto recovery_it = recovery_cfh_map_->find(cf);
+        if (recovery_it == recovery_cfh_map_->end() ||
+            recovery_it->second == nullptr) {
+          return Status::InvalidArgument(
+              "Invalid column family specified in write batch");
+        }
+        *cfh = recovery_it->second;
+        return Status::OK();
+      }
+
+      auto it = cfh_cache_.find(cf);
+      if (it == cfh_cache_.end()) {
+        auto inserted =
+            cfh_cache_.emplace(cf, db_->GetColumnFamilyHandleUnlocked(cf));
+        it = inserted.first;
+      }
+      if (it->second == nullptr) {
         return Status::InvalidArgument(
             "Invalid column family specified in write batch");
       }
+      *cfh = it->second.get();
       return Status::OK();
     }
 
@@ -943,61 +983,76 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
       return Slice(key.data(), key.size() - ts_sz);
     }
 
-    Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
-      std::unique_ptr<ColumnFamilyHandle> cfh;
-      Status s = GetColumnFamilyHandle(cf, &cfh);
+    // Resolves the live CF handle needed for transaction rebuild and strips
+    // any user-defined timestamp suffix from `key` using that CF's comparator.
+    Status GetColumnFamilyHandleAndUserKey(uint32_t cf, const Slice& key,
+                                           ColumnFamilyHandle** cfh,
+                                           Slice* user_key) {
+      assert(cfh != nullptr);
+      assert(user_key != nullptr);
+      Status s = GetColumnFamilyHandle(cf, cfh);
       if (!s.ok()) {
         return s;
       }
-      Slice user_key = GetUserKey(cfh.get(), key);
-      return txn_->Put(cfh.get(), user_key, val);
+      *user_key = GetUserKey(*cfh, key);
+      return Status::OK();
+    }
+
+    Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
+      ColumnFamilyHandle* cfh = nullptr;
+      Slice user_key;
+      Status s = GetColumnFamilyHandleAndUserKey(cf, key, &cfh, &user_key);
+      if (!s.ok()) {
+        return s;
+      }
+      return txn_->Put(cfh, user_key, val);
     }
 
     Status PutEntityCF(uint32_t cf, const Slice& key,
                        const Slice& entity) override {
-      std::unique_ptr<ColumnFamilyHandle> cfh;
-      Status s = GetColumnFamilyHandle(cf, &cfh);
+      ColumnFamilyHandle* cfh = nullptr;
+      Slice user_key;
+      Status s = GetColumnFamilyHandleAndUserKey(cf, key, &cfh, &user_key);
       if (!s.ok()) {
         return s;
       }
-      Slice user_key = GetUserKey(cfh.get(), key);
       Slice entity_copy = entity;
       WideColumns columns;
       s = WideColumnSerialization::Deserialize(entity_copy, columns);
       if (!s.ok()) {
         return s;
       }
-      return txn_->PutEntity(cfh.get(), user_key, columns);
+      return txn_->PutEntity(cfh, user_key, columns);
     }
 
     Status DeleteCF(uint32_t cf, const Slice& key) override {
-      std::unique_ptr<ColumnFamilyHandle> cfh;
-      Status s = GetColumnFamilyHandle(cf, &cfh);
+      ColumnFamilyHandle* cfh = nullptr;
+      Slice user_key;
+      Status s = GetColumnFamilyHandleAndUserKey(cf, key, &cfh, &user_key);
       if (!s.ok()) {
         return s;
       }
-      Slice user_key = GetUserKey(cfh.get(), key);
-      return txn_->Delete(cfh.get(), user_key);
+      return txn_->Delete(cfh, user_key);
     }
 
     Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
-      std::unique_ptr<ColumnFamilyHandle> cfh;
-      Status s = GetColumnFamilyHandle(cf, &cfh);
+      ColumnFamilyHandle* cfh = nullptr;
+      Slice user_key;
+      Status s = GetColumnFamilyHandleAndUserKey(cf, key, &cfh, &user_key);
       if (!s.ok()) {
         return s;
       }
-      Slice user_key = GetUserKey(cfh.get(), key);
-      return txn_->SingleDelete(cfh.get(), user_key);
+      return txn_->SingleDelete(cfh, user_key);
     }
 
     Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
-      std::unique_ptr<ColumnFamilyHandle> cfh;
-      Status s = GetColumnFamilyHandle(cf, &cfh);
+      ColumnFamilyHandle* cfh = nullptr;
+      Slice user_key;
+      Status s = GetColumnFamilyHandleAndUserKey(cf, key, &cfh, &user_key);
       if (!s.ok()) {
         return s;
       }
-      Slice user_key = GetUserKey(cfh.get(), key);
-      return txn_->Merge(cfh.get(), user_key, val);
+      return txn_->Merge(cfh, user_key, val);
     }
 
     // this is used for reconstructing prepared transactions upon
@@ -1022,7 +1077,7 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
     }
   };
 
-  IndexedWriteBatchBuilder copycat(this, dbimpl_);
+  IndexedWriteBatchBuilder copycat(this, dbimpl_, recovery_cfh_map);
   return src_batch->Iterate(&copycat);
 }
 
@@ -1034,7 +1089,7 @@ WriteBatch* TransactionBaseImpl::GetCommitTimeWriteBatch() {
     // mutating accessor for BDW: the first call may allocate batch attachment
     // bookkeeping and pin the default column family until the batch is cleared
     // or the transaction is destroyed.
-    const Status s = WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+    const Status s = WriteBatchInternal::MaybeAttachColumnFamily(
         &commit_time_batch_, db_->DefaultColumnFamily());
     if (!s.ok()) {
       ROCKS_LOG_WARN(

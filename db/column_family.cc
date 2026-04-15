@@ -70,10 +70,7 @@ ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(
 
 void ReleaseColumnFamilyDataReference(ColumnFamilyData* cfd, DBImpl* db,
                                       InstrumentedMutex* mutex) {
-  if (cfd == nullptr) {
-    return;
-  }
-
+  assert(cfd != nullptr);
   assert(db != nullptr);
   assert(mutex != nullptr);
 

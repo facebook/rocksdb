@@ -19,6 +19,7 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/autovector.h"
+#include "util/hash_containers.h"
 #include "utilities/transactions/lock/lock_tracker.h"
 #include "utilities/transactions/transaction_util.h"
 
@@ -308,6 +309,14 @@ class TransactionBaseImpl : public Transaction {
   // used for rebuilding prepared transactions after recovery.
   Status RebuildFromWriteBatch(WriteBatch* src_batch) override;
 
+  // Internal recovery helper that can reuse already-open column family
+  // handles for the duration of DB open while still dispatching through
+  // transaction-specific rebuild overrides. The optional map is borrowed and
+  // must outlive the call.
+  virtual Status RebuildFromWriteBatchInternal(
+      WriteBatch* src_batch,
+      const UnorderedMap<uint32_t, ColumnFamilyHandle*>* recovery_cfh_map);
+
   WriteBatch* GetCommitTimeWriteBatch() override;
 
   LockTracker& GetTrackedLocks() { return *tracked_locks_; }
@@ -375,6 +384,9 @@ class TransactionBaseImpl : public Transaction {
     assert(s.ok());
   }
 
+  // Lazily pre-attaches default-column-family BDW metadata for transaction
+  // batches that become visible to the DB write path without an explicit CF
+  // handle mutation at commit time.
   void MaybeAttachDefaultColumnFamiliesForBlobDirectWrite();
 
   WriteBatchBase* GetBatchForWrite();

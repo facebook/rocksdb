@@ -171,6 +171,14 @@ enum class ColumnFamilyLeaseState : uint8_t {
   kDropped,
 };
 
+// Shared long-lived reference to a CFD that can be borrowed by user-visible
+// handles and transient internal users such as attached WriteBatch state.
+// Current lease users only solve CFD lifetime and admission fencing for new
+// borrowers. They do not reserve completion through later WAL/memtable phases,
+// so an already-admitted write may still fail after DropColumnFamily() if the
+// column family leaves the live set before memtable insertion. If that later
+// failure happens after WAL append, the write follows the existing memtable
+// insert failure path instead of being transparently drained to completion.
 class ColumnFamilyLease {
  public:
   ColumnFamilyLease(ColumnFamilyData* cfd, DBImpl* db,
@@ -179,21 +187,30 @@ class ColumnFamilyLease {
   ColumnFamilyLease(const ColumnFamilyLease&) = delete;
   ColumnFamilyLease& operator=(const ColumnFamilyLease&) = delete;
 
+  // Returns the referenced CFD. Valid while this lease is alive.
   ColumnFamilyData* cfd() const { return cfd_; }
+  // Returns the owning DB for the referenced CFD.
   DBImpl* db() const { return db_; }
+  // Returns the DB mutex associated with the referenced CFD.
   InstrumentedMutex* mutex() const { return mutex_; }
 
+  // Reads the admission state used to gate new internal borrowers.
   ColumnFamilyLeaseState state() const {
     return state_.load(std::memory_order_acquire);
   }
+  // Publishes a new admission state for future internal borrowers.
   void SetState(ColumnFamilyLeaseState state) {
     state_.store(state, std::memory_order_release);
   }
 
  private:
+  // Referenced column family kept alive by this lease.
   ColumnFamilyData* cfd_;
+  // DB that owns `cfd_`.
   DBImpl* db_;
+  // DB mutex associated with `cfd_`.
   InstrumentedMutex* mutex_;
+  // Admission state for new internal lease borrowers.
   std::atomic<ColumnFamilyLeaseState> state_{ColumnFamilyLeaseState::kActive};
 };
 
@@ -204,18 +221,23 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
                          InstrumentedMutex* mutex);
   // destroy without mutex
   virtual ~ColumnFamilyHandleImpl();
+  // Returns the CFD referenced by this handle's shared lease.
   virtual ColumnFamilyData* cfd() const {
     assert(lease_ != nullptr);
     return lease_->cfd();
   }
+  // Returns the owning DB of the leased CFD.
   virtual DBImpl* db() const {
     assert(lease_ != nullptr);
     return lease_->db();
   }
+  // Returns the DB mutex associated with the leased CFD.
   virtual InstrumentedMutex* mutex() const {
     assert(lease_ != nullptr);
     return lease_->mutex();
   }
+  // Exposes the shared lease so internal callers can temporarily extend CFD
+  // lifetime without creating another user-visible handle.
   virtual const std::shared_ptr<ColumnFamilyLease>& lease() const {
     assert(lease_ != nullptr);
     return lease_;
@@ -227,6 +249,8 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
   const Comparator* GetComparator() const override;
 
  private:
+  // Long-lived CFD lease shared with internal borrowers derived from this
+  // handle, such as attached WriteBatch state.
   std::shared_ptr<ColumnFamilyLease> lease_;
 
  protected:
@@ -533,6 +557,7 @@ class ColumnFamilyData {
   // Return a already referenced SuperVersion to be used safely.
   SuperVersion* GetReferencedSuperVersion(DBImpl* db);
   // REQUIRES: DB mutex held.
+  // Returns the shared CFD lease, creating it on first use.
   std::shared_ptr<ColumnFamilyLease> GetOrCreateLease(DBImpl* db,
                                                       InstrumentedMutex* mutex);
   // thread-safe
@@ -770,6 +795,8 @@ class ColumnFamilyData {
   // For charging memory usage of file metadata created for newly added files to
   // a Version associated with this CFD
   std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr_;
+  // Shared lease backing user-visible handles and transient internal CFD
+  // borrowers. Weak ownership keeps the CFD from self-owning through the lease.
   std::weak_ptr<ColumnFamilyLease> lease_;
   bool mempurge_used_;
 

@@ -45,7 +45,6 @@
 #include <stack>
 #include <stdexcept>
 #include <type_traits>
-#include <unordered_map>
 #include <vector>
 
 #include "db/column_family.h"
@@ -70,6 +69,7 @@
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/duplicate_detector.h"
+#include "util/hash_containers.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -169,82 +169,102 @@ struct BatchContentClassifier : public WriteBatch::Handler {
 
 }  // anonymous namespace
 
+Status ConflictingColumnFamilyAttachmentInBatchStatus(uint32_t cf_id) {
+  return Status::InvalidArgument(
+      "WriteBatch already has a CF attachment for column family id " +
+      std::to_string(cf_id) +
+      " that refers to a different column family instance");
+}
+
+Status ConflictingColumnFamilyAttachmentOnAppendStatus(uint32_t cf_id) {
+  return Status::InvalidArgument(
+      "Cannot append WriteBatch: source and destination CF attachments for "
+      "column family id " +
+      std::to_string(cf_id) +
+      " refer to different column family instances");
+}
+
 struct SavePoints {
-  struct State {
-    State() = default;
+  struct UserSavePointState {
+    UserSavePointState() = default;
 
-    State(const SavePoint& save_point_value,
-          size_t attached_blob_direct_write_column_families_size_value)
+    // Captures the full rollback state at one user-visible save point:
+    // 1. the serialized WriteBatch position/count/content flags
+    // 2. the prefix length of the non-serialized CF attachment list
+    UserSavePointState(const SavePoint& save_point_value,
+                       size_t attached_column_families_size_value)
         : save_point(save_point_value),
-          attached_blob_direct_write_column_families_size(
-              attached_blob_direct_write_column_families_size_value) {}
+          attached_column_families_size(attached_column_families_size_value) {}
 
+    // Serialized WriteBatch rollback state captured at SetSavePoint().
+    // This is the original save-point payload that trims `rep_` and restores
+    // count/content flags.
     SavePoint save_point;
-    size_t attached_blob_direct_write_column_families_size = 0;
+    // Number of CF attachments present when `save_point` was recorded.
+    // Rollback truncates the attachment order vector back to this prefix so
+    // writes removed from `rep_` do not keep their later-added CF leases.
+    size_t attached_column_families_size = 0;
   };
 
-  using AttachedBlobDirectWriteColumnFamilies =
-      std::unordered_map<uint32_t, std::shared_ptr<ColumnFamilyLease>>;
+  using AttachedColumnFamilies =
+      UnorderedMap<uint32_t, std::shared_ptr<ColumnFamilyLease>>;
 
-  void Clear() {
-    while (!stack.empty()) {
-      stack.pop();
-    }
-    attached_blob_direct_write_column_families.clear();
-    attached_blob_direct_write_column_family_order.clear();
-  }
-
-  Status AddAttachedBlobDirectWriteColumnFamily(
+  // Records a CFD attachment keyed by CF id, rejecting conflicting
+  // attachments from a different DB/CFD identity.
+  Status AddAttachedColumnFamily(
       uint32_t cf_id, const std::shared_ptr<ColumnFamilyLease>& attached) {
-    auto [it, inserted] =
-        attached_blob_direct_write_column_families.emplace(cf_id, attached);
+    auto [it, inserted] = attached_column_families.emplace(cf_id, attached);
     if (inserted) {
-      attached_blob_direct_write_column_family_order.push_back(cf_id);
+      attached_column_family_order.push_back(cf_id);
       return Status::OK();
     }
     if (it->second->db() != attached->db() ||
         it->second->cfd() != attached->cfd()) {
-      return Status::InvalidArgument(
-          "Cannot combine WriteBatch instances with conflicting blob direct "
-          "write column family attachments");
+      return ConflictingColumnFamilyAttachmentInBatchStatus(cf_id);
     }
     return Status::OK();
   }
 
-  void TruncateAttachedBlobDirectWriteColumnFamilies(size_t size) {
-    while (attached_blob_direct_write_column_family_order.size() > size) {
-      const uint32_t cf_id =
-          attached_blob_direct_write_column_family_order.back();
-      attached_blob_direct_write_column_family_order.pop_back();
-      attached_blob_direct_write_column_families.erase(cf_id);
+  // Rolls back CF attachments added after the save point represented by
+  // `size`.
+  void TruncateAttachedColumnFamilies(size_t size) {
+    while (attached_column_family_order.size() > size) {
+      const uint32_t cf_id = attached_column_family_order.back();
+      attached_column_family_order.pop_back();
+      attached_column_families.erase(cf_id);
     }
-    assert(attached_blob_direct_write_column_family_order.size() ==
-           attached_blob_direct_write_column_families.size());
+    assert(attached_column_family_order.size() ==
+           attached_column_families.size());
   }
 
-  void DetachAttachedBlobDirectWriteColumnFamilies() {
-    attached_blob_direct_write_column_families.clear();
-    attached_blob_direct_write_column_family_order.clear();
+  // Drops all currently attached CFDs and clears the attachment counts
+  // stored in existing save points so future rollbacks do not resurrect them.
+  void DetachAttachedColumnFamilies() {
+    attached_column_families.clear();
+    attached_column_family_order.clear();
 
     if (stack.empty()) {
       return;
     }
 
-    autovector<State> saved_states;
+    autovector<UserSavePointState> saved_states;
     while (!stack.empty()) {
       saved_states.push_back(stack.top());
       stack.pop();
     }
     for (auto it = saved_states.rbegin(); it != saved_states.rend(); ++it) {
-      it->attached_blob_direct_write_column_families_size = 0;
+      it->attached_column_families_size = 0;
       stack.push(std::move(*it));
     }
   }
 
-  std::stack<State, autovector<State>> stack;
-  AttachedBlobDirectWriteColumnFamilies
-      attached_blob_direct_write_column_families;
-  autovector<uint32_t> attached_blob_direct_write_column_family_order;
+  // User save-point stack augmented with CF attachment counts.
+  std::stack<UserSavePointState, autovector<UserSavePointState>> stack;
+  // Currently attached CFDs keyed by column-family id.
+  AttachedColumnFamilies attached_column_families;
+  // Insertion order for attachments so save-point rollback can truncate to a
+  // prior prefix.
+  autovector<uint32_t> attached_column_family_order;
 };
 
 WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes,
@@ -873,13 +893,17 @@ void WriteBatchInternal::SetDefaultColumnFamilyTimestampSize(
 
 namespace {
 
-Status PrepareColumnFamilyHandleForWriteBatch(WriteBatch* batch,
-                                              ColumnFamilyHandleImpl* handle,
-                                              ColumnFamilyData** cfd_out) {
+// Shared preflight for handle-based WriteBatch mutations. This validates that
+// the handle can be admitted to the batch, attaches CFD metadata when needed,
+// and rejects column families that disallow memtable writes.
+Status ValidateColumnFamilyHandleForWriteBatch(WriteBatch* batch,
+                                               ColumnFamilyHandleImpl* handle,
+                                               ColumnFamilyData** cfd_out) {
   assert(handle != nullptr);
 
-  Status s =
-      WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(batch, handle);
+  // BDW is the current user of generic CF attachments. Admit the handle and
+  // pin its CFD metadata early so later write-path transforms can reuse it.
+  Status s = WriteBatchInternal::MaybeAttachColumnFamily(batch, handle);
   if (!s.ok()) {
     return s;
   }
@@ -909,7 +933,7 @@ WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(
         static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
     cf_id = handle->GetID();
     ColumnFamilyData* cfd = nullptr;
-    s = PrepareColumnFamilyHandleForWriteBatch(b, handle, &cfd);
+    s = ValidateColumnFamilyHandleForWriteBatch(b, handle, &cfd);
     if (!s.ok()) {
       return std::make_tuple(s, 0, 0);
     }
@@ -927,15 +951,16 @@ WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(
 }
 
 namespace {
-Status CheckColumnFamilyTimestampSize(WriteBatch* batch,
-                                      ColumnFamilyHandle* column_family,
-                                      const Slice& ts) {
+// Handle-based timestamp overloads use the same CF admission/validation path
+// as non-timestamp overloads, then verify the supplied timestamp shape.
+Status ValidateColumnFamilyHandleAndTimestampForWriteBatch(
+    WriteBatch* batch, ColumnFamilyHandle* column_family, const Slice& ts) {
   if (!column_family) {
     return Status::InvalidArgument("column family handle cannot be null");
   }
   auto* handle = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
-  Status s = PrepareColumnFamilyHandleForWriteBatch(batch, handle,
-                                                    /*cfd_out=*/nullptr);
+  Status s = ValidateColumnFamilyHandleForWriteBatch(batch, handle,
+                                                     /*cfd_out=*/nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -1082,7 +1107,9 @@ Status WriteBatch::TimedPut(ColumnFamilyHandle* column_family, const Slice& key,
 
 Status WriteBatch::Put(ColumnFamilyHandle* column_family, const Slice& key,
                        const Slice& ts, const Slice& value) {
-  Status s = CheckColumnFamilyTimestampSize(this, column_family, ts);
+  Status s =
+      ValidateColumnFamilyHandleAndTimestampForWriteBatch(this, column_family,
+                                                          ts);
   if (!s.ok()) {
     return s;
   }
@@ -1323,7 +1350,8 @@ Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid,
   // a manually constructed batch can only contain one prepare section
   assert(b->rep_[12] == static_cast<char>(kTypeNoop));
 
-  // all savepoints up to this point are cleared
+  // All user save points up to this point are cleared. Internal CF
+  // attachments stay with the batch contents.
   if (b->save_points_ != nullptr) {
     while (!b->save_points_->stack.empty()) {
       b->save_points_->stack.pop();
@@ -1431,7 +1459,9 @@ Status WriteBatch::Delete(ColumnFamilyHandle* column_family, const Slice& key) {
 
 Status WriteBatch::Delete(ColumnFamilyHandle* column_family, const Slice& key,
                           const Slice& ts) {
-  Status s = CheckColumnFamilyTimestampSize(this, column_family, ts);
+  Status s =
+      ValidateColumnFamilyHandleAndTimestampForWriteBatch(this, column_family,
+                                                          ts);
   if (!s.ok()) {
     return s;
   }
@@ -1558,7 +1588,9 @@ Status WriteBatch::SingleDelete(ColumnFamilyHandle* column_family,
 
 Status WriteBatch::SingleDelete(ColumnFamilyHandle* column_family,
                                 const Slice& key, const Slice& ts) {
-  Status s = CheckColumnFamilyTimestampSize(this, column_family, ts);
+  Status s =
+      ValidateColumnFamilyHandleAndTimestampForWriteBatch(this, column_family,
+                                                          ts);
   if (!s.ok()) {
     return s;
   }
@@ -1692,7 +1724,9 @@ Status WriteBatch::DeleteRange(ColumnFamilyHandle* column_family,
 Status WriteBatch::DeleteRange(ColumnFamilyHandle* column_family,
                                const Slice& begin_key, const Slice& end_key,
                                const Slice& ts) {
-  Status s = CheckColumnFamilyTimestampSize(this, column_family, ts);
+  Status s =
+      ValidateColumnFamilyHandleAndTimestampForWriteBatch(this, column_family,
+                                                          ts);
   if (!s.ok()) {
     return s;
   }
@@ -1830,7 +1864,9 @@ Status WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
 
 Status WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
                          const Slice& ts, const Slice& value) {
-  Status s = CheckColumnFamilyTimestampSize(this, column_family, ts);
+  Status s =
+      ValidateColumnFamilyHandleAndTimestampForWriteBatch(this, column_family,
+                                                          ts);
   if (!s.ok()) {
     return s;
   }
@@ -1945,7 +1981,7 @@ void WriteBatch::SetSavePoint() {
   save_points_->stack.emplace(
       SavePoint(GetDataSize(), Count(),
                 content_flags_.load(std::memory_order_relaxed)),
-      save_points_->attached_blob_direct_write_column_family_order.size());
+      save_points_->attached_column_family_order.size());
 }
 
 Status WriteBatch::RollbackToSavePoint() {
@@ -1953,9 +1989,13 @@ Status WriteBatch::RollbackToSavePoint() {
     return Status::NotFound();
   }
 
-  // Pop the most recent savepoint off the stack
-  SavePoints::State savepoint_state = save_points_->stack.top();
+  // Pop the most recent user save point and restore the attachment prefix
+  // recorded at that boundary. Rollback must keep these two operations
+  // coupled so removed writes do not keep later-added CF leases alive.
+  SavePoints::UserSavePointState savepoint_state = save_points_->stack.top();
   save_points_->stack.pop();
+  save_points_->TruncateAttachedColumnFamilies(
+      savepoint_state.attached_column_families_size);
   const SavePoint& savepoint = savepoint_state.save_point;
 
   assert(savepoint.size <= rep_.size());
@@ -1974,9 +2014,6 @@ Status WriteBatch::RollbackToSavePoint() {
     WriteBatchInternal::SetCount(this, savepoint.count);
     content_flags_.store(savepoint.content_flags, std::memory_order_relaxed);
   }
-  save_points_->TruncateAttachedBlobDirectWriteColumnFamilies(
-      savepoint_state.attached_blob_direct_write_column_families_size);
-
   return Status::OK();
 }
 
@@ -1985,8 +2022,8 @@ Status WriteBatch::PopSavePoint() {
     return Status::NotFound();
   }
 
-  // Pop commits everything added after the save point, including blob
-  // direct-write attachments recorded for those newer entries.
+  // Pop commits everything added after the save point, including any CF
+  // attachments recorded for those newer entries.
   save_points_->stack.pop();
 
   return Status::OK();
@@ -2143,7 +2180,7 @@ class MemTableInserter : public WriteBatch::Handler {
   bool hint_per_batch_;
   bool hint_created_;
   // Hints for this batch
-  using HintMap = std::unordered_map<MemTable*, void*>;
+  using HintMap = UnorderedMap<MemTable*, void*>;
   using HintMapType = aligned_storage<HintMap>::type;
   HintMapType hint_;
 
@@ -2418,10 +2455,10 @@ class MemTableInserter : public WriteBatch::Handler {
         if (db_ != nullptr && recovering_log_number_ == 0) {
           assert(cfd != nullptr);
           // TODO (yanqin): fix when user-defined timestamp is enabled.
-          PinnableSlice prev_value_pinned;
+          PinnableSlice prev_value_pinned(&prev_value);
           get_status =
               db_->GetByColumnFamilyData(ropts, cfd, key, &prev_value_pinned);
-          if (get_status.ok()) {
+          if (get_status.ok() && prev_value_pinned.IsPinned()) {
             prev_value.assign(prev_value_pinned.data(),
                               prev_value_pinned.size());
           }
@@ -3538,7 +3575,7 @@ Status WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
 
 namespace {
 
-Status InvalidColumnFamilyAdmissionStatus(ColumnFamilyLeaseState state) {
+Status ValidateColumnFamilyAdmissionState(ColumnFamilyLeaseState state) {
   switch (state) {
     case ColumnFamilyLeaseState::kActive:
       return Status::OK();
@@ -3555,7 +3592,10 @@ Status InvalidColumnFamilyAdmissionStatus(ColumnFamilyLeaseState state) {
 
 }  // anonymous namespace
 
-Status WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
+// Blob direct write is the current consumer of this generic CF attachment
+// mechanism. Other write paths can reuse it if they later need the same
+// handle-derived CFD pinning behavior.
+Status WriteBatchInternal::MaybeAttachColumnFamily(
     WriteBatch* b, ColumnFamilyHandle* column_family) {
   if (b == nullptr || column_family == nullptr) {
     return Status::OK();
@@ -3564,7 +3604,7 @@ Status WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
   auto* handle = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   const auto& lease = handle->lease();
   if (lease != nullptr) {
-    Status state_s = InvalidColumnFamilyAdmissionStatus(lease->state());
+    Status state_s = ValidateColumnFamilyAdmissionState(lease->state());
     if (!state_s.ok()) {
       return state_s;
     }
@@ -3591,11 +3631,10 @@ Status WriteBatchInternal::MaybeAttachBlobDirectWriteColumnFamily(
   if (b->save_points_ == nullptr) {
     b->save_points_.reset(new SavePoints());
   }
-  return b->save_points_->AddAttachedBlobDirectWriteColumnFamily(
-      handle->GetID(), lease);
+  return b->save_points_->AddAttachedColumnFamily(handle->GetID(), lease);
 }
 
-ColumnFamilyData* WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+ColumnFamilyData* WriteBatchInternal::GetAttachedColumnFamily(
     const WriteBatch* batch, uint32_t column_family_id, DBImpl* db) {
   if (batch == nullptr || db == nullptr) {
     return nullptr;
@@ -3606,29 +3645,29 @@ ColumnFamilyData* WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
   }
 
   auto iter =
-      batch->save_points_->attached_blob_direct_write_column_families.find(
-          column_family_id);
-  if (iter ==
-      batch->save_points_->attached_blob_direct_write_column_families.end()) {
+      batch->save_points_->attached_column_families.find(column_family_id);
+  if (iter == batch->save_points_->attached_column_families.end()) {
     return nullptr;
   }
 
   return iter->second->db() == db ? iter->second->cfd() : nullptr;
 }
 
-void WriteBatchInternal::DetachBlobDirectWriteColumnFamilies(
-    WriteBatch* batch) {
+void WriteBatchInternal::DetachColumnFamilyAttachments(WriteBatch* batch) {
   if (batch == nullptr || batch->save_points_ == nullptr) {
     return;
   }
 
-  batch->save_points_->DetachAttachedBlobDirectWriteColumnFamilies();
+  batch->save_points_->DetachAttachedColumnFamilies();
 }
 
 Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
                                   const bool wal_only) {
   assert(dst->Count() == 0 ||
          (dst->prot_info_ == nullptr) == (src->prot_info_ == nullptr));
+
+  // Validation: reject malformed metadata or conflicting CF attachments
+  // before mutating `dst`.
   if ((src->prot_info_ != nullptr &&
        src->prot_info_->entries_.size() != src->Count()) ||
       (dst->prot_info_ != nullptr &&
@@ -3637,6 +3676,25 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
         "Write batch has inconsistent count and number of checksums");
   }
 
+  if (src->save_points_ != nullptr &&
+      !src->save_points_->attached_column_families.empty() &&
+      dst->save_points_ != nullptr) {
+    // Only an already-attached destination can conflict. If `dst` has not yet
+    // allocated save-point state, it cannot already carry CF attachments and
+    // the copy loop below will initialize that state after the payload append.
+    for (const auto& entry :
+         src->save_points_->attached_column_families) {
+      auto it = dst->save_points_->attached_column_families.find(entry.first);
+      if (it != dst->save_points_->attached_column_families.end() &&
+          (it->second->db() != entry.second->db() ||
+           it->second->cfd() != entry.second->cfd())) {
+        return ConflictingColumnFamilyAttachmentOnAppendStatus(entry.first);
+      }
+    }
+  }
+
+  // Apply: select the source payload range, then append payload, metadata,
+  // and attachments into `dst`.
   size_t src_len;
   int src_count;
   uint32_t src_flags;
@@ -3651,28 +3709,6 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
     src_len = src->rep_.size() - WriteBatchInternal::kHeader;
     src_count = Count(src);
     src_flags = src->content_flags_.load(std::memory_order_relaxed);
-  }
-
-  if (src->save_points_ != nullptr &&
-      !src->save_points_->attached_blob_direct_write_column_families.empty() &&
-      dst->save_points_ != nullptr) {
-    // Only an already-attached destination can conflict. If `dst` has not yet
-    // allocated save-point state, it cannot already carry BDW attachments and
-    // the copy loop below will initialize that state after the payload append.
-    for (const auto& entry :
-         src->save_points_->attached_blob_direct_write_column_families) {
-      auto it =
-          dst->save_points_->attached_blob_direct_write_column_families.find(
-              entry.first);
-      if (it != dst->save_points_->attached_blob_direct_write_column_families
-                    .end() &&
-          (it->second->db() != entry.second->db() ||
-           it->second->cfd() != entry.second->cfd())) {
-        return Status::InvalidArgument(
-            "Cannot combine WriteBatch instances with conflicting blob direct "
-            "write column family attachments");
-      }
-    }
   }
 
   if (src->prot_info_ != nullptr) {
@@ -3695,16 +3731,15 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
       dst->content_flags_.load(std::memory_order_relaxed) | src_flags,
       std::memory_order_relaxed);
   if (src->save_points_ == nullptr ||
-      src->save_points_->attached_blob_direct_write_column_families.empty()) {
+      src->save_points_->attached_column_families.empty()) {
     return Status::OK();
   }
   if (dst->save_points_ == nullptr) {
     dst->save_points_.reset(new SavePoints());
   }
-  for (const auto& entry :
-       src->save_points_->attached_blob_direct_write_column_families) {
-    Status s = dst->save_points_->AddAttachedBlobDirectWriteColumnFamily(
-        entry.first, entry.second);
+  for (const auto& entry : src->save_points_->attached_column_families) {
+    Status s =
+        dst->save_points_->AddAttachedColumnFamily(entry.first, entry.second);
     assert(s.ok());
     // Conflicts were fully prevalidated above, so this append path cannot
     // report an error here without already having mutated `dst`.

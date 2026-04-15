@@ -94,7 +94,7 @@ class BlobDirectWriteAttachmentCleanupGuard {
       BlobDirectWriteAttachmentCleanupGuard&&) = delete;
 
   ~BlobDirectWriteAttachmentCleanupGuard() {
-    WriteBatchInternal::DetachBlobDirectWriteColumnFamilies(batch_);
+    WriteBatchInternal::DetachColumnFamilyAttachments(batch_);
   }
 
  private:
@@ -562,8 +562,8 @@ struct DBImpl::BlobDirectWriteContext {
 
     if (batch != nullptr) {
       if (auto* cfd =
-              WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
-                  batch, cf_id, db_impl_)) {
+              WriteBatchInternal::GetAttachedColumnFamily(batch, cf_id,
+                                                          db_impl_)) {
         // Attached batches already pinned the CFD while the user still held a
         // CF handle, so we can reuse the usual SuperVersion publication path
         // here without taking DB mutex for an id->CFD lookup.

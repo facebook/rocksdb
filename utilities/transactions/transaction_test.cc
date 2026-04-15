@@ -303,6 +303,9 @@ TEST_P(TransactionTest, DirectWriteCommitPath) {
   const std::string key = "txn_blob_key";
   const std::string value(512, 'x');
 
+  // Basic end-to-end coverage that a transaction commit still routes large
+  // values through blob direct write and remains readable before and after
+  // flush.
   std::unique_ptr<Transaction> txn(
       db->BeginTransaction(write_options, TransactionOptions()));
   ASSERT_TRUE(txn);
@@ -320,8 +323,7 @@ TEST_P(TransactionTest, DirectWriteCommitPath) {
   ASSERT_EQ(result, value);
 }
 
-TEST_P(TransactionTest,
-       DirectWriteTransactionReuseReattachesDefaultColumnFamily) {
+TEST_P(TransactionTest, ReuseReattachesDefaultCf) {
   if (options.two_write_queues || options.unordered_write) {
     ROCKSDB_GTEST_BYPASS(
         "Blob direct write v1 only supports the ordered single-write-queue "
@@ -350,12 +352,14 @@ TEST_P(TransactionTest,
           ->cfd();
 
   auto assert_default_cfd_attached = [&](Transaction* txn) {
-    ASSERT_EQ(WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+    // Both batches may later flow through the BDW path: the indexed write batch
+    // for ordinary writes and the commit-time batch for commit-only payloads.
+    ASSERT_EQ(WriteBatchInternal::GetAttachedColumnFamily(
                   txn->GetWriteBatch()->GetWriteBatch(), default_cfd->GetID(),
                   db_impl),
               default_cfd);
     ASSERT_EQ(
-        WriteBatchInternal::GetAttachedBlobDirectWriteColumnFamily(
+        WriteBatchInternal::GetAttachedColumnFamily(
             txn->GetCommitTimeWriteBatch(), default_cfd->GetID(), db_impl),
         default_cfd);
   };
@@ -365,6 +369,8 @@ TEST_P(TransactionTest,
   txn_options.use_only_the_last_commit_time_batch_for_recovery = true;
   const std::string blob_value(512, 'x');
 
+  // Reusing the transaction object calls Clear()/Reinitialize(). The default CF
+  // attachment must be rebuilt for both batches on the reused instance.
   Transaction* txn = db->BeginTransaction(write_options, txn_options);
   ASSERT_TRUE(txn);
   assert_default_cfd_attached(txn);

@@ -172,16 +172,19 @@ class WriteBatchInternal {
 
   static Status SetContents(WriteBatch* batch, const Slice& contents);
 
-  // Record a non-serialized CFD attachment for BDW-enabled column families so
-  // later write-path transforms can avoid DB mutex lookup.
-  static Status MaybeAttachBlobDirectWriteColumnFamily(
+  // Record a non-serialized CF attachment derived from a live handle. Blob
+  // direct write currently uses this to pin CFD metadata so later write-path
+  // transforms can avoid a DB mutex lookup.
+  static Status MaybeAttachColumnFamily(
       WriteBatch* batch, ColumnFamilyHandle* column_family);
 
-  static ColumnFamilyData* GetAttachedBlobDirectWriteColumnFamily(
+  // Returns the attached CFD for `column_family_id` if this batch pinned one
+  // for `db`; otherwise returns nullptr.
+  static ColumnFamilyData* GetAttachedColumnFamily(
       const WriteBatch* batch, uint32_t column_family_id, DBImpl* db);
-  // Drops non-serialized BDW CFD attachments after a write completes so the
-  // batch does not keep column family refs alive longer than needed.
-  static void DetachBlobDirectWriteColumnFamilies(WriteBatch* batch);
+  // Drops non-serialized CF attachments after a write completes so the batch
+  // does not keep column family refs alive longer than needed.
+  static void DetachColumnFamilyAttachments(WriteBatch* batch);
 
   static Status CheckSlicePartsLength(const SliceParts& key,
                                       const SliceParts& value);

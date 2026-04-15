@@ -25,7 +25,11 @@
 // When blob direct write is enabled on a referenced column family, mutating
 // APIs that take a ColumnFamilyHandle may internally pin that column family's
 // metadata until the batch is cleared or destroyed. In that case, the
-// originating DB must outlive the WriteBatch.
+// originating DB must outlive the WriteBatch. This metadata pin only preserves
+// access to blob direct-write state; it does not guarantee that an already
+// admitted batch will still succeed after DropColumnFamily(). Such a batch may
+// still fail later during DB::Write() if the column family has left the live
+// set before memtable insertion.
 
 #pragma once
 
@@ -505,7 +509,7 @@ class WriteBatch : public WriteBatchBase {
   // remove duplicate keys. Remove it when the hack is replaced with a proper
   // solution.
   friend class WriteBatchWithIndex;
-  // Lazily created for user save points and blob direct-write column family
+  // Lazily created for user save points and internal column family
   // attachments, so it may be non-null even if the user never called
   // SetSavePoint().
   std::unique_ptr<SavePoints> save_points_;

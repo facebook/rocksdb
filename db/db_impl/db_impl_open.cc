@@ -1575,11 +1575,12 @@ Status DBImpl::InsertLogRecordToMemtable(WriteBatch* batch_to_use,
                                          SequenceNumber* next_sequence,
                                          bool* has_valid_writes,
                                          bool read_only) {
-  // If column family was not found, it might mean that the WAL write
-  // batch references to the column family that was dropped after the
-  // insert. We don't want to fail the whole write batch in that case --
-  // we just ignore the update.
-  // That's why we set ignore missing column families to true
+  // Recovery replays WAL against the live CF set reconstructed from the
+  // MANIFEST. If a WAL record references a CF that is no longer present in
+  // that manifest state, it most likely means the CF was dropped after the WAL
+  // record was originally written. WAL replay alone is not the source of truth
+  // for CF drops, so we intentionally ignore writes to those missing CFs here
+  // instead of failing DB open or requiring DropColumnFamily() to flush first.
   assert(batch_to_use);
   assert(has_valid_writes);
   Status status = WriteBatchInternal::InsertInto(
