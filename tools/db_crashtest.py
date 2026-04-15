@@ -509,6 +509,10 @@ _TEST_EXPECTED_DIR_ENV_VAR = "TEST_TMPDIR_EXPECTED"
 _DEBUG_LEVEL_ENV_VAR = "DEBUG_LEVEL"
 
 stress_cmd = "./db_stress"
+_REMOTE_COMPACTION_OUTPUT_PREFIX = "tmp_output_"
+_ABANDONED_REMOTE_COMPACTION_OUTPUTS_DIR = ".abandoned_remote_compaction_outputs"
+_ABANDONED_REMOTE_COMPACTION_OUTPUT_RUN_PREFIX = "run_"
+_ABANDONED_REMOTE_COMPACTION_OUTPUT_RUNS_TO_KEEP = 3
 
 
 def is_release_mode():
@@ -2052,6 +2056,62 @@ def print_and_cleanup_fault_injection_log(pid):
             pass
 
 
+def remove_path_ignore_errors(path):
+    try:
+        if os.path.isdir(path):
+            shutil.rmtree(path, True)
+        else:
+            os.remove(path)
+    except OSError:
+        pass
+
+
+def cleanup_stale_remote_compaction_outputs(dbname):
+    if is_remote_db or dbname is None or dbname == "" or not os.path.isdir(dbname):
+        return
+
+    # Preserve a small amount of abandoned remote compaction state for
+    # postmortem triage without letting long crash-test runs fill the DB path.
+    stale_entries = [
+        entry
+        for entry in os.listdir(dbname)
+        if entry.startswith(_REMOTE_COMPACTION_OUTPUT_PREFIX)
+    ]
+    if stale_entries:
+        archive_root = os.path.join(dbname, _ABANDONED_REMOTE_COMPACTION_OUTPUTS_DIR)
+        archive_run = os.path.join(
+            archive_root,
+            f"{_ABANDONED_REMOTE_COMPACTION_OUTPUT_RUN_PREFIX}{time.time_ns():020d}",
+        )
+        try:
+            os.makedirs(archive_run, exist_ok=False)
+        except OSError:
+            archive_run = None
+
+        for entry in stale_entries:
+            path = os.path.join(dbname, entry)
+            if archive_run is not None:
+                try:
+                    os.replace(path, os.path.join(archive_run, entry))
+                    continue
+                except OSError:
+                    pass
+
+            remove_path_ignore_errors(path)
+
+    archive_root = os.path.join(dbname, _ABANDONED_REMOTE_COMPACTION_OUTPUTS_DIR)
+    if not os.path.isdir(archive_root):
+        return
+
+    archived_runs = sorted(
+        entry
+        for entry in os.listdir(archive_root)
+        if entry.startswith(_ABANDONED_REMOTE_COMPACTION_OUTPUT_RUN_PREFIX)
+    )
+    for entry in archived_runs[:-_ABANDONED_REMOTE_COMPACTION_OUTPUT_RUNS_TO_KEEP]:
+        remove_path_ignore_errors(os.path.join(archive_root, entry))
+
+
 # This script runs and kills db_stress multiple times. It checks consistency
 # in case of unsafe crashes in RocksDB.
 def blackbox_crash_main(args, unknown_args):
@@ -2090,6 +2150,7 @@ def blackbox_crash_main(args, unknown_args):
             sys.exit(2)
 
         print_run_output_and_exit_on_error(args, finalized_params, outs, errs)
+        cleanup_stale_remote_compaction_outputs(dbname)
 
         time.sleep(1)  # time to stabilize before the next run
 
@@ -2097,6 +2158,7 @@ def blackbox_crash_main(args, unknown_args):
 
     # We should run the test one more time with VerifyOnly setup and no-timeout
     # Only do this if the tests are not failed for total-duration
+    cleanup_stale_remote_compaction_outputs(dbname)
     print("Running final time for verification")
     cmd_params.update({"verification_only": 1})
     cmd_params.update({"skip_verifydb": 0})
@@ -2291,6 +2353,7 @@ def whitebox_crash_main(args, unknown_args):
             cmd_params["destroy_db_initially"] = 1
             check_mode = (check_mode + 1) % total_check_mode
 
+        cleanup_stale_remote_compaction_outputs(dbname)
         time.sleep(1)  # time to stabilize after a kill
 
     # If successfully finished or timed out (we currently treat timed out test as passing)
