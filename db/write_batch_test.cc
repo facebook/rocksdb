@@ -414,8 +414,7 @@ TEST_F(WriteBatchAttachedColumnFamilyTest, AppendRejectsConflictingAttachments) 
 
     Status s = WriteBatchInternal::Append(&first_batch, &second_batch);
     ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
-    ASSERT_NE(s.ToString().find("conflicting blob direct write column family "
-                                "attachments"),
+    ASSERT_NE(s.ToString().find("refer to different column family instances"),
               std::string::npos);
   }
 
