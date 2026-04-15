@@ -18,6 +18,7 @@
 #include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
 #include "dbformat.h"
+#include "port/mmap.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -730,6 +731,54 @@ TEST_F(WriteBatchTest, DISABLED_LargeKeyValue) {
 
   ASSERT_OK(batch.Iterate(&handler));
   ASSERT_EQ(2, handler.num_seen);
+}
+
+// Uses anonymous mmap (lazy-zeroed) so the large data itself doesn't consume
+// physical memory -- only the destination copy does (~4GB peak during the
+// acceptance case where batch.Put copies into batch.rep_).
+TEST_F(WriteBatchTest, LargeKeyValueSizeLimit) {
+  if (!test::HasBigMem()) {
+    ROCKSDB_GTEST_BYPASS("insufficient memory for reliable continuous testing");
+    return;
+  }
+
+  constexpr size_t kMaxKeySize =
+      size_t{std::numeric_limits<uint32_t>::max()} - 8;
+  constexpr size_t kMaxValueSize = size_t{std::numeric_limits<uint32_t>::max()};
+
+  WriteBatch batch;
+
+  // --- Large key ---
+  {
+    MemMapping mm = MemMapping::AllocateLazyZeroed(kMaxKeySize + 1);
+    ASSERT_NE(nullptr, mm.Get());
+
+    // A key at the limit should be accepted
+    ASSERT_OK(batch.Put(Slice(mm.AsSlice().data(), kMaxKeySize), "val"));
+    batch.Clear();
+
+    // A key one byte over the limit should be rejected
+    ASSERT_TRUE(batch.Put(mm.AsSlice(), "val").IsInvalidArgument());
+    ASSERT_TRUE(batch.Merge(mm.AsSlice(), "val").IsInvalidArgument());
+    ASSERT_TRUE(batch.Delete(mm.AsSlice()).IsInvalidArgument());
+    ASSERT_TRUE(batch.SingleDelete(mm.AsSlice()).IsInvalidArgument());
+    ASSERT_TRUE(
+        batch.DeleteRange(mm.AsSlice(), mm.AsSlice()).IsInvalidArgument());
+  }
+
+  // --- Large value ---
+  {
+    MemMapping mm = MemMapping::AllocateLazyZeroed(kMaxValueSize + 1);
+    ASSERT_NE(nullptr, mm.Get());
+
+    // A value at the limit should be accepted
+    ASSERT_OK(batch.Put("key", Slice(mm.AsSlice().data(), kMaxValueSize)));
+    batch.Clear();
+
+    // A value one byte over the limit should be rejected
+    ASSERT_TRUE(batch.Put("key", mm.AsSlice()).IsInvalidArgument());
+    ASSERT_TRUE(batch.Merge("key", mm.AsSlice()).IsInvalidArgument());
+  }
 }
 
 TEST_F(WriteBatchTest, Continue) {

@@ -1396,11 +1396,11 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (thread->rand.OneInOpt(FLAGS_key_may_exist_one_in)) {
         TestKeyMayExist(thread, read_opts, rand_column_families, rand_keys);
       }
-      // Prefix-recoverability relies on tracing successful user writes.
-      // Currently we trace all user writes regardless of whether it later
-      // succeeds or not. To simplify, we disable any fault injection during
-      // user write.
-      // TODO(hx235): support tracing user writes with fault injection.
+      // Historical expected-state restore replays exactly
+      // `db->GetLatestSequenceNumber() - saved_seqno_` write ops from the
+      // trace. Missing trace entries are fatal, while extra suffix entries are
+      // tolerated. Keep fault injection disabled during user writes until each
+      // injected failure mode is audited against that contract.
       bool disable_fault_injection_during_user_write =
           fault_fs_guard && MightHaveUnsyncedDataLoss();
       int prob_op = thread->rand.Uniform(100);
@@ -3781,6 +3781,8 @@ void StressTest::PrintEnv() const {
           FLAGS_wal_compression.c_str());
   fprintf(stdout, "Try verify sst unique id  : %d\n",
           static_cast<int>(FLAGS_verify_sst_unique_id_in_manifest));
+  fprintf(stdout, "Fast SST open             : %d\n",
+          static_cast<int>(FLAGS_fast_sst_open));
 
   fprintf(stdout, "------------------------------------------------\n");
 }
@@ -4676,6 +4678,7 @@ void InitializeOptionsFromFlags(
   options.track_and_verify_wals = FLAGS_track_and_verify_wals;
   options.verify_sst_unique_id_in_manifest =
       FLAGS_verify_sst_unique_id_in_manifest;
+  options.fast_sst_open = FLAGS_fast_sst_open;
   options.memtable_protection_bytes_per_key =
       FLAGS_memtable_protection_bytes_per_key;
   options.block_protection_bytes_per_key = FLAGS_block_protection_bytes_per_key;

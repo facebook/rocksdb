@@ -862,37 +862,6 @@ Status DBImpl::SyncBlobDirectWriteManagers(
   return Status::OK();
 }
 
-void DBImpl::MaybeTraceWriteGroupForPreservedWriteOrder(
-    const WriteThread::WriteGroup& write_group, WriteBatchWithIndex* wbwi,
-    bool ingest_wbwi_for_commit) {
-  // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
-  // grabs but does not seem thread-safe.
-  if (tracer_) {
-    InstrumentedMutexLock lock(&trace_mutex_);
-    if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
-      WriteBatch* wbwi_trace_batch = nullptr;
-      if (wbwi != nullptr && !ingest_wbwi_for_commit) {
-        // For transaction write, preserved-order tracing only needs the
-        // logical commit marker once, so trace the WBWI batch instead of the
-        // commit-time batch stored in each writer.
-        wbwi_trace_batch = wbwi->GetWriteBatch();
-      }
-      for (auto* writer : write_group) {
-        if (writer->CallbackFailed()) {
-          continue;
-        }
-        WriteBatch* trace_batch = wbwi_trace_batch != nullptr
-                                      ? wbwi_trace_batch
-                                      : writer->trace_batch;
-        // Preserve user-visible ordering while still tracing the logical batch
-        // for writers whose applied batch was rewritten earlier on the path.
-        // TODO: maybe handle the tracing status?
-        tracer_->Write(trace_batch).PermitUncheckedError();
-      }
-    }
-  }
-}
-
 Status DBImpl::WriteImpl(
     const WriteOptions& write_options, WriteBatch* my_batch,
     WriteCallback* callback, UserWriteCallback* user_write_cb,
@@ -1316,6 +1285,26 @@ Status DBImpl::WriteImpl(
         }
       }
     }
+    // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
+    // grabs but does not seem thread-safe.
+    if (tracer_) {
+      InstrumentedMutexLock lock(&trace_mutex_);
+      if (tracer_ && tracer_->IsWriteOrderPreserved()) {
+        for (auto* writer : write_group) {
+          if (writer->CallbackFailed()) {
+            continue;
+          }
+          // TODO: maybe handle the tracing status?
+          if (wbwi && !ingest_wbwi_for_commit) {
+            // for transaction write, tracer only needs the commit marker which
+            // is in writer->batch
+            tracer_->Write(wbwi->GetWriteBatch()).PermitUncheckedError();
+          } else {
+            tracer_->Write(writer->trace_batch).PermitUncheckedError();
+          }
+        }
+      }
+    }
     // Note about seq_per_batch_: either disableWAL is set for the entire write
     // group or not. In either case we inc seq for each write batch with no
     // failed callback. This means that there could be a batch with
@@ -1423,11 +1412,6 @@ Status DBImpl::WriteImpl(
           status = SyncWAL();
         }
       }
-    }
-
-    if (status.ok()) {
-      MaybeTraceWriteGroupForPreservedWriteOrder(write_group, wbwi.get(),
-                                                 ingest_wbwi_for_commit);
     }
 
     // PreReleaseCallback is called after WAL write and before memtable write
@@ -1634,6 +1618,22 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
           }
         }
       }
+      // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
+      // grabs but does not seem thread-safe.
+      if (tracer_) {
+        InstrumentedMutexLock lock(&trace_mutex_);
+        if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
+          for (auto* writer : wal_write_group) {
+            if (writer->CallbackFailed()) {
+              // When optimisitc txn conflict checking fails, we should
+              // not record to trace.
+              continue;
+            }
+            // TODO: maybe handle the tracing status?
+            tracer_->Write(writer->trace_batch).PermitUncheckedError();
+          }
+        }
+      }
       if (w.disable_wal) {
         has_unpersisted_data_.store(true, std::memory_order_relaxed);
       }
@@ -1693,9 +1693,6 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       // TODO: plumb Env::IOActivity, Env::IOPriority
       const ReadOptions read_options;
       w.status = ApplyWALToManifest(read_options, write_options, &synced_wals);
-    }
-    if (w.status.ok()) {
-      MaybeTraceWriteGroupForPreservedWriteOrder(wal_write_group);
     }
     write_thread_.ExitAsBatchGroupLeader(wal_write_group, w.status);
   }
@@ -1908,6 +1905,20 @@ Status DBImpl::WriteImplWALOnly(
 
   // Note: no need to update last_batch_group_size_ here since the batch writes
   // to WAL only
+  // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
+  // grabs but does not seem thread-safe.
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
+      for (auto* writer : write_group) {
+        if (writer->CallbackFailed()) {
+          continue;
+        }
+        // TODO: maybe handle the tracing status?
+        tracer_->Write(writer->trace_batch).PermitUncheckedError();
+      }
+    }
+  }
 
   const bool concurrent_update = true;
   // Update stats while we are an exclusive group leader, so we know
@@ -1988,13 +1999,6 @@ Status DBImpl::WriteImplWALOnly(
     } else {
       status = SyncWAL();
     }
-  }
-  if (status.ok()) {
-    // Write trace  after WAL right. This ensures the replayer does not replay a
-    // record that has not been recorded in the DB. However, it is not a full
-    // solution as a crash may still happen before the trace write and after the
-    // WAL write. TODO: Atomically write WAL and trace.
-    MaybeTraceWriteGroupForPreservedWriteOrder(write_group);
   }
   PERF_TIMER_START(write_pre_and_post_process_time);
 

@@ -79,6 +79,7 @@ Status BuildTable(
     BlobFileCompletionCallback* blob_callback = nullptr,
     Version* version = nullptr, uint64_t* memtable_payload_bytes = nullptr,
     uint64_t* memtable_garbage_bytes = nullptr,
-    InternalStats::CompactionStats* flush_stats = nullptr);
+    InternalStats::CompactionStats* flush_stats = nullptr,
+    bool fast_sst_open = false);
 
 }  // namespace ROCKSDB_NAMESPACE

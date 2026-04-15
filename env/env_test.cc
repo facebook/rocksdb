@@ -26,6 +26,7 @@
 #ifdef OS_LINUX
 #include <fcntl.h>
 #include <linux/fs.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/statfs.h>
 #include <unistd.h>
@@ -46,7 +47,7 @@
 #include "env/env_chroot.h"
 #include "env/env_encryption_ctr.h"
 #include "env/fs_readonly.h"
-#if defined(ROCKSDB_IOURING_PRESENT)
+#ifdef OS_LINUX
 #include "env/io_posix.h"
 #endif
 #include "env/mock_env.h"
@@ -114,6 +115,137 @@ std::unique_ptr<char, Deleter> NewAligned(const size_t size, const char ch) {
   memset(uptr.get(), ch, size);
   return uptr;
 }
+
+#ifdef OS_LINUX
+// The deterministic TSAN regressions pass the exact address/size of a mapping
+// from the producer thread (which creates and tears down the original mapping)
+// to the consumer thread (which immediately remaps the same virtual address).
+struct MappingReuseInfo {
+  void* addr;
+  size_t size;
+};
+
+// Move MappingReuseInfo through a pipe. Even for this tiny struct we need to
+// handle EINTR and short reads/writes so the test setup is deterministic.
+bool ReadFdExactly(int fd, void* data, size_t size, std::string* error) {
+  auto* bytes = static_cast<char*>(data);
+  size_t offset = 0;
+  while (offset < size) {
+    ssize_t ret = read(fd, bytes + offset, size - offset);
+    if (ret < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      *error = "read failed: " + errnoStr(errno);
+      return false;
+    }
+    if (ret == 0) {
+      *error = "unexpected EOF while reading mapping info";
+      return false;
+    }
+    offset += static_cast<size_t>(ret);
+  }
+  return true;
+}
+
+bool WriteFdExactly(int fd, const void* data, size_t size, std::string* error) {
+  const auto* bytes = static_cast<const char*>(data);
+  size_t offset = 0;
+  while (offset < size) {
+    ssize_t ret = write(fd, bytes + offset, size - offset);
+    if (ret < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      *error = "write failed: " + errnoStr(errno);
+      return false;
+    }
+    if (ret == 0) {
+      *error = "short write while sending mapping info";
+      return false;
+    }
+    offset += static_cast<size_t>(ret);
+  }
+  return true;
+}
+
+template <typename ProduceMappingFn>
+std::string RunDeterministicMappingReuseScenario(
+    ProduceMappingFn&& produce_mapping) {
+  int pipe_fds[2];
+  if (pipe(pipe_fds) != 0) {
+    return "pipe failed: " + errnoStr(errno);
+  }
+
+  std::mutex error_mu;
+  std::string error;
+  auto set_error = [&](const std::string& msg) {
+    std::lock_guard<std::mutex> lock(error_mu);
+    if (error.empty()) {
+      error = msg;
+    }
+  };
+
+  // Use a pipe rendezvous instead of mutex/condvar-style synchronization. The
+  // test needs deterministic ordering (the original mapping must be gone
+  // before the replacement mapping appears) without adding a TSAN-visible
+  // happens-before relation that could mask the stale-shadow-memory issue.
+  std::thread producer([&]() {
+    MappingReuseInfo info{nullptr, 0};
+    std::string local_error;
+    if (!produce_mapping(&info, &local_error) && !local_error.empty()) {
+      set_error(local_error);
+    }
+    std::string write_error;
+    if (!WriteFdExactly(pipe_fds[1], &info, sizeof(info), &write_error)) {
+      set_error(write_error);
+    }
+  });
+
+  std::thread consumer([&]() {
+    MappingReuseInfo info{nullptr, 0};
+    std::string read_error;
+    if (!ReadFdExactly(pipe_fds[0], &info, sizeof(info), &read_error)) {
+      set_error(read_error);
+      return;
+    }
+    if (info.addr == nullptr || info.size == 0) {
+      return;
+    }
+
+    // Reuse the exact virtual address from the producer's unmapped region.
+    // Without the production annotation, TSAN can still attribute accesses
+    // here to the old mapping that used to occupy this address range.
+    void* addr = mmap(info.addr, info.size, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+    if (addr == MAP_FAILED) {
+      set_error("mmap reuse failed: " + errnoStr(errno));
+      return;
+    }
+    if (addr != info.addr) {
+      set_error("mmap reused an unexpected address");
+      munmap(addr, info.size);
+      return;
+    }
+
+    // Clear the fresh mapping's own shadow state so the test isolates whether
+    // the original mapping left stale TSAN metadata behind.
+    TsanAnnotateMappedMemory(addr, info.size);
+    auto* bytes = static_cast<volatile char*>(addr);
+    bytes[0] = 1;
+    bytes[info.size - 1] = 2;
+    if (munmap(addr, info.size) != 0) {
+      set_error("munmap reuse failed: " + errnoStr(errno));
+    }
+  });
+
+  producer.join();
+  consumer.join();
+  close(pipe_fds[0]);
+  close(pipe_fds[1]);
+  return error;
+}
+#endif  // OS_LINUX
 
 class EnvPosixTest : public testing::Test {
  private:
@@ -1777,7 +1909,126 @@ TEST_F(EnvPosixTest, SupportedOpsNoAsyncIOOnIOUringInitFailure) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
+#ifdef OS_LINUX
+TEST_F(EnvPosixTest, IOUringAddressReuseNoTsanFalsePositive) {
+  struct io_uring* probe = CreateIOUring();
+  if (probe == nullptr) {
+    return;
+  }
+  DeleteIOUring(probe);
+
+  std::atomic<int> annotate_calls{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "TsanAnnotateMappedMemory", [&](void* arg) {
+        auto* info = static_cast<TsanMappedMemoryInfo*>(arg);
+        if (info->addr != nullptr && info->size != 0) {
+          annotate_calls.fetch_add(1, std::memory_order_relaxed);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Force deterministic virtual-address reuse with MAP_FIXED. The pipe orders
+  // the operations without introducing a TSAN happens-before edge, so without
+  // TsanAnnotateMappedMemory() the reused address reliably triggers a report.
+  std::string error = RunDeterministicMappingReuseScenario(
+      [&](MappingReuseInfo* info, std::string* local_error) {
+        struct io_uring* iu = CreateIOUring();
+        if (iu == nullptr) {
+          *local_error = "CreateIOUring failed on the producer thread";
+          return false;
+        }
+        info->addr = iu->sq.ring_ptr;
+        info->size = iu->sq.ring_sz;
+        DeleteIOUring(iu);
+        return true;
+      });
+
+  ASSERT_TRUE(error.empty()) << error;
+  ASSERT_GT(annotate_calls.load(std::memory_order_relaxed), 0);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+#endif  // OS_LINUX
 #endif  // ROCKSDB_IOURING_PRESENT
+
+#ifdef OS_LINUX
+TEST_F(EnvPosixTest, MmapReadAddressReuseNoTsanFalsePositive) {
+  std::string fname = test::PerThreadDBPath(env_, "mmap_reuse");
+  {
+    std::unique_ptr<WritableFile> wfile;
+    ASSERT_OK(env_->NewWritableFile(fname, &wfile, EnvOptions()));
+    std::string data(kPageSize, 'm');
+    ASSERT_OK(wfile->Append(data));
+    ASSERT_OK(wfile->Close());
+  }
+
+  std::mutex capture_mu;
+  MappingReuseInfo captured{nullptr, 0};
+  // The sync-point callback sees every TsanAnnotateMappedMemory() call,
+  // including the consumer thread's MAP_FIXED remap. Gate capture so we keep
+  // only the mapping created by NewRandomAccessFile(use_mmap_reads=true).
+  std::atomic<bool> capture_enabled{false};
+  std::atomic<int> annotate_calls{0};
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "TsanAnnotateMappedMemory", [&](void* arg) {
+        auto* info = static_cast<TsanMappedMemoryInfo*>(arg);
+        if (info->addr == nullptr || info->size == 0) {
+          return;
+        }
+        annotate_calls.fetch_add(1, std::memory_order_relaxed);
+        if (!capture_enabled.load(std::memory_order_relaxed)) {
+          return;
+        }
+        std::lock_guard<std::mutex> lock(capture_mu);
+        if (captured.addr == nullptr) {
+          captured.addr = const_cast<void*>(info->addr);
+          captured.size = info->size;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::string error = RunDeterministicMappingReuseScenario(
+      [&](MappingReuseInfo* info, std::string* local_error) {
+        {
+          std::lock_guard<std::mutex> lock(capture_mu);
+          captured = {nullptr, 0};
+        }
+        capture_enabled.store(true, std::memory_order_relaxed);
+
+        EnvOptions opts;
+        opts.use_mmap_reads = true;
+        opts.use_direct_reads = false;
+        std::unique_ptr<RandomAccessFile> file;
+        Status s = env_->NewRandomAccessFile(fname, &file, opts);
+        capture_enabled.store(false, std::memory_order_relaxed);
+        if (!s.ok()) {
+          *local_error = "NewRandomAccessFile(use_mmap_reads=true) failed: " +
+                         s.ToString();
+          return false;
+        }
+        file.reset();
+
+        {
+          std::lock_guard<std::mutex> lock(capture_mu);
+          *info = captured;
+        }
+        if (info->addr == nullptr || info->size == 0) {
+          *local_error = "did not capture the mmap-read mapping";
+          return false;
+        }
+        return true;
+      });
+
+  ASSERT_TRUE(error.empty()) << error;
+  ASSERT_GT(annotate_calls.load(std::memory_order_relaxed), 0);
+  ASSERT_OK(env_->DeleteFile(fname));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+#endif  // OS_LINUX
 
 // Only works in linux platforms
 #ifdef OS_WIN

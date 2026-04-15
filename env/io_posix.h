@@ -34,6 +34,7 @@
 #include <map>
 #include <string>
 
+#include "port/lang.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
@@ -65,6 +66,33 @@ std::string IOErrorMsg(const std::string& context,
 // file_name can be left empty if it is not unkown.
 IOStatus IOError(const std::string& context, const std::string& file_name,
                  int err_number);
+
+// SyncPoint payload used by deterministic TSAN regression tests to observe
+// which virtual address range a freshly created mapping occupies.
+struct TsanMappedMemoryInfo {
+  const void* addr;
+  size_t size;
+};
+
+#ifdef __SANITIZE_THREAD__
+extern "C" void AnnotateNewMemory(const char* file, int line,
+                                  const volatile void* mem, long size);
+#endif  // __SANITIZE_THREAD__
+
+inline void TsanAnnotateMappedMemory(const volatile void* mem, size_t size) {
+  TsanMappedMemoryInfo info{const_cast<const void*>(mem), size};
+  TEST_SYNC_POINT_CALLBACK("TsanAnnotateMappedMemory", &info);
+  (void)info;
+#ifdef __SANITIZE_THREAD__
+  if (mem != nullptr && size != 0) {
+    // TSAN does not understand that a new mmap or io_uring setup can legally
+    // reuse a virtual address from an unrelated, previously unmapped region.
+    // Reset the shadow state as soon as the new mapping exists so later
+    // accesses are not reported against stale accesses from the old mapping.
+    AnnotateNewMemory(__FILE__, __LINE__, mem, static_cast<long>(size));
+  }
+#endif  // __SANITIZE_THREAD__
+}
 
 class PosixHelper {
  public:
@@ -333,6 +361,16 @@ class PosixSequentialFile : public FSSequentialFile {
 // io_uring instance queue depth
 const unsigned int kIoUringDepth = 256;
 
+inline void TsanAnnotateIOUringMemory(struct io_uring* iu) {
+  TsanAnnotateMappedMemory(iu->sq.ring_ptr, iu->sq.ring_sz);
+  // CQ and SQ can share the same mmap region.
+  if (iu->cq.ring_ptr != iu->sq.ring_ptr) {
+    TsanAnnotateMappedMemory(iu->cq.ring_ptr, iu->cq.ring_sz);
+  }
+  TsanAnnotateMappedMemory(
+      iu->sq.sqes, static_cast<size_t>(kIoUringDepth) * sizeof(io_uring_sqe));
+}
+
 inline void DeleteIOUring(void* p) {
   struct io_uring* iu = static_cast<struct io_uring*>(p);
   io_uring_queue_exit(iu);
@@ -351,6 +389,8 @@ inline struct io_uring* CreateIOUring() {
             static_cast<unsigned long>(pthread_self()));
     delete new_io_uring;
     new_io_uring = nullptr;
+  } else {
+    TsanAnnotateIOUringMemory(new_io_uring);
   }
   return new_io_uring;
 }

@@ -1326,6 +1326,10 @@ DEFINE_bool(
     "DB-open try verifying the SST unique id between MANIFEST and SST "
     "properties.");
 
+DEFINE_bool(fast_sst_open, false,
+            "If true, retrieve and persist file open metadata in the MANIFEST "
+            "for faster SST file re-opening on DB open.");
+
 DEFINE_int32(
     create_timestamped_snapshot_one_in, 0,
     "On non-zero, create timestamped snapshots upon transaction commits.");

@@ -17,6 +17,7 @@
 #include "file/file_util.h"
 #include "file/random_access_file_reader.h"
 #include "logging/logging.h"
+#include "monitoring/statistics_impl.h"
 #include "table/merging_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
@@ -719,6 +720,34 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
     // This ensures ingested files have proper timestamp ranges in FileMetaData,
     // similar to files created by flush and compaction.
     ExtractTimestampFromTableProperties(file->table_properties, &f_metadata);
+    // Retrieve file open metadata for fast SST open
+    if (mutable_db_options_.fast_sst_open) {
+      std::unique_ptr<FSRandomAccessFile> readable_file;
+      FileOptions fopts{env_options_};
+      fopts.file_checksum = f_metadata.file_checksum;
+      fopts.file_checksum_func_name = f_metadata.file_checksum_func_name;
+      IOStatus io_s = fs_->NewRandomAccessFile(file->internal_file_path, fopts,
+                                               &readable_file, nullptr);
+      if (io_s.ok()) {
+        io_s =
+            readable_file->GetFileOpenMetadata(&f_metadata.file_open_metadata);
+        if (io_s.ok() && !f_metadata.file_open_metadata.empty() &&
+            f_metadata.file_open_metadata.size() <=
+                FSRandomAccessFile::kMaxFileOpenMetadataSize) {
+          RecordTick(db_options_.stats, FILE_OPEN_METADATA_RETRIEVED);
+        } else {
+          if (io_s.ok() && f_metadata.file_open_metadata.size() >
+                               FSRandomAccessFile::kMaxFileOpenMetadataSize) {
+            ROCKS_LOG_WARN(db_options_.info_log,
+                           "File open metadata for %s too large (%zu bytes), "
+                           "ignoring",
+                           file->internal_file_path.c_str(),
+                           f_metadata.file_open_metadata.size());
+          }
+          f_metadata.file_open_metadata.clear();
+        }
+      }
+    }
     edit_.AddFile(file->picked_level, f_metadata);
 
     *batch_uppermost_level =

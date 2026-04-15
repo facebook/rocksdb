@@ -397,6 +397,10 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
     trace_opts.filter |= kTraceFilterMultiGet;
     trace_opts.filter |= kTraceFilterIteratorSeek;
     trace_opts.filter |= kTraceFilterIteratorSeekForPrev;
+    // Expected-state restore replays by recovered DB sequence count rather than
+    // by trace-side commit acknowledgement. This trace therefore needs to be an
+    // ordered superset of writes that could survive recovery: missing trace
+    // entries are fatal, while extra suffix entries are tolerated.
     trace_opts.preserve_write_order = true;
     s = db->StartTrace(trace_opts, std::move(trace_writer));
   }

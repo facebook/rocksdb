@@ -5639,6 +5639,11 @@ class ReadPathRangeTombstoneTest : public DBIteratorBaseTest,
     ASSERT_EQ(inserted_ranges_[idx].second, end);
   }
 
+  Slice MaxTimestamp(std::string* storage) const {
+    storage->assign(sizeof(uint64_t), static_cast<char>(0xff));
+    return Slice(*storage);
+  }
+
   void VerifyIteration(const std::vector<std::string>& expected_keys,
                        const ReadOptions& ro = ReadOptions()) {
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
@@ -6002,9 +6007,12 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterDefaultReadOptions) {
 
     std::string ts;
     Slice ts_slice;
+    std::string read_ts;
+    Slice read_ts_slice;
     if (use_udt) {
       PutFixed64(&ts, 1);
       ts_slice = Slice(ts);
+      read_ts_slice = MaxTimestamp(&read_ts);
     }
 
     // L0: live key "cb" (prefix 'c').
@@ -6032,7 +6040,7 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterDefaultReadOptions) {
     inserted_ranges_.clear();
     ReadOptions ro;
     if (use_udt) {
-      ro.timestamp = &ts_slice;
+      ro.timestamp = &read_ts_slice;
     }
     auto it = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     if (Forward()) {
@@ -6089,9 +6097,12 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterTotalOrderSeek) {
 
     std::string ts;
     Slice ts_slice;
+    std::string read_ts;
+    Slice read_ts_slice;
     if (use_udt) {
       PutFixed64(&ts, 1);
       ts_slice = Slice(ts);
+      read_ts_slice = MaxTimestamp(&read_ts);
     }
 
     auto put = [&](const std::string& k, const std::string& v) {
@@ -6117,7 +6128,7 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterTotalOrderSeek) {
     ReadOptions ro;
     ro.total_order_seek = true;
     if (use_udt) {
-      ro.timestamp = &ts_slice;
+      ro.timestamp = &read_ts_slice;
     }
     auto it = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     if (Forward()) {
@@ -6169,9 +6180,12 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterPrefixSameAsStart) {
 
       std::string ts;
       Slice ts_slice;
+      std::string read_ts;
+      Slice read_ts_slice;
       if (use_udt) {
         PutFixed64(&ts, 1);
         ts_slice = Slice(ts);
+        read_ts_slice = MaxTimestamp(&read_ts);
       }
 
       auto put = [&](const std::string& k, const std::string& v) {
@@ -6196,7 +6210,7 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterPrefixSameAsStart) {
       ro.prefix_same_as_start = true;
       ro.total_order_seek = total_order;
       if (use_udt) {
-        ro.timestamp = &ts_slice;
+        ro.timestamp = &read_ts_slice;
       }
       auto it = std::unique_ptr<Iterator>(db_->NewIterator(ro));
       if (Forward()) {
@@ -6253,9 +6267,12 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterBoundOutsidePrefix) {
 
     std::string ts;
     Slice ts_slice;
+    std::string read_ts;
+    Slice read_ts_slice;
     if (use_udt) {
       PutFixed64(&ts, 1);
       ts_slice = Slice(ts);
+      read_ts_slice = MaxTimestamp(&read_ts);
     }
 
     auto put = [&](const std::string& k, const std::string& v) {
@@ -6276,7 +6293,7 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterBoundOutsidePrefix) {
     inserted_ranges_.clear();
     ReadOptions ro;
     if (use_udt) {
-      ro.timestamp = &ts_slice;
+      ro.timestamp = &read_ts_slice;
     }
 
     if (Forward()) {
@@ -6384,9 +6401,12 @@ TEST_P(ReadPathRangeTombstoneTest, TableFilterHiddenInteriorKey) {
 
     std::string ts;
     Slice ts_slice;
+    std::string read_ts;
+    Slice read_ts_slice;
     if (use_udt) {
       PutFixed64(&ts, 1);
       ts_slice = Slice(ts);
+      read_ts_slice = MaxTimestamp(&read_ts);
     }
 
     auto put = [&](const std::string& key, const std::string& value) {
@@ -6432,7 +6452,7 @@ TEST_P(ReadPathRangeTombstoneTest, TableFilterHiddenInteriorKey) {
       return props.num_entries != 2;
     };
     if (use_udt) {
-      filtered_ro.timestamp = &ts_slice;
+      filtered_ro.timestamp = &read_ts_slice;
     }
 
     inserted_ranges_.clear();
@@ -6450,7 +6470,7 @@ TEST_P(ReadPathRangeTombstoneTest, TableFilterHiddenInteriorKey) {
     std::string value;
     ReadOptions get_ro;
     if (use_udt) {
-      get_ro.timestamp = &ts_slice;
+      get_ro.timestamp = &read_ts_slice;
     }
     ASSERT_OK(db_->Get(get_ro, db_->DefaultColumnFamily(), "b", &value));
     ASSERT_EQ(value, "vb");
@@ -6600,10 +6620,10 @@ TEST_P(ReadPathRangeTombstoneTest, SkipInsertionWhenCoveredByExistingRange) {
 }
 
 // Verifies that range tombstone insertion works correctly with user-defined
-// timestamps (UDT). With UDT, keys include an 8-byte timestamp suffix, so
-// the comparator, Put/Delete APIs, and ReadOptions all require timestamps.
-// This test ensures that contiguous point deletions are still detected and
-// converted to range tombstones when UDT is enabled.
+// timestamps (UDT) when the read timestamp has full visibility. With UDT, keys
+// include an 8-byte timestamp suffix, so the comparator, Put/Delete APIs, and
+// ReadOptions all require timestamps. This test keeps the optimization enabled
+// by reading at the max timestamp.
 TEST_P(ReadPathRangeTombstoneTest, UDTBasicScan) {
   Options options = CurrentOptions();
   options.min_tombstones_for_range_conversion = 4;
@@ -6614,11 +6634,13 @@ TEST_P(ReadPathRangeTombstoneTest, UDTBasicScan) {
   std::string ts;
   PutFixed64(&ts, 1);
   Slice ts_slice(ts);
+  std::string read_ts;
+  Slice read_ts_slice = MaxTimestamp(&read_ts);
   SetupTestData('a', 'h', /*flushed_point_dels=*/{},
                 /*memtable_point_dels=*/{"b", "c", "d", "e", "f"}, &ts_slice);
 
   ReadOptions ro;
-  ro.timestamp = &ts_slice;
+  ro.timestamp = &read_ts_slice;
   auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
   std::vector<std::string> keys;
   if (Forward()) {
@@ -6642,11 +6664,61 @@ TEST_P(ReadPathRangeTombstoneTest, UDTBasicScan) {
       1);
 }
 
+// Regression test: an older UDT read timestamp can hide newer live versions
+// inside a delete run. Range conversion must stay disabled in that case, or
+// the synthesized range tombstone will incorrectly hide those newer versions
+// for later max-timestamp reads.
+TEST_P(ReadPathRangeTombstoneTest, UDTOlderTimestampDisablesInsertion) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 2;
+  options.statistics = CreateDBStatistics();
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  DestroyAndReopen(options);
+
+  std::string ts1;
+  std::string ts2;
+  std::string ts3;
+  PutFixed64(&ts1, 1);
+  PutFixed64(&ts2, 2);
+  PutFixed64(&ts3, 3);
+  Slice ts1_slice(ts1);
+  Slice ts2_slice(ts2);
+  Slice ts3_slice(ts3);
+  std::string max_ts;
+  Slice max_ts_slice = MaxTimestamp(&max_ts);
+
+  ASSERT_OK(db_->Put(WriteOptions(), "a", ts1_slice, "va1"));
+  ASSERT_OK(db_->Put(WriteOptions(), "c", ts1_slice, "vc1"));
+  ASSERT_OK(db_->Put(WriteOptions(), "d", ts1_slice, "vd1"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->Delete(WriteOptions(), "a", ts2_slice));
+  ASSERT_OK(db_->Delete(WriteOptions(), "c", ts2_slice));
+
+  ASSERT_OK(db_->Put(WriteOptions(), "a", ts3_slice, "va3"));
+  ASSERT_OK(db_->Put(WriteOptions(), "b", ts3_slice, "vb3"));
+  ASSERT_OK(db_->Put(WriteOptions(), "c", ts3_slice, "vc3"));
+
+  inserted_ranges_.clear();
+  ReadOptions old_ro;
+  old_ro.timestamp = &ts2_slice;
+  VerifyIteration({"d"}, old_ro);
+
+  ASSERT_EQ(inserted_ranges_.size(), 0u);
+  ASSERT_EQ(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+      0);
+
+  ReadOptions latest_ro;
+  latest_ro.timestamp = &max_ts_slice;
+  VerifyIteration({"a", "b", "c", "d"}, latest_ro);
+}
+
 // When UDT is enabled and iteration exhausts with tombstones at the boundary,
-// range tombstone insertion should still work. For forward exhaustion, the
-// iterate_upper_bound is padded with the min timestamp to form a valid end key.
-// For reverse exhaustion, the end key comes from the next live key which
-// already has the timestamp suffix.
+// range tombstone insertion should still work if the read sees all timestamps.
+// For forward exhaustion, the iterate_upper_bound is padded with the min
+// timestamp to form a valid end key. For reverse exhaustion, the end key comes
+// from the next live key which already has the timestamp suffix.
 TEST_P(ReadPathRangeTombstoneTest, ExhaustedWithUDT) {
   Options options = CurrentOptions();
   options.min_tombstones_for_range_conversion = 4;
@@ -6657,6 +6729,8 @@ TEST_P(ReadPathRangeTombstoneTest, ExhaustedWithUDT) {
   std::string ts;
   PutFixed64(&ts, 1);
   Slice ts_slice(ts);
+  std::string read_ts;
+  Slice read_ts_slice = MaxTimestamp(&read_ts);
   std::string min_ts(sizeof(uint64_t), '\0');
 
   // Forward: tombstones at end (e-h), needs upper bound for end key.
@@ -6670,7 +6744,7 @@ TEST_P(ReadPathRangeTombstoneTest, ExhaustedWithUDT) {
   }
 
   ReadOptions ro;
-  ro.timestamp = &ts_slice;
+  ro.timestamp = &read_ts_slice;
   std::string upper_str = "z";
   Slice upper(upper_str);
   if (Forward()) {
@@ -6720,10 +6794,13 @@ TEST_P(ReadPathRangeTombstoneTest, SeekForPrevTombstone) {
 
     std::string ts;
     Slice ts_slice;
+    std::string read_ts;
+    Slice read_ts_slice;
     Slice* ts_ptr = nullptr;
     if (use_udt) {
       PutFixed64(&ts, 1);
       ts_slice = Slice(ts);
+      read_ts_slice = MaxTimestamp(&read_ts);
       ts_ptr = &ts_slice;
     }
     SetupTestData('a', 'h', /*flushed_point_dels=*/{},
@@ -6732,7 +6809,7 @@ TEST_P(ReadPathRangeTombstoneTest, SeekForPrevTombstone) {
 
     ReadOptions ro;
     if (use_udt) {
-      ro.timestamp = &ts_slice;
+      ro.timestamp = &read_ts_slice;
     }
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
 
@@ -6786,10 +6863,13 @@ TEST_P(ReadPathRangeTombstoneTest, UpperBoundTombstone) {
 
     std::string ts;
     Slice ts_slice;
+    std::string read_ts;
+    Slice read_ts_slice;
     Slice* ts_ptr = nullptr;
     if (use_udt) {
       PutFixed64(&ts, 1);
       ts_slice = Slice(ts);
+      read_ts_slice = MaxTimestamp(&read_ts);
       ts_ptr = &ts_slice;
     }
     SetupTestData('a', 'h', /*flushed_point_dels=*/{},
@@ -6798,7 +6878,7 @@ TEST_P(ReadPathRangeTombstoneTest, UpperBoundTombstone) {
 
     ReadOptions ro;
     if (use_udt) {
-      ro.timestamp = &ts_slice;
+      ro.timestamp = &read_ts_slice;
     }
     std::string upper_str = "i";
     Slice upper(upper_str);
@@ -6851,10 +6931,13 @@ TEST_P(ReadPathRangeTombstoneTest, LowerBoundTruncatesReverse) {
 
     std::string ts;
     Slice ts_slice;
+    std::string read_ts;
+    Slice read_ts_slice;
     Slice* ts_ptr = nullptr;
     if (use_udt) {
       PutFixed64(&ts, 1);
       ts_slice = Slice(ts);
+      read_ts_slice = MaxTimestamp(&read_ts);
       ts_ptr = &ts_slice;
     }
     SetupTestData(
@@ -6865,7 +6948,7 @@ TEST_P(ReadPathRangeTombstoneTest, LowerBoundTruncatesReverse) {
 
     ReadOptions ro;
     if (use_udt) {
-      ro.timestamp = &ts_slice;
+      ro.timestamp = &read_ts_slice;
     }
     std::string lower_str = "e";
     Slice lower(lower_str);

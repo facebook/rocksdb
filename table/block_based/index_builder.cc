@@ -333,6 +333,7 @@ Status PartitionedIndexBuilder::Finish(
         last_partition_block_handle.size() - last_encoded_handle_.size());
     last_encoded_handle_ = last_partition_block_handle;
     const Slice handle_delta_encoding_slice(handle_delta_encoding);
+    // NOTE: WriteBatch guarantees keys < 4GB; handle values are also small
     index_block_builder_.Add(last_entry.key, handle_encoding.AsSlice(),
                              &handle_delta_encoding_slice);
     if (!must_use_separator_with_seq_.LoadRelaxed()) {

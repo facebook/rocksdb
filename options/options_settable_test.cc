@@ -425,6 +425,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "track_and_verify_wals_in_manifest=true;"
       "track_and_verify_wals=true;"
       "verify_sst_unique_id_in_manifest=true;"
+      "fast_sst_open=true;"
       "is_fd_close_on_exec=false;"
       "bytes_per_sync=4295013613;"
       "strict_bytes_per_sync=true;"
@@ -490,7 +491,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "write_dbid_to_manifest=true;"
       "write_identity_file=true;"
       "verify_manifest_content_on_close=false;"
-      "prefix_seek_opt_in_only=true;",
+      "prefix_seek_opt_in_only=true;"
+      "fast_sst_open=true;",
       new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),

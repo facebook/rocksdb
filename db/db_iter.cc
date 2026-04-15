@@ -42,6 +42,26 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+
+bool HasFullTimestampVisibility(const ReadOptions& read_options) {
+  if (read_options.iter_start_ts != nullptr) {
+    return false;
+  }
+  if (read_options.timestamp == nullptr) {
+    return true;
+  }
+  const Slice ts = *read_options.timestamp;
+  for (size_t i = 0; i < ts.size(); ++i) {
+    if (static_cast<unsigned char>(ts[i]) != 0xff) {
+      return false;
+    }
+  }
+  return true;
+}
+
+}  // namespace
+
 DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                const ImmutableOptions& ioptions,
                const MutableCFOptions& mutable_cf_options,
@@ -81,9 +101,12 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       iter_step_since_seek_(1),
       mem_hidden_op_scanned_since_seek_(0),
       // Read-path range conversion assumes the scan can observe all interior
-      // live keys. table_filter can hide whole SSTs and break that invariant.
+      // live keys. table_filter can hide whole SSTs, and timestamp filtering
+      // can hide newer UDT versions unless the read is at max timestamp with no
+      // lower timestamp bound.
       min_tombstones_for_range_conversion_(
-          active_mem != nullptr && !read_options.table_filter
+          active_mem != nullptr && !read_options.table_filter &&
+                  HasFullTimestampVisibility(read_options)
               ? mutable_cf_options.min_tombstones_for_range_conversion
               : 0),
       contiguous_tombstone_count_(0),
