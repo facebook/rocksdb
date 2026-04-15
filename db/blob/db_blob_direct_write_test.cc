@@ -191,16 +191,18 @@ class RemoteBlobVisibilityFileSystem : public FileSystemWrapper {
       return s;
     }
 
-    const bool active_hint = IsBlobFileActiveDirectWriteOpenMode(opts);
+    const bool has_append_only_no_readers_contract =
+        IsBlobFileAppendOnlyNoReadersOpenContract(opts);
     {
       std::lock_guard<std::mutex> lock(mu_);
-      saw_active_writer_hint_ |= active_hint;
-      if (active_hint) {
+      saw_append_only_no_readers_writer_contract_ |=
+          has_append_only_no_readers_contract;
+      if (!has_append_only_no_readers_contract) {
         active_blob_paths_.insert(fname);
       }
     }
 
-    if (!active_hint) {
+    if (has_append_only_no_readers_contract) {
       *result = std::move(file);
       return IOStatus::OK();
     }
@@ -223,11 +225,13 @@ class RemoteBlobVisibilityFileSystem : public FileSystemWrapper {
       return s;
     }
 
-    const bool active_hint = IsBlobFileActiveDirectWriteOpenMode(opts);
+    const bool has_append_only_no_readers_contract =
+        IsBlobFileAppendOnlyNoReadersOpenContract(opts);
     const bool active_blob = IsActiveBlobPath(fname);
     {
       std::lock_guard<std::mutex> lock(mu_);
-      saw_active_reader_hint_ |= active_hint;
+      saw_append_only_no_readers_reader_contract_ |=
+          has_append_only_no_readers_contract;
     }
 
     if (!active_blob) {
@@ -236,7 +240,7 @@ class RemoteBlobVisibilityFileSystem : public FileSystemWrapper {
     }
 
     result->reset(new ActiveBlobVisibilityRandomAccessFile(
-        std::move(file), active_hint, target_, fname));
+        std::move(file), !has_append_only_no_readers_contract, target_, fname));
     return IOStatus::OK();
   }
 
@@ -249,14 +253,14 @@ class RemoteBlobVisibilityFileSystem : public FileSystemWrapper {
     return target()->GetFileSize(fname, options, file_size, dbg);
   }
 
-  bool SawActiveWriterHint() const {
+  bool SawAppendOnlyNoReadersWriterContract() const {
     std::lock_guard<std::mutex> lock(mu_);
-    return saw_active_writer_hint_;
+    return saw_append_only_no_readers_writer_contract_;
   }
 
-  bool SawActiveReaderHint() const {
+  bool SawAppendOnlyNoReadersReaderContract() const {
     std::lock_guard<std::mutex> lock(mu_);
-    return saw_active_reader_hint_;
+    return saw_append_only_no_readers_reader_contract_;
   }
 
  private:
@@ -271,8 +275,8 @@ class RemoteBlobVisibilityFileSystem : public FileSystemWrapper {
   }
 
   mutable std::mutex mu_;
-  bool saw_active_writer_hint_ = false;
-  bool saw_active_reader_hint_ = false;
+  bool saw_append_only_no_readers_writer_contract_ = false;
+  bool saw_append_only_no_readers_reader_contract_ = false;
   std::unordered_set<std::string> active_blob_paths_;
 };
 
@@ -951,7 +955,8 @@ TEST_F(DBBlobDirectWriteTest, DirectWriteImmutableMemtableRead) {
   verify_reads();
 }
 
-TEST_F(DBBlobDirectWriteTest, DirectWriteUsesActiveFileOpenHintForRemoteFile) {
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteUsesDefaultContractForRemoteFile) {
   auto remote_fs =
       std::make_shared<RemoteBlobVisibilityFileSystem>(env_->GetFileSystem());
   std::unique_ptr<Env> remote_env(new CompositeEnvWrapper(env_, remote_fs));
@@ -964,10 +969,10 @@ TEST_F(DBBlobDirectWriteTest, DirectWriteUsesActiveFileOpenHintForRemoteFile) {
   const std::string value(128, 'w');
 
   ASSERT_OK(Put(key, value));
-  ASSERT_TRUE(remote_fs->SawActiveWriterHint());
+  ASSERT_FALSE(remote_fs->SawAppendOnlyNoReadersWriterContract());
 
   ASSERT_EQ(Get(key), value);
-  ASSERT_TRUE(remote_fs->SawActiveReaderHint());
+  ASSERT_FALSE(remote_fs->SawAppendOnlyNoReadersReaderContract());
 
   Close();
 }

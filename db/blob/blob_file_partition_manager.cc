@@ -197,7 +197,6 @@ Status BlobFilePartitionManager::OpenNewBlobFile(Partition* partition,
 
   std::unique_ptr<FSWritableFile> file;
   FileOptions writer_file_options = file_options_;
-  SetBlobFileActiveDirectWriteOpenMode(&writer_file_options);
   Status s = NewWritableFile(fs_, blob_file_path, &file, writer_file_options);
   if (!s.ok()) {
     RemoveFilePartitionMapping(blob_file_number);

@@ -119,7 +119,8 @@ struct IOOptions {
   // custom contract between a FileSystem user and the provider. This is only
   // useful in cases where a RocksDB user directly uses the FileSystem or file
   // object for their own purposes, and wants to pass extra options to APIs
-  // such as NewRandomAccessFile and NewWritableFile.
+  // such as NewRandomAccessFile and NewWritableFile. Prefer typed fields on
+  // IOOptions/FileOptions when a standardized semantic exists.
   std::unordered_map<std::string, std::string> property_bag;
 
   // Force directory fsync, some file systems like btrfs may skip directory
@@ -179,6 +180,14 @@ struct DirFsyncOptions {
 // File scope options that control how a file is opened/created and accessed
 // while its open. We may add more options here in the future such as
 // redundancy level, media to use etc.
+enum class FileOpenContract : uint8_t {
+  kDefault = 0,
+  // Exactly one writer may extend EOF and no readers are expected until close.
+  // File systems may optimize around the lack of concurrent readers and do not
+  // need to preserve read-after-append visibility while the file is active.
+  kAppendOnlyNoReaders = 1,
+};
+
 struct FileOptions : EnvOptions {
   // Embedded IOOptions to control the parameters for any IOs that need
   // to be issued for the file open/creation
@@ -190,6 +199,11 @@ struct FileOptions : EnvOptions {
   // underlying file systems can put it with appropriate storage media and/or
   // coding.
   Temperature temperature = Temperature::kUnknown;
+
+  // File-open contract. kDefault uses the provider's standard readable-file
+  // semantics. Prefer this over IOOptions::property_bag for standardized
+  // file-open semantics.
+  FileOpenContract open_contract = FileOpenContract::kDefault;
 
   // The checksum type that is used to calculate the checksum value for
   // handoff during file writes.
@@ -228,6 +242,7 @@ struct FileOptions : EnvOptions {
       : EnvOptions(opts),
         io_options(opts.io_options),
         temperature(opts.temperature),
+        open_contract(opts.open_contract),
         handoff_checksum_type(opts.handoff_checksum_type),
         write_hint(opts.write_hint),
         file_checksum(opts.file_checksum),

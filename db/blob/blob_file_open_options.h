@@ -16,26 +16,18 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// FileSystems can use this open-time contract to distinguish active blob
-// direct-write files from sealed blob files and choose an implementation that
-// exposes concurrent append visibility to readers.
-inline constexpr char kBlobFileOpenModeProperty[] =
-    "rocksdb.blob_file_open_mode";
-inline constexpr char kBlobFileOpenModeActiveDirectWrite[] =
-    "active_direct_write";
-
-inline void SetBlobFileActiveDirectWriteOpenMode(FileOptions* file_options) {
+// Standard blob files are append-only and are not expected to be read until
+// close. FileSystems may use this contract to optimize away concurrent reader
+// visibility while the file is active.
+inline void SetBlobFileAppendOnlyNoReadersOpenContract(
+    FileOptions* file_options) {
   assert(file_options != nullptr);
-  file_options->io_options.property_bag[kBlobFileOpenModeProperty] =
-      kBlobFileOpenModeActiveDirectWrite;
+  file_options->open_contract = FileOpenContract::kAppendOnlyNoReaders;
 }
 
-inline bool IsBlobFileActiveDirectWriteOpenMode(
+inline bool IsBlobFileAppendOnlyNoReadersOpenContract(
     const FileOptions& file_options) {
-  const auto entry =
-      file_options.io_options.property_bag.find(kBlobFileOpenModeProperty);
-  return entry != file_options.io_options.property_bag.end() &&
-         entry->second == kBlobFileOpenModeActiveDirectWrite;
+  return file_options.open_contract == FileOpenContract::kAppendOnlyNoReaders;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

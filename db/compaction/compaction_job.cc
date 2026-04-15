@@ -2429,6 +2429,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   auto temperature =
       sub_compact->compaction->GetOutputTemperature(outputs.IsProximalLevel());
   fo_copy.temperature = temperature;
+  fo_copy.open_contract = FileOpenContract::kAppendOnlyNoReaders;
   fo_copy.write_hint = write_hint_;
 
   Status s;
