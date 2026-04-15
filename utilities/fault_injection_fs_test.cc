@@ -94,8 +94,8 @@ TEST_F(FaultInjectionTestFSTest, MetadataReadFaultExcludesInfoLogFiles) {
   ASSERT_OK(env->CreateDirIfMissing(dbname));
   ASSERT_OK(env->CreateDirIfMissing(log_dir));
 
-  const std::string old_info_log = OldInfoLogFileName(dbname, 123, dbname,
-                                                      log_dir);
+  const std::string old_info_log =
+      OldInfoLogFileName(dbname, 123, dbname, log_dir);
   const std::string manifest = DescriptorFileName(dbname, 1);
   ASSERT_OK(
       WriteStringToFile(env, "old log", old_info_log, false /* should_sync */));
