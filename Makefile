@@ -909,7 +909,7 @@ $(parallel_tests):
 		TEST_SCRIPT=t/run-$$TEST_BINARY-shard-$$SHARD_IDX; \
     printf '%s\n' \
       '#!/bin/sh' \
-      "d=\$(TEST_TMPDIR)$$TEST_SCRIPT" \
+      "d=\$(TEST_TMPDIR)/runs/$$TEST_BINARY-shard-$$SHARD_IDX" \
       'mkdir -p $$d' \
       "TEST_TMPDIR=\$$d GTEST_TOTAL_SHARDS=$$NUM_SHARDS GTEST_SHARD_INDEX=$$SHARD_IDX $(DRIVER) ./$$TEST_BINARY" \
       'test_retcode=$$?' \
@@ -956,6 +956,8 @@ prioritize_long_running_tests =						\
 # The default is to run one job per core (J=100%).
 # See "man parallel" for its "-j ..." option.
 J ?= 100%
+MAKE_CHECK_RUNS_ROOT = $(TEST_TMPDIR)/runs
+MAKE_CHECK_DISK_REPORT = $(PYTHON) build_tools/make_check_dbdir_report.py --test_tmpdir="$(TEST_TMPDIR)" --runs_root="$(MAKE_CHECK_RUNS_ROOT)" --top_n=10
 
 # Use this regexp to select the subset of tests whose names match.
 tests-regexp = .
@@ -1051,10 +1053,15 @@ check: all
 	    && (build_tools/gnu_parallel --gnu --help 2>/dev/null) |                    \
 	        grep -q 'GNU Parallel';                                 \
 	then                                                            \
-	    $(MAKE) T="$$t" check_0;                       \
+	    $(MAKE) T="$$t" check_0 || { ret=$$?; $(MAKE_CHECK_DISK_REPORT); exit $$ret; }; \
 	else                                                            \
 	    for t in $(TESTS); do                                       \
-	      echo "===== Running $$t (`date`)"; ./$$t || exit 1; done;          \
+	      d="$(MAKE_CHECK_RUNS_ROOT)/$$t"; \
+	      mkdir -p "$$d"; \
+	      echo "===== Running $$t (`date`)"; \
+	      TEST_TMPDIR="$$d" $(DRIVER) ./$$t || { ret=$$?; $(MAKE_CHECK_DISK_REPORT); exit $$ret; }; \
+	      rm -rf "$$d"; \
+	    done;          \
 	fi
 	rm -rf $(TEST_TMPDIR)
 ifneq ($(PLATFORM), OS_AIX)
@@ -1062,6 +1069,7 @@ ifneq ($(PLATFORM), OS_AIX)
 ifndef ASSERT_STATUS_CHECKED # not yet working with these tests
 	$(PYTHON) tools/ldb_test.py
 	$(PYTHON) tools/db_crashtest_test.py
+	$(PYTHON) build_tools/make_check_dbdir_report_test.py
 	sh tools/rocksdb_dump_test.sh
 endif
 endif

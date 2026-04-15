@@ -72,6 +72,14 @@ std::string PerThreadDBPath(std::string name);
 std::string PerThreadDBPath(Env* env, std::string name);
 std::string PerThreadDBPath(std::string dir, std::string name);
 
+namespace detail {
+
+// Test-infra hooks used to clean up paths registered via PerThreadDBPath().
+void ClearRegisteredPerTestPaths();
+Status CleanupRegisteredPerTestPaths();
+
+}  // namespace detail
+
 // Return a randomization seed for this run.  Typically returns the
 // same number on repeated invocations of this binary, but automated
 // runs may be able to vary the seed.
