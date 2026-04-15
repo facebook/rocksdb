@@ -360,6 +360,8 @@ def generate_buck(repo_path, deps_map):
                         extra_compiler_flags=json.dumps(deps["extra_compiler_flags"]),
                     )
     BUCK.export_file("tools/db_crashtest.py")
+    BUCK.export_file("tools/db_stress_trace_parser.py")
+    BUCK.export_file("tools/fault_injection_log_parser.py")
 
     print(ColorString.info("Generated BUCK Summary:"))
     print(ColorString.info("- %d libs" % BUCK.total_lib))

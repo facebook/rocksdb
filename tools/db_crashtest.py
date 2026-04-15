@@ -3,6 +3,7 @@
 
 import argparse
 import db_stress_trace_parser
+import fault_injection_log_parser
 import glob
 import math
 import os
@@ -2104,50 +2105,69 @@ def _format_process_exit_label(returncode, hit_timeout):
     if returncode < 0:
         return f"signal-{abs(returncode)}"
     return f"exit-{returncode}"
+
+
+def _print_fault_injection_text_log(log, max_tail_entries):
+    print("=== Fault injection log: %s ===" % log)
+    with open(log) as f:
+        lines = f.readlines()
+    header = []
+    footer = []
+    entries = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("=== End of"):
+            footer.append(line)
+        elif stripped.startswith("===") or stripped == "(none)":
+            header.append(line)
+        else:
+            entries.append(line)
+    total_entries = len(entries)
+    print("".join(header), end="")
+    if total_entries <= max_tail_entries:
+        print("".join(entries), end="")
+        print("".join(footer), end="")
+    else:
+        skipped = total_entries - max_tail_entries
+        print(
+            "... (%d entries omitted, showing last %d. "
+            "Full log: %s)\n" % (skipped, max_tail_entries, log),
+            end="",
+        )
+        print("".join(entries[-max_tail_entries:]), end="")
+        print(
+            "=== Showed %d of %d injected error entries ===\n"
+            % (max_tail_entries, total_entries),
+            end="",
+        )
+
+
 def print_and_cleanup_fault_injection_log(pid):
     # Fault injection logs are stored in TEST_TMPDIR (or /tmp) to survive
     # DB reopen cleanup, and to be included in sandcastle's db.tar.gz artifact.
     # Filter by pid to only print the log from the current run.
     max_tail_entries = 32
     log_dir = os.environ.get(_TEST_DIR_ENV_VAR) or "/tmp"
-    pattern = os.path.join(log_dir, "fault_injection_%d_*.log" % pid)
-    for log in glob.glob(pattern):
-        print("=== Fault injection log: %s ===" % log)
+
+    raw_pattern = os.path.join(log_dir, "fault_injection_%d_*.bin" % pid)
+    for raw_log in glob.glob(raw_pattern):
+        decoded_log = raw_log + ".txt"
         try:
-            with open(log) as f:
-                lines = f.readlines()
-            # Log format: header line(s), entry lines, footer line.
-            # The footer starts with "=== End of".
-            # Print header and footer always, truncate entries in the middle.
-            header = []
-            footer = []
-            entries = []
-            for line in lines:
-                stripped = line.strip()
-                if stripped.startswith("=== End of"):
-                    footer.append(line)
-                elif stripped.startswith("===") or stripped == "(none)":
-                    header.append(line)
-                else:
-                    entries.append(line)
-            total_entries = len(entries)
-            print("".join(header), end="")
-            if total_entries <= max_tail_entries:
-                print("".join(entries), end="")
-                print("".join(footer), end="")
-            else:
-                skipped = total_entries - max_tail_entries
-                print(
-                    "... (%d entries omitted, showing last %d. "
-                    "Full log: %s)\n" % (skipped, max_tail_entries, log),
-                    end="",
-                )
-                print("".join(entries[-max_tail_entries:]), end="")
-                print(
-                    "=== Showed %d of %d injected error entries ===\n"
-                    % (max_tail_entries, total_entries),
-                    end="",
-                )
+            fault_injection_log_parser.decode_fault_injection_log(
+                raw_log, decoded_log
+            )
+            print("Raw fault injection log: %s" % raw_log)
+            _print_fault_injection_text_log(decoded_log, max_tail_entries)
+        except (OSError, ValueError) as exc:
+            print(
+                "WARNING: failed to decode fault injection log %s: %s\n"
+                % (raw_log, exc)
+            )
+
+    text_pattern = os.path.join(log_dir, "fault_injection_%d_*.log" % pid)
+    for log in glob.glob(text_pattern):
+        try:
+            _print_fault_injection_text_log(log, max_tail_entries)
         except OSError:
             pass
 

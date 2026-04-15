@@ -20,6 +20,9 @@ _DB_CRASHTEST_PATH = os.path.join(os.path.dirname(__file__), "db_crashtest.py")
 _DB_STRESS_TRACE_PARSER_PATH = os.path.join(
     os.path.dirname(__file__), "db_stress_trace_parser.py"
 )
+_FAULT_INJECTION_LOG_PARSER_PATH = os.path.join(
+    os.path.dirname(__file__), "fault_injection_log_parser.py"
+)
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 _TEST_EXPECTED_DIR_ENV_VAR = "TEST_TMPDIR_EXPECTED"
 
@@ -41,6 +44,15 @@ def load_db_crashtest_module():
 def load_db_stress_trace_parser_module():
     spec = importlib.util.spec_from_file_location(
         "db_stress_trace_parser_under_test", _DB_STRESS_TRACE_PARSER_PATH
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_fault_injection_log_parser_module():
+    spec = importlib.util.spec_from_file_location(
+        "fault_injection_log_parser_under_test", _FAULT_INJECTION_LOG_PARSER_PATH
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -76,6 +88,9 @@ class DBCrashTestTest(unittest.TestCase):
 
     def load_db_stress_trace_parser(self):
         return load_db_stress_trace_parser_module()
+
+    def load_fault_injection_log_parser(self):
+        return load_fault_injection_log_parser_module()
 
     def build_params(self, base_params, overrides=None):
         params = dict(base_params)
@@ -400,6 +415,81 @@ class DBCrashTestTest(unittest.TestCase):
         self.assertTrue(
             any("blackbox_run_0005_exit-0" in path for path in raw_logs + decoded_logs)
         )
+
+    def test_print_and_cleanup_fault_injection_log_decodes_raw_trace(self):
+        db_crashtest = self.load_db_crashtest()
+        fault_parser = self.load_fault_injection_log_parser()
+        pid = 5151
+        raw_log = os.path.join(self.test_tmpdir, f"fault_injection_{pid}_1.bin")
+        decoded_log = raw_log + ".txt"
+
+        header = struct.pack(
+            "<8sQIIIIII",
+            fault_parser.TRACE_FILE_MAGIC,
+            2,
+            fault_parser.TRACE_FILE_VERSION,
+            40,
+            fault_parser.ENTRY_V2_STRUCT.size,
+            1000,
+            2,
+            0,
+        )
+        entry0 = fault_parser.ENTRY_V2_STRUCT.pack(
+            123456789,
+            17,
+            7,
+            4,
+            0,
+            0,
+            fault_parser.DETAIL_KIND_OFFSET_SIZE_AND_HEAD,
+            4,
+            1,
+            0,
+            b"Append\0".ljust(32, b"\0"),
+            b"/tmp/000001.log\0".ljust(72, b"\0"),
+            b"injected write error\0".ljust(56, b"\0"),
+            b"abcd".ljust(48, b"\0"),
+        )
+        entry1 = fault_parser.ENTRY_V2_STRUCT.pack(
+            123456790,
+            23,
+            0,
+            6,
+            0,
+            0,
+            fault_parser.DETAIL_KIND_TWO_FILES,
+            6,
+            0,
+            1,
+            b"Rename\0".ljust(32, b"\0"),
+            b"/tmp/a\0".ljust(72, b"\0"),
+            b"injected metadata read error\0".ljust(56, b"\0"),
+            b"/tmp/b".ljust(48, b"\0"),
+        )
+        with open(raw_log, "wb") as f:
+            f.write(header)
+            f.write(entry0)
+            f.write(entry1)
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            db_crashtest.print_and_cleanup_fault_injection_log(pid)
+
+        self.assertTrue(os.path.exists(decoded_log))
+        with open(decoded_log) as f:
+            decoded_text = f.read()
+
+        self.assertIn(
+            'Append("/tmp/000001.log", offset=7, size=4, head=[61 62 63 64])',
+            decoded_text,
+        )
+        self.assertIn("IO error: injected write error [retryable]", decoded_text)
+        self.assertIn(
+            'Rename("/tmp/a", "/tmp/b") -> IO error: injected metadata read error [data_loss]',
+            decoded_text,
+        )
+        self.assertIn(decoded_log, stdout.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

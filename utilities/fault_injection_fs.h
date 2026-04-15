@@ -17,10 +17,12 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
-#include <cstdarg>
+#include <cstring>
 #include <functional>
+#include <limits>
 #include <map>
 #include <set>
 #include <string>
@@ -48,61 +50,148 @@ namespace ROCKSDB_NAMESPACE {
 
 // A fixed-size circular buffer that records recently injected errors.
 // Thread-safe for concurrent writes. Designed to be safe to read from a
-// signal handler (PrintAll uses only fprintf to stderr).
+// signal handler by dumping raw binary data to a pre-opened file.
 class InjectedErrorLog {
  public:
   static constexpr size_t kMaxEntries = 1000;
-  static constexpr size_t kMaxMessageLen = 256;
+  static constexpr size_t kMaxOpNameLen = 32;
+  static constexpr size_t kMaxFileNameLen = 72;
+  static constexpr size_t kMaxStatusMessageLen = 56;
+  static constexpr size_t kMaxDetailPayloadLen = 48;
+  static constexpr uint32_t kFileVersion = 2;
+  static constexpr std::array<char, 8> kFileMagic = {'F', 'I', 'N', 'J',
+                                                     'L', 'O', 'G', '1'};
+
+  enum class DetailKind : uint8_t {
+    kNone = 0,
+    kTwoFiles = 1,
+    kSizeAndHead = 2,
+    kOffsetSizeAndHead = 3,
+    kOffsetAndSize = 4,
+    kSize = 5,
+    kCount = 6,
+    kReqOffsetAndSize = 7,
+  };
+
+  // Borrowed raw detail payload. The referenced Slice is consumed
+  // synchronously when a fault is actually injected.
+  struct DetailRef {
+    DetailKind kind = DetailKind::kNone;
+    uint64_t offset = 0;
+    uint64_t size = 0;
+    uint32_t count = 0;
+    uint32_t req_idx = 0;
+    Slice payload;
+  };
 
   struct Entry {
     uint64_t timestamp_us;
     uint64_t thread_id;
-    char context[kMaxMessageLen];
+    uint64_t offset;
+    uint64_t size;
+    uint32_t count;
+    uint32_t req_idx;
+    uint8_t detail_kind;
+    uint8_t detail_payload_size;
+    uint8_t retryable;
+    uint8_t data_loss;
+    char op_name[kMaxOpNameLen];
+    char file_name[kMaxFileNameLen];
+    char status_message[kMaxStatusMessageLen];
+    char detail_payload[kMaxDetailPayloadLen];
   };
 
-  InjectedErrorLog() : head_(0), entries_{} { log_path_[0] = '\0'; }
+  static_assert(sizeof(Entry) == 256,
+                "Injected error log entry size must stay stable");
 
-  // Set the file path for PrintAll() output. Must be called before any
-  // signal handler invocation (not async-signal-safe itself due to string
-  // copy, but called once at setup time). If not set, PrintAll() falls
-  // back to writing to stderr.
+  struct RawFileHeader {
+    char magic[8];
+    uint64_t total_entries;
+    uint32_t version;
+    uint32_t header_size;
+    uint32_t entry_size;
+    uint32_t max_entries;
+    uint32_t dumped_entries;
+    uint32_t reserved;
+  };
+
+  static_assert(sizeof(RawFileHeader) == 40,
+                "Injected error log file header size must stay stable");
+
+  InjectedErrorLog() : head_(0), dump_started_(0), log_fd_(-1), entries_{} {
+    log_path_[0] = '\0';
+  }
+
+  ~InjectedErrorLog() {
+#ifndef OS_WIN
+    if (log_fd_ >= 0) {
+      close(log_fd_);
+    }
+    if (dump_started_.load(std::memory_order_relaxed) == 0 &&
+        log_path_[0] != '\0') {
+      unlink(log_path_);
+    }
+#endif
+  }
+
+  // Set the file path for raw dump output. Must be called before any
+  // signal handler invocation. This also pre-opens the file so the
+  // crash callback only needs write().
   void SetLogFilePath(const std::string& path) {
+#ifndef OS_WIN
+    if (log_fd_ >= 0) {
+      close(log_fd_);
+      log_fd_ = -1;
+    }
+    if (dump_started_.load(std::memory_order_relaxed) == 0 &&
+        log_path_[0] != '\0') {
+      unlink(log_path_);
+    }
+#endif
+
     size_t len = std::min(path.size(), sizeof(log_path_) - 1);
     memcpy(log_path_, path.data(), len);
     log_path_[len] = '\0';
+
+#ifndef OS_WIN
+    if (log_path_[0] == '\0') {
+      return;
+    }
+    int flags = O_WRONLY | O_CREAT | O_TRUNC;
+#ifdef O_CLOEXEC
+    flags |= O_CLOEXEC;
+#endif
+    log_fd_ = open(log_path_, flags, 0644);
+#endif
   }
 
-  TSAN_SUPPRESSION void Record(const char* fmt, ...)
-#if defined(__GNUC__) || defined(__clang__)
-      __attribute__((format(printf, 2, 3)))
-#endif
-  {
+  TSAN_SUPPRESSION void Record(const Slice& op_name, const Slice& file_name,
+                               const DetailRef& detail,
+                               const Slice& status_message, bool retryable,
+                               bool data_loss) {
+    Entry local{};
+    local.thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    local.offset = detail.offset;
+    local.size = detail.size;
+    local.count = detail.count;
+    local.req_idx = detail.req_idx;
+    local.detail_kind = static_cast<uint8_t>(detail.kind);
+    local.detail_payload_size = static_cast<uint8_t>(CopySliceBytes(
+        detail.payload, local.detail_payload, sizeof(local.detail_payload)));
+    local.retryable = retryable ? 1 : 0;
+    local.data_loss = data_loss ? 1 : 0;
+    CopyStringSample(op_name, local.op_name, sizeof(local.op_name));
+    CopyStringSample(file_name, local.file_name, sizeof(local.file_name));
+    CopyStringSample(status_message, local.status_message,
+                     sizeof(local.status_message));
+
     size_t idx = head_.fetch_add(1, std::memory_order_relaxed) % kMaxEntries;
-    Entry& e = entries_[idx];
-    e.thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-    auto now = std::chrono::system_clock::now();
-    e.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                         now.time_since_epoch())
-                         .count();
-    // Format into a local buffer first, then copy into the shared entry.
-    // This avoids calling the TSAN-intercepted vsnprintf directly on shared
-    // memory. We use a byte-by-byte loop instead of memcpy because
-    // TSAN_SUPPRESSION (no_sanitize("thread")) only suppresses
-    // compiler-inserted instrumentation -- it does NOT suppress TSAN's
-    // runtime interceptors for libc functions like memcpy, vsnprintf, and
-    // snprintf. Plain store instructions are always suppressed regardless
-    // of optimization level. The volatile source pointer prevents the
-    // compiler from recognizing this as a memcpy idiom and replacing it
-    // with a memcpy call.
-    char local_buf[kMaxMessageLen];
-    va_list args;
-    va_start(args, fmt);
-    vsnprintf(local_buf, kMaxMessageLen, fmt, args);
-    va_end(args);
-    const volatile char* src = local_buf;
-    for (size_t i = 0; i < kMaxMessageLen; i++) {
-      e.context[i] = src[i];
-    }
+    CopyBytesToShared(reinterpret_cast<const char*>(&local),
+                      reinterpret_cast<volatile char*>(&entries_[idx]),
+                      sizeof(local));
+    // Publish timestamp last so DumpRaw() can treat zero as an incomplete slot.
+    std::atomic_signal_fence(std::memory_order_release);
+    entries_[idx].timestamp_us = NowMicros();
   }
 
   // Format the first few bytes of a buffer as hex for logging.
@@ -111,92 +200,141 @@ class InjectedErrorLog {
                              size_t max_bytes = 8) {
     std::string result;
     size_t n = std::min(size, max_bytes);
-    char buf[4];
+    static const char kHexDigits[] = "0123456789abcdef";
+    result.reserve(n * 3 + ((size > max_bytes) ? 4 : 0));
     for (size_t i = 0; i < n; i++) {
-      snprintf(buf, sizeof(buf), "%02x ", (unsigned char)data[i]);
-      result += buf;
+      if (i > 0) {
+        result.push_back(' ');
+      }
+      uint8_t byte = static_cast<uint8_t>(data[i]);
+      result.push_back(kHexDigits[byte >> 4]);
+      result.push_back(kHexDigits[byte & 0x0f]);
     }
-    if (size > max_bytes) result += "...";
-    if (!result.empty() && result.back() == ' ') result.pop_back();
+    if (size > max_bytes) {
+      result.append(" ...");
+    }
     return result;
   }
 
-  // Print all recorded entries to a log file (or stderr as fallback).
-  // Async-signal-safe: uses only open/write/close/snprintf (no fprintf,
-  // no malloc). Safe to call from a signal handler.
+  // Dump all recorded entries to a raw binary file.
+  // The file must have been opened by SetLogFilePath() before any signal
+  // handler invocation, so the crash path only needs write().
   //
   // Note: entries may be read while being written by another thread.
   // This is a benign race -- at worst, one entry may appear garbled.
-  // We accept this trade-off to keep PrintAll() free of locks and safe
+  // We accept this trade-off to keep DumpRaw() free of locks and safe
   // for use in signal handlers.
-  TSAN_SUPPRESSION void PrintAll() const {
+  TSAN_SUPPRESSION void DumpRaw() const {
 #ifndef OS_WIN
-    int fd = -1;
-    if (log_path_[0] != '\0') {
-      fd = open(log_path_, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    }
-    // Fall back to stdout if open failed or no path was set.
-    // We avoid stderr because db_crashtest.py treats any stderr output
-    // as a test failure.
-    if (fd < 0) {
-      fd = STDOUT_FILENO;
-    }
-
-    auto write_str = [fd](const char* buf, int len) {
-      if (len > 0) {
-        // Ignore return value in signal handler -- nothing we can do
-        auto unused __attribute__((unused)) = write(fd, buf, len);
-      }
-    };
-
-    char buf[512];
-    int len = snprintf(buf, sizeof(buf),
-                       "\n=== Recently Injected Fault Injection Errors "
-                       "(most recent last) ===\n");
-    write_str(buf, len);
-
-    size_t total = head_.load(std::memory_order_relaxed);
-    if (total == 0) {
-      len = snprintf(buf, sizeof(buf), "(none)\n");
-      write_str(buf, len);
-      if (fd != STDOUT_FILENO) close(fd);
+    if (log_fd_ < 0) {
       return;
     }
+
+    uint32_t expected = 0;
+    if (!dump_started_.compare_exchange_strong(expected, 1,
+                                               std::memory_order_relaxed)) {
+      return;
+    }
+
+    size_t total = head_.load(std::memory_order_relaxed);
     size_t count = std::min(total, kMaxEntries);
     size_t start = (total >= kMaxEntries) ? (total % kMaxEntries) : 0;
+
+    RawFileHeader header;
+    for (size_t i = 0; i < kFileMagic.size(); ++i) {
+      header.magic[i] = kFileMagic[i];
+    }
+    header.total_entries = total;
+    header.version = kFileVersion;
+    header.header_size = static_cast<uint32_t>(sizeof(header));
+    header.entry_size = static_cast<uint32_t>(sizeof(Entry));
+    header.max_entries = static_cast<uint32_t>(kMaxEntries);
+    header.dumped_entries = static_cast<uint32_t>(count);
+    header.reserved = 0;
+
+    if (!WriteAll(log_fd_, reinterpret_cast<const char*>(&header),
+                  sizeof(header))) {
+      return;
+    }
+
+    std::array<Entry, 16> chunk;
+    size_t chunk_count = 0;
     for (size_t i = 0; i < count; i++) {
       size_t idx = (start + i) % kMaxEntries;
-      // Copy entry fields to locals to avoid passing shared memory through
-      // TSAN-intercepted snprintf. See comment in Record() for why we use a
-      // volatile pointer to prevent loop-to-memcpy optimization.
-      const Entry& e = entries_[idx];
-      uint64_t local_ts = e.timestamp_us;
-      uint64_t local_tid = e.thread_id;
-      char local_ctx[kMaxMessageLen];
-      const volatile char* ctx_src = e.context;
-      for (size_t j = 0; j < kMaxMessageLen; j++) {
-        local_ctx[j] = ctx_src[j];
+      Entry& dst = chunk[chunk_count++];
+      CopyBytesFromShared(
+          reinterpret_cast<const volatile char*>(&entries_[idx]),
+          reinterpret_cast<char*>(&dst), sizeof(dst));
+      if (chunk_count == chunk.size() || i + 1 == count) {
+        if (!WriteAll(log_fd_, reinterpret_cast<const char*>(chunk.data()),
+                      chunk_count * sizeof(Entry))) {
+          return;
+        }
+        chunk_count = 0;
       }
-      if (local_ts == 0) continue;
-      uint64_t secs = local_ts / 1000000;
-      uint64_t usecs = local_ts % 1000000;
-      len = snprintf(buf, sizeof(buf), "[%llu.%06llu] thread=%llu: %s\n",
-                     (unsigned long long)secs, (unsigned long long)usecs,
-                     (unsigned long long)local_tid, local_ctx);
-      write_str(buf, len);
     }
-    len = snprintf(buf, sizeof(buf),
-                   "=== End of injected error log (%zu entries) ===\n", count);
-    write_str(buf, len);
-    if (fd != STDOUT_FILENO) close(fd);
 #else
     // On Windows, crash callbacks via signal handlers are not used,
-    // so PrintAll() is a no-op.
+    // so DumpRaw() is a no-op.
 #endif
   }
 
  private:
+  static uint64_t NowMicros() {
+    auto now = std::chrono::system_clock::now();
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+               now.time_since_epoch())
+        .count();
+  }
+
+  static void CopyBytesToShared(const char* src, volatile char* dst,
+                                size_t len) {
+    for (size_t i = 0; i < len; ++i) {
+      dst[i] = src[i];
+    }
+  }
+
+  static void CopyBytesFromShared(const volatile char* src, char* dst,
+                                  size_t len) {
+    for (size_t i = 0; i < len; ++i) {
+      dst[i] = src[i];
+    }
+  }
+
+  static void CopyStringSample(const Slice& src, char* dst, size_t dst_len) {
+    if (dst_len == 0) {
+      return;
+    }
+    size_t copied = std::min(src.size(), dst_len - 1);
+    for (size_t i = 0; i < copied; ++i) {
+      dst[i] = src[i];
+    }
+    dst[copied] = '\0';
+  }
+
+  static size_t CopySliceBytes(const Slice& src, char* dst, size_t dst_len) {
+    size_t copied = std::min(src.size(), dst_len);
+    for (size_t i = 0; i < copied; ++i) {
+      dst[i] = src[i];
+    }
+    return copied;
+  }
+
+  static bool WriteAll(int fd, const char* data, size_t len) {
+    while (len > 0) {
+      ssize_t written = write(fd, data, len);
+      if (written <= 0) {
+        return false;
+      }
+      data += static_cast<size_t>(written);
+      len -= static_cast<size_t>(written);
+    }
+    return true;
+  }
+
   std::atomic<size_t> head_;
+  mutable std::atomic<uint32_t> dump_started_;
+  int log_fd_;
   Entry entries_[kMaxEntries];
   char log_path_[PATH_MAX];
 };
@@ -204,78 +342,71 @@ class InjectedErrorLog {
 class TestFSWritableFile;
 class FaultInjectionTestFS;
 
-// Deferred detail builders for injected error logging.
-// These return lambdas that are only evaluated when a fault is actually
-// injected, avoiding string formatting overhead on the common (no-fault) path.
-// Captured references are safe because the lambda is called synchronously
-// within MaybeInjectThreadLocalError before the caller returns.
+// Borrowed raw detail builders for injected error logging.
+// These avoid hot-path string formatting and are consumed synchronously
+// when a fault is actually injected.
 namespace fault_injection_detail {
 
-inline std::function<std::string()> NoDetail() { return {}; }
+using DetailRef = InjectedErrorLog::DetailRef;
 
-inline std::function<std::string()> TwoFiles(const std::string& /*f1*/,
-                                             const std::string& f2) {
-  return [&f2]() -> std::string {
-    char buf[160];
-    snprintf(buf, sizeof(buf), "\"%.128s\"", f2.c_str());
-    return std::string(buf);
-  };
+inline DetailRef NoDetail() { return DetailRef(); }
+
+inline DetailRef TwoFiles(const std::string& /*f1*/, const std::string& f2) {
+  DetailRef detail;
+  detail.kind = InjectedErrorLog::DetailKind::kTwoFiles;
+  detail.size = static_cast<uint64_t>(f2.size());
+  detail.payload = Slice(f2);
+  return detail;
 }
 
-inline std::function<std::string()> SizeAndHead(const Slice& data) {
-  return [data]() -> std::string {
-    char buf[128];
-    snprintf(buf, sizeof(buf), "size=%zu, head=[%s]", data.size(),
-             InjectedErrorLog::HexHead(data.data(), data.size()).c_str());
-    return std::string(buf);
-  };
+inline DetailRef SizeAndHead(const Slice& data) {
+  DetailRef detail;
+  detail.kind = InjectedErrorLog::DetailKind::kSizeAndHead;
+  detail.size = static_cast<uint64_t>(data.size());
+  detail.payload = data;
+  return detail;
 }
 
-inline std::function<std::string()> OffsetSizeAndHead(uint64_t offset,
-                                                      const Slice& data) {
-  return [offset, data]() -> std::string {
-    char buf[160];
-    snprintf(buf, sizeof(buf), "offset=%llu, size=%zu, head=[%s]",
-             (unsigned long long)offset, data.size(),
-             InjectedErrorLog::HexHead(data.data(), data.size()).c_str());
-    return std::string(buf);
-  };
+inline DetailRef OffsetSizeAndHead(uint64_t offset, const Slice& data) {
+  DetailRef detail;
+  detail.kind = InjectedErrorLog::DetailKind::kOffsetSizeAndHead;
+  detail.offset = offset;
+  detail.size = static_cast<uint64_t>(data.size());
+  detail.payload = data;
+  return detail;
 }
 
-inline std::function<std::string()> OffsetAndSize(uint64_t offset, size_t n) {
-  return [offset, n]() -> std::string {
-    char buf[64];
-    snprintf(buf, sizeof(buf), "offset=%llu, size=%zu",
-             (unsigned long long)offset, n);
-    return std::string(buf);
-  };
+inline DetailRef OffsetAndSize(uint64_t offset, size_t n) {
+  DetailRef detail;
+  detail.kind = InjectedErrorLog::DetailKind::kOffsetAndSize;
+  detail.offset = offset;
+  detail.size = static_cast<uint64_t>(n);
+  return detail;
 }
 
-inline std::function<std::string()> Size(uint64_t size) {
-  return [size]() -> std::string {
-    char buf[32];
-    snprintf(buf, sizeof(buf), "size=%llu", (unsigned long long)size);
-    return std::string(buf);
-  };
+inline DetailRef Size(uint64_t size) {
+  DetailRef detail;
+  detail.kind = InjectedErrorLog::DetailKind::kSize;
+  detail.size = size;
+  return detail;
 }
 
-inline std::function<std::string()> Count(size_t count) {
-  return [count]() -> std::string {
-    char buf[32];
-    snprintf(buf, sizeof(buf), "num_reqs=%zu", count);
-    return std::string(buf);
-  };
+inline DetailRef Count(size_t count) {
+  assert(count <= std::numeric_limits<uint32_t>::max());
+  DetailRef detail;
+  detail.kind = InjectedErrorLog::DetailKind::kCount;
+  detail.count = static_cast<uint32_t>(count);
+  return detail;
 }
 
-inline std::function<std::string()> ReqOffsetAndSize(size_t req_idx,
-                                                     uint64_t offset,
-                                                     size_t n) {
-  return [req_idx, offset, n]() -> std::string {
-    char buf[96];
-    snprintf(buf, sizeof(buf), "req[%zu], offset=%llu, size=%zu", req_idx,
-             (unsigned long long)offset, n);
-    return std::string(buf);
-  };
+inline DetailRef ReqOffsetAndSize(size_t req_idx, uint64_t offset, size_t n) {
+  assert(req_idx <= std::numeric_limits<uint32_t>::max());
+  DetailRef detail;
+  detail.kind = InjectedErrorLog::DetailKind::kReqOffsetAndSize;
+  detail.req_idx = static_cast<uint32_t>(req_idx);
+  detail.offset = offset;
+  detail.size = static_cast<uint64_t>(n);
+  return detail;
 }
 
 }  // namespace fault_injection_detail
@@ -795,8 +926,9 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   IOStatus MaybeInjectThreadLocalError(
       FaultInjectionIOType type, const IOOptions& io_options,
       const char* op_name, const std::string& file_name,
-      std::function<std::string()> detail_fn = {}, ErrorOperation op = kUnknown,
-      Slice* slice = nullptr, bool direct_io = false, char* scratch = nullptr,
+      InjectedErrorLog::DetailRef detail = InjectedErrorLog::DetailRef(),
+      ErrorOperation op = kUnknown, Slice* slice = nullptr,
+      bool direct_io = false, char* scratch = nullptr,
       bool need_count_increase = false, bool* fault_injected = nullptr);
 
   int GetAndResetInjectedThreadLocalErrorCount(FaultInjectionIOType type) {
@@ -860,17 +992,16 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   void ReadUnsynced(const std::string& fname, uint64_t offset, size_t n,
                     Slice* result, char* scratch, int64_t* pos_at_last_sync);
 
-  // Access the injected error log for printing on crash or test failure.
+  // Access the injected error log for dumping on crash or test failure.
   InjectedErrorLog& GetInjectedErrorLog() { return injected_error_log_; }
   const InjectedErrorLog& GetInjectedErrorLog() const {
     return injected_error_log_;
   }
 
-  // Print recently injected errors to stderr. Call this on test failure
-  // to see what errors were injected leading up to the failure.
-  void PrintRecentInjectedErrors() const { injected_error_log_.PrintAll(); }
+  // Dump recently injected errors to the preconfigured raw trace file.
+  void DumpRecentInjectedErrors() const { injected_error_log_.DumpRaw(); }
 
-  // Set the file path where PrintAll() will write its output.
+  // Set the file path where DumpRaw() will write its output.
   // Must be called before any signal handler invocation.
   void SetInjectedErrorLogPath(const std::string& path) {
     injected_error_log_.SetLogFilePath(path);
@@ -881,6 +1012,20 @@ class FaultInjectionTestFS : public FileSystemWrapper {
  private:
   inline static const std::string kFailedToWriteToWAL =
       "failed to write to WAL";
+  inline static const std::string kInjectedReadError = "injected read error";
+  inline static const std::string kInjectedEmptyResult =
+      "injected empty result";
+  inline static const std::string kInjectedCorruptLastByte =
+      "injected corrupt last byte";
+  inline static const std::string kInjectedErrorResultMultiGetSingle =
+      "injected error result multiget single";
+  inline static const std::string kInjectedWriteError = "injected write error";
+  inline static const std::string kInjectedWriteErrorFailedToWriteToWAL =
+      "injected write error failed to write to WAL";
+  inline static const std::string kInjectedMetadataReadError =
+      "injected metadata read error";
+  inline static const std::string kInjectedMetadataWriteError =
+      "injected metadata write error";
   port::Mutex mutex_;
   std::map<std::string, FSFileState> db_file_state_;
   std::set<std::string> open_managed_files_;
@@ -952,7 +1097,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // because some fault is inected with IOStatus to be OK.
   IOStatus MaybeInjectThreadLocalReadError(
       const IOOptions& io_options, const char* op_name,
-      const std::string& file_name, std::function<std::string()> detail_fn,
+      const std::string& file_name, InjectedErrorLog::DetailRef detail,
       ErrorOperation op, Slice* slice, bool direct_io, char* scratch,
       bool need_count_increase, bool* fault_injected);
 
@@ -1029,39 +1174,32 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     }
   }
 
-  std::string GetErrorMessage(FaultInjectionIOType type,
-                              const std::string& file_name, ErrorOperation op) {
-    std::ostringstream msg;
-    msg << kInjected << " ";
+  const std::string& GetErrorMessage(FaultInjectionIOType type,
+                                     const std::string& file_name,
+                                     ErrorOperation op) {
     switch (type) {
       case FaultInjectionIOType::kRead:
-        msg << "read error";
-        break;
+        return kInjectedReadError;
       case FaultInjectionIOType::kWrite:
-        msg << "write error";
-        break;
+        if (op == ErrorOperation::kOpen || op == ErrorOperation::kAppend ||
+            op == ErrorOperation::kPositionedAppend) {
+          FileType file_type = kTempFile;
+          uint64_t ignore = 0;
+          if (TryParseFileName(file_name, &ignore, &file_type) &&
+              file_type == FileType::kWalFile) {
+            return kInjectedWriteErrorFailedToWriteToWAL;
+          }
+        }
+        return kInjectedWriteError;
       case FaultInjectionIOType::kMetadataRead:
-        msg << "metadata read error";
-        break;
+        return kInjectedMetadataReadError;
       case FaultInjectionIOType::kMetadataWrite:
-        msg << "metadata write error";
-        break;
+        return kInjectedMetadataWriteError;
       default:
         assert(false);
         break;
     }
-
-    if (type == FaultInjectionIOType::kWrite &&
-        (op == ErrorOperation::kOpen || op == ErrorOperation::kAppend ||
-         op == ErrorOperation::kPositionedAppend)) {
-      FileType file_type = kTempFile;
-      uint64_t ignore = 0;
-      if (TryParseFileName(file_name, &ignore, &file_type) &&
-          file_type == FileType::kWalFile) {
-        msg << " " << kFailedToWriteToWAL;
-      }
-    }
-    return msg.str();
+    return kInjectedReadError;
   }
 };
 

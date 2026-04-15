@@ -370,7 +370,7 @@ int db_stress_tool(int argc, char** argv) {
   }
 
   // Now that FLAGS_db is resolved, set the fault injection log file path
-  // so that PrintAll() writes to a file instead of stderr (signal-safe).
+  // so the raw dump file can be pre-opened before any crash callback runs.
   // Store the log in TEST_TMPDIR (outside the DB directory) so it survives
   // DB reopen (which cleans untracked files) and gets included in the
   // sandcastle db.tar.gz artifact for post-failure analysis.
@@ -384,7 +384,7 @@ int db_stress_tool(int argc, char** argv) {
     }
     std::string log_path = log_dir + "/fault_injection_" +
                            std::to_string(getpid()) + "_" +
-                           std::to_string(time(nullptr)) + ".log";
+                           std::to_string(time(nullptr)) + ".bin";
     fault_fs_guard->SetInjectedErrorLogPath(log_path);
   }
 
@@ -406,7 +406,7 @@ int db_stress_tool(int argc, char** argv) {
   if (fault_fs_guard || IsDbStressPublicIteratorTraceEnabled()) {
     port::RegisterCrashCallback([]() {
       if (fault_fs_guard) {
-        fault_fs_guard->PrintRecentInjectedErrors();
+        fault_fs_guard->DumpRecentInjectedErrors();
       }
       DumpDbStressPublicIteratorTrace();
     });
