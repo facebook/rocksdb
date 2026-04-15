@@ -240,9 +240,16 @@ class DbStressPublicIteratorTraceLog {
         dropped_threads_(0),
         dump_started_(0),
         log_fd_(-1),
-        logs_{} {
-    log_path_[0] = '\0';
-  }
+        log_path_{},
+        logs_{} {}
+
+  DbStressPublicIteratorTraceLog(const DbStressPublicIteratorTraceLog&) =
+      delete;
+  DbStressPublicIteratorTraceLog& operator=(
+      const DbStressPublicIteratorTraceLog&) = delete;
+  DbStressPublicIteratorTraceLog(DbStressPublicIteratorTraceLog&&) = delete;
+  DbStressPublicIteratorTraceLog& operator=(DbStressPublicIteratorTraceLog&&) =
+      delete;
 
   ~DbStressPublicIteratorTraceLog() {
 #ifndef OS_WIN
@@ -342,7 +349,7 @@ class DbStressPublicIteratorTraceLog {
       }
     }
 
-    TraceFileHeader header;
+    TraceFileHeader header{};
     for (size_t i = 0; i < kTraceFileMagic.size(); ++i) {
       header.magic[i] = kTraceFileMagic[i];
     }
@@ -366,7 +373,7 @@ class DbStressPublicIteratorTraceLog {
       return;
     }
 
-    std::array<TraceEntry, 16> chunk;
+    std::array<TraceEntry, 16> chunk{};
     for (size_t slot = 0; slot < kMaxTraceThreads; ++slot) {
       const uint64_t total = logs_[slot].head.load(std::memory_order_relaxed);
       if (total == 0) {
@@ -378,7 +385,7 @@ class DbStressPublicIteratorTraceLog {
       const uint64_t start =
           (total >= kEntriesPerThread) ? (total % kEntriesPerThread) : 0;
 
-      TraceFileSlotHeader slot_header;
+      TraceFileSlotHeader slot_header{};
       slot_header.thread_id_hash =
           logs_[slot].thread_id_hash.load(std::memory_order_relaxed);
       slot_header.total_entries = total;
@@ -638,50 +645,56 @@ class DbStressTraceIterator : public Iterator {
   uint64_t iterator_id_;
 };
 
-std::unique_ptr<DbStressPublicIteratorTraceLog>
-    g_db_stress_public_iterator_trace;
+std::unique_ptr<DbStressPublicIteratorTraceLog>&
+DbStressPublicIteratorTraceLogSingleton() {
+  static std::unique_ptr<DbStressPublicIteratorTraceLog> trace_log;
+  return trace_log;
+}
 
 }  // namespace
 
 bool IsDbStressPublicIteratorTraceEnabled() {
-  return FLAGS_trace_public_iterator_api && g_db_stress_public_iterator_trace;
+  return FLAGS_trace_public_iterator_api &&
+         DbStressPublicIteratorTraceLogSingleton();
 }
 
 void InitDbStressPublicIteratorTrace(const std::string& path) {
   if (!FLAGS_trace_public_iterator_api) {
     return;
   }
-  if (!g_db_stress_public_iterator_trace) {
-    g_db_stress_public_iterator_trace.reset(
-        new DbStressPublicIteratorTraceLog());
+  auto& trace_log = DbStressPublicIteratorTraceLogSingleton();
+  if (!trace_log) {
+    trace_log.reset(new DbStressPublicIteratorTraceLog());
   }
-  g_db_stress_public_iterator_trace->SetLogFilePath(path);
+  trace_log->SetLogFilePath(path);
 }
 
 void DumpDbStressPublicIteratorTrace() {
-  if (!g_db_stress_public_iterator_trace) {
+  auto& trace_log = DbStressPublicIteratorTraceLogSingleton();
+  if (!trace_log) {
     return;
   }
-  g_db_stress_public_iterator_trace->DumpRaw();
+  trace_log->DumpRaw();
 }
 
 std::string GetDbStressPublicIteratorTracePath() {
-  if (!g_db_stress_public_iterator_trace) {
+  auto& trace_log = DbStressPublicIteratorTraceLogSingleton();
+  if (!trace_log) {
     return std::string();
   }
-  return g_db_stress_public_iterator_trace->GetLogFilePath();
+  return trace_log->GetLogFilePath();
 }
 
 std::unique_ptr<Iterator> MaybeWrapDbStressTraceIterator(
     std::unique_ptr<Iterator> iter, const ReadOptions& read_opts,
     ColumnFamilyHandle* column_family) {
-  if (!g_db_stress_public_iterator_trace || !iter) {
+  auto& trace_log = DbStressPublicIteratorTraceLogSingleton();
+  if (!trace_log || !iter) {
     return iter;
   }
   const uint32_t cf_id = column_family != nullptr ? column_family->GetID() : 0;
   return std::unique_ptr<Iterator>(new DbStressTraceIterator(
-      std::move(iter), g_db_stress_public_iterator_trace.get(), cf_id,
-      read_opts));
+      std::move(iter), trace_log.get(), cf_id, read_opts));
 }
 
 std::unique_ptr<Iterator> NewDbStressTraceIterator(

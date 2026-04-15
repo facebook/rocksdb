@@ -63,6 +63,14 @@ void DumpAndReportDbStressPublicIteratorTrace(const char* reason) {
   }
   fputc('\n', stdout);
 }
+
+std::string GetTraceArtifactDir(Env* env) {
+  std::string dir;
+  if (env != nullptr && env->GetTestDirectory(&dir).ok() && !dir.empty()) {
+    return dir;
+  }
+  return "/tmp";
+}
 }  // namespace
 
 KeyGenContext key_gen_ctx;
@@ -121,7 +129,6 @@ int db_stress_tool(int argc, char** argv) {
     fault_env_guard =
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();
-
   }
 
   auto db_stress_fs =
@@ -375,13 +382,7 @@ int db_stress_tool(int argc, char** argv) {
   // DB reopen (which cleans untracked files) and gets included in the
   // sandcastle db.tar.gz artifact for post-failure analysis.
   if (fault_fs_guard) {
-    std::string log_dir;
-    const char* test_tmpdir = getenv("TEST_TMPDIR");
-    if (test_tmpdir && test_tmpdir[0] != '\0') {
-      log_dir = test_tmpdir;
-    } else {
-      log_dir = "/tmp";
-    }
+    const std::string log_dir = GetTraceArtifactDir(db_stress_env);
     std::string log_path = log_dir + "/fault_injection_" +
                            std::to_string(getpid()) + "_" +
                            std::to_string(time(nullptr)) + ".bin";
@@ -389,13 +390,7 @@ int db_stress_tool(int argc, char** argv) {
   }
 
   if (FLAGS_trace_public_iterator_api) {
-    std::string log_dir;
-    const char* test_tmpdir = getenv("TEST_TMPDIR");
-    if (test_tmpdir && test_tmpdir[0] != '\0') {
-      log_dir = test_tmpdir;
-    } else {
-      log_dir = "/tmp";
-    }
+    const std::string log_dir = GetTraceArtifactDir(db_stress_env);
     std::string log_path = log_dir + "/db_stress_public_iterator_trace_" +
                            std::to_string(getpid()) + "_" +
                            std::to_string(time(nullptr)) + ".bin";
