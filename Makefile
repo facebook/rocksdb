@@ -1059,6 +1059,13 @@ check: all
 	rm -rf $(TEST_TMPDIR)
 ifneq ($(PLATFORM), OS_AIX)
 	$(PYTHON) tools/check_all_python.py
+	# Run test_db_crashtest.py: always on Linux (local + CI), on other
+	# platforms only locally (skip non-Linux CI to avoid extra deps).
+ifeq ($(PLATFORM), OS_LINUX)
+	$(PYTHON) tools/test_db_crashtest.py
+else ifndef CI_TOTAL_SHARDS
+	$(PYTHON) tools/test_db_crashtest.py
+endif
 ifndef ASSERT_STATUS_CHECKED # not yet working with these tests
 	$(PYTHON) tools/ldb_test.py
 	$(PYTHON) tools/db_crashtest_test.py

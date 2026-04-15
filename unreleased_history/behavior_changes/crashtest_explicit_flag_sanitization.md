@@ -1,0 +1,1 @@
+`tools/db_crashtest.py` now treats explicit passthrough `db_stress` flags as higher priority than randomized/default settings. The declarative sanitizer rewrites conflicting random state around those explicit flags when possible, and now fails fast only when the explicit flags themselves are mutually incompatible or violate a hard runtime constraint.

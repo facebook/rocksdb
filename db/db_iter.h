@@ -596,9 +596,7 @@ class DBIter final : public Iterator {
   // tombstone [first_key, end_key) into the mutable memtable.
   // end_key is the exclusive upper bound — typically the next live key.
   void MaybeInsertRangeTombstone(const Slice& end_key);
-  void ResetContiguousTombstoneTracking() {
-    contiguous_tombstone_count_ = 0;
-  }
+  void ResetContiguousTombstoneTracking() { contiguous_tombstone_count_ = 0; }
   void ResetRangeTombEndKey() { range_tomb_end_key_.Clear(); }
 
   // Returns true if there is no prefix constraint (prefix_ not set) or
