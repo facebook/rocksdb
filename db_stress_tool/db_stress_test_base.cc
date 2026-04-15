@@ -3781,6 +3781,8 @@ void StressTest::PrintEnv() const {
           FLAGS_wal_compression.c_str());
   fprintf(stdout, "Try verify sst unique id  : %d\n",
           static_cast<int>(FLAGS_verify_sst_unique_id_in_manifest));
+  fprintf(stdout, "Fast SST open             : %d\n",
+          static_cast<int>(FLAGS_fast_sst_open));
 
   fprintf(stdout, "------------------------------------------------\n");
 }
@@ -4676,6 +4678,7 @@ void InitializeOptionsFromFlags(
   options.track_and_verify_wals = FLAGS_track_and_verify_wals;
   options.verify_sst_unique_id_in_manifest =
       FLAGS_verify_sst_unique_id_in_manifest;
+  options.fast_sst_open = FLAGS_fast_sst_open;
   options.memtable_protection_bytes_per_key =
       FLAGS_memtable_protection_bytes_per_key;
   options.block_protection_bytes_per_key = FLAGS_block_protection_bytes_per_key;

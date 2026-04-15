@@ -593,6 +593,13 @@ enum Tickers : uint32_t {
   // - memtable switched to immutable state
   READ_PATH_RANGE_TOMBSTONES_DISCARDED,
 
+  // Number of times file open metadata was retrieved from the file system
+  // via GetFileOpenMetadata() (when fast_sst_open is enabled)
+  FILE_OPEN_METADATA_RETRIEVED,
+  // Number of times file open metadata was passed to NewRandomAccessFile()
+  // via FileOptions::file_metadata (on DB open / table cache miss)
+  FILE_OPEN_METADATA_PASSED,
+
   TICKER_ENUM_MAX
 };
 

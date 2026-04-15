@@ -361,6 +361,10 @@ void VersionEdit::EncodeToNewFile4(const FileMetaData& f, int level,
     PutVarint32(dst, NewFileCustomTag::kMaxTimestamp);
     PutLengthPrefixedSlice(dst, Slice(f.max_timestamp));
   }
+  if (!f.file_open_metadata.empty()) {
+    PutVarint32(dst, NewFileCustomTag::kFileOpenMetadata);
+    PutLengthPrefixedSlice(dst, Slice(f.file_open_metadata));
+  }
   TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
                            dst);
 
@@ -505,6 +509,9 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input, int& max_level,
           break;
         case kMaxTimestamp:
           f.max_timestamp = field.ToString();
+          break;
+        case kFileOpenMetadata:
+          f.file_open_metadata = field.ToString();
           break;
         default:
           if ((custom_tag & kCustomTagNonSafeIgnoreMask) != 0) {
@@ -998,6 +1005,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     AppendNumberTo(&r, f.tail_size);
     r.append(" User-defined timestamps persisted: ");
     r.append(f.user_defined_timestamps_persisted ? "true" : "false");
+    if (!f.file_open_metadata.empty()) {
+      r.append(" file_open_metadata_size: ");
+      AppendNumberTo(&r, f.file_open_metadata.size());
+    }
   }
 
   for (const auto& blob_file_addition : blob_file_additions_) {
@@ -1120,6 +1131,9 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
       jw << "TailSize" << f.tail_size;
       jw << "UserDefinedTimestampsPersisted"
          << f.user_defined_timestamps_persisted;
+      if (!f.file_open_metadata.empty()) {
+        jw << "FileOpenMetadataSize" << f.file_open_metadata.size();
+      }
       jw.EndArrayedObject();
     }
 
