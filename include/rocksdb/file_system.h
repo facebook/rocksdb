@@ -214,6 +214,14 @@ struct FileOptions : EnvOptions {
   // that is forbidden for checking/auditing purposes.
   std::string file_checksum_func_name;
 
+  // EXPERIMENTAL
+  // This is used to pass file metadata that can be used by the file system
+  // to accelerate file opening. The content is opaque to RocksDB and is
+  // left to the file system to interpret. This is especially useful in the
+  // case of remote file systems to avoid expensive RPCs to retrieve the
+  // metadata.
+  std::string* file_metadata = nullptr;
+
   FileOptions() : EnvOptions(), handoff_checksum_type(ChecksumType::kCRC32c) {}
 
   FileOptions(const DBOptions& opts)
@@ -231,7 +239,8 @@ struct FileOptions : EnvOptions {
         handoff_checksum_type(opts.handoff_checksum_type),
         write_hint(opts.write_hint),
         file_checksum(opts.file_checksum),
-        file_checksum_func_name(opts.file_checksum_func_name) {}
+        file_checksum_func_name(opts.file_checksum_func_name),
+        file_metadata(opts.file_metadata) {}
 
   FileOptions& operator=(const FileOptions&) = default;
 };
@@ -1070,6 +1079,19 @@ class FSRandomAccessFile {
     return IOStatus::NotSupported("GetFileSize Not Supported");
   }
 
+  // EXPERIMENTAL
+  // Returns metadata for the file that can be passed back later to the file
+  // system when reopening this file. This is optional. The implementation
+  // can return NotSupported. The metadata, if returned, is not mandatory
+  // for the file system to use when reopening. It can be ignored and the
+  // only downside is slower file open time.
+  // The returned metadata must not exceed kMaxFileOpenMetadataSize bytes.
+  // Larger metadata will be silently discarded by RocksDB.
+  static constexpr size_t kMaxFileOpenMetadataSize = 8 * 1024;  // 8KB
+  virtual IOStatus GetFileOpenMetadata(std::string* /*metadata*/) {
+    return IOStatus::NotSupported("GetFileOpenMetadata not supported");
+  }
+
   // If you're adding methods here, remember to add them to
   // RandomAccessFileWrapper too.
 };
@@ -1810,6 +1832,9 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
 
   virtual IOStatus GetFileSize(uint64_t* result) override {
     return target_->GetFileSize(result);
+  }
+  IOStatus GetFileOpenMetadata(std::string* metadata) override {
+    return target_->GetFileOpenMetadata(metadata);
   }
 
  private:

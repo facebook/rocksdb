@@ -82,6 +82,7 @@ extern "C" void AnnotateNewMemory(const char* file, int line,
 inline void TsanAnnotateMappedMemory(const volatile void* mem, size_t size) {
   TsanMappedMemoryInfo info{const_cast<const void*>(mem), size};
   TEST_SYNC_POINT_CALLBACK("TsanAnnotateMappedMemory", &info);
+  (void)info;
 #ifdef __SANITIZE_THREAD__
   if (mem != nullptr && size != 0) {
     // TSAN does not understand that a new mmap or io_uring setup can legally
@@ -90,8 +91,6 @@ inline void TsanAnnotateMappedMemory(const volatile void* mem, size_t size) {
     // accesses are not reported against stale accesses from the old mapping.
     AnnotateNewMemory(__FILE__, __LINE__, mem, static_cast<long>(size));
   }
-#else
-  (void)info;
 #endif  // __SANITIZE_THREAD__
 }
 

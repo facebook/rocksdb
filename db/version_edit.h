@@ -112,6 +112,7 @@ enum NewFileCustomTag : uint32_t {
   kCompensatedRangeDeletionSize = 14,
   kTailSize = 15,
   kUserDefinedTimestampsPersisted = 16,
+  kFileOpenMetadata = 17,
 
   // If this bit for the custom tag is set, opening DB should fail if
   // we don't know this field.
@@ -330,6 +331,11 @@ struct FileMetaData {
   // This is populated from the table properties "rocksdb.timestamp_max".
   std::string max_timestamp;
 
+  // Opaque file system metadata that can be used to accelerate file opening.
+  // Retrieved via FSRandomAccessFile::GetFileOpenMetadata() and passed back
+  // via FileOptions::file_metadata on subsequent opens. Empty if not available.
+  std::string file_open_metadata;
+
   FileMetaData() = default;
 
   FileMetaData(uint64_t file, uint32_t file_path_id, uint64_t file_size,
@@ -446,7 +452,7 @@ struct FileMetaData {
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
     usage += smallest.size() + largest.size() + file_checksum.size() +
              file_checksum_func_name.size() + min_timestamp.size() +
-             max_timestamp.size();
+             max_timestamp.size() + file_open_metadata.size();
     return usage;
   }
 

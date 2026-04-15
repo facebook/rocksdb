@@ -94,6 +94,11 @@ enum ContentFlags : uint32_t {
   HAS_TIMED_PUT = 1 << 13,
 };
 
+// The user key will become an internal key by appending kNumInternalBytes,
+// so ensure the result still fits in uint32_t (a BlockBuilder assumption).
+constexpr size_t kMaxWriteBatchKeySize =
+    size_t{std::numeric_limits<uint32_t>::max()} - kNumInternalBytes;
+
 struct BatchContentClassifier : public WriteBatch::Handler {
   uint32_t content_flags = 0;
 
@@ -979,7 +984,7 @@ Status ValidateColumnFamilyHandleAndTimestampForWriteBatch(
 
 Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
                                const Slice& key, const Slice& value) {
-  if (key.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+  if (key.size() > kMaxWriteBatchKeySize) {
     return Status::InvalidArgument("key is too large");
   }
   if (value.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
@@ -1016,7 +1021,7 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
 Status WriteBatchInternal::TimedPut(WriteBatch* b, uint32_t column_family_id,
                                     const Slice& key, const Slice& value,
                                     uint64_t write_unix_time) {
-  if (key.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+  if (key.size() > kMaxWriteBatchKeySize) {
     return Status::InvalidArgument("key is too large");
   }
   if (value.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
@@ -1131,7 +1136,7 @@ Status WriteBatchInternal::CheckSlicePartsLength(const SliceParts& key,
   for (int i = 0; i < key.num_parts; ++i) {
     total_key_bytes += key.parts[i].size();
   }
-  if (total_key_bytes >= size_t{std::numeric_limits<uint32_t>::max()}) {
+  if (total_key_bytes > kMaxWriteBatchKeySize) {
     return Status::InvalidArgument("key is too large");
   }
 
@@ -1139,7 +1144,7 @@ Status WriteBatchInternal::CheckSlicePartsLength(const SliceParts& key,
   for (int i = 0; i < value.num_parts; ++i) {
     total_value_bytes += value.parts[i].size();
   }
-  if (total_value_bytes >= size_t{std::numeric_limits<uint32_t>::max()}) {
+  if (total_value_bytes > size_t{std::numeric_limits<uint32_t>::max()}) {
     return Status::InvalidArgument("value is too large");
   }
   return Status::OK();
@@ -1206,7 +1211,7 @@ Status WriteBatchInternal::PutEntity(WriteBatch* b, uint32_t column_family_id,
                                      const WideColumns& columns) {
   assert(b);
 
-  if (key.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+  if (key.size() > kMaxWriteBatchKeySize) {
     return Status::InvalidArgument("key is too large");
   }
 
@@ -1405,6 +1410,9 @@ Status WriteBatchInternal::MarkRollback(WriteBatch* b, const Slice& xid) {
 
 Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
                                   const Slice& key) {
+  if (key.size() > kMaxWriteBatchKeySize) {
+    return Status::InvalidArgument("key is too large");
+  }
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
@@ -1479,6 +1487,10 @@ Status WriteBatch::Delete(ColumnFamilyHandle* column_family, const Slice& key,
 
 Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
                                   const SliceParts& key) {
+  Status s = CheckSlicePartsLength(key, SliceParts(nullptr, 0));
+  if (!s.ok()) {
+    return s;
+  }
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
@@ -1533,6 +1545,9 @@ Status WriteBatch::Delete(ColumnFamilyHandle* column_family,
 Status WriteBatchInternal::SingleDelete(WriteBatch* b,
                                         uint32_t column_family_id,
                                         const Slice& key) {
+  if (key.size() > kMaxWriteBatchKeySize) {
+    return Status::InvalidArgument("key is too large");
+  }
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
@@ -1609,6 +1624,10 @@ Status WriteBatch::SingleDelete(ColumnFamilyHandle* column_family,
 Status WriteBatchInternal::SingleDelete(WriteBatch* b,
                                         uint32_t column_family_id,
                                         const SliceParts& key) {
+  Status s = CheckSlicePartsLength(key, SliceParts(nullptr, 0));
+  if (!s.ok()) {
+    return s;
+  }
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
@@ -1664,6 +1683,12 @@ Status WriteBatch::SingleDelete(ColumnFamilyHandle* column_family,
 Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
                                        const Slice& begin_key,
                                        const Slice& end_key) {
+  if (begin_key.size() > kMaxWriteBatchKeySize) {
+    return Status::InvalidArgument("key is too large");
+  }
+  if (end_key.size() > kMaxWriteBatchKeySize) {
+    return Status::InvalidArgument("end key is too large");
+  }
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
@@ -1747,6 +1772,10 @@ Status WriteBatch::DeleteRange(ColumnFamilyHandle* column_family,
 Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
                                        const SliceParts& begin_key,
                                        const SliceParts& end_key) {
+  Status s = CheckSlicePartsLength(begin_key, end_key);
+  if (!s.ok()) {
+    return s;
+  }
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
@@ -1801,7 +1830,7 @@ Status WriteBatch::DeleteRange(ColumnFamilyHandle* column_family,
 
 Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
                                  const Slice& key, const Slice& value) {
-  if (key.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+  if (key.size() > kMaxWriteBatchKeySize) {
     return Status::InvalidArgument("key is too large");
   }
   if (value.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
