@@ -76,14 +76,14 @@ Status BlobFileCache::GetBlobFileReader(
   {
     assert(file_options_);
     Status s = BlobFileReader::Create(
-        *immutable_options_, read_options, *file_options_,
-        column_family_id_, blob_file_read_hist_, blob_file_number, io_tracer_,
+        *immutable_options_, read_options, *file_options_, column_family_id_,
+        blob_file_read_hist_, blob_file_number, io_tracer_,
         /*skip_footer_validation=*/false, &reader);
     if (!s.ok() && s.IsCorruption() && allow_footer_skip_retry) {
       reader.reset();
       s = BlobFileReader::Create(
-          *immutable_options_, read_options, *file_options_,
-          column_family_id_, blob_file_read_hist_, blob_file_number, io_tracer_,
+          *immutable_options_, read_options, *file_options_, column_family_id_,
+          blob_file_read_hist_, blob_file_number, io_tracer_,
           /*skip_footer_validation=*/true, &reader);
     }
     if (!s.ok()) {
@@ -131,8 +131,8 @@ Status BlobFileCache::OpenBlobFileReaderUncached(
   if (!s.ok() && s.IsCorruption() && allow_footer_skip_retry) {
     blob_file_reader->reset();
     s = BlobFileReader::Create(
-        *immutable_options_, read_options, *file_options_,
-        column_family_id_, blob_file_read_hist_, blob_file_number, io_tracer_,
+        *immutable_options_, read_options, *file_options_, column_family_id_,
+        blob_file_read_hist_, blob_file_number, io_tracer_,
         /*skip_footer_validation=*/true, blob_file_reader);
   }
   if (!s.ok()) {

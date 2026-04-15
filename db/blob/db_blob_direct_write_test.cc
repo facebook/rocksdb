@@ -955,8 +955,7 @@ TEST_F(DBBlobDirectWriteTest, DirectWriteImmutableMemtableRead) {
   verify_reads();
 }
 
-TEST_F(DBBlobDirectWriteTest,
-       DirectWriteUsesDefaultContractForRemoteFile) {
+TEST_F(DBBlobDirectWriteTest, DirectWriteUsesDefaultContractForRemoteFile) {
   auto remote_fs =
       std::make_shared<RemoteBlobVisibilityFileSystem>(env_->GetFileSystem());
   std::unique_ptr<Env> remote_env(new CompositeEnvWrapper(env_, remote_fs));
