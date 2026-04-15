@@ -321,6 +321,7 @@ class InjectedErrorLog {
   }
 
   static bool WriteAll(int fd, const char* data, size_t len) {
+#ifndef OS_WIN
     while (len > 0) {
       ssize_t written = write(fd, data, len);
       if (written <= 0) {
@@ -330,6 +331,12 @@ class InjectedErrorLog {
       len -= static_cast<size_t>(written);
     }
     return true;
+#else
+    (void)fd;
+    (void)data;
+    (void)len;
+    return false;
+#endif
   }
 
   std::atomic<size_t> head_;

@@ -1,3 +1,8 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -6,10 +11,6 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_trace.h"
 
-#include <fcntl.h>
-#include <limits.h>
-#include <unistd.h>
-
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -17,6 +18,16 @@
 #include <cstring>
 #include <limits>
 #include <thread>
+
+#ifndef OS_WIN
+#include <fcntl.h>
+#include <limits.h>
+#include <unistd.h>
+#endif
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 
 #include "db_stress_tool/db_stress_common.h"
 #include "port/lang.h"
@@ -146,6 +157,7 @@ void CopyVolatileBytes(const volatile char* src, char* dst, size_t len) {
 }
 
 bool WriteAll(int fd, const char* data, size_t len) {
+#ifndef OS_WIN
   while (len > 0) {
     ssize_t written = write(fd, data, len);
     if (written <= 0) {
@@ -155,6 +167,12 @@ bool WriteAll(int fd, const char* data, size_t len) {
     len -= static_cast<size_t>(written);
   }
   return true;
+#else
+  (void)fd;
+  (void)data;
+  (void)len;
+  return false;
+#endif
 }
 
 KeySample CaptureKeySample(const Slice& key) {
@@ -288,23 +306,19 @@ class DbStressPublicIteratorTraceLog {
     if (read_opts.iterate_upper_bound != nullptr) {
       upper = CaptureKeySample(*read_opts.iterate_upper_bound);
     }
-    Record(IteratorTraceEventType::kCreate, iterator_id, cf_id, lower, upper,
-           false, false, Status::OK(), BuildCreateFlags(read_opts),
-           static_cast<uint64_t>(
-               reinterpret_cast<uintptr_t>(read_opts.snapshot)),
-           0, kResultBoolUnset);
+    Record(
+        IteratorTraceEventType::kCreate, iterator_id, cf_id, lower, upper,
+        false, false, Status::OK(), BuildCreateFlags(read_opts),
+        static_cast<uint64_t>(reinterpret_cast<uintptr_t>(read_opts.snapshot)),
+        0, kResultBoolUnset);
   }
 
-  TSAN_SUPPRESSION void RecordIteratorOp(IteratorTraceEventType event_type,
-                                         uint64_t iterator_id, uint32_t cf_id,
-                                         const KeySample& key0,
-                                         const KeySample& key1,
-                                         bool valid_before, bool valid_after,
-                                         const Status& status,
-                                         uint32_t flags = 0, uint64_t aux0 = 0,
-                                         uint64_t aux1 = 0,
-                                         uint8_t result_bool =
-                                             kResultBoolUnset) {
+  TSAN_SUPPRESSION void RecordIteratorOp(
+      IteratorTraceEventType event_type, uint64_t iterator_id, uint32_t cf_id,
+      const KeySample& key0, const KeySample& key1, bool valid_before,
+      bool valid_after, const Status& status, uint32_t flags = 0,
+      uint64_t aux0 = 0, uint64_t aux1 = 0,
+      uint8_t result_bool = kResultBoolUnset) {
     Record(event_type, iterator_id, cf_id, key0, key1, valid_before,
            valid_after, status, flags, aux0, aux1, result_bool);
   }
@@ -339,7 +353,8 @@ class DbStressPublicIteratorTraceLog {
     header.dump_timestamp_us = 0;
     header.version = kTraceFileVersion;
     header.header_size = static_cast<uint32_t>(sizeof(header));
-    header.slot_header_size = static_cast<uint32_t>(sizeof(TraceFileSlotHeader));
+    header.slot_header_size =
+        static_cast<uint32_t>(sizeof(TraceFileSlotHeader));
     header.entry_size = static_cast<uint32_t>(sizeof(TraceEntry));
     header.max_threads = static_cast<uint32_t>(kMaxTraceThreads);
     header.entries_per_thread = static_cast<uint32_t>(kEntriesPerThread);
@@ -485,10 +500,9 @@ class DbStressTraceIterator : public Iterator {
     if (iter_->Valid()) {
       after = CaptureKeySample(iter_->key());
     }
-    trace_log_->RecordIteratorOp(IteratorTraceEventType::kSeekToFirst,
-                                 iterator_id_, cf_id_, before, after,
-                                 before.full_len != 0, iter_->Valid(),
-                                 iter_->status());
+    trace_log_->RecordIteratorOp(
+        IteratorTraceEventType::kSeekToFirst, iterator_id_, cf_id_, before,
+        after, before.full_len != 0, iter_->Valid(), iter_->status());
   }
 
   void SeekToLast() override {
@@ -501,10 +515,9 @@ class DbStressTraceIterator : public Iterator {
     if (iter_->Valid()) {
       after = CaptureKeySample(iter_->key());
     }
-    trace_log_->RecordIteratorOp(IteratorTraceEventType::kSeekToLast,
-                                 iterator_id_, cf_id_, before, after,
-                                 before.full_len != 0, iter_->Valid(),
-                                 iter_->status());
+    trace_log_->RecordIteratorOp(
+        IteratorTraceEventType::kSeekToLast, iterator_id_, cf_id_, before,
+        after, before.full_len != 0, iter_->Valid(), iter_->status());
   }
 
   void Seek(const Slice& target) override {
