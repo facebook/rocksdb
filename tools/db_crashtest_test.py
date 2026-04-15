@@ -185,6 +185,75 @@ class DBCrashTestTest(unittest.TestCase):
         self.assertEqual("other stdout\n", filtered_stdout)
         self.assertEqual(stderr, filtered_stderr)
 
+    def test_output_matches_no_space_catches_known_failure_strings(self):
+        db_crashtest = self.load_db_crashtest()
+        open_and_compact_stdout = (
+            "Failed to run OpenAndCompact(/dev/shm/rocksdb_test/db): "
+            "IO error: No space left on device: While appending to file: "
+            "/dev/shm/rocksdb_test/db/tmp_output_1/019471.sst: "
+            "No space left on device\n"
+        )
+        verification_stderr = (
+            "Verification failed: SetOptions failed: IO error: Unable to "
+            "persist options.: IO error: No space left on device: While "
+            "appending to file: /dev/shm/rocksdb_test/db/OPTIONS-084168.dbtmp: "
+            "No space left on device\n"
+        )
+
+        self.assertTrue(
+            db_crashtest.output_matches_no_space(open_and_compact_stdout, "")
+        )
+        self.assertTrue(
+            db_crashtest.output_matches_no_space("", verification_stderr)
+        )
+        self.assertFalse(
+            db_crashtest.output_matches_no_space("", "Permission denied\n")
+        )
+
+    def test_file_type_suffix_preserves_compound_suffixes(self):
+        db_crashtest = self.load_db_crashtest()
+
+        self.assertEqual(".sst.trash", db_crashtest.file_type_suffix("000123.sst.trash"))
+        self.assertEqual(".sst", db_crashtest.file_type_suffix("tmp_output/019471.sst"))
+        self.assertEqual(".old.1", db_crashtest.file_type_suffix("/tmp/LOG.old.1"))
+        self.assertEqual("<no_ext>", db_crashtest.file_type_suffix("/tmp/CURRENT"))
+
+    def test_build_out_of_space_diagnostics_summarizes_directory_suffixes(self):
+        db_crashtest = self.load_db_crashtest()
+        db_root = os.path.join(self.test_tmpdir, "rocksdb_crashtest_blackbox")
+        remote_output_dir = os.path.join(db_root, "tmp_output_123")
+        os.makedirs(remote_output_dir)
+
+        files = {
+            os.path.join(db_root, "CURRENT"): 7,
+            os.path.join(db_root, "000001.sst.trash"): 3,
+            os.path.join(remote_output_dir, "019471.sst"): 5,
+        }
+        for path, size in files.items():
+            with open(path, "wb") as f:
+                f.write(b"x" * size)
+
+        diagnostics = db_crashtest.build_out_of_space_diagnostics(
+            "",
+            (
+                "IO error: No space left on device: While appending to file: "
+                f"{os.path.join(remote_output_dir, '019471.sst')}: "
+                "No space left on device\n"
+            ),
+            [db_root],
+            include_dev_shm=False,
+        )
+
+        self.assertIn("=== Out-of-space diagnostics ===", diagnostics)
+        self.assertIn(f"Directory usage for {db_root}:", diagnostics)
+        self.assertIn(".sst.trash files=1 bytes=3B", diagnostics)
+        self.assertIn(".sst files=1 bytes=5B", diagnostics)
+        self.assertIn("<no_ext> files=1 bytes=7B", diagnostics)
+        self.assertIn(
+            f"{remote_output_dir} subtree=5B local=5B local_files=1 local_dirs=0",
+            diagnostics,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
