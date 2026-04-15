@@ -66,6 +66,27 @@ class DBCrashTestTest(unittest.TestCase):
             params.update(overrides)
         return params
 
+    def create_remote_compaction_output(self, parent_dir, output_name, marker):
+        output_dir = os.path.join(parent_dir, output_name)
+        os.makedirs(output_dir)
+        with open(os.path.join(output_dir, "orphan.sst"), "w") as f:
+            f.write(marker)
+        return output_dir
+
+    def create_archived_remote_compaction_run(
+        self, db_crashtest, dbname, run_suffix, output_name, marker
+    ):
+        archive_root = os.path.join(
+            dbname, db_crashtest._ABANDONED_REMOTE_COMPACTION_OUTPUTS_DIR
+        )
+        run_dir = os.path.join(
+            archive_root,
+            f"{db_crashtest._ABANDONED_REMOTE_COMPACTION_OUTPUT_RUN_PREFIX}"
+            f"{run_suffix:020d}",
+        )
+        self.create_remote_compaction_output(run_dir, output_name, marker)
+        return run_dir
+
     def test_setup_expected_values_dir_preserves_existing_contents(self):
         os.makedirs(self.expected_dir)
         marker = os.path.join(self.expected_dir, "marker")
@@ -122,17 +143,16 @@ class DBCrashTestTest(unittest.TestCase):
         self.assertEqual(1, finalized["disable_wal"])
         self.assertEqual(0, finalized["test_batches_snapshots"])
 
-    def test_cleanup_stale_remote_compaction_outputs_removes_only_tmp_output_dirs(
+    def test_cleanup_stale_remote_compaction_outputs_archives_only_tmp_output_dirs(
         self,
     ):
         db_crashtest = self.load_db_crashtest()
         dbname = os.path.join(self.test_tmpdir, "rocksdb_crashtest_blackbox")
         os.makedirs(dbname)
 
-        stale_dir = os.path.join(dbname, "tmp_output_stale")
-        os.makedirs(stale_dir)
-        with open(os.path.join(stale_dir, "orphan.sst"), "w") as f:
-            f.write("old remote compaction output")
+        stale_dir = self.create_remote_compaction_output(
+            dbname, "tmp_output_stale", "old remote compaction output"
+        )
 
         backup_dir = os.path.join(dbname, ".backup0")
         os.makedirs(backup_dir)
@@ -145,6 +165,58 @@ class DBCrashTestTest(unittest.TestCase):
         self.assertFalse(os.path.exists(stale_dir))
         self.assertTrue(os.path.isdir(backup_dir))
         self.assertTrue(os.path.isfile(live_sst))
+        archive_root = os.path.join(
+            dbname, db_crashtest._ABANDONED_REMOTE_COMPACTION_OUTPUTS_DIR
+        )
+        archived_runs = sorted(os.listdir(archive_root))
+        self.assertEqual(1, len(archived_runs))
+        self.assertTrue(
+            os.path.isdir(os.path.join(archive_root, archived_runs[0], "tmp_output_stale"))
+        )
+
+    def test_cleanup_stale_remote_compaction_outputs_keeps_last_three_runs(self):
+        db_crashtest = self.load_db_crashtest()
+        dbname = os.path.join(self.test_tmpdir, "rocksdb_crashtest_whitebox")
+        os.makedirs(dbname)
+
+        oldest_run = self.create_archived_remote_compaction_run(
+            db_crashtest, dbname, 1, "tmp_output_oldest", "oldest"
+        )
+        second_oldest_run = self.create_archived_remote_compaction_run(
+            db_crashtest, dbname, 2, "tmp_output_old_2", "old_2"
+        )
+        newest_existing_run = self.create_archived_remote_compaction_run(
+            db_crashtest, dbname, 3, "tmp_output_old_3", "old_3"
+        )
+        current_output = self.create_remote_compaction_output(
+            dbname, "tmp_output_current", "current"
+        )
+
+        db_crashtest.cleanup_stale_remote_compaction_outputs(dbname)
+
+        self.assertFalse(os.path.exists(current_output))
+        self.assertFalse(os.path.exists(oldest_run))
+        self.assertTrue(os.path.isdir(second_oldest_run))
+        self.assertTrue(os.path.isdir(newest_existing_run))
+
+        archive_root = os.path.join(
+            dbname, db_crashtest._ABANDONED_REMOTE_COMPACTION_OUTPUTS_DIR
+        )
+        archived_runs = sorted(os.listdir(archive_root))
+        self.assertEqual(3, len(archived_runs))
+        self.assertEqual(
+            f"{db_crashtest._ABANDONED_REMOTE_COMPACTION_OUTPUT_RUN_PREFIX}{2:020d}",
+            archived_runs[0],
+        )
+        self.assertEqual(
+            f"{db_crashtest._ABANDONED_REMOTE_COMPACTION_OUTPUT_RUN_PREFIX}{3:020d}",
+            archived_runs[1],
+        )
+        self.assertTrue(
+            os.path.isdir(
+                os.path.join(archive_root, archived_runs[2], "tmp_output_current")
+            )
+        )
 
     def test_cleanup_stale_remote_compaction_outputs_ignores_missing_db_dir(self):
         db_crashtest = self.load_db_crashtest()

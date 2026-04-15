@@ -310,7 +310,7 @@ static CompactionServiceOptionsOverride CreateOverrideOptions(
   return override_options;
 }
 
-static Status DestroyOutputDirectory(const std::string& output_directory) {
+static Status CleanupOutputDirectory(const std::string& output_directory) {
 #ifndef NDEBUG
   // Temporarily disable fault injection to ensure deletion always succeeds
   if (fault_fs_guard) {
@@ -319,18 +319,6 @@ static Status DestroyOutputDirectory(const std::string& output_directory) {
 #endif  // NDEBUG
 
   Status s = DestroyDir(db_stress_env, output_directory);
-#ifndef NDEBUG
-  // Re-enable fault injection after deletion
-  if (fault_fs_guard) {
-    fault_fs_guard->EnableAllThreadLocalErrorInjection();
-  }
-#endif  // NDEBUG
-
-  return s;
-}
-
-static Status CleanupOutputDirectory(const std::string& output_directory) {
-  Status s = DestroyOutputDirectory(output_directory);
   if (!s.ok()) {
     fprintf(stderr,
             "Failed to destroy output directory %s when allow_resumption is "
@@ -347,6 +335,13 @@ static Status CleanupOutputDirectory(const std::string& output_directory) {
               output_directory.c_str(), s.ToString().c_str());
     }
   }
+
+#ifndef NDEBUG
+  // Re-enable fault injection after deletion
+  if (fault_fs_guard) {
+    fault_fs_guard->EnableAllThreadLocalErrorInjection();
+  }
+#endif  // NDEBUG
 
   return s;
 }
@@ -402,16 +397,6 @@ static void ProcessCompactionResult(
       // primary db instance failure.
       fprintf(stdout, "Failed to run OpenAndCompact(%s): %s\n",
               job_info.db_name.c_str(), s.ToString().c_str());
-    }
-    // Each remote compaction job gets a unique tmp_output_* directory. Once
-    // the job reaches a terminal failure, keeping that directory only leaks
-    // space under the main crash-test DB path.
-    Status cleanup_s = DestroyOutputDirectory(output_directory);
-    if (!cleanup_s.ok()) {
-      fprintf(stdout,
-              "Failed to destroy remote compaction output directory %s after "
-              "a terminal OpenAndCompact() result: %s\n",
-              output_directory.c_str(), cleanup_s.ToString().c_str());
     }
   } else {
     // Track successful completion time
