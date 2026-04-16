@@ -13,7 +13,9 @@
 #include <deque>
 #include <vector>
 
+#include "db/blob/blob_counting_iterator.h"
 #include "db/blob/blob_file_builder.h"
+#include "db/blob/blob_garbage_meter.h"
 #include "db/compaction/compaction_iterator.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
@@ -87,7 +89,8 @@ Status BuildTable(
     Env::WriteLifeTimeHint write_hint, const std::string* full_history_ts_low,
     BlobFileCompletionCallback* blob_callback, Version* version,
     uint64_t* memtable_payload_bytes, uint64_t* memtable_garbage_bytes,
-    InternalStats::CompactionStats* flush_stats, bool fast_sst_open) {
+    InternalStats::CompactionStats* flush_stats,
+    std::vector<BlobFileGarbage>* blob_file_garbages, bool fast_sst_open) {
   assert((tboptions.column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          tboptions.column_family_name.empty());
@@ -99,7 +102,24 @@ Status BuildTable(
                                    /*enable_hash=*/paranoid_file_checks);
   Status s;
   meta->fd.file_size = 0;
-  iter->SeekToFirst();
+  if (blob_file_garbages != nullptr) {
+    blob_file_garbages->clear();
+  }
+
+  InternalIterator* input = iter;
+  std::unique_ptr<BlobGarbageMeter> blob_garbage_meter;
+  std::unique_ptr<BlobCountingIterator> blob_counting_iter;
+  if (blob_file_garbages != nullptr) {
+    // Flush can drop blob-backed records via overwrite elision and flush-time
+    // compaction filters. Track input and surviving output refs just like the
+    // compaction path so the manifest learns about the new garbage.
+    blob_garbage_meter.reset(new BlobGarbageMeter());
+    blob_counting_iter.reset(
+        new BlobCountingIterator(iter, blob_garbage_meter.get()));
+    input = blob_counting_iter.get();
+  }
+
+  input->SeekToFirst();
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
       new CompactionRangeDelAggregator(&tboptions.internal_comparator,
                                        snapshots, full_history_ts_low));
@@ -128,7 +148,7 @@ Status BuildTable(
 
   TableProperties tp;
   bool table_file_created = false;
-  if (iter->Valid() || !range_del_agg->IsEmpty()) {
+  if (input->Valid() || !range_del_agg->IsEmpty()) {
     std::unique_ptr<CompactionFilter> compaction_filter;
     if (ioptions.compaction_filter_factory != nullptr &&
         ioptions.compaction_filter_factory->ShouldFilterTableFileCreation(
@@ -211,7 +231,7 @@ Status BuildTable(
 
     const std::atomic<bool> kManualCompactionCanceledFalse{false};
     CompactionIterator c_iter(
-        iter, ucmp, &merge, kMaxSequenceNumber, &snapshots, earliest_snapshot,
+        input, ucmp, &merge, kMaxSequenceNumber, &snapshots, earliest_snapshot,
         earliest_write_conflict_snapshot, job_snapshot, snapshot_checker, env,
         ShouldReportDetailedTime(env, ioptions.stats), range_del_agg.get(),
         blob_file_builder.get(), ioptions.allow_data_in_errors,
@@ -266,6 +286,14 @@ Status BuildTable(
 
       if (flush_stats) {
         flush_stats->num_output_records++;
+      }
+
+      if (blob_garbage_meter != nullptr) {
+        s = blob_garbage_meter->ProcessOutFlow(key_after_flush,
+                                               value_after_flush);
+        if (!s.ok()) {
+          break;
+        }
       }
 
       s = meta->UpdateBoundaries(key_after_flush, value_after_flush,
@@ -490,8 +518,20 @@ Status BuildTable(
   }
 
   // Check for input iterator errors
-  if (!iter->status().ok()) {
-    s = iter->status();
+  if (!input->status().ok()) {
+    s = input->status();
+  }
+
+  if (s.ok() && blob_file_garbages != nullptr &&
+      blob_garbage_meter != nullptr) {
+    for (const auto& pair : blob_garbage_meter->flows()) {
+      const uint64_t blob_file_number = pair.first;
+      const BlobGarbageMeter::BlobInOutFlow& flow = pair.second;
+      if (flow.HasGarbage()) {
+        blob_file_garbages->emplace_back(
+            blob_file_number, flow.GetGarbageCount(), flow.GetGarbageBytes());
+      }
+    }
   }
 
   if (!s.ok() || meta->fd.GetFileSize() == 0) {
