@@ -107,6 +107,8 @@ class RecordingBlobDirectWritePartitionStrategy
 
 namespace {
 
+// Matches BlobDB file names so the test filesystem can special-case only active
+// blob files without changing unrelated file opens.
 bool IsBlobFilePath(const std::string& fname) {
   const size_t basename_pos = fname.find_last_of("/\\");
   const std::string basename = basename_pos == std::string::npos
@@ -118,6 +120,9 @@ bool IsBlobFilePath(const std::string& fname) {
          file_type == kBlobFile;
 }
 
+// Keeps track of when an active blob file stops being writer-visible so the
+// test filesystem can model current-size visibility only while the file remains
+// active.
 class ActiveBlobVisibilityWritableFile : public FSWritableFileOwnerWrapper {
  public:
   ActiveBlobVisibilityWritableFile(std::unique_ptr<FSWritableFile>&& target,
@@ -144,6 +149,9 @@ class ActiveBlobVisibilityWritableFile : public FSWritableFileOwnerWrapper {
   std::function<void()> on_close_;
 };
 
+// Simulates a remote readable file whose GetFileSize() either exposes the live
+// on-disk size for default-contract active blobs or hides it for
+// append-only-no-readers files.
 class ActiveBlobVisibilityRandomAccessFile
     : public FSRandomAccessFileOwnerWrapper {
  public:
@@ -173,6 +181,9 @@ class ActiveBlobVisibilityRandomAccessFile
   std::string fname_;
 };
 
+// Models a remote filesystem where active direct-write blobs are only
+// reader-visible under the default contract. The wrapper records whether any
+// reader or writer opened the blob with append-only-no-readers semantics.
 class RemoteBlobVisibilityFileSystem : public FileSystemWrapper {
  public:
   explicit RemoteBlobVisibilityFileSystem(const std::shared_ptr<FileSystem>& fs)
@@ -955,6 +966,10 @@ TEST_F(DBBlobDirectWriteTest, DirectWriteImmutableMemtableRead) {
   verify_reads();
 }
 
+// Verifies active blob direct-write files keep the default contract on a
+// remote-style filesystem so readers can observe current size through the
+// reopened handle instead of being forced into append-only-no-readers
+// semantics.
 TEST_F(DBBlobDirectWriteTest, DirectWriteUsesDefaultContractForRemoteFile) {
   auto remote_fs =
       std::make_shared<RemoteBlobVisibilityFileSystem>(env_->GetFileSystem());

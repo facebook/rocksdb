@@ -139,6 +139,10 @@ class BlobFileReaderTest : public testing::Test {
 
 namespace {
 
+// Returns a stale path-level size for one target blob file while leaving the
+// opened file handle untouched. This lets the test verify
+// BlobFileReader::Create prefers the opened handle's size when the path stat
+// lags behind.
 class StalePathSizeFileSystem : public FileSystemWrapper {
  public:
   static const char* kClassName() { return "StalePathSizeFileSystem"; }
@@ -162,6 +166,8 @@ class StalePathSizeFileSystem : public FileSystemWrapper {
   const std::string stale_path_;
 };
 
+// Makes opened blob file handles fail GetFileSize() with a hard error so the
+// reader path can verify that such errors are propagated directly.
 class FailingOpenFileSizeRandomAccessFile
     : public FSRandomAccessFileOwnerWrapper {
  public:
@@ -174,6 +180,8 @@ class FailingOpenFileSizeRandomAccessFile
   }
 };
 
+// Makes opened blob file handles report GetFileSize() as unsupported so the
+// reader path exercises its path-level fallback logic.
 class NotSupportedOpenFileSizeRandomAccessFile
     : public FSRandomAccessFileOwnerWrapper {
  public:
@@ -186,6 +194,8 @@ class NotSupportedOpenFileSizeRandomAccessFile
   }
 };
 
+// Wraps the target blob file in FailingOpenFileSizeRandomAccessFile while
+// leaving all other files alone.
 class FailingOpenFileSizeFileSystem : public FileSystemWrapper {
  public:
   static const char* kClassName() { return "FailingOpenFileSizeFileSystem"; }
@@ -218,6 +228,8 @@ class FailingOpenFileSizeFileSystem : public FileSystemWrapper {
   const std::string target_path_;
 };
 
+// Wraps the target blob file in NotSupportedOpenFileSizeRandomAccessFile while
+// leaving all other files alone.
 class NotSupportedOpenFileSizeFileSystem : public FileSystemWrapper {
  public:
   static const char* kClassName() {
@@ -247,6 +259,51 @@ class NotSupportedOpenFileSizeFileSystem : public FileSystemWrapper {
       *result = std::move(file);
     }
     return IOStatus::OK();
+  }
+
+ private:
+  const std::string target_path_;
+};
+
+// Forces the target blob file onto the NotSupported open-handle-size branch and
+// then fails the fallback path-level GetFileSize() call.
+class FailingFallbackPathSizeFileSystem : public FileSystemWrapper {
+ public:
+  static const char* kClassName() {
+    return "FailingFallbackPathSizeFileSystem";
+  }
+
+  FailingFallbackPathSizeFileSystem(const std::shared_ptr<FileSystem>& target,
+                                    std::string target_path)
+      : FileSystemWrapper(target), target_path_(std::move(target_path)) {}
+
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& options,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    std::unique_ptr<FSRandomAccessFile> file;
+    IOStatus s =
+        FileSystemWrapper::NewRandomAccessFile(fname, options, &file, dbg);
+    if (!s.ok()) {
+      return s;
+    }
+    if (fname == target_path_) {
+      result->reset(
+          new NotSupportedOpenFileSizeRandomAccessFile(std::move(file)));
+    } else {
+      *result = std::move(file);
+    }
+    return IOStatus::OK();
+  }
+
+  IOStatus GetFileSize(const std::string& fname, const IOOptions& options,
+                       uint64_t* file_size, IODebugContext* dbg) override {
+    if (fname == target_path_) {
+      return IOStatus::IOError("fallback path size failed");
+    }
+    return FileSystemWrapper::GetFileSize(fname, options, file_size, dbg);
   }
 
  private:
@@ -547,6 +604,9 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
   }
 }
 
+// Verifies Create() prefers the file size reported by the opened handle over a
+// stale path-level size query by returning a readable reader even when the path
+// stat intentionally reports 0 for the blob file.
 TEST_F(BlobFileReaderTest, CreateReaderUsesOpenedFileSizeWhenPathSizeIsStale) {
   const std::string db_path = test::PerThreadDBPath(
       mock_env_.get(),
@@ -598,6 +658,8 @@ TEST_F(BlobFileReaderTest, CreateReaderUsesOpenedFileSizeWhenPathSizeIsStale) {
   ASSERT_EQ(bytes_read, blob_size);
 }
 
+// Verifies Create() falls back to the path-level GetFileSize() call when the
+// opened file handle reports that size queries are unsupported.
 TEST_F(BlobFileReaderTest,
        CreateReaderFallsBackToPathSizeWhenOpenedFileSizeNotSupported) {
   const std::string db_path = test::PerThreadDBPath(
@@ -653,6 +715,8 @@ TEST_F(BlobFileReaderTest,
   ASSERT_EQ(bytes_read, blob_size);
 }
 
+// Verifies Create() propagates a real error from the opened file handle's
+// GetFileSize() rather than masking it with any path-level fallback.
 TEST_F(BlobFileReaderTest, CreateReaderPropagatesOpenedFileSizeError) {
   const std::string db_path = test::PerThreadDBPath(
       mock_env_.get(),
@@ -669,6 +733,55 @@ TEST_F(BlobFileReaderTest, CreateReaderPropagatesOpenedFileSizeError) {
 
   Options options;
   options.env = &failing_open_file_size_env;
+  options.cf_paths.emplace_back(db_path, 0);
+  options.enable_blob_files = true;
+
+  ImmutableOptions immutable_options(options);
+
+  constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+  constexpr char key[] = "key";
+  constexpr char blob[] = "blob";
+
+  uint64_t blob_offset = 0;
+  uint64_t blob_size = 0;
+  WriteBlobFile(immutable_options, column_family_id, has_ttl, expiration_range,
+                expiration_range, blob_file_number, key, blob, kNoCompression,
+                &blob_offset, &blob_size);
+
+  std::unique_ptr<BlobFileReader> reader;
+  ReadOptions read_options;
+  Status s = BlobFileReader::Create(
+      immutable_options, read_options, FileOptions(), column_family_id,
+      /*blob_file_read_hist=*/nullptr, blob_file_number, nullptr /*IOTracer*/,
+      &reader);
+  ASSERT_TRUE(s.IsIOError());
+  ASSERT_EQ(reader, nullptr);
+}
+
+// Verifies Create() also propagates errors from the path-level fallback size
+// query when the opened file handle only reports NotSupported for GetFileSize.
+TEST_F(
+    BlobFileReaderTest,
+    CreateReaderPropagatesFallbackPathSizeErrorWhenOpenedFileSizeNotSupported) {
+  const std::string db_path =
+      test::PerThreadDBPath(mock_env_.get(),
+                            "BlobFileReaderTest_"
+                            "CreateReaderPropagatesFallbackPathSizeErrorWhenOpe"
+                            "nedFileSizeNotSupported");
+
+  constexpr uint64_t blob_file_number = 1;
+  const std::string blob_file_path = BlobFileName(db_path, blob_file_number);
+
+  auto failing_fallback_path_size_fs =
+      std::make_shared<FailingFallbackPathSizeFileSystem>(
+          mock_env_->GetFileSystem(), blob_file_path);
+  CompositeEnvWrapper failing_fallback_path_size_env(
+      mock_env_.get(), failing_fallback_path_size_fs);
+
+  Options options;
+  options.env = &failing_fallback_path_size_env;
   options.cf_paths.emplace_back(db_path, 0);
   options.enable_blob_files = true;
 
