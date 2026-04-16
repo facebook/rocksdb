@@ -535,6 +535,8 @@ class Transaction {
                      const bool assume_tracked = false) = 0;
   virtual Status Put(const SliceParts& key, const SliceParts& value) = 0;
 
+  // `columns` is a non-owning view, so the backing storage for each column
+  // name and value must remain valid until this method returns.
   virtual Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
                            const WideColumns& columns,
                            bool assume_tracked = false) = 0;

@@ -59,7 +59,9 @@ class WriteBatchBase {
                           const Slice& value, uint64_t write_unix_time) = 0;
 
   // Store the mapping "key->{column1:value1, column2:value2, ...}" in the
-  // column family specified by "column_family".
+  // column family specified by "column_family". `columns` is a non-owning
+  // view, so the backing storage for each column name and value must remain
+  // valid until this method returns.
   virtual Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
                            const WideColumns& columns) = 0;
 

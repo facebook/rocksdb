@@ -21,25 +21,47 @@ class DBImpl;
 
 // Class representing a wide column, which is defined as a pair of column name
 // and column value.
+//
+// WideColumn is a non-owning view. Both the column name and column value are
+// stored as Slices that reference caller-managed memory. The backing storage
+// must remain valid for as long as the WideColumn is used. In particular,
+// passing temporary std::string objects is unsafe. When passing WideColumn or
+// WideColumns to APIs like PutEntity(), keep the backing storage alive until
+// that method returns.
 class WideColumn {
  public:
   WideColumn() = default;
 
   // Initializes a WideColumn object by forwarding the name and value
-  // arguments to the corresponding member Slices. This makes it possible to
-  // construct a WideColumn using combinations of const char*, const
-  // std::string&, const Slice& etc., for example:
+  // arguments to the corresponding member Slices without copying the bytes.
+  // The resulting WideColumn does not own the referenced data. Construction is
+  // decoupled from the eventual PutEntity() call, but lifetime is not: any
+  // buffers referenced here must remain valid until the PutEntity() call that
+  // consumes this WideColumn or WideColumns collection returns. This makes it
+  // possible to construct a WideColumn using combinations of const char*,
+  // const std::string&, const Slice& etc., for example:
   //
-  // constexpr char foo[] = "foo";
-  // const std::string bar("bar");
-  // WideColumn column(foo, bar);
+  // std::string column_name = "attr";
+  // std::string column_value = "value";
+  // WideColumn column(column_name, column_value);
+  // WideColumns columns{column};
+  // ASSERT_OK(db->PutEntity(write_options, column_family, key, columns));
+  // // column_name and column_value must stay alive until PutEntity() returns.
+  //
+  // // Unsafe: the temporary std::string storage is destroyed before
+  // PutEntity(). WideColumns bad_columns{
+  //     {std::string("attr"), std::string("value")},
+  // };
   template <typename N, typename V>
   WideColumn(N&& name, V&& value)
       : name_(std::forward<N>(name)), value_(std::forward<V>(value)) {}
 
-  // Initializes a WideColumn object by forwarding the elements of
-  // name_tuple and value_tuple to the constructors of the corresponding member
-  // Slices. This makes it possible to initialize the Slices using the Slice
+  // Initializes a WideColumn object by forwarding the elements of name_tuple
+  // and value_tuple to the constructors of the corresponding member Slices
+  // without copying the bytes. As above, the caller retains ownership of the
+  // referenced bytes, so any buffers used here must stay alive for as long as
+  // the WideColumn is used and until any consuming PutEntity() call returns.
+  // This makes it possible to initialize the Slices using the Slice
   // constructors that take more than one argument, for example:
   //
   // constexpr char foo_name[] = "foo_name";
