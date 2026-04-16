@@ -811,6 +811,59 @@ TEST_F(DBWideBlobDirectWriteTest,
 }
 
 TEST_F(DBWideBlobDirectWriteTest,
+       DirectWriteWideEntityFlushOverwriteElisionTracksBlobGarbage) {
+  Options options = GetDirectWriteOptions();
+  options.allow_concurrent_memtable_write = false;
+  options.blob_direct_write_partitions = 1;
+  options.min_blob_size = 64;
+  options.blob_file_size = 1 << 20;
+  options.disable_auto_compactions = true;
+  options.enable_blob_garbage_collection = false;
+
+  Reopen(options);
+
+  const std::string key = "overwritten_entity";
+  const std::string old_value = GenerateLargeValue(4096, 'O');
+  const std::string new_value = GenerateLargeValue(4096, 'N');
+  const auto old_columns_data =
+      WideColumnStringPairs{{"", old_value}, {"meta", "old_inline_meta"}};
+  const WideColumns old_columns = ToWideColumns(old_columns_data);
+  const auto new_columns_data =
+      WideColumnStringPairs{{"", new_value}, {"meta", "new_inline_meta"}};
+  const WideColumns new_columns = ToWideColumns(new_columns_data);
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key,
+                           old_columns));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key,
+                           new_columns));
+
+  ASSERT_OK(Flush());
+
+  PinnableWideColumns result;
+  ASSERT_OK(
+      db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key, &result));
+  ASSERT_EQ(result.columns(), new_columns);
+
+  const uint64_t old_record_bytes =
+      old_value.size() +
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(key.size());
+  const uint64_t new_record_bytes =
+      new_value.size() +
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(key.size());
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_file_count, 1U);
+  ASSERT_EQ(cf_meta.blob_files.size(), 1U);
+
+  const BlobMetaData& blob_meta = cf_meta.blob_files[0];
+  ASSERT_EQ(blob_meta.total_blob_count, 2U);
+  ASSERT_EQ(blob_meta.total_blob_bytes, old_record_bytes + new_record_bytes);
+  ASSERT_EQ(blob_meta.garbage_blob_count, 1U);
+  ASSERT_EQ(blob_meta.garbage_blob_bytes, old_record_bytes);
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
        DirectWriteWideEntityLazyTTLFlushAllExpiredDoesNotLeakBlobGeneration) {
   std::atomic<int> filter_call_count{0};
   std::atomic<int> ttl_columns_seen{0};
