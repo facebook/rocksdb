@@ -1412,9 +1412,8 @@ struct AdvancedColumnFamilyOptions {
   // future iterators by potentially skipping a large number of tombstone scans.
   //
   // Read-write iterators using ReadOptions::table_filter are rejected while
-  // this option is enabled, since filtering out SSTs can hide live keys needed
-  // to determine a safe tombstone run boundary before synthesizing a memtable
-  // tombstone.
+  // this option is enabled, see more details in ReadOptions::table_filter
+  // comments.
   //
   // Set to 0 to disable.
   //

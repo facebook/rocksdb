@@ -2234,10 +2234,17 @@ struct ReadOptions {
   // the table will not be scanned. This option only affects Iterators and has
   // no impact on point lookups.
   //
-  // Iterator creation on read-write DB variants returns InvalidArgument when
-  // the target column family's min_tombstones_for_range_conversion is
-  // non-zero, since read-path range tombstone conversion requires visibility
-  // into all relevant SSTs before synthesizing a memtable tombstone.
+  // Iterator creation on read-write DB variants returns InvalidArgument for
+  // safety when the target column family's min_tombstones_for_range_conversion
+  // is non-zero. The reasoning is that a fully visible iterator may create a
+  // range tombstone from tombstones that can be later converted to a range
+  // tombstone. If another iterator tries to filter out the table with the
+  // tombstones, the reader would expect the deletes to no longer apply, but it
+  // actually still does because of the range tombstone that was inserted.
+  // IMPORTANT: min_tombstones_for_range_conversion is a dynamic option, so
+  // disabling it may allow you to use table_filters again, you must account for
+  // the possibility that range tombstones have already been inserted into
+  // either the memtable or other sst files.
   //
   // Default: empty (every table will be scanned)
   std::function<bool(const TableProperties&)> table_filter;
