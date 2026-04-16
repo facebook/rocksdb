@@ -80,6 +80,27 @@ class PutEntityFastPathWriteCallback final : public WriteCallback {
   bool AllowWriteBatching() override { return false; }
 };
 
+class BlobDirectWriteAttachmentCleanupGuard {
+ public:
+  explicit BlobDirectWriteAttachmentCleanupGuard(WriteBatch* batch)
+      : batch_(batch) {}
+  BlobDirectWriteAttachmentCleanupGuard(
+      const BlobDirectWriteAttachmentCleanupGuard&) = delete;
+  BlobDirectWriteAttachmentCleanupGuard& operator=(
+      const BlobDirectWriteAttachmentCleanupGuard&) = delete;
+  BlobDirectWriteAttachmentCleanupGuard(
+      BlobDirectWriteAttachmentCleanupGuard&&) = delete;
+  BlobDirectWriteAttachmentCleanupGuard& operator=(
+      BlobDirectWriteAttachmentCleanupGuard&&) = delete;
+
+  ~BlobDirectWriteAttachmentCleanupGuard() {
+    WriteBatchInternal::DetachColumnFamilyAttachments(batch_);
+  }
+
+ private:
+  WriteBatch* batch_;
+};
+
 }  // namespace
 
 // Convenience methods
@@ -474,14 +495,26 @@ struct DBImpl::BlobDirectWriteContext {
 
   ~BlobDirectWriteContext() { Release(); }
 
+  BlobDirectWriteSettings GetSettings(const WriteBatch* batch, uint32_t cf_id,
+                                      bool lookup_from_write_thread) {
+    return GetOrCreate(batch, cf_id, lookup_from_write_thread).settings;
+  }
+
   BlobDirectWriteSettings GetSettings(uint32_t cf_id,
                                       bool lookup_from_write_thread) {
-    return GetOrCreate(cf_id, lookup_from_write_thread).settings;
+    return GetSettings(/*batch=*/nullptr, cf_id, lookup_from_write_thread);
+  }
+
+  BlobFilePartitionManager* GetPartitionManager(const WriteBatch* batch,
+                                                uint32_t cf_id,
+                                                bool lookup_from_write_thread) {
+    return GetOrCreate(batch, cf_id, lookup_from_write_thread).partition_mgr;
   }
 
   BlobFilePartitionManager* GetPartitionManager(uint32_t cf_id,
                                                 bool lookup_from_write_thread) {
-    return GetOrCreate(cf_id, lookup_from_write_thread).partition_mgr;
+    return GetPartitionManager(/*batch=*/nullptr, cf_id,
+                               lookup_from_write_thread);
   }
 
   void Release() {
@@ -515,7 +548,8 @@ struct DBImpl::BlobDirectWriteContext {
     return settings;
   }
 
-  SuperVersion* AcquireReferencedSuperVersion(uint32_t cf_id,
+  SuperVersion* AcquireReferencedSuperVersion(const WriteBatch* batch,
+                                              uint32_t cf_id,
                                               bool lookup_from_write_thread) {
     if (lookup_from_write_thread) {
       auto* cfd =
@@ -526,16 +560,31 @@ struct DBImpl::BlobDirectWriteContext {
       return nullptr;
     }
 
+    if (batch != nullptr) {
+      if (auto* cfd =
+              WriteBatchInternal::GetAttachedColumnFamily(batch, cf_id,
+                                                          db_impl_)) {
+        // Attached batches already pinned the CFD while the user still held a
+        // CF handle, so we can reuse the usual SuperVersion publication path
+        // here without taking DB mutex for an id->CFD lookup.
+        TEST_SYNC_POINT(
+            "DBImpl::BlobDirectWriteContext::AcquireReferencedSuperVersion:"
+            "UseAttachment");
+        return cfd->GetReferencedSuperVersion(db_impl_);
+      }
+    }
+
     ColumnFamilyData* cfd = nullptr;
+    TEST_SYNC_POINT(
+        "DBImpl::BlobDirectWriteContext::AcquireReferencedSuperVersion:"
+        "FallbackLookup");
     {
       InstrumentedMutexLock lock(&db_impl_->mutex_);
       cfd = db_impl_->versions_->GetColumnFamilySet()->GetColumnFamily(cf_id);
       if (cfd != nullptr) {
         // Hold the CFD long enough to acquire a referenced SuperVersion after
-        // dropping DB mutex. This reuses the existing SuperVersion publication
-        // path for mutable options rather than maintaining a separate BDW
-        // settings snapshot. A future attached-WriteBatch path could pin the
-        // needed CFDs up front and avoid this DB mutex lookup entirely.
+        // dropping DB mutex. Unattached batches still need this DB mutex lookup
+        // because their serialized payload only carries cf_id.
         cfd->Ref();
       }
     }
@@ -551,15 +600,16 @@ struct DBImpl::BlobDirectWriteContext {
     return sv;
   }
 
-  Entry& GetOrCreate(uint32_t cf_id, bool lookup_from_write_thread) {
+  Entry& GetOrCreate(const WriteBatch* batch, uint32_t cf_id,
+                     bool lookup_from_write_thread) {
     auto entry_it = entries_.find(cf_id);
     if (entry_it != entries_.end()) {
       return entry_it->second;
     }
 
     Entry entry;
-    if (SuperVersion* sv =
-            AcquireReferencedSuperVersion(cf_id, lookup_from_write_thread)) {
+    if (SuperVersion* sv = AcquireReferencedSuperVersion(
+            batch, cf_id, lookup_from_write_thread)) {
       entry.super_version = sv;
       entry.partition_mgr = sv->cfd->blob_partition_manager();
       if (entry.partition_mgr != nullptr) {
@@ -603,11 +653,12 @@ Status DBImpl::MaybeTransformBatchForBlobDirectWrite(
   transformed_storage->Clear();
 
   auto settings_provider = [&](uint32_t cf_id) -> BlobDirectWriteSettings {
-    return blob_direct_write_ctx->GetSettings(cf_id, lookup_from_write_thread);
+    return blob_direct_write_ctx->GetSettings(*batch, cf_id,
+                                              lookup_from_write_thread);
   };
   auto partition_mgr_provider =
       [&](uint32_t cf_id) -> BlobFilePartitionManager* {
-    return blob_direct_write_ctx->GetPartitionManager(cf_id,
+    return blob_direct_write_ctx->GetPartitionManager(*batch, cf_id,
                                                       lookup_from_write_thread);
   };
   Status s = BlobWriteBatchTransformer::TransformBatch(
@@ -625,6 +676,16 @@ Status DBImpl::MaybeTransformBatchForBlobDirectWrite(
         batch_rollbacks.end());
   }
   return Status::OK();
+}
+
+Status DBImpl::TEST_MaybeTransformBatchForBlobDirectWriteOffWriteThread(
+    const WriteOptions& write_options, WriteBatch** batch,
+    WriteBatch* transformed_storage) {
+  BlobDirectWriteContext blob_direct_write_ctx(this);
+  return MaybeTransformBatchForBlobDirectWrite(
+      write_options, batch, /*should_write_to_memtable=*/true,
+      /*lookup_from_write_thread=*/false, transformed_storage,
+      &blob_direct_write_ctx);
 }
 
 Status DBImpl::AppendPreprocessedPutEntityToBatch(
@@ -872,6 +933,9 @@ Status DBImpl::WriteImpl(
     std::shared_ptr<WriteBatchWithIndex> wbwi, WriteBatch* trace_batch_override,
     bool skip_blob_direct_write_transform,
     const DBImpl::DeferredPutEntityBatch* deferred_put_entities) {
+  WriteBatch* const original_batch = my_batch;
+  BlobDirectWriteAttachmentCleanupGuard attachment_cleanup_guard(
+      original_batch);
   assert(!seq_per_batch_ || batch_cnt != 0);
   assert(my_batch == nullptr || my_batch->Count() == 0 ||
          write_options.protection_bytes_per_key == 0 ||

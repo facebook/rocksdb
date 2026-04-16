@@ -974,6 +974,7 @@ Status WriteCommittedTxn::CommitInternal() {
     // might be used for transaction reuse.
     write_batch_ = WriteBatchWithIndex(cmp_, 0, true, 0,
                                        write_options_.protection_bytes_per_key);
+    MaybeAttachDefaultColumnFamiliesForBlobDirectWrite();
   } else {
     s = db_impl_->WriteImpl(write_options_, working_batch, /*callback*/ nullptr,
                             /*user_write_cb=*/nullptr,

@@ -2473,6 +2473,32 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   return s;
 }
 
+Status DBImpl::GetByColumnFamilyData(const ReadOptions& _read_options,
+                                     ColumnFamilyData* cfd, const Slice& key,
+                                     PinnableSlice* value,
+                                     std::string* timestamp) {
+  assert(cfd != nullptr);
+  assert(value != nullptr);
+  value->Reset();
+
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
+  }
+
+  GetImplOptions get_impl_options;
+  get_impl_options.value = value;
+  get_impl_options.timestamp = timestamp;
+  return GetImpl(read_options, key, get_impl_options, cfd);
+}
+
 Status DBImpl::GetEntity(const ReadOptions& _read_options,
                          ColumnFamilyHandle* column_family, const Slice& key,
                          PinnableWideColumns* columns) {
@@ -2501,6 +2527,32 @@ Status DBImpl::GetEntity(const ReadOptions& _read_options,
   get_impl_options.columns = columns;
 
   return GetImpl(read_options, key, get_impl_options);
+}
+
+Status DBImpl::GetEntityByColumnFamilyData(const ReadOptions& _read_options,
+                                           ColumnFamilyData* cfd,
+                                           const Slice& key,
+                                           PinnableWideColumns* columns) {
+  assert(cfd != nullptr);
+  if (!columns) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntity without a PinnableWideColumns object");
+  }
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGetEntity) {
+    return Status::InvalidArgument(
+        "Can only call GetEntity with `ReadOptions::io_activity` set to "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
+  }
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGetEntity;
+  }
+  columns->Reset();
+
+  GetImplOptions get_impl_options;
+  get_impl_options.columns = columns;
+  return GetImpl(read_options, key, get_impl_options, cfd);
 }
 
 Status DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
@@ -2811,23 +2863,32 @@ bool DBImpl::MaybeResolveDirectWriteValue(
 
 Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        GetImplOptions& get_impl_options) {
+  return GetImpl(read_options, key, get_impl_options,
+                 /*column_family_data=*/nullptr);
+}
+
+Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
+                       GetImplOptions& get_impl_options,
+                       ColumnFamilyData* column_family_data) {
   assert(get_impl_options.value != nullptr ||
          get_impl_options.merge_operands != nullptr ||
          get_impl_options.columns != nullptr);
+  assert(get_impl_options.column_family != nullptr ||
+         column_family_data != nullptr);
 
-  assert(get_impl_options.column_family);
+  ColumnFamilyData* cfd = column_family_data;
+  if (cfd == nullptr) {
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+        get_impl_options.column_family);
+    cfd = cfh->cfd();
+  }
 
-  if (read_options.timestamp) {
-    const Status s = FailIfTsMismatchCf(get_impl_options.column_family,
-                                        *(read_options.timestamp));
-    if (!s.ok()) {
-      return s;
-    }
-  } else {
-    const Status s = FailIfCfHasTs(get_impl_options.column_family);
-    if (!s.ok()) {
-      return s;
-    }
+  const Status cf_status =
+      read_options.timestamp
+          ? FailIfTsMismatchCf(cfd, *(read_options.timestamp))
+          : FailIfCfHasTs(cfd);
+  if (!cf_status.ok()) {
+    return cf_status;
   }
 
   // Clear the timestamps for returning results so that we can distinguish
@@ -2842,11 +2903,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
-  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
-      get_impl_options.column_family);
-  auto cfd = cfh->cfd();
-
-  if (tracer_) {
+  if (tracer_ && get_impl_options.column_family != nullptr) {
     // TODO: This mutex should be removed later, to improve performance when
     // tracing is enabled.
     InstrumentedMutexLock lock(&trace_mutex_);
@@ -2918,7 +2975,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   // only if t <= read_opts.timestamp and s <= snapshot.
   // HACK: temporarily overwrite input struct field but restore
   SaveAndRestore<ReadCallback*> restore_callback(&get_impl_options.callback);
-  const Comparator* ucmp = get_impl_options.column_family->GetComparator();
+  const Comparator* ucmp = cfd->user_comparator();
   assert(ucmp);
   if (ucmp->timestamp_size() > 0) {
     assert(!get_impl_options
@@ -4269,6 +4326,7 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
 
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
+  const auto& lease = cfh->lease();
   if (cfd->GetID() == 0) {
     return Status::InvalidArgument("Can't drop default column family");
   }
@@ -4288,9 +4346,14 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
     if (cfd->IsDropped()) {
       s = Status::InvalidArgument("Column family already dropped!\n");
     }
+    if (s.ok() && lease != nullptr) {
+      lease->SetState(ColumnFamilyLeaseState::kClosing);
+      TEST_SYNC_POINT("DBImpl::DropColumnFamilyImpl:AfterSetLeaseClosing");
+    }
     if (s.ok()) {
       // we drop column family from a single write thread
       WriteThread::Writer w;
+      TEST_SYNC_POINT("DBImpl::DropColumnFamilyImpl:BeforeLogAndApplyDrop");
       write_thread_.EnterUnbatched(&w, &mutex_);
       s = versions_->LogAndApply(cfd, read_options, write_options, &edit,
                                  &mutex_, directories_.GetDbDir());
@@ -4298,6 +4361,10 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
       if (s.ok() && cfd->blob_partition_manager() != nullptr) {
         UnregisterBlobDirectWriteColumnFamily();
       }
+    }
+    if (!s.ok() && lease != nullptr &&
+        lease->state() == ColumnFamilyLeaseState::kClosing) {
+      lease->SetState(ColumnFamilyLeaseState::kActive);
     }
     if (s.ok()) {
       auto& moptions = cfd->GetLatestMutableCFOptions();
@@ -5280,18 +5347,6 @@ void DBImpl::ReturnAndCleanupSuperVersion(uint32_t column_family_id,
   // GetAndRefSuperVersion(), it must still exist.
   assert(cfd != nullptr);
   ReturnAndCleanupSuperVersion(cfd, sv);
-}
-
-// REQUIRED: this function should only be called on the write thread or if the
-// mutex is held.
-ColumnFamilyHandle* DBImpl::GetColumnFamilyHandle(uint32_t column_family_id) {
-  ColumnFamilyMemTables* cf_memtables = column_family_memtables_.get();
-
-  if (!cf_memtables->Seek(column_family_id)) {
-    return nullptr;
-  }
-
-  return cf_memtables->GetColumnFamilyHandle();
 }
 
 // REQUIRED: mutex is NOT held.

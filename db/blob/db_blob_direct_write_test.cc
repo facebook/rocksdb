@@ -26,6 +26,7 @@
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
 #include "db/wide/wide_column_test_util.h"
+#include "db/write_batch_internal.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
 #include "port/stack_trace.h"
@@ -161,6 +162,12 @@ class DBBlobDirectWriteTest : public DBTestBase {
       }
     }
     return kNoCompression;
+  }
+
+  ColumnFamilyData* GetAttached(const WriteBatch* batch,
+                                ColumnFamilyHandle* cfh) {
+    return WriteBatchInternal::GetAttachedColumnFamily(batch, cfh->GetID(),
+                                                       dbfull());
   }
 
   void AssertOrderedTraceStoresLogicalPut(const Options& options,
@@ -322,6 +329,58 @@ TEST_F(
   for (size_t i = 0; i < keys.size(); ++i) {
     ASSERT_EQ(Get(keys[i]), values[i]);
   }
+}
+
+TEST_F(DBBlobDirectWriteTest, OffWriteThreadTransformUsesAttachment) {
+  Options options = GetDirectWriteOptions();
+  Reopen(options);
+
+  auto* sync_point = SyncPoint::GetInstance();
+  sync_point->DisableProcessing();
+  sync_point->ClearAllCallBacks();
+
+  int attached_lookup_count = 0;
+  int fallback_lookup_count = 0;
+  sync_point->SetCallBack(
+      "DBImpl::BlobDirectWriteContext::AcquireReferencedSuperVersion:"
+      "UseAttachment",
+      [&](void*) { ++attached_lookup_count; });
+  sync_point->SetCallBack(
+      "DBImpl::BlobDirectWriteContext::AcquireReferencedSuperVersion:"
+      "FallbackLookup",
+      [&](void*) { ++fallback_lookup_count; });
+  sync_point->EnableProcessing();
+
+  auto run_transform = [&](WriteBatch* batch) {
+    WriteBatch transformed;
+    WriteBatch* batch_ptr = batch;
+    WriteOptions write_options;
+    write_options.disableWAL = true;
+    ASSERT_OK(
+        dbfull()->TEST_MaybeTransformBatchForBlobDirectWriteOffWriteThread(
+            write_options, &batch_ptr, &transformed));
+  };
+
+  // Off-write-thread BDW transform should reuse the batch attachment to locate
+  // the CFD, not fall back to a DB-mutex id->CFD lookup.
+  WriteBatch attached_batch;
+  ASSERT_OK(attached_batch.Put(db_->DefaultColumnFamily(), "attached_key",
+                               std::string(128, 'a')));
+  run_transform(&attached_batch);
+  ASSERT_EQ(attached_lookup_count, 1);
+  ASSERT_EQ(fallback_lookup_count, 0);
+
+  attached_lookup_count = 0;
+  fallback_lookup_count = 0;
+
+  WriteBatch unattached_batch;
+  ASSERT_OK(unattached_batch.Put("unattached_key", std::string(128, 'b')));
+  run_transform(&unattached_batch);
+  ASSERT_EQ(attached_lookup_count, 0);
+  ASSERT_EQ(fallback_lookup_count, 1);
+
+  sync_point->DisableProcessing();
+  sync_point->ClearAllCallBacks();
 }
 
 TEST_F(DBBlobDirectWriteTest,
@@ -534,6 +593,7 @@ TEST_F(DBBlobDirectWriteTest,
   ASSERT_OK(db_->DestroyColumnFamilyHandle(first_cfh));
   ASSERT_OK(db_->DestroyColumnFamilyHandle(second_cfh));
 }
+
 TEST_F(DBBlobDirectWriteTest,
        DirectWriteCloseFlushesWhenShutdownFlushIsDisabled) {
   Options options = GetDefaultOptions();
@@ -944,7 +1004,7 @@ TEST_F(DBBlobDirectWriteTest,
   ASSERT_EQ(Get(third_key), third_value);
 }
 
-TEST_F(DBBlobDirectWriteTest, DirectWriteFailedBatchTrackedAsInitialGarbage) {
+TEST_F(DBBlobDirectWriteTest, FailedBatchCountsAsInitialGarbage) {
   Options options = GetDirectWriteOptions();
   options.blob_file_size = 1 << 20;
   options.blob_compression_type = kNoCompression;
@@ -956,6 +1016,8 @@ TEST_F(DBBlobDirectWriteTest, DirectWriteFailedBatchTrackedAsInitialGarbage) {
   const uint64_t failed_record_bytes =
       BlobLogRecord::kHeaderSize + failed_key.size() + failed_value.size();
 
+  // Fail the write after BDW has already appended the blob record. The payload
+  // should survive on disk only as initial garbage, not as a visible key.
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::WriteImpl:AfterBlobDirectWrite", [](void* arg) {
         auto* status = static_cast<Status*>(arg);
@@ -1004,6 +1066,40 @@ TEST_F(DBBlobDirectWriteTest, DirectWriteFailedBatchTrackedAsInitialGarbage) {
   ASSERT_EQ(cf_meta.blob_files[0].total_blob_count, 2U);
   ASSERT_EQ(cf_meta.blob_files[0].garbage_blob_count, 1U);
   ASSERT_EQ(cf_meta.blob_files[0].garbage_blob_bytes, failed_record_bytes);
+}
+
+TEST_F(DBBlobDirectWriteTest, FailedWriteDetachesOriginalAttachments) {
+  Options options = GetDirectWriteOptions();
+  options.blob_file_size = 1 << 20;
+  options.blob_compression_type = kNoCompression;
+
+  Reopen(options);
+
+  const std::string key = "failed_attached_key";
+  const std::string value(128, 'f');
+
+  WriteBatch batch;
+  ASSERT_OK(batch.Put(db_->DefaultColumnFamily(), key, value));
+  ASSERT_NE(GetAttached(&batch, db_->DefaultColumnFamily()), nullptr);
+
+  // BDW rewrites through an internal batch copy. If the write fails after that
+  // rewrite, the original user batch still must release its attachment state so
+  // it does not keep the default CF pinned indefinitely.
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteImpl:AfterBlobDirectWrite", [](void* arg) {
+        auto* status = static_cast<Status*>(arg);
+        assert(status != nullptr);
+        *status = Status::IOError("Injected post-BDW failure");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = db_->Write(WriteOptions(), &batch);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(s.IsIOError()) << s.ToString();
+  ASSERT_EQ(GetAttached(&batch, db_->DefaultColumnFamily()), nullptr);
 }
 
 TEST_F(DBBlobDirectWriteTest, DirectWriteRollbackMismatchReturnsCorruption) {

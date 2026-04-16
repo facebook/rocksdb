@@ -10,6 +10,7 @@
 #pragma once
 
 #include <atomic>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -51,6 +52,7 @@ struct SuperVersionContext;
 class BlobFileCache;
 class BlobFilePartitionManager;
 class BlobSource;
+class ColumnFamilyLease;
 
 extern const double kIncSlowdownRatio;
 // This file contains a list of data structures for managing column family
@@ -163,6 +165,55 @@ extern const double kIncSlowdownRatio;
 // ColumnFamilyHandleImpl is the class that clients use to access different
 // column families. It has non-trivial destructor, which gets called when client
 // is done using the column family
+enum class ColumnFamilyLeaseState : uint8_t {
+  kActive,
+  kClosing,
+  kDropped,
+};
+
+// Shared long-lived reference to a CFD that can be borrowed by user-visible
+// handles and transient internal users such as attached WriteBatch state.
+// Current lease users only solve CFD lifetime and admission fencing for new
+// borrowers. They do not reserve completion through later WAL/memtable phases,
+// so an already-admitted write may still fail after DropColumnFamily() if the
+// column family leaves the live set before memtable insertion. If that later
+// failure happens after WAL append, the write follows the existing memtable
+// insert failure path instead of being transparently drained to completion.
+class ColumnFamilyLease {
+ public:
+  ColumnFamilyLease(ColumnFamilyData* cfd, DBImpl* db,
+                    InstrumentedMutex* mutex);
+  ~ColumnFamilyLease();
+  ColumnFamilyLease(const ColumnFamilyLease&) = delete;
+  ColumnFamilyLease& operator=(const ColumnFamilyLease&) = delete;
+
+  // Returns the referenced CFD. Valid while this lease is alive.
+  ColumnFamilyData* cfd() const { return cfd_; }
+  // Returns the owning DB for the referenced CFD.
+  DBImpl* db() const { return db_; }
+  // Returns the DB mutex associated with the referenced CFD.
+  InstrumentedMutex* mutex() const { return mutex_; }
+
+  // Reads the admission state used to gate new internal borrowers.
+  ColumnFamilyLeaseState state() const {
+    return state_.load(std::memory_order_acquire);
+  }
+  // Publishes a new admission state for future internal borrowers.
+  void SetState(ColumnFamilyLeaseState state) {
+    state_.store(state, std::memory_order_release);
+  }
+
+ private:
+  // Referenced column family kept alive by this lease.
+  ColumnFamilyData* cfd_;
+  // DB that owns `cfd_`.
+  DBImpl* db_;
+  // DB mutex associated with `cfd_`.
+  InstrumentedMutex* mutex_;
+  // Admission state for new internal lease borrowers.
+  std::atomic<ColumnFamilyLeaseState> state_{ColumnFamilyLeaseState::kActive};
+};
+
 class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
  public:
   // create while holding the mutex
@@ -170,8 +221,27 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
                          InstrumentedMutex* mutex);
   // destroy without mutex
   virtual ~ColumnFamilyHandleImpl();
-  virtual ColumnFamilyData* cfd() const { return cfd_; }
-  virtual DBImpl* db() const { return db_; }
+  // Returns the CFD referenced by this handle's shared lease.
+  virtual ColumnFamilyData* cfd() const {
+    assert(lease_ != nullptr);
+    return lease_->cfd();
+  }
+  // Returns the owning DB of the leased CFD.
+  virtual DBImpl* db() const {
+    assert(lease_ != nullptr);
+    return lease_->db();
+  }
+  // Returns the DB mutex associated with the leased CFD.
+  virtual InstrumentedMutex* mutex() const {
+    assert(lease_ != nullptr);
+    return lease_->mutex();
+  }
+  // Exposes the shared lease so internal callers can temporarily extend CFD
+  // lifetime without creating another user-visible handle.
+  virtual const std::shared_ptr<ColumnFamilyLease>& lease() const {
+    assert(lease_ != nullptr);
+    return lease_;
+  }
 
   uint32_t GetID() const override;
   const std::string& GetName() const override;
@@ -179,29 +249,23 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
   const Comparator* GetComparator() const override;
 
  private:
-  ColumnFamilyData* cfd_;
-  DBImpl* db_;
-  InstrumentedMutex* mutex_;
+  // Long-lived CFD lease shared with internal borrowers derived from this
+  // handle, such as attached WriteBatch state.
+  std::shared_ptr<ColumnFamilyLease> lease_;
+
+ protected:
+  // Only for detached test doubles that need the ColumnFamilyHandleImpl type
+  // without a backing CFD lease.
+  struct DetachedHandleTag {};
+  explicit ColumnFamilyHandleImpl(DetachedHandleTag) {}
 };
 
-// Does not ref-count ColumnFamilyData
-// We use this dummy ColumnFamilyHandleImpl because sometimes MemTableInserter
-// calls DBImpl methods. When this happens, MemTableInserter need access to
-// ColumnFamilyHandle (same as the client would need). In that case, we feed
-// MemTableInserter dummy ColumnFamilyHandle and enable it to call DBImpl
-// methods
-class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
- public:
-  ColumnFamilyHandleInternal()
-      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr),
-        internal_cfd_(nullptr) {}
-
-  void SetCFD(ColumnFamilyData* _cfd) { internal_cfd_ = _cfd; }
-  ColumnFamilyData* cfd() const override { return internal_cfd_; }
-
- private:
-  ColumnFamilyData* internal_cfd_;
-};
+// Releases a ref() held on ColumnFamilyData using the same drop cleanup path
+// as ColumnFamilyHandleImpl destruction. This helper intentionally does not
+// invoke OnColumnFamilyHandleDeletionStarted() because no user-visible handle
+// is being destroyed.
+void ReleaseColumnFamilyDataReference(ColumnFamilyData* cfd, DBImpl* db,
+                                      InstrumentedMutex* mutex);
 
 // holds references to memtable, all immutable memtables and version
 struct SuperVersion {
@@ -321,8 +385,9 @@ class ColumnFamilyData {
   // 3) from single-threaded VersionSet::LogAndApply()
   // After dropping column family no other operation on that column family
   // will be executed. All the files and memory will be, however, kept around
-  // until client drops the column family handle. That way, client can still
-  // access data from dropped column family.
+  // until client drops the column family handle and any derived internal lease
+  // holders (e.g. attached WriteBatch state) are released. That way, client
+  // can still access data from dropped column family.
   // Column family can be dropped and still alive. In that state:
   // *) Compaction and flush is not executed on the dropped column family.
   // *) Client can continue reading from column family. Writes will fail unless
@@ -491,6 +556,10 @@ class ColumnFamilyData {
   // thread-safe
   // Return a already referenced SuperVersion to be used safely.
   SuperVersion* GetReferencedSuperVersion(DBImpl* db);
+  // REQUIRES: DB mutex held.
+  // Returns the shared CFD lease, creating it on first use.
+  std::shared_ptr<ColumnFamilyLease> GetOrCreateLease(DBImpl* db,
+                                                      InstrumentedMutex* mutex);
   // thread-safe
   // Get SuperVersion stored in thread local storage. If it does not exist,
   // get a reference from a current SuperVersion.
@@ -726,6 +795,9 @@ class ColumnFamilyData {
   // For charging memory usage of file metadata created for newly added files to
   // a Version associated with this CFD
   std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr_;
+  // Shared lease backing user-visible handles and transient internal CFD
+  // borrowers. Weak ownership keeps the CFD from self-owning through the lease.
+  std::weak_ptr<ColumnFamilyLease> lease_;
   bool mempurge_used_;
 
   std::atomic<uint64_t> next_epoch_number_;
@@ -936,11 +1008,6 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
   //           under a DB mutex OR from a write thread
   MemTable* GetMemTable() const override;
 
-  // Returns column family handle for the selected column family
-  // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
-  //           under a DB mutex OR from a write thread
-  ColumnFamilyHandle* GetColumnFamilyHandle() override;
-
   // Cannot be called while another thread is calling Seek().
   // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
   //           under a DB mutex OR from a write thread
@@ -949,7 +1016,6 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
  private:
   ColumnFamilySet* column_family_set_;
   ColumnFamilyData* current_;
-  ColumnFamilyHandleInternal handle_;
 };
 
 uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family);

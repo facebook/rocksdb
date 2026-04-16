@@ -45,39 +45,60 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+ColumnFamilyLease::ColumnFamilyLease(ColumnFamilyData* cfd, DBImpl* db,
+                                     InstrumentedMutex* mutex)
+    : cfd_(cfd), db_(db), mutex_(mutex) {
+  assert(cfd_ != nullptr);
+  assert(db_ != nullptr);
+  assert(mutex_ != nullptr);
+  cfd_->Ref();
+}
+
+ColumnFamilyLease::~ColumnFamilyLease() {
+  ReleaseColumnFamilyDataReference(cfd_, db_, mutex_);
+}
+
 ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(
     ColumnFamilyData* column_family_data, DBImpl* db, InstrumentedMutex* mutex)
-    : cfd_(column_family_data), db_(db), mutex_(mutex) {
-  if (cfd_ != nullptr) {
-    cfd_->Ref();
+    : lease_() {
+  assert(column_family_data != nullptr);
+  assert(db != nullptr);
+  assert(mutex != nullptr);
+  lease_ = column_family_data->GetOrCreateLease(db, mutex);
+  assert(lease_ != nullptr);
+}
+
+void ReleaseColumnFamilyDataReference(ColumnFamilyData* cfd, DBImpl* db,
+                                      InstrumentedMutex* mutex) {
+  assert(cfd != nullptr);
+  assert(db != nullptr);
+  assert(mutex != nullptr);
+
+  // Hold the shared_ptr-backed options long enough for any cleanup triggered by
+  // the final CFD ref release.
+  ColumnFamilyOptions initial_cf_options_copy = cfd->initial_cf_options();
+  JobContext job_context(0);
+  mutex->Lock();
+  const bool dropped = cfd->IsDropped();
+  if (cfd->UnrefAndTryDelete() && dropped) {
+    db->FindObsoleteFiles(&job_context, false, true);
   }
+  mutex->Unlock();
+  if (job_context.HaveSomethingToDelete()) {
+    const bool defer_purge =
+        db->immutable_db_options().avoid_unnecessary_blocking_io;
+    db->PurgeObsoleteFiles(job_context, defer_purge);
+  }
+  job_context.Clean();
 }
 
 ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
-  if (cfd_ != nullptr) {
-    for (auto& listener : cfd_->ioptions().listeners) {
+  if (lease_ != nullptr) {
+    ColumnFamilyData* cfd = lease_->cfd();
+    for (auto& listener : cfd->ioptions().listeners) {
       listener->OnColumnFamilyHandleDeletionStarted(this);
     }
-    // Job id == 0 means that this is not our background process, but rather
-    // user thread
-    // Need to hold some shared pointers owned by the initial_cf_options
-    // before final cleaning up finishes.
-    ColumnFamilyOptions initial_cf_options_copy = cfd_->initial_cf_options();
-    JobContext job_context(0);
-    mutex_->Lock();
-    bool dropped = cfd_->IsDropped();
-    if (cfd_->UnrefAndTryDelete()) {
-      if (dropped) {
-        db_->FindObsoleteFiles(&job_context, false, true);
-      }
-    }
-    mutex_->Unlock();
-    if (job_context.HaveSomethingToDelete()) {
-      bool defer_purge =
-          db_->immutable_db_options().avoid_unnecessary_blocking_io;
-      db_->PurgeObsoleteFiles(job_context, defer_purge);
-    }
-    job_context.Clean();
+    lease_.reset();
   }
 }
 
@@ -89,13 +110,30 @@ const std::string& ColumnFamilyHandleImpl::GetName() const {
 
 Status ColumnFamilyHandleImpl::GetDescriptor(ColumnFamilyDescriptor* desc) {
   // accessing mutable cf-options requires db mutex.
-  InstrumentedMutexLock l(mutex_);
+  InstrumentedMutexLock l(mutex());
   *desc = ColumnFamilyDescriptor(cfd()->GetName(), cfd()->GetLatestCFOptions());
   return Status::OK();
 }
 
 const Comparator* ColumnFamilyHandleImpl::GetComparator() const {
   return cfd()->user_comparator();
+}
+
+std::shared_ptr<ColumnFamilyLease> ColumnFamilyData::GetOrCreateLease(
+    DBImpl* db, InstrumentedMutex* mutex) {
+  assert(db != nullptr);
+  assert(mutex != nullptr);
+  mutex->AssertHeld();
+  auto lease = lease_.lock();
+  if (lease == nullptr) {
+    lease = std::make_shared<ColumnFamilyLease>(this, db, mutex);
+    lease_ = lease;
+  } else {
+    assert(lease->cfd() == this);
+    assert(lease->db() == db);
+    assert(lease->mutex() == mutex);
+  }
+  return lease;
 }
 
 void GetInternalTblPropCollFactory(
@@ -831,6 +869,9 @@ void ColumnFamilyData::SetDropped() {
   // can't drop default CF
   assert(id_ != 0);
   dropped_ = true;
+  if (auto lease = lease_.lock()) {
+    lease->SetState(ColumnFamilyLeaseState::kDropped);
+  }
   write_controller_token_.reset();
 
   // remove from column_family_set
@@ -1944,7 +1985,6 @@ bool ColumnFamilyMemTablesImpl::Seek(uint32_t column_family_id) {
   } else {
     current_ = column_family_set_->GetColumnFamily(column_family_id);
   }
-  handle_.SetCFD(current_);
   return current_ != nullptr;
 }
 
@@ -1956,11 +1996,6 @@ uint64_t ColumnFamilyMemTablesImpl::GetLogNumber() const {
 MemTable* ColumnFamilyMemTablesImpl::GetMemTable() const {
   assert(current_ != nullptr);
   return current_->mem();
-}
-
-ColumnFamilyHandle* ColumnFamilyMemTablesImpl::GetColumnFamilyHandle() {
-  assert(current_ != nullptr);
-  return &handle_;
 }
 
 uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family) {

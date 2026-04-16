@@ -50,7 +50,7 @@ The `WriteBatch` class (see `include/rocksdb/write_batch.h`) tracks several meta
 | `rep_` | `std::string` | Binary buffer containing header + operations |
 | `content_flags_` | `atomic<uint32_t>` | Bitmask of operation types present (enables fast checks like `HasDeleteRange()`) |
 | `prot_info_` | `unique_ptr<ProtectionInfo>` | Optional per-entry checksums (8 bytes per key when enabled) |
-| `save_points_` | `unique_ptr<SavePoints>` | Rollback snapshots for transaction support |
+| `save_points_` | `unique_ptr<SavePoints>` | User save points plus internal CF attachment bookkeeping |
 
 The `content_flags_` field enables O(1) queries like `HasMerge()` and `HasDeleteRange()` without scanning the batch contents. These flags are set during operation insertion and checked during write path validation.
 

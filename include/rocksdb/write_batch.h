@@ -21,6 +21,15 @@
 // external synchronization, but if any of the threads may call a
 // non-const method, all threads accessing the same WriteBatch must use
 // external synchronization.
+//
+// When blob direct write is enabled on a referenced column family, mutating
+// APIs that take a ColumnFamilyHandle may internally pin that column family's
+// metadata until the batch is cleared or destroyed. In that case, the
+// originating DB must outlive the WriteBatch. This metadata pin only preserves
+// access to blob direct-write state; it does not guarantee that an already
+// admitted batch will still succeed after DropColumnFamily(). Such a batch may
+// still fail later during DB::Write() if the column family has left the live
+// set before memtable insertion.
 
 #pragma once
 
@@ -210,7 +219,8 @@ class WriteBatch : public WriteBatchBase {
   using WriteBatchBase::Clear;
   // Clear all updates buffered in this batch.
   // Internally, it calls resize() on the string buffer. So allocated memory
-  // capacity may not be freed.
+  // capacity may not be freed. This also releases any internal blob
+  // direct-write column family attachments held by the batch.
   void Clear() override;
 
   // Records the state of the batch for future calls to RollbackToSavePoint().
@@ -227,7 +237,8 @@ class WriteBatch : public WriteBatchBase {
   // Pop the most recent save point.
   // If there is no previous call to SetSavePoint(), Status::NotFound()
   // will be returned.
-  // Otherwise returns Status::OK().
+  // Otherwise returns Status::OK(). Unlike RollbackToSavePoint(), this keeps
+  // any writes and internal attachment state added after that save point.
   Status PopSavePoint() override;
 
   // Support for iterating over the contents of a batch.
@@ -498,6 +509,9 @@ class WriteBatch : public WriteBatchBase {
   // remove duplicate keys. Remove it when the hack is replaced with a proper
   // solution.
   friend class WriteBatchWithIndex;
+  // Lazily created for user save points and internal column family
+  // attachments, so it may be non-null even if the user never called
+  // SetSavePoint().
   std::unique_ptr<SavePoints> save_points_;
 
   // When sending a WriteBatch through WriteImpl we might want to

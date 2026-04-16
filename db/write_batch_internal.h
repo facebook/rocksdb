@@ -27,6 +27,7 @@ namespace ROCKSDB_NAMESPACE {
 class MemTable;
 class FlushScheduler;
 class ColumnFamilyData;
+class DBImpl;
 
 class ColumnFamilyMemTables {
  public:
@@ -37,7 +38,6 @@ class ColumnFamilyMemTables {
   // been processed)
   virtual uint64_t GetLogNumber() const = 0;
   virtual MemTable* GetMemTable() const = 0;
-  virtual ColumnFamilyHandle* GetColumnFamilyHandle() = 0;
   virtual ColumnFamilyData* current() { return nullptr; }
 };
 
@@ -57,8 +57,6 @@ class ColumnFamilyMemTablesDefault : public ColumnFamilyMemTables {
     assert(ok_);
     return mem_;
   }
-
-  ColumnFamilyHandle* GetColumnFamilyHandle() override { return nullptr; }
 
  private:
   bool ok_;
@@ -173,6 +171,20 @@ class WriteBatchInternal {
   static size_t ByteSize(const WriteBatch* batch) { return batch->rep_.size(); }
 
   static Status SetContents(WriteBatch* batch, const Slice& contents);
+
+  // Record a non-serialized CF attachment derived from a live handle. Blob
+  // direct write currently uses this to pin CFD metadata so later write-path
+  // transforms can avoid a DB mutex lookup.
+  static Status MaybeAttachColumnFamily(
+      WriteBatch* batch, ColumnFamilyHandle* column_family);
+
+  // Returns the attached CFD for `column_family_id` if this batch pinned one
+  // for `db`; otherwise returns nullptr.
+  static ColumnFamilyData* GetAttachedColumnFamily(
+      const WriteBatch* batch, uint32_t column_family_id, DBImpl* db);
+  // Drops non-serialized CF attachments after a write completes so the batch
+  // does not keep column family refs alive longer than needed.
+  static void DetachColumnFamilyAttachments(WriteBatch* batch);
 
   static Status CheckSlicePartsLength(const SliceParts& key,
                                       const SliceParts& value);

@@ -12,7 +12,9 @@
 #include <string>
 #include <thread>
 
+#include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
+#include "db/write_batch_internal.h"
 #include "port/port.h"
 #include "rocksdb/attribute_groups.h"
 #include "rocksdb/db.h"
@@ -301,6 +303,9 @@ TEST_P(TransactionTest, DirectWriteCommitPath) {
   const std::string key = "txn_blob_key";
   const std::string value(512, 'x');
 
+  // Basic end-to-end coverage that a transaction commit still routes large
+  // values through blob direct write and remains readable before and after
+  // flush.
   std::unique_ptr<Transaction> txn(
       db->BeginTransaction(write_options, TransactionOptions()));
   ASSERT_TRUE(txn);
@@ -316,6 +321,78 @@ TEST_P(TransactionTest, DirectWriteCommitPath) {
   result.Reset();
   ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), key, &result));
   ASSERT_EQ(result, value);
+}
+
+TEST_P(TransactionTest, ReuseReattachesDefaultCf) {
+  if (options.two_write_queues || options.unordered_write) {
+    ROCKSDB_GTEST_BYPASS(
+        "Blob direct write v1 only supports the ordered single-write-queue "
+        "path");
+    return;
+  }
+
+  options.enable_blob_files = true;
+  options.enable_blob_direct_write = true;
+  options.allow_concurrent_memtable_write = false;
+  options.blob_direct_write_partitions = 2;
+  options.min_blob_size = 32;
+  options.use_direct_reads = true;
+  options.use_direct_io_for_flush_and_compaction = true;
+
+  Status s = ReOpen();
+  if (s.IsInvalidArgument()) {
+    ROCKSDB_GTEST_SKIP("This test requires direct IO support");
+    return;
+  }
+  ASSERT_OK(s);
+
+  auto* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+  auto* default_cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(db->DefaultColumnFamily())
+          ->cfd();
+
+  auto assert_default_cfd_attached = [&](Transaction* txn) {
+    // Both batches may later flow through the BDW path: the indexed write batch
+    // for ordinary writes and the commit-time batch for commit-only payloads.
+    ASSERT_EQ(WriteBatchInternal::GetAttachedColumnFamily(
+                  txn->GetWriteBatch()->GetWriteBatch(), default_cfd->GetID(),
+                  db_impl),
+              default_cfd);
+    ASSERT_EQ(
+        WriteBatchInternal::GetAttachedColumnFamily(
+            txn->GetCommitTimeWriteBatch(), default_cfd->GetID(), db_impl),
+        default_cfd);
+  };
+
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+  txn_options.use_only_the_last_commit_time_batch_for_recovery = true;
+  const std::string blob_value(512, 'x');
+
+  // Reusing the transaction object calls Clear()/Reinitialize(). The default CF
+  // attachment must be rebuilt for both batches on the reused instance.
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn);
+  assert_default_cfd_attached(txn);
+  ASSERT_OK(txn->Put("txn_blob_key_0", blob_value));
+  ASSERT_OK(txn->Commit());
+
+  txn = db->BeginTransaction(write_options, txn_options, txn);
+  ASSERT_TRUE(txn);
+  assert_default_cfd_attached(txn);
+  ASSERT_OK(txn->Put("txn_blob_key_1", blob_value));
+  ASSERT_OK(txn->Commit());
+
+  delete txn;
+
+  PinnableSlice blob_result;
+  ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), "txn_blob_key_0",
+                    &blob_result));
+  ASSERT_EQ(blob_result, blob_value);
+  blob_result.Reset();
+  ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), "txn_blob_key_1",
+                    &blob_result));
+  ASSERT_EQ(blob_result, blob_value);
 }
 
 // Test the basic API of the pinnable slice overload of GetForUpdate()

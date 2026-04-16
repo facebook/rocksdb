@@ -19,6 +19,7 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
+#include "util/hash_containers.h"
 #include "util/mutexlock.h"
 #include "utilities/secondary_index/secondary_index_mixin.h"
 #include "utilities/transactions/pessimistic_transaction.h"
@@ -124,6 +125,22 @@ Status PessimisticTransactionDB::Initialize(
   // create 'real' transactions from recovered shell transactions
   auto dbimpl = static_cast_with_check<DBImpl>(GetRootDB());
   assert(dbimpl != nullptr);
+  // Reuse the handles that DB open already created for this recovery. They
+  // stay alive for the duration of Initialize(), and no user-visible CF drop
+  // can race until open returns.
+  UnorderedMap<uint32_t, ColumnFamilyHandle*> recovery_cfh_map;
+  recovery_cfh_map.reserve(handles.size());
+  for (auto* handle : handles) {
+    if (handle == nullptr) {
+      return Status::InvalidArgument(
+          "Transaction DB initialization received a null column family handle");
+    }
+    if (!recovery_cfh_map.emplace(handle->GetID(), handle).second) {
+      return Status::InvalidArgument(
+          "Transaction DB initialization received duplicate column family id " +
+          std::to_string(handle->GetID()));
+    }
+  }
   auto rtrxs = dbimpl->recovered_transactions();
 
   for (auto it = rtrxs.begin(); it != rtrxs.end(); ++it) {
@@ -161,7 +178,18 @@ Status PessimisticTransactionDB::Initialize(
       break;
     }
 
-    s = real_trx->RebuildFromWriteBatch(batch_info.batch_);
+    auto* txn_impl = static_cast_with_check<TransactionBaseImpl>(real_trx);
+    // This rebuild path is intentionally stricter than ordinary WAL replay.
+    // Ordinary recovery skips writes whose CF has already been dropped from the
+    // MANIFEST-derived live set. Rebuilding a recovered prepared transaction
+    // still requires a live CF handle so that it can recreate the transaction's
+    // write batch and tracking state. Today, if such a batch references a CF
+    // that manifest recovery already dropped, RebuildFromWriteBatchInternal()
+    // returns InvalidArgument and DB open fails. Reuse the already-open
+    // recovery handles here so we do not repeatedly take DB mutex or allocate
+    // temporary handles while rebuilding many recovered transactions.
+    s = txn_impl->RebuildFromWriteBatchInternal(batch_info.batch_,
+                                                &recovery_cfh_map);
     // WriteCommitted set this to to disable this check that is specific to
     // WritePrepared txns
     assert(batch_info.batch_cnt_ == 0 ||

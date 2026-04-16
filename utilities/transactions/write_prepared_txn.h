@@ -10,7 +10,6 @@
 #include <mutex>
 #include <stack>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "db/write_callback.h"
@@ -207,6 +206,10 @@ class WritePreparedTxn : public PessimisticTransaction {
                           SequenceNumber* tracked_at_seq) override;
 
   Status RebuildFromWriteBatch(WriteBatch* src_batch) override;
+  Status RebuildFromWriteBatchInternal(
+      WriteBatch* src_batch,
+      const UnorderedMap<uint32_t, ColumnFamilyHandle*>* recovery_cfh_map)
+      override;
 
   WritePreparedTxnDB* wpt_db_;
   // Number of sub-batches in prepare

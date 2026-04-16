@@ -557,7 +557,14 @@ void WritePreparedTxn::SetSnapshot() {
 }
 
 Status WritePreparedTxn::RebuildFromWriteBatch(WriteBatch* src_batch) {
-  auto ret = PessimisticTransaction::RebuildFromWriteBatch(src_batch);
+  return RebuildFromWriteBatchInternal(src_batch, nullptr);
+}
+
+Status WritePreparedTxn::RebuildFromWriteBatchInternal(
+    WriteBatch* src_batch,
+    const UnorderedMap<uint32_t, ColumnFamilyHandle*>* recovery_cfh_map) {
+  auto ret = PessimisticTransaction::RebuildFromWriteBatchInternal(
+      src_batch, recovery_cfh_map);
   prepare_batch_cnt_ = GetWriteBatch()->SubBatchCnt();
   return ret;
 }

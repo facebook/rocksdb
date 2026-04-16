@@ -45,8 +45,8 @@ class DuplicateDetector {
   using CFKeys = std::set<Slice, SetComparator>;
   std::map<uint32_t, CFKeys> keys_;
   void InitWithComp(const uint32_t cf) {
-    auto h = db_->GetColumnFamilyHandle(cf);
-    if (!h) {
+    auto* cfd = db_->GetColumnFamilyData(cf);
+    if (cfd == nullptr) {
       // TODO(myabandeh): This is not a concern in MyRocks as drop cf is not
       // implemented yet. When it does, we should return proper error instead
       // of throwing exception.
@@ -62,7 +62,7 @@ class DuplicateDetector {
           "family");
       return;
     }
-    auto cmp = h->GetComparator();
+    auto cmp = cfd->user_comparator();
     keys_[cf] = CFKeys(SetComparator(cmp));
   }
 };
