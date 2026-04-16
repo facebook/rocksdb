@@ -2011,6 +2011,13 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
 
   FileMetaData meta;
   std::vector<BlobFileAddition> blob_file_additions;
+  std::vector<BlobFileGarbage> blob_file_garbages;
+  // Recovery flush can replay direct-write blob indexes from WAL-backed
+  // memtables. If a flush-time compaction filter drops those keys before any
+  // SST is produced, we still need to register the resulting garbage in the
+  // manifest.
+  std::vector<BlobFileGarbage>* const blob_file_garbages_for_filtering =
+      cfd->blob_partition_manager() != nullptr ? &blob_file_garbages : nullptr;
 
   std::unique_ptr<std::list<uint64_t>::iterator> pending_outputs_inserted_elem(
       new std::list<uint64_t>::iterator(
@@ -2115,7 +2122,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           &temp_table_proerties /* table_properties */, write_hint,
           nullptr /*full_history_ts_low*/, &blob_callback_, version,
           nullptr /* memtable_payload_bytes */,
-          nullptr /* memtable_garbage_bytes */, &flush_stats);
+          nullptr /* memtable_garbage_bytes */, &flush_stats,
+          blob_file_garbages_for_filtering);
       version->Unref();
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
@@ -2173,24 +2181,29 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
 
   constexpr int level = 0;
 
-  if (s.ok() && has_output) {
-    edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
-                  meta.fd.GetFileSize(), meta.smallest, meta.largest,
-                  meta.fd.smallest_seqno, meta.fd.largest_seqno,
-                  meta.marked_for_compaction, meta.temperature,
-                  meta.oldest_blob_file_number, meta.oldest_ancester_time,
-                  meta.file_creation_time, meta.epoch_number,
-                  meta.file_checksum, meta.file_checksum_func_name,
-                  meta.unique_id, meta.compensated_range_deletion_size,
-                  meta.tail_size, meta.user_defined_timestamps_persisted);
+  if (s.ok()) {
+    if (has_output) {
+      edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
+                    meta.fd.GetFileSize(), meta.smallest, meta.largest,
+                    meta.fd.smallest_seqno, meta.fd.largest_seqno,
+                    meta.marked_for_compaction, meta.temperature,
+                    meta.oldest_blob_file_number, meta.oldest_ancester_time,
+                    meta.file_creation_time, meta.epoch_number,
+                    meta.file_checksum, meta.file_checksum_func_name,
+                    meta.unique_id, meta.compensated_range_deletion_size,
+                    meta.tail_size, meta.user_defined_timestamps_persisted);
+    }
 
     for (const auto& blob : blob_file_additions) {
       edit->AddBlobFile(blob);
     }
+    for (const auto& garbage : blob_file_garbages) {
+      edit->AddBlobFileGarbage(garbage);
+    }
 
     // For UDT in memtable only feature, move up the cutoff timestamp whenever
     // a flush happens.
-    if (logical_strip_timestamp) {
+    if (has_output && logical_strip_timestamp) {
       Slice mem_newest_udt = mem->GetNewestUDT();
       std::string full_history_ts_low = cfd->GetFullHistoryTsLow();
       if (full_history_ts_low.empty() ||
