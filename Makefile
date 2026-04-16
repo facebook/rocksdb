@@ -1072,7 +1072,7 @@ ifndef SKIP_FORMAT_BUCK_CHECKS
 endif
 	$(MAKE) check-c-api-gen CHECK_C_API_GEN=$(CHECK_C_API_GEN)
 
-# Check that auto-generated C API .inc files are up to date.
+# Check that auto-generated C API files are up to date.
 # Requires clang++ (or a versioned variant) to parse C++ headers.
 # Runs automatically on non-CI environments (when GITHUB_ACTIONS is not set).
 # In CI, pass CHECK_C_API_GEN=1 to enable (used in build-linux-clang-18-no_test_run).
@@ -1080,10 +1080,10 @@ endif
 check-c-api-gen:
 ifdef CHECK_C_API_GEN
 	$(PYTHON) tools/c_api_gen/regen_all.py
-	git diff --exit-code -- include/rocksdb/c_api_gen db/c_api_gen
+	git diff --exit-code -- c_api_gen include/rocksdb/c.h db/c.cc
 else ifndef GITHUB_ACTIONS
 	$(PYTHON) tools/c_api_gen/regen_all.py
-	git diff --exit-code -- include/rocksdb/c_api_gen db/c_api_gen
+	git diff --exit-code -- c_api_gen include/rocksdb/c.h db/c.cc
 else
 	@echo "Skipping C API staleness check (set CHECK_C_API_GEN=1 to enable in CI)"
 endif

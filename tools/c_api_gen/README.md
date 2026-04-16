@@ -179,9 +179,9 @@ error-handling policy should remain explicit in the spec.
   - generated declaration preview
 - `generated/c_preview.cc.inc`
   - generated implementation preview
-- `../../include/rocksdb/c_api_gen/c_generated_subset.h.inc`
+- `../../c_api_gen/c_generated_subset.h.inc`
   - generated declaration fragment intended for incremental integration
-- `../../db/c_api_gen/c_generated_subset.cc.inc`
+- `../../c_api_gen/c_generated_subset.cc.inc`
   - generated implementation fragment intended for incremental integration
 
 ## Running the prototype

@@ -312,11 +312,8 @@ jobs:
     - run: CC=clang-21 CXX=clang++-21 USE_CLANG=1 make -j32 all microbench
     - run: make clean
     - run: CC=clang-21 CXX=clang++-21 USE_CLANG=1 DEBUG_LEVEL=0 make -j32 release
-    - name: Install clang-21 for C API gen check
-      run: |
-        wget -qO- https://apt.llvm.org/llvm.sh | bash -s 21
-        apt-get install -y clang-21 clang-format-21
-        update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-21 100
+    - name: Install clang-format-21 for C API gen check
+      run: apt-get install -y clang-format-21
     - name: Check C API generated files are up to date
       run: |
         CXX=clang++-21 python3 tools/c_api_gen/verify_generated_up_to_date.py \

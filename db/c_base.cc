@@ -2,7 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-//
 // SOURCE TEMPLATE -- DO NOT COMPILE DIRECTLY.
 // Edit this file to modify the C API implementation, then run:
 //   python3 tools/c_api_gen/regen_all.py
@@ -2269,7 +2268,7 @@ void rocksdb_column_family_handle_destroy(
   delete handle;
 }
 
-#include "db/c_api_gen/c_generated_db_simple_subset.cc.inc"
+#include "c_api_gen/c_generated_db_simple_subset.cc.inc"
 
 void rocksdb_verify_checksum_with_options(rocksdb_t* db,
                                           const rocksdb_readoptions_t* options,
@@ -3244,7 +3243,7 @@ void rocksdb_writebatch_destroy(rocksdb_writebatch_t* b) { delete b; }
 
 int rocksdb_writebatch_count(rocksdb_writebatch_t* b) { return b->rep.Count(); }
 
-#include "db/c_api_gen/c_generated_writebatch_subset.cc.inc"
+#include "c_api_gen/c_generated_writebatch_subset.cc.inc"
 
 void rocksdb_writebatch_put_cf_with_ts(
     rocksdb_writebatch_t* b, rocksdb_column_family_handle_t* column_family,
@@ -4066,7 +4065,7 @@ void rocksdb_block_based_options_destroy(
   delete options;
 }
 
-#include "db/c_api_gen/c_generated_block_based_options_subset.cc.inc"
+#include "c_api_gen/c_generated_block_based_options_subset.cc.inc"
 
 void rocksdb_block_based_options_set_filter_policy(
     rocksdb_block_based_table_options_t* options,
@@ -4132,9 +4131,9 @@ void rocksdb_options_set_block_based_table_factory(
 
 /* FlushJobInfo */
 
-#include "db/c_api_gen/c_generated_jobinfo_auto.cc.inc"
-#include "db/c_api_gen/c_generated_jobinfo_metadata_subset.cc.inc"
-#include "db/c_api_gen/c_generated_metadata_structs_auto.cc.inc"
+#include "c_api_gen/c_generated_jobinfo_auto.cc.inc"
+#include "c_api_gen/c_generated_jobinfo_metadata_subset.cc.inc"
+#include "c_api_gen/c_generated_metadata_structs_auto.cc.inc"
 
 rocksdb_compactionjobinfo_t* rocksdb_compactionjobinfo_create() {
   return new rocksdb_compactionjobinfo_t;
@@ -4510,7 +4509,7 @@ void rocksdb_cuckoo_options_destroy(rocksdb_cuckoo_table_options_t* options) {
   delete options;
 }
 
-#include "db/c_api_gen/c_generated_cuckoo_options_subset.cc.inc"
+#include "c_api_gen/c_generated_cuckoo_options_subset.cc.inc"
 
 void rocksdb_options_set_cuckoo_table_factory(
     rocksdb_options_t* opt, rocksdb_cuckoo_table_options_t* table_options) {
@@ -4598,7 +4597,7 @@ void rocksdb_options_clear_wal_filter(rocksdb_options_t* opt) {
   opt->rep.wal_filter = nullptr;
 }
 
-#include "db/c_api_gen/c_generated_options_subset.cc.inc"
+#include "c_api_gen/c_generated_options_subset.cc.inc"
 
 void rocksdb_options_set_compression_per_level(rocksdb_options_t* opt,
                                                const int* level_values,
@@ -5435,7 +5434,7 @@ rocksdb_readoptions_t* rocksdb_readoptions_create() {
 
 void rocksdb_readoptions_destroy(rocksdb_readoptions_t* opt) { delete opt; }
 
-#include "db/c_api_gen/c_generated_readoptions_auto.cc.inc"
+#include "c_api_gen/c_generated_readoptions_auto.cc.inc"
 
 void rocksdb_readoptions_set_snapshot(rocksdb_readoptions_t* opt,
                                       const rocksdb_snapshot_t* snap) {
@@ -7335,7 +7334,7 @@ size_t rocksdb_options_get_max_manifest_file_size(rocksdb_options_t* opt) {
   return opt->rep.max_manifest_file_size;
 }
 
-#include "db/c_api_gen/c_generated_option_structs_auto.cc.inc"
+#include "c_api_gen/c_generated_option_structs_auto.cc.inc"
 
 rocksdb_optimistictransaction_options_t*
 rocksdb_optimistictransaction_options_create() {
@@ -7551,7 +7550,7 @@ void rocksdb_transaction_rebuild_from_writebatch_wi(rocksdb_transaction_t* txn,
   SaveError(errptr, txn->rep->RebuildFromWriteBatch(wi->rep->GetWriteBatch()));
 }
 
-#include "db/c_api_gen/c_generated_transaction_subset.cc.inc"
+#include "c_api_gen/c_generated_transaction_subset.cc.inc"
 
 void rocksdb_transaction_destroy(rocksdb_transaction_t* txn) {
   delete txn->rep;
@@ -8009,7 +8008,7 @@ void rocksdb_transaction_set_read_timestamp_for_validation(
   txn->rep->SetReadTimestampForValidation(read_timestamp);
 }
 
-#include "db/c_api_gen/c_generated_transactiondb_subset.cc.inc"
+#include "c_api_gen/c_generated_transactiondb_subset.cc.inc"
 
 // Create an iterator inside a transaction
 rocksdb_iterator_t* rocksdb_transaction_create_iterator(

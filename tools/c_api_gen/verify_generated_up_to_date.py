@@ -19,8 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 REGEN_ALL = ROOT / "tools/c_api_gen/regen_all.py"
 CLANG_FORMAT_STYLE_FILE = ROOT / ".clang-format"
 GENERATED_DIRS = (
-    Path("include/rocksdb/c_api_gen"),
-    Path("db/c_api_gen"),
+    Path("c_api_gen"),
 )
 
 
@@ -123,7 +122,7 @@ def compare_snapshots(work_root: Path) -> int:
         sys.stderr.write(
             "C API generated files are out of date. Re-run "
             "`python3 tools/c_api_gen/regen_all.py` and commit the updated "
-            "files under include/rocksdb/c_api_gen/, db/c_api_gen/, and "
+            "files under c_api_gen/, "
             "include/rocksdb/c.h, and db/c.cc.\n"
         )
         if proc.stdout:

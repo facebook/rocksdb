@@ -350,7 +350,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_info_destroy(
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_close(
     rocksdb_backup_engine_t* be);
 
-#include "rocksdb/c_api_gen/c_generated_db_simple_subset.h.inc"
+#include "c_api_gen/c_generated_db_simple_subset.h.inc"
 extern ROCKSDB_LIBRARY_API void rocksdb_verify_checksum_with_options(
     rocksdb_t* db, const rocksdb_readoptions_t* options, char** errptr);
 extern ROCKSDB_LIBRARY_API void rocksdb_verify_file_checksums_with_options(
@@ -839,7 +839,7 @@ rocksdb_writebatch_create_with_params(size_t reserved_bytes, size_t max_bytes,
                                       size_t default_cf_ts_sz);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_destroy(
     rocksdb_writebatch_t*);
-#include "rocksdb/c_api_gen/c_generated_writebatch_subset.h.inc"
+#include "c_api_gen/c_generated_writebatch_subset.h.inc"
 extern ROCKSDB_LIBRARY_API int rocksdb_writebatch_count(rocksdb_writebatch_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_put_cf_with_ts(
     rocksdb_writebatch_t*, rocksdb_column_family_handle_t* column_family,
@@ -1109,7 +1109,7 @@ extern ROCKSDB_LIBRARY_API rocksdb_block_based_table_options_t*
 rocksdb_block_based_options_create(void);
 extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_destroy(
     rocksdb_block_based_table_options_t* options);
-#include "rocksdb/c_api_gen/c_generated_block_based_options_subset.h.inc"
+#include "c_api_gen/c_generated_block_based_options_subset.h.inc"
 extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_filter_policy(
     rocksdb_block_based_table_options_t* options,
     rocksdb_filterpolicy_t* filter_policy);
@@ -1155,9 +1155,9 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_sst_file_manager(
     rocksdb_options_t* opt, rocksdb_sst_file_manager_t* sfm);
 
 /* Flush job info */
-#include "rocksdb/c_api_gen/c_generated_jobinfo_auto.h.inc"
-#include "rocksdb/c_api_gen/c_generated_jobinfo_metadata_subset.h.inc"
-#include "rocksdb/c_api_gen/c_generated_metadata_structs_auto.h.inc"
+#include "c_api_gen/c_generated_jobinfo_auto.h.inc"
+#include "c_api_gen/c_generated_jobinfo_metadata_subset.h.inc"
+#include "c_api_gen/c_generated_metadata_structs_auto.h.inc"
 extern ROCKSDB_LIBRARY_API rocksdb_compactionjobinfo_t*
 rocksdb_compactionjobinfo_create(void);
 extern ROCKSDB_LIBRARY_API void rocksdb_compactionjobinfo_destroy(
@@ -1291,7 +1291,7 @@ extern ROCKSDB_LIBRARY_API rocksdb_cuckoo_table_options_t*
 rocksdb_cuckoo_options_create(void);
 extern ROCKSDB_LIBRARY_API void rocksdb_cuckoo_options_destroy(
     rocksdb_cuckoo_table_options_t* options);
-#include "rocksdb/c_api_gen/c_generated_cuckoo_options_subset.h.inc"
+#include "c_api_gen/c_generated_cuckoo_options_subset.h.inc"
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_cuckoo_table_factory(
     rocksdb_options_t* opt, rocksdb_cuckoo_table_options_t* table_options);
 
@@ -2244,7 +2244,7 @@ extern ROCKSDB_LIBRARY_API rocksdb_readoptions_t* rocksdb_readoptions_create(
     void);
 extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_destroy(
     rocksdb_readoptions_t*);
-#include "rocksdb/c_api_gen/c_generated_readoptions_auto.h.inc"
+#include "c_api_gen/c_generated_readoptions_auto.h.inc"
 extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_snapshot(
     rocksdb_readoptions_t*, const rocksdb_snapshot_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_iterate_upper_bound(
@@ -3157,7 +3157,7 @@ extern ROCKSDB_LIBRARY_API char* rocksdb_transaction_get_name(
 
 extern ROCKSDB_LIBRARY_API void rocksdb_transaction_prepare(
     rocksdb_transaction_t* txn, char** errptr);
-#include "rocksdb/c_api_gen/c_generated_transaction_subset.h.inc"
+#include "c_api_gen/c_generated_transaction_subset.h.inc"
 
 extern ROCKSDB_LIBRARY_API void rocksdb_transaction_destroy(
     rocksdb_transaction_t* txn);
@@ -3285,7 +3285,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_multi_get_cf(
     size_t num_keys, const char* const* keys_list,
     const size_t* keys_list_sizes, char** values_list,
     size_t* values_list_sizes, char** errs);
-#include "rocksdb/c_api_gen/c_generated_transactiondb_subset.h.inc"
+#include "c_api_gen/c_generated_transactiondb_subset.h.inc"
 
 extern ROCKSDB_LIBRARY_API rocksdb_iterator_t*
 rocksdb_transaction_create_iterator(rocksdb_transaction_t* txn,
@@ -3802,7 +3802,7 @@ extern ROCKSDB_LIBRARY_API char* rocksdb_open_and_compact_with_options(
     const rocksdb_compaction_service_options_override_t* override_options,
     char** errptr);
 
-#include "rocksdb/c_api_gen/c_generated_option_structs_auto.h.inc"
+#include "c_api_gen/c_generated_option_structs_auto.h.inc"
 
 #ifdef __cplusplus
 } /* end extern "C" */

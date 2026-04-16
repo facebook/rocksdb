@@ -433,8 +433,7 @@ Many simple option fields are no longer maintained by hand in
 - After regenerating, run
   `python3 tools/c_api_gen/verify_generated_up_to_date.py` to confirm the
   checked-in generated fragments stay stable.
-- Do not edit generated `.inc` files under `include/rocksdb/c_api_gen/` or
-  `db/c_api_gen/` by hand.
+- Do not edit generated `.inc` files under `c_api_gen/` by hand.
 - If the new field is not ready for C API support yet, add an entry to
   `tools/c_api_gen/auto_simple_bindings_blocklist.json` with
   `"policy": "deferred"` and a concrete reason so the build stays intentional
