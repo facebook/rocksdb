@@ -11,7 +11,7 @@ if ! command -v ruby >/dev/null 2>&1; then
 fi
 
 ruby <<'RUBY'
-require "yaml"
+require "psych"
 
 bad = false
 workflow_files = Dir[".github/workflows/*.{yml,yaml}"].sort
@@ -23,7 +23,7 @@ end
 
 workflow_files.each do |path|
   begin
-    YAML.load_file(path)
+    Psych.parse_file(path)
     puts "OK #{path}"
   rescue Psych::Exception => e
     warn "Invalid YAML in #{path}: #{e.message}"
