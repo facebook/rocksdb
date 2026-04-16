@@ -1411,6 +1411,18 @@ struct AdvancedColumnFamilyOptions {
   // logically redundant entry that does not change any data, but optimizes
   // future iterators by potentially skipping a large number of tombstone scans.
   //
+  // This optimization is best-effort and is currently disabled for iterator
+  // configurations that may not expose all interior live keys, including:
+  // * ReadOptions::table_filter
+  // * user-defined timestamp reads without full visibility (for example,
+  //   ReadOptions::iter_start_ts or a non-max ReadOptions::timestamp)
+  // * prefix extractor reads that are neither total-order
+  //   (ReadOptions::total_order_seek / ReadOptions::auto_prefix_mode) nor
+  //   bounded by ReadOptions::prefix_same_as_start
+  //
+  // It also requires an active mutable memtable, and insertion is skipped when
+  // that memtable is empty.
+  //
   // Set to 0 to disable.
   //
   // Dynamically changeable through SetOptions() API
