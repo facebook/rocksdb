@@ -598,8 +598,9 @@ class DBIter final : public Iterator {
   void MaybeInsertRangeTombstone(const Slice& end_key);
   void ResetContiguousTombstoneTracking() {
     contiguous_tombstone_count_ = 0;
+    range_tomb_first_key_.Clear();
+    range_tomb_end_key_.Clear();
   }
-  void ResetRangeTombEndKey() { range_tomb_end_key_.Clear(); }
 
   // Returns true if there is no prefix constraint (prefix_ not set) or
   // if `key` is in the prefix extractor's domain and its prefix matches.
@@ -627,7 +628,6 @@ class DBIter final : public Iterator {
     ResetValueAndColumns();
     ResetInternalKeysSkippedCounter();
     ResetContiguousTombstoneTracking();
-    ResetRangeTombEndKey();
     prefix_.reset();
   }
 
@@ -725,7 +725,6 @@ class DBIter final : public Iterator {
   uint32_t avg_op_scan_flush_trigger_;
   uint32_t iter_step_since_seek_;
   uint32_t mem_hidden_op_scanned_since_seek_;
-  uint32_t min_tombstones_for_range_conversion_;
   uint32_t contiguous_tombstone_count_;
   Direction direction_;
   bool valid_;
@@ -741,6 +740,7 @@ class DBIter final : public Iterator {
   // Expect the inner iterator to maintain a total order.
   // prefix_extractor_ must be non-NULL if the value is false.
   const bool expect_total_order_inner_iter_;
+  const uint32_t min_tombstones_for_range_conversion_;
   // Whether the iterator is allowed to expose blob references. Set to true when
   // the stacked BlobDB implementation is used, false otherwise.
   bool expose_blob_index_;
