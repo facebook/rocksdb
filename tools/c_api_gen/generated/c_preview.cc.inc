@@ -13,195 +13,138 @@
 
 /* DB data operations */
 
-void rocksdb_put(
-    rocksdb_t* db,
-    const rocksdb_writeoptions_t* options,
-    const char* key,
-    size_t keylen,
-    const char* val,
-    size_t vallen,
-    char** errptr) {
-  SaveError(errptr, db->rep->Put(options->rep, Slice(key, keylen), Slice(val, vallen)));
+void rocksdb_put(rocksdb_t* db, const rocksdb_writeoptions_t* options,
+                 const char* key, size_t keylen, const char* val, size_t vallen,
+                 char** errptr) {
+  SaveError(errptr,
+            db->rep->Put(options->rep, Slice(key, keylen), Slice(val, vallen)));
 }
 
-void rocksdb_put_cf(
-    rocksdb_t* db,
-    const rocksdb_writeoptions_t* options,
-    rocksdb_column_family_handle_t* column_family,
-    const char* key,
-    size_t keylen,
-    const char* val,
-    size_t vallen,
-    char** errptr) {
-  SaveError(errptr, db->rep->Put(options->rep, column_family->rep, Slice(key, keylen), Slice(val, vallen)));
+void rocksdb_put_cf(rocksdb_t* db, const rocksdb_writeoptions_t* options,
+                    rocksdb_column_family_handle_t* column_family,
+                    const char* key, size_t keylen, const char* val,
+                    size_t vallen, char** errptr) {
+  SaveError(errptr, db->rep->Put(options->rep, column_family->rep,
+                                 Slice(key, keylen), Slice(val, vallen)));
 }
 
-void rocksdb_delete(
-    rocksdb_t* db,
-    const rocksdb_writeoptions_t* options,
-    const char* key,
-    size_t keylen,
-    char** errptr) {
+void rocksdb_delete(rocksdb_t* db, const rocksdb_writeoptions_t* options,
+                    const char* key, size_t keylen, char** errptr) {
   SaveError(errptr, db->rep->Delete(options->rep, Slice(key, keylen)));
 }
 
-void rocksdb_delete_cf(
-    rocksdb_t* db,
-    const rocksdb_writeoptions_t* options,
-    rocksdb_column_family_handle_t* column_family,
-    const char* key,
-    size_t keylen,
-    char** errptr) {
-  SaveError(errptr, db->rep->Delete(options->rep, column_family->rep, Slice(key, keylen)));
+void rocksdb_delete_cf(rocksdb_t* db, const rocksdb_writeoptions_t* options,
+                       rocksdb_column_family_handle_t* column_family,
+                       const char* key, size_t keylen, char** errptr) {
+  SaveError(errptr, db->rep->Delete(options->rep, column_family->rep,
+                                    Slice(key, keylen)));
 }
 
-void rocksdb_merge(
-    rocksdb_t* db,
-    const rocksdb_writeoptions_t* options,
-    const char* key,
-    size_t keylen,
-    const char* val,
-    size_t vallen,
-    char** errptr) {
-  SaveError(errptr, db->rep->Merge(options->rep, Slice(key, keylen), Slice(val, vallen)));
+void rocksdb_merge(rocksdb_t* db, const rocksdb_writeoptions_t* options,
+                   const char* key, size_t keylen, const char* val,
+                   size_t vallen, char** errptr) {
+  SaveError(errptr, db->rep->Merge(options->rep, Slice(key, keylen),
+                                   Slice(val, vallen)));
 }
 
-void rocksdb_merge_cf(
-    rocksdb_t* db,
-    const rocksdb_writeoptions_t* options,
-    rocksdb_column_family_handle_t* column_family,
-    const char* key,
-    size_t keylen,
-    const char* val,
-    size_t vallen,
-    char** errptr) {
-  SaveError(errptr, db->rep->Merge(options->rep, column_family->rep, Slice(key, keylen), Slice(val, vallen)));
+void rocksdb_merge_cf(rocksdb_t* db, const rocksdb_writeoptions_t* options,
+                      rocksdb_column_family_handle_t* column_family,
+                      const char* key, size_t keylen, const char* val,
+                      size_t vallen, char** errptr) {
+  SaveError(errptr, db->rep->Merge(options->rep, column_family->rep,
+                                   Slice(key, keylen), Slice(val, vallen)));
 }
 
-void rocksdb_write(
-    rocksdb_t* db,
-    const rocksdb_writeoptions_t* options,
-    rocksdb_writebatch_t* batch,
-    char** errptr) {
+void rocksdb_write(rocksdb_t* db, const rocksdb_writeoptions_t* options,
+                   rocksdb_writebatch_t* batch, char** errptr) {
   SaveError(errptr, db->rep->Write(options->rep, &batch->rep));
 }
 
-void rocksdb_put_with_ts(
-    rocksdb_t* db,
-    const rocksdb_writeoptions_t* options,
-    const char* key,
-    size_t keylen,
-    const char* ts,
-    size_t tslen,
-    const char* val,
-    size_t vallen,
-    char** errptr) {
-  SaveError(errptr, db->rep->Put(options->rep, Slice(key, keylen), Slice(ts, tslen), Slice(val, vallen)));
+void rocksdb_put_with_ts(rocksdb_t* db, const rocksdb_writeoptions_t* options,
+                         const char* key, size_t keylen, const char* ts,
+                         size_t tslen, const char* val, size_t vallen,
+                         char** errptr) {
+  SaveError(errptr, db->rep->Put(options->rep, Slice(key, keylen),
+                                 Slice(ts, tslen), Slice(val, vallen)));
 }
 
-void rocksdb_put_cf_with_ts(
-    rocksdb_t* db,
-    const rocksdb_writeoptions_t* options,
-    rocksdb_column_family_handle_t* column_family,
-    const char* key,
-    size_t keylen,
-    const char* ts,
-    size_t tslen,
-    const char* val,
-    size_t vallen,
-    char** errptr) {
-  SaveError(errptr, db->rep->Put(options->rep, column_family->rep, Slice(key, keylen), Slice(ts, tslen), Slice(val, vallen)));
+void rocksdb_put_cf_with_ts(rocksdb_t* db,
+                            const rocksdb_writeoptions_t* options,
+                            rocksdb_column_family_handle_t* column_family,
+                            const char* key, size_t keylen, const char* ts,
+                            size_t tslen, const char* val, size_t vallen,
+                            char** errptr) {
+  SaveError(errptr,
+            db->rep->Put(options->rep, column_family->rep, Slice(key, keylen),
+                         Slice(ts, tslen), Slice(val, vallen)));
 }
 
-void rocksdb_delete_with_ts(
-    rocksdb_t* db,
-    const rocksdb_writeoptions_t* options,
-    const char* key,
-    size_t keylen,
-    const char* ts,
-    size_t tslen,
-    char** errptr) {
-  SaveError(errptr, db->rep->Delete(options->rep, Slice(key, keylen), Slice(ts, tslen)));
+void rocksdb_delete_with_ts(rocksdb_t* db,
+                            const rocksdb_writeoptions_t* options,
+                            const char* key, size_t keylen, const char* ts,
+                            size_t tslen, char** errptr) {
+  SaveError(errptr, db->rep->Delete(options->rep, Slice(key, keylen),
+                                    Slice(ts, tslen)));
 }
 
-void rocksdb_delete_cf_with_ts(
-    rocksdb_t* db,
-    const rocksdb_writeoptions_t* options,
-    rocksdb_column_family_handle_t* column_family,
-    const char* key,
-    size_t keylen,
-    const char* ts,
-    size_t tslen,
-    char** errptr) {
-  SaveError(errptr, db->rep->Delete(options->rep, column_family->rep, Slice(key, keylen), Slice(ts, tslen)));
+void rocksdb_delete_cf_with_ts(rocksdb_t* db,
+                               const rocksdb_writeoptions_t* options,
+                               rocksdb_column_family_handle_t* column_family,
+                               const char* key, size_t keylen, const char* ts,
+                               size_t tslen, char** errptr) {
+  SaveError(errptr, db->rep->Delete(options->rep, column_family->rep,
+                                    Slice(key, keylen), Slice(ts, tslen)));
 }
 
-void rocksdb_singledelete(
-    rocksdb_t* db,
-    const rocksdb_writeoptions_t* options,
-    const char* key,
-    size_t keylen,
-    char** errptr) {
+void rocksdb_singledelete(rocksdb_t* db, const rocksdb_writeoptions_t* options,
+                          const char* key, size_t keylen, char** errptr) {
   SaveError(errptr, db->rep->SingleDelete(options->rep, Slice(key, keylen)));
 }
 
-void rocksdb_singledelete_cf(
-    rocksdb_t* db,
-    const rocksdb_writeoptions_t* options,
-    rocksdb_column_family_handle_t* column_family,
-    const char* key,
-    size_t keylen,
-    char** errptr) {
-  SaveError(errptr, db->rep->SingleDelete(options->rep, column_family->rep, Slice(key, keylen)));
+void rocksdb_singledelete_cf(rocksdb_t* db,
+                             const rocksdb_writeoptions_t* options,
+                             rocksdb_column_family_handle_t* column_family,
+                             const char* key, size_t keylen, char** errptr) {
+  SaveError(errptr, db->rep->SingleDelete(options->rep, column_family->rep,
+                                          Slice(key, keylen)));
 }
 
-void rocksdb_singledelete_with_ts(
-    rocksdb_t* db,
-    const rocksdb_writeoptions_t* options,
-    const char* key,
-    size_t keylen,
-    const char* ts,
-    size_t tslen,
-    char** errptr) {
-  SaveError(errptr, db->rep->SingleDelete(options->rep, Slice(key, keylen), Slice(ts, tslen)));
+void rocksdb_singledelete_with_ts(rocksdb_t* db,
+                                  const rocksdb_writeoptions_t* options,
+                                  const char* key, size_t keylen,
+                                  const char* ts, size_t tslen, char** errptr) {
+  SaveError(errptr, db->rep->SingleDelete(options->rep, Slice(key, keylen),
+                                          Slice(ts, tslen)));
 }
 
 void rocksdb_singledelete_cf_with_ts(
-    rocksdb_t* db,
-    const rocksdb_writeoptions_t* options,
-    rocksdb_column_family_handle_t* column_family,
-    const char* key,
-    size_t keylen,
-    const char* ts,
-    size_t tslen,
-    char** errptr) {
-  SaveError(errptr, db->rep->SingleDelete(options->rep, column_family->rep, Slice(key, keylen), Slice(ts, tslen)));
+    rocksdb_t* db, const rocksdb_writeoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, const char* ts, size_t tslen, char** errptr) {
+  SaveError(errptr,
+            db->rep->SingleDelete(options->rep, column_family->rep,
+                                  Slice(key, keylen), Slice(ts, tslen)));
 }
 
-void rocksdb_delete_range_cf(
-    rocksdb_t* db,
-    const rocksdb_writeoptions_t* options,
-    rocksdb_column_family_handle_t* column_family,
-    const char* start_key,
-    size_t start_key_len,
-    const char* end_key,
-    size_t end_key_len,
-    char** errptr) {
-  SaveError(errptr, db->rep->DeleteRange(options->rep, column_family->rep, Slice(start_key, start_key_len), Slice(end_key, end_key_len)));
+void rocksdb_delete_range_cf(rocksdb_t* db,
+                             const rocksdb_writeoptions_t* options,
+                             rocksdb_column_family_handle_t* column_family,
+                             const char* start_key, size_t start_key_len,
+                             const char* end_key, size_t end_key_len,
+                             char** errptr) {
+  SaveError(errptr, db->rep->DeleteRange(options->rep, column_family->rep,
+                                         Slice(start_key, start_key_len),
+                                         Slice(end_key, end_key_len)));
 }
 
-void rocksdb_flush(
-    rocksdb_t* db,
-    const rocksdb_flushoptions_t* options,
-    char** errptr) {
+void rocksdb_flush(rocksdb_t* db, const rocksdb_flushoptions_t* options,
+                   char** errptr) {
   SaveError(errptr, db->rep->Flush(options->rep));
 }
 
-void rocksdb_flush_cf(
-    rocksdb_t* db,
-    const rocksdb_flushoptions_t* options,
-    rocksdb_column_family_handle_t* column_family,
-    char** errptr) {
+void rocksdb_flush_cf(rocksdb_t* db, const rocksdb_flushoptions_t* options,
+                      rocksdb_column_family_handle_t* column_family,
+                      char** errptr) {
   SaveError(errptr, db->rep->Flush(options->rep, column_family->rep));
 }
 
@@ -233,56 +176,39 @@ void rocksdb_verify_file_checksums(rocksdb_t* db, char** errptr) {
   SaveError(errptr, db->rep->VerifyFileChecksums(ReadOptions()));
 }
 
-void rocksdb_destroy_db(
-    const rocksdb_options_t* options,
-    const char* name,
-    char** errptr) {
+void rocksdb_destroy_db(const rocksdb_options_t* options, const char* name,
+                        char** errptr) {
   SaveError(errptr, DestroyDB(name, options->rep));
 }
 
-void rocksdb_repair_db(
-    const rocksdb_options_t* options,
-    const char* name,
-    char** errptr) {
+void rocksdb_repair_db(const rocksdb_options_t* options, const char* name,
+                       char** errptr) {
   SaveError(errptr, RepairDB(name, options->rep));
 }
 
 /* WriteBatch */
 
-void rocksdb_writebatch_clear(rocksdb_writebatch_t* b) {
-  b->rep.Clear();
-}
+void rocksdb_writebatch_clear(rocksdb_writebatch_t* b) { b->rep.Clear(); }
 
-void rocksdb_writebatch_put(
-    rocksdb_writebatch_t* b,
-    const char* key,
-    size_t klen,
-    const char* val,
-    size_t vlen) {
+void rocksdb_writebatch_put(rocksdb_writebatch_t* b, const char* key,
+                            size_t klen, const char* val, size_t vlen) {
   b->rep.Put(Slice(key, klen), Slice(val, vlen));
 }
 
-void rocksdb_writebatch_put_cf(
-    rocksdb_writebatch_t* b,
-    rocksdb_column_family_handle_t* column_family,
-    const char* key,
-    size_t klen,
-    const char* val,
-    size_t vlen) {
+void rocksdb_writebatch_put_cf(rocksdb_writebatch_t* b,
+                               rocksdb_column_family_handle_t* column_family,
+                               const char* key, size_t klen, const char* val,
+                               size_t vlen) {
   b->rep.Put(column_family->rep, Slice(key, klen), Slice(val, vlen));
 }
 
-void rocksdb_writebatch_delete(
-    rocksdb_writebatch_t* b,
-    const char* key,
-    size_t klen) {
+void rocksdb_writebatch_delete(rocksdb_writebatch_t* b, const char* key,
+                               size_t klen) {
   b->rep.Delete(Slice(key, klen));
 }
 
-void rocksdb_writebatch_put_log_data(
-    rocksdb_writebatch_t* b,
-    const char* blob,
-    size_t len) {
+void rocksdb_writebatch_put_log_data(rocksdb_writebatch_t* b, const char* blob,
+                                     size_t len) {
   b->rep.PutLogData(Slice(blob, len));
 }
 
@@ -290,9 +216,8 @@ void rocksdb_writebatch_set_save_point(rocksdb_writebatch_t* b) {
   b->rep.SetSavePoint();
 }
 
-void rocksdb_writebatch_rollback_to_save_point(
-    rocksdb_writebatch_t* b,
-    char** errptr) {
+void rocksdb_writebatch_rollback_to_save_point(rocksdb_writebatch_t* b,
+                                               char** errptr) {
   SaveError(errptr, b->rep.RollbackToSavePoint());
 }
 
@@ -300,70 +225,49 @@ void rocksdb_writebatch_pop_save_point(rocksdb_writebatch_t* b, char** errptr) {
   SaveError(errptr, b->rep.PopSavePoint());
 }
 
-void rocksdb_writebatch_verify_checksum(
-    rocksdb_writebatch_t* b,
-    char** errptr) {
+void rocksdb_writebatch_verify_checksum(rocksdb_writebatch_t* b,
+                                        char** errptr) {
   SaveError(errptr, b->rep.VerifyChecksum());
 }
 
 /* Transaction */
 
-void rocksdb_transaction_put(
-    rocksdb_transaction_t* txn,
-    const char* key,
-    size_t klen,
-    const char* val,
-    size_t vlen,
-    char** errptr) {
+void rocksdb_transaction_put(rocksdb_transaction_t* txn, const char* key,
+                             size_t klen, const char* val, size_t vlen,
+                             char** errptr) {
   SaveError(errptr, txn->rep->Put(Slice(key, klen), Slice(val, vlen)));
 }
 
-void rocksdb_transaction_put_cf(
-    rocksdb_transaction_t* txn,
-    rocksdb_column_family_handle_t* column_family,
-    const char* key,
-    size_t klen,
-    const char* val,
-    size_t vlen,
-    char** errptr) {
-  SaveError(errptr, txn->rep->Put(column_family->rep, Slice(key, klen), Slice(val, vlen)));
+void rocksdb_transaction_put_cf(rocksdb_transaction_t* txn,
+                                rocksdb_column_family_handle_t* column_family,
+                                const char* key, size_t klen, const char* val,
+                                size_t vlen, char** errptr) {
+  SaveError(errptr, txn->rep->Put(column_family->rep, Slice(key, klen),
+                                  Slice(val, vlen)));
 }
 
-void rocksdb_transaction_merge(
-    rocksdb_transaction_t* txn,
-    const char* key,
-    size_t klen,
-    const char* val,
-    size_t vlen,
-    char** errptr) {
+void rocksdb_transaction_merge(rocksdb_transaction_t* txn, const char* key,
+                               size_t klen, const char* val, size_t vlen,
+                               char** errptr) {
   SaveError(errptr, txn->rep->Merge(Slice(key, klen), Slice(val, vlen)));
 }
 
-void rocksdb_transaction_merge_cf(
-    rocksdb_transaction_t* txn,
-    rocksdb_column_family_handle_t* column_family,
-    const char* key,
-    size_t klen,
-    const char* val,
-    size_t vlen,
-    char** errptr) {
-  SaveError(errptr, txn->rep->Merge(column_family->rep, Slice(key, klen), Slice(val, vlen)));
+void rocksdb_transaction_merge_cf(rocksdb_transaction_t* txn,
+                                  rocksdb_column_family_handle_t* column_family,
+                                  const char* key, size_t klen, const char* val,
+                                  size_t vlen, char** errptr) {
+  SaveError(errptr, txn->rep->Merge(column_family->rep, Slice(key, klen),
+                                    Slice(val, vlen)));
 }
 
-void rocksdb_transaction_delete(
-    rocksdb_transaction_t* txn,
-    const char* key,
-    size_t klen,
-    char** errptr) {
+void rocksdb_transaction_delete(rocksdb_transaction_t* txn, const char* key,
+                                size_t klen, char** errptr) {
   SaveError(errptr, txn->rep->Delete(Slice(key, klen)));
 }
 
 void rocksdb_transaction_delete_cf(
-    rocksdb_transaction_t* txn,
-    rocksdb_column_family_handle_t* column_family,
-    const char* key,
-    size_t klen,
-    char** errptr) {
+    rocksdb_transaction_t* txn, rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t klen, char** errptr) {
   SaveError(errptr, txn->rep->Delete(column_family->rep, Slice(key, klen)));
 }
 
@@ -375,10 +279,8 @@ void rocksdb_transaction_rollback(rocksdb_transaction_t* txn, char** errptr) {
   SaveError(errptr, txn->rep->Rollback());
 }
 
-void rocksdb_transaction_put_log_data(
-    rocksdb_transaction_t* txn,
-    const char* blob,
-    size_t len) {
+void rocksdb_transaction_put_log_data(rocksdb_transaction_t* txn,
+                                      const char* blob, size_t len) {
   txn->rep->PutLogData(Slice(blob, len));
 }
 
@@ -386,133 +288,107 @@ void rocksdb_transaction_set_savepoint(rocksdb_transaction_t* txn) {
   txn->rep->SetSavePoint();
 }
 
-void rocksdb_transaction_rollback_to_savepoint(
-    rocksdb_transaction_t* txn,
-    char** errptr) {
+void rocksdb_transaction_rollback_to_savepoint(rocksdb_transaction_t* txn,
+                                               char** errptr) {
   SaveError(errptr, txn->rep->RollbackToSavePoint());
 }
 
 /* TransactionDB simple */
 
-void rocksdb_transactiondb_put(
-    rocksdb_transactiondb_t* txn_db,
-    const rocksdb_writeoptions_t* options,
-    const char* key,
-    size_t klen,
-    const char* val,
-    size_t vlen,
-    char** errptr) {
-  SaveError(errptr, txn_db->rep->Put(options->rep, Slice(key, klen), Slice(val, vlen)));
+void rocksdb_transactiondb_put(rocksdb_transactiondb_t* txn_db,
+                               const rocksdb_writeoptions_t* options,
+                               const char* key, size_t klen, const char* val,
+                               size_t vlen, char** errptr) {
+  SaveError(errptr,
+            txn_db->rep->Put(options->rep, Slice(key, klen), Slice(val, vlen)));
 }
 
-void rocksdb_transactiondb_put_cf(
-    rocksdb_transactiondb_t* txn_db,
-    const rocksdb_writeoptions_t* options,
-    rocksdb_column_family_handle_t* column_family,
-    const char* key,
-    size_t keylen,
-    const char* val,
-    size_t vallen,
-    char** errptr) {
-  SaveError(errptr, txn_db->rep->Put(options->rep, column_family->rep, Slice(key, keylen), Slice(val, vallen)));
+void rocksdb_transactiondb_put_cf(rocksdb_transactiondb_t* txn_db,
+                                  const rocksdb_writeoptions_t* options,
+                                  rocksdb_column_family_handle_t* column_family,
+                                  const char* key, size_t keylen,
+                                  const char* val, size_t vallen,
+                                  char** errptr) {
+  SaveError(errptr, txn_db->rep->Put(options->rep, column_family->rep,
+                                     Slice(key, keylen), Slice(val, vallen)));
 }
 
-void rocksdb_transactiondb_write(
-    rocksdb_transactiondb_t* db,
-    const rocksdb_writeoptions_t* options,
-    rocksdb_writebatch_t* batch,
-    char** errptr) {
+void rocksdb_transactiondb_write(rocksdb_transactiondb_t* db,
+                                 const rocksdb_writeoptions_t* options,
+                                 rocksdb_writebatch_t* batch, char** errptr) {
   SaveError(errptr, db->rep->Write(options->rep, &batch->rep));
 }
 
-void rocksdb_transactiondb_merge(
-    rocksdb_transactiondb_t* txn_db,
-    const rocksdb_writeoptions_t* options,
-    const char* key,
-    size_t klen,
-    const char* val,
-    size_t vlen,
-    char** errptr) {
-  SaveError(errptr, txn_db->rep->Merge(options->rep, Slice(key, klen), Slice(val, vlen)));
+void rocksdb_transactiondb_merge(rocksdb_transactiondb_t* txn_db,
+                                 const rocksdb_writeoptions_t* options,
+                                 const char* key, size_t klen, const char* val,
+                                 size_t vlen, char** errptr) {
+  SaveError(errptr, txn_db->rep->Merge(options->rep, Slice(key, klen),
+                                       Slice(val, vlen)));
 }
 
 void rocksdb_transactiondb_merge_cf(
-    rocksdb_transactiondb_t* txn_db,
-    const rocksdb_writeoptions_t* options,
-    rocksdb_column_family_handle_t* column_family,
-    const char* key,
-    size_t klen,
-    const char* val,
-    size_t vlen,
-    char** errptr) {
-  SaveError(errptr, txn_db->rep->Merge(options->rep, column_family->rep, Slice(key, klen), Slice(val, vlen)));
+    rocksdb_transactiondb_t* txn_db, const rocksdb_writeoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key, size_t klen,
+    const char* val, size_t vlen, char** errptr) {
+  SaveError(errptr, txn_db->rep->Merge(options->rep, column_family->rep,
+                                       Slice(key, klen), Slice(val, vlen)));
 }
 
-void rocksdb_transactiondb_delete(
-    rocksdb_transactiondb_t* txn_db,
-    const rocksdb_writeoptions_t* options,
-    const char* key,
-    size_t klen,
-    char** errptr) {
+void rocksdb_transactiondb_delete(rocksdb_transactiondb_t* txn_db,
+                                  const rocksdb_writeoptions_t* options,
+                                  const char* key, size_t klen, char** errptr) {
   SaveError(errptr, txn_db->rep->Delete(options->rep, Slice(key, klen)));
 }
 
 void rocksdb_transactiondb_delete_cf(
-    rocksdb_transactiondb_t* txn_db,
-    const rocksdb_writeoptions_t* options,
-    rocksdb_column_family_handle_t* column_family,
-    const char* key,
-    size_t keylen,
-    char** errptr) {
-  SaveError(errptr, txn_db->rep->Delete(options->rep, column_family->rep, Slice(key, keylen)));
+    rocksdb_transactiondb_t* txn_db, const rocksdb_writeoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, char** errptr) {
+  SaveError(errptr, txn_db->rep->Delete(options->rep, column_family->rep,
+                                        Slice(key, keylen)));
 }
 
-void rocksdb_transactiondb_flush_wal(
-    rocksdb_transactiondb_t* txn_db,
-    unsigned char sync,
-    char** errptr) {
+void rocksdb_transactiondb_flush_wal(rocksdb_transactiondb_t* txn_db,
+                                     unsigned char sync, char** errptr) {
   SaveError(errptr, txn_db->rep->FlushWAL(sync));
 }
 
-void rocksdb_transactiondb_flush(
-    rocksdb_transactiondb_t* txn_db,
-    const rocksdb_flushoptions_t* options,
-    char** errptr) {
+void rocksdb_transactiondb_flush(rocksdb_transactiondb_t* txn_db,
+                                 const rocksdb_flushoptions_t* options,
+                                 char** errptr) {
   SaveError(errptr, txn_db->rep->Flush(options->rep));
 }
 
 void rocksdb_transactiondb_flush_cf(
-    rocksdb_transactiondb_t* txn_db,
-    const rocksdb_flushoptions_t* options,
-    rocksdb_column_family_handle_t* column_family,
-    char** errptr) {
+    rocksdb_transactiondb_t* txn_db, const rocksdb_flushoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, char** errptr) {
   SaveError(errptr, txn_db->rep->Flush(options->rep, column_family->rep));
 }
 
 /* BlockBasedOptions simple */
 
 void rocksdb_block_based_options_set_data_block_hash_ratio(
-    rocksdb_block_based_table_options_t* options,
-    double v) {
+    rocksdb_block_based_table_options_t* options, double v) {
   options->rep.data_block_hash_table_util_ratio = v;
 }
 
 void rocksdb_block_based_options_set_top_level_index_pinning_tier(
-    rocksdb_block_based_table_options_t* options,
-    int v) {
-  options->rep.metadata_cache_options.top_level_index_pinning = static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
+    rocksdb_block_based_table_options_t* options, int v) {
+  options->rep.metadata_cache_options.top_level_index_pinning =
+      static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
 }
 
 void rocksdb_block_based_options_set_partition_pinning_tier(
-    rocksdb_block_based_table_options_t* options,
-    int v) {
-  options->rep.metadata_cache_options.partition_pinning = static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
+    rocksdb_block_based_table_options_t* options, int v) {
+  options->rep.metadata_cache_options.partition_pinning =
+      static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
 }
 
 void rocksdb_block_based_options_set_unpartitioned_pinning_tier(
-    rocksdb_block_based_table_options_t* options,
-    int v) {
-  options->rep.metadata_cache_options.unpartitioned_pinning = static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
+    rocksdb_block_based_table_options_t* options, int v) {
+  options->rep.metadata_cache_options.unpartitioned_pinning =
+      static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
 }
 
 /* JobInfo metadata simple */
@@ -567,36 +443,35 @@ size_t rocksdb_compactionjobinfo_num_input_files_at_output_level(
   return info->rep.stats.num_input_files_at_output_level;
 }
 
-const char* rocksdb_writestallinfo_cf_name(
-    const rocksdb_writestallinfo_t* info,
-    size_t* size) {
+const char* rocksdb_writestallinfo_cf_name(const rocksdb_writestallinfo_t* info,
+                                           size_t* size) {
   *size = info->rep.cf_name.size();
   return info->rep.cf_name.data();
 }
 
 const rocksdb_writestallcondition_t* rocksdb_writestallinfo_cur(
     const rocksdb_writestallinfo_t* info) {
-  return reinterpret_cast<const rocksdb_writestallcondition_t*>(&info->rep.condition.cur);
+  return reinterpret_cast<const rocksdb_writestallcondition_t*>(
+      &info->rep.condition.cur);
 }
 
 const rocksdb_writestallcondition_t* rocksdb_writestallinfo_prev(
     const rocksdb_writestallinfo_t* info) {
-  return reinterpret_cast<const rocksdb_writestallcondition_t*>(&info->rep.condition.prev);
+  return reinterpret_cast<const rocksdb_writestallcondition_t*>(
+      &info->rep.condition.prev);
 }
 
 /* CuckooOptions simple */
 
 void rocksdb_cuckoo_options_set_hash_ratio(
-    rocksdb_cuckoo_table_options_t* options,
-    double v) {
+    rocksdb_cuckoo_table_options_t* options, double v) {
   options->rep.hash_table_ratio = v;
 }
 
 /* Options simple */
 
 void rocksdb_options_set_compression_options_zstd_max_train_bytes(
-    rocksdb_options_t* opt,
-    int zstd_max_train_bytes) {
+    rocksdb_options_t* opt, int zstd_max_train_bytes) {
   opt->rep.compression_opts.zstd_max_train_bytes = zstd_max_train_bytes;
 }
 
@@ -606,8 +481,7 @@ int rocksdb_options_get_compression_options_zstd_max_train_bytes(
 }
 
 void rocksdb_options_set_compression_options_use_zstd_dict_trainer(
-    rocksdb_options_t* opt,
-    unsigned char use_zstd_dict_trainer) {
+    rocksdb_options_t* opt, unsigned char use_zstd_dict_trainer) {
   opt->rep.compression_opts.use_zstd_dict_trainer = use_zstd_dict_trainer;
 }
 
@@ -617,8 +491,7 @@ unsigned char rocksdb_options_get_compression_options_use_zstd_dict_trainer(
 }
 
 void rocksdb_options_set_compression_options_parallel_threads(
-    rocksdb_options_t* opt,
-    int value) {
+    rocksdb_options_t* opt, int value) {
   opt->rep.compression_opts.parallel_threads = value;
 }
 
@@ -628,8 +501,7 @@ int rocksdb_options_get_compression_options_parallel_threads(
 }
 
 void rocksdb_options_set_compression_options_max_dict_buffer_bytes(
-    rocksdb_options_t* opt,
-    uint64_t max_dict_buffer_bytes) {
+    rocksdb_options_t* opt, uint64_t max_dict_buffer_bytes) {
   opt->rep.compression_opts.max_dict_buffer_bytes = max_dict_buffer_bytes;
 }
 
@@ -638,7 +510,8 @@ uint64_t rocksdb_options_get_compression_options_max_dict_buffer_bytes(
   return opt->rep.compression_opts.max_dict_buffer_bytes;
 }
 
-unsigned char rocksdb_options_get_bottommost_compression_options_use_zstd_dict_trainer(
+unsigned char
+rocksdb_options_get_bottommost_compression_options_use_zstd_dict_trainer(
     rocksdb_options_t* opt) {
   return opt->rep.bottommost_compression_opts.use_zstd_dict_trainer;
 }
@@ -651,15 +524,13 @@ int rocksdb_options_get_use_fsync(rocksdb_options_t* opt) {
   return opt->rep.use_fsync;
 }
 
-void rocksdb_options_set_disable_auto_compactions(
-    rocksdb_options_t* opt,
-    int disable) {
+void rocksdb_options_set_disable_auto_compactions(rocksdb_options_t* opt,
+                                                  int disable) {
   opt->rep.disable_auto_compactions = disable;
 }
 
-void rocksdb_options_set_optimize_filters_for_hits(
-    rocksdb_options_t* opt,
-    int v) {
+void rocksdb_options_set_optimize_filters_for_hits(rocksdb_options_t* opt,
+                                                   int v) {
   opt->rep.optimize_filters_for_hits = v;
 }
 
