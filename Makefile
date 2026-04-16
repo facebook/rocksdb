@@ -1069,6 +1069,7 @@ ifndef SKIP_FORMAT_BUCK_CHECKS
 	$(MAKE) check-format
 	$(MAKE) check-buck-targets
 	$(MAKE) check-sources
+	$(MAKE) check-workflow-yaml
 endif
 
 # TODO add ldb_tests
@@ -1296,6 +1297,9 @@ check-buck-targets:
 
 check-sources:
 	build_tools/check-sources.sh
+
+check-workflow-yaml:
+	build_tools/check-workflow-yaml.sh
 
 # Run clang-tidy on locally changed files, filtered to changed lines only.
 # Requires compile_commands.json (generate with cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON).
@@ -2657,7 +2661,7 @@ list_all_tests:
 
 # Remove the rules for which dependencies should not be generated and see if any are left.
 #If so, include the dependencies; if not, do not include the dependency files
-ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets check-headers check-sources clang-tidy jclean jtest package analyze tags rocksdbjavastatic% unity.% unity_test checkout_folly, $(MAKECMDGOALS))
+ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets check-headers check-sources check-workflow-yaml clang-tidy jclean jtest package analyze tags rocksdbjavastatic% unity.% unity_test checkout_folly, $(MAKECMDGOALS))
 ifneq ("$(ROCKS_DEP_RULES)", "")
 -include $(DEPFILES)
 endif
