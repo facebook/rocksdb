@@ -873,6 +873,14 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     return;
   }
 
+  // Readahead lookup may advance index_iter_ to the end of the file while the
+  // current block is still being consumed. In that case there is no next block
+  // boundary to inspect, so skip further tuning instead of dereferencing an
+  // exhausted index iterator.
+  if (!index_iter_->Valid()) {
+    return;
+  }
+
   size_t footer = table_->get_rep()->footer.GetBlockTrailerSize();
   if (read_curr_block && !DoesContainBlockHandles() &&
       IsNextBlockOutOfReadaheadBound()) {
