@@ -2481,7 +2481,7 @@ rocksdbjavastaticpublish: rocksdbjavastaticrelease rocksdbjavastaticpublishcentr
 
 rocksdbjavastaticpublishdocker: rocksdbjavastaticreleasedocker rocksdbjavastaticpublishcentral
 
-ROCKSDB_JAVA_RELEASE_CLASSIFIERS = javadoc sources linux64 linux32 linux64-musl linux32-musl osx win64
+ROCKSDB_JAVA_RELEASE_CLASSIFIERS = javadoc sources linux64 linux32 linux64-musl linux32-musl osx win64 win-arm64
 
 rocksdbjavastaticpublishcentral: rocksdbjavageneratepom
 	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/pom.xml -Dfile=java/target/rocksdbjni-$(ROCKSDB_JAVA_VERSION).jar

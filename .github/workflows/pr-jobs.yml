@@ -548,6 +548,21 @@ jobs:
       with:
         suite-run: ${{ matrix.suite_run }}
         run-java: ${{ matrix.run_java }}
+  build-windows-vs2022-arm64:
+    if: needs.config.outputs.only_job == 'build-windows-vs2022-arm64' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
+    runs-on: windows-11-arm
+    env:
+      CMAKE_GENERATOR: Visual Studio 17 2022
+      CMAKE_PORTABLE: 1
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/windows-build-steps"
+      with:
+        target-platform: ARM64
+        java-distribution: liberica
+        java-version: '11'
+        java-architecture: aarch64
   # ============================ Java Jobs ============================ #
   build-linux-java:
     if: needs.config.outputs.only_job == 'build-linux-java' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
