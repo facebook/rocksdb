@@ -396,19 +396,14 @@ bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
     }
   }
 
-  // Resolve only the default column on iterator positioning. Non-default blob
-  // columns stay lazy until columns() is explicitly requested.
+  // Iterator positions must expose fully prepared values and columns once
+  // Valid() becomes true, so resolve and materialize all blob columns here.
   state.BindLazyEntity(saved_key_.GetUserKey());
-
-  if (UNLIKELY(state.HasLazyDefaultColumn())) {
-    const Status s = state.ResolveDefaultLazyColumn();
-    if (!s.ok()) {
-      status_ = s;
-      valid_ = false;
-      state.ClearLazyEntity();
-      return false;
-    }
+  if (!MaterializeLazyEntityColumns()) {
+    state.ClearLazyEntity();
+    return false;
   }
+  state.MaybeSetValueFromMaterializedDefaultColumn();
 
   return true;
 }

@@ -1149,19 +1149,16 @@ TEST_F(DBWideBlobDirectWriteTest,
 }
 
 TEST_F(DBWideBlobDirectWriteTest,
-       DirectWriteIteratorValueScanDefersUnneededBlobColumns) {
+       DirectWriteIteratorValueScanEagerlyResolvesBlobColumns) {
   struct IteratorScanCase {
     const char* name;
     std::string default_value;
     std::string blob_attr_value;
-    bool expect_default_blob_read;
   };
 
   const std::array<IteratorScanCase, 2> cases{{
-      {"inline_default", "inline-default", std::string(128, 'b'),
-       /*expect_default_blob_read=*/false},
-      {"blob_default", std::string(128, 'd'), std::string(160, 'e'),
-       /*expect_default_blob_read=*/true},
+      {"inline_default", "inline-default", std::string(128, 'b')},
+      {"blob_default", std::string(128, 'd'), std::string(160, 'e')},
   }};
 
   for (const auto& test_case : cases) {
@@ -1197,23 +1194,56 @@ TEST_F(DBWideBlobDirectWriteTest,
 
     const uint64_t blob_bytes_before_columns =
         options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ);
-    if (test_case.expect_default_blob_read) {
-      ASSERT_GT(blob_bytes_before_columns, 0U)
-          << "Blob-backed default columns must be resolved for value() scans";
-    } else {
-      ASSERT_EQ(blob_bytes_before_columns, 0U)
-          << "Inline default columns should not trigger blob reads";
-    }
+    ASSERT_GT(blob_bytes_before_columns, 0U)
+        << "Iterator positioning should resolve all blob-backed columns before "
+           "the entry becomes valid";
 
     ASSERT_EQ(iter->columns(), columns);
     ASSERT_OK(iter->status());
 
     const uint64_t blob_bytes_after_columns =
         options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ);
-    ASSERT_GT(blob_bytes_after_columns, blob_bytes_before_columns)
-        << "Iterator positioning should defer non-default blob resolution "
-           "until columns() is requested";
+    ASSERT_EQ(blob_bytes_after_columns, blob_bytes_before_columns)
+        << "columns() should be a pure accessor for an already-valid iterator";
   }
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       DirectWriteIteratorBlobResolutionErrorInvalidatesEntry) {
+  // Goal: verify iterator positioning clears Valid() when resolving a
+  // blob-backed wide column fails. We keep the default column inline so the
+  // old lazy columns() behavior would have exposed a seemingly valid entry
+  // until columns() tried to read the missing blob data.
+  Options options = GetDirectWriteOptions();
+  options.min_blob_size = 64;
+
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "wide_entity_key_missing_blob";
+  const WideColumns columns{{kDefaultWideColumnName, "inline-default"},
+                            {"blob_attr", std::string(128, 'b')},
+                            {"ttl", "00000001"}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  const auto blob_files = GetBlobFileNumbers();
+  ASSERT_EQ(blob_files.size(), 1U);
+
+  Close();
+  ASSERT_OK(env_->DeleteFile(BlobFileName(dbname_, blob_files.front())));
+  Reopen(options);
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+
+  const Status status = iter->status();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_FALSE(status.ok()) << status.ToString();
+  ASSERT_TRUE(status.IsCorruption() || status.IsIOError() ||
+              status.IsNotFound())
+      << status.ToString();
 }
 
 TEST_F(DBWideBlobDirectWriteTest,
