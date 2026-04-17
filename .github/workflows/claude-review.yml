@@ -124,7 +124,8 @@ jobs:
 
       - name: Skip stale run
         if: steps.pr_info.outputs.skip == 'true'
-        run: echo "Skipping stale auto-review run: ${{ steps.pr_info.outputs.skip_reason }}"
+        run: |-
+          echo "Skipping stale auto-review run: ${{ steps.pr_info.outputs.skip_reason }}"
 
       - name: Check for existing review
         if: steps.pr_info.outputs.skip != 'true'

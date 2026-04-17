@@ -58,6 +58,7 @@
 #include "table/table_builder.h"
 #include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
+#include "util/hash_containers.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -898,6 +899,10 @@ Status CompactionJob::VerifyOutputFiles() {
   }
 
   auto verify_table = [&](SubcompactionState& subcompaction_state) {
+    // Collect file open metadata during verification when fast_sst_open
+    // is enabled, keyed by file number.
+    UnorderedMap<uint64_t, std::string> file_open_metadata_map;
+
     for (const auto& output_file : subcompaction_state.GetOutputs()) {
       // Verify that the table is usable
       // We set for_compaction to false and don't
@@ -915,6 +920,10 @@ Status CompactionJob::VerifyOutputFiles() {
       TableReader* table_reader_ptr = table_reader_guard.get();
       verification_read_options.rate_limiter_priority =
           GetRateLimiterPriority();
+      std::string file_open_metadata;
+      std::string* file_open_metadata_ptr =
+          mutable_db_options_copy_.fast_sst_open ? &file_open_metadata
+                                                 : nullptr;
       InternalIterator* iter = cfd->table_cache()->NewIterator(
           verification_read_options, file_options_, cfd->internal_comparator(),
           output_file.meta,
@@ -927,7 +936,10 @@ Status CompactionJob::VerifyOutputFiles() {
           MaxFileSizeForL0MetaPin(compact_->compaction->mutable_cf_options()),
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr,
-          /*allow_unprepared_value=*/false);
+          /*allow_unprepared_value=*/false,
+          /*range_del_read_seqno=*/nullptr,
+          /*range_del_iter=*/nullptr,
+          /*maybe_pin_table_handle=*/false, file_open_metadata_ptr);
       auto s = iter->status();
       if (s.ok()) {
         // Check for remote/local compaction and verify_output_flags flags
@@ -1002,6 +1014,27 @@ Status CompactionJob::VerifyOutputFiles() {
         subcompaction_state.status = s;
         break;
       }
+
+      if (!file_open_metadata.empty()) {
+        file_open_metadata_map[output_file.meta.fd.GetNumber()] =
+            std::move(file_open_metadata);
+      }
+    }
+
+    // Apply collected file open metadata to mutable outputs
+    if (!file_open_metadata_map.empty()) {
+      auto apply_metadata =
+          [&file_open_metadata_map](
+              std::vector<CompactionOutputs::Output>& outputs) {
+            for (auto& output : outputs) {
+              auto it = file_open_metadata_map.find(output.meta.fd.GetNumber());
+              if (it != file_open_metadata_map.end()) {
+                output.meta.file_open_metadata = std::move(it->second);
+              }
+            }
+          };
+      apply_metadata(subcompaction_state.GetMutableCompactionOutputs());
+      apply_metadata(subcompaction_state.GetMutableProximalOutputs());
     }
   };
   for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {

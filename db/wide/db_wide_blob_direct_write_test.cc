@@ -15,6 +15,7 @@
 
 #include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_index.h"
+#include "db/blob/blob_log_format.h"
 #include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "db/wide/wide_column_serialization.h"
@@ -332,6 +333,46 @@ class TTLOnlyLazyDropFilter : public CompactionFilter {
 
   bool SupportsFilterV4() const override { return true; }
   const char* Name() const override { return "TTLOnlyLazyDropFilter"; }
+
+ private:
+  std::atomic<uint64_t>* ttl_cutoff_;
+  std::atomic<int>* filter_call_count_;
+  std::atomic<int>* ttl_columns_seen_;
+  std::atomic<int>* ttl_bad_size_count_;
+  std::atomic<int>* missing_ttl_count_;
+  std::atomic<int>* blob_columns_seen_;
+};
+
+class FlushOnlyTTLOnlyLazyDropFilterFactory : public CompactionFilterFactory {
+ public:
+  FlushOnlyTTLOnlyLazyDropFilterFactory(std::atomic<uint64_t>* ttl_cutoff,
+                                        std::atomic<int>* filter_call_count,
+                                        std::atomic<int>* ttl_columns_seen,
+                                        std::atomic<int>* ttl_bad_size_count,
+                                        std::atomic<int>* missing_ttl_count,
+                                        std::atomic<int>* blob_columns_seen)
+      : ttl_cutoff_(ttl_cutoff),
+        filter_call_count_(filter_call_count),
+        ttl_columns_seen_(ttl_columns_seen),
+        ttl_bad_size_count_(ttl_bad_size_count),
+        missing_ttl_count_(missing_ttl_count),
+        blob_columns_seen_(blob_columns_seen) {}
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::make_unique<TTLOnlyLazyDropFilter>(
+        ttl_cutoff_, filter_call_count_, ttl_columns_seen_, ttl_bad_size_count_,
+        missing_ttl_count_, blob_columns_seen_);
+  }
+
+  bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const override {
+    return reason == TableFileCreationReason::kFlush;
+  }
+
+  const char* Name() const override {
+    return "FlushOnlyTTLOnlyLazyDropFilterFactory";
+  }
 
  private:
   std::atomic<uint64_t>* ttl_cutoff_;
@@ -690,6 +731,214 @@ TEST_F(
   scenario.reuse_iterator_before_refresh = true;
   scenario.create_control_before_refresh = false;
   VerifySingleCfCoalescingIteratorMatchesDirectIterator(scenario);
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       DirectWriteWideEntityLazyTTLFlushTracksExpiredBlobGarbage) {
+  std::atomic<int> filter_call_count{0};
+  std::atomic<int> ttl_columns_seen{0};
+  std::atomic<int> ttl_bad_size_count{0};
+  std::atomic<int> missing_ttl_count{0};
+  std::atomic<int> blob_columns_seen{0};
+  std::atomic<uint64_t> ttl_cutoff{1000};
+
+  auto filter_factory = std::make_shared<FlushOnlyTTLOnlyLazyDropFilterFactory>(
+      &ttl_cutoff, &filter_call_count, &ttl_columns_seen, &ttl_bad_size_count,
+      &missing_ttl_count, &blob_columns_seen);
+
+  Options options = GetDirectWriteOptions();
+  options.allow_concurrent_memtable_write = false;
+  options.blob_direct_write_partitions = 1;
+  options.min_blob_size = 64;
+  options.blob_file_size = 1 << 20;
+  options.disable_auto_compactions = true;
+  options.enable_blob_garbage_collection = false;
+  options.compaction_filter_factory = filter_factory;
+
+  Reopen(options);
+
+  const std::string expired_key = "expired_entity";
+  const std::string live_key = "live_entity";
+  const std::string expired_value = GenerateLargeValue(4096, 'E');
+  const std::string live_value = GenerateLargeValue(4096, 'L');
+  const std::string expired_ttl = EncodeFixedTTL(10);
+  const std::string live_ttl = EncodeFixedTTL(1000);
+  const auto expired_columns_data =
+      BuildTTLWideEntityData(expired_value, expired_ttl);
+  const WideColumns expired_columns = ToWideColumns(expired_columns_data);
+  const auto live_columns_data = BuildTTLWideEntityData(live_value, live_ttl);
+  const WideColumns live_columns = ToWideColumns(live_columns_data);
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           expired_key, expired_columns));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), live_key,
+                           live_columns));
+
+  ASSERT_OK(Flush());
+
+  ASSERT_GE(filter_call_count.load(), 2);
+  ASSERT_EQ(ttl_columns_seen.load(), filter_call_count.load());
+  ASSERT_EQ(ttl_bad_size_count.load(), 0);
+  ASSERT_EQ(missing_ttl_count.load(), 0);
+  ASSERT_EQ(blob_columns_seen.load(), filter_call_count.load());
+
+  PinnableWideColumns result;
+  ASSERT_TRUE(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                             expired_key, &result)
+                  .IsNotFound());
+  ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), live_key,
+                           &result));
+  ASSERT_EQ(result.columns(), live_columns);
+
+  const uint64_t expired_record_bytes =
+      expired_value.size() +
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(expired_key.size());
+  const uint64_t live_record_bytes =
+      live_value.size() +
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(live_key.size());
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_file_count, 1U);
+  ASSERT_EQ(cf_meta.blob_files.size(), 1U);
+
+  const BlobMetaData& blob_meta = cf_meta.blob_files[0];
+  ASSERT_EQ(blob_meta.total_blob_count, 2U);
+  ASSERT_EQ(blob_meta.total_blob_bytes,
+            expired_record_bytes + live_record_bytes);
+  ASSERT_EQ(blob_meta.garbage_blob_count, 1U);
+  ASSERT_EQ(blob_meta.garbage_blob_bytes, expired_record_bytes);
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       DirectWriteWideEntityFlushOverwriteElisionTracksBlobGarbage) {
+  Options options = GetDirectWriteOptions();
+  options.allow_concurrent_memtable_write = false;
+  options.blob_direct_write_partitions = 1;
+  options.min_blob_size = 64;
+  options.blob_file_size = 1 << 20;
+  options.disable_auto_compactions = true;
+  options.enable_blob_garbage_collection = false;
+
+  Reopen(options);
+
+  const std::string key = "overwritten_entity";
+  const std::string old_value = GenerateLargeValue(4096, 'O');
+  const std::string new_value = GenerateLargeValue(4096, 'N');
+  const auto old_columns_data =
+      WideColumnStringPairs{{"", old_value}, {"meta", "old_inline_meta"}};
+  const WideColumns old_columns = ToWideColumns(old_columns_data);
+  const auto new_columns_data =
+      WideColumnStringPairs{{"", new_value}, {"meta", "new_inline_meta"}};
+  const WideColumns new_columns = ToWideColumns(new_columns_data);
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key,
+                           old_columns));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key,
+                           new_columns));
+
+  ASSERT_OK(Flush());
+
+  PinnableWideColumns result;
+  ASSERT_OK(
+      db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key, &result));
+  ASSERT_EQ(result.columns(), new_columns);
+
+  const uint64_t old_record_bytes =
+      old_value.size() +
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(key.size());
+  const uint64_t new_record_bytes =
+      new_value.size() +
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(key.size());
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_file_count, 1U);
+  ASSERT_EQ(cf_meta.blob_files.size(), 1U);
+
+  const BlobMetaData& blob_meta = cf_meta.blob_files[0];
+  ASSERT_EQ(blob_meta.total_blob_count, 2U);
+  ASSERT_EQ(blob_meta.total_blob_bytes, old_record_bytes + new_record_bytes);
+  ASSERT_EQ(blob_meta.garbage_blob_count, 1U);
+  ASSERT_EQ(blob_meta.garbage_blob_bytes, old_record_bytes);
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       DirectWriteWideEntityLazyTTLFlushAllExpiredDoesNotLeakBlobGeneration) {
+  std::atomic<int> filter_call_count{0};
+  std::atomic<int> ttl_columns_seen{0};
+  std::atomic<int> ttl_bad_size_count{0};
+  std::atomic<int> missing_ttl_count{0};
+  std::atomic<int> blob_columns_seen{0};
+  std::atomic<uint64_t> ttl_cutoff{1000};
+
+  auto filter_factory = std::make_shared<FlushOnlyTTLOnlyLazyDropFilterFactory>(
+      &ttl_cutoff, &filter_call_count, &ttl_columns_seen, &ttl_bad_size_count,
+      &missing_ttl_count, &blob_columns_seen);
+
+  Options options = GetDirectWriteOptions();
+  options.allow_concurrent_memtable_write = false;
+  options.blob_direct_write_partitions = 1;
+  options.min_blob_size = 64;
+  options.blob_file_size = 1 << 20;
+  options.disable_auto_compactions = true;
+  options.enable_blob_garbage_collection = false;
+  options.compaction_filter_factory = filter_factory;
+
+  Reopen(options);
+
+  const std::string expired_key = "expired_only_entity";
+  const std::string expired_value = GenerateLargeValue(4096, 'X');
+  const std::string expired_ttl = EncodeFixedTTL(10);
+  const auto expired_columns_data =
+      BuildTTLWideEntityData(expired_value, expired_ttl);
+  const WideColumns expired_columns = ToWideColumns(expired_columns_data);
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           expired_key, expired_columns));
+
+  ASSERT_OK(Flush());
+
+  ASSERT_GE(filter_call_count.load(), 1);
+  ASSERT_EQ(ttl_columns_seen.load(), filter_call_count.load());
+  ASSERT_EQ(ttl_bad_size_count.load(), 0);
+  ASSERT_EQ(missing_ttl_count.load(), 0);
+  ASSERT_EQ(blob_columns_seen.load(), filter_call_count.load());
+
+  PinnableWideColumns result;
+  ASSERT_TRUE(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                             expired_key, &result)
+                  .IsNotFound());
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_file_count, 0U);
+  ASSERT_TRUE(cf_meta.blob_files.empty());
+
+  const std::string live_key = "live_after_empty_flush";
+  const std::string live_value = GenerateLargeValue(4096, 'Y');
+  const std::string live_ttl = EncodeFixedTTL(5000);
+  const auto live_columns_data = BuildTTLWideEntityData(live_value, live_ttl);
+  const WideColumns live_columns = ToWideColumns(live_columns_data);
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), live_key,
+                           live_columns));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), live_key,
+                           &result));
+  ASSERT_EQ(result.columns(), live_columns);
+
+  const uint64_t live_record_bytes =
+      live_value.size() +
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(live_key.size());
+
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_file_count, 1U);
+  ASSERT_EQ(cf_meta.blob_files.size(), 1U);
+  ASSERT_EQ(cf_meta.blob_files[0].total_blob_count, 1U);
+  ASSERT_EQ(cf_meta.blob_files[0].total_blob_bytes, live_record_bytes);
+  ASSERT_EQ(cf_meta.blob_files[0].garbage_blob_count, 0U);
+  ASSERT_EQ(cf_meta.blob_files[0].garbage_blob_bytes, 0U);
 }
 
 TEST_F(DBWideBlobDirectWriteTest,

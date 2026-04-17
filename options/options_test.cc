@@ -148,6 +148,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"track_and_verify_wals_in_manifest", "true"},
       {"track_and_verify_wals", "true"},
       {"verify_sst_unique_id_in_manifest", "true"},
+      {"fast_sst_open", "true"},
       {"max_open_files", "32"},
       {"max_total_wal_size", "33"},
       {"use_fsync", "true"},
@@ -331,6 +332,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.track_and_verify_wals_in_manifest, true);
   ASSERT_EQ(new_db_opt.track_and_verify_wals, true);
   ASSERT_EQ(new_db_opt.verify_sst_unique_id_in_manifest, true);
+  ASSERT_EQ(new_db_opt.fast_sst_open, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   ASSERT_EQ(new_db_opt.max_total_wal_size, static_cast<uint64_t>(33));
   ASSERT_EQ(new_db_opt.use_fsync, true);
@@ -904,6 +906,7 @@ TEST_F(OptionsTest, OldInterfaceTest) {
       {"track_and_verify_wals_in_manifest", "true"},
       {"track_and_verify_wals", "true"},
       {"verify_sst_unique_id_in_manifest", "true"},
+      {"fast_sst_open", "true"},
       {"max_open_files", "32"},
       {"daily_offpeak_time_utc", "06:30-23:30"},
   };
@@ -920,6 +923,7 @@ TEST_F(OptionsTest, OldInterfaceTest) {
   ASSERT_EQ(new_db_opt.track_and_verify_wals_in_manifest, true);
   ASSERT_EQ(new_db_opt.track_and_verify_wals, true);
   ASSERT_EQ(new_db_opt.verify_sst_unique_id_in_manifest, true);
+  ASSERT_EQ(new_db_opt.fast_sst_open, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   db_options_map["unknown_option"] = "1";
   Status s = GetDBOptionsFromMap(db_config_options, base_db_opt, db_options_map,
@@ -2485,6 +2489,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"track_and_verify_wals_in_manifest", "true"},
       {"track_and_verify_wals", "true"},
       {"verify_sst_unique_id_in_manifest", "true"},
+      {"fast_sst_open", "true"},
       {"max_open_files", "32"},
       {"max_total_wal_size", "33"},
       {"use_fsync", "true"},

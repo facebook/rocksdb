@@ -31,6 +31,7 @@ struct FileMetaData;
 
 class VersionSet;
 class BlobFileAddition;
+class BlobFileGarbage;
 class SnapshotChecker;
 class TableCache;
 class TableBuilder;
@@ -79,6 +80,8 @@ Status BuildTable(
     BlobFileCompletionCallback* blob_callback = nullptr,
     Version* version = nullptr, uint64_t* memtable_payload_bytes = nullptr,
     uint64_t* memtable_garbage_bytes = nullptr,
-    InternalStats::CompactionStats* flush_stats = nullptr);
+    InternalStats::CompactionStats* flush_stats = nullptr,
+    std::vector<BlobFileGarbage>* blob_file_garbages = nullptr,
+    bool fast_sst_open = false);
 
 }  // namespace ROCKSDB_NAMESPACE
