@@ -336,9 +336,7 @@ TEST_F(DBBlobIndexTest, DirectWritePlainBlobFilterV3FlushUsesResolvedValue) {
       wide_column_test_util::GetDirectWriteOptions(GetTestOptions());
   options.compaction_filter_factory =
       std::make_shared<PlainBlobValueFilterV3Factory>(
-          TableFileCreationReason::kFlush,
-          &filter_call_count,
-          &observed_value);
+          TableFileCreationReason::kFlush, &filter_call_count, &observed_value);
 
   DestroyAndReopen(options);
 
@@ -355,10 +353,9 @@ TEST_F(DBBlobIndexTest, DirectWritePlainBlobFilterV3FlushUsesResolvedValue) {
 
 class PlainBlobValueFilterV4 : public CompactionFilter {
  public:
-  PlainBlobValueFilterV4(
-      std::atomic<int>* filter_call_count,
-      std::string* observed_value,
-      std::atomic<bool>* saw_nonnull_blob_resolver)
+  PlainBlobValueFilterV4(std::atomic<int>* filter_call_count,
+                         std::string* observed_value,
+                         std::atomic<bool>* saw_nonnull_blob_resolver)
       : filter_call_count_(filter_call_count),
         observed_value_(observed_value),
         saw_nonnull_blob_resolver_(saw_nonnull_blob_resolver) {}
@@ -376,8 +373,8 @@ class PlainBlobValueFilterV4 : public CompactionFilter {
 
     ++(*filter_call_count_);
     *observed_value_ = existing_value->ToString();
-    saw_nonnull_blob_resolver_->store(
-        blob_resolver != nullptr, std::memory_order_relaxed);
+    saw_nonnull_blob_resolver_->store(blob_resolver != nullptr,
+                                      std::memory_order_relaxed);
     return Decision::kRemove;
   }
 
@@ -392,11 +389,10 @@ class PlainBlobValueFilterV4 : public CompactionFilter {
 
 class PlainBlobValueFilterV4Factory : public CompactionFilterFactory {
  public:
-  PlainBlobValueFilterV4Factory(
-      TableFileCreationReason reason,
-      std::atomic<int>* filter_call_count,
-      std::string* observed_value,
-      std::atomic<bool>* saw_nonnull_blob_resolver)
+  PlainBlobValueFilterV4Factory(TableFileCreationReason reason,
+                                std::atomic<int>* filter_call_count,
+                                std::string* observed_value,
+                                std::atomic<bool>* saw_nonnull_blob_resolver)
       : reason_(reason),
         filter_call_count_(filter_call_count),
         observed_value_(observed_value),
@@ -434,9 +430,7 @@ TEST_F(DBBlobIndexTest, DirectWritePlainBlobFilterV4FlushUsesResolvedValue) {
       wide_column_test_util::GetDirectWriteOptions(GetTestOptions());
   options.compaction_filter_factory =
       std::make_shared<PlainBlobValueFilterV4Factory>(
-          TableFileCreationReason::kFlush,
-          &filter_call_count,
-          &observed_value,
+          TableFileCreationReason::kFlush, &filter_call_count, &observed_value,
           &saw_nonnull_blob_resolver);
 
   DestroyAndReopen(options);

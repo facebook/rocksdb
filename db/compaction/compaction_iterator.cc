@@ -137,8 +137,7 @@ CompactionIterator::CompactionIterator(
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low,
     std::optional<SequenceNumber> preserve_seqno_min,
-    const Version* input_version,
-    Env::IOActivity blob_read_io_activity)
+    const Version* input_version, Env::IOActivity blob_read_io_activity)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots, earliest_snapshot,
           earliest_write_conflict_snapshot, job_snapshot, snapshot_checker, env,
@@ -167,8 +166,7 @@ CompactionIterator::CompactionIterator(
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low,
     std::optional<SequenceNumber> preserve_seqno_min,
-    const Version* input_version,
-    Env::IOActivity blob_read_io_activity)
+    const Version* input_version, Env::IOActivity blob_read_io_activity)
     : input_(input, cmp, must_count_input_entries),
       cmp_(cmp),
       merge_helper_(merge_helper),
@@ -203,8 +201,8 @@ CompactionIterator::CompactionIterator(
       merge_out_iter_(merge_helper_),
       blob_garbage_collection_cutoff_file_number_(
           ComputeBlobGarbageCollectionCutoffFileNumber(compaction_.get())),
-      blob_fetcher_(CreateBlobFetcherIfNeeded(
-          compaction_.get(), input_version, blob_read_io_activity)),
+      blob_fetcher_(CreateBlobFetcherIfNeeded(compaction_.get(), input_version,
+                                              blob_read_io_activity)),
       prefetch_buffers_(
           CreatePrefetchBufferCollectionIfNeeded(compaction_.get())),
       current_key_committed_(false),
@@ -2037,8 +2035,7 @@ uint64_t CompactionIterator::ComputeBlobGarbageCollectionCutoffFileNumber(
 }
 
 std::unique_ptr<BlobFetcher> CompactionIterator::CreateBlobFetcherIfNeeded(
-    const CompactionProxy* compaction,
-    const Version* input_version,
+    const CompactionProxy* compaction, const Version* input_version,
     Env::IOActivity blob_read_io_activity) {
   const Version* const version =
       compaction != nullptr ? compaction->input_version() : input_version;
@@ -2048,8 +2045,8 @@ std::unique_ptr<BlobFetcher> CompactionIterator::CreateBlobFetcherIfNeeded(
 
   ReadOptions read_options;
   read_options.io_activity = compaction != nullptr
-      ? Env::IOActivity::kCompaction
-      : blob_read_io_activity;
+                                 ? Env::IOActivity::kCompaction
+                                 : blob_read_io_activity;
   read_options.fill_cache = false;
 
   BlobFileCache* blob_file_cache = nullptr;

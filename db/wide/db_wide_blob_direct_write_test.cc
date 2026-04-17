@@ -445,7 +445,8 @@ class ResolvingWideValueFilter : public CompactionFilter {
   std::string* resolved_default_value_;
 };
 
-class FlushOnlyResolvingWideValueFilterFactory : public CompactionFilterFactory {
+class FlushOnlyResolvingWideValueFilterFactory
+    : public CompactionFilterFactory {
  public:
   FlushOnlyResolvingWideValueFilterFactory(
       std::atomic<int>* filter_call_count,
@@ -460,9 +461,7 @@ class FlushOnlyResolvingWideValueFilterFactory : public CompactionFilterFactory 
   std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& /*context*/) override {
     return std::make_unique<ResolvingWideValueFilter>(
-        filter_call_count_,
-        resolve_attempt_count_,
-        resolve_failure_count_,
+        filter_call_count_, resolve_attempt_count_, resolve_failure_count_,
         resolved_default_value_);
   }
 
@@ -545,8 +544,7 @@ class FlushOnlyBlobResolvingErrorIgnoringFilterFactory
  public:
   FlushOnlyBlobResolvingErrorIgnoringFilterFactory(
       std::atomic<int>* filter_call_count,
-      std::atomic<int>* resolve_error_count,
-      std::string* resolve_error_status)
+      std::atomic<int>* resolve_error_count, std::string* resolve_error_status)
       : filter_call_count_(filter_call_count),
         resolve_error_count_(resolve_error_count),
         resolve_error_status_(resolve_error_status) {}
@@ -1193,7 +1191,8 @@ TEST_F(DBWideBlobDirectWriteTest,
   ASSERT_EQ(cf_meta.blob_files[0].garbage_blob_bytes, 0U);
 }
 
-TEST_F(DBWideBlobDirectWriteTest, DirectWriteWideEntityBlobResolverWorksOnFlush) {
+TEST_F(DBWideBlobDirectWriteTest,
+       DirectWriteWideEntityBlobResolverWorksOnFlush) {
   std::atomic<int> filter_call_count{0};
   std::atomic<int> resolve_attempt_count{0};
   std::atomic<int> resolve_failure_count{0};
@@ -1201,9 +1200,7 @@ TEST_F(DBWideBlobDirectWriteTest, DirectWriteWideEntityBlobResolverWorksOnFlush)
 
   auto filter_factory =
       std::make_shared<FlushOnlyResolvingWideValueFilterFactory>(
-          &filter_call_count,
-          &resolve_attempt_count,
-          &resolve_failure_count,
+          &filter_call_count, &resolve_attempt_count, &resolve_failure_count,
           &resolved_default_value);
 
   Options options = GetDirectWriteOptions();
@@ -1223,8 +1220,8 @@ TEST_F(DBWideBlobDirectWriteTest, DirectWriteWideEntityBlobResolverWorksOnFlush)
   const auto columns_data = BuildTTLWideEntityData(large_value, ttl_value);
   const WideColumns columns = ToWideColumns(columns_data);
 
-  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key,
-                           columns));
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
   ASSERT_OK(Flush());
 
   ASSERT_GE(filter_call_count.load(), 1);

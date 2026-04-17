@@ -270,29 +270,26 @@ class CompactionIterator {
       Env::IOActivity blob_read_io_activity = Env::IOActivity::kCompaction);
 
   // Constructor with custom CompactionProxy, used for tests.
-  CompactionIterator(InternalIterator* input, const Comparator* cmp,
-                     MergeHelper* merge_helper, SequenceNumber last_sequence,
-                     std::vector<SequenceNumber>* snapshots,
-                     SequenceNumber earliest_snapshot,
-                     SequenceNumber earliest_write_conflict_snapshot,
-                     SequenceNumber job_snapshot,
-                     const SnapshotChecker* snapshot_checker, Env* env,
-                     bool report_detailed_time,
-                     CompactionRangeDelAggregator* range_del_agg,
-                     BlobFileBuilder* blob_file_builder,
-                     bool allow_data_in_errors,
-                     bool enforce_single_del_contracts,
-                     const std::atomic<bool>& manual_compaction_canceled,
-                     std::unique_ptr<CompactionProxy> compaction,
-                     bool must_count_input_entries,
-                     const CompactionFilter* compaction_filter = nullptr,
-                     const std::atomic<bool>* shutting_down = nullptr,
-                     const std::shared_ptr<Logger> info_log = nullptr,
-                     const std::string* full_history_ts_low = nullptr,
-                     std::optional<SequenceNumber> preserve_seqno_min = {},
-                     const Version* input_version = nullptr,
-                     Env::IOActivity blob_read_io_activity =
-                         Env::IOActivity::kCompaction);
+  CompactionIterator(
+      InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
+      SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
+      SequenceNumber earliest_snapshot,
+      SequenceNumber earliest_write_conflict_snapshot,
+      SequenceNumber job_snapshot, const SnapshotChecker* snapshot_checker,
+      Env* env, bool report_detailed_time,
+      CompactionRangeDelAggregator* range_del_agg,
+      BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
+      bool enforce_single_del_contracts,
+      const std::atomic<bool>& manual_compaction_canceled,
+      std::unique_ptr<CompactionProxy> compaction,
+      bool must_count_input_entries,
+      const CompactionFilter* compaction_filter = nullptr,
+      const std::atomic<bool>* shutting_down = nullptr,
+      const std::shared_ptr<Logger> info_log = nullptr,
+      const std::string* full_history_ts_low = nullptr,
+      std::optional<SequenceNumber> preserve_seqno_min = {},
+      const Version* input_version = nullptr,
+      Env::IOActivity blob_read_io_activity = Env::IOActivity::kCompaction);
 
   ~CompactionIterator();
 
@@ -455,8 +452,7 @@ class CompactionIterator {
   static uint64_t ComputeBlobGarbageCollectionCutoffFileNumber(
       const CompactionProxy* compaction);
   static std::unique_ptr<BlobFetcher> CreateBlobFetcherIfNeeded(
-      const CompactionProxy* compaction,
-      const Version* input_version,
+      const CompactionProxy* compaction, const Version* input_version,
       Env::IOActivity blob_read_io_activity);
   static std::unique_ptr<PrefetchBufferCollection>
   CreatePrefetchBufferCollectionIfNeeded(const CompactionProxy* compaction);
