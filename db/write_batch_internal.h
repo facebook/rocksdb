@@ -168,9 +168,23 @@ class WriteBatchInternal {
   // This offset is only valid if the batch is not empty.
   static size_t GetFirstOffset(WriteBatch* batch);
 
-  static Slice Contents(const WriteBatch* batch) { return Slice(batch->rep_); }
+  static Slice Contents(const WriteBatch* batch) {
+    batch->MaybeMaterializeSG();
+    return Slice(batch->rep_);
+  }
 
-  static size_t ByteSize(const WriteBatch* batch) { return batch->rep_.size(); }
+  // Serialized size of the batch, including any pending scatter-gather
+  // entries. Deliberately does NOT materialize: on the group-commit hot
+  // path (WriteThread::EnterAsBatchGroupLeader, WriteImpl statistics)
+  // ByteSize is called on every batch before the WAL write, and
+  // materializing here would drain sg_entries_ into rep_ before
+  // DBImpl::WriteToWAL ever sees the batch, defeating the
+  // zero-copy-to-WAL goal of PutSG/etc. sg_bytes_pending_ tracks the
+  // exact bytes a future MaterializeSG() would append, so this sum
+  // matches what a post-materialization rep_.size() would return.
+  static size_t ByteSize(const WriteBatch* batch) {
+    return batch->rep_.size() + batch->sg_bytes_pending_;
+  }
 
   static Status SetContents(WriteBatch* batch, const Slice& contents);
 
@@ -263,6 +277,27 @@ class WriteBatchInternal {
   // If checksum is provided, the batch content is verfied against the checksum.
   static Status UpdateProtectionInfo(WriteBatch* wb, size_t bytes_per_key,
                                      uint64_t* checksum = nullptr);
+
+  // Scatter-gather WAL payload. `scratch` holds small packed metadata
+  // bytes (type byte, cf varint, key/value length varints) and
+  // `slices` is the sequence of Slices whose concatenation equals the
+  // serialized WriteBatch (header + body + any pending SG entries).
+  //
+  // Slices in `slices` may reference either `scratch` or caller-owned
+  // key/value buffers passed to PutSG/DeleteSG/SingleDeleteSG/MergeSG.
+  // Both `scratch` and those caller buffers MUST remain valid for the
+  // duration of any WAL write that uses this gather.
+  struct WalGather {
+    std::string scratch;
+    std::vector<Slice> slices;
+    size_t total_bytes = 0;
+  };
+
+  // Populate `out` with a scatter-gather view of the bytes that the
+  // WAL would see if the batch were fully materialized. Does NOT mutate
+  // the batch's rep_ or sg_entries_. If `wb` has no pending SG entries
+  // the gather contains a single slice over rep_.
+  static void GatherForWAL(const WriteBatch* wb, WalGather* out);
 };
 
 // LocalSavePoint is similar to a scope guard
@@ -270,7 +305,13 @@ class LocalSavePoint {
  public:
   explicit LocalSavePoint(WriteBatch* batch)
       : batch_(batch),
-        savepoint_(batch->GetDataSize(), batch->Count(),
+        // Anchor to rep_.size() specifically, NOT GetDataSize(). Pending
+        // scatter-gather entries live outside rep_ and are not rolled back
+        // by this savepoint; capturing GetDataSize() here would cause the
+        // commit()-time `rep_.resize(savepoint_.size)` below to grow rep_
+        // into the range that MaterializeSG() later appends, leaving the
+        // failed op's partial bytes interleaved with the SG content.
+        savepoint_(batch->rep_.size(), batch->Count(),
                    batch->content_flags_.load(std::memory_order_relaxed))
 #ifndef NDEBUG
         ,

@@ -92,6 +92,15 @@ class Writer {
 
   IOStatus AddRecord(const WriteOptions& write_options, const Slice& slice,
                      const SequenceNumber& seqno = 0);
+
+  // Scatter-gather variant of AddRecord. Writes the concatenation of
+  // `slices` as a single logical record. The on-disk format is identical
+  // to the single-slice variant; only the input is scattered. Falls back
+  // to concatenation + single-slice AddRecord when WAL compression is
+  // active.
+  IOStatus AddRecord(const WriteOptions& write_options,
+                     const std::vector<Slice>& slices,
+                     const SequenceNumber& seqno = 0);
   IOStatus AddCompressionTypeRecord(const WriteOptions& write_options);
   IOStatus MaybeAddPredecessorWALInfo(const WriteOptions& write_options,
                                       const PredecessorWALInfo& info);
@@ -109,6 +118,13 @@ class Writer {
   const WritableFileWriter* file() const { return dest_.get(); }
 
   uint64_t get_log_number() const { return log_number_; }
+
+  // True iff this writer is actively applying WAL compression. Callers
+  // that can produce a scatter-gather payload should check this and
+  // materialize into a single contiguous buffer instead, because the
+  // streaming compressor requires contiguous input and the multi-slice
+  // AddRecord path will otherwise concatenate internally (no saving).
+  bool IsCompressing() const { return compress_ != nullptr; }
 
   IOStatus WriteBuffer(const WriteOptions& write_options);
 
@@ -139,6 +155,15 @@ class Writer {
 
   IOStatus EmitPhysicalRecord(const WriteOptions& write_options,
                               RecordType type, const char* ptr, size_t length);
+
+  // Scatter-gather variant of EmitPhysicalRecord. The payload is the
+  // sub-range of `slices` that starts at (start_idx, start_off) and has
+  // total length `n` bytes. CRC is computed incrementally across the
+  // spans via crc32c::Extend.
+  IOStatus EmitPhysicalRecordSG(const WriteOptions& write_options,
+                                RecordType type,
+                                const std::vector<Slice>& slices,
+                                size_t start_idx, size_t start_off, size_t n);
 
   IOStatus MaybeHandleSeenFileWriterError();
 

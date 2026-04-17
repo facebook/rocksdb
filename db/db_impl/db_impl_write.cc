@@ -2261,13 +2261,44 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
                             SequenceNumber sequence) {
   assert(log_size != nullptr);
 
-  Slice log_entry = WriteBatchInternal::Contents(&merged_batch);
-  TEST_SYNC_POINT_CALLBACK("DBImpl::WriteToWAL:log_entry", &log_entry);
+  // When WAL compression is enabled the streaming compressor requires a
+  // contiguous input buffer, so a scatter-gather payload would be
+  // concatenated inside log_writer anyway. Materialize the batch up
+  // front instead -- that produces a single-slice gather over rep_ with
+  // the same memcpy cost as the legacy non-SG path (no saving, no
+  // regression) and also keeps the existing single-slice sync point
+  // hook active for corruption tests.
+  if (log_writer->IsCompressing() && merged_batch.HasPendingSG()) {
+    const_cast<WriteBatch&>(merged_batch).MaterializeSG();
+  }
+  // Fast path: no pending SG entries, so the WAL payload is exactly
+  // rep_. Avoid allocating a WalGather (std::string + std::vector) and
+  // instead emit a single Slice directly. This matters on the non-SG
+  // hot path (the common case: most writers never call PutSG) and on
+  // WAL-compression systems where the block above already materialized.
+  const bool sg_path = merged_batch.HasPendingSG();
+  Slice log_entry;
+  WriteBatchInternal::WalGather gather;
+  size_t total_bytes;
+  if (!sg_path) {
+    log_entry = WriteBatchInternal::Contents(&merged_batch);
+    total_bytes = log_entry.size();
+    TEST_SYNC_POINT_CALLBACK("DBImpl::WriteToWAL:log_entry", &log_entry);
+  } else {
+    // SG payload -- references caller-owned key/value buffers directly
+    // so the bytes are not copied through rep_. Use a distinct sync
+    // point name so the single-slice callback contract is preserved;
+    // tests that want to observe or tamper with SG payloads can hook
+    // this variant and receive a WriteBatchInternal::WalGather*.
+    WriteBatchInternal::GatherForWAL(&merged_batch, &gather);
+    total_bytes = gather.total_bytes;
+    TEST_SYNC_POINT_CALLBACK("DBImpl::WriteToWAL:log_entry_sg", &gather);
+  }
   auto s = merged_batch.VerifyChecksum();
   if (!s.ok()) {
     return status_to_io_status(std::move(s));
   }
-  *log_size = log_entry.size();
+  *log_size = total_bytes;
   // When two_write_queues_ WriteToWAL has to be protected from concurretn calls
   // from the two queues anyway and wal_write_mutex_ is already held. Otherwise
   // if manual_wal_flush_ is enabled we need to protect log_writer->AddRecord
@@ -2284,7 +2315,11 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
   if (!io_s.ok()) {
     return io_s;
   }
-  io_s = log_writer->AddRecord(write_options, log_entry, sequence);
+  if (!sg_path) {
+    io_s = log_writer->AddRecord(write_options, log_entry, sequence);
+  } else {
+    io_s = log_writer->AddRecord(write_options, gather.slices, sequence);
+  }
 
   if (UNLIKELY(needs_locking)) {
     wal_write_mutex_.Unlock();
@@ -2293,7 +2328,7 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
     *wal_used = cur_wal_number_;
     assert(*wal_used == wal_file_number_size.number);
   }
-  wals_total_size_.FetchAddRelaxed(log_entry.size());
+  wals_total_size_.FetchAddRelaxed(total_bytes);
   wal_file_number_size.AddSize(*log_size);
   wal_empty_ = false;
 
