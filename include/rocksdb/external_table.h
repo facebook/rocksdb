@@ -11,6 +11,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/iterator_base.h"
 #include "rocksdb/options.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -215,15 +216,17 @@ struct ExternalTableOptions {
   const Comparator* comparator;
   const std::shared_ptr<FileSystem>& fs;
   const FileOptions& file_options;
+  Statistics* statistics;
 
   ExternalTableOptions(
       const std::shared_ptr<const SliceTransform>& _prefix_extractor,
       const Comparator* _comparator, const std::shared_ptr<FileSystem>& _fs,
-      const FileOptions& _file_options)
+      const FileOptions& _file_options, Statistics* _statistics)
       : prefix_extractor(_prefix_extractor),
         comparator(_comparator),
         fs(_fs),
-        file_options(_file_options) {}
+        file_options(_file_options),
+        statistics(_statistics) {}
 };
 
 struct ExternalTableBuilderOptions {
@@ -235,18 +238,23 @@ struct ExternalTableBuilderOptions {
   const std::string db_id;
   const std::string db_session_id;
   const TableFileCreationReason reason;
+  const std::shared_ptr<FileSystem>& fs;
+  Statistics* statistics;
 
   ExternalTableBuilderOptions(
       const ReadOptions& _read_options, const WriteOptions& _write_options,
       const std::shared_ptr<const SliceTransform>& _prefix_extractor,
       const Comparator* _comparator, const std::string& _column_family_name,
-      const TableFileCreationReason _reason)
+      const TableFileCreationReason _reason,
+      const std::shared_ptr<FileSystem>& _fs, Statistics* _statistics)
       : read_options(_read_options),
         write_options(_write_options),
         prefix_extractor(_prefix_extractor),
         comparator(_comparator),
         column_family_name(_column_family_name),
-        reason(_reason) {}
+        reason(_reason),
+        fs(_fs),
+        statistics(_statistics) {}
 };
 
 class ExternalTableFactory : public Customizable {
