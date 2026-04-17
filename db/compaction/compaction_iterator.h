@@ -25,9 +25,11 @@
 namespace ROCKSDB_NAMESPACE {
 
 class BlobFileBuilder;
+class BlobFileCache;
 class BlobFetcher;
 class PrefetchBufferCollection;
 class FilePrefetchBuffer;
+class Version;
 
 // Internal implementation of WideColumnBlobResolver for compaction.
 // This class enables lazy loading of blob column values during compaction
@@ -289,6 +291,13 @@ class CompactionIterator {
   ~CompactionIterator();
 
   void ResetRecordCounts();
+
+  // Non-compaction table-file creation (e.g., flush/recovery) can still need
+  // blob resolution when direct-write wide entities already contain blob
+  // references. Plumb a fetcher explicitly in those cases.
+  void SetBlobFetcher(const Version* version, BlobFileCache* blob_file_cache,
+                      Env::IOActivity io_activity,
+                      bool allow_write_path_fallback);
 
   // Seek to the beginning of the compaction iterator output.
   //

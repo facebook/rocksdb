@@ -47,10 +47,6 @@ void CompactionBlobResolver::Reset(
 
 Status CompactionBlobResolver::ResolveColumn(size_t column_index,
                                              Slice* resolved_value) {
-  if (!resolve_status_.ok()) {
-    return resolve_status_;
-  }
-
   Status status = Status::OK();
   if (columns_ == nullptr || column_index >= columns_->size()) {
     status = Status::InvalidArgument("Column index out of bounds");
@@ -104,7 +100,7 @@ Status CompactionBlobResolver::ResolveColumn(size_t column_index,
       }
     }
   }
-  if (!status.ok()) {
+  if (!status.ok() && resolve_status_.ok()) {
     resolve_status_ = status;
   }
   return status;
@@ -235,6 +231,24 @@ CompactionIterator::CompactionIterator(
 CompactionIterator::~CompactionIterator() {
   // input_ Iterator lifetime is longer than pinned_iters_mgr_ lifetime
   input_.SetPinnedItersMgr(nullptr);
+}
+
+void CompactionIterator::SetBlobFetcher(const Version* version,
+                                        BlobFileCache* blob_file_cache,
+                                        Env::IOActivity io_activity,
+                                        bool allow_write_path_fallback) {
+  if (blob_fetcher_ != nullptr || version == nullptr) {
+    return;
+  }
+
+  ReadOptions read_options;
+  read_options.io_activity = io_activity;
+  read_options.fill_cache = false;
+
+  blob_fetcher_ = std::make_unique<BlobFetcher>(
+      version, read_options, blob_file_cache, allow_write_path_fallback);
+  blob_resolver_.Init(blob_fetcher_.get(), prefetch_buffers_.get(),
+                      &iter_stats_);
 }
 
 void CompactionIterator::ResetRecordCounts() {

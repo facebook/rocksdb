@@ -383,6 +383,96 @@ class FlushOnlyTTLOnlyLazyDropFilterFactory : public CompactionFilterFactory {
   std::atomic<int>* blob_columns_seen_;
 };
 
+class BlobResolvingErrorIgnoringFilter : public CompactionFilter {
+ public:
+  BlobResolvingErrorIgnoringFilter(std::atomic<int>* filter_call_count,
+                                   std::atomic<int>* resolve_error_count,
+                                   std::string* resolve_error_status)
+      : filter_call_count_(filter_call_count),
+        resolve_error_count_(resolve_error_count),
+        resolve_error_status_(resolve_error_status) {}
+
+  Decision FilterV4(
+      int /*level*/, const Slice& /*key*/, ValueType value_type,
+      const Slice* /*existing_value*/, const WideColumns* existing_columns,
+      std::string* /*new_value*/,
+      std::vector<std::pair<std::string, std::string>>* /*new_columns*/,
+      std::string* /*skip_until*/,
+      WideColumnBlobResolver* blob_resolver = nullptr) const override {
+    if (value_type != ValueType::kWideColumnEntity || !existing_columns ||
+        blob_resolver == nullptr) {
+      return Decision::kKeep;
+    }
+
+    ++(*filter_call_count_);
+
+    for (size_t i = 0; i < existing_columns->size(); ++i) {
+      if (!blob_resolver->IsBlobColumn(i)) {
+        continue;
+      }
+
+      const auto& column = (*existing_columns)[i];
+      if (column.name() != "blob_attr") {
+        continue;
+      }
+
+      Slice resolved_value;
+      const Status s = blob_resolver->ResolveColumn(i, &resolved_value);
+      if (!s.ok()) {
+        ++(*resolve_error_count_);
+        *resolve_error_status_ = s.ToString();
+      }
+      break;
+    }
+
+    // Even if the filter returns kKeep after observing the read failure,
+    // flush must fail and surface the resolver error.
+    return Decision::kKeep;
+  }
+
+  bool SupportsFilterV4() const override { return true; }
+  const char* Name() const override {
+    return "BlobResolvingErrorIgnoringFilter";
+  }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::atomic<int>* resolve_error_count_;
+  std::string* resolve_error_status_;
+};
+
+class FlushOnlyBlobResolvingErrorIgnoringFilterFactory
+    : public CompactionFilterFactory {
+ public:
+  FlushOnlyBlobResolvingErrorIgnoringFilterFactory(
+      std::atomic<int>* filter_call_count,
+      std::atomic<int>* resolve_error_count,
+      std::string* resolve_error_status)
+      : filter_call_count_(filter_call_count),
+        resolve_error_count_(resolve_error_count),
+        resolve_error_status_(resolve_error_status) {}
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::make_unique<BlobResolvingErrorIgnoringFilter>(
+        filter_call_count_, resolve_error_count_, resolve_error_status_);
+  }
+
+  bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const override {
+    return reason == TableFileCreationReason::kFlush;
+  }
+
+  const char* Name() const override {
+    return "FlushOnlyBlobResolvingErrorIgnoringFilterFactory";
+  }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::atomic<int>* resolve_error_count_;
+  std::string* resolve_error_status_;
+};
+
 class NameBasedWideColumnPartitionStrategy : public BlobFilePartitionStrategy {
  public:
   using BlobFilePartitionStrategy::SelectPartition;
@@ -808,6 +898,69 @@ TEST_F(DBWideBlobDirectWriteTest,
             expired_record_bytes + live_record_bytes);
   ASSERT_EQ(blob_meta.garbage_blob_count, 1U);
   ASSERT_EQ(blob_meta.garbage_blob_bytes, expired_record_bytes);
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       DirectWriteWideEntityLazyResolverMissingBlobFailsFlush) {
+  // Goal: verify flush-time FilterV4 lazy resolution errors fail the flush for
+  // direct-write wide entities. The filter resolves one blob-backed column,
+  // records the resulting read error, and still returns kKeep; flush must
+  // propagate the resolver status and latch bg_error instead of silently
+  // preserving the entry.
+  std::atomic<int> filter_call_count{0};
+  std::atomic<int> resolve_error_count{0};
+  std::string resolve_error_status;
+
+  Options options = GetDirectWriteOptions();
+  options.min_blob_size = 64;
+  options.compaction_filter_factory =
+      std::make_shared<FlushOnlyBlobResolvingErrorIgnoringFilterFactory>(
+          &filter_call_count, &resolve_error_count, &resolve_error_status);
+
+  Reopen(options);
+
+  constexpr char key[] = "flush_missing_blob_key";
+  const WideColumns columns{{kDefaultWideColumnName, "inline-default"},
+                            {"blob_attr", std::string(128, 'b')},
+                            {"ttl", "00000001"}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+      db_->DefaultColumnFamily());
+  auto* mgr = cfh->cfd()->blob_partition_manager();
+  ASSERT_NE(mgr, nullptr);
+
+  std::vector<BlobFileAddition> additions;
+  std::vector<BlobFileGarbage> garbages;
+  ASSERT_OK(mgr->PrepareFlushAdditions(WriteOptions(), /*num_generations=*/1,
+                                       &additions, &garbages));
+  ASSERT_EQ(additions.size(), 1U);
+  ASSERT_TRUE(garbages.empty());
+
+  ASSERT_OK(env_->DeleteFile(
+      BlobFileName(dbname_, additions.front().GetBlobFileNumber())));
+
+  const Status status = Flush();
+  ASSERT_FALSE(status.ok())
+      << "Flush should fail when FilterV4 lazy blob resolution hits a "
+         "missing blob file";
+  ASSERT_TRUE(status.IsCorruption() || status.IsIOError() ||
+              status.IsNotFound())
+      << status.ToString();
+  ASSERT_GE(filter_call_count.load(), 1);
+  ASSERT_EQ(resolve_error_count.load(), 1);
+  ASSERT_FALSE(resolve_error_status.empty());
+
+  const Status bg_error = dbfull()->TEST_GetBGError();
+  ASSERT_FALSE(bg_error.ok());
+  ASSERT_TRUE(bg_error.IsCorruption() || bg_error.IsIOError() ||
+              bg_error.IsNotFound())
+      << bg_error.ToString();
+  ASSERT_GE(static_cast<int>(bg_error.severity()),
+            static_cast<int>(Status::Severity::kHardError));
 }
 
 TEST_F(DBWideBlobDirectWriteTest,
