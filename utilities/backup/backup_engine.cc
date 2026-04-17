@@ -733,7 +733,6 @@ class BackupEngineImpl {
       src_checksum_hex = std::move(o.src_checksum_hex);
       db_id = std::move(o.db_id);
       db_session_id = std::move(o.db_session_id);
-      src_temperature = o.src_temperature;
       type = std::move(o.type);
       return *this;
     }
