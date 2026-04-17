@@ -136,7 +136,9 @@ CompactionIterator::CompactionIterator(
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low,
-    std::optional<SequenceNumber> preserve_seqno_min)
+    std::optional<SequenceNumber> preserve_seqno_min,
+    const Version* input_version,
+    Env::IOActivity blob_read_io_activity)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots, earliest_snapshot,
           earliest_write_conflict_snapshot, job_snapshot, snapshot_checker, env,
@@ -145,7 +147,8 @@ CompactionIterator::CompactionIterator(
           manual_compaction_canceled,
           compaction ? std::make_unique<RealCompaction>(compaction) : nullptr,
           must_count_input_entries, compaction_filter, shutting_down, info_log,
-          full_history_ts_low, preserve_seqno_min) {}
+          full_history_ts_low, preserve_seqno_min, input_version,
+          blob_read_io_activity) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -163,7 +166,9 @@ CompactionIterator::CompactionIterator(
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low,
-    std::optional<SequenceNumber> preserve_seqno_min)
+    std::optional<SequenceNumber> preserve_seqno_min,
+    const Version* input_version,
+    Env::IOActivity blob_read_io_activity)
     : input_(input, cmp, must_count_input_entries),
       cmp_(cmp),
       merge_helper_(merge_helper),
@@ -198,7 +203,8 @@ CompactionIterator::CompactionIterator(
       merge_out_iter_(merge_helper_),
       blob_garbage_collection_cutoff_file_number_(
           ComputeBlobGarbageCollectionCutoffFileNumber(compaction_.get())),
-      blob_fetcher_(CreateBlobFetcherIfNeeded(compaction_.get())),
+      blob_fetcher_(CreateBlobFetcherIfNeeded(
+          compaction_.get(), input_version, blob_read_io_activity)),
       prefetch_buffers_(
           CreatePrefetchBufferCollectionIfNeeded(compaction_.get())),
       current_key_committed_(false),
@@ -378,9 +384,10 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           compaction_filter_skip_until_.rep());
       if (decision == CompactionFilter::Decision::kUndetermined &&
           !compaction_filter_->IsStackedBlobDbInternalCompactionFilter()) {
-        if (!compaction_) {
-          status_ =
-              Status::Corruption("Unexpected blob index outside of compaction");
+        if (!blob_fetcher_) {
+          status_ = Status::NotSupported(
+              "Blob-backed value filtering requires blob read support in the "
+              "current table-file creation context");
           validity_info_.Invalidate();
           return false;
         }
@@ -406,8 +413,6 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
                               : nullptr;
 
         uint64_t bytes_read = 0;
-
-        assert(blob_fetcher_);
 
         s = blob_fetcher_->FetchBlob(ikey_.user_key, blob_index,
                                      prefetch_buffer, &blob_value_,
@@ -2032,21 +2037,33 @@ uint64_t CompactionIterator::ComputeBlobGarbageCollectionCutoffFileNumber(
 }
 
 std::unique_ptr<BlobFetcher> CompactionIterator::CreateBlobFetcherIfNeeded(
-    const CompactionProxy* compaction) {
-  if (!compaction) {
-    return nullptr;
-  }
-
-  const Version* const version = compaction->input_version();
-  if (!version) {
+    const CompactionProxy* compaction,
+    const Version* input_version,
+    Env::IOActivity blob_read_io_activity) {
+  const Version* const version =
+      compaction != nullptr ? compaction->input_version() : input_version;
+  if (version == nullptr) {
     return nullptr;
   }
 
   ReadOptions read_options;
-  read_options.io_activity = Env::IOActivity::kCompaction;
+  read_options.io_activity = compaction != nullptr
+      ? Env::IOActivity::kCompaction
+      : blob_read_io_activity;
   read_options.fill_cache = false;
 
-  return std::unique_ptr<BlobFetcher>(new BlobFetcher(version, read_options));
+  BlobFileCache* blob_file_cache = nullptr;
+  bool allow_write_path_fallback = false;
+  if (compaction == nullptr) {
+    allow_write_path_fallback = true;
+    auto* cfd = version->cfd();
+    if (cfd != nullptr) {
+      blob_file_cache = cfd->blob_file_cache();
+    }
+  }
+
+  return std::unique_ptr<BlobFetcher>(new BlobFetcher(
+      version, read_options, blob_file_cache, allow_write_path_fallback));
 }
 
 std::unique_ptr<PrefetchBufferCollection>

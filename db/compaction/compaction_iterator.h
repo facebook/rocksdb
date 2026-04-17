@@ -27,6 +27,7 @@ namespace ROCKSDB_NAMESPACE {
 class BlobFileBuilder;
 class BlobFileCache;
 class BlobFetcher;
+class Version;
 class PrefetchBufferCollection;
 class FilePrefetchBuffer;
 class Version;
@@ -264,7 +265,9 @@ class CompactionIterator {
       const std::atomic<bool>* shutting_down = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
       const std::string* full_history_ts_low = nullptr,
-      std::optional<SequenceNumber> preserve_seqno_min = {});
+      std::optional<SequenceNumber> preserve_seqno_min = {},
+      const Version* input_version = nullptr,
+      Env::IOActivity blob_read_io_activity = Env::IOActivity::kCompaction);
 
   // Constructor with custom CompactionProxy, used for tests.
   CompactionIterator(InternalIterator* input, const Comparator* cmp,
@@ -286,7 +289,10 @@ class CompactionIterator {
                      const std::atomic<bool>* shutting_down = nullptr,
                      const std::shared_ptr<Logger> info_log = nullptr,
                      const std::string* full_history_ts_low = nullptr,
-                     std::optional<SequenceNumber> preserve_seqno_min = {});
+                     std::optional<SequenceNumber> preserve_seqno_min = {},
+                     const Version* input_version = nullptr,
+                     Env::IOActivity blob_read_io_activity =
+                         Env::IOActivity::kCompaction);
 
   ~CompactionIterator();
 
@@ -449,7 +455,9 @@ class CompactionIterator {
   static uint64_t ComputeBlobGarbageCollectionCutoffFileNumber(
       const CompactionProxy* compaction);
   static std::unique_ptr<BlobFetcher> CreateBlobFetcherIfNeeded(
-      const CompactionProxy* compaction);
+      const CompactionProxy* compaction,
+      const Version* input_version,
+      Env::IOActivity blob_read_io_activity);
   static std::unique_ptr<PrefetchBufferCollection>
   CreatePrefetchBufferCollectionIfNeeded(const CompactionProxy* compaction);
 

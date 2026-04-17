@@ -271,6 +271,188 @@ TEST_F(DBBlobIndexTest,
   ASSERT_EQ(static_cast<char>(BlobIndex::Type::kUnknown), blob_index.front());
 }
 
+class PlainBlobValueFilterV3 : public CompactionFilter {
+ public:
+  PlainBlobValueFilterV3(std::atomic<int>* filter_call_count,
+                         std::string* observed_value)
+      : filter_call_count_(filter_call_count),
+        observed_value_(observed_value) {}
+
+  Decision FilterV3(
+      int /*level*/, const Slice& /*key*/, ValueType value_type,
+      const Slice* existing_value, const WideColumns* /*existing_columns*/,
+      std::string* /*new_value*/,
+      std::vector<std::pair<std::string, std::string>>* /*new_columns*/,
+      std::string* /*skip_until*/) const override {
+    if (value_type != ValueType::kValue || existing_value == nullptr) {
+      return Decision::kKeep;
+    }
+
+    ++(*filter_call_count_);
+    *observed_value_ = existing_value->ToString();
+    return Decision::kRemove;
+  }
+
+  const char* Name() const override { return "PlainBlobValueFilterV3"; }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::string* observed_value_;
+};
+
+class PlainBlobValueFilterV3Factory : public CompactionFilterFactory {
+ public:
+  PlainBlobValueFilterV3Factory(TableFileCreationReason reason,
+                                std::atomic<int>* filter_call_count,
+                                std::string* observed_value)
+      : reason_(reason),
+        filter_call_count_(filter_call_count),
+        observed_value_(observed_value) {}
+
+  bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const override {
+    return reason == reason_;
+  }
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::make_unique<PlainBlobValueFilterV3>(filter_call_count_,
+                                                    observed_value_);
+  }
+
+  const char* Name() const override { return "PlainBlobValueFilterV3Factory"; }
+
+ private:
+  TableFileCreationReason reason_;
+  std::atomic<int>* filter_call_count_;
+  std::string* observed_value_;
+};
+
+TEST_F(DBBlobIndexTest, DirectWritePlainBlobFilterV3FlushUsesResolvedValue) {
+  std::atomic<int> filter_call_count{0};
+  std::string observed_value;
+
+  Options options =
+      wide_column_test_util::GetDirectWriteOptions(GetTestOptions());
+  options.compaction_filter_factory =
+      std::make_shared<PlainBlobValueFilterV3Factory>(
+          TableFileCreationReason::kFlush,
+          &filter_call_count,
+          &observed_value);
+
+  DestroyAndReopen(options);
+
+  const std::string key = "flush_blob_key";
+  const std::string large_value(10 * 1024, 'F');
+
+  ASSERT_OK(Put(key, large_value));
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ("NOT_FOUND", Get(key));
+  ASSERT_GE(filter_call_count.load(), 1);
+  ASSERT_EQ(observed_value, large_value);
+}
+
+class PlainBlobValueFilterV4 : public CompactionFilter {
+ public:
+  PlainBlobValueFilterV4(
+      std::atomic<int>* filter_call_count,
+      std::string* observed_value,
+      std::atomic<bool>* saw_nonnull_blob_resolver)
+      : filter_call_count_(filter_call_count),
+        observed_value_(observed_value),
+        saw_nonnull_blob_resolver_(saw_nonnull_blob_resolver) {}
+
+  Decision FilterV4(
+      int /*level*/, const Slice& /*key*/, ValueType value_type,
+      const Slice* existing_value, const WideColumns* /*existing_columns*/,
+      std::string* /*new_value*/,
+      std::vector<std::pair<std::string, std::string>>* /*new_columns*/,
+      std::string* /*skip_until*/,
+      WideColumnBlobResolver* blob_resolver = nullptr) const override {
+    if (value_type != ValueType::kValue || existing_value == nullptr) {
+      return Decision::kKeep;
+    }
+
+    ++(*filter_call_count_);
+    *observed_value_ = existing_value->ToString();
+    saw_nonnull_blob_resolver_->store(
+        blob_resolver != nullptr, std::memory_order_relaxed);
+    return Decision::kRemove;
+  }
+
+  bool SupportsFilterV4() const override { return true; }
+  const char* Name() const override { return "PlainBlobValueFilterV4"; }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::string* observed_value_;
+  std::atomic<bool>* saw_nonnull_blob_resolver_;
+};
+
+class PlainBlobValueFilterV4Factory : public CompactionFilterFactory {
+ public:
+  PlainBlobValueFilterV4Factory(
+      TableFileCreationReason reason,
+      std::atomic<int>* filter_call_count,
+      std::string* observed_value,
+      std::atomic<bool>* saw_nonnull_blob_resolver)
+      : reason_(reason),
+        filter_call_count_(filter_call_count),
+        observed_value_(observed_value),
+        saw_nonnull_blob_resolver_(saw_nonnull_blob_resolver) {}
+
+  bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const override {
+    return reason == reason_;
+  }
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::make_unique<PlainBlobValueFilterV4>(
+        filter_call_count_, observed_value_, saw_nonnull_blob_resolver_);
+  }
+
+  const char* Name() const override { return "PlainBlobValueFilterV4Factory"; }
+
+ private:
+  TableFileCreationReason reason_;
+  std::atomic<int>* filter_call_count_;
+  std::string* observed_value_;
+  std::atomic<bool>* saw_nonnull_blob_resolver_;
+};
+
+// Blob direct-write forces a clean-shutdown flush on close so active blob
+// files are registered before reopen. Use flush to exercise the non-compaction
+// plain-blob FilterV4 path.
+TEST_F(DBBlobIndexTest, DirectWritePlainBlobFilterV4FlushUsesResolvedValue) {
+  std::atomic<int> filter_call_count{0};
+  std::string observed_value;
+  std::atomic<bool> saw_nonnull_blob_resolver{false};
+
+  Options options =
+      wide_column_test_util::GetDirectWriteOptions(GetTestOptions());
+  options.compaction_filter_factory =
+      std::make_shared<PlainBlobValueFilterV4Factory>(
+          TableFileCreationReason::kFlush,
+          &filter_call_count,
+          &observed_value,
+          &saw_nonnull_blob_resolver);
+
+  DestroyAndReopen(options);
+
+  const std::string key = "flush_v4_blob_key";
+  const std::string large_value(10 * 1024, 'R');
+
+  ASSERT_OK(Put(key, large_value));
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ("NOT_FOUND", Get(key));
+  ASSERT_GE(filter_call_count.load(), 1);
+  ASSERT_EQ(observed_value, large_value);
+  ASSERT_FALSE(saw_nonnull_blob_resolver.load(std::memory_order_relaxed));
+}
+
 // Note: the following test case pertains to the StackableDB-based BlobDB
 // implementation. Get should NOT return Status::NotSupported/Status::Corruption
 // if blob index is updated with a normal value. See the test case above for
