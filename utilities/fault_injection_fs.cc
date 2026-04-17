@@ -1451,7 +1451,8 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
   ErrorContext* ctx =
       static_cast<ErrorContext*>(injected_thread_local_read_error_.Get());
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in ||
-      ShouldIOActivitiesExcludedFromFaultInjection(io_options.io_activity)) {
+      ShouldIOActivitiesExcludedFromFaultInjection(io_options.io_activity) ||
+      ShouldExcludeFromFaultInjection(file_name, FaultInjectionIOType::kRead)) {
     return IOStatus::OK();
   }
 
@@ -1553,13 +1554,7 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(
   ErrorContext* ctx = GetErrorContextFromFaultInjectionIOType(type);
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in ||
       ShouldIOActivitiesExcludedFromFaultInjection(io_options.io_activity) ||
-      (type == FaultInjectionIOType::kWrite &&
-       ShouldExcludeFromFaultInjection(
-           file_name, file_types_excluded_from_write_fault_injection_)) ||
-      (type == FaultInjectionIOType::kMetadataRead &&
-       ShouldExcludeFromFaultInjection(
-           file_name,
-           file_types_excluded_from_metadata_read_fault_injection_))) {
+      ShouldExcludeFromFaultInjection(file_name, type)) {
     return IOStatus::OK();
   }
 

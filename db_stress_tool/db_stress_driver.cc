@@ -178,14 +178,6 @@ bool RunStressTestImpl(SharedState* shared) {
         stress->TrackExpectedState(shared);
       }
 
-      if (FLAGS_metadata_read_fault_one_in > 0) {
-        // AutoRollLogger probes old/current info log paths with FileExists()
-        // and may ignore those errors. Excluding info log metadata reads keeps
-        // db_stress fault accounting focused on operations whose failures can
-        // propagate back to the stressed DB operation.
-        fault_fs_guard->SetFileTypesExcludedFromMetadataReadFaultInjection(
-            {FileType::kInfoLogFile});
-      }
       if (FLAGS_sync_fault_injection || FLAGS_write_fault_one_in > 0) {
         fault_fs_guard->SetFilesystemDirectWritable(false);
         fault_fs_guard->SetInjectUnsyncedDataLoss(FLAGS_sync_fault_injection);

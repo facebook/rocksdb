@@ -821,10 +821,9 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     file_types_excluded_from_write_fault_injection_ = types;
   }
 
-  void SetFileTypesExcludedFromMetadataReadFaultInjection(
-      const std::set<FileType>& types) {
+  void SetFileTypesExcludedFromFaultInjection(const std::set<FileType>& types) {
     MutexLock l(&mutex_);
-    file_types_excluded_from_metadata_read_fault_injection_ = types;
+    file_types_excluded_from_fault_injection_ = types;
   }
 
   void EnableThreadLocalErrorInjection(FaultInjectionIOType type) {
@@ -937,8 +936,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     }
   };
 
+  std::set<FileType> file_types_excluded_from_fault_injection_;
   std::set<FileType> file_types_excluded_from_write_fault_injection_;
-  std::set<FileType> file_types_excluded_from_metadata_read_fault_injection_;
   std::set<Env::IOActivity> io_activities_excluded_from_fault_injection;
   ThreadLocalPtr injected_thread_local_read_error_;
   ThreadLocalPtr injected_thread_local_write_error_;
@@ -963,15 +962,27 @@ class FaultInjectionTestFS : public FileSystemWrapper {
       ErrorOperation op, Slice* slice, bool direct_io, char* scratch,
       bool need_count_increase, bool* fault_injected);
 
-  bool ShouldExcludeFromFaultInjection(
-      const std::string& file_name, const std::set<FileType>& excluded_types) {
+  bool ShouldExcludeFromFaultInjection(const std::string& file_name,
+                                       FaultInjectionIOType type) {
     MutexLock l(&mutex_);
     FileType file_type = kTempFile;
     uint64_t file_number = 0;
     if (!TryParseFileName(file_name, &file_number, &file_type)) {
       return false;
     }
-    return excluded_types.find(file_type) != excluded_types.end();
+    if (file_types_excluded_from_fault_injection_.count(file_type) > 0) {
+      return true;
+    }
+    switch (type) {
+      case FaultInjectionIOType::kWrite:
+        return file_types_excluded_from_write_fault_injection_.count(
+                   file_type) > 0;
+      case FaultInjectionIOType::kRead:
+      case FaultInjectionIOType::kMetadataRead:
+      case FaultInjectionIOType::kMetadataWrite:
+        return false;
+    }
+    return false;
   }
 
   // Extract number of type from file name. Return false if failing to fine
