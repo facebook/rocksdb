@@ -9,7 +9,16 @@ runs:
   steps:
   - name: Build folly and dependencies
     if: ${{ inputs.cache-hit != 'true' }}
-    run: make build_folly
+    run: |
+      clean_path=()
+      IFS=: read -ra path_entries <<< "$PATH"
+      for entry in "${path_entries[@]}"; do
+        if [[ "$entry" != "/usr/lib/ccache" ]]; then
+          clean_path+=("$entry")
+        fi
+      done
+      export PATH="$(IFS=:; echo "${clean_path[*]}")"
+      make build_folly
     shell: bash
   - name: Skip folly build (using cached version)
     if: ${{ inputs.cache-hit == 'true' }}
