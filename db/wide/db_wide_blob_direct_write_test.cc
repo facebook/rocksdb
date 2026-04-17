@@ -1017,8 +1017,9 @@ TEST_F(DBWideBlobDirectWriteTest,
   Reopen(options);
 
   constexpr char key[] = "flush_missing_blob_key";
+  const std::string blob_attr_value(128, 'b');
   const WideColumns columns{{kDefaultWideColumnName, "inline-default"},
-                            {"blob_attr", std::string(128, 'b')},
+                            {"blob_attr", blob_attr_value},
                             {"ttl", "00000001"}};
 
   ASSERT_OK(
