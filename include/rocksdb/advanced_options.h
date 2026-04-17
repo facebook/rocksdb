@@ -1413,7 +1413,6 @@ struct AdvancedColumnFamilyOptions {
   //
   // This optimization is best-effort and is currently disabled for iterator
   // configurations that may not expose all interior live keys, including:
-  // * ReadOptions::table_filter
   // * user-defined timestamp reads without full visibility (for example,
   //   ReadOptions::iter_start_ts or a non-max ReadOptions::timestamp)
   // * prefix extractor reads that are neither total-order
@@ -1422,6 +1421,10 @@ struct AdvancedColumnFamilyOptions {
   //
   // It also requires an active mutable memtable, and insertion is skipped when
   // that memtable is empty.
+  //
+  // Read-write iterators using ReadOptions::table_filter are rejected while
+  // this option is enabled, see more details in ReadOptions::table_filter
+  // comments.
   //
   // Set to 0 to disable.
   //

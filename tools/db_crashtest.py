@@ -924,6 +924,12 @@ def finalize_and_sanitize(src_params):
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
         dest_params["multiscan_use_async_io"] = 0
+    if dest_params.get("min_tombstones_for_range_conversion", 0) > 0:
+        # SQFC range-query filtering installs ReadOptions::table_filter on
+        # iterators. Read-write iterators reject table_filter when read-path
+        # range tombstone conversion is enabled, because conversion must see
+        # the full relevant SST set before synthesizing a memtable tombstone.
+        dest_params["use_sqfc_for_range_queries"] = 0
     if (
         dest_params["use_direct_io_for_flush_and_compaction"] == 1
         or dest_params["use_direct_reads"] == 1

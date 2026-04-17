@@ -4418,6 +4418,14 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
   ColumnFamilyData* cfd = cfh->cfd();
   assert(cfd != nullptr);
   SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
+  {
+    const Status s = FailIfTableFilterWithRangeConversion(
+        read_options, sv->mutable_cf_options);
+    if (!s.ok()) {
+      CleanupSuperVersion(sv);
+      return NewErrorIterator(s);
+    }
+  }
   if (read_options.timestamp && read_options.timestamp->size() > 0) {
     const Status s =
         FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
@@ -4639,6 +4647,16 @@ Status DBImpl::NewIterators(
   }
 
   assert(cf_sv_pairs.size() == column_families.size());
+  for (const auto& cf_sv_pair : cf_sv_pairs) {
+    s = FailIfTableFilterWithRangeConversion(
+        read_options, cf_sv_pair.super_version->mutable_cf_options);
+    if (!s.ok()) {
+      for (const auto& cleanup_pair : cf_sv_pairs) {
+        CleanupSuperVersion(cleanup_pair.super_version);
+      }
+      return s;
+    }
+  }
   if (read_options.tailing) {
     read_options.total_order_seek |=
         immutable_db_options_.prefix_seek_opt_in_only;
