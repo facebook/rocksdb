@@ -100,15 +100,6 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       avg_op_scan_flush_trigger_(0),
       iter_step_since_seek_(1),
       mem_hidden_op_scanned_since_seek_(0),
-      // Read-path range conversion assumes the scan can observe all interior
-      // live keys. table_filter can hide whole SSTs, and timestamp filtering
-      // can hide newer UDT versions unless the read is at max timestamp with no
-      // lower timestamp bound.
-      min_tombstones_for_range_conversion_(
-          active_mem != nullptr && !read_options.table_filter &&
-                  HasFullTimestampVisibility(read_options)
-              ? mutable_cf_options.min_tombstones_for_range_conversion
-              : 0),
       contiguous_tombstone_count_(0),
       direction_(kForward),
       valid_(false),
@@ -120,6 +111,18 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       expect_total_order_inner_iter_(prefix_extractor_ == nullptr ||
                                      read_options.total_order_seek ||
                                      read_options.auto_prefix_mode),
+      // Read-path range conversion assumes the scan can observe all interior
+      // live keys. table_filter can hide whole SSTs, and timestamp filtering
+      // can hide newer UDT versions unless the read is at max timestamp with no
+      // lower timestamp bound. Legacy prefix iterators without
+      // prefix_same_as_start do not guarantee complete scans, so conversion
+      // must stay disabled for the iterator lifetime.
+      min_tombstones_for_range_conversion_(
+          active_mem != nullptr && !read_options.table_filter &&
+                  (expect_total_order_inner_iter_ || prefix_same_as_start_) &&
+                  HasFullTimestampVisibility(read_options)
+              ? mutable_cf_options.min_tombstones_for_range_conversion
+              : 0),
       expose_blob_index_(expose_blob_index),
       allow_unprepared_value_(read_options.allow_unprepared_value),
       is_blob_(false),
@@ -2077,7 +2080,6 @@ void DBIter::Seek(const Slice& target) {
   if (ShouldSetPrefix(target)) {
     prefix_.emplace();
     prefix_->SetUserKey(prefix_extractor_->Transform(target));
-  } else {
   }
   FindNextUserEntry(false /* not skipping saved_key */);
   if (!valid_) {

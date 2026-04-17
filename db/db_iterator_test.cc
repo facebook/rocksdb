@@ -23,7 +23,6 @@
 #include "rocksdb/perf_context.h"
 #include "table/block_based/flush_block_policy_impl.h"
 #include "test_util/testutil.h"
-#include "util/coding.h"
 #include "util/random.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
@@ -5985,93 +5984,48 @@ TEST_P(ReadPathRangeTombstoneTest, SingleDeleteOnlyRun) {
 }
 
 TEST_P(ReadPathRangeTombstoneTest, PrefixFilterDefaultReadOptions) {
-  // total_order_seek=false (default) with prefix extractor. BBTI prefix bloom
-  // rejects L0 files whose keys don't match the seek prefix. Tombstone
-  // conversion is restricted to the seek prefix so it cannot cover live keys
-  // hidden in prefix-filtered files.
-  for (bool use_udt : {false, true}) {
-    SCOPED_TRACE(use_udt ? "with UDT" : "without UDT");
-    Options options = CurrentOptions();
-    options.min_tombstones_for_range_conversion = 2;
-    options.statistics = CreateDBStatistics();
-    options.disable_auto_compactions = true;
-    options.prefix_extractor.reset(NewFixedPrefixTransform(1));
-    if (use_udt) {
-      options.comparator = test::BytewiseComparatorWithU64TsWrapper();
-    }
-    BlockBasedTableOptions table_options;
-    table_options.filter_policy.reset(NewBloomFilterPolicy(10));
-    table_options.whole_key_filtering = false;
-    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-    DestroyAndReopen(options);
+  // total_order_seek=false (default) with prefix extractor. Even when the
+  // visible scan contains a valid in-prefix tombstone run [ba, bc), read-path
+  // range conversion is disabled in this legacy prefix mode, so no
+  // synthesized memtable tombstone is inserted.
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 2;
+  options.statistics = CreateDBStatistics();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  table_options.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
 
-    std::string ts;
-    Slice ts_slice;
-    std::string read_ts;
-    Slice read_ts_slice;
-    if (use_udt) {
-      PutFixed64(&ts, 1);
-      ts_slice = Slice(ts);
-      read_ts_slice = MaxTimestamp(&read_ts);
-    }
+  // One live key is enough to terminate the same-prefix run [ba, bc).
+  ASSERT_OK(Put("bc", "live_b"));
+  ASSERT_OK(Flush());
 
-    // L0: live key "cb" (prefix 'c').
-    if (use_udt) {
-      ASSERT_OK(db_->Put(WriteOptions(), "cb", ts_slice, "live_value"));
-    } else {
-      ASSERT_OK(Put("cb", "live_value"));
-    }
-    ASSERT_OK(Flush());
+  // Two point tombstones make [ba, bc) a valid same-prefix conversion
+  // candidate, but default legacy prefix reads must still not materialize it.
+  ASSERT_OK(Delete("ba"));
+  ASSERT_OK(Delete("bb"));
 
-    // Memtable: 2 deletes in prefix 'b', bounded by live keys.
-    auto put = [&](const std::string& k, const std::string& v) {
-      return use_udt ? db_->Put(WriteOptions(), k, ts_slice, v) : Put(k, v);
-    };
-    auto del = [&](const std::string& k) {
-      return use_udt ? db_->Delete(WriteOptions(), k, ts_slice) : Delete(k);
-    };
-    ASSERT_OK(put("aa", "below"));
-    ASSERT_OK(del("ba"));
-    ASSERT_OK(del("bb"));
-    ASSERT_OK(put("bc", "live_b"));
-    ASSERT_OK(del("ca"));
-    ASSERT_OK(put("fa", "above"));
-
-    inserted_ranges_.clear();
-    ReadOptions ro;
-    if (use_udt) {
-      ro.timestamp = &read_ts_slice;
+  inserted_ranges_.clear();
+  auto it = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+  if (Forward()) {
+    it->Seek("b");
+    while (it->Valid()) {
+      it->Next();
     }
-    auto it = std::unique_ptr<Iterator>(db_->NewIterator(ro));
-    if (Forward()) {
-      it->Seek("b");
-      while (it->Valid()) {
-        it->Next();
-      }
-    } else {
-      it->Seek("bc");
-      ASSERT_TRUE(it->Valid());
-      while (it->Valid()) {
-        it->Prev();
-      }
-    }
-    ASSERT_OK(it->status());
-    // Only seek-prefix deletes tracked. Tombstone [ba, bc).
-    ASSERT_EQ(inserted_ranges_.size(), 1u);
-    if (use_udt) {
-      AssertRange(0, std::string("ba") + ts, std::string("bc") + ts);
-    } else {
-      AssertRange(0, "ba", "bc");
-    }
-    // Live key "cb" in prefix-filtered L0 must survive.
-    if (use_udt) {
-      std::string val;
-      ASSERT_OK(db_->Get(ro, db_->DefaultColumnFamily(), "cb", &val));
-      ASSERT_EQ(val, "live_value");
-    } else {
-      ASSERT_EQ(Get("cb"), "live_value");
+  } else {
+    it->Seek("bc");
+    ASSERT_TRUE(it->Valid());
+    while (it->Valid()) {
+      it->Prev();
     }
   }
+  ASSERT_OK(it->status());
+  ASSERT_EQ(inserted_ranges_.size(), 0u);
+  ASSERT_EQ(
+      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+      0u);
 }
 
 TEST_P(ReadPathRangeTombstoneTest, PrefixFilterTotalOrderSeek) {
@@ -6156,10 +6110,11 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterTotalOrderSeek) {
 
 TEST_P(ReadPathRangeTombstoneTest, PrefixFilterPrefixSameAsStart) {
   // prefix_same_as_start=true: prefix filtering active, DBIter bounds the
-  // scan to the seek prefix. Tombstone conversion stays within prefix.
-  // total_order_seek should not matter — prefix_same_as_start re-enables
-  // prefix filtering at the BBTI level regardless, and the DBIter prefix
-  // check bounds the scan either way.
+  // scan to the seek prefix. An out-of-prefix tombstone ends the visible run,
+  // but the synthesized range still stays within prefix by flushing to the
+  // last tracked in-prefix tombstone.
+  // total_order_seek should not matter as we are guaranteed a total order view
+  // within the prefix bounds.
   for (bool use_udt : {false, true}) {
     for (bool total_order : {false, true}) {
       SCOPED_TRACE(std::string(use_udt ? "UDT" : "no-UDT") + ", " +
@@ -6201,7 +6156,6 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterPrefixSameAsStart) {
       ASSERT_OK(put("aa", "below"));
       ASSERT_OK(del("ba"));
       ASSERT_OK(del("bb"));
-      ASSERT_OK(put("bc", "live_b"));
       ASSERT_OK(del("ca"));
       ASSERT_OK(put("fa", "above"));
 
@@ -6219,18 +6173,20 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterPrefixSameAsStart) {
           it->Next();
         }
       } else {
-        it->Seek("bc");
-        ASSERT_TRUE(it->Valid());
-        while (it->Valid()) {
-          it->Prev();
-        }
+        it->SeekForPrev("bb");
+        ASSERT_FALSE(it->Valid());
       }
       ASSERT_OK(it->status());
       ASSERT_EQ(inserted_ranges_.size(), 1u);
+      ASSERT_EQ(options.statistics->getTickerCount(
+                    READ_PATH_RANGE_TOMBSTONES_INSERTED),
+                1u);
       if (use_udt) {
-        AssertRange(0, std::string("ba") + ts, std::string("bc") + ts);
+        const std::string end_ts =
+            Forward() ? ts : std::string(sizeof(uint64_t), '\0');
+        AssertRange(0, std::string("ba") + ts, std::string("bb") + end_ts);
       } else {
-        AssertRange(0, "ba", "bc");
+        AssertRange(0, "ba", "bb");
       }
       if (use_udt) {
         std::string val;
@@ -6243,101 +6199,12 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterPrefixSameAsStart) {
   }
 }
 
-TEST_P(ReadPathRangeTombstoneTest, PrefixFilterBoundOutsidePrefix) {
-  // When prefix filtering is active and the iterate bound is outside the
-  // seek prefix, the tombstone run falls back to saved_key_ (last tracked
-  // delete) as the end key.
-  // Forward: iterate_upper_bound outside seek prefix.
-  // Reverse: iterate_lower_bound outside seek prefix.
-  for (bool use_udt : {false, true}) {
-    SCOPED_TRACE(use_udt ? "with UDT" : "without UDT");
-    Options options = CurrentOptions();
-    options.min_tombstones_for_range_conversion = 2;
-    options.statistics = CreateDBStatistics();
-    options.disable_auto_compactions = true;
-    options.prefix_extractor.reset(NewFixedPrefixTransform(1));
-    if (use_udt) {
-      options.comparator = test::BytewiseComparatorWithU64TsWrapper();
-    }
-    BlockBasedTableOptions table_options;
-    table_options.filter_policy.reset(NewBloomFilterPolicy(10));
-    table_options.whole_key_filtering = false;
-    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-    DestroyAndReopen(options);
-
-    std::string ts;
-    Slice ts_slice;
-    std::string read_ts;
-    Slice read_ts_slice;
-    if (use_udt) {
-      PutFixed64(&ts, 1);
-      ts_slice = Slice(ts);
-      read_ts_slice = MaxTimestamp(&read_ts);
-    }
-
-    auto put = [&](const std::string& k, const std::string& v) {
-      return use_udt ? db_->Put(WriteOptions(), k, ts_slice, v) : Put(k, v);
-    };
-    auto del = [&](const std::string& k) {
-      return use_udt ? db_->Delete(WriteOptions(), k, ts_slice) : Delete(k);
-    };
-
-    // Prefix 'b' deletes with no live key to terminate the run within
-    // the prefix — only the bound can end it.
-    ASSERT_OK(put("aa", "below"));
-    ASSERT_OK(del("ba"));
-    ASSERT_OK(del("bb"));
-    ASSERT_OK(del("bc"));
-    ASSERT_OK(put("da", "above"));
-
-    inserted_ranges_.clear();
-    ReadOptions ro;
-    if (use_udt) {
-      ro.timestamp = &read_ts_slice;
-    }
-
-    if (Forward()) {
-      // Upper bound "z" is outside seek prefix 'b'. The post-loop code
-      // falls back to saved_key_ ("bc") as the end key.
-      Slice upper("z");
-      ro.iterate_upper_bound = &upper;
-      auto it = std::unique_ptr<Iterator>(db_->NewIterator(ro));
-      it->Seek("b");
-      while (it->Valid()) {
-        it->Next();
-      }
-      ASSERT_OK(it->status());
-      ASSERT_EQ(inserted_ranges_.size(), 1u);
-      if (use_udt) {
-        AssertRange(0, std::string("ba") + ts, std::string("bc") + ts);
-      } else {
-        AssertRange(0, "ba", "bc");
-      }
-    } else {
-      // Lower bound "a" is outside seek prefix 'b'. PrevInternal hits the
-      // lower bound with end_key ("da") outside prefix 'b' — tombstone
-      // is not inserted since end key is outside the seek prefix.
-      Slice lower("a");
-      ro.iterate_lower_bound = &lower;
-      auto it = std::unique_ptr<Iterator>(db_->NewIterator(ro));
-      it->Seek("da");
-      ASSERT_TRUE(it->Valid());
-      while (it->Valid()) {
-        it->Prev();
-      }
-      ASSERT_OK(it->status());
-      // range_tomb_end_key_ is "da" (prefix 'd') which is outside seek
-      // prefix 'b', so the tombstone is not inserted.
-      ASSERT_EQ(inserted_ranges_.size(), 0u);
-    }
-  }
-}
-
 TEST_P(ReadPathRangeTombstoneTest, PrefixFilterOutOfDomainSeek) {
-  // When the seek target is out-of-domain for the prefix extractor,
-  // the BBTI skips bloom filtering (all files visible). Tombstone
-  // tracking falls back to no prefix restriction — same as
-  // total_order_seek. The scan must not crash on Transform().
+  // With an out-of-domain seek target, prefix_same_as_start cannot establish
+  // a seek-prefix bound. The iterator therefore behaves like an unrestricted
+  // scan while still avoiding Transform() on the short seek target, so the
+  // valid run [bbbb, bbdd) should be converted even though it spans multiple
+  // distinct prefixes.
   Options options = CurrentOptions();
   options.min_tombstones_for_range_conversion = 2;
   options.statistics = CreateDBStatistics();
@@ -6354,15 +6221,17 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterOutOfDomainSeek) {
   ASSERT_OK(Put("aaaa", "v1"));
   ASSERT_OK(Delete("bbbb"));
   ASSERT_OK(Delete("bbcc"));
+  ASSERT_OK(Delete("bbcd"));
   ASSERT_OK(Put("bbdd", "v2"));
   ASSERT_OK(Put("cccc", "v3"));
 
   inserted_ranges_.clear();
   ReadOptions ro;
+  ro.prefix_same_as_start = true;
   auto it = std::unique_ptr<Iterator>(db_->NewIterator(ro));
   if (Forward()) {
     // Seek with a 1-byte key — out-of-domain for FixedPrefixTransform(4).
-    // No prefix restriction, tombstone tracking works normally.
+    // prefix_same_as_start cannot set a prefix bound for this target.
     it->Seek("b");
     while (it->Valid()) {
       it->Next();
@@ -6375,8 +6244,6 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterOutOfDomainSeek) {
     }
   }
   ASSERT_OK(it->status());
-  // Without prefix restriction, the 2 deletes (bbbb, bbcc) form a run
-  // terminated by live key "bbdd". Tombstone [bbbb, bbdd).
   ASSERT_EQ(inserted_ranges_.size(), 1u);
   AssertRange(0, "bbbb", "bbdd");
 }
