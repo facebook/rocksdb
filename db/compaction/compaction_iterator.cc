@@ -42,10 +42,15 @@ void CompactionBlobResolver::Reset(
   columns_ = columns;
   blob_columns_ = blob_columns;
   resolved_cache_.clear();
+  resolve_status_ = Status::OK();
 }
 
 Status CompactionBlobResolver::ResolveColumn(size_t column_index,
                                              Slice* resolved_value) {
+  if (!resolve_status_.ok()) {
+    return resolve_status_;
+  }
+
   Status status = Status::OK();
   if (columns_ == nullptr || column_index >= columns_->size()) {
     status = Status::InvalidArgument("Column index out of bounds");
@@ -98,6 +103,9 @@ Status CompactionBlobResolver::ResolveColumn(size_t column_index,
         }
       }
     }
+  }
+  if (!status.ok()) {
+    resolve_status_ = status;
   }
   return status;
 }
@@ -533,6 +541,17 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           level_, filter_key, value_type, existing_val, existing_col,
           &compaction_filter_value_, &new_columns,
           compaction_filter_skip_until_.rep(), blob_resolver_ptr);
+
+      if (blob_resolver_ptr != nullptr &&
+          !blob_resolver_.resolve_status().ok()) {
+        // Keep lazy FilterV4 failure semantics aligned with the eager FilterV3
+        // compatibility path: if blob resolution fails while the filter is
+        // inspecting the entry, fail compaction even if the filter returned
+        // kKeep after noticing the error.
+        status_ = blob_resolver_.resolve_status();
+        validity_info_.Invalidate();
+        return false;
+      }
     }
 
     iter_stats_.total_filter_time +=

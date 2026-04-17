@@ -39,7 +39,8 @@ class CompactionBlobResolver : public WideColumnBlobResolver {
         blob_columns_(nullptr),
         blob_fetcher_(nullptr),
         prefetch_buffers_(nullptr),
-        iter_stats_(nullptr) {}
+        iter_stats_(nullptr),
+        resolve_status_() {}
 
   // Set the fixed context (blob fetcher, prefetch buffers, stats) once.
   void Init(BlobFetcher* blob_fetcher,
@@ -49,6 +50,7 @@ class CompactionBlobResolver : public WideColumnBlobResolver {
   Status ResolveColumn(size_t column_index, Slice* resolved_value) override;
   bool IsBlobColumn(size_t column_index) const override;
   size_t NumColumns() const override;
+  const Status& resolve_status() const { return resolve_status_; }
 
   // Reset the resolver for a new entity. Clears resolved cache.
   void Reset(const Slice& user_key, const std::vector<WideColumn>* columns,
@@ -67,6 +69,10 @@ class CompactionBlobResolver : public WideColumnBlobResolver {
   // columns (<5), making linear scan cheaper than hash map overhead.
   std::vector<std::pair<size_t, std::unique_ptr<PinnableSlice>>>
       resolved_cache_;
+  // Sticky resolver error for the current entity. FilterV4 may notice the
+  // error and return kKeep, but compaction should still fail just like the
+  // eager FilterV3 compatibility path does.
+  Status resolve_status_;
 };
 
 // A wrapper of internal iterator whose purpose is to count how

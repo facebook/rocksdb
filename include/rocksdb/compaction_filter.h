@@ -58,8 +58,10 @@ class WideColumnBlobResolver {
   // - column_index is out of bounds
   // - I/O error occurred while fetching the blob
   //
-  // If ResolveColumn fails, the compaction filter should return
-  // kKeep to avoid data loss.
+  // If ResolveColumn fails, the compaction filter should stop processing the
+  // current entry and return kKeep to avoid applying a partial decision.
+  // RocksDB will fail the compaction after FilterV4() returns so the resolver
+  // error is surfaced without silently keeping the entry.
   virtual Status ResolveColumn(size_t column_index, Slice* resolved_value) = 0;
 
   // Resolve multiple columns in the order provided by `column_indices`.

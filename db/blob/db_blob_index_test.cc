@@ -1405,6 +1405,83 @@ class BlobResolvingFilterFactory : public CompactionFilterFactory {
   std::string* resolved_large_col_value_;
 };
 
+class BlobResolvingErrorIgnoringFilter : public CompactionFilter {
+ public:
+  BlobResolvingErrorIgnoringFilter(std::atomic<int>* filter_call_count,
+                                   std::atomic<int>* resolve_error_count,
+                                   std::string* resolve_error_status)
+      : filter_call_count_(filter_call_count),
+        resolve_error_count_(resolve_error_count),
+        resolve_error_status_(resolve_error_status) {}
+
+  Decision FilterV4(
+      int /*level*/, const Slice& /*key*/, ValueType value_type,
+      const Slice* /*existing_value*/, const WideColumns* existing_columns,
+      std::string* /*new_value*/,
+      std::vector<std::pair<std::string, std::string>>* /*new_columns*/,
+      std::string* /*skip_until*/,
+      WideColumnBlobResolver* blob_resolver = nullptr) const override {
+    if (value_type != ValueType::kWideColumnEntity ||
+        existing_columns == nullptr || blob_resolver == nullptr) {
+      return Decision::kKeep;
+    }
+
+    ++(*filter_call_count_);
+
+    for (size_t i = 0; i < existing_columns->size(); ++i) {
+      const auto& col = (*existing_columns)[i];
+      if (col.name() == "large_col" && blob_resolver->IsBlobColumn(i)) {
+        Slice resolved_value;
+        const Status s = blob_resolver->ResolveColumn(i, &resolved_value);
+        if (!s.ok()) {
+          ++(*resolve_error_count_);
+          *resolve_error_status_ = s.ToString();
+        }
+        break;
+      }
+    }
+
+    // Even if the filter chooses kKeep after seeing a resolver error, the
+    // compaction path should still fail and surface that read error.
+    return Decision::kKeep;
+  }
+
+  bool SupportsFilterV4() const override { return true; }
+  const char* Name() const override {
+    return "BlobResolvingErrorIgnoringFilter";
+  }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::atomic<int>* resolve_error_count_;
+  std::string* resolve_error_status_;
+};
+
+class BlobResolvingErrorIgnoringFilterFactory : public CompactionFilterFactory {
+ public:
+  BlobResolvingErrorIgnoringFilterFactory(std::atomic<int>* filter_call_count,
+                                          std::atomic<int>* resolve_error_count,
+                                          std::string* resolve_error_status)
+      : filter_call_count_(filter_call_count),
+        resolve_error_count_(resolve_error_count),
+        resolve_error_status_(resolve_error_status) {}
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::make_unique<BlobResolvingErrorIgnoringFilter>(
+        filter_call_count_, resolve_error_count_, resolve_error_status_);
+  }
+
+  const char* Name() const override {
+    return "BlobResolvingErrorIgnoringFilterFactory";
+  }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::atomic<int>* resolve_error_count_;
+  std::string* resolve_error_status_;
+};
+
 TEST_F(DBBlobIndexTest, EntityBlobLazyLoadingFilterResolvesBlobs) {
   // Test: When a compaction filter uses blob_resolver->ResolveColumn() to
   // fetch blob values, the values are correctly resolved.
@@ -1474,6 +1551,57 @@ TEST_F(DBBlobIndexTest, EntityBlobLazyLoadingFilterResolvesBlobs) {
   }
 
   Close();
+}
+
+TEST_F(DBBlobIndexTest, EntityBlobLazyLoadingFilterMissingBlobFailsCompaction) {
+  // Goal: keep lazy FilterV4 resolver failures aligned with the eager FilterV3
+  // path. The filter calls ResolveColumn() on a blob-backed column, then
+  // returns kKeep after observing the error. Compaction must still fail and
+  // latch bg_error instead of silently keeping the entry.
+  std::atomic<int> filter_call_count{0};
+  std::atomic<int> resolve_error_count{0};
+  std::string resolve_error_status;
+
+  Options options = GetBlobTestOptions();
+  options.enable_blob_garbage_collection = false;
+  options.paranoid_checks = true;
+  options.compaction_filter_factory =
+      std::make_shared<BlobResolvingErrorIgnoringFilterFactory>(
+          &filter_call_count, &resolve_error_count, &resolve_error_status);
+
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "missing_blob_key_v4";
+  const std::string large_value(10 * 1024, 'L');
+  WideColumns columns{{"large_col", large_value}, {"small_col", "small"}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  const auto blob_files = GetBlobFileNumbers();
+  ASSERT_EQ(blob_files.size(), 1U);
+  ASSERT_OK(env_->DeleteFile(BlobFileName(dbname_, blob_files.front())));
+
+  const Status status =
+      db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_FALSE(status.ok())
+      << "Compaction should fail when FilterV4 lazy blob resolution hits a "
+         "read error";
+  ASSERT_TRUE(status.IsCorruption() || status.IsIOError() ||
+              status.IsNotFound())
+      << status.ToString();
+  ASSERT_GE(filter_call_count.load(), 1);
+  ASSERT_EQ(resolve_error_count.load(), 1);
+  ASSERT_FALSE(resolve_error_status.empty());
+
+  const Status bg_error = dbfull()->TEST_GetBGError();
+  ASSERT_FALSE(bg_error.ok());
+  ASSERT_TRUE(bg_error.IsCorruption() || bg_error.IsIOError() ||
+              bg_error.IsNotFound())
+      << bg_error.ToString();
+  ASSERT_GE(static_cast<int>(bg_error.severity()),
+            static_cast<int>(Status::Severity::kHardError));
 }
 
 // Test 8: Verify backward compatibility - old filters that don't
