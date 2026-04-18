@@ -37,11 +37,14 @@ void CompactionBlobResolver::Init(BlobFetcher* blob_fetcher,
 
 void CompactionBlobResolver::Reset(
     const Slice& user_key, const std::vector<WideColumn>* columns,
-    const std::vector<std::pair<size_t, BlobIndex>>* blob_columns) {
+    const std::vector<std::pair<size_t, BlobIndex>>* blob_columns,
+    bool track_resolve_error) {
   user_key_ = user_key;
   columns_ = columns;
   blob_columns_ = blob_columns;
+  track_resolve_error_ = track_resolve_error;
   resolved_cache_.clear();
+  resolve_error_.reset();
 }
 
 Status CompactionBlobResolver::ResolveColumn(size_t column_index,
@@ -99,6 +102,9 @@ Status CompactionBlobResolver::ResolveColumn(size_t column_index,
       }
     }
   }
+  if (!status.ok() && track_resolve_error_ && !resolve_error_.has_value()) {
+    resolve_error_.emplace(status);
+  }
   return status;
 }
 
@@ -132,7 +138,8 @@ CompactionIterator::CompactionIterator(
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low,
-    std::optional<SequenceNumber> preserve_seqno_min)
+    std::optional<SequenceNumber> preserve_seqno_min,
+    const Version* input_version, Env::IOActivity blob_read_io_activity)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots, earliest_snapshot,
           earliest_write_conflict_snapshot, job_snapshot, snapshot_checker, env,
@@ -141,7 +148,8 @@ CompactionIterator::CompactionIterator(
           manual_compaction_canceled,
           compaction ? std::make_unique<RealCompaction>(compaction) : nullptr,
           must_count_input_entries, compaction_filter, shutting_down, info_log,
-          full_history_ts_low, preserve_seqno_min) {}
+          full_history_ts_low, preserve_seqno_min, input_version,
+          blob_read_io_activity) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -159,7 +167,8 @@ CompactionIterator::CompactionIterator(
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low,
-    std::optional<SequenceNumber> preserve_seqno_min)
+    std::optional<SequenceNumber> preserve_seqno_min,
+    const Version* input_version, Env::IOActivity blob_read_io_activity)
     : input_(input, cmp, must_count_input_entries),
       cmp_(cmp),
       merge_helper_(merge_helper),
@@ -194,7 +203,8 @@ CompactionIterator::CompactionIterator(
       merge_out_iter_(merge_helper_),
       blob_garbage_collection_cutoff_file_number_(
           ComputeBlobGarbageCollectionCutoffFileNumber(compaction_.get())),
-      blob_fetcher_(CreateBlobFetcherIfNeeded(compaction_.get())),
+      blob_fetcher_(CreateBlobFetcherIfNeeded(compaction_.get(), input_version,
+                                              blob_read_io_activity)),
       prefetch_buffers_(
           CreatePrefetchBufferCollectionIfNeeded(compaction_.get())),
       current_key_committed_(false),
@@ -227,6 +237,24 @@ CompactionIterator::CompactionIterator(
 CompactionIterator::~CompactionIterator() {
   // input_ Iterator lifetime is longer than pinned_iters_mgr_ lifetime
   input_.SetPinnedItersMgr(nullptr);
+}
+
+void CompactionIterator::SetBlobFetcher(const Version* version,
+                                        BlobFileCache* blob_file_cache,
+                                        Env::IOActivity io_activity,
+                                        bool allow_write_path_fallback) {
+  if (blob_fetcher_ != nullptr || version == nullptr) {
+    return;
+  }
+
+  ReadOptions read_options;
+  read_options.io_activity = io_activity;
+  read_options.fill_cache = false;
+
+  blob_fetcher_ = std::make_unique<BlobFetcher>(
+      version, read_options, blob_file_cache, allow_write_path_fallback);
+  blob_resolver_.Init(blob_fetcher_.get(), prefetch_buffers_.get(),
+                      &iter_stats_);
 }
 
 void CompactionIterator::ResetRecordCounts() {
@@ -356,9 +384,10 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           compaction_filter_skip_until_.rep());
       if (decision == CompactionFilter::Decision::kUndetermined &&
           !compaction_filter_->IsStackedBlobDbInternalCompactionFilter()) {
-        if (!compaction_) {
-          status_ =
-              Status::Corruption("Unexpected blob index outside of compaction");
+        if (!blob_fetcher_) {
+          status_ = Status::NotSupported(
+              "Blob-backed value filtering requires blob read support in the "
+              "current table-file creation context");
           validity_info_.Invalidate();
           return false;
         }
@@ -384,8 +413,6 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
                               : nullptr;
 
         uint64_t bytes_read = 0;
-
-        assert(blob_fetcher_);
 
         s = blob_fetcher_->FetchBlob(ikey_.user_key, blob_index,
                                      prefetch_buffer, &blob_value_,
@@ -468,7 +495,8 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
             // Reset member blob resolver for this entity - filter can call
             // resolver->ResolveColumn() to fetch blob values on-demand
             blob_resolver_.Reset(ikey_.user_key, &entity_columns_,
-                                 &entity_blob_columns_);
+                                 &entity_blob_columns_,
+                                 /*track_resolve_error=*/true);
             blob_resolver_ptr = &blob_resolver_;
           } else {
             // FilterV3 compatibility: eagerly resolve all blob columns so
@@ -533,6 +561,19 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           level_, filter_key, value_type, existing_val, existing_col,
           &compaction_filter_value_, &new_columns,
           compaction_filter_skip_until_.rep(), blob_resolver_ptr);
+
+      if (blob_resolver_ptr != nullptr) {
+        Status resolve_status = blob_resolver_.resolve_status();
+        if (!resolve_status.ok()) {
+          // Keep lazy FilterV4 failure semantics aligned with the eager
+          // FilterV3 compatibility path: if blob resolution fails while the
+          // filter is inspecting the entry, fail compaction even if the
+          // filter returned kKeep after noticing the error.
+          status_ = std::move(resolve_status);
+          validity_info_.Invalidate();
+          return false;
+        }
+      }
     }
 
     iter_stats_.total_filter_time +=
@@ -1999,21 +2040,32 @@ uint64_t CompactionIterator::ComputeBlobGarbageCollectionCutoffFileNumber(
 }
 
 std::unique_ptr<BlobFetcher> CompactionIterator::CreateBlobFetcherIfNeeded(
-    const CompactionProxy* compaction) {
-  if (!compaction) {
-    return nullptr;
-  }
-
-  const Version* const version = compaction->input_version();
-  if (!version) {
+    const CompactionProxy* compaction, const Version* input_version,
+    Env::IOActivity blob_read_io_activity) {
+  const Version* const version =
+      compaction != nullptr ? compaction->input_version() : input_version;
+  if (version == nullptr) {
     return nullptr;
   }
 
   ReadOptions read_options;
-  read_options.io_activity = Env::IOActivity::kCompaction;
+  read_options.io_activity = compaction != nullptr
+                                 ? Env::IOActivity::kCompaction
+                                 : blob_read_io_activity;
   read_options.fill_cache = false;
 
-  return std::unique_ptr<BlobFetcher>(new BlobFetcher(version, read_options));
+  BlobFileCache* blob_file_cache = nullptr;
+  bool allow_write_path_fallback = false;
+  if (compaction == nullptr) {
+    allow_write_path_fallback = true;
+    auto* cfd = version->cfd();
+    if (cfd != nullptr) {
+      blob_file_cache = cfd->blob_file_cache();
+    }
+  }
+
+  return std::unique_ptr<BlobFetcher>(new BlobFetcher(
+      version, read_options, blob_file_cache, allow_write_path_fallback));
 }
 
 std::unique_ptr<PrefetchBufferCollection>

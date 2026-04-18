@@ -670,7 +670,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         // Replace operands with the merge result
         if (UNLIKELY(merge_result.size() >
                      std::numeric_limits<uint32_t>::max())) {
-          return Status::Corruption("PartialMerge result exceeds 4GB limit");
+          s = Status::Corruption("PartialMerge result exceeds 4GB limit");
+          return s;
         }
         merge_context_.Clear();
         merge_context_.PushOperand(merge_result);

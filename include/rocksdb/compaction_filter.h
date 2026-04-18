@@ -58,8 +58,10 @@ class WideColumnBlobResolver {
   // - column_index is out of bounds
   // - I/O error occurred while fetching the blob
   //
-  // If ResolveColumn fails, the compaction filter should return
-  // kKeep to avoid data loss.
+  // If ResolveColumn fails, the compaction filter should stop processing the
+  // current entry and return kKeep to avoid applying a partial decision.
+  // RocksDB will fail the compaction after FilterV4() returns so the resolver
+  // error is surfaced without silently keeping the entry.
   virtual Status ResolveColumn(size_t column_index, Slice* resolved_value) = 0;
 
   // Resolve multiple columns in the order provided by `column_indices`.
@@ -375,6 +377,10 @@ class CompactionFilter : public Customizable {
   // Extends FilterV3 with blob column lazy loading support. Called for plain
   // values, merge operands, and wide-column entities.
   //
+  // For `ValueType::kValue`, `existing_value` contains the user value. This
+  // is true whether the value was stored inline or behind a BlobIndex; plain
+  // blob-backed values are eagerly resolved before FilterV4() is invoked.
+  //
   // When the entity has blob columns (columns whose values are stored in blob
   // files), the `blob_resolver` parameter provides a way to lazily resolve
   // blob values on-demand. If `blob_resolver` is non-null:
@@ -444,8 +450,12 @@ class CompactionFilter : public Customizable {
   // Keys where the value is stored separately in a blob file will be
   // passed to this method. If the method returns a supported decision other
   // than kUndetermined, it will be considered final and performed without
-  // reading the existing value. Returning kUndetermined will cause FilterV4()
-  // to be called to make a decision as usual. The output parameters
+  // reading the existing value. Returning kUndetermined continues with the
+  // usual value-based filtering path: RocksDB eagerly resolves the blob and
+  // invokes FilterV4()/FilterV3()/FilterV2() with ValueType::kValue so legacy
+  // filters observe the underlying user value rather than the BlobIndex
+  // encoding. If RocksDB cannot access the blob in the current table-file
+  // creation context, table-file creation fails. The output parameters
   // `new_value` and `skip_until` are applicable to the decisions kChangeValue
   // and kRemoveAndSkipUntil respectively, and have the same semantics as
   // the corresponding parameters of FilterV2/V3/V4.

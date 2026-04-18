@@ -16,6 +16,7 @@
 #include "db/blob/blob_counting_iterator.h"
 #include "db/blob/blob_file_builder.h"
 #include "db/blob/blob_garbage_meter.h"
+#include "db/column_family.h"
 #include "db/compaction/compaction_iterator.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
@@ -239,7 +240,17 @@ Status BuildTable(
         /*manual_compaction_canceled=*/kManualCompactionCanceledFalse,
         true /* must_count_input_entries */,
         /*compaction=*/nullptr, compaction_filter.get(),
-        /*shutting_down=*/nullptr, db_options.info_log, full_history_ts_low);
+        /*shutting_down=*/nullptr, db_options.info_log, full_history_ts_low,
+        std::nullopt, version, tboptions.read_options.io_activity);
+
+    if (version != nullptr) {
+      ColumnFamilyData* const cfd = version->cfd();
+      c_iter.SetBlobFetcher(
+          version, cfd != nullptr ? cfd->blob_file_cache() : nullptr,
+          tboptions.read_options.io_activity,
+          tboptions.reason == TableFileCreationReason::kFlush ||
+              tboptions.reason == TableFileCreationReason::kRecovery);
+    }
 
     SequenceNumber smallest_preferred_seqno = kMaxSequenceNumber;
     std::string key_after_flush_buf;

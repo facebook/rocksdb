@@ -200,16 +200,8 @@ class DBIter final : public Iterator {
 
   const WideColumns& columns() const override {
     assert(valid_);
-
-    if (value_columns_state_.HasMaterializedColumns() ||
-        !value_columns_state_.HasLazyEntityColumns()) {
-      return value_columns_state_.wide_columns();
-    }
-
-    if (!MaterializeLazyEntityColumns()) {
-      return kNoWideColumns;
-    }
-
+    assert(!value_columns_state_.HasLazyEntityColumns() ||
+           value_columns_state_.HasMaterializedColumns());
     return value_columns_state_.wide_columns();
   }
 
@@ -411,22 +403,6 @@ class DBIter final : public Iterator {
       if (WideColumnsHelper::HasDefaultColumn(wide_columns_)) {
         value_ = WideColumnsHelper::GetDefaultColumn(wide_columns_);
       }
-    }
-
-    // Returns true when the deserialized lazy entity has the default column.
-    bool HasLazyDefaultColumn() const {
-      return WideColumnsHelper::HasDefaultColumn(lazy_entity_columns_);
-    }
-
-    // Resolves the lazy default column and stores it in value_.
-    Status ResolveDefaultLazyColumn() {
-      Slice resolved_default_value;
-      Status s = entity_blob_resolver_.ResolveColumn(/*column_index=*/0,
-                                                     &resolved_default_value);
-      if (s.ok()) {
-        value_ = resolved_default_value;
-      }
-      return s;
     }
 
     void SetFromPlain(const Slice& slice) {
