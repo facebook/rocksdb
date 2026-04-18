@@ -42,26 +42,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
-bool HasFullTimestampVisibility(const ReadOptions& read_options) {
-  if (read_options.iter_start_ts != nullptr) {
-    return false;
-  }
-  if (read_options.timestamp == nullptr) {
-    return true;
-  }
-  const Slice ts = *read_options.timestamp;
-  for (size_t i = 0; i < ts.size(); ++i) {
-    if (static_cast<unsigned char>(ts[i]) != 0xff) {
-      return false;
-    }
-  }
-  return true;
-}
-
-}  // namespace
-
 DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                const ImmutableOptions& ioptions,
                const MutableCFOptions& mutable_cf_options,
@@ -112,15 +92,17 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                                      read_options.total_order_seek ||
                                      read_options.auto_prefix_mode),
       // Read-path range conversion assumes the scan can observe all interior
-      // live keys. table_filter can hide whole SSTs, and timestamp filtering
-      // can hide newer UDT versions unless the read is at max timestamp with no
-      // lower timestamp bound. Legacy prefix iterators without
-      // prefix_same_as_start do not guarantee complete scans, so conversion
-      // must stay disabled for the iterator lifetime.
+      // live keys. table_filter can hide whole SSTs and break that invariant.
+      // Legacy prefix iterators without prefix_same_as_start do not guarantee
+      // complete scans, so conversion must stay disabled for the iterator
+      // lifetime. Timestamp range scans (`iter_start_ts`) can miss interior
+      // versions and are also excluded. Upper-bound-only timestamp reads are
+      // allowed, but partially visible user keys act as separators that flush
+      // the current delete run and prevent synthesis from starting at that key.
       min_tombstones_for_range_conversion_(
           active_mem != nullptr && !read_options.table_filter &&
-                  (expect_total_order_inner_iter_ || prefix_same_as_start_) &&
-                  HasFullTimestampVisibility(read_options)
+                  read_options.iter_start_ts == nullptr &&
+                  (expect_total_order_inner_iter_ || prefix_same_as_start_)
               ? mutable_cf_options.min_tombstones_for_range_conversion
               : 0),
       expose_blob_index_(expose_blob_index),
@@ -539,6 +521,18 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
   // to one.
   bool reseek_done = false;
 
+  // A range tombstone can only be inserted on an iterator with a timestamp if
+  // it is guaranteed that the iterator sequence does not cross past any
+  // invisible entries due to timestamp. This is important because if we
+  // inserted purely based on seqno, we could end up with a range tombstone with
+  // a higher seqno but lower timestamp than a live entry in the range.
+  //
+  // This key is set when we encounter a key that is invisibile due to
+  // timestamps. When this happens, this key can no longer be considered for a
+  // range tombstone boundary, and can only be cleared on the next user key (not
+  // including timestamp)
+  IterKey previous_key_for_udt_range_tombstone;
+
   uint64_t mem_hidden_op_scanned = 0;
   do {
     // Will update is_key_seqnum_zero_ as soon as we parsed the current key
@@ -550,6 +544,12 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
     }
     Slice user_key_without_ts =
         StripTimestampFromUserKey(ikey_.user_key, timestamp_size_);
+    if (previous_key_for_udt_range_tombstone.Size() > 0 &&
+        !user_comparator_.EqualWithoutTimestamp(
+            ikey_.user_key,
+            previous_key_for_udt_range_tombstone.GetUserKey())) {
+      previous_key_for_udt_range_tombstone.Clear();
+    }
 
     is_key_seqnum_zero_ = (ikey_.sequence == 0);
 
@@ -588,8 +588,8 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
     Slice ts = timestamp_size_ > 0 ? ExtractTimestampFromUserKey(
                                          ikey_.user_key, timestamp_size_)
                                    : Slice();
-    bool more_recent = false;
-    if (IsVisible(ikey_.sequence, ts, &more_recent)) {
+    bool hidden_by_newer_sequence = false;
+    if (IsVisible(ikey_.sequence, ts, &hidden_by_newer_sequence)) {
       // If the previous entry is of seqnum 0, the current entry will not
       // possibly be skipped. This condition can potentially be relaxed to
       // prev_key.seq <= ikey_.sequence. We are cautious because it will be more
@@ -608,6 +608,8 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
                CompareKeyForSkip(ikey_.user_key, saved_key_.GetUserKey()) > 0);
         num_skipped = 0;
         reseek_done = false;
+        const bool range_tombstone_separator =
+            previous_key_for_udt_range_tombstone.Size() > 0;
         switch (ikey_.type) {
           case kTypeDeletion:
           case kTypeDeletionWithTimestamp:
@@ -628,9 +630,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
               // Track contiguous tombstones for range conversion.
               // Skip if outside seek prefix — the top-of-loop check
               // flushed any pending run, but we must also avoid starting
-              // a new run outside the prefix.
+              // a new run outside the prefix. Partially visible keys are
+              // separators, so they also cannot start a new run here.
               if (min_tombstones_for_range_conversion_ > 0 &&
-                  PrefixCheck(user_key_without_ts)) {
+                  PrefixCheck(user_key_without_ts) &&
+                  !range_tombstone_separator) {
                 TrackContiguousTombstone(ikey_.user_key,
                                          /*always_update_first_key=*/false);
               }
@@ -694,8 +698,20 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
         }
       }
     } else {
-      if (more_recent) {
+      if (hidden_by_newer_sequence) {
         PERF_COUNTER_ADD(internal_recent_skipped_count, 1);
+      }
+      const bool hidden_by_upper_timestamp =
+          timestamp_ub_ != nullptr && !hidden_by_newer_sequence &&
+          user_comparator_.CompareTimestamp(ts, *timestamp_ub_) > 0;
+      // For upper-bound-only timestamp reads, a partially visible key breaks
+      // the current run and cannot be used as a synthesized tombstone boundary.
+      if (min_tombstones_for_range_conversion_ > 0 &&
+          hidden_by_upper_timestamp &&
+          previous_key_for_udt_range_tombstone.Size() == 0) {
+        FlushPendingTombstoneRun(ikey_.user_key);
+        previous_key_for_udt_range_tombstone.SetUserKey(
+            ikey_.user_key, !iter_.iter()->IsKeyPinned() /* copy */);
       }
 
       // This key was inserted after our snapshot was taken or skipped by
@@ -1093,7 +1109,10 @@ void DBIter::PrevInternal() {
     }
 
     bool found_visible = false;
-    if (!FindValueForCurrentKey(found_visible)) {  // assigns valid_
+    bool has_hidden_newer_timestamp = false;
+    if (!FindValueForCurrentKey(
+            found_visible,
+            has_hidden_newer_timestamp)) {  // assigns valid_
       return;
     }
 
@@ -1106,14 +1125,19 @@ void DBIter::PrevInternal() {
     // would use a stale value.
     if (min_tombstones_for_range_conversion_ > 0 &&
         range_tomb_end_key_.Size() > 0 && timestamp_lb_ == nullptr) {
-      if (!valid_ && found_visible && PrefixCheck(saved_key_without_ts)) {
+      if (!valid_ && found_visible && PrefixCheck(saved_key_without_ts) &&
+          !has_hidden_newer_timestamp) {
         // Key was deleted and is within the seek prefix — track it.
         TrackContiguousTombstone(saved_key_.GetUserKey(),
                                  /*always_update_first_key=*/true);
-      } else if (valid_) {
-        // Live key breaks the run.
+      } else if (valid_ || has_hidden_newer_timestamp) {
+        // Live keys and partially visible keys both break the run.
         FlushPendingTombstoneRun(range_tomb_end_key_.GetUserKey(),
                                  /*check_prefix_match=*/true);
+        if (has_hidden_newer_timestamp) {
+          range_tomb_end_key_.SetUserKey(saved_key_.GetUserKey(),
+                                         !saved_key_.IsKeyPinned());
+        }
       }
     }
 
@@ -1150,6 +1174,9 @@ void DBIter::PrevInternal() {
 // Sets valid_ to false if the value was deleted or no visible entry exists.
 // Sets ikey_ to the last visible entry's internal key.  When found_visible
 // is false, ikey_ is not updated and may contain stale data.
+// Sets has_hidden_newer_timestamp to true when a read sees a newer version
+// hidden only by the timestamp upper bound. For upper-bound-only timestamp
+// reads, such keys act as separators for read-path range conversion.
 // Sets found_visible to true if at least one entry passed the IsVisible()
 // check (seqno <= snapshot).  When false, no entry was visible — the key
 // does not exist at this snapshot and should not be treated as a tombstone.
@@ -1158,8 +1185,10 @@ void DBIter::PrevInternal() {
 // PRE: iter_ is positioned on the last entry with user key equal to saved_key_.
 // POST: iter_ is positioned on one of the entries equal to saved_key_, or on
 //       the entry just before them, or on the entry just after them.
-bool DBIter::FindValueForCurrentKey(bool& found_visible) {
+bool DBIter::FindValueForCurrentKey(bool& found_visible,
+                                    bool& has_hidden_newer_timestamp) {
   found_visible = false;
+  has_hidden_newer_timestamp = false;
   assert(iter_.Valid());
   merge_context_.Clear();
   current_entry_is_merged_ = false;
@@ -1196,10 +1225,15 @@ bool DBIter::FindValueForCurrentKey(bool& found_visible) {
                  timestamp_size_);
     }
 
-    bool visible = IsVisible(ikey.sequence, ts);
-    if (!visible &&
-        (timestamp_lb_ == nullptr ||
-         user_comparator_.CompareTimestamp(ts, *timestamp_ub_) > 0)) {
+    bool hidden_by_newer_sequence = false;
+    bool visible = IsVisible(ikey.sequence, ts, &hidden_by_newer_sequence);
+    has_hidden_newer_timestamp =
+        !visible && timestamp_ub_ != nullptr && !hidden_by_newer_sequence &&
+        user_comparator_.CompareTimestamp(ts, *timestamp_ub_) > 0;
+    assert(!has_hidden_newer_timestamp ||
+           user_comparator_.CompareTimestamp(ts, *timestamp_ub_) > 0);
+
+    if (!visible && (timestamp_lb_ == nullptr || has_hidden_newer_timestamp)) {
       // Found an invisible version of the current user key, and it must have
       // a higher sequence number or timestamp. Therefore, we are done with the
       // current user key.
@@ -1222,7 +1256,12 @@ bool DBIter::FindValueForCurrentKey(bool& found_visible) {
     // We're going from old to new, and it's taking too long. Let's do a Seek()
     // and go from new to old. This helps when a key was overwritten many times.
     if (num_skipped >= max_skip_) {
-      return FindValueForCurrentKeyUsingSeek();
+      // With timestamp upper bounds, reseeking may make us "miss" an invisible
+      // key via timestamps which need to break range tombstone runs.
+      if (!(timestamp_ub_ != nullptr &&
+            min_tombstones_for_range_conversion_ > 0)) {
+        return FindValueForCurrentKeyUsingSeek();
+      }
     }
 
     if (!PrepareValueInternal()) {
@@ -1804,6 +1843,27 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
     return;
   }
 
+  // When UDT is enabled, replace both boundary timestamps with the read
+  // timestamp. The range tombstone fragmenter persists tombstone timestamps
+  // separately and derives them from the end key, so both boundaries need the
+  // read timestamp in order for the synthesized tombstone to carry the
+  // intended visibility timestamp through later reads.
+  Slice actual_start = range_tomb_first_key_.GetUserKey();
+  Slice actual_end = end_key;
+  std::string start_key_with_read_ts;
+  std::string end_key_with_read_ts;
+  if (timestamp_size_ > 0 && timestamp_ub_ != nullptr) {
+    start_key_with_read_ts.assign(actual_start.data(),
+                                  actual_start.size() - timestamp_size_);
+    start_key_with_read_ts.append(timestamp_ub_->data(), timestamp_ub_->size());
+    actual_start = Slice(start_key_with_read_ts);
+
+    end_key_with_read_ts.assign(actual_end.data(),
+                                actual_end.size() - timestamp_size_);
+    end_key_with_read_ts.append(timestamp_ub_->data(), timestamp_ub_->size());
+    actual_end = Slice(end_key_with_read_ts);
+  }
+
   // Check if the memtable already has a range tombstone covering [start, end).
   {
     ReadOptions ro;
@@ -1813,25 +1873,25 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
         active_mem_->NewRangeTombstoneIterator(ro, sequence_,
                                                false /* immutable_memtable */));
     if (range_iter) {
-      range_iter->Seek(range_tomb_first_key_.GetUserKey());
+      range_iter->Seek(actual_start);
       if (range_iter->Valid() &&
-          user_comparator_.Compare(range_iter->start_key(),
-                                   range_tomb_first_key_.GetUserKey()) <= 0 &&
-          user_comparator_.Compare(range_iter->end_key(), end_key) >= 0) {
+          user_comparator_.Compare(range_iter->start_key(), actual_start) <=
+              0 &&
+          user_comparator_.Compare(range_iter->end_key(), actual_end) >= 0) {
         RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_DISCARDED);
         return;
       }
     }
   }
 
-  if (active_mem_->AddLogicallyRedundantRangeTombstone(
-          insert_seq, range_tomb_first_key_.GetUserKey(), end_key)) {
+  if (active_mem_->AddLogicallyRedundantRangeTombstone(insert_seq, actual_start,
+                                                       actual_end)) {
     RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_INSERTED);
     ROCKS_LOG_DEBUG(logger_,
                     "Inserted range tombstone [%s, %s) @ seq %" PRIu64
                     " (count=%" PRIu32 ", snapshot=%" PRIu64 ")",
-                    range_tomb_first_key_.GetUserKey().ToString(true).c_str(),
-                    end_key.ToString(true).c_str(), insert_seq,
+                    actual_start.ToString(true).c_str(),
+                    actual_end.ToString(true).c_str(), insert_seq,
                     contiguous_tombstone_count_, sequence_);
   } else {
     RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_DISCARDED);
@@ -1851,7 +1911,7 @@ bool DBIter::TooManyInternalKeysSkipped(bool increment) {
 }
 
 bool DBIter::IsVisible(SequenceNumber sequence, const Slice& ts,
-                       bool* more_recent) {
+                       bool* hidden_by_newer_sequence) {
   // Remember that comparator orders preceding timestamp as larger.
   // TODO(yanqin): support timestamp in read_callback_.
   bool visible_by_seq = (read_callback_ == nullptr)
@@ -1864,8 +1924,8 @@ bool DBIter::IsVisible(SequenceNumber sequence, const Slice& ts,
       (timestamp_lb_ == nullptr ||
        user_comparator_.CompareTimestamp(ts, *timestamp_lb_) >= 0);
 
-  if (more_recent) {
-    *more_recent = !visible_by_seq;
+  if (hidden_by_newer_sequence) {
+    *hidden_by_newer_sequence = !visible_by_seq;
   }
   return visible_by_seq && visible_by_ts;
 }
@@ -1874,7 +1934,20 @@ void DBIter::SetSavedKeyToSeekTarget(const Slice& target) {
   is_key_seqnum_zero_ = false;
   SequenceNumber seq = sequence_;
   saved_key_.Clear();
-  saved_key_.SetInternalKey(target, seq, kValueTypeForSeek, timestamp_ub_);
+  Slice seek_ts;
+  const Slice* seek_ts_ptr = timestamp_ub_;
+  if (min_tombstones_for_range_conversion_ > 0 && timestamp_ub_ != nullptr &&
+      timestamp_lb_ == nullptr) {
+    // When enabling range tombstone conversion for timestamped reads, it is
+    // important that the db_iter has full visibility of all timestamps of a
+    // key. This allows us to ensure if there exists an invisible timestamp but
+    // visible seqno entry for a given key, it is not included in the range
+    // tombstone. If we do not set the seek_ts here to MAX it is possible for
+    // there to be a key with an invisible timestamp.
+    seek_ts = user_comparator_.user_comparator()->GetMaxTimestamp();
+    seek_ts_ptr = &seek_ts;
+  }
+  saved_key_.SetInternalKey(target, seq, kValueTypeForSeek, seek_ts_ptr);
 
   if (iterate_lower_bound_ != nullptr &&
       user_comparator_.CompareWithoutTimestamp(
@@ -1883,7 +1956,7 @@ void DBIter::SetSavedKeyToSeekTarget(const Slice& target) {
     // Seek key is smaller than the lower bound.
     saved_key_.Clear();
     saved_key_.SetInternalKey(*iterate_lower_bound_, seq, kValueTypeForSeek,
-                              timestamp_ub_);
+                              seek_ts_ptr);
   }
 }
 

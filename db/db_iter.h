@@ -472,7 +472,8 @@ class DBIter final : public Iterator {
   // It might get adjusted if the seek key is larger than iterator upper bound.
   // target does not have timestamp.
   void SetSavedKeyToSeekForPrevTarget(const Slice& target);
-  bool FindValueForCurrentKey(bool& found_visible);
+  bool FindValueForCurrentKey(bool& found_visible,
+                              bool& has_hidden_newer_timestamp);
   bool FindValueForCurrentKeyUsingSeek();
   bool FindUserKeyBeforeSavedKey();
   // If `skipping_saved_key` is true, the function will keep iterating until it
@@ -490,7 +491,7 @@ class DBIter final : public Iterator {
   void PrevInternal();
   bool TooManyInternalKeysSkipped(bool increment = true);
   bool IsVisible(SequenceNumber sequence, const Slice& ts,
-                 bool* more_recent = nullptr);
+                 bool* hidden_by_newer_sequence = nullptr);
 
   // Temporarily pin the blocks that we encounter until ReleaseTempPinnedData()
   // is called

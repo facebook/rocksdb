@@ -1413,11 +1413,16 @@ struct AdvancedColumnFamilyOptions {
   //
   // This optimization is best-effort and is currently disabled for iterator
   // configurations that may not expose all interior live keys, including:
-  // * user-defined timestamp reads without full visibility (for example,
-  //   ReadOptions::iter_start_ts or a non-max ReadOptions::timestamp)
+  // * timestamp range scans using ReadOptions::iter_start_ts
   // * prefix extractor reads that are neither total-order
   //   (ReadOptions::total_order_seek / ReadOptions::auto_prefix_mode) nor
   //   bounded by ReadOptions::prefix_same_as_start
+  //
+  // User-defined timestamp reads using only ReadOptions::timestamp are allowed.
+  // However, if the iterator encounters a user key with newer hidden versions
+  // above that timestamp bound, that partially visible key acts as a
+  // separator: any pending delete run is flushed there, and no synthesized
+  // range tombstone will span across that user key.
   //
   // It also requires an active mutable memtable, and insertion is skipped when
   // that memtable is empty.
