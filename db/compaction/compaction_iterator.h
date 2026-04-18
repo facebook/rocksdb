@@ -8,6 +8,7 @@
 #include <cinttypes>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -42,8 +43,7 @@ class CompactionBlobResolver : public WideColumnBlobResolver {
         blob_columns_(nullptr),
         blob_fetcher_(nullptr),
         prefetch_buffers_(nullptr),
-        iter_stats_(nullptr),
-        resolve_status_() {}
+        iter_stats_(nullptr) {}
 
   // Set the fixed context (blob fetcher, prefetch buffers, stats) once.
   void Init(BlobFetcher* blob_fetcher,
@@ -53,11 +53,17 @@ class CompactionBlobResolver : public WideColumnBlobResolver {
   Status ResolveColumn(size_t column_index, Slice* resolved_value) override;
   bool IsBlobColumn(size_t column_index) const override;
   size_t NumColumns() const override;
-  const Status& resolve_status() const { return resolve_status_; }
+  Status resolve_status() const {
+    if (!resolve_error_.has_value()) {
+      return Status::OK();
+    }
+    return *resolve_error_;
+  }
 
   // Reset the resolver for a new entity. Clears resolved cache.
   void Reset(const Slice& user_key, const std::vector<WideColumn>* columns,
-             const std::vector<std::pair<size_t, BlobIndex>>* blob_columns);
+             const std::vector<std::pair<size_t, BlobIndex>>* blob_columns,
+             bool track_resolve_error = false);
 
  private:
   Slice user_key_;
@@ -66,16 +72,17 @@ class CompactionBlobResolver : public WideColumnBlobResolver {
   BlobFetcher* blob_fetcher_;
   PrefetchBufferCollection* prefetch_buffers_;
   CompactionIterationStats* iter_stats_;
+  bool track_resolve_error_ = false;
 
   // Cache for resolved blob values to avoid re-fetching. Uses a vector of
   // (column_index, PinnableSlice) pairs — typical entities have few blob
   // columns (<5), making linear scan cheaper than hash map overhead.
   std::vector<std::pair<size_t, std::unique_ptr<PinnableSlice>>>
       resolved_cache_;
-  // Sticky resolver error for the current entity. FilterV4 may notice the
-  // error and return kKeep, but compaction should still fail just like the
-  // eager FilterV3 compatibility path does.
-  Status resolve_status_;
+  // Sticky resolver error for the current entity. This is enabled only for the
+  // lazy FilterV4 path so compaction can still fail even if the filter
+  // notices the error and returns kKeep.
+  std::optional<Status> resolve_error_;
 };
 
 // A wrapper of internal iterator whose purpose is to count how

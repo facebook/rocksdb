@@ -37,12 +37,14 @@ void CompactionBlobResolver::Init(BlobFetcher* blob_fetcher,
 
 void CompactionBlobResolver::Reset(
     const Slice& user_key, const std::vector<WideColumn>* columns,
-    const std::vector<std::pair<size_t, BlobIndex>>* blob_columns) {
+    const std::vector<std::pair<size_t, BlobIndex>>* blob_columns,
+    bool track_resolve_error) {
   user_key_ = user_key;
   columns_ = columns;
   blob_columns_ = blob_columns;
+  track_resolve_error_ = track_resolve_error;
   resolved_cache_.clear();
-  resolve_status_ = Status::OK();
+  resolve_error_.reset();
 }
 
 Status CompactionBlobResolver::ResolveColumn(size_t column_index,
@@ -100,8 +102,8 @@ Status CompactionBlobResolver::ResolveColumn(size_t column_index,
       }
     }
   }
-  if (!status.ok() && resolve_status_.ok()) {
-    resolve_status_ = status;
+  if (!status.ok() && track_resolve_error_ && !resolve_error_.has_value()) {
+    resolve_error_.emplace(status);
   }
   return status;
 }
@@ -493,7 +495,8 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
             // Reset member blob resolver for this entity - filter can call
             // resolver->ResolveColumn() to fetch blob values on-demand
             blob_resolver_.Reset(ikey_.user_key, &entity_columns_,
-                                 &entity_blob_columns_);
+                                 &entity_blob_columns_,
+                                 /*track_resolve_error=*/true);
             blob_resolver_ptr = &blob_resolver_;
           } else {
             // FilterV3 compatibility: eagerly resolve all blob columns so
@@ -559,15 +562,17 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           &compaction_filter_value_, &new_columns,
           compaction_filter_skip_until_.rep(), blob_resolver_ptr);
 
-      if (blob_resolver_ptr != nullptr &&
-          !blob_resolver_.resolve_status().ok()) {
-        // Keep lazy FilterV4 failure semantics aligned with the eager FilterV3
-        // compatibility path: if blob resolution fails while the filter is
-        // inspecting the entry, fail compaction even if the filter returned
-        // kKeep after noticing the error.
-        status_ = blob_resolver_.resolve_status();
-        validity_info_.Invalidate();
-        return false;
+      if (blob_resolver_ptr != nullptr) {
+        Status resolve_status = blob_resolver_.resolve_status();
+        if (!resolve_status.ok()) {
+          // Keep lazy FilterV4 failure semantics aligned with the eager
+          // FilterV3 compatibility path: if blob resolution fails while the
+          // filter is inspecting the entry, fail compaction even if the
+          // filter returned kKeep after noticing the error.
+          status_ = std::move(resolve_status);
+          validity_info_.Invalidate();
+          return false;
+        }
       }
     }
 
