@@ -1852,6 +1852,8 @@ TEST_F(DBFlushTest, MemPurgeCorrectLogNumberAndSSTFileCreation) {
     }
   }
 
+  ASSERT_OK(WaitForFlushCallbacks());
+
   // Check that there was at least one mempurge
   uint32_t expected_min_mempurge_count = 1;
   // Check that there was no SST files created during flush.
@@ -1872,6 +1874,8 @@ TEST_F(DBFlushTest, MemPurgeCorrectLogNumberAndSSTFileCreation) {
     ASSERT_EQ(Get(key), value);
   }
 
+  ASSERT_OK(WaitForFlushCallbacks());
+
   // Check that there was at least one SST files created during flush.
   expected_sst_count = 1;
   EXPECT_GE(sst_count.load(), expected_sst_count);
@@ -1890,6 +1894,9 @@ TEST_F(DBFlushTest, MemPurgeCorrectLogNumberAndSSTFileCreation) {
   }
   // Extra check of database consistency.
   ASSERT_EQ(Get(key), value);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
   Close();
 }
