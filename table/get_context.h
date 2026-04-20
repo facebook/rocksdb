@@ -193,6 +193,12 @@ class GetContext {
 
   uint64_t get_tracing_get_id() const { return tracing_get_id_; }
 
+  // Returns the original error status that caused the kCorrupt state, if any.
+  // When state_ == kCorrupt and an underlying error (e.g. IOError from blob
+  // fetch) caused the corruption state, this preserves the original status
+  // instead of losing it to a generic Corruption status.
+  const Status& corrupt_status() const { return corrupt_status_; }
+
   void push_operand(const Slice& value, Cleanable* value_pinner);
 
  private:
@@ -255,6 +261,11 @@ class GetContext {
   // Get or a MultiGet.
   const uint64_t tracing_get_id_;
   BlobFetcher* blob_fetcher_;
+  // Preserves the original error status when state_ is set to kCorrupt.
+  // This is needed because some code paths (e.g. blob fetch failure) set
+  // state_ = kCorrupt for non-corruption errors like IOError, and the
+  // original error type needs to be preserved for proper error handling.
+  Status corrupt_status_;
 };
 
 // Call this to replay a log and bring the get_context up to date. The replay

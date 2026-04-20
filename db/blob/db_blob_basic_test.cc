@@ -1620,6 +1620,56 @@ TEST_P(DBBlobBasicIOErrorTest, GetBlob_IOError) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_P(DBBlobBasicIOErrorTest, GetEntityMergeWithBlobBaseIOError) {
+  // Reproduces a bug where GetEntity() with a merge operand on top of a
+  // blob-backed base value returns Corruption instead of IOError when the
+  // blob read fails. The root cause was that GetContext::GetBlobValue() set
+  // state_ = kCorrupt for IOErrors, and version_set created a generic
+  // Corruption status, losing the original IOError. The stress test's
+  // IsErrorInjectedAndRetryable() couldn't recognize the injected error,
+  // causing a false positive verification failure.
+  Options options;
+  options.env = fault_injection_env_.get();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+
+  Reopen(options);
+
+  constexpr char key[] = "key";
+  constexpr char base_value[] = "base_value";
+
+  // Write a base value that will be stored in a blob file
+  ASSERT_OK(Put(key, base_value));
+  ASSERT_OK(Flush());
+
+  // Write a merge operand on top - this creates merge + blob index base
+  ASSERT_OK(Merge(key, "merge_operand"));
+  ASSERT_OK(Flush());
+
+  // Inject IOError on blob file read
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
+    fault_injection_env_->SetFilesystemActive(false,
+                                              Status::IOError(sync_point_));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Before the fix, GetEntity() would return Corruption("corrupted key for ...")
+  // instead of the original IOError. After the fix, the IOError is preserved.
+  PinnableWideColumns result;
+  Status s =
+      db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key, &result);
+  ASSERT_TRUE(s.IsIOError()) << "Expected IOError but got: " << s.ToString();
+
+  // Also verify regular Get preserves IOError in the same scenario
+  PinnableSlice get_result;
+  s = db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &get_result);
+  ASSERT_TRUE(s.IsIOError()) << "Expected IOError but got: " << s.ToString();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_P(DBBlobBasicIOErrorMultiGetTest, MultiGetBlobs_IOError) {
   Options options = GetDefaultOptions();
   options.env = fault_injection_env_.get();
