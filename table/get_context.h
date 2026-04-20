@@ -123,7 +123,7 @@ class GetContext {
              uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr);
   ~GetContext() { corrupt_status_.PermitUncheckedError(); }
   GetContext(GetContext&&) noexcept = default;
-  GetContext& operator=(GetContext&&) noexcept = default;
+  GetContext& operator=(GetContext&&) noexcept = delete;
 
   GetContext() = delete;
 
