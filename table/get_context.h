@@ -4,9 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#include <optional>
 #include <string>
-#include <utility>
 
 #include "db/read_callback.h"
 #include "rocksdb/status.h"
@@ -148,13 +146,7 @@ class GetContext {
   // know that the operation is a Put.
   void SaveValue(const Slice& value, SequenceNumber seq);
 
-  GetState State() const { return lookup_state_.state(); }
-
-  bool HasDeferredStatus() const { return lookup_state_.HasDeferredStatus(); }
-
-  Status ConsumeDeferredStatus() {
-    return lookup_state_.ConsumeDeferredStatus();
-  }
+  GetState State() const { return state_; }
 
   SequenceNumber* max_covering_tombstone_seq() {
     return max_covering_tombstone_seq_;
@@ -206,43 +198,6 @@ class GetContext {
   void push_operand(const Slice& value, Cleanable* value_pinner);
 
  private:
-  class LookupState {
-   public:
-    explicit LookupState(GetState state) : state_(state) {}
-
-    GetState state() const { return state_; }
-
-    void Set(GetState state) {
-      assert(!deferred_status_.has_value());
-      state_ = state;
-    }
-
-    void SetCorrupt() {
-      assert(!deferred_status_.has_value());
-      state_ = kCorrupt;
-    }
-
-    void SetCorrupt(Status status) {
-      assert(!status.ok());
-      assert(!deferred_status_.has_value());
-      state_ = kCorrupt;
-      deferred_status_.emplace(std::move(status));
-    }
-
-    bool HasDeferredStatus() const { return deferred_status_.has_value(); }
-
-    Status ConsumeDeferredStatus() {
-      assert(deferred_status_.has_value());
-      Status status = std::move(*deferred_status_);
-      deferred_status_.reset();
-      return status;
-    }
-
-   private:
-    GetState state_;
-    std::optional<Status> deferred_status_;
-  };
-
   Status SaveWideColumnEntityToPinnable(const Slice& user_key,
                                         const Slice& entity,
                                         Cleanable* value_pinner);
@@ -252,23 +207,18 @@ class GetContext {
 
   // Helper method that postprocesses the results of merge operations, e.g. it
   // sets the state correctly upon merge errors.
-  void PostprocessMerge(const Status& merge_status);
+  Status PostprocessMerge(const Status& merge_status);
 
   // The following methods perform the actual merge operation for the
   // no base value/plain base value/wide-column base value cases.
-  void MergeWithNoBaseValue();
-  void MergeWithPlainBaseValue(const Slice& value);
-  void MergeWithWideColumnBaseValue(const Slice& entity);
+  Status MergeWithNoBaseValue();
+  Status MergeWithPlainBaseValue(const Slice& value);
+  Status MergeWithWideColumnBaseValue(const Slice& entity);
 
   bool GetBlobValue(const Slice& user_key, const Slice& blob_index,
                     PinnableSlice* blob_value, Status* read_status);
 
   void appendToReplayLog(ValueType type, Slice value, Slice ts);
-  void SetState(GetState state) { lookup_state_.Set(state); }
-  void SetCorrupt() { lookup_state_.SetCorrupt(); }
-  void SetCorrupt(Status status) {
-    lookup_state_.SetCorrupt(std::move(status));
-  }
 
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
@@ -276,7 +226,7 @@ class GetContext {
   Logger* logger_;
   Statistics* statistics_;
 
-  LookupState lookup_state_;
+  GetState state_;
   Slice user_key_;
   // When a blob index is found with the user key containing timestamp,
   // this copies the corresponding user key on record in the sst file

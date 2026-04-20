@@ -38,7 +38,7 @@ GetContext::GetContext(
       merge_operator_(merge_operator),
       logger_(logger),
       statistics_(statistics),
-      lookup_state_(init_state),
+      state_(init_state),
       user_key_(user_key),
       pinnable_val_(pinnable_val),
       columns_(columns),
@@ -102,7 +102,7 @@ void GetContext::appendToReplayLog(ValueType type, Slice value, Slice ts) {
 // IO to be certain.Set the status=kFound and value_found=false to let the
 // caller know that key may exist but is not there in memory
 void GetContext::MarkKeyMayExist() {
-  SetState(kFound);
+  state_ = kFound;
   if (value_found_ != nullptr) {
     *value_found_ = false;
   }
@@ -207,7 +207,7 @@ void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/) {
 
   appendToReplayLog(kTypeValue, value, Slice());
 
-  SetState(kFound);
+  state_ = kFound;
   if (LIKELY(pinnable_val_ != nullptr)) {
     pinnable_val_->PinSelf(value);
   }
@@ -400,7 +400,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         if (type == kTypeBlobIndex) {
           if (is_blob_index_ == nullptr) {
             // Blob value not supported. Stop.
-            SetState(kUnexpectedBlobIndex);
+            state_ = kUnexpectedBlobIndex;
             return false;
           }
         }
@@ -410,7 +410,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         }
 
         if (State() == kNotFound) {
-          SetState(kFound);
+          state_ = kFound;
           if (do_merge_) {
             if (type == kTypeBlobIndex && ucmp_->timestamp_size() != 0) {
               ukey_with_ts_found_.PinSelf(parsed_key.user_key);
@@ -425,7 +425,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                   if (s.IsIncomplete()) {
                     MarkKeyMayExist();
                   } else {
-                    SetCorrupt(s);
+                    state_ = kCorrupt;
+                    *read_status = s;
                   }
                   return false;
                 }
@@ -450,7 +451,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                   if (s.IsIncomplete()) {
                     MarkKeyMayExist();
                   } else {
-                    SetCorrupt(s);
+                    state_ = kCorrupt;
+                    *read_status = s;
                   }
                   return false;
                 }
@@ -477,7 +479,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               const Status s = WideColumnSerialization::GetValueOfDefaultColumn(
                   value_copy, value_of_default);
               if (!s.ok()) {
-                SetCorrupt(s);
+                state_ = kCorrupt;
+                *read_status = s;
                 return false;
               }
 
@@ -496,9 +499,13 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               return false;
             }
             Slice blob_value(pin_val);
-            SetState(kFound);
+            state_ = kFound;
             if (do_merge_) {
-              MergeWithPlainBaseValue(blob_value);
+              const Status s = MergeWithPlainBaseValue(blob_value);
+              if (!s.ok()) {
+                *read_status = s;
+                return false;
+              }
             } else {
               // It means this function is called as part of DB GetMergeOperands
               // API and the current value should be part of
@@ -506,10 +513,14 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               push_operand(blob_value, nullptr);
             }
           } else if (type == kTypeWideColumnEntity) {
-            SetState(kFound);
+            state_ = kFound;
 
             if (do_merge_) {
-              MergeWithWideColumnBaseValue(unpacked_value);
+              const Status s = MergeWithWideColumnBaseValue(unpacked_value);
+              if (!s.ok()) {
+                *read_status = s;
+                return false;
+              }
             } else {
               // It means this function is called as part of DB GetMergeOperands
               // API and the current value should be part of
@@ -520,7 +531,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               const Status s = WideColumnSerialization::GetValueOfDefaultColumn(
                   value_copy, value_of_default);
               if (!s.ok()) {
-                SetCorrupt(s);
+                state_ = kCorrupt;
+                *read_status = s;
                 return false;
               }
 
@@ -529,9 +541,13 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           } else {
             assert(type == kTypeValue || type == kTypeValuePreferredSeqno);
 
-            SetState(kFound);
+            state_ = kFound;
             if (do_merge_) {
-              MergeWithPlainBaseValue(unpacked_value);
+              const Status s = MergeWithPlainBaseValue(unpacked_value);
+              if (!s.ok()) {
+                *read_status = s;
+                return false;
+              }
             } else {
               // It means this function is called as part of DB GetMergeOperands
               // API and the current value should be part of
@@ -550,11 +566,15 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         // is supported
         assert(State() == kNotFound || State() == kMerge);
         if (State() == kNotFound) {
-          SetState(kDeleted);
+          state_ = kDeleted;
         } else if (State() == kMerge) {
-          SetState(kFound);
+          state_ = kFound;
           if (do_merge_) {
-            MergeWithNoBaseValue();
+            const Status s = MergeWithNoBaseValue();
+            if (!s.ok()) {
+              *read_status = s;
+              return false;
+            }
           }
           // If do_merge_ = false then the current value shouldn't be part of
           // merge_context_->operand_list
@@ -563,7 +583,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
       case kTypeMerge:
         assert(State() == kNotFound || State() == kMerge);
-        SetState(kMerge);
+        state_ = kMerge;
         // value_pinner is not set from plain_table_reader.cc for example.
         push_operand(value, value_pinner);
         PERF_COUNTER_ADD(internal_merge_point_lookup_count, 1);
@@ -571,15 +591,19 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         if (do_merge_ && merge_operator_ != nullptr &&
             merge_operator_->ShouldMerge(
                 merge_context_->GetOperandsDirectionBackward())) {
-          SetState(kFound);
-          MergeWithNoBaseValue();
+          state_ = kFound;
+          const Status s = MergeWithNoBaseValue();
+          if (!s.ok()) {
+            *read_status = s;
+            return false;
+          }
           return false;
         }
         if (merge_context_->get_merge_operands_options != nullptr &&
             merge_context_->get_merge_operands_options->continue_cb !=
                 nullptr &&
             !merge_context_->get_merge_operands_options->continue_cb(value)) {
-          SetState(kFound);
+          state_ = kFound;
           return false;
         }
         return true;
@@ -594,22 +618,23 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
   return false;
 }
 
-void GetContext::PostprocessMerge(const Status& merge_status) {
+Status GetContext::PostprocessMerge(const Status& merge_status) {
   if (!merge_status.ok()) {
     if (merge_status.subcode() == Status::SubCode::kMergeOperatorFailed) {
-      SetState(kMergeOperatorFailed);
+      state_ = kMergeOperatorFailed;
     } else {
-      SetCorrupt(merge_status);
+      state_ = kCorrupt;
     }
-    return;
+    return merge_status;
   }
 
   if (LIKELY(pinnable_val_ != nullptr)) {
     pinnable_val_->PinSelf();
   }
+  return Status::OK();
 }
 
-void GetContext::MergeWithNoBaseValue() {
+Status GetContext::MergeWithNoBaseValue() {
   assert(do_merge_);
   assert(pinnable_val_ || columns_);
   assert(!pinnable_val_ || !columns_);
@@ -621,10 +646,10 @@ void GetContext::MergeWithNoBaseValue() {
       merge_context_->GetOperands(), logger_, statistics_, clock_,
       /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
       pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_);
-  PostprocessMerge(s);
+  return PostprocessMerge(s);
 }
 
-void GetContext::MergeWithPlainBaseValue(const Slice& value) {
+Status GetContext::MergeWithPlainBaseValue(const Slice& value) {
   assert(do_merge_);
   assert(pinnable_val_ || columns_);
   assert(!pinnable_val_ || !columns_);
@@ -636,10 +661,10 @@ void GetContext::MergeWithPlainBaseValue(const Slice& value) {
       merge_context_->GetOperands(), logger_, statistics_, clock_,
       /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
       pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_);
-  PostprocessMerge(s);
+  return PostprocessMerge(s);
 }
 
-void GetContext::MergeWithWideColumnBaseValue(const Slice& entity) {
+Status GetContext::MergeWithWideColumnBaseValue(const Slice& entity) {
   assert(do_merge_);
   assert(pinnable_val_ || columns_);
   assert(!pinnable_val_ || !columns_);
@@ -654,10 +679,10 @@ void GetContext::MergeWithWideColumnBaseValue(const Slice& entity) {
   if (!s_resolve.ok()) {
     if (s_resolve.IsIncomplete()) {
       MarkKeyMayExist();
-      return;
+      return Status::OK();
     }
-    SetCorrupt(s_resolve);
-    return;
+    state_ = kCorrupt;
+    return s_resolve;
   }
 
   // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
@@ -667,7 +692,7 @@ void GetContext::MergeWithWideColumnBaseValue(const Slice& entity) {
       merge_context_->GetOperands(), logger_, statistics_, clock_,
       /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
       pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_);
-  PostprocessMerge(s);
+  return PostprocessMerge(s);
 }
 
 bool GetContext::GetBlobValue(const Slice& user_key, const Slice& blob_index,
@@ -683,7 +708,7 @@ bool GetContext::GetBlobValue(const Slice& user_key, const Slice& blob_index,
       MarkKeyMayExist();
       return false;
     }
-    SetCorrupt();
+    state_ = kCorrupt;
     return false;
   }
   *is_blob_index_ = false;
