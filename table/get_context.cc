@@ -702,7 +702,7 @@ Status GetContext::MergeWithWideColumnBaseValue(const Slice& entity) {
   // supports V1 format.
   std::string resolved_entity;
   Slice effective_entity;
-  const Status s_resolve = WideColumnSerialization::ResolveEntityForMerge(
+  Status s_resolve = WideColumnSerialization::ResolveEntityForMerge(
       entity, user_key_, blob_fetcher_, nullptr /* prefetch_buffers */,
       resolved_entity, effective_entity);
   if (!s_resolve.ok()) {
