@@ -4,7 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
+#include <optional>
 #include <string>
+#include <utility>
 
 #include "db/read_callback.h"
 #include "rocksdb/status.h"
@@ -121,7 +123,6 @@ class GetContext {
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
              uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr);
-  ~GetContext() { corrupt_status_.PermitUncheckedError(); }
   GetContext(GetContext&&) noexcept = default;
   GetContext& operator=(GetContext&&) noexcept = delete;
 
@@ -147,7 +148,13 @@ class GetContext {
   // know that the operation is a Put.
   void SaveValue(const Slice& value, SequenceNumber seq);
 
-  GetState State() const { return state_; }
+  GetState State() const { return lookup_state_.state(); }
+
+  bool HasDeferredStatus() const { return lookup_state_.HasDeferredStatus(); }
+
+  Status ConsumeDeferredStatus() {
+    return lookup_state_.ConsumeDeferredStatus();
+  }
 
   SequenceNumber* max_covering_tombstone_seq() {
     return max_covering_tombstone_seq_;
@@ -196,14 +203,46 @@ class GetContext {
 
   uint64_t get_tracing_get_id() const { return tracing_get_id_; }
 
-  // Returns the original error that caused this lookup to terminate in
-  // kCorrupt, if the terminal state came from a lower-level read failure
-  // rather than an actual data corruption.
-  const Status& corrupt_status() const { return corrupt_status_; }
-
   void push_operand(const Slice& value, Cleanable* value_pinner);
 
  private:
+  class LookupState {
+   public:
+    explicit LookupState(GetState state) : state_(state) {}
+
+    GetState state() const { return state_; }
+
+    void Set(GetState state) {
+      assert(!deferred_status_.has_value());
+      state_ = state;
+    }
+
+    void SetCorrupt() {
+      assert(!deferred_status_.has_value());
+      state_ = kCorrupt;
+    }
+
+    void SetCorrupt(Status status) {
+      assert(!status.ok());
+      assert(!deferred_status_.has_value());
+      state_ = kCorrupt;
+      deferred_status_.emplace(std::move(status));
+    }
+
+    bool HasDeferredStatus() const { return deferred_status_.has_value(); }
+
+    Status ConsumeDeferredStatus() {
+      assert(deferred_status_.has_value());
+      Status status = std::move(*deferred_status_);
+      deferred_status_.reset();
+      return status;
+    }
+
+   private:
+    GetState state_;
+    std::optional<Status> deferred_status_;
+  };
+
   Status SaveWideColumnEntityToPinnable(const Slice& user_key,
                                         const Slice& entity,
                                         Cleanable* value_pinner);
@@ -225,6 +264,9 @@ class GetContext {
                     PinnableSlice* blob_value, Status* read_status);
 
   void appendToReplayLog(ValueType type, Slice value, Slice ts);
+  void SetState(GetState state) { lookup_state_.Set(state); }
+  void SetCorrupt() { lookup_state_.SetCorrupt(); }
+  void SetCorrupt(Status status) { lookup_state_.SetCorrupt(std::move(status)); }
 
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
@@ -232,7 +274,7 @@ class GetContext {
   Logger* logger_;
   Statistics* statistics_;
 
-  GetState state_;
+  LookupState lookup_state_;
   Slice user_key_;
   // When a blob index is found with the user key containing timestamp,
   // this copies the corresponding user key on record in the sst file
@@ -263,7 +305,6 @@ class GetContext {
   // Get or a MultiGet.
   const uint64_t tracing_get_id_;
   BlobFetcher* blob_fetcher_;
-  Status corrupt_status_;
 };
 
 // Call this to replay a log and bring the get_context up to date. The replay

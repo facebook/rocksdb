@@ -2867,10 +2867,10 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         }
         return;
       case GetContext::kCorrupt:
-        if (get_context.corrupt_status().ok()) {
-          *status = Status::Corruption("corrupted key for ", user_key);
+        if (get_context.HasDeferredStatus()) {
+          *status = get_context.ConsumeDeferredStatus();
         } else {
-          *status = get_context.corrupt_status();
+          *status = Status::Corruption("corrupted key for ", user_key);
         }
         return;
       case GetContext::kUnexpectedBlobIndex:

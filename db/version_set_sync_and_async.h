@@ -148,11 +148,11 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
         file_range.MarkKeyDone(iter);
         continue;
       case GetContext::kCorrupt:
-        if (get_context.corrupt_status().ok()) {
+        if (get_context.HasDeferredStatus()) {
+          *status = get_context.ConsumeDeferredStatus();
+        } else {
           *status =
               Status::Corruption("corrupted key for ", iter->lkey->user_key());
-        } else {
-          *status = get_context.corrupt_status();
         }
         file_range.MarkKeyDone(iter);
         continue;
