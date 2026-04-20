@@ -106,16 +106,12 @@ Status PushWideColumnEntityDefaultOperand(const Slice& user_key,
   return status;
 }
 
-Status MergeWithWideColumnEntityBaseValue(const Slice& user_key,
-                                          const Slice& entity,
-                                          const MergeOperator* merge_operator,
-                                          MergeContext* merge_context,
-                                          Logger* logger,
-                                          Statistics* statistics,
-                                          SystemClock* clock,
-                                          std::string* value,
-                                          PinnableWideColumns* columns,
-                                          const BlobFetcher* blob_fetcher) {
+Status MergeWithWideColumnEntityBaseValue(
+    const Slice& user_key, const Slice& entity,
+    const MergeOperator* merge_operator, MergeContext* merge_context,
+    Logger* logger, Statistics* statistics, SystemClock* clock,
+    std::string* value, PinnableWideColumns* columns,
+    const BlobFetcher* blob_fetcher) {
   assert(merge_context != nullptr);
 
   std::string resolved_entity;
@@ -1468,9 +1464,8 @@ static bool SaveValue(void* arg, const char* entry) {
 
           if (s->value || s->columns) {
             *(s->status) = MergeWithWideColumnEntityBaseValue(
-                s->key->user_key(), v, merge_operator, merge_context,
-                s->logger, s->statistics, s->clock, s->value, s->columns,
-                s->blob_fetcher);
+                s->key->user_key(), v, merge_operator, merge_context, s->logger,
+                s->statistics, s->clock, s->value, s->columns, s->blob_fetcher);
           }
         } else if (s->value) {
           Slice value_of_default;

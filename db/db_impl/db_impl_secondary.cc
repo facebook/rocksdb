@@ -422,8 +422,8 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                    get_impl_options.value ? get_impl_options.value->GetSelf()
                                           : nullptr,
                    get_impl_options.columns, ts, &s, &merge_context,
-                   &max_covering_tombstone_seq, read_options, &read_cb,
-                   nullptr, &memtable_blob_fetcher)) {
+                   &max_covering_tombstone_seq, read_options, &read_cb, nullptr,
+                   &memtable_blob_fetcher)) {
       done = true;
       if (get_impl_options.value) {
         get_impl_options.value->PinSelf();
@@ -444,10 +444,9 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
-               super_version->imm->GetMergeOperands(lkey, &s, &merge_context,
-                                                    &max_covering_tombstone_seq,
-                                                    read_options,
-                                                    &memtable_blob_fetcher)) {
+               super_version->imm->GetMergeOperands(
+                   lkey, &s, &merge_context, &max_covering_tombstone_seq,
+                   read_options, &memtable_blob_fetcher)) {
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
     }

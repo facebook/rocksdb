@@ -28,8 +28,8 @@
 #include <vector>
 
 #include "db/arena_wrapped_db_iter.h"
-#include "db/blob/blob_fetcher.h"
 #include "db/attribute_group_iterator_impl.h"
+#include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_index.h"
 #include "db/builder.h"
@@ -2963,9 +2963,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       partition_mgr != nullptr && (is_blob_ptr == &is_blob_index);
   std::optional<BlobFetcher> memtable_blob_fetcher;
   if (partition_mgr != nullptr) {
-    memtable_blob_fetcher.emplace(
-        sv->current, read_options, cfd->blob_file_cache(),
-        /*allow_write_path_fallback=*/true);
+    memtable_blob_fetcher.emplace(sv->current, read_options,
+                                  cfd->blob_file_cache(),
+                                  /*allow_write_path_fallback=*/true);
   }
   const BlobFetcher* memtable_blob_fetcher_ptr =
       memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
@@ -3003,14 +3003,14 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
-                 sv->imm->Get(
-                     lkey,
-                     get_impl_options.value ? get_impl_options.value->GetSelf()
-                                            : nullptr,
-                     get_impl_options.columns, timestamp, &s, &merge_context,
-                     &max_covering_tombstone_seq, read_options,
-                     get_impl_options.callback, is_blob_ptr,
-                     memtable_blob_fetcher_ptr)) {
+                 sv->imm->Get(lkey,
+                              get_impl_options.value
+                                  ? get_impl_options.value->GetSelf()
+                                  : nullptr,
+                              get_impl_options.columns, timestamp, &s,
+                              &merge_context, &max_covering_tombstone_seq,
+                              read_options, get_impl_options.callback,
+                              is_blob_ptr, memtable_blob_fetcher_ptr)) {
         done = true;
         maybe_resolve_memtable_value();
 
@@ -3022,15 +3022,14 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       if (sv->mem->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr,
                        /*timestamp=*/nullptr, &s, &merge_context,
                        &max_covering_tombstone_seq, read_options,
-                       false /* immutable_memtable */, nullptr, nullptr,
-                       false, memtable_blob_fetcher_ptr)) {
+                       false /* immutable_memtable */, nullptr, nullptr, false,
+                       memtable_blob_fetcher_ptr)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
-                 sv->imm->GetMergeOperands(lkey, &s, &merge_context,
-                                           &max_covering_tombstone_seq,
-                                           read_options,
-                                           memtable_blob_fetcher_ptr)) {
+                 sv->imm->GetMergeOperands(
+                     lkey, &s, &merge_context, &max_covering_tombstone_seq,
+                     read_options, memtable_blob_fetcher_ptr)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       }
@@ -3728,9 +3727,9 @@ Status DBImpl::MultiGetImpl(
   auto* partition_mgr = cfd->blob_partition_manager();
   std::optional<BlobFetcher> memtable_blob_fetcher;
   if (partition_mgr != nullptr) {
-    memtable_blob_fetcher.emplace(
-        super_version->current, read_options, cfd->blob_file_cache(),
-        /*allow_write_path_fallback=*/true);
+    memtable_blob_fetcher.emplace(super_version->current, read_options,
+                                  cfd->blob_file_cache(),
+                                  /*allow_write_path_fallback=*/true);
   }
   const BlobFetcher* memtable_blob_fetcher_ptr =
       memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;

@@ -166,11 +166,10 @@ bool MemTableListVersion::GetFromList(
     assert(memtable->IsFragmentedRangeTombstonesConstructed());
     SequenceNumber current_seq = kMaxSequenceNumber;
 
-    bool done =
-        memtable->Get(key, value, columns, timestamp, s, merge_context,
-                      max_covering_tombstone_seq, &current_seq, read_opts,
-                      true /* immutable_memtable */, callback, is_blob_index,
-                      true, blob_fetcher);
+    bool done = memtable->Get(key, value, columns, timestamp, s, merge_context,
+                              max_covering_tombstone_seq, &current_seq,
+                              read_opts, true /* immutable_memtable */,
+                              callback, is_blob_index, true, blob_fetcher);
     if (*seq == kMaxSequenceNumber) {
       // Store the most recent sequence number of any operation on this key.
       // Since we only care about the most recent change, we only need to

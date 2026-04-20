@@ -3066,14 +3066,13 @@ TEST_F(DBWideBasicTest,
                       {"col_small", small_value}};
   ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), base_key,
                            columns));
-  ASSERT_OK(
-      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), merge_key,
-                     columns));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           merge_key, columns));
   ASSERT_OK(Flush());
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
-  ASSERT_OK(
-      db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), merge_key, "tail"));
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), merge_key,
+                       "tail"));
   ASSERT_OK(Flush());
 
   // Reopen to clear any cached blob readers/values so kBlockCacheTier must

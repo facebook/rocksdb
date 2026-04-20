@@ -245,8 +245,7 @@ class ReadOnlyMemTable {
            SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, bool immutable_memtable,
            ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-           bool do_merge = true,
-           const BlobFetcher* blob_fetcher = nullptr) {
+           bool do_merge = true, const BlobFetcher* blob_fetcher = nullptr) {
     SequenceNumber seq;
     return Get(key, value, columns, timestamp, s, merge_context,
                max_covering_tombstone_seq, &seq, read_opts, immutable_memtable,
