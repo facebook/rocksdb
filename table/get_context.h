@@ -266,7 +266,9 @@ class GetContext {
   void appendToReplayLog(ValueType type, Slice value, Slice ts);
   void SetState(GetState state) { lookup_state_.Set(state); }
   void SetCorrupt() { lookup_state_.SetCorrupt(); }
-  void SetCorrupt(Status status) { lookup_state_.SetCorrupt(std::move(status)); }
+  void SetCorrupt(Status status) {
+    lookup_state_.SetCorrupt(std::move(status));
+  }
 
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
