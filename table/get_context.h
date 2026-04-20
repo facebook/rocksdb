@@ -202,6 +202,9 @@ class GetContext {
   Status SaveWideColumnEntityToColumns(const Slice& user_key,
                                        const Slice& entity,
                                        Cleanable* value_pinner);
+  Status PushWideColumnEntityDefaultOperand(const Slice& user_key,
+                                            const Slice& entity,
+                                            Cleanable* value_pinner);
 
   // Helper method that postprocesses the results of merge operations, e.g. it
   // sets the state correctly upon merge errors.

@@ -2909,6 +2909,70 @@ TEST_F(DBWideBasicTest, MergeEntityWithBlobColumns) {
   }
 }
 
+TEST_F(DBWideBasicTest, GetMergeOperandsWithBlobBackedEntityDefaultColumn) {
+  // Goal: cover both GetMergeOperands code paths that read a compacted V2
+  // wide-column entity whose default column was moved to a blob file. The
+  // first read exercises the base-value path directly, then a merge operand is
+  // added so the second read exercises the merge-plus-base path.
+  Options options = GetBlobTestOptions();
+  options.min_blob_size = 50;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator("|");
+
+  DestroyAndReopen(options);
+
+  const std::string key = "merge_operands_blob_entity";
+  const std::string default_value = GenerateLargeValue(100, 'd');
+  const std::string large_value = GenerateLargeValue(120, 'l');
+  const std::string small_value = GenerateSmallValue();
+  const std::string merge_operand = "suffix";
+
+  WideColumns columns{{kDefaultWideColumnName, default_value},
+                      {"col_large", large_value},
+                      {"col_small", small_value}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_FALSE(GetBlobFileNumbers().empty());
+
+  {
+    // The compacted V2 entity becomes the first operand when there are no
+    // newer merge operands above it.
+    GetMergeOperandsOptions get_merge_opts;
+    get_merge_opts.expected_max_number_of_operands = 1;
+
+    std::array<PinnableSlice, 2> merge_operands;
+    int number_of_operands = 0;
+
+    ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                    key, merge_operands.data(), &get_merge_opts,
+                                    &number_of_operands));
+    ASSERT_EQ(number_of_operands, 1);
+    ASSERT_EQ(merge_operands[0], default_value);
+  }
+
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key,
+                       merge_operand));
+
+  {
+    // After a merge is added, GetMergeOperands must still resolve the blob
+    // backed base default column while traversing the older base entry below
+    // the newer merge operand.
+    GetMergeOperandsOptions get_merge_opts;
+    get_merge_opts.expected_max_number_of_operands = 2;
+
+    std::array<PinnableSlice, 2> merge_operands;
+    int number_of_operands = 0;
+
+    ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                    key, merge_operands.data(), &get_merge_opts,
+                                    &number_of_operands));
+    ASSERT_EQ(number_of_operands, 2);
+    ASSERT_EQ(merge_operands[0], default_value);
+    ASSERT_EQ(merge_operands[1], merge_operand);
+  }
+}
+
 TEST_F(DBWideBasicTest, MergeEntityWithBlobColumnsNoDefault) {
   // Test: Merge on a V2 entity without a default column. The merge result
   // should produce a valid entity with all original columns plus a default
