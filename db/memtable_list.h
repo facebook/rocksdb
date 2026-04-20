@@ -61,29 +61,33 @@ class MemTableListVersion {
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
-           bool* is_blob_index = nullptr);
+           bool* is_blob_index = nullptr,
+           const BlobFetcher* blob_fetcher = nullptr);
 
   bool Get(const LookupKey& key, std::string* value,
            PinnableWideColumns* columns, std::string* timestamp, Status* s,
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
-           bool* is_blob_index = nullptr) {
+           bool* is_blob_index = nullptr,
+           const BlobFetcher* blob_fetcher = nullptr) {
     SequenceNumber seq;
     return Get(key, value, columns, timestamp, s, merge_context,
                max_covering_tombstone_seq, &seq, read_opts, callback,
-               is_blob_index);
+               is_blob_index, blob_fetcher);
   }
 
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
-                ReadCallback* callback);
+                ReadCallback* callback,
+                const BlobFetcher* blob_fetcher = nullptr);
 
   // Returns all the merge operands corresponding to the key by searching all
   // memtables starting from the most recent one.
   bool GetMergeOperands(const LookupKey& key, Status* s,
                         MergeContext* merge_context,
                         SequenceNumber* max_covering_tombstone_seq,
-                        const ReadOptions& read_opts);
+                        const ReadOptions& read_opts,
+                        const BlobFetcher* blob_fetcher = nullptr);
 
   // Similar to Get(), but searches the Memtable history of memtables that
   // have already been flushed.  Should only be used from in-memory only
@@ -188,7 +192,8 @@ class MemTableListVersion {
                    SequenceNumber* max_covering_tombstone_seq,
                    SequenceNumber* seq, const ReadOptions& read_opts,
                    ReadCallback* callback = nullptr,
-                   bool* is_blob_index = nullptr);
+                   bool* is_blob_index = nullptr,
+                   const BlobFetcher* blob_fetcher = nullptr);
 
   void AddMemTable(ReadOnlyMemTable* m);
 

@@ -455,6 +455,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                 if (!s.ok()) {
                   if (s.IsIncomplete()) {
                     MarkKeyMayExist();
+                    *read_status = s;
                   } else {
                     state_ = kCorrupt;
                     *read_status = s;
@@ -481,6 +482,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                 if (!s.ok()) {
                   if (s.IsIncomplete()) {
                     MarkKeyMayExist();
+                    *read_status = s;
                   } else {
                     state_ = kCorrupt;
                     *read_status = s;
@@ -509,6 +511,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               if (!s.ok()) {
                 if (s.IsIncomplete()) {
                   MarkKeyMayExist();
+                  *read_status = s;
                 } else {
                   state_ = kCorrupt;
                   *read_status = s;
@@ -560,6 +563,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               if (!s.ok()) {
                 if (s.IsIncomplete()) {
                   MarkKeyMayExist();
+                  *read_status = s;
                 } else {
                   state_ = kCorrupt;
                   *read_status = s;
@@ -708,7 +712,7 @@ Status GetContext::MergeWithWideColumnBaseValue(const Slice& entity) {
   if (!s_resolve.ok()) {
     if (s_resolve.IsIncomplete()) {
       MarkKeyMayExist();
-      return Status::OK();
+      return s_resolve;
     }
     state_ = kCorrupt;
     return s_resolve;

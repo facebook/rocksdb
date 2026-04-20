@@ -48,11 +48,13 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
                        SequenceNumber* max_covering_tombstone_seq,
                        SequenceNumber* out_seq, const ReadOptions&,
                        bool immutable_memtable, ReadCallback* callback,
-                       bool* is_blob_index, bool do_merge) {
+                       bool* is_blob_index, bool do_merge,
+                       const BlobFetcher* blob_fetcher) {
   assert(s->ok() || s->IsMergeInProgress());
   (void)immutable_memtable;
   (void)timestamp;
   (void)columns;
+  (void)blob_fetcher;
   assert(immutable_memtable);
   assert(!timestamp);  // TODO: support UDT
   assert(assigned_seqno_.upper_bound != kMaxSequenceNumber);
@@ -154,8 +156,10 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
 
 void WBWIMemTable::MultiGet(const ReadOptions& read_options,
                             MultiGetRange* range, ReadCallback* callback,
-                            bool immutable_memtable) {
+                            bool immutable_memtable,
+                            const BlobFetcher* blob_fetcher) {
   (void)immutable_memtable;
+  (void)blob_fetcher;
   // Should only be used as immutable memtable.
   assert(immutable_memtable);
   // TODO: reuse the InternalIterator created in Get().

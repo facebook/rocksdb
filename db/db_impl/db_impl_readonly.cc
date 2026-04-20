@@ -6,6 +6,7 @@
 #include "db/db_impl/db_impl_readonly.h"
 
 #include "db/arena_wrapped_db_iter.h"
+#include "db/blob/blob_fetcher.h"
 #include "db/db_impl/compacted_db_impl.h"
 #include "db/db_impl/db_impl.h"
 #include "db/manifest_ops.h"
@@ -95,6 +96,9 @@ Status DBImplReadOnly::GetImpl(const ReadOptions& read_options,
   SequenceNumber max_covering_tombstone_seq = 0;
   LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
+  BlobFetcher memtable_blob_fetcher(
+      super_version->current, read_options, cfd->blob_file_cache(),
+      /*allow_write_path_fallback=*/cfd->blob_partition_manager() != nullptr);
 
   // Look up starts here
   if (super_version->mem->Get(
@@ -103,7 +107,8 @@ Status DBImplReadOnly::GetImpl(const ReadOptions& read_options,
           get_impl_options.columns, ts, &s, &merge_context,
           &max_covering_tombstone_seq, read_options,
           false /* immutable_memtable */, &read_cb,
-          /*is_blob_index=*/nullptr, /*do_merge=*/get_impl_options.get_value)) {
+          /*is_blob_index=*/nullptr,
+          /*do_merge=*/get_impl_options.get_value, &memtable_blob_fetcher)) {
     if (get_impl_options.value) {
       get_impl_options.value->PinSelf();
     }

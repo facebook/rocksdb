@@ -8,6 +8,7 @@
 #include <cinttypes>
 
 #include "db/arena_wrapped_db_iter.h"
+#include "db/blob/blob_fetcher.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
 #include "db/merge_context.h"
@@ -395,6 +396,9 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
   bool done = false;
+  BlobFetcher memtable_blob_fetcher(
+      super_version->current, read_options, cfd->blob_file_cache(),
+      /*allow_write_path_fallback=*/cfd->blob_partition_manager() != nullptr);
 
   // Look up starts here
   if (get_impl_options.get_value) {
@@ -405,7 +409,8 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
             get_impl_options.columns, ts, &s, &merge_context,
             &max_covering_tombstone_seq, read_options,
             false /* immutable_memtable */, &read_cb,
-            /*is_blob_index=*/nullptr, /*do_merge=*/true)) {
+            /*is_blob_index=*/nullptr, /*do_merge=*/true,
+            &memtable_blob_fetcher)) {
       done = true;
       if (get_impl_options.value) {
         get_impl_options.value->PinSelf();
@@ -417,7 +422,8 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                    get_impl_options.value ? get_impl_options.value->GetSelf()
                                           : nullptr,
                    get_impl_options.columns, ts, &s, &merge_context,
-                   &max_covering_tombstone_seq, read_options, &read_cb)) {
+                   &max_covering_tombstone_seq, read_options, &read_cb,
+                   nullptr, &memtable_blob_fetcher)) {
       done = true;
       if (get_impl_options.value) {
         get_impl_options.value->PinSelf();
@@ -433,13 +439,15 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
             get_impl_options.columns, ts, &s, &merge_context,
             &max_covering_tombstone_seq, read_options,
             false /* immutable_memtable */, &read_cb,
-            /*is_blob_index=*/nullptr, /*do_merge=*/false)) {
+            /*is_blob_index=*/nullptr, /*do_merge=*/false,
+            &memtable_blob_fetcher)) {
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
                super_version->imm->GetMergeOperands(lkey, &s, &merge_context,
                                                     &max_covering_tombstone_seq,
-                                                    read_options)) {
+                                                    read_options,
+                                                    &memtable_blob_fetcher)) {
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
     }

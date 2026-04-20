@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "db/arena_wrapped_db_iter.h"
+#include "db/blob/blob_fetcher.h"
 #include "db/attribute_group_iterator_impl.h"
 #include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_index.h"
@@ -2960,6 +2961,14 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   }
   const bool resolve_direct_write_value =
       partition_mgr != nullptr && (is_blob_ptr == &is_blob_index);
+  std::optional<BlobFetcher> memtable_blob_fetcher;
+  if (partition_mgr != nullptr) {
+    memtable_blob_fetcher.emplace(
+        sv->current, read_options, cfd->blob_file_cache(),
+        /*allow_write_path_fallback=*/true);
+  }
+  const BlobFetcher* memtable_blob_fetcher_ptr =
+      memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
   std::string blob_lookup_key_storage;
   auto get_blob_lookup_key = [&]() -> Slice {
     return GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage);
@@ -2987,7 +2996,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        get_impl_options.columns, timestamp, &s, &merge_context,
                        &max_covering_tombstone_seq, read_options,
                        false /* immutable_memtable */,
-                       get_impl_options.callback, is_blob_ptr)) {
+                       get_impl_options.callback, is_blob_ptr,
+                       /*do_merge=*/true, memtable_blob_fetcher_ptr)) {
         done = true;
         maybe_resolve_memtable_value();
 
@@ -2999,7 +3009,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                                             : nullptr,
                      get_impl_options.columns, timestamp, &s, &merge_context,
                      &max_covering_tombstone_seq, read_options,
-                     get_impl_options.callback, is_blob_ptr)) {
+                     get_impl_options.callback, is_blob_ptr,
+                     memtable_blob_fetcher_ptr)) {
         done = true;
         maybe_resolve_memtable_value();
 
@@ -3012,13 +3023,14 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        /*timestamp=*/nullptr, &s, &merge_context,
                        &max_covering_tombstone_seq, read_options,
                        false /* immutable_memtable */, nullptr, nullptr,
-                       false)) {
+                       false, memtable_blob_fetcher_ptr)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
                  sv->imm->GetMergeOperands(lkey, &s, &merge_context,
                                            &max_covering_tombstone_seq,
-                                           read_options)) {
+                                           read_options,
+                                           memtable_blob_fetcher_ptr)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       }
@@ -3714,6 +3726,14 @@ Status DBImpl::MultiGetImpl(
       (*sorted_keys)[start_key]->column_family);
   ColumnFamilyData* cfd = cfh->cfd();
   auto* partition_mgr = cfd->blob_partition_manager();
+  std::optional<BlobFetcher> memtable_blob_fetcher;
+  if (partition_mgr != nullptr) {
+    memtable_blob_fetcher.emplace(
+        super_version->current, read_options, cfd->blob_file_cache(),
+        /*allow_write_path_fallback=*/true);
+  }
+  const BlobFetcher* memtable_blob_fetcher_ptr =
+      memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
   // Clear the timestamps for returning results so that we can distinguish
   // between tombstone or key that has never been written
   for (size_t i = start_key; i < start_key + num_keys; ++i) {
@@ -3760,9 +3780,11 @@ Status DBImpl::MultiGetImpl(
          has_unpersisted_data_.load(std::memory_order_relaxed));
     if (!skip_memtable) {
       super_version->mem->MultiGet(read_options, &range, callback,
-                                   false /* immutable_memtable */);
+                                   false /* immutable_memtable */,
+                                   memtable_blob_fetcher_ptr);
       if (!range.empty()) {
-        super_version->imm->MultiGet(read_options, &range, callback);
+        super_version->imm->MultiGet(read_options, &range, callback,
+                                     memtable_blob_fetcher_ptr);
       }
       if (!range.empty()) {
         uint64_t left = range.KeysLeft();
