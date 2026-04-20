@@ -7,6 +7,7 @@
 #include <string>
 
 #include "db/read_callback.h"
+#include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -19,7 +20,6 @@ class MergeOperator;
 class PinnableWideColumns;
 class PinnedIteratorsManager;
 class Statistics;
-class Status;
 class SystemClock;
 struct ParsedInternalKey;
 
@@ -121,6 +121,9 @@ class GetContext {
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
              uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr);
+  ~GetContext() { corrupt_status_.PermitUncheckedError(); }
+  GetContext(GetContext&&) noexcept = default;
+  GetContext& operator=(GetContext&&) noexcept = default;
 
   GetContext() = delete;
 
@@ -193,6 +196,11 @@ class GetContext {
 
   uint64_t get_tracing_get_id() const { return tracing_get_id_; }
 
+  // Returns the original error that caused this lookup to terminate in
+  // kCorrupt, if the terminal state came from a lower-level read failure
+  // rather than an actual data corruption.
+  const Status& corrupt_status() const { return corrupt_status_; }
+
   void push_operand(const Slice& value, Cleanable* value_pinner);
 
  private:
@@ -255,6 +263,7 @@ class GetContext {
   // Get or a MultiGet.
   const uint64_t tracing_get_id_;
   BlobFetcher* blob_fetcher_;
+  Status corrupt_status_;
 };
 
 // Call this to replay a log and bring the get_context up to date. The replay

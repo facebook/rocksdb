@@ -426,6 +426,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                     MarkKeyMayExist();
                   } else {
                     state_ = kCorrupt;
+                    corrupt_status_ = s;
                   }
                   return false;
                 }
@@ -451,6 +452,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                     MarkKeyMayExist();
                   } else {
                     state_ = kCorrupt;
+                    corrupt_status_ = s;
                   }
                   return false;
                 }
@@ -657,6 +659,7 @@ void GetContext::MergeWithWideColumnBaseValue(const Slice& entity) {
       return;
     }
     state_ = kCorrupt;
+    corrupt_status_ = s_resolve;
     return;
   }
 
@@ -684,6 +687,7 @@ bool GetContext::GetBlobValue(const Slice& user_key, const Slice& blob_index,
       return false;
     }
     state_ = kCorrupt;
+    corrupt_status_ = *read_status;
     return false;
   }
   *is_blob_index_ = false;

@@ -2867,7 +2867,11 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         }
         return;
       case GetContext::kCorrupt:
-        *status = Status::Corruption("corrupted key for ", user_key);
+        if (get_context.corrupt_status().ok()) {
+          *status = Status::Corruption("corrupted key for ", user_key);
+        } else {
+          *status = get_context.corrupt_status();
+        }
         return;
       case GetContext::kUnexpectedBlobIndex:
         ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob index.");
