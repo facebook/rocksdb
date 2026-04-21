@@ -405,7 +405,7 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
             get_impl_options.columns, ts, &s, &merge_context,
             &max_covering_tombstone_seq, read_options,
             false /* immutable_memtable */, &read_cb,
-            /*is_blob_index=*/nullptr, /*do_merge=*/true)) {
+            get_impl_options.is_blob_index, /*do_merge=*/true)) {
       done = true;
       if (get_impl_options.value) {
         get_impl_options.value->PinSelf();
@@ -417,7 +417,8 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                    get_impl_options.value ? get_impl_options.value->GetSelf()
                                           : nullptr,
                    get_impl_options.columns, ts, &s, &merge_context,
-                   &max_covering_tombstone_seq, read_options, &read_cb)) {
+                   &max_covering_tombstone_seq, read_options, &read_cb,
+                   get_impl_options.is_blob_index)) {
       done = true;
       if (get_impl_options.value) {
         get_impl_options.value->PinSelf();
@@ -433,7 +434,7 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
             get_impl_options.columns, ts, &s, &merge_context,
             &max_covering_tombstone_seq, read_options,
             false /* immutable_memtable */, &read_cb,
-            /*is_blob_index=*/nullptr, /*do_merge=*/false)) {
+            get_impl_options.is_blob_index, /*do_merge=*/false)) {
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
@@ -456,7 +457,8 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
         read_options, lkey, get_impl_options.value, get_impl_options.columns,
         ts, &s, &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
         /*value_found*/ nullptr,
-        /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb, /*is_blob*/ nullptr,
+        /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb,
+        get_impl_options.is_blob_index,
         /*do_merge*/ true);
     RecordTick(stats_, MEMTABLE_MISS);
   }

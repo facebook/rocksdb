@@ -2432,6 +2432,31 @@ ColumnFamilyHandle* DBImpl::PersistentStatsColumnFamily() const {
   return persist_stats_cf_handle_;
 }
 
+Status DB::KeyExists(const ReadOptions& _read_options,
+                     ColumnFamilyHandle* column_family, const Slice& key) {
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call KeyExists with `ReadOptions::io_activity` set to "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
+  }
+
+  // Use GetImpl with a non-null is_blob_index to skip blob file reads.
+  PinnableSlice pinnable_val;
+  DBImpl::GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.value = &pinnable_val;
+  bool is_blob_index = false;
+  get_impl_options.is_blob_index = &is_blob_index;
+  return static_cast<DBImpl*>(this)->GetImpl(read_options, key,
+                                             get_impl_options);
+}
+
 Status DBImpl::GetImpl(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* value) {

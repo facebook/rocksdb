@@ -2640,6 +2640,171 @@ TEST_F(DBBlobBasicTest, GetApproximateSizesIncludingBlobFiles) {
   }
 }
 
+TEST_F(DBBlobBasicTest, KeyExistsSkipsBlobRead) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.disable_auto_compactions = true;
+  options.statistics = CreateDBStatistics();
+
+  Reopen(options);
+
+  constexpr char key[] = "key";
+  constexpr char blob_value[] = "blob_value";
+
+  ASSERT_OK(Put(key, blob_value));
+  ASSERT_OK(Flush());
+
+  // Record baseline blob-read bytes for later comparison
+  uint64_t blob_bytes_before =
+      options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ);
+
+  // KeyExists should NOT read blob files
+  ASSERT_OK(db_->KeyExists(ReadOptions(), db_->DefaultColumnFamily(),
+                           Slice(key)));
+
+  uint64_t blob_bytes_after_key_exists =
+      options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ);
+  ASSERT_EQ(blob_bytes_before, blob_bytes_after_key_exists);
+
+  // Get should read blob files (control)
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), key, &value));
+  ASSERT_EQ(blob_value, value);
+
+  uint64_t blob_bytes_after_get =
+      options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ);
+  ASSERT_GT(blob_bytes_after_get, blob_bytes_after_key_exists);
+}
+
+TEST_F(DBBlobBasicTest, KeyExistsBasic) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  // Key absent
+  ASSERT_TRUE(db_->KeyExists(ReadOptions(), db_->DefaultColumnFamily(),
+                             Slice("absent"))
+                  .IsNotFound());
+
+  // Key present
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(db_->KeyExists(ReadOptions(), db_->DefaultColumnFamily(),
+                           Slice("key1")));
+
+  // Key present after flush (in SST + blob)
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->KeyExists(ReadOptions(), db_->DefaultColumnFamily(),
+                           Slice("key1")));
+
+  // Key absent after delete + compaction
+  ASSERT_OK(Delete("key1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_TRUE(db_->KeyExists(ReadOptions(), db_->DefaultColumnFamily(),
+                             Slice("key1"))
+                  .IsNotFound());
+}
+
+TEST_F(DBBlobBasicTest, KeyExistsColumnFamily) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  CreateAndReopenWithCF({"cf1"}, options);
+
+  ASSERT_OK(Put(0, "key_cf0", "value0"));
+  ASSERT_OK(Put(1, "key_cf1", "value1"));
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+
+  // key_cf0 in default CF
+  ASSERT_OK(db_->KeyExists(ReadOptions(), handles_[0], Slice("key_cf0")));
+  ASSERT_TRUE(
+      db_->KeyExists(ReadOptions(), handles_[1], Slice("key_cf0")).IsNotFound());
+
+  // key_cf1 in cf1
+  ASSERT_TRUE(
+      db_->KeyExists(ReadOptions(), handles_[0], Slice("key_cf1")).IsNotFound());
+  ASSERT_OK(db_->KeyExists(ReadOptions(), handles_[1], Slice("key_cf1")));
+}
+
+TEST_F(DBBlobBasicTest, KeyExistsMergeOperands) {
+  Options options = GetDefaultOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  // Put base value, flush to blob
+  ASSERT_OK(Put("key1", "v1"));
+  ASSERT_OK(Flush());
+
+  // Merge on top, flush again
+  ASSERT_OK(Merge("key1", "v2"));
+  ASSERT_OK(Flush());
+
+  // KeyExists should return OK for merged key
+  ASSERT_OK(db_->KeyExists(ReadOptions(), db_->DefaultColumnFamily(),
+                           Slice("key1")));
+
+  // Verify Get still returns the merged result
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "key1", &value));
+  ASSERT_EQ("v1,v2", value);
+}
+
+TEST_F(DBBlobBasicTest, KeyExistsInvalidIOActivity) {
+  Options options = GetDefaultOptions();
+  Reopen(options);
+  ASSERT_OK(Put("key", "val"));
+
+  ReadOptions read_options;
+  read_options.io_activity = Env::IOActivity::kFlush;
+  ASSERT_TRUE(db_->KeyExists(read_options, db_->DefaultColumnFamily(),
+                             Slice("key"))
+                  .IsInvalidArgument());
+}
+
+TEST_F(DBBlobBasicTest, KeyExistsReadOnlyDB) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  ASSERT_OK(Put("key1", "blob_value1"));
+  ASSERT_OK(Put("key2", "blob_value2"));
+  ASSERT_OK(Flush());
+
+  // Close the read-write DB
+  Close();
+
+  // Reopen as read-only
+  std::unique_ptr<DB> db_read_only;
+  ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &db_read_only));
+
+  // KeyExists should work on read-only DB with BlobDB
+  ASSERT_OK(db_read_only->KeyExists(ReadOptions(),
+                                    db_read_only->DefaultColumnFamily(),
+                                    Slice("key1")));
+  ASSERT_OK(db_read_only->KeyExists(ReadOptions(),
+                                    db_read_only->DefaultColumnFamily(),
+                                    Slice("key2")));
+  ASSERT_TRUE(db_read_only->KeyExists(ReadOptions(),
+                                      db_read_only->DefaultColumnFamily(),
+                                      Slice("absent"))
+                  .IsNotFound());
+
+  db_read_only.reset();
+
+  // Reopen as read-write for cleanup
+  Reopen(options);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

@@ -1932,11 +1932,21 @@ bool key_may_exist_direct_helper(JNIEnv* env, jlong jdb_handle,
   return exists;
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// ROCKSDB_NAMESPACE::DB::KeyExists
+// Three-tier key existence check for the Java API:
+// 1. Bloom filter (KeyMayExist) — fast rejection for absent keys.
+// 2. Memtable/cache hit (value_found from KeyMayExist) — confirms presence
+//    without SST reads.
+// 3. GetImpl with blob-skip (KeyExists) — definitive check that reads SST
+//    index but skips blob file values.
+//
+// The C++ DB::KeyExists intentionally omits the KeyMayExist pre-check to
+// avoid issue #12921 false negatives for C++ callers. The JNI layer adds it
+// because the Java keyExists API already had this behavior and Java callers
+// accept the trade-off.
 jboolean key_exists_helper(JNIEnv* env, jlong jdb_handle, jlong jcf_handle,
                            jlong jread_opts_handle, char* key, jint jkey_len) {
-  std::string value;
-  bool value_found = false;
-
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
 
   ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
@@ -1955,24 +1965,27 @@ jboolean key_exists_helper(JNIEnv* env, jlong jdb_handle, jlong jcf_handle,
 
   ROCKSDB_NAMESPACE::Slice key_slice(key, jkey_len);
 
+  // Tier 1 & 2: bloom filter rejection + memtable/cache confirmation
+  std::string value;
+  bool value_found = false;
   const bool may_exist =
       db->KeyMayExist(read_opts, cf_handle, key_slice, &value, &value_found);
+  if (!may_exist) {
+    return JNI_FALSE;
+  }
+  if (value_found) {
+    return JNI_TRUE;
+  }
 
-  if (may_exist) {
-    ROCKSDB_NAMESPACE::Status s;
-    {
-      ROCKSDB_NAMESPACE::PinnableSlice pinnable_val;
-      s = db->Get(read_opts, cf_handle, key_slice, &pinnable_val);
-    }
-    if (s.IsNotFound()) {
-      return JNI_FALSE;
-    } else if (s.ok()) {
-      return JNI_TRUE;
-    } else {
-      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
-      return JNI_FALSE;
-    }
+  // Tier 3: confirm with KeyExists (blob-skip, no false negatives)
+  ROCKSDB_NAMESPACE::Status s =
+      db->KeyExists(read_opts, cf_handle, key_slice);
+  if (s.ok()) {
+    return JNI_TRUE;
+  } else if (s.IsNotFound()) {
+    return JNI_FALSE;
   } else {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return JNI_FALSE;
   }
 }
