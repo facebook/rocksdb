@@ -357,14 +357,72 @@ TEST_F(DBSecondaryTest, GetMergeOperands) {
   const Status s = db_secondary_->GetMergeOperands(
       ReadOptions(), cfh, "k1", values.data(), &merge_operands_info,
       &number_of_operands);
-  ASSERT_NOK(s);
-  ASSERT_TRUE(s.IsMergeInProgress());
+  ASSERT_OK(s);
 
   ASSERT_EQ(number_of_operands, 4);
   ASSERT_EQ(values[0].ToString(), "v1");
   ASSERT_EQ(values[1].ToString(), "v2");
   ASSERT_EQ(values[2].ToString(), "v3");
   ASSERT_EQ(values[3].ToString(), "v4");
+}
+
+TEST_F(DBSecondaryTest, GetMergeOperandsWithBlobBackedEntityDefaultColumn) {
+  // Goal: exercise the secondary read path with a blob-backed V2 entity base
+  // in SST and a newer merge operand applied through catch-up. The secondary
+  // DB must resolve the blob-backed default column for both Get() and
+  // GetMergeOperands() while combining the newer memtable merge with the older
+  // SST-backed base entity.
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 50;
+  options.disable_auto_compactions = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator("|");
+  options.env = env_;
+  Reopen(options);
+
+  const std::string key = "secondary_blob_entity";
+  const std::string default_value(100, 'd');
+  const std::string large_value(120, 'l');
+  const std::string merge_operand = "suffix";
+  const std::string expected_merged = default_value + "|" + merge_operand;
+  WideColumns columns{{kDefaultWideColumnName, default_value},
+                      {"col_large", large_value},
+                      {"meta", "inline"}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  options.max_open_files = -1;
+  OpenSecondary(options);
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key,
+                       merge_operand));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  auto* cfh = db_secondary_->DefaultColumnFamily();
+
+  {
+    PinnableSlice result;
+    ASSERT_OK(db_secondary_->Get(ReadOptions(), cfh, key, &result));
+    ASSERT_EQ(result, expected_merged);
+  }
+
+  {
+    GetMergeOperandsOptions get_merge_opts;
+    get_merge_opts.expected_max_number_of_operands = 2;
+
+    std::array<PinnableSlice, 2> merge_operands;
+    int number_of_operands = 0;
+
+    ASSERT_OK(db_secondary_->GetMergeOperands(
+        ReadOptions(), cfh, key, merge_operands.data(), &get_merge_opts,
+        &number_of_operands));
+    ASSERT_EQ(number_of_operands, 2);
+    ASSERT_EQ(merge_operands[0], default_value);
+    ASSERT_EQ(merge_operands[1], merge_operand);
+  }
 }
 
 TEST_F(DBSecondaryTest, InternalCompactionCompactedFiles) {

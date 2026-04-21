@@ -864,6 +864,47 @@ TEST_P(SstFileReaderTableGetTest, Basic) {
   Close();
 }
 
+TEST_P(SstFileReaderTableGetTest, BlobBackedWideColumnDefaultWithoutFetcher) {
+  // Goal: cover the SstFileReader path where GetContext has no BlobFetcher.
+  // The test writes a blob-backed wide-column entity, compacts it so the SST
+  // stores blob references, and then verifies SstFileReader reports a clean
+  // Corruption status instead of dereferencing a null BlobFetcher.
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 50;
+
+  DestroyAndReopen(options);
+
+  const std::string key = "blob_backed_entity";
+  const std::string default_value(100, 'd');
+  WideColumns columns{{kDefaultWideColumnName, default_value},
+                      {"meta", "inline"}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(files.size(), 1);
+  std::string file_name = files[0].directory + "/" + files[0].relative_filename;
+
+  SstFileReader reader(options);
+  ASSERT_OK(reader.Open(file_name));
+
+  std::vector<Slice> keys = {key};
+  std::vector<std::string> values;
+  auto statuses = DoGet(reader, keys, &values);
+
+  ASSERT_TRUE(statuses[0].IsCorruption()) << statuses[0].ToString();
+  ASSERT_NE(statuses[0].ToString().find("blob fetcher"), std::string::npos)
+      << statuses[0].ToString();
+
+  Close();
+}
+
 INSTANTIATE_TEST_CASE_P(SingleAndMulti, SstFileReaderTableGetTest,
                         testing::Bool());
 

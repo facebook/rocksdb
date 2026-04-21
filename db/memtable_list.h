@@ -98,17 +98,19 @@ class MemTableListVersion {
                       Status* s, MergeContext* merge_context,
                       SequenceNumber* max_covering_tombstone_seq,
                       SequenceNumber* seq, const ReadOptions& read_opts,
-                      bool* is_blob_index = nullptr);
+                      bool* is_blob_index = nullptr,
+                      const BlobFetcher* blob_fetcher = nullptr);
   bool GetFromHistory(const LookupKey& key, std::string* value,
                       PinnableWideColumns* columns, std::string* timestamp,
                       Status* s, MergeContext* merge_context,
                       SequenceNumber* max_covering_tombstone_seq,
                       const ReadOptions& read_opts,
-                      bool* is_blob_index = nullptr) {
+                      bool* is_blob_index = nullptr,
+                      const BlobFetcher* blob_fetcher = nullptr) {
     SequenceNumber seq;
     return GetFromHistory(key, value, columns, timestamp, s, merge_context,
                           max_covering_tombstone_seq, &seq, read_opts,
-                          is_blob_index);
+                          is_blob_index, blob_fetcher);
   }
 
   Status AddRangeTombstoneIterators(const ReadOptions& read_opts, Arena* arena,

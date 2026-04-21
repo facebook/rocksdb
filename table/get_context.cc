@@ -127,6 +127,10 @@ Status GetContext::SaveWideColumnEntityToPinnable(const Slice& user_key,
       pinnable_val_->PinSelf(value_of_default);
     }
   } else if (status.IsNotSupported()) {
+    if (blob_fetcher_ == nullptr) {
+      return Status::Corruption(
+          "Cannot resolve blob-backed default column without a blob fetcher");
+    }
     // Default column is a blob reference, so resolve it into the output value.
     bool resolved = false;
     status = WideColumnSerialization::GetValueOfDefaultColumnResolvingBlobs(
@@ -148,6 +152,11 @@ Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
   if (status.ok()) {
     if (LIKELY(blob_cols.empty())) {
       return columns_->SetWideColumnValue(entity, value_pinner);
+    }
+    if (blob_fetcher_ == nullptr) {
+      return Status::Corruption(
+          "Cannot resolve blob-backed wide-column entity without a blob "
+          "fetcher");
     }
 
     // TODO: Add lazy resolution support for GetEntity point lookups. This

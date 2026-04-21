@@ -1860,7 +1860,9 @@ class ReactiveVersionSet : public VersionSet {
                      const FileOptions& _file_options, Cache* table_cache,
                      WriteBufferManager* write_buffer_manager,
                      WriteController* write_controller,
-                     const std::shared_ptr<IOTracer>& io_tracer);
+                     const std::shared_ptr<IOTracer>& io_tracer,
+                     const std::string& db_id,
+                     const std::string& db_session_id);
 
   ~ReactiveVersionSet() override;
 

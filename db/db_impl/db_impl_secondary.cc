@@ -464,7 +464,7 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
         ts, &s, &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
         /*value_found*/ nullptr,
         /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb, /*is_blob*/ nullptr,
-        /*do_merge*/ true);
+        /*do_merge=*/get_impl_options.get_value);
     RecordTick(stats_, MEMTABLE_MISS);
   }
   {
@@ -784,7 +784,8 @@ Status DBImplSecondary::OpenAsSecondaryImpl(
   impl->versions_.reset(new ReactiveVersionSet(
       dbname, &impl->immutable_db_options_, impl->mutable_db_options_,
       impl->file_options_, impl->table_cache_.get(),
-      impl->write_buffer_manager_, &impl->write_controller_, impl->io_tracer_));
+      impl->write_buffer_manager_, &impl->write_controller_, impl->io_tracer_,
+      impl->db_id_, impl->db_session_id_));
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
   impl->wal_in_db_path_ = impl->immutable_db_options_.IsWalDirSameAsDBPath();

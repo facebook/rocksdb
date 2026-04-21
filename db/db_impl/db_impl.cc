@@ -6218,12 +6218,20 @@ Status DBImpl::GetLatestSequenceForKey(
 
   *seq = kMaxSequenceNumber;
   *found_record_for_key = false;
+  std::optional<BlobFetcher> memtable_blob_fetcher;
+  if (cfd->blob_partition_manager() != nullptr) {
+    memtable_blob_fetcher.emplace(sv->current, read_options,
+                                  cfd->blob_file_cache(),
+                                  /*allow_write_path_fallback=*/true);
+  }
+  const BlobFetcher* memtable_blob_fetcher_ptr =
+      memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
 
   // Check if there is a record for this key in the latest memtable
   sv->mem->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr, timestamp, &s,
                &merge_context, &max_covering_tombstone_seq, seq, read_options,
                false /* immutable_memtable */, nullptr /*read_callback*/,
-               is_blob_index);
+               is_blob_index, /*do_merge=*/true, memtable_blob_fetcher_ptr);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -6256,7 +6264,8 @@ Status DBImpl::GetLatestSequenceForKey(
   // Check if there is a record for this key in the immutable memtables
   sv->imm->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr, timestamp, &s,
                &merge_context, &max_covering_tombstone_seq, seq, read_options,
-               nullptr /*read_callback*/, is_blob_index);
+               nullptr /*read_callback*/, is_blob_index,
+               memtable_blob_fetcher_ptr);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -6289,7 +6298,7 @@ Status DBImpl::GetLatestSequenceForKey(
   sv->imm->GetFromHistory(lkey, /*value=*/nullptr, /*columns=*/nullptr,
                           timestamp, &s, &merge_context,
                           &max_covering_tombstone_seq, seq, read_options,
-                          is_blob_index);
+                          is_blob_index, memtable_blob_fetcher_ptr);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.

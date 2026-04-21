@@ -147,10 +147,11 @@ bool MemTableListVersion::GetFromHistory(
     const LookupKey& key, std::string* value, PinnableWideColumns* columns,
     std::string* timestamp, Status* s, MergeContext* merge_context,
     SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
-    const ReadOptions& read_opts, bool* is_blob_index) {
+    const ReadOptions& read_opts, bool* is_blob_index,
+    const BlobFetcher* blob_fetcher) {
   return GetFromList(&memlist_history_, key, value, columns, timestamp, s,
                      merge_context, max_covering_tombstone_seq, seq, read_opts,
-                     nullptr /*read_callback*/, is_blob_index);
+                     nullptr /*read_callback*/, is_blob_index, blob_fetcher);
 }
 
 bool MemTableListVersion::GetFromList(

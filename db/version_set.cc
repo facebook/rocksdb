@@ -8061,11 +8061,12 @@ ReactiveVersionSet::ReactiveVersionSet(
     const MutableDBOptions& mutable_db_options,
     const FileOptions& _file_options, Cache* table_cache,
     WriteBufferManager* write_buffer_manager, WriteController* write_controller,
-    const std::shared_ptr<IOTracer>& io_tracer)
+    const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
+    const std::string& db_session_id)
     : VersionSet(dbname, imm_db_options, mutable_db_options, _file_options,
                  table_cache, write_buffer_manager, write_controller,
-                 /*block_cache_tracer=*/nullptr, io_tracer, /*db_id*/ "",
-                 /*db_session_id*/ "", /*daily_offpeak_time_utc*/ "",
+                 /*block_cache_tracer=*/nullptr, io_tracer, db_id,
+                 db_session_id, /*daily_offpeak_time_utc*/ "",
                  /*error_handler=*/nullptr, /*unchanging=*/false) {}
 
 ReactiveVersionSet::~ReactiveVersionSet() = default;
