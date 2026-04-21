@@ -198,6 +198,13 @@ Status DBImpl::GetCurrentWalFile(std::unique_ptr<WalFile>* current_wal_file) {
 Status DBImpl::GetLiveFilesStorageInfo(
     const LiveFilesStorageInfoOptions& opts,
     std::vector<LiveFileStorageInfo>* files) {
+  return GetLiveFilesStorageInfo(opts, files, /*last_sequence=*/nullptr);
+}
+
+Status DBImpl::GetLiveFilesStorageInfo(
+    const LiveFilesStorageInfoOptions& opts,
+    std::vector<LiveFileStorageInfo>* files,
+    SequenceNumber* last_sequence) {
   // To avoid returning partial results, only move results to files on success.
   assert(files);
   files->clear();
@@ -347,6 +354,12 @@ Status DBImpl::GetLiveFilesStorageInfo(
   const uint64_t min_log_num = MinLogNumberToKeep();
   // Ensure consistency with manifest for track_and_verify_wals_in_manifest
   const uint64_t max_log_num = cur_wal_number_;
+  // Capture the last sequence number while holding the DB mutex so it is
+  // synchronized with the returned file set: the optional flush above has
+  // completed, and no further writes can be assigned until we unlock.
+  if (last_sequence != nullptr) {
+    *last_sequence = versions_->LastSequence();
+  }
 
   mutex_.Unlock();
 
