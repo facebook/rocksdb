@@ -1094,6 +1094,10 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
 
   options_.statistics = CreateDBStatistics();
   std::shared_ptr<FileSystem> fs = options_.env->GetFileSystem();
+  int64_t supported_ops = 0;
+  fs->SupportedOps(supported_ops);
+  const bool async_supported =
+      use_async_io && ((supported_ops & (1 << FSSupportedOps::kAsyncIO)) != 0);
   ReadOptions read_opts;
   read_opts.fill_cache = fill_cache;
   size_t ts_sz = options_.comparator->timestamp_size();
@@ -1209,17 +1213,12 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
   iter->Prepare(&scan_options);
   read_count_after =
       options_.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
-  if (!use_async_io) {
-    if (!fill_cache) {
-      ASSERT_EQ(read_count_before + 1, read_count_after);
-    } else {
-      ASSERT_EQ(read_count_before + 2, read_count_after);
-    }
-  } else {
-    // stat is recorded in async callback which happens in Poll(), and
-    // Poll() happens during scanning.
-    ASSERT_EQ(read_count_before, read_count_after);
-  }
+  // When async IO is available on this thread, Prepare() only queues the reads
+  // and stats are updated later during Poll(). Otherwise it falls back to the
+  // synchronous path and records the reads immediately.
+  const uint64_t expected_prepare_reads =
+      async_supported ? 0 : (fill_cache ? 2 : 1);
+  ASSERT_EQ(read_count_before + expected_prepare_reads, read_count_after);
 
   iter->Seek(kv[40 * kEntriesPerBlock].first);
   for (size_t i = 40 * kEntriesPerBlock; i < 80 * kEntriesPerBlock; ++i) {
