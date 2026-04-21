@@ -266,6 +266,9 @@ class FaultInjectionTest
     CloseDB();
     env_->ResetState();
     Status s = DB::Open(options_, dbname_, &db_);
+    if (!s.ok()) {
+      return s;
+    }
     assert(db_ != nullptr);
     return s;
   }
