@@ -1091,6 +1091,14 @@ def finalize_and_sanitize(src_params):
         dest_params["use_timed_put_one_in"] = 0
         dest_params["test_secondary"] = 0
         dest_params["mmap_read"] = 0
+        # skip_stats_update_on_db_open leaves num_entries and
+        # num_range_deletions at 0 on the remote worker, which breaks
+        # standalone range deletion file filtering in compaction and causes
+        # input key count mismatch. This can happen even if standalone range
+        # deletion ingestion is off in the current run, because such files
+        # may have been ingested in a previous run with different options.
+        # TODO: remove after the real fix lands.
+        dest_params["skip_stats_update_on_db_open"] = 0
 
         # Disable database open fault injection to prevent test inefficiency described below.
         # When fault injection occurs during DB open, the db will wait for compaction
