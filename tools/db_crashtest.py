@@ -167,16 +167,18 @@ default_params = {
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
     "enable_compaction_on_deletion_trigger": lambda: random.choice([0, 0, 0, 1]),
-    # `inplace_update_support` is incompatible with DB that has delete
-    # range data in memtables.
-    # Such data can result from any of the previous db stress runs
-    # using delete range.
-    # Since there is no easy way to keep track of whether delete range
-    # is used in any of the previous runs,
-    # to simpify our testing, we set `inplace_update_support` across
-    # runs and to disable delete range accordingly
-    # (see below `finalize_and_sanitize`).
-    "inplace_update_support": random.choice([0] * 9 + [1]),
+    # `inplace_update_support` is incompatible with a wide range of features.
+    # The current sanitization process is not sufficient to reliably handle
+    # this. While inplace_update_support is intended to stay on across runs
+    # in default_params, in certain runs it can be toggled off by
+    # sanitization due to some incompatible features being enabled. When
+    # inplace_update_support is off, other incompatible features such as
+    # delete range may be enabled and leave state in the DB. A later run
+    # reads default_params again with inplace_update_support on, but now
+    # operates on a DB containing delete range data from the previous run,
+    # causing stress test failures. Temporarily disabled until the
+    # sanitization can account for cross-run incompatibility.
+    "inplace_update_support": 0,
     "expected_values_dir": lambda: setup_expected_values_dir(),
     "flush_one_in": lambda: random.choice([1000, 1000000]),
     "manual_wal_flush_one_in": lambda: random.choice([0, 1000]),
