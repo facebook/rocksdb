@@ -2746,6 +2746,110 @@ Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
   return status;
 }
 
+bool DBImpl::MaybeResolveMemtableBlobValue(const Slice& key,
+                                           const BlobFetcher* blob_fetcher,
+                                           PinnableSlice* value,
+                                           PinnableWideColumns* columns,
+                                           Status* s, bool* is_blob_index,
+                                           bool* value_found) {
+  if (!s->ok() || blob_fetcher == nullptr || (!value && !columns)) {
+    return false;
+  }
+
+  const bool needs_plain_value_resolution =
+      is_blob_index != nullptr && *is_blob_index;
+  const bool needs_wide_column_resolution =
+      columns != nullptr && !columns->unresolved_blob_column_indices_.empty();
+  if (!needs_plain_value_resolution && !needs_wide_column_resolution) {
+    return false;
+  }
+
+  if (needs_plain_value_resolution) {
+    Slice blob_index_slice;
+    std::string blob_index_storage;
+    if (value != nullptr) {
+      if (value->size() > 0) {
+        blob_index_slice = Slice(value->data(), value->size());
+      } else {
+        blob_index_slice = Slice(*(value->GetSelf()));
+      }
+    } else {
+      assert(columns != nullptr);
+
+      const WideColumns& plain_value_columns = columns->columns();
+      assert(plain_value_columns.size() == 1);
+      assert(plain_value_columns.front().name() == kDefaultWideColumnName);
+      blob_index_slice = plain_value_columns.front().value();
+    }
+
+    PinnableSlice resolved_value;
+    PinnableSlice* target = value != nullptr ? value : &resolved_value;
+    if (value != nullptr) {
+      if (value->IsPinned()) {
+        blob_index_storage.assign(blob_index_slice.data(),
+                                  blob_index_slice.size());
+        blob_index_slice = Slice(blob_index_storage);
+      }
+      value->Reset();
+    }
+
+    *s = blob_fetcher->FetchBlob(key, blob_index_slice,
+                                 nullptr /* prefetch_buffer */, target,
+                                 nullptr /* bytes_read */);
+    if (s->ok() && columns != nullptr) {
+      columns->SetPlainValue(std::move(*target));
+    } else if (s->IsIncomplete() && value_found != nullptr) {
+      *value_found = false;
+    }
+
+    if (is_blob_index != nullptr) {
+      *is_blob_index = false;
+    }
+    return true;
+  }
+
+  assert(columns != nullptr);
+
+  std::string resolved_entity;
+  bool resolved = false;
+  *s = WideColumnSerialization::ResolveEntityBlobColumns(
+      columns->value_, key, blob_fetcher, nullptr /* prefetch_buffers */,
+      resolved_entity, resolved, nullptr /* total_bytes_read */,
+      nullptr /* num_blobs_resolved */);
+  if (s->ok()) {
+    assert(resolved);
+    if (resolved) {
+      *s = columns->SetWideColumnValue(std::move(resolved_entity));
+    }
+  } else if (s->IsIncomplete() && value_found != nullptr) {
+    *value_found = false;
+  }
+
+  if (is_blob_index != nullptr) {
+    *is_blob_index = false;
+  }
+  return true;
+}
+
+void DBImpl::PostprocessMemtableValueRead(
+    const Slice& key, const std::string* timestamp,
+    bool resolve_blob_backed_memtable_value,
+    const BlobFetcher& memtable_blob_fetcher, PinnableSlice* value,
+    PinnableWideColumns* columns, Status* s, bool* is_blob_index,
+    bool* value_found) {
+  if (resolve_blob_backed_memtable_value) {
+    std::string blob_lookup_key_storage;
+    const bool value_resolved = MaybeResolveMemtableBlobValue(
+        GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage),
+        &memtable_blob_fetcher, value, columns, s, is_blob_index, value_found);
+    if (!value_resolved && value != nullptr) {
+      value->PinSelf();
+    }
+  } else if (value != nullptr) {
+    value->PinSelf();
+  }
+}
+
 bool DBImpl::MaybeResolveDirectWriteValue(
     const ReadOptions& read_options, const Slice& key,
     bool resolve_direct_write_value, const Version* current,

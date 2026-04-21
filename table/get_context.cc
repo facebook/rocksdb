@@ -144,15 +144,22 @@ Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
                                                  Cleanable* value_pinner) {
   assert(columns_ != nullptr);
 
+  bool has_blob_columns = false;
+  Status status =
+      WideColumnSerialization::HasBlobColumns(entity, has_blob_columns);
+  if (!status.ok()) {
+    return status;
+  }
+  if (!has_blob_columns) {
+    return columns_->SetWideColumnValue(entity, value_pinner);
+  }
   std::vector<WideColumn> entity_columns;
   std::vector<std::pair<size_t, BlobIndex>> blob_cols;
   Slice entity_ref = entity;
-  Status status = WideColumnSerialization::DeserializeV2(
-      entity_ref, entity_columns, blob_cols);
+  status = WideColumnSerialization::DeserializeV2(entity_ref, entity_columns,
+                                                  blob_cols);
   if (status.ok()) {
-    if (LIKELY(blob_cols.empty())) {
-      return columns_->SetWideColumnValue(entity, value_pinner);
-    }
+    assert(!blob_cols.empty());
     if (blob_fetcher_ == nullptr) {
       return Status::Corruption(
           "Cannot resolve blob-backed wide-column entity without a blob "
@@ -801,10 +808,14 @@ Status replayGetContextLog(const Slice& replay_log, const Slice& user_key,
 
     (void)ret;
 
-    Status read_status;
-    get_context->SaveValue(ikey, value, &dont_care, &read_status, value_pinner);
+    Status read_status = Status::OK();
+    const bool keep_replaying = get_context->SaveValue(
+        ikey, value, &dont_care, &read_status, value_pinner);
     if (!read_status.ok()) {
       return read_status;
+    }
+    if (!keep_replaying) {
+      break;
     }
   }
   return Status::OK();

@@ -3095,6 +3095,48 @@ TEST_F(DBWideBasicTest,
 }
 
 TEST_F(DBWideBasicTest,
+       GetAndGetEntityWithBlobBackedDefaultColumnDirectWriteMemtableReadOnly) {
+  // Goal: cover the read-only reopen path after writing a blob-backed
+  // direct-write entity without manually flushing it first. The test checks
+  // both `Get()`, which must resolve the default-column blob reference, and
+  // `GetEntity()`, which must eagerly resolve the entity's unresolved blob
+  // columns before returning them to the caller.
+  Options options = GetDirectWriteOptions();
+  options.min_blob_size = 50;
+
+  DestroyAndReopen(options);
+
+  const std::string key = "readonly_direct_write_memtable_entity";
+  const std::string default_value = GenerateLargeValue(100, 'd');
+  const std::string large_value = GenerateLargeValue(120, 'l');
+  const std::string small_value = GenerateSmallValue();
+  WideColumns columns{{kDefaultWideColumnName, default_value},
+                      {"col_large", large_value},
+                      {"col_small", small_value}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+
+  Close();
+  options.avoid_flush_during_recovery = true;
+  ASSERT_OK(ReadOnlyReopen(options));
+
+  {
+    PinnableSlice result;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result));
+    ASSERT_EQ(result, default_value);
+  }
+
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key,
+                             &result));
+    ASSERT_EQ(result.columns(), columns);
+  }
+}
+
+TEST_F(DBWideBasicTest,
        GetMergeOperandsWithBlobBackedEntityDefaultColumnReadOnly) {
   // Goal: exercise OpenForReadOnly on a blob-backed V2 entity base in SST with
   // a newer merge operand in a separate SST. The read-only DB must resolve the

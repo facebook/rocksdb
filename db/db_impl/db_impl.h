@@ -1869,6 +1869,7 @@ class DBImpl : public DB {
 
  private:
   friend class DB;
+  friend class DBImplReadOnly;
   friend class DBImplSecondary;
   friend class ErrorHandler;
   friend class InternalStats;
@@ -2944,6 +2945,24 @@ class DBImpl : public DB {
       bool resolve_direct_write_value, const Version* current,
       ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns,
       Status* s, bool* is_blob_index, bool* value_found = nullptr);
+  // Resolves memtable read results that still carry blob references through
+  // either a raw blob-index payload in `value` or unresolved blob columns in
+  // `columns`. Unlike the direct-write helper above, this path only depends on
+  // a BlobFetcher and therefore works for read-only/secondary DBs.
+  static bool MaybeResolveMemtableBlobValue(const Slice& key,
+                                            const BlobFetcher* blob_fetcher,
+                                            PinnableSlice* value,
+                                            PinnableWideColumns* columns,
+                                            Status* s, bool* is_blob_index,
+                                            bool* value_found = nullptr);
+  // Completes read-only/secondary memtable Get()/GetEntity() hits by resolving
+  // blob-backed payloads when requested and pinning plain values otherwise.
+  static void PostprocessMemtableValueRead(
+      const Slice& key, const std::string* timestamp,
+      bool resolve_blob_backed_memtable_value,
+      const BlobFetcher& memtable_blob_fetcher, PinnableSlice* value,
+      PinnableWideColumns* columns, Status* s, bool* is_blob_index,
+      bool* value_found = nullptr);
 
   template <typename IterType, typename ImplType,
             typename ErrorIteratorFuncType>

@@ -10,6 +10,7 @@
 #include "db/db_impl/db_impl_secondary.h"
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
+#include "db/wide/wide_column_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
@@ -422,6 +423,53 @@ TEST_F(DBSecondaryTest, GetMergeOperandsWithBlobBackedEntityDefaultColumn) {
     ASSERT_EQ(number_of_operands, 2);
     ASSERT_EQ(merge_operands[0], default_value);
     ASSERT_EQ(merge_operands[1], merge_operand);
+  }
+}
+
+TEST_F(DBSecondaryTest,
+       GetAndGetEntityWithBlobBackedDefaultColumnDirectWriteMemtable) {
+  // Goal: cover the secondary memtable path after catch-up replays a blob
+  // direct-write entity from the primary WAL. The test checks both `Get()`,
+  // which must resolve the blob-backed default column, and `GetEntity()`,
+  // which must eagerly resolve all unresolved blob columns instead of exposing
+  // encoded blob indices to the caller.
+  Options options =
+      wide_column_test_util::GetDirectWriteOptions(GetDefaultOptions());
+  options.create_if_missing = true;
+  options.min_blob_size = 50;
+  options.env = env_;
+
+  Reopen(options);
+
+  options.max_open_files = -1;
+  OpenSecondary(options);
+
+  const std::string key = "secondary_direct_write_memtable_entity";
+  const std::string default_value =
+      wide_column_test_util::GenerateLargeValue(100, 'd');
+  const std::string large_value =
+      wide_column_test_util::GenerateLargeValue(120, 'l');
+  const std::string small_value = wide_column_test_util::GenerateSmallValue();
+  WideColumns columns{{kDefaultWideColumnName, default_value},
+                      {"col_large", large_value},
+                      {"col_small", small_value}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  auto* cfh = db_secondary_->DefaultColumnFamily();
+
+  {
+    PinnableSlice result;
+    ASSERT_OK(db_secondary_->Get(ReadOptions(), cfh, key, &result));
+    ASSERT_EQ(result, default_value);
+  }
+
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_secondary_->GetEntity(ReadOptions(), cfh, key, &result));
+    ASSERT_EQ(result.columns(), columns);
   }
 }
 

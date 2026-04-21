@@ -364,13 +364,25 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
 
   const Comparator* ucmp = get_impl_options.column_family->GetComparator();
   assert(ucmp);
-  std::string* ts =
-      ucmp->timestamp_size() > 0 ? get_impl_options.timestamp : nullptr;
   SequenceNumber snapshot = versions_->LastSequence();
   GetWithTimestampReadCallback read_cb(snapshot);
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
       get_impl_options.column_family);
   auto cfd = cfh->cfd();
+  bool is_blob_index = false;
+  bool* is_blob_ptr = get_impl_options.is_blob_index;
+  std::string timestamp_storage;
+  std::string* ts = nullptr;
+  if (ucmp->timestamp_size() > 0) {
+    ts = get_impl_options.timestamp != nullptr
+             ? get_impl_options.timestamp
+             : (get_impl_options.get_value ? &timestamp_storage : nullptr);
+  }
+  if (!is_blob_ptr && get_impl_options.get_value) {
+    is_blob_ptr = &is_blob_index;
+  }
+  const bool resolve_blob_backed_memtable_value =
+      get_impl_options.get_value && (is_blob_ptr == &is_blob_index);
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
@@ -396,9 +408,9 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
   bool done = false;
-  BlobFetcher memtable_blob_fetcher(
-      super_version->current, read_options, cfd->blob_file_cache(),
-      /*allow_write_path_fallback=*/cfd->blob_partition_manager() != nullptr);
+  BlobFetcher memtable_blob_fetcher(super_version->current, read_options,
+                                    cfd->blob_file_cache(),
+                                    /*allow_write_path_fallback=*/true);
 
   // Look up starts here
   if (get_impl_options.get_value) {
@@ -408,13 +420,13 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                                    : nullptr,
             get_impl_options.columns, ts, &s, &merge_context,
             &max_covering_tombstone_seq, read_options,
-            false /* immutable_memtable */, &read_cb,
-            /*is_blob_index=*/nullptr, /*do_merge=*/true,
-            &memtable_blob_fetcher)) {
+            false /* immutable_memtable */, &read_cb, is_blob_ptr,
+            /*do_merge=*/true, &memtable_blob_fetcher)) {
       done = true;
-      if (get_impl_options.value) {
-        get_impl_options.value->PinSelf();
-      }
+      DBImpl::PostprocessMemtableValueRead(
+          key, ts, resolve_blob_backed_memtable_value, memtable_blob_fetcher,
+          get_impl_options.value, get_impl_options.columns, &s, &is_blob_index,
+          get_impl_options.value_found);
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
                super_version->imm->Get(
@@ -422,12 +434,13 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                    get_impl_options.value ? get_impl_options.value->GetSelf()
                                           : nullptr,
                    get_impl_options.columns, ts, &s, &merge_context,
-                   &max_covering_tombstone_seq, read_options, &read_cb, nullptr,
-                   &memtable_blob_fetcher)) {
+                   &max_covering_tombstone_seq, read_options, &read_cb,
+                   is_blob_ptr, &memtable_blob_fetcher)) {
       done = true;
-      if (get_impl_options.value) {
-        get_impl_options.value->PinSelf();
-      }
+      DBImpl::PostprocessMemtableValueRead(
+          key, ts, resolve_blob_backed_memtable_value, memtable_blob_fetcher,
+          get_impl_options.value, get_impl_options.columns, &s, &is_blob_index,
+          get_impl_options.value_found);
       RecordTick(stats_, MEMTABLE_HIT);
     }
   } else {
