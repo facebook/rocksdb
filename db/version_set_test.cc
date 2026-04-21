@@ -1202,7 +1202,7 @@ class VersionSetTestBase {
     reactive_versions_ = std::make_shared<ReactiveVersionSet>(
         dbname_, &imm_db_options_, mutable_db_options_, env_options_,
         table_cache_.get(), &write_buffer_manager_, &write_controller_,
-        nullptr);
+        /*io_tracer=*/nullptr, /*db_id=*/"", /*db_session_id=*/"");
     imm_db_options_.db_paths.emplace_back(dbname_,
                                           std::numeric_limits<uint64_t>::max());
   }
