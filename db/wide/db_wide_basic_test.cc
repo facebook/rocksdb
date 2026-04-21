@@ -2163,6 +2163,57 @@ TEST_F(DBWideBasicTest, MultiGetEntityWithBlobResolution) {
   }
 }
 
+TEST_F(DBWideBasicTest,
+       MultiGetBlobBackedEntityDirectWriteMemtableBatchLookup) {
+  // Goal: force the memtable batch MultiGet optimization to read a direct-write
+  // blob-backed entity from the active memtable. One key exercises merge
+  // resolution against a blob-backed entity base, which requires Saver to carry
+  // the BlobFetcher through the batched callback path. The second key proves
+  // the non-merge default-column path still resolves correctly in the same
+  // batched request.
+  Options options = GetDirectWriteOptions();
+  options.min_blob_size = 50;
+  options.memtable_batch_lookup_optimization = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator("|");
+
+  DestroyAndReopen(options);
+
+  const std::string merge_key = "multiget_direct_write_merge_key";
+  const std::string plain_key = "multiget_direct_write_plain_key";
+  const std::string default_value = GenerateLargeValue(100, 'd');
+  const std::string other_default_value = GenerateLargeValue(110, 'p');
+  const std::string large_value = GenerateLargeValue(120, 'l');
+  const std::string small_value = GenerateSmallValue();
+  const std::string merge_operand = "tail";
+
+  WideColumns merge_columns{{kDefaultWideColumnName, default_value},
+                            {"col_large", large_value},
+                            {"col_small", small_value}};
+  WideColumns plain_columns{{kDefaultWideColumnName, other_default_value},
+                            {"col_large", large_value},
+                            {"col_small", small_value}};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           merge_key, merge_columns));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           plain_key, plain_columns));
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), merge_key,
+                       merge_operand));
+
+  std::array<Slice, 2> keys{{merge_key, plain_key}};
+  std::array<PinnableSlice, 2> values;
+  std::array<Status, 2> statuses;
+
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), keys.size(),
+                keys.data(), values.data(), statuses.data());
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], default_value + "|" + merge_operand);
+
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[1], other_default_value);
+}
+
 void DBWideBasicTest::RunEntityBlobAfterFlush(const Options& options) {
   Reopen(options);
 
