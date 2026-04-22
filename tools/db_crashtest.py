@@ -484,8 +484,7 @@ default_params = {
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
-    # TODO(jkangs): Change back to [0, 2, 2, 4, 16] once range tombstone conversion stabilizes
-    "min_tombstones_for_range_conversion": lambda: random.choice([0]),
+    "min_tombstones_for_range_conversion": lambda: random.choice([0, 2, 2, 4, 16]),
     "ingest_wbwi_one_in": lambda: random.choice([0, 0, 100, 500]),
     "universal_reduce_file_locking": lambda: random.randint(0, 1),
     "compression_manager": lambda: random.choice(
@@ -932,6 +931,8 @@ def finalize_and_sanitize(src_params):
         # range tombstone conversion is enabled, because conversion must see
         # the full relevant SST set before synthesizing a memtable tombstone.
         dest_params["use_sqfc_for_range_queries"] = 0
+        # Delete range not compatible with inplace_update_support
+        dest_params["inplace_update_support"] = 0
     if (
         dest_params["use_direct_io_for_flush_and_compaction"] == 1
         or dest_params["use_direct_reads"] == 1
@@ -1720,9 +1721,7 @@ def collect_diagnostic_roots(base_paths, stdout, stderr):
     pruned_roots = []
     for root in sorted(roots, key=lambda path: (len(path), path)):
         if any(
-            root == existing
-            or existing == os.sep
-            or root.startswith(existing + os.sep)
+            root == existing or existing == os.sep or root.startswith(existing + os.sep)
             for existing in pruned_roots
         ):
             continue
@@ -1774,9 +1773,7 @@ def collect_directory_usage(root):
             with os.scandir(dirpath) as iterator:
                 children = sorted(list(iterator), key=lambda entry: entry.name)
         except OSError as exc:
-            errors.append(
-                (dirpath, f"failed to enumerate directory contents: {exc}")
-            )
+            errors.append((dirpath, f"failed to enumerate directory contents: {exc}"))
             return summary
 
         for child in children:
@@ -1784,9 +1781,7 @@ def collect_directory_usage(root):
                 if child.is_dir(follow_symlinks=False):
                     summary["local_dir_count"] += 1
                     child_summary = walk(child.path)
-                    summary["subtree_file_count"] += child_summary[
-                        "subtree_file_count"
-                    ]
+                    summary["subtree_file_count"] += child_summary["subtree_file_count"]
                     summary["subtree_bytes"] += child_summary["subtree_bytes"]
                     continue
 
@@ -1809,9 +1804,7 @@ def collect_directory_usage(root):
             local_usage["count"] += 1
             local_usage["bytes"] += file_size
 
-            global_usage = global_suffixes.setdefault(
-                suffix, {"count": 0, "bytes": 0}
-            )
+            global_usage = global_suffixes.setdefault(suffix, {"count": 0, "bytes": 0})
             global_usage["count"] += 1
             global_usage["bytes"] += file_size
 
@@ -1823,9 +1816,7 @@ def collect_directory_usage(root):
 
 
 def sorted_suffix_usage(suffixes):
-    return sorted(
-        suffixes.items(), key=lambda item: (-item[1]["bytes"], item[0])
-    )
+    return sorted(suffixes.items(), key=lambda item: (-item[1]["bytes"], item[0]))
 
 
 def format_directory_usage(root):
