@@ -378,10 +378,10 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/write_batch_with_index/write_batch_with_index_internal.cc",
     ], deps=[
         "//folly/container:f14_hash",
-        "//folly/coro:blocking_wait",
-        "//folly/coro:collect",
-        "//folly/coro:coroutine",
-        "//folly/coro:task",
+        "//folly/experimental/coro:blocking_wait",
+        "//folly/experimental/coro:collect",
+        "//folly/experimental/coro:coroutine",
+        "//folly/experimental/coro:task",
         "//folly/synchronization:distributed_mutex",
     ], headers=glob(["**/*.h"]), link_whole=False, extra_test_libs=False)
 
