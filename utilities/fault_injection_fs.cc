@@ -1442,7 +1442,7 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
 
 IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
     const IOOptions& io_options, const char* op_name,
-    const std::string& file_name, std::function<std::string()> detail_fn,
+    const std::string& file_name, InjectedErrorLog::DetailRef detail,
     ErrorOperation op, Slice* result, bool direct_io, char* scratch,
     bool need_count_increase, bool* fault_injected) {
   bool dummy_bool;
@@ -1459,7 +1459,7 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
   IOStatus ret;
   if (ctx->rand.OneIn(ctx->one_in)) {
     if (ctx->count == 0) {
-      ctx->message = "";
+      ctx->message.clear();
     }
     if (need_count_increase) {
       ctx->count++;
@@ -1469,12 +1469,9 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
     }
     ctx->callstack = port::SaveStack(&ctx->frames);
 
-    std::stringstream msg;
-    msg << FaultInjectionTestFS::kInjected << " ";
     if (op != ErrorOperation::kMultiReadSingleReq) {
       // Likely non-per read status code for MultiRead
-      msg << "read error";
-      ctx->message = msg.str();
+      ctx->message = kInjectedReadError;
       ret_fault_injected = true;
       ret = IOStatus::IOError(ctx->message);
     } else if (Random::GetTLSInstance()->OneIn(8)) {
@@ -1482,8 +1479,7 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
       // For a small chance, set the failure to status but turn the
       // result to be empty, which is supposed to be caught for a check.
       *result = Slice();
-      msg << "empty result";
-      ctx->message = msg.str();
+      ctx->message = kInjectedEmptyResult;
       ret_fault_injected = true;
       ret = IOStatus::IOError(ctx->message);
     } else if (!direct_io && Random::GetTLSInstance()->OneIn(7) &&
@@ -1501,13 +1497,11 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
       // It would work for CRC. Not 100% sure for xxhash and will adjust
       // if it is not the case.
       const_cast<char*>(result->data())[result->size() - 1]++;
-      msg << "corrupt last byte";
-      ctx->message = msg.str();
+      ctx->message = kInjectedCorruptLastByte;
       ret_fault_injected = true;
       ret = IOStatus::IOError(ctx->message);
     } else {
-      msg << "error result multiget single";
-      ctx->message = msg.str();
+      ctx->message = kInjectedErrorResultMultiGetSingle;
       ret_fault_injected = true;
       ret = IOStatus::IOError(ctx->message);
     }
@@ -1516,15 +1510,8 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
   ret.SetRetryable(ctx->retryable);
   ret.SetDataLoss(ctx->has_data_loss);
   if (!ret.ok()) {
-    std::string detail = detail_fn ? detail_fn() : "";
-    if (detail.empty()) {
-      injected_error_log_.Record("%s(\"%.128s\") -> %s", op_name,
-                                 file_name.c_str(), ret.ToString().c_str());
-    } else {
-      injected_error_log_.Record("%s(\"%.128s\", %s) -> %s", op_name,
-                                 file_name.c_str(), detail.c_str(),
-                                 ret.ToString().c_str());
-    }
+    injected_error_log_.Record(op_name, file_name, detail, ctx->message,
+                               ctx->retryable, ctx->has_data_loss);
   }
   return ret;
 }
@@ -1542,13 +1529,13 @@ bool FaultInjectionTestFS::TryParseFileName(const std::string& file_name,
 
 IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(
     FaultInjectionIOType type, const IOOptions& io_options, const char* op_name,
-    const std::string& file_name, std::function<std::string()> detail_fn,
+    const std::string& file_name, InjectedErrorLog::DetailRef detail,
     ErrorOperation op, Slice* result, bool direct_io, char* scratch,
     bool need_count_increase, bool* fault_injected) {
   if (type == FaultInjectionIOType::kRead) {
     return MaybeInjectThreadLocalReadError(
-        io_options, op_name, file_name, std::move(detail_fn), op, result,
-        direct_io, scratch, need_count_increase, fault_injected);
+        io_options, op_name, file_name, detail, op, result, direct_io, scratch,
+        need_count_increase, fault_injected);
   }
 
   ErrorContext* ctx = GetErrorContextFromFaultInjectionIOType(type);
@@ -1569,17 +1556,8 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(
     ret = IOStatus::IOError(ctx->message);
     ret.SetRetryable(ctx->retryable);
     ret.SetDataLoss(ctx->has_data_loss);
-    {
-      std::string detail = detail_fn ? detail_fn() : "";
-      if (detail.empty()) {
-        injected_error_log_.Record("%s(\"%.128s\") -> %s", op_name,
-                                   file_name.c_str(), ret.ToString().c_str());
-      } else {
-        injected_error_log_.Record("%s(\"%.128s\", %s) -> %s", op_name,
-                                   file_name.c_str(), detail.c_str(),
-                                   ret.ToString().c_str());
-      }
-    }
+    injected_error_log_.Record(op_name, file_name, detail, ctx->message,
+                               ctx->retryable, ctx->has_data_loss);
     if (type == FaultInjectionIOType::kWrite) {
       TEST_SYNC_POINT(
           "FaultInjectionTestFS::InjectMetadataWriteError:Injected");

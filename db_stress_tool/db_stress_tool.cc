@@ -21,6 +21,7 @@
 // different behavior. See comment of the flag for details.
 
 #ifdef GFLAGS
+#include <cstdlib>
 #include <iostream>
 
 #include "db_stress_tool/db_stress_common.h"
@@ -42,6 +43,12 @@ static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
 int ReturnFlagValidationError(const char* message) {
   std::cerr << "Error: " << message << '\n';
   return 1;
+}
+
+void FinalizeFaultInjectionLogAtExit() {
+  if (fault_fs_guard) {
+    fault_fs_guard->FinalizeRecentInjectedErrors();
+  }
 }
 }  // namespace
 
@@ -105,15 +112,6 @@ int db_stress_tool(int argc, char** argv) {
     fault_env_guard =
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();
-
-    // Register a crash callback so that recently injected errors are
-    // printed to stderr when the process crashes (SIGABRT, SIGSEGV, etc.).
-    // This helps diagnose stress test failures caused by fault injection.
-    port::RegisterCrashCallback([]() {
-      if (fault_fs_guard) {
-        fault_fs_guard->PrintRecentInjectedErrors();
-      }
-    });
   }
 
   auto db_stress_fs =
@@ -361,8 +359,7 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_db = default_db_path;
   }
 
-  // Now that FLAGS_db is resolved, set the fault injection log file path
-  // so that PrintAll() writes to a file instead of stderr (signal-safe).
+  // Now that FLAGS_db is resolved, set the fault injection log file path.
   // Store the log in TEST_TMPDIR (outside the DB directory) so it survives
   // DB reopen (which cleans untracked files) and gets included in the
   // sandcastle db.tar.gz artifact for post-failure analysis.
@@ -376,8 +373,14 @@ int db_stress_tool(int argc, char** argv) {
     }
     std::string log_path = log_dir + "/fault_injection_" +
                            std::to_string(getpid()) + "_" +
-                           std::to_string(time(nullptr)) + ".log";
+                           std::to_string(time(nullptr)) + ".bin";
     fault_fs_guard->SetInjectedErrorLogPath(log_path);
+    std::atexit(FinalizeFaultInjectionLogAtExit);
+    port::RegisterCrashCallback([]() {
+      if (fault_fs_guard) {
+        fault_fs_guard->FlushRecentInjectedErrors();
+      }
+    });
   }
 
   if ((FLAGS_test_secondary || FLAGS_continuous_verification_interval > 0) &&

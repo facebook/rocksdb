@@ -6,6 +6,7 @@
 #include "utilities/fault_injection_fs.h"
 
 #include <atomic>
+#include <cstring>
 #include <thread>
 #include <vector>
 
@@ -13,7 +14,44 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class InjectedErrorLogTest : public testing::Test {};
+class InjectedErrorLogTest : public testing::Test {
+ protected:
+  static std::string DecodeCString(const char* data, size_t len) {
+    size_t actual_len = 0;
+    while (actual_len < len && data[actual_len] != '\0') {
+      ++actual_len;
+    }
+    return std::string(data, actual_len);
+  }
+
+  std::string ReadRawLog(const std::string& path) {
+    std::string raw;
+    Status s = ReadFileToString(Env::Default(), path, &raw);
+    EXPECT_OK(s);
+    return raw;
+  }
+
+  InjectedErrorLog::RawFileHeader DecodeHeader(const std::string& raw) {
+    InjectedErrorLog::RawFileHeader header{};
+    EXPECT_GE(raw.size(), sizeof(header));
+    if (raw.size() >= sizeof(header)) {
+      std::memcpy(&header, raw.data(), sizeof(header));
+    }
+    return header;
+  }
+
+  InjectedErrorLog::Entry DecodeEntry(const std::string& raw, size_t index) {
+    InjectedErrorLog::Entry entry{};
+    size_t offset = sizeof(InjectedErrorLog::RawFileHeader) +
+                    index * sizeof(InjectedErrorLog::Entry);
+    EXPECT_GE(raw.size(), offset + sizeof(entry));
+    if (raw.size() >= offset + sizeof(entry)) {
+      std::memcpy(&entry, raw.data() + offset, sizeof(entry));
+    }
+    return entry;
+  }
+};
+
 class FaultInjectionTestFSTest : public testing::Test {};
 
 namespace {
@@ -31,53 +69,95 @@ std::shared_ptr<FaultInjectionTestFS> NewFaultFsExcludingInfoLogs(
 
 }  // namespace
 
-// Test basic Record and PrintAll functionality.
-TEST_F(InjectedErrorLogTest, BasicRecordAndPrint) {
+// Goal: verify a single structured record is persisted to the binary log with
+// the expected fixed-width fields. The test writes one entry, finalizes the
+// file, and decodes the raw bytes back into the header and entry structs.
+TEST_F(InjectedErrorLogTest, BasicRecordAndFinalize) {
+  std::string path = test::PerThreadDBPath("injected_error_log_basic.bin");
   InjectedErrorLog log;
-  log.SetLogFilePath("/dev/null");
+  log.SetLogFilePath(path);
+  log.Record("Append", "/tmp/000001.log",
+             fault_injection_detail::OffsetSizeAndHead(7, Slice("abcd", 4)),
+             "injected write error", false, true);
+  log.Finalize();
 
-  // Record some entries.
-  log.Record("op=Get key=0x%08x status=%s", 0x12345678, "OK");
-  log.Record("op=Put key=0x%08x value_size=%d", 0xABCDEF00, 100);
-  log.Record("op=Delete key=0x%08x", 0x00000001);
+  std::string raw = ReadRawLog(path);
+  auto header = DecodeHeader(raw);
+  ASSERT_EQ(std::string(header.magic, sizeof(header.magic)),
+            std::string(InjectedErrorLog::kFileMagic.data(),
+                        InjectedErrorLog::kFileMagic.size()));
+  ASSERT_EQ(header.version, InjectedErrorLog::kFileVersion);
+  ASSERT_EQ(header.entry_size, sizeof(InjectedErrorLog::Entry));
+  ASSERT_EQ(header.total_entries, 1U);
+  ASSERT_EQ(header.dumped_entries, 1U);
 
-  // PrintAll should not crash.
-  log.PrintAll();
+  auto entry = DecodeEntry(raw, 0);
+  EXPECT_NE(entry.timestamp_us, 0U);
+  EXPECT_EQ(entry.offset, 7U);
+  EXPECT_EQ(entry.size, 4U);
+  EXPECT_EQ(
+      entry.detail_kind,
+      static_cast<uint8_t>(InjectedErrorLog::DetailKind::kOffsetSizeAndHead));
+  EXPECT_EQ(entry.detail_payload_size, 4U);
+  EXPECT_EQ(entry.retryable, 0U);
+  EXPECT_EQ(entry.data_loss, 1U);
+  EXPECT_EQ(DecodeCString(entry.op_name, sizeof(entry.op_name)), "Append");
+  EXPECT_EQ(DecodeCString(entry.file_name, sizeof(entry.file_name)),
+            "/tmp/000001.log");
+  EXPECT_EQ(DecodeCString(entry.status_message, sizeof(entry.status_message)),
+            "injected write error");
+  EXPECT_EQ(std::string(entry.detail_payload, entry.detail_payload + 4),
+            "abcd");
 }
 
-// Test that the circular buffer wraps correctly.
-TEST_F(InjectedErrorLogTest, CircularBufferWrap) {
+// Goal: verify the file-backed logger keeps all records instead of truncating
+// to the old in-memory ring size. The test writes more than 1,000 entries and
+// checks that both the first and last ones are still present in the file.
+TEST_F(InjectedErrorLogTest, DirectLogKeepsAllEntries) {
+  std::string path =
+      test::PerThreadDBPath("injected_error_log_all_entries.bin");
   InjectedErrorLog log;
-  log.SetLogFilePath("/dev/null");
+  log.SetLogFilePath(path);
 
-  // Fill beyond kMaxEntries to trigger wraparound.
-  for (size_t i = 0; i < InjectedErrorLog::kMaxEntries + 100; i++) {
-    log.Record("entry=%zu", i);
+  constexpr size_t kNumEntries = 1100;
+  for (size_t i = 0; i < kNumEntries; ++i) {
+    std::string file_name = "file" + std::to_string(i);
+    log.Record("Append", file_name, fault_injection_detail::NoDetail(),
+               "injected write error", false, false);
   }
+  log.Finalize();
 
-  // PrintAll should handle the wrapped buffer without crashing.
-  log.PrintAll();
+  std::string raw = ReadRawLog(path);
+  auto header = DecodeHeader(raw);
+  ASSERT_EQ(header.total_entries, static_cast<uint64_t>(kNumEntries));
+  ASSERT_EQ(header.dumped_entries, static_cast<uint32_t>(kNumEntries));
+
+  auto first = DecodeEntry(raw, 0);
+  auto last = DecodeEntry(raw, kNumEntries - 1);
+  EXPECT_EQ(DecodeCString(first.file_name, sizeof(first.file_name)), "file0");
+  EXPECT_EQ(DecodeCString(last.file_name, sizeof(last.file_name)),
+            "file" + std::to_string(kNumEntries - 1));
 }
 
-// Test concurrent Record() from multiple threads.
-// Keep total records (kNumThreads * kRecordsPerThread) under kMaxEntries
-// to avoid write-write races from buffer wraparound, which are benign but
-// would trigger TSAN warnings.
+// Goal: verify concurrent Record() calls append independent entries to the
+// shared file. The test has several threads emit records concurrently and then
+// checks the finalized header count matches the total number of writes.
 TEST_F(InjectedErrorLogTest, ConcurrentRecord) {
+  std::string path = test::PerThreadDBPath("injected_error_log_concurrent.bin");
   InjectedErrorLog log;
+  log.SetLogFilePath(path);
   constexpr int kNumThreads = 4;
   constexpr int kRecordsPerThread = 200;
-  static_assert(kNumThreads * kRecordsPerThread <
-                    static_cast<int>(InjectedErrorLog::kMaxEntries),
-                "total records must stay within buffer to avoid TSAN-visible "
-                "write-write races on overlapping slots");
 
   std::vector<std::thread> threads;
   threads.reserve(kNumThreads);
   for (int t = 0; t < kNumThreads; t++) {
     threads.emplace_back([&log, t]() {
       for (int i = 0; i < kRecordsPerThread; i++) {
-        log.Record("thread=%d iter=%d op=Get key=0x%08x", t, i, i * 17);
+        std::string file_name =
+            "thread" + std::to_string(t) + "_" + std::to_string(i);
+        log.Record("Read", file_name, fault_injection_detail::NoDetail(),
+                   "injected read error", false, false);
       }
     });
   }
@@ -86,12 +166,18 @@ TEST_F(InjectedErrorLogTest, ConcurrentRecord) {
     t.join();
   }
 
-  // PrintAll after all threads are done -- no race.
-  log.SetLogFilePath("/dev/null");
-  log.PrintAll();
+  log.Finalize();
+
+  std::string raw = ReadRawLog(path);
+  auto header = DecodeHeader(raw);
+  ASSERT_EQ(header.total_entries,
+            static_cast<uint64_t>(kNumThreads * kRecordsPerThread));
+  ASSERT_EQ(header.dumped_entries,
+            static_cast<uint32_t>(kNumThreads * kRecordsPerThread));
 }
 
-// Test HexHead utility.
+// Goal: verify the human-readable hex helper still formats the payload samples
+// exactly as expected, since the Python decoder depends on the same output.
 TEST_F(InjectedErrorLogTest, HexHead) {
   const char data[] = "\x01\x02\xAB\xCD";
   std::string result = InjectedErrorLog::HexHead(data, 4);
