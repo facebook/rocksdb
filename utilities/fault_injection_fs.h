@@ -29,6 +29,7 @@
 #include <thread>
 
 #ifndef OS_WIN
+#include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <unistd.h>
@@ -166,8 +167,7 @@ class InjectedErrorLog {
   }
 
   void Record(const Slice& op_name, const Slice& file_name,
-              const DetailRef& detail, const Slice& status_message,
-              bool retryable, bool data_loss) {
+              const DetailRef& detail, const IOStatus& status) {
 #ifndef OS_WIN
     if (finalized_.load(std::memory_order_acquire) != 0) {
       return;
@@ -187,12 +187,14 @@ class InjectedErrorLog {
     local.detail_kind = static_cast<uint8_t>(detail.kind);
     local.detail_payload_size = static_cast<uint8_t>(CopySliceBytes(
         detail.payload, local.detail_payload, sizeof(local.detail_payload)));
-    local.retryable = retryable ? 1 : 0;
-    local.data_loss = data_loss ? 1 : 0;
+    local.retryable = status.GetRetryable() ? 1 : 0;
+    local.data_loss = status.GetDataLoss() ? 1 : 0;
     CopyStringSample(op_name, local.op_name, sizeof(local.op_name));
     CopyStringSample(file_name, local.file_name, sizeof(local.file_name));
-    CopyStringSample(status_message, local.status_message,
-                     sizeof(local.status_message));
+    const char* status_message = status.getState();
+    CopyStringSample(
+        status_message == nullptr ? Slice() : Slice(status_message),
+        local.status_message, sizeof(local.status_message));
     uint64_t offset =
         next_write_offset_.fetch_add(sizeof(local), std::memory_order_relaxed);
     if (PwriteAll(fd, reinterpret_cast<const char*>(&local), sizeof(local),
@@ -203,9 +205,7 @@ class InjectedErrorLog {
     (void)op_name;
     (void)file_name;
     (void)detail;
-    (void)status_message;
-    (void)retryable;
-    (void)data_loss;
+    (void)status;
 #endif
   }
 
@@ -287,8 +287,9 @@ class InjectedErrorLog {
       return;
     }
     size_t copied = std::min(src.size(), dst_len - 1);
+    size_t start = src.size() - copied;
     for (size_t i = 0; i < copied; ++i) {
-      dst[i] = src[i];
+      dst[i] = src[start + i];
     }
     dst[copied] = '\0';
   }
@@ -324,7 +325,13 @@ class InjectedErrorLog {
 #ifndef OS_WIN
     while (len > 0) {
       ssize_t written = pwrite(fd, data, len, offset);
-      if (written <= 0) {
+      if (written < 0) {
+        if (errno == EINTR) {
+          continue;
+        }
+        return false;
+      }
+      if (written == 0) {
         return false;
       }
       data += static_cast<size_t>(written);

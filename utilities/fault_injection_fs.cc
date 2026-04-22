@@ -1510,8 +1510,7 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
   ret.SetRetryable(ctx->retryable);
   ret.SetDataLoss(ctx->has_data_loss);
   if (!ret.ok()) {
-    injected_error_log_.Record(op_name, file_name, detail, ctx->message,
-                               ctx->retryable, ctx->has_data_loss);
+    injected_error_log_.Record(op_name, file_name, detail, ret);
   }
   return ret;
 }
@@ -1556,8 +1555,7 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(
     ret = IOStatus::IOError(ctx->message);
     ret.SetRetryable(ctx->retryable);
     ret.SetDataLoss(ctx->has_data_loss);
-    injected_error_log_.Record(op_name, file_name, detail, ctx->message,
-                               ctx->retryable, ctx->has_data_loss);
+    injected_error_log_.Record(op_name, file_name, detail, ret);
     if (type == FaultInjectionIOType::kWrite) {
       TEST_SYNC_POINT(
           "FaultInjectionTestFS::InjectMetadataWriteError:Injected");
