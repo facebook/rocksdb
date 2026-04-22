@@ -846,11 +846,16 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct InternalStats::CompactionStats, count),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-        {"counts", OptionTypeInfo::Array<
-                       int, static_cast<int>(CompactionReason::kNumOfReasons)>(
-                       offsetof(struct InternalStats::CompactionStats, counts),
-                       OptionVerificationType::kNormal, OptionTypeFlags::kNone,
-                       {0, OptionType::kInt})},
+        {"counts",
+         OptionTypeInfo::Array<
+             /* In release 11.2, a new compaction reason was added. This broken
+              * the reader and writer. To unblock release 11.1, we temporarily
+              * reduce the count array size to the old one. TODO add a proper
+              * serialization and deserialization method. */
+             int, static_cast<int>(CompactionReason::kNumOfReasons) - 1>(
+             offsetof(struct InternalStats::CompactionStats, counts),
+             OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+             {0, OptionType::kInt})},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
