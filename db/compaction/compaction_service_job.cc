@@ -15,6 +15,7 @@
 #include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
 #include "rocksdb/utilities/options_type.h"
+#include "rocksdb/version.h"
 
 namespace ROCKSDB_NAMESPACE {
 class SubcompactionState;
@@ -463,6 +464,25 @@ enum BinaryFormatVersion : uint32_t {
   kOptionsString = 1,  // Use string format similar to Option string format
 };
 
+namespace {
+
+#if ROCKSDB_VERSION_GE(11, 2, 0)
+// Keep the compaction-service result wire format readable by 11.1.x peers.
+// 11.2.0 adds CompactionReason::kReadTriggered, which extends the fixed-size
+// `counts` array in InternalStats::CompactionStats. Older binaries reject the
+// longer array, so we continue serializing the pre-11.2 prefix in `counts` and
+// carry the new slot in a separate optional field that older readers ignore.
+constexpr int kLegacyCompactionReasonCount =
+    static_cast<int>(CompactionReason::kReadTriggered);
+constexpr int kReadTriggeredReasonIndex =
+    static_cast<int>(CompactionReason::kReadTriggered);
+constexpr size_t kReadTriggeredCountOffset =
+    offsetof(struct InternalStats::CompactionStats, counts) +
+    sizeof(int) * kReadTriggeredReasonIndex;
+#endif
+
+}  // namespace
+
 static std::unordered_map<std::string, OptionTypeInfo> cfd_type_info = {
     {"name",
      {offsetof(struct ColumnFamilyDescriptor, name), OptionType::kEncodedString,
@@ -846,11 +866,21 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct InternalStats::CompactionStats, count),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+#if ROCKSDB_VERSION_GE(11, 2, 0)
+        {"counts", OptionTypeInfo::Array<int, kLegacyCompactionReasonCount>(
+                       offsetof(struct InternalStats::CompactionStats, counts),
+                       OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+                       {0, OptionType::kInt})},
+        {"read_triggered_count",
+         {kReadTriggeredCountOffset, OptionType::kInt,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+#else
         {"counts", OptionTypeInfo::Array<
                        int, static_cast<int>(CompactionReason::kNumOfReasons)>(
                        offsetof(struct InternalStats::CompactionStats, counts),
                        OptionVerificationType::kNormal, OptionTypeFlags::kNone,
                        {0, OptionType::kInt})},
+#endif
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
