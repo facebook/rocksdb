@@ -19,7 +19,7 @@
 #  LONG_TEST=1 - Test all branches known to build for this test, rather than
 #    the default of randomly sampling the branches that aren't the oldest in
 #    each set.
-#  USE_SSH=1 - Connect to GitHub with ssh instead of https
+#  USE_SSH=1 - Connect to GitHub with ssh instead of https 
 
 if ! git diff-index --quiet HEAD; then
   echo "You have uncommitted changes. Aborting."
