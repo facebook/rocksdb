@@ -2752,9 +2752,23 @@ bool DBImpl::MaybeResolveMemtableBlobValue(const Slice& key,
                                            PinnableWideColumns* columns,
                                            Status* s, bool* is_blob_index,
                                            bool* value_found) {
-  if (!s->ok() || blob_fetcher == nullptr || (!value && !columns)) {
+  if (!s->ok() || (!value && !columns)) {
     return false;
   }
+
+  auto reset_outputs = [&]() {
+    if (value != nullptr) {
+      value->Reset();
+    }
+    if (columns != nullptr) {
+      columns->Reset();
+    }
+  };
+  auto clear_blob_state = [&]() {
+    if (is_blob_index != nullptr) {
+      *is_blob_index = false;
+    }
+  };
 
   const bool needs_plain_value_resolution =
       is_blob_index != nullptr && *is_blob_index;
@@ -2762,6 +2776,14 @@ bool DBImpl::MaybeResolveMemtableBlobValue(const Slice& key,
       columns != nullptr && !columns->unresolved_blob_column_indices_.empty();
   if (!needs_plain_value_resolution && !needs_wide_column_resolution) {
     return false;
+  }
+
+  if (blob_fetcher == nullptr) {
+    reset_outputs();
+    *s = Status::NotSupported(
+        "Encountered blob-backed memtable value without blob fetcher.");
+    clear_blob_state();
+    return true;
   }
 
   if (needs_plain_value_resolution) {
@@ -2785,11 +2807,12 @@ bool DBImpl::MaybeResolveMemtableBlobValue(const Slice& key,
     PinnableSlice resolved_value;
     PinnableSlice* target = value != nullptr ? value : &resolved_value;
     if (value != nullptr) {
-      if (value->IsPinned()) {
-        blob_index_storage.assign(blob_index_slice.data(),
-                                  blob_index_slice.size());
-        blob_index_slice = Slice(blob_index_storage);
-      }
+      // BlobIndex::DecodeFrom can retain Slices into the encoded bytes for
+      // inlined blob indices, so take an owned copy before resetting `value`
+      // and reusing the same PinnableSlice as the output target.
+      blob_index_storage.assign(blob_index_slice.data(),
+                                blob_index_slice.size());
+      blob_index_slice = Slice(blob_index_storage);
       value->Reset();
     }
 
@@ -2798,13 +2821,14 @@ bool DBImpl::MaybeResolveMemtableBlobValue(const Slice& key,
                                  nullptr /* bytes_read */);
     if (s->ok() && columns != nullptr) {
       columns->SetPlainValue(std::move(*target));
-    } else if (s->IsIncomplete() && value_found != nullptr) {
-      *value_found = false;
+    } else if (!s->ok()) {
+      reset_outputs();
+      if (s->IsIncomplete() && value_found != nullptr) {
+        *value_found = false;
+      }
     }
 
-    if (is_blob_index != nullptr) {
-      *is_blob_index = false;
-    }
+    clear_blob_state();
     return true;
   }
 
@@ -2821,32 +2845,46 @@ bool DBImpl::MaybeResolveMemtableBlobValue(const Slice& key,
     if (resolved) {
       *s = columns->SetWideColumnValue(std::move(resolved_entity));
     }
-  } else if (s->IsIncomplete() && value_found != nullptr) {
-    *value_found = false;
+  }
+  if (!s->ok()) {
+    reset_outputs();
+    if (s->IsIncomplete() && value_found != nullptr) {
+      *value_found = false;
+    }
   }
 
-  if (is_blob_index != nullptr) {
-    *is_blob_index = false;
-  }
+  clear_blob_state();
   return true;
 }
 
 void DBImpl::PostprocessMemtableValueRead(
     const Slice& key, const std::string* timestamp,
     bool resolve_blob_backed_memtable_value,
-    const BlobFetcher& memtable_blob_fetcher, PinnableSlice* value,
+    const BlobFetcher* memtable_blob_fetcher, PinnableSlice* value,
     PinnableWideColumns* columns, Status* s, bool* is_blob_index,
     bool* value_found) {
   if (resolve_blob_backed_memtable_value) {
     std::string blob_lookup_key_storage;
     const bool value_resolved = MaybeResolveMemtableBlobValue(
         GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage),
-        &memtable_blob_fetcher, value, columns, s, is_blob_index, value_found);
-    if (!value_resolved && value != nullptr) {
+        memtable_blob_fetcher, value, columns, s, is_blob_index, value_found);
+    if (!value_resolved && value != nullptr && s->ok()) {
       value->PinSelf();
     }
-  } else if (value != nullptr) {
-    value->PinSelf();
+    return;
+  }
+
+  if (s->ok()) {
+    if (value != nullptr) {
+      value->PinSelf();
+    }
+  } else {
+    if (value != nullptr) {
+      value->Reset();
+    }
+    if (columns != nullptr) {
+      columns->Reset();
+    }
   }
 }
 

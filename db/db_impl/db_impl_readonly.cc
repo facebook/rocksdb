@@ -5,6 +5,8 @@
 
 #include "db/db_impl/db_impl_readonly.h"
 
+#include <optional>
+
 #include "db/arena_wrapped_db_iter.h"
 #include "db/blob/blob_fetcher.h"
 #include "db/db_impl/compacted_db_impl.h"
@@ -108,9 +110,18 @@ Status DBImplReadOnly::GetImpl(const ReadOptions& read_options,
   SequenceNumber max_covering_tombstone_seq = 0;
   LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
-  BlobFetcher memtable_blob_fetcher(super_version->current, read_options,
-                                    cfd->blob_file_cache(),
-                                    /*allow_write_path_fallback=*/true);
+  std::optional<BlobFetcher> memtable_blob_fetcher;
+  if (cfd->ioptions().enable_blob_direct_write ||
+      cfd->GetLatestMutableCFOptions().enable_blob_files) {
+    // Recovered memtables can still contain older blob references after
+    // mutable blob-file settings change, so keep blob resolution available
+    // whenever either blob knob indicates it may be needed.
+    memtable_blob_fetcher.emplace(super_version->current, read_options,
+                                  cfd->blob_file_cache(),
+                                  /*allow_write_path_fallback=*/true);
+  }
+  const BlobFetcher* memtable_blob_fetcher_ptr =
+      memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
 
   // Look up starts here
   if (super_version->mem->Get(
@@ -119,9 +130,9 @@ Status DBImplReadOnly::GetImpl(const ReadOptions& read_options,
           get_impl_options.columns, ts, &s, &merge_context,
           &max_covering_tombstone_seq, read_options,
           false /* immutable_memtable */, &read_cb, is_blob_ptr,
-          /*do_merge=*/get_impl_options.get_value, &memtable_blob_fetcher)) {
+          /*do_merge=*/get_impl_options.get_value, memtable_blob_fetcher_ptr)) {
     DBImpl::PostprocessMemtableValueRead(
-        key, ts, resolve_blob_backed_memtable_value, memtable_blob_fetcher,
+        key, ts, resolve_blob_backed_memtable_value, memtable_blob_fetcher_ptr,
         get_impl_options.value, get_impl_options.columns, &s, &is_blob_index,
         get_impl_options.value_found);
     RecordTick(stats_, MEMTABLE_HIT);

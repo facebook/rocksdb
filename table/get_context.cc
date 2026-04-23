@@ -159,6 +159,8 @@ Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
   status = WideColumnSerialization::DeserializeV2(entity_ref, entity_columns,
                                                   blob_cols);
   if (status.ok()) {
+    // HasBlobColumns() and DeserializeV2() must agree on whether this entity
+    // contains blob-valued columns.
     assert(!blob_cols.empty());
     if (blob_fetcher_ == nullptr) {
       return Status::Corruption(
@@ -815,6 +817,7 @@ Status replayGetContextLog(const Slice& replay_log, const Slice& user_key,
       return read_status;
     }
     if (!keep_replaying) {
+      // SaveValue() reached a terminal state for this row-cache replay.
       break;
     }
   }

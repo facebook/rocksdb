@@ -57,6 +57,9 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
   (void)blob_fetcher;
   assert(immutable_memtable);
   assert(!timestamp);  // TODO: support UDT
+  // IngestWriteBatchWithIndex() is rejected while any live column family has
+  // blob direct write enabled, so WBWI should never need blob resolution.
+  assert(blob_fetcher == nullptr);
   assert(assigned_seqno_.upper_bound != kMaxSequenceNumber);
   assert(assigned_seqno_.lower_bound != kMaxSequenceNumber);
   // WBWI does not support DeleteRange yet.
@@ -162,6 +165,9 @@ void WBWIMemTable::MultiGet(const ReadOptions& read_options,
   (void)blob_fetcher;
   // Should only be used as immutable memtable.
   assert(immutable_memtable);
+  // IngestWriteBatchWithIndex() is rejected while any live column family has
+  // blob direct write enabled, so WBWI should never need blob resolution.
+  assert(blob_fetcher == nullptr);
   // TODO: reuse the InternalIterator created in Get().
   for (auto iter = range->begin(); iter != range->end(); ++iter) {
     SequenceNumber dummy_seq = 0;

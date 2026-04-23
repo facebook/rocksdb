@@ -121,6 +121,8 @@ class GetContext {
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
              uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr);
+  // emplace-only; default construction and move assignment are intentionally
+  // disabled.
   GetContext(GetContext&&) noexcept = default;
   GetContext& operator=(GetContext&&) noexcept = delete;
 

@@ -6,6 +6,7 @@
 #include "db/db_impl/db_impl_secondary.h"
 
 #include <cinttypes>
+#include <optional>
 
 #include "db/arena_wrapped_db_iter.h"
 #include "db/blob/blob_fetcher.h"
@@ -408,9 +409,18 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
   bool done = false;
-  BlobFetcher memtable_blob_fetcher(super_version->current, read_options,
-                                    cfd->blob_file_cache(),
-                                    /*allow_write_path_fallback=*/true);
+  std::optional<BlobFetcher> memtable_blob_fetcher;
+  if (cfd->ioptions().enable_blob_direct_write ||
+      cfd->GetLatestMutableCFOptions().enable_blob_files) {
+    // Catch-up can rebuild older blob references into memtables after mutable
+    // blob-file settings change, so keep blob resolution available whenever
+    // either blob knob indicates it may be needed.
+    memtable_blob_fetcher.emplace(super_version->current, read_options,
+                                  cfd->blob_file_cache(),
+                                  /*allow_write_path_fallback=*/true);
+  }
+  const BlobFetcher* memtable_blob_fetcher_ptr =
+      memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
 
   // Look up starts here
   if (get_impl_options.get_value) {
@@ -421,11 +431,12 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
             get_impl_options.columns, ts, &s, &merge_context,
             &max_covering_tombstone_seq, read_options,
             false /* immutable_memtable */, &read_cb, is_blob_ptr,
-            /*do_merge=*/true, &memtable_blob_fetcher)) {
+            /*do_merge=*/true, memtable_blob_fetcher_ptr)) {
       done = true;
       DBImpl::PostprocessMemtableValueRead(
-          key, ts, resolve_blob_backed_memtable_value, memtable_blob_fetcher,
-          get_impl_options.value, get_impl_options.columns, &s, &is_blob_index,
+          key, ts, resolve_blob_backed_memtable_value,
+          memtable_blob_fetcher_ptr, get_impl_options.value,
+          get_impl_options.columns, &s, &is_blob_index,
           get_impl_options.value_found);
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
@@ -435,11 +446,12 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                                           : nullptr,
                    get_impl_options.columns, ts, &s, &merge_context,
                    &max_covering_tombstone_seq, read_options, &read_cb,
-                   is_blob_ptr, &memtable_blob_fetcher)) {
+                   is_blob_ptr, memtable_blob_fetcher_ptr)) {
       done = true;
       DBImpl::PostprocessMemtableValueRead(
-          key, ts, resolve_blob_backed_memtable_value, memtable_blob_fetcher,
-          get_impl_options.value, get_impl_options.columns, &s, &is_blob_index,
+          key, ts, resolve_blob_backed_memtable_value,
+          memtable_blob_fetcher_ptr, get_impl_options.value,
+          get_impl_options.columns, &s, &is_blob_index,
           get_impl_options.value_found);
       RecordTick(stats_, MEMTABLE_HIT);
     }
@@ -453,13 +465,13 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
             &max_covering_tombstone_seq, read_options,
             false /* immutable_memtable */, &read_cb,
             /*is_blob_index=*/nullptr, /*do_merge=*/false,
-            &memtable_blob_fetcher)) {
+            memtable_blob_fetcher_ptr)) {
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
                super_version->imm->GetMergeOperands(
                    lkey, &s, &merge_context, &max_covering_tombstone_seq,
-                   read_options, &memtable_blob_fetcher)) {
+                   read_options, memtable_blob_fetcher_ptr)) {
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
     }

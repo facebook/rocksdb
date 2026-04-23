@@ -2956,11 +2956,16 @@ class DBImpl : public DB {
                                             Status* s, bool* is_blob_index,
                                             bool* value_found = nullptr);
   // Completes read-only/secondary memtable Get()/GetEntity() hits by resolving
-  // blob-backed payloads when requested and pinning plain values otherwise.
+  // blob-backed payloads when `resolve_blob_backed_memtable_value` is true,
+  // pinning plain values on success, and clearing outputs on error. When the
+  // caller explicitly requested raw blob indices via
+  // `GetImplOptions::is_blob_index`, this helper leaves that payload
+  // untouched. `memtable_blob_fetcher` may be null when blob support is
+  // disabled for the column family.
   static void PostprocessMemtableValueRead(
       const Slice& key, const std::string* timestamp,
       bool resolve_blob_backed_memtable_value,
-      const BlobFetcher& memtable_blob_fetcher, PinnableSlice* value,
+      const BlobFetcher* memtable_blob_fetcher, PinnableSlice* value,
       PinnableWideColumns* columns, Status* s, bool* is_blob_index,
       bool* value_found = nullptr);
 

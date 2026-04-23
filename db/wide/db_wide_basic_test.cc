@@ -3136,6 +3136,51 @@ TEST_F(DBWideBasicTest,
   }
 }
 
+TEST_F(DBWideBasicTest, ReadOnlyDirectWriteMemtableBlobBlockCacheTier) {
+  // Goal: cover the read-only memtable path under kBlockCacheTier. The test
+  // keeps a blob-backed direct-write entity in WAL-backed recovery state so
+  // resolving either Get() or GetEntity() would require blob I/O, which must
+  // surface as Incomplete rather than silently reading the blob file.
+  Options options = GetDirectWriteOptions();
+  options.min_blob_size = 50;
+
+  DestroyAndReopen(options);
+
+  const std::string key = "readonly_direct_write_memtable_block_cache_tier";
+  const std::string default_value = GenerateLargeValue(100, 'd');
+  const std::string large_value = GenerateLargeValue(120, 'l');
+  const std::string small_value = GenerateSmallValue();
+  WideColumns columns{{kDefaultWideColumnName, default_value},
+                      {"col_large", large_value},
+                      {"col_small", small_value}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+
+  Close();
+  options.avoid_flush_during_recovery = true;
+  ASSERT_OK(ReadOnlyReopen(options));
+
+  ReadOptions read_opts;
+  read_opts.read_tier = kBlockCacheTier;
+
+  {
+    PinnableSlice result;
+    const Status s =
+        db_->Get(read_opts, db_->DefaultColumnFamily(), key, &result);
+    ASSERT_TRUE(s.IsIncomplete()) << s.ToString();
+    ASSERT_TRUE(result.empty());
+  }
+
+  {
+    PinnableWideColumns result;
+    const Status s =
+        db_->GetEntity(read_opts, db_->DefaultColumnFamily(), key, &result);
+    ASSERT_TRUE(s.IsIncomplete()) << s.ToString();
+    ASSERT_TRUE(result.columns().empty());
+  }
+}
+
 TEST_F(DBWideBasicTest,
        GetMergeOperandsWithBlobBackedEntityDefaultColumnReadOnly) {
   // Goal: exercise OpenForReadOnly on a blob-backed V2 entity base in SST with
