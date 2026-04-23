@@ -456,6 +456,13 @@ class CompressionManager
   // supported)
   virtual bool SupportsCompressionType(CompressionType type) const = 0;
 
+  // Return a human-readable name for the given compression type within this
+  // CompressionManager's schema. The default implementation returns the
+  // generic built-in name such as "Snappy", "ZSTD", "Reserved4F", or
+  // "Custom8A". Override to provide more specific names for custom
+  // compression types.
+  virtual std::string CompressionTypeToString(CompressionType type) const;
+
   // TODO: function to check compatibility with or sanitize CompressionOptions
 
   // ************************* Compressor creation *********************** //
@@ -654,6 +661,10 @@ class CompressionManagerWrapper : public CompressionManager {
 
   bool SupportsCompressionType(CompressionType type) const override {
     return wrapped_->SupportsCompressionType(type);
+  }
+
+  std::string CompressionTypeToString(CompressionType type) const override {
+    return wrapped_->CompressionTypeToString(type);
   }
 
   std::unique_ptr<Compressor> GetCompressorForSST(

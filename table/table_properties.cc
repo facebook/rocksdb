@@ -38,6 +38,40 @@ void AppendProperty(std::string& props, const std::string& key,
                     const std::string& kv_delim) {
   AppendProperty(props, key, std::to_string(value), prop_delim, kv_delim);
 }
+
+std::shared_ptr<CompressionManager> ResolveCompressionManagerForDisplay(
+    Slice compatibility_name,
+    const std::shared_ptr<CompressionManager>& compression_manager) {
+  std::shared_ptr<CompressionManager> mgr_to_use;
+  if (compression_manager) {
+    mgr_to_use = compression_manager->FindCompatibleCompressionManager(
+        compatibility_name);
+  }
+  if (mgr_to_use == nullptr) {
+    ConfigOptions strict;
+    strict.ignore_unknown_options = false;
+    strict.ignore_unsupported_options = false;
+    Status s = CompressionManager::CreateFromString(
+        strict, compatibility_name.ToString(), &mgr_to_use);
+    if (!s.ok()) {
+      mgr_to_use.reset();
+    }
+  }
+  return mgr_to_use;
+}
+
+std::string CompressionTypeDisplayName(
+    CompressionType compression_type,
+    const std::shared_ptr<CompressionManager>& compression_manager) {
+  if (compression_manager) {
+    std::string name =
+        compression_manager->CompressionTypeToString(compression_type);
+    if (!name.empty()) {
+      return name;
+    }
+  }
+  return CompressionTypeToString(compression_type);
+}
 }  // namespace
 
 std::string TableProperties::ToString(const std::string& prop_delim,
@@ -618,6 +652,15 @@ void TEST_SetRandomTableProperties(TableProperties* props) {
 
 std::string ParseCompressionNameForDisplay(
     const std::string& compression_name) {
+  // The single-argument overload intentionally consults globally registered
+  // CompressionManagers, keyed by the encoded compatibility name, so custom
+  // managers can contribute display names without an explicit manager handle.
+  return ParseCompressionNameForDisplay(compression_name, nullptr);
+}
+
+std::string ParseCompressionNameForDisplay(
+    const std::string& compression_name,
+    std::shared_ptr<CompressionManager> compression_manager) {
   // Empty = no compression
   if (compression_name.empty()) {
     return "NoCompression";
@@ -636,6 +679,10 @@ std::string ParseCompressionNameForDisplay(
     // Malformed - missing second field
     return "Unknown";
   }
+
+  Slice compatibility_name(compression_name.data(), first_semicolon);
+  auto mgr_to_use = ResolveCompressionManagerForDisplay(compatibility_name,
+                                                        compression_manager);
 
   // Extract hex codes
   std::string hex_codes = compression_name.substr(
@@ -660,10 +707,8 @@ std::string ParseCompressionNameForDisplay(
       return "Unknown";
     }
     auto ct = static_cast<CompressionType>(val);
-    std::string name = CompressionTypeToString(ct);
-    // Filter out NoCompression
-    if (name != "NoCompression" && name != "DisableOption") {
-      types.push_back(name);
+    if (ct != kNoCompression && ct != kDisableCompressionOption) {
+      types.push_back(CompressionTypeDisplayName(ct, mgr_to_use));
     }
   }
 
