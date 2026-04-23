@@ -5519,6 +5519,14 @@ void rocksdb_options_set_fifo_compaction_options(
   opt->rep.compaction_options_fifo = fifo->rep;
 }
 
+rocksdb_fifo_compaction_options_t* rocksdb_options_get_fifo_compaction_options(
+    rocksdb_options_t* opt) {
+  rocksdb_fifo_compaction_options_t* result =
+      new rocksdb_fifo_compaction_options_t;
+  result->rep = opt->rep.compaction_options_fifo;
+  return result;
+}
+
 void rocksdb_options_set_compaction_pri(rocksdb_options_t* opt, int pri) {
   opt->rep.compaction_pri = static_cast<ROCKSDB_NAMESPACE::CompactionPri>(pri);
 }
