@@ -445,6 +445,19 @@ struct TableProperties {
                 std::string* mismatch) const;
 };
 
+// Parse TableProperties::compression_name into human-readable format.
+// Thread-safe: pure utility function with no shared state.
+// For format_version >= 7: "<compatibility_name>;<hex_codes>;" -> "ZSTD",
+// "LZ4", etc. For older versions (no semicolon): returns as-is (e.g., "ZSTD",
+// "Snappy", "kZSTD" are preserved with their original names). Returns
+// "NoCompression" for an empty input, an empty hex field such as
+// "BuiltinV2;;", or when all parsed entries are filtered out as
+// NoCompression/DisableOption. Returns "Unknown" for malformed format_version
+// >= 7 metadata, including a missing second semicolon, odd-length hex payload,
+// or invalid hex characters. If multiple compression types are present,
+// returns a comma-separated list in input order.
+std::string ParseCompressionNameForDisplay(const std::string& compression_name);
+
 // Extra properties
 // Below is a list of non-basic properties that are collected by database
 // itself. Especially some properties regarding to the internal keys (which
