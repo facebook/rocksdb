@@ -1788,7 +1788,7 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
     return;
   }
 
-  // Insert at the read sequence so the synthesized tombstone is visible only
+  // Insert at the read sequence so the converted tombstone is visible only
   // to readers that could already observe the deletion run.
   SequenceNumber insert_seq = sequence_;
 

@@ -329,7 +329,7 @@ class ReadOnlyMemTable {
   // - memtable switches to immutable state
   // - a range tombstone with the same key+seq already exists (duplicate insert)
   // - the per-memtable ingest seqno barrier already exceeds `seq` (an
-  //   ingestion has committed an L0 file at a seq that this synthesized
+  //   ingestion has committed an L0 file at a seq that this converted
   //   tombstone would shadow) or an ingestion is in progress.
   // Returns true if the range tombstone was inserted, false if skipped.
   virtual bool AddLogicallyRedundantRangeTombstone(
@@ -864,7 +864,14 @@ class MemTable final : public ReadOnlyMemTable {
       SequenceNumber seq, const Slice& start_key, const Slice& end_key,
       port::RWMutex& ingest_sst_lock) override;
 
-  // Should be called while ingest_seqno_barrier_ lock is held
+  // Monotonically raises ingest_seqno_barrier_ to `y` (no-op if `y` is not
+  // greater than the current value). The conversion's barrier check
+  // (`seq < ingest_seqno_barrier_.LoadRelaxed()`) refuses converted
+  // range tombstones that would shadow a just-installed L0 file.
+  //
+  // REQUIRES: DB mutex held by the caller. The DB mutex serializes all
+  // callers, so the load-then-store pattern is race-free without needing
+  // a CAS loop. Only IngestExternalFiles calls this.
   void BumpIngestSeqnoBarrier(SequenceNumber y);
 
   bool IsFragmentedRangeTombstonesConstructed() const override {

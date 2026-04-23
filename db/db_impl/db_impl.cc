@@ -6594,10 +6594,12 @@ Status DBImpl::IngestExternalFiles(
     }
     // Now that Run() has assigned the actual seqno for each ingested file,
     // bump each affected memtable's ingest_seqno_barrier_ to that exact
-    // value. We still hold the per-CF ingest_sst_lock as a ReadLock, so
-    // synthesis is blocked from CASing — the bump publishes the barrier
-    // cleanly. Once we release the ReadLocks at function exit, future
-    // synthesis with insert_seq < assigned is refused by the barrier check.
+    // value. We still hold the per-CF ingest_sst_lock as a ReadLock; any
+    // concurrent conversion's TryWriteLock on the same lock fails, so no
+    // converter can be reading or about to read the barrier while we
+    // update it. After we release the ReadLocks at function exit, the
+    // next conversion observes the new barrier and refuses any insert
+    // with insert_seq < assigned.
     if (status.ok()) {
       for (size_t i = 0; i != num_cfs; ++i) {
         auto* cfd = ingestion_jobs[i].GetColumnFamilyData();

@@ -5698,10 +5698,10 @@ TEST_P(ReadPathRangeTombstoneTest, BasicInsertion) {
 
     if (flush_before_read) {
       ASSERT_OK(Flush());
-      // After dropping the IsEmpty() fast-path in synthesis, the now-empty
-      // active memtable is a valid synthesis target; the per-CF
+      // After dropping the IsEmpty() fast-path in conversion, the now-empty
+      // active memtable is a valid conversion target; the per-CF
       // ingest_sst_lock (held shared by ingestion) is the mechanism that
-      // gates synthesis vs ingestion, not memtable emptiness.
+      // gates conversion vs ingestion, not memtable emptiness.
       inserted_ranges_.clear();
       VerifyIteration({"a", "g", "h", "n"});
       ASSERT_EQ(inserted_ranges_.size(), 2);
@@ -6006,7 +6006,7 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterDefaultReadOptions) {
   // total_order_seek=false (default) with prefix extractor. Even when the
   // visible scan contains a valid in-prefix tombstone run [ba, bc), read-path
   // range conversion is disabled in this legacy prefix mode, so no
-  // synthesized memtable tombstone is inserted.
+  // converted memtable tombstone is inserted.
   Options options = CurrentOptions();
   options.min_tombstones_for_range_conversion = 2;
   options.statistics = CreateDBStatistics();
@@ -6130,7 +6130,7 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterTotalOrderSeek) {
 TEST_P(ReadPathRangeTombstoneTest, PrefixFilterPrefixSameAsStart) {
   // prefix_same_as_start=true: prefix filtering active, DBIter bounds the
   // scan to the seek prefix. An out-of-prefix tombstone ends the visible run,
-  // but the synthesized range still stays within prefix by flushing to the
+  // but the converted range still stays within prefix by flushing to the
   // last tracked in-prefix tombstone.
   // total_order_seek should not matter as we are guaranteed a total order view
   // within the prefix bounds.
@@ -6288,7 +6288,7 @@ TEST_P(ReadPathRangeTombstoneTest, TableFilterNotAllowed) {
   ASSERT_OK(Flush());
 
   // Keep the active memtable non-empty so the read path has somewhere to store
-  // the synthesized memtable range tombstone.
+  // the converted memtable range tombstone.
   ASSERT_OK(Put("zz", "tail_mem"));
 
   inserted_ranges_.clear();
@@ -6313,7 +6313,7 @@ TEST_P(ReadPathRangeTombstoneTest, TableFilterNotAllowed) {
       return props.num_entries != 2;
     };
     // Hiding the two-delete SST would otherwise leave this iterator with a
-    // partial SST view plus the previously synthesized memtable tombstone,
+    // partial SST view plus the previously converted memtable tombstone,
     // allowing hidden SST state to affect the filtered read result.
     AssertTableFilterRangeConversionRejected(filtered_ro);
   }
@@ -6511,7 +6511,7 @@ TEST_P(ReadPathRangeTombstoneTest, UDTBasicScan) {
 
 // Regression test: an older UDT read timestamp can hide newer live versions
 // inside a delete run. Range conversion must stay disabled in that case, or
-// the synthesized range tombstone will incorrectly hide those newer versions
+// the converted range tombstone will incorrectly hide those newer versions
 // for later max-timestamp reads.
 TEST_P(ReadPathRangeTombstoneTest, UDTOlderTimestampDisablesInsertion) {
   Options options = CurrentOptions();
@@ -6869,7 +6869,7 @@ TEST_P(ReadPathRangeTombstoneTest,
   ASSERT_OK(Delete("c"));
 
   // Iterate at the latest sequence. Both b and c hit the reseek path and
-  // synthesize a range tombstone [b, d) for later readers at the same seq.
+  // convert a range tombstone [b, d) for later readers at the same seq.
   inserted_ranges_.clear();
   VerifyIteration({"a", "d"});
 
@@ -6926,7 +6926,7 @@ TEST_P(ReadPathRangeTombstoneTest, InvisibleKeysDontBreakTombstoneRun) {
   db_->ReleaseSnapshot(snap);
 }
 
-// Regression test: a synthesized tombstone can land in the current memtable at
+// Regression test: a converted tombstone can land in the current memtable at
 // an older snapshot sequence than a live point already ingested into an older
 // L0 file. Latest point lookups must continue searching that older file when
 // its sequence range can still contain a newer point version.
@@ -6947,7 +6947,7 @@ TEST_P(ReadPathRangeTombstoneTest, NewerPointInOlderFileStillVisible) {
   ASSERT_OK(Flush());
 
   // Keep the active memtable older than the snapshot so the read path is
-  // allowed to synthesize a tombstone into it later.
+  // allowed to convert a tombstone into it later.
   ASSERT_OK(Put("z", "vz_anchor"));
   const Snapshot* snap = db_->GetSnapshot();
 
@@ -7061,7 +7061,7 @@ TEST_P(ReadPathRangeTombstoneTest, SeekToLastTombstones) {
 
 // Regression test for a crash-test pattern where the interior between two
 // point tombstones is hidden by a later DeleteRange. A latest iterator may
-// still synthesize a redundant range tombstone, but an older snapshot must
+// still convert a redundant range tombstone, but an older snapshot must
 // continue to see the pre-DeleteRange live key after iteration.
 TEST_P(ReadPathRangeTombstoneTest,
        RangeDeletedInteriorPreservesOlderSnapshots) {

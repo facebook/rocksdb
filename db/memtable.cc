@@ -958,7 +958,7 @@ bool MemTable::AddLogicallyRedundantRangeTombstone(
     return false;
   }
   // After ingestion releases its WriteLock, an iterator with an older
-  // snapshot could still try to synthesize a tombstone whose seq sits
+  // snapshot could still try to convert a tombstone whose seq sits
   // below the just-ingested file's seq. The barrier persists past the end
   // of the ingestion that bumped it and refuses such inserts.
   if (seq < ingest_seqno_barrier_.LoadRelaxed()) {
