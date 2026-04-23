@@ -27,6 +27,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class WritableFileWriter;
 
+class BlogFileWriter;
+
 namespace log {
 
 /**
@@ -84,6 +86,13 @@ class Writer {
                   bool manual_flush = false,
                   CompressionType compressionType = kNoCompression,
                   bool track_and_verify_wals = false);
+
+  // Create a writer that uses the blog file format. The blog_writer has
+  // already had its header written. AddRecord delegates to
+  // BlogFileWriter::AddWriteBatchRecord. Compression (if any) is handled
+  // by the BlogFileWriter's streaming compression, not per-record.
+  explicit Writer(std::unique_ptr<BlogFileWriter>&& blog_writer,
+                  uint64_t log_number);
   // No copying allowed
   Writer(const Writer&) = delete;
   void operator=(const Writer&) = delete;
@@ -105,8 +114,8 @@ class Writer {
       const WriteOptions& write_options,
       const UnorderedMap<uint32_t, size_t>& cf_to_ts_sz);
 
-  WritableFileWriter* file() { return dest_.get(); }
-  const WritableFileWriter* file() const { return dest_.get(); }
+  WritableFileWriter* file();
+  const WritableFileWriter* file() const;
 
   uint64_t get_log_number() const { return log_number_; }
 
@@ -127,6 +136,7 @@ class Writer {
 
  private:
   std::unique_ptr<WritableFileWriter> dest_;
+  std::unique_ptr<BlogFileWriter> blog_writer_;
   size_t block_offset_;  // Current offset in block
   uint64_t log_number_;
   bool recycle_log_files_;
@@ -151,7 +161,7 @@ class Writer {
 
   // Compression Type
   CompressionType compression_type_;
-  StreamingCompress* compress_;
+  std::unique_ptr<StreamingCompress> compress_;
   // Reusable compressed output buffer
   std::unique_ptr<char[]> compressed_buffer_;
 

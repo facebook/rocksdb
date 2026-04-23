@@ -28,6 +28,8 @@
 namespace ROCKSDB_NAMESPACE {
 class Logger;
 
+class BlogFileReader;
+
 namespace log {
 
 /**
@@ -68,6 +70,14 @@ class Reader {
          uint64_t min_wal_number_to_keep = std::numeric_limits<uint64_t>::max(),
          const PredecessorWALInfo& observed_predecessor_wal_info =
              PredecessorWALInfo());
+
+  // Create a reader backed by a BlogFileReader. The blog reader has
+  // already had its header read. ReadRecord delegates to
+  // BlogFileReader::ReadRecord.
+  Reader(std::shared_ptr<Logger> info_log,
+         std::unique_ptr<BlogFileReader>&& blog_reader, Reporter* reporter,
+         uint64_t log_num);
+
   // No copying allowed
   Reader(const Reader&) = delete;
   void operator=(const Reader&) = delete;
@@ -134,56 +144,63 @@ class Reader {
  protected:
   std::shared_ptr<Logger> info_log_;
   const std::unique_ptr<SequentialFileReader> file_;
+  std::unique_ptr<BlogFileReader> blog_reader_;
   Reporter* const reporter_;
   bool const checksum_;
   char* const backing_store_;
 
   // Internal state variables used for reading records
   Slice buffer_;
-  bool eof_;         // Last Read() indicated EOF by returning < kBlockSize
-  bool read_error_;  // Error occurred while reading from file
+  bool eof_ = false;  // Last Read() indicated EOF by returning < kBlockSize
+  bool read_error_ = false;  // Error occurred while reading from file
 
   // Offset of the file position indicator within the last block when an
   // EOF was detected.
-  size_t eof_offset_;
+  size_t eof_offset_ = 0;
 
   // Offset of the last record returned by ReadRecord.
-  uint64_t last_record_offset_;
+  uint64_t last_record_offset_ = 0;
   // Offset of the first location past the end of buffer_.
-  uint64_t end_of_buffer_offset_;
+  uint64_t end_of_buffer_offset_ = 0;
 
   // which log number this is
   uint64_t const log_number_;
 
   // See `Options::track_and_verify_wals`
-  bool track_and_verify_wals_;
+  bool track_and_verify_wals_ = false;
   // Below variables are used for WAL verification
   // TODO(hx235): To revise `stop_replay_for_corruption_` inside `LogReader`
   // since we have `observed_predecessor_wal_info_` to verify against the
   // `recorded_predecessor_wal_info_` recorded in current WAL. If there is no
   // WAL hole, we can revise `stop_replay_for_corruption_` to be false.
-  bool stop_replay_for_corruption_;
-  uint64_t min_wal_number_to_keep_;
+  bool stop_replay_for_corruption_ = false;
+  uint64_t min_wal_number_to_keep_ = std::numeric_limits<uint64_t>::max();
   PredecessorWALInfo observed_predecessor_wal_info_;
 
   // Whether this is a recycled log file
-  bool recycled_;
+  bool recycled_ = false;
 
   // Whether the first record has been read or not.
-  bool first_record_read_;
+  bool first_record_read_ = false;
   // Type of compression used
-  CompressionType compression_type_;
+  CompressionType compression_type_ = kNoCompression;
   // Track whether the compression type record has been read or not.
-  bool compression_type_record_read_;
-  StreamingUncompress* uncompress_;
+  bool compression_type_record_read_ = false;
+  std::unique_ptr<StreamingUncompress> uncompress_;
   // Reusable uncompressed output buffer
   std::unique_ptr<char[]> uncompressed_buffer_;
   // Reusable uncompressed record
   std::string uncompressed_record_;
   // Used for stream hashing fragment content in ReadRecord()
-  XXH3_state_t* hash_state_;
+  XXH3_state_t* hash_state_ = nullptr;
   // Used for stream hashing uncompressed buffer in ReadPhysicalRecord()
-  XXH3_state_t* uncompress_hash_state_;
+  XXH3_state_t* uncompress_hash_state_ = nullptr;
+
+  // Streaming decompression for blog WALs with
+  // WriteBatchStreamingCompressionType.
+  std::unique_ptr<StreamingUncompress> blog_streaming_uncompress_;
+  std::unique_ptr<char[]> blog_streaming_uncompress_buffer_;
+  CompressionType blog_streaming_compression_type_ = kNoCompression;
 
   // The recorded user-defined timestamp sizes that have been read so far. This
   // is only for WAL logs.

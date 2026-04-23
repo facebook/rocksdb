@@ -11,12 +11,15 @@
 
 #include <cstdio>
 
+#include "db/blog/blog_reader.h"
 #include "file/sequence_file_reader.h"
 #include "port/lang.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
+#include "util/compression.h"
 #include "util/crc32c.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE::log {
 
@@ -33,30 +36,46 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       reporter_(reporter),
       checksum_(checksum),
       backing_store_(new char[kBlockSize]),
-      buffer_(),
-      eof_(false),
-      read_error_(false),
-      eof_offset_(0),
-      last_record_offset_(0),
-      end_of_buffer_offset_(0),
       log_number_(log_num),
       track_and_verify_wals_(track_and_verify_wals),
       stop_replay_for_corruption_(stop_replay_for_corruption),
       min_wal_number_to_keep_(min_wal_number_to_keep),
-      observed_predecessor_wal_info_(observed_predecessor_wal_info),
-      recycled_(false),
-      first_record_read_(false),
-      compression_type_(kNoCompression),
-      compression_type_record_read_(false),
-      uncompress_(nullptr),
-      hash_state_(nullptr),
-      uncompress_hash_state_(nullptr) {}
+      observed_predecessor_wal_info_(observed_predecessor_wal_info) {}
+
+Reader::Reader(std::shared_ptr<Logger> info_log,
+               std::unique_ptr<BlogFileReader>&& blog_reader,
+               Reporter* reporter, uint64_t log_num)
+    : info_log_(info_log),
+      blog_reader_(std::move(blog_reader)),
+      reporter_(reporter),
+      checksum_(true),
+      backing_store_(nullptr),
+      log_number_(log_num) {
+  // Initialize streaming decompression if the blog header declares it.
+  if (blog_reader_) {
+    std::string streaming_prop = blog_reader_->header().GetProperty(
+        kBlogPropWriteBatchStreamingCompressionType);
+    if (!streaming_prop.empty() && streaming_prop.size() == 2) {
+      uint64_t type_val = 0;
+      const char* p = streaming_prop.data();
+      if (ParseBaseChars<16>(&p, 2, &type_val)) {
+        blog_streaming_compression_type_ =
+            static_cast<CompressionType>(type_val);
+        constexpr uint32_t kCompressionFormatVersion = 2;
+        constexpr size_t kMaxOutputLen = 1 << 16;
+        blog_streaming_uncompress_.reset(StreamingUncompress::Create(
+            blog_streaming_compression_type_, kCompressionFormatVersion,
+            kMaxOutputLen));
+        if (blog_streaming_uncompress_) {
+          blog_streaming_uncompress_buffer_.reset(new char[kMaxOutputLen]);
+        }
+      }
+    }
+  }
+}
 
 Reader::~Reader() {
   delete[] backing_store_;
-  if (uncompress_) {
-    delete uncompress_;
-  }
   if (hash_state_) {
     XXH3_freeState(hash_state_);
   }
@@ -78,6 +97,153 @@ Reader::~Reader() {
 bool Reader::ReadRecord(Slice* record, std::string* scratch,
                         WALRecoveryMode wal_recovery_mode,
                         uint64_t* record_checksum) {
+  // Blog format path: delegate to BlogFileReader with WAL recovery mode.
+  if (blog_reader_) {
+    while (true) {
+      BlogRecordType blog_type;
+      uint64_t rec_offset = 0;
+      CompressionType comp_type = kNoCompression;
+      Status blog_s = blog_reader_->ReadRecord(&blog_type, record, scratch,
+                                               &rec_offset, &comp_type);
+
+      if (blog_s.IsNotFound()) {
+        // Clean EOF — no more records.
+        eof_ = true;
+        return false;
+      }
+
+      if (blog_s.IsIncomplete()) {
+        // Incomplete trailing record — crash mid-write.
+        eof_ = true;
+        if (wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency) {
+          ReportCorruption(0, "incomplete blog WAL record at tail");
+          return false;
+        }
+        // kTolerateCorruptedTailRecords, kPointInTimeRecovery: stop here,
+        // accepting all records read so far.
+        return false;
+      }
+
+      if (blog_s.IsCorruption()) {
+        // Data corruption. Scan forward for our escape sequence to
+        // distinguish recycled/stale data from genuine corruption.
+        uint64_t found_offset;
+        Status scan_s = blog_reader_->ScanForEscapeSequence(&found_offset);
+
+        if (!scan_s.ok()) {
+          // No more escape sequences found. If the file is recycled,
+          // this is expected (stale data from previous incarnation).
+          if (blog_reader_->header().is_recycled()) {
+            eof_ = true;
+            return false;  // clean end of recycled file
+          }
+          // Not recycled: for kAbsoluteConsistency, this is an error.
+          // For other modes, treat as end of data.
+          if (wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency) {
+            ReportCorruption(0, blog_s.ToString().c_str());
+          }
+          eof_ = true;
+          return false;
+        }
+
+        // Found our escape sequence past the corruption.
+        if (wal_recovery_mode == WALRecoveryMode::kSkipAnyCorruptedRecords) {
+          // Skip the corrupted region and retry from the found offset.
+          continue;
+        }
+        // For other modes, data past the corruption means this is
+        // genuine mid-file corruption, not a clean tail.
+        ReportCorruption(0, blog_s.ToString().c_str());
+        return false;
+      }
+
+      if (!blog_s.ok()) {
+        // Other error (I/O failure, etc.)
+        ReportCorruption(0, blog_s.ToString().c_str());
+        return false;
+      }
+
+      // Skip non-WriteBatch records (PreambleStart, footer records, etc.)
+      if (blog_type != kBlogWriteBatchRecord) {
+        continue;
+      }
+
+      // Decompress if compressed
+      if (comp_type == kStreamingCompressionSentinel) {
+        // Streaming decompression. Each record is an independent frame
+        // (writer calls Reset() per record), so reset the decompressor.
+        if (!blog_streaming_uncompress_) {
+          ReportCorruption(record->size(),
+                           "streaming compression sentinel but no "
+                           "streaming decompressor initialized");
+          return false;
+        }
+        blog_streaming_uncompress_->Reset();
+        std::string uncompressed;
+        const char* in_data = record->data();
+        size_t in_size = record->size();
+        while (true) {
+          size_t output_pos = 0;
+          int remaining = blog_streaming_uncompress_->Uncompress(
+              in_data, in_size, blog_streaming_uncompress_buffer_.get(),
+              &output_pos);
+          if (remaining < 0) {
+            ReportCorruption(record->size(),
+                             "blog WAL streaming decompression error");
+            return false;
+          }
+          if (output_pos > 0) {
+            uncompressed.append(blog_streaming_uncompress_buffer_.get(),
+                                output_pos);
+          }
+          if (remaining == 0) {
+            break;
+          }
+          // Continue processing with nullptr input
+          in_data = nullptr;
+          in_size = 0;
+        }
+        *scratch = std::move(uncompressed);
+        *record = Slice(*scratch);
+      } else if (comp_type != kNoCompression) {
+        // Per-record decompression
+        const auto& mgr = GetBuiltinV2CompressionManager();
+        auto decompressor = mgr->GetDecompressor();
+        if (!decompressor) {
+          ReportCorruption(record->size(),
+                           "no decompressor available for blog WAL record");
+          return false;
+        }
+        Decompressor::Args args;
+        args.compression_type = comp_type;
+        args.compressed_data = *record;
+        Status cs = decompressor->ExtractUncompressedSize(args);
+        if (!cs.ok()) {
+          ReportCorruption(record->size(),
+                           "blog WAL decompression: bad uncompressed size");
+          return false;
+        }
+        std::string uncompressed;
+        uncompressed.resize(args.uncompressed_size);
+        cs = decompressor->DecompressBlock(args, uncompressed.data());
+        if (!cs.ok()) {
+          ReportCorruption(record->size(), "blog WAL decompression failed");
+          return false;
+        }
+        *scratch = std::move(uncompressed);
+        *record = Slice(*scratch);
+      }
+
+      last_record_offset_ = rec_offset;
+      end_of_buffer_offset_ = blog_reader_->current_offset();
+      first_record_read_ = true;
+      if (record_checksum != nullptr) {
+        *record_checksum = XXH3_64bits(record->data(), record->size());
+      }
+      return true;
+    }
+  }
+
   scratch->clear();
   record->clear();
   if (record_checksum != nullptr) {
@@ -702,8 +868,8 @@ void Reader::InitCompression(const CompressionTypeRecord& compression_record) {
   compression_type_ = compression_record.GetCompressionType();
   compression_type_record_read_ = true;
   constexpr uint32_t compression_format_version = 2;
-  uncompress_ = StreamingUncompress::Create(
-      compression_type_, compression_format_version, kBlockSize);
+  uncompress_.reset(StreamingUncompress::Create(
+      compression_type_, compression_format_version, kBlockSize));
   assert(uncompress_ != nullptr);
   uncompressed_buffer_ = std::unique_ptr<char[]>(new char[kBlockSize]);
   assert(uncompressed_buffer_);

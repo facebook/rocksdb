@@ -9,6 +9,9 @@
 #include <cinttypes>
 
 #include "db/blob/blob_file_partition_manager.h"
+#include "db/blog/blog_format.h"
+#include "db/blog/blog_reader.h"
+#include "db/blog/blog_writer.h"
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
@@ -27,6 +30,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/wal_filter.h"
 #include "test_util/sync_point.h"
+#include "util/coding.h"
 #include "util/rate_limiter_impl.h"
 #include "util/string_util.h"
 #include "util/udt_util.h"
@@ -1412,6 +1416,64 @@ Status DBImpl::InitializeLogReader(
   } else {
     reporter->status = reporter_status;
   }
+  // Detect blog format WALs by reading the 12-byte file magic.
+  // This consumes bytes from the sequential reader, so we must re-open
+  // the file regardless of format (one re-open, not two).
+  bool is_blog_wal = false;
+  {
+    char magic_buf[kBlogFileMagicSize];
+    Slice magic_result;
+    IOStatus peek_s = file_reader->Read(kBlogFileMagicSize, &magic_result,
+                                        magic_buf, Env::IO_TOTAL);
+    if (peek_s.ok()) {
+      is_blog_wal = BlogFileHeader::IsBlogFormat(magic_result.data(),
+                                                 magic_result.size());
+    }
+  }
+
+  // Re-open the file from the beginning.
+  {
+    std::unique_ptr<FSSequentialFile> file2;
+    status = fs_->NewSequentialFile(
+        fname, fs_->OptimizeForLogRead(file_options_), &file2, nullptr);
+    if (!status.ok()) {
+      return status;
+    }
+    file_reader.reset(new SequentialFileReader(
+        std::move(file2), fname, immutable_db_options_.log_readahead_size,
+        io_tracer_, /*listeners=*/{}, /*rate_limiter=*/nullptr,
+        /*verify_and_reconstruct_read=*/is_retry));
+  }
+
+  if (is_blog_wal) {
+    // Adapt log::Reader::Reporter to BlogFileReader::Reporter so corruption
+    // reports from blog WAL reading are not silently dropped.
+    // The adapter is stored inside the log::Reader (via blog_reader_ member)
+    // so its lifetime is managed correctly.
+    struct BlogReporterAdapter : public BlogFileReader::Reporter {
+      log::Reader::Reporter* legacy_reporter;
+      explicit BlogReporterAdapter(log::Reader::Reporter* r)
+          : legacy_reporter(r) {}
+      void Corruption(size_t bytes, const Status& status) override {
+        if (legacy_reporter) {
+          legacy_reporter->Corruption(bytes, status);
+        }
+      }
+    };
+    auto blog_reader = std::make_unique<BlogFileReader>(
+        std::move(file_reader), nullptr, true /*verify_checksums*/);
+    blog_reader->SetOwnedReporter(
+        std::make_unique<BlogReporterAdapter>(reporter));
+    BlogFileHeader blog_header;
+    status = blog_reader->ReadHeader(&blog_header);
+    if (!status.ok()) {
+      return status;
+    }
+    reader.reset(new log::Reader(immutable_db_options_.info_log,
+                                 std::move(blog_reader), reporter, wal_number));
+    return status;
+  }
+
   // We intentially make log::Reader do checksumming even if
   // paranoid_checks==false so that corruptions cause entire commits
   // to be skipped instead of propagating bad information (like overly
@@ -2384,15 +2446,52 @@ IOStatus DBImpl::CreateWAL(const WriteOptions& write_options,
         Histograms::HISTOGRAM_ENUM_MAX /* hist_type */, listeners, nullptr,
         tmp_set.Contains(FileType::kWalFile),
         tmp_set.Contains(FileType::kWalFile)));
-    *new_log = new log::Writer(std::move(file_writer), log_file_num,
-                               immutable_db_options_.recycle_log_file_num > 0,
-                               immutable_db_options_.manual_wal_flush,
-                               immutable_db_options_.wal_compression,
-                               immutable_db_options_.track_and_verify_wals);
-    io_s = (*new_log)->AddCompressionTypeRecord(write_options);
-    if (io_s.ok()) {
-      io_s = (*new_log)->MaybeAddPredecessorWALInfo(write_options,
-                                                    predecessor_wal_info);
+    if (immutable_db_options_.use_blog_format_for_wals) {
+      BlogFileHeader blog_header;
+      blog_header.checksum_type = immutable_db_options_.blog_checksum;
+      blog_header.compact_record_type = kBlogWriteBatchRecord;
+      blog_header.GenerateFromUniqueId(db_id_, db_session_id_, log_file_num);
+      if (recycle_log_number) {
+        blog_header.flags |= kBlogFileRecycled;
+      }
+      blog_header.SetProperty(kBlogPropRole, "wal");
+      if (!immutable_db_options_.db_host_id.empty()) {
+        blog_header.SetProperty(kBlogPropDbHostId,
+                                immutable_db_options_.db_host_id);
+      }
+
+      // WAL compression: streaming compression to match legacy WAL behavior.
+      // Compression manager is always BuiltinV2 for blog-as-WAL.
+      if (immutable_db_options_.wal_compression != kNoCompression) {
+        const auto& mgr = GetBuiltinV2CompressionManager();
+        blog_header.SetProperty(kBlogPropCompressionCompatibilityName,
+                                mgr->CompatibilityName());
+        blog_header.SetProperty(
+            kBlogPropWriteBatchStreamingCompressionType,
+            ToBaseCharsString<16>(
+                2, static_cast<uint64_t>(immutable_db_options_.wal_compression),
+                /*uppercase=*/false));
+      }
+      // TODO: encode predecessor_wal_info into header property
+
+      auto blog_writer = std::make_unique<BlogFileWriter>(
+          std::move(file_writer), blog_header,
+          immutable_db_options_.manual_wal_flush);
+      io_s = blog_writer->WriteHeader(write_options);
+      if (io_s.ok()) {
+        *new_log = new log::Writer(std::move(blog_writer), log_file_num);
+      }
+    } else {
+      *new_log = new log::Writer(std::move(file_writer), log_file_num,
+                                 immutable_db_options_.recycle_log_file_num > 0,
+                                 immutable_db_options_.manual_wal_flush,
+                                 immutable_db_options_.wal_compression,
+                                 immutable_db_options_.track_and_verify_wals);
+      io_s = (*new_log)->AddCompressionTypeRecord(write_options);
+      if (io_s.ok()) {
+        io_s = (*new_log)->MaybeAddPredecessorWALInfo(write_options,
+                                                      predecessor_wal_info);
+      }
     }
   }
 
