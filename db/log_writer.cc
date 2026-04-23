@@ -31,7 +31,7 @@ Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
       header_size_(recycle_log_files ? kRecyclableHeaderSize : kHeaderSize),
       manual_flush_(manual_flush),
       compression_type_(compression_type),
-      compress_(nullptr),
+      compress_(),
       track_and_verify_wals_(track_and_verify_wals),
       last_seqno_recorded_(0) {
   for (uint8_t i = 0; i <= kMaxRecordType; i++) {
@@ -46,9 +46,6 @@ Writer::~Writer() {
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_UNKNOWN);
   if (dest_) {
     WriteBuffer(WriteOptions()).PermitUncheckedError();
-  }
-  if (compress_) {
-    delete compress_;
   }
   ThreadStatusUtil::SetThreadOperation(cur_op_type);
 }
@@ -221,9 +218,9 @@ IOStatus Writer::AddCompressionTypeRecord(const WriteOptions& write_options) {
     const size_t max_output_buffer_len = kBlockSize - header_size_;
     CompressionOptions opts;
     constexpr uint32_t compression_format_version = 2;
-    compress_ = StreamingCompress::Create(compression_type_, opts,
-                                          compression_format_version,
-                                          max_output_buffer_len);
+    compress_.reset(StreamingCompress::Create(compression_type_, opts,
+                                              compression_format_version,
+                                              max_output_buffer_len));
     assert(compress_ != nullptr);
     compressed_buffer_ =
         std::unique_ptr<char[]>(new char[max_output_buffer_len]);

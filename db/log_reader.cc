@@ -48,15 +48,12 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       first_record_read_(false),
       compression_type_(kNoCompression),
       compression_type_record_read_(false),
-      uncompress_(nullptr),
+      uncompress_(),
       hash_state_(nullptr),
       uncompress_hash_state_(nullptr) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
-  if (uncompress_) {
-    delete uncompress_;
-  }
   if (hash_state_) {
     XXH3_freeState(hash_state_);
   }
@@ -702,8 +699,8 @@ void Reader::InitCompression(const CompressionTypeRecord& compression_record) {
   compression_type_ = compression_record.GetCompressionType();
   compression_type_record_read_ = true;
   constexpr uint32_t compression_format_version = 2;
-  uncompress_ = StreamingUncompress::Create(
-      compression_type_, compression_format_version, kBlockSize);
+  uncompress_.reset(StreamingUncompress::Create(
+      compression_type_, compression_format_version, kBlockSize));
   assert(uncompress_ != nullptr);
   uncompressed_buffer_ = std::unique_ptr<char[]>(new char[kBlockSize]);
   assert(uncompressed_buffer_);
