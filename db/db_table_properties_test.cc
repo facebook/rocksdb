@@ -812,6 +812,79 @@ TEST_F(DBTablePropertiesTest, KeyLargestSmallestSeqno) {
   }
 }
 
+TEST_F(DBTablePropertiesTest, ParseCompressionNameForDisplay) {
+  // Test empty string
+  EXPECT_EQ("NoCompression", ParseCompressionNameForDisplay(""));
+
+  // Test old format (no semicolon)
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay("ZSTD"));
+  EXPECT_EQ("Snappy", ParseCompressionNameForDisplay("Snappy"));
+  EXPECT_EQ("LZ4", ParseCompressionNameForDisplay("LZ4"));
+  EXPECT_EQ("kZSTD", ParseCompressionNameForDisplay("kZSTD"));
+  EXPECT_EQ("kSnappyCompression",
+            ParseCompressionNameForDisplay("kSnappyCompression"));
+
+  // Test new format version 7 with ZSTD
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay("zstd;07;"));
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay("BuiltinV2;07;"));
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay("builtin_v2;07;"));
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay(";07;"));
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay("custom_mgr;07;extra;"));
+
+  // Test new format with LZ4
+  EXPECT_EQ("LZ4", ParseCompressionNameForDisplay("zstd;04;"));
+  EXPECT_EQ("LZ4", ParseCompressionNameForDisplay("lz4;04;"));
+
+  // Test lowercase hex
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay("test;07;"));
+  EXPECT_EQ("LZ4", ParseCompressionNameForDisplay("test;04;"));
+  EXPECT_EQ("LZ4,ZSTD", ParseCompressionNameForDisplay("test;0407;"));
+
+  // Test multiple compression types
+  EXPECT_EQ("LZ4,ZSTD", ParseCompressionNameForDisplay("test;0407;"));
+  EXPECT_EQ(
+      "ZSTD,LZ4",
+      ParseCompressionNameForDisplay("test;0704;"));  // sorted by appearance
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay("test;0007;"));
+
+  // Test all standard compression types (01-07)
+  EXPECT_EQ("NoCompression", ParseCompressionNameForDisplay("test;00;"));
+  EXPECT_EQ("Snappy", ParseCompressionNameForDisplay("test;01;"));
+  EXPECT_EQ("Zlib", ParseCompressionNameForDisplay("test;02;"));
+  EXPECT_EQ("BZip2", ParseCompressionNameForDisplay("test;03;"));
+  EXPECT_EQ("LZ4", ParseCompressionNameForDisplay("test;04;"));
+  EXPECT_EQ("LZ4HC", ParseCompressionNameForDisplay("test;05;"));
+  EXPECT_EQ("Xpress", ParseCompressionNameForDisplay("test;06;"));
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay("test;07;"));
+
+  // Test custom/reserved types (>= 0x08)
+  // 0x08-0x7F are Reserved, 0x80-0xFE are Custom
+  EXPECT_EQ("Reserved08", ParseCompressionNameForDisplay("test;08;"));
+  EXPECT_EQ("Custom80", ParseCompressionNameForDisplay("test;80;"));
+  EXPECT_EQ("Reserved7F", ParseCompressionNameForDisplay("test;7F;"));
+  EXPECT_EQ("CustomFE", ParseCompressionNameForDisplay("test;FE;"));
+
+  // Test DisableOption (0xFF) - filtered out
+  EXPECT_EQ("NoCompression", ParseCompressionNameForDisplay("test;FF;"));
+
+  // Test NoCompression (empty hex field would be caught by validation, but test
+  // "00")
+  EXPECT_EQ("NoCompression", ParseCompressionNameForDisplay("test;00;"));
+  EXPECT_EQ("NoCompression", ParseCompressionNameForDisplay("BuiltinV2;;"));
+  EXPECT_EQ("NoCompression", ParseCompressionNameForDisplay("test;;"));
+
+  // Test three+ semicolons (future fields ignored)
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay("test;07;extra;fields;"));
+
+  // Test malformed inputs -> "Unknown"
+  EXPECT_EQ("Unknown", ParseCompressionNameForDisplay("only_one;"));
+  EXPECT_EQ("Unknown", ParseCompressionNameForDisplay("bad;0;"));  // odd length
+  EXPECT_EQ("Unknown",
+            ParseCompressionNameForDisplay("bad;0G;"));  // invalid hex
+  EXPECT_EQ("Unknown",
+            ParseCompressionNameForDisplay("bad;GG;"));  // invalid hex
+}
+
 INSTANTIATE_TEST_CASE_P(DBTablePropertiesTest, DBTablePropertiesTest,
                         ::testing::Values("kCompactionStyleLevel",
                                           "kCompactionStyleUniversal"));
