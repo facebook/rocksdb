@@ -6490,6 +6490,19 @@ Status DBImpl::IngestExternalFiles(
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeJobsRun:0");
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeJobsRun:1");
   TEST_SYNC_POINT("DBImpl::AddFile:Start");
+
+  // Acquire per-CF ingest_sst_lock as ReadLocks (shared) BEFORE the DB
+  // mutex so the lock-acquisition order is ingest_sst_lock -> DB mutex
+  // throughout. Use readlock so we still allow concurrent ingestions.
+  std::vector<std::unique_ptr<ReadLock>> ingest_read_locks;
+  ingest_read_locks.reserve(num_cfs);
+  for (size_t i = 0; i != num_cfs; ++i) {
+    auto* cfd = ingestion_jobs[i].GetColumnFamilyData();
+    if (!cfd->IsDropped()) {
+      ingest_read_locks.emplace_back(
+          std::make_unique<ReadLock>(&cfd->GetIngestSstLock()));
+    }
+  }
   {
     InstrumentedMutexLock l(&mutex_);
     TEST_SYNC_POINT("DBImpl::AddFile:MutexLock");
@@ -6577,6 +6590,21 @@ Status DBImpl::IngestExternalFiles(
           break;
         }
         ingestion_jobs[i].RegisterRange();
+      }
+    }
+    // Now that Run() has assigned the actual seqno for each ingested file,
+    // bump each affected memtable's ingest_seqno_barrier_ to that exact
+    // value. We still hold the per-CF ingest_sst_lock as a ReadLock, so
+    // synthesis is blocked from CASing — the bump publishes the barrier
+    // cleanly. Once we release the ReadLocks at function exit, future
+    // synthesis with insert_seq < assigned is refused by the barrier check.
+    if (status.ok()) {
+      for (size_t i = 0; i != num_cfs; ++i) {
+        auto* cfd = ingestion_jobs[i].GetColumnFamilyData();
+        SequenceNumber assigned = ingestion_jobs[i].MaxAssignedSequenceNumber();
+        if (assigned > 0) {
+          cfd->mem()->BumpIngestSeqnoBarrier(assigned);
+        }
       }
     }
     if (status.ok()) {

@@ -328,11 +328,13 @@ class ReadOnlyMemTable {
   // Adding a range tombstone may fail if
   // - memtable switches to immutable state
   // - a range tombstone with the same key+seq already exists (duplicate insert)
-  //
+  // - the per-memtable ingest seqno barrier already exceeds `seq` (an
+  //   ingestion has committed an L0 file at a seq that this synthesized
+  //   tombstone would shadow) or an ingestion is in progress.
   // Returns true if the range tombstone was inserted, false if skipped.
-  virtual bool AddLogicallyRedundantRangeTombstone(SequenceNumber /*seq*/,
-                                                   const Slice& /*start_key*/,
-                                                   const Slice& /*end_key*/) {
+  virtual bool AddLogicallyRedundantRangeTombstone(
+      SequenceNumber /*seq*/, const Slice& /*start_key*/,
+      const Slice& /*end_key*/, port::RWMutex& /*ingest_sst_lock*/) {
     return false;
   }
 
@@ -858,9 +860,12 @@ class MemTable final : public ReadOnlyMemTable {
   // SwitchMemtable() may fail.
   void ConstructFragmentedRangeTombstones();
 
-  bool AddLogicallyRedundantRangeTombstone(SequenceNumber seq,
-                                           const Slice& start_key,
-                                           const Slice& end_key) override;
+  bool AddLogicallyRedundantRangeTombstone(
+      SequenceNumber seq, const Slice& start_key, const Slice& end_key,
+      port::RWMutex& ingest_sst_lock) override;
+
+  // Should be called while ingest_seqno_barrier_ lock is held
+  void BumpIngestSeqnoBarrier(SequenceNumber y);
 
   bool IsFragmentedRangeTombstonesConstructed() const override {
     return fragmented_range_tombstone_list_.get() != nullptr ||
@@ -921,6 +926,9 @@ class MemTable final : public ReadOnlyMemTable {
   // The db sequence number at the time of creation or kMaxSequenceNumber
   // if not set.
   std::atomic<SequenceNumber> earliest_seqno_;
+
+  // Seqno of the latest ingested external SST.
+  RelaxedAtomic<SequenceNumber> ingest_seqno_barrier_{0};
 
   SequenceNumber creation_seq_;
 

@@ -1819,8 +1819,10 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
     }
   }
 
+  assert(cfh_ != nullptr);
   if (active_mem_->AddLogicallyRedundantRangeTombstone(
-          insert_seq, range_tomb_first_key_.GetUserKey(), end_key)) {
+          insert_seq, range_tomb_first_key_.GetUserKey(), end_key,
+          cfh_->cfd()->GetIngestSstLock())) {
     RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_INSERTED);
     ROCKS_LOG_DEBUG(logger_,
                     "Inserted range tombstone [%s, %s) @ seq %" PRIu64

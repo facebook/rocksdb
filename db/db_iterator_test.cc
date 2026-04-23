@@ -5698,11 +5698,20 @@ TEST_P(ReadPathRangeTombstoneTest, BasicInsertion) {
 
     if (flush_before_read) {
       ASSERT_OK(Flush());
-      // Memtable is empty after flush. AddLogicallyRedundantRangeTombstone
-      // skips empty memtables.
+      // After dropping the IsEmpty() fast-path in synthesis, the now-empty
+      // active memtable is a valid synthesis target; the per-CF
+      // ingest_sst_lock (held shared by ingestion) is the mechanism that
+      // gates synthesis vs ingestion, not memtable emptiness.
       inserted_ranges_.clear();
       VerifyIteration({"a", "g", "h", "n"});
-      ASSERT_EQ(inserted_ranges_.size(), 0);
+      ASSERT_EQ(inserted_ranges_.size(), 2);
+      if (forward) {
+        AssertRange(0, "b", "g");
+        AssertRange(1, "i", "n");
+      } else {
+        AssertRange(0, "i", "n");
+        AssertRange(1, "b", "g");
+      }
       break;
     }
 
@@ -6914,6 +6923,60 @@ TEST_P(ReadPathRangeTombstoneTest, InvisibleKeysDontBreakTombstoneRun) {
   ASSERT_EQ(inserted_ranges_.size(), 1);
   AssertRange(0, "b", "f");
 
+  db_->ReleaseSnapshot(snap);
+}
+
+// Regression test: a synthesized tombstone can land in the current memtable at
+// an older snapshot sequence than a live point already ingested into an older
+// L0 file. Latest point lookups must continue searching that older file when
+// its sequence range can still contain a newer point version.
+TEST_P(ReadPathRangeTombstoneTest, NewerPointInOlderFileStillVisible) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 2;
+  options.disable_auto_compactions = true;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Put("c", "vc"));
+  ASSERT_OK(Put("d", "vd"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Delete("b"));
+  ASSERT_OK(Delete("c"));
+  ASSERT_OK(Flush());
+
+  // Keep the active memtable older than the snapshot so the read path is
+  // allowed to synthesize a tombstone into it later.
+  ASSERT_OK(Put("z", "vz_anchor"));
+  const Snapshot* snap = db_->GetSnapshot();
+
+  const std::string ingest_file = dbname_ + "_live_c.sst";
+  {
+    SstFileWriter writer(EnvOptions(), options);
+    ASSERT_OK(writer.Open(ingest_file));
+    ASSERT_OK(writer.Put("c", "vc_live"));
+    ASSERT_OK(writer.Finish());
+  }
+
+  IngestExternalFileOptions ifo;
+  ifo.allow_blocking_flush = false;
+  ASSERT_OK(db_->IngestExternalFile({ingest_file}, ifo));
+  ASSERT_EQ(Get("c"), "vc_live");
+
+  inserted_ranges_.clear();
+  ReadOptions snap_ro;
+  snap_ro.snapshot = snap;
+  VerifyIteration({"d", "z"}, snap_ro);
+
+  ASSERT_EQ(inserted_ranges_.size(), 1);
+  AssertRange(0, "b", "d");
+
+  const Snapshot* latest = db_->GetSnapshot();
+  ASSERT_EQ(Get("c", latest), "vc_live");
+  ASSERT_EQ(MultiGet({"c"}, latest), (std::vector<std::string>{"vc_live"}));
+
+  db_->ReleaseSnapshot(latest);
   db_->ReleaseSnapshot(snap);
 }
 

@@ -3946,8 +3946,12 @@ TEST_F(DBFlushTest, FlushAfterReadPathRangeTombstoneInsertion) {
         // MarkImmutable), this returns false because the memtable is
         // already immutable. Without the fix, this succeeds and creates
         // an entry count mismatch.
-        cfh->cfd()->mem()->AddLogicallyRedundantRangeTombstone(1 /* seq */, "b",
-                                                               "f");
+        // Try to insert a range tombstone. With the fix (Construct after
+        // MarkImmutable), this returns false because the memtable is
+        // already immutable. Without the fix, this succeeds and creates
+        // an entry count mismatch.
+        cfh->cfd()->mem()->AddLogicallyRedundantRangeTombstone(
+            1 /* seq */, "b", "f", cfh->cfd()->GetIngestSstLock());
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
