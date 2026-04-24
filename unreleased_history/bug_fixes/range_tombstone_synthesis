@@ -1,0 +1,1 @@
+Fix bug in range tombstone synthesis that covers live keys added during an IngestExternalFile

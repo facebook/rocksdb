@@ -1419,8 +1419,18 @@ struct AdvancedColumnFamilyOptions {
   //   (ReadOptions::total_order_seek / ReadOptions::auto_prefix_mode) nor
   //   bounded by ReadOptions::prefix_same_as_start
   //
-  // It also requires an active mutable memtable, and insertion is skipped when
-  // that memtable is empty.
+  // Even if the above restrictions are met, there are still scenarios where a
+  // converted range tombstone may be discarded:
+  //   * The snapshot's active mutable memtable has already become immutable.
+  //   * The iterator's snapshot seq is below the active memtable's earliest
+  //     sequence number.
+  //   * A range tombstone covering [first_tombstone_key, next_live_key) is
+  //     already present in the memtable.
+  //   * A WritePrepared/WriteUnprepared transaction read callback is in use
+  //     and the snapshot seq is at or above its min uncommitted seq.
+  //   * An IngestExternalFile call is currently in flight on this column
+  //     family OR the inserted range tombstone seqno would be lower than the
+  //     ingested file seqno.
   //
   // Read-write iterators using ReadOptions::table_filter are rejected while
   // this option is enabled, see more details in ReadOptions::table_filter

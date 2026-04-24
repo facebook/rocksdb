@@ -161,8 +161,32 @@ void RWMutex::ReadLock() {
   PthreadCall("read lock", pthread_rwlock_rdlock(&mu_));
 }
 
+bool RWMutex::TryReadLock() {
+  int result = pthread_rwlock_tryrdlock(&mu_);
+  if (result == 0) {
+    return true;
+  }
+  if (result == EBUSY) {
+    return false;
+  }
+  PthreadCall("try read lock", result);
+  return false;
+}
+
 void RWMutex::WriteLock() {
   PthreadCall("write lock", pthread_rwlock_wrlock(&mu_));
+}
+
+bool RWMutex::TryWriteLock() {
+  int result = pthread_rwlock_trywrlock(&mu_);
+  if (result == 0) {
+    return true;
+  }
+  if (result == EBUSY) {
+    return false;
+  }
+  PthreadCall("try write lock", result);
+  return false;
 }
 
 void RWMutex::ReadUnlock() {

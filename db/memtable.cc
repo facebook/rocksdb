@@ -918,12 +918,11 @@ void MemTable::ConstructFragmentedRangeTombstones() {
   }
 }
 
-bool MemTable::AddLogicallyRedundantRangeTombstone(SequenceNumber seq,
-                                                   const Slice& start_key,
-                                                   const Slice& end_key) {
-  // Fast path: skip if already immutable or empty. Some code paths (i.e.
-  // ExternalFileIngestion) rely ensuring memtable is empty after flushing.
-  if (is_immutable_.LoadRelaxed() || IsEmpty()) {
+bool MemTable::AddLogicallyRedundantRangeTombstone(
+    SequenceNumber seq, const Slice& start_key, const Slice& end_key,
+    port::RWMutex& ingest_sst_lock) {
+  // Fast path: skip if already immutable.
+  if (is_immutable_.LoadRelaxed()) {
     return false;
   }
 
@@ -939,6 +938,33 @@ bool MemTable::AddLogicallyRedundantRangeTombstone(SequenceNumber seq,
     return false;
   }
 
+  // Range tombstone reads have an assumption that all levels below it have a
+  // LOWER seqno than it, so it is safe to skip reading files. Normally, this is
+  // true, but range tombstone conversion creates an exception.
+  //
+  // The inserted range tombstone uses iterator seqno. There are guards to
+  // ensure that we only insert it if it is within current memtable's bounds,
+  // BUT an external file ingestion can break that still, as the newly ingested
+  // L0 file will be assigned a higher seqno than an earlier iterator.
+  //
+  // So the solution here is to use a RW lock + ingest seqno to gate range
+  // tombstone conversions. An added side effect is also we can no longer insert
+  // to memtables while a file ingestion is in progress, which is an expectation
+  // of file ingestion. Note we expect this insertion to be rare, and we do not
+  // want to limit concurrent external file ingestions so the conversion path
+  // uses a write lock while the ingestion path uses a read lock.
+  TryWriteLock ingest_wl(&ingest_sst_lock);
+  if (!ingest_wl.OwnsLock()) {
+    return false;
+  }
+  // After ingestion releases its WriteLock, an iterator with an older
+  // snapshot could still try to convert a tombstone whose seq sits
+  // below the just-ingested file's seq. The barrier persists past the end
+  // of the ingestion that bumped it and refuses such inserts.
+  if (seq < ingest_seqno_barrier_.LoadRelaxed()) {
+    return false;
+  }
+
   MemTablePostProcessInfo post_process_info;
   Status s = Add(seq, kTypeRangeDeletion, start_key, end_key,
                  nullptr /* kv_prot_info */, true /* allow_concurrent */,
@@ -948,6 +974,12 @@ bool MemTable::AddLogicallyRedundantRangeTombstone(SequenceNumber seq,
     return true;
   }
   return false;
+}
+
+void MemTable::BumpIngestSeqnoBarrier(SequenceNumber y) {
+  if (ingest_seqno_barrier_.LoadRelaxed() < y) {
+    ingest_seqno_barrier_.StoreRelaxed(y);
+  }
 }
 
 port::RWMutex* MemTable::GetLock(const Slice& key) {

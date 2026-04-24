@@ -152,7 +152,11 @@ class RWMutex {
 
   void ReadLock() { AcquireSRWLockShared(&srwLock_); }
 
+  bool TryReadLock() { return TryAcquireSRWLockShared(&srwLock_) != 0; }
+
   void WriteLock() { AcquireSRWLockExclusive(&srwLock_); }
+
+  bool TryWriteLock() { return TryAcquireSRWLockExclusive(&srwLock_) != 0; }
 
   void ReadUnlock() { ReleaseSRWLockShared(&srwLock_); }
 

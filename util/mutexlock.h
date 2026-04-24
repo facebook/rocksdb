@@ -64,6 +64,30 @@ class ReadLock {
 };
 
 //
+// Try to acquire a ReadLock on the specified RWMutex without blocking.
+//
+class TryReadLock {
+ public:
+  explicit TryReadLock(port::RWMutex* mu)
+      : mu_(mu), owns_(mu_->TryReadLock()) {}
+  // No copying allowed
+  TryReadLock(const TryReadLock&) = delete;
+  void operator=(const TryReadLock&) = delete;
+
+  ~TryReadLock() {
+    if (owns_) {
+      mu_->ReadUnlock();
+    }
+  }
+
+  bool OwnsLock() const { return owns_; }
+
+ private:
+  port::RWMutex* const mu_;
+  const bool owns_;
+};
+
+//
 // Automatically unlock a locked mutex when the object is destroyed
 //
 class ReadUnlock {
@@ -95,6 +119,33 @@ class WriteLock {
 
  private:
   port::RWMutex* const mu_;
+};
+
+//
+// Try to acquire a WriteLock on the specified RWMutex without blocking.
+// If acquired, the lock is released when the object goes out of scope.
+// If not acquired, the destructor is a no-op. Use OwnsLock() to check
+// whether the lock was acquired.
+//
+class TryWriteLock {
+ public:
+  explicit TryWriteLock(port::RWMutex* mu)
+      : mu_(mu), owns_(mu_->TryWriteLock()) {}
+  // No copying allowed
+  TryWriteLock(const TryWriteLock&) = delete;
+  void operator=(const TryWriteLock&) = delete;
+
+  ~TryWriteLock() {
+    if (owns_) {
+      mu_->WriteUnlock();
+    }
+  }
+
+  bool OwnsLock() const { return owns_; }
+
+ private:
+  port::RWMutex* const mu_;
+  const bool owns_;
 };
 
 //
