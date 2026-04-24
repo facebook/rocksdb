@@ -142,7 +142,12 @@ def _decode_stream_entries(infile, outfile):
     for index in range(full_entries):
         start = index * ENTRY_STRUCT.size
         end = start + ENTRY_STRUCT.size
-        printed += _decode_entry_bytes(data[start:end], outfile)
+        try:
+            printed += _decode_entry_bytes(data[start:end], outfile)
+        except ValueError:
+            if index + 1 == full_entries:
+                break
+            raise
     return printed, full_entries
 
 
@@ -151,59 +156,68 @@ def decode_fault_injection_log(raw_path, output_path=None):
         output_path = raw_path + ".txt"
 
     with open(raw_path, "rb") as infile, open(output_path, "w") as outfile:
-        (
-            magic,
-            total_entries,
-            version,
-            header_size,
-            entry_size,
-            max_entries,
-            dumped_entries,
-            reserved,
-        ) = HEADER_STRUCT.unpack(_read_exact(infile, HEADER_STRUCT.size))
-
-        if magic != TRACE_FILE_MAGIC:
-            raise ValueError(f"unexpected trace magic: {magic!r}")
-        if version not in (
-            LEGACY_TRACE_FILE_VERSION,
-            RING_TRACE_FILE_VERSION,
-            TRACE_FILE_VERSION,
-        ):
-            raise ValueError(f"unsupported trace version: {version}")
-        if header_size != HEADER_STRUCT.size:
-            raise ValueError(
-                f"unexpected trace header size: {header_size} != {HEADER_STRUCT.size}"
-            )
-
         outfile.write(
             "=== Recently Injected Fault Injection Errors (most recent last) ===\n"
         )
 
-        footer_total_entries = total_entries
-        footer_max_entries = max_entries
-        if version == LEGACY_TRACE_FILE_VERSION:
-            if entry_size != LEGACY_ENTRY_STRUCT.size:
+        header = infile.read(HEADER_STRUCT.size)
+        footer_total_entries = 0
+        footer_max_entries = 0
+        if len(header) >= len(TRACE_FILE_MAGIC) and header.startswith(TRACE_FILE_MAGIC):
+            if len(header) != HEADER_STRUCT.size:
+                raise ValueError("truncated injected error log header")
+            (
+                magic,
+                total_entries,
+                version,
+                header_size,
+                entry_size,
+                max_entries,
+                dumped_entries,
+                reserved,
+            ) = HEADER_STRUCT.unpack(header)
+
+            if magic != TRACE_FILE_MAGIC:
+                raise ValueError(f"unexpected trace magic: {magic!r}")
+            if version not in (
+                LEGACY_TRACE_FILE_VERSION,
+                RING_TRACE_FILE_VERSION,
+                TRACE_FILE_VERSION,
+            ):
+                raise ValueError(f"unsupported trace version: {version}")
+            if header_size != HEADER_STRUCT.size:
                 raise ValueError(
-                    "unexpected legacy trace entry size: "
-                    f"{entry_size} != {LEGACY_ENTRY_STRUCT.size}"
+                    f"unexpected trace header size: {header_size} != {HEADER_STRUCT.size}"
                 )
-            if reserved != 256:
-                raise ValueError(f"unexpected legacy max message len: {reserved}")
-            printed = _decode_legacy_entries(infile, outfile, dumped_entries)
-        elif version == RING_TRACE_FILE_VERSION:
-            if entry_size != ENTRY_STRUCT.size:
-                raise ValueError(
-                    f"unexpected trace entry size: {entry_size} != {ENTRY_STRUCT.size}"
-                )
-            printed = _decode_ring_entries(infile, outfile, dumped_entries)
+
+            footer_total_entries = total_entries
+            footer_max_entries = max_entries
+            if version == LEGACY_TRACE_FILE_VERSION:
+                if entry_size != LEGACY_ENTRY_STRUCT.size:
+                    raise ValueError(
+                        "unexpected legacy trace entry size: "
+                        f"{entry_size} != {LEGACY_ENTRY_STRUCT.size}"
+                    )
+                if reserved != 256:
+                    raise ValueError(f"unexpected legacy max message len: {reserved}")
+                printed = _decode_legacy_entries(infile, outfile, dumped_entries)
+            elif version == RING_TRACE_FILE_VERSION:
+                if entry_size != ENTRY_STRUCT.size:
+                    raise ValueError(
+                        f"unexpected trace entry size: {entry_size} != {ENTRY_STRUCT.size}"
+                    )
+                printed = _decode_ring_entries(infile, outfile, dumped_entries)
+            else:
+                if entry_size != ENTRY_STRUCT.size:
+                    raise ValueError(
+                        f"unexpected trace entry size: {entry_size} != {ENTRY_STRUCT.size}"
+                    )
+                printed, full_entries = _decode_stream_entries(infile, outfile)
+                if footer_total_entries == 0:
+                    footer_total_entries = full_entries
         else:
-            if entry_size != ENTRY_STRUCT.size:
-                raise ValueError(
-                    f"unexpected trace entry size: {entry_size} != {ENTRY_STRUCT.size}"
-                )
-            printed, full_entries = _decode_stream_entries(infile, outfile)
-            if footer_total_entries == 0:
-                footer_total_entries = full_entries
+            infile.seek(0)
+            printed, footer_total_entries = _decode_stream_entries(infile, outfile)
 
         if printed == 0:
             outfile.write("(none)\n")

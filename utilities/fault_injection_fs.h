@@ -17,27 +17,19 @@
 #pragma once
 
 #include <algorithm>
-#include <array>
 #include <atomic>
-#include <chrono>
 #include <cstring>
 #include <functional>
 #include <limits>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <thread>
 
 #ifndef OS_WIN
-#include <errno.h>
 #include <fcntl.h>
-#include <limits.h>
 #include <unistd.h>
-#endif
-
-// PATH_MAX may not be defined on all platforms
-#ifndef PATH_MAX
-#define PATH_MAX 4096
 #endif
 
 #include "file/filename.h"
@@ -58,25 +50,19 @@ class InjectedErrorLog {
   static constexpr size_t kMaxFileNameLen = 72;
   static constexpr size_t kMaxStatusMessageLen = 56;
   static constexpr size_t kMaxDetailPayloadLen = 48;
-  static constexpr uint32_t kFileVersion = 3;
-  static constexpr std::array<char, 8> kFileMagic = {'F', 'I', 'N', 'J',
-                                                     'L', 'O', 'G', '1'};
-
-  enum class DetailKind : uint8_t {
-    kNone = 0,
-    kTwoFiles = 1,
-    kSizeAndHead = 2,
-    kOffsetSizeAndHead = 3,
-    kOffsetAndSize = 4,
-    kSize = 5,
-    kCount = 6,
-    kReqOffsetAndSize = 7,
-  };
+  static constexpr uint8_t kDetailNone = 0;
+  static constexpr uint8_t kDetailTwoFiles = 1;
+  static constexpr uint8_t kDetailSizeAndHead = 2;
+  static constexpr uint8_t kDetailOffsetSizeAndHead = 3;
+  static constexpr uint8_t kDetailOffsetAndSize = 4;
+  static constexpr uint8_t kDetailSize = 5;
+  static constexpr uint8_t kDetailCount = 6;
+  static constexpr uint8_t kDetailReqOffsetAndSize = 7;
 
   // Borrowed raw detail payload. The referenced Slice is consumed
   // synchronously when a fault is actually injected.
   struct DetailRef {
-    DetailKind kind = DetailKind::kNone;
+    uint8_t kind = kDetailNone;
     uint64_t offset = 0;
     uint64_t size = 0;
     uint32_t count = 0;
@@ -103,111 +89,16 @@ class InjectedErrorLog {
 
   static_assert(sizeof(Entry) == 256,
                 "Injected error log entry size must stay stable");
+  static_assert(port::kLittleEndian,
+                "Injected error log requires little-endian platforms");
 
-  struct RawFileHeader {
-    char magic[8];
-    uint64_t total_entries;
-    uint32_t version;
-    uint32_t header_size;
-    uint32_t entry_size;
-    uint32_t max_entries;
-    uint32_t dumped_entries;
-    uint32_t reserved;
-  };
-
-  static_assert(sizeof(RawFileHeader) == 40,
-                "Injected error log file header size must stay stable");
-
-  InjectedErrorLog()
-      : total_entries_(0),
-        next_write_offset_(sizeof(RawFileHeader)),
-        finalized_(0),
-        log_fd_(-1) {
-    log_path_[0] = '\0';
-  }
-
-  ~InjectedErrorLog() { Finalize(); }
-
-  // Set the file path for raw binary output. Must be called before any signal
-  // handler invocation. The file starts with a fixed header followed by a
-  // stream of fixed-size entries.
-  void SetLogFilePath(const std::string& path) {
-#ifndef OS_WIN
-    Finalize();
-#endif
-    total_entries_.store(0, std::memory_order_relaxed);
-    next_write_offset_.store(sizeof(RawFileHeader), std::memory_order_relaxed);
-    finalized_.store(0, std::memory_order_relaxed);
-    log_fd_.store(-1, std::memory_order_relaxed);
-    size_t len = std::min(path.size(), sizeof(log_path_) - 1);
-    memcpy(log_path_, path.data(), len);
-    log_path_[len] = '\0';
-
-#ifndef OS_WIN
-    if (log_path_[0] == '\0') {
-      return;
-    }
-    int flags = O_WRONLY | O_CREAT | O_TRUNC;
-#ifdef O_CLOEXEC
-    flags |= O_CLOEXEC;
-#endif
-    int fd = open(log_path_, flags, 0644);
-    if (fd < 0) {
-      return;
-    }
-    RawFileHeader header = MakeHeader(/*total_entries=*/0);
-    if (!PwriteAll(fd, reinterpret_cast<const char*>(&header), sizeof(header),
-                   /*offset=*/0)) {
-      close(fd);
-      auto unused __attribute__((unused)) = unlink(log_path_);
-      return;
-    }
-    log_fd_.store(fd, std::memory_order_release);
-#endif
-  }
+  explicit InjectedErrorLog(const std::string& path);
+  ~InjectedErrorLog();
+  InjectedErrorLog(const InjectedErrorLog&) = delete;
+  InjectedErrorLog& operator=(const InjectedErrorLog&) = delete;
 
   void Record(const Slice& op_name, const Slice& file_name,
-              const DetailRef& detail, const IOStatus& status) {
-#ifndef OS_WIN
-    if (finalized_.load(std::memory_order_acquire) != 0) {
-      return;
-    }
-    int fd = log_fd_.load(std::memory_order_acquire);
-    if (fd < 0) {
-      return;
-    }
-
-    Entry local{};
-    local.timestamp_us = NowMicros();
-    local.thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-    local.offset = detail.offset;
-    local.size = detail.size;
-    local.count = detail.count;
-    local.req_idx = detail.req_idx;
-    local.detail_kind = static_cast<uint8_t>(detail.kind);
-    local.detail_payload_size = static_cast<uint8_t>(CopySliceBytes(
-        detail.payload, local.detail_payload, sizeof(local.detail_payload)));
-    local.retryable = status.GetRetryable() ? 1 : 0;
-    local.data_loss = status.GetDataLoss() ? 1 : 0;
-    CopyStringSample(op_name, local.op_name, sizeof(local.op_name));
-    CopyStringSample(file_name, local.file_name, sizeof(local.file_name));
-    const char* status_message = status.getState();
-    CopyStringSample(
-        status_message == nullptr ? Slice() : Slice(status_message),
-        local.status_message, sizeof(local.status_message));
-    uint64_t offset =
-        next_write_offset_.fetch_add(sizeof(local), std::memory_order_relaxed);
-    if (PwriteAll(fd, reinterpret_cast<const char*>(&local), sizeof(local),
-                  static_cast<off_t>(offset))) {
-      total_entries_.fetch_add(1, std::memory_order_relaxed);
-    }
-#else
-    (void)op_name;
-    (void)file_name;
-    (void)detail;
-    (void)status;
-#endif
-  }
+              const DetailRef& detail, const IOStatus& status);
 
   // Format the first few bytes of a buffer as hex for logging.
   // Returns a string like "ab cd ef 01 02 ..."
@@ -233,142 +124,11 @@ class InjectedErrorLog {
 
   // Flush the already-appended log file so crash/termination paths preserve
   // the most recent records.
-  void Flush() const {
-#ifndef OS_WIN
-    int fd = log_fd_.load(std::memory_order_acquire);
-    if (fd < 0) {
-      return;
-    }
-    auto unused __attribute__((unused)) = fsync(fd);
-#else
-    // On Windows, crash callbacks via signal handlers are not used.
-#endif
-  }
-
-  // Finalize the log on a clean exit by rewriting the header with the final
-  // entry count and syncing the file one last time.
-  void Finalize() {
-#ifndef OS_WIN
-    uint32_t expected = 0;
-    if (!finalized_.compare_exchange_strong(expected, 1,
-                                            std::memory_order_acq_rel)) {
-      return;
-    }
-    int fd = log_fd_.exchange(-1, std::memory_order_acq_rel);
-    if (fd < 0) {
-      return;
-    }
-    uint64_t total = total_entries_.load(std::memory_order_relaxed);
-    if (total == 0) {
-      close(fd);
-      if (log_path_[0] != '\0') {
-        auto unused __attribute__((unused)) = unlink(log_path_);
-      }
-      return;
-    }
-    RawFileHeader header = MakeHeader(total);
-    PwriteAll(fd, reinterpret_cast<const char*>(&header), sizeof(header),
-              /*offset=*/0);
-    auto unused __attribute__((unused)) = fsync(fd);
-    close(fd);
-#endif
-  }
+  void Flush() const;
 
  private:
-  static uint64_t NowMicros() {
-    auto now = std::chrono::system_clock::now();
-    return std::chrono::duration_cast<std::chrono::microseconds>(
-               now.time_since_epoch())
-        .count();
-  }
-
-  static void CopyStringSample(const Slice& src, char* dst, size_t dst_len) {
-    if (dst_len == 0) {
-      return;
-    }
-    size_t copied = std::min(src.size(), dst_len - 1);
-    size_t start = src.size() - copied;
-    for (size_t i = 0; i < copied; ++i) {
-      dst[i] = src[start + i];
-    }
-    dst[copied] = '\0';
-  }
-
-  static size_t CopySliceBytes(const Slice& src, char* dst, size_t dst_len) {
-    size_t copied = std::min(src.size(), dst_len);
-    for (size_t i = 0; i < copied; ++i) {
-      dst[i] = src[i];
-    }
-    return copied;
-  }
-
-  static bool WriteAll(int fd, const char* data, size_t len) {
-#ifndef OS_WIN
-    while (len > 0) {
-      ssize_t written = write(fd, data, len);
-      if (written <= 0) {
-        return false;
-      }
-      data += static_cast<size_t>(written);
-      len -= static_cast<size_t>(written);
-    }
-    return true;
-#else
-    (void)fd;
-    (void)data;
-    (void)len;
-    return false;
-#endif
-  }
-
-  static bool PwriteAll(int fd, const char* data, size_t len, off_t offset) {
-#ifndef OS_WIN
-    while (len > 0) {
-      ssize_t written = pwrite(fd, data, len, offset);
-      if (written < 0) {
-        if (errno == EINTR) {
-          continue;
-        }
-        return false;
-      }
-      if (written == 0) {
-        return false;
-      }
-      data += static_cast<size_t>(written);
-      len -= static_cast<size_t>(written);
-      offset += written;
-    }
-    return true;
-#else
-    (void)fd;
-    (void)data;
-    (void)len;
-    (void)offset;
-    return false;
-#endif
-  }
-
-  static RawFileHeader MakeHeader(uint64_t total_entries) {
-    RawFileHeader header{};
-    for (size_t i = 0; i < kFileMagic.size(); ++i) {
-      header.magic[i] = kFileMagic[i];
-    }
-    header.total_entries = total_entries;
-    header.version = kFileVersion;
-    header.header_size = static_cast<uint32_t>(sizeof(header));
-    header.entry_size = static_cast<uint32_t>(sizeof(Entry));
-    header.max_entries = 0;
-    header.dumped_entries = static_cast<uint32_t>(std::min<uint64_t>(
-        total_entries, std::numeric_limits<uint32_t>::max()));
-    header.reserved = 0;
-    return header;
-  }
-
-  std::atomic<uint64_t> total_entries_;
   std::atomic<uint64_t> next_write_offset_;
-  std::atomic<uint32_t> finalized_;
-  std::atomic<int> log_fd_;
-  char log_path_[PATH_MAX];
+  const int log_fd_;
 };
 
 class TestFSWritableFile;
@@ -385,7 +145,7 @@ inline DetailRef NoDetail() { return DetailRef(); }
 
 inline DetailRef TwoFiles(const std::string& /*f1*/, const std::string& f2) {
   DetailRef detail;
-  detail.kind = InjectedErrorLog::DetailKind::kTwoFiles;
+  detail.kind = InjectedErrorLog::kDetailTwoFiles;
   detail.size = static_cast<uint64_t>(f2.size());
   detail.payload = Slice(f2);
   return detail;
@@ -393,7 +153,7 @@ inline DetailRef TwoFiles(const std::string& /*f1*/, const std::string& f2) {
 
 inline DetailRef SizeAndHead(const Slice& data) {
   DetailRef detail;
-  detail.kind = InjectedErrorLog::DetailKind::kSizeAndHead;
+  detail.kind = InjectedErrorLog::kDetailSizeAndHead;
   detail.size = static_cast<uint64_t>(data.size());
   detail.payload = data;
   return detail;
@@ -401,7 +161,7 @@ inline DetailRef SizeAndHead(const Slice& data) {
 
 inline DetailRef OffsetSizeAndHead(uint64_t offset, const Slice& data) {
   DetailRef detail;
-  detail.kind = InjectedErrorLog::DetailKind::kOffsetSizeAndHead;
+  detail.kind = InjectedErrorLog::kDetailOffsetSizeAndHead;
   detail.offset = offset;
   detail.size = static_cast<uint64_t>(data.size());
   detail.payload = data;
@@ -410,7 +170,7 @@ inline DetailRef OffsetSizeAndHead(uint64_t offset, const Slice& data) {
 
 inline DetailRef OffsetAndSize(uint64_t offset, size_t n) {
   DetailRef detail;
-  detail.kind = InjectedErrorLog::DetailKind::kOffsetAndSize;
+  detail.kind = InjectedErrorLog::kDetailOffsetAndSize;
   detail.offset = offset;
   detail.size = static_cast<uint64_t>(n);
   return detail;
@@ -418,7 +178,7 @@ inline DetailRef OffsetAndSize(uint64_t offset, size_t n) {
 
 inline DetailRef Size(uint64_t size) {
   DetailRef detail;
-  detail.kind = InjectedErrorLog::DetailKind::kSize;
+  detail.kind = InjectedErrorLog::kDetailSize;
   detail.size = size;
   return detail;
 }
@@ -426,7 +186,7 @@ inline DetailRef Size(uint64_t size) {
 inline DetailRef Count(size_t count) {
   assert(count <= std::numeric_limits<uint32_t>::max());
   DetailRef detail;
-  detail.kind = InjectedErrorLog::DetailKind::kCount;
+  detail.kind = InjectedErrorLog::kDetailCount;
   detail.count = static_cast<uint32_t>(count);
   return detail;
 }
@@ -434,7 +194,7 @@ inline DetailRef Count(size_t count) {
 inline DetailRef ReqOffsetAndSize(size_t req_idx, uint64_t offset, size_t n) {
   assert(req_idx <= std::numeric_limits<uint32_t>::max());
   DetailRef detail;
-  detail.kind = InjectedErrorLog::DetailKind::kReqOffsetAndSize;
+  detail.kind = InjectedErrorLog::kDetailReqOffsetAndSize;
   detail.req_idx = static_cast<uint32_t>(req_idx);
   detail.offset = offset;
   detail.size = static_cast<uint64_t>(n);
@@ -621,7 +381,9 @@ class TestFSDirectory : public FSDirectory {
 
 class FaultInjectionTestFS : public FileSystemWrapper {
  public:
-  explicit FaultInjectionTestFS(const std::shared_ptr<FileSystem>& base)
+  explicit FaultInjectionTestFS(
+      const std::shared_ptr<FileSystem>& base,
+      const std::string& injected_error_log_path = std::string())
       : FileSystemWrapper(base),
         filesystem_active_(true),
         filesystem_writable_(false),
@@ -635,7 +397,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
         injected_thread_local_metadata_write_error_(
             DeleteThreadLocalErrorContext),
         ingest_data_corruption_before_write_(false),
-        checksum_handoff_func_type_(kCRC32c) {}
+        checksum_handoff_func_type_(kCRC32c),
+        injected_error_log_(injected_error_log_path) {}
   virtual ~FaultInjectionTestFS() override { fs_error_.PermitUncheckedError(); }
 
   static const char* kClassName() { return "FaultInjectionTestFS"; }
@@ -1028,24 +791,9 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   void ReadUnsynced(const std::string& fname, uint64_t offset, size_t n,
                     Slice* result, char* scratch, int64_t* pos_at_last_sync);
 
-  // Access the injected error log for flush/finalize on crash or test failure.
-  InjectedErrorLog& GetInjectedErrorLog() { return injected_error_log_; }
-  const InjectedErrorLog& GetInjectedErrorLog() const {
-    return injected_error_log_;
-  }
-
-  // Flush recently injected errors to the configured binary log file.
+  // Flush recently injected errors to the configured binary log file and sync
+  // it to storage.
   void FlushRecentInjectedErrors() const { injected_error_log_.Flush(); }
-
-  // Finalize the binary log on a clean exit so the header records the
-  // complete entry count.
-  void FinalizeRecentInjectedErrors() { injected_error_log_.Finalize(); }
-
-  // Set the file path where the binary log will be written.
-  // Must be called before any signal handler invocation.
-  void SetInjectedErrorLogPath(const std::string& path) {
-    injected_error_log_.SetLogFilePath(path);
-  }
 
   inline static const std::string kInjected = "injected";
 

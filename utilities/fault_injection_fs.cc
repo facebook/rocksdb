@@ -17,11 +17,13 @@
 #include "utilities/fault_injection_fs.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <functional>
 #include <utility>
 
 #include "env/composite_env_wrapper.h"
+#include "env/io_posix.h"
 #include "port/lang.h"
 #include "port/stack_trace.h"
 #include "rocksdb/env.h"
@@ -40,6 +42,41 @@ namespace ROCKSDB_NAMESPACE {
 const std::string kNewFileNoOverwrite;
 
 namespace {
+
+uint64_t NowMicros() {
+  auto now = std::chrono::system_clock::now();
+  return std::chrono::duration_cast<std::chrono::microseconds>(
+             now.time_since_epoch())
+      .count();
+}
+
+// Preserve the suffix so long Sandcastle paths still retain the basename.
+void CopyStringSample(const Slice& src, char* dst, size_t dst_len) {
+  if (dst_len == 0) {
+    return;
+  }
+  const size_t copied = std::min(src.size(), dst_len - 1);
+  if (copied > 0) {
+    std::memcpy(dst, src.data() + src.size() - copied, copied);
+  }
+  dst[copied] = '\0';
+}
+
+int OpenInjectedErrorLogFile(const std::string& path) {
+#ifndef OS_WIN
+  if (path.empty()) {
+    return -1;
+  }
+  int flags = O_WRONLY | O_CREAT | O_TRUNC;
+#ifdef O_CLOEXEC
+  flags |= O_CLOEXEC;
+#endif
+  return open(path.c_str(), flags, 0644);
+#else
+  (void)path;
+  return -1;
+#endif
+}
 
 bool TryParseInfoLogFileName(const std::string& file_name, uint64_t* number,
                              FileType* type) {
@@ -67,6 +104,70 @@ bool TryParseInfoLogFileName(const std::string& file_name, uint64_t* number,
 }
 
 }  // namespace
+
+InjectedErrorLog::InjectedErrorLog(const std::string& path)
+    : next_write_offset_(0), log_fd_(OpenInjectedErrorLogFile(path)) {}
+
+InjectedErrorLog::~InjectedErrorLog() {
+#ifndef OS_WIN
+  if (log_fd_ >= 0) {
+    Flush();
+    close(log_fd_);
+  }
+#endif
+}
+
+void InjectedErrorLog::Record(const Slice& op_name, const Slice& file_name,
+                              const DetailRef& detail, const IOStatus& status) {
+#ifndef OS_WIN
+  if (log_fd_ < 0) {
+    return;
+  }
+
+  Entry entry{};
+  entry.timestamp_us = NowMicros();
+  entry.thread_id = Env::Default()->GetThreadID();
+  entry.offset = detail.offset;
+  entry.size = detail.size;
+  entry.count = detail.count;
+  entry.req_idx = detail.req_idx;
+  entry.detail_kind = detail.kind;
+  const size_t detail_payload_size =
+      std::min(detail.payload.size(), sizeof(entry.detail_payload));
+  if (detail_payload_size > 0) {
+    std::memcpy(entry.detail_payload, detail.payload.data(),
+                detail_payload_size);
+  }
+  entry.detail_payload_size = static_cast<uint8_t>(detail_payload_size);
+  entry.retryable = status.GetRetryable() ? 1 : 0;
+  entry.data_loss = status.GetDataLoss() ? 1 : 0;
+  CopyStringSample(op_name, entry.op_name, sizeof(entry.op_name));
+  CopyStringSample(file_name, entry.file_name, sizeof(entry.file_name));
+  const char* status_message = status.getState();
+  CopyStringSample(status_message == nullptr ? Slice() : Slice(status_message),
+                   entry.status_message, sizeof(entry.status_message));
+
+  const uint64_t offset =
+      next_write_offset_.fetch_add(sizeof(entry), std::memory_order_relaxed);
+  PosixPositionedWrite(log_fd_, reinterpret_cast<const char*>(&entry),
+                       sizeof(entry), static_cast<off_t>(offset));
+#else
+  (void)op_name;
+  (void)file_name;
+  (void)detail;
+  (void)status;
+#endif
+}
+
+void InjectedErrorLog::Flush() const {
+#ifndef OS_WIN
+  if (log_fd_ < 0) {
+    return;
+  }
+  while (fsync(log_fd_) != 0 && errno == EINTR) {
+  }
+#endif
+}
 
 // Assume a filename, and not a directory name like "/foo/bar/"
 std::string TestFSGetDirName(const std::string filename) {

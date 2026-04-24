@@ -287,28 +287,20 @@ class DBCrashTestTest(unittest.TestCase):
             diagnostics,
         )
 
-    # Goal: verify db_crashtest decodes the new streaming binary fault
-    # injection log format, even when the header counts are not finalized yet
-    # as can happen on a crash path. The test writes a raw .bin file with two
-    # complete entries plus a truncated tail, then checks the decoded text.
-    def test_print_and_cleanup_fault_injection_log_decodes_streaming_raw_trace(self):
+    # Goal: verify db_crashtest decodes the headerless streaming binary fault
+    # injection log format used on crash paths while keeping stdout concise.
+    # The test writes a raw .bin file with two complete entries plus a
+    # truncated tail, then checks the decoded text artifact and the summary
+    # line printed to stdout.
+    def test_print_fault_injection_log_decodes_streaming_raw_trace(self):
         db_crashtest = self.load_db_crashtest()
         fault_parser = self.load_fault_injection_log_parser()
         pid = 5151
-        raw_log = os.path.join(self.test_tmpdir, f"fault_injection_{pid}_1.bin")
+        log_dir = os.path.join(self.test_tmpdir, "fault_injection_logs")
+        os.makedirs(log_dir)
+        raw_log = os.path.join(log_dir, f"fault_injection_{pid}_1.bin")
         decoded_log = raw_log + ".txt"
 
-        header = struct.pack(
-            "<8sQIIIIII",
-            fault_parser.TRACE_FILE_MAGIC,
-            0,
-            fault_parser.TRACE_FILE_VERSION,
-            fault_parser.HEADER_STRUCT.size,
-            fault_parser.ENTRY_STRUCT.size,
-            0,
-            0,
-            0,
-        )
         entry0 = fault_parser.ENTRY_STRUCT.pack(
             123456789,
             17,
@@ -342,14 +334,13 @@ class DBCrashTestTest(unittest.TestCase):
             b"/tmp/b".ljust(48, b"\0"),
         )
         with open(raw_log, "wb") as f:
-            f.write(header)
             f.write(entry0)
             f.write(entry1)
             f.write(b"tail")
 
         stdout = io.StringIO()
         with redirect_stdout(stdout):
-            db_crashtest.print_and_cleanup_fault_injection_log(pid)
+            db_crashtest.print_fault_injection_log(pid)
 
         self.assertTrue(os.path.exists(decoded_log))
         with open(decoded_log) as f:
@@ -365,7 +356,11 @@ class DBCrashTestTest(unittest.TestCase):
             decoded_text,
         )
         self.assertIn("max=unbounded", decoded_text)
-        self.assertIn(decoded_log, stdout.getvalue())
+        self.assertIn(
+            "Fault injection log saved: raw=%s decoded=%s entries=2"
+            % (raw_log, decoded_log),
+            stdout.getvalue(),
+        )
 
 
 if __name__ == "__main__":

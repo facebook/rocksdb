@@ -31,19 +31,9 @@ class InjectedErrorLogTest : public testing::Test {
     return raw;
   }
 
-  InjectedErrorLog::RawFileHeader DecodeHeader(const std::string& raw) {
-    InjectedErrorLog::RawFileHeader header{};
-    EXPECT_GE(raw.size(), sizeof(header));
-    if (raw.size() >= sizeof(header)) {
-      std::memcpy(&header, raw.data(), sizeof(header));
-    }
-    return header;
-  }
-
   InjectedErrorLog::Entry DecodeEntry(const std::string& raw, size_t index) {
     InjectedErrorLog::Entry entry{};
-    size_t offset = sizeof(InjectedErrorLog::RawFileHeader) +
-                    index * sizeof(InjectedErrorLog::Entry);
+    size_t offset = index * sizeof(InjectedErrorLog::Entry);
     EXPECT_GE(raw.size(), offset + sizeof(entry));
     if (raw.size() >= offset + sizeof(entry)) {
       std::memcpy(&entry, raw.data() + offset, sizeof(entry));
@@ -70,37 +60,28 @@ std::shared_ptr<FaultInjectionTestFS> NewFaultFsExcludingInfoLogs(
 }  // namespace
 
 // Goal: verify a single structured record is persisted to the binary log with
-// the expected fixed-width fields. The test writes one entry, finalizes the
-// file, and decodes the raw bytes back into the header and entry structs.
-TEST_F(InjectedErrorLogTest, BasicRecordAndFinalize) {
+// the expected fixed-width fields. The test writes one entry, flushes the
+// file, and decodes the raw bytes back into an entry struct.
+TEST_F(InjectedErrorLogTest, BasicRecordAndFlush) {
   std::string path = test::PerThreadDBPath("injected_error_log_basic.bin");
-  InjectedErrorLog log;
-  log.SetLogFilePath(path);
-  IOStatus status = IOStatus::IOError("injected write error");
-  status.SetRetryable(false);
-  status.SetDataLoss(true);
-  log.Record("Append", "/tmp/000001.log",
-             fault_injection_detail::OffsetSizeAndHead(7, Slice("abcd", 4)),
-             status);
-  log.Finalize();
+  {
+    InjectedErrorLog log(path);
+    IOStatus status = IOStatus::IOError("injected write error");
+    status.SetRetryable(false);
+    status.SetDataLoss(true);
+    log.Record("Append", "/tmp/000001.log",
+               fault_injection_detail::OffsetSizeAndHead(7, Slice("abcd", 4)),
+               status);
+    log.Flush();
+  }
 
   std::string raw = ReadRawLog(path);
-  auto header = DecodeHeader(raw);
-  ASSERT_EQ(std::string(header.magic, sizeof(header.magic)),
-            std::string(InjectedErrorLog::kFileMagic.data(),
-                        InjectedErrorLog::kFileMagic.size()));
-  ASSERT_EQ(header.version, InjectedErrorLog::kFileVersion);
-  ASSERT_EQ(header.entry_size, sizeof(InjectedErrorLog::Entry));
-  ASSERT_EQ(header.total_entries, 1U);
-  ASSERT_EQ(header.dumped_entries, 1U);
-
+  ASSERT_EQ(raw.size(), sizeof(InjectedErrorLog::Entry));
   auto entry = DecodeEntry(raw, 0);
   EXPECT_NE(entry.timestamp_us, 0U);
   EXPECT_EQ(entry.offset, 7U);
   EXPECT_EQ(entry.size, 4U);
-  EXPECT_EQ(
-      entry.detail_kind,
-      static_cast<uint8_t>(InjectedErrorLog::DetailKind::kOffsetSizeAndHead));
+  EXPECT_EQ(entry.detail_kind, InjectedErrorLog::kDetailOffsetSizeAndHead);
   EXPECT_EQ(entry.detail_payload_size, 4U);
   EXPECT_EQ(entry.retryable, 0U);
   EXPECT_EQ(entry.data_loss, 1U);
@@ -119,21 +100,22 @@ TEST_F(InjectedErrorLogTest, BasicRecordAndFinalize) {
 TEST_F(InjectedErrorLogTest, DirectLogKeepsAllEntries) {
   std::string path =
       test::PerThreadDBPath("injected_error_log_all_entries.bin");
-  InjectedErrorLog log;
-  log.SetLogFilePath(path);
-  IOStatus status = IOStatus::IOError("injected write error");
+  {
+    InjectedErrorLog log(path);
+    IOStatus status = IOStatus::IOError("injected write error");
 
-  constexpr size_t kNumEntries = 1100;
-  for (size_t i = 0; i < kNumEntries; ++i) {
-    std::string file_name = "file" + std::to_string(i);
-    log.Record("Append", file_name, fault_injection_detail::NoDetail(), status);
+    constexpr size_t kNumEntries = 1100;
+    for (size_t i = 0; i < kNumEntries; ++i) {
+      std::string file_name = "file" + std::to_string(i);
+      log.Record("Append", file_name, fault_injection_detail::NoDetail(),
+                 status);
+    }
+    log.Flush();
   }
-  log.Finalize();
 
   std::string raw = ReadRawLog(path);
-  auto header = DecodeHeader(raw);
-  ASSERT_EQ(header.total_entries, static_cast<uint64_t>(kNumEntries));
-  ASSERT_EQ(header.dumped_entries, static_cast<uint32_t>(kNumEntries));
+  constexpr size_t kNumEntries = 1100;
+  ASSERT_EQ(raw.size(), kNumEntries * sizeof(InjectedErrorLog::Entry));
 
   auto first = DecodeEntry(raw, 0);
   auto last = DecodeEntry(raw, kNumEntries - 1);
@@ -144,40 +126,38 @@ TEST_F(InjectedErrorLogTest, DirectLogKeepsAllEntries) {
 
 // Goal: verify concurrent Record() calls append independent entries to the
 // shared file. The test has several threads emit records concurrently and then
-// checks the finalized header count matches the total number of writes.
+// checks the raw file size matches the total number of writes.
 TEST_F(InjectedErrorLogTest, ConcurrentRecord) {
   std::string path = test::PerThreadDBPath("injected_error_log_concurrent.bin");
-  InjectedErrorLog log;
-  log.SetLogFilePath(path);
-  IOStatus status = IOStatus::IOError("injected read error");
   constexpr int kNumThreads = 4;
   constexpr int kRecordsPerThread = 200;
+  {
+    InjectedErrorLog log(path);
+    IOStatus status = IOStatus::IOError("injected read error");
 
-  std::vector<std::thread> threads;
-  threads.reserve(kNumThreads);
-  for (int t = 0; t < kNumThreads; t++) {
-    threads.emplace_back([&log, &status, t]() {
-      for (int i = 0; i < kRecordsPerThread; i++) {
-        std::string file_name =
-            "thread" + std::to_string(t) + "_" + std::to_string(i);
-        log.Record("Read", file_name, fault_injection_detail::NoDetail(),
-                   status);
-      }
-    });
+    std::vector<std::thread> threads;
+    threads.reserve(kNumThreads);
+    for (int t = 0; t < kNumThreads; t++) {
+      threads.emplace_back([&log, &status, t]() {
+        for (int i = 0; i < kRecordsPerThread; i++) {
+          std::string file_name =
+              "thread" + std::to_string(t) + "_" + std::to_string(i);
+          log.Record("Read", file_name, fault_injection_detail::NoDetail(),
+                     status);
+        }
+      });
+    }
+
+    for (auto& t : threads) {
+      t.join();
+    }
+
+    log.Flush();
   }
-
-  for (auto& t : threads) {
-    t.join();
-  }
-
-  log.Finalize();
 
   std::string raw = ReadRawLog(path);
-  auto header = DecodeHeader(raw);
-  ASSERT_EQ(header.total_entries,
-            static_cast<uint64_t>(kNumThreads * kRecordsPerThread));
-  ASSERT_EQ(header.dumped_entries,
-            static_cast<uint32_t>(kNumThreads * kRecordsPerThread));
+  ASSERT_EQ(raw.size(), static_cast<size_t>(kNumThreads * kRecordsPerThread) *
+                            sizeof(InjectedErrorLog::Entry));
 }
 
 // Goal: verify long file paths are suffix-truncated so the basename survives
@@ -186,18 +166,17 @@ TEST_F(InjectedErrorLogTest, ConcurrentRecord) {
 TEST_F(InjectedErrorLogTest, LongFileNameKeepsSuffix) {
   std::string path =
       test::PerThreadDBPath("injected_error_log_suffix_truncation.bin");
-  InjectedErrorLog log;
-  log.SetLogFilePath(path);
-
   const std::string long_file_name =
       "/sandcastle/jobs/trace/debug/very/long/path/that/keeps/growing/"
       "db_crashtest/fault_injection/000123.sst";
   ASSERT_GT(long_file_name.size(), InjectedErrorLog::kMaxFileNameLen - 1);
-
-  IOStatus status = IOStatus::IOError("injected write error");
-  log.Record("Append", long_file_name, fault_injection_detail::NoDetail(),
-             status);
-  log.Finalize();
+  {
+    InjectedErrorLog log(path);
+    IOStatus status = IOStatus::IOError("injected write error");
+    log.Record("Append", long_file_name, fault_injection_detail::NoDetail(),
+               status);
+    log.Flush();
+  }
 
   std::string raw = ReadRawLog(path);
   auto entry = DecodeEntry(raw, 0);

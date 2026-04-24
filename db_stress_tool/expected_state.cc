@@ -4,6 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <atomic>
+#include <cstdio>
+#include <cstdlib>
 #ifdef GFLAGS
 
 #include "db/wide/wide_column_serialization.h"
@@ -346,6 +348,42 @@ Status FileExpectedStateManager::Open() {
   return s;
 }
 
+namespace {
+
+class FatalExpectedStateTraceWriter : public TraceWriter {
+ public:
+  FatalExpectedStateTraceWriter(std::string trace_file_path,
+                                std::unique_ptr<TraceWriter>&& target)
+      : trace_file_path_(std::move(trace_file_path)),
+        target_(std::move(target)) {
+    assert(target_ != nullptr);
+  }
+
+  Status Write(const Slice& data) override {
+    Status s = target_->Write(data);
+    if (!s.ok()) {
+      // Expected-state tracing is part of crash-recovery verification, not
+      // best-effort observability. Stop immediately before history diverges.
+      fprintf(stderr, "Fatal expected-state trace write failure for %s: %s\n",
+              trace_file_path_.c_str(), s.ToString().c_str());
+      fflush(stderr);
+      fflush(stdout);
+      std::_Exit(1);
+    }
+    return s;
+  }
+
+  Status Close() override { return target_->Close(); }
+
+  uint64_t GetFileSize() override { return target_->GetFileSize(); }
+
+ private:
+  const std::string trace_file_path_;
+  std::unique_ptr<TraceWriter> target_;
+};
+
+}  // anonymous namespace
+
 Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
   SequenceNumber seqno = db->GetLatestSequenceNumber();
 
@@ -388,6 +426,10 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
     soptions.writable_file_max_buffer_size = 0;
     s = NewFileTraceWriter(Env::Default(), soptions, trace_file_path,
                            &trace_writer);
+    if (s.ok()) {
+      trace_writer.reset(new FatalExpectedStateTraceWriter(
+          trace_file_path, std::move(trace_writer)));
+    }
   }
   if (s.ok()) {
     TraceOptions trace_opts;
@@ -425,81 +467,6 @@ bool FileExpectedStateManager::HasHistory() {
 
 namespace {
 
-uint64_t DecodeBigEndianFixed64(const char* data) {
-  uint64_t value = 0;
-  for (size_t i = 0; i < sizeof(uint64_t); ++i) {
-    value = (value << 8) | static_cast<unsigned char>(data[i]);
-  }
-  return value;
-}
-
-// Check whether `raw_key` is still the canonical db_stress encoding for
-// `key_id` without rebuilding the full string form for every replayed write.
-bool KeyRoundTrips(const std::string& raw_key, uint64_t key_id) {
-  const uint64_t window = key_gen_ctx.window;
-  uint64_t window_idx = key_id / window;
-  uint64_t offset = key_id % window;
-  size_t pos = 0;
-
-  for (size_t level = 0; level < key_gen_ctx.weights.size(); ++level) {
-    if (pos + sizeof(uint64_t) > raw_key.size()) {
-      return false;
-    }
-
-    const uint64_t weight = key_gen_ctx.weights[level];
-    uint64_t expected_prefix = level == 0 ? window_idx * weight : 0;
-    expected_prefix += offset >= weight ? weight - 1 : offset;
-    if (DecodeBigEndianFixed64(raw_key.data() + pos) != expected_prefix) {
-      return false;
-    }
-    pos += sizeof(uint64_t);
-
-    if (offset < weight) {
-      size_t expected_trailer_len = 0;
-      if (offset < weight - 1 && level + 1 < key_gen_ctx.weights.size()) {
-        expected_trailer_len = static_cast<size_t>(offset & 0x7);
-      }
-      if (pos + expected_trailer_len != raw_key.size()) {
-        return false;
-      }
-      for (size_t i = 0; i < expected_trailer_len; ++i) {
-        if (raw_key[pos + i] != 'x') {
-          return false;
-        }
-      }
-      return true;
-    }
-
-    offset -= weight;
-  }
-
-  return pos == raw_key.size();
-}
-
-void LogExpectedStateTraceReplayNextFailure(const Status& status,
-                                            bool handler_done) {
-  fprintf(stdout,
-          "[expected_state_trace] restore_replay_next status=%s "
-          "handler_done=%d\n",
-          status.ToString().c_str(), handler_done ? 1 : 0);
-  fflush(stdout);
-}
-
-void LogExpectedStateTraceReplaySummary(const Status& status,
-                                        uint64_t replayed_write_ops,
-                                        uint64_t replay_write_ops,
-                                        uint64_t key_decode_failures,
-                                        uint64_t key_roundtrip_mismatches) {
-  fprintf(stdout,
-          "[expected_state_trace] restore_replay_summary status=%s "
-          "replayed_write_ops=%" PRIu64 "/%" PRIu64
-          " key_decode_failures=%" PRIu64 " key_roundtrip_mismatches=%" PRIu64
-          "\n",
-          status.ToString().c_str(), replayed_write_ops, replay_write_ops,
-          key_decode_failures, key_roundtrip_mismatches);
-  fflush(stdout);
-}
-
 // An `ExpectedStateTraceRecordHandler` applies a configurable number of traced
 // write operations to the configured expected state. It is used in
 // `FileExpectedStateManager::Restore()` to sync the expected state with the
@@ -516,10 +483,6 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
   bool IsDone() const { return num_write_ops_ >= max_write_ops_; }
 
   uint64_t NumWriteOps() const { return num_write_ops_; }
-  uint64_t NumKeyDecodeFailures() const { return key_decode_failures_; }
-  uint64_t NumKeyRoundtripMismatches() const {
-    return key_roundtrip_mismatches_;
-  }
 
   bool Continue() override { return !IsDone(); }
 
@@ -790,11 +753,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                         uint64_t* key_id) {
     const std::string raw_key = key.ToString();
     if (!GetIntVal(raw_key, key_id)) {
-      ++key_decode_failures_;
       return Status::Corruption(error_msg, raw_key);
-    }
-    if (!KeyRoundTrips(raw_key, *key_id)) {
-      ++key_roundtrip_mismatches_;
     }
     return Status::OK();
   }
@@ -807,8 +766,6 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
   uint64_t num_write_ops_ = 0;
   uint64_t max_write_ops_;
   ExpectedState* state_;
-  uint64_t key_decode_failures_ = 0;
-  uint64_t key_roundtrip_mismatches_ = 0;
   std::unordered_map<std::string, std::unique_ptr<WriteBatch>>
       xid_to_buffered_writes_;
   std::unique_ptr<WriteBatch> buffered_writes_;
@@ -843,9 +800,6 @@ Status FileExpectedStateManager::Restore(DB* db) {
 
   std::string persisted_seqno_file_path = GetPathForFilename(
       kPersistedSeqnoBasename + kPersistedSeqnoFilenameSuffix);
-  uint64_t replayed_write_ops = 0;
-  uint64_t key_decode_failures = 0;
-  uint64_t key_roundtrip_mismatches = 0;
 
   if (s.ok()) {
     // We are going to replay on top of "`seqno`.state" to create a new
@@ -867,8 +821,8 @@ Status FileExpectedStateManager::Restore(DB* db) {
       s = state->Open(false /* create */);
     }
     if (s.ok()) {
-      handler.reset(new ExpectedStateTraceRecordHandler(seqno - saved_seqno_,
-                                                        state.get()));
+      handler.reset(
+          new ExpectedStateTraceRecordHandler(replay_write_ops, state.get()));
       // TODO(ajkr): An API limitation requires we provide `handles` although
       // they will be unused since we only use the replayer for reading records.
       // Just give a default CFH for now to satisfy the requirement.
@@ -885,9 +839,6 @@ Status FileExpectedStateManager::Restore(DB* db) {
       if (!s.ok()) {
         const bool handler_done = handler != nullptr && handler->IsDone();
         const bool tolerated_tail_corruption = s.IsCorruption() && handler_done;
-        if (!s.IsIncomplete() && !tolerated_tail_corruption) {
-          LogExpectedStateTraceReplayNextFailure(s, handler_done);
-        }
         if (tolerated_tail_corruption) {
           // There could be a corruption reading the tail record of the trace
           // due to `db_stress` crashing while writing it. It shouldn't matter
@@ -909,19 +860,8 @@ Status FileExpectedStateManager::Restore(DB* db) {
       s = Status::Corruption(
           "Trace ended before replaying all expected write ops",
           std::to_string(handler->NumWriteOps()) + " < " +
-              std::to_string(seqno - saved_seqno_));
+              std::to_string(replay_write_ops));
     }
-    if (handler != nullptr) {
-      replayed_write_ops = handler->NumWriteOps();
-      key_decode_failures = handler->NumKeyDecodeFailures();
-      key_roundtrip_mismatches = handler->NumKeyRoundtripMismatches();
-    }
-  }
-
-  if (!s.ok()) {
-    LogExpectedStateTraceReplaySummary(s, replayed_write_ops, replay_write_ops,
-                                       key_decode_failures,
-                                       key_roundtrip_mismatches);
   }
 
   if (s.ok()) {

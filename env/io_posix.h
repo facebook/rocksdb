@@ -66,6 +66,7 @@ std::string IOErrorMsg(const std::string& context,
 // file_name can be left empty if it is not unkown.
 IOStatus IOError(const std::string& context, const std::string& file_name,
                  int err_number);
+bool PosixPositionedWrite(int fd, const char* buf, size_t nbyte, off_t offset);
 
 // SyncPoint payload used by deterministic TSAN regression tests to observe
 // which virtual address range a freshly created mapping occupies.
