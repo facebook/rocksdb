@@ -53,7 +53,8 @@ module.exports = async function postPrComment({
   }
 
   function commentActivityTime(comment) {
-    const timestamp = Date.parse(comment.updated_at || comment.created_at || '');
+    const timestamp =
+        Date.parse(comment.updated_at || comment.created_at || '');
     return Number.isNaN(timestamp) ? 0 : timestamp;
   }
 
@@ -67,8 +68,7 @@ module.exports = async function postPrComment({
       core.info(`${reason} ${comment.id}`);
     } catch (error) {
       if (error.status === 404) {
-        core.info(
-            `Comment ${comment.id} was already deleted by another run.`);
+        core.info(`Comment ${comment.id} was already deleted by another run.`);
         return;
       }
       throw error;
@@ -81,15 +81,14 @@ module.exports = async function postPrComment({
           typeof comment.body === 'string' && comment.body.includes(marker));
   const legacy = existing ?
       null :
-      comments
-          .filter(
-              comment => typeof comment.body === 'string' &&
-                  legacyMarkers.some(
-                      legacyMarker => comment.body.includes(legacyMarker)))
-          .sort(
-              (left, right) =>
-                commentActivityTime(right) - commentActivityTime(left))[0] ||
-      null;
+      comments.filter(
+                  comment => typeof comment.body === 'string' &&
+                      legacyMarkers.some(
+                          legacyMarker => comment.body.includes(legacyMarker)))
+              .sort(
+                  (left, right) => commentActivityTime(right) -
+                      commentActivityTime(left))[0] ||
+          null;
   const target = existing || legacy;
   let currentCommentId = null;
   let currentCommentTime = 0;
@@ -131,42 +130,41 @@ module.exports = async function postPrComment({
   if (prunePrefix || legacyMarkers.length > 0) {
     comments = await listComments();
     if (!currentCommentTime) {
-      const currentComment = comments.find(comment => comment.id === currentCommentId);
-      currentCommentTime = currentComment ? commentActivityTime(currentComment) : 0;
+      const currentComment =
+          comments.find(comment => comment.id === currentCommentId);
+      currentCommentTime =
+          currentComment ? commentActivityTime(currentComment) : 0;
     }
 
-    const legacyComments = comments.filter(comment =>
-      comment.id !== currentCommentId &&
-      typeof comment.body === 'string' &&
-      legacyMarkers.some(legacyMarker => comment.body.includes(legacyMarker))
-    );
+    const legacyComments = comments.filter(
+        comment => comment.id !== currentCommentId &&
+            typeof comment.body === 'string' &&
+            legacyMarkers.some(
+                legacyMarker => comment.body.includes(legacyMarker)));
     for (const comment of legacyComments) {
-      await deleteCommentIfPresent(
-          comment,
-          'Deleted legacy marker comment');
+      await deleteCommentIfPresent(comment, 'Deleted legacy marker comment');
     }
 
     if (!prunePrefix || preserveLatest <= 0) {
       return;
     }
 
-    const currentMarkerComments = comments
-        .filter(comment =>
-          comment.id !== currentCommentId &&
-          typeof comment.body === 'string' &&
-          comment.body.includes(prunePrefix)
-        )
-        .sort(
-            (left, right) =>
-              commentActivityTime(right) - commentActivityTime(left));
+    const currentMarkerComments =
+        comments
+            .filter(
+                comment => comment.id !== currentCommentId &&
+                    typeof comment.body === 'string' &&
+                    comment.body.includes(prunePrefix))
+            .sort(
+                (left, right) =>
+                    commentActivityTime(right) - commentActivityTime(left));
 
     const newerThanCurrent = currentMarkerComments.filter(
         comment => commentActivityTime(comment) > currentCommentTime);
     const olderOrSame = currentMarkerComments.filter(
         comment => commentActivityTime(comment) <= currentCommentTime);
-    const olderSlots = Math.max(
-        preserveLatest - 1 - newerThanCurrent.length,
-        0);
+    const olderSlots =
+        Math.max(preserveLatest - 1 - newerThanCurrent.length, 0);
     const keep = new Set([
       currentCommentId,
       ...newerThanCurrent.map(comment => comment.id),
