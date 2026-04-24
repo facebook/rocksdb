@@ -967,6 +967,11 @@ public enum TickerType {
      */
     READ_PATH_RANGE_TOMBSTONES_DISCARDED((byte) -0x6A),
 
+    /**
+     * # of times MANIFEST content validation detected corruption on DB close
+     */
+    MANIFEST_VALIDATION_FAILURE_COUNT((byte) -0x6B),
+
     TICKER_ENUM_MAX((byte) -0x54);
 
     private final byte value;

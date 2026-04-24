@@ -5728,6 +5728,8 @@ Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
         // Manifest is healthy, no need to check again
         break;
       }
+      RecordTick(db_options_->statistics.get(),
+                 MANIFEST_VALIDATION_FAILURE_COUNT);
       IOStatus corrupt_io_s =
           IOStatus::Corruption("MANIFEST content validation failed");
       IOErrorInfo io_error_info(corrupt_io_s, FileOperationType::kVerify,

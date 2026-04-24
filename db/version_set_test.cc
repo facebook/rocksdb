@@ -20,6 +20,7 @@
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/statistics.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/mock_table.h"
 #include "table/unique_id_impl.h"
@@ -2412,6 +2413,8 @@ TEST_F(VersionSetTest, ManifestContentValidationOnCloseClean) {
   // Enable content validation, perform normal operations, close.
   // Verify no manifest rotation (file number unchanged).
   NewDB();
+  auto stats = CreateDBStatistics();
+  imm_db_options_.statistics = stats;
   mutable_db_options_.verify_manifest_content_on_close = true;
   mutex_.Lock();
   versions_->UpdatedMutableDbOptions(mutable_db_options_, &mutex_);
@@ -2437,6 +2440,9 @@ TEST_F(VersionSetTest, ManifestContentValidationOnCloseClean) {
   // Verify content validation actually ran
   ASSERT_TRUE(content_validation_ran);
 
+  // No corruption — counter should be zero
+  ASSERT_EQ(0, stats->getTickerCount(MANIFEST_VALIDATION_FAILURE_COUNT));
+
   // Manifest path should be unchanged (no rotation)
   std::string manifest_path_after;
   uint64_t manifest_file_number = 0;
@@ -2452,6 +2458,8 @@ TEST_F(VersionSetTest, ManifestContentValidationOnCloseCorruptRecord) {
   // Enable content validation, corrupt the manifest after closing the writer,
   // verify manifest rotation occurs and DB reopens cleanly.
   NewDB();
+  auto stats = CreateDBStatistics();
+  imm_db_options_.statistics = stats;
   mutable_db_options_.verify_manifest_content_on_close = true;
   mutex_.Lock();
   versions_->UpdatedMutableDbOptions(mutable_db_options_, &mutex_);
@@ -2488,6 +2496,9 @@ TEST_F(VersionSetTest, ManifestContentValidationOnCloseCorruptRecord) {
   CloseDB();
   SyncPoint::GetInstance()->DisableProcessing();
 
+  // Corruption detected once, rewrite succeeded
+  ASSERT_EQ(1, stats->getTickerCount(MANIFEST_VALIDATION_FAILURE_COUNT));
+
   // Manifest should have been rotated (new file number)
   std::string manifest_path_after;
   uint64_t manifest_file_number = 0;
@@ -2504,6 +2515,8 @@ TEST_F(VersionSetTest, ManifestContentValidationOnCloseDisabled) {
   // Default (option disabled), corrupt manifest after writer close,
   // verify no rotation occurred — corrupt manifest persists.
   NewDB();
+  auto stats = CreateDBStatistics();
+  imm_db_options_.statistics = stats;
   // verify_manifest_content_on_close defaults to false
 
   VersionEdit edit;
@@ -2525,6 +2538,9 @@ TEST_F(VersionSetTest, ManifestContentValidationOnCloseDisabled) {
 
   ASSERT_FALSE(content_validation_ran);
 
+  // Validation disabled — counter should be zero
+  ASSERT_EQ(0, stats->getTickerCount(MANIFEST_VALIDATION_FAILURE_COUNT));
+
   // Manifest path should be unchanged (no rotation since validation is off)
   std::string manifest_path_after;
   uint64_t manifest_file_number = 0;
@@ -2539,6 +2555,8 @@ TEST_F(VersionSetTest, ManifestContentValidationOnCloseSizeCheckFails) {
   // Verify recovery happens via size-check path. Content validation still
   // runs afterward on the freshly rewritten manifest.
   NewDB();
+  auto stats = CreateDBStatistics();
+  imm_db_options_.statistics = stats;
   mutable_db_options_.verify_manifest_content_on_close = true;
   mutex_.Lock();
   versions_->UpdatedMutableDbOptions(mutable_db_options_, &mutex_);
@@ -2566,6 +2584,10 @@ TEST_F(VersionSetTest, ManifestContentValidationOnCloseSizeCheckFails) {
   ASSERT_NO_FATAL_FAILURE(CloseDB());
   SyncPoint::GetInstance()->DisableProcessing();
 
+  // Size check caught the issue; content validation on rewritten manifest
+  // should pass — no content validation failure recorded
+  ASSERT_EQ(0, stats->getTickerCount(MANIFEST_VALIDATION_FAILURE_COUNT));
+
   // Size check should have triggered rotation
   std::string manifest_path_after;
   uint64_t manifest_file_number = 0;
@@ -2583,6 +2605,8 @@ TEST_F(VersionSetTest, ManifestContentValidationOnCloseCorruptAfterRewrite) {
   // The loop should detect corruption twice: once triggering a rewrite, and
   // once reporting that the rewritten manifest is also corrupt.
   NewDB();
+  auto stats = CreateDBStatistics();
+  imm_db_options_.statistics = stats;
   mutable_db_options_.verify_manifest_content_on_close = true;
   mutex_.Lock();
   versions_->UpdatedMutableDbOptions(mutable_db_options_, &mutex_);
@@ -2636,12 +2660,17 @@ TEST_F(VersionSetTest, ManifestContentValidationOnCloseCorruptAfterRewrite) {
 
   // OnIOError should have fired twice (once per corrupt detection)
   ASSERT_EQ(io_error_count, 2);
+
+  // Validation failure counter should match
+  ASSERT_EQ(2, stats->getTickerCount(MANIFEST_VALIDATION_FAILURE_COUNT));
 }
 
 TEST_F(VersionSetTest, ManifestContentValidationOnCloseOpenFails) {
   // Delete the manifest before content validation so it can't be opened.
   // Close() should surface the I/O error to the caller.
   NewDB();
+  auto stats = CreateDBStatistics();
+  imm_db_options_.statistics = stats;
   mutable_db_options_.verify_manifest_content_on_close = true;
   mutex_.Lock();
   versions_->UpdatedMutableDbOptions(mutable_db_options_, &mutex_);
@@ -2667,6 +2696,9 @@ TEST_F(VersionSetTest, ManifestContentValidationOnCloseOpenFails) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 
   ASSERT_TRUE(close_s.IsIOError()) << close_s.ToString();
+
+  // File couldn't be opened — no content validation ran
+  ASSERT_EQ(0, stats->getTickerCount(MANIFEST_VALIDATION_FAILURE_COUNT));
 }
 
 TEST_F(VersionStorageInfoTest, AddRangeDeletionCompensatedFileSize) {
