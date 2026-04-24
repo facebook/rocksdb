@@ -27,7 +27,9 @@
 #define IORING_SETUP_DEFER_TASKRUN (1U << 13)
 #endif
 #endif
+#if !defined(OS_WIN)
 #include <unistd.h>
+#endif
 
 #include <atomic>
 #include <functional>
@@ -66,7 +68,9 @@ std::string IOErrorMsg(const std::string& context,
 // file_name can be left empty if it is not unkown.
 IOStatus IOError(const std::string& context, const std::string& file_name,
                  int err_number);
+#if !defined(OS_WIN)
 bool PosixPositionedWrite(int fd, const char* buf, size_t nbyte, off_t offset);
+#endif
 
 // SyncPoint payload used by deterministic TSAN regression tests to observe
 // which virtual address range a freshly created mapping occupies.

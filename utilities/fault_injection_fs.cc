@@ -43,6 +43,7 @@ const std::string kNewFileNoOverwrite;
 
 namespace {
 
+#ifndef OS_WIN
 uint64_t NowMicros() {
   auto now = std::chrono::system_clock::now();
   return std::chrono::duration_cast<std::chrono::microseconds>(
@@ -61,6 +62,7 @@ void CopyStringSample(const Slice& src, char* dst, size_t dst_len) {
   }
   dst[copied] = '\0';
 }
+#endif
 
 int OpenInjectedErrorLogFile(const std::string& path) {
 #ifndef OS_WIN
