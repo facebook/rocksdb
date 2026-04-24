@@ -7510,6 +7510,65 @@ TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   ASSERT_EQ(0, options.statistics->getTickerCount(GET_HIT_L0));
 }
 
+TEST_F(DBTest2,
+       GetLatestSequenceForKeyFromHistoryWithBlobBackedWideColumnEntity) {
+  // Goal: exercise the memtable history lookup in GetLatestSequenceForKey()
+  // after blob direct write stores a blob-backed V2 entity in a flushed
+  // memtable. Using cache_only=true ensures the lookup succeeds only if the
+  // history path can resolve the wide-column base value under the newer merge.
+  Destroy(last_options_);
+
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.enable_blob_direct_write = true;
+  options.min_blob_size = 50;
+  options.allow_concurrent_memtable_write = false;
+  options.blob_direct_write_partitions = 1;
+  options.max_write_buffer_size_to_maintain = 64 << 10;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator("|");
+
+  Reopen(options);
+
+  const std::string key = "history_blob_entity";
+  const std::string default_value(100, 'd');
+  const std::string merge_operand = "suffix";
+  WideColumns columns{{kDefaultWideColumnName, default_value},
+                      {"meta", "inline"}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key,
+                       merge_operand));
+  const SequenceNumber expected_seq = dbfull()->GetLatestSequenceNumber();
+
+  ASSERT_OK(Flush());
+  ASSERT_FALSE(GetBlobFileNumbers().empty());
+
+  uint64_t num_immutable_memtables = 0;
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumImmutableMemTable,
+                                  &num_immutable_memtables));
+  ASSERT_EQ(num_immutable_memtables, 0);
+
+  auto* cfhi = static_cast_with_check<ColumnFamilyHandleImpl>(
+      dbfull()->DefaultColumnFamily());
+  assert(cfhi);
+  assert(cfhi->cfd());
+  SuperVersion* sv = cfhi->cfd()->GetSuperVersion();
+
+  SequenceNumber seq = kMaxSequenceNumber;
+  bool found_record_for_key = false;
+  bool is_blob_index = false;
+  const Status s = dbfull()->GetLatestSequenceForKey(
+      sv, key, /*cache_only=*/true, /*lower_bound_seq=*/0, &seq,
+      /*timestamp=*/nullptr, &found_record_for_key, &is_blob_index);
+
+  ASSERT_OK(s);
+  ASSERT_TRUE(found_record_for_key);
+  ASSERT_EQ(expected_seq, seq);
+  ASSERT_FALSE(is_blob_index);
+}
+
 #if defined(ZSTD)
 TEST_F(DBTest2, ZSTDChecksum) {
   // Verify that corruption during decompression is caught.

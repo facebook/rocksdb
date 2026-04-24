@@ -29,6 +29,7 @@
 
 #include "db/arena_wrapped_db_iter.h"
 #include "db/attribute_group_iterator_impl.h"
+#include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_index.h"
 #include "db/builder.h"
@@ -2745,6 +2746,148 @@ Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
   return status;
 }
 
+bool DBImpl::MaybeResolveMemtableBlobValue(const Slice& key,
+                                           const BlobFetcher* blob_fetcher,
+                                           PinnableSlice* value,
+                                           PinnableWideColumns* columns,
+                                           Status* s, bool* is_blob_index,
+                                           bool* value_found) {
+  if (!s->ok() || (!value && !columns)) {
+    return false;
+  }
+
+  auto reset_outputs = [&]() {
+    if (value != nullptr) {
+      value->Reset();
+    }
+    if (columns != nullptr) {
+      columns->Reset();
+    }
+  };
+  auto clear_blob_state = [&]() {
+    if (is_blob_index != nullptr) {
+      *is_blob_index = false;
+    }
+  };
+
+  const bool needs_plain_value_resolution =
+      is_blob_index != nullptr && *is_blob_index;
+  const bool needs_wide_column_resolution =
+      columns != nullptr && !columns->unresolved_blob_column_indices_.empty();
+  if (!needs_plain_value_resolution && !needs_wide_column_resolution) {
+    return false;
+  }
+
+  if (blob_fetcher == nullptr) {
+    reset_outputs();
+    *s = Status::NotSupported(
+        "Encountered blob-backed memtable value without blob fetcher.");
+    clear_blob_state();
+    return true;
+  }
+
+  if (needs_plain_value_resolution) {
+    Slice blob_index_slice;
+    std::string blob_index_storage;
+    if (value != nullptr) {
+      if (value->size() > 0) {
+        blob_index_slice = Slice(value->data(), value->size());
+      } else {
+        blob_index_slice = Slice(*(value->GetSelf()));
+      }
+    } else {
+      assert(columns != nullptr);
+
+      const WideColumns& plain_value_columns = columns->columns();
+      assert(plain_value_columns.size() == 1);
+      assert(plain_value_columns.front().name() == kDefaultWideColumnName);
+      blob_index_slice = plain_value_columns.front().value();
+    }
+
+    PinnableSlice resolved_value;
+    PinnableSlice* target = value != nullptr ? value : &resolved_value;
+    if (value != nullptr) {
+      // BlobIndex::DecodeFrom can retain Slices into the encoded bytes for
+      // inlined blob indices, so take an owned copy before resetting `value`
+      // and reusing the same PinnableSlice as the output target.
+      blob_index_storage.assign(blob_index_slice.data(),
+                                blob_index_slice.size());
+      blob_index_slice = Slice(blob_index_storage);
+      value->Reset();
+    }
+
+    *s = blob_fetcher->FetchBlob(key, blob_index_slice,
+                                 nullptr /* prefetch_buffer */, target,
+                                 nullptr /* bytes_read */);
+    if (s->ok() && columns != nullptr) {
+      columns->SetPlainValue(std::move(*target));
+    } else if (!s->ok()) {
+      reset_outputs();
+      if (s->IsIncomplete() && value_found != nullptr) {
+        *value_found = false;
+      }
+    }
+
+    clear_blob_state();
+    return true;
+  }
+
+  assert(columns != nullptr);
+
+  std::string resolved_entity;
+  bool resolved = false;
+  *s = WideColumnSerialization::ResolveEntityBlobColumns(
+      columns->value_, key, blob_fetcher, nullptr /* prefetch_buffers */,
+      resolved_entity, resolved, nullptr /* total_bytes_read */,
+      nullptr /* num_blobs_resolved */);
+  if (s->ok()) {
+    assert(resolved);
+    if (resolved) {
+      *s = columns->SetWideColumnValue(std::move(resolved_entity));
+    }
+  }
+  if (!s->ok()) {
+    reset_outputs();
+    if (s->IsIncomplete() && value_found != nullptr) {
+      *value_found = false;
+    }
+  }
+
+  clear_blob_state();
+  return true;
+}
+
+void DBImpl::PostprocessMemtableValueRead(
+    const Slice& key, const std::string* timestamp,
+    bool resolve_blob_backed_memtable_value,
+    const BlobFetcher* memtable_blob_fetcher, PinnableSlice* value,
+    PinnableWideColumns* columns, Status* s, bool* is_blob_index,
+    bool* value_found) {
+  if (resolve_blob_backed_memtable_value) {
+    std::string blob_lookup_key_storage;
+    const bool value_resolved = MaybeResolveMemtableBlobValue(
+        GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage),
+        memtable_blob_fetcher, value, columns, s, is_blob_index, value_found);
+    if (!value_resolved && value != nullptr && s->ok()) {
+      value->PinSelf();
+    }
+    return;
+  }
+
+  if (s->ok()) {
+    if (value != nullptr) {
+      value->PinSelf();
+    }
+  } else {
+    if (value != nullptr) {
+      value->Reset();
+    }
+    if (columns != nullptr) {
+      columns->Reset();
+    }
+  }
+}
+
 bool DBImpl::MaybeResolveDirectWriteValue(
     const ReadOptions& read_options, const Slice& key,
     bool resolve_direct_write_value, const Version* current,
@@ -2960,6 +3103,14 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   }
   const bool resolve_direct_write_value =
       partition_mgr != nullptr && (is_blob_ptr == &is_blob_index);
+  std::optional<BlobFetcher> memtable_blob_fetcher;
+  if (partition_mgr != nullptr) {
+    memtable_blob_fetcher.emplace(sv->current, read_options,
+                                  cfd->blob_file_cache(),
+                                  /*allow_write_path_fallback=*/true);
+  }
+  const BlobFetcher* memtable_blob_fetcher_ptr =
+      memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
   std::string blob_lookup_key_storage;
   auto get_blob_lookup_key = [&]() -> Slice {
     return GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage);
@@ -2987,19 +3138,21 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        get_impl_options.columns, timestamp, &s, &merge_context,
                        &max_covering_tombstone_seq, read_options,
                        false /* immutable_memtable */,
-                       get_impl_options.callback, is_blob_ptr)) {
+                       get_impl_options.callback, is_blob_ptr,
+                       /*do_merge=*/true, memtable_blob_fetcher_ptr)) {
         done = true;
         maybe_resolve_memtable_value();
 
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
-                 sv->imm->Get(
-                     lkey,
-                     get_impl_options.value ? get_impl_options.value->GetSelf()
-                                            : nullptr,
-                     get_impl_options.columns, timestamp, &s, &merge_context,
-                     &max_covering_tombstone_seq, read_options,
-                     get_impl_options.callback, is_blob_ptr)) {
+                 sv->imm->Get(lkey,
+                              get_impl_options.value
+                                  ? get_impl_options.value->GetSelf()
+                                  : nullptr,
+                              get_impl_options.columns, timestamp, &s,
+                              &merge_context, &max_covering_tombstone_seq,
+                              read_options, get_impl_options.callback,
+                              is_blob_ptr, memtable_blob_fetcher_ptr)) {
         done = true;
         maybe_resolve_memtable_value();
 
@@ -3011,14 +3164,14 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       if (sv->mem->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr,
                        /*timestamp=*/nullptr, &s, &merge_context,
                        &max_covering_tombstone_seq, read_options,
-                       false /* immutable_memtable */, nullptr, nullptr,
-                       false)) {
+                       false /* immutable_memtable */, nullptr, nullptr, false,
+                       memtable_blob_fetcher_ptr)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
-                 sv->imm->GetMergeOperands(lkey, &s, &merge_context,
-                                           &max_covering_tombstone_seq,
-                                           read_options)) {
+                 sv->imm->GetMergeOperands(
+                     lkey, &s, &merge_context, &max_covering_tombstone_seq,
+                     read_options, memtable_blob_fetcher_ptr)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       }
@@ -3714,6 +3867,14 @@ Status DBImpl::MultiGetImpl(
       (*sorted_keys)[start_key]->column_family);
   ColumnFamilyData* cfd = cfh->cfd();
   auto* partition_mgr = cfd->blob_partition_manager();
+  std::optional<BlobFetcher> memtable_blob_fetcher;
+  if (partition_mgr != nullptr) {
+    memtable_blob_fetcher.emplace(super_version->current, read_options,
+                                  cfd->blob_file_cache(),
+                                  /*allow_write_path_fallback=*/true);
+  }
+  const BlobFetcher* memtable_blob_fetcher_ptr =
+      memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
   // Clear the timestamps for returning results so that we can distinguish
   // between tombstone or key that has never been written
   for (size_t i = start_key; i < start_key + num_keys; ++i) {
@@ -3760,9 +3921,11 @@ Status DBImpl::MultiGetImpl(
          has_unpersisted_data_.load(std::memory_order_relaxed));
     if (!skip_memtable) {
       super_version->mem->MultiGet(read_options, &range, callback,
-                                   false /* immutable_memtable */);
+                                   false /* immutable_memtable */,
+                                   memtable_blob_fetcher_ptr);
       if (!range.empty()) {
-        super_version->imm->MultiGet(read_options, &range, callback);
+        super_version->imm->MultiGet(read_options, &range, callback,
+                                     memtable_blob_fetcher_ptr);
       }
       if (!range.empty()) {
         uint64_t left = range.KeysLeft();
@@ -6197,12 +6360,20 @@ Status DBImpl::GetLatestSequenceForKey(
 
   *seq = kMaxSequenceNumber;
   *found_record_for_key = false;
+  std::optional<BlobFetcher> memtable_blob_fetcher;
+  if (cfd->blob_partition_manager() != nullptr) {
+    memtable_blob_fetcher.emplace(sv->current, read_options,
+                                  cfd->blob_file_cache(),
+                                  /*allow_write_path_fallback=*/true);
+  }
+  const BlobFetcher* memtable_blob_fetcher_ptr =
+      memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
 
   // Check if there is a record for this key in the latest memtable
   sv->mem->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr, timestamp, &s,
                &merge_context, &max_covering_tombstone_seq, seq, read_options,
                false /* immutable_memtable */, nullptr /*read_callback*/,
-               is_blob_index);
+               is_blob_index, /*do_merge=*/true, memtable_blob_fetcher_ptr);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -6235,7 +6406,8 @@ Status DBImpl::GetLatestSequenceForKey(
   // Check if there is a record for this key in the immutable memtables
   sv->imm->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr, timestamp, &s,
                &merge_context, &max_covering_tombstone_seq, seq, read_options,
-               nullptr /*read_callback*/, is_blob_index);
+               nullptr /*read_callback*/, is_blob_index,
+               memtable_blob_fetcher_ptr);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -6268,7 +6440,7 @@ Status DBImpl::GetLatestSequenceForKey(
   sv->imm->GetFromHistory(lkey, /*value=*/nullptr, /*columns=*/nullptr,
                           timestamp, &s, &merge_context,
                           &max_covering_tombstone_seq, seq, read_options,
-                          is_blob_index);
+                          is_blob_index, memtable_blob_fetcher_ptr);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.

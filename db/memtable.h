@@ -39,6 +39,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class BlobFetcher;
 class BlobFilePartitionManager;
 struct FlushJobInfo;
 class Mutex;
@@ -236,25 +237,27 @@ class ReadOnlyMemTable {
                    SequenceNumber* max_covering_tombstone_seq,
                    SequenceNumber* seq, const ReadOptions& read_opts,
                    bool immutable_memtable, ReadCallback* callback = nullptr,
-                   bool* is_blob_index = nullptr, bool do_merge = true) = 0;
+                   bool* is_blob_index = nullptr, bool do_merge = true,
+                   const BlobFetcher* blob_fetcher = nullptr) = 0;
   bool Get(const LookupKey& key, std::string* value,
            PinnableWideColumns* columns, std::string* timestamp, Status* s,
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, bool immutable_memtable,
            ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-           bool do_merge = true) {
+           bool do_merge = true, const BlobFetcher* blob_fetcher = nullptr) {
     SequenceNumber seq;
     return Get(key, value, columns, timestamp, s, merge_context,
                max_covering_tombstone_seq, &seq, read_opts, immutable_memtable,
-               callback, is_blob_index, do_merge);
+               callback, is_blob_index, do_merge, blob_fetcher);
   }
 
   // @param immutable_memtable Whether this memtable is immutable. Used
   // internally by NewRangeTombstoneIterator(). See comment above
   // NewRangeTombstoneIterator() for more detail.
   virtual void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
-                        ReadCallback* callback, bool immutable_memtable) = 0;
+                        ReadCallback* callback, bool immutable_memtable,
+                        const BlobFetcher* blob_fetcher = nullptr) = 0;
 
   // Get total number of entries in the mem table.
   // REQUIRES: external synchronization to prevent simultaneous
@@ -688,10 +691,12 @@ class MemTable final : public ReadOnlyMemTable {
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, bool immutable_memtable,
            ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-           bool do_merge = true) override;
+           bool do_merge = true,
+           const BlobFetcher* blob_fetcher = nullptr) override;
 
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
-                ReadCallback* callback, bool immutable_memtable) override;
+                ReadCallback* callback, bool immutable_memtable,
+                const BlobFetcher* blob_fetcher = nullptr) override;
 
   // If `key` exists in current memtable with type value_type and the existing
   // value is at least as large as the new value, updates it in-place. Otherwise
@@ -991,7 +996,8 @@ class MemTable final : public ReadOnlyMemTable {
                     std::string* value, PinnableWideColumns* columns,
                     std::string* timestamp, Status* s,
                     MergeContext* merge_context, SequenceNumber* seq,
-                    bool* found_final_value, bool* merge_in_progress);
+                    bool* found_final_value, bool* merge_in_progress,
+                    const BlobFetcher* blob_fetcher);
 
   // Always returns non-null and assumes certain pre-checks (e.g.,
   // is_range_del_table_empty_) are done. This is only valid during the lifetime

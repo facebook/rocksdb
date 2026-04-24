@@ -6,8 +6,10 @@
 #include "db/db_impl/db_impl_secondary.h"
 
 #include <cinttypes>
+#include <optional>
 
 #include "db/arena_wrapped_db_iter.h"
+#include "db/blob/blob_fetcher.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
 #include "db/merge_context.h"
@@ -363,13 +365,25 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
 
   const Comparator* ucmp = get_impl_options.column_family->GetComparator();
   assert(ucmp);
-  std::string* ts =
-      ucmp->timestamp_size() > 0 ? get_impl_options.timestamp : nullptr;
   SequenceNumber snapshot = versions_->LastSequence();
   GetWithTimestampReadCallback read_cb(snapshot);
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
       get_impl_options.column_family);
   auto cfd = cfh->cfd();
+  bool is_blob_index = false;
+  bool* is_blob_ptr = get_impl_options.is_blob_index;
+  std::string timestamp_storage;
+  std::string* ts = nullptr;
+  if (ucmp->timestamp_size() > 0) {
+    ts = get_impl_options.timestamp != nullptr
+             ? get_impl_options.timestamp
+             : (get_impl_options.get_value ? &timestamp_storage : nullptr);
+  }
+  if (!is_blob_ptr && get_impl_options.get_value) {
+    is_blob_ptr = &is_blob_index;
+  }
+  const bool resolve_blob_backed_memtable_value =
+      get_impl_options.get_value && (is_blob_ptr == &is_blob_index);
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
@@ -395,6 +409,18 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
   bool done = false;
+  std::optional<BlobFetcher> memtable_blob_fetcher;
+  if (cfd->ioptions().enable_blob_direct_write ||
+      cfd->GetLatestMutableCFOptions().enable_blob_files) {
+    // Catch-up can rebuild older blob references into memtables after mutable
+    // blob-file settings change, so keep blob resolution available whenever
+    // either blob knob indicates it may be needed.
+    memtable_blob_fetcher.emplace(super_version->current, read_options,
+                                  cfd->blob_file_cache(),
+                                  /*allow_write_path_fallback=*/true);
+  }
+  const BlobFetcher* memtable_blob_fetcher_ptr =
+      memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
 
   // Look up starts here
   if (get_impl_options.get_value) {
@@ -404,12 +430,14 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                                    : nullptr,
             get_impl_options.columns, ts, &s, &merge_context,
             &max_covering_tombstone_seq, read_options,
-            false /* immutable_memtable */, &read_cb,
-            /*is_blob_index=*/nullptr, /*do_merge=*/true)) {
+            false /* immutable_memtable */, &read_cb, is_blob_ptr,
+            /*do_merge=*/true, memtable_blob_fetcher_ptr)) {
       done = true;
-      if (get_impl_options.value) {
-        get_impl_options.value->PinSelf();
-      }
+      DBImpl::PostprocessMemtableValueRead(
+          key, ts, resolve_blob_backed_memtable_value,
+          memtable_blob_fetcher_ptr, get_impl_options.value,
+          get_impl_options.columns, &s, &is_blob_index,
+          get_impl_options.value_found);
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
                super_version->imm->Get(
@@ -417,11 +445,14 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                    get_impl_options.value ? get_impl_options.value->GetSelf()
                                           : nullptr,
                    get_impl_options.columns, ts, &s, &merge_context,
-                   &max_covering_tombstone_seq, read_options, &read_cb)) {
+                   &max_covering_tombstone_seq, read_options, &read_cb,
+                   is_blob_ptr, memtable_blob_fetcher_ptr)) {
       done = true;
-      if (get_impl_options.value) {
-        get_impl_options.value->PinSelf();
-      }
+      DBImpl::PostprocessMemtableValueRead(
+          key, ts, resolve_blob_backed_memtable_value,
+          memtable_blob_fetcher_ptr, get_impl_options.value,
+          get_impl_options.columns, &s, &is_blob_index,
+          get_impl_options.value_found);
       RecordTick(stats_, MEMTABLE_HIT);
     }
   } else {
@@ -433,13 +464,14 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
             get_impl_options.columns, ts, &s, &merge_context,
             &max_covering_tombstone_seq, read_options,
             false /* immutable_memtable */, &read_cb,
-            /*is_blob_index=*/nullptr, /*do_merge=*/false)) {
+            /*is_blob_index=*/nullptr, /*do_merge=*/false,
+            memtable_blob_fetcher_ptr)) {
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
-               super_version->imm->GetMergeOperands(lkey, &s, &merge_context,
-                                                    &max_covering_tombstone_seq,
-                                                    read_options)) {
+               super_version->imm->GetMergeOperands(
+                   lkey, &s, &merge_context, &max_covering_tombstone_seq,
+                   read_options, memtable_blob_fetcher_ptr)) {
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
     }
@@ -457,7 +489,7 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
         ts, &s, &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
         /*value_found*/ nullptr,
         /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb, /*is_blob*/ nullptr,
-        /*do_merge*/ true);
+        /*do_merge=*/get_impl_options.get_value);
     RecordTick(stats_, MEMTABLE_MISS);
   }
   {
@@ -777,7 +809,8 @@ Status DBImplSecondary::OpenAsSecondaryImpl(
   impl->versions_.reset(new ReactiveVersionSet(
       dbname, &impl->immutable_db_options_, impl->mutable_db_options_,
       impl->file_options_, impl->table_cache_.get(),
-      impl->write_buffer_manager_, &impl->write_controller_, impl->io_tracer_));
+      impl->write_buffer_manager_, &impl->write_controller_, impl->io_tracer_,
+      impl->db_id_, impl->db_session_id_));
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
   impl->wal_in_db_path_ = impl->immutable_db_options_.IsWalDirSameAsDBPath();

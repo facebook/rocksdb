@@ -7,9 +7,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "db/blob/blob_index.h"
 #include "db/db_impl/db_impl_secondary.h"
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
+#include "db/wide/wide_column_test_util.h"
+#include "db/write_batch_internal.h"
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
@@ -357,14 +360,204 @@ TEST_F(DBSecondaryTest, GetMergeOperands) {
   const Status s = db_secondary_->GetMergeOperands(
       ReadOptions(), cfh, "k1", values.data(), &merge_operands_info,
       &number_of_operands);
-  ASSERT_NOK(s);
-  ASSERT_TRUE(s.IsMergeInProgress());
+  ASSERT_OK(s);
 
   ASSERT_EQ(number_of_operands, 4);
   ASSERT_EQ(values[0].ToString(), "v1");
   ASSERT_EQ(values[1].ToString(), "v2");
   ASSERT_EQ(values[2].ToString(), "v3");
   ASSERT_EQ(values[3].ToString(), "v4");
+}
+
+TEST_F(DBSecondaryTest, GetMergeOperandsWithBlobBackedEntityDefaultColumn) {
+  // Goal: exercise the secondary read path with a blob-backed V2 entity base
+  // in SST and a newer merge operand applied through catch-up. The secondary
+  // DB must resolve the blob-backed default column for both Get() and
+  // GetMergeOperands() while combining the newer memtable merge with the older
+  // SST-backed base entity.
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 50;
+  options.disable_auto_compactions = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator("|");
+  options.env = env_;
+  Reopen(options);
+
+  const std::string key = "secondary_blob_entity";
+  const std::string default_value(100, 'd');
+  const std::string large_value(120, 'l');
+  const std::string merge_operand = "suffix";
+  const std::string expected_merged = default_value + "|" + merge_operand;
+  WideColumns columns{{kDefaultWideColumnName, default_value},
+                      {"col_large", large_value},
+                      {"meta", "inline"}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  options.max_open_files = -1;
+  OpenSecondary(options);
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key,
+                       merge_operand));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  auto* cfh = db_secondary_->DefaultColumnFamily();
+
+  {
+    PinnableSlice result;
+    ASSERT_OK(db_secondary_->Get(ReadOptions(), cfh, key, &result));
+    ASSERT_EQ(result, expected_merged);
+  }
+
+  {
+    GetMergeOperandsOptions get_merge_opts;
+    get_merge_opts.expected_max_number_of_operands = 2;
+
+    std::array<PinnableSlice, 2> merge_operands;
+    int number_of_operands = 0;
+
+    ASSERT_OK(db_secondary_->GetMergeOperands(
+        ReadOptions(), cfh, key, merge_operands.data(), &get_merge_opts,
+        &number_of_operands));
+    ASSERT_EQ(number_of_operands, 2);
+    ASSERT_EQ(merge_operands[0], default_value);
+    ASSERT_EQ(merge_operands[1], merge_operand);
+  }
+}
+
+TEST_F(DBSecondaryTest, GetImplReturnsBlobIndexWhenRequested) {
+  // Goal: cover the internal secondary GetImpl contract when the caller
+  // explicitly asks for raw blob-index bytes via `is_blob_index`. Catch-up
+  // rebuilds the blob index into the secondary memtable, and this path must
+  // preserve the encoded index instead of eagerly resolving or rejecting it.
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env_;
+
+  Reopen(options);
+
+  options.max_open_files = -1;
+  OpenSecondary(options);
+
+  std::string blob_index;
+  BlobIndex::EncodeInlinedTTL(&blob_index, /*expiration=*/9876543210, "blob");
+
+  WriteBatch batch;
+  ASSERT_OK(WriteBatchInternal::PutBlobIndex(
+      &batch, db_->DefaultColumnFamily()->GetID(), "blob_key", blob_index));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  PinnableSlice value;
+  bool is_blob_index = false;
+  DBImpl::GetImplOptions get_impl_options;
+  get_impl_options.column_family = db_secondary_->DefaultColumnFamily();
+  get_impl_options.value = &value;
+  get_impl_options.is_blob_index = &is_blob_index;
+
+  ASSERT_OK(db_secondary_full()->GetImpl(ReadOptions(), Slice("blob_key"),
+                                         get_impl_options));
+  ASSERT_TRUE(is_blob_index);
+  ASSERT_EQ(value, blob_index);
+}
+
+TEST_F(DBSecondaryTest,
+       GetAndGetEntityWithBlobBackedDefaultColumnDirectWriteMemtable) {
+  // Goal: cover the secondary memtable path after catch-up replays a blob
+  // direct-write entity from the primary WAL. The test checks both `Get()`,
+  // which must resolve the blob-backed default column, and `GetEntity()`,
+  // which must eagerly resolve all unresolved blob columns instead of exposing
+  // encoded blob indices to the caller.
+  Options options =
+      wide_column_test_util::GetDirectWriteOptions(GetDefaultOptions());
+  options.create_if_missing = true;
+  options.min_blob_size = 50;
+  options.env = env_;
+
+  Reopen(options);
+
+  options.max_open_files = -1;
+  OpenSecondary(options);
+
+  const std::string key = "secondary_direct_write_memtable_entity";
+  const std::string default_value =
+      wide_column_test_util::GenerateLargeValue(100, 'd');
+  const std::string large_value =
+      wide_column_test_util::GenerateLargeValue(120, 'l');
+  const std::string small_value = wide_column_test_util::GenerateSmallValue();
+  WideColumns columns{{kDefaultWideColumnName, default_value},
+                      {"col_large", large_value},
+                      {"col_small", small_value}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  auto* cfh = db_secondary_->DefaultColumnFamily();
+
+  {
+    PinnableSlice result;
+    ASSERT_OK(db_secondary_->Get(ReadOptions(), cfh, key, &result));
+    ASSERT_EQ(result, default_value);
+  }
+
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_secondary_->GetEntity(ReadOptions(), cfh, key, &result));
+    ASSERT_EQ(result.columns(), columns);
+  }
+}
+
+TEST_F(DBSecondaryTest, SecondaryDirectWriteMemtableBlobBlockCacheTier) {
+  // Goal: cover the secondary memtable path under kBlockCacheTier. Catch-up
+  // rebuilds the blob-backed direct-write entity from WAL, so serving Get() or
+  // GetEntity() would require blob I/O through the memtable resolution path,
+  // which must return Incomplete instead of issuing that I/O.
+  Options options =
+      wide_column_test_util::GetDirectWriteOptions(GetDefaultOptions());
+  options.create_if_missing = true;
+  options.min_blob_size = 50;
+  options.env = env_;
+
+  Reopen(options);
+
+  options.max_open_files = -1;
+  OpenSecondary(options);
+
+  const std::string key = "secondary_direct_write_memtable_block_cache_tier";
+  const std::string default_value =
+      wide_column_test_util::GenerateLargeValue(100, 'd');
+  const std::string large_value =
+      wide_column_test_util::GenerateLargeValue(120, 'l');
+  const std::string small_value = wide_column_test_util::GenerateSmallValue();
+  WideColumns columns{{kDefaultWideColumnName, default_value},
+                      {"col_large", large_value},
+                      {"col_small", small_value}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  auto* cfh = db_secondary_->DefaultColumnFamily();
+  ReadOptions read_opts;
+  read_opts.read_tier = kBlockCacheTier;
+
+  {
+    PinnableSlice result;
+    const Status s = db_secondary_->Get(read_opts, cfh, key, &result);
+    ASSERT_TRUE(s.IsIncomplete()) << s.ToString();
+    ASSERT_TRUE(result.empty());
+  }
+
+  {
+    PinnableWideColumns result;
+    const Status s = db_secondary_->GetEntity(read_opts, cfh, key, &result);
+    ASSERT_TRUE(s.IsIncomplete()) << s.ToString();
+    ASSERT_TRUE(result.columns().empty());
+  }
 }
 
 TEST_F(DBSecondaryTest, InternalCompactionCompactedFiles) {

@@ -127,6 +127,10 @@ Status GetContext::SaveWideColumnEntityToPinnable(const Slice& user_key,
       pinnable_val_->PinSelf(value_of_default);
     }
   } else if (status.IsNotSupported()) {
+    if (blob_fetcher_ == nullptr) {
+      return Status::Corruption(
+          "Cannot resolve blob-backed default column without a blob fetcher");
+    }
     // Default column is a blob reference, so resolve it into the output value.
     bool resolved = false;
     status = WideColumnSerialization::GetValueOfDefaultColumnResolvingBlobs(
@@ -140,14 +144,28 @@ Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
                                                  Cleanable* value_pinner) {
   assert(columns_ != nullptr);
 
+  bool has_blob_columns = false;
+  Status status =
+      WideColumnSerialization::HasBlobColumns(entity, has_blob_columns);
+  if (!status.ok()) {
+    return status;
+  }
+  if (!has_blob_columns) {
+    return columns_->SetWideColumnValue(entity, value_pinner);
+  }
   std::vector<WideColumn> entity_columns;
   std::vector<std::pair<size_t, BlobIndex>> blob_cols;
   Slice entity_ref = entity;
-  Status status = WideColumnSerialization::DeserializeV2(
-      entity_ref, entity_columns, blob_cols);
+  status = WideColumnSerialization::DeserializeV2(entity_ref, entity_columns,
+                                                  blob_cols);
   if (status.ok()) {
-    if (LIKELY(blob_cols.empty())) {
-      return columns_->SetWideColumnValue(entity, value_pinner);
+    // HasBlobColumns() and DeserializeV2() must agree on whether this entity
+    // contains blob-valued columns.
+    assert(!blob_cols.empty());
+    if (blob_fetcher_ == nullptr) {
+      return Status::Corruption(
+          "Cannot resolve blob-backed wide-column entity without a blob "
+          "fetcher");
     }
 
     // TODO: Add lazy resolution support for GetEntity point lookups. This
@@ -201,8 +219,39 @@ Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
   return status;
 }
 
+Status GetContext::PushWideColumnEntityDefaultOperand(const Slice& user_key,
+                                                      const Slice& entity,
+                                                      Cleanable* value_pinner) {
+  Slice value_of_default;
+  Slice entity_ref = entity;
+  Status status = WideColumnSerialization::GetValueOfDefaultColumn(
+      entity_ref, value_of_default);
+  if (status.ok()) {
+    push_operand(value_of_default, value_pinner);
+    return status;
+  }
+  if (!status.IsNotSupported()) {
+    return status;
+  }
+  if (blob_fetcher_ == nullptr) {
+    return Status::Corruption(
+        "Cannot resolve blob-backed default column without a blob fetcher");
+  }
+
+  PinnableSlice resolved_default;
+  bool resolved = false;
+  status = WideColumnSerialization::GetValueOfDefaultColumnResolvingBlobs(
+      entity, user_key, blob_fetcher_, resolved_default, resolved);
+  if (status.ok()) {
+    // Resolved blob values are backed by this stack-local PinnableSlice, so
+    // copy them into MergeContext instead of pinning their storage.
+    push_operand(Slice(resolved_default), nullptr);
+  }
+  return status;
+}
+
 void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/) {
-  assert(state_ == kNotFound);
+  assert(State() == kNotFound);
   assert(ucmp_->timestamp_size() == 0);
 
   appendToReplayLog(kTypeValue, value, Slice());
@@ -322,7 +371,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                            const Slice& value, bool* matched,
                            Status* read_status, Cleanable* value_pinner) {
   assert(matched);
-  assert((state_ != kMerge && parsed_key.type != kTypeMerge) ||
+  assert((State() != kMerge && parsed_key.type != kTypeMerge) ||
          merge_context_ != nullptr);
   if (ucmp_->EqualWithoutTimestamp(parsed_key.user_key, user_key_)) {
     *matched = true;
@@ -393,7 +442,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       case kTypeValuePreferredSeqno:
       case kTypeBlobIndex:
       case kTypeWideColumnEntity:
-        assert(state_ == kNotFound || state_ == kMerge);
+        assert(State() == kNotFound || State() == kMerge);
         if (type == kTypeValuePreferredSeqno) {
           unpacked_value = ParsePackedValueForValue(value);
         }
@@ -409,7 +458,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           *is_blob_index_ = (type == kTypeBlobIndex);
         }
 
-        if (kNotFound == state_) {
+        if (State() == kNotFound) {
           state_ = kFound;
           if (do_merge_) {
             if (type == kTypeBlobIndex && ucmp_->timestamp_size() != 0) {
@@ -424,8 +473,10 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                 if (!s.ok()) {
                   if (s.IsIncomplete()) {
                     MarkKeyMayExist();
+                    *read_status = s;
                   } else {
                     state_ = kCorrupt;
+                    *read_status = s;
                   }
                   return false;
                 }
@@ -449,8 +500,10 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                 if (!s.ok()) {
                   if (s.IsIncomplete()) {
                     MarkKeyMayExist();
+                    *read_status = s;
                   } else {
                     state_ = kCorrupt;
+                    *read_status = s;
                   }
                   return false;
                 }
@@ -471,23 +524,24 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               Slice blob_value(pin_val);
               push_operand(blob_value, nullptr);
             } else if (type == kTypeWideColumnEntity) {
-              Slice value_copy = unpacked_value;
-              Slice value_of_default;
-
-              if (!WideColumnSerialization::GetValueOfDefaultColumn(
-                       value_copy, value_of_default)
-                       .ok()) {
-                state_ = kCorrupt;
+              const Status s = PushWideColumnEntityDefaultOperand(
+                  parsed_key.user_key, unpacked_value, value_pinner);
+              if (!s.ok()) {
+                if (s.IsIncomplete()) {
+                  MarkKeyMayExist();
+                  *read_status = s;
+                } else {
+                  state_ = kCorrupt;
+                  *read_status = s;
+                }
                 return false;
               }
-
-              push_operand(value_of_default, value_pinner);
             } else {
               assert(type == kTypeValue || type == kTypeValuePreferredSeqno);
               push_operand(unpacked_value, value_pinner);
             }
           }
-        } else if (kMerge == state_) {
+        } else if (State() == kMerge) {
           assert(merge_operator_ != nullptr);
           if (type == kTypeBlobIndex) {
             PinnableSlice pin_val;
@@ -498,7 +552,11 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             Slice blob_value(pin_val);
             state_ = kFound;
             if (do_merge_) {
-              MergeWithPlainBaseValue(blob_value);
+              const Status s = MergeWithPlainBaseValue(blob_value);
+              if (!s.ok()) {
+                *read_status = s;
+                return false;
+              }
             } else {
               // It means this function is called as part of DB GetMergeOperands
               // API and the current value should be part of
@@ -509,29 +567,38 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             state_ = kFound;
 
             if (do_merge_) {
-              MergeWithWideColumnBaseValue(unpacked_value);
+              const Status s = MergeWithWideColumnBaseValue(unpacked_value);
+              if (!s.ok()) {
+                *read_status = s;
+                return false;
+              }
             } else {
               // It means this function is called as part of DB GetMergeOperands
               // API and the current value should be part of
               // merge_context_->operand_list
-              Slice value_copy = unpacked_value;
-              Slice value_of_default;
-
-              if (!WideColumnSerialization::GetValueOfDefaultColumn(
-                       value_copy, value_of_default)
-                       .ok()) {
-                state_ = kCorrupt;
+              const Status s = PushWideColumnEntityDefaultOperand(
+                  parsed_key.user_key, unpacked_value, value_pinner);
+              if (!s.ok()) {
+                if (s.IsIncomplete()) {
+                  MarkKeyMayExist();
+                  *read_status = s;
+                } else {
+                  state_ = kCorrupt;
+                  *read_status = s;
+                }
                 return false;
               }
-
-              push_operand(value_of_default, value_pinner);
             }
           } else {
             assert(type == kTypeValue || type == kTypeValuePreferredSeqno);
 
             state_ = kFound;
             if (do_merge_) {
-              MergeWithPlainBaseValue(unpacked_value);
+              const Status s = MergeWithPlainBaseValue(unpacked_value);
+              if (!s.ok()) {
+                *read_status = s;
+                return false;
+              }
             } else {
               // It means this function is called as part of DB GetMergeOperands
               // API and the current value should be part of
@@ -548,13 +615,17 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       case kTypeRangeDeletion:
         // TODO(noetzli): Verify correctness once merge of single-deletes
         // is supported
-        assert(state_ == kNotFound || state_ == kMerge);
-        if (kNotFound == state_) {
+        assert(State() == kNotFound || State() == kMerge);
+        if (State() == kNotFound) {
           state_ = kDeleted;
-        } else if (kMerge == state_) {
+        } else if (State() == kMerge) {
           state_ = kFound;
           if (do_merge_) {
-            MergeWithNoBaseValue();
+            const Status s = MergeWithNoBaseValue();
+            if (!s.ok()) {
+              *read_status = s;
+              return false;
+            }
           }
           // If do_merge_ = false then the current value shouldn't be part of
           // merge_context_->operand_list
@@ -562,7 +633,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         return false;
 
       case kTypeMerge:
-        assert(state_ == kNotFound || state_ == kMerge);
+        assert(State() == kNotFound || State() == kMerge);
         state_ = kMerge;
         // value_pinner is not set from plain_table_reader.cc for example.
         push_operand(value, value_pinner);
@@ -572,7 +643,11 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             merge_operator_->ShouldMerge(
                 merge_context_->GetOperandsDirectionBackward())) {
           state_ = kFound;
-          MergeWithNoBaseValue();
+          const Status s = MergeWithNoBaseValue();
+          if (!s.ok()) {
+            *read_status = s;
+            return false;
+          }
           return false;
         }
         if (merge_context_->get_merge_operands_options != nullptr &&
@@ -590,26 +665,27 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
     }
   }
 
-  // state_ could be Corrupt, merge or notfound
+  // State() could be Corrupt, merge or notfound
   return false;
 }
 
-void GetContext::PostprocessMerge(const Status& merge_status) {
+Status GetContext::PostprocessMerge(const Status& merge_status) {
   if (!merge_status.ok()) {
     if (merge_status.subcode() == Status::SubCode::kMergeOperatorFailed) {
       state_ = kMergeOperatorFailed;
     } else {
       state_ = kCorrupt;
     }
-    return;
+    return merge_status;
   }
 
   if (LIKELY(pinnable_val_ != nullptr)) {
     pinnable_val_->PinSelf();
   }
+  return Status::OK();
 }
 
-void GetContext::MergeWithNoBaseValue() {
+Status GetContext::MergeWithNoBaseValue() {
   assert(do_merge_);
   assert(pinnable_val_ || columns_);
   assert(!pinnable_val_ || !columns_);
@@ -621,10 +697,10 @@ void GetContext::MergeWithNoBaseValue() {
       merge_context_->GetOperands(), logger_, statistics_, clock_,
       /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
       pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_);
-  PostprocessMerge(s);
+  return PostprocessMerge(s);
 }
 
-void GetContext::MergeWithPlainBaseValue(const Slice& value) {
+Status GetContext::MergeWithPlainBaseValue(const Slice& value) {
   assert(do_merge_);
   assert(pinnable_val_ || columns_);
   assert(!pinnable_val_ || !columns_);
@@ -636,10 +712,10 @@ void GetContext::MergeWithPlainBaseValue(const Slice& value) {
       merge_context_->GetOperands(), logger_, statistics_, clock_,
       /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
       pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_);
-  PostprocessMerge(s);
+  return PostprocessMerge(s);
 }
 
-void GetContext::MergeWithWideColumnBaseValue(const Slice& entity) {
+Status GetContext::MergeWithWideColumnBaseValue(const Slice& entity) {
   assert(do_merge_);
   assert(pinnable_val_ || columns_);
   assert(!pinnable_val_ || !columns_);
@@ -648,16 +724,16 @@ void GetContext::MergeWithWideColumnBaseValue(const Slice& entity) {
   // supports V1 format.
   std::string resolved_entity;
   Slice effective_entity;
-  const Status s_resolve = WideColumnSerialization::ResolveEntityForMerge(
+  Status s_resolve = WideColumnSerialization::ResolveEntityForMerge(
       entity, user_key_, blob_fetcher_, nullptr /* prefetch_buffers */,
       resolved_entity, effective_entity);
   if (!s_resolve.ok()) {
     if (s_resolve.IsIncomplete()) {
       MarkKeyMayExist();
-      return;
+      return s_resolve;
     }
     state_ = kCorrupt;
-    return;
+    return s_resolve;
   }
 
   // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
@@ -667,7 +743,7 @@ void GetContext::MergeWithWideColumnBaseValue(const Slice& entity) {
       merge_context_->GetOperands(), logger_, statistics_, clock_,
       /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
       pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_);
-  PostprocessMerge(s);
+  return PostprocessMerge(s);
 }
 
 bool GetContext::GetBlobValue(const Slice& user_key, const Slice& blob_index,
@@ -734,10 +810,15 @@ Status replayGetContextLog(const Slice& replay_log, const Slice& user_key,
 
     (void)ret;
 
-    Status read_status;
-    get_context->SaveValue(ikey, value, &dont_care, &read_status, value_pinner);
+    Status read_status = Status::OK();
+    const bool keep_replaying = get_context->SaveValue(
+        ikey, value, &dont_care, &read_status, value_pinner);
     if (!read_status.ok()) {
       return read_status;
+    }
+    if (!keep_replaying) {
+      // SaveValue() reached a terminal state for this row-cache replay.
+      break;
     }
   }
   return Status::OK();

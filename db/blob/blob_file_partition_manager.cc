@@ -781,13 +781,19 @@ Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
     }
   }
 
-  Status s = version != nullptr ? Status::Corruption("Invalid blob file number")
-                                : Status::NotFound();
-
   if (blob_file_cache == nullptr) {
-    return s;
+    return version != nullptr ? Status::Corruption("Invalid blob file number")
+                              : Status::NotFound();
   }
 
+  if (read_options.read_tier == kBlockCacheTier) {
+    // The direct-write fallback below may need to open the blob file reader,
+    // which `kBlockCacheTier` forbids. Keep the normal Version-backed path
+    // above eligible for cache-only hits.
+    return Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
+  }
+
+  Status s;
   CacheHandleGuard<BlobFileReader> reader;
   s = blob_file_cache->GetBlobFileReader(read_options, blob_idx.file_number(),
                                          &reader,
