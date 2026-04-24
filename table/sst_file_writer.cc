@@ -350,6 +350,7 @@ Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
   std::unique_ptr<FSWritableFile> sst_file;
   FileOptions cur_file_opts(r->env_options);
   cur_file_opts.temperature = temp;
+  cur_file_opts.open_contract = FileOpenContract::kAppendOnlyNoReaders;
   s = r->ioptions.env->GetFileSystem()->NewWritableFile(
       file_path, cur_file_opts, &sst_file, nullptr);
   if (!s.ok()) {

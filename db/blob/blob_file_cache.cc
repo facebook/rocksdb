@@ -123,6 +123,7 @@ Status BlobFileCache::OpenBlobFileReaderUncached(
   Statistics* const statistics = immutable_options_->stats;
   RecordTick(statistics, NO_FILE_OPENS);
 
+  assert(file_options_);
   Status s = BlobFileReader::Create(
       *immutable_options_, read_options, *file_options_, column_family_id_,
       blob_file_read_hist_, blob_file_number, io_tracer_,

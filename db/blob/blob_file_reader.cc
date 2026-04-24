@@ -105,24 +105,6 @@ Status BlobFileReader::OpenFile(
 
   constexpr IODebugContext* dbg = nullptr;
 
-  {
-    TEST_SYNC_POINT("BlobFileReader::OpenFile:GetFileSize");
-
-    const Status s =
-        fs->GetFileSize(blob_file_path, IOOptions(), file_size, dbg);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-
-  if (!skip_footer_size_check &&
-      *file_size < BlobLogHeader::kSize + BlobLogFooter::kSize) {
-    return Status::Corruption("Malformed blob file");
-  }
-  if (skip_footer_size_check && *file_size < BlobLogHeader::kSize) {
-    return Status::Corruption("Malformed blob file");
-  }
-
   std::unique_ptr<FSRandomAccessFile> file;
   FileOptions reader_file_opts = file_opts;
 
@@ -141,6 +123,33 @@ Status BlobFileReader::OpenFile(
   }
 
   assert(file);
+
+  uint64_t open_file_size = 0;
+  const Status open_file_size_status = file->GetFileSize(&open_file_size);
+  if (open_file_size_status.ok()) {
+    // Prefer the size from the opened handle when available. This avoids an
+    // extra path metadata lookup and lets filesystems surface a more current
+    // size than a separate stat-style query.
+    *file_size = open_file_size;
+  } else if (open_file_size_status.IsNotSupported()) {
+    TEST_SYNC_POINT("BlobFileReader::OpenFile:GetFileSize");
+
+    const Status s =
+        fs->GetFileSize(blob_file_path, IOOptions(), file_size, dbg);
+    if (!s.ok()) {
+      return s;
+    }
+  } else {
+    return open_file_size_status;
+  }
+
+  if (!skip_footer_size_check &&
+      *file_size < BlobLogHeader::kSize + BlobLogFooter::kSize) {
+    return Status::Corruption("Malformed blob file");
+  }
+  if (skip_footer_size_check && *file_size < BlobLogHeader::kSize) {
+    return Status::Corruption("Malformed blob file");
+  }
 
   if (immutable_options.advise_random_on_open) {
     file->Hint(FSRandomAccessFile::kRandom);

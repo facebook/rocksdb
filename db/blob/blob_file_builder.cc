@@ -10,6 +10,7 @@
 #include "db/blob/blob_contents.h"
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_completion_callback.h"
+#include "db/blob/blob_file_open_options.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_writer.h"
@@ -200,6 +201,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   {
     assert(file_options_);
     fo_copy = *file_options_;
+    SetBlobFileAppendOnlyNoReadersOpenContract(&fo_copy);
     fo_copy.write_hint = write_hint_;
     Status s = NewWritableFile(fs_, blob_file_path, &file, fo_copy);
 
