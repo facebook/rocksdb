@@ -1876,6 +1876,11 @@ Status CompressionManager::CreateFromString(
   return status;
 }
 
+std::string CompressionManager::CompressionTypeToString(
+    CompressionType type) const {
+  return ROCKSDB_NAMESPACE::CompressionTypeToString(type);
+}
+
 std::shared_ptr<CompressionManager>
 CompressionManager::FindCompatibleCompressionManager(Slice compatibility_name) {
   if (compatibility_name.compare(CompatibilityName()) == 0) {

@@ -17,6 +17,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class InternalTblPropColl;
+class CompressionManager;
 
 // -- Table Properties
 // Other than basic table properties, each table may also have the user
@@ -446,17 +447,26 @@ struct TableProperties {
 };
 
 // Parse TableProperties::compression_name into human-readable format.
-// Thread-safe: pure utility function with no shared state.
+// Thread-safe, but not purely local: the single-argument overload may consult
+// globally registered CompressionManagers via ObjectLibrary using the stored
+// compatibility name, and the two-argument overload consults the supplied
+// CompressionManager first before falling back to that lookup.
 // For format_version >= 7: "<compatibility_name>;<hex_codes>;" -> "ZSTD",
 // "LZ4", etc. For older versions (no semicolon): returns as-is (e.g., "ZSTD",
-// "Snappy", "kZSTD" are preserved with their original names). Returns
-// "NoCompression" for an empty input, an empty hex field such as
-// "BuiltinV2;;", or when all parsed entries are filtered out as
-// NoCompression/DisableOption. Returns "Unknown" for malformed format_version
-// >= 7 metadata, including a missing second semicolon, odd-length hex payload,
-// or invalid hex characters. If multiple compression types are present,
-// returns a comma-separated list in input order.
+// "Snappy", "kZSTD" are preserved with their original names). This means the
+// single-argument overload can now return manager-specific names for custom
+// compression types when a compatible CompressionManager is registered
+// globally; otherwise, reserved/custom values fall back to generic names such
+// as "Reserved7F" or "Custom8A". Returns "NoCompression" for an empty input,
+// an empty hex field such as "BuiltinV2;;", or when all parsed entries are
+// filtered out as NoCompression/DisableOption. Returns "Unknown" for malformed
+// format_version >= 7 metadata, including a missing second semicolon,
+// odd-length hex payload, or invalid hex characters. If multiple compression
+// types are present, returns a comma-separated list in input order.
 std::string ParseCompressionNameForDisplay(const std::string& compression_name);
+std::string ParseCompressionNameForDisplay(
+    const std::string& compression_name,
+    std::shared_ptr<CompressionManager> compression_manager);
 
 // Extra properties
 // Below is a list of non-basic properties that are collected by database

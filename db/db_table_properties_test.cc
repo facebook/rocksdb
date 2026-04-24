@@ -8,14 +8,17 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <memory>
+#include <mutex>
 #include <unordered_set>
 #include <vector>
 
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/advanced_compression.h"
 #include "rocksdb/db.h"
 #include "rocksdb/types.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
@@ -51,6 +54,42 @@ void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
 
   VerifySstUniqueIds(props);
 }
+
+class ParseCompressionDisplayNameManager : public CompressionManagerWrapper {
+ public:
+  static constexpr const char* kCompatibilityName =
+      "ParseCompressionDisplayNameManager";
+
+  ParseCompressionDisplayNameManager()
+      : CompressionManagerWrapper(GetBuiltinV2CompressionManager()) {}
+
+  const char* Name() const override { return kCompatibilityName; }
+  const char* CompatibilityName() const override { return kCompatibilityName; }
+
+  std::string CompressionTypeToString(CompressionType type) const override {
+    if (type == kCustomCompression8A) {
+      return "CustomAlpha";
+    }
+    if (type == kCustomCompression8B) {
+      return "CustomBeta";
+    }
+    return CompressionManagerWrapper::CompressionTypeToString(type);
+  }
+
+  static void Register() {
+    static std::once_flag loaded;
+    std::call_once(loaded, []() {
+      auto& library = *ObjectLibrary::Default();
+      library.AddFactory<CompressionManager>(
+          kCompatibilityName, [](const std::string& /*uri*/,
+                                 std::unique_ptr<CompressionManager>* guard,
+                                 std::string* /*errmsg*/) {
+            *guard = std::make_unique<ParseCompressionDisplayNameManager>();
+            return guard->get();
+          });
+    });
+  }
+};
 }  // anonymous namespace
 
 class DBTablePropertiesTest : public DBTestBase,
@@ -813,6 +852,8 @@ TEST_F(DBTablePropertiesTest, KeyLargestSmallestSeqno) {
 }
 
 TEST_F(DBTablePropertiesTest, ParseCompressionNameForDisplay) {
+  auto custom_mgr = std::make_shared<ParseCompressionDisplayNameManager>();
+
   // Test empty string
   EXPECT_EQ("NoCompression", ParseCompressionNameForDisplay(""));
 
@@ -835,10 +876,9 @@ TEST_F(DBTablePropertiesTest, ParseCompressionNameForDisplay) {
   EXPECT_EQ("LZ4", ParseCompressionNameForDisplay("zstd;04;"));
   EXPECT_EQ("LZ4", ParseCompressionNameForDisplay("lz4;04;"));
 
-  // Test lowercase hex
-  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay("test;07;"));
-  EXPECT_EQ("LZ4", ParseCompressionNameForDisplay("test;04;"));
-  EXPECT_EQ("LZ4,ZSTD", ParseCompressionNameForDisplay("test;0407;"));
+  // Test lowercase hex for reserved/custom values
+  EXPECT_EQ("Reserved7F", ParseCompressionNameForDisplay("test;7f;"));
+  EXPECT_EQ("Custom8A", ParseCompressionNameForDisplay("test;8a;"));
 
   // Test multiple compression types
   EXPECT_EQ("LZ4,ZSTD", ParseCompressionNameForDisplay("test;0407;"));
@@ -863,6 +903,16 @@ TEST_F(DBTablePropertiesTest, ParseCompressionNameForDisplay) {
   EXPECT_EQ("Custom80", ParseCompressionNameForDisplay("test;80;"));
   EXPECT_EQ("Reserved7F", ParseCompressionNameForDisplay("test;7F;"));
   EXPECT_EQ("CustomFE", ParseCompressionNameForDisplay("test;FE;"));
+  EXPECT_EQ("CustomAlpha,CustomBeta",
+            ParseCompressionNameForDisplay(
+                "ParseCompressionDisplayNameManager;8A8B;", custom_mgr));
+  EXPECT_EQ("CustomAlpha,LZ4,CustomBeta",
+            ParseCompressionNameForDisplay(
+                "ParseCompressionDisplayNameManager;8A048B;", custom_mgr));
+
+  ParseCompressionDisplayNameManager::Register();
+  EXPECT_EQ("CustomAlpha", ParseCompressionNameForDisplay(
+                               "ParseCompressionDisplayNameManager;8A;"));
 
   // Test DisableOption (0xFF) - filtered out
   EXPECT_EQ("NoCompression", ParseCompressionNameForDisplay("test;FF;"));
