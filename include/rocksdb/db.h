@@ -1909,6 +1909,26 @@ class DB {
       const LiveFilesStorageInfoOptions& opts,
       std::vector<LiveFileStorageInfo>* files) = 0;
 
+  // Same as the above, but on success, additionally writes to `*last_sequence`
+  // (if non-null) a sequence number bound for the returned file set: no write
+  // with a strictly greater sequence number is reflected in the returned
+  // files. On error, the value written to `*last_sequence` is unspecified.
+  //
+  // The default implementation captures `GetLatestSequenceNumber()` prior to
+  // enumerating live files, so `*last_sequence` is only a lower bound on the
+  // terminal sequence number of the returned set. Subclasses that synchronize
+  // file enumeration with writes (such as `DBImpl`) override this to provide
+  // an exact value.
+  virtual Status GetLiveFilesStorageInfo(
+      const LiveFilesStorageInfoOptions& opts,
+      std::vector<LiveFileStorageInfo>* files,
+      SequenceNumber* last_sequence) {
+    if (last_sequence != nullptr) {
+      *last_sequence = GetLatestSequenceNumber();
+    }
+    return GetLiveFilesStorageInfo(opts, files);
+  }
+
   // Obtains the LSM-tree meta data of the specified column family of the DB,
   // including metadata for each live table (SST) file in that column family.
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* /*column_family*/,

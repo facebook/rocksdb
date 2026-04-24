@@ -786,6 +786,34 @@ TEST_F(CheckpointTest, CheckpointWithParallelWrites) {
   thread.join();
 }
 
+TEST_F(CheckpointTest, CreateCheckpointReturnsTerminalSequenceNumber) {
+  // The sequence number returned via sequence_number_ptr must equal the
+  // checkpoint's terminal sequence number, not a pre-flush lower bound:
+  // reopening the checkpoint and reading GetLatestSequenceNumber() must
+  // return the same value.
+  Options options = CurrentOptions();
+  Reopen(options);
+
+  for (int i = 0; i < 100; ++i) {
+    ASSERT_OK(Put("k" + std::to_string(i), "v" + std::to_string(i)));
+  }
+
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  uint64_t reported_seq = 0;
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_,
+                                         /*log_size_for_flush=*/0,
+                                         &reported_seq));
+  delete checkpoint;
+
+  DB* checkpoint_db = nullptr;
+  ASSERT_OK(DB::OpenForReadOnly(options, snapshot_name_, &checkpoint_db));
+  const uint64_t actual_seq = checkpoint_db->GetLatestSequenceNumber();
+  delete checkpoint_db;
+
+  EXPECT_EQ(reported_seq, actual_seq);
+}
+
 class CheckpointTestWithWalParams
     : public CheckpointTest,
       public testing::WithParamInterface<
