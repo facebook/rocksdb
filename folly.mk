@@ -47,13 +47,17 @@ ifneq ($(strip $(FOLLY_PATH)),)
 	# Add -ldl at the end as gcc resolves a symbol in a library by searching only in libraries specified later
 	# in the command line
 
-	PLATFORM_LDFLAGS += $(FOLLY_PATH)/lib/libfolly.a $(BOOST_PATH)/lib/libboost_context.a $(BOOST_PATH)/lib/libboost_filesystem.a $(BOOST_PATH)/lib/libboost_atomic.a $(BOOST_PATH)/lib/libboost_program_options.a $(BOOST_PATH)/lib/libboost_regex.a $(BOOST_PATH)/lib/libboost_system.a $(BOOST_PATH)/lib/libboost_thread.a $(DBL_CONV_PATH)/lib/libdouble-conversion.a $(LIBEVENT_PATH)/lib/libevent.a $(LIBSODIUM_PATH)/lib/libsodium.a -ldl
+	FOLLY_PLATFORM_LDFLAGS := $(FOLLY_PATH)/lib/libfolly.a $(BOOST_PATH)/lib/libboost_context.a $(BOOST_PATH)/lib/libboost_filesystem.a $(BOOST_PATH)/lib/libboost_atomic.a $(BOOST_PATH)/lib/libboost_program_options.a $(BOOST_PATH)/lib/libboost_regex.a $(BOOST_PATH)/lib/libboost_system.a $(BOOST_PATH)/lib/libboost_thread.a $(DBL_CONV_PATH)/lib/libdouble-conversion.a $(LIBEVENT_PATH)/lib/libevent.a $(LIBSODIUM_PATH)/lib/libsodium.a -liberty -ldl
 ifneq ($(DEBUG_LEVEL),0)
-	PLATFORM_LDFLAGS += $(FMT_LIB_PATH)/libfmtd.a $(GLOG_LIB_PATH)/libglogd.so $(GFLAGS_PATH)/lib/libgflags_debug.so.2.2
+	FOLLY_PLATFORM_LDFLAGS += $(FMT_LIB_PATH)/libfmtd.a $(GLOG_LIB_PATH)/libglogd.so $(GFLAGS_PATH)/lib/libgflags_debug.so.2.2
 else
-	PLATFORM_LDFLAGS += $(FMT_LIB_PATH)/libfmt.a $(GLOG_LIB_PATH)/libglog.so $(GFLAGS_PATH)/lib/libgflags.so.2.2
+	FOLLY_PLATFORM_LDFLAGS += $(FMT_LIB_PATH)/libfmt.a $(GLOG_LIB_PATH)/libglog.so $(GFLAGS_PATH)/lib/libgflags.so.2.2
 endif
-	PLATFORM_LDFLAGS += -Wl,-rpath=$(GLOG_LIB_PATH) -Wl,-rpath=$(GFLAGS_PATH)/lib
+	FOLLY_PLATFORM_LDFLAGS += -Wl,-rpath=$(GLOG_LIB_PATH) -Wl,-rpath=$(GFLAGS_PATH)/lib
+	PLATFORM_LDFLAGS += $(FOLLY_PLATFORM_LDFLAGS)
+	JAVA_LDFLAGS += $(PLATFORM_LDFLAGS)
+	JAVA_STATIC_LDFLAGS += $(FOLLY_PLATFORM_LDFLAGS)
+
 endif
 	PLATFORM_CCFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
 	PLATFORM_CXXFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
@@ -98,7 +102,7 @@ endif  # FMT_SOURCE_PATH
 	PLATFORM_LDFLAGS += -lglog
 endif
 
-FOLLY_COMMIT_HASH = 3b0eed0a128c484a2b077546c3e08c824a311357
+FOLLY_COMMIT_HASH = baa57f9c03187474855a383400f18109429b3aa3
 
 # For public CI runs, checkout folly in a way that can build with RocksDB.
 # This is mostly intended as a test-only simulation of Meta-internal folly
@@ -120,7 +124,7 @@ checkout_folly:
 	@cd third-party/folly && \
 		DOWNLOAD_DIR=`$(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir | sed 's|/installed/.*|/downloads|'` && \
 		mkdir -p "$$DOWNLOAD_DIR" && \
-		CACHE_DIR="/tmp/rocksdb-getdeps-cache" && \
+		CACHE_DIR="$${GETDEPS_SCRATCH_PATH:-/tmp}/rocksdb-getdeps-cache" && \
 		mkdir -p "$$CACHE_DIR" && \
 		echo "Restoring cached downloads..." && \
 		if ls "$$CACHE_DIR"/*.tar.gz "$$CACHE_DIR"/*.tar.xz "$$CACHE_DIR"/*.zip >/dev/null 2>&1; then \
@@ -129,11 +133,11 @@ checkout_folly:
 		echo "Handling known unreliable downloads with fallback mirrors..." && \
 		$(PYTHON) ../../build_tools/getdeps_fallback_mirror.py "$$DOWNLOAD_DIR" "$$CACHE_DIR" build/fbcode_builder/manifests
 	@# NOTE: boost and fmt source will be needed for any build including `USE_FOLLY_LITE` builds as those depend on those headers
-	cd third-party/folly && GETDEPS_USE_WGET=1 $(PYTHON) build/fbcode_builder/getdeps.py fetch boost && GETDEPS_USE_WGET=1 $(PYTHON) build/fbcode_builder/getdeps.py fetch fmt
+	cd third-party/folly && GETDEPS_USE_WGET=1 $(PYTHON) build/fbcode_builder/getdeps.py fetch boost --scratch-path $${GETDEPS_SCRATCH_PATH:-/tmp} && GETDEPS_USE_WGET=1 $(PYTHON) build/fbcode_builder/getdeps.py fetch fmt --scratch-path $${GETDEPS_SCRATCH_PATH:-/tmp}
 	@# Update cache with any new downloads
 	@cd third-party/folly && \
-		DOWNLOAD_DIR=`$(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir | sed 's|/installed/.*|/downloads|'` && \
-		CACHE_DIR="/tmp/rocksdb-getdeps-cache" && \
+		DOWNLOAD_DIR=`$(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir --scratch-path $${GETDEPS_SCRATCH_PATH:-/tmp} | sed 's|/installed/.*|/downloads|'` && \
+		CACHE_DIR="$${GETDEPS_SCRATCH_PATH:-/tmp}/rocksdb-getdeps-cache" && \
 		if ls "$$DOWNLOAD_DIR"/*.tar.gz "$$DOWNLOAD_DIR"/*.tar.xz "$$DOWNLOAD_DIR"/*.zip >/dev/null 2>&1; then \
 			cp -n "$$DOWNLOAD_DIR"/*.tar.gz "$$DOWNLOAD_DIR"/*.tar.xz "$$DOWNLOAD_DIR"/*.zip "$$CACHE_DIR/" 2>/dev/null || true; \
 		fi
@@ -147,8 +151,23 @@ ifneq ($(DEBUG_LEVEL),0)
 FOLLY_BUILD_FLAGS += --build-type Debug
 endif
 
+# Propagate RocksDB target selection flags to folly to build with the 
+# same intrinsics mode.
+ifeq ($(ARMCRC_SOURCE),1)
+  ARCH_CFLAGS   := $(filter -march=% -mcpu=% -mtune=%,$(CFLAGS))
+  ARCH_CXXFLAGS := $(filter -march=% -mcpu=% -mtune=%,$(CXXFLAGS))
+else
+# On non-arm, RocksDB doesn't end up using the target selection flags
+# from CFLAGS / CXXFLAGS
+  ARCH_CFLAGS   :=
+  ARCH_CXXFLAGS :=
+endif
+
+FOLLY_CFLAGS   := -fPIC $(ARCH_CFLAGS)
+FOLLY_CXXFLAGS := -fPIC -DHAVE_CXX11_ATOMIC $(ARCH_CXXFLAGS)
+
 build_folly:
-	FOLLY_INST_PATH=`cd third-party/folly && $(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir`; \
+	FOLLY_INST_PATH=`cd third-party/folly && $(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir --scratch-path $${GETDEPS_SCRATCH_PATH:-/tmp}`; \
 	if [ "$$FOLLY_INST_PATH" ]; then \
 		rm -rf $${FOLLY_INST_PATH}/../../*; \
 	else \
@@ -156,10 +175,10 @@ build_folly:
 		false; \
 	fi
 	cd third-party/folly && \
-		CXXFLAGS=" $(CXX_M_FLAGS) -DHAVE_CXX11_ATOMIC " GETDEPS_USE_WGET=1 $(PYTHON) build/fbcode_builder/getdeps.py build $(FOLLY_BUILD_FLAGS)
+		CFLAGS="$(FOLLY_CFLAGS)" CXXFLAGS="$(CXX_M_FLAGS) $(FOLLY_CXXFLAGS)" GETDEPS_USE_WGET=1 $(PYTHON) build/fbcode_builder/getdeps.py build --allow-system-packages --scratch-path $${GETDEPS_SCRATCH_PATH:-/tmp} --extra-cmake-defines="{\"CMAKE_POSITION_INDEPENDENT_CODE\":\"ON\"}" $(FOLLY_BUILD_FLAGS)
 	@# In the folly build, glog and gflags are only built as dynamic libraries,
 	@# not static. This patchelf command is needed to reliably have the glog
 	@# library find its dependency gflags, because apparently the rpath of the
 	@# final binary is not used in resolving that transitive dependency.
-	FOLLY_INST_PATH=`cd third-party/folly && $(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir`; \
+	FOLLY_INST_PATH=`cd third-party/folly && $(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir --scratch-path $${GETDEPS_SCRATCH_PATH:-/tmp}`; \
 	cd "$$FOLLY_INST_PATH" && patchelf --add-rpath $$PWD/../gflags-*/lib ../glog-*/lib*/libglog*.so.*.*.*

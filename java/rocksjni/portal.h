@@ -4302,8 +4302,15 @@ class WriteTypeJni : public JavaClass {
    *
    * @return A reference to the enum field value or a nullptr if
    *     the enum field value could not be retrieved
+   *
+   * Note: "LOG" is defined as a macro by glog (transitively included via
+   * Folly), which would mangle this method declaration. The pragmas
+   * temporarily suppress the macro so the method can be declared.
    */
+#pragma push_macro("LOG")
+#undef LOG
   static jobject LOG(JNIEnv* env) { return getEnum(env, "LOG"); }
+#pragma pop_macro("LOG")
 
   // Returns the equivalent org.rocksdb.WBWIRocksIterator.WriteType for the
   // provided C++ ROCKSDB_NAMESPACE::WriteType enum
