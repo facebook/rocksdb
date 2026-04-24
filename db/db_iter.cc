@@ -774,23 +774,28 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
     }
   } while (iter_.Valid());
 
-  // If we accumulated tombstones, insert the range tombstone.  Use
-  // iterate_upper_bound_ if within the seek prefix, otherwise fall back to
-  // saved_key_ (the last tracked delete, covering n-1 deletes).
+  // If we accumulated tombstones, choose an end_key that doesn't depend on
+  // user-controlled iterate_upper_bound_ memory:
+  //  - iter_ still valid: stopped at the upper-bound break above. iter_'s
+  //    current key is RocksDB-owned and strictly greater than every counted
+  //    tombstone. Use it as the exclusive end_key.
+  //  - iter_ exhausted: no more keys exist past the run, so [first,
+  //    saved_key_) (covering n-1 of n deletes, with the n-th remaining as a
+  //    point delete) is safe. saved_key_ is the largest user key observed.
   if (contiguous_tombstone_count_ > 0 && iter_.status().ok()) {
-    if (iterate_upper_bound_ != nullptr && PrefixCheck(*iterate_upper_bound_)) {
-      if (timestamp_size_ == 0) {
-        MaybeInsertRangeTombstone(*iterate_upper_bound_);
-      } else {
-        // iterate_upper_bound_ is a plain user key without a timestamp
-        // suffix. Pad with min timestamp so it sorts after all entries with
-        // this user key, preserving the exclusive bound semantics.
-        std::string end_key_with_ts;
-        AppendKeyWithMinTimestamp(&end_key_with_ts, *iterate_upper_bound_,
-                                  timestamp_size_);
-        MaybeInsertRangeTombstone(end_key_with_ts);
+    bool inserted_via_iter = false;
+    if (iter_.Valid()) {
+      Slice end_user_key = ExtractUserKey(iter_.key());
+      Slice end_user_key_no_ts =
+          StripTimestampFromUserKey(end_user_key, timestamp_size_);
+      if (PrefixCheck(end_user_key_no_ts)) {
+        // Copy because iter_'s key buffer may not survive subsequent calls.
+        std::string end_key_copy(end_user_key.data(), end_user_key.size());
+        MaybeInsertRangeTombstone(end_key_copy);
+        inserted_via_iter = true;
       }
-    } else if (prefix_.has_value()) {
+    }
+    if (!inserted_via_iter) {
       MaybeInsertRangeTombstone(saved_key_.GetUserKey());
     }
   }
