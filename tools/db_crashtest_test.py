@@ -1,9 +1,7 @@
+#!/usr/bin/env python3
 #  Copyright (c) Meta Platforms, Inc. and affiliates.
 #  This source code is licensed under both the GPLv2 (found in the COPYING file in the root directory)
 #  and the Apache 2.0 License (found in the LICENSE.Apache file in the root directory).
-
-#!/usr/bin/env python3
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 import importlib.util
 import os
@@ -96,7 +94,13 @@ class DBCrashTestTest(unittest.TestCase):
         db_crashtest = self.load_db_crashtest()
         params = self.build_params(
             db_crashtest.default_params,
-            {"disable_wal": 1, "test_batches_snapshots": 1},
+            {
+                "disable_wal": 1,
+                "test_batches_snapshots": 1,
+                # finalize_and_sanitize() intentionally forces disable_wal=0
+                # when inplace_update_support=1.
+                "inplace_update_support": 0,
+            },
         )
 
         finalized = db_crashtest.finalize_and_sanitize(params)

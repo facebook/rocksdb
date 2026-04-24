@@ -1,0 +1,1734 @@
+{
+  "sections": [
+    {
+      "name": "DB data operations",
+      "functions": [
+        {
+          "kind": "status_method",
+          "name": "rocksdb_put",
+          "call_expr": "db->rep->Put",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "keylen"
+            },
+            {
+              "kind": "slice",
+              "name": "val",
+              "len_name": "vallen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "Slice(key, keylen)",
+            "Slice(val, vallen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_put_cf",
+          "call_expr": "db->rep->Put",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_column_family_handle_t*",
+              "name": "column_family"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "keylen"
+            },
+            {
+              "kind": "slice",
+              "name": "val",
+              "len_name": "vallen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "column_family->rep",
+            "Slice(key, keylen)",
+            "Slice(val, vallen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_delete",
+          "call_expr": "db->rep->Delete",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "keylen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "Slice(key, keylen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_delete_cf",
+          "call_expr": "db->rep->Delete",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_column_family_handle_t*",
+              "name": "column_family"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "keylen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "column_family->rep",
+            "Slice(key, keylen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_merge",
+          "call_expr": "db->rep->Merge",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "keylen"
+            },
+            {
+              "kind": "slice",
+              "name": "val",
+              "len_name": "vallen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "Slice(key, keylen)",
+            "Slice(val, vallen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_merge_cf",
+          "call_expr": "db->rep->Merge",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_column_family_handle_t*",
+              "name": "column_family"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "keylen"
+            },
+            {
+              "kind": "slice",
+              "name": "val",
+              "len_name": "vallen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "column_family->rep",
+            "Slice(key, keylen)",
+            "Slice(val, vallen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_write",
+          "call_expr": "db->rep->Write",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_writebatch_t*",
+              "name": "batch"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "&batch->rep"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_put_with_ts",
+          "call_expr": "db->rep->Put",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "keylen"
+            },
+            {
+              "kind": "slice",
+              "name": "ts",
+              "len_name": "tslen"
+            },
+            {
+              "kind": "slice",
+              "name": "val",
+              "len_name": "vallen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "Slice(key, keylen)",
+            "Slice(ts, tslen)",
+            "Slice(val, vallen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_put_cf_with_ts",
+          "call_expr": "db->rep->Put",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_column_family_handle_t*",
+              "name": "column_family"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "keylen"
+            },
+            {
+              "kind": "slice",
+              "name": "ts",
+              "len_name": "tslen"
+            },
+            {
+              "kind": "slice",
+              "name": "val",
+              "len_name": "vallen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "column_family->rep",
+            "Slice(key, keylen)",
+            "Slice(ts, tslen)",
+            "Slice(val, vallen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_delete_with_ts",
+          "call_expr": "db->rep->Delete",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "keylen"
+            },
+            {
+              "kind": "slice",
+              "name": "ts",
+              "len_name": "tslen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "Slice(key, keylen)",
+            "Slice(ts, tslen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_delete_cf_with_ts",
+          "call_expr": "db->rep->Delete",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_column_family_handle_t*",
+              "name": "column_family"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "keylen"
+            },
+            {
+              "kind": "slice",
+              "name": "ts",
+              "len_name": "tslen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "column_family->rep",
+            "Slice(key, keylen)",
+            "Slice(ts, tslen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_singledelete",
+          "call_expr": "db->rep->SingleDelete",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "keylen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "Slice(key, keylen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_singledelete_cf",
+          "call_expr": "db->rep->SingleDelete",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_column_family_handle_t*",
+              "name": "column_family"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "keylen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "column_family->rep",
+            "Slice(key, keylen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_singledelete_with_ts",
+          "call_expr": "db->rep->SingleDelete",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "keylen"
+            },
+            {
+              "kind": "slice",
+              "name": "ts",
+              "len_name": "tslen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "Slice(key, keylen)",
+            "Slice(ts, tslen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_singledelete_cf_with_ts",
+          "call_expr": "db->rep->SingleDelete",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_column_family_handle_t*",
+              "name": "column_family"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "keylen"
+            },
+            {
+              "kind": "slice",
+              "name": "ts",
+              "len_name": "tslen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "column_family->rep",
+            "Slice(key, keylen)",
+            "Slice(ts, tslen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_delete_range_cf",
+          "call_expr": "db->rep->DeleteRange",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_column_family_handle_t*",
+              "name": "column_family"
+            },
+            {
+              "kind": "slice",
+              "name": "start_key",
+              "len_name": "start_key_len"
+            },
+            {
+              "kind": "slice",
+              "name": "end_key",
+              "len_name": "end_key_len"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "column_family->rep",
+            "Slice(start_key, start_key_len)",
+            "Slice(end_key, end_key_len)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_flush",
+          "call_expr": "db->rep->Flush",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_flushoptions_t*",
+              "name": "options"
+            }
+          ],
+          "method_args": [
+            "options->rep"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_flush_cf",
+          "call_expr": "db->rep->Flush",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_flushoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_column_family_handle_t*",
+              "name": "column_family"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "column_family->rep"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_flush_wal",
+          "call_expr": "db->rep->FlushWAL",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "unsigned char",
+              "name": "sync"
+            }
+          ],
+          "method_args": [
+            "sync"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_pause_background_work",
+          "call_expr": "db->rep->PauseBackgroundWork",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            }
+          ],
+          "method_args": []
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_continue_background_work",
+          "call_expr": "db->rep->ContinueBackgroundWork",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            }
+          ],
+          "method_args": []
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_disable_file_deletions",
+          "call_expr": "db->rep->DisableFileDeletions",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            }
+          ],
+          "method_args": []
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_enable_file_deletions",
+          "call_expr": "db->rep->EnableFileDeletions",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            }
+          ],
+          "method_args": []
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_verify_checksum",
+          "call_expr": "db->rep->VerifyChecksum",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            }
+          ],
+          "method_args": []
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_verify_file_checksums",
+          "call_expr": "db->rep->VerifyFileChecksums",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            }
+          ],
+          "method_args": [
+            "ReadOptions()"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_destroy_db",
+          "call_expr": "DestroyDB",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_options_t*",
+              "name": "options"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const char*",
+              "name": "name"
+            }
+          ],
+          "method_args": [
+            "name",
+            "options->rep"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_repair_db",
+          "call_expr": "RepairDB",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_options_t*",
+              "name": "options"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const char*",
+              "name": "name"
+            }
+          ],
+          "method_args": [
+            "name",
+            "options->rep"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "WriteBatch",
+      "functions": [
+        {
+          "kind": "void_method",
+          "name": "rocksdb_writebatch_clear",
+          "call_expr": "b->rep.Clear",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_writebatch_t*",
+              "name": "b"
+            }
+          ],
+          "method_args": []
+        },
+        {
+          "kind": "void_method",
+          "name": "rocksdb_writebatch_put",
+          "call_expr": "b->rep.Put",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_writebatch_t*",
+              "name": "b"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "klen"
+            },
+            {
+              "kind": "slice",
+              "name": "val",
+              "len_name": "vlen"
+            }
+          ],
+          "method_args": [
+            "Slice(key, klen)",
+            "Slice(val, vlen)"
+          ]
+        },
+        {
+          "kind": "void_method",
+          "name": "rocksdb_writebatch_put_cf",
+          "call_expr": "b->rep.Put",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_writebatch_t*",
+              "name": "b"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_column_family_handle_t*",
+              "name": "column_family"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "klen"
+            },
+            {
+              "kind": "slice",
+              "name": "val",
+              "len_name": "vlen"
+            }
+          ],
+          "method_args": [
+            "column_family->rep",
+            "Slice(key, klen)",
+            "Slice(val, vlen)"
+          ]
+        },
+        {
+          "kind": "void_method",
+          "name": "rocksdb_writebatch_delete",
+          "call_expr": "b->rep.Delete",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_writebatch_t*",
+              "name": "b"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "klen"
+            }
+          ],
+          "method_args": [
+            "Slice(key, klen)"
+          ]
+        },
+        {
+          "kind": "void_method",
+          "name": "rocksdb_writebatch_put_log_data",
+          "call_expr": "b->rep.PutLogData",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_writebatch_t*",
+              "name": "b"
+            },
+            {
+              "kind": "slice",
+              "name": "blob",
+              "len_name": "len"
+            }
+          ],
+          "method_args": [
+            "Slice(blob, len)"
+          ]
+        },
+        {
+          "kind": "void_method",
+          "name": "rocksdb_writebatch_set_save_point",
+          "call_expr": "b->rep.SetSavePoint",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_writebatch_t*",
+              "name": "b"
+            }
+          ],
+          "method_args": []
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_writebatch_rollback_to_save_point",
+          "call_expr": "b->rep.RollbackToSavePoint",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_writebatch_t*",
+              "name": "b"
+            }
+          ],
+          "method_args": []
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_writebatch_pop_save_point",
+          "call_expr": "b->rep.PopSavePoint",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_writebatch_t*",
+              "name": "b"
+            }
+          ],
+          "method_args": []
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_writebatch_verify_checksum",
+          "call_expr": "b->rep.VerifyChecksum",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_writebatch_t*",
+              "name": "b"
+            }
+          ],
+          "method_args": []
+        }
+      ]
+    },
+    {
+      "name": "Transaction",
+      "functions": [
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transaction_put",
+          "call_expr": "txn->rep->Put",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transaction_t*",
+              "name": "txn"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "klen"
+            },
+            {
+              "kind": "slice",
+              "name": "val",
+              "len_name": "vlen"
+            }
+          ],
+          "method_args": [
+            "Slice(key, klen)",
+            "Slice(val, vlen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transaction_put_cf",
+          "call_expr": "txn->rep->Put",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transaction_t*",
+              "name": "txn"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_column_family_handle_t*",
+              "name": "column_family"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "klen"
+            },
+            {
+              "kind": "slice",
+              "name": "val",
+              "len_name": "vlen"
+            }
+          ],
+          "method_args": [
+            "column_family->rep",
+            "Slice(key, klen)",
+            "Slice(val, vlen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transaction_merge",
+          "call_expr": "txn->rep->Merge",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transaction_t*",
+              "name": "txn"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "klen"
+            },
+            {
+              "kind": "slice",
+              "name": "val",
+              "len_name": "vlen"
+            }
+          ],
+          "method_args": [
+            "Slice(key, klen)",
+            "Slice(val, vlen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transaction_merge_cf",
+          "call_expr": "txn->rep->Merge",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transaction_t*",
+              "name": "txn"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_column_family_handle_t*",
+              "name": "column_family"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "klen"
+            },
+            {
+              "kind": "slice",
+              "name": "val",
+              "len_name": "vlen"
+            }
+          ],
+          "method_args": [
+            "column_family->rep",
+            "Slice(key, klen)",
+            "Slice(val, vlen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transaction_delete",
+          "call_expr": "txn->rep->Delete",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transaction_t*",
+              "name": "txn"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "klen"
+            }
+          ],
+          "method_args": [
+            "Slice(key, klen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transaction_delete_cf",
+          "call_expr": "txn->rep->Delete",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transaction_t*",
+              "name": "txn"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_column_family_handle_t*",
+              "name": "column_family"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "klen"
+            }
+          ],
+          "method_args": [
+            "column_family->rep",
+            "Slice(key, klen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transaction_commit",
+          "call_expr": "txn->rep->Commit",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transaction_t*",
+              "name": "txn"
+            }
+          ],
+          "method_args": []
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transaction_rollback",
+          "call_expr": "txn->rep->Rollback",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transaction_t*",
+              "name": "txn"
+            }
+          ],
+          "method_args": []
+        },
+        {
+          "kind": "void_method",
+          "name": "rocksdb_transaction_put_log_data",
+          "call_expr": "txn->rep->PutLogData",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transaction_t*",
+              "name": "txn"
+            },
+            {
+              "kind": "slice",
+              "name": "blob",
+              "len_name": "len"
+            }
+          ],
+          "method_args": [
+            "Slice(blob, len)"
+          ]
+        },
+        {
+          "kind": "void_method",
+          "name": "rocksdb_transaction_set_savepoint",
+          "call_expr": "txn->rep->SetSavePoint",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transaction_t*",
+              "name": "txn"
+            }
+          ],
+          "method_args": []
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transaction_rollback_to_savepoint",
+          "call_expr": "txn->rep->RollbackToSavePoint",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transaction_t*",
+              "name": "txn"
+            }
+          ],
+          "method_args": []
+        }
+      ]
+    },
+    {
+      "name": "TransactionDB simple",
+      "functions": [
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transactiondb_put",
+          "call_expr": "txn_db->rep->Put",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transactiondb_t*",
+              "name": "txn_db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "klen"
+            },
+            {
+              "kind": "slice",
+              "name": "val",
+              "len_name": "vlen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "Slice(key, klen)",
+            "Slice(val, vlen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transactiondb_put_cf",
+          "call_expr": "txn_db->rep->Put",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transactiondb_t*",
+              "name": "txn_db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_column_family_handle_t*",
+              "name": "column_family"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "keylen"
+            },
+            {
+              "kind": "slice",
+              "name": "val",
+              "len_name": "vallen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "column_family->rep",
+            "Slice(key, keylen)",
+            "Slice(val, vallen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transactiondb_write",
+          "call_expr": "db->rep->Write",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transactiondb_t*",
+              "name": "db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_writebatch_t*",
+              "name": "batch"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "&batch->rep"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transactiondb_merge",
+          "call_expr": "txn_db->rep->Merge",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transactiondb_t*",
+              "name": "txn_db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "klen"
+            },
+            {
+              "kind": "slice",
+              "name": "val",
+              "len_name": "vlen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "Slice(key, klen)",
+            "Slice(val, vlen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transactiondb_merge_cf",
+          "call_expr": "txn_db->rep->Merge",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transactiondb_t*",
+              "name": "txn_db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_column_family_handle_t*",
+              "name": "column_family"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "klen"
+            },
+            {
+              "kind": "slice",
+              "name": "val",
+              "len_name": "vlen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "column_family->rep",
+            "Slice(key, klen)",
+            "Slice(val, vlen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transactiondb_delete",
+          "call_expr": "txn_db->rep->Delete",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transactiondb_t*",
+              "name": "txn_db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "klen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "Slice(key, klen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transactiondb_delete_cf",
+          "call_expr": "txn_db->rep->Delete",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transactiondb_t*",
+              "name": "txn_db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_writeoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_column_family_handle_t*",
+              "name": "column_family"
+            },
+            {
+              "kind": "slice",
+              "name": "key",
+              "len_name": "keylen"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "column_family->rep",
+            "Slice(key, keylen)"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transactiondb_flush_wal",
+          "call_expr": "txn_db->rep->FlushWAL",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transactiondb_t*",
+              "name": "txn_db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "unsigned char",
+              "name": "sync"
+            }
+          ],
+          "method_args": [
+            "sync"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transactiondb_flush",
+          "call_expr": "txn_db->rep->Flush",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transactiondb_t*",
+              "name": "txn_db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_flushoptions_t*",
+              "name": "options"
+            }
+          ],
+          "method_args": [
+            "options->rep"
+          ]
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_transactiondb_flush_cf",
+          "call_expr": "txn_db->rep->Flush",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_transactiondb_t*",
+              "name": "txn_db"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "const rocksdb_flushoptions_t*",
+              "name": "options"
+            },
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_column_family_handle_t*",
+              "name": "column_family"
+            }
+          ],
+          "method_args": [
+            "options->rep",
+            "column_family->rep"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "BlockBasedOptions simple",
+      "functions": [
+        {
+          "kind": "field_setter",
+          "name": "rocksdb_block_based_options_set_data_block_hash_ratio",
+          "receiver_type": "rocksdb_block_based_table_options_t*",
+          "receiver_name": "options",
+          "value_type": "double",
+          "value_name": "v",
+          "field": "options->rep.data_block_hash_table_util_ratio"
+        },
+        {
+          "kind": "field_setter",
+          "name": "rocksdb_block_based_options_set_top_level_index_pinning_tier",
+          "receiver_type": "rocksdb_block_based_table_options_t*",
+          "receiver_name": "options",
+          "value_type": "int",
+          "value_name": "v",
+          "field": "options->rep.metadata_cache_options.top_level_index_pinning",
+          "value_expr": "static_cast<ROCKSDB_NAMESPACE::PinningTier>(v)"
+        },
+        {
+          "kind": "field_setter",
+          "name": "rocksdb_block_based_options_set_partition_pinning_tier",
+          "receiver_type": "rocksdb_block_based_table_options_t*",
+          "receiver_name": "options",
+          "value_type": "int",
+          "value_name": "v",
+          "field": "options->rep.metadata_cache_options.partition_pinning",
+          "value_expr": "static_cast<ROCKSDB_NAMESPACE::PinningTier>(v)"
+        },
+        {
+          "kind": "field_setter",
+          "name": "rocksdb_block_based_options_set_unpartitioned_pinning_tier",
+          "receiver_type": "rocksdb_block_based_table_options_t*",
+          "receiver_name": "options",
+          "value_type": "int",
+          "value_name": "v",
+          "field": "options->rep.metadata_cache_options.unpartitioned_pinning",
+          "value_expr": "static_cast<ROCKSDB_NAMESPACE::PinningTier>(v)"
+        }
+      ]
+    },
+    {
+      "name": "JobInfo metadata simple",
+      "functions": [
+        {
+          "kind": "field_getter",
+          "name": "rocksdb_compactionjobinfo_input_files_count",
+          "receiver_type": "const rocksdb_compactionjobinfo_t*",
+          "receiver_name": "info",
+          "return_type": "size_t",
+          "expr": "info->rep.input_files.size()"
+        },
+        {
+          "kind": "field_getter",
+          "name": "rocksdb_compactionjobinfo_output_files_count",
+          "receiver_type": "const rocksdb_compactionjobinfo_t*",
+          "receiver_name": "info",
+          "return_type": "size_t",
+          "expr": "info->rep.output_files.size()"
+        },
+        {
+          "kind": "field_getter",
+          "name": "rocksdb_compactionjobinfo_elapsed_micros",
+          "receiver_type": "const rocksdb_compactionjobinfo_t*",
+          "receiver_name": "info",
+          "return_type": "uint64_t",
+          "expr": "info->rep.stats.elapsed_micros"
+        },
+        {
+          "kind": "field_getter",
+          "name": "rocksdb_compactionjobinfo_num_corrupt_keys",
+          "receiver_type": "const rocksdb_compactionjobinfo_t*",
+          "receiver_name": "info",
+          "return_type": "uint64_t",
+          "expr": "info->rep.stats.num_corrupt_keys"
+        },
+        {
+          "kind": "field_getter",
+          "name": "rocksdb_compactionjobinfo_input_records",
+          "receiver_type": "const rocksdb_compactionjobinfo_t*",
+          "receiver_name": "info",
+          "return_type": "uint64_t",
+          "expr": "info->rep.stats.num_input_records"
+        },
+        {
+          "kind": "field_getter",
+          "name": "rocksdb_compactionjobinfo_output_records",
+          "receiver_type": "const rocksdb_compactionjobinfo_t*",
+          "receiver_name": "info",
+          "return_type": "uint64_t",
+          "expr": "info->rep.stats.num_output_records"
+        },
+        {
+          "kind": "field_getter",
+          "name": "rocksdb_compactionjobinfo_total_input_bytes",
+          "receiver_type": "const rocksdb_compactionjobinfo_t*",
+          "receiver_name": "info",
+          "return_type": "uint64_t",
+          "expr": "info->rep.stats.total_input_bytes"
+        },
+        {
+          "kind": "field_getter",
+          "name": "rocksdb_compactionjobinfo_total_output_bytes",
+          "receiver_type": "const rocksdb_compactionjobinfo_t*",
+          "receiver_name": "info",
+          "return_type": "uint64_t",
+          "expr": "info->rep.stats.total_output_bytes"
+        },
+        {
+          "kind": "field_getter",
+          "name": "rocksdb_compactionjobinfo_num_input_files",
+          "receiver_type": "const rocksdb_compactionjobinfo_t*",
+          "receiver_name": "info",
+          "return_type": "size_t",
+          "expr": "info->rep.stats.num_input_files"
+        },
+        {
+          "kind": "field_getter",
+          "name": "rocksdb_compactionjobinfo_num_input_files_at_output_level",
+          "receiver_type": "const rocksdb_compactionjobinfo_t*",
+          "receiver_name": "info",
+          "return_type": "size_t",
+          "expr": "info->rep.stats.num_input_files_at_output_level"
+        },
+        {
+          "kind": "string_field_getter",
+          "name": "rocksdb_writestallinfo_cf_name",
+          "receiver_type": "const rocksdb_writestallinfo_t*",
+          "receiver_name": "info",
+          "len_type": "size_t*",
+          "len_name": "size",
+          "expr": "info->rep.cf_name"
+        },
+        {
+          "kind": "field_getter",
+          "name": "rocksdb_writestallinfo_cur",
+          "receiver_type": "const rocksdb_writestallinfo_t*",
+          "receiver_name": "info",
+          "return_type": "const rocksdb_writestallcondition_t*",
+          "expr": "reinterpret_cast<const rocksdb_writestallcondition_t*>(&info->rep.condition.cur)"
+        },
+        {
+          "kind": "field_getter",
+          "name": "rocksdb_writestallinfo_prev",
+          "receiver_type": "const rocksdb_writestallinfo_t*",
+          "receiver_name": "info",
+          "return_type": "const rocksdb_writestallcondition_t*",
+          "expr": "reinterpret_cast<const rocksdb_writestallcondition_t*>(&info->rep.condition.prev)"
+        }
+      ]
+    },
+    {
+      "name": "CuckooOptions simple",
+      "functions": [
+        {
+          "kind": "field_setter",
+          "name": "rocksdb_cuckoo_options_set_hash_ratio",
+          "receiver_type": "rocksdb_cuckoo_table_options_t*",
+          "receiver_name": "options",
+          "value_type": "double",
+          "value_name": "v",
+          "field": "options->rep.hash_table_ratio"
+        }
+      ]
+    },
+    {
+      "name": "Options simple",
+      "functions": [
+        {
+          "kind": "field_setter",
+          "name": "rocksdb_options_set_compression_options_zstd_max_train_bytes",
+          "receiver_type": "rocksdb_options_t*",
+          "receiver_name": "opt",
+          "value_type": "int",
+          "value_name": "zstd_max_train_bytes",
+          "field": "opt->rep.compression_opts.zstd_max_train_bytes"
+        },
+        {
+          "kind": "field_getter",
+          "name": "rocksdb_options_get_compression_options_zstd_max_train_bytes",
+          "receiver_type": "rocksdb_options_t*",
+          "receiver_name": "opt",
+          "return_type": "int",
+          "expr": "opt->rep.compression_opts.zstd_max_train_bytes"
+        },
+        {
+          "kind": "field_setter",
+          "name": "rocksdb_options_set_compression_options_use_zstd_dict_trainer",
+          "receiver_type": "rocksdb_options_t*",
+          "receiver_name": "opt",
+          "value_type": "unsigned char",
+          "value_name": "use_zstd_dict_trainer",
+          "field": "opt->rep.compression_opts.use_zstd_dict_trainer"
+        },
+        {
+          "kind": "field_getter",
+          "name": "rocksdb_options_get_compression_options_use_zstd_dict_trainer",
+          "receiver_type": "rocksdb_options_t*",
+          "receiver_name": "opt",
+          "return_type": "unsigned char",
+          "expr": "opt->rep.compression_opts.use_zstd_dict_trainer"
+        },
+        {
+          "kind": "field_setter",
+          "name": "rocksdb_options_set_compression_options_parallel_threads",
+          "receiver_type": "rocksdb_options_t*",
+          "receiver_name": "opt",
+          "value_type": "int",
+          "value_name": "value",
+          "field": "opt->rep.compression_opts.parallel_threads"
+        },
+        {
+          "kind": "field_getter",
+          "name": "rocksdb_options_get_compression_options_parallel_threads",
+          "receiver_type": "rocksdb_options_t*",
+          "receiver_name": "opt",
+          "return_type": "int",
+          "expr": "opt->rep.compression_opts.parallel_threads"
+        },
+        {
+          "kind": "field_setter",
+          "name": "rocksdb_options_set_compression_options_max_dict_buffer_bytes",
+          "receiver_type": "rocksdb_options_t*",
+          "receiver_name": "opt",
+          "value_type": "uint64_t",
+          "value_name": "max_dict_buffer_bytes",
+          "field": "opt->rep.compression_opts.max_dict_buffer_bytes"
+        },
+        {
+          "kind": "field_getter",
+          "name": "rocksdb_options_get_compression_options_max_dict_buffer_bytes",
+          "receiver_type": "rocksdb_options_t*",
+          "receiver_name": "opt",
+          "return_type": "uint64_t",
+          "expr": "opt->rep.compression_opts.max_dict_buffer_bytes"
+        },
+        {
+          "kind": "field_getter",
+          "name": "rocksdb_options_get_bottommost_compression_options_use_zstd_dict_trainer",
+          "receiver_type": "rocksdb_options_t*",
+          "receiver_name": "opt",
+          "return_type": "unsigned char",
+          "expr": "opt->rep.bottommost_compression_opts.use_zstd_dict_trainer"
+        },
+        {
+          "kind": "field_setter",
+          "name": "rocksdb_options_set_use_fsync",
+          "receiver_type": "rocksdb_options_t*",
+          "receiver_name": "opt",
+          "value_type": "int",
+          "value_name": "use_fsync",
+          "field": "opt->rep.use_fsync"
+        },
+        {
+          "kind": "field_getter",
+          "name": "rocksdb_options_get_use_fsync",
+          "receiver_type": "rocksdb_options_t*",
+          "receiver_name": "opt",
+          "return_type": "int",
+          "expr": "opt->rep.use_fsync"
+        },
+        {
+          "kind": "field_setter",
+          "name": "rocksdb_options_set_disable_auto_compactions",
+          "receiver_type": "rocksdb_options_t*",
+          "receiver_name": "opt",
+          "value_type": "int",
+          "value_name": "disable",
+          "field": "opt->rep.disable_auto_compactions"
+        },
+        {
+          "kind": "field_setter",
+          "name": "rocksdb_options_set_optimize_filters_for_hits",
+          "receiver_type": "rocksdb_options_t*",
+          "receiver_name": "opt",
+          "value_type": "int",
+          "value_name": "v",
+          "field": "opt->rep.optimize_filters_for_hits"
+        },
+        {
+          "kind": "field_setter",
+          "name": "rocksdb_options_set_report_bg_io_stats",
+          "receiver_type": "rocksdb_options_t*",
+          "receiver_name": "opt",
+          "value_type": "int",
+          "value_name": "v",
+          "field": "opt->rep.report_bg_io_stats"
+        }
+      ]
+    }
+  ]
+}
