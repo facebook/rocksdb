@@ -5820,9 +5820,11 @@ TEST_P(ReadPathRangeTombstoneTest, ExhaustedIteratorWithBounds) {
   // Both directions encounter two tombstone runs (a-d and g-j).
   ASSERT_EQ(attempted_insert_ranges_.size(), 2);
   if (Forward()) {
-    // Forward: sees a-d tombstones first → [a, e), then g-j → [g, z).
+    // Forward: sees a-d tombstones first → live e terminates → [a, e).
+    // Then g-j → exhaustion past j, saved_key_="j" fallback → [g, j),
+    // covering g,h,i. j remains a point tombstone.
     AssertRange(0, "a", "e");
-    AssertRange(1, "g", "z");
+    AssertRange(1, "g", "j");
   } else {
     // Reverse: sees j-g tombstones first, then f,e live, then d-a → exhausts.
     AssertRange(0, "g", "z");
@@ -5860,13 +5862,24 @@ TEST_P(ReadPathRangeTombstoneTest, ExhaustedIteratorNoBounds) {
 
   VerifyIteration({"e", "f"});
 
-  // Without bounds, only the a-d run (which has a live key boundary) gets
-  // inserted. The g-j run at the end has no upper bound → dropped.
-  ASSERT_EQ(attempted_insert_ranges_.size(), 1);
-  AssertRange(0, "a", "e");
-  ASSERT_EQ(
-      options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
-      1);
+  if (Forward()) {
+    // Forward: a-d run terminates at live e → [a, e). g-j run exhausts
+    // past j → saved_key_ fallback → [g, j), covering g,h,i with j as a
+    // point tombstone.
+    ASSERT_EQ(attempted_insert_ranges_.size(), 2);
+    AssertRange(0, "a", "e");
+    AssertRange(1, "g", "j");
+    ASSERT_EQ(
+        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+        2);
+  } else {
+    // Reverse fallback path remains prefix-gated.
+    ASSERT_EQ(attempted_insert_ranges_.size(), 1);
+    AssertRange(0, "a", "e");
+    ASSERT_EQ(
+        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+        1);
+  }
 }
 
 TEST_P(ReadPathRangeTombstoneTest, DirectionChange) {
@@ -6612,8 +6625,8 @@ TEST_P(ReadPathRangeTombstoneTest, ExhaustedWithUDT) {
 
   ASSERT_EQ(attempted_insert_ranges_.size(), 1);
   if (Forward()) {
-    // Forward exhaustion: range is [e+ts, z+min_ts).
-    AssertRange(0, std::string("e") + ts, std::string("z") + min_ts);
+    // Forward exhaustion past h: saved_key_="h"+ts fallback → [e+ts, h+ts).
+    AssertRange(0, std::string("e") + ts, std::string("h") + ts);
   } else {
     // Reverse exhaustion: range is [a+ts, e+ts).
     AssertRange(0, std::string("a") + ts, std::string("e") + ts);
@@ -6624,8 +6637,9 @@ TEST_P(ReadPathRangeTombstoneTest, ExhaustedWithUDT) {
 }
 
 TEST_P(ReadPathRangeTombstoneTest, SeekForPrevTombstone) {
-  // SeekForPrev lands directly on tombstones. No upper bound, so forward
-  // exhaustion drops the trailing tombstone run (no end key available).
+  // SeekForPrev lands directly on tombstones. No upper bound. Forward
+  // exhaustion past h falls back to saved_key_="h" → [e, h), covering
+  // e,f,g with h as a point tombstone.
   // Reverse: SeekForPrev("h") → Delete(h,g,f,e) → live "d" → range [e, h).
   for (bool use_udt : {false, true}) {
     SCOPED_TRACE(use_udt ? "with UDT" : "without UDT");
@@ -6673,11 +6687,16 @@ TEST_P(ReadPathRangeTombstoneTest, SeekForPrevTombstone) {
     ASSERT_OK(iter->status());
     ASSERT_EQ(keys, (std::vector<std::string>{"a", "b", "c", "d"}));
 
+    ASSERT_EQ(attempted_insert_ranges_.size(), 1);
     if (Forward()) {
-      // No upper bound → trailing tombstone run has no end key → dropped.
-      ASSERT_EQ(attempted_insert_ranges_.size(), 0);
+      // Forward exhausts past h → saved_key_="h" fallback → [e, h),
+      // covering e,f,g with h as a point tombstone.
+      if (use_udt) {
+        AssertRange(0, std::string("e") + ts, std::string("h") + ts);
+      } else {
+        AssertRange(0, "e", "h");
+      }
     } else {
-      ASSERT_EQ(attempted_insert_ranges_.size(), 1);
       if (use_udt) {
         std::string min_ts(sizeof(uint64_t), '\0');
         AssertRange(0, std::string("e") + ts, std::string("h") + min_ts);
@@ -6687,15 +6706,18 @@ TEST_P(ReadPathRangeTombstoneTest, SeekForPrevTombstone) {
     }
     ASSERT_EQ(
         options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
-        Forward() ? 0 : 1);
+        1);
   }
 }
 
 TEST_P(ReadPathRangeTombstoneTest, UpperBoundTombstone) {
-  // iterate_upper_bound lands directly on tombstones. Both directions see
-  // tombstones e-h and use upper bound "i" as end key for the range.
-  // Forward: exhaustion at bound → [e, i). Reverse: SeekToLast delegates to
-  // SeekForPrev("i") → [e, i).
+  // iterate_upper_bound lands past the data. Both directions see tombstones
+  // e-h. Forward exhausts naturally past h (no key in DB ≥ upper) so the
+  // forward path falls back to saved_key_ ("h") as the exclusive end_key,
+  // covering n-1 of n deletes — [e, h). The remaining tombstone for h
+  // stays as a point delete. Reverse captures the live key "d" before the
+  // run and uses it via range_tomb_end_key_ — [e, i) when SeekToLast
+  // delegates to SeekForPrev("i").
   for (bool use_udt : {false, true}) {
     SCOPED_TRACE(use_udt ? "with UDT" : "without UDT");
     Options options = CurrentOptions();
@@ -6746,13 +6768,17 @@ TEST_P(ReadPathRangeTombstoneTest, UpperBoundTombstone) {
 
     ASSERT_EQ(attempted_insert_ranges_.size(), 1);
     if (use_udt) {
-      // Forward end key: upper bound padded with min_ts.
-      // Reverse end key: upper bound padded with max_ts (via
-      // SetSavedKeyToSeekForPrevTarget).
-      std::string end_ts(sizeof(uint64_t), Forward() ? '\0' : '\xff');
-      AssertRange(0, std::string("e") + ts, std::string("i") + end_ts);
+      if (Forward()) {
+        // Forward end key: saved_key_ ("h") with the tombstone's own ts.
+        AssertRange(0, std::string("e") + ts, std::string("h") + ts);
+      } else {
+        // Reverse end key: upper bound padded with max_ts (via
+        // SetSavedKeyToSeekForPrevTarget).
+        std::string end_ts(sizeof(uint64_t), '\xff');
+        AssertRange(0, std::string("e") + ts, std::string("i") + end_ts);
+      }
     } else {
-      AssertRange(0, "e", "i");
+      AssertRange(0, "e", Forward() ? "h" : "i");
     }
     ASSERT_EQ(
         options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
