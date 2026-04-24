@@ -87,6 +87,131 @@ bool Writer::PublishIfClosed() {
 }
 
 IOStatus Writer::AddRecord(const WriteOptions& write_options,
+                           const std::vector<Slice>& slices,
+                           const SequenceNumber& seqno) {
+  // Single-slice fast path.
+  if (slices.size() == 1) {
+    return AddRecord(write_options, slices[0], seqno);
+  }
+
+  // Defensive fallback: compression requires a contiguous input
+  // buffer, so concatenate and delegate to the single-slice compressed
+  // path. The primary WAL caller (DBImpl::WriteToWAL) checks
+  // IsCompressing() up front and materializes the WriteBatch there, so
+  // this path is normally unreachable from the hot write path; it is
+  // kept so that any other caller of the multi-slice AddRecord stays
+  // correct under compression.
+  if (compress_) {
+    size_t total = 0;
+    for (const Slice& s : slices) {
+      total += s.size();
+    }
+    std::string concat;
+    concat.reserve(total);
+    for (const Slice& s : slices) {
+      concat.append(s.data(), s.size());
+    }
+    return AddRecord(write_options, Slice(concat), seqno);
+  }
+
+  IOStatus s = MaybeHandleSeenFileWriterError();
+  if (!s.ok()) {
+    return s;
+  }
+
+  size_t total_left = 0;
+  for (const Slice& sl : slices) {
+    total_left += sl.size();
+  }
+  size_t left = total_left;
+  size_t slice_idx = 0;
+  size_t slice_off = 0;
+
+  IOOptions opts;
+  s = WritableFileWriter::PrepareIOOptions(write_options, opts);
+  if (!s.ok()) {
+    return s;
+  }
+
+  // Fragment the record across block boundaries. Note that if the
+  // record is empty, we still want to iterate once to emit a single
+  // zero-length record.
+  bool begin = true;
+  do {
+    const int64_t leftover = kBlockSize - block_offset_;
+    assert(leftover >= 0);
+    if (leftover < header_size_) {
+      if (leftover > 0) {
+        assert(header_size_ <= 11);
+        s = dest_->Append(opts,
+                          Slice("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+                                static_cast<size_t>(leftover)),
+                          0 /* crc32c_checksum */);
+        if (!s.ok()) {
+          break;
+        }
+      }
+      block_offset_ = 0;
+    }
+
+    assert(static_cast<int64_t>(kBlockSize - block_offset_) >= header_size_);
+
+    const size_t avail = kBlockSize - block_offset_ - header_size_;
+    const size_t fragment_length = (left < avail) ? left : avail;
+
+    RecordType type;
+    const bool end = (left == fragment_length);
+    if (begin && end) {
+      type = recycle_log_files_ ? kRecyclableFullType : kFullType;
+    } else if (begin) {
+      type = recycle_log_files_ ? kRecyclableFirstType : kFirstType;
+    } else if (end) {
+      type = recycle_log_files_ ? kRecyclableLastType : kLastType;
+    } else {
+      type = recycle_log_files_ ? kRecyclableMiddleType : kMiddleType;
+    }
+
+    s = EmitPhysicalRecordSG(write_options, type, slices, slice_idx, slice_off,
+                             fragment_length);
+
+    // Advance cursor by fragment_length bytes through the slice list.
+    size_t remaining = fragment_length;
+    while (remaining > 0) {
+      const size_t avail_in_slice = slices[slice_idx].size() - slice_off;
+      if (remaining >= avail_in_slice) {
+        remaining -= avail_in_slice;
+        ++slice_idx;
+        slice_off = 0;
+      } else {
+        slice_off += remaining;
+        remaining = 0;
+      }
+    }
+    // Skip past any zero-length slices so the next iteration starts on a
+    // non-empty slice (or past-the-end).
+    while (slice_idx < slices.size() && slices[slice_idx].size() == slice_off) {
+      ++slice_idx;
+      slice_off = 0;
+    }
+
+    left -= fragment_length;
+    begin = false;
+  } while (s.ok() && left > 0);
+
+  if (s.ok()) {
+    if (!manual_flush_) {
+      s = dest_->Flush(opts);
+    }
+  }
+
+  if (s.ok()) {
+    last_seqno_recorded_ = std::max(last_seqno_recorded_, seqno);
+  }
+
+  return s;
+}
+
+IOStatus Writer::AddRecord(const WriteOptions& write_options,
                            const Slice& slice, const SequenceNumber& seqno) {
   IOStatus s = MaybeHandleSeenFileWriterError();
   if (!s.ok()) {
@@ -356,6 +481,97 @@ IOStatus Writer::EmitPhysicalRecord(const WriteOptions& write_options,
   }
   if (s.ok()) {
     s = dest_->Append(opts, Slice(ptr, n), payload_crc);
+  }
+  block_offset_ += header_size + n;
+  return s;
+}
+
+IOStatus Writer::EmitPhysicalRecordSG(const WriteOptions& write_options,
+                                      RecordType t,
+                                      const std::vector<Slice>& slices,
+                                      size_t start_idx, size_t start_off,
+                                      size_t n) {
+  assert(n <= 0xffff);  // Must fit in two bytes
+
+  size_t header_size;
+  char buf[kRecyclableHeaderSize];
+
+  buf[4] = static_cast<char>(n & 0xff);
+  buf[5] = static_cast<char>(n >> 8);
+  buf[6] = static_cast<char>(t);
+
+  uint32_t crc = type_crc_[t];
+  if (t < kRecyclableFullType || t == kSetCompressionType ||
+      t == kPredecessorWALInfoType || t == kUserDefinedTimestampSizeType) {
+    assert(block_offset_ + kHeaderSize + n <= kBlockSize);
+    header_size = kHeaderSize;
+  } else {
+    assert(block_offset_ + kRecyclableHeaderSize + n <= kBlockSize);
+    header_size = kRecyclableHeaderSize;
+    EncodeFixed32(buf + 7, static_cast<uint32_t>(log_number_));
+    crc = crc32c::Extend(crc, buf + 7, 4);
+  }
+
+  // Compute payload CRC incrementally across spans.
+  //
+  // The payload is walked twice: once here to compute the CRC and then
+  // again below to Append to dest_. The two passes cannot be folded:
+  // the record header contains CRC(type + payload) and must be written
+  // BEFORE the payload, so the full CRC has to be known before any
+  // payload byte is handed to the writer. WritableFileWriter is
+  // append-only (no seek-back to patch a placeholder), so we cannot
+  // emit the header speculatively. Each pass only touches slice
+  // descriptors plus the payload bytes themselves, which are hot in L1
+  // from the CRC pass when the second pass runs.
+  uint32_t payload_crc = 0;
+  {
+    size_t idx = start_idx;
+    size_t off = start_off;
+    size_t rem = n;
+    while (rem > 0) {
+      const size_t avail_in_slice = slices[idx].size() - off;
+      const size_t take = (rem < avail_in_slice) ? rem : avail_in_slice;
+      payload_crc =
+          crc32c::Extend(payload_crc, slices[idx].data() + off, take);
+      rem -= take;
+      if (take == avail_in_slice) {
+        ++idx;
+        off = 0;
+      } else {
+        off += take;
+      }
+    }
+  }
+  crc = crc32c::Crc32cCombine(crc, payload_crc, n);
+  crc = crc32c::Mask(crc);
+  TEST_SYNC_POINT_CALLBACK("LogWriter::EmitPhysicalRecord:BeforeEncodeChecksum",
+                           &crc);
+  EncodeFixed32(buf, crc);
+
+  IOOptions opts;
+  IOStatus s = WritableFileWriter::PrepareIOOptions(write_options, opts);
+  if (s.ok()) {
+    s = dest_->Append(opts, Slice(buf, header_size), 0 /* crc32c_checksum */);
+  }
+  if (s.ok()) {
+    size_t idx = start_idx;
+    size_t off = start_off;
+    size_t rem = n;
+    while (s.ok() && rem > 0) {
+      const size_t avail_in_slice = slices[idx].size() - off;
+      const size_t take = (rem < avail_in_slice) ? rem : avail_in_slice;
+      // Pass 0 for crc32c_checksum — the downstream writer uses it only
+      // as an optional verification hint.
+      s = dest_->Append(opts, Slice(slices[idx].data() + off, take),
+                        0 /* crc32c_checksum */);
+      rem -= take;
+      if (take == avail_in_slice) {
+        ++idx;
+        off = 0;
+      } else {
+        off += take;
+      }
+    }
   }
   block_offset_ += header_size + n;
   return s;
