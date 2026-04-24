@@ -33,6 +33,8 @@ struct BlobDirectWriteSettings {
   uint64_t min_blob_size = 0;
   // Compression to use for newly written blob records.
   CompressionType compression_type = kNoCompression;
+  // Compression options for newly written blob records.
+  CompressionOptions compression_opts;
   // Raw pointer — the Cache is owned by ColumnFamilyOptions and outlives all
   // settings snapshots. Using raw avoids 2 atomic ref-count ops per Put().
   Cache* blob_cache = nullptr;
