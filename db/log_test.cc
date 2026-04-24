@@ -1224,10 +1224,10 @@ TEST_P(StreamingCompressionTest, Basic) {
   }
   CompressionOptions opts;
   constexpr uint32_t compression_format_version = 2;
-  std::unique_ptr<StreamingCompress> compress(StreamingCompress::Create(
-      compression_type, opts, compression_format_version, kBlockSize));
-  std::unique_ptr<StreamingUncompress> uncompress(StreamingUncompress::Create(
-      compression_type, compression_format_version, kBlockSize));
+  auto compress = StreamingCompress::Create(
+      compression_type, opts, compression_format_version, kBlockSize);
+  auto uncompress = StreamingUncompress::Create(
+      compression_type, compression_format_version, kBlockSize);
   std::unique_ptr<MemoryAllocator> allocator(new DefaultMemoryAllocator());
   std::string input_buffer = BigString("abc", input_size);
   std::vector<std::string> compressed_buffers;

@@ -218,9 +218,9 @@ IOStatus Writer::AddCompressionTypeRecord(const WriteOptions& write_options) {
     const size_t max_output_buffer_len = kBlockSize - header_size_;
     CompressionOptions opts;
     constexpr uint32_t compression_format_version = 2;
-    compress_.reset(StreamingCompress::Create(compression_type_, opts,
-                                              compression_format_version,
-                                              max_output_buffer_len));
+    compress_ = StreamingCompress::Create(compression_type_, opts,
+                                          compression_format_version,
+                                          max_output_buffer_len);
     assert(compress_ != nullptr);
     compressed_buffer_ =
         std::unique_ptr<char[]>(new char[max_output_buffer_len]);

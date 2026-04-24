@@ -699,8 +699,8 @@ void Reader::InitCompression(const CompressionTypeRecord& compression_record) {
   compression_type_ = compression_record.GetCompressionType();
   compression_type_record_read_ = true;
   constexpr uint32_t compression_format_version = 2;
-  uncompress_.reset(StreamingUncompress::Create(
-      compression_type_, compression_format_version, kBlockSize));
+  uncompress_ = StreamingUncompress::Create(
+      compression_type_, compression_format_version, kBlockSize);
   assert(uncompress_ != nullptr);
   uncompressed_buffer_ = std::unique_ptr<char[]>(new char[kBlockSize]);
   assert(uncompressed_buffer_);
