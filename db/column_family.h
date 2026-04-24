@@ -619,6 +619,10 @@ class ColumnFamilyData {
     return ioptions_.cf_allow_ingest_behind || ioptions_.allow_ingest_behind;
   }
 
+  // Per-CF reader-writer lock that serializes IngestExternalFiles with range
+  // tombstone conversion.
+  port::RWMutex& GetIngestSstLock() { return ingest_sst_lock_; }
+
  private:
   friend class ColumnFamilySet;
   ColumnFamilyData(uint32_t id, const std::string& name,
@@ -732,6 +736,10 @@ class ColumnFamilyData {
   bool mempurge_used_;
 
   std::atomic<uint64_t> next_epoch_number_;
+
+  // Used to synchronize IngestExternalFile with range tombstone conversion. See
+  // also Memtable::ingest_seqno_barrier_.
+  port::RWMutex ingest_sst_lock_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements
