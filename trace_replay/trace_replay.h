@@ -45,7 +45,12 @@ const unsigned int kTraceMetadataSize =
     kTraceTimestampSize + kTraceTypeSize + kTracePayloadLengthSize;
 
 static const int kTraceFileMajorVersion = 0;
-static const int kTraceFileMinorVersion = 2;
+static const int kTraceFileMinorVersion = 3;
+
+// Minimum trace file version (major * 10 + minor) that uses CRC32c framing.
+// The header is always written in legacy format for backward compatibility;
+// subsequent records use [CRC32c][length][data] framing.
+static const int kTraceFileCRCFramingVersion = 3;
 
 // The data structure that defines a single trace.
 struct Trace {

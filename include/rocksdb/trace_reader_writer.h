@@ -24,6 +24,11 @@ class TraceWriter {
   virtual Status Write(const Slice& data) = 0;
   virtual Status Close() = 0;
   virtual uint64_t GetFileSize() = 0;
+
+  // Enable CRC32c framing for subsequent Write() calls. Called after the
+  // trace header has been written in the legacy format, so the header remains
+  // readable by older versions.
+  virtual void EnableCRCFraming() {}
 };
 
 // TraceReader allows reading RocksDB traces from any system, one operation at
@@ -38,6 +43,10 @@ class TraceReader {
   // Seek back to the trace header. Replayer can call this method to restart
   // replaying. Note this method may fail if the reader is already closed.
   virtual Status Reset() = 0;
+
+  // Enable CRC32c framing for subsequent Read() calls. Called after the
+  // trace header has been read and the version indicates CRC framing (>= 0.3).
+  virtual void EnableCRCFraming() {}
 };
 
 // Factory methods to write/read traces to/from a file.
