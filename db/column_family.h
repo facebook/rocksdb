@@ -734,6 +734,8 @@ class ColumnFamilyData {
 
   std::atomic<uint64_t> next_epoch_number_;
 
+  // Used to synchronize IngestExternalFile with range tombstone conversion. See
+  // also Memtable::ingest_seqno_barrier_.
   port::RWMutex ingest_sst_lock_;
 };
 

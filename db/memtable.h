@@ -934,7 +934,8 @@ class MemTable final : public ReadOnlyMemTable {
   // if not set.
   std::atomic<SequenceNumber> earliest_seqno_;
 
-  // Seqno of the latest ingested external SST.
+  // Seqno of the latest ingested external SST. See also
+  // ColumnFamilyData::ingest_sst_lock_.
   RelaxedAtomic<SequenceNumber> ingest_seqno_barrier_{0};
 
   SequenceNumber creation_seq_;
