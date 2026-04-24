@@ -9,54 +9,148 @@
 
 #include "test_util/testharness.h"
 
+#include <algorithm>
 #include <cstdlib>
+#include <mutex>
 #include <regex>
 #include <string>
 #include <thread>
+#include <unordered_set>
+#include <vector>
 
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
 
+#include "file/file_util.h"
 #ifndef NDEBUG
 #include "test_util/sync_point.h"
 #endif
 
 namespace {
+std::mutex& RegisteredPerTestPathsMutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::unordered_set<std::string>& RegisteredPerTestPaths() {
+  static auto* paths = new std::unordered_set<std::string>();
+  return *paths;
+}
+
+void RegisterPerTestPath(std::string path) {
+  std::lock_guard<std::mutex> lock(RegisteredPerTestPathsMutex());
+  RegisteredPerTestPaths().insert(std::move(path));
+}
+
+void ClearRegisteredPerTestPathsImpl() {
+  std::lock_guard<std::mutex> lock(RegisteredPerTestPathsMutex());
+  RegisteredPerTestPaths().clear();
+}
+
+ROCKSDB_NAMESPACE::Status CleanupRegisteredPerTestPathsImpl() {
+  std::vector<std::string> paths;
+  {
+    std::lock_guard<std::mutex> lock(RegisteredPerTestPathsMutex());
+    paths.assign(RegisteredPerTestPaths().begin(),
+                 RegisteredPerTestPaths().end());
+    RegisteredPerTestPaths().clear();
+  }
+
+  std::sort(paths.begin(), paths.end(),
+            [](const std::string& lhs, const std::string& rhs) {
+              if (lhs.size() != rhs.size()) {
+                return lhs.size() > rhs.size();
+              }
+              return lhs < rhs;
+            });
+
+  ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
+  for (const auto& path : paths) {
+    if (path.empty()) {
+      continue;
+    }
+
+    ROCKSDB_NAMESPACE::Status exists = env->FileExists(path);
+    if (exists.IsNotFound()) {
+      continue;
+    }
+    if (!exists.ok()) {
+      return ROCKSDB_NAMESPACE::Status::IOError(
+          "Failed to stat registered test path " + path + ": " +
+          exists.ToString());
+    }
+
+    bool is_dir = false;
+    ROCKSDB_NAMESPACE::Status s = env->IsDirectory(path, &is_dir);
+    if (s.ok()) {
+      s = is_dir ? ROCKSDB_NAMESPACE::DestroyDir(env, path)
+                 : env->DeleteFile(path);
+    }
+    if (!s.ok() && !s.IsNotFound()) {
+      return ROCKSDB_NAMESPACE::Status::IOError(
+          "Failed to clean up registered test path " + path + ": " +
+          s.ToString());
+    }
+  }
+  return ROCKSDB_NAMESPACE::Status::OK();
+}
+
+void CleanupSyncPointState() {
 #ifndef NDEBUG
-// Global gtest event listener that cleans up SyncPoint state after every
-// test. Many tests set SyncPoint callbacks with captured local variables
-// but forget to disable/clear them. Under sharded execution (multiple
-// tests per process), stale callbacks cause segfaults or corruption.
-class SyncPointCleanupListener : public ::testing::EmptyTestEventListener {
-  void OnTestEnd(const ::testing::TestInfo& /*test_info*/) override {
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
-    // LoadDependency({}) clears successors_, predecessors_, and
-    // cleared_points_ maps.  Without this, stale dependencies from a
-    // previous test can block SyncPoint::Process() in the next test
-    // (e.g. a background compaction thread hitting CompactFilesImpl:1
-    // whose predecessor was never fired).
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
+  // LoadDependency({}) clears successors_, predecessors_, and
+  // cleared_points_ maps. Without this, stale dependencies from a previous
+  // test can block SyncPoint::Process() in the next test.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({});
+#endif  // !NDEBUG
+}
+
+// Global gtest event listener that cleans up shared per-test state after every
+// test. Under sharded execution, multiple tests now share one process, so any
+// leaked SyncPoint callbacks or leftover PerThreadDBPath() directories can
+// accumulate across thousands of test cases.
+class TestStateCleanupListener : public ::testing::EmptyTestEventListener {
+  void OnTestStart(const ::testing::TestInfo& /*test_info*/) override {
+    ClearRegisteredPerTestPathsImpl();
+  }
+
+  void OnTestEnd(const ::testing::TestInfo& test_info) override {
+    CleanupSyncPointState();
+    if (getenv("KEEP_DB") == nullptr && test_info.result()->Passed()) {
+      EXPECT_OK(CleanupRegisteredPerTestPathsImpl());
+    } else {
+      ClearRegisteredPerTestPathsImpl();
+    }
   }
 };
 
 // Auto-register the listener via static initialization.
 // This runs before main() and before any test fixtures are constructed.
-static int RegisterSyncPointCleanup() noexcept {
+static int RegisterTestStateCleanup() noexcept {
   ::testing::TestEventListeners& listeners =
       ::testing::UnitTest::GetInstance()->listeners();
-  listeners.Append(new SyncPointCleanupListener());
+  listeners.Append(new TestStateCleanupListener());
   return 0;
 }
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-[[maybe_unused]] static int sync_point_cleanup_registered_ =
-    RegisterSyncPointCleanup();
-#endif  // !NDEBUG
+[[maybe_unused]] static int test_state_cleanup_registered_ =
+    RegisterTestStateCleanup();
 }  // namespace
 
 namespace ROCKSDB_NAMESPACE::test {
+
+namespace detail {
+
+void ClearRegisteredPerTestPaths() { ClearRegisteredPerTestPathsImpl(); }
+
+Status CleanupRegisteredPerTestPaths() {
+  return CleanupRegisteredPerTestPathsImpl();
+}
+
+}  // namespace detail
 
 #ifdef OS_WIN
 #include <windows.h>
@@ -83,7 +177,10 @@ std::string TmpDir(Env* env) {
 
 std::string PerThreadDBPath(std::string dir, std::string name) {
   size_t tid = std::hash<std::thread::id>()(std::this_thread::get_id());
-  return dir + "/" + name + "_" + GetPidStr() + "_" + std::to_string(tid);
+  std::string path =
+      dir + "/" + name + "_" + GetPidStr() + "_" + std::to_string(tid);
+  RegisterPerTestPath(path);
+  return path;
 }
 
 std::string PerThreadDBPath(std::string name) {

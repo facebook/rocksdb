@@ -34,6 +34,31 @@ TEST(TestUtil, DestroyDirRecursively) {
   ASSERT_TRUE(s.IsNotFound());
 }
 
+TEST(TestUtil, CleanupRegisteredPerTestPathsRemovesDirectory) {
+  auto env = Env::Default();
+  test::detail::ClearRegisteredPerTestPaths();
+
+  std::string test_dir = test::PerThreadDBPath("test_util_cleanup_dir");
+  DestroyDir(env, test_dir).PermitUncheckedError();
+  ASSERT_OK(env->CreateDirIfMissing(test_dir));
+  CreateFile(env, test_dir + "/file");
+
+  ASSERT_OK(test::detail::CleanupRegisteredPerTestPaths());
+  ASSERT_TRUE(env->FileExists(test_dir).IsNotFound());
+}
+
+TEST(TestUtil, CleanupRegisteredPerTestPathsRemovesFile) {
+  auto env = Env::Default();
+  test::detail::ClearRegisteredPerTestPaths();
+
+  std::string test_file = test::PerThreadDBPath("test_util_cleanup_file");
+  env->DeleteFile(test_file).PermitUncheckedError();
+  CreateFile(env, test_file);
+
+  ASSERT_OK(test::detail::CleanupRegisteredPerTestPaths());
+  ASSERT_TRUE(env->FileExists(test_file).IsNotFound());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
