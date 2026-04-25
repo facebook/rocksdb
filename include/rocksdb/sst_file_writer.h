@@ -117,7 +117,9 @@ class SstFileWriter {
   Status Put(const Slice& user_key, const Slice& timestamp, const Slice& value);
 
   // Add a PutEntity (key with the wide-column entity defined by "columns") to
-  // the currently opened file
+  // the currently opened file. `columns` is a non-owning view, so the backing
+  // storage for each column name and value must remain valid until this method
+  // returns.
   Status PutEntity(const Slice& user_key, const WideColumns& columns);
 
   // Add a Merge key with value to currently opened file

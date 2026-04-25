@@ -444,6 +444,8 @@ class DB {
   // Set the database entry for "key" in the column family specified by
   // "column_family" to the wide-column entity defined by "columns". If the key
   // already exists in the column family, it will be overwritten.
+  // `columns` is a non-owning view. The backing storage for each column name
+  // and value must remain valid until this method returns.
   //
   // Returns OK on success, and a non-OK status on error.
   virtual Status PutEntity(const WriteOptions& options,
