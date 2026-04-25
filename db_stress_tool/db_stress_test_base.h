@@ -427,6 +427,9 @@ class StressTest {
   Options options_;
   SystemClock* clock_;
   std::vector<ColumnFamilyHandle*> column_families_;
+  // Handles from dropped column families whose deletion is deferred because
+  // other threads may still hold pointers to them.
+  std::vector<ColumnFamilyHandle*> old_column_families_;
   std::vector<std::string> column_family_names_;
   std::atomic<int> new_column_family_name_;
   int num_times_reopened_;

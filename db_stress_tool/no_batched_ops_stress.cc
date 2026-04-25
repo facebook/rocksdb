@@ -607,14 +607,22 @@ class NonBatchedOpsStressTest : public StressTest {
         }
         thread->shared->LockColumnFamily(cf);
         Status s = db_->DropColumnFamily(column_families_[cf]);
-        delete column_families_[cf];
         if (!s.ok()) {
           fprintf(stderr, "dropping column family error: %s\n",
                   s.ToString().c_str());
           thread->shared->SafeTerminate();
         }
+        // Use a local variable for CreateColumnFamily to avoid setting
+        // column_families_[cf] to nullptr (CreateColumnFamilyImpl zeroes the
+        // output handle first). Other threads may concurrently read
+        // column_families_[cf] without holding the CF lock.
+        ColumnFamilyHandle* new_cfh = nullptr;
         s = db_->CreateColumnFamily(ColumnFamilyOptions(options_), new_name,
-                                    &column_families_[cf]);
+                                    &new_cfh);
+        // Defer deletion of the old handle because other threads may still
+        // hold pointers to it. It will be cleaned up in CleanUpColumnFamilies.
+        old_column_families_.push_back(column_families_[cf]);
+        column_families_[cf] = new_cfh;
         column_family_names_[cf] = new_name;
         thread->shared->ClearColumnFamily(cf);
         if (!s.ok()) {
