@@ -151,7 +151,7 @@ class Writer {
 
   // Compression Type
   CompressionType compression_type_;
-  StreamingCompress* compress_;
+  std::unique_ptr<StreamingCompress> compress_;
   // Reusable compressed output buffer
   std::unique_ptr<char[]> compressed_buffer_;
 

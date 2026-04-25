@@ -175,7 +175,7 @@ class Reader {
   CompressionType compression_type_;
   // Track whether the compression type record has been read or not.
   bool compression_type_record_read_;
-  StreamingUncompress* uncompress_;
+  std::unique_ptr<StreamingUncompress> uncompress_;
   // Reusable uncompressed output buffer
   std::unique_ptr<char[]> uncompressed_buffer_;
   // Reusable uncompressed record
