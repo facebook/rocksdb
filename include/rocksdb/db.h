@@ -981,6 +981,17 @@ class DB {
                        value_found);
   }
 
+  // Check if a key exists in the database without reading the value.
+  // More efficient than Get() for BlobDB (skips blob file reads) and for all
+  // stores (avoids exposing value bytes to the caller).
+  // Returns Status::OK() if key exists, Status::NotFound() if not.
+  virtual Status KeyExists(const ReadOptions& options,
+                           ColumnFamilyHandle* column_family, const Slice& key);
+
+  virtual Status KeyExists(const ReadOptions& options, const Slice& key) {
+    return KeyExists(options, DefaultColumnFamily(), key);
+  }
+
   // Return a heap-allocated iterator over the contents of the database.
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).

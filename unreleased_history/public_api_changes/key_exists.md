@@ -1,0 +1,1 @@
+Added new `DB::KeyExists()` virtual method to check if a key exists in the database without reading the value. Returns `Status::OK()` if the key exists, `Status::NotFound()` if not. More efficient than `Get()` for BlobDB stores because it skips blob file reads entirely, and for all stores because it avoids copying value bytes to the caller.

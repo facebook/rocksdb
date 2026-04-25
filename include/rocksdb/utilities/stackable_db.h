@@ -220,6 +220,13 @@ class StackableDB : public DB {
     return db_->KeyMayExist(options, column_family, key, value, value_found);
   }
 
+  using DB::KeyExists;
+  Status KeyExists(const ReadOptions& options,
+                   ColumnFamilyHandle* column_family,
+                   const Slice& key) override {
+    return db_->KeyExists(options, column_family, key);
+  }
+
   using DB::Delete;
   Status Delete(const WriteOptions& wopts, ColumnFamilyHandle* column_family,
                 const Slice& key) override {
