@@ -773,7 +773,10 @@ void TableCache::ReleaseObsolete(Cache* cache, uint64_t file_number,
   if (table_handle != nullptr) {
     TableReader* table_reader = typed_cache.Value(table_handle);
     table_reader->MarkObsolete(uncache_aggressiveness);
-    typed_cache.ReleaseAndEraseIfLastRef(table_handle);
+    // Mark the entry Invisible so that if concurrent readers hold references,
+    // the entry will be erased when the last reference is released.
+    cache->Erase(GetSliceForFileNumber(&file_number));
+    typed_cache.Release(table_handle);
   }
 }
 

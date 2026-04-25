@@ -11993,6 +11993,62 @@ TEST_F(DBCompactionTest, LeakedTableCacheEntryOnInstallFailure) {
   db_ = nullptr;
 }
 
+// Regression test for ReleaseObsolete failing to erase table cache entries
+// when concurrent readers hold references.
+// 1. Flush creates an L0 SST file with an entry in the table cache.
+// 2. A concurrent reader acquires a cache reference on the file (simulated
+//    with a direct cache Lookup).
+// 3. ReleaseObsolete is called (simulating what PurgeObsoleteFiles does when
+//    the file becomes obsolete). With the old code, this calls
+//    ReleaseAndEraseIfLastRef which fails because of the concurrent ref.
+// 4. The concurrent reader releases its reference.
+// 5. Without the fix, the entry remains in the cache (leak). With the fix,
+//    ReleaseObsolete's Erase() marked the entry Invisible, so it was cleaned
+//    up when the concurrent ref was released.
+TEST_F(DBCompactionTest, ObsoleteFileTableCacheEntryWithConcurrentRef) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // Create an L0 file.
+  ASSERT_OK(Put("a", std::string(1024, 'x')));
+  ASSERT_OK(Put("z", std::string(1024, 'x')));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+
+  // Get the file number of the L0 file.
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(files.size(), 1);
+  uint64_t target_file_number = files[0].file_number;
+
+  // Ensure the file is in the table cache by reading from it.
+  ASSERT_EQ(Get("a"), std::string(1024, 'x'));
+
+  Cache* table_cache = dbfull()->TEST_table_cache();
+
+  // Simulate a concurrent reader acquiring a cache reference.
+  Cache::Handle* concurrent_handle =
+      TableCache::Lookup(table_cache, target_file_number);
+  ASSERT_NE(concurrent_handle, nullptr);
+
+  // Call ReleaseObsolete directly — this is what PurgeObsoleteFiles calls
+  // when a file becomes obsolete. Pass nullptr for the handle to make
+  // ReleaseObsolete do its own Lookup internally.
+  TableCache::ReleaseObsolete(table_cache, target_file_number,
+                              /*handle=*/nullptr,
+                              /*uncache_aggressiveness=*/0);
+
+  // The concurrent reader releases its reference.
+  table_cache->Release(concurrent_handle);
+
+  // With the fix, the entry should be gone: ReleaseObsolete called Erase()
+  // which marked it Invisible, so it was freed when the concurrent ref was
+  // released. Without the fix, the entry leaks here.
+  Cache::Handle* leaked = TableCache::Lookup(table_cache, target_file_number);
+  ASSERT_EQ(leaked, nullptr);
+}
+
 TEST_F(DBCompactionTest, VerifyFileChecksumOnCompactionOutput) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
