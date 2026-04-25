@@ -1295,13 +1295,27 @@ Status DBImpl::WriteImpl(
           if (writer->CallbackFailed()) {
             continue;
           }
-          // TODO: maybe handle the tracing status?
+          Status trace_s;
           if (wbwi && !ingest_wbwi_for_commit) {
             // for transaction write, tracer only needs the commit marker which
             // is in writer->batch
-            tracer_->Write(wbwi->GetWriteBatch()).PermitUncheckedError();
+            trace_s = tracer_->Write(wbwi->GetWriteBatch());
           } else {
-            tracer_->Write(writer->trace_batch).PermitUncheckedError();
+            trace_s = tracer_->Write(writer->trace_batch);
+          }
+          if (!trace_s.ok()) {
+            // When a trace write fails with preserve_write_order, continuing
+            // to accept DB writes without tracing them would violate the
+            // expected-state trace contract used by db_stress (the trace must
+            // be an ordered superset of recoverable writes). Stop tracing
+            // immediately to prevent a silent gap from accumulating between
+            // the trace file and the WAL.
+            ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                            "Trace write failed (%s), stopping tracer to "
+                            "prevent silent gap accumulation",
+                            trace_s.ToString().c_str());
+            tracer_.reset();
+            break;
           }
         }
       }
@@ -1630,8 +1644,21 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
               // not record to trace.
               continue;
             }
-            // TODO: maybe handle the tracing status?
-            tracer_->Write(writer->trace_batch).PermitUncheckedError();
+            Status trace_s = tracer_->Write(writer->trace_batch);
+            if (!trace_s.ok()) {
+              // When a trace write fails with preserve_write_order, continuing
+              // to accept DB writes without tracing them would violate the
+              // expected-state trace contract used by db_stress (the trace must
+              // be an ordered superset of recoverable writes). Stop tracing
+              // immediately to prevent a silent gap from accumulating between
+              // the trace file and the WAL.
+              ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                              "Trace write failed (%s), stopping tracer to "
+                              "prevent silent gap accumulation",
+                              trace_s.ToString().c_str());
+              tracer_.reset();
+              break;
+            }
           }
         }
       }
@@ -1915,8 +1942,15 @@ Status DBImpl::WriteImplWALOnly(
         if (writer->CallbackFailed()) {
           continue;
         }
-        // TODO: maybe handle the tracing status?
-        tracer_->Write(writer->trace_batch).PermitUncheckedError();
+        Status trace_s = tracer_->Write(writer->trace_batch);
+        if (!trace_s.ok()) {
+          ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                          "Trace write failed (%s), stopping tracer to "
+                          "prevent silent gap accumulation",
+                          trace_s.ToString().c_str());
+          tracer_.reset();
+          break;
+        }
       }
     }
   }
