@@ -1,14 +1,14 @@
-# Claude Code Review — Comment Posting Workflow
+# Codex Code Review — Comment Posting Workflow
 #
 # Thin wrapper around .github/workflows/ai-review-comment.yml so the provider
 # specific workflow name stays stable while the shared implementation lives in
 # one reusable workflow.
 
-name: Post Claude Review Comment
+name: Post Codex Review Comment
 
 on:
   workflow_run:
-    workflows: ["Claude Code Review"]
+    workflows: ["Codex Code Review"]
     types: [completed]
 
 permissions:
@@ -19,7 +19,7 @@ jobs:
   review-comment:
     uses: ./.github/workflows/ai-review-comment.yml
     with:
-      provider: claude
-      result_artifact_name: claude-review-result
-      comment_file: claude-review-comment.md
+      provider: codex
+      result_artifact_name: codex-review-result
+      comment_file: codex-review-comment.md
     secrets: inherit
