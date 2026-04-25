@@ -11,6 +11,7 @@
 
 #include <cstdint>
 
+#include "db/blog/blog_writer.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
@@ -19,6 +20,19 @@
 #include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE::log {
+
+Writer::Writer(std::unique_ptr<BlogFileWriter>&& blog_writer,
+               uint64_t log_number)
+    : blog_writer_(std::move(blog_writer)),
+      block_offset_(0),
+      log_number_(log_number),
+      recycle_log_files_(false),
+      header_size_(0),
+      manual_flush_(false),
+      compression_type_(kNoCompression),
+      compress_(nullptr),
+      track_and_verify_wals_(false),
+      last_seqno_recorded_(0) {}
 
 Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
                bool recycle_log_files, bool manual_flush,
@@ -31,7 +45,7 @@ Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
       header_size_(recycle_log_files ? kRecyclableHeaderSize : kHeaderSize),
       manual_flush_(manual_flush),
       compression_type_(compression_type),
-      compress_(nullptr),
+      compress_(),
       track_and_verify_wals_(track_and_verify_wals),
       last_seqno_recorded_(0) {
   for (uint8_t i = 0; i <= kMaxRecordType; i++) {
@@ -46,14 +60,16 @@ Writer::~Writer() {
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_UNKNOWN);
   if (dest_) {
     WriteBuffer(WriteOptions()).PermitUncheckedError();
-  }
-  if (compress_) {
-    delete compress_;
+  } else if (blog_writer_) {
+    blog_writer_->WriteBuffer(WriteOptions()).PermitUncheckedError();
   }
   ThreadStatusUtil::SetThreadOperation(cur_op_type);
 }
 
 IOStatus Writer::WriteBuffer(const WriteOptions& write_options) {
+  if (blog_writer_) {
+    return blog_writer_->WriteBuffer(write_options);
+  }
   IOStatus s = MaybeHandleSeenFileWriterError();
   if (!s.ok()) {
     return s;
@@ -67,6 +83,11 @@ IOStatus Writer::WriteBuffer(const WriteOptions& write_options) {
 }
 
 IOStatus Writer::Close(const WriteOptions& write_options) {
+  if (blog_writer_) {
+    IOStatus s = blog_writer_->Close(write_options);
+    blog_writer_.reset();
+    return s;
+  }
   IOStatus s;
   IOOptions opts;
   s = WritableFileWriter::PrepareIOOptions(write_options, opts);
@@ -78,6 +99,15 @@ IOStatus Writer::Close(const WriteOptions& write_options) {
 }
 
 bool Writer::PublishIfClosed() {
+  if (blog_writer_) {
+    // Blog format doesn't support this pattern directly.
+    // Check the underlying file writer.
+    if (blog_writer_->file()->IsClosed()) {
+      blog_writer_.reset();
+      return true;
+    }
+    return false;
+  }
   if (dest_->IsClosed()) {
     dest_.reset();
     return true;
@@ -86,8 +116,33 @@ bool Writer::PublishIfClosed() {
   }
 }
 
+WritableFileWriter* Writer::file() {
+  if (blog_writer_) {
+    return blog_writer_->file();
+  }
+  return dest_.get();
+}
+
+const WritableFileWriter* Writer::file() const {
+  if (blog_writer_) {
+    return blog_writer_->file();
+  }
+  return dest_.get();
+}
+
 IOStatus Writer::AddRecord(const WriteOptions& write_options,
                            const Slice& slice, const SequenceNumber& seqno) {
+  // Blog format path: delegate to BlogFileWriter. Compression (if any)
+  // is handled by BlogFileWriter's streaming compression, configured
+  // via the WriteBatchStreamingCompressionType header property.
+  if (blog_writer_) {
+    IOStatus s = blog_writer_->AddWriteBatchRecord(write_options, slice);
+    if (s.ok()) {
+      last_seqno_recorded_ = seqno;
+    }
+    return s;
+  }
+
   IOStatus s = MaybeHandleSeenFileWriterError();
   if (!s.ok()) {
     return s;
@@ -191,6 +246,11 @@ IOStatus Writer::AddRecord(const WriteOptions& write_options,
 }
 
 IOStatus Writer::AddCompressionTypeRecord(const WriteOptions& write_options) {
+  // Blog format stores compression info in header properties; no record needed.
+  if (blog_writer_) {
+    return IOStatus::OK();
+  }
+
   // Should be the first record
   assert(block_offset_ == 0);
 
@@ -221,9 +281,9 @@ IOStatus Writer::AddCompressionTypeRecord(const WriteOptions& write_options) {
     const size_t max_output_buffer_len = kBlockSize - header_size_;
     CompressionOptions opts;
     constexpr uint32_t compression_format_version = 2;
-    compress_ = StreamingCompress::Create(compression_type_, opts,
-                                          compression_format_version,
-                                          max_output_buffer_len);
+    compress_.reset(StreamingCompress::Create(compression_type_, opts,
+                                              compression_format_version,
+                                              max_output_buffer_len));
     assert(compress_ != nullptr);
     compressed_buffer_ =
         std::unique_ptr<char[]>(new char[max_output_buffer_len]);
@@ -237,6 +297,11 @@ IOStatus Writer::AddCompressionTypeRecord(const WriteOptions& write_options) {
 
 IOStatus Writer::MaybeAddPredecessorWALInfo(const WriteOptions& write_options,
                                             const PredecessorWALInfo& info) {
+  // Blog format stores predecessor WAL info in header properties.
+  if (blog_writer_) {
+    return IOStatus::OK();
+  }
+
   IOStatus s = MaybeHandleSeenFileWriterError();
 
   if (!s.ok()) {
@@ -276,6 +341,12 @@ IOStatus Writer::MaybeAddPredecessorWALInfo(const WriteOptions& write_options,
 IOStatus Writer::MaybeAddUserDefinedTimestampSizeRecord(
     const WriteOptions& write_options,
     const UnorderedMap<uint32_t, size_t>& cf_to_ts_sz) {
+  // Blog format: timestamp size info is in header properties.
+  // TODO: support per-CF timestamp sizes for blog format WALs.
+  if (blog_writer_) {
+    return IOStatus::OK();
+  }
+
   std::vector<std::pair<uint32_t, size_t>> ts_sz_to_record;
   for (const auto& [cf_id, ts_sz] : cf_to_ts_sz) {
     if (recorded_cf_to_ts_sz_.count(cf_id) != 0) {
@@ -306,7 +377,12 @@ IOStatus Writer::MaybeAddUserDefinedTimestampSizeRecord(
                             encoded.size());
 }
 
-bool Writer::BufferIsEmpty() { return dest_->BufferIsEmpty(); }
+bool Writer::BufferIsEmpty() {
+  if (blog_writer_) {
+    return blog_writer_->file()->BufferIsEmpty();
+  }
+  return dest_->BufferIsEmpty();
+}
 
 IOStatus Writer::EmitPhysicalRecord(const WriteOptions& write_options,
                                     RecordType t, const char* ptr, size_t n) {

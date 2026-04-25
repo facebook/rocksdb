@@ -1,0 +1,1 @@
+Added new DB options `use_blog_format_for_wals` and `use_blog_format_for_blobs` to enable the new "blog" file format for WAL and blob files respectively. The blog format uses escape-sequence record framing with context checksums, providing safe WAL recycling detection and non-linear recovery. Existing legacy format files remain readable regardless of these settings.

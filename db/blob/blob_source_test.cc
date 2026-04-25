@@ -59,8 +59,7 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
   constexpr bool do_flush = false;
 
   BlobLogWriter blob_log_writer(std::move(file_writer), immutable_options.clock,
-                                statistics, blob_file_number, use_fsync,
-                                do_flush);
+                                statistics, use_fsync, do_flush);
 
   BlobLogHeader header(column_family_id, compression, has_ttl,
                        expiration_range_header);
@@ -100,8 +99,8 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
 
   std::string checksum_method;
   std::string checksum_value;
-  ASSERT_OK(blob_log_writer.AppendFooter(WriteOptions(), footer,
-                                         &checksum_method, &checksum_value));
+  ASSERT_OK(blob_log_writer.LegacyAppendFooterAndClose(
+      WriteOptions(), footer, &checksum_method, &checksum_value));
 }
 
 }  // anonymous namespace

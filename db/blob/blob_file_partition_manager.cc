@@ -214,10 +214,10 @@ Status BlobFilePartitionManager::OpenNewBlobFile(Partition* partition,
 
   // This only drains WritableFileWriter's buffered bytes so readers can see
   // each appended record promptly. Durability still comes from SyncAllOpenFiles
-  // or AppendFooter(), both of which call Sync().
+  // or LegacyAppendFooterAndClose(), both of which call Sync().
   constexpr bool kDoFlushEachRecord = true;
   auto blob_log_writer = std::make_unique<BlobLogWriter>(
-      std::move(file_writer), clock_, statistics_, blob_file_number, use_fsync_,
+      std::move(file_writer), clock_, statistics_, use_fsync_,
       kDoFlushEachRecord);
 
   constexpr bool has_ttl = false;
@@ -300,8 +300,8 @@ Status BlobFilePartitionManager::FinalizeBlobFile(
 
   std::string checksum_method;
   std::string checksum_value;
-  Status s = writer->AppendFooter(write_options, footer, &checksum_method,
-                                  &checksum_value);
+  Status s = writer->LegacyAppendFooterAndClose(
+      write_options, footer, &checksum_method, &checksum_value);
   if (!s.ok()) {
     return s;
   }

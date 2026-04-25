@@ -14,6 +14,8 @@
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_writer.h"
 #include "db/blob/blob_source.h"
+#include "db/blog/blog_format.h"
+#include "db/blog/blog_writer.h"
 #include "db/event_helpers.h"
 #include "db/version_set.h"
 #include "file/filename.h"
@@ -67,10 +69,13 @@ BlobFileBuilder::BlobFileBuilder(
       min_blob_size_(mutable_cf_options->min_blob_size),
       blob_file_size_(mutable_cf_options->blob_file_size),
       blob_compression_type_(mutable_cf_options->blob_compression_type),
-      // TODO with schema change: support custom compression manager and options
-      // such as max_compressed_bytes_per_kb
-      // NOTE: returns nullptr for kNoCompression
-      blob_compressor_(GetBuiltinV2CompressionManager()->GetCompressor(
+      // Blog format uses the CF's compression manager; legacy format must
+      // use the builtin for compatibility.
+      blob_compression_manager_(immutable_options->use_blog_format_for_blobs &&
+                                        mutable_cf_options->compression_manager
+                                    ? mutable_cf_options->compression_manager
+                                    : GetBuiltinV2CompressionManager()),
+      blob_compressor_(blob_compression_manager_->GetCompressor(
           mutable_cf_options->blob_compression_opts, blob_compression_type_)),
       blob_compressor_wa_(blob_compressor_
                               ? blob_compressor_->ObtainWorkingArea()
@@ -123,8 +128,10 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
   Slice blob = value;
   GrowableBuffer compressed_blob;
 
-  {
-    const Status s = CompressBlobIfNeeded(&blob, &compressed_blob);
+  if (!blog_writer_) {
+    // Legacy format: compress before writing (compression type is implicit
+    // from the configured blob_compression_type_).
+    const Status s = LegacyCompressBlob(&blob, &compressed_blob);
     if (!s.ok()) {
       return s;
     }
@@ -132,10 +139,13 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
 
   uint64_t blob_file_number = 0;
   uint64_t blob_offset = 0;
+  uint64_t blob_on_disk_size = 0;
+  CompressionType actual_compression_type = blob_compression_type_;
 
   {
     const Status s =
-        WriteBlobToFile(key, blob, &blob_file_number, &blob_offset);
+        WriteBlobToFile(key, blob, &blob_file_number, &blob_offset,
+                        &blob_on_disk_size, &actual_compression_type);
     if (!s.ok()) {
       return s;
     }
@@ -158,8 +168,8 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
     }
   }
 
-  BlobIndex::EncodeBlob(blob_index, blob_file_number, blob_offset, blob.size(),
-                        blob_compression_type_);
+  BlobIndex::EncodeBlob(blob_index, blob_file_number, blob_offset,
+                        blob_on_disk_size, actual_compression_type);
 
   return Status::OK();
 }
@@ -172,7 +182,9 @@ Status BlobFileBuilder::Finish() {
   return CloseBlobFile();
 }
 
-bool BlobFileBuilder::IsBlobFileOpen() const { return !!writer_; }
+bool BlobFileBuilder::IsBlobFileOpen() const {
+  return !!writer_ || !!blog_writer_;
+}
 
 Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   if (IsBlobFileOpen()) {
@@ -231,37 +243,73 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
       immutable_options_->file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kBlobFile), false));
 
-  constexpr bool do_flush = false;
+  blob_file_number_ = blob_file_number;
 
-  std::unique_ptr<BlobLogWriter> blob_log_writer(new BlobLogWriter(
-      std::move(file_writer), immutable_options_->clock, statistics,
-      blob_file_number, immutable_options_->use_fsync, do_flush));
+  if (immutable_options_->use_blog_format_for_blobs) {
+    // Blog format path
+    BlogFileHeader blog_header;
+    blog_header.checksum_type = immutable_options_->blog_checksum;
+    blog_header.compact_record_type = kBlogBlobRecord;
+    blog_header.GenerateFromUniqueId(db_id_, db_session_id_, blob_file_number);
+    blog_header.SetProperty(kBlogPropRole, "blob");
+    if (!immutable_options_->db_host_id.empty()) {
+      blog_header.SetProperty(kBlogPropDbHostId,
+                              immutable_options_->db_host_id);
+    }
+    blog_header.SetUint32Property(kBlogPropColumnFamilyId, column_family_id_);
+    if (!column_family_name_.empty()) {
+      blog_header.SetProperty(kBlogPropColumnFamilyName, column_family_name_);
+    }
+    if (blob_compressor_) {
+      blog_header.SetProperty(kBlogPropCompressionCompatibilityName,
+                              blob_compression_manager_->CompatibilityName());
+    }
 
-  constexpr bool has_ttl = false;
-  constexpr ExpirationRange expiration_range;
+    blog_writer_ =
+        std::make_unique<BlogFileWriter>(std::move(file_writer), blog_header);
 
-  BlobLogHeader header(column_family_id_, blob_compression_type_, has_ttl,
-                       expiration_range);
-
-  {
-    Status s = blob_log_writer->WriteHeader(*write_options_, header);
+    Status s = blog_writer_->WriteHeader(*write_options_);
 
     TEST_SYNC_POINT_CALLBACK(
-        "BlobFileBuilder::OpenBlobFileIfNeeded:WriteHeader", &s);
+        "BlobFileBuilder::OpenBlobFileIfNeeded:WriteBlogHeader", &s);
 
     if (!s.ok()) {
       return s;
     }
-  }
+  } else {
+    // Legacy blob log format path
+    constexpr bool do_flush = false;
 
-  writer_ = std::move(blob_log_writer);
+    std::unique_ptr<BlobLogWriter> blob_log_writer(
+        new BlobLogWriter(std::move(file_writer), immutable_options_->clock,
+                          statistics, immutable_options_->use_fsync, do_flush));
+
+    constexpr bool has_ttl = false;
+    constexpr ExpirationRange expiration_range;
+
+    BlobLogHeader header(column_family_id_, blob_compression_type_, has_ttl,
+                         expiration_range);
+
+    {
+      Status s = blob_log_writer->WriteHeader(*write_options_, header);
+
+      TEST_SYNC_POINT_CALLBACK(
+          "BlobFileBuilder::OpenBlobFileIfNeeded:WriteHeader", &s);
+
+      if (!s.ok()) {
+        return s;
+      }
+    }
+
+    writer_ = std::move(blob_log_writer);
+  }
 
   assert(IsBlobFileOpen());
 
   return Status::OK();
 }
 
-Status BlobFileBuilder::CompressBlobIfNeeded(
+Status BlobFileBuilder::LegacyCompressBlob(
     Slice* blob, GrowableBuffer* compressed_blob) const {
   assert(blob);
   assert(compressed_blob);
@@ -290,17 +338,48 @@ Status BlobFileBuilder::CompressBlobIfNeeded(
   return Status::OK();
 }
 
-Status BlobFileBuilder::WriteBlobToFile(const Slice& key, const Slice& blob,
-                                        uint64_t* blob_file_number,
-                                        uint64_t* blob_offset) {
+Status BlobFileBuilder::WriteBlobToFile(
+    const Slice& key, const Slice& blob, uint64_t* blob_file_number,
+    uint64_t* blob_offset, uint64_t* blob_on_disk_size,
+    CompressionType* actual_compression_type) {
   assert(IsBlobFileOpen());
   assert(blob_file_number);
   assert(blob_offset);
+  assert(blob_on_disk_size);
+  assert(actual_compression_type);
 
-  uint64_t key_offset = 0;
+  Status s;
 
-  Status s =
-      writer_->AddRecord(*write_options_, key, blob, &key_offset, blob_offset);
+  if (blog_writer_) {
+    // Blog format: compress here using CompressBlock (like SST) so we
+    // capture the actual compression type used in the record trailer.
+    CompressionType actual_type = kNoCompression;
+    GrowableBuffer compressed;
+    if (blob_compressor_) {
+      StopWatch stop_watch(immutable_options_->clock, immutable_options_->stats,
+                           BLOB_DB_COMPRESSION_MICROS);
+      size_t max_compressed_size = blob.size();
+      compressed.ResetForSize(max_compressed_size);
+      s = blob_compressor_->CompressBlock(blob, compressed.data(),
+                                          &compressed.MutableSize(),
+                                          &actual_type, &blob_compressor_wa_);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+    Slice write_data =
+        (actual_type != kNoCompression) ? Slice(compressed) : blob;
+    s = blog_writer_->AddBlobRecord(*write_options_, write_data, actual_type,
+                                    blob_offset);
+    *blob_on_disk_size = write_data.size();
+    *actual_compression_type = actual_type;
+  } else {
+    uint64_t key_offset = 0;
+    s = writer_->AddRecord(*write_options_, key, blob, &key_offset,
+                           blob_offset);
+    *blob_on_disk_size = blob.size();  // legacy: already compressed by caller
+    *actual_compression_type = blob_compression_type_;
+  }
 
   TEST_SYNC_POINT_CALLBACK("BlobFileBuilder::WriteBlobToFile:AddRecord", &s);
 
@@ -308,10 +387,16 @@ Status BlobFileBuilder::WriteBlobToFile(const Slice& key, const Slice& blob,
     return s;
   }
 
-  *blob_file_number = writer_->get_log_number();
+  *blob_file_number = blob_file_number_;
 
   ++blob_count_;
-  blob_bytes_ += BlobLogRecord::kHeaderSize + key.size() + blob.size();
+  if (blog_writer_) {
+    // Blog format: blob_bytes_ tracks uncompressed payload size only
+    // (no legacy record header, no key).
+    blob_bytes_ += blob.size();
+  } else {
+    blob_bytes_ += BlobLogRecord::kHeaderSize + key.size() + blob.size();
+  }
 
   return Status::OK();
 }
@@ -319,22 +404,60 @@ Status BlobFileBuilder::WriteBlobToFile(const Slice& key, const Slice& blob,
 Status BlobFileBuilder::CloseBlobFile() {
   assert(IsBlobFileOpen());
 
-  BlobLogFooter footer;
-  footer.blob_count = blob_count_;
-
   std::string checksum_method;
   std::string checksum_value;
+  Status s;
 
-  Status s = writer_->AppendFooter(*write_options_, footer, &checksum_method,
-                                   &checksum_value);
+  if (blog_writer_) {
+    // Blog format: write footer properties and locator records.
+    BlogFileFooterProperties footer_props;
+    footer_props.SetBlobCount(blob_count_);
+    footer_props.SetTotalBlobBytes(blob_bytes_);
 
-  TEST_SYNC_POINT_CALLBACK("BlobFileBuilder::WriteBlobToFile:AppendFooter", &s);
+    uint64_t props_offset = blog_writer_->current_offset();
+    s = blog_writer_->AddFooterPropertiesRecord(*write_options_, footer_props);
+
+    if (s.ok()) {
+      BlogFileFooterLocator locator;
+      uint64_t locator_offset = blog_writer_->current_offset();
+      locator.entries.push_back(
+          {kBlogFooterPropertiesRecord,
+           static_cast<uint32_t>((locator_offset - props_offset) / 4)});
+      s = blog_writer_->AddFooterLocatorRecord(*write_options_, locator);
+    }
+
+    if (s.ok()) {
+      s = blog_writer_->Sync(*write_options_);
+    }
+    if (s.ok()) {
+      s = blog_writer_->Close(*write_options_);
+    }
+    if (s.ok()) {
+      std::string method = blog_writer_->file()->GetFileChecksumFuncName();
+      if (method != kUnknownFileChecksumFuncName) {
+        checksum_method = std::move(method);
+      }
+      std::string value = blog_writer_->file()->GetFileChecksum();
+      if (value != kUnknownFileChecksum) {
+        checksum_value = std::move(value);
+      }
+    }
+  } else {
+    BlobLogFooter footer;
+    footer.blob_count = blob_count_;
+
+    s = writer_->LegacyAppendFooterAndClose(*write_options_, footer,
+                                            &checksum_method, &checksum_value);
+  }
+
+  TEST_SYNC_POINT_CALLBACK(
+      "BlobFileBuilder::WriteBlobToFile:LegacyAppendFooterAndClose", &s);
 
   if (!s.ok()) {
     return s;
   }
 
-  const uint64_t blob_file_number = writer_->get_log_number();
+  const uint64_t blob_file_number = blob_file_number_;
 
   if (blob_callback_) {
     s = blob_callback_->OnBlobFileCompleted(
@@ -356,6 +479,7 @@ Status BlobFileBuilder::CloseBlobFile() {
                  blob_count_, blob_bytes_);
 
   writer_.reset();
+  blog_writer_.reset();
   blob_count_ = 0;
   blob_bytes_ = 0;
 
@@ -365,7 +489,8 @@ Status BlobFileBuilder::CloseBlobFile() {
 Status BlobFileBuilder::CloseBlobFileIfNeeded() {
   assert(IsBlobFileOpen());
 
-  const WritableFileWriter* const file_writer = writer_->file();
+  const WritableFileWriter* const file_writer =
+      blog_writer_ ? blog_writer_->file() : writer_->file();
   assert(file_writer);
 
   if (file_writer->GetFileSize() < blob_file_size_) {
@@ -384,13 +509,13 @@ void BlobFileBuilder::Abandon(const Status& s) {
     // Blob files. So we can ignore the below error.
     blob_callback_
         ->OnBlobFileCompleted(blob_file_paths_->back(), column_family_name_,
-                              job_id_, writer_->get_log_number(),
-                              creation_reason_, s, "", "", blob_count_,
-                              blob_bytes_)
+                              job_id_, blob_file_number_, creation_reason_, s,
+                              "", "", blob_count_, blob_bytes_)
         .PermitUncheckedError();
   }
 
   writer_.reset();
+  blog_writer_.reset();
   blob_count_ = 0;
   blob_bytes_ = 0;
 }

@@ -363,6 +363,9 @@ DECLARE_uint64(wp_commit_cache_bits);
 DECLARE_bool(adaptive_readahead);
 DECLARE_bool(async_io);
 DECLARE_string(wal_compression);
+DECLARE_bool(use_blog_format_for_wals);
+DECLARE_bool(use_blog_format_for_blobs);
+DECLARE_string(blog_checksum);
 DECLARE_bool(verify_sst_unique_id_in_manifest);
 DECLARE_bool(fast_sst_open);
 
