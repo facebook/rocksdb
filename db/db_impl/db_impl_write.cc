@@ -509,6 +509,7 @@ struct DBImpl::BlobDirectWriteContext {
         sv->cfd->ioptions().enable_blob_direct_write;
     settings.min_blob_size = sv->mutable_cf_options.min_blob_size;
     settings.compression_type = sv->mutable_cf_options.blob_compression_type;
+    settings.compression_opts = sv->mutable_cf_options.blob_compression_opts;
     settings.blob_cache = sv->cfd->ioptions().blob_cache.get();
     settings.prepopulate_blob_cache =
         sv->mutable_cf_options.prepopulate_blob_cache;
