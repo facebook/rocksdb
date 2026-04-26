@@ -287,6 +287,11 @@ ARMCRC_SOURCE=1
 endif
 endif
 
+ifeq ($(HAVE_ARMV8_SVE),1)
+  CXXFLAGS += -DHAVE_ARMV8_SVE
+  CFLAGS   += -DHAVE_ARMV8_SVE
+endif
+
 export JAVAC_ARGS
 CLEAN_FILES += make_config.mk rocksdb.pc
 
@@ -2596,6 +2601,12 @@ $(OBJ_DIR)/util/crc32c_ppc.o: util/crc32c_ppc.c
 $(OBJ_DIR)/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 endif
+
+ifeq ($(HAVE_ARMV8_SVE),1)
+$(OBJ_DIR)/util/xxhash.o: util/xxhash.cc
+	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -march=armv8.2-a+sve -c $< -o $@ $(COVERAGEFLAGS)
+endif
+
 $(OBJ_DIR)/%.o: %.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -c $< -o $@ $(COVERAGEFLAGS)
 
