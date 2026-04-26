@@ -453,6 +453,13 @@ bool DBIter::SetValueAndColumnsFromMergeResult(const Status& merge_status,
     return false;
   }
 
+  if (result_type == kTypeDeletion) {
+    // Merge operator signaled that this key should be deleted.
+    // Mark the iterator entry as invalid so that callers skip this key.
+    valid_ = false;
+    return true;
+  }
+
   if (result_type == kTypeWideColumnEntity) {
     if (!SetValueAndColumnsFromEntity(value_columns_state_.saved_value())) {
       assert(!valid_);
@@ -679,7 +686,27 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
             // By now, we are sure the current ikey is going to yield a value
             current_entry_is_merged_ = true;
             valid_ = true;
-            return MergeValuesNewToOld();  // Go to a different state machine
+            if (!MergeValuesNewToOld()) {
+              return false;  // Error during merge
+            }
+            if (!valid_) {
+              // Merge operator signaled deletion. iter_ is already positioned
+              // past all merge entries. Continue searching for the next visible
+              // user key.
+              current_entry_is_merged_ = false;
+              skipping_saved_key = true;
+              num_skipped = 0;
+              reseek_done = false;
+              // Release pinned data from the merge that just resolved to
+              // deletion.  Without this, a subsequent MergeValuesNewToOld
+              // call in the same loop iteration would hit the StartPinning()
+              // assertion (pinning_enabled must be false).
+              ReleaseTempPinnedData();
+              PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
+              continue;  // Skip iter_.Next() at the bottom; iter_ is already
+                         // positioned at the next entry by MergeValuesNewToOld
+            }
+            return true;
           default:
             valid_ = false;
             status_ = Status::Corruption(
@@ -1585,7 +1612,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
   }
 
-  valid_ = true;
+  // valid_ was already set by SetValueAndColumnsFromMergeResult:
+  // true for normal merge results, false if merge produced a deletion.
   return true;
 }
 

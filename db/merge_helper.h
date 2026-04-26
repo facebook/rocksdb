@@ -186,13 +186,19 @@ class MergeHelper {
   // These are valid until the next MergeUntil call
   // If the merging was successful:
   //   - keys() contains a single element with the latest sequence number of
-  //     the merges. The type will be Put or Merge. See IMPORTANT 1 note, below.
+  //     the merges. The type will be Put, Merge, or Delete.
+  //     See IMPORTANT 1 note, below.
   //   - values() contains a single element with the result of merging all the
   //     operands together
+  //   - If the merge produced a deletion and at_bottom is true, keys() and
+  //     values() will be empty, meaning the key should be dropped.
+  //   - If the merge produced a deletion and at_bottom is false, keys()
+  //     contains a single element with type kTypeDeletion to tombstone
+  //     older versions on lower levels.
   //
   //   IMPORTANT 1: the key type could change after the MergeUntil call.
-  //        Put/Delete + Merge + ... + Merge => Put
-  //        Merge + ... + Merge => Merge
+  //        Put/Delete + Merge + ... + Merge => Put (or empty if deletion)
+  //        Merge + ... + Merge => Merge (or empty if deletion at bottom)
   //
   // If the merge operator is not associative, and if a Put/Delete is not found
   // then the merging will be unsuccessful. In this case:

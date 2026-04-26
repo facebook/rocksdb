@@ -161,6 +161,17 @@ Status MergeHelper::TimedFullMergeImpl(
         }
 
         return Status::OK();
+      },
+      [&](std::monostate) -> Status {
+        *result_type = kTypeDeletion;
+
+        if (result_operand) {
+          *result_operand = Slice(nullptr, 0);
+        }
+
+        result->clear();
+
+        return Status::OK();
       }};
 
   Status s = TimedFullMergeCommonImpl(
@@ -247,6 +258,11 @@ Status MergeHelper::TimedFullMergeImpl(
         result_entity->SetPlainValue(operand);
 
         return Status::OK();
+      },
+      [&](std::monostate) -> Status {
+        // Merge operator signaled deletion. Return NotFound so
+        // point-lookup callers treat the key as deleted.
+        return Status::NotFound();
       }};
 
   Status s = TimedFullMergeCommonImpl(
@@ -484,21 +500,52 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // We store the result in keys_.back() and operands_.back()
       // if nothing went wrong (i.e.: no operand corruption on disk)
       if (s.ok()) {
-        // The original key encountered
-        original_key = std::move(keys_.back());
+        if (merge_result_type == kTypeDeletion) {
+          if (at_bottom) {
+            // At the bottommost level: no lower levels can hold older
+            // versions of this key, so we can drop it entirely. We must
+            // not emit a kTypeDeletion tombstone here because the
+            // compaction iterator's PrepareOutput() asserts that deletion
+            // entries have already been removed at the bottommost level.
+            keys_.clear();
+            merge_context_.Clear();
+          } else {
+            // Not at the bottommost level: produce a deletion tombstone
+            // so that older versions on lower levels are properly
+            // suppressed.
+            original_key = std::move(keys_.back());
+            orig_ikey.type = kTypeDeletion;
+            UpdateInternalKey(&original_key, orig_ikey.sequence,
+                              orig_ikey.type);
 
-        assert(merge_result_type == kTypeValue ||
-               merge_result_type == kTypeWideColumnEntity);
-        orig_ikey.type = merge_result_type;
-        UpdateInternalKey(&original_key, orig_ikey.sequence, orig_ikey.type);
+            keys_.clear();
+            merge_context_.Clear();
+            keys_.emplace_front(std::move(original_key));
+            // Slice() points to a static empty string, safe to mark as
+            // pinned to avoid a heap allocation for the empty deletion
+            // value.
+            merge_context_.PushOperand(Slice(), true /* operand_pinned */);
+          }
 
-        keys_.clear();
-        merge_context_.Clear();
-        keys_.emplace_front(std::move(original_key));
-        merge_context_.PushOperand(merge_result);
+          // move iter to the next entry
+          iter->Next();
+        } else {
+          // The original key encountered
+          original_key = std::move(keys_.back());
 
-        // move iter to the next entry
-        iter->Next();
+          assert(merge_result_type == kTypeValue ||
+                 merge_result_type == kTypeWideColumnEntity);
+          orig_ikey.type = merge_result_type;
+          UpdateInternalKey(&original_key, orig_ikey.sequence, orig_ikey.type);
+
+          keys_.clear();
+          merge_context_.Clear();
+          keys_.emplace_front(std::move(original_key));
+          merge_context_.PushOperand(merge_result);
+
+          // move iter to the next entry
+          iter->Next();
+        }
       } else if (op_failure_scope ==
                  MergeOperator::OpFailureScope::kMustMerge) {
         // Change to `Status::MergeInProgress()` to denote output consists of
@@ -626,20 +673,27 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                        &merge_result,
                        /* result_operand */ nullptr, &merge_result_type);
     if (s.ok()) {
-      // The original key encountered
-      // We are certain that keys_ is not empty here (see assertions couple of
-      // lines before).
-      original_key = std::move(keys_.back());
+      if (merge_result_type == kTypeDeletion) {
+        // Merge operator signaled deletion. We've seen the entire history
+        // of this key (at bottom), so we can safely drop it entirely.
+        keys_.clear();
+        merge_context_.Clear();
+      } else {
+        // The original key encountered
+        // We are certain that keys_ is not empty here (see assertions couple
+        // of lines before).
+        original_key = std::move(keys_.back());
 
-      assert(merge_result_type == kTypeValue ||
-             merge_result_type == kTypeWideColumnEntity);
-      orig_ikey.type = merge_result_type;
-      UpdateInternalKey(&original_key, orig_ikey.sequence, orig_ikey.type);
+        assert(merge_result_type == kTypeValue ||
+               merge_result_type == kTypeWideColumnEntity);
+        orig_ikey.type = merge_result_type;
+        UpdateInternalKey(&original_key, orig_ikey.sequence, orig_ikey.type);
 
-      keys_.clear();
-      merge_context_.Clear();
-      keys_.emplace_front(std::move(original_key));
-      merge_context_.PushOperand(merge_result);
+        keys_.clear();
+        merge_context_.Clear();
+        keys_.emplace_front(std::move(original_key));
+        merge_context_.PushOperand(merge_result);
+      }
     } else if (op_failure_scope == MergeOperator::OpFailureScope::kMustMerge) {
       // Change to `Status::MergeInProgress()` to denote output consists of
       // merge operands only.
