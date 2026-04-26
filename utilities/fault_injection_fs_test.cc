@@ -6,6 +6,7 @@
 #include "utilities/fault_injection_fs.h"
 
 #include <atomic>
+#include <cstring>
 #include <thread>
 #include <vector>
 
@@ -13,7 +14,34 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class InjectedErrorLogTest : public testing::Test {};
+class InjectedErrorLogTest : public testing::Test {
+ protected:
+  static std::string DecodeCString(const char* data, size_t len) {
+    size_t actual_len = 0;
+    while (actual_len < len && data[actual_len] != '\0') {
+      ++actual_len;
+    }
+    return std::string(data, actual_len);
+  }
+
+  std::string ReadRawLog(const std::string& path) {
+    std::string raw;
+    Status s = ReadFileToString(Env::Default(), path, &raw);
+    EXPECT_OK(s);
+    return raw;
+  }
+
+  InjectedErrorLog::Entry DecodeEntry(const std::string& raw, size_t index) {
+    InjectedErrorLog::Entry entry{};
+    size_t offset = index * sizeof(InjectedErrorLog::Entry);
+    EXPECT_GE(raw.size(), offset + sizeof(entry));
+    if (raw.size() >= offset + sizeof(entry)) {
+      std::memcpy(&entry, raw.data() + offset, sizeof(entry));
+    }
+    return entry;
+  }
+};
+
 class FaultInjectionTestFSTest : public testing::Test {};
 
 namespace {
@@ -31,67 +59,138 @@ std::shared_ptr<FaultInjectionTestFS> NewFaultFsExcludingInfoLogs(
 
 }  // namespace
 
-// Test basic Record and PrintAll functionality.
-TEST_F(InjectedErrorLogTest, BasicRecordAndPrint) {
-  InjectedErrorLog log;
-  log.SetLogFilePath("/dev/null");
-
-  // Record some entries.
-  log.Record("op=Get key=0x%08x status=%s", 0x12345678, "OK");
-  log.Record("op=Put key=0x%08x value_size=%d", 0xABCDEF00, 100);
-  log.Record("op=Delete key=0x%08x", 0x00000001);
-
-  // PrintAll should not crash.
-  log.PrintAll();
-}
-
-// Test that the circular buffer wraps correctly.
-TEST_F(InjectedErrorLogTest, CircularBufferWrap) {
-  InjectedErrorLog log;
-  log.SetLogFilePath("/dev/null");
-
-  // Fill beyond kMaxEntries to trigger wraparound.
-  for (size_t i = 0; i < InjectedErrorLog::kMaxEntries + 100; i++) {
-    log.Record("entry=%zu", i);
+// Goal: verify a single structured record is persisted to the binary log with
+// the expected fixed-width fields. The test writes one entry, flushes the
+// file, and decodes the raw bytes back into an entry struct.
+TEST_F(InjectedErrorLogTest, BasicRecordAndFlush) {
+  std::string path = test::PerThreadDBPath("injected_error_log_basic.bin");
+  {
+    InjectedErrorLog log(path);
+    IOStatus status = IOStatus::IOError("injected write error");
+    status.SetRetryable(false);
+    status.SetDataLoss(true);
+    log.Record("Append", "/tmp/000001.log",
+               fault_injection_detail::OffsetSizeAndHead(7, Slice("abcd", 4)),
+               status);
+    log.Flush();
   }
 
-  // PrintAll should handle the wrapped buffer without crashing.
-  log.PrintAll();
+  std::string raw = ReadRawLog(path);
+  ASSERT_EQ(raw.size(), sizeof(InjectedErrorLog::Entry));
+  auto entry = DecodeEntry(raw, 0);
+  EXPECT_NE(entry.timestamp_us, 0U);
+  EXPECT_EQ(entry.offset, 7U);
+  EXPECT_EQ(entry.size, 4U);
+  EXPECT_EQ(entry.detail_kind, InjectedErrorLog::kDetailOffsetSizeAndHead);
+  EXPECT_EQ(entry.detail_payload_size, 4U);
+  EXPECT_EQ(entry.retryable, 0U);
+  EXPECT_EQ(entry.data_loss, 1U);
+  EXPECT_EQ(DecodeCString(entry.op_name, sizeof(entry.op_name)), "Append");
+  EXPECT_EQ(DecodeCString(entry.file_name, sizeof(entry.file_name)),
+            "/tmp/000001.log");
+  EXPECT_EQ(DecodeCString(entry.status_message, sizeof(entry.status_message)),
+            "injected write error");
+  EXPECT_EQ(std::string(entry.detail_payload, entry.detail_payload + 4),
+            "abcd");
 }
 
-// Test concurrent Record() from multiple threads.
-// Keep total records (kNumThreads * kRecordsPerThread) under kMaxEntries
-// to avoid write-write races from buffer wraparound, which are benign but
-// would trigger TSAN warnings.
+// Goal: verify the file-backed logger keeps all records instead of truncating
+// to the old in-memory ring size. The test writes more than 1,000 entries and
+// checks that both the first and last ones are still present in the file.
+TEST_F(InjectedErrorLogTest, DirectLogKeepsAllEntries) {
+  std::string path =
+      test::PerThreadDBPath("injected_error_log_all_entries.bin");
+  {
+    InjectedErrorLog log(path);
+    IOStatus status = IOStatus::IOError("injected write error");
+
+    constexpr size_t kNumEntries = 1100;
+    for (size_t i = 0; i < kNumEntries; ++i) {
+      std::string file_name = "file" + std::to_string(i);
+      log.Record("Append", file_name, fault_injection_detail::NoDetail(),
+                 status);
+    }
+    log.Flush();
+  }
+
+  std::string raw = ReadRawLog(path);
+  constexpr size_t kNumEntries = 1100;
+  ASSERT_EQ(raw.size(), kNumEntries * sizeof(InjectedErrorLog::Entry));
+
+  auto first = DecodeEntry(raw, 0);
+  auto last = DecodeEntry(raw, kNumEntries - 1);
+  EXPECT_EQ(DecodeCString(first.file_name, sizeof(first.file_name)), "file0");
+  EXPECT_EQ(DecodeCString(last.file_name, sizeof(last.file_name)),
+            "file" + std::to_string(kNumEntries - 1));
+}
+
+// Goal: verify concurrent Record() calls append independent entries to the
+// shared file. The test has several threads emit records concurrently and then
+// checks the raw file size matches the total number of writes.
 TEST_F(InjectedErrorLogTest, ConcurrentRecord) {
-  InjectedErrorLog log;
+  std::string path = test::PerThreadDBPath("injected_error_log_concurrent.bin");
   constexpr int kNumThreads = 4;
   constexpr int kRecordsPerThread = 200;
-  static_assert(kNumThreads * kRecordsPerThread <
-                    static_cast<int>(InjectedErrorLog::kMaxEntries),
-                "total records must stay within buffer to avoid TSAN-visible "
-                "write-write races on overlapping slots");
+  {
+    InjectedErrorLog log(path);
+    IOStatus status = IOStatus::IOError("injected read error");
 
-  std::vector<std::thread> threads;
-  threads.reserve(kNumThreads);
-  for (int t = 0; t < kNumThreads; t++) {
-    threads.emplace_back([&log, t]() {
-      for (int i = 0; i < kRecordsPerThread; i++) {
-        log.Record("thread=%d iter=%d op=Get key=0x%08x", t, i, i * 17);
-      }
-    });
+    std::vector<std::thread> threads;
+    threads.reserve(kNumThreads);
+    for (int t = 0; t < kNumThreads; t++) {
+      threads.emplace_back([&log, &status, t]() {
+        for (int i = 0; i < kRecordsPerThread; i++) {
+          std::string file_name =
+              "thread" + std::to_string(t) + "_" + std::to_string(i);
+          log.Record("Read", file_name, fault_injection_detail::NoDetail(),
+                     status);
+        }
+      });
+    }
+
+    for (auto& t : threads) {
+      t.join();
+    }
+
+    log.Flush();
   }
 
-  for (auto& t : threads) {
-    t.join();
-  }
-
-  // PrintAll after all threads are done -- no race.
-  log.SetLogFilePath("/dev/null");
-  log.PrintAll();
+  std::string raw = ReadRawLog(path);
+  ASSERT_EQ(raw.size(), static_cast<size_t>(kNumThreads * kRecordsPerThread) *
+                            sizeof(InjectedErrorLog::Entry));
 }
 
-// Test HexHead utility.
+// Goal: verify long file paths are suffix-truncated so the basename survives
+// in the fixed-width record. The test logs a path longer than the file-name
+// field and checks the stored sample matches the expected tail bytes.
+TEST_F(InjectedErrorLogTest, LongFileNameKeepsSuffix) {
+  std::string path =
+      test::PerThreadDBPath("injected_error_log_suffix_truncation.bin");
+  const std::string long_file_name =
+      "/sandcastle/jobs/trace/debug/very/long/path/that/keeps/growing/"
+      "db_crashtest/fault_injection/000123.sst";
+  ASSERT_GT(long_file_name.size(), InjectedErrorLog::kMaxFileNameLen - 1);
+  {
+    InjectedErrorLog log(path);
+    IOStatus status = IOStatus::IOError("injected write error");
+    log.Record("Append", long_file_name, fault_injection_detail::NoDetail(),
+               status);
+    log.Flush();
+  }
+
+  std::string raw = ReadRawLog(path);
+  auto entry = DecodeEntry(raw, 0);
+  std::string stored = DecodeCString(entry.file_name, sizeof(entry.file_name));
+  std::string expected = long_file_name.substr(
+      long_file_name.size() - (InjectedErrorLog::kMaxFileNameLen - 1));
+  EXPECT_EQ(stored, expected);
+  EXPECT_EQ(stored.compare(stored.size() - strlen("000123.sst"),
+                           strlen("000123.sst"), "000123.sst"),
+            0);
+}
+
+// Goal: verify the human-readable hex helper still formats the payload samples
+// exactly as expected, since the Python decoder depends on the same output.
 TEST_F(InjectedErrorLogTest, HexHead) {
   const char data[] = "\x01\x02\xAB\xCD";
   std::string result = InjectedErrorLog::HexHead(data, 4);

@@ -133,7 +133,8 @@ bool PosixWrite(int fd, const char* buf, size_t nbyte) {
   return true;
 }
 
-bool PosixPositionedWrite(int fd, const char* buf, size_t nbyte, off_t offset) {
+bool PosixPositionedWriteInternal(int fd, const char* buf, size_t nbyte,
+                                  off_t offset) {
   const size_t kLimit1Gb = 1UL << 30;
 
   const char* src = buf;
@@ -147,6 +148,9 @@ bool PosixPositionedWrite(int fd, const char* buf, size_t nbyte, off_t offset) {
       if (errno == EINTR) {
         continue;
       }
+      return false;
+    }
+    if (done == 0) {
       return false;
     }
     left -= done;
@@ -201,6 +205,10 @@ bool IsSyncFileRangeSupported(int fd) {
 #endif  // ROCKSDB_RANGESYNC_PRESENT
 
 }  // anonymous namespace
+
+bool PosixPositionedWrite(int fd, const char* buf, size_t nbyte, off_t offset) {
+  return PosixPositionedWriteInternal(fd, buf, nbyte, offset);
+}
 
 /*
  * PosixSequentialFile

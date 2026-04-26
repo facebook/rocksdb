@@ -6,14 +6,20 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 import importlib.util
+import io
 import os
 import shutil
+import struct
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 
 
 _DB_CRASHTEST_PATH = os.path.join(os.path.dirname(__file__), "db_crashtest.py")
+_FAULT_INJECTION_LOG_PARSER_PATH = os.path.join(
+    os.path.dirname(__file__), "fault_injection_log_parser.py"
+)
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 _TEST_EXPECTED_DIR_ENV_VAR = "TEST_TMPDIR_EXPECTED"
 
@@ -29,6 +35,15 @@ def load_db_crashtest_module():
         spec.loader.exec_module(module)
     finally:
         sys.argv = old_argv
+    return module
+
+
+def load_fault_injection_log_parser_module():
+    spec = importlib.util.spec_from_file_location(
+        "fault_injection_log_parser_under_test", _FAULT_INJECTION_LOG_PARSER_PATH
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
     return module
 
 
@@ -58,6 +73,9 @@ class DBCrashTestTest(unittest.TestCase):
 
     def load_db_crashtest(self):
         return load_db_crashtest_module()
+
+    def load_fault_injection_log_parser(self):
+        return load_fault_injection_log_parser_module()
 
     def build_params(self, base_params, overrides=None):
         params = dict(base_params)
@@ -267,6 +285,81 @@ class DBCrashTestTest(unittest.TestCase):
         self.assertIn(
             f"{remote_output_dir} subtree=5B local=5B local_files=1 local_dirs=0",
             diagnostics,
+        )
+
+    # Goal: verify db_crashtest decodes the headerless streaming binary fault
+    # injection log format used on crash paths while keeping stdout concise.
+    # The test writes a raw .bin file with two complete entries plus a
+    # truncated tail, then checks the decoded text artifact and the summary
+    # line printed to stdout.
+    def test_print_fault_injection_log_decodes_streaming_raw_trace(self):
+        db_crashtest = self.load_db_crashtest()
+        fault_parser = self.load_fault_injection_log_parser()
+        pid = 5151
+        log_dir = os.path.join(self.test_tmpdir, "fault_injection_logs")
+        os.makedirs(log_dir)
+        raw_log = os.path.join(log_dir, f"fault_injection_{pid}_1.bin")
+        decoded_log = raw_log + ".txt"
+
+        entry0 = fault_parser.ENTRY_STRUCT.pack(
+            123456789,
+            17,
+            7,
+            4,
+            0,
+            0,
+            fault_parser.DETAIL_KIND_OFFSET_SIZE_AND_HEAD,
+            4,
+            1,
+            0,
+            b"Append\0".ljust(32, b"\0"),
+            b"/tmp/000001.log\0".ljust(72, b"\0"),
+            b"injected write error\0".ljust(56, b"\0"),
+            b"abcd".ljust(48, b"\0"),
+        )
+        entry1 = fault_parser.ENTRY_STRUCT.pack(
+            123456790,
+            23,
+            0,
+            6,
+            0,
+            0,
+            fault_parser.DETAIL_KIND_TWO_FILES,
+            6,
+            0,
+            1,
+            b"Rename\0".ljust(32, b"\0"),
+            b"/tmp/a\0".ljust(72, b"\0"),
+            b"injected metadata read error\0".ljust(56, b"\0"),
+            b"/tmp/b".ljust(48, b"\0"),
+        )
+        with open(raw_log, "wb") as f:
+            f.write(entry0)
+            f.write(entry1)
+            f.write(b"tail")
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            db_crashtest.print_fault_injection_log(pid)
+
+        self.assertTrue(os.path.exists(decoded_log))
+        with open(decoded_log) as f:
+            decoded_text = f.read()
+
+        self.assertIn(
+            'Append("/tmp/000001.log", offset=7, size=4, head=[61 62 63 64])',
+            decoded_text,
+        )
+        self.assertIn("IO error: injected write error [retryable]", decoded_text)
+        self.assertIn(
+            'Rename("/tmp/a", "/tmp/b") -> IO error: injected metadata read error [data_loss]',
+            decoded_text,
+        )
+        self.assertIn("max=unbounded", decoded_text)
+        self.assertIn(
+            "Fault injection log saved: raw=%s decoded=%s entries=2"
+            % (raw_log, decoded_log),
+            stdout.getvalue(),
         )
 
 
