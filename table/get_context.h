@@ -141,8 +141,13 @@ class GetContext {
                  Cleanable* value_pinner = nullptr);
 
   // Simplified version of the previous function. Should only be used when we
-  // know that the operation is a Put.
-  void SaveValue(const Slice& value, SequenceNumber seq);
+  // know that the operation is a Put and the column family has no
+  // user-defined timestamps.
+  //
+  // value_pinner: if non-null, ownership of the underlying buffer is
+  // transferred via PinSlice (no copy). If null, value is copied via PinSelf.
+  void SaveValue(const Slice& value, SequenceNumber seq,
+                 Cleanable* value_pinner = nullptr);
 
   GetState State() const { return state_; }
 

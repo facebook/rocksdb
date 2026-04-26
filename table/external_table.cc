@@ -253,9 +253,9 @@ class ExternalTableReaderAdapter : public TableReader {
       return s;
     }
 
-    ParsedInternalKey found_key(parsed_key.user_key, 0, ValueType::kTypeValue);
-    bool matched = false;
-    get_context->SaveValue(found_key, value, &matched, &s,
+    assert(ioptions_.user_comparator->timestamp_size() == 0);
+
+    get_context->SaveValue(value, /*seq=*/0,
                            value.IsPinned() ? &value : nullptr);
     return s;
   }
