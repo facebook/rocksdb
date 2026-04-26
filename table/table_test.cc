@@ -7030,9 +7030,11 @@ class ExternalTableTest : public DBTestBase {
   class DummyExternalTableReader : public ExternalTableReader {
    public:
     explicit DummyExternalTableReader(const std::string& file_path,
-                                      bool support_property_block)
+                                      bool support_property_block,
+                                      Statistics* stats = nullptr)
         : file_(file_path, /*file=*/nullptr),
-          support_property_block_(support_property_block) {
+          support_property_block_(support_property_block),
+          stats_(stats) {
       Status s = file_.Deserialize(kv_map_);
       EXPECT_OK(s);
     }
@@ -7046,6 +7048,7 @@ class ExternalTableTest : public DBTestBase {
     Status Get(const ReadOptions& /*read_options*/, const Slice& key,
                const SliceTransform* /*prefix_extractor*/,
                PinnableSlice* value) override {
+      RecordTick(stats_, NUMBER_KEYS_READ);
       auto iter = kv_map_.find(key.ToString());
       if (iter != kv_map_.end()) {
         value->PinSelf(iter->second);
@@ -7089,6 +7092,7 @@ class ExternalTableTest : public DBTestBase {
     std::map<std::string, std::string> kv_map_;
     DummyExternalTableFile file_;
     bool support_property_block_;
+    Statistics* stats_;
   };
 
   // A reader that pins values from its internal buffer, exercising the
@@ -7127,14 +7131,17 @@ class ExternalTableTest : public DBTestBase {
    public:
     explicit DummyExternalTableBuilder(const std::string& file_path,
                                        FSWritableFile* file,
-                                       bool support_property_block)
+                                       bool support_property_block,
+                                       Statistics* stats = nullptr)
         : file_(file_path, file),
-          support_property_block_(support_property_block) {}
+          support_property_block_(support_property_block),
+          stats_(stats) {}
 
     void Add(const Slice& key, const Slice& value) override {
       if (!kv_vec_.empty()) {
         ASSERT_LT(BytewiseComparator()->Compare(kv_vec_.back().first, key), 0);
       }
+      RecordTick(stats_, NUMBER_KEYS_WRITTEN);
       kv_vec_.emplace_back(key.ToString(), value.ToString());
     }
 
@@ -7165,6 +7172,7 @@ class ExternalTableTest : public DBTestBase {
     DummyExternalTableFile file_;
     Status status_;
     bool support_property_block_;
+    Statistics* stats_;
   };
 
   class DummyExternalTableFactory : public ExternalTableFactory {
@@ -7180,16 +7188,16 @@ class ExternalTableTest : public DBTestBase {
       // Sanity check some options
       EXPECT_EQ(topts.file_options.handoff_checksum_type,
                 ChecksumType::kCRC32c);
-      table_reader->reset(
-          new DummyExternalTableReader(file_path, support_property_block_));
+      table_reader->reset(new DummyExternalTableReader(
+          file_path, support_property_block_, topts.statistics));
       return Status::OK();
     }
 
     ExternalTableBuilder* NewTableBuilder(
-        const ExternalTableBuilderOptions& /*opts*/,
-        const std::string& file_path, FSWritableFile* file) const override {
-      return new DummyExternalTableBuilder(file_path, file,
-                                           support_property_block_);
+        const ExternalTableBuilderOptions& opts, const std::string& file_path,
+        FSWritableFile* file) const override {
+      return new DummyExternalTableBuilder(
+          file_path, file, support_property_block_, opts.statistics);
     }
 
    private:
@@ -7232,6 +7240,8 @@ TEST_F(ExternalTableTest, BasicTest) {
   std::shared_ptr<ExternalTableFactory> factory =
       std::make_shared<DummyExternalTableFactory>(
           /*support_property_block=*/false);
+  std::shared_ptr<Statistics> builder_stats = CreateDBStatistics();
+  std::shared_ptr<Statistics> reader_stats = CreateDBStatistics();
 
   std::string file_path = test::PerThreadDBPath("external_table");
   {
@@ -7240,18 +7250,20 @@ TEST_F(ExternalTableTest, BasicTest) {
         ExternalTableBuilderOptions(ReadOptions(), WriteOptions(),
                                     std::shared_ptr<const SliceTransform>(),
                                     BytewiseComparator(), "default",
-                                    TableFileCreationReason::kMisc),
+                                    TableFileCreationReason::kMisc,
+                                    /*fs=*/nullptr, builder_stats.get()),
         file_path, /*file=*/nullptr));
     builder->Add("foo", "bar");
     ASSERT_OK(builder->Finish());
   }
+  ASSERT_EQ(builder_stats->getTickerCount(NUMBER_KEYS_WRITTEN), 1);
 
   std::unique_ptr<ExternalTableReader> reader;
   std::shared_ptr<SliceTransform> prefix_extractor;
   ASSERT_OK(factory->NewTableReader(
       {}, file_path,
       ExternalTableOptions(prefix_extractor, /*comparator=*/nullptr,
-                           /*fs=*/nullptr, FileOptions()),
+                           /*fs=*/nullptr, FileOptions(), reader_stats.get()),
       &reader));
 
   ReadOptions ro;
@@ -7275,6 +7287,7 @@ TEST_F(ExternalTableTest, BasicTest) {
   ASSERT_EQ(vals[0], "bar");
   ASSERT_EQ(statuses[0], Status::OK());
   ASSERT_EQ(statuses[1], Status::NotFound());
+  ASSERT_EQ(reader_stats->getTickerCount(NUMBER_KEYS_READ), 3);
 }
 
 TEST_F(ExternalTableTest, SstReaderTest) {
