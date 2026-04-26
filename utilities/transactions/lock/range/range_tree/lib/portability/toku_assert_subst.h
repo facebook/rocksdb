@@ -9,6 +9,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <type_traits>
 
 #ifdef NDEBUG
 
@@ -32,10 +33,12 @@
 #define paranoid_invariant_notnull(a) assert(a)
 #define paranoid_invariant(a) assert(a)
 
-#define ENSURE_POD(type)                                                    \
-  static_assert(                                                            \
-      std::is_standard_layout<type>::value && std::is_trivial<type>::value, \
-      #type "isn't POD")
+#define ENSURE_POD(type)                                                          \
+  static_assert(                                                                  \
+      std::is_standard_layout_v<type> &&                                          \
+          std::is_trivially_copyable_v<type> &&                                   \
+          std::is_trivially_default_constructible_v<type>,                        \
+      #type " isn't POD")
 
 inline int get_error_errno(void) {
   invariant(errno);
