@@ -444,7 +444,7 @@ class FilePrefetchBuffer {
 
   Status ReadAsync(BufferInfo* buf, const IOOptions& opts,
                    RandomAccessFileReader* reader, uint64_t read_len,
-                   uint64_t start_offset);
+                   uint64_t start_offset, bool use_fs_buffer);
 
   // Copy the data from src to overlap_buf_.
   void CopyDataToOverlapBuffer(BufferInfo* src, uint64_t& offset,
@@ -495,9 +495,7 @@ class FilePrefetchBuffer {
     return true;
   }
 
-  // Whether we reuse the file system provided buffer
-  // Until we also handle the async read case, only enable this optimization
-  // for the synchronous case when num_buffers_ = 1.
+  // Whether we reuse the file system provided buffer.
   // Note: Although it would be more convenient if we could determine
   // whether we want to reuse the file system buffer at construction time,
   // this would not work in all cases, because not all clients (BlobDB in
@@ -505,8 +503,7 @@ class FilePrefetchBuffer {
   bool UseFSBuffer(RandomAccessFileReader* reader) {
     return reader->file() != nullptr && !reader->use_direct_io() &&
            fs_ != nullptr &&
-           CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer) &&
-           num_buffers_ == 1;
+           CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer);
   }
 
   // When we are reusing the file system provided buffer, we are not concerned
@@ -596,7 +593,7 @@ class FilePrefetchBuffer {
   Status PrefetchRemBuffers(const IOOptions& opts,
                             RandomAccessFileReader* reader,
                             uint64_t end_offset1, size_t alignment,
-                            size_t readahead_size);
+                            size_t readahead_size, bool use_fs_buffer);
 
   // *** BEGIN APIs related to allocating and freeing buffers ***
   bool IsBufferQueueEmpty() { return bufs_.empty(); }
