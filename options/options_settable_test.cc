@@ -130,7 +130,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       {offsetof(struct BlockBasedTableOptions, filter_policy),
        sizeof(std::shared_ptr<const FilterPolicy>)},
       {offsetof(struct BlockBasedTableOptions, user_defined_index_factory),
-       sizeof(std::shared_ptr<UserDefinedIndexFactory>)},
+       sizeof(std::shared_ptr<IndexFactory>)},
   };
 
   // In this test, we catch a new option of BlockBasedTableOptions that is not
@@ -207,8 +207,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "prepopulate_block_cache=kDisable;"
       "initial_auto_readahead_size=0;"
       "num_file_reads_for_auto_readahead=0;"
-      "fail_if_no_udi_on_open=true;"
-      "use_udi_as_primary_index=true;"
+      "index_mode=kPrimary;"
       "separate_key_value_in_data_block=true;"
       "uniform_cv_threshold=0.2",
       new_bbto));

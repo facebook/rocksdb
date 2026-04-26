@@ -264,10 +264,10 @@ default_params = {
     # use_trie_index must be the same across invocations so that all SSTs
     # in a DB are opened with matching table options.
     "use_trie_index": random.choice([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-    # use_udi_as_primary_index must be the same across invocations (like
-    # use_trie_index) so that SSTs written in primary mode can be read on
-    # reopen.
-    "use_udi_as_primary_index": random.choice([0, 0, 0, 1]),
+    # index_mode must be the same across invocations (like use_trie_index)
+    # so that SSTs written in primary mode can be read on reopen.
+    # 0=kBuiltinOnly, 1=kSecondary, 2=kPrimary, 3=kPrimaryOnly
+    "index_mode": random.choice([0, 0, 1, 2, 3]),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     "use_attribute_group": lambda: random.randint(0, 1),
@@ -1127,10 +1127,12 @@ def finalize_and_sanitize(src_params):
         dest_params["mmap_read"] = 0
         # Parallel compression is incompatible with UDI
         dest_params["compression_parallel_threads"] = 1
-        if dest_params.get("use_udi_as_primary_index") == 1:
-            # Primary UDI mode: the standard index is still fully populated,
-            # but partitioned index (kTwoLevelIndexSearch) and partitioned
-            # filters are not compatible with the UDI wrapper layout.
+        index_mode = dest_params.get("index_mode", 0)
+        if index_mode >= 2:
+            # kPrimary/kPrimaryOnly: the standard index is still fully
+            # populated (except kPrimaryOnly), but partitioned index
+            # (kTwoLevelIndexSearch) and partitioned filters are not
+            # compatible with the UDI wrapper layout.
             dest_params["index_type"] = random.choice([0, 0, 3])
             dest_params["partition_filters"] = 0
             # Backup/restore serializes Options to strings, losing the
@@ -1143,8 +1145,8 @@ def finalize_and_sanitize(src_params):
             # reads cannot be routed through the trie.
             dest_params["test_secondary"] = 0
     else:
-        # use_udi_as_primary_index requires use_trie_index
-        dest_params["use_udi_as_primary_index"] = 0
+        # index_mode >= kSecondary requires use_trie_index
+        dest_params["index_mode"] = 0
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.

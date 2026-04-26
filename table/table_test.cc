@@ -42,6 +42,7 @@
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/index_factory.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/options.h"
@@ -52,7 +53,6 @@
 #include "rocksdb/table_properties.h"
 #include "rocksdb/trace_record.h"
 #include "rocksdb/unique_id.h"
-#include "rocksdb/user_defined_index.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block_based/block.h"
@@ -7850,13 +7850,13 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
   };
 
  public:
-  class TestUserDefinedIndexFactory : public UserDefinedIndexFactory {
+  class TestIndexFactory : public IndexFactory {
    public:
     const char* Name() const override { return "test_index"; }
     Status NewBuilder(
-        const UserDefinedIndexOption& /*option*/,
-        std::unique_ptr<UserDefinedIndexBuilder>& builder) const override {
-      auto b = std::make_unique<TestUserDefinedIndexBuilder>();
+        const IndexFactoryOptions& /*option*/,
+        std::unique_ptr<IndexFactoryBuilder>& builder) const override {
+      auto b = std::make_unique<TestIndexFactoryBuilder>();
       b->skip_key_size_check_ = skip_key_size_check_;
       // Share the factory's key_type_log so tests can inspect after flush.
       b->shared_key_type_log_ = &key_type_log_;
@@ -7869,8 +7869,7 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
 
     // Accumulated log of (key, ValueType) pairs from all builders created
     // by this factory. Tests can inspect this after flush/compaction.
-    mutable std::vector<
-        std::pair<std::string, UserDefinedIndexBuilder::ValueType>>
+    mutable std::vector<std::pair<std::string, IndexFactoryBuilder::ValueType>>
         key_type_log_;
 
     struct CustomizedMapComparator {
@@ -7882,18 +7881,10 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
       }
     };
 
-    // Deprecated API
-    UserDefinedIndexBuilder* NewBuilder() const override { return nullptr; }
-
-    std::unique_ptr<UserDefinedIndexReader> NewReader(
-        Slice& /*index_block*/) const override {
-      return nullptr;
-    }
-
     Status NewReader(
-        const UserDefinedIndexOption& option, Slice& index_block,
-        std::unique_ptr<UserDefinedIndexReader>& reader) const override {
-      reader = std::make_unique<TestUserDefinedIndexReader>(
+        const IndexFactoryOptions& option, Slice& index_block,
+        std::unique_ptr<IndexFactoryReader>& reader) const override {
+      reader = std::make_unique<TestIndexFactoryReader>(
           index_block, option.comparator, this);
       return Status::OK();
     }
@@ -7902,9 +7893,9 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
     uint64_t next_error_count_ = 0;
 
    private:
-    class TestUserDefinedIndexBuilder : public UserDefinedIndexBuilder {
+    class TestIndexFactoryBuilder : public IndexFactoryBuilder {
      public:
-      TestUserDefinedIndexBuilder() : entries_added_(0), keys_added_(0) {}
+      TestIndexFactoryBuilder() : entries_added_(0), keys_added_(0) {}
 
       Slice AddIndexEntry(const Slice& last_key_in_current_block,
                           const Slice* first_key_in_next_block,
@@ -7951,7 +7942,7 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
         keys_added_++;
         if (!skip_key_size_check_) {
           // For fixed-size key tests, add a dummy per-key entry that the
-          // TestUserDefinedIndexReader can parse alongside block-level entries.
+          // TestIndexFactoryReader can parse alongside block-level entries.
           PutFixed64(&index_data_[key.ToString()], 0);
           PutFixed64(&index_data_[key.ToString()], 0);
           PutFixed32(&index_data_[key.ToString()], 0);
@@ -7993,11 +7984,11 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
       std::string index_contents_data_;
     };
 
-    class TestUserDefinedIndexReader : public UserDefinedIndexReader {
+    class TestIndexFactoryReader : public IndexFactoryReader {
      public:
-      explicit TestUserDefinedIndexReader(
-          Slice& index_block, const Comparator* comparator,
-          const TestUserDefinedIndexFactory* factory)
+      explicit TestIndexFactoryReader(Slice& index_block,
+                                      const Comparator* comparator,
+                                      const TestIndexFactory* factory)
           : factory_(factory),
             comparator_(comparator),
             index_data_(CustomizedMapComparator(comparator)) {
@@ -8012,32 +8003,31 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
           EXPECT_TRUE(GetFixed64(&block, &size));
           EXPECT_TRUE(GetFixed32(&block, &num_keys));
 
-          UserDefinedIndexBuilder::BlockHandle handle{0, 0};
+          IndexFactoryBuilder::BlockHandle handle{0, 0};
           handle.offset = offset;
           handle.size = size;
           index_data_[key.ToString()] =
-              std::make_pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>(
+              std::make_pair<IndexFactoryBuilder::BlockHandle, uint32_t>(
                   std::move(handle), std::move(num_keys));
         }
       }
 
-      std::unique_ptr<UserDefinedIndexIterator> NewIterator(
+      std::unique_ptr<IndexFactoryIterator> NewIterator(
           const ReadOptions& /*ro*/) override {
-        return std::make_unique<TestUserDefinedIndexIterator>(
-            index_data_, factory_, comparator_);
+        return std::make_unique<TestIndexFactoryIterator>(index_data_, factory_,
+                                                          comparator_);
       }
 
       size_t ApproximateMemoryUsage() const override { return 0; }
 
      private:
-      class TestUserDefinedIndexIterator : public UserDefinedIndexIterator {
+      class TestIndexFactoryIterator : public IndexFactoryIterator {
        public:
-        TestUserDefinedIndexIterator(
+        TestIndexFactoryIterator(
             std::map<std::string,
-                     std::pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>,
+                     std::pair<IndexFactoryBuilder::BlockHandle, uint32_t>,
                      CustomizedMapComparator>& index,
-            const TestUserDefinedIndexFactory* factory,
-            const Comparator* comparator)
+            const TestIndexFactory* factory, const Comparator* comparator)
             : index_(index),
               iter_(index_.end()),
               scan_opts_(nullptr),
@@ -8153,8 +8143,8 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
           return true;
         }
 
-        UserDefinedIndexBuilder::BlockHandle value() override {
-          UserDefinedIndexBuilder::BlockHandle handle{0, 0};
+        IndexFactoryBuilder::BlockHandle value() override {
+          IndexFactoryBuilder::BlockHandle handle{0, 0};
           handle.offset = iter_->second.first.offset;
           handle.size = iter_->second.first.size;
           return handle;
@@ -8170,9 +8160,9 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
 
        private:
         std::map<std::string,
-                 std::pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>,
+                 std::pair<IndexFactoryBuilder::BlockHandle, uint32_t>,
                  CustomizedMapComparator>& index_;
-        std::map<std::string, std::pair<UserDefinedIndexBuilder::BlockHandle,
+        std::map<std::string, std::pair<IndexFactoryBuilder::BlockHandle,
                                         uint32_t>>::iterator iter_;
         const ScanOptions* scan_opts_;
         size_t num_opts_{};
@@ -8183,10 +8173,10 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
         const Comparator* comparator_;
       };
 
-      const TestUserDefinedIndexFactory* factory_;
+      const TestIndexFactory* factory_;
       const Comparator* comparator_;
       std::map<std::string,
-               std::pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>,
+               std::pair<IndexFactoryBuilder::BlockHandle, uint32_t>,
                CustomizedMapComparator>
           index_data_;
     };
@@ -8315,9 +8305,9 @@ void UserDefinedIndexTestBase::BasicTest(bool use_partitioned_index) {
   std::string ingest_file = dbname + "test.sst";
 
   // Set up the user-defined index factory
-  auto user_defined_index_factory =
-      std::make_shared<TestUserDefinedIndexFactory>();
+  auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kSecondary;
   if (use_partitioned_index) {
     table_options.partition_filters = true;
     table_options.decouple_partitioned_filters = true;
@@ -8356,7 +8346,7 @@ void UserDefinedIndexTestBase::BasicTest(bool use_partitioned_index) {
       /* tail_size */ 0, ioptions.persist_user_defined_timestamps);
   // Verify that the user-defined index was created
   std::string meta_block_name =
-      std::string(kUserDefinedIndexPrefix) + "test_index";
+      std::string(kIndexFactoryMetaPrefix) + "test_index";
   BlockHandle block_handle;
   uint64_t file_size = 0;
   std::unique_ptr<FSRandomAccessFile> file;
@@ -8395,7 +8385,7 @@ void UserDefinedIndexTestBase::BasicTest(bool use_partitioned_index) {
   ASSERT_OK(iter->status());
   iter.reset();
 
-  ro.table_index_factory = user_defined_index_factory.get();
+  ro.read_index = ReadOptions::ReadIndex::kCustom;
   iter.reset(reader->NewIterator(ro));
   ASSERT_NE(iter, nullptr);
 
@@ -8483,9 +8473,9 @@ TEST_P(UserDefinedIndexTest, InvalidArgumentTest1) {
   std::string ingest_file = dbname + "test.sst";
 
   // Set up the user-defined index factory
-  auto user_defined_index_factory =
-      std::make_shared<TestUserDefinedIndexFactory>();
+  auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kSecondary;
 
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
@@ -8511,9 +8501,9 @@ TEST_P(UserDefinedIndexTest, MergeWithUDI) {
   std::string dbname = test::PerThreadDBPath("user_defined_index_test");
   std::string ingest_file = dbname + "test.sst";
 
-  auto user_defined_index_factory =
-      std::make_shared<TestUserDefinedIndexFactory>();
+  auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kSecondary;
   table_options.flush_block_policy_factory =
       std::make_shared<CustomFlushBlockPolicyFactory>();
 
@@ -8524,7 +8514,7 @@ TEST_P(UserDefinedIndexTest, MergeWithUDI) {
   writer.reset(new SstFileWriter(EnvOptions(), options_));
   ASSERT_OK(writer->Open(ingest_file));
 
-  // Use 5-byte keys to match TestUserDefinedIndexBuilder expectations.
+  // Use 5-byte keys to match TestIndexFactoryBuilder expectations.
   ASSERT_OK(writer->Merge("key_a", "val_a"));
   ASSERT_OK(writer->Finish());
   writer.reset();
@@ -8550,10 +8540,10 @@ TEST_P(UserDefinedIndexTest, DBFlushWithMixedOpsAndUDI) {
   ASSERT_OK(DestroyDB(dbname, options_));
 
   BlockBasedTableOptions table_options;
-  auto user_defined_index_factory =
-      std::make_shared<TestUserDefinedIndexFactory>();
+  auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   user_defined_index_factory->skip_key_size_check_ = true;
   table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kSecondary;
   table_options.flush_block_policy_factory =
       std::make_shared<CustomFlushBlockPolicyFactory>();
   options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -8604,7 +8594,7 @@ TEST_P(UserDefinedIndexTest, DBFlushWithMixedOpsAndUDI) {
 TEST_P(UserDefinedIndexTest, ValueTypeMappingViaDBFlush) {
   // Verify that MapToUDIValueType correctly maps internal ValueTypes to UDI
   // ValueTypes by writing various operation types via the DB API, flushing,
-  // and inspecting what the TestUserDefinedIndexBuilder received.
+  // and inspecting what the TestIndexFactoryBuilder received.
   if (is_reverse_comparator_) {
     // Skip for reverse comparator — the key ordering makes this test
     // unnecessarily complex and the mapping logic is comparator-independent.
@@ -8615,10 +8605,10 @@ TEST_P(UserDefinedIndexTest, ValueTypeMappingViaDBFlush) {
   ASSERT_OK(DestroyDB(dbname, options_));
 
   BlockBasedTableOptions table_options;
-  auto user_defined_index_factory =
-      std::make_shared<TestUserDefinedIndexFactory>();
+  auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   user_defined_index_factory->skip_key_size_check_ = true;
   table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kSecondary;
   options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options_.merge_operator = MergeOperators::CreateStringAppendOperator();
   options_.create_if_missing = true;
@@ -8647,26 +8637,26 @@ TEST_P(UserDefinedIndexTest, ValueTypeMappingViaDBFlush) {
   ASSERT_FALSE(log.empty());
 
   // Build a map from key to the ValueType received by OnKeyAdded.
-  std::map<std::string, UserDefinedIndexBuilder::ValueType> type_map;
+  std::map<std::string, IndexFactoryBuilder::ValueType> type_map;
   for (const auto& entry : log) {
     type_map[entry.first] = entry.second;
   }
 
   // Verify each mapping.
   ASSERT_EQ(type_map.count("key_01_put"), 1u);
-  EXPECT_EQ(type_map["key_01_put"], UserDefinedIndexBuilder::kValue);
+  EXPECT_EQ(type_map["key_01_put"], IndexFactoryBuilder::kValue);
 
   ASSERT_EQ(type_map.count("key_02_merge"), 1u);
-  EXPECT_EQ(type_map["key_02_merge"], UserDefinedIndexBuilder::kMerge);
+  EXPECT_EQ(type_map["key_02_merge"], IndexFactoryBuilder::kMerge);
 
   ASSERT_EQ(type_map.count("key_03_del"), 1u);
-  EXPECT_EQ(type_map["key_03_del"], UserDefinedIndexBuilder::kDelete);
+  EXPECT_EQ(type_map["key_03_del"], IndexFactoryBuilder::kDelete);
 
   ASSERT_EQ(type_map.count("key_04_sdel"), 1u);
-  EXPECT_EQ(type_map["key_04_sdel"], UserDefinedIndexBuilder::kDelete);
+  EXPECT_EQ(type_map["key_04_sdel"], IndexFactoryBuilder::kDelete);
 
   ASSERT_EQ(type_map.count("key_05_entity"), 1u);
-  EXPECT_EQ(type_map["key_05_entity"], UserDefinedIndexBuilder::kOther);
+  EXPECT_EQ(type_map["key_05_entity"], IndexFactoryBuilder::kOther);
 
   ASSERT_OK(db->Close());
   ASSERT_OK(DestroyDB(dbname, options_));
@@ -8683,10 +8673,10 @@ TEST_P(UserDefinedIndexTest, CompactionWithSnapshotsAndUDI) {
   ASSERT_OK(DestroyDB(dbname, options_));
 
   BlockBasedTableOptions table_options;
-  auto user_defined_index_factory =
-      std::make_shared<TestUserDefinedIndexFactory>();
+  auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   user_defined_index_factory->skip_key_size_check_ = true;
   table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kSecondary;
   options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options_.create_if_missing = true;
   // Disable auto-compaction so we control when compaction runs.
@@ -8780,9 +8770,9 @@ TEST_P(UserDefinedIndexTest, IngestTest) {
   std::string ingest_file = dbname + "test.sst";
 
   // Set up the user-defined index factory
-  auto user_defined_index_factory =
-      std::make_shared<TestUserDefinedIndexFactory>();
+  auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kSecondary;
 
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
@@ -8828,7 +8818,7 @@ TEST_P(UserDefinedIndexTest, IngestTest) {
   ASSERT_OK(iter->status());
   iter.reset();
 
-  ro.table_index_factory = user_defined_index_factory.get();
+  ro.read_index = ReadOptions::ReadIndex::kCustom;
   iter.reset(db->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
 
@@ -8866,9 +8856,9 @@ TEST_P(UserDefinedIndexTest, EmptyRangeTest) {
   std::string ingest_file = dbname + "test.sst";
 
   // Set up the user-defined index factory
-  auto user_defined_index_factory =
-      std::make_shared<TestUserDefinedIndexFactory>();
+  auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kSecondary;
 
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
@@ -8933,7 +8923,7 @@ TEST_P(UserDefinedIndexTest, EmptyRangeTest) {
   ASSERT_OK(iter->status());
   iter.reset();
 
-  ro.table_index_factory = user_defined_index_factory.get();
+  ro.read_index = ReadOptions::ReadIndex::kCustom;
   std::vector<int> key_counts;
   MultiScanArgs scan_opts(options_.comparator);
   std::unordered_map<std::string, std::string> property_bag;
@@ -8983,8 +8973,8 @@ TEST_P(UserDefinedIndexTest, EmptyRangeTest) {
 }
 
 // Verify that external file ingestion fails if we try to ingest an SST file
-// without the UDI and a UDI factory is configured in BlockBasedTableOptions
-// and fail_if_no_udi_on_open is true in BlockBasedTableOptions.
+// without the UDI block when index_mode is kPrimary or kPrimaryOnly (which
+// require all SSTs to have the custom index).
 TEST_P(UserDefinedIndexTest, IngestFailTest) {
   BlockBasedTableOptions table_options;
   std::string dbname = test::PerThreadDBPath("user_defined_index_test");
@@ -9008,10 +8998,9 @@ TEST_P(UserDefinedIndexTest, IngestFailTest) {
   writer.reset();
 
   // Set up the user-defined index factory
-  auto user_defined_index_factory =
-      std::make_shared<TestUserDefinedIndexFactory>();
+  auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
-  table_options.fail_if_no_udi_on_open = true;
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kPrimary;
   options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   std::unique_ptr<DB> db;
@@ -9026,8 +9015,9 @@ TEST_P(UserDefinedIndexTest, IngestFailTest) {
   s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
   ASSERT_NOK(s);
 
+  // Downgrade to kBuiltinOnly to allow ingesting files without UDI.
   ASSERT_OK(db->SetOptions(
-      cfh, {{"block_based_table_factory", "{fail_if_no_udi_on_open=false;}"}}));
+      cfh, {{"block_based_table_factory", "{index_mode=kBuiltinOnly;}"}}));
   s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
   ASSERT_OK(s);
 
@@ -9043,9 +9033,9 @@ TEST_P(UserDefinedIndexTest, IngestEmptyUDI) {
   std::string ingest_file2 = dbname + "dummy.sst";
 
   // Set up the user-defined index factory
-  auto user_defined_index_factory =
-      std::make_shared<TestUserDefinedIndexFactory>();
+  auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kSecondary;
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
       std::make_shared<CustomFlushBlockPolicyFactory>();
@@ -9068,7 +9058,7 @@ TEST_P(UserDefinedIndexTest, IngestEmptyUDI) {
   ASSERT_OK(writer->Finish());
   writer.reset();
 
-  table_options.fail_if_no_udi_on_open = true;
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kSecondary;
   options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   std::unique_ptr<DB> db;
@@ -9098,9 +9088,9 @@ TEST_P(UserDefinedIndexTest, MultiScanFailureTest) {
   std::string ingest_file = dbname + "test.sst";
 
   // Set up the user-defined index factory
-  auto user_defined_index_factory =
-      std::make_shared<TestUserDefinedIndexFactory>();
+  auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kSecondary;
 
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
@@ -9134,7 +9124,7 @@ TEST_P(UserDefinedIndexTest, MultiScanFailureTest) {
 
   std::vector<std::string> key_ranges({"key03", "key05", "key12", "key14"});
   ReadOptions ro;
-  ro.table_index_factory = user_defined_index_factory.get();
+  ro.read_index = ReadOptions::ReadIndex::kCustom;
   Slice ub;
   ro.iterate_upper_bound = &ub;
   std::unordered_map<std::string, std::string> property_bag;
@@ -9285,9 +9275,9 @@ TEST_P(UserDefinedIndexTest, ConfigTest) {
   std::string ingest_file = dbname + "test.sst";
 
   // Set up the user-defined index factory
-  auto user_defined_index_factory =
-      std::make_shared<TestUserDefinedIndexFactory>();
+  auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kSecondary;
 
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
@@ -9309,11 +9299,11 @@ TEST_P(UserDefinedIndexTest, ConfigTest) {
   table_options.user_defined_index_factory.reset();
   options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
   // Set up the user-defined index factory
-  ObjectLibrary::Default().get()->AddFactory<UserDefinedIndexFactory>(
-      "test_index", [](const std::string& /* uri */,
-                       std::unique_ptr<UserDefinedIndexFactory>* guard,
-                       std::string* /* errmsg */) {
-        auto factory = new TestUserDefinedIndexFactory();
+  ObjectLibrary::Default().get()->AddFactory<IndexFactory>(
+      "test_index",
+      [](const std::string& /* uri */, std::unique_ptr<IndexFactory>* guard,
+         std::string* /* errmsg */) {
+        auto factory = new TestIndexFactory();
         guard->reset(factory);
         return guard->get();
       });
@@ -9337,7 +9327,7 @@ TEST_P(UserDefinedIndexTest, ConfigTest) {
   ReadOptions ro;
   Slice ub;
   ro.iterate_upper_bound = &ub;
-  ro.table_index_factory = user_defined_index_factory.get();
+  ro.read_index = ReadOptions::ReadIndex::kCustom;
   std::unique_ptr<Iterator> iter(db->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
   MultiScanArgs scan_opts(options_.comparator);
@@ -9379,9 +9369,9 @@ TEST_P(UserDefinedIndexTest, RangeDelete) {
   std::string ingest_file = dbname + "test.sst";
 
   // Set up the user-defined index factory
-  auto user_defined_index_factory =
-      std::make_shared<TestUserDefinedIndexFactory>();
+  auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kSecondary;
 
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
@@ -9496,9 +9486,9 @@ TEST_P(UserDefinedIndexTest, QueryCrossTwoFiles) {
   std::string ingest_file = dbname + "test.sst";
 
   // Set up the user-defined index factory
-  auto user_defined_index_factory =
-      std::make_shared<TestUserDefinedIndexFactory>();
+  auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kSecondary;
 
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
@@ -9728,7 +9718,7 @@ class UserDefinedIndexStressTest
   bool enable_udi_{};
   bool enable_compaction_with_sst_partitioner_{};
   uint32_t rand_seed_{};
-  std::shared_ptr<UserDefinedIndexFactory> user_defined_index_factory_;
+  std::shared_ptr<IndexFactory> user_defined_index_factory_;
   BlockBasedTableOptions table_options_;
   const Comparator* comparator_{};
   bool is_reverse_comparator_{};
@@ -9756,9 +9746,9 @@ class UserDefinedIndexStressTest
 
     if (enable_udi_) {
       // Set up the user-defined index factory
-      user_defined_index_factory_ =
-          std::make_shared<TestUserDefinedIndexFactory>();
+      user_defined_index_factory_ = std::make_shared<TestIndexFactory>();
       table_options_.user_defined_index_factory = user_defined_index_factory_;
+      table_options_.index_mode = BlockBasedTableOptions::IndexMode::kSecondary;
     }
 
     options_.table_factory.reset(NewBlockBasedTableFactory(table_options_));
@@ -9964,7 +9954,7 @@ class UserDefinedIndexStressTest
 
       // Query ingest CF with UDI if it is enabled
       if (enable_udi_) {
-        ro.table_index_factory = user_defined_index_factory_.get();
+        ro.read_index = ReadOptions::ReadIndex::kCustom;
       }
 
       iter.reset(db_->NewIterator(ro, ingest_cfh_));

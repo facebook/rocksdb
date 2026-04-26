@@ -899,6 +899,7 @@ set(SOURCES
         table/block_based/filter_block_reader_common.cc
         table/block_based/filter_policy.cc
         table/block_based/flush_block_policy.cc
+        table/block_based/builtin_index_factory.cc
         table/block_based/full_filter_block.cc
         table/block_based/hash_index_reader.cc
         table/block_based/index_builder.cc
@@ -1548,6 +1549,7 @@ if(WITH_TESTS)
         options/options_test.cc
         table/block_based/block_based_table_reader_test.cc
         table/block_based/block_test.cc
+        table/block_based/builtin_index_factory_test.cc
         table/block_based/data_block_hash_index_test.cc
         table/block_based/full_filter_block_test.cc
         table/block_based/partitioned_filter_block_test.cc

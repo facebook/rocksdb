@@ -670,15 +670,12 @@ DEFINE_bool(use_trie_index, false,
             "Use trie-based user defined index (UDI) for SST files. "
             "Compatible with all operation types (Put, Delete, Merge, etc.) "
             "and all iteration directions (forward and reverse). "
-            "Combined with use_udi_as_primary_index to control whether the "
-            "UDI is the primary or secondary index.");
+            "Combined with index_mode to control the UDI role.");
 
-DEFINE_bool(use_udi_as_primary_index, false,
-            "When use_trie_index is enabled, use the UDI as the primary "
-            "index. All reads automatically go through the UDI (both "
-            "the standard index and UDI are always built). When false, "
-            "the UDI is a secondary index and reads require "
-            "ReadOptions::table_index_factory to be set.");
+DEFINE_int32(index_mode, 0,
+             "Controls how the custom IndexFactory interacts with the "
+             "built-in index. 0=kBuiltinOnly, 1=kSecondary, 2=kPrimary, "
+             "3=kPrimaryOnly. Requires use_trie_index for modes >= 1.");
 
 DEFINE_bool(test_backward_scan, true,
             "Test backward iteration (Prev, SeekForPrev) in stress tests.");

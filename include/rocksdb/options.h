@@ -57,7 +57,7 @@ class Statistics;
 class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
-class UserDefinedIndexFactory;
+
 class IODispatcher;
 
 struct Options;
@@ -2321,22 +2321,27 @@ struct ReadOptions {
 
   // EXPERIMENTAL
   //
-  // Specify an alternate index to use in the SST files instead of the native
-  // block based table index. The table_factory used for the column family
-  // must support building/reading this index.
+  // Per-read index selection. Overrides the default read routing determined
+  // by BlockBasedTableOptions::index_mode.
   //
-  // The UDI framework supports all iterator operations: forward scans
-  // (SeekToFirst, Seek, Next), reverse scans (SeekToLast, SeekForPrev, Prev),
-  // and point lookups (Get). Concrete UDI implementations may impose their
-  // own restrictions -- check the specific implementation's documentation.
+  //   kDefault: use whatever index_mode says.
+  //     kBuiltinOnly/kSecondary → built-in binary search index.
+  //     kPrimary/kPrimaryOnly → custom IndexFactory index.
   //
-  // When BlockBasedTableOptions::use_udi_as_primary_index is true, this field
-  // does not need to be set -- all reads automatically use the UDI. If set
-  // while use_udi_as_primary_index is true, the UDI from
-  // BlockBasedTableOptions takes precedence. This field is only needed when
-  // the UDI is a secondary index and you want to explicitly select it for
-  // reads.
-  const UserDefinedIndexFactory* table_index_factory = nullptr;
+  //   kBuiltin: force the built-in binary search index for this read.
+  //     Useful for debugging, comparing results between indexes, or
+  //     temporary fallback. In kPrimaryOnly mode, the built-in index
+  //     is a minimal stub — reads will return no useful results.
+  //
+  //   kCustom: force the custom IndexFactory index for this read.
+  //     In kSecondary mode, this is how you select the custom index
+  //     for individual reads without changing index_mode.
+  enum class ReadIndex : uint8_t {
+    kDefault = 0,
+    kBuiltin = 1,
+    kCustom = 2,
+  };
+  ReadIndex read_index = ReadIndex::kDefault;
 
   // *** END options only relevant to iterators or scans ***
 
