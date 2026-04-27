@@ -6231,6 +6231,55 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterPrefixSameAsStart) {
   }
 }
 
+TEST_P(ReadPathRangeTombstoneTest,
+       PrefixFilterUpperBoundDoesNotCoverSkippedLiveKey) {
+  if (!Forward()) {
+    return;
+  }
+
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 3;
+  options.statistics = CreateDBStatistics();
+  options.disable_auto_compactions = true;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  table_options.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  // Keep a live in-prefix key above the user upper bound in an SST so the
+  // bounded prefix scan cannot return it, then leave a later same-prefix
+  // memtable key available as the internal stop key. If cleanup uses that
+  // late memtable key as the synthetic range end, it will cover "be".
+  ASSERT_OK(Put("be", "live_b"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Delete("ba"));
+  ASSERT_OK(Delete("bb"));
+  ASSERT_OK(Delete("bc"));
+  ASSERT_OK(Put("bz", "live_z"));
+
+  attempted_insert_ranges_.clear();
+  ReadOptions ro;
+  ro.prefix_same_as_start = true;
+  std::string upper_str = "bd";
+  Slice upper(upper_str);
+  ro.iterate_upper_bound = &upper;
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+
+  std::vector<std::string> keys;
+  for (iter->Seek("ba"); iter->Valid(); iter->Next()) {
+    keys.push_back(iter->key().ToString());
+  }
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(keys.empty());
+
+  ASSERT_EQ(attempted_insert_ranges_.size(), 1u);
+
+  ASSERT_EQ(Get("be"), "live_b");
+}
+
 TEST_P(ReadPathRangeTombstoneTest, PrefixFilterOutOfDomainSeek) {
   // With an out-of-domain seek target, prefix_same_as_start cannot establish
   // a seek-prefix bound. The iterator therefore behaves like an unrestricted

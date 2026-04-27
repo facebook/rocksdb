@@ -484,8 +484,7 @@ default_params = {
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
-    # TODO(jkangs): Stabilize range tombstone conversions
-    "min_tombstones_for_range_conversion": 0,  # lambda: random.choice([0, 2, 2, 4, 16]),
+    "min_tombstones_for_range_conversion": lambda: random.choice([0, 2, 2, 4, 16]),
     "ingest_wbwi_one_in": lambda: random.choice([0, 0, 100, 500]),
     "universal_reduce_file_locking": lambda: random.randint(0, 1),
     "compression_manager": lambda: random.choice(
@@ -1517,6 +1516,7 @@ def finalize_and_sanitize(src_params):
         dest_params["read_fault_one_in"] = 0
         dest_params["memtable_prefix_bloom_size_ratio"] = 0
         dest_params["max_sequential_skip_in_iterations"] = sys.maxsize
+        dest_params["min_tombstones_for_range_conversion"] = 0
         # This option ingests a delete range that might partially overlap with
         # existing key range, which will cause a reseek that's currently not
         # supported by multiscan

@@ -127,6 +127,8 @@ class DBCrashTestTest(unittest.TestCase):
         params = self.build_params(
             db_crashtest.default_params,
             {
+                "test_batches_snapshots": 0,
+                "use_multiscan": 0,
                 "use_sqfc_for_range_queries": 1,
                 "min_tombstones_for_range_conversion": 2,
             },

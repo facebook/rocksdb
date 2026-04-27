@@ -774,30 +774,18 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
     }
   } while (iter_.Valid());
 
-  // If we accumulated tombstones, choose an end_key that doesn't depend on
-  // user-controlled iterate_upper_bound_ memory:
-  //  - iter_ still valid: stopped at the upper-bound break above. iter_'s
-  //    current key is RocksDB-owned and strictly greater than every counted
-  //    tombstone. Use it as the exclusive end_key.
-  //  - iter_ exhausted: no more keys exist past the run, so [first,
-  //    saved_key_) (covering n-1 of n deletes, with the n-th remaining as a
-  //    point delete) is safe. saved_key_ is the largest user key observed.
+  // If we accumulated tombstones, use the last tracked tombstone as the
+  // exclusive end key. It may be more optimal to use iterator upper bound if it
+  // exists, but the current iterator API makes that dangerous as upper bound
+  // points to user memory which is not guaranteed immutable.
   if (contiguous_tombstone_count_ > 0 && iter_.status().ok()) {
-    bool inserted_via_iter = false;
-    if (iter_.Valid()) {
-      Slice end_user_key = ExtractUserKey(iter_.key());
-      Slice end_user_key_no_ts =
-          StripTimestampFromUserKey(end_user_key, timestamp_size_);
-      if (PrefixCheck(end_user_key_no_ts)) {
-        // Copy because iter_'s key buffer may not survive subsequent calls.
-        std::string end_key_copy(end_user_key.data(), end_user_key.size());
-        MaybeInsertRangeTombstone(end_key_copy);
-        inserted_via_iter = true;
-      }
-    }
-    if (!inserted_via_iter) {
-      MaybeInsertRangeTombstone(saved_key_.GetUserKey());
-    }
+    // It is unsafe to use iter_.key() here even when iter_.Valid() and the key
+    // is within the seek prefix. This is because memtable iterators are still
+    // valid past the upper bound, but sst iterators are not. So iter_.key() can
+    // point to a memtable entry that has skipped past real live entries in
+    // ssts.
+    assert(PrefixCheck(saved_key_.GetUserKey()));
+    MaybeInsertRangeTombstone(saved_key_.GetUserKey());
   }
   ResetContiguousTombstoneTracking();
 
