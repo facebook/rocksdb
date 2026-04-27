@@ -3,6 +3,16 @@
 # This workflow is invoked by provider-specific wrappers (Claude/Codex) so the
 # event triggers and workflow names stay user-friendly while the implementation
 # lives in one place.
+#
+# Security note for Codex:
+#   Codex runs in non-interactive CI, so the Codex CLI steps below pass
+#   `--dangerously-bypass-approvals-and-sandbox`. That disables Codex's
+#   approval prompts and sandbox protections, so treat those steps as
+#   arbitrary command execution on the runner. This file therefore keeps Codex
+#   in the read-only analysis workflow, restricts the pull_request_target path
+#   to same-repo PRs, and leaves write-scoped PR commenting in a separate
+#   workflow. Re-evaluate that trust boundary before expanding Codex auto
+#   review to broader trigger sources.
 
 name: AI Review Analysis
 
