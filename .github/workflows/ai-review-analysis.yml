@@ -73,6 +73,13 @@ jobs:
   auto-review:
     name: Auto ${{ inputs.display_name }} Review
     runs-on: ubuntu-latest
+    concurrency:
+      # Serialize the early pull_request_target path and the workflow_run
+      # fallback per provider+commit so both cannot review the same SHA in
+      # parallel.
+      group: >-
+        ai-review-auto-${{ inputs.provider }}-${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+      cancel-in-progress: false
     permissions:
       contents: read
       # Read workflow/artifact state so the workflow_run fallback can tell
@@ -447,13 +454,10 @@ jobs:
 
           cat claude_md/ci_review_prompt.md > /tmp/prompt.txt
 
-          cat >> /tmp/prompt.txt <<PROMPT_EOF
-
-          ## Pull Request Information
-          - **Title:** ${PR_TITLE}
-          - **Author:** ${PR_AUTHOR}
-          - **Changes:** ${DIFF_STATS}
-          PROMPT_EOF
+          printf '\n## Pull Request Information\n' >> /tmp/prompt.txt
+          printf '%s\n' "- **Title:** ${PR_TITLE}" >> /tmp/prompt.txt
+          printf '%s\n' "- **Author:** ${PR_AUTHOR}" >> /tmp/prompt.txt
+          printf '%s\n' "- **Changes:** ${DIFF_STATS}" >> /tmp/prompt.txt
 
           if [ "${IS_TRUNCATED}" = "true" ]; then
             echo "- **Note:** Diff truncated due to size." >> /tmp/prompt.txt
@@ -998,16 +1002,11 @@ jobs:
 
           if [ "${COMMAND_TYPE}" = "query" ]; then
             cat claude_md/ci_query_prompt.md > /tmp/prompt.txt
-            printf '\n---\n\n' >> /tmp/prompt.txt
-
-            cat >> /tmp/prompt.txt <<PROMPT_EOF
-          ## Pull Request Context
-          - **Title:** ${PR_TITLE}
-          - **Author:** ${PR_AUTHOR}
-          - **Changes:** ${DIFF_STATS}
-
-          ## PR Description
-          PROMPT_EOF
+            printf '\n---\n\n## Pull Request Context\n' >> /tmp/prompt.txt
+            printf '%s\n' "- **Title:** ${PR_TITLE}" >> /tmp/prompt.txt
+            printf '%s\n' "- **Author:** ${PR_AUTHOR}" >> /tmp/prompt.txt
+            printf '%s\n' "- **Changes:** ${DIFF_STATS}" >> /tmp/prompt.txt
+            printf '\n## PR Description\n' >> /tmp/prompt.txt
             printf '%s\n' "${PR_BODY}" >> /tmp/prompt.txt
             printf '\n## Question\n' >> /tmp/prompt.txt
             printf '%s\n' "${USER_QUERY}" >> /tmp/prompt.txt
@@ -1016,13 +1015,10 @@ jobs:
           else
             cat claude_md/ci_review_prompt.md > /tmp/prompt.txt
 
-            cat >> /tmp/prompt.txt <<PROMPT_EOF
-
-          ## Pull Request Information
-          - **Title:** ${PR_TITLE}
-          - **Author:** ${PR_AUTHOR}
-          - **Changes:** ${DIFF_STATS}
-          PROMPT_EOF
+            printf '\n## Pull Request Information\n' >> /tmp/prompt.txt
+            printf '%s\n' "- **Title:** ${PR_TITLE}" >> /tmp/prompt.txt
+            printf '%s\n' "- **Author:** ${PR_AUTHOR}" >> /tmp/prompt.txt
+            printf '%s\n' "- **Changes:** ${DIFF_STATS}" >> /tmp/prompt.txt
 
             if [ "${IS_TRUNCATED}" = "true" ]; then
               echo "- **Note:** Diff truncated due to size." >> /tmp/prompt.txt

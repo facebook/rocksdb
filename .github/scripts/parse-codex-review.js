@@ -24,10 +24,10 @@ module.exports = function parseCodex(
     }
     const shortSha = meta.headSha.substring(0, 7);
     if (meta.autoMode === 'early') {
-      return `*Auto-triggered after CI reached the early-review threshold - reviewing commit ${
+      return `*Auto-triggered after CI reached the early-review threshold — reviewing commit ${
           shortSha}*`;
     }
-    return `*Auto-triggered after CI passed - reviewing commit ${shortSha}*`;
+    return `*Auto-triggered after CI passed — reviewing commit ${shortSha}*`;
   }
 
   function readIfPresent(path) {
