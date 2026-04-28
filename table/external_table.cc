@@ -421,9 +421,9 @@ class ExternalTableFactoryAdapter : public TableFactory {
     }
     std::unique_ptr<ExternalTableReader> reader;
     FileOptions fopts(topts.env_options);
-    ExternalTableOptions ext_topts(
-        topts.prefix_extractor, topts.ioptions.user_comparator,
-        topts.ioptions.fs, fopts, topts.ioptions.stats);
+    ExternalTableOptions ext_topts(topts.prefix_extractor,
+                                   topts.ioptions.user_comparator,
+                                   topts.ioptions.fs, fopts);
     auto status =
         inner_->NewTableReader(ro, file->file_name(), ext_topts, &reader);
     if (!status.ok()) {
@@ -442,8 +442,7 @@ class ExternalTableFactoryAdapter : public TableFactory {
     ExternalTableBuilderOptions ext_topts(
         topts.read_options, topts.write_options,
         topts.moptions.prefix_extractor, topts.ioptions.user_comparator,
-        topts.column_family_name, topts.reason, topts.ioptions.fs,
-        topts.ioptions.stats);
+        topts.column_family_name, topts.reason, topts.ioptions.fs);
     auto file_wrapper =
         std::make_unique<ExternalTableWritableFileWrapper>(file);
     builder.reset(inner_->NewTableBuilder(ext_topts, file->file_name(),
