@@ -54,7 +54,7 @@ class TableCache {
              const FileOptions* storage_options, Cache* cache,
              BlockCacheTracer* const block_cache_tracer,
              const std::shared_ptr<IOTracer>& io_tracer,
-             const std::string& db_session_id);
+             const std::string& db_session_id, bool fast_sst_open = false);
   ~TableCache();
 
   // Cache interface for table cache
@@ -270,6 +270,10 @@ class TableCache {
         cache_.get()->GetCapacity() >= kInfiniteCapacity;
   }
 
+  void SetFastSstOpen(bool enabled) {
+    fast_sst_open_.store(enabled, std::memory_order_relaxed);
+  }
+
  private:
   // Build a table reader
   Status GetTableReader(const ReadOptions& ro, const FileOptions& file_options,
@@ -312,6 +316,7 @@ class TableCache {
   std::string row_cache_id_;
   bool immortal_tables_;
   bool should_pin_table_handles_;
+  std::atomic<bool> fast_sst_open_;
   BlockCacheTracer* const block_cache_tracer_;
   Striped<CacheAlignedWrapper<port::Mutex>> loader_mutex_;
   std::shared_ptr<IOTracer> io_tracer_;

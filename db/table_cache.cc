@@ -69,13 +69,14 @@ TableCache::TableCache(const ImmutableOptions& ioptions,
                        const FileOptions* file_options, Cache* const cache,
                        BlockCacheTracer* const block_cache_tracer,
                        const std::shared_ptr<IOTracer>& io_tracer,
-                       const std::string& db_session_id)
+                       const std::string& db_session_id, bool fast_sst_open)
     : ioptions_(ioptions),
       file_options_(*file_options),
       cache_(cache),
       immortal_tables_(false),
       should_pin_table_handles_(cache_.get()->GetCapacity() >=
                                 kInfiniteCapacity),
+      fast_sst_open_(fast_sst_open),
       block_cache_tracer_(block_cache_tracer),
       loader_mutex_(kLoadConcurency),
       io_tracer_(io_tracer),
@@ -107,8 +108,11 @@ Status TableCache::GetTableReader(
   fopts.file_checksum_func_name = file_meta.file_checksum_func_name;
   // Pass file open metadata for fast SST open. Use a local copy since
   // fopts.file_metadata is a non-owning pointer and file_meta is const.
+  // Only pass metadata when fast_sst_open is enabled; otherwise ignore
+  // previously persisted metadata (e.g. stale filesystem credentials).
   std::string file_open_metadata_copy;
-  if (!file_meta.file_open_metadata.empty()) {
+  if (fast_sst_open_.load(std::memory_order_relaxed) &&
+      !file_meta.file_open_metadata.empty()) {
     file_open_metadata_copy = file_meta.file_open_metadata;
     fopts.file_metadata = &file_open_metadata_copy;
     RecordTick(ioptions_.stats, FILE_OPEN_METADATA_PASSED);

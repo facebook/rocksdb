@@ -612,7 +612,7 @@ ColumnFamilyData::ColumnFamilyData(
     const FileOptions* file_options, ColumnFamilySet* column_family_set,
     BlockCacheTracer* const block_cache_tracer,
     const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
-    const std::string& db_session_id, bool read_only)
+    const std::string& db_session_id, bool read_only, bool fast_sst_open)
     : id_(id),
       name_(name),
       dummy_versions_(_dummy_versions),
@@ -672,7 +672,7 @@ ColumnFamilyData::ColumnFamilyData(
         new InternalStats(ioptions_.num_levels, ioptions_.clock, this));
     table_cache_.reset(new TableCache(ioptions_, file_options, _table_cache,
                                       block_cache_tracer, io_tracer,
-                                      db_session_id));
+                                      db_session_id, fast_sst_open));
     blob_file_cache_.reset(
         new BlobFileCache(_table_cache, &ioptions(), soptions(), id_,
                           internal_stats_->GetBlobFileReadHist(), io_tracer));
@@ -1809,16 +1809,14 @@ void ColumnFamilyData::RecoverEpochNumbers() {
   vstorage->RecoverEpochNumbers(this);
 }
 
-ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
-                                 const ImmutableDBOptions* db_options,
-                                 const FileOptions& file_options,
-                                 Cache* table_cache,
-                                 WriteBufferManager* _write_buffer_manager,
-                                 WriteController* _write_controller,
-                                 BlockCacheTracer* const block_cache_tracer,
-                                 const std::shared_ptr<IOTracer>& io_tracer,
-                                 const std::string& db_id,
-                                 const std::string& db_session_id)
+ColumnFamilySet::ColumnFamilySet(
+    const std::string& dbname, const ImmutableDBOptions* db_options,
+    const FileOptions& file_options, Cache* table_cache,
+    WriteBufferManager* _write_buffer_manager,
+    WriteController* _write_controller,
+    BlockCacheTracer* const block_cache_tracer,
+    const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
+    const std::string& db_session_id, bool fast_sst_open)
     : max_column_family_(0),
       file_options_(file_options),
       dummy_cfd_(new ColumnFamilyData(
@@ -1835,7 +1833,8 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
       block_cache_tracer_(block_cache_tracer),
       io_tracer_(io_tracer),
       db_id_(db_id),
-      db_session_id_(db_session_id) {
+      db_session_id_(db_session_id),
+      fast_sst_open_(fast_sst_open) {
   // initialize linked list
   dummy_cfd_->prev_ = dummy_cfd_;
   dummy_cfd_->next_ = dummy_cfd_;
@@ -1902,7 +1901,7 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
   ColumnFamilyData* new_cfd = new ColumnFamilyData(
       id, name, dummy_versions, table_cache_, write_buffer_manager_, options,
       *db_options_, &file_options_, this, block_cache_tracer_, io_tracer_,
-      db_id_, db_session_id_, read_only);
+      db_id_, db_session_id_, read_only, fast_sst_open_);
   column_families_.insert({name, id});
   column_family_data_.insert({id, new_cfd});
   auto ucmp = new_cfd->user_comparator();

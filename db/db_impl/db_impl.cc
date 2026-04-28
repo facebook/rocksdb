@@ -1665,9 +1665,12 @@ Status DBImpl::SetDBOptions(
                                           : new_options.max_open_files - 10);
       // Potential table cache capacity change requires updating if table
       // handles should get pinned.
+      versions_->GetColumnFamilySet()->SetFastSstOpen(
+          new_options.fast_sst_open);
       for (auto cfd : *versions_->GetColumnFamilySet()) {
         if (!cfd->IsDropped()) {
           cfd->table_cache()->UpdateShouldPinTableHandles();
+          cfd->table_cache()->SetFastSstOpen(new_options.fast_sst_open);
         }
       }
       wal_other_option_changed = mutable_db_options_.wal_bytes_per_sync !=
