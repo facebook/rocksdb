@@ -492,10 +492,10 @@ Status FlushJob::MemPurge() {
           ioptions.compaction_filter_factory->CreateCompactionFilter(ctx);
       if (compaction_filter != nullptr &&
           !compaction_filter->IgnoreSnapshots()) {
-        s = Status::NotSupported(
+        db_mutex_->Lock();
+        return Status::NotSupported(
             "CompactionFilter::IgnoreSnapshots() = false is not supported "
             "anymore.");
-        return s;
       }
     }
 

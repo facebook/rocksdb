@@ -1463,6 +1463,7 @@ if(WITH_TESTS)
         db/db_kv_checksum_test.cc
         db/db_log_iter_test.cc
         db/db_memtable_test.cc
+        db/db_mempurge_test.cc
         db/db_merge_operator_test.cc
         db/db_merge_operand_test.cc
         db/db_open_with_config_test.cc
