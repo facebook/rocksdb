@@ -7097,7 +7097,8 @@ TEST_P(ReadPathRangeTombstoneTest, SeekToLastStaleSavedKey) {
 
 TEST_P(ReadPathRangeTombstoneTest, SeekToLastTombstones) {
   if (Forward()) {
-    ROCKSDB_GTEST_SKIP("SeekToLast tombstone materialization is reverse-only.");
+    ROCKSDB_GTEST_BYPASS(
+        "SeekToLast tombstone materialization is reverse-only.");
   }
 
   Options options = CurrentOptions();
