@@ -29,7 +29,7 @@ BlobIndex MakeBlobIndex(uint64_t file_number, uint64_t offset, uint64_t size) {
 }  // namespace
 
 TEST(BlobGarbageMeterTest, MeasureGarbage) {
-  BlobGarbageMeter blob_garbage_meter;
+  BlobGarbageMeter blob_garbage_meter(/*use_blog_format=*/false);
 
   struct BlobDescriptor {
     std::string user_key;
@@ -144,7 +144,7 @@ TEST(BlobGarbageMeterTest, PlainValue) {
   constexpr char value[] = "value";
   const Slice value_slice(value);
 
-  BlobGarbageMeter blob_garbage_meter;
+  BlobGarbageMeter blob_garbage_meter(/*use_blog_format=*/false);
 
   ASSERT_OK(blob_garbage_meter.ProcessInFlow(key_slice, value_slice));
   ASSERT_OK(blob_garbage_meter.ProcessOutFlow(key_slice, value_slice));
@@ -158,7 +158,7 @@ TEST(BlobGarbageMeterTest, CorruptInternalKey) {
   constexpr char value[] = "value";
   const Slice value_slice(value);
 
-  BlobGarbageMeter blob_garbage_meter;
+  BlobGarbageMeter blob_garbage_meter(/*use_blog_format=*/false);
 
   ASSERT_NOK(blob_garbage_meter.ProcessInFlow(key_slice, value_slice));
   ASSERT_NOK(blob_garbage_meter.ProcessOutFlow(key_slice, value_slice));
@@ -174,7 +174,7 @@ TEST(BlobGarbageMeterTest, CorruptBlobIndex) {
   constexpr char value[] = "i_am_not_a_blob_index";
   const Slice value_slice(value);
 
-  BlobGarbageMeter blob_garbage_meter;
+  BlobGarbageMeter blob_garbage_meter(/*use_blog_format=*/false);
 
   ASSERT_NOK(blob_garbage_meter.ProcessInFlow(key_slice, value_slice));
   ASSERT_NOK(blob_garbage_meter.ProcessOutFlow(key_slice, value_slice));
@@ -195,7 +195,7 @@ TEST(BlobGarbageMeterTest, InlinedTTLBlobIndex) {
 
   const Slice value_slice(value);
 
-  BlobGarbageMeter blob_garbage_meter;
+  BlobGarbageMeter blob_garbage_meter(/*use_blog_format=*/false);
 
   ASSERT_NOK(blob_garbage_meter.ProcessInFlow(key_slice, value_slice));
   ASSERT_NOK(blob_garbage_meter.ProcessOutFlow(key_slice, value_slice));
@@ -224,7 +224,7 @@ TEST(BlobGarbageMeterTest, WideColumnEntity) {
   ASSERT_OK(WideColumnSerialization::SerializeV2(columns, {{0, default_blob}},
                                                  outflow_value));
 
-  BlobGarbageMeter blob_garbage_meter;
+  BlobGarbageMeter blob_garbage_meter(/*use_blog_format=*/false);
   ASSERT_OK(blob_garbage_meter.ProcessInFlow(key_slice, inflow_value));
   ASSERT_OK(blob_garbage_meter.ProcessOutFlow(key_slice, outflow_value));
 

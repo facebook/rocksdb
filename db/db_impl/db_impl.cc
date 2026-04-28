@@ -624,11 +624,14 @@ void DBImpl::MaybeInitBlobDirectWriteColumnFamily(
       [vs = versions_.get()]() { return vs->NewFileNumber(); }, fs_.get(),
       immutable_db_options_.clock, stats_, file_options_, dbname_,
       column_family_name, cf_options.blob_file_size,
-      immutable_db_options_.use_fsync, cfd->blob_file_cache(), &blob_callback_,
-      immutable_db_options_.listeners,
+      immutable_db_options_.use_fsync,
+      immutable_db_options_.use_blog_format_for_blobs,
+      immutable_db_options_.blog_checksum, cfd->blob_file_cache(),
+      &blob_callback_, immutable_db_options_.listeners,
       immutable_db_options_.file_checksum_gen_factory.get(),
       immutable_db_options_.checksum_handoff_file_types, io_tracer_, db_id_,
-      db_session_id_, immutable_db_options_.info_log.get());
+      db_session_id_, immutable_db_options_.db_host_id,
+      immutable_db_options_.info_log.get());
 
   cfd->SetBlobPartitionManager(std::move(mgr));
   RegisterBlobDirectWriteColumnFamily();

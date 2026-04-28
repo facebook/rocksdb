@@ -13,6 +13,7 @@
 #include "db/blob/blob_contents.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_log_format.h"
+#include "db/blog/blog_format.h"
 #include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
 #include "table/get_context.h"
@@ -43,6 +44,7 @@ BlobSource::BlobSource(const ImmutableOptions& immutable_options,
     : db_id_(db_id),
       db_session_id_(db_session_id),
       statistics_(immutable_options.statistics.get()),
+      use_blog_format_(immutable_options.use_blog_format_for_blobs),
       blob_file_cache_(blob_file_cache),
       blob_cache_(immutable_options.blob_cache),
       lowest_used_cache_tier_(immutable_options.lowest_used_cache_tier) {
@@ -195,13 +197,20 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
       PinCachedBlob(&blob_handle, value);
 
       // For consistency, the size of on-disk (possibly compressed) blob record
-      // is assigned to bytes_read.
+      // is assigned to bytes_read. Legacy format includes the 32-byte record
+      // header + key when verifying checksums. Blog format includes the
+      // 5-byte trailer (compression_type + checksum).
       uint64_t adjustment =
           read_options.verify_checksums
-              ? BlobLogRecord::CalculateAdjustmentForRecordHeader(
-                    user_key.size())
+              ? (use_blog_format_
+                     ? kBlogBlockTrailerSize
+                     : BlobLogRecord::CalculateAdjustmentForRecordHeader(
+                           user_key.size()))
               : 0;
-      assert(offset >= adjustment);
+      // Legacy: adjustment is header+key bytes before the value offset.
+      // Blog: adjustment is trailer bytes after the value, so offset
+      // relationship is different.
+      assert(use_blog_format_ || offset >= adjustment);
 
       uint64_t record_size = value_size + adjustment;
       if (bytes_read) {
@@ -376,10 +385,12 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
         // record is accumulated to total_bytes.
         uint64_t adjustment =
             read_options.verify_checksums
-                ? BlobLogRecord::CalculateAdjustmentForRecordHeader(
-                      req.user_key->size())
+                ? (use_blog_format_
+                       ? kBlogBlockTrailerSize
+                       : BlobLogRecord::CalculateAdjustmentForRecordHeader(
+                             req.user_key->size()))
                 : 0;
-        assert(req.offset >= adjustment);
+        assert(use_blog_format_ || req.offset >= adjustment);
         total_bytes += req.len + adjustment;
         cache_hit_mask |= (Mask{1} << i);  // cache hit
       }

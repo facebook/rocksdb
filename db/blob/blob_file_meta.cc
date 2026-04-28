@@ -13,6 +13,11 @@
 
 namespace ROCKSDB_NAMESPACE {
 uint64_t SharedBlobFileMetaData::GetBlobFileSize() const {
+  // TODO: for blog format, the header/footer sizes differ from legacy
+  // (blog header ~48-60 bytes + padding vs legacy 30, blog footer ~128 bytes
+  // vs legacy 32). total_blob_bytes_ includes estimated per-record framing
+  // for both formats, so the main error is the header/footer constant.
+  // Consider storing actual file size in MANIFEST.
   return BlobLogHeader::kSize + total_blob_bytes_ + BlobLogFooter::kSize;
 }
 

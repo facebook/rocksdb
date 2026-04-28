@@ -11,6 +11,7 @@
 
 #include "db/blog/blog_format.h"
 #include "file/writable_file_writer.h"
+#include "rocksdb/data_structure.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
 
@@ -34,15 +35,25 @@ class BlogFileWriter {
 
   // Write a blob record. Selects compact or full format automatically.
   // On success, *blob_offset is the file offset of the payload start.
+  // uncompressed_size: original size before compression (for footer stats).
+  // Pass payload.size() when comp_type == kNoCompression.
   IOStatus AddBlobRecord(const WriteOptions& wo, const Slice& payload,
-                         CompressionType comp_type, uint64_t* blob_offset);
+                         CompressionType comp_type, uint64_t* blob_offset,
+                         uint64_t uncompressed_size);
 
   // Write a WriteBatch record. Selects compact or full format automatically.
   IOStatus AddWriteBatchRecord(const WriteOptions& wo, const Slice& wb_data,
                                CompressionType comp_type = kNoCompression);
 
-  // Write a preamble-start record (stub). Uses full format with length=0.
+  // Write a preamble-start record (stub). Uses trivial format (length=0).
   IOStatus AddPreambleStartRecord(const WriteOptions& wo);
+
+  // Write an ignorable properties record. Can appear anywhere in the file
+  // body, including when re-opening an existing file (e.g. manifest reuse)
+  // to record updated diagnostic properties. Only ignorable (lowercase)
+  // properties are allowed; required (uppercase) properties are rejected.
+  IOStatus AddIgnorablePropertiesRecord(const WriteOptions& wo,
+                                        const BlogPropertyMap& props);
 
   // Write a footer index record (full format).
   IOStatus AddFooterIndexRecord(const WriteOptions& wo,
@@ -64,12 +75,38 @@ class BlogFileWriter {
   WritableFileWriter* file() { return dest_.get(); }
   const BlogFileHeader& header() const { return header_; }
 
+  // Accumulated blob record stats for footer properties.
+  // Accumulated blob record stats for footer properties.
+  struct BlobStats {
+    uint64_t count = 0;
+    uint64_t payload_bytes =
+        0;  // on-disk payload (compressed where applicable)
+    uint64_t compressed_bytes =
+        0;  // compressed size (only actually-compressed blobs)
+    uint64_t uncompressed_bytes = 0;  // original size of those same blobs
+    uint64_t overhead_bytes =
+        0;  // framing: escape seq, varint, trailer, padding
+  };
+  const BlobStats& blob_stats() const { return blob_stats_; }
+
+  using CompressionTypeSet =
+      SmallEnumSet<CompressionType, kDisableCompressionOption>;
+
+  // Set of CompressionType values used across all records in the file
+  // (excluding kNoCompression and kStreamingCompressionSentinel).
+  const CompressionTypeSet& compression_type_set() const {
+    return compression_type_set_;
+  }
+
  private:
   // Write a record. Chooses compact format when varint fits in <= 3 bytes
   // and type matches compact_record_type, unless force_full is true.
   IOStatus AddRecord(const WriteOptions& wo, BlogRecordType type,
                      const Slice& payload, CompressionType comp_type,
                      uint64_t* payload_offset, bool force_full = false);
+
+  // Emit a trivial-format record (length=0, no payload).
+  IOStatus EmitTrivialRecord(const WriteOptions& wo, BlogRecordType type);
 
   // Emit a compact-format record.
   IOStatus EmitCompactRecord(const WriteOptions& wo, const Slice& payload,
@@ -81,6 +118,14 @@ class BlogFileWriter {
                           const Slice& payload, CompressionType comp_type,
                           uint64_t* payload_offset);
 
+  // Emit payload, 5-byte trailer (compression_type + checksum), and padding.
+  // If skip_padding is true, no padding is emitted (used for the last record).
+  IOStatus EmitPayloadTrailerPadding(const WriteOptions& wo,
+                                     const Slice& payload,
+                                     CompressionType comp_type,
+                                     uint64_t* payload_offset,
+                                     bool skip_padding);
+
   // Append raw bytes to the file and advance offset_.
   IOStatus EmitBytes(const WriteOptions& wo, const Slice& data);
   IOStatus EmitBytes(const WriteOptions& wo, const char* data, size_t len);
@@ -90,6 +135,8 @@ class BlogFileWriter {
   uint64_t offset_ = 0;
   bool manual_flush_;
   bool header_written_ = false;
+  BlobStats blob_stats_;
+  CompressionTypeSet compression_type_set_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

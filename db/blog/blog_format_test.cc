@@ -12,6 +12,7 @@
 #include "table/format.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
+#include "util/prefix_varint.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -372,7 +373,13 @@ TEST_F(BlogFormatTest, FooterLocatorEncodeDecodeMultiple) {
 TEST_F(BlogFormatTest, FooterPropertiesEncodeDecodeRoundTrip) {
   BlogFileFooterProperties props;
   props.SetBlobCount(42);
-  props.SetTotalBlobBytes(123456);
+  props.SetBlobPayloadBytes(123456);
+  props.SetBlobCompressedBytes(50000);
+  props.SetBlobUncompressedBytes(80000);
+  props.SetBlobOverheadBytes(3456);
+  SmallEnumSet<CompressionType, kDisableCompressionOption> comp_types(
+      kZSTD, kLZ4Compression);
+  props.SetCompressionTypes(comp_types);
   props.SetSequenceRange(100, 200);
 
   std::string encoded;
@@ -380,121 +387,126 @@ TEST_F(BlogFormatTest, FooterPropertiesEncodeDecodeRoundTrip) {
 
   BlogFileFooterProperties decoded;
   ASSERT_OK(decoded.DecodeFrom(Slice(encoded)));
-  ASSERT_EQ(decoded.properties.size(), 4u);
+  ASSERT_EQ(decoded.properties.size(), 8u);
+  // Verify compressionTypes encodes as sorted bytes
+  for (const auto& [name, value] : decoded.properties) {
+    if (name == "compressionTypes") {
+      ASSERT_EQ(value.size(), 2u);
+      ASSERT_EQ(static_cast<uint8_t>(value[0]), 4u);  // kLZ4Compression
+      ASSERT_EQ(static_cast<uint8_t>(value[1]), 7u);  // kZSTD
+    }
+  }
 }
 
 // --- Padding ---
 
 TEST_F(BlogFormatTest, PaddingLastByteZero) {
   // When last byte is 0x00, must pad with 0xFF, at least 1 byte
-  std::string pad;
-  // At offset 0 (already aligned), still need at least 1 byte
-  ComputeBlogPadding(0x00, 0, &pad);
-  ASSERT_GE(pad.size(), 1u);
-  for (char c : pad) {
-    ASSERT_EQ(static_cast<uint8_t>(c), 0xFFu);
+  BlogPadding pad(0x00, 0);
+  ASSERT_GE(pad.count, 1u);
+  for (size_t i = 0; i < pad.count; ++i) {
+    ASSERT_EQ(static_cast<uint8_t>(pad.bytes[i]), 0xFFu);
   }
-  // Result must be 4-byte aligned
-  ASSERT_EQ(pad.size() % 4, 0u);
+  ASSERT_EQ(pad.count % 4, 0u);
 }
 
 TEST_F(BlogFormatTest, PaddingLastByteFF) {
   // When last byte is 0xFF, must pad with 0x00, at least 1 byte
-  std::string pad;
-  ComputeBlogPadding(0xFF, 0, &pad);
-  ASSERT_GE(pad.size(), 1u);
-  for (char c : pad) {
-    ASSERT_EQ(static_cast<uint8_t>(c), 0x00u);
+  BlogPadding pad(0xFF, 0);
+  ASSERT_GE(pad.count, 1u);
+  for (size_t i = 0; i < pad.count; ++i) {
+    ASSERT_EQ(static_cast<uint8_t>(pad.bytes[i]), 0x00u);
   }
-  ASSERT_EQ(pad.size() % 4, 0u);
+  ASSERT_EQ(pad.count % 4, 0u);
 }
 
 TEST_F(BlogFormatTest, PaddingLastByteOther) {
   // When last byte is something else, pad only if needed for alignment
-  std::string pad;
-  ComputeBlogPadding(0x42, 0, &pad);
-  // Already aligned, no padding needed
-  ASSERT_EQ(pad.size(), 0u);
+  BlogPadding pad1(0x42, 0);
+  ASSERT_EQ(pad1.count, 0u);
 
-  pad.clear();
-  ComputeBlogPadding(0x42, 1, &pad);
-  // Need 3 bytes to reach alignment
-  ASSERT_EQ(pad.size(), 3u);
-  for (char c : pad) {
-    ASSERT_EQ(static_cast<uint8_t>(c), 0x00u);
+  BlogPadding pad2(0x42, 1);
+  ASSERT_EQ(pad2.count, 3u);
+  for (size_t i = 0; i < pad2.count; ++i) {
+    ASSERT_EQ(static_cast<uint8_t>(pad2.bytes[i]), 0x00u);
   }
 }
 
 TEST_F(BlogFormatTest, PaddingAlignment) {
   for (size_t offset = 0; offset < 8; ++offset) {
-    std::string pad;
-    ComputeBlogPadding(0x42, offset, &pad);
-    size_t after = offset + pad.size();
+    BlogPadding pad(0x42, offset);
+    size_t after = offset + pad.count;
     ASSERT_EQ(after % 4, 0u) << "offset=" << offset;
   }
 }
 
-// --- Irregular varint ---
+TEST_F(BlogFormatTest, PaddingAppendTo) {
+  std::string dst;
+  BlogPadding pad(0x00, 0);
+  pad.AppendTo(&dst);
+  ASSERT_EQ(dst.size(), pad.count);
+  for (size_t i = 0; i < pad.count; ++i) {
+    ASSERT_EQ(static_cast<uint8_t>(dst[i]), 0xFFu);
+  }
+}
 
-TEST_F(BlogFormatTest, IrregularVarintZero) {
-  std::string encoded;
-  PutBlogIrregularVarint64(&encoded, 0, 4);
-  ASSERT_GE(encoded.size(), 4u);
+// --- Improper (non-minimal) prefix varint ---
 
-  // Must decode back to 0
-  Slice input(encoded);
+TEST_F(BlogFormatTest, ImproperPrefixVarintZero) {
+  char buf[kMaxPrefixVarint64Length];
+  char* end = EncodePrefixVarint64<4>(buf, 0);
+  size_t len = static_cast<size_t>(end - buf);
+  ASSERT_GE(len, 4u);
+
   uint64_t value;
-  ASSERT_TRUE(GetVarint64(&input, &value));
+  ASSERT_TRUE(DecodePrefixVarint64(buf[0], buf + 1, len - 1, &value));
   ASSERT_EQ(value, 0u);
 }
 
-TEST_F(BlogFormatTest, IrregularVarintSmallValue) {
-  std::string encoded;
-  PutBlogIrregularVarint64(&encoded, 42, 4);
-  ASSERT_GE(encoded.size(), 4u);
+TEST_F(BlogFormatTest, ImproperPrefixVarintSmallValue) {
+  char buf[kMaxPrefixVarint64Length];
+  char* end = EncodePrefixVarint64<4>(buf, 42);
+  size_t len = static_cast<size_t>(end - buf);
+  ASSERT_GE(len, 4u);
 
-  Slice input(encoded);
   uint64_t value;
-  ASSERT_TRUE(GetVarint64(&input, &value));
+  ASSERT_TRUE(DecodePrefixVarint64(buf[0], buf + 1, len - 1, &value));
   ASSERT_EQ(value, 42u);
 }
 
-TEST_F(BlogFormatTest, IrregularVarintLargeValue) {
-  // A value that naturally needs 3 bytes, padded to 5
-  uint64_t original = 100000;
-  std::string encoded;
-  PutBlogIrregularVarint64(&encoded, original, 5);
-  ASSERT_GE(encoded.size(), 5u);
+TEST_F(BlogFormatTest, ImproperPrefixVarintLargeValue) {
+  char buf[kMaxPrefixVarint64Length];
+  char* end = EncodePrefixVarint64<5>(buf, 100000);
+  size_t len = static_cast<size_t>(end - buf);
+  ASSERT_GE(len, 5u);
 
-  Slice input(encoded);
   uint64_t value;
-  ASSERT_TRUE(GetVarint64(&input, &value));
-  ASSERT_EQ(value, original);
+  ASSERT_TRUE(DecodePrefixVarint64(buf[0], buf + 1, len - 1, &value));
+  ASSERT_EQ(value, 100000u);
 }
 
-TEST_F(BlogFormatTest, IrregularVarintNaturallyLargeEnough) {
-  // A value that naturally needs 5+ bytes should not be padded further
+TEST_F(BlogFormatTest, ImproperPrefixVarintNaturallyLargeEnough) {
   uint64_t original = 1ULL << 35;
-  std::string encoded;
-  PutBlogIrregularVarint64(&encoded, original, 4);
+  char buf[kMaxPrefixVarint64Length];
+  char* end = EncodePrefixVarint64<4>(buf, original);
+  size_t len = static_cast<size_t>(end - buf);
   // Natural encoding is 6 bytes, already >= 4
-  ASSERT_EQ(encoded.size(), 6u);
+  ASSERT_EQ(len, 6u);
 
-  Slice input(encoded);
   uint64_t value;
-  ASSERT_TRUE(GetVarint64(&input, &value));
+  ASSERT_TRUE(DecodePrefixVarint64(buf[0], buf + 1, len - 1, &value));
   ASSERT_EQ(value, original);
 }
 
-TEST_F(BlogFormatTest, UnspecifiedSizeVarint) {
+TEST_F(BlogFormatTest, UnspecifiedSizePrefixVarint) {
   std::string encoded;
-  PutVarint64(&encoded, kBlogUnspecifiedSize);
-  // 2^63 - 1 should encode to 9 bytes (63 bits / 7 = 9)
+  PutPrefixVarint64(&encoded, kBlogUnspecifiedSize);
+  // 2^63 - 1 encodes to 9 bytes in prefix varint (0x00 + fixed64)
   ASSERT_EQ(encoded.size(), 9u);
 
   Slice input(encoded);
   uint64_t value;
-  ASSERT_TRUE(GetVarint64(&input, &value));
+  ASSERT_TRUE(GetPrefixVarint64(&input, &value));
   ASSERT_EQ(value, kBlogUnspecifiedSize);
 }
 

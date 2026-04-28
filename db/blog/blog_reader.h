@@ -77,8 +77,8 @@ class BlogFileReader {
   // Read exactly n bytes sequentially. Returns Corruption on short read.
   Status ReadBytes(size_t n, Slice* result, std::string* scratch);
 
-  // Read a varint64 from the sequential stream.
-  Status ReadVarint64(uint64_t* value, std::string* scratch);
+  // Read a prefix varint64 from the sequential stream.
+  Status ReadPrefixVarint64(uint64_t* value, std::string* scratch);
 
   // Report corruption and return a Corruption status.
   Status ReportCorruption(size_t bytes, const std::string& msg);

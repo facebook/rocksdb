@@ -10,6 +10,7 @@
 
 #include "table/format.h"
 #include "util/coding.h"
+#include "util/prefix_varint.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -121,17 +122,56 @@ Status BlogFileReader::ReadRecord(BlogRecordType* type, Slice* payload,
   // Read varint length. scratch receives the raw varint bytes for use
   // in prefix checksum verification (avoids fragile re-encoding).
   uint64_t length = 0;
-  s = ReadVarint64(&length, scratch);
+  s = ReadPrefixVarint64(&length, scratch);
   if (!s.ok()) {
     eof_ = true;
     return Status::Incomplete("Blog reader: incomplete varint");
   }
   size_t varint_len = scratch->size();
 
-  bool is_full_format = (varint_len > kBlogCompactVarintMaxBytes);
-
   BlogRecordType rec_type;
   std::string prefix_rest_buf;
+
+  if (length == 0) {
+    // Trivial format: [varint(0): 1B] [type: 1B] [checksum: 4B]
+    assert(varint_len == 1);
+    Slice trivial_rest_slice;
+    s = ReadBytes(5, &trivial_rest_slice,
+                  &prefix_rest_buf);  // type(1) + cksum(4)
+    if (!s.ok()) {
+      eof_ = true;
+      return Status::Incomplete("Blog reader: incomplete trivial record");
+    }
+
+    rec_type = static_cast<BlogRecordType>(
+        static_cast<uint8_t>(trivial_rest_slice[0]));
+
+    if (verify_checksums_) {
+      scratch->push_back(trivial_rest_slice[0]);  // type
+      uint32_t stored_checksum = DecodeFixed32(trivial_rest_slice.data() + 1);
+      uint32_t computed_checksum =
+          ComputeBuiltinChecksum(header_.checksum_type, scratch->data(),
+                                 scratch->size()) +
+          ChecksumModifierForContext(header_.incarnation_id(), rec_offset);
+      if (stored_checksum != computed_checksum) {
+        return ReportCorruption(varint_len + 5,
+                                "trivial record checksum mismatch");
+      }
+    }
+
+    *type = rec_type;
+    payload->clear();
+    if (record_compression_type) {
+      *record_compression_type = kNoCompression;
+    }
+    s = SkipPadding();
+    if (!s.ok() && !s.IsNotFound()) {
+      return s;
+    }
+    return Status::OK();
+  }
+
+  bool is_full_format = (varint_len > kBlogCompactVarintMaxBytes);
 
   if (is_full_format) {
     // Full format: read type + compression_type + prefix_checksum
@@ -146,8 +186,6 @@ Status BlogFileReader::ReadRecord(BlogRecordType* type, Slice* payload,
         static_cast<BlogRecordType>(static_cast<uint8_t>(prefix_rest_slice[0]));
 
     if (verify_checksums_) {
-      // Build the prefix data from the original varint bytes (in scratch)
-      // plus type and compression_type bytes.
       scratch->push_back(prefix_rest_slice[0]);  // type
       scratch->push_back(prefix_rest_slice[1]);  // comp_type
 
@@ -166,18 +204,6 @@ Status BlogFileReader::ReadRecord(BlogRecordType* type, Slice* payload,
   }
 
   *type = rec_type;
-
-  if (length == 0) {
-    payload->clear();
-    if (record_compression_type) {
-      *record_compression_type = kNoCompression;
-    }
-    s = SkipPadding();
-    if (!s.ok() && !s.IsNotFound()) {
-      return s;
-    }
-    return Status::OK();
-  }
 
   if (length == kBlogUnspecifiedSize) {
     return ReportCorruption(0, "unspecified-size records not yet implemented");
@@ -229,6 +255,13 @@ Status BlogFileReader::ReadRecord(BlogRecordType* type, Slice* payload,
   s = SkipPadding();
   if (!s.ok() && !s.IsNotFound()) {
     return s;
+  }
+
+  // Silently skip ignorable properties records -- they carry diagnostic
+  // data that readers don't need for correctness.
+  if (*type == kBlogIgnorablePropertiesRecord) {
+    return ReadRecord(type, payload, scratch, record_offset,
+                      record_compression_type);
   }
 
   return Status::OK();
@@ -351,30 +384,37 @@ Status BlogFileReader::ReadBytes(size_t n, Slice* result,
   return Status::OK();
 }
 
-// FIXME? Consider a better encoding that could be processed more efficiently
-Status BlogFileReader::ReadVarint64(uint64_t* value, std::string* scratch) {
-  // Varints can be up to 10 bytes. Read one byte at a time.
-  // The raw varint bytes are appended to scratch so the caller can use
-  // them for checksum verification without re-encoding.
+Status BlogFileReader::ReadPrefixVarint64(uint64_t* value,
+                                          std::string* scratch) {
+  // Prefix varint: first byte determines the total length. Read the first
+  // byte, then read exactly the additional bytes needed. The raw bytes are
+  // stored in scratch for checksum verification.
   scratch->clear();
   std::string byte_buf;
-  for (int i = 0; i < 10; ++i) {
-    Slice byte_slice;
-    Status s = ReadBytes(1, &byte_slice, &byte_buf);
+  Slice first_slice;
+  Status s = ReadBytes(1, &first_slice, &byte_buf);
+  if (!s.ok()) {
+    return s;
+  }
+  char first_byte = first_slice[0];
+  scratch->push_back(first_byte);
+
+  uint32_t addl = PrefixVarint64AddlByteCount(first_byte);
+  if (addl > 0) {
+    Slice addl_slice;
+    std::string addl_buf;
+    s = ReadBytes(addl, &addl_slice, &addl_buf);
     if (!s.ok()) {
       return s;
     }
-    scratch->push_back(byte_slice[0]);
-    // Check if this is the terminal byte (high bit not set)
-    if ((static_cast<uint8_t>(byte_slice[0]) & 0x80) == 0) {
-      Slice varint_slice(*scratch);
-      if (!GetVarint64(&varint_slice, value)) {
-        return ReportCorruption(scratch->size(), "invalid varint");
-      }
-      return Status::OK();
-    }
+    scratch->append(addl_slice.data(), addl_slice.size());
   }
-  return ReportCorruption(10, "varint too long");
+
+  if (!DecodePrefixVarint64(first_byte, scratch->data() + 1,
+                            scratch->size() - 1, value)) {
+    return ReportCorruption(scratch->size(), "invalid prefix varint");
+  }
+  return Status::OK();
 }
 
 Status BlogFileReader::ReportCorruption(size_t bytes, const std::string& msg) {

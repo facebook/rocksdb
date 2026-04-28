@@ -5,28 +5,40 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "rocksdb/data_structure.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "util/prefix_varint.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-// Record types used in blog file body and footer.
-// Types 0x01-0x7F are for body records.
-// Types 0xF0-0xFF are for footer records (in expected order of occurrence,
-// with gaps for future additions).
+// Record types used in blog files.
+// Types 0x01-0x0F are blog meta records (may appear in header, body, or
+// footer regions). Types 0x10-0x7F are body records. Types 0xF0-0xFF are
+// footer records (in expected order of occurrence, with gaps for future
+// additions).
 enum BlogRecordType : uint8_t {
-  kBlogBlobRecord = 0x01,
-  kBlogPreambleStartRecord = 0x02,
-  kBlogWriteBatchRecord = 0x03,
-  // 0x04-0x7F: reserved for future body record types
+  // --- Blog meta records (0x01-0x0F) ---
+  kBlogIgnorablePropertiesRecord = 0x01,  // ignorable named properties
+                                          // (diagnostic/debugging data)
+  // 0x02-0x0F: reserved for future blog meta record types
 
+  // --- Body records (0x10-0x7F) ---
+  kBlogBlobRecord = 0x10,
+  kBlogPreambleStartRecord = 0x11,
+  kBlogWriteBatchRecord = 0x12,
+  kBlogManifestRecord = 0x13,  // manifest (version edit) record (placeholder)
+  // 0x14-0x7F: reserved for future body record types
+
+  // --- Footer records (0xF0-0xFF) ---
   kBlogFooterIndexRecord = 0xF0,  // sparse index or similar large metadata
   // 0xF1-0xF3: reserved for future footer data records
   kBlogFooterPropertiesRecord = 0xF8,  // small metadata (named properties)
@@ -62,21 +74,57 @@ static constexpr size_t kBlogEscapeSeqRandomPartSize = 6;
 static constexpr uint64_t kBlogEscapeSeqSeed =
     0x52636B73426C6F67ULL;  // "RcksBlg\0"
 
-// Sentinel for unspecified-size records. Encodes to a 9-byte varint,
+// Sentinel for unspecified-size records. Encodes to 9 bytes in prefix varint,
 // which always triggers the full record format.
 static constexpr uint64_t kBlogUnspecifiedSize = (uint64_t{1} << 63) - 1;
 
-// Maximum payload size that encodes to a compact-format varint (<= 2 bytes).
-// varint of 16383 (0x3FFF) uses 2 bytes; 16384 uses 3 bytes.
+// Maximum payload size that encodes to a compact-format prefix varint
+// (<= 2 bytes). Prefix varint of 16383 uses 2 bytes; 16384 uses 3 bytes.
 // Records larger than this get full format with prefix checksum protection.
 static constexpr uint64_t kBlogMaxCompactPayloadSize = (1u << 14) - 1;
 
-// Compact format varint threshold: varints of this many bytes or fewer
-// use compact format (no type byte, no prefix checksum).
+// Record format is determined by the prefix-varint-encoded length field:
+//   - value=0 (1 byte): Trivial format (type + checksum, no payload)
+//   - value 1-16383 (1-2 bytes): Compact format (payload + trailer, no type)
+//   - 3+ byte prefix varint: Full format (type + comp + prefix_checksum +
+//     payload + trailer)
+// Compact format prefix varint threshold: varints of this many bytes or
+// fewer use compact format (no type byte, no prefix checksum).
 static constexpr size_t kBlogCompactVarintMaxBytes = 2;
 
 // Block trailer size: 1 byte compression_type + 4 bytes checksum.
 static constexpr size_t kBlogBlockTrailerSize = 5;
+
+// Compute the total on-disk size of a blog record (framing + payload +
+// trailer + padding) given the payload size and whether compact format is
+// available. Used for total_blob_bytes accounting so that it includes
+// record overhead, analogous to legacy format's header + key + value.
+inline uint64_t ComputeBlogRecordSize(uint64_t payload_size,
+                                      bool compact_eligible) {
+  uint64_t size_before_padding;
+  if (payload_size == 0) {
+    // Trivial: escape_seq(10) + varint(1) + type(1) + cksum(4) = 16
+    return 16;  // already 4-byte aligned
+  } else if (compact_eligible && payload_size <= kBlogMaxCompactPayloadSize) {
+    // Compact: escape_seq(10) + prefix_varint(1-2) + payload + trailer(5)
+    size_before_padding =
+        payload_size + PrefixVarint64Length(payload_size) + 15;
+  } else {
+    // Full: escape_seq(10) + prefix_varint(V) + type(1) + comp(1) +
+    // prefix_cksum(4) + payload + trailer(5). V >= 3.
+    uint64_t varint_len =
+        std::max(uint32_t{3}, PrefixVarint64Length(payload_size));
+    size_before_padding = payload_size + varint_len + 21;
+  }
+  // Pad to 4-byte alignment
+  return (size_before_padding + 3) & ~uint64_t{3};
+}
+
+// Estimated footer size for file-rolling decisions. A typical footer contains
+// a properties record (~80-100 bytes of varint-encoded stats) and a locator
+// record (~29 bytes), plus framing overhead. This is an approximation; the
+// actual size depends on how many properties are populated.
+static constexpr size_t kBlogEstimatedFooterSize = 128;
 
 // kStreamingCompressionSentinel (0x7F) is defined in compression_type.h
 // and used in blog record trailers to indicate streaming compression.
@@ -173,6 +221,14 @@ struct BlogFileHeader {
                             const std::string& db_session_id,
                             uint64_t file_number);
 
+  // Set optional diagnostic header properties for debugging. All fields
+  // are ignorable (lowercase). Empty strings and sentinel values are skipped.
+  static constexpr uint32_t kNoCfId = UINT32_MAX;
+  void SetDiagnosticProperties(const std::string& db_host_id,
+                               uint32_t column_family_id = kNoCfId,
+                               const std::string& column_family_name = "",
+                               uint64_t creation_time = 0);
+
   // Generate escape_sequence from random bytes. Appropriate when unique ID
   // inputs are not available.
   void GenerateRandomFields();
@@ -213,22 +269,6 @@ struct BlogFileHeader {
 
 // --- Footer types ---
 
-// Entry in a footer locator record. Offsets are in units of 4 bytes,
-// sequential relative to each other in reverse order of footer records.
-// First entry: offset from locator's escape_seq to the preceding footer
-// record's escape_seq. Subsequent entries: offset from the previous
-// entry's escape_seq to the next earlier footer record's escape_seq.
-// Verify that a blog file's trailing data contains a valid footer locator
-// record. Scans backward from the end of the buffer for the escape sequence,
-// then parses and verifies the full record (varint length, type, prefix
-// checksum, payload, trailer checksum). The buffer must start at a 4-byte-
-// aligned file offset. Returns true if a valid footer locator record is found.
-bool VerifyBlogFooterLocator(const char* buffer, size_t buffer_size,
-                             uint64_t buffer_file_offset,
-                             const char* expected_escape_seq,
-                             ChecksumType checksum_type,
-                             uint32_t incarnation_id);
-
 struct BlogFooterLocatorEntry {
   BlogRecordType record_type;
   uint32_t relative_offset_4B;
@@ -242,12 +282,48 @@ struct BlogFileFooterLocator {
   Status DecodeFrom(const Slice& input);
 };
 
+// Verify that a blog file's trailing data contains a valid footer locator
+// record. Scans backward from the end of the buffer for the escape sequence,
+// then parses and verifies the full record (varint length, type, prefix
+// checksum, payload, trailer checksum). The buffer must start at a 4-byte-
+// aligned file offset. Returns true if a valid footer locator record is found.
+// If locator_out is non-null, the parsed locator is stored there on success.
+// If locator_file_offset_out is non-null, the file offset of the locator
+// record's escape sequence is stored there on success.
+bool VerifyBlogFooterLocator(const char* buffer, size_t buffer_size,
+                             uint64_t buffer_file_offset,
+                             const char* expected_escape_seq,
+                             ChecksumType checksum_type,
+                             uint32_t incarnation_id,
+                             BlogFileFooterLocator* locator_out = nullptr,
+                             uint64_t* locator_file_offset_out = nullptr);
+
 struct BlogFileFooterProperties {
   BlogPropertyMap properties;
 
   // Convenience setters that encode values into the property map.
+  // All blob-related properties start with "blob" and are only emitted
+  // when the file contains blob records (count > 0).
+
+  // blobCount: number of blob records
   void SetBlobCount(uint64_t count);
-  void SetTotalBlobBytes(uint64_t bytes);
+  // blobPayloadBytes: total on-disk payload bytes (compressed where applicable)
+  void SetBlobPayloadBytes(uint64_t bytes);
+  // blobCompressedBytes: total compressed payload bytes (only blobs that were
+  // actually compressed, i.e. compression_type != kNoCompression)
+  void SetBlobCompressedBytes(uint64_t bytes);
+  // blobUncompressedBytes: total original (pre-compression) bytes for the
+  // same blobs counted by blobCompressedBytes
+  void SetBlobUncompressedBytes(uint64_t bytes);
+  // blobOverheadBytes: total record framing bytes (escape sequence, varint,
+  // trailer, padding) across all blob records
+  void SetBlobOverheadBytes(uint64_t bytes);
+  // compressionTypes: set of CompressionType values used in records
+  // (excluding kNoCompression and kStreamingCompressionSentinel),
+  // encoded as sorted raw bytes. File-level, not blob-specific.
+  void SetCompressionTypes(
+      const SmallEnumSet<CompressionType, kDisableCompressionOption>& types);
+
   void SetSequenceRange(uint64_t min_seq, uint64_t max_seq);
 
   // Encode as named properties (no 5-byte trailer; that comes from
@@ -258,17 +334,17 @@ struct BlogFileFooterProperties {
 
 // --- Padding helpers ---
 
-// Compute padding needed to reach the next 4-byte-aligned offset,
-// choosing the pad byte value to differ from last_meaningful_byte.
-// Appends padding bytes to dst.
-void ComputeBlogPadding(uint8_t last_meaningful_byte, size_t current_offset,
-                        std::string* dst);
+// Computes and holds padding to reach the next 4-byte-aligned offset.
+// The pad byte value is chosen to differ from last_meaningful_byte.
+struct BlogPadding {
+  char bytes[4];
+  uint32_t count;
 
-// Same as above, but returns the pad byte value and count without
-// allocating. For use on hot paths.
-void ComputeBlogPaddingParams(uint8_t last_meaningful_byte,
-                              size_t current_offset, uint8_t* pad_byte,
-                              size_t* pad_count);
+  BlogPadding(uint8_t last_meaningful_byte, size_t current_offset);
+
+  // Append padding to a string (convenience for non-hot paths).
+  void AppendTo(std::string* dst) const { dst->append(bytes, count); }
+};
 
 // --- Checksum helpers ---
 
@@ -288,12 +364,5 @@ Status VerifyBlogRecordTrailer(ChecksumType checksum_type, const char* payload,
                                size_t payload_size, uint32_t incarnation_id,
                                uint64_t payload_file_offset,
                                CompressionType* actual_compression_type);
-
-// Encode an irregular varint: a value encoded with more bytes than the
-// minimum required, ensuring varint length > 3 bytes to trigger full
-// record format. The value is encoded correctly and will decode to the
-// same value via standard GetVarint64.
-void PutBlogIrregularVarint64(std::string* dst, uint64_t value,
-                              size_t min_encoded_bytes);
 
 }  // namespace ROCKSDB_NAMESPACE

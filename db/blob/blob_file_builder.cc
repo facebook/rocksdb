@@ -252,14 +252,12 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
     blog_header.compact_record_type = kBlogBlobRecord;
     blog_header.GenerateFromUniqueId(db_id_, db_session_id_, blob_file_number);
     blog_header.SetProperty(kBlogPropRole, "blob");
-    if (!immutable_options_->db_host_id.empty()) {
-      blog_header.SetProperty(kBlogPropDbHostId,
-                              immutable_options_->db_host_id);
-    }
-    blog_header.SetUint32Property(kBlogPropColumnFamilyId, column_family_id_);
-    if (!column_family_name_.empty()) {
-      blog_header.SetProperty(kBlogPropColumnFamilyName, column_family_name_);
-    }
+    int64_t cur_time = 0;
+    immutable_options_->clock->GetCurrentTime(&cur_time).PermitUncheckedError();
+    uint64_t creation_time = static_cast<uint64_t>(cur_time);
+    blog_header.SetDiagnosticProperties(immutable_options_->db_host_id,
+                                        column_family_id_, column_family_name_,
+                                        creation_time);
     if (blob_compressor_) {
       blog_header.SetProperty(kBlogPropCompressionCompatibilityName,
                               blob_compression_manager_->CompatibilityName());
@@ -370,7 +368,7 @@ Status BlobFileBuilder::WriteBlobToFile(
     Slice write_data =
         (actual_type != kNoCompression) ? Slice(compressed) : blob;
     s = blog_writer_->AddBlobRecord(*write_options_, write_data, actual_type,
-                                    blob_offset);
+                                    blob_offset, blob.size());
     *blob_on_disk_size = write_data.size();
     *actual_compression_type = actual_type;
   } else {
@@ -391,10 +389,14 @@ Status BlobFileBuilder::WriteBlobToFile(
 
   ++blob_count_;
   if (blog_writer_) {
-    // Blog format: blob_bytes_ tracks uncompressed payload size only
-    // (no legacy record header, no key).
-    blob_bytes_ += blob.size();
+    // Estimated full record size including framing, analogous to legacy's
+    // header + key + value. Compact format is available when the record
+    // type matches compact_record_type (blob records do for blob files).
+    blob_bytes_ += ComputeBlogRecordSize(*blob_on_disk_size,
+                                         /*compact_eligible=*/true);
   } else {
+    // Legacy format: blob is already compressed by the caller, so blob.size()
+    // is the on-disk size. Add legacy record header and key overhead.
     blob_bytes_ += BlobLogRecord::kHeaderSize + key.size() + blob.size();
   }
 
@@ -410,16 +412,29 @@ Status BlobFileBuilder::CloseBlobFile() {
 
   if (blog_writer_) {
     // Blog format: write footer properties and locator records.
+    const auto& bs = blog_writer_->blob_stats();
     BlogFileFooterProperties footer_props;
-    footer_props.SetBlobCount(blob_count_);
-    footer_props.SetTotalBlobBytes(blob_bytes_);
+    if (bs.count > 0) {
+      footer_props.SetBlobCount(bs.count);
+      footer_props.SetBlobPayloadBytes(bs.payload_bytes);
+      if (bs.compressed_bytes > 0) {
+        footer_props.SetBlobCompressedBytes(bs.compressed_bytes);
+        footer_props.SetBlobUncompressedBytes(bs.uncompressed_bytes);
+      }
+      footer_props.SetBlobOverheadBytes(bs.overhead_bytes);
+    }
+    if (!blog_writer_->compression_type_set().empty()) {
+      footer_props.SetCompressionTypes(blog_writer_->compression_type_set());
+    }
 
     uint64_t props_offset = blog_writer_->current_offset();
+    assert(props_offset % 4 == 0);
     s = blog_writer_->AddFooterPropertiesRecord(*write_options_, footer_props);
 
     if (s.ok()) {
       BlogFileFooterLocator locator;
       uint64_t locator_offset = blog_writer_->current_offset();
+      assert(locator_offset % 4 == 0);
       locator.entries.push_back(
           {kBlogFooterPropertiesRecord,
            static_cast<uint32_t>((locator_offset - props_offset) / 4)});

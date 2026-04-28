@@ -7,6 +7,7 @@
 
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
+#include "db/blog/blog_format.h"
 #include "db/dbformat.h"
 #include "db/wide/wide_column_serialization.h"
 
@@ -34,9 +35,16 @@ Status BlobGarbageMeter::GetBlobReferenceDetails(const ParsedInternalKey& ikey,
   }
 
   *blob_file_number = blob_index.file_number();
-  *bytes =
-      blob_index.size() +
-      BlobLogRecord::CalculateAdjustmentForRecordHeader(ikey.user_key.size());
+  // Both formats include estimated per-record overhead in total_blob_bytes,
+  // so the garbage meter must use the same formula.
+  if (use_blog_format_) {
+    *bytes = ComputeBlogRecordSize(blob_index.size(),
+                                   /*compact_eligible=*/true);
+  } else {
+    *bytes =
+        blob_index.size() +
+        BlobLogRecord::CalculateAdjustmentForRecordHeader(ikey.user_key.size());
+  }
 
   return Status::OK();
 }

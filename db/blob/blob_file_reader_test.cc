@@ -11,6 +11,8 @@
 #include "db/blob/blob_contents.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_writer.h"
+#include "db/blog/blog_format.h"
+#include "db/blog/blog_writer.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
@@ -125,6 +127,64 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
   if (blob_size) {
     *blob_size = blob_sizes[0];
   }
+}
+
+// Creates a test blob file in blog format with `num` blobs in it.
+void WriteBlogBlobFile(const ImmutableOptions& immutable_options,
+                       uint64_t blob_file_number,
+                       const std::vector<Slice>& blobs,
+                       CompressionType compression,
+                       std::vector<uint64_t>& blob_offsets,
+                       std::vector<uint64_t>& blob_sizes) {
+  assert(!immutable_options.cf_paths.empty());
+
+  const size_t num = blobs.size();
+  assert(num == blob_offsets.size());
+  assert(num == blob_sizes.size());
+
+  const std::string blob_file_path =
+      BlobFileName(immutable_options.cf_paths.front().path, blob_file_number);
+
+  std::unique_ptr<FSWritableFile> file;
+  ASSERT_OK(NewWritableFile(immutable_options.fs.get(), blob_file_path, &file,
+                            FileOptions()));
+
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      std::move(file), blob_file_path, FileOptions(), immutable_options.clock));
+
+  BlogFileHeader blog_header;
+  blog_header.checksum_type = immutable_options.blog_checksum;
+  blog_header.compact_record_type = kBlogBlobRecord;
+  blog_header.GenerateRandomFields();
+  blog_header.SetProperty(kBlogPropRole, "blob");
+
+  BlogFileWriter blog_writer(std::move(file_writer), blog_header);
+  ASSERT_OK(blog_writer.WriteHeader(WriteOptions()));
+
+  for (size_t i = 0; i < num; ++i) {
+    // For blog format, compression type in the BlobIndex comes from
+    // CompressBlock output. For test simplicity, write uncompressed.
+    ASSERT_OK(blog_writer.AddBlobRecord(WriteOptions(), blobs[i], compression,
+                                        &blob_offsets[i], blobs[i].size()));
+    blob_sizes[i] = blobs[i].size();
+  }
+
+  // Write footer
+  BlogFileFooterProperties footer_props;
+  footer_props.SetBlobCount(num);
+
+  uint64_t props_offset = blog_writer.current_offset();
+  ASSERT_OK(
+      blog_writer.AddFooterPropertiesRecord(WriteOptions(), footer_props));
+
+  BlogFileFooterLocator locator;
+  uint64_t locator_offset = blog_writer.current_offset();
+  locator.entries.push_back(
+      {kBlogFooterPropertiesRecord,
+       static_cast<uint32_t>((locator_offset - props_offset) / 4)});
+  ASSERT_OK(blog_writer.AddFooterLocatorRecord(WriteOptions(), locator));
+  ASSERT_OK(blog_writer.Sync(WriteOptions()));
+  ASSERT_OK(blog_writer.Close(WriteOptions()));
 }
 
 }  // anonymous namespace
@@ -1094,6 +1154,144 @@ TEST_F(BlobFileReaderTest, MultiGetBlobWithFailedValidation) {
   ASSERT_OK(statuses_buf[2]);
   ASSERT_NE(blob_reqs[2].second, nullptr);
   ASSERT_EQ(blob_reqs[2].second->data(), blobs[2]);
+}
+
+// Tests for blog-format blob files. Exercises GetBlob and MultiGetBlob
+// with blog format, including checksum verification.
+TEST_F(BlobFileReaderTest, BlogFormatGetBlob) {
+  Options options;
+  options.env = mock_env_.get();
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(mock_env_.get(), "BlogFormatGetBlob"), 0);
+  options.enable_blob_files = true;
+  options.use_blog_format_for_blobs = true;
+
+  ImmutableOptions immutable_options(options);
+
+  constexpr uint64_t blob_file_number = 1;
+  constexpr size_t num_blobs = 3;
+  const std::vector<std::string> key_strs = {"key1", "key2", "key3"};
+  const std::vector<std::string> blob_strs = {"blob1", "blob2", "blob3"};
+
+  const std::vector<Slice> keys = {key_strs[0], key_strs[1], key_strs[2]};
+  const std::vector<Slice> blobs = {blob_strs[0], blob_strs[1], blob_strs[2]};
+
+  std::vector<uint64_t> blob_offsets(num_blobs);
+  std::vector<uint64_t> blob_sizes(num_blobs);
+
+  WriteBlogBlobFile(immutable_options, blob_file_number, blobs, kNoCompression,
+                    blob_offsets, blob_sizes);
+
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+
+  std::unique_ptr<BlobFileReader> reader;
+  constexpr uint32_t column_family_id = 1;
+
+  ReadOptions read_options;
+  ASSERT_OK(BlobFileReader::Create(
+      immutable_options, read_options, FileOptions(), column_family_id,
+      blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader));
+
+  // Test with and without checksum verification
+  for (bool verify : {false, true}) {
+    read_options.verify_checksums = verify;
+
+    constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+    constexpr MemoryAllocator* allocator = nullptr;
+
+    // GetBlob for each blob
+    for (size_t i = 0; i < num_blobs; ++i) {
+      std::unique_ptr<BlobContents> value;
+      uint64_t bytes_read = 0;
+
+      ASSERT_OK(reader->GetBlob(read_options, keys[i], blob_offsets[i],
+                                blob_sizes[i], kNoCompression, prefetch_buffer,
+                                allocator, &value, &bytes_read));
+      ASSERT_NE(value, nullptr);
+      ASSERT_EQ(value->data(), blobs[i]);
+    }
+
+    // MultiGetBlob
+    uint64_t bytes_read = 0;
+    std::array<Status, num_blobs> statuses_buf;
+    std::array<BlobReadRequest, num_blobs> requests_buf;
+    autovector<std::pair<BlobReadRequest*, std::unique_ptr<BlobContents>>>
+        blob_reqs;
+
+    for (size_t i = 0; i < num_blobs; ++i) {
+      requests_buf[i] =
+          BlobReadRequest(keys[i], blob_offsets[i], blob_sizes[i],
+                          kNoCompression, nullptr, &statuses_buf[i]);
+      blob_reqs.emplace_back(&requests_buf[i], std::unique_ptr<BlobContents>());
+    }
+
+    reader->MultiGetBlob(read_options, allocator, blob_reqs, &bytes_read);
+
+    for (size_t i = 0; i < num_blobs; ++i) {
+      ASSERT_OK(statuses_buf[i]);
+      ASSERT_NE(blob_reqs[i].second, nullptr);
+      ASSERT_EQ(blob_reqs[i].second->data(), blobs[i]);
+    }
+  }
+}
+
+TEST_F(BlobFileReaderTest, BlogFormatChecksumCorruption) {
+  Options options;
+  options.env = mock_env_.get();
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(mock_env_.get(), "BlogFormatChecksumCorruption"),
+      0);
+  options.enable_blob_files = true;
+  options.use_blog_format_for_blobs = true;
+
+  ImmutableOptions immutable_options(options);
+
+  constexpr uint64_t blob_file_number = 1;
+  const std::vector<std::string> blob_strs = {"testblob"};
+  const std::vector<Slice> blobs = {blob_strs[0]};
+
+  std::vector<uint64_t> blob_offsets(1);
+  std::vector<uint64_t> blob_sizes(1);
+
+  WriteBlogBlobFile(immutable_options, blob_file_number, blobs, kNoCompression,
+                    blob_offsets, blob_sizes);
+
+  // Corrupt a byte in the blob payload
+  const std::string blob_file_path =
+      BlobFileName(immutable_options.cf_paths.front().path, blob_file_number);
+  {
+    std::unique_ptr<FSRandomRWFile> rw_file;
+    ASSERT_OK(mock_env_->GetFileSystem()->NewRandomRWFile(
+        blob_file_path, FileOptions(), &rw_file, nullptr));
+    // Corrupt a byte in the payload
+    char bad = 0xFF;
+    ASSERT_OK(rw_file->Write(blob_offsets[0] + 2, Slice(&bad, 1), IOOptions(),
+                             nullptr));
+    ASSERT_OK(rw_file->Close(IOOptions(), nullptr));
+  }
+
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+  constexpr uint32_t column_family_id = 1;
+  std::unique_ptr<BlobFileReader> reader;
+
+  ReadOptions read_options;
+  ASSERT_OK(BlobFileReader::Create(
+      immutable_options, read_options, FileOptions(), column_family_id,
+      blob_file_read_hist, blob_file_number, nullptr, &reader));
+
+  // With checksum verification, the corruption should be detected
+  read_options.verify_checksums = true;
+  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+  constexpr MemoryAllocator* allocator = nullptr;
+
+  std::unique_ptr<BlobContents> value;
+  uint64_t bytes_read = 0;
+  const std::string key_str = "key";
+  Slice key(key_str);
+  Status s = reader->GetBlob(read_options, key, blob_offsets[0], blob_sizes[0],
+                             kNoCompression, prefetch_buffer, allocator, &value,
+                             &bytes_read);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

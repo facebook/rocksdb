@@ -98,9 +98,9 @@ class CompactionOutputs {
     output_file_paths_.push_back(path);
   }
 
-  BlobGarbageMeter* CreateBlobGarbageMeter() {
+  BlobGarbageMeter* CreateBlobGarbageMeter(bool use_blog_format) {
     assert(!is_proximal_level_);
-    blob_garbage_meter_ = std::make_unique<BlobGarbageMeter>();
+    blob_garbage_meter_ = std::make_unique<BlobGarbageMeter>(use_blog_format);
     return blob_garbage_meter_.get();
   }
 

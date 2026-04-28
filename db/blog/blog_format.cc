@@ -9,10 +9,12 @@
 #include <cstring>
 
 #include "env/unique_id_gen.h"
+#include "rocksdb/version.h"
 #include "table/format.h"
 #include "table/unique_id_impl.h"
 #include "util/coding.h"
 #include "util/fastrange.h"
+#include "util/prefix_varint.h"
 #include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -21,22 +23,30 @@ namespace ROCKSDB_NAMESPACE {
 
 void EncodeBlogProperties(const BlogPropertyMap& props, std::string* dst) {
   for (const auto& [name, value] : props) {
-    PutLengthPrefixedSlice(dst, name);
-    PutLengthPrefixedSlice(dst, value);
+    PutPrefixVarint32(dst, static_cast<uint32_t>(name.size()));
+    dst->append(name);
+    PutPrefixVarint32(dst, static_cast<uint32_t>(value.size()));
+    dst->append(value);
   }
 }
 
 Status DecodeBlogProperties(Slice* input, BlogPropertyMap* props) {
   while (input->size() > 0) {
-    Slice name_slice;
-    Slice value_slice;
-    if (!GetLengthPrefixedSlice(input, &name_slice)) {
+    uint32_t name_len;
+    if (!GetPrefixVarint32(input, &name_len) || input->size() < name_len) {
       return Status::Corruption("Blog properties: truncated property name");
     }
-    if (!GetLengthPrefixedSlice(input, &value_slice)) {
+    std::string name(input->data(), name_len);
+    input->remove_prefix(name_len);
+
+    uint32_t value_len;
+    if (!GetPrefixVarint32(input, &value_len) || input->size() < value_len) {
       return Status::Corruption("Blog properties: truncated property value");
     }
-    props->emplace_back(name_slice.ToString(), value_slice.ToString());
+    std::string value(input->data(), value_len);
+    input->remove_prefix(value_len);
+
+    props->emplace_back(std::move(name), std::move(value));
   }
   return Status::OK();
 }
@@ -123,12 +133,12 @@ Status BlogFileHeader::DecodeFrom(Slice* input) {
       ComputeBuiltinChecksum(checksum_type, p, 36) +
       ChecksumModifierForContext(incarnation_id(), 0);
   if (stored_header_checksum != computed_header_checksum) {
+    char computed_buf[4];
+    EncodeFixed32(computed_buf, computed_header_checksum);
     return Status::Corruption(
         "Blog header: fixed header checksum mismatch (stored: 0x" +
         Slice(p + 36, 4).ToString(true) + ", computed: 0x" +
-        Slice(reinterpret_cast<const char*>(&computed_header_checksum), 4)
-            .ToString(true) +
-        ")");
+        Slice(computed_buf, 4).ToString(true) + ")");
   }
 
   // Now that checksum is verified, validate the remaining fields.
@@ -269,6 +279,24 @@ void BlogFileHeader::GenerateRandomFields() {
   SetEscapeSequenceFromU64(rand_a);
 }
 
+void BlogFileHeader::SetDiagnosticProperties(
+    const std::string& db_host_id, uint32_t column_family_id,
+    const std::string& column_family_name, uint64_t creation_time) {
+  if (!db_host_id.empty()) {
+    SetProperty(kBlogPropDbHostId, db_host_id);
+  }
+  if (column_family_id != kNoCfId) {
+    SetUint32Property(kBlogPropColumnFamilyId, column_family_id);
+  }
+  if (!column_family_name.empty()) {
+    SetProperty(kBlogPropColumnFamilyName, column_family_name);
+  }
+  if (creation_time > 0) {
+    SetUint64Property(kBlogPropCreationTime, creation_time);
+  }
+  SetProperty(kBlogPropCreator, GetRocksVersionAsString());
+}
+
 bool BlogFileHeader::VerifyEscapeSequence(const char* seq) {
   uint8_t first = static_cast<uint8_t>(seq[0]);
   if (first == 0x00 || first == 0xFF) {
@@ -314,14 +342,14 @@ bool BlogFileHeader::HasProperty(const std::string& name) const {
 void BlogFileHeader::SetUint64Property(const std::string& name,
                                        uint64_t value) {
   std::string encoded;
-  PutVarint64(&encoded, value);
+  PutPrefixVarint64(&encoded, value);
   SetProperty(name, encoded);
 }
 
 void BlogFileHeader::SetUint32Property(const std::string& name,
                                        uint32_t value) {
   std::string encoded;
-  PutVarint32(&encoded, value);
+  PutPrefixVarint32(&encoded, value);
   SetProperty(name, encoded);
 }
 
@@ -332,7 +360,7 @@ bool BlogFileHeader::GetUint64Property(const std::string& name,
     return false;
   }
   Slice s(raw);
-  return GetVarint64(&s, value);
+  return GetPrefixVarint64(&s, value);
 }
 
 bool BlogFileHeader::GetUint32Property(const std::string& name,
@@ -342,7 +370,7 @@ bool BlogFileHeader::GetUint32Property(const std::string& name,
     return false;
   }
   Slice s(raw);
-  return GetVarint32(&s, value);
+  return GetPrefixVarint32(&s, value);
 }
 
 Status BlogFileHeader::DecodeFromBuffer(Slice* buffer,
@@ -379,10 +407,14 @@ bool VerifyBlogFooterLocator(const char* buffer, size_t buffer_size,
                              uint64_t buffer_file_offset,
                              const char* expected_escape_seq,
                              ChecksumType checksum_type,
-                             uint32_t incarnation_id) {
+                             uint32_t incarnation_id,
+                             BlogFileFooterLocator* locator_out,
+                             uint64_t* locator_file_offset_out) {
   // Scan backward in 4-byte steps for the escape sequence.
-  // Buffer must start at a 4-byte-aligned file offset.
-  for (size_t pos = buffer_size; pos >= 4; pos -= 4) {
+  // Buffer must start at a 4-byte-aligned file offset. Start from the last
+  // 4-byte-aligned position in the buffer (buffer_size may not be a multiple
+  // of 4 because the footer locator record is not padded).
+  for (size_t pos = buffer_size & ~size_t{3}; pos >= 4; pos -= 4) {
     size_t esc_start = pos - 4;
     uint8_t first_byte = static_cast<uint8_t>(buffer[esc_start]);
     if (first_byte == 0x00 || first_byte == 0xFF) {
@@ -396,16 +428,16 @@ bool VerifyBlogFooterLocator(const char* buffer, size_t buffer_size,
     }
 
     // Found escape sequence. Parse the full-format record that follows.
-    // Full format: [escape_seq:10B] [varint length:4+B] [type:1B]
+    // Full format: [escape_seq:10B] [varint length:3+B] [type:1B]
     //              [compression_type:1B] [prefix_checksum:4B]
     //              [payload:length B] [comp:1B] [checksum:4B]
     const char* rec = buffer + esc_start + kBlogEscapeSequenceSize;
     size_t remaining = buffer_size - esc_start - kBlogEscapeSequenceSize;
 
-    // Parse varint length (must be >= 4 bytes for full format)
-    Slice varint_slice(rec, remaining);
+    // Parse prefix varint length (must be >= 3 bytes for full format)
     uint64_t length = 0;
-    const char* varint_end = GetVarint64Ptr(rec, rec + remaining, &length);
+    const char* varint_end =
+        GetPrefixVarint64Ptr(rec, rec + remaining, &length);
     if (!varint_end) {
       continue;  // truncated varint
     }
@@ -456,6 +488,13 @@ bool VerifyBlogFooterLocator(const char* buffer, size_t buffer_size,
     }
 
     // Valid footer locator record found.
+    if (locator_out && length > 0) {
+      const char* payload = varint_end + 6;
+      locator_out->DecodeFrom(Slice(payload, static_cast<size_t>(length)));
+    }
+    if (locator_file_offset_out) {
+      *locator_file_offset_out = buffer_file_offset + esc_start;
+    }
     return true;
   }
   return false;
@@ -490,23 +529,50 @@ Status BlogFileFooterLocator::DecodeFrom(const Slice& input) {
 
 void BlogFileFooterProperties::SetBlobCount(uint64_t count) {
   std::string val;
-  PutVarint64(&val, count);
+  PutPrefixVarint64(&val, count);
   properties.emplace_back("blobCount", std::move(val));
 }
 
-void BlogFileFooterProperties::SetTotalBlobBytes(uint64_t bytes) {
+void BlogFileFooterProperties::SetBlobPayloadBytes(uint64_t bytes) {
   std::string val;
-  PutVarint64(&val, bytes);
-  properties.emplace_back("totalBlobBytes", std::move(val));
+  PutPrefixVarint64(&val, bytes);
+  properties.emplace_back("blobPayloadBytes", std::move(val));
+}
+
+void BlogFileFooterProperties::SetBlobCompressedBytes(uint64_t bytes) {
+  std::string val;
+  PutPrefixVarint64(&val, bytes);
+  properties.emplace_back("blobCompressedBytes", std::move(val));
+}
+
+void BlogFileFooterProperties::SetBlobUncompressedBytes(uint64_t bytes) {
+  std::string val;
+  PutPrefixVarint64(&val, bytes);
+  properties.emplace_back("blobUncompressedBytes", std::move(val));
+}
+
+void BlogFileFooterProperties::SetBlobOverheadBytes(uint64_t bytes) {
+  std::string val;
+  PutPrefixVarint64(&val, bytes);
+  properties.emplace_back("blobOverheadBytes", std::move(val));
+}
+
+void BlogFileFooterProperties::SetCompressionTypes(
+    const SmallEnumSet<CompressionType, kDisableCompressionOption>& types) {
+  std::string val;
+  for (CompressionType t : types) {
+    val.push_back(static_cast<char>(t));
+  }
+  properties.emplace_back("compressionTypes", std::move(val));
 }
 
 void BlogFileFooterProperties::SetSequenceRange(uint64_t min_seq,
                                                 uint64_t max_seq) {
   std::string min_val;
-  PutVarint64(&min_val, min_seq);
+  PutPrefixVarint64(&min_val, min_seq);
   properties.emplace_back("minSequence", std::move(min_val));
   std::string max_val;
-  PutVarint64(&max_val, max_seq);
+  PutPrefixVarint64(&max_val, max_seq);
   properties.emplace_back("maxSequence", std::move(max_val));
 }
 
@@ -522,38 +588,24 @@ Status BlogFileFooterProperties::DecodeFrom(const Slice& input) {
 
 // --- Padding ---
 
-void ComputeBlogPaddingParams(uint8_t last_meaningful_byte,
-                              size_t current_offset, uint8_t* pad_byte,
-                              size_t* pad_count) {
-  // Determine how many bytes needed to reach next 4-byte alignment
-  size_t remainder = current_offset % 4;
-  size_t needed = (remainder == 0) ? 0 : (4 - remainder);
+BlogPadding::BlogPadding(uint8_t last_meaningful_byte, size_t current_offset) {
+  count = BitwiseAnd(size_t{0} - current_offset, uint32_t{3});
 
-  // Choose pad byte to differ from last_meaningful_byte
+  uint8_t pad_byte;
   if (last_meaningful_byte == 0x00) {
-    *pad_byte = 0xFF;
-    // Must have at least 1 byte of padding to distinguish from checksum
-    if (needed == 0) {
-      needed = 4;
+    pad_byte = 0xFF;
+    if (count == 0) {
+      count = 4;
     }
   } else if (last_meaningful_byte == 0xFF) {
-    *pad_byte = 0x00;
-    if (needed == 0) {
-      needed = 4;
+    pad_byte = 0x00;
+    if (count == 0) {
+      count = 4;
     }
   } else {
-    *pad_byte = 0x00;  // Writer's choice; 0x00 is conventional
+    pad_byte = 0x00;
   }
-  *pad_count = needed;
-}
-
-void ComputeBlogPadding(uint8_t last_meaningful_byte, size_t current_offset,
-                        std::string* dst) {
-  uint8_t pad_byte;
-  size_t pad_count;
-  ComputeBlogPaddingParams(last_meaningful_byte, current_offset, &pad_byte,
-                           &pad_count);
-  dst->append(pad_count, static_cast<char>(pad_byte));
+  memset(bytes, pad_byte, count);
 }
 
 // --- Checksum ---
@@ -590,32 +642,6 @@ Status VerifyBlogRecordTrailer(ChecksumType checksum_type, const char* payload,
         static_cast<CompressionType>(static_cast<uint8_t>(comp_byte));
   }
   return Status::OK();
-}
-
-// --- Irregular varint ---
-
-void PutBlogIrregularVarint64(std::string* dst, uint64_t value,
-                              size_t min_encoded_bytes) {
-  // Encode as standard varint, then pad with trailing zero-data bytes
-  // to reach min_encoded_bytes. The result decodes to the same value.
-  char buf[10];
-  char* end = EncodeVarint64(buf, value);
-  size_t natural_len = static_cast<size_t>(end - buf);
-
-  if (natural_len >= min_encoded_bytes) {
-    dst->append(buf, natural_len);
-    return;
-  }
-
-  // Set the continuation bit on what was the terminal byte, then append
-  // (extra - 1) continuation bytes (0x80) and one terminal byte (0x00).
-  size_t extra = min_encoded_bytes - natural_len;
-  buf[natural_len - 1] |= static_cast<char>(0x80);
-  dst->append(buf, natural_len);
-  for (size_t i = 0; i + 1 < extra; ++i) {
-    dst->push_back(static_cast<char>(0x80));
-  }
-  dst->push_back(static_cast<char>(0x00));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -23,7 +23,9 @@
 #include "table/format.h"
 #include "table/multiget_context.h"
 #include "test_util/sync_point.h"
+#include "util/coding.h"
 #include "util/compression.h"
+#include "util/prefix_varint.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -111,12 +113,19 @@ Status BlobFileReader::OpenFile(
     }
   }
 
+  // TODO: these minimum size checks use legacy format sizes. Blog format
+  // files pass because their header is larger, but the check could be
+  // tighter (e.g. min of both formats' minimums).
   if (!skip_footer_size_check &&
       *file_size < BlobLogHeader::kSize + BlobLogFooter::kSize) {
-    return Status::Corruption("Malformed blob file");
+    return Status::Corruption("Blob file too small (must have footer), " +
+                              blob_file_path +
+                              " size=" + std::to_string(*file_size));
   }
   if (skip_footer_size_check && *file_size < BlobLogHeader::kSize) {
-    return Status::Corruption("Malformed blob file");
+    return Status::Corruption("Blob file too small (footer may be missing), " +
+                              blob_file_path +
+                              " size=" + std::to_string(*file_size));
   }
 
   std::unique_ptr<FSRandomAccessFile> file;
@@ -292,14 +301,65 @@ Status BlobFileReader::ReadFooter(const ReadOptions& read_options) {
       return s;
     }
 
-    if (VerifyBlogFooterLocator(trailing_slice.data(), trailing_size,
-                                trailing_offset, blog_escape_sequence_,
-                                blog_checksum_type_, blog_incarnation_id_)) {
-      has_footer_ = true;
-      return Status::OK();
+    BlogFileFooterLocator locator;
+    uint64_t locator_offset = 0;
+    if (!VerifyBlogFooterLocator(trailing_slice.data(), trailing_size,
+                                 trailing_offset, blog_escape_sequence_,
+                                 blog_checksum_type_, blog_incarnation_id_,
+                                 &locator, &locator_offset)) {
+      return Status::Corruption(
+          "Blog blob file: no footer locator record found");
+    }
+    has_footer_ = true;
+
+    // Find the properties record via the locator and read compression types
+    // to create an optimized decompressor.
+    for (const auto& entry : locator.entries) {
+      if (entry.record_type != kBlogFooterPropertiesRecord) {
+        continue;
+      }
+      // The locator offset is relative (in 4-byte units) from the locator's
+      // escape sequence backward to the properties record's escape sequence.
+      uint64_t props_esc_offset =
+          locator_offset - static_cast<uint64_t>(entry.relative_offset_4B) * 4;
+      if (props_esc_offset < trailing_offset) {
+        break;  // properties record not in our trailing buffer
+      }
+      // Parse the properties record from the trailing buffer. Skip the
+      // escape sequence and full-format prefix to reach the payload.
+      size_t buf_pos = static_cast<size_t>(props_esc_offset - trailing_offset);
+      const char* rec =
+          trailing_slice.data() + buf_pos + kBlogEscapeSequenceSize;
+      size_t remaining = trailing_size - buf_pos - kBlogEscapeSequenceSize;
+      uint64_t props_length = 0;
+      const char* varint_end =
+          GetPrefixVarint64Ptr(rec, rec + remaining, &props_length);
+      if (varint_end && props_length > 0) {
+        // Skip type(1) + comp(1) + prefix_checksum(4) to reach payload.
+        const char* props_payload = varint_end + 6;
+        BlogFileFooterProperties footer_props;
+        Slice props_slice(props_payload, static_cast<size_t>(props_length));
+        if (footer_props.DecodeFrom(props_slice).ok()) {
+          for (const auto& [name, value] : footer_props.properties) {
+            if (name == "compressionTypes" && !value.empty()) {
+              std::vector<CompressionType> types;
+              for (char c : value) {
+                types.push_back(
+                    static_cast<CompressionType>(static_cast<uint8_t>(c)));
+              }
+              std::sort(types.begin(), types.end());
+              decompressor_ =
+                  GetBuiltinV2CompressionManager()->GetDecompressorForTypes(
+                      types.data(), types.data() + types.size());
+              break;
+            }
+          }
+        }
+      }
+      break;
     }
 
-    return Status::Corruption("Blog blob file: no footer locator record found");
+    return Status::OK();
   }
 
   // Legacy blob format.
@@ -493,19 +553,10 @@ Status BlobFileReader::GetBlob(
   // Verify checksum (format-specific).
   CompressionType actual_comp_type = compression_type;
   if (read_options.verify_checksums) {
-    if (is_blog_format_) {
-      const Status s = VerifyBlogRecordTrailer(
-          blog_checksum_type_, record_slice.data(),
-          static_cast<size_t>(value_size), blog_incarnation_id_, offset,
-          &actual_comp_type);
-      if (!s.ok()) {
-        return s;
-      }
-    } else {
-      const Status s = VerifyBlob(record_slice, user_key, value_size);
-      if (!s.ok()) {
-        return s;
-      }
+    const Status s = VerifyBlobRecord(record_slice, user_key, value_size,
+                                      offset, &actual_comp_type);
+    if (!s.ok()) {
+      return s;
     }
   }
 
@@ -544,7 +595,9 @@ void BlobFileReader::MultiGetBlob(
 #endif  // !NDEBUG
 
   std::vector<FSReadRequest> read_reqs;
-  autovector<uint64_t> adjustments;
+  autovector<uint64_t>
+      adjustments_before;                  // bytes before value (legacy header)
+  autovector<uint64_t> adjustments_after;  // bytes after value (blog trailer)
   uint64_t total_len = 0;
   read_reqs.reserve(num_blobs);
   for (size_t i = 0; i < num_blobs; ++i) {
@@ -553,31 +606,41 @@ void BlobFileReader::MultiGetBlob(
     assert(req->user_key);
     assert(req->status);
 
-    const size_t key_size = req->user_key->size();
     const uint64_t offset = req->offset;
     const uint64_t value_size = req->len;
 
-    if (!IsValidBlobOffset(offset, key_size, value_size, file_size_,
-                           has_footer_)) {
-      *req->status = Status::Corruption("Invalid blob offset");
-      continue;
-    }
-    if (req->compression != compression_type_) {
-      *req->status =
-          Status::Corruption("Compression type mismatch when reading a blob");
-      continue;
+    uint64_t adj_before = 0;
+    uint64_t adj_after = 0;
+
+    if (is_blog_format_) {
+      if (read_options.verify_checksums) {
+        adj_after = kBlogBlockTrailerSize;
+      }
+    } else {
+      const size_t key_size = req->user_key->size();
+      if (!IsValidBlobOffset(offset, key_size, value_size, file_size_,
+                             has_footer_)) {
+        *req->status = Status::Corruption("Invalid blob offset");
+        continue;
+      }
+      if (req->compression != compression_type_) {
+        *req->status =
+            Status::Corruption("Compression type mismatch when reading a blob");
+        continue;
+      }
+      if (read_options.verify_checksums) {
+        adj_before =
+            BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size);
+      }
     }
 
-    const uint64_t adjustment =
-        read_options.verify_checksums
-            ? BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size)
-            : 0;
-    assert(req->offset >= adjustment);
-    adjustments.push_back(adjustment);
+    assert(offset >= adj_before);
+    adjustments_before.push_back(adj_before);
+    adjustments_after.push_back(adj_after);
 
     FSReadRequest read_req;
-    read_req.offset = req->offset - adjustment;
-    read_req.len = req->len + adjustment;
+    read_req.offset = offset - adj_before;
+    read_req.len = adj_before + value_size + adj_after;
     total_len += read_req.len;
     read_reqs.emplace_back(std::move(read_req));
   }
@@ -661,18 +724,20 @@ void BlobFileReader::MultiGetBlob(
       continue;
     }
 
-    // Verify checksums if enabled
+    CompressionType actual_comp_type = req->compression;
     if (read_options.verify_checksums) {
-      *req->status = VerifyBlob(record_slice, *req->user_key, req->len);
+      *req->status = VerifyBlobRecord(record_slice, *req->user_key, req->len,
+                                      req->offset, &actual_comp_type);
       if (!req->status->ok()) {
         continue;
       }
     }
 
     // Uncompress blob if needed
-    Slice value_slice(record_slice.data() + adjustments[j - 1], req->len);
+    Slice value_slice(record_slice.data() + adjustments_before[j - 1],
+                      req->len);
     *req->status = UncompressBlobIfNeeded(
-        value_slice, compression_type_, decompressor_.get(), allocator, clock_,
+        value_slice, actual_comp_type, decompressor_.get(), allocator, clock_,
         statistics_, &blob_reqs[i].second);
     if (req->status->ok()) {
       total_bytes += record_slice.size();
@@ -684,8 +749,22 @@ void BlobFileReader::MultiGetBlob(
   }
 }
 
-Status BlobFileReader::VerifyBlob(const Slice& record_slice,
-                                  const Slice& user_key, uint64_t value_size) {
+Status BlobFileReader::VerifyBlobRecord(
+    const Slice& record_slice, const Slice& user_key, uint64_t value_size,
+    uint64_t value_file_offset,
+    CompressionType* actual_compression_type) const {
+  if (is_blog_format_) {
+    return VerifyBlogRecordTrailer(blog_checksum_type_, record_slice.data(),
+                                   static_cast<size_t>(value_size),
+                                   blog_incarnation_id_, value_file_offset,
+                                   actual_compression_type);
+  }
+  return VerifyLegacyBlobRecord(record_slice, user_key, value_size);
+}
+
+Status BlobFileReader::VerifyLegacyBlobRecord(const Slice& record_slice,
+                                              const Slice& user_key,
+                                              uint64_t value_size) {
   PERF_TIMER_GUARD(blob_checksum_time);
 
   BlobLogRecord record;

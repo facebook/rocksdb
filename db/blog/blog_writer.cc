@@ -9,6 +9,7 @@
 
 #include "table/format.h"
 #include "util/coding.h"
+#include "util/prefix_varint.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -21,15 +22,37 @@ BlogFileWriter::~BlogFileWriter() = default;
 
 IOStatus BlogFileWriter::WriteHeader(const WriteOptions& wo) {
   assert(!header_written_);
+
+  // Split properties: required (uppercase) go in the header property section,
+  // ignorable (lowercase) go in a kBlogIgnorablePropertiesRecord after.
+  BlogPropertyMap ignorable_props;
+  BlogFileHeader header_copy = header_;
+  header_copy.properties.clear();
+  for (auto& [name, value] : header_.properties) {
+    if (IsBlogRequiredProperty(name)) {
+      header_copy.properties.emplace_back(std::move(name), std::move(value));
+    } else {
+      ignorable_props.emplace_back(std::move(name), std::move(value));
+    }
+  }
+
   std::string buf;
-  header_.EncodeTo(&buf);
-  // Pad after header properties using the same padding scheme as records.
-  uint8_t last_byte = static_cast<uint8_t>(buf.back());
-  ComputeBlogPadding(last_byte, buf.size(), &buf);
+  header_copy.EncodeTo(&buf);
+  BlogPadding header_pad(static_cast<uint8_t>(buf.back()), buf.size());
+  header_pad.AppendTo(&buf);
   IOStatus s = EmitBytes(wo, buf);
   if (s.ok()) {
     header_written_ = true;
   }
+
+  // Emit ignorable properties as a separate record.
+  if (s.ok() && !ignorable_props.empty()) {
+    std::string payload;
+    EncodeBlogProperties(ignorable_props, &payload);
+    s = AddRecord(wo, kBlogIgnorablePropertiesRecord, payload, kNoCompression,
+                  nullptr, /*force_full=*/true);
+  }
+
   if (s.ok() && !manual_flush_) {
     IOOptions opts;
     s = WritableFileWriter::PrepareIOOptions(wo, opts);
@@ -43,8 +66,20 @@ IOStatus BlogFileWriter::WriteHeader(const WriteOptions& wo) {
 IOStatus BlogFileWriter::AddBlobRecord(const WriteOptions& wo,
                                        const Slice& payload,
                                        CompressionType comp_type,
-                                       uint64_t* blob_offset) {
-  return AddRecord(wo, kBlogBlobRecord, payload, comp_type, blob_offset);
+                                       uint64_t* blob_offset,
+                                       uint64_t uncompressed_size) {
+  uint64_t offset_before = offset_;
+  IOStatus s = AddRecord(wo, kBlogBlobRecord, payload, comp_type, blob_offset);
+  if (s.ok()) {
+    blob_stats_.count++;
+    blob_stats_.payload_bytes += payload.size();
+    blob_stats_.overhead_bytes += (offset_ - offset_before) - payload.size();
+    if (comp_type != kNoCompression) {
+      blob_stats_.compressed_bytes += payload.size();
+      blob_stats_.uncompressed_bytes += uncompressed_size;
+    }
+  }
+  return s;
 }
 
 IOStatus BlogFileWriter::AddWriteBatchRecord(const WriteOptions& wo,
@@ -55,9 +90,24 @@ IOStatus BlogFileWriter::AddWriteBatchRecord(const WriteOptions& wo,
   return AddRecord(wo, kBlogWriteBatchRecord, wb_data, comp_type, nullptr);
 }
 
+IOStatus BlogFileWriter::AddIgnorablePropertiesRecord(
+    const WriteOptions& wo, const BlogPropertyMap& props) {
+  for (const auto& [name, value] : props) {
+    if (IsBlogRequiredProperty(name)) {
+      return IOStatus::InvalidArgument(
+          "Required properties not allowed in ignorable properties record: " +
+          name);
+    }
+  }
+  std::string payload;
+  EncodeBlogProperties(props, &payload);
+  return AddRecord(wo, kBlogIgnorablePropertiesRecord, payload, kNoCompression,
+                   nullptr, /*force_full=*/true);
+}
+
 IOStatus BlogFileWriter::AddPreambleStartRecord(const WriteOptions& wo) {
   return AddRecord(wo, kBlogPreambleStartRecord, Slice(), kNoCompression,
-                   nullptr, /*force_full=*/true);
+                   nullptr);
 }
 
 IOStatus BlogFileWriter::AddFooterIndexRecord(const WriteOptions& wo,
@@ -115,22 +165,31 @@ IOStatus BlogFileWriter::AddRecord(const WriteOptions& wo, BlogRecordType type,
                                    uint64_t* payload_offset, bool force_full) {
   assert(header_written_);
 
-  // Determine varint length of payload size
-  uint16_t varint_len = VarintLength(payload.size());
-
-  // Use compact format when:
-  // 1. varint fits in <= kBlogCompactVarintMaxBytes (payload < ~16 KiB)
-  // 2. record type matches the header's compact_record_type
-  // 3. not forced to full format (e.g. footer/preamble records)
-  bool use_compact =
-      !force_full && (varint_len <= kBlogCompactVarintMaxBytes) &&
-      (type == header_.compact_record_type) && (payload.size() > 0);
+  if (comp_type != kNoCompression &&
+      comp_type != kStreamingCompressionSentinel) {
+    compression_type_set_.Add(comp_type);
+  }
 
   IOStatus s;
-  if (use_compact) {
-    s = EmitCompactRecord(wo, payload, comp_type, payload_offset);
+  if (payload.size() == 0) {
+    // Trivial format for length=0 records (preamble-start, etc.)
+    s = EmitTrivialRecord(wo, type);
   } else {
-    s = EmitFullRecord(wo, type, payload, comp_type, payload_offset);
+    // Use compact format when:
+    // 1. prefix varint fits in <= kBlogCompactVarintMaxBytes (payload < ~16
+    // KiB)
+    // 2. record type matches the header's compact_record_type
+    // 3. not forced to full format (e.g. footer records)
+    uint32_t varint_len = PrefixVarint64Length(payload.size());
+    bool use_compact = !force_full &&
+                       (varint_len <= kBlogCompactVarintMaxBytes) &&
+                       (type == header_.compact_record_type);
+
+    if (use_compact) {
+      s = EmitCompactRecord(wo, payload, comp_type, payload_offset);
+    } else {
+      s = EmitFullRecord(wo, type, payload, comp_type, payload_offset);
+    }
   }
 
   if (s.ok() && !manual_flush_) {
@@ -143,63 +202,62 @@ IOStatus BlogFileWriter::AddRecord(const WriteOptions& wo, BlogRecordType type,
   return s;
 }
 
+IOStatus BlogFileWriter::EmitTrivialRecord(const WriteOptions& wo,
+                                           BlogRecordType type) {
+  // Trivial format (length=0):
+  //   [escape_seq: 10B] [prefix_varint(0): 1B] [type: 1B] [checksum: 4B]
+  //   [padding: 0+B]
+  std::string buf;
+  buf.append(header_.escape_sequence, kBlogEscapeSequenceSize);
+  PutPrefixVarint64(&buf, 0);  // prefix varint(0) = 0x01
+  buf.push_back(static_cast<char>(type));
+
+  // Checksum covers (varint + type), with context modifier.
+  const char* cksum_data = buf.data() + kBlogEscapeSequenceSize;
+  size_t cksum_data_size = buf.size() - kBlogEscapeSequenceSize;
+  uint32_t checksum =
+      ComputeBuiltinChecksum(header_.checksum_type, cksum_data,
+                             cksum_data_size) +
+      ChecksumModifierForContext(header_.incarnation_id(), offset_);
+  PutFixed32(&buf, checksum);
+
+  IOStatus s = EmitBytes(wo, buf);
+  if (!s.ok()) {
+    return s;
+  }
+
+  // Padding (not needed for last record in file, but trivial records
+  // are never the footer locator, so always pad)
+  uint8_t last_byte = static_cast<uint8_t>(checksum >> 24);
+  BlogPadding pad(last_byte, offset_);
+  if (pad.count > 0) {
+    s = EmitBytes(wo, pad.bytes, pad.count);
+  }
+  return s;
+}
+
 IOStatus BlogFileWriter::EmitCompactRecord(const WriteOptions& wo,
                                            const Slice& payload,
                                            CompressionType comp_type,
                                            uint64_t* payload_offset) {
   // Compact format:
-  //   [escape_seq: 10B] [varint length: 1-3B]
+  //   [escape_seq: 10B] [prefix_varint length: 1-2B]
   //   [payload: length bytes]
   //   [compression_type: 1B] [checksum: 4B]
   //   [padding: 0+B]
-  assert(payload.size() > 0);  // length=0 compact records not expected
+  assert(payload.size() > 0);
 
   std::string prefix;
-  // Escape sequence
   prefix.append(header_.escape_sequence, kBlogEscapeSequenceSize);
-  // Varint length
-  PutVarint64(&prefix, payload.size());
+  PutPrefixVarint64(&prefix, payload.size());
 
   IOStatus s = EmitBytes(wo, prefix);
   if (!s.ok()) {
     return s;
   }
 
-  // Record payload offset for caller
-  if (payload_offset) {
-    *payload_offset = offset_;
-  }
-
-  // Payload
-  s = EmitBytes(wo, payload);
-  if (!s.ok()) {
-    return s;
-  }
-
-  // 5-byte trailer: compression_type + checksum
-  char trailer[kBlogBlockTrailerSize];
-  trailer[0] = static_cast<char>(comp_type);
-  uint32_t checksum = ComputeBlogRecordChecksum(
-      header_.checksum_type, payload.data(), payload.size(), trailer[0],
-      header_.incarnation_id(),
-      offset_ - payload.size());  // record offset = start of payload
-  EncodeFixed32(trailer + 1, checksum);
-  s = EmitBytes(wo, trailer, kBlogBlockTrailerSize);
-  if (!s.ok()) {
-    return s;
-  }
-
-  // Padding (stack-allocated, no heap allocation)
-  uint8_t last_byte = static_cast<uint8_t>(trailer[kBlogBlockTrailerSize - 1]);
-  uint8_t pad_byte;
-  size_t pad_count;
-  ComputeBlogPaddingParams(last_byte, offset_, &pad_byte, &pad_count);
-  if (pad_count > 0) {
-    char pad_buf[4];
-    memset(pad_buf, pad_byte, pad_count);
-    s = EmitBytes(wo, pad_buf, pad_count);
-  }
-  return s;
+  return EmitPayloadTrailerPadding(wo, payload, comp_type, payload_offset,
+                                   /*skip_padding=*/false);
 }
 
 IOStatus BlogFileWriter::EmitFullRecord(const WriteOptions& wo,
@@ -208,34 +266,26 @@ IOStatus BlogFileWriter::EmitFullRecord(const WriteOptions& wo,
                                         CompressionType comp_type,
                                         uint64_t* payload_offset) {
   // Full format:
-  //   [escape_seq: 10B] [varint length: 4+B] [type: 1B] [compression_type: 1B]
-  //   [prefix_checksum: 4B]
-  //   (if length > 0):
-  //     [payload: length bytes]
-  //     [compression_type: 1B] [checksum: 4B]
+  //   [escape_seq: 10B] [prefix_varint length: 3+B] [type: 1B]
+  //   [compression_type: 1B] [prefix_checksum: 4B]
+  //   [payload: length bytes]
+  //   [compression_type: 1B] [checksum: 4B]
   //   [padding: 0+B]
+  assert(payload.size() > 0);
 
   std::string prefix;
-  // Escape sequence
   prefix.append(header_.escape_sequence, kBlogEscapeSequenceSize);
 
-  // Varint length (must be > kBlogCompactVarintMaxBytes to trigger full format)
-  constexpr size_t kFullVarintMinBytes = kBlogCompactVarintMaxBytes + 1;
+  // Prefix varint length (must be > kBlogCompactVarintMaxBytes for full format)
+  constexpr uint32_t kFullVarintMinBytes = kBlogCompactVarintMaxBytes + 1;
   size_t varint_start = prefix.size();
-  if (payload.size() == 0) {
-    PutBlogIrregularVarint64(&prefix, 0, kFullVarintMinBytes);
-  } else {
-    uint16_t natural_len = VarintLength(payload.size());
-    if (natural_len >= kFullVarintMinBytes) {
-      PutVarint64(&prefix, payload.size());
-    } else {
-      PutBlogIrregularVarint64(&prefix, payload.size(), kFullVarintMinBytes);
-    }
+  {
+    char buf[kMaxPrefixVarint64Length];
+    char* end = EncodePrefixVarint64<kFullVarintMinBytes>(buf, payload.size());
+    prefix.append(buf, static_cast<size_t>(end - buf));
   }
 
-  // Type byte
   prefix.push_back(static_cast<char>(type));
-  // Pre-payload compression type
   prefix.push_back(static_cast<char>(comp_type));
 
   // Prefix checksum covers (varint length + type + compression_type),
@@ -253,48 +303,42 @@ IOStatus BlogFileWriter::EmitFullRecord(const WriteOptions& wo,
     return s;
   }
 
-  // Track the last meaningful byte for padding computation.
-  // EncodeFixed32 is little-endian: last byte written = (value >> 24) & 0xFF.
-  uint8_t last_byte;
+  bool skip_padding = (type == kBlogFooterLocatorRecord);
+  return EmitPayloadTrailerPadding(wo, payload, comp_type, payload_offset,
+                                   skip_padding);
+}
 
-  if (payload.size() > 0) {
-    // Record payload offset for caller
-    if (payload_offset) {
-      *payload_offset = offset_;
-    }
-
-    // Payload
-    s = EmitBytes(wo, payload);
-    if (!s.ok()) {
-      return s;
-    }
-
-    // 5-byte trailer: compression_type + checksum
-    char trailer[kBlogBlockTrailerSize];
-    trailer[0] = static_cast<char>(comp_type);
-    uint32_t checksum = ComputeBlogRecordChecksum(
-        header_.checksum_type, payload.data(), payload.size(), trailer[0],
-        header_.incarnation_id(), offset_ - payload.size());
-    EncodeFixed32(trailer + 1, checksum);
-    s = EmitBytes(wo, trailer, kBlogBlockTrailerSize);
-    if (!s.ok()) {
-      return s;
-    }
-
-    last_byte = static_cast<uint8_t>(trailer[kBlogBlockTrailerSize - 1]);
-  } else {
-    // No payload, no trailer. Last meaningful byte is the last byte of
-    // prefix_checksum (little-endian).
-    last_byte = static_cast<uint8_t>(prefix_checksum >> 24);
+IOStatus BlogFileWriter::EmitPayloadTrailerPadding(const WriteOptions& wo,
+                                                   const Slice& payload,
+                                                   CompressionType comp_type,
+                                                   uint64_t* payload_offset,
+                                                   bool skip_padding) {
+  if (payload_offset) {
+    *payload_offset = offset_;
   }
 
-  uint8_t pad_byte;
-  size_t pad_count;
-  ComputeBlogPaddingParams(last_byte, offset_, &pad_byte, &pad_count);
-  if (pad_count > 0) {
-    char pad_buf[4];
-    memset(pad_buf, pad_byte, pad_count);
-    s = EmitBytes(wo, pad_buf, pad_count);
+  IOStatus s = EmitBytes(wo, payload);
+  if (!s.ok()) {
+    return s;
+  }
+
+  char trailer[kBlogBlockTrailerSize];
+  trailer[0] = static_cast<char>(comp_type);
+  uint32_t checksum = ComputeBlogRecordChecksum(
+      header_.checksum_type, payload.data(), payload.size(), trailer[0],
+      header_.incarnation_id(), offset_ - payload.size());
+  EncodeFixed32(trailer + 1, checksum);
+  s = EmitBytes(wo, trailer, kBlogBlockTrailerSize);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (!skip_padding) {
+    BlogPadding pad(static_cast<uint8_t>(trailer[kBlogBlockTrailerSize - 1]),
+                    offset_);
+    if (pad.count > 0) {
+      s = EmitBytes(wo, pad.bytes, pad.count);
+    }
   }
   return s;
 }

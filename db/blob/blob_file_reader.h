@@ -111,8 +111,15 @@ class BlobFileReader {
                              Statistics* statistics, Slice* slice, Buffer* buf,
                              AlignedBuf* aligned_buf);
 
-  static Status VerifyBlob(const Slice& record_slice, const Slice& user_key,
-                           uint64_t value_size);
+  static Status VerifyLegacyBlobRecord(const Slice& record_slice,
+                                       const Slice& user_key,
+                                       uint64_t value_size);
+
+  // Verify a blob record's checksum, dispatching to the format-appropriate
+  // method. On success, sets *actual_compression_type from the record.
+  Status VerifyBlobRecord(const Slice& record_slice, const Slice& user_key,
+                          uint64_t value_size, uint64_t value_file_offset,
+                          CompressionType* actual_compression_type) const;
 
   static Status UncompressBlobIfNeeded(const Slice& value_slice,
                                        CompressionType compression_type,

@@ -19,6 +19,7 @@
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_writer.h"
+#include "db/blog/blog_writer.h"
 #include "db/version_set.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
@@ -99,13 +100,14 @@ BlobFilePartitionManager::BlobFilePartitionManager(
     FileNumberAllocator file_number_allocator, FileSystem* fs,
     SystemClock* clock, Statistics* statistics, const FileOptions& file_options,
     std::string db_path, std::string column_family_name,
-    uint64_t blob_file_size, bool use_fsync, BlobFileCache* blob_file_cache,
+    uint64_t blob_file_size, bool use_fsync, bool use_blog_format,
+    ChecksumType blog_checksum, BlobFileCache* blob_file_cache,
     BlobFileCompletionCallback* blob_callback,
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     FileChecksumGenFactory* file_checksum_gen_factory,
     const FileTypeSet& checksum_handoff_file_types,
     const std::shared_ptr<IOTracer>& io_tracer, std::string db_id,
-    std::string db_session_id, Logger* info_log)
+    std::string db_session_id, std::string db_host_id, Logger* info_log)
     : num_partitions_(num_partitions == 0 ? 1 : num_partitions),
       strategy_(strategy != nullptr
                     ? std::move(strategy)
@@ -119,6 +121,8 @@ BlobFilePartitionManager::BlobFilePartitionManager(
       column_family_name_(std::move(column_family_name)),
       blob_file_size_(blob_file_size),
       use_fsync_(use_fsync),
+      use_blog_format_(use_blog_format),
+      blog_checksum_(blog_checksum),
       blob_file_cache_(blob_file_cache),
       blob_callback_(blob_callback),
       listeners_(listeners),
@@ -127,6 +131,7 @@ BlobFilePartitionManager::BlobFilePartitionManager(
       io_tracer_(io_tracer),
       db_id_(std::move(db_id)),
       db_session_id_(std::move(db_session_id)),
+      db_host_id_(std::move(db_host_id)),
       info_log_(info_log) {
   partitions_.reserve(num_partitions_);
   for (uint32_t i = 0; i < num_partitions_; ++i) {
@@ -157,6 +162,7 @@ BlobFilePartitionManager::~BlobFilePartitionManager() {
 
 void BlobFilePartitionManager::ResetPartitionState(Partition* partition) {
   partition->writer.reset();
+  partition->blog_writer.reset();
   partition->file_number = 0;
   partition->file_size = 0;
   partition->blob_count = 0;
@@ -185,7 +191,7 @@ Status BlobFilePartitionManager::OpenNewBlobFile(Partition* partition,
                                                  CompressionType compression,
                                                  uint32_t partition_idx) {
   assert(partition != nullptr);
-  assert(!partition->writer);
+  assert(!partition->is_open());
 
   const uint64_t blob_file_number = file_number_allocator_();
   const std::string blob_file_path = BlobFileName(db_path_, blob_file_number);
@@ -212,27 +218,49 @@ Status BlobFilePartitionManager::OpenNewBlobFile(Partition* partition,
       statistics_, Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS, listeners_,
       file_checksum_gen_factory_, perform_data_verification);
 
-  // This only drains WritableFileWriter's buffered bytes so readers can see
-  // each appended record promptly. Durability still comes from SyncAllOpenFiles
-  // or LegacyAppendFooterAndClose(), both of which call Sync().
-  constexpr bool kDoFlushEachRecord = true;
-  auto blob_log_writer = std::make_unique<BlobLogWriter>(
-      std::move(file_writer), clock_, statistics_, use_fsync_,
-      kDoFlushEachRecord);
+  if (use_blog_format_) {
+    BlogFileHeader blog_header;
+    blog_header.checksum_type = blog_checksum_;
+    blog_header.compact_record_type = kBlogBlobRecord;
+    blog_header.GenerateFromUniqueId(db_id_, db_session_id_, blob_file_number);
+    blog_header.SetProperty(kBlogPropRole, "blob");
+    int64_t cur_time = 0;
+    if (clock_) {
+      clock_->GetCurrentTime(&cur_time).PermitUncheckedError();
+    }
+    uint64_t creation_time = static_cast<uint64_t>(cur_time);
+    blog_header.SetDiagnosticProperties(db_host_id_, column_family_id,
+                                        column_family_name_, creation_time);
 
-  constexpr bool has_ttl = false;
-  constexpr ExpirationRange expiration_range{};
-  BlobLogHeader header(column_family_id, compression, has_ttl,
-                       expiration_range);
-  s = blob_log_writer->WriteHeader(WriteOptions(), header);
-  if (!s.ok()) {
-    RemoveFilePartitionMapping(blob_file_number);
-    return s;
+    auto blog_writer =
+        std::make_unique<BlogFileWriter>(std::move(file_writer), blog_header);
+    IOStatus ios = blog_writer->WriteHeader(WriteOptions());
+    if (!ios.ok()) {
+      RemoveFilePartitionMapping(blob_file_number);
+      return static_cast<Status>(ios);
+    }
+    partition->blog_writer = std::move(blog_writer);
+    partition->file_size = partition->blog_writer->current_offset();
+  } else {
+    constexpr bool kDoFlushEachRecord = true;
+    auto blob_log_writer = std::make_unique<BlobLogWriter>(
+        std::move(file_writer), clock_, statistics_, use_fsync_,
+        kDoFlushEachRecord);
+
+    constexpr bool has_ttl = false;
+    constexpr ExpirationRange expiration_range{};
+    BlobLogHeader header(column_family_id, compression, has_ttl,
+                         expiration_range);
+    s = blob_log_writer->WriteHeader(WriteOptions(), header);
+    if (!s.ok()) {
+      RemoveFilePartitionMapping(blob_file_number);
+      return s;
+    }
+    partition->writer = std::move(blob_log_writer);
+    partition->file_size = BlobLogHeader::kSize;
   }
 
-  partition->writer = std::move(blob_log_writer);
   partition->file_number = blob_file_number;
-  partition->file_size = BlobLogHeader::kSize;
   partition->blob_count = 0;
   partition->total_blob_bytes = 0;
   partition->garbage_blob_count = 0;
@@ -247,14 +275,14 @@ Status BlobFilePartitionManager::SealActiveBlobFile(
     const WriteOptions& write_options, Partition* partition,
     SealedFile* sealed_file) {
   assert(partition != nullptr);
-  assert(partition->writer);
+  assert(partition->is_open());
   assert(sealed_file != nullptr);
 
   const uint64_t file_number = partition->file_number;
-  Status s =
-      FinalizeBlobFile(write_options, partition->writer.get(), file_number,
-                       partition->blob_count, partition->total_blob_bytes,
-                       &sealed_file->addition);
+  Status s = FinalizeBlobFile(
+      write_options, partition->writer.get(), partition->blog_writer.get(),
+      file_number, partition->blob_count, partition->total_blob_bytes,
+      &sealed_file->addition);
   if (!s.ok()) {
     RemoveFilePartitionMapping(file_number);
     ResetPartitionState(partition);
@@ -271,12 +299,13 @@ Status BlobFilePartitionManager::SealDeferredFile(
     const WriteOptions& write_options, DeferredFile* deferred,
     SealedFile* sealed_file) {
   assert(deferred != nullptr);
-  assert(deferred->writer);
+  assert(deferred->writer || deferred->blog_writer);
   assert(sealed_file != nullptr);
 
   Status s = FinalizeBlobFile(
-      write_options, deferred->writer.get(), deferred->file_number,
-      deferred->blob_count, deferred->total_blob_bytes, &sealed_file->addition);
+      write_options, deferred->writer.get(), deferred->blog_writer.get(),
+      deferred->file_number, deferred->blob_count, deferred->total_blob_bytes,
+      &sealed_file->addition);
   if (!s.ok()) {
     RemoveFilePartitionMapping(deferred->file_number);
     return s;
@@ -285,33 +314,77 @@ Status BlobFilePartitionManager::SealDeferredFile(
   sealed_file->garbage_blob_count = deferred->garbage_blob_count;
   sealed_file->garbage_blob_bytes = deferred->garbage_blob_bytes;
   deferred->writer.reset();
+  deferred->blog_writer.reset();
   return Status::OK();
 }
 
 Status BlobFilePartitionManager::FinalizeBlobFile(
     const WriteOptions& write_options, BlobLogWriter* writer,
-    uint64_t file_number, uint64_t blob_count, uint64_t total_blob_bytes,
-    BlobFileAddition* addition) {
-  assert(writer != nullptr);
+    BlogFileWriter* blog_writer, uint64_t file_number, uint64_t blob_count,
+    uint64_t total_blob_bytes, BlobFileAddition* addition) {
+  assert(writer != nullptr || blog_writer != nullptr);
   assert(addition != nullptr);
-
-  BlobLogFooter footer;
-  footer.blob_count = blob_count;
 
   std::string checksum_method;
   std::string checksum_value;
-  Status s = writer->LegacyAppendFooterAndClose(
-      write_options, footer, &checksum_method, &checksum_value);
-  if (!s.ok()) {
-    return s;
+
+  if (blog_writer) {
+    const auto& bs = blog_writer->blob_stats();
+    BlogFileFooterProperties footer_props;
+    if (bs.count > 0) {
+      footer_props.SetBlobCount(bs.count);
+      footer_props.SetBlobPayloadBytes(bs.payload_bytes);
+      if (bs.compressed_bytes > 0) {
+        footer_props.SetBlobCompressedBytes(bs.compressed_bytes);
+        footer_props.SetBlobUncompressedBytes(bs.uncompressed_bytes);
+      }
+      footer_props.SetBlobOverheadBytes(bs.overhead_bytes);
+    }
+    if (!blog_writer->compression_type_set().empty()) {
+      footer_props.SetCompressionTypes(blog_writer->compression_type_set());
+    }
+
+    uint64_t props_offset = blog_writer->current_offset();
+    IOStatus ios =
+        blog_writer->AddFooterPropertiesRecord(write_options, footer_props);
+    if (!ios.ok()) {
+      return static_cast<Status>(ios);
+    }
+
+    BlogFileFooterLocator locator;
+    uint64_t locator_offset = blog_writer->current_offset();
+    locator.entries.push_back(
+        {kBlogFooterPropertiesRecord,
+         static_cast<uint32_t>((locator_offset - props_offset) / 4)});
+    ios = blog_writer->AddFooterLocatorRecord(write_options, locator);
+    if (!ios.ok()) {
+      return static_cast<Status>(ios);
+    }
+
+    ios = blog_writer->Sync(write_options, use_fsync_);
+    if (!ios.ok()) {
+      return static_cast<Status>(ios);
+    }
+    ios = blog_writer->Close(write_options);
+    if (!ios.ok()) {
+      return static_cast<Status>(ios);
+    }
+  } else {
+    BlobLogFooter footer;
+    footer.blob_count = blob_count;
+    Status s = writer->LegacyAppendFooterAndClose(
+        write_options, footer, &checksum_method, &checksum_value);
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   if (blob_callback_ != nullptr) {
     const std::string blob_file_path = BlobFileName(db_path_, file_number);
-    s = blob_callback_->OnBlobFileCompleted(
+    Status s = blob_callback_->OnBlobFileCompleted(
         blob_file_path, column_family_name_, /*job_id=*/0, file_number,
-        BlobFileCreationReason::kFlush, s, checksum_value, checksum_method,
-        blob_count, total_blob_bytes);
+        BlobFileCreationReason::kFlush, Status::OK(), checksum_value,
+        checksum_method, blob_count, total_blob_bytes);
     if (!s.ok()) {
       return s;
     }
@@ -467,7 +540,7 @@ Status BlobFilePartitionManager::WriteBlob(
     Partition* partition = partitions_[selected_partition_idx].get();
 
     auto seal_current_file = [&]() -> Status {
-      if (!partition->writer) {
+      if (!partition->is_open()) {
         return Status::OK();
       }
       SealedFile sealed_file;
@@ -478,12 +551,20 @@ Status BlobFilePartitionManager::WriteBlob(
       return s;
     };
 
+    // record_size feeds total_blob_bytes in SharedBlobFileMetaData. Both
+    // formats include estimated per-record overhead so that total_blob_bytes
+    // approximates the record-data portion of the file.
     const uint64_t record_size =
-        BlobLogRecord::kHeaderSize + key.size() + write_value.size();
+        use_blog_format_
+            ? ComputeBlogRecordSize(write_value.size(),
+                                    /*compact_eligible=*/true)
+            : BlobLogRecord::kHeaderSize + key.size() + write_value.size();
+    const uint64_t estimated_overhead =
+        use_blog_format_ ? kBlogEstimatedFooterSize : BlobLogFooter::kSize;
     const uint64_t future_file_size =
-        partition->file_size + record_size + BlobLogFooter::kSize;
+        partition->file_size + record_size + estimated_overhead;
 
-    if (partition->writer &&
+    if (partition->is_open() &&
         (partition->column_family_id != column_family_id ||
          partition->compression != compression ||
          (partition->blob_count > 0 && future_file_size > blob_file_size_))) {
@@ -493,7 +574,7 @@ Status BlobFilePartitionManager::WriteBlob(
       }
     }
 
-    if (!partition->writer) {
+    if (!partition->is_open()) {
       Status s = OpenNewBlobFile(partition, column_family_id, compression,
                                  selected_partition_idx);
       if (!s.ok()) {
@@ -501,9 +582,16 @@ Status BlobFilePartitionManager::WriteBlob(
       }
     }
 
-    uint64_t key_offset = 0;
-    Status s = partition->writer->AddRecord(write_options, key, write_value,
-                                            &key_offset, blob_offset);
+    Status s;
+    if (partition->blog_writer) {
+      IOStatus ios = partition->blog_writer->AddBlobRecord(
+          write_options, write_value, compression, blob_offset, value.size());
+      s = static_cast<Status>(ios);
+    } else {
+      uint64_t key_offset = 0;
+      s = partition->writer->AddRecord(write_options, key, write_value,
+                                       &key_offset, blob_offset);
+    }
     if (!s.ok()) {
       return s;
     }
@@ -511,7 +599,11 @@ Status BlobFilePartitionManager::WriteBlob(
     partition->sync_required = true;
     partition->blob_count += 1;
     partition->total_blob_bytes += record_size;
-    partition->file_size = BlobLogHeader::kSize + partition->total_blob_bytes;
+    if (partition->blog_writer) {
+      partition->file_size = partition->blog_writer->current_offset();
+    } else {
+      partition->file_size = BlobLogHeader::kSize + partition->total_blob_bytes;
+    }
 
     *blob_file_number = partition->file_number;
     *blob_size = write_value.size();
@@ -536,12 +628,13 @@ void BlobFilePartitionManager::RotateCurrentGeneration() {
   current_generation_sealed_files_.clear();
 
   for (auto& partition : partitions_) {
-    if (!partition->writer) {
+    if (!partition->is_open()) {
       continue;
     }
 
     DeferredFile deferred;
     deferred.writer = std::move(partition->writer);
+    deferred.blog_writer = std::move(partition->blog_writer);
     deferred.file_number = partition->file_number;
     deferred.blob_count = partition->blob_count;
     deferred.total_blob_bytes = partition->total_blob_bytes;
@@ -665,12 +758,19 @@ Status BlobFilePartitionManager::SyncAllOpenFiles(
     const WriteOptions& write_options) {
   MutexLock lock(&mutex_);
   for (const auto& partition : partitions_) {
-    if (!partition->writer || !partition->sync_required) {
+    if (!partition->is_open() || !partition->sync_required) {
       continue;
     }
-    Status s = partition->writer->Sync(write_options);
-    if (!s.ok()) {
-      return s;
+    if (partition->blog_writer) {
+      IOStatus ios = partition->blog_writer->Sync(write_options, use_fsync_);
+      if (!ios.ok()) {
+        return static_cast<Status>(ios);
+      }
+    } else {
+      Status s = partition->writer->Sync(write_options);
+      if (!s.ok()) {
+        return s;
+      }
     }
     partition->sync_required = false;
   }

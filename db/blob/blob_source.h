@@ -148,6 +148,7 @@ class BlobSource {
   const std::string& db_session_id_;
 
   Statistics* statistics_;
+  bool use_blog_format_;
 
   // A cache to store blob file reader.
   BlobFileCache* blob_file_cache_;

@@ -87,6 +87,16 @@ class BlobGarbageMeter {
     BlobStats out_flow_;
   };
 
+  // use_blog_format: selects blog vs legacy per-record overhead estimation.
+  // Both formats include estimated record framing in the byte cost so that
+  // total_blob_bytes and garbage_blob_bytes use the same unit.
+  // TODO: if a DB has a mix of legacy and blog format blob files (e.g. after
+  // toggling the option), the overhead estimate will be slightly off for
+  // files written under the other format. Consider per-file format awareness
+  // via BlobFileMetaData.
+  explicit BlobGarbageMeter(bool use_blog_format)
+      : use_blog_format_(use_blog_format) {}
+
   Status ProcessInFlow(const Slice& key, const Slice& value);
   Status ProcessOutFlow(const Slice& key, const Slice& value);
 
@@ -95,20 +105,19 @@ class BlobGarbageMeter {
   }
 
  private:
-  static Status GetBlobReferenceDetails(const ParsedInternalKey& ikey,
-                                        const BlobIndex& blob_index,
-                                        uint64_t* blob_file_number,
-                                        uint64_t* bytes);
-  static Status ParseBlobIndexReference(const ParsedInternalKey& ikey,
-                                        const Slice& value,
-                                        uint64_t* blob_file_number,
-                                        uint64_t* bytes);
+  Status GetBlobReferenceDetails(const ParsedInternalKey& ikey,
+                                 const BlobIndex& blob_index,
+                                 uint64_t* blob_file_number, uint64_t* bytes);
+  Status ParseBlobIndexReference(const ParsedInternalKey& ikey,
+                                 const Slice& value, uint64_t* blob_file_number,
+                                 uint64_t* bytes);
 
   void AddFlow(uint64_t blob_file_number, uint64_t bytes, bool is_inflow);
   Status ProcessFlow(const Slice& key, const Slice& value, bool is_inflow);
   Status ProcessEntityBlobReferences(const ParsedInternalKey& ikey,
                                      const Slice& value, bool is_inflow);
 
+  bool use_blog_format_;
   std::unordered_map<uint64_t, BlobInOutFlow> flows_;
 };
 

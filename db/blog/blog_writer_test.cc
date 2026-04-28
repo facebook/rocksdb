@@ -126,7 +126,8 @@ TEST_F(BlogWriterTest, WriteSingleBlobRecord) {
 
   std::string blob_data(100, 'A');
   uint64_t blob_offset = 0;
-  ASSERT_OK(writer->AddBlobRecord(wo, blob_data, kNoCompression, &blob_offset));
+  ASSERT_OK(writer->AddBlobRecord(wo, blob_data, kNoCompression, &blob_offset,
+                                  blob_data.size()));
   ASSERT_GT(blob_offset, 0u);
 
   // Verify alignment: offset after record should be 4-byte aligned
@@ -158,7 +159,8 @@ TEST_F(BlogWriterTest, WriteMultipleBlobRecords) {
                                     std::string(500, 'Y')};
   for (const auto& blob : blobs) {
     uint64_t offset;
-    ASSERT_OK(writer->AddBlobRecord(wo, blob, kNoCompression, &offset));
+    ASSERT_OK(
+        writer->AddBlobRecord(wo, blob, kNoCompression, &offset, blob.size()));
   }
 
   auto reader = MakeReader();
@@ -214,12 +216,14 @@ TEST_F(BlogWriterTest, CompactVsFullFormat) {
   // compact_record_type)
   std::string small_blob(100, 'S');
   uint64_t offset1;
-  ASSERT_OK(writer->AddBlobRecord(wo, small_blob, kNoCompression, &offset1));
+  ASSERT_OK(writer->AddBlobRecord(wo, small_blob, kNoCompression, &offset1,
+                                  small_blob.size()));
 
   // Large blob (> 2 MiB) should use full format
   std::string large_blob(3 * 1024 * 1024, 'L');
   uint64_t offset2;
-  ASSERT_OK(writer->AddBlobRecord(wo, large_blob, kNoCompression, &offset2));
+  ASSERT_OK(writer->AddBlobRecord(wo, large_blob, kNoCompression, &offset2,
+                                  large_blob.size()));
 
   // Read both back
   auto reader = MakeReader();
@@ -289,13 +293,14 @@ TEST_F(BlogWriterTest, FooterRecords) {
   // Write a blob record first
   std::string blob_data(50, 'B');
   uint64_t blob_offset;
-  ASSERT_OK(writer->AddBlobRecord(wo, blob_data, kNoCompression, &blob_offset));
+  ASSERT_OK(writer->AddBlobRecord(wo, blob_data, kNoCompression, &blob_offset,
+                                  blob_data.size()));
 
   // Write footer properties
   uint64_t props_offset = writer->current_offset();
   BlogFileFooterProperties props;
   props.SetBlobCount(1);
-  props.SetTotalBlobBytes(50);
+  props.SetBlobPayloadBytes(50);
   ASSERT_OK(writer->AddFooterPropertiesRecord(wo, props));
 
   // Write footer locator
@@ -344,7 +349,8 @@ TEST_F(BlogWriterTest, ChecksumCorruptionDetected) {
 
   std::string blob_data(100, 'C');
   uint64_t blob_offset;
-  ASSERT_OK(writer->AddBlobRecord(wo, blob_data, kNoCompression, &blob_offset));
+  ASSERT_OK(writer->AddBlobRecord(wo, blob_data, kNoCompression, &blob_offset,
+                                  blob_data.size()));
 
   // Corrupt one byte in the blob payload
   std::string& contents = sink_->contents_;
@@ -373,7 +379,8 @@ TEST_F(BlogWriterTest, MixedRecordTypes) {
   // Blob (compact format)
   std::string blob(50, 'B');
   uint64_t blob_offset;
-  ASSERT_OK(writer->AddBlobRecord(wo, blob, kNoCompression, &blob_offset));
+  ASSERT_OK(writer->AddBlobRecord(wo, blob, kNoCompression, &blob_offset,
+                                  blob.size()));
 
   // WriteBatch (full format since it doesn't match compact_record_type)
   std::string wb(60, 'W');
@@ -382,7 +389,8 @@ TEST_F(BlogWriterTest, MixedRecordTypes) {
   // Another blob (compact)
   std::string blob2(70, 'D');
   uint64_t blob2_offset;
-  ASSERT_OK(writer->AddBlobRecord(wo, blob2, kNoCompression, &blob2_offset));
+  ASSERT_OK(writer->AddBlobRecord(wo, blob2, kNoCompression, &blob2_offset,
+                                  blob2.size()));
 
   // Read all back
   auto reader = MakeReader();
@@ -419,7 +427,8 @@ TEST_F(BlogWriterTest, AlignmentInvariant) {
   for (int size = 1; size <= 200; ++size) {
     std::string data(size, static_cast<char>(size & 0xFF));
     uint64_t offset;
-    ASSERT_OK(writer->AddBlobRecord(wo, data, kNoCompression, &offset));
+    ASSERT_OK(
+        writer->AddBlobRecord(wo, data, kNoCompression, &offset, data.size()));
     ASSERT_EQ(writer->current_offset() % 4, 0u)
         << "Alignment violated after record of size " << size;
   }
@@ -435,12 +444,31 @@ TEST_F(BlogWriterTest, HeaderWithProperties) {
   WriteOptions wo;
   ASSERT_OK(writer->WriteHeader(wo));
 
+  // Write a blob so the reader has something after the ignorable props record.
+  std::string blob_data(50, 'B');
+  uint64_t blob_offset;
+  ASSERT_OK(writer->AddBlobRecord(wo, blob_data, kNoCompression, &blob_offset,
+                                  blob_data.size()));
+  ASSERT_OK(writer->Sync(wo));
+  ASSERT_OK(writer->Close(wo));
+
   auto reader = MakeReader();
   BlogFileHeader rh;
   ASSERT_OK(reader->ReadHeader(&rh));
+  // Required property is in the header section
   ASSERT_EQ(rh.GetProperty("CompressionCompatibilityName"), "zstd");
-  ASSERT_EQ(rh.GetProperty("role"), "blob");
-  ASSERT_EQ(rh.GetProperty("compressionSettings"), "level=3");
+  // Ignorable properties are NOT in the header (they're in a body record)
+  ASSERT_EQ(rh.GetProperty("role"), "");
+  ASSERT_EQ(rh.GetProperty("compressionSettings"), "");
+
+  // The reader skips ignorable properties records, so the first record
+  // returned is the blob.
+  BlogRecordType type;
+  Slice payload;
+  std::string scratch;
+  ASSERT_OK(reader->ReadRecord(&type, &payload, &scratch));
+  ASSERT_EQ(type, kBlogBlobRecord);
+  ASSERT_EQ(payload, blob_data);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
