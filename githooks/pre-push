@@ -5,8 +5,7 @@
 #    need to be committed or removed before the pushed code will build.
 # 2. Runs `make check-format` to verify formatting.
 #
-# Installed by (automatically called with `make all` / `make check`):
-#   make install-hooks
+# Automatically active via `make all` / `make check` (sets core.hooksPath).
 #
 # Skip with:
 #   git push --no-verify
@@ -21,43 +20,24 @@ fi
 FAILED=0
 
 # --- Check for untracked source files in tracked directories ---
-SOURCE_EXT='\.(cc|cpp|c|h|hpp|java|py|mk|sh)$'
-SUSPECT_FILES=()
-declare -A DIR_TRACKED_CACHE
-
-while IFS= read -r f; do
-  # Skip third-party/
-  case "$f" in third-party/*) continue;; esac
-
-  top_dir="${f%%/*}"
-  if [ "$top_dir" = "$f" ]; then
-    # Root-level source file is always suspicious
-    SUSPECT_FILES+=("$f")
-  else
-    # Check if top-level directory has any tracked content (cached)
-    if [ -z "${DIR_TRACKED_CACHE[$top_dir]+set}" ]; then
-      if [ -n "$(git ls-files "$top_dir/" | head -1)" ]; then
-        DIR_TRACKED_CACHE[$top_dir]=1
-      else
-        DIR_TRACKED_CACHE[$top_dir]=0
+SUSPECT_FILES=$(git ls-files --others --exclude-standard \
+  | grep -E '\.(cc|cpp|c|h|hpp|java|py|mk|sh)$' \
+  | grep -v '^third-party/' \
+  | while IFS= read -r f; do
+      top_dir="${f%%/*}"
+      if [ "$top_dir" = "$f" ] || [ -n "$(git ls-files "$top_dir/" | head -1)" ]; then
+        echo "$f"
       fi
-    fi
-    if [ "${DIR_TRACKED_CACHE[$top_dir]}" -eq 1 ]; then
-      SUSPECT_FILES+=("$f")
-    fi
-  fi
-done < <(git ls-files --others --exclude-standard | grep -E "$SOURCE_EXT")
+    done)
 
-if [ ${#SUSPECT_FILES[@]} -gt 0 ]; then
+if [ -n "$SUSPECT_FILES" ]; then
   echo ""
   echo "==========================================================="
   echo "  pre-push: untracked source files in tracked directories."
   echo "  Push blocked. These may need to be committed, or the"
   echo "  pushed code could fail to build:"
   echo ""
-  for f in "${SUSPECT_FILES[@]}"; do
-    echo "    $f"
-  done
+  echo "$SUSPECT_FILES" | sed 's/^/    /'
   echo ""
   echo "  Commit them, add to .gitignore, delete, or --no-verify."
   echo "==========================================================="
@@ -67,7 +47,7 @@ fi
 # --- Check formatting ---
 echo "pre-push: running format check..."
 
-if ! make check-format 2>/dev/null; then
+if ! make check-format; then
   echo ""
   echo "==========================================================="
   echo "  pre-push: formatting issues detected. Push blocked."

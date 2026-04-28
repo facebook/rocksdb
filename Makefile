@@ -1268,6 +1268,8 @@ check-format:
 	build_tools/format-diff.sh -c
 
 
+# Crude alternative to setup-hooks: copies hooks into .git/hooks/ instead of
+# using core.hooksPath. The copies won't track changes to githooks/.
 install-hooks:
 	@echo "Installing git hooks from githooks/..."
 	@if [ -d githooks ]; then \
@@ -1283,6 +1285,7 @@ install-hooks:
 		exit 1; \
 	fi
 
+# Reverse of install-hooks (not needed if using setup-hooks / core.hooksPath).
 uninstall-hooks:
 	@echo "Removing installed git hooks..."
 	@for hook in githooks/*; do \
