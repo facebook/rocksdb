@@ -7321,10 +7321,18 @@ TEST_F(ExternalTableTest, SstReaderTest) {
   ASSERT_FALSE(iter->Valid());
   ASSERT_TRUE(iter->status().ok());
 
+  // Verify external table Get() goes through the simple SaveValue entry point
+  std::atomic<int> simple_save_value_count{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "GetContext::SaveValue::Simple",
+      [&](void* /*arg*/) { simple_save_value_count.fetch_add(1); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
   // Test MultiGet
   std::vector<Slice> keys = {"a", "b", "missing", "c"};
   std::vector<std::string> values;
   std::vector<Status> statuses = reader->MultiGet(ReadOptions(), keys, &values);
+  ASSERT_EQ(simple_save_value_count, 3);
   ASSERT_EQ(values.size(), keys.size());
   ASSERT_EQ(statuses.size(), keys.size());
   ASSERT_OK(statuses[0]);
@@ -7334,6 +7342,9 @@ TEST_F(ExternalTableTest, SstReaderTest) {
   ASSERT_TRUE(statuses[2].IsNotFound());
   ASSERT_OK(statuses[3]);
   ASSERT_EQ(values[3], "val_c");
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(ExternalTableTest, PinnedGetTest) {
@@ -7363,6 +7374,14 @@ TEST_F(ExternalTableTest, PinnedGetTest) {
   factory->last_reader()->SetPinnedData(
       {{"key1", "pinned_val1"}, {"key2", "pinned_val2"}});
 
+  // Verify external table Get() goes through the simple SaveValue entry point
+  // (the no-ParsedInternalKey overload) rather than the complex one.
+  std::atomic<int> simple_save_value_count{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "GetContext::SaveValue::Simple",
+      [&](void* /*arg*/) { simple_save_value_count.fetch_add(1); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
   PinnableSlice pinnable;
   ASSERT_OK(
       db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "key1", &pinnable));
@@ -7376,13 +7395,17 @@ TEST_F(ExternalTableTest, PinnedGetTest) {
   ASSERT_TRUE(pinnable.IsPinned());
   pinnable.Reset();
 
+  // Two found Gets => simple SaveValue invoked twice.
+  ASSERT_EQ(simple_save_value_count.load(), 2);
+
   // Verify cleanup ran for both Gets
   ASSERT_EQ(factory->last_reader()->pin_cleanup_count(), 2);
 
-  // Verify NotFound still works
+  // Verify NotFound still works (does not invoke SaveValue)
   Status s =
       db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "missing", &pinnable);
   ASSERT_TRUE(s.IsNotFound());
+  ASSERT_EQ(simple_save_value_count.load(), 2);
 
   // Test MultiGet with PinnableSlice to exercise the batched pin path
   const size_t num_keys = 3;
@@ -7408,6 +7431,9 @@ TEST_F(ExternalTableTest, PinnedGetTest) {
     v.Reset();
   }
   ASSERT_EQ(factory->last_reader()->pin_cleanup_count(), 4);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(ExternalTableTest, SstReaderPinnableMultiGetTest) {

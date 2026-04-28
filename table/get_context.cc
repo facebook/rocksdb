@@ -206,6 +206,8 @@ void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/,
   assert(state_ == kNotFound);
   assert(ucmp_->timestamp_size() == 0);
 
+  TEST_SYNC_POINT_CALLBACK("GetContext::SaveValue::Simple", this);
+
   appendToReplayLog(kTypeValue, value, Slice());
 
   state_ = kFound;
