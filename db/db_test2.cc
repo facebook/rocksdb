@@ -8149,6 +8149,47 @@ TEST_F(DBTest2, FastSstOpenIngestion) {
   ASSERT_OK(DestroyDB(test_dbname, options));
 }
 
+TEST_F(DBTest2, FastSstOpenDisableAfterMetadataPersisted) {
+  // Verify that disabling fast_sst_open prevents previously-persisted
+  // metadata from being passed to NewRandomAccessFile. This is critical
+  // for cases where stale metadata (e.g. expired credentials) would
+  // cause file open failures.
+  auto test_fs = std::make_shared<FastOpenTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> test_env(new CompositeEnvWrapper(env_, test_fs));
+
+  Options options;
+  options.env = test_env.get();
+  options.fast_sst_open = true;
+  options.create_if_missing = true;
+
+  std::string test_dbname = test::PerThreadDBPath("fast_open_disable_after");
+  ASSERT_OK(DestroyDB(test_dbname, options));
+
+  // Open with fast_sst_open enabled, write and flush to persist metadata
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+  ASSERT_EQ(1, test_fs->GetMetadataRetrievedCount());
+  db.reset();
+
+  // Reopen with fast_sst_open DISABLED — metadata is in the MANIFEST
+  // but should NOT be passed to the filesystem
+  options.fast_sst_open = false;
+  test_fs->ResetCounters();
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+
+  std::string value;
+  ASSERT_OK(db->Get(ReadOptions(), "key1", &value));
+  ASSERT_EQ("value1", value);
+
+  // No metadata should have been passed despite being in the MANIFEST
+  ASSERT_EQ(0, test_fs->GetMetadataPassedOnOpenCount());
+
+  db.reset();
+  ASSERT_OK(DestroyDB(test_dbname, options));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
