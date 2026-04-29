@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.2.1 (04/29/2026)
+### Bug Fixes
+* Fix bug in range tombstone synthesis that covers live keys added during an IngestExternalFile
+
 ## 11.2.0 (04/18/2026)
 ### New Features
 * Added experimental `DBOptions::fast_sst_open` option. When enabled, RocksDB retrieves opaque file system metadata for SST files after flush, compaction, and external file ingestion, persists it in the MANIFEST, and passes it back to the file system on subsequent file opens to accelerate DB open time.
