@@ -126,6 +126,8 @@ Status PessimisticTransactionDB::Initialize(
   assert(dbimpl != nullptr);
   auto rtrxs = dbimpl->recovered_transactions();
 
+  db_impl_->EnableManagedSnapshotForCompactionFlush();
+
   for (auto it = rtrxs.begin(); it != rtrxs.end(); ++it) {
     auto recovered_trx = it->second;
     assert(recovered_trx);

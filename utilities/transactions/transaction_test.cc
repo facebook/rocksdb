@@ -9114,6 +9114,112 @@ TEST_P(CommitBypassMemtableTest, SingleCFUpdate) {
   }
 }
 
+TEST_P(CommitBypassMemtableTest,
+       FlushPreservesPublishedValueDuringBypassOverwrite) {
+  if (!options.two_write_queues) {
+    ROCKSDB_GTEST_BYPASS(
+        "Deterministic repro requires flush to run while WBWI data is "
+        "installed but still unpublished");
+    return;
+  }
+
+  SetUpTransactionDB();
+
+  auto* db_impl = static_cast_with_check<DBImpl>(txn_db->GetRootDB());
+  ASSERT_NE(db_impl, nullptr);
+
+  ASSERT_OK(txn_db->Put(WriteOptions(), "key", "old_value"));
+  ASSERT_OK(db_impl->TEST_SwitchMemtable());
+
+  const SequenceNumber published_before = db_impl->GetLastPublishedSequence();
+  ASSERT_GT(published_before, 0);
+  ASSERT_EQ("old_value", Get("key"));
+  auto release_snapshot = [this](const Snapshot* snapshot) {
+    if (snapshot != nullptr) {
+      db_->ReleaseSnapshot(snapshot);
+    }
+  };
+  std::unique_ptr<const Snapshot, decltype(release_snapshot)> snapshot(
+      nullptr, release_snapshot);
+
+  Status flush_status;
+  Status writer_status;
+
+  // Reproduce the exact bad visibility window:
+  // - "old_value" is the last published version of "key".
+  // - The bypass commit writes a newer "new_value" version into WBWI-backed
+  //   immutable memtables, but publication has not advanced yet.
+  //
+  // The ordering below matters:
+  // 1. Pause the writer after WBWI ingest and before SetLastSequence(), so the
+  //    DB contains both versions of "key" but only "old_value" is visible.
+  // 2. Start flush and wait until InitSnapshotContext() runs. At that point,
+  //    flush has decided which sequence boundaries protect older versions.
+  // 3. Take a snapshot while publication is still at the old boundary. This
+  //    snapshot should continue to see "old_value".
+  // 4. Resume the writer so "new_value" becomes published for latest reads.
+  //
+  // Before the fix, flush only protected explicit snapshots. It could see
+  // both key@published and key@future, drop the published version during
+  // compaction/flush retention, and leave the held snapshot with neither:
+  // "old_value" was discarded, while "new_value" was still too new, so Get()
+  // returned NotFound.
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::WriteImpl:AfterWBWIIngestBeforeSetLastSequence:pause",
+        "CommitBypassMemtableTest::WriterPaused"},
+       {"CommitBypassMemtableTest::ResumeWriter",
+        "DBImpl::WriteImpl:AfterWBWIIngestBeforeSetLastSequence:resume"},
+       {"DBImpl::InitSnapshotContext:BeforeInit",
+        "CommitBypassMemtableTest::FlushInitialized"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  auto run_bypass_overwrite = [&]() -> Status {
+    TransactionOptions txn_opts;
+    txn_opts.commit_bypass_memtable = true;
+    std::unique_ptr<Transaction> txn(
+        txn_db->BeginTransaction(WriteOptions(), txn_opts));
+    if (txn == nullptr) {
+      return Status::InvalidArgument("BeginTransaction returned nullptr");
+    }
+    Status status = txn->SetName("xid_bypass_overwrite");
+    if (status.ok()) {
+      status = txn->Put("key", "new_value");
+    }
+    if (status.ok()) {
+      status = txn->Prepare();
+    }
+    if (status.ok()) {
+      status = txn->Commit();
+    }
+    return status;
+  };
+
+  std::thread writer([&]() { writer_status = run_bypass_overwrite(); });
+  TEST_SYNC_POINT("CommitBypassMemtableTest::WriterPaused");
+
+  std::string snapshot_value;
+  std::thread flush_thread([&]() { flush_status = db_->Flush({}); });
+  TEST_SYNC_POINT("CommitBypassMemtableTest::FlushInitialized");
+  snapshot.reset(db_->GetSnapshot());
+  TEST_SYNC_POINT("CommitBypassMemtableTest::ResumeWriter");
+  writer.join();
+
+  ASSERT_NE(snapshot.get(), nullptr);
+  ASSERT_EQ(published_before, snapshot->GetSequenceNumber());
+  ASSERT_OK(writer_status);
+  flush_thread.join();
+  ASSERT_OK(flush_status);
+  ReadOptions ropts;
+  ropts.snapshot = snapshot.get();
+  ASSERT_OK(db_->Get(ropts, "key", &snapshot_value));
+  ASSERT_EQ("old_value", snapshot_value)
+      << "flush should preserve the version visible to the held snapshot";
+  ASSERT_EQ("new_value", Get("key"));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_P(CommitBypassMemtableTest, SingleCFUpdateWithOverWrite) {
   // Test the case where DB has base data and there are overwrites
   // over the data in WBWI for one CF.

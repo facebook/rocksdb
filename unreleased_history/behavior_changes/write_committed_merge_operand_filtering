@@ -1,0 +1,1 @@
+A byproduct of fixing missing entry in write committed + two_write_queue + wbwi ingest is that write comitted txns now share the same behavior of write prepared and write unprepared, where merge operand filters may not apply to the most recent write. 

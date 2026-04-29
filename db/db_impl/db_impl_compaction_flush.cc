@@ -5114,12 +5114,18 @@ void DBImpl::MarkAsGrabbedForPurge(uint64_t file_number) {
   files_grabbed_for_purge_.insert(file_number);
 }
 
+void DBImpl::EnableManagedSnapshotForCompactionFlush() {
+  InstrumentedMutexLock l(&mutex_);
+  use_managed_snapshot_for_compaction_flush_ = true;
+}
+
 void DBImpl::SetSnapshotChecker(SnapshotChecker* snapshot_checker) {
   InstrumentedMutexLock l(&mutex_);
   // snapshot_checker_ should only set once. If we need to set it multiple
   // times, we need to make sure the old one is not deleted while it is still
   // using by a compaction job.
   assert(!snapshot_checker_);
+  use_managed_snapshot_for_compaction_flush_ = true;
   snapshot_checker_.reset(snapshot_checker);
 }
 
@@ -5133,8 +5139,10 @@ void DBImpl::InitSnapshotContext(JobContext* job_context) {
   if (use_custom_gc_ && !snapshot_checker) {
     snapshot_checker = DisableGCSnapshotChecker::Instance();
   }
+  const bool take_managed_snapshot =
+      snapshot_checker != nullptr || use_managed_snapshot_for_compaction_flush_;
   std::unique_ptr<ManagedSnapshot> managed_snapshot = nullptr;
-  if (snapshot_checker) {
+  if (take_managed_snapshot) {
     // If snapshot_checker is used, that means the flush/compaction may
     // contain values not visible to snapshot taken after
     // flush/compaction job starts. Take a snapshot and it will appear
@@ -5147,6 +5155,7 @@ void DBImpl::InitSnapshotContext(JobContext* job_context) {
   SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber;
   std::vector<SequenceNumber> snapshot_seqs =
       snapshots_.GetAll(&earliest_write_conflict_snapshot);
+  TEST_SYNC_POINT("DBImpl::InitSnapshotContext:BeforeInit");
   job_context->InitSnapshotContext(
       snapshot_checker, std::move(managed_snapshot),
       earliest_write_conflict_snapshot, std::move(snapshot_seqs));
