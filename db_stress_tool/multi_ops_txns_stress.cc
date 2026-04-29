@@ -714,6 +714,11 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
                                                      uint32_t old_c,
                                                      uint32_t old_c_pos,
                                                      uint32_t new_c) {
+  struct SecondaryKeyUpdateWorkItem {
+    std::string old_sk;
+    uint32_t a;
+  };
+
   std::unique_ptr<Transaction> txn;
   WriteOptions wopts;
   Status s = NewTxn(wopts, thread, &txn);
@@ -789,11 +794,23 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   assert(it);
   it->Seek(old_sk_prefix);
   if (!it->Valid()) {
+    s = it->status();
+    if (!s.ok()) {
+      return s;
+    }
     s = Status::NotFound();
     return s;
   }
   auto* wb = txn->GetWriteBatch();
   assert(wb);
+  // Two-phase update:
+  // 1. Scan the old secondary index entries and materialize stable work items.
+  // 2. Stop using the iterator, then update PK/SK pairs from the worklist.
+  //
+  // txn->GetIterator() is backed by a merged DB + WriteBatchWithIndex view.
+  // Updating the batch with the iterator's current key invalidates that key,
+  // so mutating old SK entries while continuing iteration is unsafe.
+  std::vector<SecondaryKeyUpdateWorkItem> worklist;
 
   do {
     ++iterations;
@@ -806,9 +823,22 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
       assert(false);
       break;
     }
-    // At this point, record.b is not known yet, thus we need to access
-    // primary index.
-    std::string pk = Record::EncodePrimaryKey(record.a_value());
+    worklist.push_back({it->key().ToString(/*hex=*/false), record.a_value()});
+    it->Next();
+  } while (it->Valid());
+
+  if (!s.ok()) {
+    return s;
+  }
+  s = it->status();
+  if (!s.ok()) {
+    return s;
+  }
+
+  for (const auto& work_item : worklist) {
+    // The scan only gave us (old_sk, a). Read the primary row now to recover
+    // the current b value and verify the row still belongs to old_c.
+    std::string pk = Record::EncodePrimaryKey(work_item.a);
     std::string value;
     ReadOptions read_opts;
     read_opts.rate_limiter_priority =
@@ -859,25 +889,24 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
       assert(dbimpl);
       oss << "snap " << read_opts.snapshot->GetSequenceNumber()
           << " (published " << dbimpl->GetLastPublishedSequence()
-          << "), pk/sk mismatch. pk: (a=" << record.a_value() << ", "
+          << "), pk/sk mismatch. pk: (a=" << work_item.a << ", "
           << "c=" << c << "), sk: (c=" << old_c << ")";
       s = Status::Corruption();
       fprintf(stderr, "%s\n", oss.str().c_str());
       assert(false);
       break;
     }
-    Record new_rec(record.a_value(), b, new_c);
+    Record new_rec(work_item.a, b, new_c);
     std::string new_primary_index_value = new_rec.EncodePrimaryIndexValue();
     ColumnFamilyHandle* cf = db_->DefaultColumnFamily();
     s = txn->Put(cf, pk, new_primary_index_value, /*assume_tracked=*/true);
     if (!s.ok()) {
       break;
     }
-    std::string old_sk = it->key().ToString(/*hex=*/false);
     std::string new_sk;
     std::string new_crc;
     std::tie(new_sk, new_crc) = new_rec.EncodeSecondaryIndexEntry();
-    s = wb->SingleDelete(old_sk);
+    s = wb->SingleDelete(work_item.old_sk);
     if (!s.ok()) {
       break;
     }
@@ -885,9 +914,7 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
     if (!s.ok()) {
       break;
     }
-
-    it->Next();
-  } while (it->Valid());
+  }
 
   if (!s.ok()) {
     return s;

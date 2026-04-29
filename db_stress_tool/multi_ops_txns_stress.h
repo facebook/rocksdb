@@ -82,6 +82,9 @@ namespace ROCKSDB_NAMESPACE {
 // tx->Prepare()
 // tx->Commit()
 // ```
+// The scan and the writes must happen in two phases. The iterator is backed by
+// a merged DB + WriteBatchWithIndex view, so deleting the iterator's current
+// secondary key and then continuing iteration is unsafe.
 //
 // 3. Primary index value update
 // UPDATE t1 SET b = b + 1 WHERE a = 2;
