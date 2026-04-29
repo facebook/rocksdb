@@ -5114,9 +5114,9 @@ void DBImpl::MarkAsGrabbedForPurge(uint64_t file_number) {
   files_grabbed_for_purge_.insert(file_number);
 }
 
-void DBImpl::EnableManagedSnapshotForCompactionFlush() {
+void DBImpl::EnableTrackPublishedSeqInSnapshotContext() {
   InstrumentedMutexLock l(&mutex_);
-  use_managed_snapshot_for_compaction_flush_ = true;
+  track_published_seq_in_snapshot_context_ = true;
 }
 
 void DBImpl::SetSnapshotChecker(SnapshotChecker* snapshot_checker) {
@@ -5125,7 +5125,6 @@ void DBImpl::SetSnapshotChecker(SnapshotChecker* snapshot_checker) {
   // times, we need to make sure the old one is not deleted while it is still
   // using by a compaction job.
   assert(!snapshot_checker_);
-  use_managed_snapshot_for_compaction_flush_ = true;
   snapshot_checker_.reset(snapshot_checker);
 }
 
@@ -5139,10 +5138,8 @@ void DBImpl::InitSnapshotContext(JobContext* job_context) {
   if (use_custom_gc_ && !snapshot_checker) {
     snapshot_checker = DisableGCSnapshotChecker::Instance();
   }
-  const bool take_managed_snapshot =
-      snapshot_checker != nullptr || use_managed_snapshot_for_compaction_flush_;
   std::unique_ptr<ManagedSnapshot> managed_snapshot = nullptr;
-  if (take_managed_snapshot) {
+  if (snapshot_checker) {
     // If snapshot_checker is used, that means the flush/compaction may
     // contain values not visible to snapshot taken after
     // flush/compaction job starts. Take a snapshot and it will appear
@@ -5155,6 +5152,18 @@ void DBImpl::InitSnapshotContext(JobContext* job_context) {
   SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber;
   std::vector<SequenceNumber> snapshot_seqs =
       snapshots_.GetAll(&earliest_write_conflict_snapshot);
+
+  // snapshot tracker inherently adds to snapshot_seqs
+  if (track_published_seq_in_snapshot_context_ && !snapshot_checker) {
+    // Pin the published-sequence boundary into snapshot_seqs without taking
+    // a real snapshot. This is to prevent compaction or flush from collapsing
+    // entries into a non-visible seqno between published and allocated seqno
+    // gap.
+    const SequenceNumber published_seq = GetLastPublishedSequence();
+    if (snapshot_seqs.empty() || snapshot_seqs.back() < published_seq) {
+      snapshot_seqs.push_back(published_seq);
+    }
+  }
   TEST_SYNC_POINT("DBImpl::InitSnapshotContext:BeforeInit");
   job_context->InitSnapshotContext(
       snapshot_checker, std::move(managed_snapshot),

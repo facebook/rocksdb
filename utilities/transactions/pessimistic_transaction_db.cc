@@ -126,7 +126,14 @@ Status PessimisticTransactionDB::Initialize(
   assert(dbimpl != nullptr);
   auto rtrxs = dbimpl->recovered_transactions();
 
-  db_impl_->EnableManagedSnapshotForCompactionFlush();
+  if (txn_db_options_.write_policy == WRITE_COMMITTED) {
+    // WP/WU set a SnapshotChecker in their own Initialize, which already
+    // makes flush/compaction take a managed snapshot. WC has no
+    // SnapshotChecker, so opt into the lightweight published-seq pinning
+    // path to protect the install-before-publish window of
+    // commit_bypass_memtable under two_write_queues.
+    db_impl_->EnableTrackPublishedSeqInSnapshotContext();
+  }
 
   for (auto it = rtrxs.begin(); it != rtrxs.end(); ++it) {
     auto recovered_trx = it->second;

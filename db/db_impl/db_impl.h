@@ -1096,7 +1096,7 @@ class DBImpl : public DB {
     superversions_to_free_queue_.push_back(sv);
   }
 
-  void EnableManagedSnapshotForCompactionFlush();
+  void EnableTrackPublishedSeqInSnapshotContext();
   void SetSnapshotChecker(SnapshotChecker* snapshot_checker);
 
   // Fill JobContext with snapshot information needed by flush and compaction.
@@ -3349,11 +3349,13 @@ class DBImpl : public DB {
   // Callback for compaction to check if a key is visible to a snapshot.
   // REQUIRES: mutex held
   std::unique_ptr<SnapshotChecker> snapshot_checker_;
-  // When set, compaction/flush takes an internal managed snapshot even without
-  // a SnapshotChecker. PessimisticTransactionDB uses this so background work
-  // retains the published boundary during transient WBWI
-  // install-before-publish windows.
-  bool use_managed_snapshot_for_compaction_flush_ = false;
+  // When set, InitSnapshotContext() appends GetLastPublishedSequence() to the
+  // job's snapshot_seqs (if not already present) so that flush/compaction
+  // preserves the published-sequence boundary even when no explicit user
+  // snapshot exists there. PessimisticTransactionDB enables this for the
+  // WRITE_COMMITTED write policy to cover the WBWI install-before-publish
+  // window of commit_bypass_memtable under two_write_queues.
+  bool track_published_seq_in_snapshot_context_ = false;
 
   // Callback for when the cached_recoverable_state_ is written to memtable
   // Only to be set during initialization
