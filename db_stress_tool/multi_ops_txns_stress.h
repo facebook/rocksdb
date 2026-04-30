@@ -191,7 +191,8 @@ class MultiOpsTxnsStressTest : public StressTest {
     uint32_t c_{0};
   };
 
-  MultiOpsTxnsStressTest() {}
+  explicit MultiOpsTxnsStressTest(int db_index)
+      : StressTest(db_index) {}
 
   ~MultiOpsTxnsStressTest() override {}
 

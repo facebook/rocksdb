@@ -24,7 +24,7 @@ static bool ValidateUint32Range(const char* flagname, uint64_t value) {
 
 DEFINE_uint64(seed, 2341234,
               "Seed for PRNG. When --nooverwritepercent is "
-              "nonzero and --expected_values_dir is nonempty, this value "
+              "nonzero and --expected_states_root is nonempty, this value "
               "must be fixed across invocations.");
 static const bool FLAGS_seed_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_seed, &ValidateUint32Range);
@@ -683,23 +683,27 @@ DEFINE_bool(use_udi_as_primary_index, false,
 DEFINE_bool(test_backward_scan, true,
             "Test backward iteration (Prev, SeekForPrev) in stress tests.");
 
-DEFINE_string(db, "", "Use the db with the following name.");
+DEFINE_string(db_root, "",
+              "Use this path as the root directory for primary DB instances. "
+              "Each DB instance is resolved under this root as db_<i>.");
 
-DEFINE_string(secondaries_base, "",
-              "Use this path as the base path for secondary instances.");
+DEFINE_string(secondary_dbs_root, "",
+              "Use this path as the root directory for secondary DB "
+              "instances. Each primary DB at db_root/db_<i> has exactly one "
+              "secondary instance at secondary_dbs_root/db_<i>.");
 
 DEFINE_bool(test_secondary, false,
             "If true, start an additional secondary instance which can be used "
             "for verification.");
 
 DEFINE_string(
-    expected_values_dir, "",
-    "Dir where files containing info about the latest/historical values will "
-    "be stored. If provided and non-empty, the DB state will be verified "
-    "against values from these files after recovery. --max_key and "
+    expected_states_root, "",
+    "Root directory where expected-state files for each DB instance will be "
+    "stored under db_<i>. If provided and non-empty, the DB state will be "
+    "verified against values from these files after recovery. --max_key and "
     "--column_family must be kept the same across invocations of this program "
-    "that use the same --expected_values_dir. Currently historical values are "
-    "only tracked when --sync_fault_injection is set. See --seed and "
+    "that use the same --expected_states_root. Currently historical values "
+    "are only tracked when --sync_fault_injection is set. See --seed and "
     "--nooverwritepercent for further requirements.");
 
 DEFINE_bool(expected_state_trace_debug, true,
@@ -1006,7 +1010,7 @@ static const bool FLAGS_delrangepercent_dummy __attribute__((__unused__)) =
 
 DEFINE_int32(nooverwritepercent, 60,
              "Ratio of keys without overwrite to total workload (expressed as "
-             "a percentage). When --expected_values_dir is nonempty, must "
+             "a percentage). When --expected_states_root is nonempty, must "
              "keep this value constant across invocations.");
 static const bool FLAGS_nooverwritepercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_nooverwritepercent, &ValidateInt32Percent);
@@ -1205,7 +1209,7 @@ DEFINE_bool(sync_fault_injection, false,
             "If true, FaultInjectionTestFS will be used for write operations, "
             "and unsynced data in DB will lost after crash. In such a case we "
             "track DB changes in a trace file (\"*.trace\") in "
-            "--expected_values_dir for verifying there are no holes in the "
+            "--expected_states_root for verifying there are no holes in the "
             "recovered data.");
 
 DEFINE_bool(best_efforts_recovery, false,
@@ -1360,11 +1364,12 @@ DEFINE_uint64(
 
 DEFINE_bool(
     preserve_unverified_changes, false,
-    "DB files of the current run will all be preserved in `FLAGS_db`. DB files "
-    "from the last run will be preserved in `FLAGS_db/unverified` until the "
-    "first verification succeeds. Expected state files from the last run will "
-    "be preserved similarly under `FLAGS_expected_values_dir/unverified` when "
-    "`--expected_values_dir` is nonempty.");
+    "DB files of the current run will all be preserved under "
+    "`FLAGS_db_root/db_<i>`. DB files from the last run will be preserved in "
+    "`FLAGS_db_root/db_<i>/unverified` until the first verification succeeds. "
+    "Expected state files from the last run will be preserved similarly under "
+    "`FLAGS_expected_states_root/db_<i>/unverified` when "
+    "`--expected_states_root` is nonempty.");
 
 DEFINE_uint64(stats_dump_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,
