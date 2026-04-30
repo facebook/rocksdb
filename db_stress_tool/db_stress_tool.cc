@@ -124,13 +124,14 @@ int db_stress_tool(int argc, char** argv) {
 
   // Handle --destroy_db_and_exit early, before other option validation
   if (FLAGS_destroy_db_and_exit) {
-    s = DbStressDestroyDb(FLAGS_db);
+    s = DbStressDestroyDb(FLAGS_db_root + "/db_0");
     if (s.ok()) {
-      fprintf(stdout, "Successfully destroyed db at %s\n", FLAGS_db.c_str());
+      fprintf(stdout, "Successfully destroyed db at %s\n",
+              (FLAGS_db_root + "/db_0").c_str());
       return 0;
     } else {
-      fprintf(stderr, "Failed to destroy db at %s: %s\n", FLAGS_db.c_str(),
-              s.ToString().c_str());
+      fprintf(stderr, "Failed to destroy db at %s: %s\n",
+              (FLAGS_db_root + "/db_0").c_str(), s.ToString().c_str());
       return 1;
     }
   }
@@ -353,15 +354,29 @@ int db_stress_tool(int argc, char** argv) {
     }
   }
 
-  // Choose a location for the test database if none given with --db=<path>
-  if (FLAGS_db.empty()) {
+  // Choose a location for the test database if none given with --db_root=<path>
+  if (FLAGS_db_root.empty()) {
     std::string default_db_path;
     db_stress_env->GetTestDirectory(&default_db_path);
     default_db_path += "/dbstress";
-    FLAGS_db = default_db_path;
+    FLAGS_db_root = default_db_path;
   }
 
-  // Now that FLAGS_db is resolved, set the fault injection log file path
+  if ((FLAGS_test_secondary || FLAGS_continuous_verification_interval > 0) &&
+      FLAGS_secondary_dbs_root.empty()) {
+    std::string default_secondaries_path;
+    db_stress_env->GetTestDirectory(&default_secondaries_path);
+    default_secondaries_path += "/dbstress_secondaries";
+    s = db_stress_env->CreateDirIfMissing(default_secondaries_path);
+    if (!s.ok()) {
+      fprintf(stderr, "Failed to create directory %s: %s\n",
+              default_secondaries_path.c_str(), s.ToString().c_str());
+      exit(1);
+    }
+    FLAGS_secondary_dbs_root = default_secondaries_path;
+  }
+
+  // Now that root flags are resolved, set the fault injection log file path
   // so that PrintAll() writes to a file instead of stderr (signal-safe).
   // Store the log in TEST_TMPDIR (outside the DB directory) so it survives
   // DB reopen (which cleans untracked files) and gets included in the
@@ -378,20 +393,6 @@ int db_stress_tool(int argc, char** argv) {
                            std::to_string(getpid()) + "_" +
                            std::to_string(time(nullptr)) + ".log";
     fault_fs_guard->SetInjectedErrorLogPath(log_path);
-  }
-
-  if ((FLAGS_test_secondary || FLAGS_continuous_verification_interval > 0) &&
-      FLAGS_secondaries_base.empty()) {
-    std::string default_secondaries_path;
-    db_stress_env->GetTestDirectory(&default_secondaries_path);
-    default_secondaries_path += "/dbstress_secondaries";
-    s = db_stress_env->CreateDirIfMissing(default_secondaries_path);
-    if (!s.ok()) {
-      fprintf(stderr, "Failed to create directory %s: %s\n",
-              default_secondaries_path.c_str(), s.ToString().c_str());
-      exit(1);
-    }
-    FLAGS_secondaries_base = default_secondaries_path;
   }
 
   if (FLAGS_best_efforts_recovery &&
@@ -511,16 +512,60 @@ int db_stress_tool(int argc, char** argv) {
     key_gen_ctx.weights.emplace_back(key_gen_ctx.window -
                                      keys_per_level * (levels - 1));
   }
+  // Create per-DB subdirectories (db_root/db_0, expected_states_root/db_0, etc.)
+  // These don't exist yet because paths changed from e.g. FLAGS_db to
+  // FLAGS_db_root/db_0.
+  const int db_index = 0;
+  const std::string db_label = "db_" + std::to_string(db_index);
+  s = db_stress_env->CreateDirIfMissing(FLAGS_db_root);
+  if (s.ok()) {
+    s = db_stress_env->CreateDirIfMissing(FLAGS_db_root + "/" + db_label);
+  }
+  if (!s.ok()) {
+    fprintf(stderr, "Failed to create directory %s: %s\n",
+            (FLAGS_db_root + "/" + db_label).c_str(), s.ToString().c_str());
+    exit(1);
+  }
+  if (!FLAGS_expected_states_root.empty()) {
+    // Use Env::Default() because expected states are always on the local
+    // filesystem (created by Python's tempfile.mkdtemp), even when the DB
+    // itself is on a remote/custom filesystem.
+    s = Env::Default()->CreateDirIfMissing(FLAGS_expected_states_root);
+    if (s.ok()) {
+      s = Env::Default()->CreateDirIfMissing(FLAGS_expected_states_root + "/" +
+                                             db_label);
+    }
+    if (!s.ok()) {
+      fprintf(stderr, "Failed to create directory %s: %s\n",
+              (FLAGS_expected_states_root + "/" + db_label).c_str(),
+              s.ToString().c_str());
+      exit(1);
+    }
+  }
+  if (!FLAGS_secondary_dbs_root.empty()) {
+    s = db_stress_env->CreateDirIfMissing(FLAGS_secondary_dbs_root);
+    if (s.ok()) {
+      s = db_stress_env->CreateDirIfMissing(FLAGS_secondary_dbs_root + "/" +
+                                            db_label);
+    }
+    if (!s.ok()) {
+      fprintf(stderr, "Failed to create directory %s: %s\n",
+              (FLAGS_secondary_dbs_root + "/" + db_label).c_str(),
+              s.ToString().c_str());
+      exit(1);
+    }
+  }
+
   std::unique_ptr<ROCKSDB_NAMESPACE::SharedState> shared;
   std::unique_ptr<ROCKSDB_NAMESPACE::StressTest> stress;
   if (FLAGS_test_cf_consistency) {
-    stress.reset(CreateCfConsistencyStressTest());
+    stress.reset(CreateCfConsistencyStressTest(db_index));
   } else if (FLAGS_test_batches_snapshots) {
-    stress.reset(CreateBatchedOpsStressTest());
+    stress.reset(CreateBatchedOpsStressTest(db_index));
   } else if (FLAGS_test_multi_ops_txns) {
-    stress.reset(CreateMultiOpsTxnsStressTest());
+    stress.reset(CreateMultiOpsTxnsStressTest(db_index));
   } else {
-    stress.reset(CreateNonBatchedOpsStressTest());
+    stress.reset(CreateNonBatchedOpsStressTest(db_index));
   }
   // Initialize the Zipfian pre-calculated array
   InitializeHotKeyGenerator(FLAGS_hot_key_alpha);

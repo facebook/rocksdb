@@ -179,7 +179,7 @@ default_params = {
     # causing stress test failures. Temporarily disabled until the
     # sanitization can account for cross-run incompatibility.
     "inplace_update_support": 0,
-    "expected_values_dir": lambda: setup_expected_values_dir(),
+    "expected_states_root": lambda: setup_expected_states_root(),
     "flush_one_in": lambda: random.choice([1000, 1000000]),
     "manual_wal_flush_one_in": lambda: random.choice([0, 1000]),
     "sync_wal_one_in": 0,
@@ -528,13 +528,13 @@ def get_dbname(test_name):
     return dbname
 
 
-expected_values_dir = None
+expected_states_root = None
 
 
-def setup_expected_values_dir():
-    global expected_values_dir
-    if expected_values_dir is not None:
-        return expected_values_dir
+def setup_expected_states_root():
+    global expected_states_root
+    if expected_states_root is not None:
+        return expected_states_root
     expected_dir_prefix = "rocksdb_crashtest_expected_"
     test_exp_tmpdir = os.environ.get(_TEST_EXPECTED_DIR_ENV_VAR)
 
@@ -542,22 +542,23 @@ def setup_expected_values_dir():
         test_exp_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
 
     if test_exp_tmpdir is None or test_exp_tmpdir == "":
-        expected_values_dir = tempfile.mkdtemp(prefix=expected_dir_prefix)
+        expected_states_root = tempfile.mkdtemp(prefix=expected_dir_prefix)
     else:
-        # if tmpdir is specified, store the expected_values_dir under that dir
-        expected_values_dir = test_exp_tmpdir + "/rocksdb_crashtest_expected"
-        os.makedirs(expected_values_dir, exist_ok=True)
-    return expected_values_dir
+        # If tmpdir is specified, store the expected-states root under that
+        # directory and let db_stress resolve per-DB subdirectories beneath it.
+        expected_states_root = test_exp_tmpdir + "/rocksdb_crashtest_expected"
+        os.makedirs(expected_states_root, exist_ok=True)
+    return expected_states_root
 
 
-def prepare_expected_values_dir(expected_dir, destroy_db_initially):
-    if expected_dir is None or expected_dir == "":
+def prepare_expected_states_root(expected_root, destroy_db_initially):
+    if expected_root is None or expected_root == "":
         return
 
-    if destroy_db_initially and os.path.exists(expected_dir):
-        shutil.rmtree(expected_dir, True)
+    if destroy_db_initially and os.path.exists(expected_root):
+        shutil.rmtree(expected_root, True)
 
-    os.makedirs(expected_dir, exist_ok=True)
+    os.makedirs(expected_root, exist_ok=True)
 
 
 multiops_txn_key_spaces_file = None
@@ -936,11 +937,13 @@ def finalize_and_sanitize(src_params):
     if (
         dest_params["use_direct_io_for_flush_and_compaction"] == 1
         or dest_params["use_direct_reads"] == 1
-    ) and not is_direct_io_supported(dest_params["db"]):
+    ) and not is_direct_io_supported(dest_params["db_root"]):
         if is_release_mode():
             print(
                 "{} does not support direct IO. Disabling use_direct_reads and "
-                "use_direct_io_for_flush_and_compaction.\n".format(dest_params["db"])
+                "use_direct_io_for_flush_and_compaction.\n".format(
+                    dest_params["db_root"]
+                )
             )
             dest_params["use_direct_reads"] = 0
             dest_params["use_direct_io_for_flush_and_compaction"] = 0
@@ -1622,8 +1625,8 @@ def gen_cmd_params(args):
 
 def gen_cmd(params, unknown_params):
     finalzied_params = finalize_and_sanitize(params)
-    prepare_expected_values_dir(
-        finalzied_params.get("expected_values_dir"),
+    prepare_expected_states_root(
+        finalzied_params.get("expected_states_root"),
         finalzied_params.get("destroy_db_initially", 0),
     )
     cmd = (
@@ -1899,8 +1902,8 @@ def build_out_of_space_diagnostics(
 
 def diagnostic_paths(finalized_params):
     return [
-        finalized_params.get("db"),
-        finalized_params.get("expected_values_dir"),
+        finalized_params.get("db_root"),
+        finalized_params.get("expected_states_root"),
     ]
 
 
@@ -1999,7 +2002,7 @@ def strip_expected_sigterm_stderr(stdout, stderr, hit_timeout):
 
 def cleanup_after_success(dbname):
     # Use db_stress --destroy_db_and_exit, which simplifies remote DB cleanup
-    cleanup_cmd_parts = [stress_cmd, "--destroy_db_and_exit=1", "--db=" + dbname]
+    cleanup_cmd_parts = [stress_cmd, "--destroy_db_and_exit=1", "--db_root=" + dbname]
     # Pass through relevant arguments for remote DB access
     for arg in remain_args:
         parts = arg.split("=", 1)
@@ -2080,7 +2083,8 @@ def blackbox_crash_main(args, unknown_args):
     while time.time() < exit_time:
         apply_random_seed_per_iteration()
         cmd, finalized_params = gen_cmd(
-            dict(list(cmd_params.items()) + list({"db": dbname}.items())), unknown_args
+            dict(list(cmd_params.items()) + list({"db_root": dbname}.items())),
+            unknown_args,
         )
 
         hit_timeout, retcode, outs, errs, pid = execute_cmd(cmd, cmd_params["interval"])
@@ -2110,7 +2114,8 @@ def blackbox_crash_main(args, unknown_args):
     cmd_params.update({"skip_verifydb": 0})
 
     cmd, finalized_params = gen_cmd(
-        dict(list(cmd_params.items()) + list({"db": dbname}.items())), unknown_args
+        dict(list(cmd_params.items()) + list({"db_root": dbname}.items())),
+        unknown_args,
     )
     hit_timeout, retcode, outs, errs, pid = execute_cmd(
         cmd, cmd_params["verify_timeout"], True
@@ -2243,7 +2248,7 @@ def whitebox_crash_main(args, unknown_args):
             dict(
                 list(cmd_params.items())
                 + list(additional_opts.items())
-                + list({"db": dbname}.items())
+                + list({"db_root": dbname}.items())
             ),
             unknown_args,
         )
@@ -2372,9 +2377,9 @@ def main():
         blackbox_crash_main(args, unknown_args)
     if args.test_type == "whitebox":
         whitebox_crash_main(args, unknown_args)
-    # Only delete the `expected_values_dir` if test passes
-    if expected_values_dir is not None:
-        shutil.rmtree(expected_values_dir)
+    # Only delete the expected-states root if the test passes.
+    if expected_states_root is not None:
+        shutil.rmtree(expected_states_root)
     if multiops_txn_key_spaces_file is not None:
         os.remove(multiops_txn_key_spaces_file)
 

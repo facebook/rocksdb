@@ -186,10 +186,10 @@ DECLARE_double(uniform_cv_threshold);
 DECLARE_bool(use_trie_index);
 DECLARE_bool(use_udi_as_primary_index);
 DECLARE_bool(test_backward_scan);
-DECLARE_string(db);
-DECLARE_string(secondaries_base);
+DECLARE_string(db_root);
+DECLARE_string(secondary_dbs_root);
 DECLARE_bool(test_secondary);
-DECLARE_string(expected_values_dir);
+DECLARE_string(expected_states_root);
 DECLARE_bool(expected_state_trace_debug);
 DECLARE_int64(expected_state_trace_debug_key);
 DECLARE_int32(expected_state_trace_debug_max_logs);
@@ -826,10 +826,10 @@ AttributeGroups GenerateAttributeGroups(
     const std::vector<ColumnFamilyHandle*>& cfhs, uint32_t value_base,
     const Slice& slice);
 
-StressTest* CreateCfConsistencyStressTest();
-StressTest* CreateBatchedOpsStressTest();
-StressTest* CreateNonBatchedOpsStressTest();
-StressTest* CreateMultiOpsTxnsStressTest();
+StressTest* CreateCfConsistencyStressTest(int db_index);
+StressTest* CreateBatchedOpsStressTest(int db_index);
+StressTest* CreateNonBatchedOpsStressTest(int db_index);
+StressTest* CreateMultiOpsTxnsStressTest(int db_index);
 void CheckAndSetOptionsForMultiOpsTxnStressTest();
 void InitializeHotKeyGenerator(double alpha);
 int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
