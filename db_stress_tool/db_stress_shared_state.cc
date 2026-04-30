@@ -80,7 +80,8 @@ SharedState::SharedState(Env* /*env*/, StressTest* stress_test)
   }
 
   if (FLAGS_test_batches_snapshots) {
-    fprintf(stdout, "No lock creation because test_batches_snapshots set\n");
+    fprintf(stdout, "[%s] No lock creation because test_batches_snapshots set\n",
+            stress_test_->GetDbLabel().c_str());
     return;
   }
 
@@ -88,7 +89,6 @@ SharedState::SharedState(Env* /*env*/, StressTest* stress_test)
   if (max_key_ & ((1 << log2_keys_per_lock_) - 1)) {
     num_locks++;
   }
-  fprintf(stdout, "Creating %ld locks\n", num_locks * FLAGS_column_families);
   key_locks_.resize(FLAGS_column_families);
 
   for (int i = 0; i < FLAGS_column_families; ++i) {

@@ -22,16 +22,22 @@
 
 #ifdef GFLAGS
 #include <iostream>
+#include <thread>
 
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/rate_limiter.h"
 #include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
+static constexpr int kMaxDbsForCrash = 16;
+static FaultInjectionTestFS* fault_fs_for_crash[kMaxDbsForCrash] = {};
+static int num_dbs_for_crash = 0;
+
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_wrapper_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> legacy_env_wrapper_guard;
@@ -45,6 +51,53 @@ int ReturnFlagValidationError(const char* message) {
 }  // namespace
 
 KeyGenContext key_gen_ctx;
+
+void InitSharedResources() {
+  InitializeHotKeyGenerator(FLAGS_hot_key_alpha);
+  block_cache = StressTest::NewCache(FLAGS_cache_size, FLAGS_cache_numshardbits);
+  if (FLAGS_use_write_buffer_manager) {
+    wbm = std::make_shared<WriteBufferManager>(FLAGS_db_write_buffer_size,
+                                               block_cache);
+  }
+  if (FLAGS_rate_limiter_bytes_per_sec > 0) {
+    rate_limiter.reset(NewGenericRateLimiter(
+        FLAGS_rate_limiter_bytes_per_sec, 1000 /* refill_period_us */,
+        10 /* fairness */,
+        FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
+                                  : RateLimiter::Mode::kWritesOnly));
+  }
+}
+
+void SetupCrashCallback(
+    const std::vector<std::unique_ptr<StressTest>>& stress_tests,
+    int num_dbs) {
+  assert(num_dbs <= kMaxDbsForCrash);
+  for (int i = 0; i < num_dbs; i++) {
+    fault_fs_for_crash[i] = stress_tests[i]->GetDbFaultInjectionFs().get();
+  }
+  num_dbs_for_crash = num_dbs;
+  port::RegisterCrashCallback([]() {
+    for (int i = 0; i < num_dbs_for_crash; i++) {
+      if (fault_fs_for_crash[i]) {
+        fault_fs_for_crash[i]->PrintRecentInjectedErrors();
+      }
+    }
+  });
+}
+
+void CleanupSharedResources() {
+  wbm.reset();
+  rate_limiter.reset();
+  block_cache.reset();
+}
+
+void ClearCrashCallback(int num_dbs) {
+  port::RegisterCrashCallback(nullptr);
+  for (int i = 0; i < num_dbs; i++) {
+    fault_fs_for_crash[i] = nullptr;
+  }
+  num_dbs_for_crash = 0;
+}
 
 int db_stress_tool(int argc, char** argv) {
   SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
@@ -90,18 +143,53 @@ int db_stress_tool(int argc, char** argv) {
       std::make_shared<CompositeEnvWrapper>(raw_env, db_stress_fs);
   db_stress_env = env_wrapper_guard.get();
 
+  if (FLAGS_num_dbs < 1 || FLAGS_num_dbs > kMaxDbsForCrash) {
+    fprintf(stderr, "Error: --num_dbs must be in [1, %d]\n", kMaxDbsForCrash);
+    exit(1);
+  }
+  const int num_dbs = FLAGS_num_dbs;
+  // Multi-DB guards — see db_crashtest.py finalize_and_sanitize for details
+  if (num_dbs > 1) {
+    if (FLAGS_clear_column_family_one_in > 0) {
+      fprintf(stderr,
+              "Error: --num_dbs > 1 incompatible with "
+              "--clear_column_family_one_in\n");
+      exit(1);
+    }
+    if (FLAGS_test_multi_ops_txns) {
+      fprintf(stderr,
+              "Error: --num_dbs > 1 incompatible with "
+              "--test_multi_ops_txns\n");
+      exit(1);
+    }
+    if (FLAGS_compaction_thread_pool_adjust_interval > 0) {
+      fprintf(stderr,
+              "Error: --num_dbs > 1 incompatible with "
+              "--compaction_thread_pool_adjust_interval\n");
+      exit(1);
+    }
+    if (FLAGS_compressed_secondary_cache_size > 0 ||
+        FLAGS_compressed_secondary_cache_ratio > 0.0) {
+      fprintf(stderr,
+              "Error: --num_dbs > 1 incompatible with compressed secondary "
+              "cache\n");
+      exit(1);
+    }
+  }
+
   // Handle --destroy_db_and_exit early, before other option validation
   if (FLAGS_destroy_db_and_exit) {
-    s = DbStressDestroyDb(FLAGS_db_root + "/db_0");
-    if (s.ok()) {
-      fprintf(stdout, "Successfully destroyed db at %s\n",
-              (FLAGS_db_root + "/db_0").c_str());
-      return 0;
-    } else {
-      fprintf(stderr, "Failed to destroy db at %s: %s\n",
-              (FLAGS_db_root + "/db_0").c_str(), s.ToString().c_str());
-      return 1;
+    for (int i = 0; i < num_dbs; i++) {
+      std::string db_path = FLAGS_db_root + "/db_" + std::to_string(i);
+      s = DbStressDestroyDb(db_path);
+      if (!s.ok()) {
+        fprintf(stderr, "Failed to destroy db at %s: %s\n",
+                db_path.c_str(), s.ToString().c_str());
+        return 1;
+      }
+      fprintf(stdout, "Successfully destroyed db at %s\n", db_path.c_str());
     }
+    return 0;
   }
 
   // Handle --delete_dir_and_exit early, before other option validation
@@ -461,85 +549,90 @@ int db_stress_tool(int argc, char** argv) {
     key_gen_ctx.weights.emplace_back(key_gen_ctx.window -
                                      keys_per_level * (levels - 1));
   }
-  // Create per-DB subdirectories (db_root/db_0, expected_states_root/db_0, etc.)
-  // These don't exist yet because paths changed from e.g. FLAGS_db to
-  // FLAGS_db_root/db_0.
-  const int db_index = 0;
-  const std::string db_label = "db_" + std::to_string(db_index);
-  s = db_stress_env->CreateDirIfMissing(FLAGS_db_root);
-  if (s.ok()) {
-    s = db_stress_env->CreateDirIfMissing(FLAGS_db_root + "/" + db_label);
-  }
-  if (!s.ok()) {
-    fprintf(stderr, "Failed to create directory %s: %s\n",
-            (FLAGS_db_root + "/" + db_label).c_str(), s.ToString().c_str());
-    exit(1);
-  }
-  if (!FLAGS_expected_states_root.empty()) {
-    // Use Env::Default() because expected states are always on the local
-    // filesystem (created by Python's tempfile.mkdtemp), even when the DB
-    // itself is on a remote/custom filesystem.
-    s = Env::Default()->CreateDirIfMissing(FLAGS_expected_states_root);
+  // --- Shared initialization ---
+  InitSharedResources();
+
+  // --- Per-DB setup ---
+  std::vector<std::unique_ptr<StressTest>> stress_tests(num_dbs);
+  std::vector<std::unique_ptr<SharedState>> shared_states(num_dbs);
+  std::vector<int> results(num_dbs, 0);
+  std::vector<std::thread> db_runners(num_dbs);
+
+  for (int i = 0; i < num_dbs; i++) {
+    const std::string db_label = "db_" + std::to_string(i);
+    s = db_stress_env->CreateDirIfMissing(FLAGS_db_root);
     if (s.ok()) {
-      s = Env::Default()->CreateDirIfMissing(FLAGS_expected_states_root + "/" +
-                                             db_label);
+      s = db_stress_env->CreateDirIfMissing(FLAGS_db_root + "/" + db_label);
     }
     if (!s.ok()) {
       fprintf(stderr, "Failed to create directory %s: %s\n",
-              (FLAGS_expected_states_root + "/" + db_label).c_str(),
-              s.ToString().c_str());
+              (FLAGS_db_root + "/" + db_label).c_str(), s.ToString().c_str());
       exit(1);
     }
-  }
-  if (!FLAGS_secondary_dbs_root.empty()) {
-    s = db_stress_env->CreateDirIfMissing(FLAGS_secondary_dbs_root);
-    if (s.ok()) {
-      s = db_stress_env->CreateDirIfMissing(FLAGS_secondary_dbs_root + "/" +
-                                            db_label);
-    }
-    if (!s.ok()) {
-      fprintf(stderr, "Failed to create directory %s: %s\n",
-              (FLAGS_secondary_dbs_root + "/" + db_label).c_str(),
-              s.ToString().c_str());
-      exit(1);
-    }
-  }
-
-  std::unique_ptr<ROCKSDB_NAMESPACE::SharedState> shared;
-  std::unique_ptr<ROCKSDB_NAMESPACE::StressTest> stress;
-  if (FLAGS_test_cf_consistency) {
-    stress.reset(CreateCfConsistencyStressTest(db_index));
-  } else if (FLAGS_test_batches_snapshots) {
-    stress.reset(CreateBatchedOpsStressTest(db_index));
-  } else if (FLAGS_test_multi_ops_txns) {
-    stress.reset(CreateMultiOpsTxnsStressTest(db_index));
-  } else {
-    stress.reset(CreateNonBatchedOpsStressTest(db_index));
-  }
-
-  // Register a crash callback so that recently injected errors are
-  // printed to stderr when the process crashes (SIGABRT, SIGSEGV, etc.).
-  // This helps diagnose stress test failures caused by fault injection.
-  static std::shared_ptr<FaultInjectionTestFS> g_db_fault_fs_for_crash;
-  g_db_fault_fs_for_crash = stress->GetDbFaultInjectionFs();
-  if (g_db_fault_fs_for_crash) {
-    port::RegisterCrashCallback([]() {
-      if (g_db_fault_fs_for_crash) {
-        g_db_fault_fs_for_crash->PrintRecentInjectedErrors();
+    if (!FLAGS_expected_states_root.empty()) {
+      // Use Env::Default() because expected states are always on the local
+      // filesystem (created by Python's tempfile.mkdtemp), even when the DB
+      // itself is on a remote/custom filesystem.
+      s = Env::Default()->CreateDirIfMissing(FLAGS_expected_states_root);
+      if (s.ok()) {
+        s = Env::Default()->CreateDirIfMissing(FLAGS_expected_states_root +
+                                               "/" + db_label);
       }
+      if (!s.ok()) {
+        fprintf(stderr, "Failed to create directory %s: %s\n",
+                (FLAGS_expected_states_root + "/" + db_label).c_str(),
+                s.ToString().c_str());
+        exit(1);
+      }
+    }
+    if (!FLAGS_secondary_dbs_root.empty()) {
+      s = db_stress_env->CreateDirIfMissing(FLAGS_secondary_dbs_root);
+      if (s.ok()) {
+        s = db_stress_env->CreateDirIfMissing(FLAGS_secondary_dbs_root + "/" +
+                                              db_label);
+      if (!s.ok()) {
+        fprintf(stderr, "Failed to create directory %s: %s\n",
+                (FLAGS_secondary_dbs_root + "/" + db_label).c_str(),
+                s.ToString().c_str());
+        exit(1);
+      }
+    }
+
+    if (FLAGS_test_cf_consistency) {
+      stress_tests[i].reset(CreateCfConsistencyStressTest(i));
+    } else if (FLAGS_test_batches_snapshots) {
+      stress_tests[i].reset(CreateBatchedOpsStressTest(i));
+    } else if (FLAGS_test_multi_ops_txns) {
+      stress_tests[i].reset(CreateMultiOpsTxnsStressTest(i));
+    } else {
+      stress_tests[i].reset(CreateNonBatchedOpsStressTest(i));
+    }
+
+    shared_states[i].reset(new SharedState(db_stress_env, stress_tests[i].get()));
+    db_runners[i] = std::thread([i, &results, &shared_states]() {
+      results[i] = RunStressTest(shared_states[i].get());
     });
   }
 
-  // Initialize the Zipfian pre-calculated array
-  InitializeHotKeyGenerator(FLAGS_hot_key_alpha);
-  shared.reset(new SharedState(db_stress_env, stress.get()));
-  bool run_stress_test = RunStressTest(shared.get());
-  // Close DB in CleanUp() before destructor to prevent race between destructor
-  // and operations in listener callbacks (e.g. MultiOpsTxnsStressListener).
-  stress->CleanUp();
-  port::RegisterCrashCallback(nullptr);
-  g_db_fault_fs_for_crash.reset();
-  return run_stress_test ? 0 : 1;
+  SetupCrashCallback(stress_tests, num_dbs);
+
+  // --- Join per-DB runners and cleanup ---
+  bool all_passed = true;
+  for (int i = 0; i < num_dbs; i++) {
+    db_runners[i].join();
+    if (!results[i]) {
+      all_passed = false;
+    }
+    // Close DB in CleanUp() before destructor to prevent race between
+    // destructor and operations in listener callbacks.
+    stress_tests[i]->CleanUp();
+  }
+
+  ClearCrashCallback(num_dbs);
+  CleanupSharedResources();
+
+  // Exit 0 if all DBs passed, 1 if any failed
+  return all_passed ? 0 : 1;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -494,6 +494,7 @@ default_params = {
         + ["randommixed"] * 2
         + ["custom"] * 3
     ),
+    "num_dbs": 1,
     # fixed within a run for easier debugging
     # actual frequency is lower after option sanitization
     "use_multiscan": random.choice([1] + [0] * 3),
@@ -1555,6 +1556,36 @@ def finalize_and_sanitize(src_params):
     # write presets that force disable_wal=1 earlier in sanitization.
     if dest_params.get("disable_wal", 0) == 1:
         dest_params["test_batches_snapshots"] = 0
+
+    # Multi-DB mode: disable features that are unsafe with multiple DB
+    # instances sharing one process.
+    if dest_params.get("num_dbs", 1) > 1:
+        # CF handle can be accessed by one thread after another drops and
+        # recreates it — more likely with multi-DB thread count.
+        # TODO: fix CF handle lifetime, then remove this guard.
+        dest_params["clear_column_family_one_in"] = 0
+        # MultiOpsTxnsStressTest uses a single global key_spaces_path —
+        # multiple DBs would corrupt each other's range descriptors.
+        # TODO: make key_spaces_path per-DB, then remove this guard.
+        dest_params["test_multi_ops_txns"] = 0
+        # SetBackgroundThreads and SetCapacity are thread-safe (use
+        # internal mutexes), so no data race. But each DB launches its
+        # own PoolSizeChangeThread that randomly resizes the shared Env
+        # thread pool — multiple DBs overwriting each other's pool size
+        # makes the stress test results unpredictable.
+        # TODO: run one PoolSizeChangeThread globally, then remove.
+        dest_params["compaction_thread_pool_adjust_interval"] = 0
+        # Same issue: each DB's CompressedCacheSetCapacityThread toggles
+        # the shared compressed_secondary_cache capacity between 0 and
+        # the configured size. One DB zeroing the cache while another
+        # expects it available makes the test results unpredictable.
+        # TODO: isolate cache capacity thread per-DB, then remove.
+        dest_params["compressed_secondary_cache_size"] = 0
+        dest_params["compressed_secondary_cache_ratio"] = 0.0
+        if dest_params.get("secondary_cache_uri", "").find(
+            "compressed_secondary_cache"
+        ) >= 0:
+            dest_params["secondary_cache_uri"] = ""
 
     return dest_params
 

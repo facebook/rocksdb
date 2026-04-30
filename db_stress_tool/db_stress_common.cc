@@ -23,6 +23,8 @@ ROCKSDB_NAMESPACE::Env* db_stress_env = nullptr;
 std::shared_ptr<ROCKSDB_NAMESPACE::FileSystem> db_stress_raw_fs;
 std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> compressed_secondary_cache;
 std::shared_ptr<ROCKSDB_NAMESPACE::Cache> block_cache;
+std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager> wbm;
+std::shared_ptr<ROCKSDB_NAMESPACE::RateLimiter> rate_limiter;
 enum ROCKSDB_NAMESPACE::CompressionType compression_type_e =
     ROCKSDB_NAMESPACE::kSnappyCompression;
 enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e =

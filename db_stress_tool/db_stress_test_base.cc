@@ -109,7 +109,7 @@ StressTest::StressTest(int db_index)
                     db_stress_env,
                     std::make_shared<DbStressFSWrapper>(db_fault_injection_fs_))
               : nullptr),
-      cache_(NewCache(FLAGS_cache_size, FLAGS_cache_numshardbits)),
+      cache_(block_cache),
       filter_policy_(CreateFilterPolicy()),
       db_(nullptr),
       txn_db_(nullptr),
@@ -148,7 +148,8 @@ StressTest::StressTest(int db_index)
   if (FLAGS_destroy_db_initially) {
     const Status s = DbStressDestroyDb(GetDbPath());
     if (!s.ok()) {
-      fprintf(stderr, "Cannot destroy original db: %s\n", s.ToString().c_str());
+      fprintf(stderr, "[%s] Cannot destroy original db: %s\n",
+              GetDbLabel().c_str(), s.ToString().c_str());
       exit(1);
     }
   }
@@ -518,9 +519,15 @@ bool StressTest::BuildOptionsTable() {
 
 void StressTest::InitDb(SharedState* shared) {
   uint64_t now = clock_->NowMicros();
-  fprintf(stdout, "%s Initializing db_stress\n",
-          clock_->TimeToString(now / 1000000).c_str());
-  PrintEnv();
+  fprintf(stdout, "%s [%s] Initializing db_stress\n",
+          clock_->TimeToString(now / 1000000).c_str(),
+          GetDbLabel().c_str());
+  if (db_index_ == 0) {
+    // Print shared configuration once -- all DBs use the same options.
+    // Per-DB paths are printed separately below.
+    fprintf(stdout, "=== Shared configuration (all DBs) ===\n");
+    PrintEnv();
+  }
   Open(shared);
   BuildOptionsTable();
 }
@@ -540,8 +547,8 @@ void StressTest::FinishInitDb(SharedState* shared) {
     // `db_`'s current seqno.
     Status s = shared->Restore(db_);
     if (!s.ok()) {
-      fprintf(stderr, "Error restoring historical expected values: %s\n",
-              s.ToString().c_str());
+      fprintf(stderr, "[%s] Error restoring historical expected values: %s\n",
+              GetDbLabel().c_str(), s.ToString().c_str());
       exit(1);
     }
   }
@@ -720,15 +727,16 @@ void StressTest::PrintStatistics() {
   if (db_) {
     auto stats = db_->GetOptions().statistics;
     if (stats) {
-      fprintf(stdout, "STATISTICS:\n%s\n", stats->ToString().c_str());
+      fprintf(stdout, "[%s] STATISTICS:\n%s\n", GetDbLabel().c_str(),
+              stats->ToString().c_str());
     }
   }
   // Print statistics from secondary DB instance if it exists
   if (secondary_db_) {
     auto stats = secondary_db_->GetOptions().statistics;
     if (stats) {
-      fprintf(stdout, "Secondary instance STATISTICS:\n%s\n",
-              stats->ToString().c_str());
+      fprintf(stdout, "[%s] Secondary instance STATISTICS:\n%s\n",
+              GetDbLabel().c_str(), stats->ToString().c_str());
     }
   }
 }
@@ -3887,19 +3895,23 @@ void StressTest::Open(SharedState* shared, bool reopen) {
   } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
     // Nothing to do using default compression manager
   } else {
-    fprintf(stderr, "Unknown compression manager: %s\n",
-            FLAGS_compression_manager.c_str());
+    fprintf(stderr, "[%s] Unknown compression manager: %s\n",
+            GetDbLabel().c_str(), FLAGS_compression_manager.c_str());
     exit(1);
   }
   if (FLAGS_prefix_size == 0 && FLAGS_rep_factory == kHashSkipList) {
     fprintf(stderr,
-            "prefeix_size cannot be zero if memtablerep == prefix_hash\n");
+            "[%s] prefeix_size cannot be zero if memtablerep == prefix_hash\n",
+            GetDbLabel().c_str());
     exit(1);
   }
   if (FLAGS_prefix_size != 0 && FLAGS_rep_factory != kHashSkipList) {
-    fprintf(stdout,
-            "WARNING: prefix_size is non-zero but "
-            "memtablerep != prefix_hash\n");
+    // Print once -- shared across all DBs
+    if (db_index_ == 0) {
+      fprintf(stdout,
+              "WARNING: prefix_size is non-zero but "
+              "memtablerep != prefix_hash\n");
+    }
   }
 
   // Remote Compaction
@@ -3908,8 +3920,9 @@ void StressTest::Open(SharedState* shared, bool reopen) {
          options_.enable_blob_garbage_collection ||
          FLAGS_allow_setting_blob_options_dynamically)) {
       fprintf(stderr,
-              "Integrated BlobDB is currently incompatible with Remote "
-              "Compaction\n");
+              "[%s] Integrated BlobDB is currently incompatible with Remote "
+              "Compaction\n",
+              GetDbLabel().c_str());
       exit(1);
     }
     // Each DB open/reopen gets a fresh compaction service instance with a clean
@@ -3923,8 +3936,9 @@ void StressTest::Open(SharedState* shared, bool reopen) {
   if (FLAGS_allow_resumption_one_in > 0) {
     if (FLAGS_remote_compaction_worker_threads == 0) {
       fprintf(stderr,
-              "allow_resumption or randomize_allow_resumption requires "
-              "remote_compaction_worker_threads > 0\n");
+              "[%s] allow_resumption or randomize_allow_resumption requires "
+              "remote_compaction_worker_threads > 0\n",
+              GetDbLabel().c_str());
       exit(1);
     }
   }
@@ -3933,51 +3947,57 @@ void StressTest::Open(SharedState* shared, bool reopen) {
        FLAGS_allow_setting_blob_options_dynamically) &&
       FLAGS_best_efforts_recovery) {
     fprintf(stderr,
-            "Integrated BlobDB is currently incompatible with best-effort "
-            "recovery\n");
+            "[%s] Integrated BlobDB is currently incompatible with best-effort "
+            "recovery\n",
+            GetDbLabel().c_str());
     exit(1);
   }
 
-  fprintf(stdout,
-          "Integrated BlobDB: blob files enabled %d, min blob size %" PRIu64
-          ", direct write enabled %d, direct write partitions %" PRIu32
-          ", blob file size %" PRIu64
-          ", blob compression type %s, blob GC enabled %d, cutoff %f, force "
-          "threshold %f, blob compaction readahead size %" PRIu64
-          ", blob file starting level %d\n",
-          options_.enable_blob_files, options_.min_blob_size,
-          options_.enable_blob_direct_write,
-          options_.blob_direct_write_partitions, options_.blob_file_size,
-          CompressionTypeToString(options_.blob_compression_type).c_str(),
-          options_.enable_blob_garbage_collection,
-          options_.blob_garbage_collection_age_cutoff,
-          options_.blob_garbage_collection_force_threshold,
-          options_.blob_compaction_readahead_size,
-          options_.blob_file_starting_level);
-
-  if (FLAGS_use_blob_cache) {
+  // Print once -- shared across all DBs
+  if (db_index_ == 0) {
     fprintf(stdout,
-            "Integrated BlobDB: blob cache enabled"
-            ", block and blob caches shared: %d",
-            FLAGS_use_shared_block_and_blob_cache);
-    if (!FLAGS_use_shared_block_and_blob_cache) {
+            "Integrated BlobDB: blob files enabled %d, min blob size %" PRIu64
+            ", direct write enabled %d, direct write partitions %" PRIu32
+            ", blob file size %" PRIu64
+            ", blob compression type %s, blob GC enabled %d, cutoff %f, force "
+            "threshold %f, blob compaction readahead size %" PRIu64
+            ", blob file starting level %d\n",
+            options_.enable_blob_files, options_.min_blob_size,
+            options_.enable_blob_direct_write,
+            options_.blob_direct_write_partitions, options_.blob_file_size,
+            CompressionTypeToString(options_.blob_compression_type).c_str(),
+            options_.enable_blob_garbage_collection,
+            options_.blob_garbage_collection_age_cutoff,
+            options_.blob_garbage_collection_force_threshold,
+            options_.blob_compaction_readahead_size,
+            options_.blob_file_starting_level);
+
+    if (FLAGS_use_blob_cache) {
       fprintf(stdout,
-              ", blob cache size %" PRIu64 ", blob cache num shard bits: %d",
-              FLAGS_blob_cache_size, FLAGS_blob_cache_numshardbits);
+              "Integrated BlobDB: blob cache enabled"
+              ", block and blob caches shared: %d",
+              FLAGS_use_shared_block_and_blob_cache);
+      if (!FLAGS_use_shared_block_and_blob_cache) {
+        fprintf(stdout,
+                ", blob cache size %" PRIu64 ", blob cache num shard bits: %d",
+                FLAGS_blob_cache_size, FLAGS_blob_cache_numshardbits);
+      }
+      fprintf(stdout, ", blob cache prepopulated: %d\n",
+              FLAGS_prepopulate_blob_cache);
+    } else {
+      fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
     }
-    fprintf(stdout, ", blob cache prepopulated: %d\n",
-            FLAGS_prepopulate_blob_cache);
-  } else {
-    fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
+    fprintf(stdout, "=== End shared configuration ===\n");
   }
 
-  fprintf(stdout, "DB path: [%s]\n", GetDbPath().c_str());
+  fprintf(stdout, "[%s] DB path: [%s]\n", GetDbLabel().c_str(),
+          GetDbPath().c_str());
   if (!GetExpectedValuesDir().empty()) {
-    fprintf(stdout, "Expected states path: [%s]\n",
-            GetExpectedValuesDir().c_str());
+    fprintf(stdout, "[%s] Expected states path: [%s]\n",
+            GetDbLabel().c_str(), GetExpectedValuesDir().c_str());
   }
   if (!GetSecondariesBase().empty()) {
-    fprintf(stdout, "Secondary DB path: [%s]\n",
+    fprintf(stdout, "[%s] Secondary DB path: [%s]\n", GetDbLabel().c_str(),
             GetSecondariesBase().c_str());
   }
 
@@ -4289,15 +4309,17 @@ void StressTest::Open(SharedState* shared, bool reopen) {
   }
 
   if (!s.ok()) {
-    fprintf(stderr, "open error: %s\n", s.ToString().c_str());
+    fprintf(stderr, "[%s] open error: %s\n", GetDbLabel().c_str(),
+            s.ToString().c_str());
     exit(1);
   }
 
   if (db_->GetLatestSequenceNumber() < shared->GetPersistedSeqno()) {
     fprintf(stderr,
-            "DB of latest sequence number %" PRIu64
-            "did not recover to the persisted "
+            "[%s] DB of latest sequence number %" PRIu64
+            " did not recover to the persisted "
             "sequence number %" PRIu64 " from last DB session\n",
+            GetDbLabel().c_str(),
             db_->GetLatestSequenceNumber(), shared->GetPersistedSeqno());
     exit(1);
   }
@@ -4358,8 +4380,9 @@ void StressTest::Reopen(ThreadState* thread) {
 
   num_times_reopened_++;
   auto now = clock_->NowMicros();
-  fprintf(stdout, "%s Reopening database for the %dth time\n",
-          clock_->TimeToString(now / 1000000).c_str(), num_times_reopened_);
+  fprintf(stdout, "%s [%s] Reopening database for the %dth time\n",
+          clock_->TimeToString(now / 1000000).c_str(),
+          GetDbLabel().c_str(), num_times_reopened_);
   Open(thread->shared, /*reopen=*/true);
 
   if (thread->shared->GetStressTest()->MightHaveUnsyncedDataLoss() &&
@@ -4623,9 +4646,8 @@ void InitializeOptionsFromFlags(
       FLAGS_max_write_buffer_size_to_maintain;
   options.memtable_prefix_bloom_size_ratio =
       FLAGS_memtable_prefix_bloom_size_ratio;
-  if (FLAGS_use_write_buffer_manager) {
-    options.write_buffer_manager.reset(
-        new WriteBufferManager(FLAGS_db_write_buffer_size, block_cache));
+  if (wbm) {
+    options.write_buffer_manager = wbm;
   }
   options.memtable_whole_key_filtering = FLAGS_memtable_whole_key_filtering;
   if (ShouldDisableAutoCompactionsBeforeVerifyDb()) {
@@ -4965,14 +4987,8 @@ void InitializeOptionsGeneral(
 
   // TODO: row_cache, thread-pool IO priority, CPU priority.
 
-  if (!options.rate_limiter) {
-    if (FLAGS_rate_limiter_bytes_per_sec > 0) {
-      options.rate_limiter.reset(NewGenericRateLimiter(
-          FLAGS_rate_limiter_bytes_per_sec, 1000 /* refill_period_us */,
-          10 /* fairness */,
-          FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
-                                    : RateLimiter::Mode::kWritesOnly));
-    }
+  if (rate_limiter) {
+    options.rate_limiter = rate_limiter;
   }
 
   if (!options.file_checksum_gen_factory) {
