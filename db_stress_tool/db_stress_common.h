@@ -478,7 +478,7 @@ constexpr uint32_t kLargePrimeForCommonFactorSkew = 1872439133;
 // wrapped posix environment
 extern ROCKSDB_NAMESPACE::Env* db_stress_env;
 extern ROCKSDB_NAMESPACE::Env* db_stress_listener_env;
-extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
+extern std::shared_ptr<ROCKSDB_NAMESPACE::FileSystem> db_stress_raw_fs;
 extern std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache>
     compressed_secondary_cache;
 extern std::shared_ptr<ROCKSDB_NAMESPACE::Cache> block_cache;

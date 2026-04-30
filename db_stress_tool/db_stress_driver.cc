@@ -182,10 +182,11 @@ bool RunStressTestImpl(SharedState* shared) {
       }
 
       if (FLAGS_sync_fault_injection || FLAGS_write_fault_one_in > 0) {
-        fault_fs_guard->SetFilesystemDirectWritable(false);
-        fault_fs_guard->SetInjectUnsyncedDataLoss(FLAGS_sync_fault_injection);
+        auto fault_fs = stress->GetDbFaultInjectionFs();
+        fault_fs->SetFilesystemDirectWritable(false);
+        fault_fs->SetInjectUnsyncedDataLoss(FLAGS_sync_fault_injection);
         if (FLAGS_exclude_wal_from_write_fault_injection) {
-          fault_fs_guard->SetFileTypesExcludedFromWriteFaultInjection(
+          fault_fs->SetFileTypesExcludedFromWriteFaultInjection(
               {FileType::kWalFile});
         }
       }
