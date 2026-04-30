@@ -30,9 +30,10 @@ on:
         required: false
         type: choice
         options:
+          - gpt-5.5
           - gpt-5.3-codex
           - gpt-5.2-codex
-        default: gpt-5.3-codex
+        default: gpt-5.5
       thinking_budget:
         description: Override MAX_THINKING_TOKENS (blank = auto-classify)
         required: false
@@ -60,7 +61,7 @@ jobs:
       query_command: /codex-query
       result_artifact_name: codex-review-result
       comment_file: codex-review-comment.md
-      default_model: gpt-5.3-codex
+      default_model: gpt-5.5
       selected_model: ${{ github.event_name == 'workflow_dispatch' && inputs.model || '' }}
       thinking_budget: ${{ github.event_name == 'workflow_dispatch' && inputs.thinking_budget || '' }}
       dispatch_pr_number: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || '' }}

@@ -47,6 +47,7 @@ jobs:
         env:
           PROVIDER: ${{ inputs.provider }}
           COMMENT_FILE: ${{ inputs.comment_file }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
         uses: actions/github-script@v7
         with:
           script: |
@@ -59,6 +60,7 @@ jobs:
 
             const post = require('./.github/scripts/post-pr-comment.js');
             const provider = process.env.PROVIDER;
+            const providerTitle = provider === 'codex' ? 'Codex' : 'Claude';
             const body = fs.readFileSync(process.env.COMMENT_FILE, 'utf8');
             const prNumber = parseInt(
               fs.readFileSync('pr_number.txt', 'utf8').trim(),
@@ -71,11 +73,14 @@ jobs:
               fs.readFileSync('head_sha.txt', 'utf8').trim() :
               '';
             const shortSha = headSha ? headSha.substring(0, 7) : '';
+            const runId = process.env.RUN_ID;
 
             let marker = '';
             let legacyMarkers = [];
             let prunePrefix = '';
             let preserveLatest = 0;
+            let obsoleteMarker = '';
+            let obsoleteTitle = '';
 
             if (trigger === 'auto') {
               if (!shortSha) {
@@ -84,12 +89,14 @@ jobs:
                 );
                 return;
               }
-              marker = `<!-- ${provider}-review-auto-${shortSha} -->`;
+              marker = `<!-- ${provider}-review-auto-run-${runId} -->`;
               legacyMarkers = [`<!-- ${provider}-review-auto -->`];
               prunePrefix = `<!-- ${provider}-review-auto-`;
-              preserveLatest = 2;
+              preserveLatest = 1;
+              obsoleteMarker = `<!-- ${provider}-review-obsolete -->`;
+              obsoleteTitle = `${providerTitle} Code Review - OBSOLETE`;
             } else {
-              marker = `<!-- ${provider}-review-manual-${Date.now()} -->`;
+              marker = `<!-- ${provider}-review-manual-run-${runId} -->`;
             }
 
             await post({
@@ -102,6 +109,8 @@ jobs:
               legacyMarkers,
               prunePrefix,
               preserveLatest,
+              obsoleteMarker,
+              obsoleteTitle,
             });
 
       - name: Add reaction to trigger comment

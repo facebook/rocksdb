@@ -3,6 +3,9 @@ const assert = require('node:assert/strict');
 
 const postPrComment = require('./post-pr-comment.js');
 
+const OBSOLETE_MARKER = '<!-- claude-review-obsolete -->';
+const OBSOLETE_TITLE = 'Claude Code Review - OBSOLETE';
+
 function makeComment(id, body, createdAt, updatedAt) {
   return {
     id,
@@ -99,6 +102,19 @@ function createCore() {
   };
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function assertObsoleteComment(comment, originalBody) {
+  assert.ok(comment);
+  assert.match(comment.body, new RegExp(escapeRegExp(OBSOLETE_MARKER)));
+  assert.match(comment.body, new RegExp(`## ${escapeRegExp(OBSOLETE_TITLE)}`));
+  assert.match(comment.body, /<details>/);
+  assert.match(comment.body, /Superseded by a newer AI review/);
+  assert.match(comment.body, new RegExp(escapeRegExp(originalBody)));
+}
+
 const context = {
   repo: {
     owner: 'facebook',
@@ -107,7 +123,7 @@ const context = {
 };
 
 test(
-    'migrates the newest legacy comment and prunes older legacy comments',
+    'creates a fresh review comment and supersedes legacy comments',
     async () => {
       const harness = createHarness(
           [
@@ -127,22 +143,34 @@ test(
         core: createCore(),
         prNumber: 14659,
         body: 'review body',
-        marker: '<!-- claude-review-auto-abcdef0 -->',
+        marker: '<!-- claude-review-auto-run-500 -->',
         legacyMarkers: ['<!-- claude-review-auto -->'],
         prunePrefix: '<!-- claude-review-auto-',
         preserveLatest: 1,
+        obsoleteMarker: OBSOLETE_MARKER,
+        obsoleteTitle: OBSOLETE_TITLE,
       });
 
-      assert.deepEqual(harness.calls.update.map(call => call.comment_id), [2]);
-      assert.deepEqual(harness.calls.delete.map(call => call.comment_id), [1]);
+      assert.equal(harness.calls.create.length, 1);
+      assert.deepEqual(
+          harness.calls.update.map(call => call.comment_id), [2, 1]);
+      assert.equal(harness.calls.delete.length, 0);
 
       const comments = harness.getComments();
-      assert.equal(comments.length, 1);
-      assert.match(comments[0].body, /<!-- claude-review-auto-abcdef0 -->/);
+      assert.equal(comments.length, 3);
+      assert.match(
+          comments.find(comment => comment.id === 1000).body,
+          /<!-- claude-review-auto-run-500 -->/);
+      assertObsoleteComment(
+          comments.find(comment => comment.id === 2),
+          '<!-- claude-review-auto -->\nnew legacy');
+      assertObsoleteComment(
+          comments.find(comment => comment.id === 1),
+          '<!-- claude-review-auto -->\nold legacy');
     });
 
 test(
-    'deletes leftover legacy comments when the current marker already exists',
+    'updates an exact-match comment and supersedes leftover legacy comments',
     async () => {
       const harness = createHarness(
           [
@@ -166,11 +194,23 @@ test(
         marker: '<!-- claude-review-auto-abcdef0 -->',
         legacyMarkers: ['<!-- claude-review-auto -->'],
         prunePrefix: '<!-- claude-review-auto-',
-        preserveLatest: 2,
+        preserveLatest: 1,
+        obsoleteMarker: OBSOLETE_MARKER,
+        obsoleteTitle: OBSOLETE_TITLE,
       });
 
-      assert.deepEqual(harness.calls.update.map(call => call.comment_id), [3]);
-      assert.deepEqual(harness.calls.delete.map(call => call.comment_id), [4]);
+      assert.deepEqual(
+          harness.calls.update.map(call => call.comment_id), [3, 4]);
+      assert.equal(harness.calls.create.length, 0);
+      assert.equal(harness.calls.delete.length, 0);
+
+      const comments = harness.getComments();
+      assert.match(
+          comments.find(comment => comment.id === 3).body,
+          /<!-- claude-review-auto-abcdef0 -->\nrefreshed body/);
+      assertObsoleteComment(
+          comments.find(comment => comment.id === 4),
+          '<!-- claude-review-auto -->\nlegacy body');
     });
 
 test(
@@ -206,7 +246,7 @@ test(
     });
 
 test(
-    'ignores 404 when pruning a comment already deleted by another run',
+    'ignores 404 when superseding a comment already deleted by another run',
     async () => {
       const missing = new Error('gone');
       missing.status = 404;
@@ -236,15 +276,23 @@ test(
         marker: '<!-- claude-review-auto-latest -->',
         prunePrefix: '<!-- claude-review-auto-',
         preserveLatest: 1,
+        obsoleteMarker: OBSOLETE_MARKER,
+        obsoleteTitle: OBSOLETE_TITLE,
       });
 
       assert.equal(harness.calls.create.length, 1);
+      assert.equal(harness.calls.delete.length, 0);
       assert.deepEqual(
-          harness.calls.delete.map(call => call.comment_id), [21, 20]);
+          harness.calls.update.map(call => call.comment_id), [21, 20]);
+
+      const comments = harness.getComments();
+      assertObsoleteComment(
+          comments.find(comment => comment.id === 21),
+          '<!-- claude-review-auto-newer -->\nnewer');
     });
 
 test(
-    'does not prune a newer auto-review comment created by another run',
+    'supersedes the current review when a newer concurrent one appears',
     async () => {
       const harness = createHarness(
           [
@@ -277,8 +325,23 @@ test(
         body: 'updated current body',
         marker: '<!-- claude-review-auto-current -->',
         prunePrefix: '<!-- claude-review-auto-',
-        preserveLatest: 2,
+        preserveLatest: 1,
+        obsoleteMarker: OBSOLETE_MARKER,
+        obsoleteTitle: OBSOLETE_TITLE,
       });
 
-      assert.deepEqual(harness.calls.delete.map(call => call.comment_id), [41]);
+      assert.deepEqual(
+          harness.calls.update.map(call => call.comment_id), [40, 40, 41]);
+      assert.equal(harness.calls.delete.length, 0);
+
+      const comments = harness.getComments();
+      assert.match(
+          comments.find(comment => comment.id === 42).body,
+          /<!-- claude-review-auto-newer -->\nnewer/);
+      assertObsoleteComment(
+          comments.find(comment => comment.id === 40),
+          '<!-- claude-review-auto-current -->\nupdated current body');
+      assertObsoleteComment(
+          comments.find(comment => comment.id === 41),
+          '<!-- claude-review-auto-older -->\nolder');
     });
