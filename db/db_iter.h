@@ -302,6 +302,9 @@ class DBIter final : public Iterator {
     Slice lazy_blob_index;
     bool is_blob = false;
 
+    template <typename... Args>
+    explicit BlobState(Args&&... args) : reader(std::forward<Args>(args)...) {}
+
     void Reset() {
       reader.ResetBlobValue();
       lazy_blob_index.clear();
@@ -549,6 +552,11 @@ class DBIter final : public Iterator {
   bool MergeWithWideColumnBaseValue(const Slice& entity, const Slice& user_key);
 
   bool PrepareValueInternal() {
+    // Capture this before PrepareValue(): PrepareValue() updates the wrapper
+    // state to "prepared" on success. We still call PrepareValue()
+    // unconditionally to preserve its contract/error handling, but only need
+    // to re-parse ikey_ when this call may have actually materialized the
+    // underlying iterator value/key.
     const bool value_was_prepared = iter_.IsValuePrepared();
     if (!iter_.PrepareValue()) {
       assert(!iter_.status().ok());

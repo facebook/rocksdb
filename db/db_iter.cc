@@ -76,11 +76,11 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       user_comparator_(cmp),
       merge_operator_(ioptions.merge_operator.get()),
       iter_(iter),
-      blob_state_(BlobReader(
+      blob_state_(
           version, read_options.read_tier, read_options.verify_checksums,
           read_options.fill_cache, read_options.io_activity,
           cfh ? cfh->cfd()->blob_file_cache() : nullptr,
-          cfh != nullptr && cfh->cfd()->blob_partition_manager() != nullptr)),
+          cfh != nullptr && cfh->cfd()->blob_partition_manager() != nullptr),
       read_callback_(read_callback),
       sequence_(s),
       value_columns_state_(version, read_options, cfh),
