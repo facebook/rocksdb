@@ -9,11 +9,15 @@
 
 #include "util/coding.h"
 
+#include <initializer_list>
+
 #include "test_util/testharness.h"
+#include "util/prefix_varint.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class Coding {};
+
 TEST(Coding, Fixed16) {
   std::string s;
   for (uint16_t v = 0; v < 0xFFFF; v++) {
@@ -119,8 +123,8 @@ TEST(Coding, Varint64) {
   // Some special values
   values.push_back(0);
   values.push_back(100);
-  values.push_back(~static_cast<uint64_t>(0));
-  values.push_back(~static_cast<uint64_t>(0) - 1);
+  values.push_back(~uint64_t{0});
+  values.push_back(~uint64_t{0} - 1);
   for (uint32_t k = 0; k < 64; k++) {
     // Test values near powers of two
     const uint64_t power = 1ull << k;
@@ -206,6 +210,253 @@ TEST(Coding, Strings) {
   ASSERT_TRUE(GetLengthPrefixedSlice(&input, &v));
   ASSERT_EQ(std::string(200, 'x'), v.ToString());
   ASSERT_EQ("", input.ToString());
+}
+
+// Keep PrefixVarint-specific helpers and vectors with the PrefixVarint tests
+// below so the legacy coding tests stay grouped above.
+namespace {
+
+template <typename T>
+struct PrefixVarintTestCase {
+  T value;
+  uint16_t length;
+  std::string encoded;
+};
+
+template <typename T>
+struct PrefixVarintTraits;
+
+template <>
+struct PrefixVarintTraits<uint32_t> {
+  static constexpr size_t kMaxLength = kMaxPrefixVarint32Length;
+
+  static uint16_t Length(uint32_t value) { return PrefixVarint32Length(value); }
+  static char* Encode(char* dst, uint32_t value) {
+    return EncodePrefixVarint32(dst, value);
+  }
+  static void Put(std::string* dst, uint32_t value) {
+    PutPrefixVarint32(dst, value);
+  }
+  static const char* GetPtr(const char* p, const char* limit, uint32_t* value) {
+    return GetPrefixVarint32Ptr(p, limit, value);
+  }
+  static bool Get(Slice* input, uint32_t* value) {
+    return GetPrefixVarint32(input, value);
+  }
+  static uint32_t AddlByteCount(char first_byte) {
+    return PrefixVarint32AddlByteCount(first_byte);
+  }
+  static bool Decode(char first_byte, const char* addl_bytes,
+                     size_t addl_byte_count, uint32_t* value) {
+    return DecodePrefixVarint32(first_byte, addl_bytes, addl_byte_count, value);
+  }
+};
+
+template <>
+struct PrefixVarintTraits<uint64_t> {
+  static constexpr size_t kMaxLength = kMaxPrefixVarint64Length;
+
+  static uint16_t Length(uint64_t value) { return PrefixVarint64Length(value); }
+  static char* Encode(char* dst, uint64_t value) {
+    return EncodePrefixVarint64(dst, value);
+  }
+  static void Put(std::string* dst, uint64_t value) {
+    PutPrefixVarint64(dst, value);
+  }
+  static const char* GetPtr(const char* p, const char* limit, uint64_t* value) {
+    return GetPrefixVarint64Ptr(p, limit, value);
+  }
+  static bool Get(Slice* input, uint64_t* value) {
+    return GetPrefixVarint64(input, value);
+  }
+  static uint32_t AddlByteCount(char first_byte) {
+    return PrefixVarint64AddlByteCount(first_byte);
+  }
+  static bool Decode(char first_byte, const char* addl_bytes,
+                     size_t addl_byte_count, uint64_t* value) {
+    return DecodePrefixVarint64(first_byte, addl_bytes, addl_byte_count, value);
+  }
+};
+
+std::string ByteString(std::initializer_list<unsigned char> bytes) {
+  std::string out;
+  out.reserve(bytes.size());
+  for (unsigned char b : bytes) {
+    out.push_back(static_cast<char>(b));
+  }
+  return out;
+}
+
+template <typename T>
+std::string EncodePrefixVarintToString(T value) {
+  char buf[PrefixVarintTraits<T>::kMaxLength];
+  char* end = PrefixVarintTraits<T>::Encode(buf, value);
+  return std::string(buf, static_cast<size_t>(end - buf));
+}
+
+std::string EncodeInvalidPrefixVarint32Overflow() {
+  char buf[kMaxPrefixVarint32Length];
+  uint64_t encoded = (uint64_t{1} << 37) | 0x10u;
+  for (size_t i = 0; i < sizeof(buf); ++i) {
+    buf[i] = static_cast<char>(encoded >> (i * 8));
+  }
+  return std::string(buf, sizeof(buf));
+}
+
+template <typename T, size_t N>
+void AssertPrefixVarintRoundTrip(const PrefixVarintTestCase<T> (&cases)[N]) {
+  std::string encoded_values;
+  for (const auto& tc : cases) {
+    ASSERT_EQ(tc.length, PrefixVarintTraits<T>::Length(tc.value));
+    ASSERT_EQ(tc.encoded, EncodePrefixVarintToString(tc.value));
+    PrefixVarintTraits<T>::Put(&encoded_values, tc.value);
+  }
+
+  const char* p = encoded_values.data();
+  const char* limit = p + encoded_values.size();
+  for (const auto& tc : cases) {
+    T actual = 0;
+    const char* start = p;
+    p = PrefixVarintTraits<T>::GetPtr(p, limit, &actual);
+    ASSERT_TRUE(p != nullptr);
+    ASSERT_EQ(tc.value, actual);
+    ASSERT_EQ(tc.length, p - start);
+  }
+  ASSERT_EQ(p, limit);
+
+  Slice input(encoded_values);
+  for (const auto& tc : cases) {
+    T actual = 0;
+    ASSERT_TRUE(PrefixVarintTraits<T>::Get(&input, &actual));
+    ASSERT_EQ(tc.value, actual);
+  }
+  ASSERT_TRUE(input.empty());
+}
+
+template <typename T, size_t N>
+void AssertPrefixVarintDiskReadApi(const PrefixVarintTestCase<T> (&cases)[N]) {
+  for (const auto& tc : cases) {
+    const std::string encoded = EncodePrefixVarintToString(tc.value);
+    ASSERT_EQ(tc.length, encoded.size());
+
+    const uint32_t addl_byte_count =
+        PrefixVarintTraits<T>::AddlByteCount(encoded[0]);
+    ASSERT_EQ(tc.length - 1, addl_byte_count);
+
+    T actual = 0;
+    ASSERT_TRUE(PrefixVarintTraits<T>::Decode(encoded[0], encoded.data() + 1,
+                                              addl_byte_count, &actual));
+    ASSERT_EQ(tc.value, actual);
+    if (addl_byte_count > 0) {
+      ASSERT_FALSE(PrefixVarintTraits<T>::Decode(encoded[0], encoded.data() + 1,
+                                                 addl_byte_count - 1, &actual));
+    }
+  }
+}
+
+template <typename T>
+void AssertPrefixVarintTruncation(T value) {
+  const std::string encoded = EncodePrefixVarintToString(value);
+  T actual = 0;
+  for (size_t len = 0; len + 1 < encoded.size(); ++len) {
+    ASSERT_TRUE(PrefixVarintTraits<T>::GetPtr(
+                    encoded.data(), encoded.data() + len, &actual) == nullptr);
+  }
+  ASSERT_TRUE(PrefixVarintTraits<T>::GetPtr(encoded.data(),
+                                            encoded.data() + encoded.size(),
+                                            &actual) != nullptr);
+  ASSERT_EQ(value, actual);
+}
+
+const PrefixVarintTestCase<uint32_t> kPrefixVarint32TestCases[] = {
+    {0, 1, ByteString({0x01})},
+    {1, 1, ByteString({0x03})},
+    {127, 1, ByteString({0xFF})},
+    {128, 2, ByteString({0x02, 0x02})},
+    {255, 2, ByteString({0xFE, 0x03})},
+    {16383, 2, ByteString({0xFE, 0xFF})},
+    {16384, 3, ByteString({0x04, 0x00, 0x02})},
+    {(1u << 21) - 1, 3, ByteString({0xFC, 0xFF, 0xFF})},
+    {(1u << 21), 4, ByteString({0x08, 0x00, 0x00, 0x02})},
+    {(1u << 28) - 1, 4, ByteString({0xF8, 0xFF, 0xFF, 0xFF})},
+    {(1u << 28), 5, ByteString({0x10, 0x00, 0x00, 0x00, 0x02})},
+    {~uint32_t{0}, 5, ByteString({0xF0, 0xFF, 0xFF, 0xFF, 0x1F})},
+};
+
+const PrefixVarintTestCase<uint64_t> kPrefixVarint64TestCases[] = {
+    {0, 1, ByteString({0x01})},
+    {1, 1, ByteString({0x03})},
+    {127, 1, ByteString({0xFF})},
+    {128, 2, ByteString({0x02, 0x02})},
+    {16383, 2, ByteString({0xFE, 0xFF})},
+    {(uint64_t{1} << 21), 4, ByteString({0x08, 0x00, 0x00, 0x02})},
+    {(uint64_t{1} << 28), 5, ByteString({0x10, 0x00, 0x00, 0x00, 0x02})},
+    {(uint64_t{1} << 35), 6, ByteString({0x20, 0x00, 0x00, 0x00, 0x00, 0x02})},
+    {(uint64_t{1} << 42), 7,
+     ByteString({0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02})},
+    {(uint64_t{1} << 49), 8,
+     ByteString({0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02})},
+    {(uint64_t{1} << 56) - 1, 8,
+     ByteString({0x80, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF})},
+    {(uint64_t{1} << 56), 9,
+     ByteString({0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01})},
+    {~uint64_t{0}, 9,
+     ByteString({0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF})},
+};
+
+}  // namespace
+
+// Keep PrefixVarint tests after the legacy coding tests so the two varint
+// families stay visually separated.
+TEST(Coding, PrefixVarint32) {
+  for (const auto& tc : kPrefixVarint32TestCases) {
+    ASSERT_EQ(tc.length, VarintLength(tc.value));
+  }
+  AssertPrefixVarintRoundTrip(kPrefixVarint32TestCases);
+}
+
+TEST(Coding, PrefixVarint32DiskReadApi) {
+  AssertPrefixVarintDiskReadApi(kPrefixVarint32TestCases);
+  ASSERT_EQ(kInvalidPrefixVarint32AddlByteCount,
+            PrefixVarint32AddlByteCount('\0'));
+  ASSERT_EQ(kInvalidPrefixVarint32AddlByteCount,
+            PrefixVarint32AddlByteCount('\x20'));
+  ASSERT_EQ(kInvalidPrefixVarint32AddlByteCount,
+            PrefixVarint32AddlByteCount('\x40'));
+  ASSERT_EQ(kInvalidPrefixVarint32AddlByteCount,
+            PrefixVarint32AddlByteCount('\x80'));
+}
+
+TEST(Coding, PrefixVarint64) {
+  for (const auto& tc : kPrefixVarint64TestCases) {
+    const uint16_t expected_length =
+        tc.value < (uint64_t{1} << 56) ? VarintLength(tc.value) : 9;
+    ASSERT_EQ(tc.length, expected_length);
+  }
+  AssertPrefixVarintRoundTrip(kPrefixVarint64TestCases);
+}
+
+TEST(Coding, PrefixVarint64DiskReadApi) {
+  AssertPrefixVarintDiskReadApi(kPrefixVarint64TestCases);
+  ASSERT_EQ(8u, PrefixVarint64AddlByteCount('\0'));
+  ASSERT_EQ(7u, PrefixVarint64AddlByteCount('\x80'));
+}
+
+TEST(Coding, PrefixVarint32Overflow) {
+  uint32_t result = 0;
+  const std::string input = EncodeInvalidPrefixVarint32Overflow();
+  ASSERT_FALSE(DecodePrefixVarint32(input[0], input.data() + 1,
+                                    input.size() - 1, &result));
+  ASSERT_TRUE(GetPrefixVarint32Ptr(input.data(), input.data() + input.size(),
+                                   &result) == nullptr);
+}
+
+TEST(Coding, PrefixVarint32Truncation) {
+  AssertPrefixVarintTruncation(~uint32_t{0});
+}
+
+TEST(Coding, PrefixVarint64Truncation) {
+  AssertPrefixVarintTruncation(~uint64_t{0});
 }
 
 }  // namespace ROCKSDB_NAMESPACE
