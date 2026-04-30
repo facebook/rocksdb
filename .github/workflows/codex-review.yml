@@ -1,10 +1,10 @@
-# Claude Code Review — Analysis Workflow
+# Codex Code Review — Analysis Workflow
 #
 # Thin wrapper around .github/workflows/ai-review-analysis.yml so provider
 # specific triggers and workflow_dispatch inputs stay stable while the shared
 # implementation lives in one reusable workflow.
 
-name: Claude Code Review
+name: Codex Code Review
 
 on:
   workflow_run:
@@ -26,14 +26,14 @@ on:
         required: true
         type: number
       model:
-        description: Claude model to use (defaults to latest Opus)
+        description: Codex model to use
         required: false
         type: choice
         options:
-          - claude-opus-4-7
-          - claude-opus-4-6
-          - claude-sonnet-4-6
-        default: claude-opus-4-7
+          - gpt-5.5
+          - gpt-5.3-codex
+          - gpt-5.2-codex
+        default: gpt-5.5
       thinking_budget:
         description: Override MAX_THINKING_TOKENS (blank = auto-classify)
         required: false
@@ -55,16 +55,14 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
     uses: ./.github/workflows/ai-review-analysis.yml
     with:
-      provider: claude
-      display_name: Claude
-      review_command: /claude-review
-      query_command: /claude-query
-      result_artifact_name: claude-review-result
-      comment_file: claude-review-comment.md
-      default_model: claude-opus-4-7
+      provider: codex
+      display_name: Codex
+      review_command: /codex-review
+      query_command: /codex-query
+      result_artifact_name: codex-review-result
+      comment_file: codex-review-comment.md
+      default_model: gpt-5.5
       selected_model: ${{ github.event_name == 'workflow_dispatch' && inputs.model || '' }}
-      classifier_model: claude-sonnet-4-6
-      recovery_model: claude-sonnet-4-6
       thinking_budget: ${{ github.event_name == 'workflow_dispatch' && inputs.thinking_budget || '' }}
       dispatch_pr_number: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || '' }}
     secrets: inherit
