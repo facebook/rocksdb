@@ -37,7 +37,6 @@ static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_wrapper_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> legacy_env_wrapper_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::CompositeEnvWrapper>
     dbsl_env_wrapper_guard;
-static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
 
 int ReturnFlagValidationError(const char* message) {
   std::cerr << "Error: " << message << '\n';
@@ -85,39 +84,8 @@ int db_stress_tool(int argc, char** argv) {
   dbsl_env_wrapper_guard = std::make_shared<CompositeEnvWrapper>(raw_env);
   db_stress_listener_env = dbsl_env_wrapper_guard.get();
 
-  if (FLAGS_open_metadata_read_fault_one_in ||
-      FLAGS_open_metadata_write_fault_one_in || FLAGS_open_read_fault_one_in ||
-      FLAGS_open_write_fault_one_in || FLAGS_metadata_read_fault_one_in ||
-      FLAGS_metadata_write_fault_one_in || FLAGS_read_fault_one_in ||
-      FLAGS_write_fault_one_in || FLAGS_sync_fault_injection) {
-    FaultInjectionTestFS* fs =
-        new FaultInjectionTestFS(raw_env->GetFileSystem());
-    fault_fs_guard.reset(fs);
-    // Info logs are debugging artifacts, so exclude them from fault injection
-    // and keep error accounting focused on DB data and metadata.
-    fault_fs_guard->SetFileTypesExcludedFromFaultInjection(
-        {FileType::kInfoLogFile});
-    // Set it to direct writable here to initially bypass any fault injection
-    // during DB open This will correspondingly be overwritten in
-    // StressTest::Open() for open fault injection and in RunStressTestImpl()
-    // for proper fault injection setup.
-    fault_fs_guard->SetFilesystemDirectWritable(true);
-    fault_env_guard =
-        std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
-    raw_env = fault_env_guard.get();
-
-    // Register a crash callback so that recently injected errors are
-    // printed to stderr when the process crashes (SIGABRT, SIGSEGV, etc.).
-    // This helps diagnose stress test failures caused by fault injection.
-    port::RegisterCrashCallback([]() {
-      if (fault_fs_guard) {
-        fault_fs_guard->PrintRecentInjectedErrors();
-      }
-    });
-  }
-
-  auto db_stress_fs =
-      std::make_shared<DbStressFSWrapper>(raw_env->GetFileSystem());
+  db_stress_raw_fs = raw_env->GetFileSystem();
+  auto db_stress_fs = std::make_shared<DbStressFSWrapper>(db_stress_raw_fs);
   env_wrapper_guard =
       std::make_shared<CompositeEnvWrapper>(raw_env, db_stress_fs);
   db_stress_env = env_wrapper_guard.get();
@@ -376,25 +344,6 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_secondary_dbs_root = default_secondaries_path;
   }
 
-  // Now that root flags are resolved, set the fault injection log file path
-  // so that PrintAll() writes to a file instead of stderr (signal-safe).
-  // Store the log in TEST_TMPDIR (outside the DB directory) so it survives
-  // DB reopen (which cleans untracked files) and gets included in the
-  // sandcastle db.tar.gz artifact for post-failure analysis.
-  if (fault_fs_guard) {
-    std::string log_dir;
-    const char* test_tmpdir = getenv("TEST_TMPDIR");
-    if (test_tmpdir && test_tmpdir[0] != '\0') {
-      log_dir = test_tmpdir;
-    } else {
-      log_dir = "/tmp";
-    }
-    std::string log_path = log_dir + "/fault_injection_" +
-                           std::to_string(getpid()) + "_" +
-                           std::to_string(time(nullptr)) + ".log";
-    fault_fs_guard->SetInjectedErrorLogPath(log_path);
-  }
-
   if (FLAGS_best_efforts_recovery &&
       !(FLAGS_skip_verifydb && FLAGS_disable_wal)) {
     fprintf(stderr,
@@ -567,6 +516,20 @@ int db_stress_tool(int argc, char** argv) {
   } else {
     stress.reset(CreateNonBatchedOpsStressTest(db_index));
   }
+
+  // Register a crash callback so that recently injected errors are
+  // printed to stderr when the process crashes (SIGABRT, SIGSEGV, etc.).
+  // This helps diagnose stress test failures caused by fault injection.
+  static std::shared_ptr<FaultInjectionTestFS> g_db_fault_fs_for_crash;
+  g_db_fault_fs_for_crash = stress->GetDbFaultInjectionFs();
+  if (g_db_fault_fs_for_crash) {
+    port::RegisterCrashCallback([]() {
+      if (g_db_fault_fs_for_crash) {
+        g_db_fault_fs_for_crash->PrintRecentInjectedErrors();
+      }
+    });
+  }
+
   // Initialize the Zipfian pre-calculated array
   InitializeHotKeyGenerator(FLAGS_hot_key_alpha);
   shared.reset(new SharedState(db_stress_env, stress.get()));
@@ -574,6 +537,8 @@ int db_stress_tool(int argc, char** argv) {
   // Close DB in CleanUp() before destructor to prevent race between destructor
   // and operations in listener callbacks (e.g. MultiOpsTxnsStressListener).
   stress->CleanUp();
+  port::RegisterCrashCallback(nullptr);
+  g_db_fault_fs_for_crash.reset();
   return run_stress_test ? 0 : 1;
 }
 
