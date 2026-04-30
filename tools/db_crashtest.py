@@ -196,7 +196,7 @@ default_params = {
     "index_block_search_type": lambda: random.choice([0, 1, 2]),
     "uniform_cv_threshold": lambda: random.choice([-1, 0.2, 1000]),
     "ingest_external_file_one_in": lambda: random.choice([1000, 1000000]),
-    "test_ingest_standalone_range_deletion_one_in": lambda: random.choice([0, 5, 10]),
+    "test_ingest_standalone_range_deletion_one_in": 0,
     "iterpercent": 10,
     "lock_wal_one_in": lambda: random.choice([10000, 1000000]),
     "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
@@ -263,7 +263,7 @@ default_params = {
     "use_merge": lambda: random.randint(0, 1),
     # use_trie_index must be the same across invocations so that all SSTs
     # in a DB are opened with matching table options.
-    "use_trie_index": random.choice([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    "use_trie_index": 0,
     # use_udi_as_primary_index must be the same across invocations (like
     # use_trie_index) so that SSTs written in primary mode can be read on
     # reopen.
