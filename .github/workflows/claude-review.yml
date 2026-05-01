@@ -62,7 +62,6 @@ jobs:
       default_model: claude-opus-4-7
       selected_model: ${{ github.event_name == 'workflow_dispatch' && inputs.model || '' }}
       classifier_model: claude-sonnet-4-6
-      recovery_model: claude-sonnet-4-6
       thinking_budget: ${{ github.event_name == 'workflow_dispatch' && inputs.thinking_budget || '' }}
       dispatch_pr_number: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || '' }}
     secrets: inherit

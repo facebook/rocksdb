@@ -4,12 +4,10 @@
 Thorough multi-agent code review for RocksDB commits following CLAUDE.md guidelines,
 with structured codebase exploration, inter-agent debate, and verification.
 
-IMPORTANT — Incremental output: After completing EACH major phase (Setup,
-Codebase Context, Initial Review, Debate, Synthesis), append your findings
-to review-findings.md using the Write tool. This ensures partial results are
-saved even if the review is interrupted by the turn limit. After the final
-synthesis, write the complete review to review-findings.md, replacing
-previous content. Also output the final review as your response text.
+IMPORTANT — Read-only output: Do not create or modify files. Keep context,
+agent findings, debate notes, and consensus in the conversation/sub-agent
+messages. Output the complete final review as your final response text; the CI
+workflow captures that response from the action execution log.
 
 ## Workflow Steps
 
@@ -35,8 +33,9 @@ failure mode is findings that look correct in isolation but miss how the
 change breaks the surrounding system.
 
 The team lead spawns one or more research agents to perform the following
-analyses using local file search tools (Grep, Glob, Read). The research
-must be written to `context.md` BEFORE any review agent is spawned.
+analyses using local file search tools (Grep, Glob, Read). Summarize the
+research as a Codebase Context section BEFORE any review agent is spawned, and
+include that context directly in each review agent's prompt.
 
 #### 2a. Subsystem Deep-Read
 Read the changed files AND their surrounding subsystem **in depth** — not just
@@ -162,9 +161,9 @@ this assert fires?" If yes, it's a bug (the assert catches it in debug but
 release builds silently corrupt). If you cannot construct a counterexample
 after trying, document WHY it's impossible.
 
-#### 2j. Write Context Document
-Write the complete analysis to `context.md` in the review folder. This document
-is provided to ALL review agents as part of their prompt.
+#### 2j. Prepare Codebase Context
+Prepare the complete analysis as an in-memory Codebase Context section. Do not
+write `context.md`; include the context directly in ALL review agent prompts.
 
 **Context document template**:
 ```markdown
@@ -237,14 +236,14 @@ For each piece of data the change WRITES to a shared structure:
 ```
 
 ### 3. Initial Review Phase (Parallel)
-Create a team and spawn 5 review agents in parallel. **Include the context
-document from Phase 2 in each agent's prompt.** Each agent writes findings
-to its own file and sends a summary message to the team lead.
+Create a team and spawn 5 review agents in parallel. **Include the Codebase
+Context from Phase 2 in each agent's prompt.** Each agent returns findings in
+its final message to the team lead; do not ask agents to write files.
 
 Each agent's prompt should include:
 ```
 ## Codebase Context (READ THIS FIRST)
-[paste or reference the context.md file]
+[paste the Codebase Context section from Phase 2]
 
 You MUST consider how your findings interact with the upstream callers
 and system invariants documented above. A finding that looks correct
@@ -272,10 +271,11 @@ in isolation may be a critical bug when you consider the full call chain.
 - Data corruption scenarios
 - Logic correctness of new algorithms
 - **Behavioral contract changes**: Do return value semantics match what
-  upstream callers expect? (Use the caller-chain analysis from context.md)
+  upstream callers expect? (Use the caller-chain analysis from the Codebase
+  Context)
 - **Callee side effects**: Does the change call functions that mutate shared
   state (counters, seqnos, metadata)? Are the mutations correct for the new
-  calling context? (Use the callee-chain analysis from context.md)
+  calling context? (Use the callee-chain analysis from the Codebase Context)
 
 #### Agent: Cross-Component & Adversarial Reviewer
 
@@ -303,7 +303,7 @@ counterexamples. Treat asserts as hypotheses to break, not proofs.
 **Callee side-effect audit:** Perform the callee side-effect audit described
 in section 2c. For every callee, ask what it RETURNS and what it MUTATES.
 
-Write findings to `findings-cross-component.md`.
+Return findings in your final message.
 
 #### Agent: Invariant Adversary
 
@@ -323,7 +323,7 @@ mutations to shared state (atomic CAS loops, counter increments, flag/metadata
 updates, cache invalidation). A function returning `Status::OK()` does NOT
 mean its side effects are correct.
 
-Write findings to `findings-invariant-adversary.md`.
+Return findings in your final message.
 
 #### Agent: Caller-Context Auditor
 
@@ -366,11 +366,11 @@ affect the changed code path:
   `allow_concurrent_memtable_write`, `use_trie_index`)
 - Are there option combinations that create contradictions?
 
-**Step 5: Cross-reference with context.md.** Compare your caller analysis
-with the invariants and execution contexts documented in context.md. Flag
-any caller that violates an assumed precondition.
+**Step 5: Cross-reference with the Codebase Context.** Compare your caller
+analysis with the invariants and execution contexts documented in the Codebase
+Context. Flag any caller that violates an assumed precondition.
 
-Write findings to `findings-caller-audit.md`.
+Return findings in your final message.
 
 #### Agent: Performance Reviewer
 - Memory allocation on hot paths
@@ -411,7 +411,7 @@ a structured debate:
 
 #### Step 4a: Share findings
 - Team lead sends each agent a summary of ALL other agents' findings
-  (or instructs each agent to read the other agents' findings files)
+  (or instructs each agent to read the other agents' findings summaries)
 
 #### Step 4b: Critique round (2 rounds)
 Each agent reviews the findings from the other agents and sends messages to
@@ -441,14 +441,14 @@ often reveal the same underlying bug from different angles (invariant
 violation vs reachable bad input vs data-flow mismatch).
 
 Each agent should:
-1. Read the assigned agents' findings files
+1. Read the assigned agents' findings summaries
 2. Send a critique message to each assigned agent
 3. Respond to critiques received from other agents
-4. Update their own findings file with any revisions (upgraded/downgraded severity,
+4. Return revised findings with any revisions (upgraded/downgraded severity,
    withdrawn findings, new findings inspired by others)
 
 #### Step 4c: Team lead collects debate results
-- Read all updated findings files
+- Read all updated findings summaries
 - Review the debate messages
 - Build consensus: findings supported by 2+ agents → HIGH confidence
 - Write consensus document with final severity classifications
@@ -459,14 +459,14 @@ Team lead synthesizes the debate into a consensus document:
 - Count agreement (majority = 2+ agents independently flagging or supporting)
 - Note disagreements and how they were resolved
 - Classify findings as HIGH/MEDIUM/LOW severity
-- Write consensus document
+- Prepare a consensus summary
 
 ### 6. Summary Phase
 - Compile all validated findings ordered by severity
 - Include detailed bug analysis (root cause, vulnerable code paths)
 - Include suggested fixes
 - Note which findings were debated and the outcome
-- Write the complete review to review-findings.md and output as response
+- Output the complete review as the final response
 
 **Final report quality rules:**
 - The final report must be CLEAN and POLISHED. No stream-of-consciousness,
@@ -483,9 +483,9 @@ Team lead synthesizes the debate into a consensus document:
 
 **REQUIRED output structure (so the PR page stays scrollable):**
 
-The final response (and contents of `review-findings.md`) MUST follow this
-exact structure. The summary appears first so reviewers can see HIGH findings
-at a glance; everything else is hidden behind a `<details>` block.
+The final response MUST follow this exact structure. The summary appears first
+so reviewers can see HIGH findings at a glance; everything else is hidden
+behind a `<details>` block.
 
 ```markdown
 ## Summary
@@ -571,15 +571,10 @@ Rules for this structure:
 - [ ] All callers enumerated with parameter range table
 
 ## Output Structure
-Write all review artifacts to the working directory root:
-- `review-findings.md` — Incremental findings (appended after each phase),
-  then replaced with the final synthesized review at the end
-- `context.md` — Codebase context (call chains, invariants)
-- `findings-*.md` — Per-agent findings (design, correctness, cross-component,
-  invariant-adversary, caller-audit, performance, api, serialization, tests)
-- `consensus.md` — Cross-review consensus (post-debate)
-
-
+Do not write review artifacts to the working directory. Keep all intermediate
+context, per-agent findings, and consensus notes in conversation/sub-agent
+messages. The only required persisted output is the final response text, which
+the CI workflow captures from the action execution log.
 
 ## Team Structure
 ```
@@ -593,7 +588,7 @@ Team Lead (you)
 │       └── Document invariants
 │
 ├── Phase 3: Initial Review (parallel, run_in_background)
-│   │  (all agents receive context.md in their prompt)
+│   │  (all agents receive the Codebase Context in their prompt)
 │   ├── design-reviewer            (general-purpose agent)
 │   ├── correctness-reviewer       (general-purpose agent)
 │   ├── cross-component-reviewer   (general-purpose agent)
@@ -621,16 +616,16 @@ Team Lead (you)
 ## Agent Communication Protocol
 
 ### During Initial Review (Phase 3)
-- Each agent writes findings to its own file
+- Each agent returns findings in its final message
 - Each agent sends a summary message to team lead when done
 - Agents do NOT communicate with each other yet
 
 ### During Debate (Phase 4)
 - Team lead sends each agent a message with instructions to:
-  1. Read the assigned agents' findings files
+  1. Read the assigned agents' findings summaries
   2. Send critique messages to those agents
   3. Respond to incoming critiques
-  4. Update their own findings file with revisions
+  4. Return revised findings in messages
 - Each critique message should include:
   - Which finding they're addressing (e.g., "Correctness F1")
   - Whether they AGREE, DISAGREE, or want to REFINE
