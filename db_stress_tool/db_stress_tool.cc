@@ -21,11 +21,13 @@
 // different behavior. See comment of the flag for details.
 
 #ifdef GFLAGS
+#include <cstdlib>
 #include <iostream>
 
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_shared_state.h"
+#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "utilities/fault_injection_fs.h"
@@ -42,6 +44,24 @@ static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
 int ReturnFlagValidationError(const char* message) {
   std::cerr << "Error: " << message << '\n';
   return 1;
+}
+
+std::string GetFaultInjectionLogBaseDir(bool is_remote_db) {
+  if (is_remote_db) {
+    return "/tmp";
+  }
+  // db_stress reads environment variables during single-threaded startup,
+  // before worker threads are created.
+  // NOLINTNEXTLINE(concurrency-mt-unsafe)
+  const char* test_tmpdir = std::getenv("TEST_TMPDIR");
+  return test_tmpdir != nullptr && test_tmpdir[0] != '\0' ? test_tmpdir
+                                                          : "/tmp";
+}
+
+std::string GetFaultInjectionLogDir(bool is_remote_db) {
+  // Keep fault logs outside the DB directory so reopen cleanup does not remove
+  // them. For remote DBs, use a guaranteed-local staging area.
+  return GetFaultInjectionLogBaseDir(is_remote_db) + "/fault_injection_logs";
 }
 }  // namespace
 
@@ -90,8 +110,19 @@ int db_stress_tool(int argc, char** argv) {
       FLAGS_open_write_fault_one_in || FLAGS_metadata_read_fault_one_in ||
       FLAGS_metadata_write_fault_one_in || FLAGS_read_fault_one_in ||
       FLAGS_write_fault_one_in || FLAGS_sync_fault_injection) {
+    const std::string log_dir =
+        GetFaultInjectionLogDir(/*is_remote_db=*/env_opts > 0);
+    s = Env::Default()->CreateDirIfMissing(log_dir);
+    if (!s.ok()) {
+      fprintf(stderr, "Failed to create directory %s: %s\n", log_dir.c_str(),
+              s.ToString().c_str());
+      exit(1);
+    }
+    const std::string log_path =
+        log_dir + "/fault_injection_" + std::to_string(port::GetProcessID()) +
+        "_" + std::to_string(Env::Default()->NowMicros()) + ".bin";
     FaultInjectionTestFS* fs =
-        new FaultInjectionTestFS(raw_env->GetFileSystem());
+        new FaultInjectionTestFS(raw_env->GetFileSystem(), log_path);
     fault_fs_guard.reset(fs);
     // Info logs are debugging artifacts, so exclude them from fault injection
     // and keep error accounting focused on DB data and metadata.
@@ -105,13 +136,9 @@ int db_stress_tool(int argc, char** argv) {
     fault_env_guard =
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();
-
-    // Register a crash callback so that recently injected errors are
-    // printed to stderr when the process crashes (SIGABRT, SIGSEGV, etc.).
-    // This helps diagnose stress test failures caused by fault injection.
     port::RegisterCrashCallback([]() {
       if (fault_fs_guard) {
-        fault_fs_guard->PrintRecentInjectedErrors();
+        fault_fs_guard->FlushRecentInjectedErrors();
       }
     });
   }
@@ -359,25 +386,6 @@ int db_stress_tool(int argc, char** argv) {
     db_stress_env->GetTestDirectory(&default_db_path);
     default_db_path += "/dbstress";
     FLAGS_db = default_db_path;
-  }
-
-  // Now that FLAGS_db is resolved, set the fault injection log file path
-  // so that PrintAll() writes to a file instead of stderr (signal-safe).
-  // Store the log in TEST_TMPDIR (outside the DB directory) so it survives
-  // DB reopen (which cleans untracked files) and gets included in the
-  // sandcastle db.tar.gz artifact for post-failure analysis.
-  if (fault_fs_guard) {
-    std::string log_dir;
-    const char* test_tmpdir = getenv("TEST_TMPDIR");
-    if (test_tmpdir && test_tmpdir[0] != '\0') {
-      log_dir = test_tmpdir;
-    } else {
-      log_dir = "/tmp";
-    }
-    std::string log_path = log_dir + "/fault_injection_" +
-                           std::to_string(getpid()) + "_" +
-                           std::to_string(time(nullptr)) + ".log";
-    fault_fs_guard->SetInjectedErrorLogPath(log_path);
   }
 
   if ((FLAGS_test_secondary || FLAGS_continuous_verification_interval > 0) &&

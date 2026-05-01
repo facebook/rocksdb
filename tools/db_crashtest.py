@@ -14,6 +14,12 @@ import sys
 import tempfile
 import time
 
+_TOOLS_DIR = os.path.dirname(__file__)
+if _TOOLS_DIR and _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
+
+import fault_injection_log_parser
+
 per_iteration_random_seed_override = 0
 remain_argv = None
 is_remote_db = False
@@ -30,6 +36,7 @@ _NO_SPACE_SUBSTRINGS = (
     "enospc",
 )
 _OUTPUT_PATH_RE = re.compile(r"(/[^\s]+)")
+_FAULT_INJECTION_LOG_DIR_NAME = "fault_injection_logs"
 
 
 def get_random_seed(override):
@@ -2012,52 +2019,41 @@ def cleanup_after_success(dbname):
         sys.exit(2)
 
 
-def print_and_cleanup_fault_injection_log(pid):
+def _fault_injection_log_dir():
+    if is_remote_db:
+        base_dir = "/tmp"
+    else:
+        base_dir = os.environ.get(_TEST_DIR_ENV_VAR) or "/tmp"
+    return os.path.join(
+        base_dir,
+        _FAULT_INJECTION_LOG_DIR_NAME,
+    )
+
+
+def print_fault_injection_log(pid):
     # Fault injection logs are stored in TEST_TMPDIR (or /tmp) to survive
-    # DB reopen cleanup, and to be included in sandcastle's db.tar.gz artifact.
-    # Filter by pid to only print the log from the current run.
-    max_tail_entries = 32
-    log_dir = os.environ.get(_TEST_DIR_ENV_VAR) or "/tmp"
-    pattern = os.path.join(log_dir, "fault_injection_%d_*.log" % pid)
-    for log in glob.glob(pattern):
-        print("=== Fault injection log: %s ===" % log)
+    # DB reopen cleanup, and to be included in crash-test artifacts.
+    # Filter by pid to only print the log from the current run. Raw and decoded
+    # logs are intentionally left behind for external artifact collection and
+    # cleanup.
+    log_dir = _fault_injection_log_dir()
+
+    raw_pattern = os.path.join(log_dir, "fault_injection_%d_*.bin" % pid)
+    for raw_log in sorted(glob.glob(raw_pattern)):
+        decoded_log = raw_log + ".txt"
         try:
-            with open(log) as f:
-                lines = f.readlines()
-            # Log format: header line(s), entry lines, footer line.
-            # The footer starts with "=== End of".
-            # Print header and footer always, truncate entries in the middle.
-            header = []
-            footer = []
-            entries = []
-            for line in lines:
-                stripped = line.strip()
-                if stripped.startswith("=== End of"):
-                    footer.append(line)
-                elif stripped.startswith("===") or stripped == "(none)":
-                    header.append(line)
-                else:
-                    entries.append(line)
-            total_entries = len(entries)
-            print("".join(header), end="")
-            if total_entries <= max_tail_entries:
-                print("".join(entries), end="")
-                print("".join(footer), end="")
-            else:
-                skipped = total_entries - max_tail_entries
-                print(
-                    "... (%d entries omitted, showing last %d. "
-                    "Full log: %s)\n" % (skipped, max_tail_entries, log),
-                    end="",
-                )
-                print("".join(entries[-max_tail_entries:]), end="")
-                print(
-                    "=== Showed %d of %d injected error entries ===\n"
-                    % (max_tail_entries, total_entries),
-                    end="",
-                )
-        except OSError:
-            pass
+            entry_count = fault_injection_log_parser.decode_fault_injection_log(
+                raw_log, decoded_log
+            )
+            print(
+                "Fault injection log saved: raw=%s decoded=%s entries=%d"
+                % (raw_log, decoded_log, entry_count)
+            )
+        except (OSError, ValueError) as exc:
+            print(
+                "WARNING: failed to decode fault injection log %s: %s\n"
+                % (raw_log, exc)
+            )
 
 
 # This script runs and kills db_stress multiple times. It checks consistency
@@ -2085,7 +2081,7 @@ def blackbox_crash_main(args, unknown_args):
 
         hit_timeout, retcode, outs, errs, pid = execute_cmd(cmd, cmd_params["interval"])
 
-        print_and_cleanup_fault_injection_log(pid)
+        print_fault_injection_log(pid)
         outs, errs = strip_expected_sigterm_stderr(outs, errs, hit_timeout)
 
         # Reset destroy_db_initially after each run (it may have been set by
@@ -2116,7 +2112,7 @@ def blackbox_crash_main(args, unknown_args):
         cmd, cmd_params["verify_timeout"], True
     )
 
-    print_and_cleanup_fault_injection_log(pid)
+    print_fault_injection_log(pid)
 
     # For the final run
     print_run_output_and_exit_on_error(args, finalized_params, outs, errs)
@@ -2261,6 +2257,7 @@ def whitebox_crash_main(args, unknown_args):
         hit_timeout, retncode, stdoutdata, stderrdata, pid = execute_cmd(
             cmd, exit_time - time.time() + 900
         )
+        print_fault_injection_log(pid)
 
         # Reset destroy_db_initially after each run (it may have been set by
         # command line for first run, or set for various reasons for a step)
