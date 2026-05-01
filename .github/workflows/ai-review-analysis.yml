@@ -549,6 +549,10 @@ jobs:
           CODEX_HOME: /tmp/codex-home
           CODEX_MODEL: ${{ inputs.default_model }}
         run: |
+          if [ -z "${OPENAI_API_KEY}" ]; then
+            echo "OPENAI_API_KEY not configured, skipping Codex review"
+            exit 0
+          fi
           mkdir -p "${CODEX_HOME}"
           codex exec \
             -m "${CODEX_MODEL}" \
@@ -698,6 +702,10 @@ jobs:
           BASE_SHA: ${{ steps.pr_info.outputs.base_sha }}
           PR_TITLE: ${{ steps.pr_info.outputs.pr_title }}
         run: |
+          if [ -z "${OPENAI_API_KEY}" ]; then
+            echo "OPENAI_API_KEY not configured, skipping Codex review"
+            exit 0
+          fi
           mkdir -p "${CODEX_HOME}"
           set +e
           codex exec review \
