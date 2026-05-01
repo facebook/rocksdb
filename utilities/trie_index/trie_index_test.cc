@@ -4303,7 +4303,8 @@ class TrieIndexSSTTest : public testing::Test {
     Options options;
     BlockBasedTableOptions table_options;
     table_options.user_defined_index_factory = trie_factory_;
-    table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+    table_options.index_mode =
+        BlockBasedTableOptions::IndexMode::kStandardDefault;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     SstFileWriter writer(EnvOptions(), options);
@@ -4360,7 +4361,8 @@ TEST_F(TrieIndexSSTTest, WriteAndReadWithTrieUDI) {
     Options options;
     BlockBasedTableOptions table_options;
     table_options.user_defined_index_factory = trie_factory_;
-    table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+    table_options.index_mode =
+        BlockBasedTableOptions::IndexMode::kStandardDefault;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     SstFileReader reader(options);
@@ -4391,7 +4393,8 @@ TEST_F(TrieIndexSSTTest, SeekWithTrieUDI) {
   Options options;
   BlockBasedTableOptions table_options;
   table_options.user_defined_index_factory = trie_factory_;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   SstFileReader reader(options);
@@ -4431,7 +4434,8 @@ TEST_F(TrieIndexSSTTest, SeekWithUpperBound) {
   Options options;
   BlockBasedTableOptions table_options;
   table_options.user_defined_index_factory = trie_factory_;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   SstFileReader reader(options);
@@ -4463,7 +4467,8 @@ TEST_F(TrieIndexSSTTest, SmallSST) {
   Options options;
   BlockBasedTableOptions table_options;
   table_options.user_defined_index_factory = trie_factory_;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   SstFileReader reader(options);
@@ -4503,7 +4508,8 @@ TEST_F(TrieIndexSSTTest, MixedKeyTypesWithCompressionDict) {
   table_options.index_type =
       BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey;
   table_options.user_defined_index_factory = trie_factory_;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
 
   Options options;
   options.compression = kCompression;
@@ -4804,7 +4810,8 @@ TEST_F(TrieIndexSSTTest, MixedKeyTypesWithTrieUDI) {
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
   BlockBasedTableOptions table_options;
   table_options.user_defined_index_factory = trie_factory_;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   SstFileWriter writer(EnvOptions(), options);
@@ -4912,7 +4919,8 @@ TEST_F(TrieIndexSSTTest, LargeMixedKeyTypesWithTrieUDI) {
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
   BlockBasedTableOptions table_options;
   table_options.user_defined_index_factory = trie_factory_;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
   // Use small block size to force many data blocks, stressing the index.
   table_options.block_size = 128;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
