@@ -201,15 +201,22 @@ Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
   return status;
 }
 
-void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/) {
+void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/,
+                           Cleanable* value_pinner) {
   assert(state_ == kNotFound);
   assert(ucmp_->timestamp_size() == 0);
+
+  TEST_SYNC_POINT_CALLBACK("GetContext::SaveValue::Simple", this);
 
   appendToReplayLog(kTypeValue, value, Slice());
 
   state_ = kFound;
   if (LIKELY(pinnable_val_ != nullptr)) {
-    pinnable_val_->PinSelf(value);
+    if (LIKELY(value_pinner != nullptr)) {
+      pinnable_val_->PinSlice(value, value_pinner);
+    } else {
+      pinnable_val_->PinSelf(value);
+    }
   }
 }
 

@@ -1675,6 +1675,62 @@ TEST_P(PrefetchTrimReadaheadTestParam, PrefixSameAsStart) {
   Close();
 }
 
+TEST_P(PrefetchTrimReadaheadTestParam, IterateUpperBoundAtEndOfIndex) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+  const bool auto_readahead_size = std::get<1>(GetParam());
+
+  std::shared_ptr<MockFS> fs = std::make_shared<MockFS>(
+      FileSystem::Default(), false /* support_prefetch */,
+      true /* small_buffer_alignment */);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+  Options options;
+  SetGenericOptions(env.get(), options);
+  options.prefix_extractor.reset();
+  BlockBasedTableOptions table_options;
+  SetBlockBasedTableOptions(table_options);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  ASSERT_OK(TryReopen(options));
+
+  for (int i = 0; i < 64; ++i) {
+    ASSERT_OK(db_->Put(WriteOptions(), "key" + std::to_string(i),
+                       rnd.RandomString(100)));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  ReadOptions ro;
+  ro.async_io = true;
+  ro.auto_readahead_size = auto_readahead_size;
+  ro.readahead_size = 1024 * 1024;
+  const Slice upper_bound("keyz");
+  ro.iterate_upper_bound = &upper_bound;
+
+  ASSERT_OK(options.statistics->Reset());
+  int num_keys = 0;
+  Status iter_status;
+  {
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    for (iter->Seek("key0"); iter->Valid(); iter->Next()) {
+      ++num_keys;
+    }
+    iter_status = iter->status();
+  }
+  auto readahead_trimmed =
+      options.statistics->getTickerCount(READAHEAD_TRIMMED);
+
+  Close();
+  ASSERT_OK(iter_status);
+  ASSERT_EQ(num_keys, 64);
+  if (auto_readahead_size) {
+    ASSERT_GT(readahead_trimmed, 0);
+  } else {
+    ASSERT_EQ(readahead_trimmed, 0);
+  }
+}
+
 // This test verifies the functionality of ReadOptions.adaptive_readahead.
 TEST_P(PrefetchTest, DBIterLevelReadAhead) {
   const int kNumKeys = 1000;

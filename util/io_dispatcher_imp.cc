@@ -985,6 +985,15 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
                              &async_state->del_fn,
                              direct_io ? &async_state->aligned_buf : nullptr);
 
+    if (s.IsNotSupported()) {
+      // Async IO may be compiled in but unavailable at runtime. Fall back to
+      // the synchronous coalesced path for these blocks.
+      for (const auto idx : coalesced_block_indices[i]) {
+        fallback_block_indices.push_back(idx);
+      }
+      continue;
+    }
+
     if (!s.ok()) {
       // Actual error - surface to caller
       *out_status = s;

@@ -5599,7 +5599,7 @@ VersionSet::VersionSet(
     : column_family_set_(new ColumnFamilySet(
           dbname, _db_options, storage_options, table_cache,
           write_buffer_manager, write_controller, block_cache_tracer, io_tracer,
-          db_id, db_session_id)),
+          db_id, db_session_id, mutable_db_options.fast_sst_open)),
       table_cache_(table_cache),
       env_(_db_options->env),
       fs_(_db_options->fs, io_tracer),
@@ -5728,6 +5728,8 @@ Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
         // Manifest is healthy, no need to check again
         break;
       }
+      RecordTick(db_options_->statistics.get(),
+                 MANIFEST_VALIDATION_FAILURE_COUNT);
       IOStatus corrupt_io_s =
           IOStatus::Corruption("MANIFEST content validation failed");
       IOErrorInfo io_error_info(corrupt_io_s, FileOperationType::kVerify,
@@ -5808,7 +5810,8 @@ void VersionSet::Reset() {
     // options.write_dbid_to_manifest is false (default).
     column_family_set_.reset(new ColumnFamilySet(
         dbname_, db_options_, file_options_, table_cache_, wbm, wc,
-        block_cache_tracer_, io_tracer_, db_id_, db_session_id_));
+        block_cache_tracer_, io_tracer_, db_id_, db_session_id_,
+        column_family_set_->GetFastSstOpen()));
   }
   db_id_.clear();
   next_file_number_.store(2);

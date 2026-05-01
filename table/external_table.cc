@@ -253,9 +253,7 @@ class ExternalTableReaderAdapter : public TableReader {
       return s;
     }
 
-    ParsedInternalKey found_key(parsed_key.user_key, 0, ValueType::kTypeValue);
-    bool matched = false;
-    get_context->SaveValue(found_key, value, &matched, &s,
+    get_context->SaveValue(value, /*seq=*/0,
                            value.IsPinned() ? &value : nullptr);
     return s;
   }
@@ -418,6 +416,11 @@ class ExternalTableFactoryAdapter : public TableFactory {
     if (topts.largest_seqno > 0 && topts.largest_seqno != kMaxSequenceNumber) {
       return Status::NotSupported(
           "Ingesting file with sequence number larger than 0");
+    }
+    if (topts.ioptions.user_comparator != nullptr &&
+        topts.ioptions.user_comparator->timestamp_size() != 0) {
+      return Status::NotSupported(
+          "External table does not support user-defined timestamps");
     }
     std::unique_ptr<ExternalTableReader> reader;
     FileOptions fopts(topts.env_options);

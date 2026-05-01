@@ -8,6 +8,7 @@
 #include "db/arena_wrapped_db_iter.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
+#include "db/lookup_key.h"
 #include "file/random_access_file_reader.h"
 #include "options/cf_options.h"
 #include "rocksdb/env.h"
@@ -198,9 +199,10 @@ Status SstFileReader::Get(const ReadOptions& roptions, const Slice& key,
                      nullptr /* value_found */, &merge_context, true,
                      &max_covering_tombstone_seq, r->ioptions.clock);
 
-  status = r->table_reader->Get(
-      roptions, InternalKey(key, kMaxSequenceNumber, kTypeValue).Encode(),
-      &get_ctx, r->moptions.prefix_extractor.get(), false /* skip_filters */);
+  LookupKey lkey(key, kMaxSequenceNumber);
+  status = r->table_reader->Get(roptions, lkey.internal_key(), &get_ctx,
+                                r->moptions.prefix_extractor.get(),
+                                false /* skip_filters */);
 
   get_ctx.ReportCounters();
 

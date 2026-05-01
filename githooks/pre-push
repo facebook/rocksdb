@@ -1,89 +1,61 @@
 #!/usr/bin/env bash
-# pre-push hook: auto-format changed code before pushing.
+# pre-push hook: block pushing on common mistakes.
 #
-# Runs `make format-auto` to apply clang-format to files changed relative to
-# the upstream merge base. If any files are reformatted, they are committed as
-# a new "format" commit and the push is retried automatically.
+# 1. Checks for untracked source files in tracked directories, which likely
+#    need to be committed or removed before the pushed code will build.
+# 2. Runs `make check-format` to verify formatting.
 #
-# Install with:
-#   make install-hooks
+# Automatically active via `make all` / `make check` (sets core.hooksPath).
 #
 # Skip with:
 #   git push --no-verify
 
 set -e
 
-REMOTE="$1"
-URL="$2"
-
 # Only act when we have a terminal (skip in CI / automated pushes)
 if [ ! -t 1 ] && [ -z "$ROCKSDB_FORMAT_HOOK" ]; then
   exit 0
 fi
 
-# Read the refs being pushed from stdin
-PUSH_REFS=()
-while read local_ref local_oid remote_ref remote_oid; do
-  PUSH_REFS+=("$local_ref:$remote_ref")
-done
+FAILED=0
 
+# --- Check for untracked source files in tracked directories ---
+SUSPECT_FILES=$(git ls-files --others --exclude-standard \
+  | grep -E '\.(cc|cpp|c|h|hpp|java|py|mk|sh)$' \
+  | grep -v '^third-party/' \
+  | while IFS= read -r f; do
+      top_dir="${f%%/*}"
+      if [ "$top_dir" = "$f" ] || [ -n "$(git ls-files "$top_dir/" | head -1)" ]; then
+        echo "$f"
+      fi
+    done)
+
+if [ -n "$SUSPECT_FILES" ]; then
+  echo ""
+  echo "==========================================================="
+  echo "  pre-push: untracked source files in tracked directories."
+  echo "  Push blocked. These may need to be committed, or the"
+  echo "  pushed code could fail to build:"
+  echo ""
+  echo "$SUSPECT_FILES" | sed 's/^/    /'
+  echo ""
+  echo "  Commit them, add to .gitignore, delete, or --no-verify."
+  echo "==========================================================="
+  FAILED=1
+fi
+
+# --- Check formatting ---
 echo "pre-push: running format check..."
 
-# Save any uncommitted work so format-auto only touches committed code
-NEED_STASH=0
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  git stash push -q -m "pre-push-hook-$(date +%s)"
-  NEED_STASH=1
-fi
-
-cleanup() {
-  if [ "$NEED_STASH" -eq 1 ]; then
-    git stash pop -q 2>/dev/null || true
-  fi
-}
-trap cleanup EXIT
-
-# Run format check (check-only mode first to see if anything needs fixing)
-if make check-format 2>/dev/null; then
-  echo "pre-push: formatting is clean."
-  exit 0
-fi
-
-echo "pre-push: formatting issues detected, auto-fixing..."
-make format-auto
-
-# Check if format-auto actually changed anything
-if git diff --quiet; then
-  echo "pre-push: formatting is clean after auto-fix."
-  exit 0
-fi
-
-# Create a new format commit
-git add -A
-git commit -m "format: auto-format code" --no-verify -q
-
-# Build the refspecs using the current (post-format) branch HEAD
-REFSPECS=()
-for ref_pair in "${PUSH_REFS[@]}"; do
-  remote_ref="${ref_pair#*:}"
-  REFSPECS+=("HEAD:$remote_ref")
-done
-
-# Retry push, skipping the hook to avoid recursion
-if git push --no-verify "$REMOTE" "${REFSPECS[@]}" 2>&1; then
+if ! make check-format; then
   echo ""
   echo "==========================================================="
-  echo "  pre-push: automatically formatted with a new commit and"
-  echo "  pushed. You can ignore the 'failed to push' message below"
-  echo "  — that is git cancelling the stale push; your code is"
-  echo "  already on the remote."
+  echo "  pre-push: formatting issues detected. Push blocked."
+  echo "  Run 'make format-auto' then amend your commit and retry."
   echo "==========================================================="
-  exit 1
+  FAILED=1
 else
-  echo ""
-  echo "==========================================================="
-  echo "  pre-push: format commit was added but push failed."
-  echo "  Please run 'git push' again manually."
-  echo "==========================================================="
-  exit 1
+  echo "pre-push: formatting is clean."
 fi
+
+exit $FAILED

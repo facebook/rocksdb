@@ -25,6 +25,10 @@ class Statistics;
 struct IODispatcherImplData;
 struct PendingPrefetchRequest;
 
+// EXPERIMENTAL
+// The interface defined in this file is experimental and the behavior and
+// interface are subject to change without notice.
+
 // Options for configuring IODispatcher behavior
 struct IODispatcherOptions {
   // Maximum memory (in bytes) for prefetching across all ReadSets.

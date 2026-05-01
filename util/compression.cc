@@ -155,24 +155,23 @@ std::string CompressionOptionsToString(
   return result;
 }
 
-StreamingCompress* StreamingCompress::Create(CompressionType compression_type,
-                                             const CompressionOptions& opts,
-                                             uint32_t compress_format_version,
-                                             size_t max_output_len) {
+std::unique_ptr<StreamingCompress> StreamingCompress::Create(
+    CompressionType compression_type, const CompressionOptions& opts,
+    uint32_t compress_format_version, size_t max_output_len) {
   switch (compression_type) {
     case kZSTD: {
       if (!ZSTD_Streaming_Supported()) {
         return nullptr;
       }
-      return new ZSTDStreamingCompress(opts, compress_format_version,
-                                       max_output_len);
+      return std::make_unique<ZSTDStreamingCompress>(
+          opts, compress_format_version, max_output_len);
     }
     default:
       return nullptr;
   }
 }
 
-StreamingUncompress* StreamingUncompress::Create(
+std::unique_ptr<StreamingUncompress> StreamingUncompress::Create(
     CompressionType compression_type, uint32_t compress_format_version,
     size_t max_output_len) {
   switch (compression_type) {
@@ -180,8 +179,8 @@ StreamingUncompress* StreamingUncompress::Create(
       if (!ZSTD_Streaming_Supported()) {
         return nullptr;
       }
-      return new ZSTDStreamingUncompress(compress_format_version,
-                                         max_output_len);
+      return std::make_unique<ZSTDStreamingUncompress>(compress_format_version,
+                                                       max_output_len);
     }
     default:
       return nullptr;
@@ -1874,6 +1873,11 @@ Status CompressionManager::CreateFromString(
                                               opt_map);
   }
   return status;
+}
+
+std::string CompressionManager::CompressionTypeToString(
+    CompressionType type) const {
+  return ROCKSDB_NAMESPACE::CompressionTypeToString(type);
 }
 
 std::shared_ptr<CompressionManager>

@@ -1665,9 +1665,12 @@ Status DBImpl::SetDBOptions(
                                           : new_options.max_open_files - 10);
       // Potential table cache capacity change requires updating if table
       // handles should get pinned.
+      versions_->GetColumnFamilySet()->SetFastSstOpen(
+          new_options.fast_sst_open);
       for (auto cfd : *versions_->GetColumnFamilySet()) {
         if (!cfd->IsDropped()) {
           cfd->table_cache()->UpdateShouldPinTableHandles();
+          cfd->table_cache()->SetFastSstOpen(new_options.fast_sst_open);
         }
       }
       wal_other_option_changed = mutable_db_options_.wal_bytes_per_sync !=
@@ -4418,6 +4421,14 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
   ColumnFamilyData* cfd = cfh->cfd();
   assert(cfd != nullptr);
   SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
+  {
+    const Status s = FailIfTableFilterWithRangeConversion(
+        read_options, sv->mutable_cf_options);
+    if (!s.ok()) {
+      CleanupSuperVersion(sv);
+      return NewErrorIterator(s);
+    }
+  }
   if (read_options.timestamp && read_options.timestamp->size() > 0) {
     const Status s =
         FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
@@ -4639,6 +4650,16 @@ Status DBImpl::NewIterators(
   }
 
   assert(cf_sv_pairs.size() == column_families.size());
+  for (const auto& cf_sv_pair : cf_sv_pairs) {
+    s = FailIfTableFilterWithRangeConversion(
+        read_options, cf_sv_pair.super_version->mutable_cf_options);
+    if (!s.ok()) {
+      for (const auto& cleanup_pair : cf_sv_pairs) {
+        CleanupSuperVersion(cleanup_pair.super_version);
+      }
+      return s;
+    }
+  }
   if (read_options.tailing) {
     read_options.total_order_seek |=
         immutable_db_options_.prefix_seek_opt_in_only;
@@ -6472,6 +6493,19 @@ Status DBImpl::IngestExternalFiles(
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeJobsRun:0");
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeJobsRun:1");
   TEST_SYNC_POINT("DBImpl::AddFile:Start");
+
+  // Acquire per-CF ingest_sst_lock as ReadLocks (shared) BEFORE the DB
+  // mutex so the lock-acquisition order is ingest_sst_lock -> DB mutex
+  // throughout. Use readlock so we still allow concurrent ingestions.
+  std::vector<std::unique_ptr<ReadLock>> ingest_read_locks;
+  ingest_read_locks.reserve(num_cfs);
+  for (size_t i = 0; i != num_cfs; ++i) {
+    auto* cfd = ingestion_jobs[i].GetColumnFamilyData();
+    if (!cfd->IsDropped()) {
+      ingest_read_locks.emplace_back(
+          std::make_unique<ReadLock>(&cfd->GetIngestSstLock()));
+    }
+  }
   {
     InstrumentedMutexLock l(&mutex_);
     TEST_SYNC_POINT("DBImpl::AddFile:MutexLock");
@@ -6559,6 +6593,23 @@ Status DBImpl::IngestExternalFiles(
           break;
         }
         ingestion_jobs[i].RegisterRange();
+      }
+    }
+    // Now that Run() has assigned the actual seqno for each ingested file,
+    // bump each affected memtable's ingest_seqno_barrier_ to that exact
+    // value. We still hold the per-CF ingest_sst_lock as a ReadLock; any
+    // concurrent conversion's TryWriteLock on the same lock fails, so no
+    // converter can be reading or about to read the barrier while we
+    // update it. After we release the ReadLocks at function exit, the
+    // next conversion observes the new barrier and refuses any insert
+    // with insert_seq < assigned.
+    if (status.ok()) {
+      for (size_t i = 0; i != num_cfs; ++i) {
+        auto* cfd = ingestion_jobs[i].GetColumnFamilyData();
+        SequenceNumber assigned = ingestion_jobs[i].MaxAssignedSequenceNumber();
+        if (assigned > 0) {
+          cfd->mem()->BumpIngestSeqnoBarrier(assigned);
+        }
       }
     }
     if (status.ok()) {

@@ -48,15 +48,12 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       first_record_read_(false),
       compression_type_(kNoCompression),
       compression_type_record_read_(false),
-      uncompress_(nullptr),
+      uncompress_(),
       hash_state_(nullptr),
       uncompress_hash_state_(nullptr) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
-  if (uncompress_) {
-    delete uncompress_;
-  }
   if (hash_state_) {
     XXH3_freeState(hash_state_);
   }

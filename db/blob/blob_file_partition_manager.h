@@ -77,7 +77,7 @@ class BlobFilePartitionManager {
                    CompressionType compression, const Slice& key,
                    const Slice& value, uint64_t* blob_file_number,
                    uint64_t* blob_offset, uint64_t* blob_size,
-                   const BlobDirectWriteSettings* settings = nullptr,
+                   const BlobDirectWriteSettings& settings,
                    const uint32_t* partition_idx = nullptr);
 
   // Selects the partition to use for all blob-backed columns of one PutEntity
@@ -239,8 +239,8 @@ class BlobFilePartitionManager {
   static bool MarkSealedFileGarbage(std::vector<SealedFile>* sealed_files,
                                     uint64_t file_number, uint64_t blob_count,
                                     uint64_t blob_bytes);
-  // Optionally seeds the blob cache with the original uncompressed value.
-  Status MaybePrepopulateBlobCache(const BlobDirectWriteSettings* settings,
+  // Seeds the blob cache with the original uncompressed value when configured.
+  Status MaybePrepopulateBlobCache(const BlobDirectWriteSettings& settings,
                                    const Slice& original_value,
                                    uint64_t blob_file_number,
                                    uint64_t blob_offset);

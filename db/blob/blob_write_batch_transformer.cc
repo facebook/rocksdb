@@ -107,7 +107,7 @@ Status BlobWriteBatchTransformer::MaybePreprocessWideColumns(
     uint64_t blob_size = 0;
     Status s = partition_mgr->WriteBlob(
         write_options, column_family_id, settings.compression_type, key,
-        column_value, &blob_file_number, &blob_offset, &blob_size, &settings,
+        column_value, &blob_file_number, &blob_offset, &blob_size, settings,
         &entity_partition);
     if (!s.ok()) {
       return s;
@@ -169,7 +169,7 @@ Status BlobWriteBatchTransformer::PutCF(uint32_t column_family_id,
 
   Status s = cached_partition_mgr_->WriteBlob(
       write_options_, column_family_id, settings.compression_type, key, value,
-      &blob_file_number, &blob_offset, &blob_size, &settings);
+      &blob_file_number, &blob_offset, &blob_size, settings);
   if (!s.ok()) {
     return s;
   }

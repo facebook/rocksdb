@@ -39,6 +39,35 @@ namespace ROCKSDB_NAMESPACE {
 
 const std::string kNewFileNoOverwrite;
 
+namespace {
+
+bool TryParseInfoLogFileName(const std::string& file_name, uint64_t* number,
+                             FileType* type) {
+  size_t prefix_len = std::string::npos;
+  if (file_name == "LOG" ||
+      (file_name.size() > 3 && file_name.compare(0, 7, "LOG.old") == 0)) {
+    prefix_len = sizeof("LOG") - 1;
+  } else {
+    size_t info_log_pos = file_name.rfind("_LOG");
+    if (info_log_pos != std::string::npos) {
+      size_t suffix_pos = info_log_pos + sizeof("_LOG") - 1;
+      if (suffix_pos == file_name.size() ||
+          (suffix_pos < file_name.size() &&
+           file_name.compare(suffix_pos, 4, ".old") == 0)) {
+        prefix_len = suffix_pos;
+      }
+    }
+  }
+  if (prefix_len == std::string::npos) {
+    return false;
+  }
+  Slice info_log_name_prefix(file_name.data(), prefix_len);
+  return ParseFileName(file_name, number, info_log_name_prefix, type) &&
+         *type == kInfoLogFile;
+}
+
+}  // namespace
+
 // Assume a filename, and not a directory name like "/foo/bar/"
 std::string TestFSGetDirName(const std::string filename) {
   size_t found = filename.find_last_of("/\\");
@@ -1422,7 +1451,8 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
   ErrorContext* ctx =
       static_cast<ErrorContext*>(injected_thread_local_read_error_.Get());
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in ||
-      ShouldIOActivitiesExcludedFromFaultInjection(io_options.io_activity)) {
+      ShouldIOActivitiesExcludedFromFaultInjection(io_options.io_activity) ||
+      ShouldExcludeFromFaultInjection(file_name, FaultInjectionIOType::kRead)) {
     return IOStatus::OK();
   }
 
@@ -1501,9 +1531,13 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
 
 bool FaultInjectionTestFS::TryParseFileName(const std::string& file_name,
                                             uint64_t* number, FileType* type) {
-  std::size_t found = file_name.find_last_of('/');
-  std::string file = file_name.substr(found);
-  return ParseFileName(file, number, type);
+  std::size_t found = file_name.find_last_of("/\\");
+  std::string file =
+      found == std::string::npos ? file_name : file_name.substr(found + 1);
+  if (ParseFileName(file, number, type)) {
+    return true;
+  }
+  return TryParseInfoLogFileName(file, number, type);
 }
 
 IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(
@@ -1520,8 +1554,7 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(
   ErrorContext* ctx = GetErrorContextFromFaultInjectionIOType(type);
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in ||
       ShouldIOActivitiesExcludedFromFaultInjection(io_options.io_activity) ||
-      (type == FaultInjectionIOType::kWrite &&
-       ShouldExcludeFromWriteFaultInjection(file_name))) {
+      ShouldExcludeFromFaultInjection(file_name, type)) {
     return IOStatus::OK();
   }
 

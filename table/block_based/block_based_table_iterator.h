@@ -468,6 +468,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   }
 
   bool IsNextBlockOutOfReadaheadBound() {
+    assert(index_iter_->Valid());
     const Slice& index_iter_user_key = index_iter_->user_key();
     // If curr block's index key >= iterate_upper_bound, it means all the keys
     // in next block or above are out of bound.

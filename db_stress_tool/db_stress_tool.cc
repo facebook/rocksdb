@@ -93,6 +93,10 @@ int db_stress_tool(int argc, char** argv) {
     FaultInjectionTestFS* fs =
         new FaultInjectionTestFS(raw_env->GetFileSystem());
     fault_fs_guard.reset(fs);
+    // Info logs are debugging artifacts, so exclude them from fault injection
+    // and keep error accounting focused on DB data and metadata.
+    fault_fs_guard->SetFileTypesExcludedFromFaultInjection(
+        {FileType::kInfoLogFile});
     // Set it to direct writable here to initially bypass any fault injection
     // during DB open This will correspondingly be overwritten in
     // StressTest::Open() for open fault injection and in RunStressTestImpl()

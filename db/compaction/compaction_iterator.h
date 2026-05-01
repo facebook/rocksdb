@@ -8,6 +8,7 @@
 #include <cinttypes>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -25,9 +26,12 @@
 namespace ROCKSDB_NAMESPACE {
 
 class BlobFileBuilder;
+class BlobFileCache;
 class BlobFetcher;
+class Version;
 class PrefetchBufferCollection;
 class FilePrefetchBuffer;
+class Version;
 
 // Internal implementation of WideColumnBlobResolver for compaction.
 // This class enables lazy loading of blob column values during compaction
@@ -49,10 +53,17 @@ class CompactionBlobResolver : public WideColumnBlobResolver {
   Status ResolveColumn(size_t column_index, Slice* resolved_value) override;
   bool IsBlobColumn(size_t column_index) const override;
   size_t NumColumns() const override;
+  Status resolve_status() const {
+    if (!resolve_error_.has_value()) {
+      return Status::OK();
+    }
+    return *resolve_error_;
+  }
 
   // Reset the resolver for a new entity. Clears resolved cache.
   void Reset(const Slice& user_key, const std::vector<WideColumn>* columns,
-             const std::vector<std::pair<size_t, BlobIndex>>* blob_columns);
+             const std::vector<std::pair<size_t, BlobIndex>>* blob_columns,
+             bool track_resolve_error = false);
 
  private:
   Slice user_key_;
@@ -61,12 +72,17 @@ class CompactionBlobResolver : public WideColumnBlobResolver {
   BlobFetcher* blob_fetcher_;
   PrefetchBufferCollection* prefetch_buffers_;
   CompactionIterationStats* iter_stats_;
+  bool track_resolve_error_ = false;
 
   // Cache for resolved blob values to avoid re-fetching. Uses a vector of
   // (column_index, PinnableSlice) pairs — typical entities have few blob
   // columns (<5), making linear scan cheaper than hash map overhead.
   std::vector<std::pair<size_t, std::unique_ptr<PinnableSlice>>>
       resolved_cache_;
+  // Sticky resolver error for the current entity. This is enabled only for the
+  // lazy FilterV4 path so compaction can still fail even if the filter
+  // notices the error and returns kKeep.
+  std::optional<Status> resolve_error_;
 };
 
 // A wrapper of internal iterator whose purpose is to count how
@@ -256,33 +272,42 @@ class CompactionIterator {
       const std::atomic<bool>* shutting_down = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
       const std::string* full_history_ts_low = nullptr,
-      std::optional<SequenceNumber> preserve_seqno_min = {});
+      std::optional<SequenceNumber> preserve_seqno_min = {},
+      const Version* input_version = nullptr,
+      Env::IOActivity blob_read_io_activity = Env::IOActivity::kCompaction);
 
   // Constructor with custom CompactionProxy, used for tests.
-  CompactionIterator(InternalIterator* input, const Comparator* cmp,
-                     MergeHelper* merge_helper, SequenceNumber last_sequence,
-                     std::vector<SequenceNumber>* snapshots,
-                     SequenceNumber earliest_snapshot,
-                     SequenceNumber earliest_write_conflict_snapshot,
-                     SequenceNumber job_snapshot,
-                     const SnapshotChecker* snapshot_checker, Env* env,
-                     bool report_detailed_time,
-                     CompactionRangeDelAggregator* range_del_agg,
-                     BlobFileBuilder* blob_file_builder,
-                     bool allow_data_in_errors,
-                     bool enforce_single_del_contracts,
-                     const std::atomic<bool>& manual_compaction_canceled,
-                     std::unique_ptr<CompactionProxy> compaction,
-                     bool must_count_input_entries,
-                     const CompactionFilter* compaction_filter = nullptr,
-                     const std::atomic<bool>* shutting_down = nullptr,
-                     const std::shared_ptr<Logger> info_log = nullptr,
-                     const std::string* full_history_ts_low = nullptr,
-                     std::optional<SequenceNumber> preserve_seqno_min = {});
+  CompactionIterator(
+      InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
+      SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
+      SequenceNumber earliest_snapshot,
+      SequenceNumber earliest_write_conflict_snapshot,
+      SequenceNumber job_snapshot, const SnapshotChecker* snapshot_checker,
+      Env* env, bool report_detailed_time,
+      CompactionRangeDelAggregator* range_del_agg,
+      BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
+      bool enforce_single_del_contracts,
+      const std::atomic<bool>& manual_compaction_canceled,
+      std::unique_ptr<CompactionProxy> compaction,
+      bool must_count_input_entries,
+      const CompactionFilter* compaction_filter = nullptr,
+      const std::atomic<bool>* shutting_down = nullptr,
+      const std::shared_ptr<Logger> info_log = nullptr,
+      const std::string* full_history_ts_low = nullptr,
+      std::optional<SequenceNumber> preserve_seqno_min = {},
+      const Version* input_version = nullptr,
+      Env::IOActivity blob_read_io_activity = Env::IOActivity::kCompaction);
 
   ~CompactionIterator();
 
   void ResetRecordCounts();
+
+  // Non-compaction table-file creation (e.g., flush/recovery) can still need
+  // blob resolution when direct-write wide entities already contain blob
+  // references. Plumb a fetcher explicitly in those cases.
+  void SetBlobFetcher(const Version* version, BlobFileCache* blob_file_cache,
+                      Env::IOActivity io_activity,
+                      bool allow_write_path_fallback);
 
   // Seek to the beginning of the compaction iterator output.
   //
@@ -434,7 +459,8 @@ class CompactionIterator {
   static uint64_t ComputeBlobGarbageCollectionCutoffFileNumber(
       const CompactionProxy* compaction);
   static std::unique_ptr<BlobFetcher> CreateBlobFetcherIfNeeded(
-      const CompactionProxy* compaction);
+      const CompactionProxy* compaction, const Version* input_version,
+      Env::IOActivity blob_read_io_activity);
   static std::unique_ptr<PrefetchBufferCollection>
   CreatePrefetchBufferCollectionIfNeeded(const CompactionProxy* compaction);
 

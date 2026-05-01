@@ -72,6 +72,8 @@ jobs:
       run: make check-buck-targets
     - name: Simple source code checks
       run: make check-sources
+    - name: Validate GitHub Actions YAML
+      run: make check-workflow-yaml
     - name: Sanity check check_format_compatible.sh
       run: |-
         export TEST_TMPDIR=/dev/shm/rocksdb

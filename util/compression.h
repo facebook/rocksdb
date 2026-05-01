@@ -617,10 +617,9 @@ class StreamingCompress {
                        size_t* output_pos) = 0;
   // static method to create object of a class inherited from
   // StreamingCompress based on the actual compression type.
-  static StreamingCompress* Create(CompressionType compression_type,
-                                   const CompressionOptions& opts,
-                                   uint32_t compress_format_version,
-                                   size_t max_output_len);
+  static std::unique_ptr<StreamingCompress> Create(
+      CompressionType compression_type, const CompressionOptions& opts,
+      uint32_t compress_format_version, size_t max_output_len);
   virtual void Reset() = 0;
 
  protected:
@@ -658,9 +657,9 @@ class StreamingUncompress {
   // Returns -1 for errors, remaining input to be processed otherwise.
   virtual int Uncompress(const char* input, size_t input_size, char* output,
                          size_t* output_pos) = 0;
-  static StreamingUncompress* Create(CompressionType compression_type,
-                                     uint32_t compress_format_version,
-                                     size_t max_output_len);
+  static std::unique_ptr<StreamingUncompress> Create(
+      CompressionType compression_type, uint32_t compress_format_version,
+      size_t max_output_len);
   virtual void Reset() = 0;
 
  protected:

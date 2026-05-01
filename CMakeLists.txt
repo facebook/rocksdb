@@ -674,6 +674,31 @@ if(USE_FOLLY)
     endif()
   endif()
 
+  # Folly itself uses gflags transitively, but RocksDB tools and benchmarks
+  # also call gflags APIs directly, so they need an explicit link dependency.
+  if(WITH_GFLAGS)
+    if(NOT TARGET gflags::gflags AND NOT TARGET gflags_shared AND
+       NOT gflags_LIBRARIES)
+      find_package(gflags CONFIG QUIET)
+      if(NOT gflags_FOUND)
+        find_package(gflags REQUIRED)
+      endif()
+    endif()
+    if(TARGET gflags::gflags)
+      set(GFLAGS_LIB gflags::gflags)
+    elseif(TARGET gflags_shared)
+      set(GFLAGS_LIB gflags_shared)
+    elseif(DEFINED GFLAGS_TARGET AND TARGET ${GFLAGS_TARGET})
+      set(GFLAGS_LIB ${GFLAGS_TARGET})
+    elseif(gflags_LIBRARIES)
+      set(GFLAGS_LIB ${gflags_LIBRARIES})
+    else()
+      message(FATAL_ERROR
+        "WITH_GFLAGS is enabled, but no gflags library could be resolved")
+    endif()
+    list(APPEND THIRDPARTY_LIBS ${GFLAGS_LIB})
+  endif()
+
   add_compile_definitions(USE_FOLLY FOLLY_NO_CONFIG HAVE_CXX11_ATOMIC)
   list(APPEND THIRDPARTY_LIBS Folly::folly)
   set(FOLLY_LIBS Folly::folly)
@@ -1140,10 +1165,22 @@ if(USE_FOLLY_LITE)
   FMT_INCLUDE_DIR)
   include_directories(${FMT_INCLUDE_DIR})
 
+  exec_program(python3 ${PROJECT_SOURCE_DIR}/third-party/folly ARGS
+  build/fbcode_builder/getdeps.py show-inst-dir glog OUTPUT_VARIABLE
+  GLOG_INST_PATH)
+  if(EXISTS ${GLOG_INST_PATH}/lib64)
+    set(GLOG_LIB_DIR ${GLOG_INST_PATH}/lib64)
+  else()
+    set(GLOG_LIB_DIR ${GLOG_INST_PATH}/lib)
+  endif()
+
   add_definitions(-DUSE_FOLLY -DFOLLY_NO_CONFIG)
-  find_library(GLOG_LIBRARY glog)
+  find_library(GLOG_LIBRARY NAMES glog PATHS ${GLOG_LIB_DIR} NO_DEFAULT_PATH)
+  if(NOT GLOG_LIBRARY)
+    find_library(GLOG_LIBRARY NAMES glog)
+  endif()
   if(GLOG_LIBRARY)
-    list(APPEND THIRDPARTY_LIBS glog)
+    list(APPEND THIRDPARTY_LIBS ${GLOG_LIBRARY})
   endif()
 endif()
 

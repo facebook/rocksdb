@@ -143,7 +143,7 @@ default_params = {
         else random.choice(["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"])
     ),
     "checksum_type": lambda: random.choice(
-        ["kCRC32c", "kxxHash", "kxxHash64", "kXXH3"]
+        ["kNoChecksum", "kCRC32c", "kxxHash", "kxxHash64", "kXXH3"]
     ),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
@@ -167,16 +167,18 @@ default_params = {
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
     "enable_compaction_on_deletion_trigger": lambda: random.choice([0, 0, 0, 1]),
-    # `inplace_update_support` is incompatible with DB that has delete
-    # range data in memtables.
-    # Such data can result from any of the previous db stress runs
-    # using delete range.
-    # Since there is no easy way to keep track of whether delete range
-    # is used in any of the previous runs,
-    # to simpify our testing, we set `inplace_update_support` across
-    # runs and to disable delete range accordingly
-    # (see below `finalize_and_sanitize`).
-    "inplace_update_support": random.choice([0] * 9 + [1]),
+    # `inplace_update_support` is incompatible with a wide range of features.
+    # The current sanitization process is not sufficient to reliably handle
+    # this. While inplace_update_support is intended to stay on across runs
+    # in default_params, in certain runs it can be toggled off by
+    # sanitization due to some incompatible features being enabled. When
+    # inplace_update_support is off, other incompatible features such as
+    # delete range may be enabled and leave state in the DB. A later run
+    # reads default_params again with inplace_update_support on, but now
+    # operates on a DB containing delete range data from the previous run,
+    # causing stress test failures. Temporarily disabled until the
+    # sanitization can account for cross-run incompatibility.
+    "inplace_update_support": 0,
     "expected_values_dir": lambda: setup_expected_values_dir(),
     "flush_one_in": lambda: random.choice([1000, 1000000]),
     "manual_wal_flush_one_in": lambda: random.choice([0, 1000]),
@@ -482,8 +484,7 @@ default_params = {
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
-    # TODO(jkangs): Change back to [0, 2, 2, 4, 16] once range tombstone conversion stabilizes
-    "min_tombstones_for_range_conversion": lambda: random.choice([0]),
+    "min_tombstones_for_range_conversion": lambda: random.choice([0, 2, 2, 4, 16]),
     "ingest_wbwi_one_in": lambda: random.choice([0, 0, 100, 500]),
     "universal_reduce_file_locking": lambda: random.randint(0, 1),
     "compression_manager": lambda: random.choice(
@@ -924,6 +925,14 @@ def finalize_and_sanitize(src_params):
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
         dest_params["multiscan_use_async_io"] = 0
+    if dest_params.get("min_tombstones_for_range_conversion", 0) > 0:
+        # SQFC range-query filtering installs ReadOptions::table_filter on
+        # iterators. Read-write iterators reject table_filter when read-path
+        # range tombstone conversion is enabled, because conversion must see
+        # the full relevant SST set before synthesizing a memtable tombstone.
+        dest_params["use_sqfc_for_range_queries"] = 0
+        # Delete range not compatible with inplace_update_support
+        dest_params["inplace_update_support"] = 0
     if (
         dest_params["use_direct_io_for_flush_and_compaction"] == 1
         or dest_params["use_direct_reads"] == 1
@@ -1085,6 +1094,14 @@ def finalize_and_sanitize(src_params):
         dest_params["use_timed_put_one_in"] = 0
         dest_params["test_secondary"] = 0
         dest_params["mmap_read"] = 0
+        # skip_stats_update_on_db_open leaves num_entries and
+        # num_range_deletions at 0 on the remote worker, which breaks
+        # standalone range deletion file filtering in compaction and causes
+        # input key count mismatch. This can happen even if standalone range
+        # deletion ingestion is off in the current run, because such files
+        # may have been ingested in a previous run with different options.
+        # TODO: remove after the real fix lands.
+        dest_params["skip_stats_update_on_db_open"] = 0
 
         # Disable database open fault injection to prevent test inefficiency described below.
         # When fault injection occurs during DB open, the db will wait for compaction
@@ -1499,6 +1516,7 @@ def finalize_and_sanitize(src_params):
         dest_params["read_fault_one_in"] = 0
         dest_params["memtable_prefix_bloom_size_ratio"] = 0
         dest_params["max_sequential_skip_in_iterations"] = sys.maxsize
+        dest_params["min_tombstones_for_range_conversion"] = 0
         # This option ingests a delete range that might partially overlap with
         # existing key range, which will cause a reseek that's currently not
         # supported by multiscan
@@ -1704,9 +1722,7 @@ def collect_diagnostic_roots(base_paths, stdout, stderr):
     pruned_roots = []
     for root in sorted(roots, key=lambda path: (len(path), path)):
         if any(
-            root == existing
-            or existing == os.sep
-            or root.startswith(existing + os.sep)
+            root == existing or existing == os.sep or root.startswith(existing + os.sep)
             for existing in pruned_roots
         ):
             continue
@@ -1758,9 +1774,7 @@ def collect_directory_usage(root):
             with os.scandir(dirpath) as iterator:
                 children = sorted(list(iterator), key=lambda entry: entry.name)
         except OSError as exc:
-            errors.append(
-                (dirpath, f"failed to enumerate directory contents: {exc}")
-            )
+            errors.append((dirpath, f"failed to enumerate directory contents: {exc}"))
             return summary
 
         for child in children:
@@ -1768,9 +1782,7 @@ def collect_directory_usage(root):
                 if child.is_dir(follow_symlinks=False):
                     summary["local_dir_count"] += 1
                     child_summary = walk(child.path)
-                    summary["subtree_file_count"] += child_summary[
-                        "subtree_file_count"
-                    ]
+                    summary["subtree_file_count"] += child_summary["subtree_file_count"]
                     summary["subtree_bytes"] += child_summary["subtree_bytes"]
                     continue
 
@@ -1793,9 +1805,7 @@ def collect_directory_usage(root):
             local_usage["count"] += 1
             local_usage["bytes"] += file_size
 
-            global_usage = global_suffixes.setdefault(
-                suffix, {"count": 0, "bytes": 0}
-            )
+            global_usage = global_suffixes.setdefault(suffix, {"count": 0, "bytes": 0})
             global_usage["count"] += 1
             global_usage["bytes"] += file_size
 
@@ -1807,9 +1817,7 @@ def collect_directory_usage(root):
 
 
 def sorted_suffix_usage(suffixes):
-    return sorted(
-        suffixes.items(), key=lambda item: (-item[1]["bytes"], item[0])
-    )
+    return sorted(suffixes.items(), key=lambda item: (-item[1]["bytes"], item[0]))
 
 
 def format_directory_usage(root):

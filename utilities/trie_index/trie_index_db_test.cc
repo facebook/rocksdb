@@ -3537,7 +3537,7 @@ TEST_P(TrieIndexDBTest, ReopenWithoutTrieUDI) {
   // behavior where the UDI block is optional and reads fall back to the
   // standard index.
   if (IsPrimaryMode()) {
-    ROCKSDB_GTEST_SKIP("Not applicable in primary mode");
+    ROCKSDB_GTEST_BYPASS("Not applicable in primary mode");
     return;
   }
   ASSERT_OK(OpenDB());
@@ -3573,7 +3573,7 @@ TEST_P(TrieIndexDBTest, MixedSSTsWithAndWithoutUDI) {
   // index is always fully populated). This test validates the secondary-
   // mode mixed-SST fallback path.
   if (IsPrimaryMode()) {
-    ROCKSDB_GTEST_SKIP("Not applicable in primary mode");
+    ROCKSDB_GTEST_BYPASS("Not applicable in primary mode");
     return;
   }
   options_.disable_auto_compactions = true;
@@ -4412,7 +4412,7 @@ TEST_P(TrieIndexDBTest, PrimaryModeTableProperties) {
   // property is set (informational, does not affect read routing), and
   // reads work without setting ReadOptions::table_index_factory.
   if (!IsPrimaryMode()) {
-    ROCKSDB_GTEST_SKIP("Only applicable in primary mode");
+    ROCKSDB_GTEST_BYPASS("Only applicable in primary mode");
     return;
   }
   ASSERT_OK(OpenDB());
