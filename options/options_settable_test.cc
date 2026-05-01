@@ -207,7 +207,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "prepopulate_block_cache=kDisable;"
       "initial_auto_readahead_size=0;"
       "num_file_reads_for_auto_readahead=0;"
-      "index_mode=kPrimary;"
+      "index_mode=kCustomDefault;"
       "separate_key_value_in_data_block=true;"
       "uniform_cv_threshold=0.2",
       new_bbto));

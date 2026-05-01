@@ -1537,11 +1537,11 @@ void StressTest::OperateDb(ThreadState* thread) {
       FLAGS_auto_refresh_iterator_with_snapshot;
   if (FLAGS_use_trie_index && udi_factory_) {
     if (FLAGS_index_mode == 1) {
-      // kSecondary: custom index is secondary, select explicitly per-read
+      // kStandardDefault: custom index is secondary, select explicitly per-read
       read_opts.read_index = ReadOptions::ReadIndex::kCustom;
     }
-    // kPrimary/kPrimaryOnly: custom index is default, no override needed
-    // kBuiltinOnly: custom index not built, don't select it
+    // kCustomDefault/kCustomOnly: custom index is default, no override needed
+    // kStandardOnly: custom index not built, don't select it
   }
   std::unique_ptr<StressReadScopedBlockBufferProvider>
       read_scoped_block_buffer_provider;
@@ -5425,21 +5425,21 @@ void InitializeOptionsFromFlags(
     block_based_options.index_mode =
         static_cast<BlockBasedTableOptions::IndexMode>(FLAGS_index_mode);
     // Disable compaction record count verification when write fault
-    // injection is active in custom index modes (kPrimary/kPrimaryOnly).
+    // injection is active in custom index modes (kCustomDefault/kCustomOnly).
     //
     // The custom index is stored as a meta block in the SST. Write fault
     // injection (metadata_write_fault_one_in, write_fault_one_in) can
-    // corrupt this meta block during SST creation. In kPrimaryOnly, a
+    // corrupt this meta block during SST creation. In kCustomOnly, a
     // corrupted custom index causes the compaction iterator to read zero
-    // keys (no standard index fallback). In kPrimary, the SST open
+    // keys (no standard index fallback). In kCustomDefault, the SST open
     // returns an error on corrupted custom index. Either way, the
     // compaction record count check produces a false positive.
     //
-    // Without fault injection, all modes (including kPrimaryOnly) pass
+    // Without fault injection, all modes (including kCustomOnly) pass
     // the compaction record count check correctly.
     //
-    // Non-UDI modes (kBuiltinOnly, kSecondary) are not affected because
-    // the standard binary search index is written as a main block (not a
+    // Non-UDI modes (kStandardOnly, kStandardDefault) are not affected
+    // because the standard index is written as a main block (not a
     // meta block), so write faults do not corrupt it.
     if (FLAGS_index_mode >= 2 && (FLAGS_write_fault_one_in > 0 ||
                                   FLAGS_metadata_write_fault_one_in > 0)) {

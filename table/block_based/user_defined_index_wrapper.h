@@ -28,7 +28,7 @@ namespace ROCKSDB_NAMESPACE {
 //
 // IndexFactoryReaderWrapper dispatches NewIterator calls to either the
 // standard IndexReader or the custom IndexFactoryReader based on the
-// index_mode config (kPrimary/kPrimaryOnly) or ReadOptions::read_index.
+// index_mode config (kCustomDefault/kCustomOnly) or ReadOptions::read_index.
 // ---------------------------------------------------------------------------
 
 // Forward declaration for the reader wrapper.
@@ -186,8 +186,8 @@ class IndexFactoryReaderWrapper : public BlockBasedTable::IndexReader {
       IndexBlockIter* iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) override {
     // Determine whether to use the UDI for this read:
-    //   kDefault → udi_is_primary_ (kPrimary/kPrimaryOnly → custom,
-    //              kBuiltinOnly/kSecondary → standard)
+    //   kDefault → udi_is_primary_ (kCustomDefault/kCustomOnly → custom,
+    //              kStandardOnly/kStandardDefault → standard)
     //   kBuiltin → force standard index
     //   kCustom  → force custom index
     bool use_udi;
@@ -220,8 +220,8 @@ class IndexFactoryReaderWrapper : public BlockBasedTable::IndexReader {
 
   Status CacheDependencies(const ReadOptions& ro, bool pin,
                            FilePrefetchBuffer* tail_prefetch_buffer) override {
-    // The standard index is fully populated in kSecondary and kPrimary
-    // modes. In kPrimaryOnly, it is an empty stub.
+    // The standard index is fully populated in kStandardDefault and
+    // kCustomDefault modes. In kCustomOnly, it is an empty stub.
     return reader_->CacheDependencies(ro, pin, tail_prefetch_buffer);
   }
 

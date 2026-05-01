@@ -1803,9 +1803,9 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
       RecordTick(rep_->ioptions.statistics.get(),
                  SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT);
       if (table_options.index_mode >=
-          BlockBasedTableOptions::IndexMode::kPrimary) {
-        // kPrimary and kPrimaryOnly route all reads through the UDI, so
-        // a missing UDI block is a hard error.
+          BlockBasedTableOptions::IndexMode::kCustomDefault) {
+        // kCustomDefault and kCustomOnly route all reads through the UDI,
+        // so a missing UDI block is a hard error.
         ROCKS_LOG_ERROR(rep_->ioptions.logger,
                         "Failed to find the UDI block %s in file %s; %s",
                         udi_name.c_str(), rep_->file->file_name().c_str(),
@@ -1814,7 +1814,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
         s = Status::Corruption(s.ToString(), rep_->file->file_name());
         return s;
       } else {
-        // kSecondary or kBuiltinOnly: the UDI is optional. When the block
+        // kStandardDefault or kStandardOnly: the UDI is optional. When the block
         // is absent the standard index handles all reads.  Log a warning
         // so operators know they have pre-UDI SSTs that need compaction.
         ROCKS_LOG_WARN(rep_->ioptions.logger,
@@ -1857,7 +1857,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
             index_reader = std::make_unique<IndexFactoryReaderWrapper>(
                 udi_name, std::move(index_reader), std::move(udi_reader),
                 table_options.index_mode >=
-                    BlockBasedTableOptions::IndexMode::kPrimary);
+                    BlockBasedTableOptions::IndexMode::kCustomDefault);
           } else {
             s = Status::Corruption("Failed to create UDI reader for " +
                                    udi_name + " in file " +

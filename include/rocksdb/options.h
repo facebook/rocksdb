@@ -2433,17 +2433,24 @@ struct ReadOptions {
   // by BlockBasedTableOptions::index_mode.
   //
   //   kDefault: use whatever index_mode says.
-  //     kBuiltinOnly/kSecondary → built-in binary search index.
-  //     kPrimary/kPrimaryOnly → custom IndexFactory index.
+  //     kStandardOnly/kStandardDefault → built-in standard index.
+  //     kCustomDefault/kCustomOnly → custom IndexFactory index.
   //
-  //   kBuiltin: force the built-in binary search index for this read.
+  //   kBuiltin: force the built-in standard index for this read.
   //     Useful for debugging, comparing results between indexes, or
-  //     temporary fallback. In kPrimaryOnly mode, the built-in index
+  //     temporary fallback. In kCustomOnly mode, the built-in index
   //     is a minimal stub — reads will return no useful results.
   //
-  //   kCustom: force the custom IndexFactory index for this read.
-  //     In kSecondary mode, this is how you select the custom index
-  //     for individual reads without changing index_mode.
+  //   kCustom: select the custom IndexFactory index for this read.
+  //     In kStandardDefault mode, this is how you select the custom
+  //     index for individual reads. If no custom index is available
+  //     for a given SST, the read falls back to the standard index.
+  // ReadIndex is a two-way selector because each SST has exactly two
+  // potential read targets: the standard index (selected by
+  // BlockBasedTableOptions::index_type) and at most one custom index
+  // (from user_defined_index_factory). If the selected target is not
+  // available for a given SST (e.g., kCustom on an SST without a custom
+  // index), the read silently falls back to the available index.
   enum class ReadIndex : uint8_t {
     kDefault = 0,
     kBuiltin = 1,
