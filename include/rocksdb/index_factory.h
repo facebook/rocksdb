@@ -38,39 +38,29 @@ inline constexpr const char* kIndexFactoryMetaPrefix = "rocksdb.index_factory.";
 // IndexFactory: pluggable index for BlockBasedTable SST files.
 //
 // The IndexFactory interface allows custom index implementations (e.g., trie,
-// learned index, etc.) to coexist alongside the built-in binary search index.
+// learned index, etc.) to coexist alongside the built-in standard index.
 // In most modes, both indexes are built and stored in each SST file:
-//   - The built-in binary search index (present in kSecondary/kPrimary)
+//   - The built-in standard index (present in kStandardDefault/kCustomDefault)
 //   - The custom index (present when an IndexFactory is configured)
-// In kPrimaryOnly mode, only the custom index is built.
+// In kCustomOnly mode, only the custom index is built.
 //
 // Read routing:
-//   - By default (index_mode=kBuiltinOnly), reads use the built-in binary
-//     search index.
-//   - When index_mode is kPrimary or kPrimaryOnly in BlockBasedTableOptions,
-//     all reads (including internal operations) route through the custom index.
+//   - By default (index_mode=kStandardOnly), reads use the built-in standard
+//     index.
+//   - When index_mode is kCustomDefault or kCustomOnly in
+//     BlockBasedTableOptions, all reads (including internal operations) route
+//     through the custom index.
 //   - Per-read override: set ReadOptions::read_index to select the
-//     custom index for a specific read (relevant in kSecondary mode).
+//     custom index for a specific read (relevant in kStandardDefault mode).
 //
-// This follows the FilterPolicy model: the built-in binary search index is
+// This follows the FilterPolicy model: the built-in standard index is
 // analogous to the default data block format, while custom IndexFactory
 // implementations are analogous to custom FilterPolicy implementations.
 //
-// Single-index mode (kPrimaryOnly): the built-in binary search index is
+// Single-index mode (kCustomOnly): the built-in standard index is
 // not built. Only the custom IndexFactory produces an index, stored as a
 // meta block in the SST. A minimal empty index block is written to
 // satisfy the SST footer format.
-//
-// Fault injection note: the custom index meta block is vulnerable to
-// metadata write fault injection (metadata_write_fault_one_in). If the
-// meta block is corrupted, kPrimaryOnly has no fallback index and the
-// compaction iterator reads zero keys from the affected SST. This is
-// expected behavior — the standard binary search index (in kPrimary and
-// below) is part of the SST's main block layout and is not affected by
-// metadata write faults, providing a natural fallback. The stress tool
-// disables compaction_verify_record_count for kPrimary/kPrimaryOnly
-// when write fault injection is active. Without fault injection, all
-// modes pass the compaction record count check correctly.
 // ============================================================================
 
 // ---------------------------------------------------------------------------
@@ -81,8 +71,11 @@ inline constexpr const char* kIndexFactoryMetaPrefix = "rocksdb.index_factory.";
 // into a meta block stored in the SST.
 //
 // Thread safety: all methods except EstimatedSize() are called from a
-// single thread (the emit thread in BlockBasedTableBuilder). Parallel
-// compression is not supported for custom IndexFactory implementations.
+// single thread (the emit thread in BlockBasedTableBuilder). Custom
+// IndexFactory implementations can support parallel compression by
+// overriding SupportsParallelAddEntry(), PrepareAddEntry(), and
+// FinishAddEntry(). When not overridden, the default single-threaded
+// AddIndexEntry() path is used.
 // ---------------------------------------------------------------------------
 class IndexFactoryBuilder {
  public:
@@ -316,6 +309,15 @@ class IndexFactoryIterator {
   // Returns the block handle for the current position.
   virtual IndexFactoryBuilder::BlockHandle value() = 0;
 };
+
+// NOTE: The IndexFactory API is intentionally asymmetric between build
+// and read. Built-in and custom indexes share the factory abstraction
+// for SST construction, but built-in index reads continue to use the
+// internal BlockBasedTable::IndexReader path. That internal reader
+// contract carries table-local behaviors such as cache/prefetch/pinning
+// and iterator reuse that are not part of this public SPI. Custom
+// IndexFactoryReader implementations are adapted to the internal reader
+// contract via IndexFactoryReaderWrapper.
 
 // ---------------------------------------------------------------------------
 // IndexFactoryReader: reads a custom index from a serialized SST block.
