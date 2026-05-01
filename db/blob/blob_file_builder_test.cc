@@ -598,7 +598,7 @@ INSTANTIATE_TEST_CASE_P(
         "BlobFileBuilder::OpenBlobFileIfNeeded:NewWritableFile",
         "BlobFileBuilder::OpenBlobFileIfNeeded:WriteHeader",
         "BlobFileBuilder::WriteBlobToFile:AddRecord",
-        "BlobFileBuilder::WriteBlobToFile:AppendFooter"}));
+        "BlobFileBuilder::WriteBlobToFile:LegacyAppendFooterAndClose"}));
 
 TEST_P(BlobFileBuilderIOErrorTest, IOError) {
   // Simulate an I/O error during the specified step of Add()

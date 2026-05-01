@@ -93,14 +93,15 @@ class BlobFileReader {
                          std::unique_ptr<RandomAccessFileReader>* file_reader,
                          bool skip_footer_size_check);
 
-  static Status ReadHeader(const RandomAccessFileReader* file_reader,
-                           const ReadOptions& read_options,
-                           uint32_t column_family_id, Statistics* statistics,
-                           CompressionType* compression_type);
+  // Read and validate the file header. Detects blog format vs legacy format,
+  // setting is_blog_format_ and related fields accordingly. For legacy format,
+  // validates column_family_id and sets compression_type_.
+  Status ReadHeader(const ReadOptions& read_options, uint32_t column_family_id);
 
-  static Status ReadFooter(const RandomAccessFileReader* file_reader,
-                           const ReadOptions& read_options, uint64_t file_size,
-                           Statistics* statistics);
+  // Validate the file footer. For legacy format, reads and validates the
+  // BlobLogFooter. For blog format, scans backward for the footer locator
+  // record to verify the file was cleanly sealed.
+  Status ReadFooter(const ReadOptions& read_options);
 
   using Buffer = std::unique_ptr<char[]>;
 
@@ -129,6 +130,13 @@ class BlobFileReader {
   Statistics* statistics_;
   // False when the reader was opened before the blob file footer was written.
   bool has_footer_;
+  // True when the file uses blog format instead of legacy blob log format.
+  bool is_blog_format_ = false;
+  // For blog format: fields from the file header used for record checksum
+  // verification and footer validation.
+  uint32_t blog_incarnation_id_ = 0;
+  ChecksumType blog_checksum_type_ = kNoChecksum;
+  char blog_escape_sequence_[10] = {};  // kBlogEscapeSequenceSize
 };
 
 }  // namespace ROCKSDB_NAMESPACE
