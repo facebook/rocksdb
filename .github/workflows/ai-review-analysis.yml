@@ -11,7 +11,8 @@
 #   explicit diff prompt, and keeps write-scoped PR commenting in a separate
 #   workflow. Codex runs non-interactively with the shell tool disabled, a
 #   read-only sandbox, and token/key/secret environment variables stripped from
-#   any subprocesses if shell tools are re-enabled in the future.
+#   any subprocesses if shell tools are re-enabled in the future. Fork PRs are
+#   author-gated for auto review and Claude fork runs deny file/subagent tools.
 
 name: AI Review Analysis
 
@@ -108,6 +109,7 @@ jobs:
           RESULT_ARTIFACT_NAME: ${{ inputs.result_artifact_name }}
           REVIEW_WORKFLOW_NAME: ${{ inputs.display_name }} Code Review
           REVIEW_WORKFLOW_PATH: .github/workflows/${{ inputs.provider }}-review.yml
+          AUTHORIZED_USERS_JSON: ${{ inputs.authorized_users_json }}
         with:
           script: |
             const isEarlyTrigger = context.eventName === 'pull_request_target';
@@ -120,9 +122,25 @@ jobs:
             const POLL_INTERVAL_MS = 90 * 1000;
             const MAX_WAIT_MS = 20 * 60 * 1000;
             const FALLBACK_WAIT_MS = 15 * 60 * 1000;
+            const authorizedUsers = new Set(JSON.parse(
+              process.env.AUTHORIZED_USERS_JSON));
 
             async function sleep(ms) {
               await new Promise(resolve => setTimeout(resolve, ms));
+            }
+
+            function skipIfUnauthorizedAutoAuthor(pr) {
+              const author = pr.user && pr.user.login ? pr.user.login : '';
+              if (authorizedUsers.has(author)) {
+                return false;
+              }
+              core.info(
+                `Skipping auto-review for PR #${pr.number} by @${author}; ` +
+                'author is not in authorized_users_json.'
+              );
+              core.setOutput('skip', 'true');
+              core.setOutput('skip_reason', `unauthorized_author:${author}`);
+              return true;
             }
 
             async function listChecks(ref) {
@@ -239,6 +257,10 @@ jobs:
                 });
                 pr = data;
 
+                if (skipIfUnauthorizedAutoAuthor(pr)) {
+                  return;
+                }
+
                 if (pr.head.sha !== sourceHeadSha) {
                   core.info(
                     `PR #${prNumber} advanced from ${sourceHeadSha} to ` +
@@ -348,6 +370,10 @@ jobs:
                 pull_number: prNumber,
               });
               pr = data;
+
+              if (skipIfUnauthorizedAutoAuthor(pr)) {
+                return;
+              }
 
               if (pr.head.sha !== sourceHeadSha) {
                 core.info(
@@ -492,7 +518,9 @@ jobs:
           and do not try to inspect credentials or environment variables. If you
           use sub-agents, keep them read-only. Perform context gathering inline
           with read-only repository inspection and put the complete review in your
-          final response.
+          final response. If file-reading or sub-agent tools are unavailable,
+          do not retry them; complete the review from the PR metadata and diff in
+          this prompt.
           EOF
           fi
 
@@ -519,7 +547,8 @@ jobs:
           model: ${{ inputs.classifier_model }}
           max_turns: "10"
           timeout_minutes: "10"
-          allowed_tools: "View,GlobTool,GrepTool"
+          allowed_tools: ${{ steps.pr_info.outputs.is_same_repo_pr == 'true' && 'View,GlobTool,GrepTool' || '' }}
+          disallowed_tools: ${{ steps.pr_info.outputs.is_same_repo_pr != 'true' && 'Bash,Read,View,Edit,MultiEdit,Write,Glob,GlobTool,Grep,GrepTool,LS,Task,WebFetch,WebSearch,NotebookRead,NotebookEdit,TodoWrite,ExitPlanMode,BatchTool' || '' }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - name: Pick thinking budget (Claude)
@@ -569,8 +598,11 @@ jobs:
         run: |
           mkdir -p "${CODEX_HOME}"
           codex --ask-for-approval never --disable shell_tool exec \
+            --disable apply_patch \
             --sandbox read-only \
             --ignore-user-config \
+            --ignore-rules \
+            --ephemeral \
             -m "${CODEX_MODEL}" \
             -c model_reasoning_effort="medium" \
             -c shell_environment_policy.inherit=core \
@@ -624,7 +656,8 @@ jobs:
           model: ${{ inputs.default_model }}
           max_turns: "300"
           timeout_minutes: "60"
-          allowed_tools: "View,GlobTool,GrepTool,Task"
+          allowed_tools: ${{ steps.pr_info.outputs.is_same_repo_pr == 'true' && 'View,GlobTool,GrepTool,Task' || '' }}
+          disallowed_tools: ${{ steps.pr_info.outputs.is_same_repo_pr != 'true' && 'Bash,Read,View,Edit,MultiEdit,Write,Glob,GlobTool,Grep,GrepTool,LS,Task,WebFetch,WebSearch,NotebookRead,NotebookEdit,TodoWrite,ExitPlanMode,BatchTool' || '' }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - name: Build review comment (Claude)
@@ -672,8 +705,11 @@ jobs:
           mkdir -p "${CODEX_HOME}"
           set +e
           codex --ask-for-approval never --disable shell_tool exec \
+            --disable apply_patch \
             --sandbox read-only \
             --ignore-user-config \
+            --ignore-rules \
+            --ephemeral \
             -m "${CODEX_MODEL}" \
             -c model_reasoning_effort="${CODEX_REASONING_EFFORT}" \
             -c shell_environment_policy.inherit=core \
@@ -700,6 +736,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
             const parse = require('./.github/scripts/parse-codex-review.js');
             const body = parse({
               responseFile: process.env.RESPONSE_FILE,
@@ -985,7 +1022,9 @@ jobs:
           and do not try to inspect credentials or environment variables. If you
           use sub-agents, keep them read-only. Perform context gathering inline
           with read-only repository inspection and put the complete answer in your
-          final response.
+          final response. If file-reading or sub-agent tools are unavailable,
+          do not retry them; complete the response from the PR metadata and diff in
+          this prompt.
           EOF
           fi
 
@@ -1015,7 +1054,8 @@ jobs:
           model: ${{ inputs.classifier_model }}
           max_turns: "10"
           timeout_minutes: "10"
-          allowed_tools: "View,GlobTool,GrepTool"
+          allowed_tools: ${{ steps.pr_info.outputs.is_same_repo_pr == 'true' && 'View,GlobTool,GrepTool' || '' }}
+          disallowed_tools: ${{ steps.pr_info.outputs.is_same_repo_pr != 'true' && 'Bash,Read,View,Edit,MultiEdit,Write,Glob,GlobTool,Grep,GrepTool,LS,Task,WebFetch,WebSearch,NotebookRead,NotebookEdit,TodoWrite,ExitPlanMode,BatchTool' || '' }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - name: Pick thinking budget (Claude)
@@ -1076,8 +1116,11 @@ jobs:
         run: |
           mkdir -p "${CODEX_HOME}"
           codex --ask-for-approval never --disable shell_tool exec \
+            --disable apply_patch \
             --sandbox read-only \
             --ignore-user-config \
+            --ignore-rules \
+            --ephemeral \
             -m "${CODEX_MODEL}" \
             -c model_reasoning_effort="medium" \
             -c shell_environment_policy.inherit=core \
@@ -1145,7 +1188,8 @@ jobs:
           model: ${{ inputs.selected_model != '' && inputs.selected_model || inputs.default_model }}
           max_turns: "300"
           timeout_minutes: "60"
-          allowed_tools: "View,GlobTool,GrepTool,Task"
+          allowed_tools: ${{ steps.pr_info.outputs.is_same_repo_pr == 'true' && 'View,GlobTool,GrepTool,Task' || '' }}
+          disallowed_tools: ${{ steps.pr_info.outputs.is_same_repo_pr != 'true' && 'Bash,Read,View,Edit,MultiEdit,Write,Glob,GlobTool,Grep,GrepTool,LS,Task,WebFetch,WebSearch,NotebookRead,NotebookEdit,TodoWrite,ExitPlanMode,BatchTool' || '' }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - name: Build review comment (Claude)
@@ -1188,8 +1232,11 @@ jobs:
           mkdir -p "${CODEX_HOME}"
           set +e
           codex --ask-for-approval never --disable shell_tool exec \
+            --disable apply_patch \
             --sandbox read-only \
             --ignore-user-config \
+            --ignore-rules \
+            --ephemeral \
             -m "${CODEX_MODEL}" \
             -c model_reasoning_effort="${CODEX_REASONING_EFFORT}" \
             -c shell_environment_policy.inherit=core \
@@ -1214,6 +1261,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
             const parse = require('./.github/scripts/parse-codex-review.js');
             const body = parse({
               responseFile: process.env.RESPONSE_FILE,
