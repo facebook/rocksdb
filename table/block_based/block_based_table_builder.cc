@@ -874,7 +874,7 @@ struct BlockBasedTableBuilder::Rep {
                               const std::optional<Slice>& value) {
     // Forward to the built-in builder with the full internal key
     // (needed for kBinarySearchWithFirstKey tracking).
-    // When index_mode=kPrimaryOnly, index_builder is null — skip.
+    // When index_mode=kCustomOnly, index_builder is null — skip.
     if (index_builder) {
       static_cast<BuiltinIndexFactoryBuilder*>(index_builder.get())
           ->OnKeyAddedInternal(internal_key, value);
@@ -963,7 +963,7 @@ struct BlockBasedTableBuilder::Rep {
     // API is designed for custom indexes that don't use delta encoding.
     // Only the built-in index needs this flag (when block alignment padding
     // causes non-contiguous block offsets).
-    // Call built-in builder (null when index_mode=kPrimaryOnly).
+    // Call built-in builder (null when index_mode=kCustomOnly).
     if (index_builder) {
       if (skip_delta_encoding) {
         static_cast<BuiltinIndexFactoryBuilder*>(index_builder.get())
@@ -1395,14 +1395,14 @@ struct BlockBasedTableBuilder::Rep {
     // The factory stores all internal configuration needed by the builder.
     // --- Validate custom index options ---
     if (table_options.index_mode >=
-            BlockBasedTableOptions::IndexMode::kSecondary &&
+            BlockBasedTableOptions::IndexMode::kStandardDefault &&
         table_options.user_defined_index_factory == nullptr) {
       SetStatus(Status::InvalidArgument(
-          "index_mode >= kSecondary requires user_defined_index_factory to "
-          "be set"));
+          "index_mode >= kStandardDefault requires "
+          "user_defined_index_factory to be set"));
     }
     if (table_options.index_mode >=
-            BlockBasedTableOptions::IndexMode::kSecondary &&
+            BlockBasedTableOptions::IndexMode::kStandardDefault &&
         table_options.user_defined_index_factory != nullptr) {
       if (tbo.moptions.compression_opts.parallel_threads > 1 ||
           tbo.moptions.bottommost_compression_opts.parallel_threads > 1) {
@@ -1413,28 +1413,28 @@ struct BlockBasedTableBuilder::Rep {
             "user_defined_index_factory is not supported with parallel "
             "compression"));
       } else if (table_options.index_mode >=
-                     BlockBasedTableOptions::IndexMode::kPrimary &&
+                     BlockBasedTableOptions::IndexMode::kCustomDefault &&
                  table_options.index_type ==
                      BlockBasedTableOptions::kTwoLevelIndexSearch) {
         SetStatus(Status::InvalidArgument(
-            "index_mode kPrimary/kPrimaryOnly is incompatible with "
+            "index_mode kCustomDefault/kCustomOnly is incompatible with "
             "partitioned index (kTwoLevelIndexSearch)"));
       } else if (table_options.index_mode >=
-                     BlockBasedTableOptions::IndexMode::kPrimary &&
+                     BlockBasedTableOptions::IndexMode::kCustomDefault &&
                  table_options.partition_filters) {
         SetStatus(Status::InvalidArgument(
-            "index_mode kPrimary/kPrimaryOnly is incompatible with "
+            "index_mode kCustomDefault/kCustomOnly is incompatible with "
             "partitioned filters"));
       }
     }
 
     // --- Create the built-in index builder ---
-    // When index_mode=kPrimaryOnly, the built-in index is NOT created.
+    // When index_mode=kCustomOnly, the built-in index is NOT created.
     // The custom IndexFactory is the sole index. A minimal empty index
     // block is still written to satisfy the SST footer format.
     const bool build_standard_index =
         table_options.index_mode !=
-        BlockBasedTableOptions::IndexMode::kPrimaryOnly;
+        BlockBasedTableOptions::IndexMode::kCustomOnly;
     if (build_standard_index) {
       BuiltinIndexFactoryConfig builtin_config;
       builtin_config.internal_comparator = &internal_comparator;
@@ -1492,7 +1492,7 @@ struct BlockBasedTableBuilder::Rep {
 
     // --- Create the custom index builder ---
     if (table_options.index_mode >=
-            BlockBasedTableOptions::IndexMode::kSecondary &&
+            BlockBasedTableOptions::IndexMode::kStandardDefault &&
         table_options.user_defined_index_factory != nullptr) {
       IndexFactoryOptions custom_opts;
       custom_opts.comparator = internal_comparator.user_comparator();
@@ -1966,7 +1966,7 @@ void BlockBasedTableBuilder::EmitBlockForParallel(
   std::swap(uncompressed, block_rep->uncompressed);
   // Translate internal keys to user keys + context for the
   // IndexFactoryBuilder parallel compression protocol.
-  // Guard: index_builder is null when index_mode=kPrimaryOnly. Parallel
+  // Guard: index_builder is null when index_mode=kCustomOnly. Parallel
   // compression is rejected with custom indexes, so this should be
   // unreachable, but guard defensively.
   if (r->index_builder) {
@@ -2135,7 +2135,7 @@ void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
         rep_->props.data_size = rep_->get_offset();
         rep_->props.uncompressed_data_size += block_rep->uncompressed.size();
 
-        // Guard: index_builder is null when index_mode=kPrimaryOnly.
+        // Guard: index_builder is null when index_mode=kCustomOnly.
         // Parallel compression is rejected with custom indexes, so this
         // should be unreachable, but guard defensively.
         if (rep_->index_builder && block_rep->index_entry_prepared) {
@@ -2481,7 +2481,7 @@ void BlockBasedTableBuilder::MaybeStartParallelCompression() {
   rep_->pc_rep = std::make_unique<ParallelCompressionRep>(
       rep_->compression_parallel_threads);
   auto& pc_rep = *rep_->pc_rep;
-  // Guard: index_builder is null when index_mode=kPrimaryOnly. Parallel
+  // Guard: index_builder is null when index_mode=kCustomOnly. Parallel
   // compression is rejected with custom indexes, so this should be
   // unreachable, but guard defensively.
   if (rep_->index_builder) {
@@ -2712,7 +2712,7 @@ void BlockBasedTableBuilder::WriteIndexBlock(
           rep_->index_builder->NumUniformIndexBlocks();
     }
   } else {
-    // index_mode=kPrimaryOnly: no built-in index builder.
+    // index_mode=kCustomOnly: no built-in index builder.
     // Write a minimal empty index block to satisfy the SST footer format.
     // The empty stub has no entries — set properties to reflect that.
     BlockBuilder empty_index_block(1 /* block_restart_interval */,
@@ -2809,7 +2809,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
       rep_->props.index_key_is_user_key =
           !rep_->index_builder->separator_is_key_plus_seq();
       if (rep_->table_options.index_mode >=
-              BlockBasedTableOptions::IndexMode::kPrimary &&
+              BlockBasedTableOptions::IndexMode::kCustomDefault &&
           rep_->table_options.user_defined_index_factory != nullptr) {
         rep_->props.udi_is_primary_index = 1;
       }
@@ -2818,7 +2818,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
       rep_->props.index_value_is_delta_encoded =
           rep_->use_delta_encoding_for_index_values;
     } else {
-      // index_mode=kPrimaryOnly: no built-in index builder.
+      // index_mode=kCustomOnly: no built-in index builder.
       // The empty stub has no entries — set properties to reflect that.
       rep_->props.index_key_is_user_key = 1;
       rep_->props.index_value_is_delta_encoded = 0;

@@ -146,13 +146,13 @@ MakeStressLikeSqfcFactory() {
   return factory;
 }
 
-// Parameterized on IndexMode: kSecondary, kPrimary, and kPrimaryOnly.
+// Parameterized on IndexMode: kStandardDefault, kCustomDefault, and kCustomOnly.
 // All tests run in all three modes to ensure full coverage.
 class TrieIndexDBTest
     : public testing::TestWithParam<BlockBasedTableOptions::IndexMode> {
  protected:
   bool IsPrimaryMode() const {
-    return GetParam() >= BlockBasedTableOptions::IndexMode::kPrimary;
+    return GetParam() >= BlockBasedTableOptions::IndexMode::kCustomDefault;
   }
   BlockBasedTableOptions::IndexMode GetIndexMode() const { return GetParam(); }
 
@@ -177,13 +177,13 @@ class TrieIndexDBTest
 
   // Explicitly opens as primary -- used by the backward compatibility test.
   Status OpenDBPrimary(int block_size = 0) {
-    return OpenDBImpl(block_size, BlockBasedTableOptions::IndexMode::kPrimary);
+    return OpenDBImpl(block_size, BlockBasedTableOptions::IndexMode::kCustomDefault);
   }
 
   // Explicitly opens as secondary -- used by the backward compatibility test.
   Status OpenDBSecondary(int block_size = 0) {
     return OpenDBImpl(block_size,
-                      BlockBasedTableOptions::IndexMode::kSecondary);
+                      BlockBasedTableOptions::IndexMode::kStandardDefault);
   }
 
   Status OpenDBImpl(int block_size,
@@ -235,10 +235,10 @@ class TrieIndexDBTest
   }
 
   // Collects all visible keys via forward scan using the default index for
-  // the current mode: standard index for kSecondary/kPrimary, trie index for
-  // kPrimaryOnly (where the standard index is an empty stub).
+  // the current mode: standard index for kStandardDefault/kCustomDefault, trie
+  // index for kCustomOnly (where the standard index is an empty stub).
   std::vector<std::string> ScanAllKeys() {
-    if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
+    if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kCustomOnly) {
       return ScanAllKeys(TrieIndexReadOptions());
     }
     return ScanAllKeys(StandardIndexReadOptions());
@@ -260,10 +260,10 @@ class TrieIndexDBTest
   // Verifies that forward scan via SeekToFirst+Next AND reverse scan via
   // SeekToLast+Prev both produce the expected key set through both the
   // standard index and the trie index.
-  // In kPrimaryOnly mode, the standard index is an empty stub, so we skip
+  // In kCustomOnly mode, the standard index is an empty stub, so we skip
   // the standard index comparison.
   void VerifyScanBothIndexes(const std::vector<std::string>& expected_keys) {
-    if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
+    if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
       SCOPED_TRACE("standard index forward");
       ASSERT_EQ(ScanAllKeys(StandardIndexReadOptions()), expected_keys);
     }
@@ -274,7 +274,7 @@ class TrieIndexDBTest
     // Reverse scan must produce the reversed key set.
     std::vector<std::string> expected_reverse(expected_keys.rbegin(),
                                               expected_keys.rend());
-    if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
+    if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
       SCOPED_TRACE("standard index reverse");
       ASSERT_EQ(ReverseScanAllKeys(StandardIndexReadOptions()),
                 expected_reverse);
@@ -290,7 +290,7 @@ class TrieIndexDBTest
   // both indexes.
   void VerifyScanBothIndexes(
       const std::vector<std::pair<std::string, std::string>>& expected_kvs) {
-    if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
+    if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
       SCOPED_TRACE("standard index forward");
       ASSERT_EQ(ScanAllKeyValues(StandardIndexReadOptions()), expected_kvs);
     }
@@ -301,7 +301,7 @@ class TrieIndexDBTest
     // Reverse scan must produce the reversed pairs.
     std::vector<std::pair<std::string, std::string>> expected_reverse(
         expected_kvs.rbegin(), expected_kvs.rend());
-    if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
+    if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
       SCOPED_TRACE("standard index reverse");
       ASSERT_EQ(ReverseScanAllKeyValues(StandardIndexReadOptions()),
                 expected_reverse);
@@ -314,9 +314,9 @@ class TrieIndexDBTest
   }
 
   // Returns the list of ReadOptions to test through both indexes, skipping the
-  // standard index in kPrimaryOnly mode (where it's an empty stub).
+  // standard index in kCustomOnly mode (where it's an empty stub).
   std::vector<ReadOptions> BothIndexReadOptions() const {
-    if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
+    if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kCustomOnly) {
       return {TrieIndexReadOptions()};
     }
     return {StandardIndexReadOptions(), TrieIndexReadOptions()};
@@ -1164,7 +1164,7 @@ TEST_P(TrieIndexDBTest, IngestExternalFileWithTrieUDI) {
     sst_options.merge_operator = MergeOperators::CreateStringAppendOperator();
     BlockBasedTableOptions table_options;
     table_options.user_defined_index_factory = trie_factory_;
-    table_options.index_mode = BlockBasedTableOptions::IndexMode::kSecondary;
+    table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
     sst_options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     SstFileWriter writer(EnvOptions(), sst_options);
@@ -2581,13 +2581,13 @@ TEST_P(TrieIndexDBTest, PrefixIterationWithDeletesAndMerges) {
   ASSERT_EQ(trie_result[2],
             std::make_pair(std::string("aaa05"), std::string("v5,,m2")));
   ASSERT_EQ(trie_result[3].first, "aaa06");
-  if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
+  if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
     ASSERT_EQ(PrefixScan(StandardIndexReadOptions()), trie_result);
   }
 
   auto trie_rev = ReversePrefixScanKeys(TrieIndexReadOptions(), "aaa");
   ASSERT_EQ(trie_rev.size(), 4u);
-  if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
+  if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
     ASSERT_EQ(ReversePrefixScanKeys(StandardIndexReadOptions(), "aaa"),
               trie_rev);
   }
@@ -2618,7 +2618,7 @@ TEST_P(TrieIndexDBTest, PrefixIterationAfterCompaction) {
   for (const char* pfx : {"aaa", "bbb", "ccc"}) {
     SCOPED_TRACE(pfx);
     auto trie_keys = PrefixScanKeys(TrieIndexReadOptions(), pfx);
-    if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
+    if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
       ASSERT_EQ(PrefixScanKeys(StandardIndexReadOptions(), pfx), trie_keys);
     }
   }
@@ -2768,12 +2768,12 @@ TEST_P(TrieIndexDBTest, PrefixIterationWithDeleteRange) {
 
   auto trie_keys = PrefixScanKeys(TrieIndexReadOptions(), "aaa");
   ASSERT_EQ(trie_keys.size(), 10u);
-  if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
+  if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
     ASSERT_EQ(PrefixScanKeys(StandardIndexReadOptions(), "aaa"), trie_keys);
   }
 
   auto trie_rev = ReversePrefixScanKeys(TrieIndexReadOptions(), "aaa");
-  if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
+  if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
     ASSERT_EQ(ReversePrefixScanKeys(StandardIndexReadOptions(), "aaa"),
               trie_rev);
   }
@@ -2809,12 +2809,12 @@ TEST_P(TrieIndexDBTest, PrefixIterationMemtablePlusSST) {
 
   auto trie_result = PrefixScan(TrieIndexReadOptions());
   ASSERT_EQ(trie_result.size(), 5u);
-  if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
+  if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
     ASSERT_EQ(PrefixScan(StandardIndexReadOptions()), trie_result);
   }
 
   auto trie_rev = ReversePrefixScanKeys(TrieIndexReadOptions(), "aaa");
-  if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
+  if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
     ASSERT_EQ(ReversePrefixScanKeys(StandardIndexReadOptions(), "aaa"),
               trie_rev);
   }
@@ -3876,11 +3876,11 @@ TEST_P(TrieIndexDBTest, MultiLevelDeleteRangeRandomized) {
   };
 
   // Core correctness check: forward scan via both indexes must match.
-  // In kPrimaryOnly mode, the standard index is an empty stub, so we just
+  // In kCustomOnly mode, the standard index is an empty stub, so we just
   // verify that the trie scan succeeds (no crash, valid iteration).
   auto verify_scan_consistency = [&]() {
     auto trie_kvs = ScanAllKeyValues(TrieIndexReadOptions());
-    if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
+    if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
       auto standard_kvs = ScanAllKeyValues(StandardIndexReadOptions());
       ASSERT_EQ(standard_kvs, trie_kvs)
           << "Scan mismatch: standard=" << standard_kvs.size()
@@ -3948,7 +3948,7 @@ TEST_P(TrieIndexDBTest, MultiLevelDeleteRangeRandomized) {
   // preserve the pre-deletion state while current reads see the deletion.
   const Snapshot* snap = db_->GetSnapshot();
   auto snap_kvs = ScanAllKeyValues(
-      GetIndexMode() == BlockBasedTableOptions::IndexMode::kPrimaryOnly
+      GetIndexMode() == BlockBasedTableOptions::IndexMode::kCustomOnly
           ? TrieIndexReadOptions()
           : StandardIndexReadOptions());
 
@@ -3985,7 +3985,7 @@ TEST_P(TrieIndexDBTest, MultiLevelDeleteRangeRandomized) {
   // Phase 6: Point lookups for a sample of keys -- both indexes must agree.
   for (int i = 0; i < kMaxKey; i += 7) {
     std::string key = format_key(i);
-    if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
+    if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
       std::string std_val;
       std::string trie_val;
       Status s1 = db_->Get(StandardIndexReadOptions(), key, &std_val);
@@ -3996,7 +3996,7 @@ TEST_P(TrieIndexDBTest, MultiLevelDeleteRangeRandomized) {
       }
     } else {
       std::string trie_val;
-      // Just verify trie reads don't crash in kPrimaryOnly mode.
+      // Just verify trie reads don't crash in kCustomOnly mode.
       // The key may or may not exist (delete ranges active), so ignore
       // NotFound but check for unexpected errors.
       Status s = db_->Get(TrieIndexReadOptions(), key, &trie_val);
@@ -4284,7 +4284,7 @@ TEST_P(TrieIndexDBTest, SeekForPrevVariableLengthKeys) {
       ASSERT_TRUE(iter->Valid());
       ASSERT_OK(iter->status());
     }
-    if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
+    if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
       std::string std_result, trie_result;
       {
         std::unique_ptr<Iterator> iter(
@@ -4313,8 +4313,8 @@ TEST_P(TrieIndexDBTest, SeekForPrevVariableLengthKeys) {
     int len = snprintf(buf, sizeof(buf), "k%04da", i);
     std::string target(buf, len);
 
-    if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
-      // Just verify trie works in kPrimaryOnly mode.
+    if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kCustomOnly) {
+      // Just verify trie works in kCustomOnly mode.
       std::unique_ptr<Iterator> iter(db_->NewIterator(TrieIndexReadOptions()));
       iter->SeekForPrev(target);
       ASSERT_OK(iter->status());
@@ -4351,7 +4351,7 @@ TEST_P(TrieIndexDBTest, SeekForPrevVariableLengthKeys) {
 TEST_P(TrieIndexDBTest, PrimaryUDIBackwardCompatibility) {
   // Verifies that SSTs written with UDI as secondary (both indexes present)
   // can be read correctly when the DB is reopened with
-  // index_mode=kPrimary. This is the upgrade path: old SSTs have both
+  // index_mode=kCustomDefault. This is the upgrade path: old SSTs have both
   // indexes, new config says "use UDI as primary for all reads."
   ASSERT_OK(OpenDBSecondary(/*block_size=*/128));
 
@@ -4391,10 +4391,10 @@ TEST_P(TrieIndexDBTest, MigrationFullPath) {
   // Tests the complete recommended migration path:
   // Step 1: No UDI -> Step 2: UDI secondary -> Step 3: Compact all SSTs ->
   // Step 4: UDI primary
-  // In kPrimaryOnly mode, the standard index is an empty stub, so the
+  // In kCustomOnly mode, the standard index is an empty stub, so the
   // mixed-mode migration path is not applicable.
-  if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
-    ROCKSDB_GTEST_SKIP("Not applicable in kPrimaryOnly mode");
+  if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kCustomOnly) {
+    ROCKSDB_GTEST_SKIP("Not applicable in kCustomOnly mode");
     return;
   }
 
@@ -4458,7 +4458,7 @@ TEST_P(TrieIndexDBTest, MigrationFullPath) {
 }
 
 TEST_P(TrieIndexDBTest, MigrationPrimaryRejectsPreUDISSTs) {
-  // Verifies that enabling index_mode=kPrimary on a DB with SSTs
+  // Verifies that enabling index_mode=kCustomDefault on a DB with SSTs
   // that have no UDI block fails at open time (not silently).
   options_.disable_auto_compactions = true;
 
@@ -4543,10 +4543,10 @@ TEST_P(TrieIndexDBTest, RollbackFromPrimaryWithoutCompactSucceeds) {
   // Verifies that removing UDI from primary-mode SSTs WITHOUT compacting
   // first still works. The standard index is always fully populated (even
   // in primary mode), so reads fall back to the standard index correctly.
-  // In kPrimaryOnly mode, the standard index is an empty stub, so this
+  // In kCustomOnly mode, the standard index is an empty stub, so this
   // rollback path is not applicable.
-  if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
-    ROCKSDB_GTEST_SKIP("Not applicable in kPrimaryOnly mode");
+  if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kCustomOnly) {
+    ROCKSDB_GTEST_SKIP("Not applicable in kCustomOnly mode");
     return;
   }
   options_.disable_auto_compactions = true;
@@ -4603,10 +4603,10 @@ TEST_P(TrieIndexDBTest, PrimaryModeTableProperties) {
 
 TEST_P(TrieIndexDBTest, EstimatedSizeNonZero) {
   // Verifies that TrieIndexBuilder::EstimatedSize() returns non-zero after
-  // adding entries, ensuring compaction file sizing works. In kPrimaryOnly
+  // adding entries, ensuring compaction file sizing works. In kCustomOnly
   // mode, the standard index is a stub with zero size — the trie's size is
   // tracked separately in the meta block, not in the index_size property.
-  if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kPrimaryOnly) {
+  if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kCustomOnly) {
     ROCKSDB_GTEST_SKIP("index_size property tracks standard index only");
     return;
   }
@@ -4918,7 +4918,7 @@ TEST_P(TrieIndexDBTest, PrefetchWithCustomIndexWrapper) {
   // This test writes keys with NO same-user-key boundaries (each key is
   // unique), so index_key_is_user_key=1 in the SST properties. This is the
   // condition that triggers the user-key comparison path in Prefetch.
-  if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kSecondary) {
+  if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kStandardDefault) {
     // In secondary mode, Prefetch uses the standard IndexBlockIter (the
     // wrapper falls through for internal ReadOptions). The bug only
     // manifests in primary mode where the wrapper intercepts all reads.
@@ -4936,18 +4936,18 @@ TEST_P(TrieIndexDBTest, PrefetchWithCustomIndexWrapper) {
   }
   ASSERT_OK(db_->Flush(FlushOptions()));
 
-  // Verify SST properties. In kPrimary mode, index_key_is_user_key=1 because
+  // Verify SST properties. In kCustomDefault mode, index_key_is_user_key=1 because
   // the standard builder sees no same-user-key boundaries (all keys unique).
-  // In kPrimaryOnly mode, index_key_is_user_key=0 because the standard index
+  // In kCustomOnly mode, index_key_is_user_key=0 because the standard index
   // is a stub and we force this property to match the UDI wrapper's internal
   // key format.
   TablePropertiesCollection props;
   ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
   ASSERT_FALSE(props.empty());
-  if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kPrimary) {
+  if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kCustomDefault) {
     for (const auto& p : props) {
       ASSERT_EQ(p.second->index_key_is_user_key, 1u)
-          << "kPrimary with unique keys: expected user-key-only separators";
+          << "kCustomDefault with unique keys: expected user-key-only separators";
     }
   }
 
@@ -4982,14 +4982,14 @@ TEST_P(TrieIndexDBTest, PrefetchWithCustomIndexWrapper) {
 }
 
 // Run all parameterized tests in all three custom UDI modes:
-// - kSecondary: UDI is secondary, reads require read_index
-// - kPrimary: UDI is primary, all reads use the trie by default
-// - kPrimaryOnly: UDI is primary, standard index is an empty stub
+// - kStandardDefault: UDI is secondary, reads require read_index
+// - kCustomDefault: UDI is primary, all reads use the trie by default
+// - kCustomOnly: UDI is primary, standard index is an empty stub
 INSTANTIATE_TEST_CASE_P(
     AllIndexModes, TrieIndexDBTest,
-    ::testing::Values(BlockBasedTableOptions::IndexMode::kSecondary,
-                      BlockBasedTableOptions::IndexMode::kPrimary,
-                      BlockBasedTableOptions::IndexMode::kPrimaryOnly));
+    ::testing::Values(BlockBasedTableOptions::IndexMode::kStandardDefault,
+                      BlockBasedTableOptions::IndexMode::kCustomDefault,
+                      BlockBasedTableOptions::IndexMode::kCustomOnly));
 
 }  // namespace trie_index
 }  // namespace ROCKSDB_NAMESPACE

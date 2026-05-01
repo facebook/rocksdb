@@ -228,10 +228,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
 
 static const std::unordered_map<std::string, BlockBasedTableOptions::IndexMode>
     block_base_table_index_mode_string_map = {
-        {"kBuiltinOnly", BlockBasedTableOptions::IndexMode::kBuiltinOnly},
-        {"kSecondary", BlockBasedTableOptions::IndexMode::kSecondary},
-        {"kPrimary", BlockBasedTableOptions::IndexMode::kPrimary},
-        {"kPrimaryOnly", BlockBasedTableOptions::IndexMode::kPrimaryOnly}};
+        {"kStandardOnly", BlockBasedTableOptions::IndexMode::kStandardOnly},
+        {"kStandardDefault", BlockBasedTableOptions::IndexMode::kStandardDefault},
+        {"kCustomDefault", BlockBasedTableOptions::IndexMode::kCustomDefault},
+        {"kCustomOnly", BlockBasedTableOptions::IndexMode::kCustomOnly}};
 
 static std::unordered_map<std::string,
                           BlockBasedTableOptions::PrepopulateBlockCache>
@@ -772,10 +772,10 @@ Status BlockBasedTableFactory::ValidateOptions(
         "data_block_index_type is set to kDataBlockBinaryAndHash");
   }
   if (table_options_.index_mode >=
-      BlockBasedTableOptions::IndexMode::kSecondary) {
+      BlockBasedTableOptions::IndexMode::kStandardDefault) {
     if (!table_options_.user_defined_index_factory) {
       return Status::InvalidArgument(
-          "index_mode >= kSecondary requires user_defined_index_factory");
+          "index_mode >= kStandardDefault requires user_defined_index_factory");
     }
     if (cf_opts.compression_opts.parallel_threads > 1 ||
         cf_opts.bottommost_compression_opts.parallel_threads > 1) {
@@ -783,16 +783,16 @@ Status BlockBasedTableFactory::ValidateOptions(
           "user_defined_index_factory not supported with parallel compression");
     }
     if (table_options_.index_mode >=
-        BlockBasedTableOptions::IndexMode::kPrimary) {
+        BlockBasedTableOptions::IndexMode::kCustomDefault) {
       if (table_options_.index_type ==
           BlockBasedTableOptions::kTwoLevelIndexSearch) {
         return Status::InvalidArgument(
-            "index_mode kPrimary/kPrimaryOnly is incompatible with "
+            "index_mode kCustomDefault/kCustomOnly is incompatible with "
             "partitioned index (kTwoLevelIndexSearch).");
       }
       if (table_options_.partition_filters) {
         return Status::InvalidArgument(
-            "index_mode kPrimary/kPrimaryOnly is incompatible with "
+            "index_mode kCustomDefault/kCustomOnly is incompatible with "
             "partitioned filters.");
       }
     }

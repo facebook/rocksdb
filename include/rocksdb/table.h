@@ -540,57 +540,58 @@ struct BlockBasedTableOptions {
   // EXPERIMENTAL
   //
   // Controls how the custom IndexFactory interacts with the built-in
-  // binary search index. Requires user_defined_index_factory to be set
-  // for any mode other than kBuiltinOnly.
+  // standard index. Requires user_defined_index_factory to be set
+  // for any mode other than kStandardOnly.
   //
-  //   kBuiltinOnly (default):
-  //     Only the built-in binary search index is used.
+  //   kStandardOnly (default):
+  //     Only the built-in standard index is used.
   //     user_defined_index_factory is ignored if set.
   //
-  //   kSecondary:
+  //   kStandardDefault:
   //     Both indexes are built. Reads use the built-in index by default.
   //     The custom index is accessible via ReadOptions::read_index
   //     for per-read override. When opening SSTs that lack the custom
   //     index block, falls back to the standard index with a warning
   //     (not a hard error).
   //
-  //   kPrimary:
+  //   kCustomDefault:
   //     Both indexes are built. All reads (including internal operations
   //     like compaction and VerifyChecksum) route through the custom
   //     index. The built-in index serves as a safety fallback for
   //     backup/restore and rollback.
   //
-  //   kPrimaryOnly:
+  //   kCustomOnly:
   //     Only the custom index is built. The built-in index is not
   //     populated (a minimal stub satisfies the SST footer format).
   //     Maximum efficiency but no fallback — rollback requires
   //     compacting with a mode that builds the standard index.
   //
   // Recommended migration path:
-  //   kBuiltinOnly → kSecondary → kPrimary → kPrimaryOnly
+  //   kStandardOnly → kStandardDefault → kCustomDefault → kCustomOnly
   //
   // Rollback:
-  //   From kPrimary: switch to kSecondary or kBuiltinOnly. The standard
-  //     index is fully populated, so SSTs are immediately readable.
-  //   From kPrimaryOnly: switch to kPrimary and compact to rewrite all
-  //     SSTs with both indexes before downgrading further.
+  //   From kCustomDefault: switch to kStandardDefault or kStandardOnly.
+  //     The standard index is fully populated, so SSTs are immediately
+  //     readable.
+  //   From kCustomOnly: switch to kCustomDefault and compact to rewrite
+  //     all SSTs with both indexes before downgrading further.
   //
   // Backup/restore: user_defined_index_factory (shared_ptr) does not
-  //   survive Options serialization. In kSecondary/kPrimary, the
-  //   restored DB falls back to the standard index. In kPrimaryOnly,
+  //   survive Options serialization. In kStandardDefault/kCustomDefault,
+  //   the restored DB falls back to the standard index. In kCustomOnly,
   //   the factory must be explicitly set after restore.
   //
   // Incompatible with:
-  //   - Partitioned index (kTwoLevelIndexSearch) in kPrimary/kPrimaryOnly
-  //   - Partitioned filters in kPrimary/kPrimaryOnly
+  //   - Partitioned index (kTwoLevelIndexSearch) in kCustomDefault/kCustomOnly
+  //   - Partitioned filters in kCustomDefault/kCustomOnly
   //   - Parallel compression in any mode that uses a custom index
   enum class IndexMode {
-    kBuiltinOnly = 0,
-    kSecondary = 1,
-    kPrimary = 2,
-    kPrimaryOnly = 3,
+    kStandardOnly = 0,
+    kStandardDefault = 1,
+    kCustomDefault = 2,
+    kCustomOnly = 3,
   };
-  IndexMode index_mode = IndexMode::kBuiltinOnly;
+  IndexMode index_mode = IndexMode::kStandardOnly;
 
   // If true, place whole keys in the filter (not just prefixes).
   // This must generally be true for gets to be efficient.

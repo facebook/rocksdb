@@ -281,7 +281,7 @@ default_params = {
     "use_trie_index": random.choice([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
     # index_mode must be the same across invocations (like use_trie_index)
     # so that SSTs written in primary mode can be read on reopen.
-    # 0=kBuiltinOnly, 1=kSecondary, 2=kPrimary, 3=kPrimaryOnly
+    # 0=kStandardOnly, 1=kStandardDefault, 2=kCustomDefault, 3=kCustomOnly
     "index_mode": random.choice([0, 0, 1, 2, 3]),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
@@ -1145,8 +1145,8 @@ def finalize_and_sanitize(src_params):
         dest_params["compression_parallel_threads"] = 1
         index_mode = dest_params.get("index_mode", 0)
         if index_mode >= 2:
-            # kPrimary/kPrimaryOnly: the standard index is still fully
-            # populated (except kPrimaryOnly), but partitioned index
+            # kCustomDefault/kCustomOnly: the standard index is still fully
+            # populated (except kCustomOnly), but partitioned index
             # (kTwoLevelIndexSearch) and partitioned filters are not
             # compatible with the UDI wrapper layout.
             dest_params["index_type"] = random.choice([0, 0, 3])
@@ -1161,7 +1161,7 @@ def finalize_and_sanitize(src_params):
             # reads cannot be routed through the trie.
             dest_params["test_secondary"] = 0
     else:
-        # index_mode >= kSecondary requires use_trie_index
+        # index_mode >= kStandardDefault requires use_trie_index
         dest_params["index_mode"] = 0
 
     # Multi-key operations are not currently compatible with transactions or

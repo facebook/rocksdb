@@ -5031,7 +5031,7 @@ class Benchmark {
         udi_factory_ = std::make_shared<trie_index::TrieIndexFactory>();
         block_based_options.user_defined_index_factory = udi_factory_;
         block_based_options.index_mode =
-            BlockBasedTableOptions::IndexMode::kSecondary;
+            BlockBasedTableOptions::IndexMode::kStandardDefault;
       }
 
       options.table_factory.reset(
