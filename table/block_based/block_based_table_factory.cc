@@ -229,7 +229,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
 static const std::unordered_map<std::string, BlockBasedTableOptions::IndexMode>
     block_base_table_index_mode_string_map = {
         {"kStandardOnly", BlockBasedTableOptions::IndexMode::kStandardOnly},
-        {"kStandardDefault", BlockBasedTableOptions::IndexMode::kStandardDefault},
+        {"kStandardDefault",
+         BlockBasedTableOptions::IndexMode::kStandardDefault},
         {"kCustomDefault", BlockBasedTableOptions::IndexMode::kCustomDefault},
         {"kCustomOnly", BlockBasedTableOptions::IndexMode::kCustomOnly}};
 

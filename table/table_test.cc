@@ -8334,7 +8334,8 @@ void UserDefinedIndexTestBase::BasicTest(bool use_partitioned_index) {
   // Set up the user-defined index factory
   auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
   if (use_partitioned_index) {
     table_options.partition_filters = true;
     table_options.decouple_partitioned_filters = true;
@@ -8502,7 +8503,8 @@ TEST_P(UserDefinedIndexTest, InvalidArgumentTest1) {
   // Set up the user-defined index factory
   auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
 
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
@@ -8530,7 +8532,8 @@ TEST_P(UserDefinedIndexTest, MergeWithUDI) {
 
   auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
   table_options.flush_block_policy_factory =
       std::make_shared<CustomFlushBlockPolicyFactory>();
 
@@ -8570,7 +8573,8 @@ TEST_P(UserDefinedIndexTest, DBFlushWithMixedOpsAndUDI) {
   auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   user_defined_index_factory->skip_key_size_check_ = true;
   table_options.user_defined_index_factory = user_defined_index_factory;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
   table_options.flush_block_policy_factory =
       std::make_shared<CustomFlushBlockPolicyFactory>();
   options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -8635,7 +8639,8 @@ TEST_P(UserDefinedIndexTest, ValueTypeMappingViaDBFlush) {
   auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   user_defined_index_factory->skip_key_size_check_ = true;
   table_options.user_defined_index_factory = user_defined_index_factory;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
   options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options_.merge_operator = MergeOperators::CreateStringAppendOperator();
   options_.create_if_missing = true;
@@ -8703,7 +8708,8 @@ TEST_P(UserDefinedIndexTest, CompactionWithSnapshotsAndUDI) {
   auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   user_defined_index_factory->skip_key_size_check_ = true;
   table_options.user_defined_index_factory = user_defined_index_factory;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
   options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options_.create_if_missing = true;
   // Disable auto-compaction so we control when compaction runs.
@@ -8799,7 +8805,8 @@ TEST_P(UserDefinedIndexTest, IngestTest) {
   // Set up the user-defined index factory
   auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
 
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
@@ -8885,7 +8892,8 @@ TEST_P(UserDefinedIndexTest, EmptyRangeTest) {
   // Set up the user-defined index factory
   auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
 
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
@@ -9062,7 +9070,8 @@ TEST_P(UserDefinedIndexTest, IngestEmptyUDI) {
   // Set up the user-defined index factory
   auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
       std::make_shared<CustomFlushBlockPolicyFactory>();
@@ -9085,7 +9094,8 @@ TEST_P(UserDefinedIndexTest, IngestEmptyUDI) {
   ASSERT_OK(writer->Finish());
   writer.reset();
 
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
   options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   std::unique_ptr<DB> db;
@@ -9117,7 +9127,8 @@ TEST_P(UserDefinedIndexTest, MultiScanFailureTest) {
   // Set up the user-defined index factory
   auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
 
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
@@ -9304,7 +9315,8 @@ TEST_P(UserDefinedIndexTest, ConfigTest) {
   // Set up the user-defined index factory
   auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
 
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
@@ -9398,7 +9410,8 @@ TEST_P(UserDefinedIndexTest, RangeDelete) {
   // Set up the user-defined index factory
   auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
 
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
@@ -9515,7 +9528,8 @@ TEST_P(UserDefinedIndexTest, QueryCrossTwoFiles) {
   // Set up the user-defined index factory
   auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
-  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
 
   // Set up custom flush block policy that flushes every 3 keys
   table_options.flush_block_policy_factory =
@@ -9775,7 +9789,8 @@ class UserDefinedIndexStressTest
       // Set up the user-defined index factory
       user_defined_index_factory_ = std::make_shared<TestIndexFactory>();
       table_options_.user_defined_index_factory = user_defined_index_factory_;
-      table_options_.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+      table_options_.index_mode =
+          BlockBasedTableOptions::IndexMode::kStandardDefault;
     }
 
     options_.table_factory.reset(NewBlockBasedTableFactory(table_options_));

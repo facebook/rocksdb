@@ -1397,9 +1397,9 @@ struct BlockBasedTableBuilder::Rep {
     if (table_options.index_mode >=
             BlockBasedTableOptions::IndexMode::kStandardDefault &&
         table_options.user_defined_index_factory == nullptr) {
-      SetStatus(Status::InvalidArgument(
-          "index_mode >= kStandardDefault requires "
-          "user_defined_index_factory to be set"));
+      SetStatus(
+          Status::InvalidArgument("index_mode >= kStandardDefault requires "
+                                  "user_defined_index_factory to be set"));
     }
     if (table_options.index_mode >=
             BlockBasedTableOptions::IndexMode::kStandardDefault &&

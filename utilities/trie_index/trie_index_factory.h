@@ -19,7 +19,8 @@
 //    auto trie_factory = std::make_shared<TrieIndexFactory>();
 //    BlockBasedTableOptions table_options;
 //    table_options.user_defined_index_factory = trie_factory;
-//    table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+//    table_options.index_mode =
+//    BlockBasedTableOptions::IndexMode::kStandardDefault;
 //
 //  In kStandardDefault mode, reads use the standard index by default.
 //  Set ReadOptions::read_index to kCustom to use the trie:

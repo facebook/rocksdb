@@ -146,8 +146,8 @@ MakeStressLikeSqfcFactory() {
   return factory;
 }
 
-// Parameterized on IndexMode: kStandardDefault, kCustomDefault, and kCustomOnly.
-// All tests run in all three modes to ensure full coverage.
+// Parameterized on IndexMode: kStandardDefault, kCustomDefault, and
+// kCustomOnly. All tests run in all three modes to ensure full coverage.
 class TrieIndexDBTest
     : public testing::TestWithParam<BlockBasedTableOptions::IndexMode> {
  protected:
@@ -177,7 +177,8 @@ class TrieIndexDBTest
 
   // Explicitly opens as primary -- used by the backward compatibility test.
   Status OpenDBPrimary(int block_size = 0) {
-    return OpenDBImpl(block_size, BlockBasedTableOptions::IndexMode::kCustomDefault);
+    return OpenDBImpl(block_size,
+                      BlockBasedTableOptions::IndexMode::kCustomDefault);
   }
 
   // Explicitly opens as secondary -- used by the backward compatibility test.
@@ -1164,7 +1165,8 @@ TEST_P(TrieIndexDBTest, IngestExternalFileWithTrieUDI) {
     sst_options.merge_operator = MergeOperators::CreateStringAppendOperator();
     BlockBasedTableOptions table_options;
     table_options.user_defined_index_factory = trie_factory_;
-    table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+    table_options.index_mode =
+        BlockBasedTableOptions::IndexMode::kStandardDefault;
     sst_options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     SstFileWriter writer(EnvOptions(), sst_options);
@@ -4936,18 +4938,19 @@ TEST_P(TrieIndexDBTest, PrefetchWithCustomIndexWrapper) {
   }
   ASSERT_OK(db_->Flush(FlushOptions()));
 
-  // Verify SST properties. In kCustomDefault mode, index_key_is_user_key=1 because
-  // the standard builder sees no same-user-key boundaries (all keys unique).
-  // In kCustomOnly mode, index_key_is_user_key=0 because the standard index
-  // is a stub and we force this property to match the UDI wrapper's internal
-  // key format.
+  // Verify SST properties. In kCustomDefault mode, index_key_is_user_key=1
+  // because the standard builder sees no same-user-key boundaries (all keys
+  // unique). In kCustomOnly mode, index_key_is_user_key=0 because the standard
+  // index is a stub and we force this property to match the UDI wrapper's
+  // internal key format.
   TablePropertiesCollection props;
   ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
   ASSERT_FALSE(props.empty());
   if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kCustomDefault) {
     for (const auto& p : props) {
       ASSERT_EQ(p.second->index_key_is_user_key, 1u)
-          << "kCustomDefault with unique keys: expected user-key-only separators";
+          << "kCustomDefault with unique keys: expected user-key-only "
+             "separators";
     }
   }
 
