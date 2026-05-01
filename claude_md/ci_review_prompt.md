@@ -163,7 +163,7 @@ after trying, document WHY it's impossible.
 
 #### 2j. Prepare Codebase Context
 Prepare the complete analysis as an in-memory Codebase Context section. Do not
-write `context.md`; include the context directly in ALL review agent prompts.
+write scratch files; include the context directly in ALL review agent prompts.
 
 **Context document template**:
 ```markdown
