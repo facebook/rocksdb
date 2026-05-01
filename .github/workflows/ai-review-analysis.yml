@@ -423,7 +423,8 @@ jobs:
         if: >-
           steps.pr_info.outputs.skip != 'true' &&
           steps.check_existing.outputs.skip != 'true' &&
-          inputs.provider == 'codex'
+          inputs.provider == 'codex' &&
+          secrets.OPENAI_API_KEY != ''
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -432,7 +433,8 @@ jobs:
         if: >-
           steps.pr_info.outputs.skip != 'true' &&
           steps.check_existing.outputs.skip != 'true' &&
-          inputs.provider == 'codex'
+          inputs.provider == 'codex' &&
+          secrets.OPENAI_API_KEY != ''
         run: |
           npm install -g @openai/codex
           codex --version
@@ -543,7 +545,8 @@ jobs:
         if: >-
           steps.pr_info.outputs.skip != 'true' &&
           steps.check_existing.outputs.skip != 'true' &&
-          inputs.provider == 'codex'
+          inputs.provider == 'codex' &&
+          secrets.OPENAI_API_KEY != ''
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CODEX_HOME: /tmp/codex-home
@@ -561,7 +564,8 @@ jobs:
         if: >-
           steps.pr_info.outputs.skip != 'true' &&
           steps.check_existing.outputs.skip != 'true' &&
-          inputs.provider == 'codex'
+          inputs.provider == 'codex' &&
+          secrets.OPENAI_API_KEY != ''
         id: budget_codex
         uses: actions/github-script@v7
         with:
@@ -688,7 +692,8 @@ jobs:
         if: >-
           steps.pr_info.outputs.skip != 'true' &&
           steps.check_existing.outputs.skip != 'true' &&
-          inputs.provider == 'codex'
+          inputs.provider == 'codex' &&
+          secrets.OPENAI_API_KEY != ''
         id: codex
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -718,6 +723,7 @@ jobs:
           steps.pr_info.outputs.skip != 'true' &&
           steps.check_existing.outputs.skip != 'true' &&
           inputs.provider == 'codex' &&
+          secrets.OPENAI_API_KEY != '' &&
           steps.codex.outputs.exit_code != '0' &&
           hashFiles('review-findings.md') != ''
         id: recover_codex
@@ -742,7 +748,8 @@ jobs:
         if: >-
           steps.pr_info.outputs.skip != 'true' &&
           steps.check_existing.outputs.skip != 'true' &&
-          inputs.provider == 'codex'
+          inputs.provider == 'codex' &&
+          secrets.OPENAI_API_KEY != ''
         env:
           RESPONSE_FILE: codex-review-output.md
           RECOVERY_FILE: codex-review-recovery.md
@@ -832,7 +839,8 @@ jobs:
           always() &&
           steps.pr_info.outputs.skip != 'true' &&
           steps.check_existing.outputs.skip != 'true' &&
-          inputs.provider == 'codex'
+          inputs.provider == 'codex' &&
+          secrets.OPENAI_API_KEY != ''
         uses: actions/upload-artifact@v4
         with:
           name: codex-review-logs
@@ -853,6 +861,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: read
 
     if: >-
       github.event_name == 'workflow_dispatch' ||
@@ -971,13 +980,13 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node.js
-        if: steps.request.outputs.skip != 'true' && inputs.provider == 'codex'
+        if: steps.request.outputs.skip != 'true' && inputs.provider == 'codex' && secrets.OPENAI_API_KEY != ''
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
       - name: Install Codex CLI
-        if: steps.request.outputs.skip != 'true' && inputs.provider == 'codex'
+        if: steps.request.outputs.skip != 'true' && inputs.provider == 'codex' && secrets.OPENAI_API_KEY != ''
         run: |
           npm install -g @openai/codex
           codex --version
@@ -1125,7 +1134,8 @@ jobs:
         if: >-
           steps.request.outputs.skip != 'true' &&
           steps.request.outputs.type == 'review' &&
-          inputs.provider == 'codex'
+          inputs.provider == 'codex' &&
+          secrets.OPENAI_API_KEY != ''
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CODEX_HOME: /tmp/codex-home
@@ -1140,7 +1150,7 @@ jobs:
             - < /tmp/complexity_prompt.txt > codex-complexity.log 2>&1
 
       - name: Pick thinking budget (Codex)
-        if: steps.request.outputs.skip != 'true' && inputs.provider == 'codex'
+        if: steps.request.outputs.skip != 'true' && inputs.provider == 'codex' && secrets.OPENAI_API_KEY != ''
         id: manual_budget_codex
         env:
           OVERRIDE: ${{ inputs.thinking_budget }}
@@ -1280,7 +1290,7 @@ jobs:
             fs.writeFileSync(process.env.COMMENT_FILE, body);
 
       - name: Run Codex
-        if: steps.request.outputs.skip != 'true' && inputs.provider == 'codex'
+        if: steps.request.outputs.skip != 'true' && inputs.provider == 'codex' && secrets.OPENAI_API_KEY != ''
         id: manual_codex
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -1319,6 +1329,7 @@ jobs:
         if: >-
           steps.request.outputs.skip != 'true' &&
           inputs.provider == 'codex' &&
+          secrets.OPENAI_API_KEY != '' &&
           steps.request.outputs.type == 'review' &&
           steps.manual_codex.outputs.exit_code != '0' &&
           hashFiles('review-findings.md') != ''
@@ -1341,7 +1352,7 @@ jobs:
           echo "exit_code=${exit_code}" >> "${GITHUB_OUTPUT}"
 
       - name: Build review comment (Codex)
-        if: steps.request.outputs.skip != 'true' && inputs.provider == 'codex'
+        if: steps.request.outputs.skip != 'true' && inputs.provider == 'codex' && secrets.OPENAI_API_KEY != ''
         env:
           RESPONSE_FILE: codex-review-output.md
           RECOVERY_FILE: codex-review-recovery.md
@@ -1431,7 +1442,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload review logs (Codex)
-        if: always() && steps.request.outputs.skip != 'true' && inputs.provider == 'codex'
+        if: always() && steps.request.outputs.skip != 'true' && inputs.provider == 'codex' && secrets.OPENAI_API_KEY != ''
         uses: actions/upload-artifact@v4
         with:
           name: codex-review-logs

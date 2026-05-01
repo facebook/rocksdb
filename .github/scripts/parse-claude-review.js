@@ -18,7 +18,7 @@ module.exports = function parseClaude({executionFile, conclusion, meta}) {
     if (meta.trigger !== 'auto') {
       return `*Requested by @${meta.reviewer}*`;
     }
-    const shortSha = meta.headSha.substring(0, 7);
+    const shortSha = meta.headSha ? meta.headSha.substring(0, 7) : 'unknown';
     if (meta.autoMode === 'early') {
       return `*Auto-triggered after CI reached the early-review threshold — reviewing commit ${
           shortSha}*`;

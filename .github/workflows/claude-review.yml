@@ -30,10 +30,9 @@ on:
         required: false
         type: choice
         options:
-          - claude-opus-4-7
           - claude-opus-4-6
           - claude-sonnet-4-6
-        default: claude-opus-4-7
+        default: claude-opus-4-6
       thinking_budget:
         description: Override MAX_THINKING_TOKENS (blank = auto-classify)
         required: false
@@ -61,7 +60,7 @@ jobs:
       query_command: /claude-query
       result_artifact_name: claude-review-result
       comment_file: claude-review-comment.md
-      default_model: claude-opus-4-7
+      default_model: claude-opus-4-6
       selected_model: ${{ github.event_name == 'workflow_dispatch' && inputs.model || '' }}
       classifier_model: claude-sonnet-4-6
       recovery_model: claude-sonnet-4-6
