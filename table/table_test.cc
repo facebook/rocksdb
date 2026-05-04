@@ -7240,7 +7240,8 @@ TEST_F(ExternalTableTest, BasicTest) {
         ExternalTableBuilderOptions(ReadOptions(), WriteOptions(),
                                     std::shared_ptr<const SliceTransform>(),
                                     BytewiseComparator(), "default",
-                                    TableFileCreationReason::kMisc),
+                                    TableFileCreationReason::kMisc,
+                                    /*fs=*/nullptr),
         file_path, /*file=*/nullptr));
     builder->Add("foo", "bar");
     ASSERT_OK(builder->Finish());

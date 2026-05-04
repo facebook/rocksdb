@@ -27,6 +27,7 @@
 #include "rocksdb/wide_columns.h"
 #include "table/iterator_wrapper.h"
 #include "util/autovector.h"
+#include "util/dirty_tracked.h"
 
 namespace ROCKSDB_NAMESPACE {
 class BlobFileCache;
@@ -195,14 +196,14 @@ class DBIter final : public Iterator {
   Slice value() const override {
     assert(valid_);
 
-    return value_columns_state_.value();
+    return value_columns_state_->value();
   }
 
   const WideColumns& columns() const override {
     assert(valid_);
-    assert(!value_columns_state_.HasLazyEntityColumns() ||
-           value_columns_state_.HasMaterializedColumns());
-    return value_columns_state_.wide_columns();
+    assert(!value_columns_state_->HasLazyEntityColumns() ||
+           value_columns_state_->HasMaterializedColumns());
+    return value_columns_state_->wide_columns();
   }
 
   Status status() const override {
@@ -225,7 +226,7 @@ class DBIter final : public Iterator {
   }
   bool IsBlob() const {
     assert(valid_);
-    return is_blob_;
+    return blob_state_->is_blob;
   }
 
   Status GetProperty(std::string prop_name, std::string* prop) override;
@@ -295,6 +296,20 @@ class DBIter final : public Iterator {
     // files that are not yet reachable through Version.
     BlobFileCache* blob_file_cache_;
     bool allow_write_path_fallback_;
+  };
+  struct BlobState {
+    BlobReader reader;
+    Slice lazy_blob_index;
+    bool is_blob = false;
+
+    template <typename... Args>
+    explicit BlobState(Args&&... args) : reader(std::forward<Args>(args)...) {}
+
+    void Reset() {
+      reader.ResetBlobValue();
+      lazy_blob_index.clear();
+      is_blob = false;
+    }
   };
 
   // Groups the current iterator result together with the backing storage and
@@ -483,7 +498,9 @@ class DBIter final : public Iterator {
     }
   }
 
-  inline void ClearSavedValue() { value_columns_state_.ClearSavedValue(); }
+  inline void ClearSavedValue() {
+    value_columns_state_.mut()->ClearSavedValue();
+  }
 
   inline void ResetInternalKeysSkippedCounter() {
     local_stats_.skip_count_ += num_internal_keys_skipped_;
@@ -508,7 +525,7 @@ class DBIter final : public Iterator {
   }
 
   void SetValueAndColumnsFromPlain(const Slice& slice) {
-    value_columns_state_.SetFromPlain(slice);
+    value_columns_state_.mut()->SetFromPlain(slice);
   }
 
   bool SetValueAndColumnsFromBlobImpl(const Slice& user_key,
@@ -524,11 +541,7 @@ class DBIter final : public Iterator {
 
   void ResetValueAndColumns() { value_columns_state_.Reset(); }
 
-  void ResetBlobData() {
-    blob_reader_.ResetBlobValue();
-    lazy_blob_index_.clear();
-    is_blob_ = false;
-  }
+  void ResetBlobData() { blob_state_.Reset(); }
 
   // The following methods perform the actual merge operation for the
   // no/plain/blob/wide-column base value cases.
@@ -539,6 +552,12 @@ class DBIter final : public Iterator {
   bool MergeWithWideColumnBaseValue(const Slice& entity, const Slice& user_key);
 
   bool PrepareValueInternal() {
+    // Capture this before PrepareValue(): PrepareValue() updates the wrapper
+    // state to "prepared" on success. We still call PrepareValue()
+    // unconditionally to preserve its contract/error handling, but only need
+    // to re-parse ikey_ when this call may have actually materialized the
+    // underlying iterator value/key.
+    const bool value_was_prepared = iter_.IsValuePrepared();
     if (!iter_.PrepareValue()) {
       assert(!iter_.status().ok());
       valid_ = false;
@@ -548,7 +567,7 @@ class DBIter final : public Iterator {
     // lookup and index_iter_ could point to different block resulting
     // in ikey_ pointing to wrong key. So ikey_ needs to be updated in
     // case of Seek/Next calls to point to right key again.
-    if (!ParseKey(&ikey_)) {
+    if (!value_was_prepared && !ParseKey(&ikey_)) {
       return false;
     }
     return true;
@@ -644,7 +663,7 @@ class DBIter final : public Iterator {
   UserComparatorWrapper user_comparator_;
   const MergeOperator* const merge_operator_;
   IteratorWrapper iter_;
-  BlobReader blob_reader_;
+  DirtyTracked<BlobState> blob_state_;
   ReadCallback* read_callback_;
   // Max visible sequence number. It is normally the snapshot seq unless we have
   // uncommitted data in db as in WriteUnCommitted.
@@ -661,7 +680,7 @@ class DBIter final : public Iterator {
   // kTypeValuePreferredSeqno entry, this is the write time specified by the
   // user.
   uint64_t saved_write_unix_time_;
-  ValueColumnsState value_columns_state_;
+  DirtyTracked<ValueColumnsState> value_columns_state_;
   Slice pinned_value_;
   Statistics* statistics_;
   uint64_t max_skip_;
@@ -682,7 +701,6 @@ class DBIter final : public Iterator {
   std::optional<IterKey> prefix_;
 
   Status status_;
-  Slice lazy_blob_index_;
 
   // List of operands for merge operator.
   MergeContext merge_context_;
@@ -721,7 +739,6 @@ class DBIter final : public Iterator {
   // the stacked BlobDB implementation is used, false otherwise.
   bool expose_blob_index_;
   bool allow_unprepared_value_;
-  bool is_blob_;
   bool arena_mode_;
 
   IterKey range_tomb_first_key_;

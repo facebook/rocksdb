@@ -445,7 +445,7 @@ class ExternalTableFactoryAdapter : public TableFactory {
     ExternalTableBuilderOptions ext_topts(
         topts.read_options, topts.write_options,
         topts.moptions.prefix_extractor, topts.ioptions.user_comparator,
-        topts.column_family_name, topts.reason);
+        topts.column_family_name, topts.reason, topts.ioptions.fs);
     auto file_wrapper =
         std::make_unique<ExternalTableWritableFileWrapper>(file);
     builder.reset(inner_->NewTableBuilder(ext_topts, file->file_name(),

@@ -235,18 +235,21 @@ struct ExternalTableBuilderOptions {
   const std::string db_id;
   const std::string db_session_id;
   const TableFileCreationReason reason;
+  const std::shared_ptr<FileSystem>& fs;
 
   ExternalTableBuilderOptions(
       const ReadOptions& _read_options, const WriteOptions& _write_options,
       const std::shared_ptr<const SliceTransform>& _prefix_extractor,
       const Comparator* _comparator, const std::string& _column_family_name,
-      const TableFileCreationReason _reason)
+      const TableFileCreationReason _reason,
+      const std::shared_ptr<FileSystem>& _fs)
       : read_options(_read_options),
         write_options(_write_options),
         prefix_extractor(_prefix_extractor),
         comparator(_comparator),
         column_family_name(_column_family_name),
-        reason(_reason) {}
+        reason(_reason),
+        fs(_fs) {}
 };
 
 class ExternalTableFactory : public Customizable {
