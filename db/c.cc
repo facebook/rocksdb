@@ -1384,6 +1384,10 @@ void rocksdb_backup_engine_info_destroy(
   delete info;
 }
 
+void rocksdb_backup_engine_stop_backup(rocksdb_backup_engine_t* be) {
+  be->rep->StopBackup();
+}
+
 void rocksdb_backup_engine_close(rocksdb_backup_engine_t* be) {
   delete be->rep;
   delete be;

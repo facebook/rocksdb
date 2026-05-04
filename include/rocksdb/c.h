@@ -271,6 +271,9 @@ extern ROCKSDB_LIBRARY_API uint32_t rocksdb_backup_engine_info_number_files(
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_info_destroy(
     const rocksdb_backup_engine_info_t* info);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_stop_backup(
+    rocksdb_backup_engine_t* be);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_close(
     rocksdb_backup_engine_t* be);
 
