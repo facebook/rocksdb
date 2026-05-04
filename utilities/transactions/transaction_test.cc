@@ -5358,13 +5358,21 @@ TEST_P(TransactionTest, MergeTest) {
 TEST_P(TransactionTest, MergeOperandFilteringRespectsPublishedBoundary) {
   // MergeHelper short-circuits FilterMerge for any operand with seqno
   // <= latest_snapshot_, so anything that pins the published seq into
-  // snapshot_seqs suppresses FilterMergeOperand for operands at or below
-  // it:
-  //   - WP / WU: SetSnapshotChecker() → managed snapshot at published seq.
+  // snapshot_seqs makes FilterMergeOperand a no-op for operands at or
+  // below it.
+  //
+  // FilterMergeOperand is NOT invoked for:
+  //   - WP (single or two queue): SetSnapshotChecker() in Initialize
+  //     causes InitSnapshotContext to take a managed snapshot at the
+  //     published seq, pinning it into snapshot_seqs.
+  //   - WU (single or two queue): same SnapshotChecker mechanism as WP.
   //   - WC + two_write_queues: EnableTrackPublishedSeqInSnapshotContext()
-  //     pins published seq without taking a real snapshot.
-  //   - WC + single queue: neither (the install-before-publish hazard
-  //     can't trigger without two queues), so the filter does run.
+  //     appends the published seq to snapshot_seqs (no real snapshot).
+  //
+  // FilterMergeOperand IS invoked for:
+  //   - WC + single queue: no SnapshotChecker, and published-seq pinning
+  //     is gated off because the install-before-publish hazard can't
+  //     trigger without two queues, so latest_snapshot_ stays at 0.
   constexpr uint64_t kBase = 1U;
   constexpr uint64_t kFilteredOperand = 5U;
   test::FilterNumber filter(kFilteredOperand);
