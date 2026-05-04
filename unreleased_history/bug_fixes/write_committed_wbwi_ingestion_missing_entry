@@ -1,1 +1,1 @@
-Fixed a bug where a write commited db with two write queues and ingest wbwi enabled could drop an entry that was still visible to existing snapshots.
+Fixed a bug where a write commited db with two write queues and ingest wbwi enabled could drop an entry that is visible to read.

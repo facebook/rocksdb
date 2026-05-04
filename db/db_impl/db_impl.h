@@ -3352,9 +3352,9 @@ class DBImpl : public DB {
   // When set, InitSnapshotContext() appends GetLastPublishedSequence() to the
   // job's snapshot_seqs (if not already present) so that flush/compaction
   // preserves the published-sequence boundary even when no explicit user
-  // snapshot exists there. PessimisticTransactionDB enables this for the
-  // WRITE_COMMITTED write policy to cover the WBWI install-before-publish
-  // window of commit_bypass_memtable under two_write_queues.
+  // snapshot exists there. Unlike taking a real ManagedSnapshot, this just
+  // pins the seqno into the snapshot list — no allocation, no snapshot list
+  // mutation, no SnapshotChecker.
   bool track_published_seq_in_snapshot_context_ = false;
 
   // Callback for when the cached_recoverable_state_ is written to memtable

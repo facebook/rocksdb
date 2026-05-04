@@ -15,6 +15,7 @@
 #include "db/db_impl/db_impl.h"
 #include "port/port.h"
 #include "rocksdb/attribute_groups.h"
+#include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
@@ -5352,6 +5353,46 @@ TEST_P(TransactionTest, MergeTest) {
   s = db->Get(read_options, "A", &value);
   ASSERT_OK(s);
   ASSERT_EQ("a,3", value);
+}
+
+TEST_P(TransactionTest, MergeOperandFilteringRespectsPublishedBoundary) {
+  // MergeHelper short-circuits FilterMerge for any operand with seqno
+  // <= latest_snapshot_, so anything that pins the published seq into
+  // snapshot_seqs suppresses FilterMergeOperand for operands at or below
+  // it:
+  //   - WP / WU: SetSnapshotChecker() → managed snapshot at published seq.
+  //   - WC + two_write_queues: EnableTrackPublishedSeqInSnapshotContext()
+  //     pins published seq without taking a real snapshot.
+  //   - WC + single queue: neither (the install-before-publish hazard
+  //     can't trigger without two queues), so the filter does run.
+  constexpr uint64_t kBase = 1U;
+  constexpr uint64_t kFilteredOperand = 5U;
+  test::FilterNumber filter(kFilteredOperand);
+  options.merge_operator = MergeOperators::CreateUInt64AddOperator();
+  options.compaction_filter = &filter;
+  ASSERT_OK(ReOpen());
+
+  ASSERT_OK(db->Put(WriteOptions(), "k", test::EncodeInt(kBase)));
+  ASSERT_OK(db->Flush(FlushOptions()));
+  ASSERT_OK(db->Merge(WriteOptions(), "k", test::EncodeInt(kFilteredOperand)));
+  ASSERT_OK(db->Flush(FlushOptions()));
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  std::string value;
+  ASSERT_OK(db->Get(ReadOptions(), "k", &value));
+  ASSERT_EQ(sizeof(uint64_t), value.size());
+  const uint64_t merged = DecodeFixed64(value.data());
+
+  const bool expect_filter_invoked =
+      txn_db_options.write_policy == WRITE_COMMITTED &&
+      !options.two_write_queues;
+  if (expect_filter_invoked) {
+    EXPECT_EQ("k", filter.last_merge_operand_key());
+    EXPECT_EQ(kBase, merged);
+  } else {
+    EXPECT_EQ("", filter.last_merge_operand_key());
+    EXPECT_EQ(kBase + kFilteredOperand, merged);
+  }
 }
 
 TEST_P(TransactionTest, DeleteRangeSupportTest) {
