@@ -5,14 +5,17 @@
 
 #include "rocksdb/sst_file_reader.h"
 
+#include <array>
 #include <cinttypes>
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
+#include "rocksdb/snapshot.h"
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/utilities/types_util.h"
+#include "table/multiget_context.h"
 #include "table/sst_file_writer_collectors.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -31,6 +34,29 @@ std::string EncodeAsUint64(uint64_t v) {
   PutFixed64(&dst, v);
   return dst;
 }
+
+std::vector<Slice> ToSlices(const std::vector<std::string>& keys) {
+  std::vector<Slice> slices;
+  for (const auto& key : keys) {
+    slices.emplace_back(key);
+  }
+  return slices;
+}
+
+class TestSnapshot : public Snapshot {
+ public:
+  explicit TestSnapshot(SequenceNumber sequence_number)
+      : sequence_number_(sequence_number) {}
+
+  SequenceNumber GetSequenceNumber() const override { return sequence_number_; }
+
+  int64_t GetUnixTime() const override { return 0; }
+
+  uint64_t GetTimestamp() const override { return 0; }
+
+ private:
+  SequenceNumber sequence_number_;
+};
 
 class SstFileReaderTest : public testing::Test {
  public:
@@ -128,6 +154,7 @@ TEST_F(SstFileReaderTest, Uint64Comparator) {
 }
 
 TEST_F(SstFileReaderTest, MayMatchUsesBloomFilter) {
+  options_.statistics = CreateDBStatistics();
   BlockBasedTableOptions table_options;
   table_options.filter_policy.reset(NewBloomFilterPolicy(100, false));
   options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -143,19 +170,19 @@ TEST_F(SstFileReaderTest, MayMatchUsesBloomFilter) {
 
   std::vector<std::string> lookup_storage = {EncodeAsString(0),
                                              EncodeAsString(1), "not-present"};
-  std::vector<Slice> lookup_keys;
-  for (const auto& key : lookup_storage) {
-    lookup_keys.emplace_back(key);
-  }
+  std::vector<Slice> lookup_keys = ToSlices(lookup_storage);
 
   bool may_match[3] = {};
   ReadOptions read_options;
-  read_options.read_tier = kBlockCacheTier;
+  ASSERT_OK(options_.statistics->Reset());
   reader.MayMatch(read_options, lookup_keys.data(), lookup_keys.size(),
                   may_match);
   ASSERT_TRUE(may_match[0]);
   ASSERT_TRUE(may_match[1]);
   ASSERT_FALSE(may_match[2]);
+  ASSERT_EQ(0, options_.statistics->getTickerCount(BLOCK_CACHE_DATA_HIT));
+  ASSERT_EQ(0, options_.statistics->getTickerCount(BLOCK_CACHE_DATA_MISS));
+  ASSERT_EQ(1, options_.statistics->getTickerCount(BLOOM_FILTER_USEFUL));
 }
 
 TEST_F(SstFileReaderTest, MayMatchReturnsAllTrueWithoutFilter) {
@@ -170,16 +197,101 @@ TEST_F(SstFileReaderTest, MayMatchReturnsAllTrueWithoutFilter) {
 
   std::vector<std::string> lookup_storage = {EncodeAsString(0),
                                              EncodeAsString(1), "not-present"};
-  std::vector<Slice> lookup_keys;
-  for (const auto& key : lookup_storage) {
-    lookup_keys.emplace_back(key);
-  }
+  std::vector<Slice> lookup_keys = ToSlices(lookup_storage);
 
   bool may_match[3] = {};
   reader.MayMatch(lookup_keys.data(), lookup_keys.size(), may_match);
   ASSERT_TRUE(may_match[0]);
   ASSERT_TRUE(may_match[1]);
   ASSERT_TRUE(may_match[2]);
+}
+
+TEST_F(SstFileReaderTest, MayMatchKeepsAllPresentKeys) {
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(100, false));
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::vector<std::string> keys;
+  for (uint64_t i = 0; i < kNumKeys; i++) {
+    keys.emplace_back(EncodeAsString(i));
+  }
+  CreateFile(sst_name_, keys);
+
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+
+  std::vector<std::string> lookup_storage = {
+      EncodeAsString(96), EncodeAsString(0), EncodeAsString(42)};
+  std::vector<Slice> lookup_keys = ToSlices(lookup_storage);
+
+  bool may_match[3] = {};
+  reader.MayMatch(lookup_keys.data(), lookup_keys.size(), may_match);
+  ASSERT_TRUE(may_match[0]);
+  ASSERT_TRUE(may_match[1]);
+  ASSERT_TRUE(may_match[2]);
+}
+
+TEST_F(SstFileReaderTest, MayMatchHandlesMultipleBatches) {
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(100, false));
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::vector<std::string> keys;
+  for (uint64_t i = 0; i < kNumKeys; i++) {
+    keys.emplace_back(EncodeAsString(i));
+  }
+  CreateFile(sst_name_, keys);
+
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+
+  const size_t num_lookups = MultiGetContext::MAX_BATCH_SIZE + 5;
+  std::vector<std::string> lookup_storage;
+  std::vector<bool> expected;
+  for (size_t i = 0; i < num_lookups; ++i) {
+    if (i % 2 == 0) {
+      lookup_storage.emplace_back(EncodeAsString(num_lookups - i));
+      expected.push_back(true);
+    } else {
+      lookup_storage.emplace_back("missing-" + EncodeAsString(i));
+      expected.push_back(false);
+    }
+  }
+  std::vector<Slice> lookup_keys = ToSlices(lookup_storage);
+
+  std::array<bool, MultiGetContext::MAX_BATCH_SIZE + 5> may_match;
+  may_match.fill(true);
+  reader.MayMatch(lookup_keys.data(), lookup_keys.size(), may_match.data());
+  for (size_t i = 0; i < num_lookups; ++i) {
+    ASSERT_EQ(expected[i], may_match[i]) << "lookup index " << i;
+  }
+}
+
+TEST_F(SstFileReaderTest, MayMatchAcceptsSnapshot) {
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(100, false));
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::vector<std::string> keys;
+  for (uint64_t i = 0; i < kNumKeys; i++) {
+    keys.emplace_back(EncodeAsString(i));
+  }
+  CreateFile(sst_name_, keys);
+
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+
+  std::vector<std::string> lookup_storage = {EncodeAsString(0), "not-present"};
+  std::vector<Slice> lookup_keys = ToSlices(lookup_storage);
+  TestSnapshot snapshot(42);
+  ReadOptions read_options;
+  read_options.snapshot = &snapshot;
+
+  bool may_match[2] = {};
+  reader.MayMatch(read_options, lookup_keys.data(), lookup_keys.size(),
+                  may_match);
+  ASSERT_TRUE(may_match[0]);
+  ASSERT_FALSE(may_match[1]);
 }
 
 TEST_F(SstFileReaderTest, MayMatchZeroKeysWithFilterDoesNotWriteResults) {

@@ -695,6 +695,7 @@ WITH_FAISS_TEST_MAIN_SOURCES =                                          \
 MICROBENCH_SOURCES =                                          \
   microbench/ribbon_bench.cc                                  \
   microbench/db_basic_bench.cc                                \
+  microbench/sst_file_reader_bench.cc                         \
 
 JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/backupenginejni.cc                            \

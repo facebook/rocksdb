@@ -86,41 +86,48 @@ Status SstFileReader::Open(const std::string& file_path) {
 
 void SstFileReader::MayMatch(const ReadOptions& roptions, const Slice* keys,
                              size_t num_keys, bool* results) {
-  for (size_t i = 0; i < num_keys; ++i) {
-    results[i] = true;
-  }
   if (num_keys == 0) {
     return;
   }
 
   auto r = rep_.get();
+  if (r->table_reader == nullptr) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      results[i] = true;
+    }
+    return;
+  }
   const auto sequence = roptions.snapshot != nullptr
                             ? roptions.snapshot->GetSequenceNumber()
                             : kMaxSequenceNumber;
 
   for (size_t base = 0; base < num_keys;
        base += MultiGetContext::MAX_BATCH_SIZE) {
-    const size_t batch_size = std::min<size_t>(
-        MultiGetContext::MAX_BATCH_SIZE, num_keys - base);
+    const size_t batch_size =
+        std::min<size_t>(MultiGetContext::MAX_BATCH_SIZE, num_keys - base);
 
-    autovector<Status, MultiGetContext::MAX_BATCH_SIZE> statuses;
+    Status status;
     autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
-    statuses.resize(batch_size);
-    sorted_keys.resize(batch_size);
 
     for (size_t i = 0; i < batch_size; ++i) {
       key_context.emplace_back(nullptr, keys[base + i], nullptr, nullptr,
-                               nullptr /* timestamp */, &statuses[i]);
-      sorted_keys[i] = &key_context[i];
+                               nullptr /* timestamp */, &status);
+      sorted_keys.emplace_back(&key_context[i]);
     }
 
+    // Full filters do not require sorted lookup keys. Partitioned filters can
+    // still answer conservatively with unsorted input; they may just miss the
+    // partition grouping optimization used by full MultiGet.
     MultiGetContext ctx(&sorted_keys, 0, batch_size, sequence, roptions,
                         r->ioptions.fs.get(), nullptr);
     MultiGetRange range = ctx.GetMultiGetRange();
     const Status s = r->table_reader->MultiGetFilter(
         roptions, r->moptions.prefix_extractor.get(), &range);
     if (!s.ok()) {
+      for (size_t i = 0; i < batch_size; ++i) {
+        results[base + i] = true;
+      }
       continue;
     }
 
