@@ -5362,17 +5362,12 @@ TEST_P(TransactionTest, MergeOperandFilteringRespectsPublishedBoundary) {
   // below it.
   //
   // FilterMergeOperand is NOT invoked for:
-  //   - WP (single or two queue): SetSnapshotChecker() in Initialize
+  //   - WP: SetSnapshotChecker() in Initialize
   //     causes InitSnapshotContext to take a managed snapshot at the
   //     published seq, pinning it into snapshot_seqs.
-  //   - WU (single or two queue): same SnapshotChecker mechanism as WP.
-  //   - WC + two_write_queues: EnableTrackPublishedSeqInSnapshotContext()
+  //   - WU: same SnapshotChecker mechanism as WP.
+  //   - WC: EnableTrackPublishedSeqInSnapshotContext()
   //     appends the published seq to snapshot_seqs (no real snapshot).
-  //
-  // FilterMergeOperand IS invoked for:
-  //   - WC + single queue: no SnapshotChecker, and published-seq pinning
-  //     is gated off because the install-before-publish hazard can't
-  //     trigger without two queues, so latest_snapshot_ stays at 0.
   constexpr uint64_t kBase = 1U;
   constexpr uint64_t kFilteredOperand = 5U;
   test::FilterNumber filter(kFilteredOperand);
@@ -5391,16 +5386,8 @@ TEST_P(TransactionTest, MergeOperandFilteringRespectsPublishedBoundary) {
   ASSERT_EQ(sizeof(uint64_t), value.size());
   const uint64_t merged = DecodeFixed64(value.data());
 
-  const bool expect_filter_invoked =
-      txn_db_options.write_policy == WRITE_COMMITTED &&
-      !options.two_write_queues;
-  if (expect_filter_invoked) {
-    EXPECT_EQ("k", filter.last_merge_operand_key());
-    EXPECT_EQ(kBase, merged);
-  } else {
-    EXPECT_EQ("", filter.last_merge_operand_key());
-    EXPECT_EQ(kBase + kFilteredOperand, merged);
-  }
+  EXPECT_EQ("", filter.last_merge_operand_key());
+  EXPECT_EQ(kBase + kFilteredOperand, merged);
 }
 
 TEST_P(TransactionTest, DeleteRangeSupportTest) {
@@ -9164,11 +9151,9 @@ TEST_P(CommitBypassMemtableTest, SingleCFUpdate) {
 }
 
 TEST_P(CommitBypassMemtableTest,
-       FlushPreservesPublishedValueDuringBypassOverwrite) {
+       FlushPreservesPublishedValueDuringBypassOverwriteTwoWriteQueue) {
   if (!options.two_write_queues) {
-    ROCKSDB_GTEST_BYPASS(
-        "Deterministic repro requires flush to run while WBWI data is "
-        "installed but still unpublished");
+    ROCKSDB_GTEST_BYPASS("Two-write-queue test-case");
     return;
   }
 
@@ -9208,11 +9193,11 @@ TEST_P(CommitBypassMemtableTest,
   //    snapshot should continue to see "old_value".
   // 4. Resume the writer so "new_value" becomes published for latest reads.
   //
-  // Before the fix, flush only protected explicit snapshots. It could see
-  // both key@published and key@future, drop the published version during
-  // compaction/flush retention, and leave the held snapshot with neither:
-  // "old_value" was discarded, while "new_value" was still too new, so Get()
-  // returned NotFound.
+  // Without WC published-boundary tracking, flush only protects explicit
+  // snapshots. It could see both key@published and key@future, drop the
+  // published version during compaction/flush retention, and leave the held
+  // snapshot with neither: "old_value" was discarded, while "new_value" was
+  // still too new, so Get() returned NotFound.
   SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::WriteImpl:AfterWBWIIngestBeforeSetLastSequence:pause",
         "CommitBypassMemtableTest::WriterPaused"},
@@ -9267,6 +9252,98 @@ TEST_P(CommitBypassMemtableTest,
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(CommitBypassMemtableTest,
+       FlushPreservesPublishedValueDuringBypassOverwriteSingleWriteQueue) {
+  if (options.two_write_queues) {
+    ROCKSDB_GTEST_BYPASS("Single-write-queue coverage");
+    return;
+  }
+
+  SetUpTransactionDB();
+
+  ASSERT_OK(txn_db->Put(WriteOptions(), "primary", "initial_value"));
+  ASSERT_OK(txn_db->Delete(WriteOptions(), "primary"));
+  ASSERT_OK(txn_db->Put(WriteOptions(), "primary", "old_value"));
+
+  ASSERT_EQ("old_value", Get("primary"));
+
+  TransactionOptions txn_opts;
+  txn_opts.commit_bypass_memtable = true;
+  std::unique_ptr<Transaction> txn(
+      txn_db->BeginTransaction(WriteOptions(), txn_opts));
+  ASSERT_NE(txn, nullptr);
+  ASSERT_OK(txn->SetName("xid_bypass_primary_overwrite"));
+  // WBWIMemTable assigns seqno from WBWI's per-key update count. The first Put
+  // is overwritten, but it bumps "primary"'s final "new_value" above the
+  // snapshot boundary so it can cover "old_value" without being visible there.
+  ASSERT_OK(txn->Put("primary", "covered_value"));
+  ASSERT_OK(txn->Put("primary", "new_value"));
+  ASSERT_OK(txn->Prepare());
+
+  auto release_snapshot = [this](const Snapshot* snapshot) {
+    if (snapshot != nullptr) {
+      db_->ReleaseSnapshot(snapshot);
+    }
+  };
+  std::unique_ptr<const Snapshot, decltype(release_snapshot)> snapshot(
+      nullptr, release_snapshot);
+  Status writer_status;
+
+  // Reproduce the single-write-queue manifestation of the same visibility
+  // window:
+  // 1. Commit ingests the WBWI as immutable memtables and schedules a
+  //    background flush for them.
+  // 2. Pause the writer before SetLastSequence(), so readers still use the
+  //    sequence that sees "old_value" for "primary".
+  // 3. Let the background flush initialize its snapshot context. Without WC
+  //    published-boundary tracking, InitSnapshotContext() does not pin that
+  //    boundary, so flush may treat "old_value" as covered by the future WBWI
+  //    "new_value".
+  // 4. Take a snapshot while the writer is still paused, then let flush finish
+  //    with that snapshot context missing the published boundary.
+  // 5. Resume publication. The held snapshot must still see the primary version
+  //    visible when the snapshot was taken.
+  //
+  // Without WC published-boundary tracking, "primary" returns NotFound:
+  // "new_value" is too new for the snapshot, and "old_value" was dropped by
+  // flush, so the earlier delete covers the key.
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::WriteImpl:AfterWBWIIngestBeforeSetLastSequence:pause",
+        "CommitBypassMemtableTest::PrimaryOverwriteWriterPaused"},
+       {"DBImpl::InitSnapshotContext:BeforeInit",
+        "CommitBypassMemtableTest::PrimaryOverwriteFlushInitialized"},
+       {"DBImpl::BackgroundCallFlush:ContextCleanedUp",
+        "CommitBypassMemtableTest::PrimaryOverwriteFlushFinished"},
+       {"CommitBypassMemtableTest::PrimaryOverwriteResumeWriter",
+        "DBImpl::WriteImpl:AfterWBWIIngestBeforeSetLastSequence:resume"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::thread writer([&]() { writer_status = txn->Commit(); });
+  TEST_SYNC_POINT("CommitBypassMemtableTest::PrimaryOverwriteWriterPaused");
+  TEST_SYNC_POINT("CommitBypassMemtableTest::PrimaryOverwriteFlushInitialized");
+  snapshot.reset(db_->GetSnapshot());
+  TEST_SYNC_POINT("CommitBypassMemtableTest::PrimaryOverwriteFlushFinished");
+  TEST_SYNC_POINT("CommitBypassMemtableTest::PrimaryOverwriteResumeWriter");
+  writer.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(writer_status);
+  txn.reset();
+
+  ASSERT_NE(snapshot.get(), nullptr);
+
+  ReadOptions ropts;
+  ropts.snapshot = snapshot.get();
+
+  std::string primary_value;
+  ASSERT_OK(db_->Get(ropts, "primary", &primary_value))
+      << "flush should preserve the primary version visible to the held "
+         "snapshot";
+  ASSERT_EQ("old_value", primary_value);
+  ASSERT_EQ("new_value", Get("primary"));
 }
 
 TEST_P(CommitBypassMemtableTest, SingleCFUpdateWithOverWrite) {

@@ -1,1 +1,1 @@
-Fixed a bug where a write commited db with two write queues and ingest wbwi enabled could drop an entry that is visible to read.
+Fixed a bug where a WriteCommitted TransactionDB using commit-bypass WBWI ingestion could drop an entry that is still visible at the published sequence boundary.

@@ -3353,8 +3353,8 @@ class DBImpl : public DB {
   // job's snapshot_seqs (if not already present) so that flush/compaction
   // preserves the published-sequence boundary even when no explicit user
   // snapshot exists there. Unlike taking a real ManagedSnapshot, this just
-  // pins the seqno into the snapshot list — no allocation, no snapshot list
-  // mutation, no SnapshotChecker.
+  // pins the seqno into the snapshot list: no allocation, no snapshot list
+  // mutation, and no SnapshotChecker.
   bool track_published_seq_in_snapshot_context_ = false;
 
   // Callback for when the cached_recoverable_state_ is written to memtable

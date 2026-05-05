@@ -126,15 +126,12 @@ Status PessimisticTransactionDB::Initialize(
   assert(dbimpl != nullptr);
   auto rtrxs = dbimpl->recovered_transactions();
 
-  if (txn_db_options_.write_policy == WRITE_COMMITTED &&
-      db_impl_->immutable_db_options().two_write_queues) {
+  if (txn_db_options_.write_policy == WRITE_COMMITTED) {
     // Protect commit_bypass_memtable's install-before-publish window:
     // WBWI keys land in immutable memtables at seqnos above LastSequence()
     // before SetLastSequence() catches up, so a flush starting in that
     // window may drop older versions still visible at the published
-    // boundary. WP/WU handle this via their own SnapshotChecker, and a
-    // single write queue keeps the commit writer in write_thread_
-    // leadership through publication so no flush can slip in.
+    // boundary. WP/WU handle this via their own SnapshotChecker.
     db_impl_->EnableTrackPublishedSeqInSnapshotContext();
   }
 

@@ -288,9 +288,9 @@ class CompactionFilter : public Customizable {
   // Commit that should have failed.  Instead, it is better to implement any
   // Merge filtering inside the MergeOperator.
   //
-  // Note: Under WritePrepared, WriteUnprepared, and WriteCommitted with
-  // two_write_queues=true, this method is skipped for operands at or below
-  // the latest published sequence — typically every operand in the input.
+  // Note: Under WritePrepared, WriteUnprepared, and WriteCommitted
+  // TransactionDB, this method is skipped for operands at or below the latest
+  // published sequence, typically every operand in the input.
   virtual bool FilterMergeOperand(int /*level*/, const Slice& /*key*/,
                                   const Slice& /*operand*/) const {
     return false;

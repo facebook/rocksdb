@@ -5153,12 +5153,12 @@ void DBImpl::InitSnapshotContext(JobContext* job_context) {
   std::vector<SequenceNumber> snapshot_seqs =
       snapshots_.GetAll(&earliest_write_conflict_snapshot);
 
-  // snapshot tracker inherently adds to snapshot_seqs
+  // The SnapshotChecker path above already adds a managed snapshot to
+  // snapshot_seqs.
   if (track_published_seq_in_snapshot_context_ && !snapshot_checker) {
     // Pin the published-sequence boundary into snapshot_seqs without taking
-    // a real snapshot. This is to prevent compaction or flush from collapsing
-    // entries into a non-visible seqno between published and allocated seqno
-    // gap.
+    // a real snapshot. This prevents flush/compaction from collapsing a version
+    // visible at the published boundary into a newer unpublished seqno.
     const SequenceNumber published_seq = GetLastPublishedSequence();
     if (snapshot_seqs.empty() || snapshot_seqs.back() < published_seq) {
       snapshot_seqs.push_back(published_seq);
