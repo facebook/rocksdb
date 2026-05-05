@@ -1546,6 +1546,10 @@ Status DBImpl::WriteImpl(
       // Note: if we are to resume after non-OK statuses we need to revisit how
       // we react to non-OK statuses here.
       if (w.status.ok()) {  // Don't publish a partial batch write
+        TEST_SYNC_POINT(
+            "DBImpl::WriteImpl:AfterWBWIIngestBeforeSetLastSequence:pause");
+        TEST_SYNC_POINT(
+            "DBImpl::WriteImpl:AfterWBWIIngestBeforeSetLastSequence:resume");
         versions_->SetLastSequence(last_sequence);
       }
     }
