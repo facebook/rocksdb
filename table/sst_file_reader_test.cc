@@ -127,6 +127,81 @@ TEST_F(SstFileReaderTest, Uint64Comparator) {
   CreateFileAndCheck(keys);
 }
 
+TEST_F(SstFileReaderTest, MayMatchUsesBloomFilter) {
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(100, false));
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::vector<std::string> keys;
+  for (uint64_t i = 0; i < kNumKeys; i++) {
+    keys.emplace_back(EncodeAsString(i));
+  }
+  CreateFile(sst_name_, keys);
+
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+
+  std::vector<std::string> lookup_storage = {EncodeAsString(0),
+                                             EncodeAsString(1), "not-present"};
+  std::vector<Slice> lookup_keys;
+  for (const auto& key : lookup_storage) {
+    lookup_keys.emplace_back(key);
+  }
+
+  bool may_match[3] = {};
+  ReadOptions read_options;
+  read_options.read_tier = kBlockCacheTier;
+  reader.MayMatch(read_options, lookup_keys.data(), lookup_keys.size(),
+                  may_match);
+  ASSERT_TRUE(may_match[0]);
+  ASSERT_TRUE(may_match[1]);
+  ASSERT_FALSE(may_match[2]);
+}
+
+TEST_F(SstFileReaderTest, MayMatchReturnsAllTrueWithoutFilter) {
+  std::vector<std::string> keys;
+  for (uint64_t i = 0; i < kNumKeys; i++) {
+    keys.emplace_back(EncodeAsString(i));
+  }
+  CreateFile(sst_name_, keys);
+
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+
+  std::vector<std::string> lookup_storage = {EncodeAsString(0),
+                                             EncodeAsString(1), "not-present"};
+  std::vector<Slice> lookup_keys;
+  for (const auto& key : lookup_storage) {
+    lookup_keys.emplace_back(key);
+  }
+
+  bool may_match[3] = {};
+  reader.MayMatch(lookup_keys.data(), lookup_keys.size(), may_match);
+  ASSERT_TRUE(may_match[0]);
+  ASSERT_TRUE(may_match[1]);
+  ASSERT_TRUE(may_match[2]);
+}
+
+TEST_F(SstFileReaderTest, MayMatchZeroKeysWithFilterDoesNotWriteResults) {
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(100, false));
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::vector<std::string> keys;
+  for (uint64_t i = 0; i < kNumKeys; i++) {
+    keys.emplace_back(EncodeAsString(i));
+  }
+  CreateFile(sst_name_, keys);
+
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+
+  Slice dummy;
+  bool may_match = false;
+  reader.MayMatch(&dummy, 0, &may_match);
+  ASSERT_FALSE(may_match);
+}
+
 TEST_F(SstFileReaderTest, ReadOptionsOutOfScope) {
   // Repro a bug where the SstFileReader depended on its configured ReadOptions
   // outliving it.

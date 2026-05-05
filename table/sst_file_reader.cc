@@ -84,6 +84,60 @@ Status SstFileReader::Open(const std::string& file_path) {
   return s;
 }
 
+void SstFileReader::MayMatch(const ReadOptions& roptions, const Slice* keys,
+                             size_t num_keys, bool* results) {
+  for (size_t i = 0; i < num_keys; ++i) {
+    results[i] = true;
+  }
+  if (num_keys == 0) {
+    return;
+  }
+
+  auto r = rep_.get();
+  const auto sequence = roptions.snapshot != nullptr
+                            ? roptions.snapshot->GetSequenceNumber()
+                            : kMaxSequenceNumber;
+
+  for (size_t base = 0; base < num_keys;
+       base += MultiGetContext::MAX_BATCH_SIZE) {
+    const size_t batch_size = std::min<size_t>(
+        MultiGetContext::MAX_BATCH_SIZE, num_keys - base);
+
+    autovector<Status, MultiGetContext::MAX_BATCH_SIZE> statuses;
+    autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
+    autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
+    statuses.resize(batch_size);
+    sorted_keys.resize(batch_size);
+
+    for (size_t i = 0; i < batch_size; ++i) {
+      key_context.emplace_back(nullptr, keys[base + i], nullptr, nullptr,
+                               nullptr /* timestamp */, &statuses[i]);
+      sorted_keys[i] = &key_context[i];
+    }
+
+    MultiGetContext ctx(&sorted_keys, 0, batch_size, sequence, roptions,
+                        r->ioptions.fs.get(), nullptr);
+    MultiGetRange range = ctx.GetMultiGetRange();
+    const Status s = r->table_reader->MultiGetFilter(
+        roptions, r->moptions.prefix_extractor.get(), &range);
+    if (!s.ok()) {
+      continue;
+    }
+
+    for (size_t i = 0; i < batch_size; ++i) {
+      results[base + i] = false;
+    }
+    for (auto iter = range.begin(); iter != range.end(); ++iter) {
+      results[base + iter.index()] = true;
+    }
+  }
+}
+
+void SstFileReader::MayMatch(const Slice* keys, size_t num_keys,
+                             bool* results) {
+  MayMatch(ReadOptions(), keys, num_keys, results);
+}
+
 std::vector<Status> SstFileReader::MultiGet(
     const ReadOptions& roptions, const std::vector<Slice>& keys,
     std::vector<PinnableSlice>* values) {

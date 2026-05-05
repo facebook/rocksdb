@@ -48,6 +48,14 @@ class SstFileReader {
   Status Get(const ReadOptions& options, const Slice& key,
              PinnableSlice* value);
 
+  // Bloom-only batch check. For each key, false means the key is definitely
+  // absent; true means it may be present or the reader cannot answer safely.
+  void MayMatch(const ReadOptions& options, const Slice* keys, size_t num_keys,
+                bool* results);
+
+  // Equivalent to MayMatch(ReadOptions(), keys, num_keys, results).
+  void MayMatch(const Slice* keys, size_t num_keys, bool* results);
+
   // Returns a new iterator over the table contents as a raw table iterator,
   // a.k.a a `TableIterator`that iterates all point data entries in the table
   // including logically invisible entries like delete entries.
