@@ -378,6 +378,14 @@ rocksdb_backup_engine_options_get_restore_rate_limit(
     rocksdb_backup_engine_options_t* options);
 
 extern ROCKSDB_LIBRARY_API void
+rocksdb_backup_engine_options_set_backup_rate_limiter(
+    rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_backup_engine_options_set_restore_rate_limiter(
+    rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter);
+
+extern ROCKSDB_LIBRARY_API void
 rocksdb_backup_engine_options_set_max_background_operations(
     rocksdb_backup_engine_options_t* options, int val);
 
