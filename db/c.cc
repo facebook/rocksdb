@@ -1469,6 +1469,20 @@ uint64_t rocksdb_backup_engine_options_get_restore_rate_limit(
   return options->rep.restore_rate_limit;
 }
 
+void rocksdb_backup_engine_options_set_backup_rate_limiter(
+    rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter) {
+  if (limiter) {
+    options->rep.backup_rate_limiter = limiter->rep;
+  }
+}
+
+void rocksdb_backup_engine_options_set_restore_rate_limiter(
+    rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter) {
+  if (limiter) {
+    options->rep.restore_rate_limiter = limiter->rep;
+  }
+}
+
 void rocksdb_backup_engine_options_set_max_background_operations(
     rocksdb_backup_engine_options_t* options, int val) {
   options->rep.max_background_operations = val;

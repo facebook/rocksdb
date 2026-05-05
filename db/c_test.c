@@ -3674,6 +3674,15 @@ int main(int argc, char** argv) {
     CheckCondition(37 ==
                    rocksdb_backup_engine_options_get_restore_rate_limit(bdo));
 
+    {
+      rocksdb_ratelimiter_t* limiter =
+          rocksdb_ratelimiter_create_with_mode(1024 * 1024, 100 * 1000, 10, 2,
+                                               0);
+      rocksdb_backup_engine_options_set_backup_rate_limiter(bdo, limiter);
+      rocksdb_backup_engine_options_set_restore_rate_limiter(bdo, limiter);
+      rocksdb_ratelimiter_destroy(limiter);
+    }
+
     rocksdb_backup_engine_options_set_max_background_operations(bdo, 20);
     CheckCondition(
         20 == rocksdb_backup_engine_options_get_max_background_operations(bdo));
