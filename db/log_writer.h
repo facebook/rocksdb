@@ -108,6 +108,8 @@ class Writer {
   WritableFileWriter* file() { return dest_.get(); }
   const WritableFileWriter* file() const { return dest_.get(); }
 
+  void set_manual_flush(bool manual_flush) { manual_flush_ = manual_flush; }
+
   uint64_t get_log_number() const { return log_number_; }
 
   IOStatus WriteBuffer(const WriteOptions& write_options);

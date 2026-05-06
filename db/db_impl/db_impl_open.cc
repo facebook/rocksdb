@@ -987,9 +987,22 @@ Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
   const ReadOptions read_options(Env::IOActivity::kDBOpen);
   const WriteOptions write_options(Env::IOActivity::kDBOpen);
 
+  // Buffer manifest writes during recovery so that only large writes are
+  // sent to the filesystem.  Safe because crashing during recovery just
+  // means re-recovering from the same base state.
+  versions_->recovery_in_progress_ = true;
+  if (versions_->descriptor_log_) {
+    versions_->descriptor_log_->set_manual_flush(true);
+  }
   Status s = versions_->LogAndApply(recovery_ctx.cfds_, read_options,
                                     write_options, recovery_ctx.edit_lists_,
                                     &mutex_, directories_.GetDbDir());
+  versions_->recovery_in_progress_ = false;
+  // Switch the writer back to per-record flush for normal operation,
+  // where flushed records survive process crash.
+  if (versions_->descriptor_log_) {
+    versions_->descriptor_log_->set_manual_flush(false);
+  }
   return s;
 }
 

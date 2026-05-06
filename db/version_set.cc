@@ -6209,7 +6209,8 @@ Status VersionSet::ProcessManifestWrites(
             tmp_set.Contains(FileType::kDescriptorFile),
             tmp_set.Contains(FileType::kDescriptorFile)));
         new_desc_log_ptr.reset(
-            new log::Writer(std::move(file_writer), 0, false));
+            new log::Writer(std::move(file_writer), 0, false,
+                            /*manual_flush=*/recovery_in_progress_));
         raw_desc_log_ptr = new_desc_log_ptr.get();
         s = WriteCurrentStateToManifest(write_options, curr_state,
                                         wal_additions, raw_desc_log_ptr, io_s);
