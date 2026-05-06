@@ -74,6 +74,7 @@ typedef struct rocksdb_backup_engine_t rocksdb_backup_engine_t;
 typedef struct rocksdb_backup_engine_info_t rocksdb_backup_engine_info_t;
 typedef struct rocksdb_backup_engine_options_t rocksdb_backup_engine_options_t;
 typedef struct rocksdb_restore_options_t rocksdb_restore_options_t;
+typedef struct rocksdb_create_backup_options_t rocksdb_create_backup_options_t;
 typedef struct rocksdb_memory_allocator_t rocksdb_memory_allocator_t;
 typedef struct rocksdb_lru_cache_options_t rocksdb_lru_cache_options_t;
 typedef struct rocksdb_hyper_clock_cache_options_t
@@ -226,6 +227,26 @@ extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_create_new_backup(
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_create_new_backup_flush(
     rocksdb_backup_engine_t* be, rocksdb_t* db,
     unsigned char flush_before_backup, char** errptr);
+
+extern ROCKSDB_LIBRARY_API rocksdb_create_backup_options_t*
+rocksdb_create_backup_options_create(void);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_create_backup_options_destroy(
+    rocksdb_create_backup_options_t* options);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_create_backup_options_set_flush_before_backup(
+    rocksdb_create_backup_options_t* options, unsigned char v);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_create_backup_options_set_progress_callback(
+    rocksdb_create_backup_options_t* options, void* callback_arg,
+    void (*callback)(void* arg));
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_backup_engine_create_new_backup_with_options(
+    rocksdb_backup_engine_t* be, rocksdb_t* db,
+    const rocksdb_create_backup_options_t* options, char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_purge_old_backups(
     rocksdb_backup_engine_t* be, uint32_t num_backups_to_keep, char** errptr);

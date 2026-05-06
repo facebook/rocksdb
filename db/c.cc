@@ -55,6 +55,7 @@
 using ROCKSDB_NAMESPACE::BackgroundErrorReason;
 using ROCKSDB_NAMESPACE::BackupEngine;
 using ROCKSDB_NAMESPACE::BackupEngineOptions;
+using ROCKSDB_NAMESPACE::CreateBackupOptions;
 using ROCKSDB_NAMESPACE::BackupID;
 using ROCKSDB_NAMESPACE::BackupInfo;
 using ROCKSDB_NAMESPACE::BatchResult;
@@ -177,6 +178,9 @@ struct rocksdb_backup_engine_info_t {
 };
 struct rocksdb_restore_options_t {
   RestoreOptions rep;
+};
+struct rocksdb_create_backup_options_t {
+  CreateBackupOptions rep;
 };
 struct rocksdb_iterator_t {
   Iterator* rep;
@@ -1305,6 +1309,35 @@ void rocksdb_backup_engine_create_new_backup_flush(
     rocksdb_backup_engine_t* be, rocksdb_t* db,
     unsigned char flush_before_backup, char** errptr) {
   SaveError(errptr, be->rep->CreateNewBackup(db->rep, flush_before_backup));
+}
+
+rocksdb_create_backup_options_t* rocksdb_create_backup_options_create() {
+  return new rocksdb_create_backup_options_t;
+}
+
+void rocksdb_create_backup_options_destroy(
+    rocksdb_create_backup_options_t* options) {
+  delete options;
+}
+
+void rocksdb_create_backup_options_set_flush_before_backup(
+    rocksdb_create_backup_options_t* options, unsigned char v) {
+  options->rep.flush_before_backup = v;
+}
+
+void rocksdb_create_backup_options_set_progress_callback(
+    rocksdb_create_backup_options_t* options, void* callback_arg,
+    void (*callback)(void* arg)) {
+  options->rep.progress_callback = [callback, callback_arg]() {
+    callback(callback_arg);
+  };
+}
+
+void rocksdb_backup_engine_create_new_backup_with_options(
+    rocksdb_backup_engine_t* be, rocksdb_t* db,
+    const rocksdb_create_backup_options_t* options, char** errptr) {
+  SaveError(errptr,
+            be->rep->CreateNewBackup(options->rep, db->rep));
 }
 
 void rocksdb_backup_engine_purge_old_backups(rocksdb_backup_engine_t* be,

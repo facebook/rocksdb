@@ -299,6 +299,11 @@ static void CheckMergeCF(void* ptr, uint32_t cfid, const char* k, size_t klen,
   (*state)++;
 }
 
+static void BackupProgressCallback(void* arg) {
+  int* count = (int*)arg;
+  (*count)++;
+}
+
 static void CmpDestroy(void* arg) { (void)arg; }
 
 static int CmpCompare(void* arg, const char* a, size_t alen, const char* b,
@@ -947,6 +952,35 @@ int main(int argc, char** argv) {
   rocksdb_put(db, woptions, "foo", 3, "hello", 5, &err);
   CheckNoError(err);
   CheckGet(db, roptions, "foo", "hello");
+
+  StartPhase("backup_with_progress_callback");
+  {
+    rocksdb_backup_engine_options_t* beo =
+        rocksdb_backup_engine_options_create(dbbackupname);
+    rocksdb_backup_engine_options_set_destroy_old_data(beo, 1);
+    rocksdb_env_t* benv = rocksdb_create_default_env();
+    rocksdb_backup_engine_t* be =
+        rocksdb_backup_engine_open_opts(beo, benv, &err);
+    rocksdb_backup_engine_options_destroy(beo);
+    rocksdb_env_destroy(benv);
+    CheckNoError(err);
+
+    int progress_count = 0;
+    rocksdb_create_backup_options_t* cbo =
+        rocksdb_create_backup_options_create();
+    rocksdb_create_backup_options_set_progress_callback(
+        cbo, &progress_count, BackupProgressCallback);
+    rocksdb_backup_engine_create_new_backup_with_options(be, db, cbo, &err);
+    CheckNoError(err);
+    rocksdb_create_backup_options_destroy(cbo);
+
+    const rocksdb_backup_engine_info_t* bei =
+        rocksdb_backup_engine_get_backup_info(be);
+    CheckCondition(rocksdb_backup_engine_info_count(bei) == 1);
+    rocksdb_backup_engine_info_destroy(bei);
+
+    rocksdb_backup_engine_close(be);
+  }
 
   StartPhase("backup_and_restore");
   {
