@@ -551,15 +551,28 @@ jobs:
         run: |
           if [ -z "${OPENAI_API_KEY}" ]; then
             echo "OPENAI_API_KEY not configured, skipping Codex review"
+            printf 'complex\n' > codex-complexity-output.txt
             exit 0
           fi
           mkdir -p "${CODEX_HOME}"
+          set +e
           codex exec \
             -m "${CODEX_MODEL}" \
             -c model_reasoning_effort="medium" \
             --dangerously-bypass-approvals-and-sandbox \
             --output-last-message codex-complexity-output.txt \
             - < /tmp/complexity_prompt.txt > codex-complexity.log 2>&1
+          exit_code=$?
+          set -e
+          if [ "${exit_code}" -ne 0 ]; then
+            echo "Codex complexity classification failed with exit code ${exit_code}"
+            echo "Defaulting to complex review budget"
+            if [ -s codex-complexity.log ]; then
+              echo "Last 100 lines of codex-complexity.log:"
+              tail -100 codex-complexity.log
+            fi
+            printf 'complex\n' > codex-complexity-output.txt
+          fi
 
       - name: Pick thinking budget (Codex)
         if: >-
@@ -1140,13 +1153,30 @@ jobs:
           CODEX_HOME: /tmp/codex-home
           CODEX_MODEL: ${{ inputs.selected_model != '' && inputs.selected_model || inputs.default_model }}
         run: |
+          if [ -z "${OPENAI_API_KEY}" ]; then
+            echo "OPENAI_API_KEY not configured, skipping Codex review"
+            printf 'complex\n' > codex-complexity-output.txt
+            exit 0
+          fi
           mkdir -p "${CODEX_HOME}"
+          set +e
           codex exec \
             -m "${CODEX_MODEL}" \
             -c model_reasoning_effort="medium" \
             --dangerously-bypass-approvals-and-sandbox \
             --output-last-message codex-complexity-output.txt \
             - < /tmp/complexity_prompt.txt > codex-complexity.log 2>&1
+          exit_code=$?
+          set -e
+          if [ "${exit_code}" -ne 0 ]; then
+            echo "Codex complexity classification failed with exit code ${exit_code}"
+            echo "Defaulting to complex review budget"
+            if [ -s codex-complexity.log ]; then
+              echo "Last 100 lines of codex-complexity.log:"
+              tail -100 codex-complexity.log
+            fi
+            printf 'complex\n' > codex-complexity-output.txt
+          fi
 
       - name: Pick thinking budget (Codex)
         if: steps.request.outputs.skip != 'true' && inputs.provider == 'codex'
