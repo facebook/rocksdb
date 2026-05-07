@@ -1,6 +1,7 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.2.2 (05/07/2026)
 ## 11.2.1 (04/29/2026)
 ### Bug Fixes
 * Fix bug in range tombstone synthesis that covers live keys added during an IngestExternalFile
