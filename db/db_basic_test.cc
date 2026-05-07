@@ -337,6 +337,217 @@ TEST_F(DBBasicTest,
             synthetic_number);
 }
 
+// optimize_manifest_for_recovery=true: after a clean Put + Flush + Close, the
+// next Open's min_log_number_to_keep equals (max_wal_before_close + 1),
+// proving the close-time MANIFEST write took effect.
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryAdvancesWalMarkersOnClose) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+
+  uint64_t max_wal_before_close = 0;
+  auto* sp = ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
+  sp->SetCallBack("DBImpl::CloseHelper:CapturedMaxWal", [&](void* arg) {
+    max_wal_before_close = *static_cast<uint64_t*>(arg);
+  });
+  sp->EnableProcessing();
+  Close();
+  sp->DisableProcessing();
+  sp->ClearAllCallBacks();
+  ASSERT_GT(max_wal_before_close, 0u);
+
+  Reopen(options);
+  ASSERT_EQ(max_wal_before_close + 1,
+            dbfull()->GetVersionSet()->min_log_number_to_keep());
+  ASSERT_EQ("v", Get("k"));
+}
+
+// Shared-option matrix: default-off and disable-before-close should both fall
+// back to recovery-time MANIFEST work, while enable-through-close should avoid
+// MANIFEST appends on a clean reopen.
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryCleanReopenMatrix) {
+  struct TestCase {
+    const char* name;
+    bool enable_on_open;
+    bool disable_before_close;
+    bool expect_close_write;
+  };
+  const TestCase test_cases[] = {
+      {"default_off", false, false, false},
+      {"enabled", true, false, true},
+      {"disabled_before_close", true, true, false},
+  };
+
+  auto* sp = ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
+  for (const auto& test_case : test_cases) {
+    SCOPED_TRACE(test_case.name);
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.optimize_manifest_for_recovery = test_case.enable_on_open;
+    DestroyAndReopen(options);
+    ASSERT_OK(Put("k", test_case.name));
+    ASSERT_OK(Flush());
+
+    if (test_case.disable_before_close) {
+      ASSERT_OK(dbfull()->SetDBOptions(
+          {{"optimize_manifest_for_recovery", "false"}}));
+    }
+
+    std::atomic<int> entered{0};
+    sp->SetCallBack("DBImpl::CloseHelper:WriteWalMarkersOnCloseEntered",
+                    [&](void*) { entered.fetch_add(1); });
+    sp->EnableProcessing();
+    Close();
+    sp->DisableProcessing();
+    sp->ClearAllCallBacks();
+
+    std::atomic<int> records{0};
+    RecoveryOptimizationCounters counters;
+    counters.Install();
+    sp->SetCallBack("VersionSet::ProcessManifestWrites:AddRecord",
+                    [&](void*) { records.fetch_add(1); });
+    Reopen(options);
+    counters.Uninstall();
+
+    if (test_case.expect_close_write) {
+      ASSERT_EQ(1, entered.load());
+      ASSERT_EQ(0, records.load());
+      ASSERT_GT(counters.per_cf.load(), 0);
+    } else {
+      ASSERT_EQ(0, entered.load());
+      ASSERT_GT(records.load(), 0);
+    }
+    ASSERT_EQ(test_case.name, Get("k"));
+    Close();
+  }
+}
+
+// allow_2pc=true: even with the option on, the close-time write must NOT
+// advance MinLogNumberToKeep / DeleteWalsBefore (2pc requires the WAL to
+// remain replayable for uncommitted prepared transactions).
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryRespectsTwoPC) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  options.allow_2pc = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+
+  const uint64_t min_log_before_close =
+      dbfull()->GetVersionSet()->min_log_number_to_keep();
+  Close();
+  Reopen(options);
+  ASSERT_EQ(min_log_before_close,
+            dbfull()->GetVersionSet()->min_log_number_to_keep());
+  ASSERT_EQ("v", Get("k"));
+}
+
+// Mixed-CF emptiness: on reopen, recovery should still have MANIFEST work to
+// do for the dirty CF while skipping per-CF recovery edits for the empty CFs
+// whose markers were persisted at close.
+TEST_F(DBBasicTest, OptimizeManifestForRecoverySkipsNonEmptyCF) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  CreateAndReopenWithCF({"empty_cf", "dirty_cf"}, options);
+  ASSERT_OK(Put(1, "k", "v1"));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Put(2, "k", "v2"));
+  Close();
+
+  RecoveryOptimizationCounters counters;
+  std::atomic<int> records{0};
+  auto* sp = ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
+  counters.Install();
+  sp->SetCallBack("VersionSet::ProcessManifestWrites:AddRecord",
+                  [&](void*) { records.fetch_add(1); });
+  ReopenWithColumnFamilies({"default", "empty_cf", "dirty_cf"}, options);
+  counters.Uninstall();
+
+  ASSERT_GT(counters.per_cf.load(), 0);
+  ASSERT_GT(records.load(), 0);
+  ASSERT_EQ("v1", Get(1, "k"));
+  ASSERT_EQ("v2", Get(2, "k"));
+}
+
+// track_and_verify_wals_in_manifest=true: the close-time write must leave
+// recovery with only the mandatory WAL-tracking MANIFEST work. The per-CF
+// recovery edits should still skip.
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryEmitsWalDeletionWhenTracking) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  options.track_and_verify_wals_in_manifest = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  RecoveryOptimizationCounters counters;
+  std::atomic<int> records{0};
+  auto* sp = ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
+  counters.Install();
+  sp->SetCallBack("VersionSet::ProcessManifestWrites:AddRecord",
+                  [&](void*) { records.fetch_add(1); });
+  Reopen(options);
+  counters.Uninstall();
+
+  ASSERT_GT(counters.per_cf.load(), 0);
+  ASSERT_EQ(1, records.load());
+  ASSERT_GT(dbfull()->GetVersionSet()->GetWalSet().GetMinWalNumberToKeep(), 0u);
+  ASSERT_EQ("v", Get("k"));
+}
+
+// Regression for the close-time marker path: if a new WAL is created while an
+// otherwise-empty user CF stays empty, Close() must reserve the next file
+// number before persisting SetLogNumber(cur_wal + 1) for that CF.
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryImmediateCloseAfterWarmReopen) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  CreateAndReopenWithCF({"empty_cf"}, options);
+
+  ASSERT_OK(Put(0, "k", "v"));
+  const uint64_t wal_before_switch = dbfull()->TEST_LogfileNumber();
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  ASSERT_GT(dbfull()->TEST_LogfileNumber(), wal_before_switch);
+
+  const uint64_t expected_new_log_num = dbfull()->TEST_LogfileNumber() + 1;
+  ASSERT_EQ(expected_new_log_num,
+            dbfull()->GetVersionSet()->current_next_file_number());
+
+  Close();
+  ReopenWithColumnFamilies({"default", "empty_cf"}, options);
+
+  ASSERT_GT(dbfull()->GetVersionSet()->current_next_file_number(),
+            expected_new_log_num);
+  ASSERT_EQ("v", Get(0, "k"));
+}
+
+// Dropped-CF safety: dropped column families must NOT have markers written for
+// them at close time (the !IsDropped() guard protects against attaching the
+// global edit to a dropped CF, which would later trip MANIFEST replay
+// assertions).
+TEST_F(DBBasicTest, OptimizeManifestForRecoverySkipsDroppedCF) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  CreateAndReopenWithCF({"to_drop", "keeper"}, options);
+  ASSERT_OK(Put(1, "k", "v1"));
+  ASSERT_OK(Put(2, "k", "v2"));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Flush(2));
+  ASSERT_OK(db_->DropColumnFamily(handles_[1]));
+  Close();
+
+  ReopenWithColumnFamilies({"default", "keeper"}, options);
+  ASSERT_EQ("v2", Get(1, "k"));
+}
+
 TEST_F(DBBasicTest, EnableDirectIOWithZeroBuf) {
   if (!IsDirectIOSupported()) {
     ROCKSDB_GTEST_BYPASS("Direct IO not supported");
