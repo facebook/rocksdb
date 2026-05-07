@@ -1141,6 +1141,11 @@ DEFINE_bool(write_identity_file,
             ROCKSDB_NAMESPACE::Options().write_identity_file,
             "Write DB_ID to IDENTITY file");
 
+DEFINE_bool(reuse_manifest_on_open,
+            ROCKSDB_NAMESPACE::Options().reuse_manifest_on_open,
+            "Reopen existing MANIFEST for append after recovery instead of "
+            "creating a fresh one");
+
 DEFINE_bool(avoid_flush_during_recovery,
             ROCKSDB_NAMESPACE::Options().avoid_flush_during_recovery,
             "Avoid flush during recovery");

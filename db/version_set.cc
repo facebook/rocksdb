@@ -5618,6 +5618,7 @@ VersionSet::VersionSet(
       prev_log_number_(0),
       current_version_number_(0),
       manifest_file_size_(0),
+      manifest_last_valid_record_end_(0),
       last_compacted_manifest_file_size_(0),
       file_options_(storage_options),
       block_cache_tracer_(block_cache_tracer),
@@ -5827,6 +5828,7 @@ void VersionSet::Reset() {
   current_version_number_ = 0;
   manifest_writers_.clear();
   manifest_file_size_ = 0;
+  manifest_last_valid_record_end_ = 0;
   last_compacted_manifest_file_size_ = 0;
   TuneMaxManifestFileSize();
   obsolete_files_.clear();
@@ -6161,11 +6163,7 @@ Status VersionSet::ProcessManifestWrites(
       }
     }
   } else {
-    FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
-    // DB option (in file_options_) takes precedence when not kUnknown
-    if (file_options_.temperature != Temperature::kUnknown) {
-      opt_file_opts.temperature = file_options_.temperature;
-    }
+    FileOptions opt_file_opts = GetFileOptionsForManifestWrite();
     mu->Unlock();
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifestStart");
     TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WriteManifest", nullptr);
@@ -6200,16 +6198,9 @@ Status VersionSet::ProcessManifestWrites(
       io_s = NewWritableFile(fs_.get(), descriptor_fname, &descriptor_file,
                              opt_file_opts);
       if (io_s.ok()) {
-        descriptor_file->SetPreallocationBlockSize(manifest_preallocation_size);
-        FileTypeSet tmp_set = db_options_->checksum_handoff_file_types;
-        std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-            std::move(descriptor_file), descriptor_fname, opt_file_opts, clock_,
-            io_tracer_, nullptr, Histograms::HISTOGRAM_ENUM_MAX /* hist_type */,
-            db_options_->listeners, nullptr,
-            tmp_set.Contains(FileType::kDescriptorFile),
-            tmp_set.Contains(FileType::kDescriptorFile)));
-        new_desc_log_ptr.reset(
-            new log::Writer(std::move(file_writer), 0, false));
+        new_desc_log_ptr =
+            CreateManifestWriter(std::move(descriptor_file), descriptor_fname,
+                                 opt_file_opts, manifest_preallocation_size);
         raw_desc_log_ptr = new_desc_log_ptr.get();
         s = WriteCurrentStateToManifest(write_options, curr_state,
                                         wal_additions, raw_desc_log_ptr, io_s);
@@ -6681,6 +6672,106 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   return builder ? builder->Apply(edit) : Status::OK();
 }
 
+FileOptions VersionSet::GetFileOptionsForManifestWrite() const {
+  FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
+  // DB-configured temperature wins over the FS's default (when not kUnknown).
+  if (file_options_.temperature != Temperature::kUnknown) {
+    opt_file_opts.temperature = file_options_.temperature;
+  }
+  return opt_file_opts;
+}
+
+std::unique_ptr<log::Writer> VersionSet::CreateManifestWriter(
+    std::unique_ptr<FSWritableFile> file, const std::string& fname,
+    const FileOptions& opts, uint64_t preallocation_size,
+    uint64_t initial_file_size) const {
+  file->SetPreallocationBlockSize(preallocation_size);
+  FileTypeSet tmp_set = db_options_->checksum_handoff_file_types;
+  auto file_writer = std::make_unique<WritableFileWriter>(
+      std::move(file), fname, opts, clock_, io_tracer_,
+      /*stats=*/nullptr, Histograms::HISTOGRAM_ENUM_MAX, db_options_->listeners,
+      /*file_checksum_gen_factory=*/nullptr,
+      tmp_set.Contains(FileType::kDescriptorFile),
+      tmp_set.Contains(FileType::kDescriptorFile), initial_file_size);
+  const size_t block_offset = initial_file_size % log::kBlockSize;
+  return std::make_unique<log::Writer>(
+      std::move(file_writer), /*log_number=*/0, /*recycle_log_files=*/false,
+      /*manual_flush=*/false, kNoCompression,
+      /*track_and_verify_wals=*/false, block_offset);
+}
+
+Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
+  assert(db_options_->reuse_manifest_on_open);
+  assert(manifest_last_valid_record_end_ > 0);
+
+  // Disabled under best_efforts_recovery: that mode rebuilds the
+  // MANIFEST + CURRENT from scratch via the side-effect of
+  // LogAndApplyForRecovery emitting an edit. Reusing the (possibly
+  // stale) prior MANIFEST contradicts the salvage contract.
+  if (db_options_->best_efforts_recovery) {
+    return Status::OK();
+  }
+
+  FileOptions opt_file_opts = GetFileOptionsForManifestWrite();
+
+  // Bail if the on-disk size diverges from what Recover's Reader
+  // consumed — likely a torn tail from a prior crash; mid-block append
+  // would mis-frame the record stream.
+  uint64_t physical_size = 0;
+  IOStatus stat_s = fs_->GetFileSize(manifest_path, IOOptions(), &physical_size,
+                                     /*dbg=*/nullptr);
+  if (!stat_s.ok() || physical_size != manifest_last_valid_record_end_) {
+    ROCKS_LOG_WARN(db_options_->info_log,
+                   "reuse_manifest_on_open: physical size %" PRIu64
+                   " != last valid record end %" PRIu64
+                   " (tail corruption?); falling back to fresh MANIFEST",
+                   physical_size, manifest_last_valid_record_end_);
+    return Status::OK();
+  }
+
+  // Direct-writes path is hard to reason about for an already-populated
+  // file (alignment + tail-pad). POSIX's OptimizeForManifestWrite forces
+  // it off, but custom FileSystems may not.
+  if (opt_file_opts.use_direct_writes) {
+    ROCKS_LOG_WARN(db_options_->info_log,
+                   "reuse_manifest_on_open: direct writes enabled; "
+                   "falling back to fresh MANIFEST");
+    return Status::OK();
+  }
+
+  std::unique_ptr<FSWritableFile> manifest_file;
+  IOStatus io_s = fs_->ReopenWritableFile(manifest_path, opt_file_opts,
+                                          &manifest_file, /*dbg=*/nullptr);
+  if (!io_s.ok()) {
+    ROCKS_LOG_WARN(db_options_->info_log,
+                   "Failed to reopen MANIFEST for append: %s",
+                   io_s.ToString().c_str());
+    return Status::OK();
+  }
+
+  const uint64_t reopened_size =
+      manifest_file->GetFileSize(opt_file_opts.io_options, /*dbg=*/nullptr);
+  if (reopened_size != manifest_last_valid_record_end_) {
+    ROCKS_LOG_WARN(db_options_->info_log,
+                   "reuse_manifest_on_open: reopened handle size %" PRIu64
+                   " != last valid record end %" PRIu64
+                   "; falling back to fresh MANIFEST",
+                   reopened_size, manifest_last_valid_record_end_);
+    return Status::OK();
+  }
+
+  descriptor_log_ = CreateManifestWriter(
+      std::move(manifest_file), manifest_path, opt_file_opts,
+      manifest_preallocation_size_, reopened_size);
+
+  ROCKS_LOG_INFO(db_options_->info_log,
+                 "Reusing existing MANIFEST file: %s (valid data size: %" PRIu64
+                 ")",
+                 manifest_path.c_str(), manifest_last_valid_record_end_);
+  TEST_SYNC_POINT("VersionSet::ReopenManifestForAppend:Reopened");
+  return Status::OK();
+}
+
 Status VersionSet::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     std::string* db_id, bool no_error_if_files_missing, bool is_retry,
@@ -6766,6 +6857,11 @@ Status VersionSet::Recover(
                      "), log number is %" PRIu64 "\n",
                      cfd->GetName().c_str(), cfd->GetID(), cfd->GetLogNumber());
     }
+  }
+
+  if (s.ok() && !read_only && db_options_->reuse_manifest_on_open &&
+      manifest_last_valid_record_end_ > 0) {
+    s = ReopenManifestForAppend(manifest_path);
   }
 
   return s;

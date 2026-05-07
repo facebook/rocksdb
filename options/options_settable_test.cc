@@ -494,7 +494,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "write_identity_file=true;"
       "verify_manifest_content_on_close=false;"
       "prefix_seek_opt_in_only=true;"
-      "fast_sst_open=true;",
+      "fast_sst_open=true;"
+      "reuse_manifest_on_open=true;",
       new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),

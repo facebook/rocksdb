@@ -31,6 +31,8 @@ class VersionEditHandlerBase {
 
   AtomicGroupReadBuffer& GetReadBuffer() { return read_buffer_; }
 
+  uint64_t GetLastValidRecordEnd() const { return last_valid_record_end_; }
+
  protected:
   explicit VersionEditHandlerBase(const ReadOptions& read_options,
                                   uint64_t max_read_size)
@@ -51,6 +53,10 @@ class VersionEditHandlerBase {
   Status status_;
 
   const ReadOptions& read_options_;
+
+  // File offset at the end of the last successfully completed and
+  // decoded logical record.
+  uint64_t last_valid_record_end_ = 0;
 
  private:
   AtomicGroupReadBuffer read_buffer_;
