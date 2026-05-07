@@ -680,8 +680,18 @@ Status DBImpl::Recover(
   } else if (immutable_db_options_.write_dbid_to_manifest && recovery_ctx) {
     VersionEdit edit;
     s = SetupDBId(write_options, read_only, is_new_db, is_retry, &edit);
-    recovery_ctx->UpdateVersionEdits(
-        versions_->GetColumnFamilySet()->GetDefault(), edit);
+    // best_efforts_recovery rebuilds CURRENT/MANIFEST as the side-effect
+    // of LogAndApplyForRecovery emitting an edit, so the optimization is
+    // disabled there (see optimize_manifest_for_recovery doc).
+    const bool optimize_manifest_for_recovery =
+        mutable_db_options_.optimize_manifest_for_recovery &&
+        !immutable_db_options_.best_efforts_recovery;
+    if (!optimize_manifest_for_recovery || edit.HasDbId()) {
+      recovery_ctx->UpdateVersionEdits(
+          versions_->GetColumnFamilySet()->GetDefault(), edit);
+    } else {
+      TEST_SYNC_POINT("DBImpl::Recovery:SkippedNoopEdit:SetupDBId");
+    }
   } else {
     s = SetupDBId(write_options, read_only, is_new_db, is_retry, nullptr);
   }
@@ -770,6 +780,10 @@ Status DBImpl::Recover(
       // otherwise, in the future, if WAL tracking is enabled again,
       // since the WALs deleted when WAL tracking is disabled are not persisted
       // into MANIFEST, WAL check may fail.
+      //
+      // Intentionally NOT gated by optimize_manifest_for_recovery:
+      // this edit is safety-critical for a future re-enable of WAL tracking,
+      // even though it can look noop-ish under the current session.
       VersionEdit edit;
       WalNumber max_wal_number =
           versions_->GetWalSet().GetWals().rbegin()->first;
@@ -1870,25 +1884,47 @@ Status DBImpl::MaybeFlushFinalMemtableOrRestoreActiveLogFiles(
       versions_->MarkFileNumberUsed(max_wal_number + 1);
       assert(recovery_ctx != nullptr);
 
+      const bool optimize_manifest_for_recovery =
+          mutable_db_options_.optimize_manifest_for_recovery &&
+          !immutable_db_options_.best_efforts_recovery;
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
         auto iter = version_edits->find(cfd->GetID());
         assert(iter != version_edits->end());
-        recovery_ctx->UpdateVersionEdits(cfd, iter->second);
+        const VersionEdit& cf_edit = iter->second;
+        if (!optimize_manifest_for_recovery ||
+            cf_edit.ShouldEmitPerColumnFamilyRecoveryEdit(
+                cfd->GetLogNumber())) {
+          recovery_ctx->UpdateVersionEdits(cfd, cf_edit);
+        } else {
+          TEST_SYNC_POINT("DBImpl::Recovery:SkippedNoopEdit:PerCF");
+        }
       }
 
       if (flushed || !data_seen) {
+        const uint64_t new_min_log = max_wal_number + 1;
         VersionEdit wal_deletion;
+        bool emit_wal_deletion = false;
         if (immutable_db_options_.track_and_verify_wals_in_manifest) {
-          wal_deletion.DeleteWalsBefore(max_wal_number + 1);
+          // Determining whether DeleteWalsBefore actually shrinks WalSet
+          // membership requires WalSet state outside this site, so emit
+          // unconditionally (pre-existing behavior).
+          wal_deletion.DeleteWalsBefore(new_min_log);
+          emit_wal_deletion = true;
         }
-        if (!allow_2pc()) {
-          // In non-2pc mode, flushing the memtables of the column families
-          // means we can advance min_log_number_to_keep.
-          wal_deletion.SetMinLogNumberToKeep(max_wal_number + 1);
+        const bool min_log_advances =
+            new_min_log > versions_->min_log_number_to_keep();
+        if (!allow_2pc() &&
+            (!optimize_manifest_for_recovery || min_log_advances)) {
+          wal_deletion.SetMinLogNumberToKeep(new_min_log);
+          emit_wal_deletion = true;
         }
         assert(versions_->GetColumnFamilySet() != nullptr);
-        recovery_ctx->UpdateVersionEdits(
-            versions_->GetColumnFamilySet()->GetDefault(), wal_deletion);
+        if (!optimize_manifest_for_recovery || emit_wal_deletion) {
+          recovery_ctx->UpdateVersionEdits(
+              versions_->GetColumnFamilySet()->GetDefault(), wal_deletion);
+        } else {
+          TEST_SYNC_POINT("DBImpl::Recovery:SkippedNoopEdit:WalDeletion");
+        }
       }
     }
   }

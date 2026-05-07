@@ -1001,6 +1001,17 @@ struct DBOptions {
   // This option is mutable with SetDBOptions().
   bool verify_manifest_content_on_close = false;
 
+  // EXPERIMENTAL: If true, RocksDB can reduce recovery work after a clean
+  // shutdown, which may reduce DB::Open latency on warm reopens, especially on
+  // storage where metadata appends are expensive.
+  //
+  // Best-effort optimization: if it is disabled or unavailable, RocksDB falls
+  // back to the standard recovery path.
+  //
+  // Temporary rollout / kill switch for an optimization that is intended to be
+  // correct and eventually always enabled. Mutable via SetDBOptions().
+  bool optimize_manifest_for_recovery = false;
+
   // This option mostly replaces max_manifest_file_size to control an auto-tuned
   // balance of manifest write amplification and space amplification. A new
   // manifest file is created with the "compacted" contents of the old one when
