@@ -1,0 +1,20 @@
+# ThreadSanitizer suppressions for known third-party false positives.
+#
+# Use with:
+#   TSAN_OPTIONS="suppressions=/path/to/rocksdb/tools/tsan_suppressions.txt"
+#
+# If the final application already has a TSAN suppressions file, merge these
+# entries into that application-owned file.
+#
+# liburing's io_uring_mmap() uses __sys_mmap, which bypasses TSAN's mmap
+# interceptor, then immediately reads from the mapped memory in
+# io_uring_setup_ring_pointers(). When the kernel reuses a virtual address that
+# was previously mmap'd through libc and tracked by TSAN, TSAN can report a race
+# between the old mapping's write and the new io_uring read. RocksDB annotates
+# the io_uring mappings after io_uring_queue_init() returns, but that is too
+# late for reads that happen inside liburing during initialization.
+#
+# Revisit these suppressions when RocksDB upgrades to a liburing version that no
+# longer uses the raw mmap syscall for io_uring_mmap().
+race:io_uring_mmap
+race:io_uring_setup_ring_pointers

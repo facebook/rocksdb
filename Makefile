@@ -384,6 +384,10 @@ endif
 # TSAN doesn't work well with jemalloc. If we're compiling with TSAN, we should use regular malloc.
 ifdef COMPILE_WITH_TSAN
 	DISABLE_JEMALLOC=1
+	# Use a suppressions file instead of the process-wide TSAN default
+	# suppressions hook, which belongs to the final application.
+	TSAN_OPTIONS?=suppressions=$(CURDIR)/tools/tsan_suppressions.txt
+	export TSAN_OPTIONS
 	EXEC_LDFLAGS += -fsanitize=thread
 	PLATFORM_CCFLAGS += -fsanitize=thread -fPIC -DFOLLY_SANITIZE_THREAD
 	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC -DFOLLY_SANITIZE_THREAD
