@@ -404,6 +404,39 @@ const PrefixVarintTestCase<uint64_t> kPrefixVarint64TestCases[] = {
      ByteString({0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF})},
 };
 
+template <uint32_t kMinimumBytes>
+void TestPrefixVarint64MinimumBytes(const std::vector<uint64_t>& values) {
+  for (uint64_t value : values) {
+    SCOPED_TRACE("value=" + std::to_string(value) +
+                 " kMinimumBytes=" + std::to_string(kMinimumBytes));
+    char buf[kMaxPrefixVarint64Length];
+    char* end = EncodePrefixVarint64<kMinimumBytes>(buf, value);
+    uint32_t encoded_len = static_cast<uint32_t>(end - buf);
+    uint32_t natural_len = PrefixVarint64Length(value);
+    ASSERT_EQ(encoded_len, std::max(natural_len, kMinimumBytes));
+
+    // Verify via split-decode API
+    uint32_t addl = PrefixVarint64AddlByteCount(buf[0]);
+    ASSERT_EQ(addl + 1, encoded_len);
+    uint64_t decoded = ~uint64_t{0};
+    ASSERT_TRUE(DecodePrefixVarint64(buf[0], buf + 1, addl, &decoded));
+    ASSERT_EQ(value, decoded);
+
+    // Verify via GetPtr API
+    decoded = ~uint64_t{0};
+    const char* next = GetPrefixVarint64Ptr(buf, end, &decoded);
+    ASSERT_EQ(next, end);
+    ASSERT_EQ(value, decoded);
+
+    // Verify via Slice API
+    decoded = ~uint64_t{0};
+    Slice slice(buf, encoded_len);
+    ASSERT_TRUE(GetPrefixVarint64(&slice, &decoded));
+    ASSERT_EQ(value, decoded);
+    ASSERT_TRUE(slice.empty());
+  }
+}
+
 }  // namespace
 
 // Keep PrefixVarint tests after the legacy coding tests so the two varint
@@ -457,6 +490,86 @@ TEST(Coding, PrefixVarint32Truncation) {
 
 TEST(Coding, PrefixVarint64Truncation) {
   AssertPrefixVarintTruncation(~uint64_t{0});
+}
+
+TEST(Coding, PrefixVarint64ImproperEncoding) {
+  // Values spanning each natural encoding length
+  const std::vector<uint64_t> values = {
+      0,
+      1,
+      63,
+      127,  // 1-byte natural
+      128,
+      255,
+      16383,  // 2-byte natural
+      16384,
+      (1ull << 21) - 1,  // 3-byte natural
+      (1ull << 21),
+      (1ull << 28) - 1,  // 4-byte natural
+      (1ull << 28),
+      (1ull << 35) - 1,  // 5-byte natural
+      (1ull << 35),
+      (1ull << 42) - 1,  // 6-byte natural
+      (1ull << 42),
+      (1ull << 49) - 1,  // 7-byte natural
+      (1ull << 49),
+      (1ull << 56) - 1,  // 8-byte natural
+      (1ull << 56),
+      ~uint64_t{0},  // 9-byte natural
+  };
+
+  TestPrefixVarint64MinimumBytes<2>(values);
+  TestPrefixVarint64MinimumBytes<3>(values);
+  TestPrefixVarint64MinimumBytes<4>(values);
+  TestPrefixVarint64MinimumBytes<5>(values);
+  TestPrefixVarint64MinimumBytes<6>(values);
+  TestPrefixVarint64MinimumBytes<7>(values);
+  TestPrefixVarint64MinimumBytes<8>(values);
+
+  // Verify specific byte patterns for some improper encodings
+  auto check_bytes = [](const char* buf, const char* end,
+                        const std::string& expected) {
+    ASSERT_EQ(expected, std::string(buf, static_cast<size_t>(end - buf)));
+  };
+
+  // value=0 with kMinimumBytes=2: (0 << 2) | (1 << 1) = 0x02
+  {
+    char buf[kMaxPrefixVarint64Length];
+    char* end = EncodePrefixVarint64<2>(buf, 0);
+    check_bytes(buf, end, ByteString({0x02, 0x00}));
+  }
+  // value=0 with kMinimumBytes=3: (0 << 3) | (1 << 2) = 0x04
+  {
+    char buf[kMaxPrefixVarint64Length];
+    char* end = EncodePrefixVarint64<3>(buf, 0);
+    check_bytes(buf, end, ByteString({0x04, 0x00, 0x00}));
+  }
+  // value=1 with kMinimumBytes=2: (1 << 2) | (1 << 1) = 0x06
+  {
+    char buf[kMaxPrefixVarint64Length];
+    char* end = EncodePrefixVarint64<2>(buf, 1);
+    check_bytes(buf, end, ByteString({0x06, 0x00}));
+  }
+  // value=127 with kMinimumBytes=2: (127 << 2) | (1 << 1) = 0x01FE
+  {
+    char buf[kMaxPrefixVarint64Length];
+    char* end = EncodePrefixVarint64<2>(buf, 127);
+    check_bytes(buf, end, ByteString({0xFE, 0x01}));
+  }
+  // value=0 with kMinimumBytes=8: (0 << 8) | (1 << 7) = 0x80
+  {
+    char buf[kMaxPrefixVarint64Length];
+    char* end = EncodePrefixVarint64<8>(buf, 0);
+    check_bytes(buf, end,
+                ByteString({0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}));
+  }
+  // value=1 with kMinimumBytes=8: (1 << 8) | (1 << 7) = 0x0180
+  {
+    char buf[kMaxPrefixVarint64Length];
+    char* end = EncodePrefixVarint64<8>(buf, 1);
+    check_bytes(buf, end,
+                ByteString({0x80, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}));
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

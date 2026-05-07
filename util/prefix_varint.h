@@ -67,9 +67,9 @@ constexpr uint32_t kMaxPrefixVarint64Length = 9;
 namespace detail {
 
 template <typename T>
-inline uint16_t PrefixVarintLengthImpl(T value) {
+inline uint32_t PrefixVarintLengthImpl(T value) {
   const uint32_t bits = static_cast<uint32_t>(FloorLog2(value | T{1}) + 1);
-  return static_cast<uint16_t>((bits + 6) / 7);
+  return (bits + 6) / 7;
 }
 
 // Reassembles the already-encoded bytes into a little-endian word so callers
@@ -104,13 +104,13 @@ inline char* StorePrefixVarintEncodedWord(char* dst, uint64_t encoded_word,
 
 }  // namespace detail
 
-inline uint16_t PrefixVarint32Length(uint32_t value) {
+inline uint32_t PrefixVarint32Length(uint32_t value) {
   return detail::PrefixVarintLengthImpl(value);
 }
 
-inline uint16_t PrefixVarint64Length(uint64_t value) {
-  const uint16_t len = detail::PrefixVarintLengthImpl(value);
-  return len < kMaxPrefixVarint64Length ? len : kMaxPrefixVarint64Length;
+inline uint32_t PrefixVarint64Length(uint64_t value) {
+  const uint32_t len = detail::PrefixVarintLengthImpl(value);
+  return std::min(len, kMaxPrefixVarint64Length);
 }
 
 inline char* EncodePrefixVarint32(char* dst, uint32_t value) {
@@ -120,8 +120,17 @@ inline char* EncodePrefixVarint32(char* dst, uint32_t value) {
   return detail::StorePrefixVarintEncodedWord(dst, encoded_word, num_bytes);
 }
 
+// Encode `value` as a PrefixVarint64 to the buffer at `dst`, which should in
+// general be at least kMaxPrefixVarint64Length bytes. Returns a pointer to the
+// byte after the last encoded byte. kMinimumBytes is rarely used, to support
+// "improper" (non-minimal) encoding.
+template <uint32_t kMinimumBytes = 0>
 inline char* EncodePrefixVarint64(char* dst, uint64_t value) {
-  const uint32_t num_bytes = PrefixVarint64Length(value);
+  uint32_t num_bytes = PrefixVarint64Length(value);
+  if constexpr (kMinimumBytes > 1) {
+    static_assert(kMinimumBytes < kMaxPrefixVarint64Length);
+    num_bytes = std::max(num_bytes, kMinimumBytes);
+  }
   if (UNLIKELY(num_bytes == kMaxPrefixVarint64Length)) {
     dst[0] = 0;
     EncodeFixed64(dst + 1, value);
