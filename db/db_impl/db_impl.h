@@ -1096,6 +1096,7 @@ class DBImpl : public DB {
     superversions_to_free_queue_.push_back(sv);
   }
 
+  void EnableTrackPublishedSeqInSnapshotContext();
   void SetSnapshotChecker(SnapshotChecker* snapshot_checker);
 
   // Fill JobContext with snapshot information needed by flush and compaction.
@@ -3348,6 +3349,13 @@ class DBImpl : public DB {
   // Callback for compaction to check if a key is visible to a snapshot.
   // REQUIRES: mutex held
   std::unique_ptr<SnapshotChecker> snapshot_checker_;
+  // When set, InitSnapshotContext() appends GetLastPublishedSequence() to the
+  // job's snapshot_seqs (if not already present) so that flush/compaction
+  // preserves the published-sequence boundary even when no explicit user
+  // snapshot exists there. Unlike taking a real ManagedSnapshot, this just
+  // pins the seqno into the snapshot list: no allocation, no snapshot list
+  // mutation, and no SnapshotChecker.
+  bool track_published_seq_in_snapshot_context_ = false;
 
   // Callback for when the cached_recoverable_state_ is written to memtable
   // Only to be set during initialization

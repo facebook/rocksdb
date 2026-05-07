@@ -5,6 +5,7 @@
 
 #include "rocksdb/external_table.h"
 
+#include "db/dbformat.h"
 #include "logging/logging.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block.h"
@@ -118,7 +119,7 @@ class ExternalTableIteratorAdapter : public InternalIterator {
 
   Slice key() const override {
     if (iterator_) {
-      return Slice(*key_.const_rep());
+      return key_.GetInternalKey();
     }
     return Slice();
   }
@@ -142,7 +143,7 @@ class ExternalTableIteratorAdapter : public InternalIterator {
 
  private:
   std::unique_ptr<ExternalTableIterator> iterator_;
-  InternalKey key_;
+  IterKey key_;
   bool valid_;
   Status status_;
   IterateResult result_;
@@ -152,8 +153,8 @@ class ExternalTableIteratorAdapter : public InternalIterator {
       valid_ = iterator_->Valid();
       status_ = iterator_->status();
       if (valid_ && status_.ok()) {
-        key_.Set(res.has_value() ? res.value() : iterator_->key(), 0,
-                 ValueType::kTypeValue);
+        key_.SetInternalKey(res.has_value() ? res.value() : iterator_->key(),
+                            /*s=*/0, ValueType::kTypeValue);
       }
     }
   }
@@ -445,7 +446,7 @@ class ExternalTableFactoryAdapter : public TableFactory {
     ExternalTableBuilderOptions ext_topts(
         topts.read_options, topts.write_options,
         topts.moptions.prefix_extractor, topts.ioptions.user_comparator,
-        topts.column_family_name, topts.reason);
+        topts.column_family_name, topts.reason, topts.ioptions.fs);
     auto file_wrapper =
         std::make_unique<ExternalTableWritableFileWrapper>(file);
     builder.reset(inner_->NewTableBuilder(ext_topts, file->file_name(),
