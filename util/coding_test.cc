@@ -219,7 +219,7 @@ namespace {
 template <typename T>
 struct PrefixVarintTestCase {
   T value;
-  uint16_t length;
+  uint32_t length;
   std::string encoded;
 };
 
@@ -230,7 +230,7 @@ template <>
 struct PrefixVarintTraits<uint32_t> {
   static constexpr size_t kMaxLength = kMaxPrefixVarint32Length;
 
-  static uint16_t Length(uint32_t value) { return PrefixVarint32Length(value); }
+  static uint32_t Length(uint32_t value) { return PrefixVarint32Length(value); }
   static char* Encode(char* dst, uint32_t value) {
     return EncodePrefixVarint32(dst, value);
   }
@@ -256,7 +256,7 @@ template <>
 struct PrefixVarintTraits<uint64_t> {
   static constexpr size_t kMaxLength = kMaxPrefixVarint64Length;
 
-  static uint16_t Length(uint64_t value) { return PrefixVarint64Length(value); }
+  static uint32_t Length(uint64_t value) { return PrefixVarint64Length(value); }
   static char* Encode(char* dst, uint64_t value) {
     return EncodePrefixVarint64(dst, value);
   }
@@ -462,7 +462,7 @@ TEST(Coding, PrefixVarint32DiskReadApi) {
 
 TEST(Coding, PrefixVarint64) {
   for (const auto& tc : kPrefixVarint64TestCases) {
-    const uint16_t expected_length =
+    const uint32_t expected_length =
         tc.value < (uint64_t{1} << 56) ? VarintLength(tc.value) : 9;
     ASSERT_EQ(tc.length, expected_length);
   }
