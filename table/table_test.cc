@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <string>
@@ -6917,10 +6918,7 @@ class ExternalTableTest : public DBTestBase {
         status_ = Status::InvalidArgument();
       } else {
         if (!kv_map_.empty()) {
-          iter_ = kv_map_.begin();
-          for (uint64_t i = 0; i < kv_map_.size() - 1; ++i) {
-            iter_++;
-          }
+          iter_ = std::prev(kv_map_.end());
           valid_ = true;
         } else {
           valid_ = false;
@@ -6931,7 +6929,7 @@ class ExternalTableTest : public DBTestBase {
 
     void Seek(const Slice& target) override {
       if (status_.ok()) {
-        iter_ = kv_map_.find(target.ToString());
+        iter_ = kv_map_.lower_bound(target.ToString());
         valid_ = iter_ != kv_map_.end();
         eof_ = iter_ == kv_map_.end();
       }
@@ -6951,9 +6949,22 @@ class ExternalTableTest : public DBTestBase {
       }
     }
 
-    void SeekForPrev(const Slice& /*target*/) override {
-      valid_ = false;
-      status_ = Status::NotSupported();
+    void SeekForPrev(const Slice& target) override {
+      if (scan_options_) {
+        valid_ = false;
+        status_ = Status::InvalidArgument();
+        return;
+      }
+      if (status_.ok()) {
+        iter_ = kv_map_.upper_bound(target.ToString());
+        if (iter_ == kv_map_.begin()) {
+          valid_ = false;
+        } else {
+          --iter_;
+          valid_ = true;
+        }
+        eof_ = iter_ == kv_map_.end();
+      }
     }
 
     void Next() override {
@@ -6992,8 +7003,12 @@ class ExternalTableTest : public DBTestBase {
     }
 
     void Prev() override {
-      valid_ = false;
-      status_ = Status::NotSupported();
+      if (iter_ == kv_map_.begin()) {
+        valid_ = false;
+      } else {
+        --iter_;
+        valid_ = true;
+      }
     }
 
     Slice key() const override {
@@ -7825,8 +7840,8 @@ TEST_F(ExternalTableTest, IngestionTest) {
   iter.reset();
 
   // Create an overlapping file to ingest without atomic_replace_range option.
-  // This should fail as we don't support ingesting an external file with
-  // non-zero assigned sequence number.
+  // This should assign a file-wide sequence number and use it to overwrite
+  // the lower-level external table file.
   ingest_file += "3";
   writer.reset(new SstFileWriter(EnvOptions(), options));
   ASSERT_OK(writer->Open(ingest_file));
@@ -7837,10 +7852,307 @@ TEST_F(ExternalTableTest, IngestionTest) {
 
   s = db->IngestExternalFiles(
       {{cfh, {ingest_file}, ifo, {}, {}, Temperature::kUnknown, {}}});
-  ASSERT_EQ(s, Status::NotSupported());
+  ASSERT_OK(s);
+
+  iter.reset(db->NewIterator({}, cfh));
+  ASSERT_NE(iter, nullptr);
+  iter->Seek("foo");
+  ASSERT_TRUE(iter->Valid() && iter->status().ok());
+  ASSERT_EQ(iter->value(), "newval");
+  iter->Next();
+  ASSERT_TRUE(iter->Valid() && iter->status().ok());
+  ASSERT_EQ(iter->key(), "foo2");
+  ASSERT_EQ(iter->value(), "newval2");
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+  iter.reset();
+
+  ColumnFamilyMetaData cf_meta;
+  db->GetColumnFamilyMetaData(cfh, &cf_meta);
+  bool found_assigned_seqno = false;
+  for (const auto& level : cf_meta.levels) {
+    for (const auto& file : level.files) {
+      found_assigned_seqno |= file.largest_seqno > 0;
+    }
+  }
+  ASSERT_TRUE(found_assigned_seqno);
 
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
   ASSERT_OK(db->Close());
+}
+
+TEST_F(ExternalTableTest, BuilderRejectsMixedSequenceNumbers) {
+  // Goal: validate the single-file-wide-seqno invariant enforced by the
+  // ExternalTableBuilder adapter. The test feeds two sorted internal keys with
+  // different seqnos directly into the internal TableBuilder and verifies the
+  // adapter rejects the second key before the external format can persist an
+  // ambiguous file.
+  Options options = GetDefaultOptions();
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>(
+          /*support_property_block=*/true);
+  options.table_factory = NewExternalTableFactory(factory);
+
+  ImmutableOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  InternalKeyComparator ikc(options.comparator);
+  InternalTblPropCollFactories internal_tbl_prop_coll_factories;
+  std::string column_family_name;
+  const ReadOptions read_options;
+  const WriteOptions write_options;
+
+  std::unique_ptr<FSWritableFile> sink(new test::StringSink());
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      std::move(sink), "external_table_mixed_seqno", FileOptions()));
+  std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
+      TableBuilderOptions(ioptions, moptions, read_options, write_options, ikc,
+                          &internal_tbl_prop_coll_factories, kNoCompression,
+                          CompressionOptions(), kUnknownColumnFamily,
+                          column_family_name, -1, kUnknownNewestKeyTime),
+      file_writer.get()));
+  ASSERT_NE(builder, nullptr);
+
+  InternalKey first("a", 7, kTypeValue);
+  builder->Add(first.Encode(), "value_a");
+  ASSERT_OK(builder->status());
+
+  InternalKey second("b", 8, kTypeValue);
+  builder->Add(second.Encode(), "value_b");
+  ASSERT_TRUE(builder->status().IsNotSupported());
+
+  Status s = builder->Finish();
+  ASSERT_TRUE(s.IsNotSupported());
+}
+
+TEST_F(ExternalTableTest, ReaderRejectsMismatchedSeqnoProperties) {
+  // Goal: validate the defense-in-depth check between MANIFEST seqno metadata
+  // and the RocksDB properties block embedded in an external table file. The
+  // test writes a dummy external file whose properties claim seqno 7, then
+  // opens it through the table factory with manifest seqno 8 and expects a
+  // clean corruption error instead of silently restamping all keys.
+  Options options = GetDefaultOptions();
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>(
+          /*support_property_block=*/true);
+  options.table_factory = NewExternalTableFactory(factory);
+
+  std::string dir = test::PerThreadDBPath("external_table_seqno_mismatch");
+  ASSERT_OK(options.env->CreateDirIfMissing(dir));
+  std::string file_path = dir + "/mismatch.immutable";
+
+  DummyExternalTableFile file(file_path, /*file=*/nullptr);
+  TableProperties props;
+  props.comparator_name = BytewiseComparator()->Name();
+  props.num_entries = 1;
+  props.raw_key_size = 1;
+  props.raw_value_size = 7;
+  props.key_smallest_seqno = 7;
+  props.key_largest_seqno = 7;
+  PropertyBlockBuilder property_block_builder;
+  property_block_builder.AddTableProperty(props);
+  ASSERT_OK(file.PutPropertiesBlock(property_block_builder.Finish()));
+  ASSERT_OK(file.Serialize({{"a", "value_a"}}));
+
+  ImmutableOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  InternalKeyComparator ikc(options.comparator);
+  std::unique_ptr<FSRandomAccessFile> source(
+      new test::StringSource("", 1, ioptions.allow_mmap_reads));
+  std::unique_ptr<RandomAccessFileReader> file_reader(
+      new RandomAccessFileReader(std::move(source), file_path));
+  std::unique_ptr<TableReader> table_reader;
+
+  Status s = options.table_factory->NewTableReader(
+      TableReaderOptions(
+          ioptions, moptions.prefix_extractor,
+          moptions.compression_manager.get(), EnvOptions(), ikc,
+          0 /* block_protection_bytes_per_key */, /*skip_filters=*/false,
+          /*immortal=*/false, /*force_direct_prefetch=*/false, -1,
+          /*block_cache_tracer=*/nullptr,
+          /*max_file_size_for_l0_meta_pin=*/0, "", 1, kNullUniqueId64x2,
+          /*largest_seqno=*/8),
+      std::move(file_reader), file.FileSize(), &table_reader);
+  ASSERT_TRUE(s.IsCorruption());
+}
+
+TEST_F(ExternalTableTest, IngestionAssignedSeqnoSnapshotVisibility) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
+  Options options = GetDefaultOptions();
+  options.disable_auto_compactions = true;
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>(
+          /*support_property_block=*/true);
+  options.table_factory = NewExternalTableFactory(factory);
+
+  Reopen(options);
+
+  // Goal: validate the file-wide seqno assigned during overlapping external
+  // table ingestion. The base file remains visible to an old snapshot, while
+  // the later overlapping file is visible to latest reads and after reopen.
+  std::string base_file = dbname_ + "/base.immutable";
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(base_file));
+  ASSERT_OK(writer->Put("foo", "base"));
+  ASSERT_OK(writer->Put("foo2", "base2"));
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  IngestExternalFileOptions ifo;
+  ifo.fill_cache = false;
+  ASSERT_OK(db_->IngestExternalFile({base_file}, ifo));
+
+  // Bump LastSequence() before taking the snapshot. This makes the later
+  // overlapping ingestion receive a strictly newer assigned seqno and verifies
+  // the old snapshot is filtered by that seqno, not by file placement alone.
+  ASSERT_OK(Put("aaa", "bump"));
+
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_NE(snapshot, nullptr);
+
+  std::string overlay_file = dbname_ + "/overlay.immutable";
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(overlay_file));
+  ASSERT_OK(writer->Put("foo", "overlay"));
+  ASSERT_OK(writer->Put("foo2", "overlay2"));
+  ASSERT_OK(writer->Put("foo3", "overlay3"));
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  SequenceNumber overlay_assigned_seqno = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "ExternalSstFileIngestionJob::Run", [&](void* arg) {
+        overlay_assigned_seqno = *static_cast<SequenceNumber*>(arg);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status ingest_status = db_->IngestExternalFile({overlay_file}, ifo);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(ingest_status);
+  ASSERT_GT(overlay_assigned_seqno, snapshot->GetSequenceNumber());
+
+  PinnableSlice value;
+  ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "foo", &value));
+  ASSERT_EQ(value, "overlay");
+  value.Reset();
+  ASSERT_OK(
+      db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "foo3", &value));
+  ASSERT_EQ(value, "overlay3");
+  value.Reset();
+
+  // Also validate the exact visibility boundary. A snapshot taken immediately
+  // after ingestion should have sequence number equal to the file-wide assigned
+  // seqno, and strict `global_seqno > snapshot_seq` filtering must still make
+  // the overlay visible at that boundary.
+  const Snapshot* boundary_snapshot = db_->GetSnapshot();
+  ASSERT_NE(boundary_snapshot, nullptr);
+  ASSERT_EQ(overlay_assigned_seqno, boundary_snapshot->GetSequenceNumber());
+  ReadOptions boundary_ro;
+  boundary_ro.snapshot = boundary_snapshot;
+  ASSERT_OK(db_->Get(boundary_ro, db_->DefaultColumnFamily(), "foo", &value));
+  ASSERT_EQ(value, "overlay");
+  value.Reset();
+  std::unique_ptr<Iterator> boundary_iter(db_->NewIterator(boundary_ro));
+  ASSERT_NE(boundary_iter, nullptr);
+  boundary_iter->Seek("foo");
+  ASSERT_TRUE(boundary_iter->Valid());
+  ASSERT_EQ(boundary_iter->key(), "foo");
+  ASSERT_EQ(boundary_iter->value(), "overlay");
+  boundary_iter->Next();
+  ASSERT_TRUE(boundary_iter->Valid());
+  ASSERT_EQ(boundary_iter->key(), "foo2");
+  ASSERT_EQ(boundary_iter->value(), "overlay2");
+  ASSERT_OK(boundary_iter->status());
+  boundary_iter.reset();
+  db_->ReleaseSnapshot(boundary_snapshot);
+
+  std::unique_ptr<Iterator> latest_iter(db_->NewIterator(ReadOptions()));
+  ASSERT_NE(latest_iter, nullptr);
+  latest_iter->SeekForPrev("foo4");
+  ASSERT_TRUE(latest_iter->Valid());
+  ASSERT_EQ(latest_iter->key(), "foo3");
+  ASSERT_EQ(latest_iter->value(), "overlay3");
+  latest_iter->Prev();
+  ASSERT_TRUE(latest_iter->Valid());
+  ASSERT_EQ(latest_iter->key(), "foo2");
+  ASSERT_EQ(latest_iter->value(), "overlay2");
+  latest_iter->Prev();
+  ASSERT_TRUE(latest_iter->Valid());
+  ASSERT_EQ(latest_iter->key(), "foo");
+  ASSERT_EQ(latest_iter->value(), "overlay");
+  ASSERT_OK(latest_iter->status());
+  latest_iter.reset();
+
+  ReadOptions snapshot_ro;
+  snapshot_ro.snapshot = snapshot;
+  ASSERT_OK(db_->Get(snapshot_ro, db_->DefaultColumnFamily(), "foo", &value));
+  ASSERT_EQ(value, "base");
+  value.Reset();
+  ASSERT_OK(db_->Get(snapshot_ro, db_->DefaultColumnFamily(), "foo2", &value));
+  ASSERT_EQ(value, "base2");
+  value.Reset();
+  Status s = db_->Get(snapshot_ro, db_->DefaultColumnFamily(), "foo3", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  value.Reset();
+
+  std::unique_ptr<Iterator> snapshot_iter(db_->NewIterator(snapshot_ro));
+  ASSERT_NE(snapshot_iter, nullptr);
+  snapshot_iter->Seek("foo");
+  ASSERT_TRUE(snapshot_iter->Valid());
+  ASSERT_EQ(snapshot_iter->key(), "foo");
+  ASSERT_EQ(snapshot_iter->value(), "base");
+  snapshot_iter->Next();
+  ASSERT_TRUE(snapshot_iter->Valid());
+  ASSERT_EQ(snapshot_iter->key(), "foo2");
+  ASSERT_EQ(snapshot_iter->value(), "base2");
+  snapshot_iter->Next();
+  ASSERT_FALSE(snapshot_iter->Valid());
+  ASSERT_OK(snapshot_iter->status());
+  snapshot_iter.reset();
+
+  std::unique_ptr<Iterator> snapshot_reverse_iter(
+      db_->NewIterator(snapshot_ro));
+  ASSERT_NE(snapshot_reverse_iter, nullptr);
+  snapshot_reverse_iter->SeekForPrev("foo3");
+  ASSERT_TRUE(snapshot_reverse_iter->Valid());
+  ASSERT_EQ(snapshot_reverse_iter->key(), "foo2");
+  ASSERT_EQ(snapshot_reverse_iter->value(), "base2");
+  snapshot_reverse_iter->Prev();
+  ASSERT_TRUE(snapshot_reverse_iter->Valid());
+  ASSERT_EQ(snapshot_reverse_iter->key(), "foo");
+  ASSERT_EQ(snapshot_reverse_iter->value(), "base");
+  ASSERT_OK(snapshot_reverse_iter->status());
+  snapshot_reverse_iter.reset();
+
+  db_->ReleaseSnapshot(snapshot);
+
+  auto has_assigned_seqno = [](const ColumnFamilyMetaData& cf_meta) {
+    for (const auto& level : cf_meta.levels) {
+      for (const auto& file : level.files) {
+        if (file.largest_seqno > 0) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_TRUE(has_assigned_seqno(cf_meta));
+
+  Reopen(options);
+  ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "foo", &value));
+  ASSERT_EQ(value, "overlay");
+  value.Reset();
+
+  ColumnFamilyMetaData reopened_meta;
+  db_->GetColumnFamilyMetaData(&reopened_meta);
+  ASSERT_TRUE(has_assigned_seqno(reopened_meta));
 }
 
 class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
