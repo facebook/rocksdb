@@ -548,6 +548,311 @@ TEST_F(DBBasicTest, OptimizeManifestForRecoverySkipsDroppedCF) {
   ASSERT_EQ("v2", Get(1, "k"));
 }
 
+// reuse_manifest_on_open=true: the next LogAndApply after Recover must
+// append to the existing MANIFEST file instead of allocating a fresh
+// one. Force a write after reopen and verify the MANIFEST file number
+// stays unchanged.
+TEST_F(DBBasicTest, ReuseManifestOnOpenAppendsToExistingFile) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.reuse_manifest_on_open = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  Reopen(options);
+  const uint64_t manifest_after_reopen =
+      dbfull()->TEST_Current_Manifest_FileNo();
+  ASSERT_OK(Put("k2", "v2"));
+  ASSERT_OK(Flush());
+  const uint64_t manifest_after_flush =
+      dbfull()->TEST_Current_Manifest_FileNo();
+
+  EXPECT_EQ(manifest_after_reopen, manifest_after_flush);
+  EXPECT_EQ("v", Get("k"));
+  EXPECT_EQ("v2", Get("k2"));
+}
+
+// Default off: ReopenManifestForAppend must NOT be invoked.
+TEST_F(DBBasicTest, ReuseManifestOnOpenDefaultOffSkipsReopen) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  // reuse_manifest_on_open defaults to false
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  std::atomic<int> reopened{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ReopenManifestForAppend:Reopened",
+      [&](void* /*arg*/) { reopened.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Reopen(options);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(0, reopened.load());
+}
+
+// Regression for the WritableFileWriter::filesize_=0 bug fixed via
+// constructor-time initial_file_size: after ReopenManifestForAppend binds a
+// writer to the existing MANIFEST, GetFileSize() must return the on-disk
+// size, not 0.
+// (If it returned 0, the size-limit check in ProcessManifestWrites would
+// compare against 0 and Close-time Truncate could shrink the file.)
+TEST_F(DBBasicTest, ReuseManifestOnOpenAdoptsOnDiskSize) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.reuse_manifest_on_open = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  // Capture the on-disk MANIFEST size before reopen.
+  Reopen(options);
+  const uint64_t manifest_no = dbfull()->TEST_Current_Manifest_FileNo();
+  const std::string manifest_path = DescriptorFileName(dbname_, manifest_no);
+  uint64_t on_disk_size = 0;
+  ASSERT_OK(env_->GetFileSize(manifest_path, &on_disk_size));
+  ASSERT_GT(on_disk_size, 0u);
+
+  // Force a write to flush the writer's buffer; verify Close doesn't
+  // shrink the file (which would happen if Truncate(filesize_=0) ran).
+  ASSERT_OK(Put("k2", "v2"));
+  ASSERT_OK(Flush());
+  Close();
+
+  uint64_t after_close_size = 0;
+  ASSERT_OK(env_->GetFileSize(manifest_path, &after_close_size));
+  EXPECT_GE(after_close_size, on_disk_size);
+}
+
+// MANIFEST rotation continues to work under reuse: when the file grows
+// past tuned_max_manifest_file_size_, ProcessManifestWrites must rotate
+// to a fresh MANIFEST (same as legacy). Use the rotation SyncPoint to
+// observe rotation directly, since tuned_max_manifest_file_size_ is
+// auto-derived and not directly = max_manifest_file_size.
+TEST_F(DBBasicTest, ReuseManifestOnOpenStillRotatesOnSizeCap) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.reuse_manifest_on_open = true;
+  options.max_manifest_file_size = 1;
+  options.max_manifest_space_amp_pct = 0;  // disable amp-based tuning
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  std::atomic<int> rotations{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:BeforeNewManifest",
+      [&](void* /*arg*/) { rotations.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Reopen(options);
+  ASSERT_OK(Put("k2", "v2"));
+  ASSERT_OK(Flush());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // The Flush after Reopen must have triggered a rotation given the
+  // tiny size cap — proves the size-driven rotation path still runs
+  // when descriptor_log_ is bound by reuse.
+  EXPECT_GT(rotations.load(), 0);
+  EXPECT_EQ("v", Get("k"));
+  EXPECT_EQ("v2", Get("k2"));
+}
+
+// Multi-CF reuse: append-mode MANIFEST must correctly handle edits
+// from multiple CFs after reopen.
+TEST_F(DBBasicTest, ReuseManifestOnOpenMultiCF) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.reuse_manifest_on_open = true;
+  CreateAndReopenWithCF({"alpha", "beta"}, options);
+  ASSERT_OK(Put(0, "k", "v0"));
+  ASSERT_OK(Put(1, "k", "v1"));
+  ASSERT_OK(Put(2, "k", "v2"));
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Flush(2));
+  Close();
+
+  ReopenWithColumnFamilies({"default", "alpha", "beta"}, options);
+  // Trigger more writes post-reopen on each CF — these get appended to
+  // the reused MANIFEST.
+  ASSERT_OK(Put(0, "k2", "v0b"));
+  ASSERT_OK(Put(1, "k2", "v1b"));
+  ASSERT_OK(Put(2, "k2", "v2b"));
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Flush(2));
+
+  EXPECT_EQ("v0", Get(0, "k"));
+  EXPECT_EQ("v1", Get(1, "k"));
+  EXPECT_EQ("v2", Get(2, "k"));
+  EXPECT_EQ("v0b", Get(0, "k2"));
+  EXPECT_EQ("v1b", Get(1, "k2"));
+  EXPECT_EQ("v2b", Get(2, "k2"));
+}
+
+// Disabled under best_efforts_recovery: that mode rebuilds CURRENT and
+// MANIFEST as the side-effect of LogAndApplyForRecovery emitting an
+// edit; reusing the prior MANIFEST contradicts the salvage contract.
+TEST_F(DBBasicTest, ReuseManifestOnOpenDisabledByBestEffortsRecovery) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.reuse_manifest_on_open = true;
+  options.best_efforts_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  std::atomic<int> reopened{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ReopenManifestForAppend:Reopened",
+      [&](void* /*arg*/) { reopened.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Reopen(options);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(0, reopened.load());
+  ASSERT_EQ("v", Get("k"));
+}
+
+// Full-stack composition: optimize_manifest_for_recovery plus
+// reuse_manifest_on_open. Verifies that Close writes recovery markers,
+// Reopen skips clean-recovery MANIFEST edits, and the MANIFEST is reused
+// instead of recreated for the next metadata update.
+TEST_F(DBBasicTest, ReuseManifestOnOpenFullStackComposition) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  options.reuse_manifest_on_open = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  // Capture the MANIFEST file number before reopen.
+  std::atomic<int> reopened{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ReopenManifestForAppend:Reopened",
+      [&](void* /*arg*/) { reopened.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Reopen(options);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // All three composing: reuse fired, data is intact, no fresh MANIFEST.
+  EXPECT_EQ(1, reopened.load());
+  EXPECT_EQ("v", Get("k"));
+}
+
+// Direct unit test for WritableFileWriter's initial_file_size parameter:
+// verifies the visible size accessors report the existing on-disk size
+// immediately, rather than the constructor's zero default.
+TEST_F(DBBasicTest, WritableFileWriterInitialFileSizeAdoptsExistingSize) {
+  Env* env = Env::Default();
+  std::string fname = test::PerThreadDBPath("set_file_size_test");
+  ASSERT_OK(env->CreateDirIfMissing(test::TmpDir(env)));
+
+  // Create a file with some bytes, close it.
+  {
+    std::unique_ptr<WritableFile> raw;
+    ASSERT_OK(env->NewWritableFile(fname, &raw, EnvOptions()));
+    ASSERT_OK(raw->Append("hello world"));
+    ASSERT_OK(raw->Close());
+  }
+
+  // Reopen and wrap in a WritableFileWriter without initial_file_size —
+  // GetFileSize() should be 0 (the constructor's default).
+  std::unique_ptr<FSWritableFile> fs_file;
+  ASSERT_OK(env->GetFileSystem()->ReopenWritableFile(
+      fname, FileOptions(), &fs_file, /*dbg=*/nullptr));
+  std::unique_ptr<WritableFileWriter> writer(
+      new WritableFileWriter(std::move(fs_file), fname, FileOptions()));
+  EXPECT_EQ(0u, writer->GetFileSize());
+
+  // Reopen again and seed the writer's size accounting from the existing
+  // bytes. GetFileSize and GetFlushedSize must reflect it immediately.
+  ASSERT_OK(env->GetFileSystem()->ReopenWritableFile(
+      fname, FileOptions(), &fs_file, /*dbg=*/nullptr));
+  writer.reset(new WritableFileWriter(
+      std::move(fs_file), fname, FileOptions(),
+      /*clock=*/nullptr, /*io_tracer=*/nullptr, /*stats=*/nullptr,
+      Histograms::HISTOGRAM_ENUM_MAX, /*listeners=*/{},
+      /*file_checksum_gen_factory=*/nullptr,
+      /*perform_data_verification=*/false,
+      /*buffered_data_with_checksum=*/false,
+      /*initial_file_size=*/11));
+  EXPECT_EQ(11u, writer->GetFileSize());
+  EXPECT_EQ(11u, writer->GetFlushedSize());
+
+  ASSERT_OK(env->DeleteFile(fname));
+}
+
+// Tail corruption: appending garbage bytes to the MANIFEST after a
+// clean close must prevent reuse — the physical size exceeds the
+// last valid record end.
+TEST_F(DBBasicTest, ReuseManifestOnOpenSkipsOnTailCorruption) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.reuse_manifest_on_open = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  // Find the MANIFEST file and append garbage to it.
+  std::string manifest_path;
+  {
+    std::vector<std::string> files;
+    ASSERT_OK(env_->GetChildren(dbname_, &files));
+    for (const auto& f : files) {
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(f, &number, &type) && type == kDescriptorFile) {
+        manifest_path = dbname_ + "/" + f;
+        break;
+      }
+    }
+  }
+  ASSERT_FALSE(manifest_path.empty());
+  {
+    std::string contents;
+    ASSERT_OK(ReadFileToString(env_, manifest_path, &contents));
+    contents.append("garbage!");
+    ASSERT_OK(WriteStringToFile(env_, contents, manifest_path));
+  }
+
+  std::atomic<int> reopened{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ReopenManifestForAppend:Reopened",
+      [&](void* /*arg*/) { reopened.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Reopen(options);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(0, reopened.load());
+  ASSERT_EQ("v", Get("k"));
+}
+
 TEST_F(DBBasicTest, EnableDirectIOWithZeroBuf) {
   if (!IsDirectIOSupported()) {
     ROCKSDB_GTEST_BYPASS("Direct IO not supported");

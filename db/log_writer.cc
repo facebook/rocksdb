@@ -22,9 +22,10 @@ namespace ROCKSDB_NAMESPACE::log {
 
 Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
                bool recycle_log_files, bool manual_flush,
-               CompressionType compression_type, bool track_and_verify_wals)
+               CompressionType compression_type, bool track_and_verify_wals,
+               size_t initial_block_offset)
     : dest_(std::move(dest)),
-      block_offset_(0),
+      block_offset_(initial_block_offset),
       log_number_(log_number),
       recycle_log_files_(recycle_log_files),
       // Header size varies depending on whether we are recycling or not.

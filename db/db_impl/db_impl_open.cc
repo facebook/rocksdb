@@ -997,7 +997,11 @@ Status DBImpl::InitPersistStatsColumnFamily() {
 
 Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
   mutex_.AssertHeld();
-  assert(versions_->descriptor_log_ == nullptr);
+  // descriptor_log_ is normally null after Recover, but when
+  // reuse_manifest_on_open is set VersionSet::Recover may have already
+  // bound a log::Writer to the existing MANIFEST for append.
+  assert(versions_->descriptor_log_ == nullptr ||
+         immutable_db_options_.reuse_manifest_on_open);
   const ReadOptions read_options(Env::IOActivity::kDBOpen);
   const WriteOptions write_options(Env::IOActivity::kDBOpen);
 

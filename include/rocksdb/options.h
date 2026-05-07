@@ -1012,6 +1012,25 @@ struct DBOptions {
   // correct and eventually always enabled. Mutable via SetDBOptions().
   bool optimize_manifest_for_recovery = false;
 
+  // EXPERIMENTAL: If true, DB::Open can try to reuse the existing MANIFEST
+  // for the first post-open metadata update instead of creating a fresh one.
+  // This can reduce warm-open latency for DBs whose MANIFEST is expensive to
+  // rebuild.
+  //
+  // Best-effort optimization: even when enabled, RocksDB may still create a
+  // fresh MANIFEST if the FileSystem does not support reopening the existing
+  // MANIFEST for append, or if RocksDB decides reuse is unsafe. That fallback
+  // is normal behavior.
+  //
+  // With very small `max_manifest_file_size` settings, the reused MANIFEST can
+  // still rotate earlier than expected after open, because RocksDB may keep a
+  // conservative auto-tuned rotation threshold until it later refreshes its
+  // compacted-size estimate.
+  //
+  // Temporary rollout / kill switch while this optimization is being
+  // validated.
+  bool reuse_manifest_on_open = false;
+
   // This option mostly replaces max_manifest_file_size to control an auto-tuned
   // balance of manifest write amplification and space amplification. A new
   // manifest file is created with the "compacted" contents of the old one when
