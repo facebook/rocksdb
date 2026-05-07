@@ -140,6 +140,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableDBOptions, verify_manifest_content_on_close),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"optimize_manifest_for_recovery",
+         {offsetof(struct MutableDBOptions, optimize_manifest_for_recovery),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"daily_offpeak_time_utc",
          {offsetof(struct MutableDBOptions, daily_offpeak_time_utc),
           OptionType::kString, OptionVerificationType::kNormal,
@@ -1073,6 +1077,7 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       manifest_preallocation_size(options.manifest_preallocation_size),
       verify_manifest_content_on_close(
           options.verify_manifest_content_on_close),
+      optimize_manifest_for_recovery(options.optimize_manifest_for_recovery),
       fast_sst_open(options.fast_sst_open),
       daily_offpeak_time_utc(options.daily_offpeak_time_utc),
       max_compaction_trigger_wakeup_seconds(
@@ -1131,6 +1136,8 @@ void MutableDBOptions::Dump(Logger* log) const {
       manifest_preallocation_size);
   ROCKS_LOG_HEADER(log, "      Options.verify_manifest_content_on_close: %d",
                    verify_manifest_content_on_close);
+  ROCKS_LOG_HEADER(log, "         Options.optimize_manifest_for_recovery: %d",
+                   optimize_manifest_for_recovery);
   ROCKS_LOG_HEADER(log, "Options.daily_offpeak_time_utc: %s",
                    daily_offpeak_time_utc.c_str());
   ROCKS_LOG_HEADER(log,
