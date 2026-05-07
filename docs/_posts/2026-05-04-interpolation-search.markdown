@@ -15,7 +15,7 @@ Binary search always splits the remaining range in half:
 mid = low + (high - low) / 2
 ```
 
-That's O(log n) probes regardless of the data. Interpolation search instead estimates where the target should land based on its value relative to the current boundaries:
+That's Θ(log n) probes regardless of the data. Interpolation search instead estimates where the target should land based on its value relative to the current boundaries:
 
 ```
 probe = low + (target - key[low]) * (high - low) / (key[high] - key[low])
@@ -75,6 +75,10 @@ CV     = stddev(gap) / mean(gap)
 Lower CV means the gaps are more uniform — and the more likely interpolation search will outperform binary search. The CV is computed incrementally with Welford's online algorithm, so the scan is one pass over the restart points.
 
 If `CV < uniform_cv_threshold`, RocksDB sets an `is_uniform` bit in the block footer. At read time, `kAuto` resolves to `kInterpolation` only when that bit is set *and* the comparator is bytewise; otherwise it uses `kBinary`.
+
+### Write overhead
+
+Computing the `is_uniform` bit is a cheap operation as it is only computed for the index blocks in a SST file. CPU profiling of `db_bench -benchmarks=fillseq,compact -compression_type=none -disable_wal=1` attributes only ~0.08% of write-path CPU to `ScanForUniformity`.
 
 After a few more releases, we plan to enable kAuto and uniform_cv_threshold by default.
 
