@@ -35,6 +35,7 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
     VersionEdit edit;
     s = edit.DecodeFrom(record);
     if (s.ok()) {
+      last_valid_record_end_ = reader.LastRecordEnd();
       s = read_buffer_.AddEdit(&edit);
     }
     if (s.ok()) {
@@ -460,6 +461,7 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
   if (s->ok()) {
     version_set_->manifest_file_size_ = reader.GetReadOffset();
     assert(version_set_->manifest_file_size_ > 0);
+    version_set_->manifest_last_valid_record_end_ = last_valid_record_end_;
     version_set_->next_file_number_.store(version_edit_params_.GetNextFile() +
                                           1);
     SequenceNumber last_seq = version_edit_params_.GetLastSequence();
