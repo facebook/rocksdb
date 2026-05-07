@@ -874,6 +874,24 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         directories_.GetDbDir(), log_buffer);
   }
 
+  if (!s.ok()) {
+    // If the atomic flush's combined MANIFEST write failed, the output files
+    // are cached in the table cache (added by BuildTable during FlushJob::Run)
+    // but never installed into any Version. Evict them now so that
+    // TEST_VerifyNoObsoleteFilesCached does not fire during Close() when the
+    // FindObsoleteFiles full-scan backstop is disabled by
+    // metadata_read_fault_one_in.
+    for (int i = 0; i != num_cfs; ++i) {
+      if (exec_status[i].first && exec_status[i].second.ok() &&
+          !switched_to_mempurge[i] && file_meta[i].fd.GetFileSize() > 0) {
+        TableCache::ReleaseObsolete(
+            cfds[i]->table_cache()->get_cache().get(),
+            file_meta[i].fd.GetNumber(), nullptr /*handle*/,
+            all_mutable_cf_options[i].uncache_aggressiveness);
+      }
+    }
+  }
+
   for (int i = 0; i != num_cfs; ++i) {
     auto* mgr = cfds[i]->blob_partition_manager();
     if (mgr == nullptr || prepared_blob_generations[i] == 0) {
