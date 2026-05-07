@@ -6257,6 +6257,7 @@ Status VersionSet::ProcessManifestWrites(
         }
         ++idx;
 #endif /* !NDEBUG */
+        TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:AddRecord");
         io_s = raw_desc_log_ptr->AddRecord(write_options, record);
         if (!io_s.ok()) {
           s = io_s;
