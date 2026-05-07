@@ -399,35 +399,55 @@ loop still keeps reading trace records until `Next()` returns EOF, footer, or
 corruption, at which point restore decides whether the trace prefix it already
 consumed was sufficient.
 
-## Debugging support
+## Offline trace inspection
 
-Three flags control replay debugging:
+`<N>.trace` uses RocksDB's generic binary query-trace format, so there is
+already an offline printer for it: `trace_analyzer`.
 
-- `--expected_state_trace_debug`
-- `--expected_state_trace_debug_key`
-- `--expected_state_trace_debug_max_logs`
+Before adding any expected-state-specific debug logging, use this tool to dump
+the trace to a readable text file. This is the easiest path for both humans
+and agents to inspect replay inputs.
 
-When enabled, restore prints lines prefixed with
-`[expected_state_trace_debug]`, including:
+Build it with:
 
-- restore begin/end markers
-- `Next()` failures such as EOF or corruption
-- per-key or per-range replay details
-- parse failures and key roundtrip mismatches
-- a replay summary with counters
+```bash
+make -j128 trace_analyzer
+```
 
-Useful counters in the summary include:
+Create an output directory first, then run:
 
-- `replayed_write_ops`
-- `key_decode_failures`
-- `key_roundtrip_mismatches`
-- `focus_key_op_hits`
-- `logs_emitted`
-- `logs_suppressed`
+```bash
+mkdir -p /tmp/trace_dump
+./trace_analyzer \
+  -trace_path=/path/to/<N>.trace \
+  -output_dir=/tmp/trace_dump \
+  -output_prefix=<N> \
+  -convert_to_human_readable_trace \
+  -try_process_corrupted_trace \
+  -no_print
+```
 
-`--expected_state_trace_debug_key=<k>` narrows logging to a particular logical
-key where possible. This is useful when the trace is large and only one key's
-history matters.
+This writes:
+
+- `/tmp/trace_dump/<N>-human_readable_trace.txt`
+
+The line format is:
+
+- normal record: `<hex_key> type_id cf_id value_size timestamp_us`
+- range delete: `<begin_hex> <end_hex> type_id cf_id 0 timestamp_us`
+
+Useful flags:
+
+- `-no_key` omits the hex key columns to reduce output size
+- `-try_process_corrupted_trace` is recommended for `db_stress` crash traces,
+  since they can legitimately have a truncated or corrupt tail record
+
+Two important caveats:
+
+- `trace_analyzer` expects `-output_dir` to already exist
+- expected-state replay only needs the write prefix of the trace, but the file
+  format itself is the generic RocksDB trace format rather than an
+  expected-state-specific one
 
 ## Crash-safety rules encoded in file deletion order
 
