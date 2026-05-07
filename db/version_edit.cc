@@ -109,6 +109,17 @@ Status FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
 
 void VersionEdit::Clear() { *this = VersionEdit(); }
 
+bool VersionEdit::ShouldEmitPerColumnFamilyRecoveryEdit(
+    uint64_t current_log_number) const {
+  return (HasLogNumber() && GetLogNumber() > current_log_number) ||
+         NumEntries() > 0 || HasComparatorName() || HasPrevLogNumber() ||
+         HasNextFile() || HasMaxColumnFamily() || HasMinLogNumberToKeep() ||
+         HasLastSequence() || !GetCompactCursors().empty() || HasDbId() ||
+         IsColumnFamilyManipulation() || IsInAtomicGroup() ||
+         HasFullHistoryTsLow() || HasPersistUserDefinedTimestamps() ||
+         HasSubcompactionProgress();
+}
+
 bool VersionEdit::EncodeTo(std::string* dst,
                            std::optional<size_t> ts_sz) const {
   assert(!IsNoManifestWriteDummy());

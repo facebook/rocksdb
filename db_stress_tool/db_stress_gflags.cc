@@ -1133,6 +1133,10 @@ DEFINE_bool(write_dbid_to_manifest,
             ROCKSDB_NAMESPACE::Options().write_dbid_to_manifest,
             "Write DB_ID to manifest");
 
+DEFINE_bool(optimize_manifest_for_recovery,
+            ROCKSDB_NAMESPACE::Options().optimize_manifest_for_recovery,
+            "Reduce recovery work after a clean shutdown");
+
 DEFINE_bool(write_identity_file,
             ROCKSDB_NAMESPACE::Options().write_identity_file,
             "Write DB_ID to IDENTITY file");
