@@ -152,7 +152,12 @@ class Cache : public Customizable {
 
     // For helpers without SecondaryCache support
     explicit CacheItemHelper(CacheEntryRole _role, DeleterFn _del_cb = nullptr)
-        : CacheItemHelper(_role, _del_cb, nullptr, nullptr, nullptr, this) {}
+        : del_cb(_del_cb),
+          size_cb(nullptr),
+          saveto_cb(nullptr),
+          create_cb(nullptr),
+          role(_role),
+          without_secondary_compat(this) {}
 
     // For helpers with SecondaryCache support
     explicit CacheItemHelper(CacheEntryRole _role, DeleterFn _del_cb,
