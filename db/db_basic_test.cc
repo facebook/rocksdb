@@ -102,6 +102,241 @@ TEST_F(DBBasicTest, OpenWhenOpen) {
   ASSERT_TRUE(strstr(s.getState(), "lock ") != nullptr);
 }
 
+namespace {
+// Helper that captures per-branch SkippedNoopEdit counts for tests.
+struct RecoveryOptimizationCounters {
+  std::atomic<int> setup_dbid{0};
+  std::atomic<int> per_cf{0};
+  std::atomic<int> wal_deletion{0};
+  std::atomic<int> next_file_number{0};
+
+  void Install() {
+    auto* sp = ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
+    sp->SetCallBack("DBImpl::Recovery:SkippedNoopEdit:SetupDBId",
+                    [this](void*) { setup_dbid.fetch_add(1); });
+    sp->SetCallBack("DBImpl::Recovery:SkippedNoopEdit:PerCF",
+                    [this](void*) { per_cf.fetch_add(1); });
+    sp->SetCallBack("DBImpl::Recovery:SkippedNoopEdit:WalDeletion",
+                    [this](void*) { wal_deletion.fetch_add(1); });
+    sp->SetCallBack("DBImpl::Recovery:SkippedNoopEdit:NextFileNumber",
+                    [this](void*) { next_file_number.fetch_add(1); });
+    sp->EnableProcessing();
+  }
+  void Uninstall() {
+    auto* sp = ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
+    sp->DisableProcessing();
+    sp->ClearAllCallBacks();
+  }
+};
+}  // namespace
+
+// optimize_manifest_for_recovery=true: a clean reopen of a flushed DB must
+// append fewer individual records to the MANIFEST than the default-off path.
+// Verified by counting AddRecord calls (one per VersionEdit written to the
+// MANIFEST log).
+TEST_F(DBBasicTest,
+       OptimizeManifestForRecoveryReducesManifestWritesOnCleanReopen) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  auto* sp = ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
+
+  // Measure MANIFEST records with optimize_manifest_for_recovery OFF (default).
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k1", "v1"));
+  ASSERT_OK(Flush());
+  Close();
+
+  std::atomic<int> records_off{0};
+  std::atomic<int> next_file_skips_off{0};
+  sp->SetCallBack("VersionSet::ProcessManifestWrites:AddRecord",
+                  [&](void*) { records_off.fetch_add(1); });
+  sp->SetCallBack("DBImpl::Recovery:SkippedNoopEdit:NextFileNumber",
+                  [&](void*) { next_file_skips_off.fetch_add(1); });
+  sp->EnableProcessing();
+  Reopen(options);
+  sp->DisableProcessing();
+  sp->ClearAllCallBacks();
+  ASSERT_EQ("v1", Get("k1"));
+  int off_count = records_off.load();
+  ASSERT_GT(off_count, 0);
+  ASSERT_EQ(0, next_file_skips_off.load());
+  Close();
+
+  // Measure MANIFEST records with optimize_manifest_for_recovery ON.
+  options.optimize_manifest_for_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k2", "v2"));
+  ASSERT_OK(Flush());
+  Close();
+
+  std::atomic<int> records_on{0};
+  std::atomic<int> next_file_skips_on{0};
+  sp->SetCallBack("VersionSet::ProcessManifestWrites:AddRecord",
+                  [&](void*) { records_on.fetch_add(1); });
+  sp->SetCallBack("DBImpl::Recovery:SkippedNoopEdit:NextFileNumber",
+                  [&](void*) { next_file_skips_on.fetch_add(1); });
+  sp->EnableProcessing();
+  Reopen(options);
+  sp->DisableProcessing();
+  sp->ClearAllCallBacks();
+  ASSERT_EQ("v2", Get("k2"));
+  int on_count = records_on.load();
+  ASSERT_GT(next_file_skips_on.load(), 0);
+  ASSERT_LT(on_count, off_count);
+}
+
+// When the per-CF log_number actually advances, the per-CF skip must NOT
+// fire — the edit carries real information and must be emitted.
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryEmitsPerCFWhenLogAdvances) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  // Write data and close WITHOUT flushing — the WAL has un-replayed
+  // records, so on reopen recovery flushes the memtable and the per-CF
+  // edit's log_number must advance past the prior WAL.
+  Close();
+
+  RecoveryOptimizationCounters counters;
+  counters.Install();
+  Reopen(options);
+  counters.Uninstall();
+
+  ASSERT_EQ(0, counters.per_cf.load());
+  ASSERT_EQ("v", Get("k"));
+}
+
+// With track_and_verify_wals_in_manifest=true, the wal_deletion edit
+// must STILL be emitted (the DeleteWalsBefore record is required).
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryPreservesWalTracking) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  options.track_and_verify_wals_in_manifest = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  RecoveryOptimizationCounters counters;
+  counters.Install();
+  Reopen(options);
+  counters.Uninstall();
+
+  ASSERT_EQ(0, counters.wal_deletion.load());
+}
+
+// best_efforts_recovery requires a fresh MANIFEST + CURRENT to be
+// produced on every open (the salvage contract). Even with the option
+// on, none of the SkippedNoopEdit branches must fire under
+// best_efforts_recovery — otherwise CURRENT can be left missing or
+// stale (regression caught by DBBasicTest.RecoverWithNoCurrentFile and
+// DBTest2.BestEffortsRecoveryWithSstUniqueIdVerification under an
+// option-on default).
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryDisabledByBestEffortsRecovery) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  options.best_efforts_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  RecoveryOptimizationCounters counters;
+  counters.Install();
+  Reopen(options);
+  counters.Uninstall();
+
+  ASSERT_EQ(0, counters.setup_dbid.load());
+  ASSERT_EQ(0, counters.per_cf.load());
+  ASSERT_EQ(0, counters.wal_deletion.load());
+  ASSERT_EQ(0, counters.next_file_number.load());
+  ASSERT_EQ("v", Get("k"));
+}
+
+// Multi-column-family coverage: with one CF flushed and another not,
+// the un-flushed CF's edit must still be emitted.
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryMultiCF) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  CreateAndReopenWithCF({"pikachu", "raichu"}, options);
+  ASSERT_OK(Put(0, "k", "v0"));
+  ASSERT_OK(Put(1, "k", "v1"));
+  ASSERT_OK(Put(2, "k", "v2"));
+  ASSERT_OK(Flush(0));
+  // CF 1 and 2 keep dirty memtables — recovery must emit their per-CF
+  // edits (log_number advance from WAL replay).
+  Close();
+
+  RecoveryOptimizationCounters counters;
+  counters.Install();
+  ReopenWithColumnFamilies({"default", "pikachu", "raichu"}, options);
+  counters.Uninstall();
+
+  ASSERT_EQ("v0", Get(0, "k"));
+  ASSERT_EQ("v1", Get(1, "k"));
+  ASSERT_EQ("v2", Get(2, "k"));
+}
+
+// MaybeUpdateNextFileNumber's seed value (next_file_number_) makes the
+// post-loop comparison trivially true on every clean recovery, causing a
+// no-op SetNextFile edit to be appended to the MANIFEST. With
+// optimize_manifest_for_recovery=true, that emission is gated and
+// the SkippedNoopEdit:NextFileNumber sync point fires in its place.
+TEST_F(DBBasicTest, OptimizeManifestForRecoverySkipsNextFileNumber) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  RecoveryOptimizationCounters counters;
+  counters.Install();
+  Reopen(options);
+  counters.Uninstall();
+
+  ASSERT_EQ(1, counters.next_file_number.load());
+}
+
+// With option=true and a synthetic on-disk file whose number is at or
+// above next_file_number_, MaybeUpdateNextFileNumber MUST emit the
+// SetNextFile edit and advance the counter past the synthetic number.
+TEST_F(DBBasicTest,
+       OptimizeManifestForRecoveryEmitsNextFileNumberWhenJustified) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+
+  const uint64_t next_before_close =
+      dbfull()->GetVersionSet()->current_next_file_number();
+  Close();
+
+  // Drop an empty .sst with a number well above next_file_number into
+  // the DB dir. MaybeUpdateNextFileNumber must observe it and advance.
+  const uint64_t synthetic_number = next_before_close + 100;
+  const std::string synthetic_sst =
+      dbname_ + "/" + MakeTableFileName("", synthetic_number);
+  ASSERT_OK(WriteStringToFile(env_, "" /*data*/, synthetic_sst,
+                              /*should_sync=*/true));
+
+  RecoveryOptimizationCounters counters;
+  counters.Install();
+  Reopen(options);
+  counters.Uninstall();
+
+  ASSERT_EQ(0, counters.next_file_number.load());
+  ASSERT_GT(dbfull()->GetVersionSet()->current_next_file_number(),
+            synthetic_number);
+}
+
 TEST_F(DBBasicTest, EnableDirectIOWithZeroBuf) {
   if (!IsDirectIOSupported()) {
     ROCKSDB_GTEST_BYPASS("Direct IO not supported");
