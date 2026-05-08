@@ -7499,9 +7499,9 @@ Status VersionSet::WriteCurrentStateToManifest(
   // recovery time for TuneMaxManifestFileSize(). This record must come last
   // in WriteCurrentStateToManifest for an accurate size estimate.
   {
-    // Include a rough estimate of this record's own size (~20 bytes for the
+    // Include a rough estimate of this record's own size (~15 bytes for the
     // VersionEdit payload + log record header).
-    constexpr uint64_t kEstimatedRecordOverhead = 20;
+    constexpr uint64_t kEstimatedRecordOverhead = 15;
     VersionEdit edit;
     edit.SetLastCompactedManifestFileSize(log->file()->GetFileSize() +
                                           kEstimatedRecordOverhead);
