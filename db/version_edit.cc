@@ -240,6 +240,13 @@ bool VersionEdit::EncodeTo(std::string* dst,
     PutLengthPrefixedSlice(dst, progress_data);
   }
 
+  if (has_last_compacted_manifest_file_size_) {
+    PutVarint32(dst, kLastCompactedManifestFileSize);
+    std::string varint_size;
+    PutVarint64(&varint_size, last_compacted_manifest_file_size_);
+    PutLengthPrefixedSlice(dst, Slice(varint_size));
+  }
+
   return true;
 }
 
@@ -890,6 +897,17 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
+      case kLastCompactedManifestFileSize: {
+        Slice encoded;
+        if (GetLengthPrefixedSlice(&input, &encoded) &&
+            GetVarint64(&encoded, &last_compacted_manifest_file_size_)) {
+          has_last_compacted_manifest_file_size_ = true;
+        } else {
+          msg = "last compacted manifest file size";
+        }
+        break;
+      }
+
       default:
         if (tag & kTagSafeIgnoreMask) {
           // Tag from future which can be safely ignored.
@@ -1064,6 +1082,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n SubcompactionProgress: ");
     r.append(subcompaction_progress_.ToString());
   }
+  if (has_last_compacted_manifest_file_size_) {
+    r.append("\n  LastCompactedManifestFileSize: ");
+    AppendNumberTo(&r, last_compacted_manifest_file_size_);
+  }
   r.append("\n}\n");
   return r;
 }
@@ -1218,6 +1240,10 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
 
   if (HasSubcompactionProgress()) {
     jw << "SubcompactionProgress" << subcompaction_progress_.ToString();
+  }
+
+  if (has_last_compacted_manifest_file_size_) {
+    jw << "LastCompactedManifestFileSize" << last_compacted_manifest_file_size_;
   }
 
   jw.EndObject();

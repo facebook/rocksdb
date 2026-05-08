@@ -642,6 +642,11 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
              version_edit_params_.GetLastSequence() <= edit.GetLastSequence());
       version_edit_params_.SetLastSequence(edit.GetLastSequence());
     }
+    if (edit.HasLastCompactedManifestFileSize()) {
+      version_set_->last_compacted_manifest_file_size_ =
+          edit.GetLastCompactedManifestFileSize();
+      version_set_->TuneMaxManifestFileSize();
+    }
     if (!version_edit_params_.HasPrevLogNumber()) {
       version_edit_params_.SetPrevLogNumber(0);
     }

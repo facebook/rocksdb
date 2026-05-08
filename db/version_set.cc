@@ -7494,6 +7494,28 @@ Status VersionSet::WriteCurrentStateToManifest(
       }
     }
   }
+
+  // Record the approximate compacted manifest size so it's available at
+  // recovery time for TuneMaxManifestFileSize(). This record must come last
+  // in WriteCurrentStateToManifest for an accurate size estimate.
+  {
+    // Include a rough estimate of this record's own size (~20 bytes for the
+    // VersionEdit payload + log record header).
+    constexpr uint64_t kEstimatedRecordOverhead = 20;
+    VersionEdit edit;
+    edit.SetLastCompactedManifestFileSize(log->file()->GetFileSize() +
+                                          kEstimatedRecordOverhead);
+    std::string record;
+    if (!edit.EncodeTo(&record)) {
+      return Status::Corruption("Unable to Encode VersionEdit:" +
+                                edit.DebugString(true));
+    }
+    io_s = log->AddRecord(write_options, record);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+  }
+
   return Status::OK();
 }
 

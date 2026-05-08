@@ -145,6 +145,62 @@ TEST_F(DBEtc3Test, AutoTuneManifestSize) {
   AddCfFn();
   ASSERT_LT(prev_manifest_num, cur_manifest_num);
 
+  // ---- Verify persisted compacted manifest size survives close/reopen ----
+  // Close with CFs still live. Reopen with reuse_manifest_on_open so the
+  // manifest is NOT rewritten from scratch. The persisted compacted size
+  // should be loaded and used for auto-tuning.
+  // At this point we have 7 CF handles plus default.
+  ASSERT_EQ(handles.size(), 7U);
+
+  // Collect CF names for reopen, then release handles (Close needs this)
+  std::vector<std::string> cf_names = {"default"};
+  for (auto* h : handles) {
+    cf_names.push_back(h->GetName());
+  }
+  for (auto* h : handles) {
+    ASSERT_OK(db_->DestroyColumnFamilyHandle(h));
+  }
+  handles.clear();
+
+  Close();
+  // Use a large max_manifest_file_size so the reused manifest (which is
+  // already ~10KB) does NOT trigger rotation on the first few writes.
+  // Auto-tuning with the persisted compacted size (~5KB) at 200% amp
+  // gives a tuned threshold of ~15KB. Without persistence, the threshold
+  // would be max(max_manifest_file_size, 0 * anything) =
+  // max_manifest_file_size.
+  //
+  // We set max_manifest_file_size to two values to distinguish:
+  // - 3000: if persisted compacted size is NOT loaded, tuned = 3000,
+  //   and the first AddCf will rotate (manifest is already ~10KB > 3000)
+  // - With persisted compacted size loaded, tuned = max(3000, 5000*3) = 15000,
+  //   so no rotation until we exceed 15KB
+  Close();
+  options.max_manifest_file_size = 3000;
+  options.max_manifest_space_amp_pct = 200;
+  options.reuse_manifest_on_open = true;
+  uint64_t manifest_num_before_reopen = cur_manifest_num;
+  ReopenWithColumnFamilies(cf_names, options);
+  cur_manifest_num = dbfull()->TEST_Current_Manifest_FileNo();
+
+  // With persistence: the manifest file number should NOT have changed
+  // during reopen, because the persisted compacted size keeps the tuned
+  // threshold high enough. Without persistence, last_compacted = 0, so
+  // tuned = max_manifest_file_size = 3000, and the first LogAndApply
+  // during Open rotates the manifest because it's already ~10KB > 3000.
+  ASSERT_EQ(manifest_num_before_reopen, cur_manifest_num);
+
+  // Adding CFs should still not trigger rotation because the tuned
+  // threshold (~15KB) exceeds the current manifest size (~10KB + adds).
+  for (int i = 1; i <= 4; ++i) {
+    AddCfFn();
+    ASSERT_EQ(prev_manifest_num, cur_manifest_num);
+  }
+  for (int i = 1; i <= 4; ++i) {
+    AddCfFn();
+    ASSERT_EQ(prev_manifest_num, cur_manifest_num);
+  }
+
   // Wrap up
   while (!handles.empty()) {
     DropCfFn();
