@@ -2243,8 +2243,10 @@ void Version::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   uint64_t oldest_time = std::numeric_limits<uint64_t>::max();
   for (int level = 0; level < storage_info_.num_non_empty_levels_; level++) {
     for (FileMetaData* meta : storage_info_.LevelFiles(level)) {
-      assert(meta->fd.pinned_reader.Get() != nullptr);
       uint64_t file_creation_time = meta->TryGetFileCreationTime();
+      TEST_SYNC_POINT_CALLBACK(
+          "Version::GetCreationTimeOfOldestFile::FileCreationTime",
+          &file_creation_time);
       if (file_creation_time == kUnknownFileCreationTime) {
         *creation_time = 0;
         return;
