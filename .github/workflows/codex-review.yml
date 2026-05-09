@@ -11,8 +11,9 @@ on:
     workflows: ["facebook/rocksdb/pr-jobs"]
     types: [completed]
 
-  # The early pull_request_target path is limited to same-repo PRs by the job
-  # condition below. Fork PRs skip this path and rely on workflow_run instead.
+  # The early pull_request_target path also handles fork PRs. The shared
+  # workflow keeps the runner on the trusted base checkout and runs Codex in a
+  # read-only sandbox.
   pull_request_target:
     types: [opened, reopened, synchronize]
 
@@ -50,9 +51,6 @@ permissions:
 
 jobs:
   review:
-    if: >-
-      github.event_name != 'pull_request_target' ||
-      github.event.pull_request.head.repo.full_name == github.repository
     uses: ./.github/workflows/ai-review-analysis.yml
     with:
       provider: codex

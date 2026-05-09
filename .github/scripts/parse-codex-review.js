@@ -2,13 +2,10 @@
 //
 // Usage from actions/github-script:
 //   const parse = require('./.github/scripts/parse-codex-review.js');
-//   const markdown = parse({ responseFile, recoveryFile, findingsFile, logFile,
-//   exitCode, meta });
+//   const markdown = parse({ responseFile, logFile, exitCode, meta });
 //
 // Parameters:
 //   responseFile - path to Codex final response output
-//   recoveryFile - path to recovery output formatted from review-findings.md
-//   findingsFile - path to incremental findings file written during review
 //   logFile      - path to Codex stdout/stderr log
 //   exitCode     - Codex process exit code
 //   meta         - { trigger, autoMode, headSha, reviewer, isQuery, isPartial }
@@ -17,7 +14,7 @@ const fs = require('fs');
 const buildComment = require('./build-ai-review-comment.js');
 
 module.exports = function parseCodex(
-    {responseFile, recoveryFile, findingsFile, logFile, exitCode, meta}) {
+    {responseFile, logFile, exitCode, meta}) {
   function getTriggerLine() {
     if (meta.trigger !== 'auto') {
       return `*Requested by @${meta.reviewer}*`;
@@ -50,19 +47,10 @@ module.exports = function parseCodex(
   }
 
   let responseBody = '';
-  const recovered = readIfPresent(recoveryFile);
   const direct = readIfPresent(responseFile);
-  const findings = readIfPresent(findingsFile);
 
-  if (recovered) {
-    responseBody = recovered;
-  } else if (direct) {
+  if (direct) {
     responseBody = direct;
-  } else if (findings) {
-    responseBody =
-        '⚠️ **Review incomplete — Codex did not produce a final response.**\n\n' +
-        'Below are the incremental findings recovered from `review-findings.md`.\n\n---\n\n' +
-        findings;
   } else {
     const logTail = tailFile(logFile);
     responseBody = logTail ?
