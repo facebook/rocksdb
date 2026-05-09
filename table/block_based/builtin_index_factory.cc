@@ -283,6 +283,16 @@ Slice BuiltinIndexFactoryBuilder::AddIndexEntryDirect(
                                           separator_scratch, skip);
 }
 
+void BuiltinIndexFactoryBuilder::PrepareAddEntryDirect(
+    const Slice& last_internal_key, const Slice* first_internal_key_next,
+    PreparedAddEntry* out) {
+  auto* entry = static_cast<BuiltinPreparedAddEntry*>(out);
+  // Skip the user-key reconstruction path entirely; pass the caller's
+  // internal keys straight through to the internal builder.
+  internal_builder_->PrepareIndexEntry(
+      last_internal_key, first_internal_key_next, entry->internal_entry.get());
+}
+
 // ============================================================================
 // Factory implementations
 // ============================================================================
@@ -528,6 +538,35 @@ Status PartitionedIndexFactory::NewReader(
     std::unique_ptr<IndexFactoryReader>& /*reader*/) const {
   return Status::NotSupported(
       "PartitionedIndexFactory::NewReader is not used directly.");
+}
+
+Status NewBuiltinIndexFactoryBuilder(
+    BlockBasedTableOptions::IndexType index_type,
+    const BuiltinIndexFactoryConfig& config, const IndexFactoryOptions& options,
+    std::unique_ptr<IndexFactoryBuilder>& out) {
+  // Stack-local factory objects avoid shared_ptr heap allocation. The factory
+  // is only needed for the duration of NewBuilder(); the builder it produces
+  // is independent.
+  switch (index_type) {
+    case BlockBasedTableOptions::kBinarySearch: {
+      BinarySearchIndexFactory factory(/*with_first_key=*/false, config);
+      return factory.NewBuilder(options, out);
+    }
+    case BlockBasedTableOptions::kBinarySearchWithFirstKey: {
+      BinarySearchIndexFactory factory(/*with_first_key=*/true, config);
+      return factory.NewBuilder(options, out);
+    }
+    case BlockBasedTableOptions::kHashSearch: {
+      HashIndexFactory factory(config);
+      return factory.NewBuilder(options, out);
+    }
+    case BlockBasedTableOptions::kTwoLevelIndexSearch: {
+      PartitionedIndexFactory factory(config);
+      return factory.NewBuilder(options, out);
+    }
+  }
+  // Unreachable for known IndexType values; keep the compiler happy.
+  return Status::InvalidArgument("Unknown BlockBasedTableOptions::IndexType");
 }
 
 }  // namespace ROCKSDB_NAMESPACE

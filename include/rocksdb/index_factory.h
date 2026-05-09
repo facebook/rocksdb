@@ -32,7 +32,15 @@ class Comparator;
 class PartitionCoordinator;
 
 // Prefix for meta block keys used by custom index implementations.
-inline constexpr const char* kIndexFactoryMetaPrefix = "rocksdb.index_factory.";
+//
+// The string value is intentionally kept as "rocksdb.user_defined_index." for
+// on-disk format backward compatibility — SSTs written by older RocksDB
+// versions that supported the prior UserDefinedIndex API use this exact
+// prefix and must remain readable by current code. The constant name reflects
+// the current IndexFactory abstraction; the string value reflects the stable
+// on-disk identifier.
+inline constexpr const char* kIndexFactoryMetaPrefix =
+    "rocksdb.user_defined_index.";
 
 // ============================================================================
 // IndexFactory: pluggable index for BlockBasedTable SST files.
