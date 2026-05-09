@@ -2744,6 +2744,8 @@ class DBImpl : public DB {
 
   Status MaybeReleaseTimestampedSnapshotsAndCheck();
 
+  Status MaybeWriteWalMarkersToManifestOnClose();
+
   Status CloseHelper();
 
   void WaitForBackgroundWork();

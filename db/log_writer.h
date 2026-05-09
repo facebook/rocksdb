@@ -75,15 +75,20 @@ namespace log {
 class Writer {
  public:
   // Create a writer that will append data to "*dest".
-  // "*dest" must be initially empty.
-  // "*dest" must remain live while this Writer is in use.
+  // "*dest" must remain live while this Writer is in use. By default
+  // "*dest" is expected to be empty (initial_block_offset = 0). When
+  // resuming append into an existing log file (e.g.
+  // VersionSet::ReopenManifestForAppend), pass the offset within the
+  // current 32 KiB block at which writes should resume so that record
+  // framing aligns to the existing block layout.
   // TODO(hx235): separate WAL related parameters from general `Reader`
   // parameters
   explicit Writer(std::unique_ptr<WritableFileWriter>&& dest,
                   uint64_t log_number, bool recycle_log_files,
                   bool manual_flush = false,
                   CompressionType compressionType = kNoCompression,
-                  bool track_and_verify_wals = false);
+                  bool track_and_verify_wals = false,
+                  size_t initial_block_offset = 0);
   // No copying allowed
   Writer(const Writer&) = delete;
   void operator=(const Writer&) = delete;

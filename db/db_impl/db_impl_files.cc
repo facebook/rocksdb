@@ -1186,8 +1186,9 @@ std::set<std::string> DBImpl::CollectAllDBPaths() {
 
 Status DBImpl::MaybeUpdateNextFileNumber(RecoveryContext* recovery_ctx) {
   mutex_.AssertHeld();
-  uint64_t next_file_number = versions_->current_next_file_number();
-  uint64_t largest_file_number = next_file_number;
+  const uint64_t prev_next_file_number = versions_->current_next_file_number();
+  uint64_t largest_file_number = prev_next_file_number;
+  bool on_disk_file_advanced_counter = false;
   Status s;
   for (const auto& path : CollectAllDBPaths()) {
     std::vector<std::string> files;
@@ -1201,7 +1202,15 @@ Status DBImpl::MaybeUpdateNextFileNumber(RecoveryContext* recovery_ctx) {
       if (!ParseFileName(fname, &number, &type)) {
         continue;
       }
-      const std::string normalized_fpath = path + kFilePathSeparator + fname;
+      std::string normalized_fpath = path;
+      normalized_fpath += kFilePathSeparator;
+      normalized_fpath.append(fname);
+      // Use >= so a crashed-mid-allocation file at exactly
+      // prev_next_file_number triggers the advance — otherwise the next
+      // NewFileNumber() would collide with it.
+      if (number >= prev_next_file_number) {
+        on_disk_file_advanced_counter = true;
+      }
       largest_file_number = std::max(largest_file_number, number);
       if ((type == kTableFile || type == kBlobFile)) {
         recovery_ctx->existing_data_files_.push_back(normalized_fpath);
@@ -1212,16 +1221,31 @@ Status DBImpl::MaybeUpdateNextFileNumber(RecoveryContext* recovery_ctx) {
     return s;
   }
 
-  if (largest_file_number >= next_file_number) {
-    versions_->next_file_number_.store(largest_file_number + 1);
-  }
+  // Legacy bug: initializing largest_file_number from prev_next_file_number
+  // made the post-loop check trivially true and emitted a noop SetNextFile
+  // on every recovery.
+  // Preserved verbatim by default (some tests pin file numbers); skipped
+  // only when the option is on AND we're not in salvage mode (which
+  // requires the MANIFEST rewrite this emit triggers).
+  const bool optimize_manifest_for_recovery =
+      mutable_db_options_.optimize_manifest_for_recovery &&
+      !immutable_db_options_.best_efforts_recovery;
 
-  VersionEdit edit;
-  edit.SetNextFile(versions_->next_file_number_.load());
-  assert(versions_->GetColumnFamilySet());
-  ColumnFamilyData* default_cfd = versions_->GetColumnFamilySet()->GetDefault();
-  assert(default_cfd);
-  recovery_ctx->UpdateVersionEdits(default_cfd, edit);
+  if (!optimize_manifest_for_recovery || on_disk_file_advanced_counter) {
+    if (largest_file_number >= prev_next_file_number) {
+      versions_->next_file_number_.store(largest_file_number + 1);
+    }
+    TEST_SYNC_POINT("DBImpl::MaybeUpdateNextFileNumber:EmitEdit");
+    VersionEdit edit;
+    edit.SetNextFile(versions_->next_file_number_.load());
+    assert(versions_->GetColumnFamilySet());
+    ColumnFamilyData* default_cfd =
+        versions_->GetColumnFamilySet()->GetDefault();
+    assert(default_cfd);
+    recovery_ctx->UpdateVersionEdits(default_cfd, edit);
+  } else {
+    TEST_SYNC_POINT("DBImpl::Recovery:SkippedNoopEdit:NextFileNumber");
+  }
   return s;
 }
 }  // namespace ROCKSDB_NAMESPACE

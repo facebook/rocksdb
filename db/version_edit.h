@@ -1016,6 +1016,10 @@ class VersionEdit {
     subcompaction_progress_.Clear();
   }
 
+  // Recovery-time per-column-family edits only need to be written when they
+  // advance the CF's log number or carry some other manifest state.
+  bool ShouldEmitPerColumnFamilyRecoveryEdit(uint64_t current_log_number) const;
+
   // return true on success.
   // `ts_sz` is the size in bytes for the user-defined timestamp contained in
   // a user key. This argument is optional because it's only required for

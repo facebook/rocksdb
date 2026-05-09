@@ -30,6 +30,10 @@ _NO_SPACE_SUBSTRINGS = (
     "enospc",
 )
 _OUTPUT_PATH_RE = re.compile(r"(/[^\s]+)")
+_TSAN_OPTIONS_ENV_VAR = "TSAN_OPTIONS"
+_TSAN_SUPPRESSIONS_FILE = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "tsan_suppressions.txt")
+)
 
 
 def get_random_seed(override):
@@ -49,6 +53,16 @@ def quote_arg_for_display(arg):
         return arg
     flag, value = arg.split("=", 1)
     return f"{flag}={shlex.quote(value)}"
+
+
+def stress_cmd_env():
+    env = os.environ.copy()
+    if (
+        _TSAN_OPTIONS_ENV_VAR not in env
+        and os.path.exists(_TSAN_SUPPRESSIONS_FILE)
+    ):
+        env[_TSAN_OPTIONS_ENV_VAR] = "suppressions=" + _TSAN_SUPPRESSIONS_FILE
+    return env
 
 
 def early_argument_parsing_before_main():
@@ -1905,7 +1919,9 @@ def diagnostic_paths(finalized_params):
 
 
 def execute_cmd(cmd, timeout=None, timeout_pstack=False):
-    child = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+    child = subprocess.Popen(
+        cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=stress_cmd_env()
+    )
     print(
         "Running db_stress with pid=%d: %s\n\n"
         % (child.pid, " ".join(quote_arg_for_display(arg) for arg in cmd))
@@ -2006,7 +2022,7 @@ def cleanup_after_success(dbname):
         if parts[0] in ["--env_uri", "--fs_uri"]:
             cleanup_cmd_parts.append(arg)
     print("Running DB cleanup command - %s\n" % " ".join(cleanup_cmd_parts))
-    ret = subprocess.call(cleanup_cmd_parts)
+    ret = subprocess.call(cleanup_cmd_parts, env=stress_cmd_env())
     if ret != 0:
         print("ERROR: DB cleanup returned error %d\n" % ret)
         sys.exit(2)

@@ -102,6 +102,757 @@ TEST_F(DBBasicTest, OpenWhenOpen) {
   ASSERT_TRUE(strstr(s.getState(), "lock ") != nullptr);
 }
 
+namespace {
+// Helper that captures per-branch SkippedNoopEdit counts for tests.
+struct RecoveryOptimizationCounters {
+  std::atomic<int> setup_dbid{0};
+  std::atomic<int> per_cf{0};
+  std::atomic<int> wal_deletion{0};
+  std::atomic<int> next_file_number{0};
+
+  void Install() {
+    auto* sp = ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
+    sp->SetCallBack("DBImpl::Recovery:SkippedNoopEdit:SetupDBId",
+                    [this](void*) { setup_dbid.fetch_add(1); });
+    sp->SetCallBack("DBImpl::Recovery:SkippedNoopEdit:PerCF",
+                    [this](void*) { per_cf.fetch_add(1); });
+    sp->SetCallBack("DBImpl::Recovery:SkippedNoopEdit:WalDeletion",
+                    [this](void*) { wal_deletion.fetch_add(1); });
+    sp->SetCallBack("DBImpl::Recovery:SkippedNoopEdit:NextFileNumber",
+                    [this](void*) { next_file_number.fetch_add(1); });
+    sp->EnableProcessing();
+  }
+  void Uninstall() {
+    auto* sp = ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
+    sp->DisableProcessing();
+    sp->ClearAllCallBacks();
+  }
+};
+}  // namespace
+
+// optimize_manifest_for_recovery=true: a clean reopen of a flushed DB must
+// append fewer individual records to the MANIFEST than the default-off path.
+// Verified by counting AddRecord calls (one per VersionEdit written to the
+// MANIFEST log).
+TEST_F(DBBasicTest,
+       OptimizeManifestForRecoveryReducesManifestWritesOnCleanReopen) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  auto* sp = ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
+
+  // Measure MANIFEST records with optimize_manifest_for_recovery OFF (default).
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k1", "v1"));
+  ASSERT_OK(Flush());
+  Close();
+
+  std::atomic<int> records_off{0};
+  std::atomic<int> next_file_skips_off{0};
+  sp->SetCallBack("VersionSet::ProcessManifestWrites:AddRecord",
+                  [&](void*) { records_off.fetch_add(1); });
+  sp->SetCallBack("DBImpl::Recovery:SkippedNoopEdit:NextFileNumber",
+                  [&](void*) { next_file_skips_off.fetch_add(1); });
+  sp->EnableProcessing();
+  Reopen(options);
+  sp->DisableProcessing();
+  sp->ClearAllCallBacks();
+  ASSERT_EQ("v1", Get("k1"));
+  int off_count = records_off.load();
+  ASSERT_GT(off_count, 0);
+  ASSERT_EQ(0, next_file_skips_off.load());
+  Close();
+
+  // Measure MANIFEST records with optimize_manifest_for_recovery ON.
+  options.optimize_manifest_for_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k2", "v2"));
+  ASSERT_OK(Flush());
+  Close();
+
+  std::atomic<int> records_on{0};
+  std::atomic<int> next_file_skips_on{0};
+  sp->SetCallBack("VersionSet::ProcessManifestWrites:AddRecord",
+                  [&](void*) { records_on.fetch_add(1); });
+  sp->SetCallBack("DBImpl::Recovery:SkippedNoopEdit:NextFileNumber",
+                  [&](void*) { next_file_skips_on.fetch_add(1); });
+  sp->EnableProcessing();
+  Reopen(options);
+  sp->DisableProcessing();
+  sp->ClearAllCallBacks();
+  ASSERT_EQ("v2", Get("k2"));
+  int on_count = records_on.load();
+  ASSERT_GT(next_file_skips_on.load(), 0);
+  ASSERT_LT(on_count, off_count);
+}
+
+// When the per-CF log_number actually advances, the per-CF skip must NOT
+// fire — the edit carries real information and must be emitted.
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryEmitsPerCFWhenLogAdvances) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  // Write data and close WITHOUT flushing — the WAL has un-replayed
+  // records, so on reopen recovery flushes the memtable and the per-CF
+  // edit's log_number must advance past the prior WAL.
+  Close();
+
+  RecoveryOptimizationCounters counters;
+  counters.Install();
+  Reopen(options);
+  counters.Uninstall();
+
+  ASSERT_EQ(0, counters.per_cf.load());
+  ASSERT_EQ("v", Get("k"));
+}
+
+// With track_and_verify_wals_in_manifest=true, the wal_deletion edit
+// must STILL be emitted (the DeleteWalsBefore record is required).
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryPreservesWalTracking) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  options.track_and_verify_wals_in_manifest = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  RecoveryOptimizationCounters counters;
+  counters.Install();
+  Reopen(options);
+  counters.Uninstall();
+
+  ASSERT_EQ(0, counters.wal_deletion.load());
+}
+
+// best_efforts_recovery requires a fresh MANIFEST + CURRENT to be
+// produced on every open (the salvage contract). Even with the option
+// on, none of the SkippedNoopEdit branches must fire under
+// best_efforts_recovery — otherwise CURRENT can be left missing or
+// stale (regression caught by DBBasicTest.RecoverWithNoCurrentFile and
+// DBTest2.BestEffortsRecoveryWithSstUniqueIdVerification under an
+// option-on default).
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryDisabledByBestEffortsRecovery) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  options.best_efforts_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  RecoveryOptimizationCounters counters;
+  counters.Install();
+  Reopen(options);
+  counters.Uninstall();
+
+  ASSERT_EQ(0, counters.setup_dbid.load());
+  ASSERT_EQ(0, counters.per_cf.load());
+  ASSERT_EQ(0, counters.wal_deletion.load());
+  ASSERT_EQ(0, counters.next_file_number.load());
+  ASSERT_EQ("v", Get("k"));
+}
+
+// Multi-column-family coverage: with one CF flushed and another not,
+// the un-flushed CF's edit must still be emitted.
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryMultiCF) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  CreateAndReopenWithCF({"pikachu", "raichu"}, options);
+  ASSERT_OK(Put(0, "k", "v0"));
+  ASSERT_OK(Put(1, "k", "v1"));
+  ASSERT_OK(Put(2, "k", "v2"));
+  ASSERT_OK(Flush(0));
+  // CF 1 and 2 keep dirty memtables — recovery must emit their per-CF
+  // edits (log_number advance from WAL replay).
+  Close();
+
+  RecoveryOptimizationCounters counters;
+  counters.Install();
+  ReopenWithColumnFamilies({"default", "pikachu", "raichu"}, options);
+  counters.Uninstall();
+
+  ASSERT_EQ("v0", Get(0, "k"));
+  ASSERT_EQ("v1", Get(1, "k"));
+  ASSERT_EQ("v2", Get(2, "k"));
+}
+
+// MaybeUpdateNextFileNumber's seed value (next_file_number_) makes the
+// post-loop comparison trivially true on every clean recovery, causing a
+// no-op SetNextFile edit to be appended to the MANIFEST. With
+// optimize_manifest_for_recovery=true, that emission is gated and
+// the SkippedNoopEdit:NextFileNumber sync point fires in its place.
+TEST_F(DBBasicTest, OptimizeManifestForRecoverySkipsNextFileNumber) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  RecoveryOptimizationCounters counters;
+  counters.Install();
+  Reopen(options);
+  counters.Uninstall();
+
+  ASSERT_EQ(1, counters.next_file_number.load());
+}
+
+// With option=true and a synthetic on-disk file whose number is at or
+// above next_file_number_, MaybeUpdateNextFileNumber MUST emit the
+// SetNextFile edit and advance the counter past the synthetic number.
+TEST_F(DBBasicTest,
+       OptimizeManifestForRecoveryEmitsNextFileNumberWhenJustified) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+
+  const uint64_t next_before_close =
+      dbfull()->GetVersionSet()->current_next_file_number();
+  Close();
+
+  // Drop an empty .sst with a number well above next_file_number into
+  // the DB dir. MaybeUpdateNextFileNumber must observe it and advance.
+  const uint64_t synthetic_number = next_before_close + 100;
+  const std::string synthetic_sst =
+      dbname_ + "/" + MakeTableFileName("", synthetic_number);
+  ASSERT_OK(WriteStringToFile(env_, "" /*data*/, synthetic_sst,
+                              /*should_sync=*/true));
+
+  RecoveryOptimizationCounters counters;
+  counters.Install();
+  Reopen(options);
+  counters.Uninstall();
+
+  ASSERT_EQ(0, counters.next_file_number.load());
+  ASSERT_GT(dbfull()->GetVersionSet()->current_next_file_number(),
+            synthetic_number);
+}
+
+// optimize_manifest_for_recovery=true: after a clean Put + Flush + Close, the
+// next Open's min_log_number_to_keep equals (max_wal_before_close + 1),
+// proving the close-time MANIFEST write took effect.
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryAdvancesWalMarkersOnClose) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+
+  uint64_t max_wal_before_close = 0;
+  auto* sp = ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
+  sp->SetCallBack("DBImpl::CloseHelper:CapturedMaxWal", [&](void* arg) {
+    max_wal_before_close = *static_cast<uint64_t*>(arg);
+  });
+  sp->EnableProcessing();
+  Close();
+  sp->DisableProcessing();
+  sp->ClearAllCallBacks();
+  ASSERT_GT(max_wal_before_close, 0u);
+
+  Reopen(options);
+  ASSERT_EQ(max_wal_before_close + 1,
+            dbfull()->GetVersionSet()->min_log_number_to_keep());
+  ASSERT_EQ("v", Get("k"));
+}
+
+// Shared-option matrix: default-off and disable-before-close should both fall
+// back to recovery-time MANIFEST work, while enable-through-close should avoid
+// MANIFEST appends on a clean reopen.
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryCleanReopenMatrix) {
+  struct TestCase {
+    const char* name;
+    bool enable_on_open;
+    bool disable_before_close;
+    bool expect_close_write;
+  };
+  const TestCase test_cases[] = {
+      {"default_off", false, false, false},
+      {"enabled", true, false, true},
+      {"disabled_before_close", true, true, false},
+  };
+
+  auto* sp = ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
+  for (const auto& test_case : test_cases) {
+    SCOPED_TRACE(test_case.name);
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.optimize_manifest_for_recovery = test_case.enable_on_open;
+    DestroyAndReopen(options);
+    ASSERT_OK(Put("k", test_case.name));
+    ASSERT_OK(Flush());
+
+    if (test_case.disable_before_close) {
+      ASSERT_OK(dbfull()->SetDBOptions(
+          {{"optimize_manifest_for_recovery", "false"}}));
+    }
+
+    std::atomic<int> entered{0};
+    sp->SetCallBack("DBImpl::CloseHelper:WriteWalMarkersOnCloseEntered",
+                    [&](void*) { entered.fetch_add(1); });
+    sp->EnableProcessing();
+    Close();
+    sp->DisableProcessing();
+    sp->ClearAllCallBacks();
+
+    std::atomic<int> records{0};
+    RecoveryOptimizationCounters counters;
+    counters.Install();
+    sp->SetCallBack("VersionSet::ProcessManifestWrites:AddRecord",
+                    [&](void*) { records.fetch_add(1); });
+    Reopen(options);
+    counters.Uninstall();
+
+    if (test_case.expect_close_write) {
+      ASSERT_EQ(1, entered.load());
+      ASSERT_EQ(0, records.load());
+      ASSERT_GT(counters.per_cf.load(), 0);
+    } else {
+      ASSERT_EQ(0, entered.load());
+      ASSERT_GT(records.load(), 0);
+    }
+    ASSERT_EQ(test_case.name, Get("k"));
+    Close();
+  }
+}
+
+// allow_2pc=true: even with the option on, the close-time write must NOT
+// advance MinLogNumberToKeep / DeleteWalsBefore (2pc requires the WAL to
+// remain replayable for uncommitted prepared transactions).
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryRespectsTwoPC) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  options.allow_2pc = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+
+  const uint64_t min_log_before_close =
+      dbfull()->GetVersionSet()->min_log_number_to_keep();
+  Close();
+  Reopen(options);
+  ASSERT_EQ(min_log_before_close,
+            dbfull()->GetVersionSet()->min_log_number_to_keep());
+  ASSERT_EQ("v", Get("k"));
+}
+
+// Mixed-CF emptiness: on reopen, recovery should still have MANIFEST work to
+// do for the dirty CF while skipping per-CF recovery edits for the empty CFs
+// whose markers were persisted at close.
+TEST_F(DBBasicTest, OptimizeManifestForRecoverySkipsNonEmptyCF) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  CreateAndReopenWithCF({"empty_cf", "dirty_cf"}, options);
+  ASSERT_OK(Put(1, "k", "v1"));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Put(2, "k", "v2"));
+  Close();
+
+  RecoveryOptimizationCounters counters;
+  std::atomic<int> records{0};
+  auto* sp = ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
+  counters.Install();
+  sp->SetCallBack("VersionSet::ProcessManifestWrites:AddRecord",
+                  [&](void*) { records.fetch_add(1); });
+  ReopenWithColumnFamilies({"default", "empty_cf", "dirty_cf"}, options);
+  counters.Uninstall();
+
+  ASSERT_GT(counters.per_cf.load(), 0);
+  ASSERT_GT(records.load(), 0);
+  ASSERT_EQ("v1", Get(1, "k"));
+  ASSERT_EQ("v2", Get(2, "k"));
+}
+
+// track_and_verify_wals_in_manifest=true: the close-time write must leave
+// recovery with only the mandatory WAL-tracking MANIFEST work. The per-CF
+// recovery edits should still skip.
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryEmitsWalDeletionWhenTracking) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  options.track_and_verify_wals_in_manifest = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  RecoveryOptimizationCounters counters;
+  std::atomic<int> records{0};
+  auto* sp = ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
+  counters.Install();
+  sp->SetCallBack("VersionSet::ProcessManifestWrites:AddRecord",
+                  [&](void*) { records.fetch_add(1); });
+  Reopen(options);
+  counters.Uninstall();
+
+  ASSERT_GT(counters.per_cf.load(), 0);
+  ASSERT_EQ(1, records.load());
+  ASSERT_GT(dbfull()->GetVersionSet()->GetWalSet().GetMinWalNumberToKeep(), 0u);
+  ASSERT_EQ("v", Get("k"));
+}
+
+// Regression for the close-time marker path: if a new WAL is created while an
+// otherwise-empty user CF stays empty, Close() must reserve the next file
+// number before persisting SetLogNumber(cur_wal + 1) for that CF.
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryImmediateCloseAfterWarmReopen) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  CreateAndReopenWithCF({"empty_cf"}, options);
+
+  ASSERT_OK(Put(0, "k", "v"));
+  const uint64_t wal_before_switch = dbfull()->TEST_LogfileNumber();
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  ASSERT_GT(dbfull()->TEST_LogfileNumber(), wal_before_switch);
+
+  const uint64_t expected_new_log_num = dbfull()->TEST_LogfileNumber() + 1;
+  ASSERT_EQ(expected_new_log_num,
+            dbfull()->GetVersionSet()->current_next_file_number());
+
+  Close();
+  ReopenWithColumnFamilies({"default", "empty_cf"}, options);
+
+  ASSERT_GT(dbfull()->GetVersionSet()->current_next_file_number(),
+            expected_new_log_num);
+  ASSERT_EQ("v", Get(0, "k"));
+}
+
+// Dropped-CF safety: dropped column families must NOT have markers written for
+// them at close time (the !IsDropped() guard protects against attaching the
+// global edit to a dropped CF, which would later trip MANIFEST replay
+// assertions).
+TEST_F(DBBasicTest, OptimizeManifestForRecoverySkipsDroppedCF) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  CreateAndReopenWithCF({"to_drop", "keeper"}, options);
+  ASSERT_OK(Put(1, "k", "v1"));
+  ASSERT_OK(Put(2, "k", "v2"));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Flush(2));
+  ASSERT_OK(db_->DropColumnFamily(handles_[1]));
+  Close();
+
+  ReopenWithColumnFamilies({"default", "keeper"}, options);
+  ASSERT_EQ("v2", Get(1, "k"));
+}
+
+// reuse_manifest_on_open=true: the next LogAndApply after Recover must
+// append to the existing MANIFEST file instead of allocating a fresh
+// one. Force a write after reopen and verify the MANIFEST file number
+// stays unchanged.
+TEST_F(DBBasicTest, ReuseManifestOnOpenAppendsToExistingFile) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.reuse_manifest_on_open = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  Reopen(options);
+  const uint64_t manifest_after_reopen =
+      dbfull()->TEST_Current_Manifest_FileNo();
+  ASSERT_OK(Put("k2", "v2"));
+  ASSERT_OK(Flush());
+  const uint64_t manifest_after_flush =
+      dbfull()->TEST_Current_Manifest_FileNo();
+
+  EXPECT_EQ(manifest_after_reopen, manifest_after_flush);
+  EXPECT_EQ("v", Get("k"));
+  EXPECT_EQ("v2", Get("k2"));
+}
+
+// Default off: ReopenManifestForAppend must NOT be invoked.
+TEST_F(DBBasicTest, ReuseManifestOnOpenDefaultOffSkipsReopen) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  // reuse_manifest_on_open defaults to false
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  std::atomic<int> reopened{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ReopenManifestForAppend:Reopened",
+      [&](void* /*arg*/) { reopened.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Reopen(options);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(0, reopened.load());
+}
+
+// Regression for the WritableFileWriter::filesize_=0 bug fixed via
+// constructor-time initial_file_size: after ReopenManifestForAppend binds a
+// writer to the existing MANIFEST, GetFileSize() must return the on-disk
+// size, not 0.
+// (If it returned 0, the size-limit check in ProcessManifestWrites would
+// compare against 0 and Close-time Truncate could shrink the file.)
+TEST_F(DBBasicTest, ReuseManifestOnOpenAdoptsOnDiskSize) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.reuse_manifest_on_open = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  // Capture the on-disk MANIFEST size before reopen.
+  Reopen(options);
+  const uint64_t manifest_no = dbfull()->TEST_Current_Manifest_FileNo();
+  const std::string manifest_path = DescriptorFileName(dbname_, manifest_no);
+  uint64_t on_disk_size = 0;
+  ASSERT_OK(env_->GetFileSize(manifest_path, &on_disk_size));
+  ASSERT_GT(on_disk_size, 0u);
+
+  // Force a write to flush the writer's buffer; verify Close doesn't
+  // shrink the file (which would happen if Truncate(filesize_=0) ran).
+  ASSERT_OK(Put("k2", "v2"));
+  ASSERT_OK(Flush());
+  Close();
+
+  uint64_t after_close_size = 0;
+  ASSERT_OK(env_->GetFileSize(manifest_path, &after_close_size));
+  EXPECT_GE(after_close_size, on_disk_size);
+}
+
+// MANIFEST rotation continues to work under reuse: when the file grows
+// past tuned_max_manifest_file_size_, ProcessManifestWrites must rotate
+// to a fresh MANIFEST (same as legacy). Use the rotation SyncPoint to
+// observe rotation directly, since tuned_max_manifest_file_size_ is
+// auto-derived and not directly = max_manifest_file_size.
+TEST_F(DBBasicTest, ReuseManifestOnOpenStillRotatesOnSizeCap) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.reuse_manifest_on_open = true;
+  options.max_manifest_file_size = 1;
+  options.max_manifest_space_amp_pct = 0;  // disable amp-based tuning
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  std::atomic<int> rotations{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:BeforeNewManifest",
+      [&](void* /*arg*/) { rotations.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Reopen(options);
+  ASSERT_OK(Put("k2", "v2"));
+  ASSERT_OK(Flush());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // The Flush after Reopen must have triggered a rotation given the
+  // tiny size cap — proves the size-driven rotation path still runs
+  // when descriptor_log_ is bound by reuse.
+  EXPECT_GT(rotations.load(), 0);
+  EXPECT_EQ("v", Get("k"));
+  EXPECT_EQ("v2", Get("k2"));
+}
+
+// Multi-CF reuse: append-mode MANIFEST must correctly handle edits
+// from multiple CFs after reopen.
+TEST_F(DBBasicTest, ReuseManifestOnOpenMultiCF) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.reuse_manifest_on_open = true;
+  CreateAndReopenWithCF({"alpha", "beta"}, options);
+  ASSERT_OK(Put(0, "k", "v0"));
+  ASSERT_OK(Put(1, "k", "v1"));
+  ASSERT_OK(Put(2, "k", "v2"));
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Flush(2));
+  Close();
+
+  ReopenWithColumnFamilies({"default", "alpha", "beta"}, options);
+  // Trigger more writes post-reopen on each CF — these get appended to
+  // the reused MANIFEST.
+  ASSERT_OK(Put(0, "k2", "v0b"));
+  ASSERT_OK(Put(1, "k2", "v1b"));
+  ASSERT_OK(Put(2, "k2", "v2b"));
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Flush(2));
+
+  EXPECT_EQ("v0", Get(0, "k"));
+  EXPECT_EQ("v1", Get(1, "k"));
+  EXPECT_EQ("v2", Get(2, "k"));
+  EXPECT_EQ("v0b", Get(0, "k2"));
+  EXPECT_EQ("v1b", Get(1, "k2"));
+  EXPECT_EQ("v2b", Get(2, "k2"));
+}
+
+// Disabled under best_efforts_recovery: that mode rebuilds CURRENT and
+// MANIFEST as the side-effect of LogAndApplyForRecovery emitting an
+// edit; reusing the prior MANIFEST contradicts the salvage contract.
+TEST_F(DBBasicTest, ReuseManifestOnOpenDisabledByBestEffortsRecovery) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.reuse_manifest_on_open = true;
+  options.best_efforts_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  std::atomic<int> reopened{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ReopenManifestForAppend:Reopened",
+      [&](void* /*arg*/) { reopened.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Reopen(options);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(0, reopened.load());
+  ASSERT_EQ("v", Get("k"));
+}
+
+// Full-stack composition: optimize_manifest_for_recovery plus
+// reuse_manifest_on_open. Verifies that Close writes recovery markers,
+// Reopen skips clean-recovery MANIFEST edits, and the MANIFEST is reused
+// instead of recreated for the next metadata update.
+TEST_F(DBBasicTest, ReuseManifestOnOpenFullStackComposition) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  options.reuse_manifest_on_open = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  // Capture the MANIFEST file number before reopen.
+  std::atomic<int> reopened{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ReopenManifestForAppend:Reopened",
+      [&](void* /*arg*/) { reopened.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Reopen(options);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // All three composing: reuse fired, data is intact, no fresh MANIFEST.
+  EXPECT_EQ(1, reopened.load());
+  EXPECT_EQ("v", Get("k"));
+}
+
+// Direct unit test for WritableFileWriter's initial_file_size parameter:
+// verifies the visible size accessors report the existing on-disk size
+// immediately, rather than the constructor's zero default.
+TEST_F(DBBasicTest, WritableFileWriterInitialFileSizeAdoptsExistingSize) {
+  Env* env = Env::Default();
+  std::string fname = test::PerThreadDBPath("set_file_size_test");
+  ASSERT_OK(env->CreateDirIfMissing(test::TmpDir(env)));
+
+  // Create a file with some bytes, close it.
+  {
+    std::unique_ptr<WritableFile> raw;
+    ASSERT_OK(env->NewWritableFile(fname, &raw, EnvOptions()));
+    ASSERT_OK(raw->Append("hello world"));
+    ASSERT_OK(raw->Close());
+  }
+
+  // Reopen and wrap in a WritableFileWriter without initial_file_size —
+  // GetFileSize() should be 0 (the constructor's default).
+  std::unique_ptr<FSWritableFile> fs_file;
+  ASSERT_OK(env->GetFileSystem()->ReopenWritableFile(
+      fname, FileOptions(), &fs_file, /*dbg=*/nullptr));
+  std::unique_ptr<WritableFileWriter> writer(
+      new WritableFileWriter(std::move(fs_file), fname, FileOptions()));
+  EXPECT_EQ(0u, writer->GetFileSize());
+
+  // Reopen again and seed the writer's size accounting from the existing
+  // bytes. GetFileSize and GetFlushedSize must reflect it immediately.
+  ASSERT_OK(env->GetFileSystem()->ReopenWritableFile(
+      fname, FileOptions(), &fs_file, /*dbg=*/nullptr));
+  writer.reset(new WritableFileWriter(
+      std::move(fs_file), fname, FileOptions(),
+      /*clock=*/nullptr, /*io_tracer=*/nullptr, /*stats=*/nullptr,
+      Histograms::HISTOGRAM_ENUM_MAX, /*listeners=*/{},
+      /*file_checksum_gen_factory=*/nullptr,
+      /*perform_data_verification=*/false,
+      /*buffered_data_with_checksum=*/false,
+      /*initial_file_size=*/11));
+  EXPECT_EQ(11u, writer->GetFileSize());
+  EXPECT_EQ(11u, writer->GetFlushedSize());
+
+  ASSERT_OK(env->DeleteFile(fname));
+}
+
+// Tail corruption: appending garbage bytes to the MANIFEST after a
+// clean close must prevent reuse — the physical size exceeds the
+// last valid record end.
+TEST_F(DBBasicTest, ReuseManifestOnOpenSkipsOnTailCorruption) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.reuse_manifest_on_open = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  // Find the MANIFEST file and append garbage to it.
+  std::string manifest_path;
+  {
+    std::vector<std::string> files;
+    ASSERT_OK(env_->GetChildren(dbname_, &files));
+    for (const auto& f : files) {
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(f, &number, &type) && type == kDescriptorFile) {
+        manifest_path = dbname_ + "/" + f;
+        break;
+      }
+    }
+  }
+  ASSERT_FALSE(manifest_path.empty());
+  {
+    std::string contents;
+    ASSERT_OK(ReadFileToString(env_, manifest_path, &contents));
+    contents.append("garbage!");
+    ASSERT_OK(WriteStringToFile(env_, contents, manifest_path));
+  }
+
+  std::atomic<int> reopened{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ReopenManifestForAppend:Reopened",
+      [&](void* /*arg*/) { reopened.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Reopen(options);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(0, reopened.load());
+  ASSERT_EQ("v", Get("k"));
+}
+
 TEST_F(DBBasicTest, EnableDirectIOWithZeroBuf) {
   if (!IsDirectIOSupported()) {
     ROCKSDB_GTEST_BYPASS("Direct IO not supported");

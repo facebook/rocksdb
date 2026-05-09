@@ -15,6 +15,7 @@
 
 #include <cinttypes>
 #include <cstdio>
+#include <deque>
 #include <map>
 #include <memory>
 #include <optional>
@@ -636,6 +637,105 @@ void DBImpl::UnregisterBlobDirectWriteColumnFamily() {
   assert(false);
 }
 
+Status DBImpl::MaybeWriteWalMarkersToManifestOnClose() {
+  mutex_.AssertHeld();
+  if (!mutable_db_options_.optimize_manifest_for_recovery ||
+      !opened_successfully_ || versions_ == nullptr || logs_.empty()) {
+    return Status::OK();
+  }
+
+  TEST_SYNC_POINT("DBImpl::CloseHelper:WriteWalMarkersOnCloseEntered");
+  const ReadOptions read_options(Env::IOActivity::kUnknown);
+  const WriteOptions write_options(Env::IOActivity::kUnknown);
+  uint64_t max_wal_number = logs_.back().number;
+  TEST_SYNC_POINT_CALLBACK("DBImpl::CloseHelper:CapturedMaxWal",
+                           &max_wal_number);
+  const uint64_t new_log_num = max_wal_number + 1;
+
+  // std::deque keeps VersionEdit pointers stable across emplace_back.
+  std::deque<VersionEdit> edits;
+  autovector<ColumnFamilyData*> cfds;
+  autovector<autovector<VersionEdit*>> edit_lists;
+  VersionEdit global_edit;
+  bool persist_global_edit = false;
+  bool reserved_log_number = false;
+
+  bool all_cfs_empty = true;
+  for (auto* cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    // cfd->IsEmpty() checks both mem and imm. An immutable memtable queued for
+    // flush still pins an older WAL; advancing past it would drop unflushed
+    // records on the next open.
+    if (!cfd->IsEmpty()) {
+      all_cfs_empty = false;
+      continue;
+    }
+    if (new_log_num > cfd->GetLogNumber()) {
+      if (!reserved_log_number) {
+        const uint64_t next_file_number = versions_->current_next_file_number();
+        if (next_file_number <= new_log_num) {
+          versions_->FetchAddFileNumber(new_log_num + 1 - next_file_number);
+          global_edit.SetNextFile(versions_->current_next_file_number());
+          persist_global_edit = true;
+        }
+        reserved_log_number = true;
+      }
+      edits.emplace_back();
+      VersionEdit& edit = edits.back();
+      edit.SetLogNumber(new_log_num);
+      edit.SetColumnFamily(cfd->GetID());
+      cfds.push_back(cfd);
+      edit_lists.emplace_back();
+      edit_lists.back().push_back(&edit);
+    }
+  }
+
+  if (all_cfs_empty && !allow_2pc()) {
+    if (new_log_num > versions_->min_log_number_to_keep()) {
+      global_edit.SetMinLogNumberToKeep(new_log_num);
+      persist_global_edit = true;
+    }
+    // Mirror the monotonicity guard in db_impl_files.cc:
+    // PrecomputeWalDeletionEdit emits DeleteWalsBefore only when the
+    // marker actually advances the WalSet's existing min. Skipping
+    // this guard would let a stale-replay edit regress WalSet state.
+    if (immutable_db_options_.track_and_verify_wals_in_manifest &&
+        new_log_num > versions_->GetWalSet().GetMinWalNumberToKeep()) {
+      global_edit.DeleteWalsBefore(new_log_num);
+      persist_global_edit = true;
+    }
+  }
+
+  if (persist_global_edit) {
+    ColumnFamilyData* default_cfd =
+        versions_->GetColumnFamilySet()->GetDefault();
+    if (default_cfd && !default_cfd->IsDropped()) {
+      bool attached_to_existing = false;
+      for (size_t i = 0; i < cfds.size(); ++i) {
+        if (cfds[i] == default_cfd) {
+          edit_lists[i].push_back(&global_edit);
+          attached_to_existing = true;
+          break;
+        }
+      }
+      if (!attached_to_existing) {
+        cfds.push_back(default_cfd);
+        edit_lists.emplace_back();
+        edit_lists.back().push_back(&global_edit);
+      }
+    }
+  }
+
+  if (cfds.empty()) {
+    return Status::OK();
+  }
+  return versions_->LogAndApply(cfds, read_options, write_options, edit_lists,
+                                &mutex_, directories_.GetDbDir(),
+                                /*new_descriptor_log=*/false);
+}
+
 Status DBImpl::CloseHelper() {
   // Guarantee that there is no background error recovery in progress before
   // continuing with the shutdown
@@ -739,6 +839,17 @@ Status DBImpl::CloseHelper() {
     }
     job_context.Clean();
     mutex_.Lock();
+  }
+  // Best-effort warm-reopen optimization: after obsolete-file cleanup and
+  // before logs_.clear(), persist close-time WAL markers that can reduce
+  // recovery work on the next open. This matters most when some CFs have no
+  // unflushed writes and/or the newest WAL is empty, since recovery would
+  // otherwise append marker-only MANIFEST edits on reopen.
+  Status manifest_s = MaybeWriteWalMarkersToManifestOnClose();
+  if (!manifest_s.ok()) {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "optimize_manifest_for_recovery close-time write failed: %s",
+                   manifest_s.ToString().c_str());
   }
   {
     InstrumentedMutexLock lock(&wal_write_mutex_);

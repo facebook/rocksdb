@@ -16,6 +16,7 @@ import unittest
 _DB_CRASHTEST_PATH = os.path.join(os.path.dirname(__file__), "db_crashtest.py")
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 _TEST_EXPECTED_DIR_ENV_VAR = "TEST_TMPDIR_EXPECTED"
+_TSAN_OPTIONS_ENV_VAR = "TSAN_OPTIONS"
 
 
 def load_db_crashtest_module():
@@ -40,6 +41,7 @@ class DBCrashTestTest(unittest.TestCase):
         )
         self.old_test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
         self.old_test_expected_tmpdir = os.environ.get(_TEST_EXPECTED_DIR_ENV_VAR)
+        self.old_tsan_options = os.environ.get(_TSAN_OPTIONS_ENV_VAR)
         os.environ[_TEST_DIR_ENV_VAR] = self.test_tmpdir
         os.environ.pop(_TEST_EXPECTED_DIR_ENV_VAR, None)
 
@@ -54,6 +56,11 @@ class DBCrashTestTest(unittest.TestCase):
         else:
             os.environ[_TEST_EXPECTED_DIR_ENV_VAR] = self.old_test_expected_tmpdir
 
+        if self.old_tsan_options is None:
+            os.environ.pop(_TSAN_OPTIONS_ENV_VAR, None)
+        else:
+            os.environ[_TSAN_OPTIONS_ENV_VAR] = self.old_tsan_options
+
         shutil.rmtree(self.test_tmpdir)
 
     def load_db_crashtest(self):
@@ -65,6 +72,28 @@ class DBCrashTestTest(unittest.TestCase):
         if overrides:
             params.update(overrides)
         return params
+
+    def test_stress_cmd_env_defaults_tsan_suppressions(self):
+        os.environ.pop(_TSAN_OPTIONS_ENV_VAR, None)
+        db_crashtest = self.load_db_crashtest()
+
+        env = db_crashtest.stress_cmd_env()
+
+        self.assertEqual(
+            "suppressions="
+            + os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "tsan_suppressions.txt")
+            ),
+            env[_TSAN_OPTIONS_ENV_VAR],
+        )
+
+    def test_stress_cmd_env_preserves_tsan_options(self):
+        os.environ[_TSAN_OPTIONS_ENV_VAR] = "halt_on_error=1"
+        db_crashtest = self.load_db_crashtest()
+
+        env = db_crashtest.stress_cmd_env()
+
+        self.assertEqual("halt_on_error=1", env[_TSAN_OPTIONS_ENV_VAR])
 
     def test_setup_expected_values_dir_preserves_existing_contents(self):
         os.makedirs(self.expected_dir)
