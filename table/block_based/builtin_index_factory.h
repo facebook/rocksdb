@@ -167,6 +167,19 @@ class PartitionedIndexFactory : public IndexFactory {
 };
 
 // ---------------------------------------------------------------------------
+// Helper: dispatch on BlockBasedTableOptions::IndexType to construct the
+// appropriate built-in index factory and call NewBuilder() on it.
+//
+// Centralizes the index_type → factory switch that the table builder used
+// to perform inline. Keeps that knowledge next to the factory definitions
+// rather than scattered in BlockBasedTableBuilder::Rep::Rep().
+// ---------------------------------------------------------------------------
+Status NewBuiltinIndexFactoryBuilder(
+    BlockBasedTableOptions::IndexType index_type,
+    const BuiltinIndexFactoryConfig& config, const IndexFactoryOptions& options,
+    std::unique_ptr<IndexFactoryBuilder>& out);
+
+// ---------------------------------------------------------------------------
 // BuiltinIndexFactoryBuilder: adapts the internal IndexBuilder behind the
 // public IndexFactoryBuilder interface. Declared here so the table builder
 // can access methods like OnKeyAddedInternal() and AddIndexEntryDirect()
@@ -242,6 +255,16 @@ class BuiltinIndexFactoryBuilder : public IndexFactoryBuilder {
                             const ::ROCKSDB_NAMESPACE::BlockHandle& handle,
                             std::string* separator_scratch,
                             bool skip_delta_encoding);
+
+  // Parallel-compression fast path counterpart to AddIndexEntryDirect.
+  // Stages a prepared index entry directly from internal keys, skipping
+  // the parse-and-repack roundtrip the public PrepareAddEntry forces
+  // when only user keys + context tags are available. Caller must later
+  // invoke FinishAddEntry() (with the resolved BlockHandle) to commit
+  // the entry.
+  void PrepareAddEntryDirect(const Slice& last_internal_key,
+                             const Slice* first_internal_key_next,
+                             PreparedAddEntry* out);
 
  private:
   std::unique_ptr<InternalKeyComparator> icmp_;

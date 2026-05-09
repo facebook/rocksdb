@@ -8495,6 +8495,121 @@ TEST_P(UserDefinedIndexTest, BasicTestWithoutPartitionedIndex) {
   BasicTest(/*use_partitioned_index=*/false);
 }
 
+// On-disk format regression test: the meta block written for a user-defined
+// index must be keyed by the literal prefix "rocksdb.user_defined_index."
+// followed by the factory name. This exact string is used by SSTs written
+// by previous RocksDB versions; changing it would silently break readability
+// of those existing files.
+//
+// This test deliberately uses a hardcoded string literal rather than the
+// kIndexFactoryMetaPrefix / kUserDefinedIndexPrefix constants — that way an
+// accidental edit to the constant's value is caught here, not in production
+// after data is already lost.
+// Verifies that kStandardOnly truly ignores user_defined_index_factory:
+// even if a factory pointer is set in the table options, the reader must
+// not probe for a UDI block. This matches the kStandardOnly contract
+// ("only the standard index is built/used") and avoids spurious load
+// failures on SSTs that have no UDI block.
+TEST_P(UserDefinedIndexTest, StandardOnlyIgnoresUdiFactory) {
+  BlockBasedTableOptions table_options;
+  std::string dbname = test::PerThreadDBPath("udi_standard_only_test");
+  std::string ingest_file = dbname + "test.sst";
+
+  // Step 1: write an SST in kStandardOnly mode → no UDI block on disk.
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardOnly;
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::unique_ptr<SstFileWriter> writer(
+      new SstFileWriter(EnvOptions(), options_));
+  ASSERT_OK(writer->Open(ingest_file));
+  auto kvs = generateKVs(/*key_count=*/30);
+  for (const auto& kv : kvs) {
+    ASSERT_OK(writer->Put(kv.first, kv.second));
+  }
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  // Step 2: re-open the SST with kStandardOnly *and* a UDI factory
+  // configured. The factory is irrelevant — kStandardOnly should ignore it.
+  // Without this fix, the reader would probe the (absent) UDI block and
+  // tick SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT.
+  BlockBasedTableOptions read_table_options;
+  read_table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardOnly;
+  read_table_options.user_defined_index_factory =
+      std::make_shared<TestIndexFactory>();
+  options_.table_factory.reset(NewBlockBasedTableFactory(read_table_options));
+  options_.statistics = CreateDBStatistics();
+
+  std::unique_ptr<SstFileReader> reader(new SstFileReader(options_));
+  ASSERT_OK(reader->Open(ingest_file));
+
+  // No UDI load attempt should have been recorded.
+  ASSERT_EQ(options_.statistics->getTickerCount(
+                SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT),
+            0u);
+
+  // Reads still work via the standard index.
+  std::unique_ptr<Iterator> iter(reader->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+}
+
+TEST_P(UserDefinedIndexTest, MetaBlockPrefixOnDiskBackwardCompat) {
+  BlockBasedTableOptions table_options;
+  std::string dbname = test::PerThreadDBPath("udi_meta_prefix_test");
+  std::string ingest_file = dbname + "test.sst";
+
+  auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
+  table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::unique_ptr<SstFileWriter> writer(
+      new SstFileWriter(EnvOptions(), options_));
+  ASSERT_OK(writer->Open(ingest_file));
+  auto kvs = generateKVs(/*key_count=*/30);
+  for (const auto& kv : kvs) {
+    ASSERT_OK(writer->Put(kv.first, kv.second));
+  }
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  // Confirm the meta block exists at exactly the legacy prefix path.
+  ImmutableOptions ioptions(options_);
+  EnvOptions eoptions(options_);
+  uint64_t file_size = 0;
+  std::unique_ptr<FSRandomAccessFile> file;
+  std::unique_ptr<RandomAccessFileReader> file_reader;
+  const auto& fs = options_.env->GetFileSystem();
+  ASSERT_OK(fs->GetFileSize(ingest_file, IOOptions(), &file_size, nullptr));
+  ASSERT_OK(fs->NewRandomAccessFile(ingest_file, eoptions, &file, nullptr));
+  file_reader.reset(new RandomAccessFileReader(std::move(file), ingest_file));
+
+  // Hardcoded literal — do NOT replace with kIndexFactoryMetaPrefix.
+  const std::string legacy_meta_block_name =
+      "rocksdb.user_defined_index.test_index";
+  BlockHandle block_handle;
+  ASSERT_OK(FindMetaBlockInFile(
+      file_reader.get(), file_size, kBlockBasedTableMagicNumber, ioptions,
+      ReadOptions(), legacy_meta_block_name, &block_handle));
+  // Sanity: a non-empty index block was found.
+  ASSERT_GT(block_handle.size(), 0u);
+
+  // And the SST opens / serves reads correctly through the standard path.
+  std::unique_ptr<SstFileReader> reader(new SstFileReader(options_));
+  ASSERT_OK(reader->Open(ingest_file));
+  std::unique_ptr<Iterator> iter(reader->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+}
+
 TEST_P(UserDefinedIndexTest, InvalidArgumentTest1) {
   BlockBasedTableOptions table_options;
   std::string dbname = test::PerThreadDBPath("user_defined_index_test");
