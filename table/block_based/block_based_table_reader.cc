@@ -1775,7 +1775,13 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   if (!s.ok()) {
     return s;
   }
-  if (table_options.user_defined_index_factory != nullptr) {
+  // kStandardOnly behaves exactly like "no factory configured" by contract,
+  // so we skip UDI block probing entirely in that mode even if a factory
+  // pointer happens to be set in the table options. This avoids spurious
+  // disk reads, log spam, and statistics noise.
+  if (table_options.index_mode >=
+          BlockBasedTableOptions::IndexMode::kStandardDefault &&
+      table_options.user_defined_index_factory != nullptr) {
     std::string udi_name(table_options.user_defined_index_factory->Name());
     BlockHandle udi_block_handle;
 

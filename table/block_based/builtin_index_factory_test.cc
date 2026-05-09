@@ -36,6 +36,20 @@ TEST(BackwardCompatTest, UserDefinedIndexAliasesCompile) {
   ASSERT_STREQ(kUserDefinedIndexPrefix, kIndexFactoryMetaPrefix);
 }
 
+// CRITICAL: This test pins the exact string value of the meta block prefix
+// used by user-defined indexes on disk. Changing this value breaks all SSTs
+// written by previous RocksDB versions that use the UserDefinedIndex feature.
+//
+// Note that this test deliberately uses a hardcoded string literal rather
+// than the constants — that way an accidental change to either constant is
+// caught here. If you find yourself updating this assertion, stop: you are
+// introducing a backward-incompatible on-disk change that requires a
+// deliberate format-version bump and a migration path.
+TEST(OnDiskFormatTest, UserDefinedIndexMetaPrefix) {
+  ASSERT_STREQ(kIndexFactoryMetaPrefix, "rocksdb.user_defined_index.");
+  ASSERT_STREQ(kUserDefinedIndexPrefix, "rocksdb.user_defined_index.");
+}
+
 // Helper to build IndexFactoryOptions with BytewiseComparator.
 static IndexFactoryOptions MakeOptions() {
   IndexFactoryOptions opts;
@@ -429,6 +443,298 @@ TEST_F(BinarySearchIndexFactoryTest, FinishAndWriteDefaultImpl) {
   ASSERT_GT(writer.blocks_written[0].size(), static_cast<size_t>(0));
   ASSERT_EQ(final_handle.offset, static_cast<uint64_t>(0));
   ASSERT_EQ(final_handle.size, writer.blocks_written[0].size());
+}
+
+// ============================================================================
+// Helpers for parallel-compression API surface tests.
+// ============================================================================
+
+// Build a configured BuiltinIndexFactoryBuilder for a given index_type.
+// The internal_comparator and table_options are owned by the caller and
+// must outlive the returned builder.
+static std::unique_ptr<IndexFactoryBuilder> MakeConfiguredBuiltinBuilder(
+    BlockBasedTableOptions::IndexType index_type,
+    const InternalKeyComparator& icmp, const BlockBasedTableOptions& topts) {
+  BuiltinIndexFactoryConfig config;
+  config.internal_comparator = &icmp;
+  config.use_delta_encoding_for_index_values = true;
+  config.table_options = &topts;
+  IndexFactoryOptions opts;
+  opts.comparator = BytewiseComparator();
+
+  std::unique_ptr<IndexFactoryBuilder> builder;
+  Status s = NewBuiltinIndexFactoryBuilder(index_type, config, opts, builder);
+  EXPECT_OK(s);
+  return builder;
+}
+
+// Build an internal-key string of the form `user_key | PackSequenceAndType`.
+static std::string MakeInternalKey(const std::string& user_key,
+                                   SequenceNumber seq, ValueType vt) {
+  std::string out(user_key);
+  PutFixed64(&out, PackSequenceAndType(seq, vt));
+  return out;
+}
+
+// ============================================================================
+// NewBuiltinIndexFactoryBuilder helper: dispatches on IndexType to the
+// appropriate built-in factory and returns a usable IndexFactoryBuilder.
+// ============================================================================
+
+class NewBuiltinIndexFactoryBuilderTest : public ::testing::Test {};
+
+TEST_F(NewBuiltinIndexFactoryBuilderTest, DispatchesAllIndexTypes) {
+  InternalKeyComparator icmp(BytewiseComparator());
+  BlockBasedTableOptions topts;
+
+  for (auto t : {BlockBasedTableOptions::kBinarySearch,
+                 BlockBasedTableOptions::kBinarySearchWithFirstKey,
+                 BlockBasedTableOptions::kHashSearch,
+                 BlockBasedTableOptions::kTwoLevelIndexSearch}) {
+    SCOPED_TRACE("index_type=" + std::to_string(static_cast<int>(t)));
+    BlockBasedTableOptions per_type = topts;
+    per_type.index_type = t;
+    if (t == BlockBasedTableOptions::kTwoLevelIndexSearch) {
+      per_type.metadata_block_size = 4096;
+    }
+    auto builder = MakeConfiguredBuiltinBuilder(t, icmp, per_type);
+    ASSERT_NE(builder, nullptr);
+  }
+}
+
+TEST_F(NewBuiltinIndexFactoryBuilderTest, BinarySearchProducesUsableBuilder) {
+  InternalKeyComparator icmp(BytewiseComparator());
+  BlockBasedTableOptions topts;
+  topts.index_type = BlockBasedTableOptions::kBinarySearch;
+
+  auto builder = MakeConfiguredBuiltinBuilder(
+      BlockBasedTableOptions::kBinarySearch, icmp, topts);
+  ASSERT_NE(builder, nullptr);
+
+  AddSampleEntries(builder.get());
+
+  Slice contents;
+  ASSERT_OK(builder->Finish(&contents));
+  ASSERT_GT(contents.size(), static_cast<size_t>(0));
+}
+
+// ============================================================================
+// Parallel compression API surface on BuiltinIndexFactoryBuilder.
+//
+// Verifies that the SupportsParallelAddEntry / CreatePreparedAddEntry /
+// PrepareAddEntry / FinishAddEntry contract works end-to-end and produces
+// the same index block as the synchronous AddIndexEntry path. This is the
+// path used by EmitBlockForParallel + BGWorker; if it ever drifts from the
+// synchronous path, parallel compression with the built-in index produces
+// silently corrupt output.
+// ============================================================================
+
+class BuiltinParallelCompressionApiTest : public ::testing::Test {};
+
+TEST_F(BuiltinParallelCompressionApiTest, SupportsParallelAddEntry) {
+  // All built-in IndexBuilder subclasses implement PrepareIndexEntry /
+  // FinishIndexEntry, so BuiltinIndexFactoryBuilder reports support for
+  // the parallel protocol regardless of index_type. Whether the table
+  // builder *uses* parallel compression is a separate decision driven by
+  // partition_filters / decouple_partitioned_filters settings.
+  InternalKeyComparator icmp(BytewiseComparator());
+  BlockBasedTableOptions topts;
+
+  for (auto t : {BlockBasedTableOptions::kBinarySearch,
+                 BlockBasedTableOptions::kBinarySearchWithFirstKey,
+                 BlockBasedTableOptions::kHashSearch,
+                 BlockBasedTableOptions::kTwoLevelIndexSearch}) {
+    SCOPED_TRACE("index_type=" + std::to_string(static_cast<int>(t)));
+    BlockBasedTableOptions per_type = topts;
+    per_type.index_type = t;
+    if (t == BlockBasedTableOptions::kTwoLevelIndexSearch) {
+      per_type.metadata_block_size = 4096;
+    }
+    auto builder = MakeConfiguredBuiltinBuilder(t, icmp, per_type);
+    EXPECT_TRUE(builder->SupportsParallelAddEntry());
+  }
+}
+
+TEST_F(BuiltinParallelCompressionApiTest, PrepareFinishMatchesAddIndexEntry) {
+  // Drive both the synchronous and parallel paths with identical input and
+  // verify they produce byte-identical index blocks.
+  InternalKeyComparator icmp(BytewiseComparator());
+  BlockBasedTableOptions topts;
+  topts.index_type = BlockBasedTableOptions::kBinarySearch;
+
+  // --- Synchronous path ---
+  auto sync_builder = MakeConfiguredBuiltinBuilder(
+      BlockBasedTableOptions::kBinarySearch, icmp, topts);
+  std::string scratch_a;
+  IndexFactoryBuilder::IndexEntryContext ctx_ab;
+  ctx_ab.last_key_tag = PackSequenceAndType(100, kTypeValue);
+  ctx_ab.first_key_tag = PackSequenceAndType(50, kTypeValue);
+  Slice key_a("aaa"), key_b("bbb"), key_c("ccc");
+  IndexFactoryBuilder::BlockHandle h1{0, kBlockSize};
+  IndexFactoryBuilder::BlockHandle h2{kBlockSize + kBlockTrailerSize,
+                                      kBlockSize};
+  IndexFactoryBuilder::BlockHandle h3{2 * (kBlockSize + kBlockTrailerSize),
+                                      kBlockSize};
+  IndexFactoryBuilder::IndexEntryContext ctx_bc;
+  ctx_bc.last_key_tag = PackSequenceAndType(50, kTypeValue);
+  ctx_bc.first_key_tag = PackSequenceAndType(25, kTypeValue);
+  IndexFactoryBuilder::IndexEntryContext ctx_c;
+  ctx_c.last_key_tag = PackSequenceAndType(25, kTypeValue);
+  ctx_c.first_key_tag = 0;
+  sync_builder->AddIndexEntry(key_a, &key_b, h1, &scratch_a, ctx_ab);
+  sync_builder->AddIndexEntry(key_b, &key_c, h2, &scratch_a, ctx_bc);
+  sync_builder->AddIndexEntry(key_c, nullptr, h3, &scratch_a, ctx_c);
+  Slice sync_contents;
+  ASSERT_OK(sync_builder->Finish(&sync_contents));
+
+  // --- Parallel path: stage prepares first, then commit in order ---
+  auto par_builder = MakeConfiguredBuiltinBuilder(
+      BlockBasedTableOptions::kBinarySearch, icmp, topts);
+  ASSERT_TRUE(par_builder->SupportsParallelAddEntry());
+  auto p1 = par_builder->CreatePreparedAddEntry();
+  auto p2 = par_builder->CreatePreparedAddEntry();
+  auto p3 = par_builder->CreatePreparedAddEntry();
+  par_builder->PrepareAddEntry(key_a, &key_b, ctx_ab, p1.get());
+  par_builder->PrepareAddEntry(key_b, &key_c, ctx_bc, p2.get());
+  par_builder->PrepareAddEntry(key_c, nullptr, ctx_c, p3.get());
+  std::string scratch_b;
+  par_builder->FinishAddEntry(h1, p1.get(), &scratch_b,
+                              /*skip_delta_encoding=*/false);
+  par_builder->FinishAddEntry(h2, p2.get(), &scratch_b,
+                              /*skip_delta_encoding=*/false);
+  par_builder->FinishAddEntry(h3, p3.get(), &scratch_b,
+                              /*skip_delta_encoding=*/false);
+  Slice par_contents;
+  ASSERT_OK(par_builder->Finish(&par_contents));
+
+  EXPECT_EQ(sync_contents.ToString(), par_contents.ToString());
+}
+
+TEST_F(BuiltinParallelCompressionApiTest,
+       PrepareAddEntryDirectMatchesPrepareAddEntry) {
+  // Compare PrepareAddEntryDirect (fast path used by EmitBlockForParallel,
+  // takes internal keys) to PrepareAddEntry (the public path that takes
+  // user keys + tags). Both must produce identical staged entries and,
+  // after FinishAddEntry, identical index blocks.
+  InternalKeyComparator icmp(BytewiseComparator());
+  BlockBasedTableOptions topts;
+  topts.index_type = BlockBasedTableOptions::kBinarySearch;
+
+  // Sequence/type tags chosen distinct so any leakage shows up.
+  const SequenceNumber seq_a = 1000;
+  const SequenceNumber seq_b = 500;
+  const SequenceNumber seq_c = 250;
+
+  std::string ik_a = MakeInternalKey("aaa", seq_a, kTypeValue);
+  std::string ik_b = MakeInternalKey("bbb", seq_b, kTypeValue);
+  std::string ik_c = MakeInternalKey("ccc", seq_c, kTypeValue);
+  Slice ik_a_s(ik_a), ik_b_s(ik_b), ik_c_s(ik_c);
+
+  IndexFactoryBuilder::BlockHandle h1{0, kBlockSize};
+  IndexFactoryBuilder::BlockHandle h2{kBlockSize + kBlockTrailerSize,
+                                      kBlockSize};
+  IndexFactoryBuilder::BlockHandle h3{2 * (kBlockSize + kBlockTrailerSize),
+                                      kBlockSize};
+
+  // --- Public path: PrepareAddEntry with user keys + context tags ---
+  auto pub_builder = MakeConfiguredBuiltinBuilder(
+      BlockBasedTableOptions::kBinarySearch, icmp, topts);
+  IndexFactoryBuilder::IndexEntryContext ctx_ab;
+  ctx_ab.last_key_tag = PackSequenceAndType(seq_a, kTypeValue);
+  ctx_ab.first_key_tag = PackSequenceAndType(seq_b, kTypeValue);
+  IndexFactoryBuilder::IndexEntryContext ctx_bc;
+  ctx_bc.last_key_tag = PackSequenceAndType(seq_b, kTypeValue);
+  ctx_bc.first_key_tag = PackSequenceAndType(seq_c, kTypeValue);
+  IndexFactoryBuilder::IndexEntryContext ctx_c;
+  ctx_c.last_key_tag = PackSequenceAndType(seq_c, kTypeValue);
+  ctx_c.first_key_tag = 0;
+  Slice key_a("aaa"), key_b("bbb"), key_c("ccc");
+  auto p1 = pub_builder->CreatePreparedAddEntry();
+  auto p2 = pub_builder->CreatePreparedAddEntry();
+  auto p3 = pub_builder->CreatePreparedAddEntry();
+  pub_builder->PrepareAddEntry(key_a, &key_b, ctx_ab, p1.get());
+  pub_builder->PrepareAddEntry(key_b, &key_c, ctx_bc, p2.get());
+  pub_builder->PrepareAddEntry(key_c, nullptr, ctx_c, p3.get());
+  std::string scratch_pub;
+  pub_builder->FinishAddEntry(h1, p1.get(), &scratch_pub, false);
+  pub_builder->FinishAddEntry(h2, p2.get(), &scratch_pub, false);
+  pub_builder->FinishAddEntry(h3, p3.get(), &scratch_pub, false);
+  Slice pub_contents;
+  ASSERT_OK(pub_builder->Finish(&pub_contents));
+
+  // --- Direct path: PrepareAddEntryDirect with internal keys ---
+  auto dir_builder = MakeConfiguredBuiltinBuilder(
+      BlockBasedTableOptions::kBinarySearch, icmp, topts);
+  // The direct path is on BuiltinIndexFactoryBuilder, not the base interface.
+  auto* dir = static_cast<BuiltinIndexFactoryBuilder*>(dir_builder.get());
+  auto d1 = dir->CreatePreparedAddEntry();
+  auto d2 = dir->CreatePreparedAddEntry();
+  auto d3 = dir->CreatePreparedAddEntry();
+  dir->PrepareAddEntryDirect(ik_a_s, &ik_b_s, d1.get());
+  dir->PrepareAddEntryDirect(ik_b_s, &ik_c_s, d2.get());
+  dir->PrepareAddEntryDirect(ik_c_s, nullptr, d3.get());
+  std::string scratch_dir;
+  dir->FinishAddEntry(h1, d1.get(), &scratch_dir, false);
+  dir->FinishAddEntry(h2, d2.get(), &scratch_dir, false);
+  dir->FinishAddEntry(h3, d3.get(), &scratch_dir, false);
+  Slice dir_contents;
+  ASSERT_OK(dir_builder->Finish(&dir_contents));
+
+  EXPECT_EQ(pub_contents.ToString(), dir_contents.ToString());
+}
+
+TEST_F(BuiltinParallelCompressionApiTest, AddIndexEntryDirectMatchesPublic) {
+  // Same equivalence guarantee for the synchronous fast path used by
+  // ForwardAddIndexEntryToAll.
+  InternalKeyComparator icmp(BytewiseComparator());
+  BlockBasedTableOptions topts;
+  topts.index_type = BlockBasedTableOptions::kBinarySearch;
+
+  const SequenceNumber seq_a = 100, seq_b = 50, seq_c = 25;
+  std::string ik_a = MakeInternalKey("aaa", seq_a, kTypeValue);
+  std::string ik_b = MakeInternalKey("bbb", seq_b, kTypeValue);
+  std::string ik_c = MakeInternalKey("ccc", seq_c, kTypeValue);
+  Slice ik_a_s(ik_a), ik_b_s(ik_b), ik_c_s(ik_c);
+
+  BlockHandle bh1(0, kBlockSize);
+  BlockHandle bh2(kBlockSize + kBlockTrailerSize, kBlockSize);
+  BlockHandle bh3(2 * (kBlockSize + kBlockTrailerSize), kBlockSize);
+
+  // --- Public path: AddIndexEntry (user keys + context tags) ---
+  auto pub_builder = MakeConfiguredBuiltinBuilder(
+      BlockBasedTableOptions::kBinarySearch, icmp, topts);
+  std::string scratch_pub;
+  IndexFactoryBuilder::IndexEntryContext ctx_ab;
+  ctx_ab.last_key_tag = PackSequenceAndType(seq_a, kTypeValue);
+  ctx_ab.first_key_tag = PackSequenceAndType(seq_b, kTypeValue);
+  IndexFactoryBuilder::IndexEntryContext ctx_bc;
+  ctx_bc.last_key_tag = PackSequenceAndType(seq_b, kTypeValue);
+  ctx_bc.first_key_tag = PackSequenceAndType(seq_c, kTypeValue);
+  IndexFactoryBuilder::IndexEntryContext ctx_c;
+  ctx_c.last_key_tag = PackSequenceAndType(seq_c, kTypeValue);
+  ctx_c.first_key_tag = 0;
+  Slice key_a("aaa"), key_b("bbb"), key_c("ccc");
+  IndexFactoryBuilder::BlockHandle ph1{bh1.offset(), bh1.size()};
+  IndexFactoryBuilder::BlockHandle ph2{bh2.offset(), bh2.size()};
+  IndexFactoryBuilder::BlockHandle ph3{bh3.offset(), bh3.size()};
+  pub_builder->AddIndexEntry(key_a, &key_b, ph1, &scratch_pub, ctx_ab);
+  pub_builder->AddIndexEntry(key_b, &key_c, ph2, &scratch_pub, ctx_bc);
+  pub_builder->AddIndexEntry(key_c, nullptr, ph3, &scratch_pub, ctx_c);
+  Slice pub_contents;
+  ASSERT_OK(pub_builder->Finish(&pub_contents));
+
+  // --- Direct path: AddIndexEntryDirect (internal keys) ---
+  auto dir_builder = MakeConfiguredBuiltinBuilder(
+      BlockBasedTableOptions::kBinarySearch, icmp, topts);
+  auto* dir = static_cast<BuiltinIndexFactoryBuilder*>(dir_builder.get());
+  std::string scratch_dir;
+  dir->AddIndexEntryDirect(ik_a_s, &ik_b_s, bh1, &scratch_dir, false);
+  dir->AddIndexEntryDirect(ik_b_s, &ik_c_s, bh2, &scratch_dir, false);
+  dir->AddIndexEntryDirect(ik_c_s, nullptr, bh3, &scratch_dir, false);
+  Slice dir_contents;
+  ASSERT_OK(dir_builder->Finish(&dir_contents));
+
+  EXPECT_EQ(pub_contents.ToString(), dir_contents.ToString());
 }
 
 }  // namespace ROCKSDB_NAMESPACE
