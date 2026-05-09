@@ -271,6 +271,23 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
   int statsDumpPeriodSec();
 
   /**
+   * Maximum interval in seconds between periodic compaction trigger checks.
+   * Default: 43200 (12 hours)
+   *
+   * @param maxCompactionTriggerWakeupSeconds time interval in seconds.
+   * @return the instance of the current object.
+   */
+  T setMaxCompactionTriggerWakeupSeconds(long maxCompactionTriggerWakeupSeconds);
+
+  /**
+   * Maximum interval in seconds between periodic compaction trigger checks.
+   * Default: 43200 (12 hours)
+   *
+   * @return time interval in seconds.
+   */
+  long maxCompactionTriggerWakeupSeconds();
+
+  /**
    * If not zero, dump rocksdb.stats to RocksDB every
    * {@code statsPersistPeriodSec}
    *

@@ -98,7 +98,7 @@ class PlainTableDBTest : public testing::Test,
  private:
   std::string dbname_;
   Env* env_;
-  DB* db_;
+  std::unique_ptr<DB> db_;
 
   bool mmap_mode_;
   Options last_options_;
@@ -107,7 +107,7 @@ class PlainTableDBTest : public testing::Test,
   PlainTableDBTest() : env_(Env::Default()) {}
 
   ~PlainTableDBTest() override {
-    delete db_;
+    db_.reset();
     EXPECT_OK(DestroyDB(dbname_, Options()));
   }
 
@@ -115,7 +115,7 @@ class PlainTableDBTest : public testing::Test,
     mmap_mode_ = GetParam();
     dbname_ = test::PerThreadDBPath("plain_table_db_test");
     EXPECT_OK(DestroyDB(dbname_, Options()));
-    db_ = nullptr;
+    db_.reset();
     Reopen();
   }
 
@@ -144,14 +144,11 @@ class PlainTableDBTest : public testing::Test,
     return options;
   }
 
-  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_.get()); }
 
   void Reopen(Options* options = nullptr) { ASSERT_OK(TryReopen(options)); }
 
-  void Close() {
-    delete db_;
-    db_ = nullptr;
-  }
+  void Close() { db_.reset(); }
 
   bool mmap_mode() const { return mmap_mode_; }
 
@@ -162,24 +159,21 @@ class PlainTableDBTest : public testing::Test,
   }
 
   void Destroy(Options* options) {
-    delete db_;
-    db_ = nullptr;
+    db_.reset();
     ASSERT_OK(DestroyDB(dbname_, *options));
   }
 
-  Status PureReopen(Options* options, DB** db) {
+  Status PureReopen(Options* options, std::unique_ptr<DB>* db) {
     return DB::Open(*options, dbname_, db);
   }
 
   Status ReopenForReadOnly(Options* options) {
-    delete db_;
-    db_ = nullptr;
+    db_.reset();
     return DB::OpenForReadOnly(*options, dbname_, &db_);
   }
 
   Status TryReopen(Options* options = nullptr) {
-    delete db_;
-    db_ = nullptr;
+    db_.reset();
     Options opts;
     if (options != nullptr) {
       opts = *options;
@@ -495,8 +489,7 @@ TEST_P(PlainTableDBTest, Flush) {
             ASSERT_GT(int_num, 0U);
 
             TablePropertiesCollection ptc;
-            ASSERT_OK(
-                static_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+            ASSERT_OK(dbfull()->GetPropertiesOfAllTables(&ptc));
             ASSERT_EQ(1U, ptc.size());
             auto row = ptc.begin();
             auto tp = row->second;
@@ -1339,11 +1332,7 @@ TEST_P(PlainTableDBTest, AdaptiveTable) {
 INSTANTIATE_TEST_CASE_P(PlainTableDBTest, PlainTableDBTest, ::testing::Bool());
 
 TEST_P(PlainTableDBTest, DeleteRangeNotSupported) {
-  // XXX: After attempting DeleteRange with PlainTable, Writes will permanently
-  // fail. Even if re-opening the DB, if WAL is used, the WAL is not recoverable
-  // (without manual intervention). Furthermore, a partial write batch can
-  // be exposed to readers, breaking WriteBatch atomicity.
-  for (bool use_write_batch : {/*false, */ true}) {
+  for (bool use_write_batch : {false, true}) {
     DestroyAndReopen();
 
     ASSERT_OK(Put("a0001111", "1"));
@@ -1362,12 +1351,7 @@ TEST_P(PlainTableDBTest, DeleteRangeNotSupported) {
     ASSERT_EQ(Get("a0001111"), "1");
     ASSERT_EQ(Get("b0001111"), "2");
     ASSERT_EQ(Get("c0001111"), "3");
-    if (use_write_batch) {
-      // XXX: broken WriteBatch atomicity
-      ASSERT_EQ(Get("d0001111"), "4");
-    } else {
-      ASSERT_EQ(Get("d0001111"), "NOT_FOUND");
-    }
+    ASSERT_EQ(Get("d0001111"), "NOT_FOUND");  // expect WriteBatch atomicity
     ASSERT_EQ(Get("e0001111"), "NOT_FOUND");
 
     ASSERT_EQ(Put("e0001111", "5").code(), Status::Code::kNotSupported);
@@ -1377,8 +1361,14 @@ TEST_P(PlainTableDBTest, DeleteRangeNotSupported) {
     ASSERT_EQ(dbfull()->TEST_FlushMemTable().code(),
               Status::Code::kNotSupported);
 
-    // XXX: WAL is not recoverable
-    ASSERT_EQ(TryReopen().code(), Status::Code::kNotSupported);
+    // WAL is recoverable (at least in standard configurations)
+    ASSERT_OK(TryReopen());
+
+    ASSERT_EQ(Get("a0001111"), "1");
+    ASSERT_EQ(Get("b0001111"), "2");
+    ASSERT_EQ(Get("c0001111"), "3");
+    ASSERT_EQ(Get("d0001111"), "NOT_FOUND");
+    ASSERT_EQ(Get("e0001111"), "NOT_FOUND");
   }
 }
 

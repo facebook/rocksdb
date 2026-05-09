@@ -452,6 +452,10 @@ class SpecialEnv : public EnvWrapper {
         return s;
       }
 
+      Status GetFileSize(uint64_t* s) override {
+        return target_->GetFileSize(s);
+      }
+
      private:
       std::unique_ptr<RandomAccessFile> target_;
       anon::AtomicCounter* counter_;
@@ -476,6 +480,10 @@ class SpecialEnv : public EnvWrapper {
 
       Status Prefetch(uint64_t offset, size_t n) override {
         return target_->Prefetch(offset, n);
+      }
+
+      Status GetFileSize(uint64_t* s) override {
+        return target_->GetFileSize(s);
       }
 
      private:
@@ -1062,8 +1070,9 @@ class DBTestBase : public testing::Test {
   MockEnv* mem_env_;
   Env* encrypted_env_;
   SpecialEnv* env_;
+  std::shared_ptr<Env> env_read_only_;
   std::shared_ptr<Env> env_guard_;
-  DB* db_;
+  std::unique_ptr<DB> db_;
   std::vector<ColumnFamilyHandle*> handles_;
 
   int option_config_;
@@ -1148,7 +1157,7 @@ class DBTestBase : public testing::Test {
                      const anon::OptionsOverride& options_override =
                          anon::OptionsOverride()) const;
 
-  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_.get()); }
 
   void CreateColumnFamilies(const std::vector<std::string>& cfs,
                             const Options& options);
@@ -1168,6 +1177,12 @@ class DBTestBase : public testing::Test {
   Status TryReopenWithColumnFamilies(const std::vector<std::string>& cfs,
                                      const Options& options);
 
+  Status TryReopenReadOnlyWithColumnFamilies(
+      const std::vector<std::string>& cfs, const std::vector<Options>& options);
+
+  Status TryReopenReadOnlyWithColumnFamilies(
+      const std::vector<std::string>& cfs, const Options& options);
+
   void Reopen(const Options& options);
 
   void Close();
@@ -1177,6 +1192,9 @@ class DBTestBase : public testing::Test {
   void Destroy(const Options& options, bool delete_cf_paths = false);
 
   Status ReadOnlyReopen(const Options& options);
+
+  // With a filesystem wrapper that fails on attempted write
+  Status EnforcedReadOnlyReopen(const Options& options);
 
   Status TryReopen(const Options& options);
 
@@ -1268,6 +1286,9 @@ class DBTestBase : public testing::Test {
 
   int NumTableFilesAtLevel(int level, int cf = 0);
 
+  int NumTableFilesAtLevel(int level, ColumnFamilyHandle* column_family,
+                           DB* db = nullptr);
+
   double CompressionRatioAtLevel(int level, int cf = 0);
 
   int TotalTableFiles(int cf = 0, int levels = -1);
@@ -1276,6 +1297,8 @@ class DBTestBase : public testing::Test {
 
   // Return spread of files per level
   std::string FilesPerLevel(int cf = 0);
+
+  std::string FilesPerLevel(ColumnFamilyHandle* cfh, DB* db = nullptr);
 
   size_t CountFiles();
 
@@ -1307,6 +1330,9 @@ class DBTestBase : public testing::Test {
                   int cf);
 
   void MoveFilesToLevel(int level, int cf = 0);
+
+  void MoveFilesToLevel(int level, ColumnFamilyHandle* column_family,
+                        DB* db = nullptr);
 
   void DumpFileCounts(const char* label);
 
@@ -1407,6 +1433,8 @@ class DBTestBase : public testing::Test {
     tp->raw_key_size = 0;
     tp->raw_value_size = 0;
     tp->num_data_blocks = 0;
+    tp->num_data_blocks_compression_rejected = 0;
+    tp->num_data_blocks_compression_bypassed = 0;
     tp->num_entries = 0;
     tp->num_deletions = 0;
     tp->num_merge_operands = 0;
@@ -1418,20 +1446,27 @@ class DBTestBase : public testing::Test {
     std::replace(tp_string.begin(), tp_string.end(), ';', ' ');
     std::replace(tp_string.begin(), tp_string.end(), '=', ' ');
     ResetTableProperties(tp);
-    sscanf(tp_string.c_str(),
-           "# data blocks %" SCNu64 " # entries %" SCNu64
-           " # deletions %" SCNu64 " # merge operands %" SCNu64
-           " # range deletions %" SCNu64 " raw key size %" SCNu64
-           " raw average key size %lf "
-           " raw value size %" SCNu64
-           " raw average value size %lf "
-           " data block size %" SCNu64 " index block size (user-key? %" SCNu64
-           ", delta-value? %" SCNu64 ") %" SCNu64 " filter block size %" SCNu64,
-           &tp->num_data_blocks, &tp->num_entries, &tp->num_deletions,
-           &tp->num_merge_operands, &tp->num_range_deletions, &tp->raw_key_size,
-           &dummy_double, &tp->raw_value_size, &dummy_double, &tp->data_size,
-           &tp->index_key_is_user_key, &tp->index_value_is_delta_encoded,
-           &tp->index_size, &tp->filter_size);
+    int count = sscanf(
+        tp_string.c_str(),
+        "# data blocks %" SCNu64 " # data blocks compression rejected %" SCNu64
+        " # data blocks compression bypassed %" SCNu64
+        " # uniform blocks %" SCNu64 " # entries %" SCNu64
+        " # deletions %" SCNu64 " # merge operands %" SCNu64
+        " # range deletions %" SCNu64 " raw key size %" SCNu64
+        " raw average key size %lf "
+        " raw value size %" SCNu64
+        " raw average value size %lf "
+        " data block size %" SCNu64 " data uncompressed size %" SCNu64
+        " index block size (user-key? %" SCNu64 ", delta-value? %" SCNu64
+        ") %" SCNu64 " filter block size %" SCNu64,
+        &tp->num_data_blocks, &tp->num_data_blocks_compression_rejected,
+        &tp->num_data_blocks_compression_bypassed, &tp->num_uniform_blocks,
+        &tp->num_entries, &tp->num_deletions, &tp->num_merge_operands,
+        &tp->num_range_deletions, &tp->raw_key_size, &dummy_double,
+        &tp->raw_value_size, &dummy_double, &tp->data_size,
+        &tp->uncompressed_data_size, &tp->index_key_is_user_key,
+        &tp->index_value_is_delta_encoded, &tp->index_size, &tp->filter_size);
+    ASSERT_EQ(count, 18);
   }
 
  private:  // Prone to error on direct use
@@ -1443,5 +1478,9 @@ class DBTestBase : public testing::Test {
 // For verifying that all files generated by current version have SST
 // unique ids.
 void VerifySstUniqueIds(const TablePropertiesCollection& props);
+
+// Excludes kUnknown
+extern const std::vector<Temperature> kKnownTemperatures;
+Temperature RandomKnownTemperature();
 
 }  // namespace ROCKSDB_NAMESPACE

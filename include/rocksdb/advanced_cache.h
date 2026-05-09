@@ -152,7 +152,12 @@ class Cache : public Customizable {
 
     // For helpers without SecondaryCache support
     explicit CacheItemHelper(CacheEntryRole _role, DeleterFn _del_cb = nullptr)
-        : CacheItemHelper(_role, _del_cb, nullptr, nullptr, nullptr, this) {}
+        : del_cb(_del_cb),
+          size_cb(nullptr),
+          saveto_cb(nullptr),
+          create_cb(nullptr),
+          role(_role),
+          without_secondary_compat(this) {}
 
     // For helpers with SecondaryCache support
     explicit CacheItemHelper(CacheEntryRole _role, DeleterFn _del_cb,
@@ -318,7 +323,7 @@ class Cache : public Customizable {
   // REQUIRES: handle must have been returned by a method on *this.
   virtual bool Release(Handle* handle, bool erase_if_last_ref = false) = 0;
 
-  // Return the object assiciated with a handle returned by a successful
+  // Return the object associated with a handle returned by a successful
   // Lookup(). For historical reasons, this is also known at the "value"
   // associated with the key.
   // REQUIRES: handle must not have been released yet.

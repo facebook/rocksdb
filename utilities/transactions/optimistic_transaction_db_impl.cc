@@ -73,7 +73,7 @@ Status OptimisticTransactionDB::Open(
     std::vector<ColumnFamilyHandle*>* handles,
     OptimisticTransactionDB** dbptr) {
   Status s;
-  DB* db;
+  std::unique_ptr<DB> db;
 
   std::vector<ColumnFamilyDescriptor> column_families_copy = column_families;
 
@@ -81,8 +81,7 @@ Status OptimisticTransactionDB::Open(
   for (auto& column_family : column_families_copy) {
     ColumnFamilyOptions* options = &column_family.options;
 
-    if (options->max_write_buffer_size_to_maintain == 0 &&
-        options->max_write_buffer_number_to_maintain == 0) {
+    if (options->max_write_buffer_size_to_maintain == 0) {
       // Setting to -1 will set the History size to
       // max_write_buffer_number * write_buffer_size.
       options->max_write_buffer_size_to_maintain = -1;
@@ -92,7 +91,7 @@ Status OptimisticTransactionDB::Open(
   s = DB::Open(db_options, dbname, column_families_copy, handles, &db);
 
   if (s.ok()) {
-    *dbptr = new OptimisticTransactionDBImpl(db, occ_options);
+    *dbptr = new OptimisticTransactionDBImpl(std::move(db), occ_options);
   }
 
   return s;

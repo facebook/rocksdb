@@ -16,6 +16,31 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
+// Format of values in CompressedSecondaryCache:
+// If enable_custom_split_merge:
+//  * A chain of CacheValueChunk representing the sequence of bytes for a tagged
+//    value. The overall length of the tagged value is determined by the chain
+//    of CacheValueChunks.
+// If !enable_custom_split_merge:
+//  * A LengthPrefixedSlice (starts with varint64 size) of a tagged value.
+//
+// A tagged value has a 2-byte header before the "saved" or compressed block
+// data:
+//  * 1 byte for "source" CacheTier indicating which tier is responsible for
+//    compression/decompression.
+//  * 1 byte for compression type which is generated/used by
+//    CompressedSecondaryCache iff source == CacheTier::kVolatileCompressedTier
+//    (original entry passed in was uncompressed). Otherwise, the compression
+//    type is preserved from the entry passed in.
+constexpr uint32_t kTagSize = 2;
+
+// Size of tag + varint size prefix when applicable
+uint32_t GetHeaderSize(size_t data_size, bool enable_split_merge) {
+  return (enable_split_merge ? 0 : VarintLength(kTagSize + data_size)) +
+         kTagSize;
+}
+}  // namespace
 
 CompressedSecondaryCache::CompressedSecondaryCache(
     const CompressedSecondaryCacheOptions& opts)
@@ -24,7 +49,13 @@ CompressedSecondaryCache::CompressedSecondaryCache(
       cache_res_mgr_(std::make_shared<ConcurrentCacheReservationManager>(
           std::make_shared<CacheReservationManagerImpl<CacheEntryRole::kMisc>>(
               cache_))),
-      disable_cache_(opts.capacity == 0) {}
+      disable_cache_(opts.capacity == 0) {
+  auto mgr = GetBuiltinV2CompressionManager();
+  compressor_ = mgr->GetCompressor(cache_options_.compression_opts,
+                                   cache_options_.compression_type);
+  decompressor_ =
+      mgr->GetDecompressorOptimizeFor(cache_options_.compression_type);
+}
 
 CompressedSecondaryCache::~CompressedSecondaryCache() = default;
 
@@ -33,13 +64,9 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     Cache::CreateContext* create_context, bool /*wait*/, bool advise_erase,
     Statistics* stats, bool& kept_in_sec_cache) {
   assert(helper);
-  // This is a minor optimization. Its ok to skip it in TSAN in order to
-  // avoid a false positive.
-#ifndef __SANITIZE_THREAD__
-  if (disable_cache_) {
+  if (disable_cache_.LoadRelaxed()) {
     return nullptr;
   }
-#endif
 
   std::unique_ptr<SecondaryCacheResultHandle> handle;
   kept_in_sec_cache = false;
@@ -55,75 +82,58 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     return nullptr;
   }
 
-  CacheAllocationPtr* ptr{nullptr};
-  CacheAllocationPtr merged_value;
-  size_t handle_value_charge{0};
-  const char* data_ptr = nullptr;
-  CacheTier source = CacheTier::kVolatileCompressedTier;
-  CompressionType type = cache_options_.compression_type;
+  std::string merged_value;
+  Slice tagged_data;
   if (cache_options_.enable_custom_split_merge) {
     CacheValueChunk* value_chunk_ptr =
-        reinterpret_cast<CacheValueChunk*>(handle_value);
-    merged_value = MergeChunksIntoValue(value_chunk_ptr, handle_value_charge);
-    ptr = &merged_value;
-    data_ptr = ptr->get();
+        static_cast<CacheValueChunk*>(handle_value);
+    merged_value = MergeChunksIntoValue(value_chunk_ptr);
+    tagged_data = Slice(merged_value);
   } else {
-    uint32_t type_32 = static_cast<uint32_t>(type);
-    uint32_t source_32 = static_cast<uint32_t>(source);
-    ptr = reinterpret_cast<CacheAllocationPtr*>(handle_value);
-    handle_value_charge = cache_->GetCharge(lru_handle);
-    data_ptr = ptr->get();
-    data_ptr = GetVarint32Ptr(data_ptr, data_ptr + 1,
-                              static_cast<uint32_t*>(&type_32));
-    type = static_cast<CompressionType>(type_32);
-    data_ptr = GetVarint32Ptr(data_ptr, data_ptr + 1,
-                              static_cast<uint32_t*>(&source_32));
-    source = static_cast<CacheTier>(source_32);
-    uint64_t data_size = 0;
-    data_ptr = GetVarint64Ptr(data_ptr, ptr->get() + handle_value_charge,
-                              static_cast<uint64_t*>(&data_size));
-    assert(handle_value_charge > data_size);
-    handle_value_charge = data_size;
+    tagged_data = GetLengthPrefixedSlice(static_cast<char*>(handle_value));
   }
-  MemoryAllocator* allocator = cache_options_.memory_allocator.get();
 
-  Status s;
-  Cache::ObjectPtr value{nullptr};
-  size_t charge{0};
+  auto source = lossless_cast<CacheTier>(tagged_data[0]);
+  auto type = lossless_cast<CompressionType>(tagged_data[1]);
+
+  std::unique_ptr<char[]> uncompressed;
+  Slice saved(tagged_data.data() + kTagSize, tagged_data.size() - kTagSize);
   if (source == CacheTier::kVolatileCompressedTier) {
-    if (cache_options_.compression_type == kNoCompression ||
-        cache_options_.do_not_compress_roles.Contains(helper->role)) {
-      s = helper->create_cb(Slice(data_ptr, handle_value_charge),
-                            kNoCompression, CacheTier::kVolatileTier,
-                            create_context, allocator, &value, &charge);
-    } else {
-      UncompressionContext uncompression_context(
-          cache_options_.compression_type);
-      UncompressionInfo uncompression_info(uncompression_context,
-                                           UncompressionDict::GetEmptyDict(),
-                                           cache_options_.compression_type);
-
-      size_t uncompressed_size{0};
-      CacheAllocationPtr uncompressed =
-          UncompressData(uncompression_info, (char*)data_ptr,
-                         handle_value_charge, &uncompressed_size,
-                         cache_options_.compress_format_version, allocator);
-
-      if (!uncompressed) {
+    if (type != kNoCompression) {
+      // TODO: can we do something to avoid yet another allocation?
+      Decompressor::Args args;
+      args.compressed_data = saved;
+      args.compression_type = type;
+      Status s = decompressor_->ExtractUncompressedSize(args);
+      assert(s.ok());  // in-memory data
+      if (s.ok()) {
+        uncompressed = std::make_unique<char[]>(args.uncompressed_size);
+        s = decompressor_->DecompressBlock(args, uncompressed.get());
+        assert(s.ok());  // in-memory data
+      }
+      if (!s.ok()) {
         cache_->Release(lru_handle, /*erase_if_last_ref=*/true);
         return nullptr;
       }
-      s = helper->create_cb(Slice(uncompressed.get(), uncompressed_size),
-                            kNoCompression, CacheTier::kVolatileTier,
-                            create_context, allocator, &value, &charge);
+      saved = Slice(uncompressed.get(), args.uncompressed_size);
+      type = kNoCompression;
+      // Free temporary compressed data as early as we can. This could matter
+      // for unusually large blocks because we also have
+      // * Another compressed copy above (from lru_cache).
+      // * The uncompressed copy in `uncompressed`.
+      // * Another uncompressed copy in `result_value` below.
+      // Let's try to max out at 3 copies instead of 4.
+      merged_value = std::string();
     }
-  } else {
-    // The item was not compressed by us. Let the helper create_cb
-    // uncompress it
-    s = helper->create_cb(Slice(data_ptr, handle_value_charge), type, source,
-                          create_context, allocator, &value, &charge);
+    // Reduced as if it came from primary cache
+    source = CacheTier::kVolatileTier;
   }
 
+  Cache::ObjectPtr result_value = nullptr;
+  size_t result_charge = 0;
+  Status s = helper->create_cb(saved, type, source, create_context,
+                               cache_options_.memory_allocator.get(),
+                               &result_value, &result_charge);
   if (!s.ok()) {
     cache_->Release(lru_handle, /*erase_if_last_ref=*/true);
     return nullptr;
@@ -141,7 +151,8 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     kept_in_sec_cache = true;
     cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
   }
-  handle.reset(new CompressedSecondaryCacheResultHandle(value, charge));
+  handle.reset(
+      new CompressedSecondaryCacheResultHandle(result_value, result_charge));
   RecordTick(stats, COMPRESSED_SECONDARY_CACHE_HITS);
   return handle;
 }
@@ -164,88 +175,111 @@ bool CompressedSecondaryCache::MaybeInsertDummy(const Slice& key) {
 
 Status CompressedSecondaryCache::InsertInternal(
     const Slice& key, Cache::ObjectPtr value,
-    const Cache::CacheItemHelper* helper, CompressionType type,
+    const Cache::CacheItemHelper* helper, CompressionType from_type,
     CacheTier source) {
-  if (source != CacheTier::kVolatileCompressedTier &&
-      cache_options_.enable_custom_split_merge) {
-    // We don't support custom split/merge for the tiered case
-    return Status::OK();
-  }
+  bool enable_split_merge = cache_options_.enable_custom_split_merge;
+  const Cache::CacheItemHelper* internal_helper = GetHelper(enable_split_merge);
 
-  auto internal_helper = GetHelper(cache_options_.enable_custom_split_merge);
-  char header[20];
-  char* payload = header;
-  payload = EncodeVarint32(payload, static_cast<uint32_t>(type));
-  payload = EncodeVarint32(payload, static_cast<uint32_t>(source));
-  size_t data_size = (*helper->size_cb)(value);
-  char* data_size_ptr = payload;
-  payload = EncodeVarint64(payload, data_size);
+  // TODO: variant of size_cb that also returns a pointer to the data if
+  // already available. Saves an allocation if we keep the compressed version.
+  const size_t data_size_original = (*helper->size_cb)(value);
 
-  size_t header_size = payload - header;
-  size_t total_size = data_size + header_size;
-  CacheAllocationPtr ptr =
-      AllocateBlock(total_size, cache_options_.memory_allocator.get());
-  char* data_ptr = ptr.get() + header_size;
+  // Allocate enough memory for header/tag + original data because (a) we might
+  // not be attempting compression at all, and (b) we might keep the original if
+  // compression is insufficient. But we don't need the length prefix with
+  // enable_split_merge. TODO: be smarter with CacheValueChunk to save an
+  // allocation in the enable_split_merge case.
+  size_t header_size = GetHeaderSize(data_size_original, enable_split_merge);
+  CacheAllocationPtr allocation = AllocateBlock(
+      header_size + data_size_original, cache_options_.memory_allocator.get());
+  char* data_ptr = allocation.get() + header_size;
+  Slice tagged_data(data_ptr - kTagSize, data_size_original + kTagSize);
+  assert(tagged_data.data() >= allocation.get());
 
-  Status s = (*helper->saveto_cb)(value, 0, data_size, data_ptr);
+  Status s = (*helper->saveto_cb)(value, 0, data_size_original, data_ptr);
   if (!s.ok()) {
     return s;
   }
-  Slice val(data_ptr, data_size);
 
-  std::string compressed_val;
-  if (cache_options_.compression_type != kNoCompression &&
-      type == kNoCompression &&
+  std::unique_ptr<char[]> tagged_compressed_data;
+  CompressionType to_type = kNoCompression;
+  if (compressor_ && from_type == kNoCompression &&
       !cache_options_.do_not_compress_roles.Contains(helper->role)) {
-    PERF_COUNTER_ADD(compressed_sec_cache_uncompressed_bytes, data_size);
-    CompressionContext compression_context(cache_options_.compression_type,
-                                           cache_options_.compression_opts);
-    uint64_t sample_for_compression{0};
-    CompressionInfo compression_info(
-        cache_options_.compression_opts, compression_context,
-        CompressionDict::GetEmptyDict(), cache_options_.compression_type,
-        sample_for_compression);
+    assert(source == CacheTier::kVolatileCompressedTier);
 
-    bool success =
-        CompressData(val, compression_info,
-                     cache_options_.compress_format_version, &compressed_val);
-
-    if (!success) {
-      return Status::Corruption("Error compressing value.");
+    // TODO: consider malloc sizes for max acceptable compressed size
+    // Or maybe max_compressed_bytes_per_kb
+    size_t data_size_compressed = data_size_original - 1;
+    tagged_compressed_data =
+        std::make_unique<char[]>(data_size_compressed + kTagSize);
+    s = compressor_->CompressBlock(Slice(data_ptr, data_size_original),
+                                   tagged_compressed_data.get() + kTagSize,
+                                   &data_size_compressed, &to_type,
+                                   nullptr /*working_area*/);
+    if (!s.ok()) {
+      return s;
     }
-
-    val = Slice(compressed_val);
-    data_size = compressed_val.size();
-    payload = EncodeVarint64(data_size_ptr, data_size);
-    header_size = payload - header;
-    total_size = header_size + data_size;
-    PERF_COUNTER_ADD(compressed_sec_cache_compressed_bytes, data_size);
-
-    if (!cache_options_.enable_custom_split_merge) {
-      ptr = AllocateBlock(total_size, cache_options_.memory_allocator.get());
-      data_ptr = ptr.get() + header_size;
-      memcpy(data_ptr, compressed_val.data(), data_size);
+    PERF_COUNTER_ADD(compressed_sec_cache_uncompressed_bytes,
+                     data_size_original);
+    if (to_type == kNoCompression) {
+      // Compression rejected or otherwise aborted/failed
+      to_type = kNoCompression;
+      tagged_compressed_data.reset();
+      // TODO: consider separate counters for rejected compressions
+      PERF_COUNTER_ADD(compressed_sec_cache_compressed_bytes,
+                       data_size_original);
+    } else {
+      PERF_COUNTER_ADD(compressed_sec_cache_compressed_bytes,
+                       data_size_compressed);
+      if (enable_split_merge) {
+        // Only need tagged_data for copying into CacheValueChunks.
+        tagged_data = Slice(tagged_compressed_data.get(),
+                            data_size_compressed + kTagSize);
+        allocation.reset();
+      } else {
+        // Replace allocation with compressed version, copied from string
+        header_size = GetHeaderSize(data_size_compressed, enable_split_merge);
+        allocation = AllocateBlock(header_size + data_size_compressed,
+                                   cache_options_.memory_allocator.get());
+        data_ptr = allocation.get() + header_size;
+        // Ignore unpopulated tag on tagged_compressed_data; will only be
+        // populated on the new allocation.
+        std::memcpy(data_ptr, tagged_compressed_data.get() + kTagSize,
+                    data_size_compressed);
+        tagged_data =
+            Slice(data_ptr - kTagSize, data_size_compressed + kTagSize);
+        assert(tagged_data.data() >= allocation.get());
+      }
     }
   }
 
   PERF_COUNTER_ADD(compressed_sec_cache_insert_real_count, 1);
-  if (cache_options_.enable_custom_split_merge) {
+
+  // Save the tag fields
+  const_cast<char*>(tagged_data.data())[0] = lossless_cast<char>(source);
+  const_cast<char*>(tagged_data.data())[1] = lossless_cast<char>(
+      source == CacheTier::kVolatileCompressedTier ? to_type : from_type);
+
+  if (enable_split_merge) {
     size_t split_charge{0};
-    CacheValueChunk* value_chunks_head = SplitValueIntoChunks(
-        val, cache_options_.compression_type, split_charge);
-    return cache_->Insert(key, value_chunks_head, internal_helper,
-                          split_charge);
+    CacheValueChunk* value_chunks_head =
+        SplitValueIntoChunks(tagged_data, split_charge);
+    s = cache_->Insert(key, value_chunks_head, internal_helper, split_charge);
+    assert(s.ok());  // LRUCache::Insert() with handle==nullptr always OK
   } else {
+    // Save the size prefix
+    char* ptr = allocation.get();
+    ptr = EncodeVarint64(ptr, tagged_data.size());
+    assert(ptr == tagged_data.data());
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-    size_t charge = malloc_usable_size(ptr.get());
+    size_t charge = malloc_usable_size(allocation.get());
 #else
-    size_t charge = total_size;
+    size_t charge = tagged_data.size();
 #endif
-    std::memcpy(ptr.get(), header, header_size);
-    CacheAllocationPtr* buf = new CacheAllocationPtr(std::move(ptr));
-    charge += sizeof(CacheAllocationPtr);
-    return cache_->Insert(key, buf, internal_helper, charge);
+    s = cache_->Insert(key, allocation.release(), internal_helper, charge);
+    assert(s.ok());  // LRUCache::Insert() with handle==nullptr always OK
   }
+  return Status::OK();
 }
 
 Status CompressedSecondaryCache::Insert(const Slice& key,
@@ -267,7 +301,17 @@ Status CompressedSecondaryCache::Insert(const Slice& key,
 Status CompressedSecondaryCache::InsertSaved(
     const Slice& key, const Slice& saved, CompressionType type = kNoCompression,
     CacheTier source = CacheTier::kVolatileTier) {
+  if (source == CacheTier::kVolatileCompressedTier) {
+    // Unexpected, would violate InsertInternal preconditions
+    assert(source != CacheTier::kVolatileCompressedTier);
+    return Status::OK();
+  }
   if (type == kNoCompression) {
+    // Not currently supported (why?)
+    return Status::OK();
+  }
+  if (cache_options_.enable_custom_split_merge) {
+    // We don't support custom split/merge for the tiered case (why?)
     return Status::OK();
   }
 
@@ -287,7 +331,7 @@ Status CompressedSecondaryCache::SetCapacity(size_t capacity) {
   MutexLock l(&capacity_mutex_);
   cache_options_.capacity = capacity;
   cache_->SetCapacity(capacity);
-  disable_cache_ = capacity == 0;
+  disable_cache_.StoreRelaxed(capacity == 0);
   return Status::OK();
 }
 
@@ -311,15 +355,17 @@ std::string CompressedSecondaryCache::GetPrintableOptions() const {
                const_cast<CompressionOptions&>(cache_options_.compression_opts))
                .c_str());
   ret.append(buffer);
-  snprintf(buffer, kBufferSize, "    compress_format_version : %d\n",
-           cache_options_.compress_format_version);
-  ret.append(buffer);
   return ret;
 }
 
+// FIXME: this could use a lot of attention, including:
+// * Use allocator
+// * We shouldn't be worse than non-split; be more pro-actively aware of
+// internal fragmentation
+// * Consider a unified object/chunk structure that may or may not split
+// * Optimize size overhead of chunks
 CompressedSecondaryCache::CacheValueChunk*
 CompressedSecondaryCache::SplitValueIntoChunks(const Slice& value,
-                                               CompressionType compression_type,
                                                size_t& charge) {
   assert(!value.empty());
   const char* src_ptr = value.data();
@@ -340,15 +386,14 @@ CompressedSecondaryCache::SplitValueIntoChunks(const Slice& value,
     // size, or there is no compression.
     if (upper == malloc_bin_sizes_.begin() ||
         upper == malloc_bin_sizes_.end() ||
-        *upper - predicted_chunk_size < malloc_bin_sizes_.front() ||
-        compression_type == kNoCompression) {
+        *upper - predicted_chunk_size < malloc_bin_sizes_.front()) {
       tmp_size = predicted_chunk_size;
     } else {
       tmp_size = *(--upper);
     }
 
     CacheValueChunk* new_chunk =
-        reinterpret_cast<CacheValueChunk*>(new char[tmp_size]);
+        static_cast<CacheValueChunk*>(static_cast<void*>(new char[tmp_size]));
     current_chunk->next = new_chunk;
     current_chunk = current_chunk->next;
     actual_chunk_size = tmp_size - sizeof(CacheValueChunk) + 1;
@@ -363,28 +408,24 @@ CompressedSecondaryCache::SplitValueIntoChunks(const Slice& value,
   return dummy_head.next;
 }
 
-CacheAllocationPtr CompressedSecondaryCache::MergeChunksIntoValue(
-    const void* chunks_head, size_t& charge) {
-  const CacheValueChunk* head =
-      reinterpret_cast<const CacheValueChunk*>(chunks_head);
+std::string CompressedSecondaryCache::MergeChunksIntoValue(
+    const CacheValueChunk* head) {
   const CacheValueChunk* current_chunk = head;
-  charge = 0;
+  size_t total_size = 0;
   while (current_chunk != nullptr) {
-    charge += current_chunk->size;
+    total_size += current_chunk->size;
     current_chunk = current_chunk->next;
   }
 
-  CacheAllocationPtr ptr =
-      AllocateBlock(charge, cache_options_.memory_allocator.get());
+  std::string result;
+  result.reserve(total_size);
   current_chunk = head;
-  size_t pos{0};
   while (current_chunk != nullptr) {
-    memcpy(ptr.get() + pos, current_chunk->data, current_chunk->size);
-    pos += current_chunk->size;
+    result.append(current_chunk->data, current_chunk->size);
     current_chunk = current_chunk->next;
   }
-
-  return ptr;
+  assert(result.size() == total_size);
+  return result;
 }
 
 const Cache::CacheItemHelper* CompressedSecondaryCache::GetHelper(
@@ -398,16 +439,16 @@ const Cache::CacheItemHelper* CompressedSecondaryCache::GetHelper(
             CacheValueChunk* tmp_chunk = chunks_head;
             chunks_head = chunks_head->next;
             tmp_chunk->Free();
-            obj = nullptr;
           }
         }};
     return &kHelper;
   } else {
     static const Cache::CacheItemHelper kHelper{
         CacheEntryRole::kMisc,
-        [](Cache::ObjectPtr obj, MemoryAllocator* /*alloc*/) {
-          delete static_cast<CacheAllocationPtr*>(obj);
-          obj = nullptr;
+        [](Cache::ObjectPtr obj, MemoryAllocator* alloc) {
+          if (obj != nullptr) {
+            CacheAllocationDeleter{alloc}(static_cast<char*>(obj));
+          }
         }};
     return &kHelper;
   }
@@ -418,12 +459,7 @@ size_t CompressedSecondaryCache::TEST_GetCharge(const Slice& key) {
   if (lru_handle == nullptr) {
     return 0;
   }
-
   size_t charge = cache_->GetCharge(lru_handle);
-  if (cache_->Value(lru_handle) != nullptr &&
-      !cache_options_.enable_custom_split_merge) {
-    charge -= 10;
-  }
   cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
   return charge;
 }

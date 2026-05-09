@@ -52,6 +52,13 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   ret.append("  --" + LDBCommand::ARG_TTL +
              " with 'put','get','scan','dump','query','batchput'"
              " : DB supports ttl and value is internally timestamp-suffixed\n");
+  ret.append("  --" + LDBCommand::ARG_USE_TXN +
+             " : Open database as TransactionDB. Required for databases "
+             "created with WritePrepared or WriteUnprepared transactions.\n");
+  ret.append("  --" + LDBCommand::ARG_TXN_WRITE_POLICY +
+             "=<0|1|2> : Transaction write policy. "
+             "0=WRITE_COMMITTED (default), 1=WRITE_PREPARED, "
+             "2=WRITE_UNPREPARED\n");
   ret.append("  --" + LDBCommand::ARG_TRY_LOAD_OPTIONS +
              " : Try to load option file from DB. Default to true if " +
              LDBCommand::ARG_DB +
@@ -68,6 +75,8 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   ret.append("  --" + LDBCommand::ARG_COMPRESSION_MAX_DICT_BYTES +
              "=<int,e.g.:16384>\n");
   ret.append("  --" + LDBCommand::ARG_BLOCK_SIZE + "=<block_size_in_bytes>\n");
+  ret.append("  --" + LDBCommand::ARG_UNIFORM_CV_THRESHOLD +
+             "=<double,e.g.:0.2>\n");
   ret.append("  --" + LDBCommand::ARG_AUTO_COMPACTION + "=<true|false>\n");
   ret.append("  --" + LDBCommand::ARG_DB_WRITE_BUFFER_SIZE +
              "=<int,e.g.:16777216>\n");
@@ -119,6 +128,7 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   DBDumperCommand::Help(ret);
   DBLoaderCommand::Help(ret);
   ManifestDumpCommand::Help(ret);
+  CompactionProgressDumpCommand::Help(ret);
   UpdateManifestCommand::Help(ret);
   FileChecksumDumpCommand::Help(ret);
   GetPropertyCommand::Help(ret);
@@ -185,8 +195,14 @@ int LDBCommandRunner::RunCommand(
 void LDBTool::Run(int argc, char** argv, Options options,
                   const LDBOptions& ldb_options,
                   const std::vector<ColumnFamilyDescriptor>* column_families) {
-  int error_code = LDBCommandRunner::RunCommand(argc, argv, options,
-                                                ldb_options, column_families);
-  exit(error_code);
+  exit(RunAndReturn(argc, argv, options, ldb_options, column_families));
+}
+
+int LDBTool::RunAndReturn(
+    int argc, char** argv, const Options& options,
+    const LDBOptions& ldb_options,
+    const std::vector<ColumnFamilyDescriptor>* column_families) {
+  return LDBCommandRunner::RunCommand(argc, argv, options, ldb_options,
+                                      column_families);
 }
 }  // namespace ROCKSDB_NAMESPACE

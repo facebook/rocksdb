@@ -16,7 +16,6 @@ namespace ROCKSDB_NAMESPACE {
 
 bool DbDumpTool::Run(const DumpOptions& dump_options,
                      ROCKSDB_NAMESPACE::Options options) {
-  ROCKSDB_NAMESPACE::DB* dbptr;
   ROCKSDB_NAMESPACE::Status status;
   std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile> dumpfile;
   char hostname[1024];
@@ -31,15 +30,14 @@ bool DbDumpTool::Run(const DumpOptions& dump_options,
 
   // Open the database
   options.create_if_missing = false;
+  std::unique_ptr<ROCKSDB_NAMESPACE::DB> db;
   status = ROCKSDB_NAMESPACE::DB::OpenForReadOnly(options, dump_options.db_path,
-                                                  &dbptr);
+                                                  &db);
   if (!status.ok()) {
     std::cerr << "Unable to open database '" << dump_options.db_path
               << "' for reading: " << status.ToString() << std::endl;
     return false;
   }
-
-  const std::unique_ptr<ROCKSDB_NAMESPACE::DB> db(dbptr);
 
   status = env->NewWritableFile(dump_options.dump_location, &dumpfile,
                                 ROCKSDB_NAMESPACE::EnvOptions());
@@ -131,7 +129,6 @@ bool DbDumpTool::Run(const DumpOptions& dump_options,
 
 bool DbUndumpTool::Run(const UndumpOptions& undump_options,
                        ROCKSDB_NAMESPACE::Options options) {
-  ROCKSDB_NAMESPACE::DB* dbptr;
   ROCKSDB_NAMESPACE::Status status;
   ROCKSDB_NAMESPACE::Env* env;
   std::unique_ptr<ROCKSDB_NAMESPACE::SequentialFile> dumpfile;
@@ -180,14 +177,13 @@ bool DbUndumpTool::Run(const UndumpOptions& undump_options,
   }
 
   options.create_if_missing = true;
-  status = ROCKSDB_NAMESPACE::DB::Open(options, undump_options.db_path, &dbptr);
+  std::unique_ptr<ROCKSDB_NAMESPACE::DB> db;
+  status = ROCKSDB_NAMESPACE::DB::Open(options, undump_options.db_path, &db);
   if (!status.ok()) {
     std::cerr << "Unable to open database '" << undump_options.db_path
               << "' for writing: " << status.ToString() << std::endl;
     return false;
   }
-
-  const std::unique_ptr<ROCKSDB_NAMESPACE::DB> db(dbptr);
 
   uint32_t last_keysize = 64;
   size_t last_valsize = 1 << 20;

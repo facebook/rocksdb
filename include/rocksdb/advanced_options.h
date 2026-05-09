@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "rocksdb/blob_file_partition_strategy.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/memtablerep.h"
@@ -64,9 +65,7 @@ enum CompactionPri : char {
 struct FileTemperatureAge {
   Temperature temperature = Temperature::kUnknown;
   uint64_t age = 0;
-#if __cplusplus >= 202002L
   bool operator==(const FileTemperatureAge& rhs) const = default;
-#endif
 };
 
 struct CompactionOptionsFIFO {
@@ -115,14 +114,72 @@ struct CompactionOptionsFIFO {
   // Default: empty
   std::vector<FileTemperatureAge> file_temperature_age_thresholds{};
 
+  // EXPERIMENTAL
+  // If true, when compaction is picked for kChangeTemperature reason,
+  // allow the trivia copy of the sst file from source FileSystem to
+  // destination FileSystem. If false, the changeTemperature will be
+  // the non-trivial copy by iterating/appending blocks by blocks of the
+  // sst file.
+  bool allow_trivial_copy_when_change_temperature = false;
+
+  // EXPERIMENTAL
+  // If 'allow_trivia_copy_op_when_change_temperature=true', the tmp buffer size
+  // to copy the file from the source FileSystem to the destnation FileSystem.
+  // If 'allow_trivia_copy_op_when_change_temperature=false', this field will
+  // not be used. The minmum buffer size must be at least 4KiB
+  uint64_t trivial_copy_buffer_size = 4096;
+
+  // When non-zero, FIFO compaction uses the combined size of SST files and
+  // blob files for size-based trimming decisions. When the total data size
+  // (SST + blob) exceeds this limit, the oldest SST files are dropped along
+  // with their associated blob files.
+  //
+  // When non-zero, this takes precedence over max_table_files_size for all
+  // FIFO compaction decisions: size-based dropping, TTL threshold checks,
+  // and compaction score computation. max_table_files_size is ignored.
+  //
+  // When zero (default), FIFO compaction uses max_table_files_size which
+  // only considers SST file sizes, maintaining backward compatibility.
+  //
+  // This option is primarily intended for use with integrated BlobDB where
+  // blob files can represent a significant portion of the total data.
+  //
+  // Dynamically changeable through SetOptions() API.
+  // Default: 0 (use max_table_files_size behavior)
+  uint64_t max_data_files_size = 0;
+
+  // When true, enables a capacity-derived intra-L0 compaction strategy
+  // optimized for BlobDB workloads where SST files are much smaller than
+  // write_buffer_size. Uses the observed key/value size ratio (SST vs blob
+  // file sizes) to compute a target compacted file size, producing uniform
+  // files for predictable FIFO trimming.
+  //
+  // Uses level0_file_num_compaction_trigger as the target max L0 file count.
+  //
+  // When max_compaction_bytes is 0, the target is auto-calculated from the
+  // data capacity and observed SST/blob ratio. When max_compaction_bytes is
+  // explicitly set to a non-zero value, it overrides the auto-calculated
+  // target.
+  //
+  // Recommends:
+  //   - allow_compaction = true (master switch for intra-L0 compaction)
+  //   - max_data_files_size > 0 (needed to compute the target file size)
+  // If these are not met, kv_ratio compaction is skipped and the old
+  // cost-based intra-L0 compaction algorithm is used as a fallback.
+  //
+  // When false, the old intra-L0 strategy is used if allow_compaction is
+  // true (PickCostBasedIntraL0Compaction with 1.1 * write_buffer_size guard).
+  //
+  // Dynamically changeable through SetOptions() API.
+  // Default: false
+  bool use_kv_ratio_compaction = false;
+
   CompactionOptionsFIFO() : max_table_files_size(1 * 1024 * 1024 * 1024) {}
   CompactionOptionsFIFO(uint64_t _max_table_files_size, bool _allow_compaction)
       : max_table_files_size(_max_table_files_size),
         allow_compaction(_allow_compaction) {}
 
-#if __cplusplus >= 202002L
   bool operator==(const CompactionOptionsFIFO& rhs) const = default;
-#endif
 };
 
 // The control option of how the cache tiers will be used. Currently rocksdb
@@ -144,6 +201,60 @@ enum class PrepopulateBlobCache : uint8_t {
   kDisable = 0x0,    // Disable prepopulate blob cache
   kFlushOnly = 0x1,  // Prepopulate blobs during flush only
 };
+
+// Bitmask enum for verify output flags during compaction.
+// This allows fine-grained control over what verification is performed
+// on compaction output files and when it's enabled.
+enum class VerifyOutputFlags : uint32_t {
+  kVerifyNone = 0x0,  // No verification
+
+  // First set of bits: type of verifications
+  kVerifyBlockChecksum = 1 << 0,  // Verify block checksums
+  kVerifyIteration = 1 << 1,      // Verify iteration and full key/value hash
+                                  // by comparing the one inserted into a
+                                  // file, and what is read back.
+
+  kVerifyFileChecksum = 1 << 2,  // Verify file-level checksum
+
+  // Second set of bits: when to enable verification
+  kEnableForLocalCompaction = 1 << 10,   // Enable for local compaction
+  kEnableForRemoteCompaction = 1 << 11,  // Enable for remote compaction
+
+  // TODO - Implement
+  // kEnableForFlush = 1 << 12,  // Enable for flush
+
+  kVerifyAll = 0xFFFFFFFF,
+};
+
+inline VerifyOutputFlags operator|(VerifyOutputFlags lhs,
+                                   VerifyOutputFlags rhs) {
+  using T = std::underlying_type_t<VerifyOutputFlags>;
+  return static_cast<VerifyOutputFlags>(static_cast<T>(lhs) |
+                                        static_cast<T>(rhs));
+}
+
+inline VerifyOutputFlags& operator|=(VerifyOutputFlags& lhs,
+                                     VerifyOutputFlags rhs) {
+  lhs = lhs | rhs;
+  return lhs;
+}
+
+inline VerifyOutputFlags operator&(VerifyOutputFlags lhs,
+                                   VerifyOutputFlags rhs) {
+  using T = std::underlying_type_t<VerifyOutputFlags>;
+  return static_cast<VerifyOutputFlags>(static_cast<T>(lhs) &
+                                        static_cast<T>(rhs));
+}
+
+inline VerifyOutputFlags& operator&=(VerifyOutputFlags& lhs,
+                                     VerifyOutputFlags rhs) {
+  lhs = lhs & rhs;
+  return lhs;
+}
+
+inline bool operator!(VerifyOutputFlags flag) {
+  return flag == VerifyOutputFlags::kVerifyNone;
+}
 
 struct AdvancedColumnFamilyOptions {
   // The maximum number of write buffers that are built up in memory.
@@ -170,15 +281,6 @@ struct AdvancedColumnFamilyOptions {
   // option will be sanitized to 1.
   // Default: 1
   int min_write_buffer_number_to_merge = 1;
-
-  // DEPRECATED
-  // The total maximum number of write buffers to maintain in memory including
-  // copies of buffers that have already been flushed.  Unlike
-  // max_write_buffer_number, this parameter does not affect flushing.
-  // This parameter is being replaced by max_write_buffer_size_to_maintain.
-  // If both parameters are set to non-zero values, this parameter will be
-  // ignored.
-  int max_write_buffer_number_to_maintain = 0;
 
   // The target number of write history bytes to hold in memory. Write history
   // comprises the latest write buffers (memtables). To reach the target, write
@@ -471,6 +573,17 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   int target_file_size_multiplier = 1;
 
+  // If true, RocksDB will consider the estimated tail size (filter + index +
+  // meta blocks) when deciding whether to cut a compaction output file. This
+  // helps prevent output files from exceeding the target_file_size_base due to
+  // large tail blocks. When disabled, only the data block size is considered,
+  // which may result in SST files exceeding the target_file_size_base.
+  //
+  // Default: false
+  //
+  // Dynamically changeable through SetOptions() API
+  bool target_file_size_is_upper_bound = false;
+
   // If true, RocksDB will pick target size of each level dynamically.
   // We will pick a base level b >= 1. L0 will be directly merged into level b,
   // instead of always into level 1. Level 1 to b-1 need to be empty.
@@ -520,7 +633,7 @@ struct AdvancedColumnFamilyOptions {
   // By doing it, we give max_bytes_for_level_multiplier a priority against
   // max_bytes_for_level_base, for a more predictable LSM tree shape. It is
   // useful to limit worse case space amplification.
-  // If `allow_ingest_behind=true` or `preclude_last_level_data_seconds > 0`,
+  // If `cf_allow_ingest_behind=true` or `preclude_last_level_data_seconds > 0`,
   // then the last level is reserved, and we will start filling LSM from the
   // second last level.
   //
@@ -574,6 +687,15 @@ struct AdvancedColumnFamilyOptions {
   // Value 0 will be sanitized.
   //
   // Default: target_file_size_base * 25
+  //
+  // For FIFO compaction with use_kv_ratio_compaction=true:
+  // When set to 0 (and compaction_style is FIFO), the value is NOT sanitized
+  // to the default. Instead, the target compacted file size is automatically
+  // calculated from the data capacity (max_data_files_size) and observed
+  // SST/blob ratio. When explicitly set to a non-zero value, it overrides
+  // the auto-calculated target and is used directly as the max compaction
+  // input size. Note: for FIFO, this controls the output file size target,
+  // not a general compaction byte limit as in level/universal compaction.
   //
   // Dynamically changeable through SetOptions() API
   uint64_t max_compaction_bytes = 0;
@@ -702,6 +824,13 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   bool paranoid_file_checks = false;
 
+  // Bitmask enum for output verification option.
+  //
+  // Default: 0 (kVerifyNone)
+  //
+  // Dynamically changeable (as a uint32_t) through SetOptions() API.
+  VerifyOutputFlags verify_output_flags = VerifyOutputFlags::kVerifyNone;
+
   // In debug mode, RocksDB runs consistency checks on the LSM every time the
   // LSM changes (Flush, Compaction, AddFile). When this option is true, these
   // checks are also enabled in release mode. These checks were historically
@@ -812,6 +941,61 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   uint64_t periodic_compaction_seconds = 0xfffffffffffffffe;
 
+  // When set to a positive value, enables read-triggered compaction. An SST
+  // file is marked for compaction when its estimated read frequency
+  // (estimated_reads / file_size) exceeds this threshold. This helps reduce
+  // read amplification for hot keys by compacting frequently-read files.
+  //
+  // Only "collapsible" reads are counted — lookups that return NotFound
+  // (bloom filter false positive), Delete/SingleDeletion (tombstone), or
+  // Merge (partial result). These are reads where the file contributed no
+  // final value and compaction would eliminate the wasted work.
+  //
+  // Choosing a value: the threshold balances read IO saved against the
+  // write amplification (WA) of an extra compaction. This assumes the
+  // block-based table format is being used,
+  //
+  // Break-even derivation (no block cache):
+  //   Let r = estimated_reads / file_size  (the threshold)
+  //       S = file_size
+  //       B = block_size             (typically 4 KB)
+  //       F = level fanout           (typically ~10)
+  //
+  //   Each collapsible read wastes one data-block read = B bytes of IO.
+  //   Total wasted read IO for a file = r * S * B.
+  //
+  //   Compaction cost: one level-L file overlaps ~F files in level L+1,
+  //   so we read (1 + F) files and write (1 + F) files.
+  //   Total compaction IO = 2 * (1 + F) * S.
+  //
+  //   Break-even when wasted read IO equals compaction IO:
+  //     r * S * B = 2 * (1 + F) * S
+  //     r = 2 * (1 + F) / B
+  //
+  //   With F = 10, B = 4096:  r = 22 / 4096 ≈ 0.005.
+  //
+  // With a block-cache hit rate h (0 ≤ h < 1), each collapsible read
+  // only costs (1 - h) * B bytes of actual disk IO, so:
+  //     r = 2 * (1 + F) / ((1 - h) * B)
+  //
+  //   h = 0   → r ≈ 0.005
+  //   h = 0.5 → r ≈ 0.01
+  //   h = 0.9 → r ≈ 0.05
+  //
+  // A recommended starting point is 0.01, which avoids triggering
+  // compactions that cost more IO than they save for most cache-friendly
+  // workloads, while still being responsive enough to compact files with
+  // significant wasted reads.
+  //
+  // For this feature to take effect on a "quiet" DB (no writes), the DB-level
+  // option `max_compaction_trigger_wakeup_seconds` must also be set to a
+  // non-zero value so the periodic background job can re-evaluate files.
+  //
+  // Valid range: >= 0.0 (must be finite). Use 0.0 to disable.
+  //
+  // Dynamically changeable through SetOptions() API
+  double read_triggered_compaction_threshold = 0.0;
+
   // If this option is set then 1 in N blocks are compressed
   // using a fast (lz4) and slow (zstd) compression algorithm.
   // The compressibility is reported as stats and the stored
@@ -857,7 +1041,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: 0 (disable the feature)
   //
-  // Not dynamically changeable, change it requires db restart.
+  // Dynamically changeable through the SetOptions() API
   uint64_t preclude_last_level_data_seconds = 0;
 
   // EXPERIMENTAL
@@ -880,7 +1064,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: 0 (disable the feature)
   //
-  // Not dynamically changeable, change it requires db restart.
+  // Dynamically changeable through the SetOptions() API
   uint64_t preserve_internal_time_seconds = 0;
 
   // When set, large values (blobs) are written to separate blob files, and
@@ -926,6 +1110,16 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through the SetOptions() API
   CompressionType blob_compression_type = kNoCompression;
+
+  // The compression options for blob files. This allows fine-tuning of
+  // compression parameters (e.g. level, window_bits) independently of SST file
+  // compression. For example, setting level=1 with ZSTD uses the "fast"
+  // strategy (single hash table) vs the default level=3 "doubleFast" strategy.
+  //
+  // Default: default CompressionOptions (level = kDefaultCompressionLevel)
+  //
+  // Dynamically changeable through the SetOptions() API
+  CompressionOptions blob_compression_opts;
 
   // Enables garbage collection of blobs. Blob GC is performed as part of
   // compaction. Valid blobs residing in blob files older than a cutoff get
@@ -1004,6 +1198,63 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through the SetOptions() API
   PrepopulateBlobCache prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
+
+  // When enabled, values >= min_blob_size are written directly to blob files
+  // during the write path and replaced in WAL and memtable with BlobIndex
+  // references.
+  //
+  // Requires enable_blob_files = true.
+  // Experimental reduced-scope v1 restrictions. These limitations keep the v1
+  // implementation intentionally small; follow-up PRs are expected to improve
+  // feature compatibility over time:
+  //  - only supports the ordered single-memtable-writer path; unordered,
+  //    pipelined, two_write_queues, and allow_concurrent_memtable_write are
+  //    not supported.
+  //  - crash recovery only supports blob files that were already made
+  //    manifest-visible by flush/SST creation; WAL replay of active
+  //    direct-write blob files is not currently supported.
+  //  - checkpoint/backup/live-files enumeration must flush pending
+  //    direct-write state first; APIs that intentionally skip the flush, or
+  //    run while WAL is locked, can return NotSupported.
+  //  - not compatible with MemPurge or user-defined timestamps.
+  //  - DB::IngestWriteBatchWithIndex() is not supported while any live column
+  //    family enables this option.
+  //  - read-only and secondary opens can read flushed/manifest-visible blob
+  //    files, but do not resolve still-active direct-write blob files.
+  //
+  // Default: false
+  //
+  // Not dynamically changeable through the SetOptions() API.
+  bool enable_blob_direct_write = false;
+
+  // Number of direct-write blob partitions for this column family.
+  // Requires enable_blob_direct_write = true.
+  //
+  // If blob_direct_write_partition_strategy is null, partition selection uses
+  // the default round-robin strategy.
+  //
+  // Default: 1
+  //
+  // Not dynamically changeable through the SetOptions() API.
+  uint32_t blob_direct_write_partitions = 1;
+
+  // Custom partition strategy for blob direct writes.
+  // If null, uses the default round-robin strategy.
+  // Put()/Merge-style value separation uses SelectPartition(..., Slice value),
+  // while PutEntity() wide-column separation calls
+  // SelectPartition(..., WideColumns columns) once per entity and reuses the
+  // selected partition for all blob-backed columns in that entity.
+  // Requires enable_blob_direct_write = true.
+  //
+  // RocksDB treats this as an application-supplied callback rather than a
+  // serialized OPTIONS object. Applications must provide it again on every DB
+  // open when they rely on custom partitioning behavior.
+  //
+  // Default: nullptr
+  //
+  // Not dynamically changeable through the SetOptions() API.
+  std::shared_ptr<BlobFilePartitionStrategy>
+      blob_direct_write_partition_strategy = nullptr;
 
   // Enable memtable per key-value checksum protection.
   //
@@ -1099,11 +1350,135 @@ struct AdvancedColumnFamilyOptions {
   uint32_t bottommost_file_compaction_delay = 0;
 
   // Enables additional integrity checks during reads/scans.
-  // Specifically, for skiplist-based memtables, we verify that keys visited
-  // are in order. This is helpful to detect corrupted memtable keys during
-  // reads. Enabling this feature incurs a performance overhead due to an
-  // additional key comparison during memtable lookup.
+  // Specifically, for skiplist-based memtables, key ordering validation could
+  // be enabled optionally. This is helpful to detect corrupted memtable keys
+  // during reads. Enabling this feature incurs a performance overhead due to
+  // additional comparison during memtable lookup.
   bool paranoid_memory_checks = false;
+
+  // Enables additional integrity checks during seek.
+  // Specifically, for skiplist-based memtables, key checksum validation could
+  // be enabled during seek optionally. This is helpful to detect corrupted
+  // memtable keys during reads. Enabling this feature incurs a performance
+  // overhead due to additional key checksum validation during memtable seek
+  // operation.
+  // This option depends on memtable_protection_bytes_per_key to be non zero.
+  // If memtable_protection_bytes_per_key is zero, no validation is performed.
+  bool memtable_veirfy_per_key_checksum_on_seek = false;
+
+  // When an iterator scans this number of invisible entries (tombstones or
+  // hidden puts) from the active memtable during a single iterator operation,
+  // we will attempt to flush the memtable. Currently only forward scans are
+  // supported (SeekToFirst(), Seek() and Next()).
+  // This option helps to reduce the overhead of scanning through a
+  // large number of entries in memtable.
+  // Users should consider enable deletion-triggered-compaction (see
+  // CompactOnDeletionCollectorFactory) together with this option to compact
+  // away tombstones after the memtable is flushed.
+  //
+  // Note that this option has no effect on tailing iterators yet.
+  //
+  // Default: 0 (disabled)
+  // Dynamically changeable through the SetOptions() API.
+  uint32_t memtable_op_scan_flush_trigger = 0;
+
+  // Similar to `memtable_op_scan_flush_trigger`, but this option applies to
+  // Next() calls between Seeks or until iterator destruction. If the average
+  // of the number of invisible entries scanned from the active memtable, the
+  // memtable will be marked for flush.
+  // Note that to avoid the case where the window between Seeks is too small,
+  // the option only takes effect if the total number of hidden entries scanned
+  // within a window is at least `memtable_op_scan_flush_trigger`. So this
+  // option is only effective when `memtable_op_scan_flush_trigger` is set.
+  //
+  // This option should be set to a lower value than
+  // `memtable_op_scan_flush_trigger`. It covers the case where an iterator
+  // scans through an expensive key range with many invisible entries from the
+  // active memtable, but the number of invisible entries per operation does not
+  // exceed `memtable_op_scan_flush_trigger`.
+  //
+  // Default: 0 (disabled)
+  // Dynamically changeable through the SetOptions() API.
+  uint32_t memtable_avg_op_scan_flush_trigger = 0;
+
+  // EXPERIMENTAL
+  //
+  // During forward or reverse iteration, when this many or more strictly
+  // contiguous point tombstones (kTypeDeletion, kTypeDeletionWithTimestamp,
+  // kTypeSingleDeletion) are encountered with no live keys between them,
+  // a range tombstone [first_tombstone_key, next_live_key) is inserted into
+  // the current mutable memtable (only if memtable is not empty). This is a
+  // logically redundant entry that does not change any data, but optimizes
+  // future iterators by potentially skipping a large number of tombstone scans.
+  //
+  // This optimization is best-effort and is currently disabled for iterator
+  // configurations that may not expose all interior live keys, including:
+  // * user-defined timestamp reads without full visibility (for example,
+  //   ReadOptions::iter_start_ts or a non-max ReadOptions::timestamp)
+  // * prefix extractor reads that are neither total-order
+  //   (ReadOptions::total_order_seek / ReadOptions::auto_prefix_mode) nor
+  //   bounded by ReadOptions::prefix_same_as_start
+  //
+  // Even if the above restrictions are met, there are still scenarios where a
+  // converted range tombstone may be discarded:
+  //   * The snapshot's active mutable memtable has already become immutable.
+  //   * The iterator's snapshot seq is below the active memtable's earliest
+  //     sequence number.
+  //   * A range tombstone covering [first_tombstone_key, next_live_key) is
+  //     already present in the memtable.
+  //   * A WritePrepared/WriteUnprepared transaction read callback is in use
+  //     and the snapshot seq is at or above its min uncommitted seq.
+  //   * An IngestExternalFile call is currently in flight on this column
+  //     family OR the inserted range tombstone seqno would be lower than the
+  //     ingested file seqno.
+  //
+  // Read-write iterators using ReadOptions::table_filter are rejected while
+  // this option is enabled, see more details in ReadOptions::table_filter
+  // comments.
+  //
+  // Set to 0 to disable.
+  //
+  // Dynamically changeable through SetOptions() API
+  uint32_t min_tombstones_for_range_conversion = 0;
+
+  // If either DBOptions::allow_ingest_behind or this option is set to true,
+  // this column family will prepare for ingesting files to the last level
+  // (IngestExternalFiles() with ingest_behind=true). Users should set only
+  // this option since DBOptions::allow_ingest_behind is deprecated.
+  //
+  // Specifically, preparing a column family for ingesting files to the last
+  // level has the following effects:
+  // 1) Disables some internal optimizations around SST file compression.
+  // 2) Reserves the last level for ingested files only.
+  // 3) Compaction will not include any file from the last level.
+  // 4) Compaction will preserve necessary tombstones that can apply on
+  // top of ingested files.
+  //
+  // Note that only Universal Compaction supports cf_allow_ingest_behind.
+  // `num_levels` should be >= 3 if this option is turned on.
+  //
+  // Note that this option needs to be set to true before any write to the CF.
+  // It's recommended to set the option to true since CF creation. Otherwise,
+  // ingestion with ingest_behind = true might fail. Once file ingestions are
+  // done, the option should be flipped to false. Flipping this option to false
+  // allows the CF to disable the behavior changes detailed above and resume
+  // more efficient operation.
+  //
+  // Default: false
+  // Immutable.
+  bool cf_allow_ingest_behind = false;
+
+  // If true, use batch lookup optimization for memtable MultiGet. For skip
+  // list memtables, after looking up each key, the search path is cached and
+  // reused for the next key, reducing per-key cost from O(log N) to O(log d)
+  // where d is the distance between consecutive keys.
+  //
+  // This optimization exploits the fact that MultiGet keys are sorted.
+  // Non-skip-list memtable implementations fall back to per-key lookups.
+  //
+  // Default: false
+  // Immutable.
+  bool memtable_batch_lookup_optimization = false;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

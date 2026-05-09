@@ -33,7 +33,7 @@ struct WriteBatchWithIndex::Rep {
         last_sub_batch_offset(0),
         sub_batch_cnt(1),
         overwrite_key(_overwrite_key),
-        track_cf_stat(false) {}
+        op_count(0) {}
   ReadableWriteBatch write_batch;
   WriteBatchEntryComparator comparator;
   Arena arena;
@@ -45,11 +45,12 @@ struct WriteBatchWithIndex::Rep {
   // Total number of sub-batches in the write batch. Default is 1.
   size_t sub_batch_cnt;
 
-  bool overwrite_key;
-  bool track_cf_stat;
+  const bool overwrite_key;
   // Tracks ids of CFs that have updates in this WBWI, number of updates and
-  // number of overwritten single deletions per cf.
-  std::unordered_map<uint32_t, CFStat> cf_id_to_stat;
+  // number of overwritten single deletions per cf. Useful for WBWIMemTable
+  // when this WBWI is ingested into a DB.
+  std::unordered_map<uint32_t, WriteBatchWithIndex::CFStat> cf_id_to_stat;
+  size_t op_count;
 
   // In overwrite mode, find the existing entry for the same key and update it
   // to point to the current entry if this is not a Merge operation.
@@ -126,15 +127,13 @@ bool WriteBatchWithIndex::Rep::UpdateExistingEntryWithCfId(
     last_sub_batch_offset = last_entry_offset;
     sub_batch_cnt++;
   }
-  if (track_cf_stat) {
-    if (most_recent_entry->has_single_del &&
-        !most_recent_entry->has_overwritten_single_del) {
-      cf_id_to_stat[column_family_id].overwritten_sd_count++;
-      most_recent_entry->has_overwritten_single_del = true;
-    }
-    if (type == kSingleDeleteRecord) {
-      most_recent_entry->has_single_del = true;
-    }
+  if (most_recent_entry->has_single_del &&
+      !most_recent_entry->has_overwritten_single_del) {
+    cf_id_to_stat[column_family_id].overwritten_sd_count++;
+    most_recent_entry->has_overwritten_single_del = true;
+  }
+  if (type == kSingleDeleteRecord) {
+    most_recent_entry->has_single_del = true;
   }
   // Some sanity check for using Merge and SD on the same key.
   if (iter.Entry().type == kSingleDeleteRecord) {
@@ -157,6 +156,7 @@ bool WriteBatchWithIndex::Rep::UpdateExistingEntryWithCfId(
 void WriteBatchWithIndex::Rep::AddOrUpdateIndexWithCfId(
     uint32_t cf_id, const Slice& key, WriteType type, size_t last_entry_offset,
     const Comparator* cf_cmp) {
+  op_count++;
   uint32_t update_count = 0;
   if (!UpdateExistingEntryWithCfId(cf_id, key, type, last_entry_offset,
                                    &update_count)) {
@@ -196,17 +196,14 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id,
       key.size(), update_count);
   skip_list.Insert(index_entry);
 
-  if (track_cf_stat) {
-    if (type == kSingleDeleteRecord) {
-      index_entry->has_single_del = true;
-    }
-    cf_id_to_stat[column_family_id].entry_count++;
+  if (type == kSingleDeleteRecord) {
+    index_entry->has_single_del = true;
   }
+  cf_id_to_stat[column_family_id].entry_count++;
 }
 
 void WriteBatchWithIndex::Rep::Clear() {
   write_batch.Clear();
-  cf_id_to_stat.clear();
   ClearIndex();
 }
 
@@ -217,6 +214,8 @@ void WriteBatchWithIndex::Rep::ClearIndex() {
   new (&skip_list) WriteBatchEntrySkipList(comparator, &arena);
   last_sub_batch_offset = 0;
   sub_batch_cnt = 1;
+  cf_id_to_stat.clear();
+  op_count = 0;
 }
 
 Status WriteBatchWithIndex::Rep::ReBuildIndex() {
@@ -366,10 +365,19 @@ Iterator* WriteBatchWithIndex::NewIteratorWithBase(
                                read_options);
 }
 
-Iterator* WriteBatchWithIndex::NewIteratorWithBase(Iterator* base_iterator) {
+Iterator* WriteBatchWithIndex::NewIteratorWithBase(
+    Iterator* base_iterator, const ReadOptions* read_options) {
+  WBWIIteratorImpl* wbwiii;
   // default column family's comparator
-  auto wbwiii = new WBWIIteratorImpl(0, &(rep->skip_list), &rep->write_batch,
-                                     &rep->comparator);
+  if (read_options != nullptr) {
+    wbwiii = new WBWIIteratorImpl(
+        0, &(rep->skip_list), &rep->write_batch, &rep->comparator,
+        read_options->iterate_lower_bound, read_options->iterate_upper_bound);
+  } else {
+    wbwiii = new WBWIIteratorImpl(0, &(rep->skip_list), &rep->write_batch,
+                                  &rep->comparator);
+  }
+
   return new BaseDeltaIterator(nullptr, base_iterator, wbwiii,
                                rep->comparator.default_comparator(),
                                /* read_options */ nullptr);
@@ -1164,17 +1172,12 @@ const Comparator* WriteBatchWithIndexInternal::GetUserComparator(
   return ucmps.GetComparator(cf_id);
 }
 
-void WriteBatchWithIndex::SetTrackPerCFStat(bool track) {
-  // Should be set when the wbwi contains no update.
-  assert(GetWriteBatch()->Count() == 0);
-  rep->track_cf_stat = track;
-}
-
 const std::unordered_map<uint32_t, WriteBatchWithIndex::CFStat>&
 WriteBatchWithIndex::GetCFStats() const {
-  assert(rep->track_cf_stat);
   return rep->cf_id_to_stat;
 }
+
+size_t WriteBatchWithIndex::GetWBWIOpCount() const { return rep->op_count; }
 
 bool WriteBatchWithIndex::GetOverwriteKey() const { return rep->overwrite_key; }
 }  // namespace ROCKSDB_NAMESPACE

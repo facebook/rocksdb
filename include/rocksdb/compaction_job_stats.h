@@ -24,15 +24,18 @@ struct CompactionJobStats {
   // the elapsed CPU time of this compaction in microseconds.
   uint64_t cpu_micros = 0;
 
-  // Used internally indicating whether a subcompaction's
-  // `num_input_records` is accurate.
-  bool has_num_input_records = false;
+  // True if `num_input_records` is accurate across all subcompactions.
+  // See CompactionIterator::must_count_input_entries for some implementation
+  // details why `num_input_records` may not be accurate.
+  bool has_accurate_num_input_records = true;
   // the number of compaction input records.
   uint64_t num_input_records = 0;
   // the number of blobs read from blob files
   uint64_t num_blobs_read = 0;
   // the number of compaction input files (table files)
   size_t num_input_files = 0;
+  // The number of input files that get trivially moved.
+  size_t num_input_files_trivially_moved = 0;
   // the number of compaction input files at the output level (table files)
   size_t num_input_files_at_output_level = 0;
   // the number of compaction input files that are filtered out by compaction
@@ -118,6 +121,6 @@ struct CompactionJobStats {
   // number of single-deletes which meet something other than a put
   uint64_t num_single_del_mismatch = 0;
 
-  // TODO: Add output_to_penultimate_level output information
+  // TODO: Add output_to_proximal_level output information
 };
 }  // namespace ROCKSDB_NAMESPACE

@@ -69,6 +69,10 @@ constexpr bool kMustFreeHeapAllocations = false;
 #define TSAN_SUPPRESSION
 #endif  // TSAN_SUPPRESSION
 
+// Fail in debug build with a useful message, for automatically grouping
+// related failures
+#define DEBUG_FAIL(msg) assert(false && msg)
+
 // Compile-time CPU feature testing compatibility
 //
 // A way to be extra sure these defines have been included.

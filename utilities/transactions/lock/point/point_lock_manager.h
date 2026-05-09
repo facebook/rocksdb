@@ -132,8 +132,12 @@ class PointLockManager : public LockManager {
   // this column family is no longer in use.
   void RemoveColumnFamily(const ColumnFamilyHandle* cf) override;
 
+  // Caller makes sure that a lock on the key is not requested again, unless it
+  // is an upgrade or downgrade.
   Status TryLock(PessimisticTransaction* txn, ColumnFamilyId column_family_id,
                  const std::string& key, Env* env, bool exclusive) override;
+  // Caller makes sure that a lock on the key is not requested again, unless it
+  // is an upgrade or downgrade.
   Status TryLock(PessimisticTransaction* txn, ColumnFamilyId column_family_id,
                  const Endpoint& start, const Endpoint& end, Env* env,
                  bool exclusive) override;
@@ -153,7 +157,7 @@ class PointLockManager : public LockManager {
 
   void Resize(uint32_t new_size) override;
 
- private:
+ protected:
   PessimisticTransactionDB* txn_db_impl_;
 
   // Default number of lock map stripes per column family
@@ -179,6 +183,11 @@ class PointLockManager : public LockManager {
   // to avoid acquiring a mutex in order to look up a LockMap
   std::unique_ptr<ThreadLocalPtr> lock_maps_cache_;
 
+  // Thread local variable for KeyLockWaiter. As one thread could only need one
+  // KeyLockWaiter.
+  // Lazy init on first time usage
+  ThreadLocalPtr key_lock_waiter_;
+
   // Must be held when modifying wait_txn_map_ and rev_wait_txn_map_.
   std::mutex wait_txn_map_mutex_;
 
@@ -196,19 +205,16 @@ class PointLockManager : public LockManager {
 
   std::shared_ptr<LockMap> GetLockMap(uint32_t column_family_id);
 
-  Status AcquireWithTimeout(PessimisticTransaction* txn, LockMap* lock_map,
-                            LockMapStripe* stripe, uint32_t column_family_id,
-                            const std::string& key, Env* env, int64_t timeout,
-                            const LockInfo& lock_info);
+  virtual Status AcquireWithTimeout(
+      PessimisticTransaction* txn, LockMap* lock_map, LockMapStripe* stripe,
+      uint32_t column_family_id, const std::string& key, Env* env,
+      int64_t timeout, int64_t deadlock_timeout_us, const LockInfo& lock_info);
 
-  Status AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
-                       const std::string& key, Env* env,
-                       const LockInfo& lock_info, uint64_t* wait_time,
-                       autovector<TransactionID>* txn_ids);
+  virtual void UnLockKey(PessimisticTransaction* txn, const std::string& key,
+                         LockMapStripe* stripe, LockMap* lock_map, Env* env);
 
-  void UnLockKey(PessimisticTransaction* txn, const std::string& key,
-                 LockMapStripe* stripe, LockMap* lock_map, Env* env);
-
+  // Returns true if a deadlock is detected.
+  // Will DecrementWaiters() if a deadlock is detected.
   bool IncrementWaiters(const PessimisticTransaction* txn,
                         const autovector<TransactionID>& wait_ids,
                         const std::string& key, const uint32_t& cf_id,
@@ -217,6 +223,56 @@ class PointLockManager : public LockManager {
                         const autovector<TransactionID>& wait_ids);
   void DecrementWaitersImpl(const PessimisticTransaction* txn,
                             const autovector<TransactionID>& wait_ids);
+
+ private:
+  Status AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
+                       const std::string& key, Env* env,
+                       const LockInfo& lock_info, uint64_t* wait_time,
+                       autovector<TransactionID>* txn_ids);
+};
+
+class PerKeyPointLockManager : public PointLockManager {
+ public:
+  PerKeyPointLockManager(PessimisticTransactionDB* db,
+                         const TransactionDBOptions& opt);
+  // No copying allowed
+  PerKeyPointLockManager(const PerKeyPointLockManager&) = delete;
+  PerKeyPointLockManager& operator=(const PerKeyPointLockManager&) = delete;
+  // No move allowed
+  PerKeyPointLockManager(PerKeyPointLockManager&&) = delete;
+  PerKeyPointLockManager& operator=(PerKeyPointLockManager&&) = delete;
+
+  ~PerKeyPointLockManager() override {}
+
+  void UnLock(PessimisticTransaction* txn, const LockTracker& tracker,
+              Env* env) override;
+  void UnLock(PessimisticTransaction* txn, ColumnFamilyId column_family_id,
+              const std::string& key, Env* env) override;
+  void UnLock(PessimisticTransaction* txn, ColumnFamilyId column_family_id,
+              const Endpoint& start, const Endpoint& end, Env* env) override;
+
+  void UnLockKey(PessimisticTransaction* txn, const std::string& key,
+                 LockMapStripe* stripe, LockMap* lock_map, Env* env) override;
+
+ protected:
+  Status AcquireWithTimeout(PessimisticTransaction* txn, LockMap* lock_map,
+                            LockMapStripe* stripe, uint32_t column_family_id,
+                            const std::string& key, Env* env, int64_t timeout,
+                            int64_t deadlock_timeout_us,
+                            const LockInfo& lock_info) override;
+
+ private:
+  Status AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
+                       const std::string& key, Env* env,
+                       const LockInfo& txn_lock_info, uint64_t* wait_time,
+                       autovector<TransactionID>* txn_ids,
+                       LockInfo** lock_info_ptr, bool* isUpgrade, bool fifo);
+
+  int64_t CalculateWaitEndTime(int64_t expire_time_hint, int64_t end_time);
+
+  Status FillWaitIds(LockInfo& lock_info, const LockInfo& txn_lock_info,
+                     autovector<TransactionID>* wait_ids, bool& isUpgrade,
+                     TransactionID& my_txn_id, const std::string& key);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

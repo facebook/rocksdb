@@ -21,18 +21,18 @@ class CuckooTableDBTest : public testing::Test {
  private:
   std::string dbname_;
   Env* env_;
-  DB* db_;
+  std::unique_ptr<DB> db_;
 
  public:
   CuckooTableDBTest() : env_(Env::Default()) {
     dbname_ = test::PerThreadDBPath("cuckoo_table_db_test");
     EXPECT_OK(DestroyDB(dbname_, Options()));
-    db_ = nullptr;
+    db_.reset();
     Reopen();
   }
 
   ~CuckooTableDBTest() override {
-    delete db_;
+    db_.reset();
     EXPECT_OK(DestroyDB(dbname_, Options()));
   }
 
@@ -47,12 +47,11 @@ class CuckooTableDBTest : public testing::Test {
     return options;
   }
 
-  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_.get()); }
 
   // The following util methods are copied from plain_table_db_test.
   void Reopen(Options* options = nullptr) {
-    delete db_;
-    db_ = nullptr;
+    db_.reset();
     Options opts;
     if (options != nullptr) {
       opts = *options;
@@ -66,8 +65,7 @@ class CuckooTableDBTest : public testing::Test {
   void DestroyAndReopen(Options* options) {
     assert(options);
     ASSERT_OK(db_->Close());
-    delete db_;
-    db_ = nullptr;
+    db_.reset();
     ASSERT_OK(DestroyDB(dbname_, *options));
     Reopen(options);
   }
@@ -130,7 +128,7 @@ TEST_F(CuckooTableDBTest, Flush) {
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   TablePropertiesCollection ptc;
-  ASSERT_OK(static_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  ASSERT_OK(dbfull()->GetPropertiesOfAllTables(&ptc));
   VerifySstUniqueIds(ptc);
   ASSERT_EQ(1U, ptc.size());
   ASSERT_EQ(3U, ptc.begin()->second->num_entries);
@@ -147,7 +145,7 @@ TEST_F(CuckooTableDBTest, Flush) {
   ASSERT_OK(Put("key6", "v6"));
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
-  ASSERT_OK(static_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  ASSERT_OK(dbfull()->GetPropertiesOfAllTables(&ptc));
   VerifySstUniqueIds(ptc);
   ASSERT_EQ(2U, ptc.size());
   auto row = ptc.begin();
@@ -165,7 +163,7 @@ TEST_F(CuckooTableDBTest, Flush) {
   ASSERT_OK(Delete("key5"));
   ASSERT_OK(Delete("key4"));
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
-  ASSERT_OK(static_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  ASSERT_OK(dbfull()->GetPropertiesOfAllTables(&ptc));
   VerifySstUniqueIds(ptc);
   ASSERT_EQ(3U, ptc.size());
   row = ptc.begin();
@@ -190,7 +188,7 @@ TEST_F(CuckooTableDBTest, FlushWithDuplicateKeys) {
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   TablePropertiesCollection ptc;
-  ASSERT_OK(static_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  ASSERT_OK(dbfull()->GetPropertiesOfAllTables(&ptc));
   VerifySstUniqueIds(ptc);
   ASSERT_EQ(1U, ptc.size());
   ASSERT_EQ(2U, ptc.begin()->second->num_entries);

@@ -198,13 +198,13 @@ class FastLocalBloomImpl {
   }
 
   static inline void AddHash(uint32_t h1, uint32_t h2, uint32_t len_bytes,
-                             int num_probes, char *data) {
+                             int num_probes, char* data) {
     uint32_t bytes_to_cache_line = FastRange32(h1, len_bytes >> 6) << 6;
     AddHashPrepared(h2, num_probes, data + bytes_to_cache_line);
   }
 
   static inline void AddHashPrepared(uint32_t h2, int num_probes,
-                                     char *data_at_cache_line) {
+                                     char* data_at_cache_line) {
     uint32_t h = h2;
     for (int i = 0; i < num_probes; ++i, h *= uint32_t{0x9e3779b9}) {
       // 9-bit address within 512 bit cache line
@@ -214,8 +214,8 @@ class FastLocalBloomImpl {
   }
 
   static inline void PrepareHash(uint32_t h1, uint32_t len_bytes,
-                                 const char *data,
-                                 uint32_t /*out*/ *byte_offset) {
+                                 const char* data,
+                                 uint32_t /*out*/* byte_offset) {
     uint32_t bytes_to_cache_line = FastRange32(h1, len_bytes >> 6) << 6;
     PREFETCH(data + bytes_to_cache_line, 0 /* rw */, 1 /* locality */);
     PREFETCH(data + bytes_to_cache_line + 63, 0 /* rw */, 1 /* locality */);
@@ -223,13 +223,13 @@ class FastLocalBloomImpl {
   }
 
   static inline bool HashMayMatch(uint32_t h1, uint32_t h2, uint32_t len_bytes,
-                                  int num_probes, const char *data) {
+                                  int num_probes, const char* data) {
     uint32_t bytes_to_cache_line = FastRange32(h1, len_bytes >> 6) << 6;
     return HashMayMatchPrepared(h2, num_probes, data + bytes_to_cache_line);
   }
 
   static inline bool HashMayMatchPrepared(uint32_t h2, int num_probes,
-                                          const char *data_at_cache_line) {
+                                          const char* data_at_cache_line) {
     uint32_t h = h2;
 #ifdef __AVX2__
     int rem_probes = num_probes;
@@ -277,8 +277,8 @@ class FastLocalBloomImpl {
       //                            /*bytes / i32*/ 4);
       // END Option 1
       // Potentially unaligned as we're not *always* cache-aligned -> loadu
-      const __m256i *mm_data =
-          reinterpret_cast<const __m256i *>(data_at_cache_line);
+      const __m256i* mm_data =
+          reinterpret_cast<const __m256i*>(data_at_cache_line);
       __m256i lower = _mm256_loadu_si256(mm_data);
       __m256i upper = _mm256_loadu_si256(mm_data + 1);
       // Option 2: AVX512VL permute hack
@@ -362,7 +362,7 @@ class LegacyNoLocalityBloomImpl {
   }
 
   static inline void AddHash(uint32_t h, uint32_t total_bits, int num_probes,
-                             char *data) {
+                             char* data) {
     const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
     for (int i = 0; i < num_probes; i++) {
       const uint32_t bitpos = h % total_bits;
@@ -372,7 +372,7 @@ class LegacyNoLocalityBloomImpl {
   }
 
   static inline bool HashMayMatch(uint32_t h, uint32_t total_bits,
-                                  int num_probes, const char *data) {
+                                  int num_probes, const char* data) {
     const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
     for (int i = 0; i < num_probes; i++) {
       const uint32_t bitpos = h % total_bits;
@@ -430,10 +430,10 @@ class LegacyLocalityBloomImpl {
   }
 
   static inline void AddHash(uint32_t h, uint32_t num_lines, int num_probes,
-                             char *data, int log2_cache_line_bytes) {
+                             char* data, int log2_cache_line_bytes) {
     const int log2_cache_line_bits = log2_cache_line_bytes + 3;
 
-    char *data_at_offset =
+    char* data_at_offset =
         data + (GetLine(h, num_lines) << log2_cache_line_bytes);
     const uint32_t delta = (h >> 17) | (h << 15);
     for (int i = 0; i < num_probes; ++i) {
@@ -448,8 +448,8 @@ class LegacyLocalityBloomImpl {
   }
 
   static inline void PrepareHashMayMatch(uint32_t h, uint32_t num_lines,
-                                         const char *data,
-                                         uint32_t /*out*/ *byte_offset,
+                                         const char* data,
+                                         uint32_t /*out*/* byte_offset,
                                          int log2_cache_line_bytes) {
     uint32_t b = GetLine(h, num_lines) << log2_cache_line_bytes;
     PREFETCH(data + b, 0 /* rw */, 1 /* locality */);
@@ -459,14 +459,14 @@ class LegacyLocalityBloomImpl {
   }
 
   static inline bool HashMayMatch(uint32_t h, uint32_t num_lines,
-                                  int num_probes, const char *data,
+                                  int num_probes, const char* data,
                                   int log2_cache_line_bytes) {
     uint32_t b = GetLine(h, num_lines) << log2_cache_line_bytes;
     return HashMayMatchPrepared(h, num_probes, data + b, log2_cache_line_bytes);
   }
 
   static inline bool HashMayMatchPrepared(uint32_t h, int num_probes,
-                                          const char *data_at_offset,
+                                          const char* data_at_offset,
                                           int log2_cache_line_bytes) {
     const int log2_cache_line_bits = log2_cache_line_bytes + 3;
 

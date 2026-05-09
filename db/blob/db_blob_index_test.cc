@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <atomic>
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <utility>
@@ -18,13 +20,26 @@
 #include "db/db_iter.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
+#include "db/wide/wide_column_test_util.h"
 #include "db/write_batch_internal.h"
+#include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+void CorruptPinnedBlobIndexOnCleanup(void* arg1, void* /*arg2*/) {
+  auto* blob_index = static_cast<std::string*>(arg1);
+  assert(blob_index != nullptr);
+  assert(!blob_index->empty());
+  (*blob_index)[0] = static_cast<char>(BlobIndex::Type::kUnknown);
+}
+
+}  // namespace
 
 // kTypeBlobIndex is a value type used by BlobDB only. The base rocksdb
 // should accept the value type on write, and report not supported value
@@ -103,6 +118,16 @@ class DBBlobIndexTest : public DBTestBase {
         true /*expose_blob_index*/);
   }
 
+  bool MaybeResolveDirectWriteValueForTest(
+      const ReadOptions& read_options, const Slice& key,
+      bool resolve_direct_write_value, const Version* current,
+      PinnableSlice* value, PinnableWideColumns* columns, Status* s,
+      bool* is_blob_index, bool* value_found = nullptr) {
+    return DBImpl::MaybeResolveDirectWriteValue(
+        read_options, key, resolve_direct_write_value, current, cfd(), value,
+        columns, s, is_blob_index, value_found);
+  }
+
   Options GetTestOptions() {
     Options options;
     options.env = CurrentOptions().env;
@@ -114,6 +139,10 @@ class DBBlobIndexTest : public DBTestBase {
     options.min_write_buffer_number_to_merge = 10;
     options.merge_operator = MergeOperators::CreateStringAppendOperator();
     return options;
+  }
+
+  Options GetBlobTestOptions() {
+    return wide_column_test_util::GetOptionsForBlobTest(GetTestOptions());
   }
 
   void MoveDataTo(Tier tier) {
@@ -216,6 +245,206 @@ TEST_F(DBBlobIndexTest, Get) {
     ASSERT_EQ(blob_index, GetImpl("blob_key", &is_blob_index));
     ASSERT_TRUE(is_blob_index);
   }
+}
+
+TEST_F(DBBlobIndexTest,
+       MaybeResolveDirectWriteValueDecodesPinnedBlobIndexBeforeReset) {
+  DestroyAndReopen(GetTestOptions());
+
+  std::string blob_index;
+  BlobIndex::EncodeBlob(&blob_index, /*file_number=*/123, /*offset=*/456,
+                        /*size=*/789, kNoCompression);
+
+  PinnableSlice value;
+  value.PinSlice(Slice(blob_index), CorruptPinnedBlobIndexOnCleanup,
+                 &blob_index, nullptr);
+
+  Status s = Status::OK();
+  bool is_blob_index = true;
+  ASSERT_TRUE(MaybeResolveDirectWriteValueForTest(
+      ReadOptions(), Slice("key"), /*resolve_direct_write_value=*/true,
+      /*current=*/nullptr, &value, /*columns=*/nullptr, &s, &is_blob_index));
+
+  ASSERT_FALSE(s.IsCorruption()) << s.ToString();
+  ASSERT_TRUE(s.IsIOError() || s.IsNotFound()) << s.ToString();
+  ASSERT_FALSE(is_blob_index);
+  ASSERT_EQ(static_cast<char>(BlobIndex::Type::kUnknown), blob_index.front());
+}
+
+class PlainBlobValueFilterV3 : public CompactionFilter {
+ public:
+  PlainBlobValueFilterV3(std::atomic<int>* filter_call_count,
+                         std::string* observed_value)
+      : filter_call_count_(filter_call_count),
+        observed_value_(observed_value) {}
+
+  Decision FilterV3(
+      int /*level*/, const Slice& /*key*/, ValueType value_type,
+      const Slice* existing_value, const WideColumns* /*existing_columns*/,
+      std::string* /*new_value*/,
+      std::vector<std::pair<std::string, std::string>>* /*new_columns*/,
+      std::string* /*skip_until*/) const override {
+    if (value_type != ValueType::kValue || existing_value == nullptr) {
+      return Decision::kKeep;
+    }
+
+    ++(*filter_call_count_);
+    *observed_value_ = existing_value->ToString();
+    return Decision::kRemove;
+  }
+
+  const char* Name() const override { return "PlainBlobValueFilterV3"; }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::string* observed_value_;
+};
+
+class PlainBlobValueFilterV3Factory : public CompactionFilterFactory {
+ public:
+  PlainBlobValueFilterV3Factory(TableFileCreationReason reason,
+                                std::atomic<int>* filter_call_count,
+                                std::string* observed_value)
+      : reason_(reason),
+        filter_call_count_(filter_call_count),
+        observed_value_(observed_value) {}
+
+  bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const override {
+    return reason == reason_;
+  }
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::make_unique<PlainBlobValueFilterV3>(filter_call_count_,
+                                                    observed_value_);
+  }
+
+  const char* Name() const override { return "PlainBlobValueFilterV3Factory"; }
+
+ private:
+  TableFileCreationReason reason_;
+  std::atomic<int>* filter_call_count_;
+  std::string* observed_value_;
+};
+
+TEST_F(DBBlobIndexTest, DirectWritePlainBlobFilterV3FlushUsesResolvedValue) {
+  std::atomic<int> filter_call_count{0};
+  std::string observed_value;
+
+  Options options =
+      wide_column_test_util::GetDirectWriteOptions(GetTestOptions());
+  options.compaction_filter_factory =
+      std::make_shared<PlainBlobValueFilterV3Factory>(
+          TableFileCreationReason::kFlush, &filter_call_count, &observed_value);
+
+  DestroyAndReopen(options);
+
+  const std::string key = "flush_blob_key";
+  const std::string large_value(10 * 1024, 'F');
+
+  ASSERT_OK(Put(key, large_value));
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ("NOT_FOUND", Get(key));
+  ASSERT_GE(filter_call_count.load(), 1);
+  ASSERT_EQ(observed_value, large_value);
+}
+
+class PlainBlobValueFilterV4 : public CompactionFilter {
+ public:
+  PlainBlobValueFilterV4(std::atomic<int>* filter_call_count,
+                         std::string* observed_value,
+                         std::atomic<bool>* saw_nonnull_blob_resolver)
+      : filter_call_count_(filter_call_count),
+        observed_value_(observed_value),
+        saw_nonnull_blob_resolver_(saw_nonnull_blob_resolver) {}
+
+  Decision FilterV4(
+      int /*level*/, const Slice& /*key*/, ValueType value_type,
+      const Slice* existing_value, const WideColumns* /*existing_columns*/,
+      std::string* /*new_value*/,
+      std::vector<std::pair<std::string, std::string>>* /*new_columns*/,
+      std::string* /*skip_until*/,
+      WideColumnBlobResolver* blob_resolver = nullptr) const override {
+    if (value_type != ValueType::kValue || existing_value == nullptr) {
+      return Decision::kKeep;
+    }
+
+    ++(*filter_call_count_);
+    *observed_value_ = existing_value->ToString();
+    saw_nonnull_blob_resolver_->store(blob_resolver != nullptr,
+                                      std::memory_order_relaxed);
+    return Decision::kRemove;
+  }
+
+  bool SupportsFilterV4() const override { return true; }
+  const char* Name() const override { return "PlainBlobValueFilterV4"; }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::string* observed_value_;
+  std::atomic<bool>* saw_nonnull_blob_resolver_;
+};
+
+class PlainBlobValueFilterV4Factory : public CompactionFilterFactory {
+ public:
+  PlainBlobValueFilterV4Factory(TableFileCreationReason reason,
+                                std::atomic<int>* filter_call_count,
+                                std::string* observed_value,
+                                std::atomic<bool>* saw_nonnull_blob_resolver)
+      : reason_(reason),
+        filter_call_count_(filter_call_count),
+        observed_value_(observed_value),
+        saw_nonnull_blob_resolver_(saw_nonnull_blob_resolver) {}
+
+  bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const override {
+    return reason == reason_;
+  }
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::make_unique<PlainBlobValueFilterV4>(
+        filter_call_count_, observed_value_, saw_nonnull_blob_resolver_);
+  }
+
+  const char* Name() const override { return "PlainBlobValueFilterV4Factory"; }
+
+ private:
+  TableFileCreationReason reason_;
+  std::atomic<int>* filter_call_count_;
+  std::string* observed_value_;
+  std::atomic<bool>* saw_nonnull_blob_resolver_;
+};
+
+// Blob direct-write forces a clean-shutdown flush on close so active blob
+// files are registered before reopen. Use flush to exercise the non-compaction
+// plain-blob FilterV4 path.
+TEST_F(DBBlobIndexTest, DirectWritePlainBlobFilterV4FlushUsesResolvedValue) {
+  std::atomic<int> filter_call_count{0};
+  std::string observed_value;
+  std::atomic<bool> saw_nonnull_blob_resolver{false};
+
+  Options options =
+      wide_column_test_util::GetDirectWriteOptions(GetTestOptions());
+  options.compaction_filter_factory =
+      std::make_shared<PlainBlobValueFilterV4Factory>(
+          TableFileCreationReason::kFlush, &filter_call_count, &observed_value,
+          &saw_nonnull_blob_resolver);
+
+  DestroyAndReopen(options);
+
+  const std::string key = "flush_v4_blob_key";
+  const std::string large_value(10 * 1024, 'R');
+
+  ASSERT_OK(Put(key, large_value));
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ("NOT_FOUND", Get(key));
+  ASSERT_GE(filter_call_count.load(), 1);
+  ASSERT_EQ(observed_value, large_value);
+  ASSERT_FALSE(saw_nonnull_blob_resolver.load(std::memory_order_relaxed));
 }
 
 // Note: the following test case pertains to the StackableDB-based BlobDB
@@ -489,6 +718,1143 @@ TEST_F(DBBlobIndexTest, Iterate) {
   }
 }
 
+// Use shared test utilities for Wide Column + Blob integration tests
+using wide_column_test_util::GenerateLargeValue;
+using wide_column_test_util::GenerateSmallValue;
+
+// Test 1: Full roundtrip test: PutEntity with large columns -> flush ->
+// compaction with blob extraction -> read back with blob resolution -> verify
+TEST_F(DBBlobIndexTest, EntityBlobFlushCompactionRoundtrip) {
+  Options options = GetBlobTestOptions();
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+  options.statistics = CreateDBStatistics();
+
+  DestroyAndReopen(options);
+
+  // Create entities with large column values that will become blobs
+  constexpr char key1[] = "entity_key1";
+  constexpr char key2[] = "entity_key2";
+  constexpr char key3[] = "entity_key3";
+
+  // Large value for default column (will become blob)
+  std::string large_default_value = GenerateLargeValue(100);
+  // Large value for non-default columns
+  std::string large_attr1_value = GenerateLargeValue(150);
+  std::string large_attr2_value = GenerateLargeValue(200);
+  // Small value that stays inline
+  std::string small_value = GenerateSmallValue();
+
+  // Entity 1: Large default column + large attribute
+  WideColumns columns1{{kDefaultWideColumnName, large_default_value},
+                       {"attr1", large_attr1_value}};
+
+  // Entity 2: No default column, only large attributes
+  WideColumns columns2{{"attr1", large_attr1_value},
+                       {"attr2", large_attr2_value}};
+
+  // Entity 3: Mixed - small default, large attribute
+  WideColumns columns3{{kDefaultWideColumnName, small_value},
+                       {"attr1", large_attr1_value}};
+
+  // Write entities
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key1,
+                           columns1));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key2,
+                           columns2));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key3,
+                           columns3));
+
+  // Verify from memtable
+  auto verify = [&]() {
+    // Verify entity 1
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key1,
+                               &result));
+      ASSERT_EQ(result.columns(), columns1);
+
+      // Also verify Get returns the default column value
+      PinnableSlice value;
+      ASSERT_OK(
+          db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key1, &value));
+      ASSERT_EQ(value, large_default_value);
+    }
+
+    // Verify entity 2
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key2,
+                               &result));
+      ASSERT_EQ(result.columns(), columns2);
+
+      // Get should return empty for entity without default column
+      PinnableSlice value;
+      ASSERT_OK(
+          db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key2, &value));
+      ASSERT_TRUE(value.empty());
+    }
+
+    // Verify entity 3
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key3,
+                               &result));
+      ASSERT_EQ(result.columns(), columns3);
+
+      PinnableSlice value;
+      ASSERT_OK(
+          db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key3, &value));
+      ASSERT_EQ(value, small_value);
+    }
+
+    // Verify via iterator
+    {
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+      iter->SeekToFirst();
+
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), key1);
+      ASSERT_EQ(iter->columns(), columns1);
+
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), key2);
+      ASSERT_EQ(iter->columns(), columns2);
+
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), key3);
+      ASSERT_EQ(iter->columns(), columns3);
+
+      iter->Next();
+      ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
+    }
+  };
+
+  // Verify from memtable
+  verify();
+
+  // Flush to create SST files (and potentially blob files)
+  ASSERT_OK(Flush());
+  verify();
+
+  // Add more data and flush again to create multiple files
+  constexpr char key4[] = "entity_key4";
+  // Store large values in persistent strings to avoid dangling Slice references
+  std::string large_value4_default = GenerateLargeValue(120);
+  std::string large_value4_attr1 = GenerateLargeValue(80);
+  WideColumns columns4{{kDefaultWideColumnName, large_value4_default},
+                       {"attr1", large_value4_attr1}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key4,
+                           columns4));
+  ASSERT_OK(Flush());
+
+  // Compact to trigger blob extraction and GC
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Explicit verification: blob files were actually created after compaction
+  {
+    // Verify at least one blob file exists
+    std::vector<uint64_t> blob_files = GetBlobFileNumbers();
+    ASSERT_GE(blob_files.size(), 1)
+        << "Expected at least one blob file after compaction with entity data";
+
+    // Verify using DB property
+    uint64_t num_blob_files = 0;
+    ASSERT_TRUE(
+        db_->GetIntProperty(DB::Properties::kNumBlobFiles, &num_blob_files));
+    ASSERT_GE(num_blob_files, 1)
+        << "kNumBlobFiles property should report at least one blob file";
+
+    // Verify blob file size is non-zero (data was written)
+    uint64_t total_blob_file_size = 0;
+    ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTotalBlobFileSize,
+                                    &total_blob_file_size));
+    ASSERT_GT(total_blob_file_size, 0)
+        << "Total blob file size should be greater than zero";
+
+    // Verify blob statistics - confirm data was written to blob files
+    uint64_t blob_bytes_written =
+        options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_WRITTEN);
+    ASSERT_GT(blob_bytes_written, 0)
+        << "Expected non-zero bytes written to blob files";
+  }
+
+  // Verify original entities after compaction (verify() only checks key1-3,
+  // so we verify them individually since key4 was added)
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key1,
+                             &result));
+    ASSERT_EQ(result.columns(), columns1);
+  }
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key2,
+                             &result));
+    ASSERT_EQ(result.columns(), columns2);
+  }
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key3,
+                             &result));
+    ASSERT_EQ(result.columns(), columns3);
+  }
+
+  // Verify key4 after compaction
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key4,
+                             &result));
+    ASSERT_EQ(result.columns(), columns4);
+  }
+
+  // Multiple flush/compaction cycles
+  for (int cycle = 0; cycle < 3; ++cycle) {
+    std::string cycle_key = "cycle_key" + std::to_string(cycle);
+    // Store large values in persistent strings to avoid dangling Slice
+    // references
+    std::string cycle_default_value = GenerateLargeValue(100);
+    std::string cycle_attr_value = GenerateLargeValue(50);
+    WideColumns cycle_columns{{kDefaultWideColumnName, cycle_default_value},
+                              {"cycle_attr", cycle_attr_value}};
+    ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                             cycle_key, cycle_columns));
+    ASSERT_OK(Flush());
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+    // Verify
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                             cycle_key, &result));
+    ASSERT_EQ(result.columns(), cycle_columns);
+  }
+
+  Close();
+}
+
+// Test 2: Entity blob GC respects snapshots - blobs referenced by snapshotted
+// entities should not be GC'd
+TEST_F(DBBlobIndexTest, EntityBlobGCWithSnapshot) {
+  Options options = GetBlobTestOptions();
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "snapshot_key";
+  std::string original_value = GenerateLargeValue(100);
+  std::string updated_value = GenerateLargeValue(150);
+  // Store large values in persistent strings to avoid dangling Slice references
+  std::string original_attr1_value = GenerateLargeValue(80);
+  std::string updated_attr1_value = GenerateLargeValue(120);
+
+  WideColumns original_columns{{kDefaultWideColumnName, original_value},
+                               {"attr1", original_attr1_value}};
+  WideColumns updated_columns{{kDefaultWideColumnName, updated_value},
+                              {"attr1", updated_attr1_value}};
+
+  // Write original entity
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key,
+                           original_columns));
+  ASSERT_OK(Flush());
+
+  // Take a snapshot
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_NE(snapshot, nullptr);
+
+  // Update the entity with new values
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key,
+                           updated_columns));
+  ASSERT_OK(Flush());
+
+  // Compact - this should trigger GC, but the old blobs should be preserved
+  // due to the snapshot
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Verify current value
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key,
+                             &result));
+    ASSERT_EQ(result.columns(), updated_columns);
+  }
+
+  // Verify snapshot still sees original value
+  {
+    ReadOptions read_options;
+    read_options.snapshot = snapshot;
+
+    PinnableWideColumns result;
+    ASSERT_OK(
+        db_->GetEntity(read_options, db_->DefaultColumnFamily(), key, &result));
+    ASSERT_EQ(result.columns(), original_columns);
+
+    // Also verify Get with snapshot
+    PinnableSlice value;
+    ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &value));
+    ASSERT_EQ(value, original_value);
+  }
+
+  // Release snapshot and compact again - now old blobs can be GC'd
+  db_->ReleaseSnapshot(snapshot);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Verify current value still accessible
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key,
+                             &result));
+    ASSERT_EQ(result.columns(), updated_columns);
+  }
+
+  Close();
+}
+
+// Test 3: DB recovery replays unflushed WAL entries for entities with blob
+// columns.
+TEST_F(DBBlobIndexTest, EntityBlobRecoveryReplaysUnflushedWAL) {
+  Options options = GetBlobTestOptions();
+  options.avoid_flush_during_shutdown = true;
+
+  DestroyAndReopen(options);
+
+  // Write entities with various column configurations
+  constexpr char key1[] = "recovery_key1";
+  constexpr char key2[] = "recovery_key2";
+  constexpr char key3[] = "recovery_key3";
+
+  std::string large_value1 = GenerateLargeValue(100);
+  std::string large_value2 = GenerateLargeValue(150);
+  std::string small_value = GenerateSmallValue();
+  // Store large values in persistent strings to avoid dangling Slice references
+  std::string columns1_attr1 = GenerateLargeValue(80);
+  std::string columns3_attr1 = GenerateLargeValue(200);
+
+  WideColumns columns1{{kDefaultWideColumnName, large_value1},
+                       {"attr1", columns1_attr1}};
+  WideColumns columns2{{"attr1", large_value2}, {"attr2", small_value}};
+  WideColumns columns3{{kDefaultWideColumnName, small_value},
+                       {"attr1", columns3_attr1}};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key1,
+                           columns1));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key2,
+                           columns2));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key3,
+                           columns3));
+  ASSERT_OK(Flush());
+
+  // Compact to ensure blob extraction
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Write more data to WAL (not flushed) so recovery has live memtable data to
+  // replay.
+  constexpr char key4[] = "recovery_key4";
+  // Store large values in persistent strings to avoid dangling Slice references
+  std::string columns4_default = GenerateLargeValue(120);
+  WideColumns columns4{{kDefaultWideColumnName, columns4_default},
+                       {"attr1", "unflushed_attr"}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key4,
+                           columns4));
+
+  // Skip shutdown flush so key4 stays in WAL and must be recovered on reopen.
+  Close();
+  Reopen(options);
+
+  // Verify all data is recovered correctly
+  auto verify_entity = [&](const std::string& key,
+                           const WideColumns& expected) {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key,
+                             &result));
+    ASSERT_EQ(result.columns(), expected);
+  };
+
+  verify_entity(key1, columns1);
+  verify_entity(key2, columns2);
+  verify_entity(key3, columns3);
+  verify_entity(key4, columns4);
+
+  // Verify via Get for entities with default column
+  {
+    PinnableSlice value;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key1, &value));
+    ASSERT_EQ(value, large_value1);
+  }
+
+  // Verify via iterator
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    int count = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      count++;
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(count, 4);
+  }
+
+  // Add another unflushed entity so reopening with
+  // `avoid_flush_during_recovery` also has WAL-backed recovery work to do.
+  constexpr char key5[] = "recovery_key5";
+  std::string columns5_default = GenerateLargeValue(140);
+  WideColumns columns5{{kDefaultWideColumnName, columns5_default},
+                       {"attr1", "recovered_with_avoid_flush"}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key5,
+                           columns5));
+
+  Close();
+  options.avoid_flush_during_recovery = true;
+  Reopen(options);
+
+  // All data should still be accessible
+  verify_entity(key1, columns1);
+  verify_entity(key2, columns2);
+  verify_entity(key3, columns3);
+  verify_entity(key4, columns4);
+  verify_entity(key5, columns5);
+
+  Close();
+}
+
+// Test 5: Entities with blob columns work correctly mixed with regular Put
+// operations that also use blobs
+TEST_F(DBBlobIndexTest, EntityBlobMixedWithRegularPut) {
+  Options options = GetBlobTestOptions();
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+
+  DestroyAndReopen(options);
+
+  // Regular Put with large value (becomes blob)
+  constexpr char put_key1[] = "put_key1";
+  std::string put_value1 = GenerateLargeValue(100);
+  ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), put_key1,
+                     put_value1));
+
+  // Entity with large columns
+  constexpr char entity_key1[] = "entity_key1";
+  std::string entity_default = GenerateLargeValue(120);
+  // Store large values in persistent strings to avoid dangling Slice references
+  std::string entity_columns1_attr1 = GenerateLargeValue(80);
+  WideColumns entity_columns1{{kDefaultWideColumnName, entity_default},
+                              {"attr1", entity_columns1_attr1}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           entity_key1, entity_columns1));
+
+  // Regular Put with small value (stays inline)
+  constexpr char put_key2[] = "put_key2";
+  std::string put_value2 = GenerateSmallValue();
+  ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), put_key2,
+                     put_value2));
+
+  // Entity without default column
+  constexpr char entity_key2[] = "entity_key2";
+  // Store large values in persistent strings to avoid dangling Slice references
+  std::string entity_columns2_attr1 = GenerateLargeValue(90);
+  std::string entity_columns2_attr2 = GenerateLargeValue(110);
+  WideColumns entity_columns2{{"attr1", entity_columns2_attr1},
+                              {"attr2", entity_columns2_attr2}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           entity_key2, entity_columns2));
+
+  // More regular Put
+  constexpr char put_key3[] = "put_key3";
+  std::string put_value3 = GenerateLargeValue(200);
+  ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), put_key3,
+                     put_value3));
+
+  // Flush
+  ASSERT_OK(Flush());
+
+  // Verify all values
+  auto verify = [&]() {
+    // Regular Put values
+    {
+      PinnableSlice value;
+      ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), put_key1,
+                         &value));
+      ASSERT_EQ(value, put_value1);
+    }
+    {
+      PinnableSlice value;
+      ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), put_key2,
+                         &value));
+      ASSERT_EQ(value, put_value2);
+    }
+    {
+      PinnableSlice value;
+      ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), put_key3,
+                         &value));
+      ASSERT_EQ(value, put_value3);
+    }
+
+    // Entity values
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               entity_key1, &result));
+      ASSERT_EQ(result.columns(), entity_columns1);
+
+      // Get on entity returns default column
+      PinnableSlice value;
+      ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), entity_key1,
+                         &value));
+      ASSERT_EQ(value, entity_default);
+    }
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               entity_key2, &result));
+      ASSERT_EQ(result.columns(), entity_columns2);
+    }
+
+    // GetEntity on regular Put returns single default column
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               put_key1, &result));
+      ASSERT_EQ(result.columns().size(), 1);
+      ASSERT_EQ(result.columns()[0].name(), kDefaultWideColumnName);
+      ASSERT_EQ(result.columns()[0].value(), put_value1);
+    }
+
+    // Iterator should see all keys in order
+    {
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+      std::vector<std::string> expected_keys = {entity_key1, entity_key2,
+                                                put_key1, put_key2, put_key3};
+      int idx = 0;
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        ASSERT_OK(iter->status());
+        ASSERT_LT(idx, static_cast<int>(expected_keys.size()));
+        ASSERT_EQ(iter->key(), expected_keys[idx]);
+        idx++;
+      }
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(idx, static_cast<int>(expected_keys.size()));
+    }
+  };
+
+  verify();
+
+  // Add more data and compact
+  constexpr char put_key4[] = "put_key4";
+  std::string put_value4 = GenerateLargeValue(150);
+  ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), put_key4,
+                     put_value4));
+
+  constexpr char entity_key3[] = "entity_key3";
+  // Store values in persistent strings to avoid dangling Slice references
+  std::string entity_columns3_default = GenerateLargeValue(130);
+  std::string entity_columns3_attr1 = GenerateSmallValue();
+  WideColumns entity_columns3{{kDefaultWideColumnName, entity_columns3_default},
+                              {"attr1", entity_columns3_attr1}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           entity_key3, entity_columns3));
+
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Verify original entries after compaction (verify() only checks the original
+  // 5 keys, so we verify them individually since put_key4 and entity_key3 were
+  // added)
+  {
+    PinnableSlice value;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), put_key1, &value));
+    ASSERT_EQ(value, put_value1);
+  }
+  {
+    PinnableSlice value;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), put_key2, &value));
+    ASSERT_EQ(value, put_value2);
+  }
+  {
+    PinnableSlice value;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), put_key3, &value));
+    ASSERT_EQ(value, put_value3);
+  }
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                             entity_key1, &result));
+    ASSERT_EQ(result.columns(), entity_columns1);
+  }
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                             entity_key2, &result));
+    ASSERT_EQ(result.columns(), entity_columns2);
+  }
+
+  // Verify new entries after compaction
+  {
+    PinnableSlice value;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), put_key4, &value));
+    ASSERT_EQ(value, put_value4);
+  }
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                             entity_key3, &result));
+    ASSERT_EQ(result.columns(), entity_columns3);
+  }
+
+  // Update some values and verify GC works correctly
+  std::string updated_put_value1 = GenerateLargeValue(180);
+  ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), put_key1,
+                     updated_put_value1));
+
+  std::string updated_entity_default = GenerateLargeValue(190);
+  // Store large values in persistent strings to avoid dangling Slice references
+  std::string updated_entity_columns1_attr1 = GenerateLargeValue(85);
+  WideColumns updated_entity_columns1{
+      {kDefaultWideColumnName, updated_entity_default},
+      {"attr1", updated_entity_columns1_attr1}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           entity_key1, updated_entity_columns1));
+
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Verify updated values
+  {
+    PinnableSlice value;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), put_key1, &value));
+    ASSERT_EQ(value, updated_put_value1);
+  }
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                             entity_key1, &result));
+    ASSERT_EQ(result.columns(), updated_entity_columns1);
+  }
+
+  Close();
+}
+
+// Test 6: Verify lazy loading - when a compaction filter only accesses inline
+// columns and uses the blob_resolver to check IsBlobColumn(), blob values
+// are NOT read from blob files.
+class LazyLoadingSmallColumnFilter : public CompactionFilter {
+ public:
+  LazyLoadingSmallColumnFilter(std::atomic<int>* filter_call_count,
+                               std::string* last_small_col_value,
+                               std::atomic<int>* resolver_check_count)
+      : filter_call_count_(filter_call_count),
+        last_small_col_value_(last_small_col_value),
+        resolver_check_count_(resolver_check_count) {}
+
+  Decision FilterV4(
+      int /*level*/, const Slice& /*key*/, ValueType value_type,
+      const Slice* existing_value, const WideColumns* existing_columns,
+      std::string* /*new_value*/,
+      std::vector<std::pair<std::string, std::string>>*
+      /*new_columns*/,
+      std::string* /*skip_until*/,
+      WideColumnBlobResolver* blob_resolver = nullptr) const override {
+    // Only process wide-column entities
+    if (value_type == ValueType::kWideColumnEntity) {
+      assert(existing_columns != nullptr);
+      (*filter_call_count_)++;
+
+      // Use blob_resolver to check which columns are blobs and only access
+      // inline columns. This demonstrates lazy loading - we never call
+      // ResolveColumn on blob columns.
+      if (blob_resolver != nullptr) {
+        for (size_t i = 0; i < existing_columns->size(); ++i) {
+          (*resolver_check_count_)++;
+          if (!blob_resolver->IsBlobColumn(i)) {
+            // Only access inline columns
+            const auto& col = (*existing_columns)[i];
+            if (col.name() == "small_col") {
+              *last_small_col_value_ = col.value().ToString();
+            }
+          }
+        }
+      } else {
+        // Fallback if no resolver - just access small_col
+        for (const auto& col : *existing_columns) {
+          if (col.name() == "small_col") {
+            *last_small_col_value_ = col.value().ToString();
+            break;
+          }
+        }
+      }
+    } else if (value_type == ValueType::kValue && existing_value) {
+      (*filter_call_count_)++;
+    }
+    return Decision::kKeep;
+  }
+
+  bool SupportsFilterV4() const override { return true; }
+  const char* Name() const override { return "LazyLoadingSmallColumnFilter"; }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::string* last_small_col_value_;
+  std::atomic<int>* resolver_check_count_;
+};
+
+class LazyLoadingSmallColumnFilterFactory : public CompactionFilterFactory {
+ public:
+  LazyLoadingSmallColumnFilterFactory(std::atomic<int>* filter_call_count,
+                                      std::string* last_small_col_value,
+                                      std::atomic<int>* resolver_check_count)
+      : filter_call_count_(filter_call_count),
+        last_small_col_value_(last_small_col_value),
+        resolver_check_count_(resolver_check_count) {}
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::make_unique<LazyLoadingSmallColumnFilter>(
+        filter_call_count_, last_small_col_value_, resolver_check_count_);
+  }
+
+  const char* Name() const override {
+    return "LazyLoadingSmallColumnFilterFactory";
+  }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::string* last_small_col_value_;
+  std::atomic<int>* resolver_check_count_;
+};
+
+TEST_F(DBBlobIndexTest, EntityBlobLazyLoadingFilterSkipsBlobs) {
+  // Test: When a compaction filter uses blob_resolver->IsBlobColumn() to check
+  // which columns are blobs and DOESN'T call ResolveColumn on blob columns,
+  // no blob I/O should occur.
+  //
+  // Scenario:
+  // - Entity has 2 columns:
+  //   1. small_col: 5 bytes (inline, < min_blob_size of 10)
+  //   2. large_col: 10KB (stored in blob file)
+  // - Compaction filter checks IsBlobColumn() and only accesses small_col
+  // - Result: No blob bytes should be read!
+
+  std::atomic<int> filter_call_count{0};
+  std::string last_small_col_value;
+  std::atomic<int> resolver_check_count{0};
+
+  Options options = GetBlobTestOptions();
+  options.statistics = CreateDBStatistics();
+  options.enable_blob_garbage_collection = false;
+  options.compaction_filter_factory =
+      std::make_shared<LazyLoadingSmallColumnFilterFactory>(
+          &filter_call_count, &last_small_col_value, &resolver_check_count);
+
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "test_key";
+
+  // Small value (5 bytes) - will stay inline (min_blob_size is 10)
+  std::string small_value(5, 's');
+
+  // Large value (10KB) - will be stored as blob
+  std::string large_value(10 * 1024, 'L');
+
+  // Note: WideColumns are stored sorted by column name
+  // "large_col" < "small_col" alphabetically
+  WideColumns columns{{"large_col", large_value}, {"small_col", small_value}};
+
+  // Write the entity
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  // Reset statistics before compaction
+  ASSERT_OK(options.statistics->Reset());
+
+  // Run compaction - this will invoke the compaction filter
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Verify the filter was called
+  ASSERT_GE(filter_call_count.load(), 1);
+  ASSERT_EQ(last_small_col_value, small_value);
+
+  // Verify resolver was used to check columns
+  ASSERT_GE(resolver_check_count.load(), 2)
+      << "Expected resolver to be used to check at least 2 columns";
+
+  // Check blob read statistics after compaction
+  uint64_t blob_bytes_read =
+      options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ);
+
+  // With lazy loading, when filter only accesses inline columns via
+  // IsBlobColumn() check, NO blob should be read!
+  ASSERT_EQ(blob_bytes_read, 0)
+      << "Expected 0 blob bytes read when filter uses IsBlobColumn() "
+         "to skip blob columns. Got "
+      << blob_bytes_read << " bytes.";
+
+  // Verify entity is still intact after compaction
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key,
+                             &result));
+    ASSERT_EQ(result.columns(), columns);
+  }
+
+  Close();
+}
+
+// Test 7: Verify that when a compaction filter uses the blob_resolver to
+// resolve blob columns, the blob values are correctly fetched.
+class BlobResolvingFilter : public CompactionFilter {
+ public:
+  BlobResolvingFilter(std::atomic<int>* filter_call_count,
+                      std::string* resolved_large_col_value)
+      : filter_call_count_(filter_call_count),
+        resolved_large_col_value_(resolved_large_col_value) {}
+
+  Decision FilterV4(
+      int /*level*/, const Slice& /*key*/, ValueType value_type,
+      const Slice* existing_value, const WideColumns* existing_columns,
+      std::string* /*new_value*/,
+      std::vector<std::pair<std::string, std::string>>*
+      /*new_columns*/,
+      std::string* /*skip_until*/,
+      WideColumnBlobResolver* blob_resolver = nullptr) const override {
+    if (value_type == ValueType::kWideColumnEntity) {
+      assert(existing_columns != nullptr);
+      (*filter_call_count_)++;
+
+      // Use blob_resolver to resolve the blob column
+      if (blob_resolver != nullptr) {
+        for (size_t i = 0; i < existing_columns->size(); ++i) {
+          const auto& col = (*existing_columns)[i];
+          if (col.name() == "large_col" && blob_resolver->IsBlobColumn(i)) {
+            Slice resolved_value;
+            Status s = blob_resolver->ResolveColumn(i, &resolved_value);
+            if (s.ok()) {
+              *resolved_large_col_value_ = resolved_value.ToString();
+            }
+          }
+        }
+      }
+    } else if (value_type == ValueType::kValue && existing_value) {
+      (*filter_call_count_)++;
+    }
+    return Decision::kKeep;
+  }
+
+  bool SupportsFilterV4() const override { return true; }
+  const char* Name() const override { return "BlobResolvingFilter"; }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::string* resolved_large_col_value_;
+};
+
+class BlobResolvingFilterFactory : public CompactionFilterFactory {
+ public:
+  BlobResolvingFilterFactory(std::atomic<int>* filter_call_count,
+                             std::string* resolved_large_col_value)
+      : filter_call_count_(filter_call_count),
+        resolved_large_col_value_(resolved_large_col_value) {}
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::make_unique<BlobResolvingFilter>(filter_call_count_,
+                                                 resolved_large_col_value_);
+  }
+
+  const char* Name() const override { return "BlobResolvingFilterFactory"; }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::string* resolved_large_col_value_;
+};
+
+class BlobResolvingErrorIgnoringFilter : public CompactionFilter {
+ public:
+  BlobResolvingErrorIgnoringFilter(std::atomic<int>* filter_call_count,
+                                   std::atomic<int>* resolve_error_count,
+                                   std::string* resolve_error_status)
+      : filter_call_count_(filter_call_count),
+        resolve_error_count_(resolve_error_count),
+        resolve_error_status_(resolve_error_status) {}
+
+  Decision FilterV4(
+      int /*level*/, const Slice& /*key*/, ValueType value_type,
+      const Slice* /*existing_value*/, const WideColumns* existing_columns,
+      std::string* /*new_value*/,
+      std::vector<std::pair<std::string, std::string>>* /*new_columns*/,
+      std::string* /*skip_until*/,
+      WideColumnBlobResolver* blob_resolver = nullptr) const override {
+    if (value_type != ValueType::kWideColumnEntity ||
+        existing_columns == nullptr || blob_resolver == nullptr) {
+      return Decision::kKeep;
+    }
+
+    ++(*filter_call_count_);
+
+    for (size_t i = 0; i < existing_columns->size(); ++i) {
+      const auto& col = (*existing_columns)[i];
+      if (col.name() == "large_col" && blob_resolver->IsBlobColumn(i)) {
+        Slice resolved_value;
+        const Status s = blob_resolver->ResolveColumn(i, &resolved_value);
+        if (!s.ok()) {
+          ++(*resolve_error_count_);
+          *resolve_error_status_ = s.ToString();
+        }
+        break;
+      }
+    }
+
+    // Even if the filter chooses kKeep after seeing a resolver error, the
+    // compaction path should still fail and surface that read error.
+    return Decision::kKeep;
+  }
+
+  bool SupportsFilterV4() const override { return true; }
+  const char* Name() const override {
+    return "BlobResolvingErrorIgnoringFilter";
+  }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::atomic<int>* resolve_error_count_;
+  std::string* resolve_error_status_;
+};
+
+class BlobResolvingErrorIgnoringFilterFactory : public CompactionFilterFactory {
+ public:
+  BlobResolvingErrorIgnoringFilterFactory(std::atomic<int>* filter_call_count,
+                                          std::atomic<int>* resolve_error_count,
+                                          std::string* resolve_error_status)
+      : filter_call_count_(filter_call_count),
+        resolve_error_count_(resolve_error_count),
+        resolve_error_status_(resolve_error_status) {}
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::make_unique<BlobResolvingErrorIgnoringFilter>(
+        filter_call_count_, resolve_error_count_, resolve_error_status_);
+  }
+
+  const char* Name() const override {
+    return "BlobResolvingErrorIgnoringFilterFactory";
+  }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::atomic<int>* resolve_error_count_;
+  std::string* resolve_error_status_;
+};
+
+TEST_F(DBBlobIndexTest, EntityBlobLazyLoadingFilterResolvesBlobs) {
+  // Test: When a compaction filter uses blob_resolver->ResolveColumn() to
+  // fetch blob values, the values are correctly resolved.
+  //
+  // Scenario:
+  // - Entity has 2 columns:
+  //   1. small_col: 5 bytes (inline, < min_blob_size of 10)
+  //   2. large_col: 10KB (stored in blob file)
+  // - Compaction filter calls ResolveColumn on large_col
+  // - Result: Blob bytes should be read and value should match
+
+  std::atomic<int> filter_call_count{0};
+  std::string resolved_large_col_value;
+
+  Options options = GetBlobTestOptions();
+  options.statistics = CreateDBStatistics();
+  options.enable_blob_garbage_collection = false;
+  options.compaction_filter_factory =
+      std::make_shared<BlobResolvingFilterFactory>(&filter_call_count,
+                                                   &resolved_large_col_value);
+
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "test_key";
+
+  // Small value (5 bytes) - will stay inline (min_blob_size is 10)
+  std::string small_value(5, 's');
+
+  // Large value (10KB) - will be stored as blob
+  std::string large_value(10 * 1024, 'L');
+
+  // Note: WideColumns are stored sorted by column name
+  // "large_col" < "small_col" alphabetically
+  WideColumns columns{{"large_col", large_value}, {"small_col", small_value}};
+
+  // Write the entity
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  // Reset statistics before compaction
+  ASSERT_OK(options.statistics->Reset());
+
+  // Run compaction - this will invoke the compaction filter
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Verify the filter was called
+  ASSERT_GE(filter_call_count.load(), 1);
+
+  // Verify the resolved value matches the original large value
+  ASSERT_EQ(resolved_large_col_value, large_value)
+      << "Expected resolved blob value to match original large_value";
+
+  // Check blob read statistics after compaction - should have read the blob
+  uint64_t blob_bytes_read =
+      options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ);
+  ASSERT_GE(blob_bytes_read, large_value.size())
+      << "Expected at least " << large_value.size()
+      << " bytes read from blob when filter resolves blob column";
+
+  // Verify entity is still intact after compaction
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key,
+                             &result));
+    ASSERT_EQ(result.columns(), columns);
+  }
+
+  Close();
+}
+
+TEST_F(DBBlobIndexTest, EntityBlobLazyLoadingFilterMissingBlobFailsCompaction) {
+  // Goal: keep lazy FilterV4 resolver failures aligned with the eager FilterV3
+  // path. The filter calls ResolveColumn() on a blob-backed column, then
+  // returns kKeep after observing the error. Compaction must still fail and
+  // latch bg_error instead of silently keeping the entry.
+  std::atomic<int> filter_call_count{0};
+  std::atomic<int> resolve_error_count{0};
+  std::string resolve_error_status;
+
+  Options options = GetBlobTestOptions();
+  options.enable_blob_garbage_collection = false;
+  options.paranoid_checks = true;
+  options.compaction_filter_factory =
+      std::make_shared<BlobResolvingErrorIgnoringFilterFactory>(
+          &filter_call_count, &resolve_error_count, &resolve_error_status);
+
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "missing_blob_key_v4";
+  const std::string large_value(10 * 1024, 'L');
+  WideColumns columns{{"large_col", large_value}, {"small_col", "small"}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  const auto blob_files = GetBlobFileNumbers();
+  ASSERT_EQ(blob_files.size(), 1U);
+  ASSERT_OK(env_->DeleteFile(BlobFileName(dbname_, blob_files.front())));
+
+  const Status status =
+      db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_FALSE(status.ok())
+      << "Compaction should fail when FilterV4 lazy blob resolution hits a "
+         "read error";
+  ASSERT_TRUE(status.IsCorruption() || status.IsIOError() ||
+              status.IsNotFound())
+      << status.ToString();
+  ASSERT_GE(filter_call_count.load(), 1);
+  ASSERT_EQ(resolve_error_count.load(), 1);
+  ASSERT_FALSE(resolve_error_status.empty());
+
+  const Status bg_error = dbfull()->TEST_GetBGError();
+  ASSERT_FALSE(bg_error.ok());
+  ASSERT_TRUE(bg_error.IsCorruption() || bg_error.IsIOError() ||
+              bg_error.IsNotFound())
+      << bg_error.ToString();
+  ASSERT_GE(static_cast<int>(bg_error.severity()),
+            static_cast<int>(Status::Severity::kHardError));
+}
+
+// Test 8: Verify backward compatibility - old filters that don't
+// use the blob_resolver still work correctly by accessing inline columns.
+// With lazy loading, blob columns will have blob indices (not actual values),
+// but inline columns work correctly.
+TEST_F(DBBlobIndexTest, EntityBlobCompactionFilterAccessesOnlySmallColumn) {
+  // This test verifies backward compatibility: filters that don't use
+  // the blob_resolver can still access inline columns correctly.
+  //
+  // With lazy loading, blob columns contain blob indices (not actual values),
+  // but inline columns have the correct values. Since this filter
+  // only accesses the inline small_col, it should work correctly.
+
+  std::atomic<int> filter_call_count{0};
+  std::string last_small_col_value;
+  std::atomic<int> resolver_check_count{0};
+
+  Options options = GetBlobTestOptions();
+  options.statistics = CreateDBStatistics();
+  options.enable_blob_garbage_collection = false;
+  // Reuse the LazyLoadingSmallColumnFilter which uses IsBlobColumn() check
+  // to only access inline columns
+  options.compaction_filter_factory =
+      std::make_shared<LazyLoadingSmallColumnFilterFactory>(
+          &filter_call_count, &last_small_col_value, &resolver_check_count);
+
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "test_key";
+
+  // Small value (5 bytes) - will stay inline (min_blob_size is 10)
+  std::string small_value(5, 's');
+
+  // Large value (10KB) - will be stored as blob
+  std::string large_value(10 * 1024, 'L');
+
+  // Note: WideColumns are stored sorted by column name
+  // "large_col" < "small_col" alphabetically
+  WideColumns columns{{"large_col", large_value}, {"small_col", small_value}};
+
+  // Write the entity
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  // Reset statistics before compaction
+  ASSERT_OK(options.statistics->Reset());
+
+  // Run compaction - this will invoke the compaction filter
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Verify the filter was called
+  ASSERT_GE(filter_call_count.load(), 1);
+
+  // The filter accessed small_col which is inline, so it should get the
+  // correct value
+  ASSERT_EQ(last_small_col_value, small_value);
+
+  // With lazy loading, no blob bytes should be read since filter doesn't
+  // access blob columns
+  uint64_t blob_bytes_read =
+      options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ);
+  ASSERT_EQ(blob_bytes_read, 0)
+      << "Expected 0 blob bytes read when filter only accesses inline columns";
+
+  // Verify entity is still intact after compaction
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key,
+                             &result));
+    ASSERT_EQ(result.columns(), columns);
+  }
+
+  Close();
+}
+
 TEST_F(DBBlobIndexTest, IntegratedBlobIterate) {
   const std::vector<std::vector<std::string>> data = {
       /*00*/ {"Put"},
@@ -585,6 +1951,366 @@ TEST_F(DBBlobIndexTest, IntegratedBlobIterate) {
   ASSERT_OK(dbfull()->SetOptions(cfh(),
                                  {{"max_sequential_skip_in_iterations", "0"}}));
   verify(1, expected_status, expected_value);
+}
+
+// FilterV3-only compaction filter that inspects entity column values.
+// Does NOT override FilterV4, so SupportsFilterV4() returns false (default).
+// This tests backward compatibility: blob columns should be eagerly resolved
+// before the filter sees them, so the filter sees actual blob values (not
+// raw BlobIndex bytes).
+class FilterV3OnlyEntityFilter : public CompactionFilter {
+ public:
+  explicit FilterV3OnlyEntityFilter(std::atomic<int>* filter_call_count,
+                                    std::string* observed_large_col_value)
+      : filter_call_count_(filter_call_count),
+        observed_large_col_value_(observed_large_col_value) {}
+
+  Decision FilterV3(
+      int /*level*/, const Slice& /*key*/, ValueType value_type,
+      const Slice* existing_value, const WideColumns* existing_columns,
+      std::string* /*new_value*/,
+      std::vector<std::pair<std::string, std::string>>* /*new_columns*/,
+      std::string* /*skip_until*/) const override {
+    if (value_type == ValueType::kWideColumnEntity && existing_columns) {
+      (*filter_call_count_)++;
+      for (const auto& col : *existing_columns) {
+        if (col.name() == "large_col") {
+          *observed_large_col_value_ = col.value().ToString();
+        }
+      }
+    } else if (value_type == ValueType::kValue && existing_value) {
+      (*filter_call_count_)++;
+    }
+    return Decision::kKeep;
+  }
+
+  const char* Name() const override { return "FilterV3OnlyEntityFilter"; }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::string* observed_large_col_value_;
+};
+
+class FilterV3OnlyEntityFilterFactory : public CompactionFilterFactory {
+ public:
+  FilterV3OnlyEntityFilterFactory(std::atomic<int>* filter_call_count,
+                                  std::string* observed_large_col_value)
+      : filter_call_count_(filter_call_count),
+        observed_large_col_value_(observed_large_col_value) {}
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::make_unique<FilterV3OnlyEntityFilter>(
+        filter_call_count_, observed_large_col_value_);
+  }
+
+  const char* Name() const override {
+    return "FilterV3OnlyEntityFilterFactory";
+  }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::string* observed_large_col_value_;
+};
+
+TEST_F(DBBlobIndexTest, EntityBlobFilterV3BackwardCompatibility) {
+  // Test: A FilterV3-only compaction filter (no FilterV4 override) should see
+  // resolved blob values, not raw BlobIndex bytes. The compaction path should
+  // eagerly resolve blob columns before calling the filter.
+
+  std::atomic<int> filter_call_count{0};
+  std::string observed_large_col_value;
+
+  Options options = GetBlobTestOptions();
+  options.statistics = CreateDBStatistics();
+  options.enable_blob_garbage_collection = false;
+  options.compaction_filter_factory =
+      std::make_shared<FilterV3OnlyEntityFilterFactory>(
+          &filter_call_count, &observed_large_col_value);
+
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "test_key";
+  std::string small_value(5, 's');
+  // Large value that will be stored as blob (> min_blob_size of 10)
+  std::string large_value(10 * 1024, 'L');
+
+  WideColumns columns{{"large_col", large_value}, {"small_col", small_value}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  // Compact to trigger the compaction filter
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Filter should have been called
+  ASSERT_GE(filter_call_count.load(), 1);
+
+  // The FilterV3 filter should have seen the actual blob value, not raw
+  // BlobIndex bytes. BlobIndex bytes would be much shorter than the original
+  // value.
+  ASSERT_EQ(observed_large_col_value, large_value);
+}
+
+TEST_F(DBBlobIndexTest, EntityBlobFilterV3MissingBlobFailsCompaction) {
+  std::atomic<int> filter_call_count{0};
+  std::string observed_large_col_value;
+
+  Options options = GetBlobTestOptions();
+  options.enable_blob_garbage_collection = false;
+  options.compaction_filter_factory =
+      std::make_shared<FilterV3OnlyEntityFilterFactory>(
+          &filter_call_count, &observed_large_col_value);
+
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "missing_blob_key";
+  const std::string large_value(10 * 1024, 'L');
+  WideColumns columns{{"large_col", large_value}, {"small_col", "small"}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  const auto blob_files = GetBlobFileNumbers();
+  ASSERT_EQ(blob_files.size(), 1U);
+  ASSERT_OK(env_->DeleteFile(BlobFileName(dbname_, blob_files.front())));
+
+  const Status status =
+      db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_FALSE(status.ok()) << "Compaction should fail when a FilterV3-only "
+                               "filter cannot eagerly resolve a blob-backed "
+                               "entity";
+  ASSERT_TRUE(status.IsCorruption() || status.IsIOError() ||
+              status.IsNotFound())
+      << status.ToString();
+  ASSERT_EQ(filter_call_count.load(), 0);
+  ASSERT_TRUE(observed_large_col_value.empty());
+}
+
+// FilterV3-only filter that removes entities with blob columns.
+// Tests that kRemove works correctly with eagerly resolved blob values.
+class FilterV3RemoveEntityFilter : public CompactionFilter {
+ public:
+  Decision FilterV3(
+      int /*level*/, const Slice& /*key*/, ValueType value_type,
+      const Slice* /*existing_value*/, const WideColumns* existing_columns,
+      std::string* /*new_value*/,
+      std::vector<std::pair<std::string, std::string>>* /*new_columns*/,
+      std::string* /*skip_until*/) const override {
+    if (value_type == ValueType::kWideColumnEntity && existing_columns) {
+      return Decision::kRemove;
+    }
+    return Decision::kKeep;
+  }
+
+  const char* Name() const override { return "FilterV3RemoveEntityFilter"; }
+};
+
+class FilterV3RemoveEntityFilterFactory : public CompactionFilterFactory {
+ public:
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::make_unique<FilterV3RemoveEntityFilter>();
+  }
+
+  const char* Name() const override {
+    return "FilterV3RemoveEntityFilterFactory";
+  }
+};
+
+TEST_F(DBBlobIndexTest, EntityBlobFilterV3Remove) {
+  // Test: A FilterV3-only filter returning kRemove should correctly delete
+  // entities with eagerly resolved blob columns.
+
+  Options options = GetBlobTestOptions();
+  options.compaction_filter_factory =
+      std::make_shared<FilterV3RemoveEntityFilterFactory>();
+
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "remove_key";
+  std::string large_value(10 * 1024, 'R');
+  std::string small_value(5, 's');
+
+  WideColumns columns{{"large_col", large_value}, {"small_col", small_value}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  // Compact to trigger the filter — entity should be removed
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Key should be gone
+  PinnableSlice result;
+  Status s = db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result);
+  ASSERT_TRUE(s.IsNotFound()) << s.ToString();
+}
+
+// Compaction filter that drops wide column entities based on a TTL column,
+// using FilterV4 with SupportsFilterV4()=true to avoid loading blob values.
+class TTLBasedEntityDropFilter : public CompactionFilter {
+ public:
+  explicit TTLBasedEntityDropFilter(bool enabled) : enabled_(enabled) {}
+
+  Decision FilterV4(
+      int /*level*/, const Slice& /*key*/, ValueType value_type,
+      const Slice* /*existing_value*/, const WideColumns* existing_columns,
+      std::string* /*new_value*/,
+      std::vector<std::pair<std::string, std::string>>* /*new_columns*/,
+      std::string* /*skip_until*/,
+      WideColumnBlobResolver* blob_resolver = nullptr) const override {
+    if (!enabled_) {
+      return Decision::kKeep;
+    }
+    if (value_type != ValueType::kWideColumnEntity || !existing_columns) {
+      return Decision::kKeep;
+    }
+    // Read only the "ttl" column (inline, not a blob) to decide.
+    // Skip blob columns entirely -- no blob I/O.
+    for (size_t i = 0; i < existing_columns->size(); ++i) {
+      if (blob_resolver && blob_resolver->IsBlobColumn(i)) {
+        continue;  // skip blob columns
+      }
+      const auto& col = (*existing_columns)[i];
+      if (col.name() == "ttl") {
+        // TTL value "expired" means drop
+        if (col.value() == "expired") {
+          return Decision::kRemove;
+        }
+      }
+    }
+    return Decision::kKeep;
+  }
+
+  bool SupportsFilterV4() const override { return true; }
+  const char* Name() const override { return "TTLBasedEntityDropFilter"; }
+
+  void SetEnabled(bool enabled) { enabled_ = enabled; }
+
+ private:
+  bool enabled_;
+};
+
+class TTLBasedEntityDropFilterFactory : public CompactionFilterFactory {
+ public:
+  TTLBasedEntityDropFilterFactory() : enabled_(false) {}
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::make_unique<TTLBasedEntityDropFilter>(enabled_.load());
+  }
+
+  const char* Name() const override {
+    return "TTLBasedEntityDropFilterFactory";
+  }
+
+  void SetEnabled(bool enabled) {
+    enabled_.store(enabled, std::memory_order_relaxed);
+  }
+
+ private:
+  std::atomic<bool> enabled_;
+};
+
+TEST_F(DBBlobIndexTest, PassiveGCForWideColumnEntitiesWithBlobColumns) {
+  // Reproduce a production scenario where passive GC fails to remove blob
+  // files referenced by dropped wide column entities.
+  //
+  // Setup:
+  //   - Universal compaction, passive GC only (no active GC)
+  //   - Small blob_file_size so one flush creates multiple blob files
+  //   - PutEntity with wide columns: one large "data" column stored in blob,
+  //     one small "ttl" column stored inline
+  //   - FilterV4 drops entities based on TTL without loading blob values
+  //   - One entity has long TTL (survives), many have "expired" TTL
+  //   - After compaction, blob files that only contained dropped entities'
+  //     blobs should become all-garbage and be removed
+  //
+  // Expected behavior: blob files with garbage >= total and empty linked_ssts
+  // should be dropped by passive GC.
+
+  auto filter_factory = std::make_shared<TTLBasedEntityDropFilterFactory>();
+
+  Options options = GetBlobTestOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.blob_file_size = 500;  // Small: ~1 entity per blob file
+  options.enable_blob_garbage_collection = false;
+  options.compaction_filter_factory = filter_factory;
+  options.num_levels = 7;
+
+  DestroyAndReopen(options);
+
+  // Large value for the "data" column (will be stored as blob)
+  const std::string large_data(200, 'D');
+  const std::string small_ttl_alive = "alive";
+  const std::string small_ttl_expired = "expired";
+
+  // Disable filter for initial load.
+  filter_factory->SetEnabled(false);
+
+  // Insert entities: one survivor, then many expired.
+  // Sorted key order determines blob file assignment.
+  // Survivor goes to the first blob file.
+  ASSERT_OK(db_->PutEntity(
+      WriteOptions(), db_->DefaultColumnFamily(), "aaa_survivor",
+      WideColumns{{"data", large_data}, {"ttl", small_ttl_alive}}));
+
+  // Expired entities fill subsequent blob files
+  for (int i = 0; i < 8; i++) {
+    char key[32];
+    snprintf(key, sizeof(key), "drop_%02d", i);
+    ASSERT_OK(db_->PutEntity(
+        WriteOptions(), db_->DefaultColumnFamily(), key,
+        WideColumns{{"data", large_data}, {"ttl", small_ttl_expired}}));
+  }
+  ASSERT_OK(Flush());
+
+  // First compaction without filter (all entities survive)
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  const auto blob_files_initial = GetBlobFileNumbers();
+  ASSERT_GE(blob_files_initial.size(), 3)
+      << "Expected multiple blob files from entities with large columns";
+
+  // Enable filter and trigger second compaction with overlapping data.
+  filter_factory->SetEnabled(true);
+  ASSERT_OK(db_->PutEntity(
+      WriteOptions(), db_->DefaultColumnFamily(), "drop_00",
+      WideColumns{{"data", large_data}, {"ttl", small_ttl_expired}}));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  const auto blob_files_after = GetBlobFileNumbers();
+
+  // Verify survivor is readable.
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                             "aaa_survivor", &result));
+    ASSERT_EQ(result.columns().size(), 2);
+  }
+
+  // Verify dropped entities are gone.
+  for (int i = 0; i < 8; i++) {
+    char key[32];
+    snprintf(key, sizeof(key), "drop_%02d", i);
+    PinnableSlice val;
+    ASSERT_TRUE(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &val)
+                    .IsNotFound())
+        << "Expected " << key << " to be dropped by TTL filter";
+  }
+
+  // The key assertion: blob files that only contained dropped entities'
+  // blobs should be removed. The count should decrease.
+  ASSERT_LT(blob_files_after.size(), blob_files_initial.size())
+      << "Passive GC failed: blob files not removed after entities dropped. "
+      << "Before: " << blob_files_initial.size()
+      << ", After: " << blob_files_after.size()
+      << ". BlobGarbageMeter likely does not track kTypeWideColumnEntity.";
+
+  Close();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

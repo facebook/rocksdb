@@ -60,6 +60,8 @@ DEFINE_uint32(value_bytes, 8 * KiB, "Size of each value added.");
 DEFINE_uint32(value_bytes_estimate, 0,
               "If > 0, overrides estimated_entry_charge or "
               "min_avg_entry_charge depending on cache_type.");
+DEFINE_double(compressible_to_ratio, 0.5,
+              "Approximate size ratio that values can be compressed to.");
 
 DEFINE_int32(
     degenerate_hash_bits, 0,
@@ -117,7 +119,7 @@ DEFINE_uint32(seed, 0, "Hashing/random seed to use. 0 = choose at random");
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
 
-DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
+DEFINE_string(cache_type, "hyper_clock_cache", "Type of block cache.");
 
 DEFINE_bool(use_jemalloc_no_dump_allocator, false,
             "Whether to use JemallocNoDumpAllocator");
@@ -182,6 +184,11 @@ DEFINE_bool(sck_randomize, false,
 DEFINE_bool(sck_footer_unique_id, false,
             "(-stress_cache_key) Simulate using proposed footer unique id");
 // ## END stress_cache_key sub-tool options ##
+// ## BEGIN stress_cache_instances sub-tool options ##
+DEFINE_uint32(stress_cache_instances, 0,
+              "If > 0, run cache instance stress test instead");
+// Uses cache_size and cache_type, maybe more
+// ## END stress_cache_instance sub-tool options ##
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -291,9 +298,18 @@ struct KeyGen {
 
 Cache::ObjectPtr createValue(Random64& rnd, MemoryAllocator* alloc) {
   char* rv = AllocateBlock(FLAGS_value_bytes, alloc).release();
-  // Fill with some filler data, and take some CPU time
-  for (uint32_t i = 0; i < FLAGS_value_bytes; i += 8) {
+  // Fill with some filler data, and take some CPU time, but add redundancy
+  // as requested for compressibility.
+  uint32_t random_fill_size = std::max(
+      uint32_t{1}, std::min(FLAGS_value_bytes,
+                            static_cast<uint32_t>(FLAGS_compressible_to_ratio *
+                                                  FLAGS_value_bytes)));
+  uint32_t i = 0;
+  for (; i < random_fill_size; i += 8) {
     EncodeFixed64(rv + i, rnd.Next());
+  }
+  for (; i < FLAGS_value_bytes; i++) {
+    rv[i] = rv[i % random_fill_size];
   }
   return rv;
 }
@@ -309,16 +325,16 @@ Status SaveToFn(Cache::ObjectPtr from_obj, size_t /*from_offset*/,
 
 Status CreateFn(const Slice& data, CompressionType /*type*/,
                 CacheTier /*source*/, Cache::CreateContext* /*context*/,
-                MemoryAllocator* /*allocator*/, Cache::ObjectPtr* out_obj,
+                MemoryAllocator* alloc, Cache::ObjectPtr* out_obj,
                 size_t* out_charge) {
-  *out_obj = new char[data.size()];
+  *out_obj = AllocateBlock(data.size(), alloc).release();
   memcpy(*out_obj, data.data(), data.size());
   *out_charge = data.size();
   return Status::OK();
 };
 
 void DeleteFn(Cache::ObjectPtr value, MemoryAllocator* alloc) {
-  CustomDeleter{alloc}(static_cast<char*>(value));
+  CacheAllocationDeleter{alloc}(static_cast<char*>(value));
 }
 
 Cache::CacheItemHelper helper1_wos(CacheEntryRole::kDataBlock, DeleteFn);
@@ -376,7 +392,12 @@ class CacheBench {
       fprintf(stderr, "Percentages must add to 100.\n");
       exit(1);
     }
+    cache_ = MakeCache();
+  }
 
+  ~CacheBench() = default;
+
+  static std::shared_ptr<Cache> MakeCache() {
     std::shared_ptr<MemoryAllocator> allocator;
     if (FLAGS_use_jemalloc_no_dump_allocator) {
       JemallocAllocatorOptions opts;
@@ -395,12 +416,12 @@ class CacheBench {
       opts.hash_seed = BitwiseAnd(FLAGS_seed, INT32_MAX);
       opts.memory_allocator = allocator;
       opts.eviction_effort_cap = FLAGS_eviction_effort_cap;
-      if (FLAGS_cache_type == "fixed_hyper_clock_cache" ||
-          FLAGS_cache_type == "hyper_clock_cache") {
+      if (FLAGS_cache_type == "fixed_hyper_clock_cache") {
         opts.estimated_entry_charge = FLAGS_value_bytes_estimate > 0
                                           ? FLAGS_value_bytes_estimate
                                           : FLAGS_value_bytes;
-      } else if (FLAGS_cache_type == "auto_hyper_clock_cache") {
+      } else if (FLAGS_cache_type == "auto_hyper_clock_cache" ||
+                 FLAGS_cache_type == "hyper_clock_cache") {
         if (FLAGS_value_bytes_estimate > 0) {
           opts.min_avg_entry_charge = FLAGS_value_bytes_estimate;
         }
@@ -409,7 +430,7 @@ class CacheBench {
         exit(1);
       }
       ConfigureSecondaryCache(opts);
-      cache_ = opts.MakeSharedCache();
+      return opts.MakeSharedCache();
     } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits,
                            false /* strict_capacity_limit */,
@@ -417,14 +438,12 @@ class CacheBench {
       opts.hash_seed = BitwiseAnd(FLAGS_seed, INT32_MAX);
       opts.memory_allocator = allocator;
       ConfigureSecondaryCache(opts);
-      cache_ = NewLRUCache(opts);
+      return NewLRUCache(opts);
     } else {
       fprintf(stderr, "Cache type not supported.\n");
       exit(1);
     }
   }
-
-  ~CacheBench() = default;
 
   void PopulateCache() {
     Random64 rnd(FLAGS_seed);
@@ -479,7 +498,7 @@ class CacheBench {
 
     PrintEnv();
     SharedState shared(this);
-    std::vector<std::unique_ptr<ThreadState> > threads(FLAGS_threads);
+    std::vector<std::unique_ptr<ThreadState>> threads(FLAGS_threads);
     for (uint32_t i = 0; i < FLAGS_threads; i++) {
       threads[i].reset(new ThreadState(i, &shared));
       std::thread(ThreadBody, threads[i].get()).detach();
@@ -1141,6 +1160,59 @@ class StressCacheKey {
   double multiplier_ = 0.0;
 };
 
+// cache_bench -stress_cache_instances is a partially independent embedded tool
+// for evaluating the time and space required to create and destroy many cache
+// instances, as this is considered important for a default cache implementation
+// which could see many throw-away instances in handling of Options, or created
+// in large numbers for many very small DBs with many CFs. Prefix command line
+// with /usr/bin/time to see max RSS memory.
+class StressCacheInstances {
+ public:
+  void Run() {
+    const int kNumIterations = 10;
+    const auto clock = SystemClock::Default().get();
+    caches_.reserve(FLAGS_stress_cache_instances);
+
+    uint64_t total_create_time_us = 0;
+    uint64_t total_destroy_time_us = 0;
+
+    for (int iter = 0; iter < kNumIterations; ++iter) {
+      // Create many cache instances
+      uint64_t start_create = clock->NowMicros();
+      for (uint32_t i = 0; i < FLAGS_stress_cache_instances; ++i) {
+        caches_.emplace_back(CacheBench::MakeCache());
+      }
+      uint64_t end_create = clock->NowMicros();
+      uint64_t create_time = end_create - start_create;
+      total_create_time_us += create_time;
+
+      // Destroy them
+      uint64_t start_destroy = clock->NowMicros();
+      caches_.clear();
+      uint64_t end_destroy = clock->NowMicros();
+      uint64_t destroy_time = end_destroy - start_destroy;
+      total_destroy_time_us += destroy_time;
+
+      printf(
+          "Iteration %d: Created %u caches in %.3f ms, destroyed in %.3f ms\n",
+          iter + 1, FLAGS_stress_cache_instances, create_time / 1000.0,
+          destroy_time / 1000.0);
+    }
+
+    printf("Average creation time: %.3f ms (%.1f us per cache)\n",
+           static_cast<double>(total_create_time_us) / kNumIterations / 1000.0,
+           static_cast<double>(total_create_time_us) / kNumIterations /
+               FLAGS_stress_cache_instances);
+    printf("Average destruction time: %.3f ms (%.1f us per cache)\n",
+           static_cast<double>(total_destroy_time_us) / kNumIterations / 1000.0,
+           static_cast<double>(total_destroy_time_us) / kNumIterations /
+               FLAGS_stress_cache_instances);
+  }
+
+ private:
+  std::vector<std::shared_ptr<Cache>> caches_;
+};
+
 int cache_bench_tool(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ParseCommandLineFlags(&argc, &argv, true);
@@ -1148,6 +1220,11 @@ int cache_bench_tool(int argc, char** argv) {
   if (FLAGS_stress_cache_key) {
     // Alternate tool
     StressCacheKey().Run();
+    return 0;
+  }
+
+  if (FLAGS_stress_cache_instances > 0) {
+    StressCacheInstances().Run();
     return 0;
   }
 

@@ -58,6 +58,11 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
 
     if (get_context.sample()) {
       sample_file_read_inc(f->file_metadata);
+      if (get_context.State() == GetContext::kNotFound ||
+          get_context.State() == GetContext::kMerge ||
+          get_context.State() == GetContext::kDeleted) {
+        sample_collapsible_entry_file_read_inc(f->file_metadata);
+      }
     }
     batch_size++;
     num_index_read += get_context.get_context_stats_.num_index_read;

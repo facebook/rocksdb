@@ -37,10 +37,15 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     wholeKeyFiltering = true;
     verifyCompression = false;
     readAmpBytesPerBit = 0;
-    formatVersion = 6;
+    formatVersion = 7;
+    separateKeyValueInDataBlock = false;
+    uniformCvThreshold = 0.2;
     enableIndexCompression = true;
     blockAlign = false;
+    superBlockAlignmentSize = 0;
+    superBlockAlignmentSpaceOverheadRatio = 128;
     indexShortening = IndexShorteningMode.kShortenSeparators;
+    indexSearchType = IndexSearchType.kBinary;
 
     // NOTE: ONLY used if blockCache == null
     blockCacheSize = 8 * 1024 * 1024;
@@ -60,9 +65,11 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       final boolean partitionFilters, final boolean optimizeFiltersForMemory,
       final boolean useDeltaEncoding, final boolean wholeKeyFiltering,
       final boolean verifyCompression, final int readAmpBytesPerBit, final int formatVersion,
-      final boolean enableIndexCompression, final boolean blockAlign, final byte indexShortening,
-      final byte filterPolicyType, final long filterPolicyHandle,
-      final double filterPolicyConfigValue) {
+      final boolean separateKeyValueInDataBlock, final double uniformCvThreshold,
+      final boolean enableIndexCompression, final boolean blockAlign,
+      final long superBlockAlignmentSize, final long superBlockAlignmentSpaceOverheadRatio,
+      final byte indexShortening, final byte indexSearchType, final byte filterPolicyType,
+      final long filterPolicyHandle, final double filterPolicyConfigValue) {
     this.cacheIndexAndFilterBlocks = cacheIndexAndFilterBlocks;
     this.cacheIndexAndFilterBlocksWithHighPriority = cacheIndexAndFilterBlocksWithHighPriority;
     this.pinL0FilterAndIndexBlocksInCache = pinL0FilterAndIndexBlocksInCache;
@@ -84,9 +91,14 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     this.verifyCompression = verifyCompression;
     this.readAmpBytesPerBit = readAmpBytesPerBit;
     this.formatVersion = formatVersion;
+    this.separateKeyValueInDataBlock = separateKeyValueInDataBlock;
+    this.uniformCvThreshold = uniformCvThreshold;
     this.enableIndexCompression = enableIndexCompression;
     this.blockAlign = blockAlign;
+    this.superBlockAlignmentSize = superBlockAlignmentSize;
+    this.superBlockAlignmentSpaceOverheadRatio = superBlockAlignmentSpaceOverheadRatio;
     this.indexShortening = IndexShorteningMode.values()[indexShortening];
+    this.indexSearchType = IndexSearchType.values()[indexSearchType];
     try (Filter filterPolicy = FilterPolicyType.values()[filterPolicyType].createFilter(
              filterPolicyHandle, filterPolicyConfigValue)) {
       if (filterPolicy != null) {
@@ -747,6 +759,64 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   }
 
   /**
+   * Determine if separate key value storage in data blocks is enabled.
+   * <p>
+   * See {@link #setSeparateKeyValueInDataBlock(boolean)}.
+   *
+   * @return true if separate key value in data block is enabled, false otherwise
+   */
+  public boolean separateKeyValueInDataBlock() {
+    return separateKeyValueInDataBlock;
+  }
+
+  /**
+   * When true, data blocks store keys and values separately. Keys are stored
+   * at the beginning of the block, followed by values at the end. This can
+   * improve read performance at a cost of a varint per restart interval (~1 bit
+   * per key by default), in addition to improving compression. Small values or
+   * low block_restart_interval may prefer to set this as false.
+   * <p>
+   * Default: false
+   *
+   * @param separateKeyValueInDataBlock true to enable, false to disable
+   *
+   * @return the reference to the current option.
+   */
+  public BlockBasedTableConfig setSeparateKeyValueInDataBlock(
+      final boolean separateKeyValueInDataBlock) {
+    this.separateKeyValueInDataBlock = separateKeyValueInDataBlock;
+    return this;
+  }
+
+  /**
+   * Get the coefficient of variation threshold for uniform key detection.
+   * <p>
+   * See {@link #setUniformCvThreshold(double)}.
+   *
+   * @return the uniform CV threshold
+   */
+  public double uniformCvThreshold() {
+    return uniformCvThreshold;
+  }
+
+  /**
+   * Coefficient of variation (CV) threshold used to determine if keys in an
+   * index block are uniformly distributed. A lower value requires more uniform
+   * distribution. Set to &lt; 0 (e.g. -1) to disable. Only used when
+   * key uniformity tracking is enabled for index blocks.
+   * <p>
+   * Default: 0.2
+   *
+   * @param uniformCvThreshold the threshold value
+   *
+   * @return the reference to the current option.
+   */
+  public BlockBasedTableConfig setUniformCvThreshold(final double uniformCvThreshold) {
+    this.uniformCvThreshold = uniformCvThreshold;
+    return this;
+  }
+
+  /**
    * Determine if index compression is enabled.
    * <p>
    * See {@link #setEnableIndexCompression(boolean)}.
@@ -800,6 +870,50 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   }
 
   /**
+   * Get the super block alignment size.
+   *
+   * @return the super block alignment size.
+   */
+  public long superBlockAlignmentSize() {
+    return superBlockAlignmentSize;
+  }
+
+  /**
+   * Set the super block alignment size.
+   * When set to 0, super block alignment is disabled.
+   *
+   * @param superBlockAlignmentSize the super block alignment size.
+   *
+   * @return the reference to the current option.
+   */
+  public BlockBasedTableConfig setSuperBlockAlignmentSize(final long superBlockAlignmentSize) {
+    this.superBlockAlignmentSize = superBlockAlignmentSize;
+    return this;
+  }
+
+  /**
+   * Get the space overhead ratio of super block alignment.
+   *
+   * @return space overhead ratio of super block alignment.
+   */
+  public long superBlockAlignmentSpaceOverheadRatio() {
+    return superBlockAlignmentSpaceOverheadRatio;
+  }
+
+  /**
+   * Set the space overhead ratio of super block alignment.
+   *
+   * @param superBlockAlignmentSpaceOverheadRatio the space overhead ratio of super block alignment.
+   *
+   * @return the reference to the current option.
+   */
+  public BlockBasedTableConfig setSuperBlockAlignmentSpaceOverheadRatio(
+      final long superBlockAlignmentSpaceOverheadRatio) {
+    this.superBlockAlignmentSpaceOverheadRatio = superBlockAlignmentSpaceOverheadRatio;
+    return this;
+  }
+
+  /**
    * Get the index shortening mode.
    *
    * @return the index shortening mode.
@@ -819,6 +933,26 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    */
   public BlockBasedTableConfig setIndexShortening(final IndexShorteningMode indexShortening) {
     this.indexShortening = indexShortening;
+    return this;
+  }
+
+  /**
+   * Get the index search type.
+   *
+   * @return the currently set index search type
+   */
+  public IndexSearchType indexSearchType() {
+    return indexSearchType;
+  }
+
+  /**
+   * Sets the index search type to used with this table.
+   *
+   * @param indexSearchType {@link org.rocksdb.IndexSearchType} value
+   * @return the reference to the current option.
+   */
+  public BlockBasedTableConfig setIndexSearchType(final IndexSearchType indexSearchType) {
+    this.indexSearchType = indexSearchType;
     return this;
   }
 
@@ -945,8 +1079,10 @@ public class BlockBasedTableConfig extends TableFormatConfig {
         persistentCacheHandle, blockSize, blockSizeDeviation, blockRestartInterval,
         indexBlockRestartInterval, metadataBlockSize, partitionFilters, optimizeFiltersForMemory,
         useDeltaEncoding, filterPolicyHandle, wholeKeyFiltering, verifyCompression,
-        readAmpBytesPerBit, formatVersion, enableIndexCompression, blockAlign,
-        indexShortening.getValue(), blockCacheSize, blockCacheNumShardBits);
+        readAmpBytesPerBit, formatVersion, separateKeyValueInDataBlock, uniformCvThreshold,
+        enableIndexCompression, blockAlign, superBlockAlignmentSize,
+        superBlockAlignmentSpaceOverheadRatio, indexShortening.getValue(),
+        indexSearchType.getValue(), blockCacheSize, blockCacheNumShardBits);
   }
 
   private static native long newTableFactoryHandle(final boolean cacheIndexAndFilterBlocks,
@@ -960,8 +1096,11 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       final boolean partitionFilters, final boolean optimizeFiltersForMemory,
       final boolean useDeltaEncoding, final long filterPolicyHandle,
       final boolean wholeKeyFiltering, final boolean verifyCompression,
-      final int readAmpBytesPerBit, final int formatVersion, final boolean enableIndexCompression,
-      final boolean blockAlign, final byte indexShortening,
+      final int readAmpBytesPerBit, final int formatVersion,
+      final boolean separateKeyValueInDataBlock, final double uniformCvThreshold,
+      final boolean enableIndexCompression, final boolean blockAlign,
+      final long superBlockAlignmentSize, final long superBlockAlignmentSpaceOverheadRatio,
+      final byte indexShortening, final byte indexSearchType,
 
       @Deprecated final long blockCacheSize, @Deprecated final int blockCacheNumShardBits);
 
@@ -990,9 +1129,14 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   private boolean verifyCompression;
   private int readAmpBytesPerBit;
   private int formatVersion;
+  private boolean separateKeyValueInDataBlock;
+  private double uniformCvThreshold;
   private boolean enableIndexCompression;
   private boolean blockAlign;
+  private long superBlockAlignmentSize;
+  private long superBlockAlignmentSpaceOverheadRatio;
   private IndexShorteningMode indexShortening;
+  private IndexSearchType indexSearchType;
 
   // NOTE: ONLY used if blockCache == null
   @Deprecated private long blockCacheSize;

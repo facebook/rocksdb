@@ -3,5 +3,9 @@ runs:
   using: composite
   steps:
   - name: Checkout folly sources
-    run: make checkout_folly
+    run: |
+      make checkout_folly
+    shell: bash
+  - name: Install patchelf and libaio
+    run: apt-get update -y && apt-get install -y patchelf libaio-dev
     shell: bash

@@ -69,38 +69,17 @@ BlobDB::BlobDB() : StackableDB(nullptr) {}
 
 void BlobDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(
-      log, "                                  BlobDBOptions.blob_dir: %s",
-      blob_dir.c_str());
-  ROCKS_LOG_HEADER(
-      log, "                             BlobDBOptions.path_relative: %d",
-      path_relative);
-  ROCKS_LOG_HEADER(
-      log, "                                   BlobDBOptions.is_fifo: %d",
-      is_fifo);
-  ROCKS_LOG_HEADER(
       log, "                               BlobDBOptions.max_db_size: %" PRIu64,
       max_db_size);
   ROCKS_LOG_HEADER(
       log, "                            BlobDBOptions.ttl_range_secs: %" PRIu64,
       ttl_range_secs);
   ROCKS_LOG_HEADER(
-      log, "                             BlobDBOptions.min_blob_size: %" PRIu64,
-      min_blob_size);
-  ROCKS_LOG_HEADER(
-      log, "                            BlobDBOptions.bytes_per_sync: %" PRIu64,
-      bytes_per_sync);
-  ROCKS_LOG_HEADER(
       log, "                            BlobDBOptions.blob_file_size: %" PRIu64,
       blob_file_size);
   ROCKS_LOG_HEADER(
-      log, "                               BlobDBOptions.compression: %d",
-      static_cast<int>(compression));
-  ROCKS_LOG_HEADER(
       log, "                 BlobDBOptions.enable_garbage_collection: %d",
       enable_garbage_collection);
-  ROCKS_LOG_HEADER(
-      log, "                 BlobDBOptions.garbage_collection_cutoff: %f",
-      garbage_collection_cutoff);
   ROCKS_LOG_HEADER(
       log, "                  BlobDBOptions.disable_background_tasks: %d",
       disable_background_tasks);

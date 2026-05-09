@@ -169,8 +169,9 @@ class PosixClock : public SystemClock {
     struct timespec ts;
     clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
     return (static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec) / 1000;
-#endif
+#else
     return 0;
+#endif
   }
 
   uint64_t CPUNanos() override {
@@ -179,8 +180,9 @@ class PosixClock : public SystemClock {
     struct timespec ts;
     clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
     return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
-#endif
+#else
     return 0;
+#endif
   }
 
   void SleepForMicroseconds(int micros) override { usleep(micros); }

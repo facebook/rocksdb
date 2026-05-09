@@ -126,6 +126,15 @@ Status PessimisticTransactionDB::Initialize(
   assert(dbimpl != nullptr);
   auto rtrxs = dbimpl->recovered_transactions();
 
+  if (txn_db_options_.write_policy == WRITE_COMMITTED) {
+    // Protect commit_bypass_memtable's install-before-publish window:
+    // WBWI keys land in immutable memtables at seqnos above LastSequence()
+    // before SetLastSequence() catches up, so a flush starting in that
+    // window may drop older versions still visible at the published
+    // boundary. WP/WU handle this via their own SnapshotChecker.
+    db_impl_->EnableTrackPublishedSeqInSnapshotContext();
+  }
+
   for (auto it = rtrxs.begin(); it != rtrxs.end(); ++it) {
     auto recovered_trx = it->second;
     assert(recovered_trx);
@@ -284,8 +293,7 @@ void TransactionDB::PrepareWrap(
   for (size_t i = 0; i < column_families->size(); i++) {
     ColumnFamilyOptions* cf_options = &(*column_families)[i].options;
 
-    if (cf_options->max_write_buffer_size_to_maintain == 0 &&
-        cf_options->max_write_buffer_number_to_maintain == 0) {
+    if (cf_options->max_write_buffer_size_to_maintain == 0) {
       // Setting to -1 will set the History size to
       // max_write_buffer_number * write_buffer_size.
       cf_options->max_write_buffer_size_to_maintain = -1;

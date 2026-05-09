@@ -46,6 +46,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/trace_record.h"
+#include "rocksdb/user_defined_index.h"
 #include "table/block_based/binary_search_index_reader.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -58,6 +59,7 @@
 #include "table/block_based/hash_index_reader.h"
 #include "table/block_based/partitioned_filter_block.h"
 #include "table/block_based/partitioned_index_reader.h"
+#include "table/block_based/user_defined_index_wrapper.h"
 #include "table/block_fetcher.h"
 #include "table/format.h"
 #include "table/get_context.h"
@@ -91,28 +93,33 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
 #define INSTANTIATE_BLOCKLIKE_TEMPLATES(T)                                     \
   template Status BlockBasedTable::RetrieveBlock<T>(                           \
       FilePrefetchBuffer * prefetch_buffer, const ReadOptions& ro,             \
-      const BlockHandle& handle, const UncompressionDict& uncompression_dict,  \
+      const BlockHandle& handle, UnownedPtr<Decompressor> decomp,              \
       CachableEntry<T>* out_parsed_block, GetContext* get_context,             \
       BlockCacheLookupContext* lookup_context, bool for_compaction,            \
       bool use_cache, bool async_read, bool use_block_cache_for_lookup) const; \
   template Status BlockBasedTable::MaybeReadBlockAndLoadToCache<T>(            \
       FilePrefetchBuffer * prefetch_buffer, const ReadOptions& ro,             \
-      const BlockHandle& handle, const UncompressionDict& uncompression_dict,  \
+      const BlockHandle& handle, UnownedPtr<Decompressor> decomp,              \
       bool for_compaction, CachableEntry<T>* block_entry,                      \
       GetContext* get_context, BlockCacheLookupContext* lookup_context,        \
       BlockContents* contents, bool async_read,                                \
       bool use_block_cache_for_lookup) const;                                  \
   template Status BlockBasedTable::LookupAndPinBlocksInCache<T>(               \
       const ReadOptions& ro, const BlockHandle& handle,                        \
+      CachableEntry<T>* out_parsed_block) const;                               \
+  template Status BlockBasedTable::CreateAndPinBlockInCache<T>(                \
+      const ReadOptions& ro, const BlockHandle& handle,                        \
+      UnownedPtr<Decompressor> decomp, BlockContents* block_contents,          \
       CachableEntry<T>* out_parsed_block) const;
 
 INSTANTIATE_BLOCKLIKE_TEMPLATES(ParsedFullFilterBlock);
-INSTANTIATE_BLOCKLIKE_TEMPLATES(UncompressionDict);
+INSTANTIATE_BLOCKLIKE_TEMPLATES(DecompressorDict);
 INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kData);
 INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kIndex);
 INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kFilterPartitionIndex);
 INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kRangeDeletion);
 INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kMetaIndex);
+INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kUserDefinedIndex);
 
 }  // namespace ROCKSDB_NAMESPACE
 
@@ -195,7 +202,7 @@ Status ReadAndParseBlockFromFile(
     const Footer& footer, const ReadOptions& options, const BlockHandle& handle,
     std::unique_ptr<TBlocklike>* result, const ImmutableOptions& ioptions,
     BlockCreateContext& create_context, bool maybe_compressed,
-    const UncompressionDict& uncompression_dict,
+    UnownedPtr<Decompressor> decomp,
     const PersistentCacheOptions& cache_options,
     MemoryAllocator* memory_allocator, bool for_compaction, bool async_read) {
   assert(result);
@@ -204,8 +211,8 @@ Status ReadAndParseBlockFromFile(
   BlockFetcher block_fetcher(
       file, prefetch_buffer, footer, options, handle, &contents, ioptions,
       /*do_uncompress*/ maybe_compressed, maybe_compressed,
-      TBlocklike::kBlockType, uncompression_dict, cache_options,
-      memory_allocator, nullptr, for_compaction);
+      TBlocklike::kBlockType, decomp, cache_options, memory_allocator, nullptr,
+      for_compaction);
   Status s;
   // If prefetch_buffer is not allocated, it will fallback to synchronous
   // reading of block contents.
@@ -562,6 +569,110 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
 
   return Status::OK();
 }
+
+Status GetDecompressor(const std::string& compression_name,
+                       UnownedPtr<CompressionManager> compression_manager,
+                       uint32_t table_format_version,
+                       std::shared_ptr<Decompressor>* out_decompressor) {
+  if (compression_name.empty()) {
+    // Very old file (before RocksDB 4.9.0) that might contain compressed
+    // blocks. Get a general decompressor (for all supported format_versions)
+    auto mgr_to_use = GetBuiltinV2CompressionManager();
+    *out_decompressor = mgr_to_use->GetDecompressor();
+    return Status::OK();
+  }
+  if (FormatVersionUsesCompressionManagerName(table_format_version)) {
+    constexpr char kFieldSep = ';';
+    size_t separator_pos = compression_name.find_first_of(kFieldSep);
+    if (separator_pos == std::string::npos) {
+      return Status::Corruption(
+          "Missing separator in compression_name property");
+    }
+    // Built with explicit CompressionManager and schema support for
+    // identifying its compatibility name, which is the first field here.
+    Slice compatibility_name(compression_name.data(), separator_pos);
+    std::shared_ptr<CompressionManager> mgr_to_use;
+    if (compression_manager) {
+      // First attempt to go through the compression manager configured for
+      // writing new files, for efficiency (usually correct) and not forcing
+      // use of ObjectLibrary registration (dependency injection).
+      mgr_to_use = compression_manager->FindCompatibleCompressionManager(
+          compatibility_name);
+    }
+    if (mgr_to_use == nullptr) {
+      ConfigOptions strict;
+      strict.ignore_unknown_options = false;
+      strict.ignore_unsupported_options = false;
+      Status s = CompressionManager::CreateFromString(
+          strict, compatibility_name.ToString(), &mgr_to_use);
+      // Even though we might be able to recover from "not found" if only
+      // built-in compression types are used (would be checked below), it
+      // would provide misleading or unreliable success to allow that to
+      // succeed.
+      if (!s.ok()) {
+        return s;
+      }
+      assert(mgr_to_use || compatibility_name == kNullptrString ||
+             compatibility_name.empty());
+    }
+
+    // Second field is set of compression types actually used in the file
+    size_t start_pos = separator_pos + 1;
+    separator_pos = compression_name.find_first_of(kFieldSep, start_pos);
+    if (UNLIKELY(separator_pos == std::string::npos)) {
+      return Status::Corruption("Missing second field from compression_name");
+    }
+    if (UNLIKELY((separator_pos - start_pos) & 1)) {
+      return Status::Corruption(
+          "Second field of compression_name has odd size");
+    }
+    size_t count = (separator_pos - start_pos) / 2;
+    auto ctypes = std::make_unique<CompressionType[]>(count);
+    const char* ptr = compression_name.data() + start_pos;
+    for (size_t i = 0; i < count; ++i) {
+      uint64_t val = 0;
+      bool success = ParseBaseChars<16>(&ptr, 2, &val);
+      if (UNLIKELY(!success || val == kNoCompression ||
+                   val >= kDisableCompressionOption)) {
+        return Status::Corruption(
+            "Error parsing second field of compression_name");
+      }
+      ctypes[i] = static_cast<CompressionType>(val);
+    }
+    if (mgr_to_use) {
+      *out_decompressor = mgr_to_use->GetDecompressorForTypes(
+          ctypes.get(), ctypes.get() + count);
+      assert(*out_decompressor || count == 0);
+    } else {
+      // Compression/decompression disabled
+      *out_decompressor = nullptr;
+      assert(count == 0);
+    }
+    // Can ignore possible additional future fields
+  } else {
+    // No explicit CompressionManager, e.g. legacy file support where
+    // decompressing with built-in CompressionManager works.
+    CompressionType saved_comp_type =
+        CompressionTypeFromString(compression_name);
+    if (saved_comp_type == kDisableCompressionOption) {
+      // Unrecognized. For RocksDB versions able to read format_version=7,
+      // this is considered an error so that we can continue to evolve the
+      // schema of the compression_name property and report good error
+      // messages.
+      return Status::Corruption("Unrecognized compression_name: " +
+                                compression_name);
+    } else if (saved_comp_type != kNoCompression) {
+      // Use built-in compression manager
+      auto mgr_to_use = GetBuiltinV2CompressionManager();
+      *out_decompressor =
+          mgr_to_use->GetDecompressorOptimizeFor(saved_comp_type);
+    } else {
+      // No compression -> decompressor not needed
+      *out_decompressor = nullptr;
+    }
+  }
+  return Status::OK();
+}
 }  // namespace
 
 void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
@@ -629,6 +740,7 @@ Status BlockBasedTable::Open(
     std::unique_ptr<TableReader>* table_reader, uint64_t tail_size,
     std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr,
     const std::shared_ptr<const SliceTransform>& prefix_extractor,
+    UnownedPtr<CompressionManager> compression_manager,
     const bool prefetch_index_and_filter_in_cache, const bool skip_filters,
     const int level, const bool immortal_table,
     const SequenceNumber largest_seqno, const bool force_direct_prefetch,
@@ -683,7 +795,8 @@ Status BlockBasedTable::Open(
   //    6. [meta block: index]
   //    7. [meta block: filter]
   IOOptions opts;
-  s = file->PrepareIOOptions(ro, opts);
+  IODebugContext dbg;
+  s = file->PrepareIOOptions(ro, opts, &dbg);
   if (s.ok()) {
     s = ReadFooterFromFile(opts, file.get(), *ioptions.fs,
                            prefetch_buffer.get(), file_size, &footer,
@@ -695,7 +808,9 @@ Status BlockBasedTable::Open(
     }
     return s;
   }
-  if (!IsSupportedFormatVersion(footer.format_version())) {
+  if (!IsSupportedFormatVersionForRead(kBlockBasedTableMagicNumber,
+                                       footer.format_version()) &&
+      !TEST_AllowUnsupportedFormatVersion()) {
     return Status::Corruption(
         "Unknown Footer version. Maybe this file was created with newer "
         "version of RocksDB?");
@@ -738,15 +853,22 @@ Status BlockBasedTable::Open(
     return s;
   }
 
+  // Read compression metadata and configure decompressor
+  s = GetDecompressor(
+      rep->table_properties ? rep->table_properties->compression_name
+                            : std::string{},
+      compression_manager, footer.format_version(), &rep->decompressor);
+  if (!s.ok()) {
+    return s;
+  }
+
   // Populate BlockCreateContext
-  bool blocks_definitely_zstd_compressed =
-      rep->table_properties && (rep->table_properties->compression_name ==
-                                CompressionTypeToString(kZSTD));
   rep->create_context = BlockCreateContext(
       &rep->table_options, &rep->ioptions, rep->ioptions.stats,
-      blocks_definitely_zstd_compressed, block_protection_bytes_per_key,
+      rep->decompressor.get(), block_protection_bytes_per_key,
       rep->internal_comparator.user_comparator(), rep->index_value_is_full,
-      rep->index_has_first_key);
+      rep->index_has_first_key, rep->data_block_restart_interval,
+      rep->index_block_restart_interval);
 
   // Check expected unique id if provided
   if (expected_unique_id != kNullUniqueId64x2) {
@@ -806,20 +928,18 @@ Status BlockBasedTable::Open(
     rep->table_prefix_extractor = prefix_extractor;
   } else {
     // Current prefix_extractor doesn't match table
-    if (rep->table_properties) {
-      //**TODO: If/When the DBOptions has a registry in it, the ConfigOptions
-      // will need to use it
-      ConfigOptions config_options;
-      Status st = SliceTransform::CreateFromString(
-          config_options, rep->table_properties->prefix_extractor_name,
-          &(rep->table_prefix_extractor));
-      if (!st.ok()) {
-        //**TODO: Should this be error be returned or swallowed?
-        ROCKS_LOG_ERROR(rep->ioptions.logger,
-                        "Failed to create prefix extractor[%s]: %s",
-                        rep->table_properties->prefix_extractor_name.c_str(),
-                        st.ToString().c_str());
-      }
+    //**TODO: If/When the DBOptions has a registry in it, the ConfigOptions
+    // will need to use it
+    ConfigOptions config_options;
+    Status st = SliceTransform::CreateFromString(
+        config_options, rep->table_properties->prefix_extractor_name,
+        &(rep->table_prefix_extractor));
+    if (!st.ok()) {
+      //**TODO: Should this be error be returned or swallowed?
+      ROCKS_LOG_ERROR(rep->ioptions.logger,
+                      "Failed to create prefix extractor[%s]: %s",
+                      rep->table_properties->prefix_extractor_name.c_str(),
+                      st.ToString().c_str());
     }
   }
 
@@ -914,6 +1034,7 @@ Status BlockBasedTable::PrefetchTail(
                      "TailPrefetchStats.",
                      file->file_name().c_str(), tail_prefetch_size);
     }
+    TEST_SYNC_POINT("BlockBasedTable::PrefetchTail::TaiSizeNotRecorded");
   }
   size_t prefetch_off;
   size_t prefetch_len;
@@ -933,7 +1054,8 @@ Status BlockBasedTable::PrefetchTail(
 #endif  // NDEBUG
 
   IOOptions opts;
-  Status s = file->PrepareIOOptions(ro, opts);
+  IODebugContext dbg;
+  Status s = file->PrepareIOOptions(ro, opts, &dbg);
   // Try file system prefetch
   if (s.ok() && !file->use_direct_io() && !force_direct_prefetch) {
     if (!file->Prefetch(opts, prefetch_off, prefetch_len).IsNotSupported()) {
@@ -964,88 +1086,81 @@ Status BlockBasedTable::ReadPropertiesBlock(
   s = FindOptionalMetaBlock(meta_iter, kPropertiesBlockName, &handle);
 
   if (!s.ok()) {
-    ROCKS_LOG_WARN(rep_->ioptions.logger,
-                   "Error when seeking to properties block from file: %s",
-                   s.ToString().c_str());
-  } else if (!handle.IsNull()) {
-    s = meta_iter->status();
-    std::unique_ptr<TableProperties> table_properties;
-    if (s.ok()) {
-      s = ReadTablePropertiesHelper(
-          ro, handle, rep_->file.get(), prefetch_buffer, rep_->footer,
-          rep_->ioptions, &table_properties, nullptr /* memory_allocator */);
-    }
-    IGNORE_STATUS_IF_ERROR(s);
-
-    if (!s.ok()) {
-      ROCKS_LOG_WARN(rep_->ioptions.logger,
-                     "Encountered error while reading data from properties "
-                     "block %s",
-                     s.ToString().c_str());
-    } else {
-      assert(table_properties != nullptr);
-      rep_->table_properties = std::move(table_properties);
-
-      if (s.ok()) {
-        s = rep_->seqno_to_time_mapping.DecodeFrom(
-            rep_->table_properties->seqno_to_time_mapping);
-      }
-      if (!s.ok()) {
-        ROCKS_LOG_WARN(
-            rep_->ioptions.logger,
-            "Problem reading or processing seqno-to-time mapping: %s",
-            s.ToString().c_str());
-      }
-      rep_->blocks_maybe_compressed =
-          rep_->table_properties->compression_name !=
-          CompressionTypeToString(kNoCompression);
-    }
-  } else {
-    ROCKS_LOG_ERROR(rep_->ioptions.logger,
-                    "Cannot find Properties block from file.");
+    return s;
+  } else if (handle.IsNull()) {
+    return Status::Corruption("Cannot find Properties block from file.");
   }
 
-  // Read the table properties, if provided.
-  if (rep_->table_properties) {
-    rep_->whole_key_filtering &=
-        IsFeatureSupported(*(rep_->table_properties),
-                           BlockBasedTablePropertyNames::kWholeKeyFiltering,
-                           rep_->ioptions.logger);
-    rep_->prefix_filtering &= IsFeatureSupported(
-        *(rep_->table_properties),
-        BlockBasedTablePropertyNames::kPrefixFiltering, rep_->ioptions.logger);
+  s = meta_iter->status();
+  std::unique_ptr<TableProperties> table_properties;
+  if (s.ok()) {
+    s = ReadTablePropertiesHelper(
+        ro, handle, rep_->file.get(), prefetch_buffer, rep_->footer,
+        rep_->ioptions, &table_properties, nullptr /* memory_allocator */);
+  }
 
-    rep_->index_key_includes_seq =
-        rep_->table_properties->index_key_is_user_key == 0;
-    rep_->index_value_is_full =
-        rep_->table_properties->index_value_is_delta_encoded == 0;
+  if (!s.ok()) {
+    return s;
+  }
 
-    // Update index_type with the true type.
-    // If table properties don't contain index type, we assume that the table
-    // is in very old format and has kBinarySearch index type.
-    auto& props = rep_->table_properties->user_collected_properties;
-    auto index_type_pos = props.find(BlockBasedTablePropertyNames::kIndexType);
-    if (index_type_pos != props.end()) {
-      rep_->index_type = static_cast<BlockBasedTableOptions::IndexType>(
-          DecodeFixed32(index_type_pos->second.c_str()));
-    }
-    auto min_ts_pos = props.find("rocksdb.timestamp_min");
-    if (min_ts_pos != props.end()) {
-      rep_->min_timestamp = Slice(min_ts_pos->second);
-    }
-    auto max_ts_pos = props.find("rocksdb.timestamp_max");
-    if (max_ts_pos != props.end()) {
-      rep_->max_timestamp = Slice(max_ts_pos->second);
-    }
+  assert(table_properties != nullptr);
+  rep_->table_properties = std::move(table_properties);
 
-    rep_->index_has_first_key =
-        rep_->index_type == BlockBasedTableOptions::kBinarySearchWithFirstKey;
+  rep_->data_block_restart_interval = static_cast<uint32_t>(
+      rep_->table_properties->data_block_restart_interval);
+  rep_->index_block_restart_interval = static_cast<uint32_t>(
+      rep_->table_properties->index_block_restart_interval);
+  rep_->separate_key_value_in_data_block =
+      rep_->table_properties->separate_key_value_in_data_block > 0;
 
-    s = GetGlobalSequenceNumber(*(rep_->table_properties), largest_seqno,
-                                &(rep_->global_seqno));
-    if (!s.ok()) {
-      ROCKS_LOG_ERROR(rep_->ioptions.logger, "%s", s.ToString().c_str());
-    }
+  rep_->index_has_first_key =
+      rep_->index_type == BlockBasedTableOptions::kBinarySearchWithFirstKey;
+
+  s = rep_->seqno_to_time_mapping.DecodeFrom(
+      rep_->table_properties->seqno_to_time_mapping);
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(rep_->ioptions.logger,
+                   "Problem reading or processing seqno-to-time mapping: %s",
+                   s.ToString().c_str());
+  }
+
+  // Read the table properties
+  rep_->whole_key_filtering &= IsFeatureSupported(
+      *(rep_->table_properties),
+      BlockBasedTablePropertyNames::kWholeKeyFiltering, rep_->ioptions.logger);
+  rep_->prefix_filtering &= IsFeatureSupported(
+      *(rep_->table_properties), BlockBasedTablePropertyNames::kPrefixFiltering,
+      rep_->ioptions.logger);
+
+  rep_->index_key_includes_seq =
+      rep_->table_properties->index_key_is_user_key == 0;
+  rep_->index_value_is_full =
+      rep_->table_properties->index_value_is_delta_encoded == 0;
+
+  // Read index_type from properties (required for format_version >= 2)
+  auto& props = rep_->table_properties->user_collected_properties;
+  auto index_type_pos = props.find(BlockBasedTablePropertyNames::kIndexType);
+  if (index_type_pos == props.end()) {
+    return Status::Corruption("Missing index type property");
+  }
+  rep_->index_type = static_cast<BlockBasedTableOptions::IndexType>(
+      DecodeFixed32(index_type_pos->second.c_str()));
+  auto min_ts_pos = props.find("rocksdb.timestamp_min");
+  if (min_ts_pos != props.end()) {
+    rep_->min_timestamp = Slice(min_ts_pos->second);
+  }
+  auto max_ts_pos = props.find("rocksdb.timestamp_max");
+  if (max_ts_pos != props.end()) {
+    rep_->max_timestamp = Slice(max_ts_pos->second);
+  }
+
+  rep_->index_has_first_key =
+      rep_->index_type == BlockBasedTableOptions::kBinarySearchWithFirstKey;
+
+  s = GetGlobalSequenceNumber(*(rep_->table_properties), largest_seqno,
+                              &(rep_->global_seqno));
+  if (!s.ok()) {
+    ROCKS_LOG_ERROR(rep_->ioptions.logger, "%s", s.ToString().c_str());
   }
   return s;
 }
@@ -1197,13 +1312,85 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   if (!s.ok()) {
     return s;
   }
+  if (table_options.user_defined_index_factory != nullptr) {
+    std::string udi_name(table_options.user_defined_index_factory->Name());
+    BlockHandle udi_block_handle;
+
+    // Use FindMetaBlock (not FindOptionalMetaBlock) so we get a non-OK status
+    // when the block is missing, allowing the fail_if_no_udi_on_open logic
+    // below to decide whether to error or warn.
+    s = FindMetaBlock(meta_iter, kUserDefinedIndexPrefix + udi_name,
+                      &udi_block_handle);
+    if (!s.ok()) {
+      RecordTick(rep_->ioptions.statistics.get(),
+                 SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT);
+      if (table_options.fail_if_no_udi_on_open ||
+          table_options.use_udi_as_primary_index) {
+        ROCKS_LOG_ERROR(rep_->ioptions.logger,
+                        "Failed to find the UDI block %s in file %s; %s",
+                        udi_name.c_str(), rep_->file->file_name().c_str(),
+                        s.ToString().c_str());
+        // Make the status more informative
+        s = Status::Corruption(s.ToString(), rep_->file->file_name());
+        return s;
+      } else {
+        // Emit a warning, but ignore the error status
+        ROCKS_LOG_WARN(rep_->ioptions.logger,
+                       "Failed to find the UDI block %s in file %s; %s",
+                       udi_name.c_str(), rep_->file->file_name().c_str(),
+                       s.ToString().c_str());
+        s = Status::OK();
+      }
+    }
+
+    // If the UDI block size is 0, that means there's effectively no user
+    // defined index. In that case, skip setting up the reader.
+    if (udi_block_handle.size() > 0) {
+      // Read the block, and allocate on heap or pin in cache. The UDI block is
+      // not compressed. RetrieveBlock will verify the checksum.
+      if (s.ok()) {
+        s = RetrieveBlock(prefetch_buffer, ro, udi_block_handle,
+                          rep_->decompressor.get(), &rep_->udi_block,
+                          /*get_context=*/nullptr, lookup_context,
+                          /*for_compaction=*/false, use_cache,
+                          /*async_read=*/false,
+                          /*use_block_cache_for_lookup=*/false);
+      }
+      if (s.ok()) {
+        assert(!rep_->udi_block.IsEmpty());
+
+        std::unique_ptr<UserDefinedIndexReader> udi_reader;
+        UserDefinedIndexOption udi_option;
+        udi_option.comparator = rep_->internal_comparator.user_comparator();
+        s = table_options.user_defined_index_factory->NewReader(
+            udi_option, rep_->udi_block.GetValue()->data, udi_reader);
+        if (s.ok()) {
+          if (udi_reader) {
+            // Primary UDI mode is purely config-driven. The
+            // udi_is_primary_index table property is informational only
+            // (for diagnostics / sst_dump) and does not affect routing.
+            // This keeps rollback simple: setting
+            // use_udi_as_primary_index=false immediately reverts all SSTs
+            // to standard-index reads without needing compaction.
+            index_reader = std::make_unique<UserDefinedIndexReaderWrapper>(
+                udi_name, std::move(index_reader), std::move(udi_reader),
+                table_options.use_udi_as_primary_index);
+          } else {
+            s = Status::Corruption("Failed to create UDI reader for " +
+                                   udi_name + " in file " +
+                                   rep_->file->file_name());
+          }
+        }
+      }
+    }
+  }
 
   rep_->index_reader = std::move(index_reader);
 
   // The partitions of partitioned index are always stored in cache. They
   // are hence follow the configuration for pin and prefetch regardless of
   // the value of cache_index_and_filter_blocks
-  if (prefetch_all || pin_partition) {
+  if (s.ok() && (prefetch_all || pin_partition)) {
     s = rep_->index_reader->CacheDependencies(ro, pin_partition,
                                               prefetch_buffer);
   }
@@ -1238,7 +1425,10 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     }
   }
 
-  if (!rep_->compression_dict_handle.IsNull()) {
+  // NOTE: before the fix to https://github.com/facebook/rocksdb/issues/12409, a
+  // file could have a (de)compression dictionary block without a configured
+  // compression, so we need to ignore the dictionary in that case.
+  if (!rep_->compression_dict_handle.IsNull() && rep_->decompressor) {
     std::unique_ptr<UncompressionDictReader> uncompression_dict_reader;
     s = UncompressionDictReader::Create(
         this, ro, prefetch_buffer, use_cache, prefetch_all || pin_unpartitioned,
@@ -1300,10 +1490,9 @@ Status BlockBasedTable::ReadMetaIndexBlock(
   Status s = ReadAndParseBlockFromFile(
       rep_->file.get(), prefetch_buffer, rep_->footer, ro,
       rep_->footer.metaindex_handle(), &metaindex, rep_->ioptions,
-      rep_->create_context, true /*maybe_compressed*/,
-      UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options,
-      GetMemoryAllocator(rep_->table_options), false /* for_compaction */,
-      false /* async_read */);
+      rep_->create_context, true /*maybe_compressed*/, rep_->decompressor.get(),
+      rep_->persistent_cache_options, GetMemoryAllocator(rep_->table_options),
+      false /* for_compaction */, false /* async_read */);
 
   if (!s.ok()) {
     ROCKS_LOG_ERROR(rep_->ioptions.logger,
@@ -1342,7 +1531,7 @@ template <typename TBlocklike>
 WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::GetDataBlockFromCache(
     const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
     CachableEntry<TBlocklike>* out_parsed_block, GetContext* get_context,
-    const UncompressionDict* dict) const {
+    UnownedPtr<Decompressor> decomp) const {
   assert(out_parsed_block);
   assert(out_parsed_block->IsEmpty());
 
@@ -1351,12 +1540,24 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::GetDataBlockFromCache(
 
   // Lookup uncompressed cache first
   if (block_cache) {
-    BlockCreateContext create_ctx = rep_->create_context;
-    create_ctx.dict = dict;
     assert(!cache_key.empty());
-    auto cache_handle = block_cache.LookupFull(
-        cache_key, &create_ctx, GetCachePriority<TBlocklike>(), statistics,
-        rep_->ioptions.lowest_used_cache_tier);
+    typename BlockCacheInterface<TBlocklike>::TypedHandle* cache_handle;
+    if (decomp.get() != rep_->decompressor.get() && decomp) {
+      // `decomp` must be a dictionary-aware decompressor, which is only
+      // available in the block cache (so that dictionaries can be evicted
+      // from memory) and can't live in the table reader.
+      // NOTE: inefficient BlockCreateContext copy for dict-aware decompressor
+      // (see TODO in block_cache.h)
+      BlockCreateContext create_ctx = rep_->create_context;
+      create_ctx.decompressor = decomp.get();
+      cache_handle = block_cache.LookupFull(
+          cache_key, &create_ctx, GetCachePriority<TBlocklike>(), statistics,
+          rep_->ioptions.lowest_used_cache_tier);
+    } else {
+      cache_handle = block_cache.LookupFull(
+          cache_key, &rep_->create_context, GetCachePriority<TBlocklike>(),
+          statistics, rep_->ioptions.lowest_used_cache_tier);
+    }
 
     // Avoid updating metrics here if the handle is not complete yet. This
     // happens with MultiGet and secondary cache. So update the metrics only
@@ -1386,10 +1587,9 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::PutDataBlockToCache(
     CachableEntry<TBlocklike>* out_parsed_block,
     BlockContents&& uncompressed_block_contents,
     BlockContents&& compressed_block_contents, CompressionType block_comp_type,
-    const UncompressionDict& uncompression_dict,
-    MemoryAllocator* memory_allocator, GetContext* get_context) const {
+    UnownedPtr<Decompressor> decomp, MemoryAllocator* memory_allocator,
+    GetContext* get_context) const {
   const ImmutableOptions& ioptions = rep_->ioptions;
-  const uint32_t format_version = rep_->table_options.format_version;
   assert(out_parsed_block);
   assert(out_parsed_block->IsEmpty());
 
@@ -1401,12 +1601,10 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::PutDataBlockToCache(
       uncompressed_block_contents.data.empty()) {
     assert(compressed_block_contents.data.data());
     // Retrieve the uncompressed contents into a new buffer
-    UncompressionContext context(block_comp_type);
-    UncompressionInfo info(context, uncompression_dict, block_comp_type);
-    s = UncompressBlockData(info, compressed_block_contents.data.data(),
-                            compressed_block_contents.data.size(),
-                            &uncompressed_block_contents, format_version,
-                            ioptions, memory_allocator);
+    s = DecompressBlockData(
+        compressed_block_contents.data.data(),
+        compressed_block_contents.data.size(), block_comp_type, *decomp,
+        &uncompressed_block_contents, ioptions, memory_allocator);
     if (!s.ok()) {
       return s;
     }
@@ -1505,7 +1703,8 @@ IndexBlockIter* BlockBasedTable::InitBlockIterator<IndexBlockIter>(
       rep->get_global_seqno(block_type), input_iter, rep->ioptions.stats,
       /* total_order_seek */ true, rep->index_has_first_key,
       rep->index_key_includes_seq, rep->index_value_is_full,
-      block_contents_pinned, rep->user_defined_timestamps_persisted);
+      block_contents_pinned, rep->user_defined_timestamps_persisted,
+      nullptr /* prefix_index */, rep->table_options.index_block_search_type);
 }
 
 // Right now only called for Data blocks.
@@ -1519,14 +1718,17 @@ Status BlockBasedTable::LookupAndPinBlocksInCache(
   assert(block_cache);
 
   Status s;
-  CachableEntry<UncompressionDict> uncompression_dict;
+  CachableEntry<DecompressorDict> cached_dict;
   if (rep_->uncompression_dict_reader) {
     s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
         /* prefetch_buffer= */ nullptr, ro,
         /* get_context= */ nullptr, /* lookup_context= */ nullptr,
-        &uncompression_dict);
+        &cached_dict);
     if (!s.ok()) {
       return s;
+    }
+    if (!cached_dict.GetValue()) {
+      return Status::Corruption("Success but no dictionary read");
     }
   }
 
@@ -1536,14 +1738,20 @@ Status BlockBasedTable::LookupAndPinBlocksInCache(
 
   Statistics* statistics = rep_->ioptions.statistics.get();
 
-  BlockCreateContext create_ctx = rep_->create_context;
-  create_ctx.dict = uncompression_dict.GetValue()
-                        ? uncompression_dict.GetValue()
-                        : &UncompressionDict::GetEmptyDict();
-
-  auto cache_handle =
-      block_cache.LookupFull(key, &create_ctx, GetCachePriority<TBlocklike>(),
-                             statistics, rep_->ioptions.lowest_used_cache_tier);
+  typename BlockCacheInterface<TBlocklike>::TypedHandle* cache_handle;
+  if (cached_dict.GetValue()) {
+    // NOTE: inefficient BlockCreateContext copy for dict-aware decompressor
+    // (see TODO in block_cache.h)
+    BlockCreateContext create_ctx = rep_->create_context;
+    create_ctx.decompressor = cached_dict.GetValue()->decompressor_.get();
+    cache_handle = block_cache.LookupFull(
+        key, &create_ctx, GetCachePriority<TBlocklike>(), statistics,
+        rep_->ioptions.lowest_used_cache_tier);
+  } else {
+    cache_handle = block_cache.LookupFull(
+        key, &rep_->create_context, GetCachePriority<TBlocklike>(), statistics,
+        rep_->ioptions.lowest_used_cache_tier);
+  }
 
   if (!cache_handle) {
     UpdateCacheMissMetrics(TBlocklike::kBlockType, /* get_context = */ nullptr);
@@ -1563,6 +1771,59 @@ Status BlockBasedTable::LookupAndPinBlocksInCache(
   return s;
 }
 
+template <typename TBlocklike>
+Status BlockBasedTable::CreateAndPinBlockInCache(
+    const ReadOptions& ro, const BlockHandle& handle,
+    UnownedPtr<Decompressor> decomp, BlockContents* contents,
+    CachableEntry<TBlocklike>* out_parsed_block) const {
+  CompressionType compression_type = GetBlockCompressionType(*contents);
+  // If we don't own the contents and we don't need to decompress, copy
+  // the block to heap in order to have ownership. If decompression is
+  // needed, then the decompressor will allocate a buffer.
+  if (!contents->own_bytes() && compression_type == kNoCompression) {
+    Slice src = Slice(contents->data.data(), BlockSizeWithTrailer(handle));
+    *contents = BlockContents(
+        CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), src),
+        handle.size());
+#ifndef NDEBUG
+    contents->has_trailer = true;
+#endif
+  }
+
+  Status s;
+  if (ro.fill_cache) {
+    s = MaybeReadBlockAndLoadToCache(nullptr, ro, handle, decomp,
+                                     /*for_compaction=*/false, out_parsed_block,
+                                     nullptr, nullptr, contents,
+                                     /*async_read=*/false,
+                                     /*use_block_cache_for_lookup=*/true);
+  }
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  // fill_cache could be false, or no block cache is configured. In that
+  // case, decompress if necessary and take ownership of the block
+  if (out_parsed_block->GetValue() == nullptr && contents != nullptr) {
+    BlockContents tmp_contents;
+    if (compression_type != kNoCompression) {
+      s = DecompressSerializedBlock(contents->data.data(), handle.size(),
+                                    compression_type, *decomp, &tmp_contents,
+                                    rep_->ioptions,
+                                    GetMemoryAllocator(rep_->table_options));
+    } else {
+      tmp_contents = std::move(*contents);
+    }
+    if (s.ok()) {
+      std::unique_ptr<TBlocklike> block_holder;
+      rep_->create_context.Create(&block_holder, std::move(tmp_contents));
+      out_parsed_block->SetOwnedValue(std::move(block_holder));
+    }
+  }
+  return s;
+}
+
 // If contents is nullptr, this function looks up the block caches for the
 // data block referenced by handle, and read the block from disk if necessary.
 // If contents is non-null, it skips the cache lookup and disk read, since
@@ -1572,7 +1833,7 @@ template <typename TBlocklike>
 WithBlocklikeCheck<Status, TBlocklike>
 BlockBasedTable::MaybeReadBlockAndLoadToCache(
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
-    const BlockHandle& handle, const UncompressionDict& uncompression_dict,
+    const BlockHandle& handle, UnownedPtr<Decompressor> decomp,
     bool for_compaction, CachableEntry<TBlocklike>* out_parsed_block,
     GetContext* get_context, BlockCacheLookupContext* lookup_context,
     BlockContents* contents, bool async_read,
@@ -1596,7 +1857,7 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
     if (!contents) {
       if (use_block_cache_for_lookup) {
         s = GetDataBlockFromCache(key, block_cache, out_parsed_block,
-                                  get_context, &uncompression_dict);
+                                  get_context, decomp);
         // Value could still be null at this point, so check the cache handle
         // and update the read pattern for prefetching
         if (out_parsed_block->GetValue() ||
@@ -1624,9 +1885,8 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
         ro.fill_cache) {
       Statistics* statistics = rep_->ioptions.stats;
       const bool maybe_compressed =
-          TBlocklike::kBlockType != BlockType::kFilter &&
-          TBlocklike::kBlockType != BlockType::kCompressionDictionary &&
-          rep_->blocks_maybe_compressed;
+          BlockTypeMaybeCompressed(TBlocklike::kBlockType) &&
+          rep_->decompressor;
       // This flag, if true, tells BlockFetcher to return the uncompressed
       // block when ReadBlockContents() is called.
       const bool do_uncompress = maybe_compressed;
@@ -1650,8 +1910,7 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
         BlockFetcher block_fetcher(
             rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle,
             &tmp_contents, rep_->ioptions, do_uncompress, maybe_compressed,
-            TBlocklike::kBlockType, uncompression_dict,
-            rep_->persistent_cache_options,
+            TBlocklike::kBlockType, decomp, rep_->persistent_cache_options,
             GetMemoryAllocator(rep_->table_options),
             /*allocator=*/nullptr);
 
@@ -1666,7 +1925,7 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
           s = block_fetcher.ReadBlockContents();
         }
 
-        contents_comp_type = block_fetcher.get_compression_type();
+        contents_comp_type = block_fetcher.compression_type();
         if (get_context) {
           switch (TBlocklike::kBlockType) {
             case BlockType::kIndex:
@@ -1698,7 +1957,7 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
           // block in block_fetcher
           s = PutDataBlockToCache(
               key, block_cache, out_parsed_block, std::move(uncomp_contents),
-              std::move(comp_contents), contents_comp_type, uncompression_dict,
+              std::move(comp_contents), contents_comp_type, decomp,
               GetMemoryAllocator(rep_->table_options), get_context);
         }
       } else {
@@ -1714,7 +1973,7 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
           // the block to the cache.
           s = PutDataBlockToCache(
               key, block_cache, out_parsed_block, std::move(uncomp_contents),
-              std::move(comp_contents), contents_comp_type, uncompression_dict,
+              std::move(comp_contents), contents_comp_type, decomp,
               GetMemoryAllocator(rep_->table_options), get_context);
         }
       }
@@ -1770,6 +2029,7 @@ BlockBasedTable::SaveLookupContextOrTraceRecord(
       trace_block_type = TraceType::kBlockTraceRangeDeletionBlock;
       break;
     case BlockType::kIndex:
+    case BlockType::kUserDefinedIndex:
       trace_block_type = TraceType::kBlockTraceIndexBlock;
       break;
     default:
@@ -1829,7 +2089,7 @@ void BlockBasedTable::FinishTraceRecord(
 template <typename TBlocklike /*, auto*/>
 WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::RetrieveBlock(
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
-    const BlockHandle& handle, const UncompressionDict& uncompression_dict,
+    const BlockHandle& handle, UnownedPtr<Decompressor> decomp,
     CachableEntry<TBlocklike>* out_parsed_block, GetContext* get_context,
     BlockCacheLookupContext* lookup_context, bool for_compaction,
     bool use_cache, bool async_read, bool use_block_cache_for_lookup) const {
@@ -1839,8 +2099,8 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::RetrieveBlock(
   Status s;
   if (use_cache) {
     s = MaybeReadBlockAndLoadToCache(
-        prefetch_buffer, ro, handle, uncompression_dict, for_compaction,
-        out_parsed_block, get_context, lookup_context,
+        prefetch_buffer, ro, handle, decomp, for_compaction, out_parsed_block,
+        get_context, lookup_context,
         /*contents=*/nullptr, async_read, use_block_cache_for_lookup);
 
     if (!s.ok()) {
@@ -1862,9 +2122,7 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::RetrieveBlock(
   }
 
   const bool maybe_compressed =
-      TBlocklike::kBlockType != BlockType::kFilter &&
-      TBlocklike::kBlockType != BlockType::kCompressionDictionary &&
-      rep_->blocks_maybe_compressed;
+      BlockTypeMaybeCompressed(TBlocklike::kBlockType) && rep_->decompressor;
   std::unique_ptr<TBlocklike> block;
 
   {
@@ -1873,9 +2131,9 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::RetrieveBlock(
     StopWatch sw(rep_->ioptions.clock, rep_->ioptions.stats, histogram);
     s = ReadAndParseBlockFromFile(
         rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle, &block,
-        rep_->ioptions, rep_->create_context, maybe_compressed,
-        uncompression_dict, rep_->persistent_cache_options,
-        GetMemoryAllocator(rep_->table_options), for_compaction, async_read);
+        rep_->ioptions, rep_->create_context, maybe_compressed, decomp,
+        rep_->persistent_cache_options, GetMemoryAllocator(rep_->table_options),
+        for_compaction, async_read);
 
     if (get_context) {
       switch (TBlocklike::kBlockType) {
@@ -2445,7 +2703,7 @@ Status BlockBasedTable::Prefetch(const ReadOptions& read_options,
   }
   BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
   IndexBlockIter iiter_on_stack;
-  auto iiter = NewIndexIterator(read_options, /*need_upper_bound_check=*/false,
+  auto iiter = NewIndexIterator(read_options, /*disable_prefix_seek=*/false,
                                 &iiter_on_stack, /*get_context=*/nullptr,
                                 &lookup_context);
   std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
@@ -2482,7 +2740,7 @@ Status BlockBasedTable::Prefetch(const ReadOptions& read_options,
     DataBlockIter biter;
     Status tmp_status;
     NewDataBlockIterator<DataBlockIter>(
-        read_options, block_handle, &biter, /*type=*/BlockType::kData,
+        read_options, block_handle, &biter, /*block_type=*/BlockType::kData,
         /*get_context=*/nullptr, &lookup_context,
         /*prefetch_buffer=*/nullptr, /*for_compaction=*/false,
         /*async_read=*/false, tmp_status, /*use_block_cache_for_lookup=*/true);
@@ -2497,7 +2755,8 @@ Status BlockBasedTable::Prefetch(const ReadOptions& read_options,
 }
 
 Status BlockBasedTable::VerifyChecksum(const ReadOptions& read_options,
-                                       TableReaderCaller caller) {
+                                       TableReaderCaller caller,
+                                       bool meta_blocks_only) {
   Status s;
   // Check Meta blocks
   std::unique_ptr<Block> metaindex;
@@ -2510,6 +2769,9 @@ Status BlockBasedTable::VerifyChecksum(const ReadOptions& read_options,
       return s;
     }
   } else {
+    return s;
+  }
+  if (meta_blocks_only) {
     return s;
   }
   // Check Data blocks
@@ -2557,8 +2819,8 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
     BlockFetcher block_fetcher(
         rep_->file.get(), &prefetch_buffer, rep_->footer, read_options, handle,
         &contents, rep_->ioptions, false /* decompress */,
-        false /*maybe_compressed*/, BlockType::kData,
-        UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options);
+        false /*maybe_compressed*/, BlockType::kData, nullptr /*decompressor*/,
+        rep_->persistent_cache_options);
     s = block_fetcher.ReadBlockContents();
     if (!s.ok()) {
       break;
@@ -2607,6 +2869,10 @@ BlockType BlockBasedTable::GetBlockTypeForMetaBlockByName(
     return BlockType::kIndex;
   }
 
+  if (meta_block_name.starts_with(kUserDefinedIndexPrefix)) {
+    return BlockType::kUserDefinedIndex;
+  }
+
   if (meta_block_name.starts_with(kObsoleteFilterBlockPrefix)) {
     // Obsolete but possible in old files
     return BlockType::kInvalid;
@@ -2647,12 +2913,12 @@ Status BlockBasedTable::VerifyChecksumInMetaBlocks(
       // if it was checked on open.
     } else {
       // FIXME? Need to verify checksums of index and filter partitions?
-      s = BlockFetcher(
-              rep_->file.get(), nullptr /* prefetch buffer */, rep_->footer,
-              read_options, handle, &contents, rep_->ioptions,
-              false /* decompress */, false /*maybe_compressed*/,
-              GetBlockTypeForMetaBlockByName(meta_block_name),
-              UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options)
+      s = BlockFetcher(rep_->file.get(), nullptr /* prefetch buffer */,
+                       rep_->footer, read_options, handle, &contents,
+                       rep_->ioptions, false /* decompress */,
+                       false /*maybe_compressed*/,
+                       GetBlockTypeForMetaBlockByName(meta_block_name),
+                       nullptr /*decompressor*/, rep_->persistent_cache_options)
               .ReadBlockContents();
     }
     if (!s.ok()) {
@@ -2703,7 +2969,7 @@ bool BlockBasedTable::TEST_BlockInCache(const BlockHandle& handle) const {
 bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
                                       const Slice& key) {
   std::unique_ptr<InternalIteratorBase<IndexValue>> iiter(NewIndexIterator(
-      options, /*need_upper_bound_check=*/false, /*input_iter=*/nullptr,
+      options, /*disable_prefix_seek=*/false, /*input_iter=*/nullptr,
       /*get_context=*/nullptr, /*lookup_context=*/nullptr));
   iiter->Seek(key);
   assert(iiter->status().ok());
@@ -2792,12 +3058,7 @@ uint64_t BlockBasedTable::ApproximateDataOffsetOf(
 }
 
 uint64_t BlockBasedTable::GetApproximateDataSize() {
-  // Should be in table properties unless super old version
-  if (rep_->table_properties) {
-    return rep_->table_properties->data_size;
-  }
-  // Fall back to rough estimate from footer
-  return rep_->footer.metaindex_handle().offset();
+  return rep_->table_properties->data_size;
 }
 
 uint64_t BlockBasedTable::ApproximateOffsetOf(const ReadOptions& read_options,
@@ -2910,9 +3171,9 @@ bool BlockBasedTable::TEST_IndexBlockInCache() const {
 Status BlockBasedTable::GetKVPairsFromDataBlocks(
     const ReadOptions& read_options, std::vector<KVPairBlock>* kv_pair_blocks) {
   std::unique_ptr<InternalIteratorBase<IndexValue>> blockhandles_iter(
-      NewIndexIterator(read_options, /*need_upper_bound_check=*/false,
+      NewIndexIterator(read_options, /*disable_prefix_seek=*/false,
                        /*input_iter=*/nullptr, /*get_context=*/nullptr,
-                       /*lookup_contex=*/nullptr));
+                       /*lookup_context=*/nullptr));
 
   Status s = blockhandles_iter->status();
   if (!s.ok()) {
@@ -2932,7 +3193,7 @@ Status BlockBasedTable::GetKVPairsFromDataBlocks(
     Status tmp_status;
     datablock_iter.reset(NewDataBlockIterator<DataBlockIter>(
         read_options, blockhandles_iter->value().handle,
-        /*input_iter=*/nullptr, /*type=*/BlockType::kData,
+        /*input_iter=*/nullptr, /*block_type=*/BlockType::kData,
         /*get_context=*/nullptr, /*lookup_context=*/nullptr,
         /*prefetch_buffer=*/nullptr, /*for_compaction=*/false,
         /*async_read=*/false, tmp_status, /*use_block_cache_for_lookup=*/true));
@@ -2964,13 +3225,25 @@ Status BlockBasedTable::GetKVPairsFromDataBlocks(
   return Status::OK();
 }
 
-Status BlockBasedTable::DumpTable(WritableFile* out_file) {
+Status BlockBasedTable::DumpTable(WritableFile* out_file,
+                                  bool show_sequence_number_type) {
   WritableFileStringStreamAdapter out_file_wrapper(out_file);
   std::ostream out_stream(&out_file_wrapper);
   // Output Footer
   out_stream << "Footer Details:\n"
                 "--------------------------------------\n";
   out_stream << "  " << rep_->footer.ToString() << "\n";
+
+  // Output Checksum Type Legend
+  out_stream << "Block Checksum Type Legend:\n"
+                "--------------------------------------\n";
+  out_stream << "  0 = kNoChecksum\n";
+  out_stream << "  1 = kCRC32c\n";
+  out_stream << "  2 = kxxHash\n";
+  out_stream << "  3 = kxxHash64\n";
+  out_stream << "  4 = kXXH3\n";
+  out_stream << "  (This file uses checksum type: "
+             << static_cast<int>(rep_->footer.checksum_type()) << ")\n\n";
 
   // Output MetaIndex
   out_stream << "Metaindex Details:\n"
@@ -2982,25 +3255,47 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
   Status s = ReadMetaIndexBlock(ro, nullptr /* prefetch_buffer */, &metaindex,
                                 &metaindex_iter);
   if (s.ok()) {
+    // Print metaindex block checksum
+    DumpBlockChecksumInfo(rep_->footer.metaindex_handle(), ro,
+                          "Metaindex block", out_stream);
+
     for (metaindex_iter->SeekToFirst(); metaindex_iter->Valid();
          metaindex_iter->Next()) {
       s = metaindex_iter->status();
       if (!s.ok()) {
         return s;
       }
+      // Parse block handle from metaindex value
+      BlockHandle block_handle;
+      Slice input = metaindex_iter->value();
+      Status handle_status = block_handle.DecodeFrom(&input);
+
+      if (!handle_status.ok()) {
+        out_stream << "  Skip the block with type "
+                   << metaindex_iter->key().ToString()
+                   << " due to error: " << handle_status.ToString() << "\n\n";
+        continue;
+      }
+
       if (metaindex_iter->key() == kPropertiesBlockName) {
         out_stream << "  Properties block handle: "
                    << metaindex_iter->value().ToString(true) << "\n";
+        DumpBlockChecksumInfo(block_handle, ro, "Properties block", out_stream);
       } else if (metaindex_iter->key() == kCompressionDictBlockName) {
         out_stream << "  Compression dictionary block handle: "
                    << metaindex_iter->value().ToString(true) << "\n";
+        DumpBlockChecksumInfo(block_handle, ro, "Compression dictionary block",
+                              out_stream);
       } else if (strstr(metaindex_iter->key().ToString().c_str(),
                         "filter.rocksdb.") != nullptr) {
         out_stream << "  Filter block handle: "
                    << metaindex_iter->value().ToString(true) << "\n";
+        DumpBlockChecksumInfo(block_handle, ro, "Filter block", out_stream);
       } else if (metaindex_iter->key() == kRangeDelBlockName) {
         out_stream << "  Range deletion block handle: "
                    << metaindex_iter->value().ToString(true) << "\n";
+        DumpBlockChecksumInfo(block_handle, ro, "Range deletion block",
+                              out_stream);
       }
     }
     out_stream << "\n";
@@ -3032,7 +3327,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
 
   // Output compression dictionary
   if (rep_->uncompression_dict_reader) {
-    CachableEntry<UncompressionDict> uncompression_dict;
+    CachableEntry<DecompressorDict> uncompression_dict;
     s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
         nullptr /* prefetch_buffer */, ro, nullptr /* get_context */,
         nullptr /* lookup_context */, &uncompression_dict);
@@ -3057,15 +3352,15 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
       out_stream << "Range deletions:\n"
                     "--------------------------------------\n";
       for (; range_del_iter->Valid(); range_del_iter->Next()) {
-        DumpKeyValue(range_del_iter->key(), range_del_iter->value(),
-                     out_stream);
+        DumpKeyValue(range_del_iter->key(), range_del_iter->value(), out_stream,
+                     show_sequence_number_type);
       }
       out_stream << "\n";
     }
     delete range_del_iter;
   }
   // Output Data blocks
-  s = DumpDataBlocks(out_stream);
+  s = DumpDataBlocks(out_stream, show_sequence_number_type);
 
   if (!s.ok()) {
     return s;
@@ -3077,15 +3372,65 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
   return Status::OK();
 }
 
+void BlockBasedTable::DumpBlockChecksumInfo(const BlockHandle& block_handle,
+                                            const ReadOptions& read_options,
+                                            const char* block_name,
+                                            std::ostream& out_stream) const {
+  if (rep_->footer.GetBlockTrailerSize() == 0) {
+    return;
+  }
+
+  size_t block_size = static_cast<size_t>(block_handle.size());
+  size_t block_size_with_trailer = block_size + kBlockTrailerSize;
+  std::unique_ptr<char[]> raw_block(new char[block_size_with_trailer]);
+  Slice raw_block_slice;
+  IOOptions opts;
+  IODebugContext dbg;
+  IOStatus io_s = rep_->file->PrepareIOOptions(read_options, opts, &dbg);
+  if (io_s.ok()) {
+    io_s = rep_->file->Read(opts, block_handle.offset(),
+                            block_size_with_trailer, &raw_block_slice,
+                            raw_block.get(), /*aligned_buf=*/nullptr, &dbg);
+  }
+  if (io_s.ok() && raw_block_slice.size() == block_size_with_trailer) {
+    const char* data = raw_block_slice.data();
+    uint8_t compression_type_byte = static_cast<uint8_t>(data[block_size]);
+    uint32_t stored_checksum = DecodeFixed32(data + block_size + 1);
+    uint32_t modifier = ChecksumModifierForContext(
+        rep_->footer.base_context_checksum(), block_handle.offset());
+    uint32_t actual_checksum = stored_checksum - modifier;
+    out_stream << "  " << block_name << " checksum type: "
+               << static_cast<int>(rep_->footer.checksum_type())
+               << "  checksum value: 0x" << std::hex << actual_checksum
+               << std::dec << "  offset: " << block_handle.offset()
+               << "  size: " << block_size << "  compression type: "
+               << static_cast<int>(compression_type_byte) << "\n";
+  } else {
+    out_stream << "  ERROR: Failed to read " << block_name << " checksum info";
+    if (!io_s.ok()) {
+      out_stream << " - " << io_s.ToString();
+    } else if (raw_block_slice.size() != block_size_with_trailer) {
+      out_stream << " - read " << raw_block_slice.size() << " bytes, expected "
+                 << block_size_with_trailer;
+    }
+    out_stream << "\n";
+  }
+}
+
 Status BlockBasedTable::DumpIndexBlock(std::ostream& out_stream) {
   out_stream << "Index Details:\n"
                 "--------------------------------------\n";
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
+
+  // Print index block checksum information
+  DumpBlockChecksumInfo(rep_->index_handle, read_options, "Index block",
+                        out_stream);
+
   std::unique_ptr<InternalIteratorBase<IndexValue>> blockhandles_iter(
-      NewIndexIterator(read_options, /*need_upper_bound_check=*/false,
+      NewIndexIterator(read_options, /*disable_prefix_seek=*/false,
                        /*input_iter=*/nullptr, /*get_context=*/nullptr,
-                       /*lookup_contex=*/nullptr));
+                       /*lookup_context=*/nullptr));
   Status s = blockhandles_iter->status();
   if (!s.ok()) {
     out_stream << "Can not read Index Block \n\n";
@@ -3130,13 +3475,14 @@ Status BlockBasedTable::DumpIndexBlock(std::ostream& out_stream) {
   return Status::OK();
 }
 
-Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream) {
+Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream,
+                                       bool show_sequence_number_type) {
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   std::unique_ptr<InternalIteratorBase<IndexValue>> blockhandles_iter(
-      NewIndexIterator(read_options, /*need_upper_bound_check=*/false,
+      NewIndexIterator(read_options, /*disable_prefix_seek=*/false,
                        /*input_iter=*/nullptr, /*get_context=*/nullptr,
-                       /*lookup_contex=*/nullptr));
+                       /*lookup_context=*/nullptr));
   Status s = blockhandles_iter->status();
   if (!s.ok()) {
     out_stream << "Can not read Index Block \n\n";
@@ -3163,13 +3509,17 @@ Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream) {
 
     out_stream << "Data Block # " << block_id << " @ "
                << blockhandles_iter->value().handle.ToString(true) << "\n";
+
+    // Read block checksum information
+    DumpBlockChecksumInfo(bh, read_options, "Data block", out_stream);
+
     out_stream << "--------------------------------------\n";
 
     std::unique_ptr<InternalIterator> datablock_iter;
     Status tmp_status;
     datablock_iter.reset(NewDataBlockIterator<DataBlockIter>(
         read_options, blockhandles_iter->value().handle,
-        /*input_iter=*/nullptr, /*type=*/BlockType::kData,
+        /*input_iter=*/nullptr, /*block_type=*/BlockType::kData,
         /*get_context=*/nullptr, /*lookup_context=*/nullptr,
         /*prefetch_buffer=*/nullptr, /*for_compaction=*/false,
         /*async_read=*/false, tmp_status, /*use_block_cache_for_lookup=*/true));
@@ -3187,7 +3537,8 @@ Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream) {
         out_stream << "Error reading the block - Skipped \n";
         break;
       }
-      DumpKeyValue(datablock_iter->key(), datablock_iter->value(), out_stream);
+      DumpKeyValue(datablock_iter->key(), datablock_iter->value(), out_stream,
+                   show_sequence_number_type);
     }
     out_stream << "\n";
   }
@@ -3209,14 +3560,26 @@ Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream) {
 }
 
 void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
-                                   std::ostream& out_stream) {
-  InternalKey ikey;
-  ikey.DecodeFrom(key);
+                                   std::ostream& out_stream,
+                                   bool show_sequence_number_type) {
+  ParsedInternalKey result;
+  auto s = ParseInternalKey(key, &result, true);
+  if (!s.ok()) {
+    out_stream << "Error parsing internal key - Skipped \n";
+    return;
+  }
 
-  out_stream << "  HEX    " << ikey.user_key().ToString(true) << ": "
-             << value.ToString(true) << "\n";
+  if (show_sequence_number_type) {
+    out_stream << "  HEX    " << result.user_key.ToString(true)
+               << "  seq: " << result.sequence
+               << "  type: " << std::to_string(result.type) << " : "
+               << value.ToString(true) << "\n";
+  } else {
+    out_stream << "  HEX    " << result.user_key.ToString(true) << ": "
+               << value.ToString(true) << "\n";
+  }
 
-  std::string str_key = ikey.user_key().ToString();
+  std::string str_key = result.user_key.ToString();
   std::string str_value = value.ToString();
   std::string res_key, res_value;
   char cspace = ' ';

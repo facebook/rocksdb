@@ -1224,11 +1224,11 @@ TEST_P(StreamingCompressionTest, Basic) {
   }
   CompressionOptions opts;
   constexpr uint32_t compression_format_version = 2;
-  StreamingCompress* compress = StreamingCompress::Create(
+  auto compress = StreamingCompress::Create(
       compression_type, opts, compression_format_version, kBlockSize);
-  StreamingUncompress* uncompress = StreamingUncompress::Create(
+  auto uncompress = StreamingUncompress::Create(
       compression_type, compression_format_version, kBlockSize);
-  MemoryAllocator* allocator = new DefaultMemoryAllocator();
+  std::unique_ptr<MemoryAllocator> allocator(new DefaultMemoryAllocator());
   std::string input_buffer = BigString("abc", input_size);
   std::vector<std::string> compressed_buffers;
   size_t remaining;
@@ -1266,9 +1266,6 @@ TEST_P(StreamingCompressionTest, Basic) {
     } while (ret_val > 0 || output_pos == kBlockSize);
   }
   allocator->Deallocate((void*)uncompressed_output_buffer);
-  delete allocator;
-  delete compress;
-  delete uncompress;
   // The final return value from uncompress() should be 0.
   ASSERT_EQ(ret_val, 0);
   ASSERT_EQ(input_buffer, uncompressed_buffer);

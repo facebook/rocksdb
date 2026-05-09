@@ -6,6 +6,7 @@
 // An example code demonstrating how to use CompactFiles, EventListener,
 // and GetColumnFamilyMetaData APIs to implement custom compaction algorithm.
 
+#include <memory>
 #include <mutex>
 #include <string>
 
@@ -151,10 +152,12 @@ int main() {
   options.IncreaseParallelism(5);
   options.listeners.emplace_back(new FullCompactor(options));
 
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   ROCKSDB_NAMESPACE::DestroyDB(kDBPath, options);
-  Status s = DB::Open(options, kDBPath, &db);
-  assert(s.ok());
+  {
+    Status s = DB::Open(options, kDBPath, &db);
+    assert(s.ok());
+  }
   assert(db);
 
   // if background compaction is not working, write will stall
@@ -172,7 +175,7 @@ int main() {
   }
 
   // close the db.
-  delete db;
+  db.reset();
 
   return 0;
 }

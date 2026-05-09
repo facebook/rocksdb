@@ -657,15 +657,6 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void failIfOptionsFileError() {
-    try (final DBOptions opt = new DBOptions()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setFailIfOptionsFileError(boolValue);
-      assertThat(opt.failIfOptionsFileError()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
   public void dumpMallocStats() {
     try (final DBOptions opt = new DBOptions()) {
       final boolean boolValue = rand.nextBoolean();
@@ -836,15 +827,6 @@ public class DBOptionsTest {
       final long size = 1024 * 1024 * 1024 * 10L;
       assertThat(options.setMaxWriteBatchGroupSizeBytes(size)).isEqualTo(options);
       assertThat(options.maxWriteBatchGroupSizeBytes()).isEqualTo(size);
-    }
-  }
-
-  @Test
-  public void skipCheckingSstFileSizesOnDbOpen() {
-    try (final DBOptions options = new DBOptions()) {
-      assertThat(options.skipCheckingSstFileSizesOnDbOpen()).isEqualTo(false);
-      assertThat(options.setSkipCheckingSstFileSizesOnDbOpen(true)).isEqualTo(options);
-      assertThat(options.skipCheckingSstFileSizesOnDbOpen()).isEqualTo(true);
     }
   }
 

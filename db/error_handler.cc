@@ -201,6 +201,25 @@ std::map<std::tuple<BackgroundErrorReason, Status::Code, bool>,
         {std::make_tuple(BackgroundErrorReason::kManifestWriteNoWAL,
                          Status::Code::kIOError, false),
          Status::Severity::kFatalError},
+        // Errors during BG async file open
+        {std::make_tuple(BackgroundErrorReason::kAsyncFileOpen,
+                         Status::Code::kCorruption, true),
+         Status::Severity::kUnrecoverableError},
+        {std::make_tuple(BackgroundErrorReason::kAsyncFileOpen,
+                         Status::Code::kCorruption, false),
+         Status::Severity::kNoError},
+        {std::make_tuple(BackgroundErrorReason::kAsyncFileOpen,
+                         Status::Code::kIncomplete, true),
+         Status::Severity::kFatalError},
+        {std::make_tuple(BackgroundErrorReason::kAsyncFileOpen,
+                         Status::Code::kIncomplete, false),
+         Status::Severity::kNoError},
+        {std::make_tuple(BackgroundErrorReason::kAsyncFileOpen,
+                         Status::Code::kNotSupported, true),
+         Status::Severity::kFatalError},
+        {std::make_tuple(BackgroundErrorReason::kAsyncFileOpen,
+                         Status::Code::kNotSupported, false),
+         Status::Severity::kNoError},
 };
 
 std::map<std::tuple<BackgroundErrorReason, bool>, Status::Severity>
@@ -225,6 +244,11 @@ std::map<std::tuple<BackgroundErrorReason, bool>, Status::Severity>
          Status::Severity::kFatalError},
         {std::make_tuple(BackgroundErrorReason::kMemTable, false),
          Status::Severity::kFatalError},
+        // Errors during BG async file open
+        {std::make_tuple(BackgroundErrorReason::kAsyncFileOpen, true),
+         Status::Severity::kSoftError},
+        {std::make_tuple(BackgroundErrorReason::kAsyncFileOpen, false),
+         Status::Severity::kNoError},
 };
 
 void ErrorHandler::CancelErrorRecoveryForShutDown() {
@@ -274,9 +298,6 @@ void ErrorHandler::HandleKnownErrors(const Status& bg_err,
   if (bg_err.ok()) {
     return;
   }
-
-  ROCKS_LOG_INFO(db_options_.info_log,
-                 "ErrorHandler: Set regular background error\n");
 
   bool paranoid = db_options_.paranoid_checks;
   Status::Severity sev = Status::Severity::kFatalError;
@@ -335,11 +356,20 @@ void ErrorHandler::HandleKnownErrors(const Status& bg_err,
     if (!s.ok() && (s.severity() > bg_error_.severity())) {
       bg_error_ = s;
     } else {
+      ROCKS_LOG_INFO(db_options_.info_log,
+                     "ErrorHandler: Hit less severe background error\n");
+
       // This error is less severe than previously encountered error. Don't
       // take any further action
       return;
     }
   }
+
+  bool stop = bg_error_.severity() >= Status::Severity::kHardError;
+  ROCKS_LOG_INFO(
+      db_options_.info_log,
+      "ErrorHandler: Set regular background error, auto_recovery=%d, stop=%d\n",
+      int{auto_recovery}, int{stop});
 
   recover_context_ = context;
   if (auto_recovery) {
@@ -351,7 +381,7 @@ void ErrorHandler::HandleKnownErrors(const Status& bg_err,
       RecoverFromNoSpace();
     }
   }
-  if (bg_error_.severity() >= Status::Severity::kHardError) {
+  if (stop) {
     is_db_stopped_.store(true, std::memory_order_release);
   }
 }

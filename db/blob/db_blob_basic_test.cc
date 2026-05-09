@@ -3,17 +3,29 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <algorithm>
 #include <array>
+#include <set>
 #include <sstream>
 #include <string>
 
 #include "cache/compressed_secondary_cache.h"
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
+#include "db/blob/blob_log_sequential_reader.h"
+#include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
+#include "file/filename.h"
+#include "file/random_access_file_reader.h"
 #include "port/stack_trace.h"
+#include "rocksdb/convenience.h"
+#include "rocksdb/trace_reader_writer.h"
+#include "rocksdb/trace_record.h"
+#include "rocksdb/utilities/replayer.h"
 #include "test_util/sync_point.h"
+#include "util/compression.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -48,6 +60,43 @@ TEST_F(DBBlobBasicTest, GetBlob) {
 
   PinnableSlice result;
   ASSERT_TRUE(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result)
+                  .IsIncomplete());
+}
+
+TEST_F(DBBlobBasicTest, EmptyValueNotStoredAsBlob) {
+  // Regression test for crash when empty blob value is evicted to
+  // CompressedSecondaryCache (T261142690). Empty values should always be
+  // stored inline in the SST, never as blobs, even with min_blob_size=0.
+  // A BlobIndex for an empty value is strictly larger than the value itself,
+  // so storing it as a blob is pure overhead.
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+
+  // Write an empty value and a non-empty value.
+  ASSERT_OK(Put("empty_key", ""));
+  constexpr char blob_value[] = "blob_value";
+  ASSERT_OK(Put("nonempty_key", blob_value));
+  ASSERT_OK(Flush());
+
+  // Both values should be readable.
+  ASSERT_EQ(Get("empty_key"), "");
+  ASSERT_EQ(Get("nonempty_key"), blob_value);
+
+  // The empty value should be stored inline (readable from block cache
+  // without blob file I/O), while the non-empty value requires blob I/O.
+  ReadOptions ro;
+  ro.read_tier = kBlockCacheTier;
+
+  PinnableSlice result;
+  ASSERT_OK(db_->Get(ro, db_->DefaultColumnFamily(), "empty_key", &result));
+  ASSERT_EQ(result, "");
+
+  result.Reset();
+  ASSERT_TRUE(db_->Get(ro, db_->DefaultColumnFamily(), "nonempty_key", &result)
                   .IsIncomplete());
 }
 
@@ -2456,6 +2505,138 @@ TEST_F(DBBlobWithTimestampTest, IterateBlobs) {
       }
     }
     ASSERT_OK(iter->status());
+  }
+}
+
+TEST_F(DBBlobBasicTest, GetApproximateSizesIncludingBlobFiles) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  // Write some key-value pairs with blob values and flush to create blob files.
+  constexpr int kNumKeys = 1000;
+  constexpr int kValueSize = 1024;
+
+  Random rnd(301);
+  for (int i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(kValueSize)));
+  }
+  ASSERT_OK(Flush());
+
+  // Verify blob files exist.
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  bool has_blob_files = false;
+  for (const auto& f : files) {
+    if (f.size() > 5 && f.substr(f.size() - 5) == ".blob") {
+      has_blob_files = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(has_blob_files);
+
+  // Query the full range - all keys are covered.
+  std::string start = Key(0);
+  std::string end = Key(kNumKeys);
+  Range r(start, end);
+
+  // Without include_blob_files (default behavior): should not include blob
+  // file sizes.
+  uint64_t size_without_blobs = 0;
+  {
+    SizeApproximationOptions size_approx_options;
+    size_approx_options.include_files = true;
+    size_approx_options.include_blob_files = false;
+    ASSERT_OK(db_->GetApproximateSizes(size_approx_options,
+                                       db_->DefaultColumnFamily(), &r, 1,
+                                       &size_without_blobs));
+    ASSERT_GT(size_without_blobs, 0);
+  }
+
+  // With include_blob_files: should be strictly larger.
+  {
+    SizeApproximationOptions size_approx_options;
+    size_approx_options.include_files = true;
+    size_approx_options.include_blob_files = true;
+    uint64_t size_with_blobs = 0;
+    ASSERT_OK(db_->GetApproximateSizes(size_approx_options,
+                                       db_->DefaultColumnFamily(), &r, 1,
+                                       &size_with_blobs));
+    ASSERT_GT(size_with_blobs, size_without_blobs);
+  }
+
+  // Range that doesn't overlap any data should return 0.
+  {
+    std::string no_start = Key(kNumKeys + 100);
+    std::string no_end = Key(kNumKeys + 200);
+    Range no_r(no_start, no_end);
+    SizeApproximationOptions size_approx_options;
+    size_approx_options.include_files = true;
+    size_approx_options.include_blob_files = true;
+    uint64_t no_size = 0;
+    ASSERT_OK(db_->GetApproximateSizes(
+        size_approx_options, db_->DefaultColumnFamily(), &no_r, 1, &no_size));
+    ASSERT_EQ(no_size, 0);
+  }
+
+  // Partial range should return proportionally less blob size than full range.
+  {
+    SizeApproximationOptions size_approx_options;
+    size_approx_options.include_files = true;
+    size_approx_options.include_blob_files = true;
+
+    uint64_t full_size = 0;
+    ASSERT_OK(db_->GetApproximateSizes(
+        size_approx_options, db_->DefaultColumnFamily(), &r, 1, &full_size));
+
+    // Query roughly the first half of keys.
+    std::string half_end = Key(kNumKeys / 2);
+    Range half_r(start, half_end);
+    uint64_t half_size = 0;
+    ASSERT_OK(db_->GetApproximateSizes(size_approx_options,
+                                       db_->DefaultColumnFamily(), &half_r, 1,
+                                       &half_size));
+    ASSERT_GT(half_size, 0);
+    ASSERT_LT(half_size, full_size);
+  }
+
+  // Via SizeApproximationFlags API.
+  {
+    uint64_t size_flags = 0;
+    ASSERT_OK(db_->GetApproximateSizes(
+        db_->DefaultColumnFamily(), &r, 1, &size_flags,
+        DB::SizeApproximationFlags::INCLUDE_FILES |
+            DB::SizeApproximationFlags::INCLUDE_BLOB_FILES));
+    ASSERT_GT(size_flags, size_without_blobs);
+  }
+
+  // Multi-range query: two non-overlapping sub-ranges should sum to
+  // approximately the full-range result.
+  {
+    SizeApproximationOptions size_approx_options;
+    size_approx_options.include_files = true;
+    size_approx_options.include_blob_files = true;
+
+    std::string mid = Key(kNumKeys / 2);
+    std::string r1_start = Key(0);
+    std::string r1_end = mid;
+    std::string r2_start = mid;
+    std::string r2_end = Key(kNumKeys);
+    Range ranges[2] = {Range(r1_start, r1_end), Range(r2_start, r2_end)};
+    uint64_t sizes[2] = {0, 0};
+    ASSERT_OK(db_->GetApproximateSizes(
+        size_approx_options, db_->DefaultColumnFamily(), ranges, 2, sizes));
+    // Each sub-range should return a positive size.
+    ASSERT_GT(sizes[0], 0);
+    ASSERT_GT(sizes[1], 0);
+    // Sum of sub-ranges should be close to the full-range result.
+    uint64_t full_size = 0;
+    ASSERT_OK(db_->GetApproximateSizes(
+        size_approx_options, db_->DefaultColumnFamily(), &r, 1, &full_size));
+    ASSERT_NEAR(static_cast<double>(sizes[0] + sizes[1]),
+                static_cast<double>(full_size), full_size * 0.1);
   }
 }
 

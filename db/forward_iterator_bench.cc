@@ -344,19 +344,18 @@ int main(int argc, char** argv) {
 
   status = ROCKSDB_NAMESPACE::DestroyDB(path, options);
   assert(status.ok());
-  ROCKSDB_NAMESPACE::DB* db_raw;
-  status = ROCKSDB_NAMESPACE::DB::Open(options, path, &db_raw);
+  std::unique_ptr<ROCKSDB_NAMESPACE::DB> db;
+  status = ROCKSDB_NAMESPACE::DB::Open(options, path, &db);
   assert(status.ok());
-  std::unique_ptr<ROCKSDB_NAMESPACE::DB> db(db_raw);
 
   std::vector<ShardState> shard_states(FLAGS_shards + 1);
   std::deque<Reader> readers;
   while (static_cast<int>(readers.size()) < FLAGS_readers) {
-    readers.emplace_back(&shard_states, db_raw);
+    readers.emplace_back(&shard_states, db.get());
   }
   std::deque<Writer> writers;
   while (static_cast<int>(writers.size()) < FLAGS_writers) {
-    writers.emplace_back(&shard_states, db_raw);
+    writers.emplace_back(&shard_states, db.get());
   }
 
   // Each shard gets a random reader and random writer assigned to it
@@ -367,7 +366,7 @@ int main(int argc, char** argv) {
     shard_states[i].writer = &writers[writer_dist(rng)];
   }
 
-  StatsThread stats_thread(db_raw);
+  StatsThread stats_thread(db.get());
   for (Writer& w : writers) {
     w.start();
   }

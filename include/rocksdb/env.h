@@ -39,7 +39,7 @@
 #undef LoadLibrary
 #endif
 
-#if defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)  // ODR-SAFE (essentially)
 #define ROCKSDB_PRINTF_FORMAT_ATTR(format_param, dots_param) \
   __attribute__((__format__(__printf__, format_param, dots_param)))
 #else
@@ -455,9 +455,145 @@ class Env : public Customizable {
     kVerifyFileChecksums = 7,
     kGetEntity = 8,
     kMultiGetEntity = 9,
-    kReadManifest = 10,
-    kUnknown,  // Keep last for easy array of non-unknowns
+    kGetFileChecksumsFromCurrentManifest = 10,
+    // Enums after this, up to 0x7F, are reserved for future use for the public
+    // RocksDB API (i.e. they should be "non-custom" IO activities). Make sure
+    // to also update IOActivityToString when adding new values.
+
+    kCustomIOActivity80 = 0x80,
+    kFirstCustomIOActivity = kCustomIOActivity80,
+    kCustomIOActivity81 = 0x81,
+    kCustomIOActivity82 = 0x82,
+    kCustomIOActivity83 = 0x83,
+    kCustomIOActivity84 = 0x84,
+    kCustomIOActivity85 = 0x85,
+    kCustomIOActivity86 = 0x86,
+    kCustomIOActivity87 = 0x87,
+    kCustomIOActivity88 = 0x88,
+    kCustomIOActivity89 = 0x89,
+    kCustomIOActivity8A = 0x8A,
+    kCustomIOActivity8B = 0x8B,
+    kCustomIOActivity8C = 0x8C,
+    kCustomIOActivity8D = 0x8D,
+    kCustomIOActivity8E = 0x8E,
+    kCustomIOActivity8F = 0x8F,
+    kCustomIOActivity90 = 0x90,
+    kCustomIOActivity91 = 0x91,
+    kCustomIOActivity92 = 0x92,
+    kCustomIOActivity93 = 0x93,
+    kCustomIOActivity94 = 0x94,
+    kCustomIOActivity95 = 0x95,
+    kCustomIOActivity96 = 0x96,
+    kCustomIOActivity97 = 0x97,
+    kCustomIOActivity98 = 0x98,
+    kCustomIOActivity99 = 0x99,
+    kCustomIOActivity9A = 0x9A,
+    kCustomIOActivity9B = 0x9B,
+    kCustomIOActivity9C = 0x9C,
+    kCustomIOActivity9D = 0x9D,
+    kCustomIOActivity9E = 0x9E,
+    kCustomIOActivity9F = 0x9F,
+    kCustomIOActivityA0 = 0xA0,
+    kCustomIOActivityA1 = 0xA1,
+    kCustomIOActivityA2 = 0xA2,
+    kCustomIOActivityA3 = 0xA3,
+    kCustomIOActivityA4 = 0xA4,
+    kCustomIOActivityA5 = 0xA5,
+    kCustomIOActivityA6 = 0xA6,
+    kCustomIOActivityA7 = 0xA7,
+    kCustomIOActivityA8 = 0xA8,
+    kCustomIOActivityA9 = 0xA9,
+    kCustomIOActivityAA = 0xAA,
+    kCustomIOActivityAB = 0xAB,
+    kCustomIOActivityAC = 0xAC,
+    kCustomIOActivityAD = 0xAD,
+    kCustomIOActivityAE = 0xAE,
+    kCustomIOActivityAF = 0xAF,
+    kCustomIOActivityB0 = 0xB0,
+    kCustomIOActivityB1 = 0xB1,
+    kCustomIOActivityB2 = 0xB2,
+    kCustomIOActivityB3 = 0xB3,
+    kCustomIOActivityB4 = 0xB4,
+    kCustomIOActivityB5 = 0xB5,
+    kCustomIOActivityB6 = 0xB6,
+    kCustomIOActivityB7 = 0xB7,
+    kCustomIOActivityB8 = 0xB8,
+    kCustomIOActivityB9 = 0xB9,
+    kCustomIOActivityBA = 0xBA,
+    kCustomIOActivityBB = 0xBB,
+    kCustomIOActivityBC = 0xBC,
+    kCustomIOActivityBD = 0xBD,
+    kCustomIOActivityBE = 0xBE,
+    kCustomIOActivityBF = 0xBF,
+    kCustomIOActivityC0 = 0xC0,
+    kCustomIOActivityC1 = 0xC1,
+    kCustomIOActivityC2 = 0xC2,
+    kCustomIOActivityC3 = 0xC3,
+    kCustomIOActivityC4 = 0xC4,
+    kCustomIOActivityC5 = 0xC5,
+    kCustomIOActivityC6 = 0xC6,
+    kCustomIOActivityC7 = 0xC7,
+    kCustomIOActivityC8 = 0xC8,
+    kCustomIOActivityC9 = 0xC9,
+    kCustomIOActivityCA = 0xCA,
+    kCustomIOActivityCB = 0xCB,
+    kCustomIOActivityCC = 0xCC,
+    kCustomIOActivityCD = 0xCD,
+    kCustomIOActivityCE = 0xCE,
+    kCustomIOActivityCF = 0xCF,
+    kCustomIOActivityD0 = 0xD0,
+    kCustomIOActivityD1 = 0xD1,
+    kCustomIOActivityD2 = 0xD2,
+    kCustomIOActivityD3 = 0xD3,
+    kCustomIOActivityD4 = 0xD4,
+    kCustomIOActivityD5 = 0xD5,
+    kCustomIOActivityD6 = 0xD6,
+    kCustomIOActivityD7 = 0xD7,
+    kCustomIOActivityD8 = 0xD8,
+    kCustomIOActivityD9 = 0xD9,
+    kCustomIOActivityDA = 0xDA,
+    kCustomIOActivityDB = 0xDB,
+    kCustomIOActivityDC = 0xDC,
+    kCustomIOActivityDD = 0xDD,
+    kCustomIOActivityDE = 0xDE,
+    kCustomIOActivityDF = 0xDF,
+    kCustomIOActivityE0 = 0xE0,
+    kCustomIOActivityE1 = 0xE1,
+    kCustomIOActivityE2 = 0xE2,
+    kCustomIOActivityE3 = 0xE3,
+    kCustomIOActivityE4 = 0xE4,
+    kCustomIOActivityE5 = 0xE5,
+    kCustomIOActivityE6 = 0xE6,
+    kCustomIOActivityE7 = 0xE7,
+    kCustomIOActivityE8 = 0xE8,
+    kCustomIOActivityE9 = 0xE9,
+    kCustomIOActivityEA = 0xEA,
+    kCustomIOActivityEB = 0xEB,
+    kCustomIOActivityEC = 0xEC,
+    kCustomIOActivityED = 0xED,
+    kCustomIOActivityEE = 0xEE,
+    kCustomIOActivityEF = 0xEF,
+    kCustomIOActivityF0 = 0xF0,
+    kCustomIOActivityF1 = 0xF1,
+    kCustomIOActivityF2 = 0xF2,
+    kCustomIOActivityF3 = 0xF3,
+    kCustomIOActivityF4 = 0xF4,
+    kCustomIOActivityF5 = 0xF5,
+    kCustomIOActivityF6 = 0xF6,
+    kCustomIOActivityF7 = 0xF7,
+    kCustomIOActivityF8 = 0xF8,
+    kCustomIOActivityF9 = 0xF9,
+    kCustomIOActivityFA = 0xFA,
+    kCustomIOActivityFB = 0xFB,
+    kCustomIOActivityFC = 0xFC,
+    kCustomIOActivityFD = 0xFD,
+    kCustomIOActivityFE = 0xFE,
+    kLastCustomIOActivity = kCustomIOActivityFE,
+
+    kUnknown = 0xFF,  // Keep last as unknown
   };
+
+  static std::string IOActivityToString(IOActivity activity);
 
   // Arrange to run "(*function)(arg)" once in a background thread, in
   // the thread pool specified by pri. By default, jobs go to the 'LOW'
@@ -864,6 +1000,13 @@ class RandomAccessFile {
         "RandomAccessFile::InvalidateCache not supported.");
   }
 
+  // The default implementation returns "not supported" so that user
+  // implementations of FSRandomAccessFile do not need to immediately implement
+  // this function.
+  virtual Status GetFileSize(uint64_t* /*result*/) {
+    return Status::NotSupported("RandomAccessFile::GetFileSize not supported.");
+  }
+
   // If you're adding methods here, remember to add them to
   // RandomAccessFileWrapper too.
 };
@@ -963,11 +1106,28 @@ class WritableFile {
   // (However, implementations must also clean up properly in the destructor
   // even if Close() is not called.)
   virtual Status Close() = 0;
+
+  // Flush any internally buffered data to the underlying storage, so that
+  // the data is no longer dependent on this process's memory. After this
+  // call, the data should survive a process crash but is not necessarily
+  // persisted to stable storage. Use Sync() for that guarantee.
+  // All flushed data must be readable through file access APIs (e.g.
+  // RandomAccessFile), though path-level metadata queries such as
+  // Env::GetFileSize() might lag on some implementations.
+  // Not thread-safe; see IsSyncThreadSafe().
   virtual Status Flush() = 0;
-  virtual Status Sync() = 0;  // sync data
+
+  // Persist data to stable storage. After this call, the data should
+  // survive power failures. Does not necessarily persist file metadata
+  // (e.g. file size); see Fsync().
+  // Sync() implies Flush(): implementations must ensure all internally
+  // buffered data is also flushed.
+  // Not safe to call concurrently with Append() or Flush() unless
+  // IsSyncThreadSafe() returns true.
+  virtual Status Sync() = 0;
 
   /*
-   * Sync data and/or metadata as well.
+   * Persist data and metadata to stable storage.
    * By default, sync only data.
    * Override this method for environments where we need to sync
    * metadata as well.
@@ -1747,6 +1907,9 @@ class RandomAccessFileWrapper : public RandomAccessFile {
   }
   Status InvalidateCache(size_t offset, size_t length) override {
     return target_->InvalidateCache(offset, length);
+  }
+  Status GetFileSize(uint64_t* file_size) override {
+    return target_->GetFileSize(file_size);
   }
 
  private:

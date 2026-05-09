@@ -34,7 +34,6 @@ bool ShouldReportDetailedTime(Env* env, Statistics* stats);
 // the length of the magic number in bytes.
 constexpr uint32_t kMagicNumberLengthByte = 8;
 
-extern const uint64_t kLegacyBlockBasedTableMagicNumber;
 extern const uint64_t kBlockBasedTableMagicNumber;
 
 extern const uint64_t kLegacyPlainTableMagicNumber;
@@ -55,7 +54,7 @@ class BlockHandle {
   uint64_t offset() const { return offset_; }
   void set_offset(uint64_t _offset) { offset_ = _offset; }
 
-  // The size of the stored block
+  // The size of the stored block, this size does not include the block trailer.
   uint64_t size() const { return size_; }
   void set_size(uint64_t _size) { size_ = _size; }
 
@@ -88,6 +87,16 @@ class BlockHandle {
   uint64_t size_;
 
   static const BlockHandle kNullBlockHandle;
+};
+
+struct EncodedBlockHandle {
+  explicit EncodedBlockHandle(const BlockHandle& h) {
+    auto end = h.EncodeTo(buffer.data());
+    size = end - buffer.data();
+  }
+  Slice AsSlice() const { return Slice(buffer.data(), size); }
+  std::array<char, BlockHandle::kMaxEncodedLength> buffer;
+  size_t size;
 };
 
 // Value in block-based table file index.
@@ -153,17 +162,49 @@ inline uint32_t ChecksumModifierForContext(uint32_t base_context_checksum,
   return modifier & all_or_nothing;
 }
 
-inline uint32_t GetCompressFormatForVersion(uint32_t format_version) {
-  // As of format_version 2, we encode compressed block with
-  // compress_format_version == 2. Before that, the version is 1.
-  // DO NOT CHANGE THIS FUNCTION, it affects disk format
-  return format_version >= 2 ? 2 : 1;
+constexpr uint32_t kLatestBbtFormatVersion = 7;
+
+// Minimum format version supported for reading SST files in block-based format.
+//
+// When phasing out old format versions, first increase the write minimum,
+// then later (>= 6 mo) increase the read minimum when removing the
+// implementation for both read and write.
+constexpr uint32_t kMinSupportedBbtFormatVersionForRead = 2;
+
+// Minimum format version supported for writing new SST files in block-based
+// format. This should be >= kMinSupportedFormatVersionForRead.
+//
+// When phasing out old format versions, first increase the write minimum,
+// then later (>= 6 mo) increase the read minimum when removing the
+// implementation for both read and write.
+constexpr uint32_t kMinSupportedBbtFormatVersionForWrite = 2;
+static_assert(kMinSupportedBbtFormatVersionForWrite >=
+              kMinSupportedBbtFormatVersionForRead);
+
+inline bool IsSupportedFormatVersionForRead(uint64_t magic, uint32_t version) {
+  if (magic == kBlockBasedTableMagicNumber) {
+    return version >= kMinSupportedBbtFormatVersionForRead &&
+           version <= kLatestBbtFormatVersion;
+  } else if (magic == kPlainTableMagicNumber) {
+    return version == 0;
+  } else if (magic == kCuckooTableMagicNumber) {
+    return version == 1;
+  } else {
+    return false;
+  }
 }
 
-constexpr uint32_t kLatestFormatVersion = 6;
-
-inline bool IsSupportedFormatVersion(uint32_t version) {
-  return version <= kLatestFormatVersion;
+inline bool IsSupportedFormatVersionForWrite(uint64_t magic, uint32_t version) {
+  if (magic == kBlockBasedTableMagicNumber) {
+    return version >= kMinSupportedBbtFormatVersionForWrite &&
+           version <= kLatestBbtFormatVersion;
+  } else if (magic == kPlainTableMagicNumber) {
+    return version == 0;
+  } else if (magic == kCuckooTableMagicNumber) {
+    return version == 1;
+  } else {
+    return false;
+  }
 }
 
 // Same as having a unique id in footer.
@@ -173,6 +214,10 @@ inline bool FormatVersionUsesContextChecksum(uint32_t version) {
 
 inline bool FormatVersionUsesIndexHandleInFooter(uint32_t version) {
   return version < 6;
+}
+
+inline bool FormatVersionUsesCompressionManagerName(uint32_t version) {
+  return version >= 7;
 }
 
 // Footer encapsulates the fixed information stored at the tail end of every
@@ -308,6 +353,10 @@ class FooterBuilder {
   std::array<char, Footer::kMaxEncodedLength> data_;
 };
 
+// Set to true to allow unit testing of writing unsupported block-based table
+// format versions (to test read side)
+bool& TEST_AllowUnsupportedFormatVersion();
+
 // Read the footer from file
 // If enforce_table_magic_number != 0, ReadFooterFromFile() will return
 // corruption if table_magic number is not equal to enforce_table_magic_number
@@ -382,6 +431,7 @@ struct BlockContents {
 
   // The additional memory space taken by the block data.
   size_t usable_size() const {
+    // FIXME: doesn't account for possible block trailer
     if (allocation.get() != nullptr) {
       auto allocator = allocation.get_deleter().allocator;
       if (allocator) {
@@ -416,21 +466,30 @@ struct BlockContents {
 // The `data` points to serialized block contents read in from file, which
 // must be compressed and include a trailer beyond `size`. A new buffer is
 // allocated with the given allocator (or default) and the uncompressed
-// contents are returned in `out_contents`.
-// format_version is as defined in include/rocksdb/table.h, which is
-// used to determine compression format version.
-Status UncompressSerializedBlock(const UncompressionInfo& info,
-                                 const char* data, size_t size,
+// contents are returned in `out_contents`. Statistics updated.
+Status DecompressSerializedBlock(const char* data, size_t size,
+                                 CompressionType type,
+                                 Decompressor& decompressor,
                                  BlockContents* out_contents,
-                                 uint32_t format_version,
                                  const ImmutableOptions& ioptions,
                                  MemoryAllocator* allocator = nullptr);
 
-// This is a variant of UncompressSerializedBlock that does not expect a
-// block trailer beyond `size`. (CompressionType is taken from `info`.)
-Status UncompressBlockData(const UncompressionInfo& info, const char* data,
-                           size_t size, BlockContents* out_contents,
-                           uint32_t format_version,
+Status DecompressSerializedBlock(Decompressor::Args& args,
+                                 Decompressor& decompressor,
+                                 BlockContents* out_contents,
+                                 const ImmutableOptions& ioptions,
+                                 MemoryAllocator* allocator = nullptr);
+
+// This is a variant of DecompressSerializedBlock that does not expect a
+// block trailer beyond `size`. (CompressionType is passed in.)
+Status DecompressBlockData(
+    const char* data, size_t size, CompressionType type,
+    Decompressor& decompressor, BlockContents* out_contents,
+    const ImmutableOptions& ioptions, MemoryAllocator* allocator = nullptr,
+    Decompressor::ManagedWorkingArea* working_area = nullptr);
+
+Status DecompressBlockData(Decompressor::Args& args, Decompressor& decompressor,
+                           BlockContents* out_contents,
                            const ImmutableOptions& ioptions,
                            MemoryAllocator* allocator = nullptr);
 

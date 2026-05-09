@@ -3,9 +3,15 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+// Because there are a small set of tests for Slice and there's a cost in having
+// extra test binaries for each component, this test file has evolved into a
+// "grab bag" of small tests for various reusable components, mostly in  util/.
+
 #include "rocksdb/slice.h"
 
 #include <gtest/gtest.h>
+
+#include <semaphore>
 
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -13,7 +19,10 @@
 #include "rocksdb/types.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/bit_fields.h"
 #include "util/cast_util.h"
+#include "util/semaphore.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -177,18 +186,23 @@ class SmallEnumSetTest : public testing::Test {
 TEST_F(SmallEnumSetTest, SmallEnumSetTest1) {
   FileTypeSet fs;  // based on a legacy enum type
   ASSERT_TRUE(fs.empty());
+  ASSERT_EQ(fs.count(), 0U);
   ASSERT_TRUE(fs.Add(FileType::kIdentityFile));
   ASSERT_FALSE(fs.empty());
+  ASSERT_EQ(fs.count(), 1U);
   ASSERT_FALSE(fs.Add(FileType::kIdentityFile));
   ASSERT_TRUE(fs.Add(FileType::kInfoLogFile));
   ASSERT_TRUE(fs.Contains(FileType::kIdentityFile));
   ASSERT_FALSE(fs.Contains(FileType::kDBLockFile));
   ASSERT_FALSE(fs.empty());
+  ASSERT_EQ(fs.count(), 2U);
   ASSERT_FALSE(fs.Remove(FileType::kDBLockFile));
   ASSERT_TRUE(fs.Remove(FileType::kIdentityFile));
   ASSERT_FALSE(fs.empty());
+  ASSERT_EQ(fs.count(), 1U);
   ASSERT_TRUE(fs.Remove(FileType::kInfoLogFile));
   ASSERT_TRUE(fs.empty());
+  ASSERT_EQ(fs.count(), 0U);
 }
 
 namespace {
@@ -224,12 +238,16 @@ TEST_F(SmallEnumSetTest, SmallEnumSetTest2) {
   ASSERT_NE(cs, MyEnumClassSet{MyEnumClass::B});
   ASSERT_NE(cs, MyEnumClassSet::All());
 
+  ASSERT_EQ(MyEnumClassSet{}.count(), 0U);
+  ASSERT_EQ(MyEnumClassSet::All().count(), 3U);
+
   int count = 0;
   for (MyEnumClass e : cs) {
     ASSERT_EQ(e, MyEnumClass::A);
     ++count;
   }
   ASSERT_EQ(count, 1);
+  ASSERT_EQ(cs.count(), 1U);
 
   count = 0;
   for (MyEnumClass e : MyEnumClassSet::All().Without(MyEnumClass::B)) {
@@ -242,6 +260,68 @@ TEST_F(SmallEnumSetTest, SmallEnumSetTest2) {
     (void)e;
     assert(false);
   }
+}
+
+template <typename ENUM_TYPE, ENUM_TYPE MAX_ENUMERATOR>
+void TestBiggerEnumSet() {
+  using MySet = SmallEnumSet<ENUM_TYPE, MAX_ENUMERATOR>;
+  constexpr int kMaxValue = static_cast<int>(MAX_ENUMERATOR);
+  SCOPED_TRACE("kMaxValue = " + std::to_string(kMaxValue));
+
+  ASSERT_EQ(sizeof(MySet), (kMaxValue + 1 + 63) / 64 * 8);
+
+  MySet s;
+  ASSERT_TRUE(s.empty());
+  ASSERT_EQ(s.count(), 0U);
+  ASSERT_TRUE(s.Add(ENUM_TYPE(0)));
+  ASSERT_FALSE(s.empty());
+  ASSERT_EQ(s.count(), 1U);
+  ASSERT_TRUE(s.Add(ENUM_TYPE(kMaxValue - 1)));
+  ASSERT_FALSE(s.empty());
+  ASSERT_EQ(s.count(), 2U);
+  ASSERT_TRUE(s.Add(ENUM_TYPE(kMaxValue)));
+  ASSERT_FALSE(s.empty());
+  ASSERT_EQ(s.count(), 3U);
+
+  int count = 0;
+  for (ENUM_TYPE e : s) {
+    ASSERT_TRUE(e == ENUM_TYPE(0) || e == ENUM_TYPE(kMaxValue - 1) ||
+                e == ENUM_TYPE(kMaxValue));
+    ++count;
+  }
+  ASSERT_EQ(count, 3);
+
+  ASSERT_TRUE(s.Remove(ENUM_TYPE(0)));
+  ASSERT_TRUE(s.Remove(ENUM_TYPE(kMaxValue)));
+  ASSERT_FALSE(s.empty());
+  ASSERT_EQ(s.count(), 1U);
+
+  count = 0;
+  for (ENUM_TYPE e : s) {
+    ASSERT_EQ(e, ENUM_TYPE(kMaxValue - 1));
+    ++count;
+  }
+  ASSERT_EQ(count, 1);
+}
+
+TEST_F(SmallEnumSetTest, BiggerEnumClasses) {
+  enum class BiggerEnumClass63 { A, B, C = 63 };
+  enum class BiggerEnumClass64 { A, B, C = 64 };
+  enum class BiggerEnumClass65 { A, B, C = 65 };
+  enum class BiggerEnumClass127 { A, B, C = 127 };
+  enum class BiggerEnumClass128 { A, B, C = 128 };
+  enum class BiggerEnumClass129 { A, B, C = 129 };
+  enum class BiggerEnumClass150 { A, B, C = 150 };
+  enum class BiggerEnumClass255 { A, B, C = 255 };
+
+  TestBiggerEnumSet<BiggerEnumClass63, BiggerEnumClass63::C>();
+  TestBiggerEnumSet<BiggerEnumClass64, BiggerEnumClass64::C>();
+  TestBiggerEnumSet<BiggerEnumClass65, BiggerEnumClass65::C>();
+  TestBiggerEnumSet<BiggerEnumClass127, BiggerEnumClass127::C>();
+  TestBiggerEnumSet<BiggerEnumClass128, BiggerEnumClass128::C>();
+  TestBiggerEnumSet<BiggerEnumClass129, BiggerEnumClass129::C>();
+  TestBiggerEnumSet<BiggerEnumClass150, BiggerEnumClass150::C>();
+  TestBiggerEnumSet<BiggerEnumClass255, BiggerEnumClass255::C>();
 }
 
 // ***************************************************************** //
@@ -336,6 +416,271 @@ TEST(UnownedPtrTest, Tests) {
     q = std::move(p);
     ASSERT_EQ(q->first, 1);
     // Not committing to any moved-from semantics (on p here)
+  }
+}
+
+TEST(ToBaseCharsStringTest, Tests) {
+  using ROCKSDB_NAMESPACE::ToBaseCharsString;
+  // Base 16
+  ASSERT_EQ(ToBaseCharsString<16>(5, 0, true), "00000");
+  ASSERT_EQ(ToBaseCharsString<16>(5, 42, true), "0002A");
+  ASSERT_EQ(ToBaseCharsString<16>(5, 42, false), "0002a");
+  ASSERT_EQ(ToBaseCharsString<16>(2, 255, false), "ff");
+  // Base 32
+  ASSERT_EQ(ToBaseCharsString<32>(2, 255, false), "7v");
+}
+
+TEST(SemaphoreTest, CountingSemaphore) {
+  CountingSemaphore sem{0};
+  int kCount = 5;
+  std::vector<std::thread> threads;
+  for (int i = 0; i < kCount; ++i) {
+    threads.emplace_back([&sem] { sem.Release(); });
+  }
+  for (int i = 0; i < kCount; ++i) {
+    threads.emplace_back([&sem] { sem.Acquire(); });
+  }
+  for (auto& t : threads) {
+    t.join();
+  }
+  // Nothing left on the semaphore
+  ASSERT_FALSE(sem.TryAcquire());
+  // Keep testing
+  sem.Release(2);
+  ASSERT_TRUE(sem.TryAcquire());
+  sem.Acquire();
+  ASSERT_FALSE(sem.TryAcquire());
+}
+
+TEST(SemaphoreTest, BinarySemaphore) {
+  BinarySemaphore sem{0};
+  int kCount = 5;
+  std::vector<std::thread> threads;
+  for (int i = 0; i < kCount; ++i) {
+    threads.emplace_back([&sem] {
+      sem.Acquire();
+      sem.Release();
+    });
+  }
+  threads.emplace_back([&sem] { sem.Release(); });
+  for (auto& t : threads) {
+    t.join();
+  }
+  // Only able to acquire one excess release
+  ASSERT_TRUE(sem.TryAcquire());
+  ASSERT_FALSE(sem.TryAcquire());
+}
+
+TEST(BitFieldsTest, BitFields) {
+  // Start by verifying example from BitFields comment
+  struct MyState : public BitFields<uint32_t, MyState> {
+    // Extra helper declarations and/or field type declarations
+  };
+
+  using Field1 = UnsignedBitField<MyState, 16, NoPrevBitField>;
+  using Field2 = BoolBitField<MyState, Field1>;
+  using Field3 = BoolBitField<MyState, Field2>;
+  using Field4 = UnsignedBitField<MyState, 5, Field3>;
+
+  // MyState{} is zero-initialized
+  auto state = MyState{}.With<Field1>(42U).With<Field2>(true);
+  state.Set<Field4>(3U);
+  state.Ref<Field1>() += state.Get<Field4>();
+
+  ASSERT_EQ(state.Get<Field1>(), 45U);
+  ASSERT_EQ(state.Get<Field2>(), true);
+  ASSERT_EQ(state.Get<Field3>(), false);
+  ASSERT_EQ(state.Get<Field4>(), 3U);
+
+  // Misc operators
+  auto ref = state.Ref<Field3>();
+  auto ref2 = std::move(ref);
+  ref2 = true;
+  ASSERT_EQ(state.Get<Field3>(), true);
+
+  MyState state2;
+  // Basic non-concurrent tests for atomic wrappers
+  {
+    RelaxedBitFieldsAtomic<MyState> relaxed{state};
+    ASSERT_EQ(state, relaxed.LoadRelaxed());
+    relaxed.StoreRelaxed(state2);
+    ASSERT_EQ(state2, relaxed.LoadRelaxed());
+    MyState state3 = relaxed.ExchangeRelaxed(state);
+    ASSERT_EQ(state2, state3);
+    ASSERT_TRUE(relaxed.CasStrongRelaxed(state, state2));
+    while (!relaxed.CasWeakRelaxed(state2, state)) {
+    }
+    ASSERT_EQ(state2, state3);
+    ASSERT_EQ(state, relaxed.LoadRelaxed());
+
+    auto transform1 = Field2::ClearTransform() + Field3::ClearTransform();
+    MyState before, after;
+    relaxed.ApplyRelaxed(transform1, &before, &after);
+    ASSERT_EQ(before, state);
+    ASSERT_NE(after, state);
+    ASSERT_EQ(after.Get<Field2>(), false);
+    ASSERT_EQ(after.Get<Field3>(), false);
+
+    auto transform2 = Field2::SetTransform() + Field3::SetTransform();
+    relaxed.ApplyRelaxed(transform2, &before, &after);
+    ASSERT_NE(before, state);
+    ASSERT_EQ(before.Get<Field2>(), false);
+    ASSERT_EQ(before.Get<Field3>(), false);
+    ASSERT_EQ(after, state);
+
+    ASSERT_EQ(state.Get<Field1>(), 45U);
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), true);
+    ASSERT_EQ(state.Get<Field4>(), 3U);
+
+    auto transform3 = Field1::PlusTransformPromiseNoOverflow(10000U) +
+                      Field4::MinusTransformPromiseNoUnderflow(3U);
+    relaxed.ApplyRelaxed(transform3, &before, &after);
+    ASSERT_EQ(before, state);
+    ASSERT_NE(after, state);
+    ASSERT_EQ(after.Get<Field1>(), 10045U);
+    ASSERT_EQ(after.Get<Field4>(), 0U);
+
+    auto transform4 = Field1::MinusTransformPromiseNoUnderflow(999U) +
+                      Field4::PlusTransformPromiseNoOverflow(31U);
+    relaxed.ApplyRelaxed(transform4, &before, &after);
+    ASSERT_EQ(after.Get<Field1>(), 9046U);
+    ASSERT_EQ(after.Get<Field4>(), 31U);
+
+    // Unmodified
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), true);
+
+    // Test overflow/underflow detection
+    relaxed.StoreRelaxed(MyState{}.With<Field1>(65535U));  // Field1 max value
+    ASSERT_TESTABLE_FAILURE(
+        relaxed.ApplyRelaxed(Field1::PlusTransformPromiseNoOverflow(1U)));
+    relaxed.StoreRelaxed(MyState{}.With<Field4>(31U));  // Field4 max value
+    ASSERT_TESTABLE_FAILURE(
+        relaxed.ApplyRelaxed(Field4::PlusTransformPromiseNoOverflow(1U)));
+    relaxed.StoreRelaxed(MyState{}.With<Field1>(0U));
+    ASSERT_TESTABLE_FAILURE(
+        relaxed.ApplyRelaxed(Field1::MinusTransformPromiseNoUnderflow(1U)));
+    relaxed.StoreRelaxed(MyState{}.With<Field4>(0U));
+    ASSERT_TESTABLE_FAILURE(
+        relaxed.ApplyRelaxed(Field4::MinusTransformPromiseNoUnderflow(1U)));
+    ASSERT_TESTABLE_FAILURE(relaxed.ApplyRelaxed(
+        Field4::MinusTransformPromiseNoUnderflow(64U)));  // Too big
+    ASSERT_TESTABLE_FAILURE(relaxed.ApplyRelaxed(
+        Field4::PlusTransformPromiseNoOverflow(64U)));  // Too big
+
+    // Including combinations
+    relaxed.StoreRelaxed(MyState{}.With<Field4>(31U));  // Field4 max value
+    relaxed.StoreRelaxed(MyState{}.With<Field1>(0U));
+    ASSERT_TESTABLE_FAILURE(
+        relaxed.ApplyRelaxed(Field4::PlusTransformPromiseNoOverflow(1U) +
+                             Field1::MinusTransformPromiseNoUnderflow(1U)));
+
+    // But a field at the limit of upper bits is allowed to over/underflow
+    using Field5 = UnsignedBitField<MyState, 9, Field4>;
+    relaxed.StoreRelaxed(MyState{}.With<Field5>(0));  // Field5 max value
+    relaxed.ApplyRelaxed(Field5::MinusTransformIgnoreUnderflow(1U), &before,
+                         &after);  // "Safe" underflow
+    ASSERT_EQ(after.Get<Field5>(), 511U);
+    relaxed.ApplyRelaxed(Field5::PlusTransformIgnoreOverflow(1U), &before,
+                         &after);  // "Safe" overflow
+    ASSERT_EQ(after.Get<Field5>(), 0U);
+    relaxed.ApplyRelaxed(Field5::PlusTransformIgnoreOverflow(2048U), &before,
+                         &after);  // "Safe" overflow
+    ASSERT_EQ(after.Get<Field5>(), 0U);
+  }
+  {
+    BitFieldsAtomic<MyState> acqrel{state};
+    ASSERT_EQ(state, acqrel.Load());
+    acqrel.Store(state2);
+    ASSERT_EQ(state2, acqrel.Load());
+    MyState state3 = acqrel.Exchange(state);
+    ASSERT_EQ(state2, state3);
+    ASSERT_TRUE(acqrel.CasStrong(state, state2));
+    while (!acqrel.CasWeak(state2, state)) {
+    }
+    ASSERT_EQ(state2, state3);
+    ASSERT_EQ(state, acqrel.Load());
+
+    auto transform1 = Field2::ClearTransform() + Field3::ClearTransform();
+    MyState before, after;
+    acqrel.Apply(transform1, &before, &after);
+    ASSERT_EQ(before, state);
+    ASSERT_NE(after, state);
+    ASSERT_EQ(after.Get<Field2>(), false);
+    ASSERT_EQ(after.Get<Field3>(), false);
+
+    auto transform2 = Field2::SetTransform() + Field3::SetTransform();
+    acqrel.Apply(transform2, &before, &after);
+    ASSERT_NE(before, state);
+    ASSERT_EQ(before.Get<Field2>(), false);
+    ASSERT_EQ(before.Get<Field3>(), false);
+    ASSERT_EQ(after, state);
+
+    ASSERT_EQ(state.Get<Field1>(), 45U);
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), true);
+    ASSERT_EQ(state.Get<Field4>(), 3U);
+
+    auto transform2a = Field2::And(true) + Field3::And(false);
+    acqrel.Apply(transform2a, &before, &after);
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), false);
+
+    auto transform2b = Field2::And(false) + Field3::And(true);
+    acqrel.Apply(transform2b, &before, &after);
+    ASSERT_EQ(after.Get<Field2>(), false);
+    ASSERT_EQ(after.Get<Field3>(), false);
+
+    auto transform2c = Field2::Or(true) + Field3::Or(false);
+    acqrel.Apply(transform2c, &before, &after);
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), false);
+
+    auto transform2d = Field2::Or(false) + Field3::Or(true);
+    acqrel.Apply(transform2d, &before, &after);
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), true);
+
+    ASSERT_EQ(state.Get<Field1>(), 45U);
+    ASSERT_EQ(state.Get<Field4>(), 3U);
+
+    auto transform3 = Field1::PlusTransformPromiseNoOverflow(10000U) +
+                      Field4::MinusTransformPromiseNoUnderflow(3U);
+    acqrel.Apply(transform3, &before, &after);
+    ASSERT_EQ(before, state);
+    ASSERT_NE(after, state);
+    ASSERT_EQ(after.Get<Field1>(), 10045U);
+    ASSERT_EQ(after.Get<Field4>(), 0U);
+
+    auto transform4 = Field1::MinusTransformPromiseNoUnderflow(999U) +
+                      Field4::PlusTransformPromiseNoOverflow(31U);
+    acqrel.Apply(transform4, &before, &after);
+    ASSERT_EQ(after.Get<Field1>(), 9046U);
+    ASSERT_EQ(after.Get<Field4>(), 31U);
+
+    auto transform4a =
+        Field1::AndTransform(8192U + 4096U) + Field4::AndTransform(15U);
+    acqrel.Apply(transform4a, &before, &after);
+    ASSERT_EQ(after.Get<Field1>(), 8192U);
+    ASSERT_EQ(after.Get<Field4>(), 15U);
+
+    auto transform4b = Field1::OrTransform(127U) + Field4::OrTransform(16U);
+    acqrel.Apply(transform4b, &before, &after);
+    ASSERT_EQ(after.Get<Field1>(), 8192U + 127U);
+    ASSERT_EQ(after.Get<Field4>(), 31U);
+
+    // Unmodified
+    ASSERT_EQ(after.Get<Field2>(), true);
+    ASSERT_EQ(after.Get<Field3>(), true);
+
+    // Test overflow/underflow detection
+    acqrel.Store(MyState{}.With<Field1>(65535U));
+    ASSERT_TESTABLE_FAILURE(
+        acqrel.Apply(Field1::PlusTransformPromiseNoOverflow(1U)));
+    acqrel.Store(MyState{}.With<Field4>(0U));
+    ASSERT_TESTABLE_FAILURE(
+        acqrel.Apply(Field4::MinusTransformPromiseNoUnderflow(1U)));
   }
 }
 

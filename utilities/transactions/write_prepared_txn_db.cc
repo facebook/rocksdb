@@ -107,7 +107,7 @@ Status WritePreparedTxnDB::VerifyCFOptions(
   if (!cf_options.memtable_factory->CanHandleDuplicatedKey()) {
     return Status::InvalidArgument(
         "memtable_factory->CanHandleDuplicatedKey() cannot be false with "
-        "WritePrpeared transactions");
+        "WritePrepared transactions");
   }
   return Status::OK();
 }
@@ -196,14 +196,14 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
   const uint64_t no_log_ref = 0;
   uint64_t seq_used = kMaxSequenceNumber;
   const size_t ZERO_PREPARES = 0;
-  const bool kSeperatePrepareCommitBatches = true;
+  const bool kSeparatePrepareCommitBatches = true;
   // Since this is not 2pc, there is no need for AddPrepared but having it in
   // the PreReleaseCallback enables an optimization. Refer to
   // SmallestUnCommittedSeq for more details.
   AddPreparedCallback add_prepared_callback(
       this, db_impl_, batch_cnt,
       db_impl_->immutable_db_options().two_write_queues,
-      !kSeperatePrepareCommitBatches);
+      !kSeparatePrepareCommitBatches);
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
       this, db_impl_, kMaxSequenceNumber, ZERO_PREPARES, batch_cnt);
   PreReleaseCallback* pre_release_callback;
@@ -484,7 +484,7 @@ Status WritePreparedTxnDB::NewIterators(
 }
 
 void WritePreparedTxnDB::Init(const TransactionDBOptions& txn_db_opts) {
-  // Adcance max_evicted_seq_ no more than 100 times before the cache wraps
+  // Advance max_evicted_seq_ no more than 100 times before the cache wraps
   // around.
   INC_STEP_FOR_MAX_EVICTED =
       std::max(COMMIT_CACHE_SIZE / 100, static_cast<size_t>(1));
@@ -731,7 +731,7 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(const SequenceNumber& prev_max,
   bool update_snapshots = false;
   if (new_snapshots_version > snapshots_version_) {
     // This is to avoid updating the snapshots_ if it already updated
-    // with a more recent vesion by a concrrent thread
+    // with a more recent version by a concurrent thread
     update_snapshots = true;
     // We only care about snapshots lower then max
     snapshots = GetSnapshotListFromDB(new_max);
@@ -807,7 +807,7 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
       throw std::runtime_error(
           "Snapshot seq " + std::to_string(snap_impl->GetSequenceNumber()) +
           " after " + std::to_string(retry) +
-          " retries is still less than futre_max_evicted_seq_" +
+          " retries is still less than future_max_evicted_seq_" +
           std::to_string(max));
     }
   }
@@ -930,9 +930,9 @@ void WritePreparedTxnDB::UpdateSnapshots(
   // both new and old lists, it will appear upper in the new list. So if
   // we simply insert the new snapshots in order, if an overwritten item
   // is still valid in the new list is either written to the same place in
-  // the array or it is written in a higher palce before it gets
-  // overwritten by another item. This guarantess a reader that reads the
-  // list bottom-up will eventaully see a snapshot that repeats in the
+  // the array or it is written in a higher place before it gets
+  // overwritten by another item. This guarantee a reader that reads the
+  // list bottom-up will eventually see a snapshot that repeats in the
   // update, either before it gets overwritten by the writer or
   // afterwards.
   size_t i = 0;
@@ -981,7 +981,7 @@ void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
   // reader should be able to read all the snapshots that are still valid
   // after the update. Since the survived snapshots are written in a higher
   // place before gets overwritten the reader that reads bottom-up will
-  // eventully see it.
+  // eventually see it.
   const bool next_is_larger = true;
   // We will set to true if the border line snapshot suggests that.
   bool search_larger_list = false;
@@ -1003,7 +1003,7 @@ void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
     }
   }
 #ifndef NDEBUG
-  // Release the remaining sync points before accquiring the lock
+  // Release the remaining sync points before acquiring the lock
   for (++sync_i; sync_i <= 10; ++sync_i) {
     TEST_IDX_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:p:", sync_i);
     TEST_IDX_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:s:", sync_i);
@@ -1020,7 +1020,7 @@ void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
                    evicted.prep_seq, evicted.commit_seq, cnt);
     ReadLock rl(&snapshots_mutex_);
     // Items could have moved from the snapshots_ to snapshot_cache_ before
-    // accquiring the lock. To make sure that we do not miss a valid snapshot,
+    // acquiring the lock. To make sure that we do not miss a valid snapshot,
     // read snapshot_cache_ again while holding the lock.
     for (size_t i = 0; i < SNAPSHOT_CACHE_SIZE; i++) {
       SequenceNumber snapshot_seq =

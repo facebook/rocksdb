@@ -196,7 +196,7 @@ TEST(PreparedHeap, Concurrent) {
 TEST(WriteBatchWithIndex, SubBatchCnt) {
   ColumnFamilyOptions cf_options;
   std::string cf_name = "two";
-  DB* db;
+  std::unique_ptr<DB> db;
   Options options;
   options.create_if_missing = true;
   const std::string dbname = test::PerThreadDBPath("transaction_testdb");
@@ -285,7 +285,6 @@ TEST(WriteBatchWithIndex, SubBatchCnt) {
   }
 
   delete cf_handle;
-  delete db;
 }
 
 TEST(CommitEntry64b, BasicTest) {
@@ -354,9 +353,12 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
  public:
   WritePreparedTransactionTestBase(bool use_stackable_db, bool two_write_queue,
                                    TxnDBWritePolicy write_policy,
-                                   WriteOrdering write_ordering)
+                                   WriteOrdering write_ordering,
+                                   bool user_per_key_point_lock_mgr,
+                                   int64_t deadlock_timeout_us)
       : TransactionTestBase(use_stackable_db, two_write_queue, write_policy,
-                            write_ordering){};
+                            write_ordering, user_per_key_point_lock_mgr,
+                            deadlock_timeout_us) {}
 
  protected:
   void UpdateTransactionDBOptions(size_t snapshot_cache_bits,
@@ -528,27 +530,30 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
 
 class WritePreparedTransactionTest
     : public WritePreparedTransactionTestBase,
-      virtual public ::testing::WithParamInterface<
-          std::tuple<bool, bool, TxnDBWritePolicy, WriteOrdering>> {
+      virtual public ::testing::WithParamInterface<std::tuple<
+          bool, bool, TxnDBWritePolicy, WriteOrdering, bool, int64_t>> {
  public:
   WritePreparedTransactionTest()
       : WritePreparedTransactionTestBase(
             std::get<0>(GetParam()), std::get<1>(GetParam()),
-            std::get<2>(GetParam()), std::get<3>(GetParam())){};
+            std::get<2>(GetParam()), std::get<3>(GetParam()),
+            std::get<4>(GetParam()), std::get<5>(GetParam())) {}
 };
 
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 class SnapshotConcurrentAccessTest
     : public WritePreparedTransactionTestBase,
-      virtual public ::testing::WithParamInterface<std::tuple<
-          bool, bool, TxnDBWritePolicy, WriteOrdering, size_t, size_t>> {
+      virtual public ::testing::WithParamInterface<
+          std::tuple<bool, bool, TxnDBWritePolicy, WriteOrdering, size_t,
+                     size_t, bool, int64_t>> {
  public:
   SnapshotConcurrentAccessTest()
       : WritePreparedTransactionTestBase(
             std::get<0>(GetParam()), std::get<1>(GetParam()),
-            std::get<2>(GetParam()), std::get<3>(GetParam())),
+            std::get<2>(GetParam()), std::get<3>(GetParam()),
+            std::get<6>(GetParam()), std::get<7>(GetParam())),
         split_id_(std::get<4>(GetParam())),
-        split_cnt_(std::get<5>(GetParam())){};
+        split_cnt_(std::get<5>(GetParam())) {}
 
  protected:
   // A test is split into split_cnt_ tests, each identified with split_id_ where
@@ -560,13 +565,15 @@ class SnapshotConcurrentAccessTest
 
 class SeqAdvanceConcurrentTest
     : public WritePreparedTransactionTestBase,
-      virtual public ::testing::WithParamInterface<std::tuple<
-          bool, bool, TxnDBWritePolicy, WriteOrdering, size_t, size_t>> {
+      virtual public ::testing::WithParamInterface<
+          std::tuple<bool, bool, TxnDBWritePolicy, WriteOrdering, size_t,
+                     size_t, bool, int64_t>> {
  public:
   SeqAdvanceConcurrentTest()
       : WritePreparedTransactionTestBase(
             std::get<0>(GetParam()), std::get<1>(GetParam()),
-            std::get<2>(GetParam()), std::get<3>(GetParam())),
+            std::get<2>(GetParam()), std::get<3>(GetParam()),
+            std::get<6>(GetParam()), std::get<7>(GetParam())),
         split_id_(std::get<4>(GetParam())),
         split_cnt_(std::get<5>(GetParam())) {
     special_env.skip_fsync_ = true;
@@ -579,120 +586,143 @@ class SeqAdvanceConcurrentTest
   size_t split_cnt_;
 };
 
+constexpr std::array WritePreparedTransactionTest_Params = {
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite)};
+
 INSTANTIATE_TEST_CASE_P(
     WritePreparedTransaction, WritePreparedTransactionTest,
-    ::testing::Values(
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite)));
+    ::testing::ValuesIn(WRAP_PARAM_WITH_PER_KEY_POINT_LOCK_MANAGER_PARAMS(
+        WRAP_PARAM(bool, bool, TxnDBWritePolicy, WriteOrdering),
+        WritePreparedTransactionTest_Params)));
 
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
-INSTANTIATE_TEST_CASE_P(
-    TwoWriteQueues, SnapshotConcurrentAccessTest,
-    ::testing::Values(
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 0, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 1, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 2, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 3, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 4, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 5, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 6, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 7, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 8, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 9, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 10, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 11, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 12, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 13, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 14, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 15, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 16, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 17, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 18, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 19, 20),
 
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 0, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 1, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 2, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 3, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 4, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 5, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 6, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 7, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 8, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 9, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 10, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 11, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 12, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 13, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 14, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 15, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 16, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 17, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 18, 20),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 19, 20)));
+constexpr std::array TwoWriteQueue_SnapshotConcurrentAccessTest_Params = {
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 0, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 1, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 2, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 3, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 4, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 5, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 6, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 7, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 8, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 9, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 10, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 11, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 12, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 13, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 14, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 15, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 16, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 17, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 18, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 19, 20),
+
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 0, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 1, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 2, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 3, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 4, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 5, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 6, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 7, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 8, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 9, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 10, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 11, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 12, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 13, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 14, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 15, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 16, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 17, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 18, 20),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 19, 20)};
+
+INSTANTIATE_TEST_CASE_P(
+    TwoWriteQueuesPointLockManager, SnapshotConcurrentAccessTest,
+    ::testing::ValuesIn(WRAP_PARAM_WITH_PER_KEY_POINT_LOCK_MANAGER_PARAMS(
+        WRAP_PARAM(bool, bool, TxnDBWritePolicy, WriteOrdering, size_t, size_t),
+        TwoWriteQueue_SnapshotConcurrentAccessTest_Params)));
+
+constexpr std::array OneWriteQueue_SnapshotConcurrentAccessTest_Params = {
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 0, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 1, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 2, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 3, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 4, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 5, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 6, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 7, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 8, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 9, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 10, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 11, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 12, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 13, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 14, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 15, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 16, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 17, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 18, 20),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 19, 20),
+};
 
 INSTANTIATE_TEST_CASE_P(
     OneWriteQueue, SnapshotConcurrentAccessTest,
-    ::testing::Values(
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 0, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 1, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 2, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 3, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 4, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 5, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 6, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 7, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 8, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 9, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 10, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 11, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 12, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 13, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 14, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 15, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 16, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 17, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 18, 20),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 19, 20)));
+    ::testing::ValuesIn(WRAP_PARAM_WITH_PER_KEY_POINT_LOCK_MANAGER_PARAMS(
+        WRAP_PARAM(bool, bool, TxnDBWritePolicy, WriteOrdering, size_t, size_t),
+        OneWriteQueue_SnapshotConcurrentAccessTest_Params)));
+
+constexpr std::array TwoWriteQueues_SeqAdvanceConcurrentTest_Params = {
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 0, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 1, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 2, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 3, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 4, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 5, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 6, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 7, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 8, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 9, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 0, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 1, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 2, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 3, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 4, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 5, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 6, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 7, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 8, 10),
+    std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 9, 10)};
 
 INSTANTIATE_TEST_CASE_P(
     TwoWriteQueues, SeqAdvanceConcurrentTest,
-    ::testing::Values(
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 0, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 1, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 2, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 3, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 4, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 5, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 6, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 7, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 8, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 9, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 0, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 1, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 2, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 3, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 4, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 5, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 6, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 7, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 8, 10),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 9, 10)));
+    ::testing::ValuesIn(WRAP_PARAM_WITH_PER_KEY_POINT_LOCK_MANAGER_PARAMS(
+        WRAP_PARAM(bool, bool, TxnDBWritePolicy, WriteOrdering, size_t, size_t),
+        TwoWriteQueues_SeqAdvanceConcurrentTest_Params)));
+
+constexpr std::array OneWriteQueue_SeqAdvanceConcurrentTest_Params = {
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 0, 10),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 1, 10),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 2, 10),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 3, 10),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 4, 10),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 5, 10),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 6, 10),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 7, 10),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 8, 10),
+    std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 9, 10)};
 
 INSTANTIATE_TEST_CASE_P(
     OneWriteQueue, SeqAdvanceConcurrentTest,
-    ::testing::Values(
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 0, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 1, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 2, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 3, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 4, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 5, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 6, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 7, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 8, 10),
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 9, 10)));
+    ::testing::ValuesIn(WRAP_PARAM_WITH_PER_KEY_POINT_LOCK_MANAGER_PARAMS(
+        WRAP_PARAM(bool, bool, TxnDBWritePolicy, WriteOrdering, size_t, size_t),
+        OneWriteQueue_SeqAdvanceConcurrentTest_Params)));
+
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_P(WritePreparedTransactionTest, CommitMap) {
@@ -791,7 +821,8 @@ TEST_P(WritePreparedTransactionTest, CheckKeySkipOldMemtable) {
   const int kAttemptImmMemTable = 1;
   for (int attempt = kAttemptHistoryMemtable; attempt <= kAttemptImmMemTable;
        attempt++) {
-    options.max_write_buffer_number_to_maintain = 3;
+    options.max_write_buffer_size_to_maintain =
+        3 * static_cast<int>(options.write_buffer_size);
     ASSERT_OK(ReOpen());
 
     WriteOptions write_options;
@@ -4052,6 +4083,197 @@ TEST_P(WritePreparedTransactionTest, WC_WP_ForwardCompatibility) {
 TEST_P(WritePreparedTransactionTest, WC_WP_WALForwardIncompatibility) {
   bool empty_wal = true;
   CrossCompatibilityTest(WRITE_PREPARED, WRITE_COMMITTED, !empty_wal);
+}
+
+// With insert_seq = read iterator seqno, insertion depends on the latest
+// published read seq. In one-write-queue mode, the latest read seq reaches the
+// prepared seq, so insertion is blocked. In two-write-queues mode, the latest
+// published seq can still lag the prepared seq, so insertion remains safe and
+// is allowed.
+TEST_P(WritePreparedTransactionTest, RangeTombstoneInsertionWithWritePrepared) {
+  for (bool forward : {true, false}) {
+    SCOPED_TRACE(forward ? "forward" : "reverse");
+    options.min_tombstones_for_range_conversion = 4;
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    ASSERT_OK(ReOpenNoDelete());
+
+    std::vector<std::pair<std::string, std::string>> inserted_ranges;
+    SyncPoint::GetInstance()->SetCallBack(
+        "MemTable::AddLogicallyRedundantRangeTombstone:AddRange",
+        [&](void* arg) {
+          auto* range = static_cast<std::pair<Slice, Slice>*>(arg);
+          inserted_ranges.emplace_back(range->first.ToString(),
+                                       range->second.ToString());
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    for (char c = 'a'; c <= 'j'; c++) {
+      ASSERT_OK(db->Put(WriteOptions(), std::string(1, c), "val"));
+    }
+    ASSERT_OK(db->Flush(FlushOptions()));
+
+    // Delete 5 contiguous keys (> threshold of 4) directly (not in txn).
+    // These tombstones get sequence numbers lower than any prepared entry.
+    for (char c = 'c'; c <= 'g'; c++) {
+      ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));
+    }
+
+    // Begin a transaction and prepare it — the prepare_seq will be higher
+    // than the tombstone seqnos above.
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+    ASSERT_NE(txn, nullptr);
+    ASSERT_OK(txn->SetName("txn1"));
+    ASSERT_OK(txn->Put("z", "txn_val"));
+    ASSERT_OK(txn->Prepare());
+
+    // Pre-commit: one-write-queue mode publishes the prepare seq to readers,
+    // so insertion must be discarded. Two-write-queues mode can still expose
+    // an older published seq to readers, so insertion remains safe.
+    {
+      ReadOptions read_opts;
+      std::unique_ptr<Iterator> iter(db->NewIterator(read_opts));
+      if (forward) {
+        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        }
+      } else {
+        for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        }
+      }
+      EXPECT_OK(iter->status());
+    }
+    const size_t expected_insertions = options.two_write_queues ? 1u : 0u;
+    EXPECT_EQ(
+        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+        expected_insertions);
+    EXPECT_EQ(inserted_ranges.size(), expected_insertions);
+    if (options.two_write_queues) {
+      EXPECT_EQ(inserted_ranges[0].first, "c");
+      EXPECT_EQ(inserted_ranges[0].second, "h");
+    }
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    ASSERT_OK(txn->Commit());
+  }
+}
+
+// When prepared entries have seqno <= max_tombstone_seq, range tombstone
+// insertion is blocked to prevent covering invisible prepared entries.
+TEST_P(WritePreparedTransactionTest,
+       RangeTombstoneInsertionBlockedByPreparedEntry) {
+  for (bool forward : {true, false}) {
+    SCOPED_TRACE(forward ? "forward" : "reverse");
+    options.min_tombstones_for_range_conversion = 4;
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    ASSERT_OK(ReOpenNoDelete());
+
+    // Write old keys.
+    for (char c = 'a'; c <= 'j'; c++) {
+      ASSERT_OK(db->Put(WriteOptions(), std::string(1, c), "val"));
+    }
+    ASSERT_OK(db->Flush(FlushOptions()));
+
+    // Prepare a transaction first — the prepare_seq will be low.
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+    ASSERT_NE(txn, nullptr);
+    ASSERT_OK(txn->SetName("txn1"));
+    ASSERT_OK(txn->Put("z", "txn_val"));
+    ASSERT_OK(txn->Prepare());
+
+    // Now delete 5 contiguous keys — these tombstones get seqnos AFTER
+    // the prepare_seq, so max_tombstone_seq >= min_uncommitted.
+    for (char c = 'c'; c <= 'g'; c++) {
+      ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));
+    }
+
+    // Pre-commit: a prepared transaction is still outstanding, so the
+    // synthesized range tombstone must be discarded.
+    {
+      ReadOptions read_opts;
+      std::unique_ptr<Iterator> iter(db->NewIterator(read_opts));
+      if (forward) {
+        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        }
+      } else {
+        for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        }
+      }
+      ASSERT_OK(iter->status());
+    }
+    ASSERT_EQ(
+        options.statistics->getTickerCount(READ_PATH_RANGE_TOMBSTONES_INSERTED),
+        0u);
+
+    ASSERT_OK(txn->Rollback());
+  }
+}
+
+// Regression test: when range tombstone insertion bumps the seqno to
+// earliest_seq of the active memtable, it can shadow a prepared-but-
+// uncommitted Put whose prepare_seq falls between range_tomb_max_seq_
+// and earliest_seq.  After the txn commits, the Put is incorrectly hidden.
+TEST_P(WritePreparedTransactionTest,
+       RangeTombstoneSeqnoBumpShadowsPreparedWrite) {
+  for (bool forward : {true, false}) {
+    SCOPED_TRACE(forward ? "forward" : "reverse");
+    options.min_tombstones_for_range_conversion = 2;
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    ASSERT_OK(ReOpenNoDelete());
+
+    // Step 1: Write base data and flush so it's in an SST.
+    for (char c = 'a'; c <= 'j'; c++) {
+      ASSERT_OK(db->Put(WriteOptions(), std::string(1, c), "val"));
+    }
+    ASSERT_OK(db->Flush(FlushOptions()));
+
+    // Step 2: Delete contiguous keys (committed, low seqnos).
+    for (char c = 'c'; c <= 'g'; c++) {
+      ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));
+    }
+
+    // Step 3: Prepare a Put for key "e" (inside the deleted range).
+    // Its prepare_seq will be higher than the delete seqnos.
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+    ASSERT_NE(txn, nullptr);
+    ASSERT_OK(txn->SetName("txn_put_e"));
+    ASSERT_OK(txn->Put("e", "txn_value"));
+    ASSERT_OK(txn->Prepare());
+
+    // Step 4: Force a memtable switch so that earliest_seq of the new
+    // memtable is higher than the prepare_seq.
+    ASSERT_OK(db->Flush(FlushOptions()));
+
+    // Write something to ensure the new memtable is active and has a
+    // high earliest_seq.
+    ASSERT_OK(db->Put(WriteOptions(), "z_dummy", "dummy"));
+
+    // Step 5: Iterate to trigger MaybeInsertRangeTombstone.
+    // The tombstones have max_seq < min_uncommitted (prepare_seq),
+    // so the check passes.  But insert_seq gets bumped to earliest_seq
+    // of the new memtable, which is > prepare_seq.
+    {
+      ReadOptions read_opts;
+      std::unique_ptr<Iterator> iter(db->NewIterator(read_opts));
+      if (forward) {
+        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        }
+      } else {
+        for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        }
+      }
+      ASSERT_OK(iter->status());
+    }
+
+    // Step 6: Commit the prepared transaction.
+    ASSERT_OK(txn->Commit());
+
+    // Step 7: The committed Put("e", "txn_value") should be visible.
+    // BUG: If the range tombstone was inserted with a bumped seqno >
+    // prepare_seq, it shadows this committed write.
+    std::string value;
+    ASSERT_OK(db->Get(ReadOptions(), "e", &value));
+    ASSERT_EQ(value, "txn_value");
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

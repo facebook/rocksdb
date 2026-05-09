@@ -21,8 +21,6 @@ struct BlobCompactionContext {
   BlobDBImpl* blob_db_impl = nullptr;
   uint64_t next_file_number = 0;
   std::unordered_set<uint64_t> current_blob_files;
-  SequenceNumber fifo_eviction_seq = 0;
-  uint64_t evict_expiration_up_to = 0;
 };
 
 struct BlobCompactionContextGC {
@@ -59,8 +57,7 @@ class BlobIndexCompactionFilterBase : public LayeredCompactionFilterBase {
   bool IsBlobFileOpened() const;
   virtual bool OpenNewBlobFileIfNeeded() const;
   bool ReadBlobFromOldFile(const Slice& key, const BlobIndex& blob_index,
-                           PinnableSlice* blob, bool need_decompress,
-                           CompressionType* compression_type) const;
+                           PinnableSlice* blob) const;
   bool WriteBlobToNewFile(const Slice& key, const Slice& blob,
                           uint64_t* new_blob_file_number,
                           uint64_t* new_blob_offset) const;

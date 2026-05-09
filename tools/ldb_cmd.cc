@@ -25,6 +25,7 @@
 #include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
+#include "db_stress_tool/db_stress_compression_manager.h"
 #include "file/filename.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
@@ -39,12 +40,12 @@
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
-#include "table/block_based/block_based_table_builder.h"
 #include "table/sst_file_dumper.h"
 #include "tools/ldb_cmd_impl.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/file_checksum_helper.h"
+#include "util/simple_mixed_compressor.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 #include "util/write_batch_util.h"
@@ -70,6 +71,8 @@ const std::string LDBCommand::ARG_CF_NAME = "column_family";
 const std::string LDBCommand::ARG_TTL = "ttl";
 const std::string LDBCommand::ARG_TTL_START = "start_time";
 const std::string LDBCommand::ARG_TTL_END = "end_time";
+const std::string LDBCommand::ARG_USE_TXN = "use_txn";
+const std::string LDBCommand::ARG_TXN_WRITE_POLICY = "txn_write_policy";
 const std::string LDBCommand::ARG_TIMESTAMP = "timestamp";
 const std::string LDBCommand::ARG_TRY_LOAD_OPTIONS = "try_load_options";
 const std::string LDBCommand::ARG_DISABLE_CONSISTENCY_CHECKS =
@@ -85,6 +88,7 @@ const std::string LDBCommand::ARG_COMPRESSION_TYPE = "compression_type";
 const std::string LDBCommand::ARG_COMPRESSION_MAX_DICT_BYTES =
     "compression_max_dict_bytes";
 const std::string LDBCommand::ARG_BLOCK_SIZE = "block_size";
+const std::string LDBCommand::ARG_UNIFORM_CV_THRESHOLD = "uniform_cv_threshold";
 const std::string LDBCommand::ARG_AUTO_COMPACTION = "auto_compaction";
 const std::string LDBCommand::ARG_DB_WRITE_BUFFER_SIZE = "db_write_buffer_size";
 const std::string LDBCommand::ARG_WRITE_BUFFER_SIZE = "write_buffer_size";
@@ -426,6 +430,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
     return new UpdateManifestCommand(parsed_params.cmd_params,
                                      parsed_params.option_map,
                                      parsed_params.flags);
+  } else if (parsed_params.cmd == CompactionProgressDumpCommand::Name()) {
+    return new CompactionProgressDumpCommand(parsed_params.cmd_params,
+                                             parsed_params.option_map,
+                                             parsed_params.flags);
   }
   return nullptr;
 }
@@ -476,10 +484,13 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
                        const std::vector<std::string>& valid_cmd_line_options)
     : db_(nullptr),
       db_ttl_(nullptr),
+      db_txn_(nullptr),
       is_read_only_(is_read_only),
       is_key_hex_(false),
       is_value_hex_(false),
       is_db_ttl_(false),
+      is_db_txn_(false),
+      txn_write_policy_(0),
       timestamp_(false),
       try_load_options_(false),
       create_if_missing_(false),
@@ -523,6 +534,21 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   is_key_hex_ = IsKeyHex(options, flags);
   is_value_hex_ = IsValueHex(options, flags);
   is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
+  is_db_txn_ = IsFlagPresent(flags, ARG_USE_TXN);
+  itr = options.find(ARG_TXN_WRITE_POLICY);
+  if (itr != options.end()) {
+    try {
+      txn_write_policy_ = std::stoi(itr->second);
+      if (txn_write_policy_ < 0 || txn_write_policy_ > 2) {
+        fprintf(stderr, "Invalid txn_write_policy: %d. Must be 0, 1, or 2.\n",
+                txn_write_policy_);
+        txn_write_policy_ = 0;
+      }
+    } catch (const std::exception&) {
+      fprintf(stderr, "Invalid txn_write_policy value: %s\n",
+              itr->second.c_str());
+    }
+  }
   timestamp_ = IsFlagPresent(flags, ARG_TIMESTAMP);
   try_load_options_ = IsTryLoadOptions(options, flags);
   force_consistency_checks_ =
@@ -546,7 +572,34 @@ void LDBCommand::OpenDB() {
   // Open the DB.
   Status st;
   std::vector<ColumnFamilyHandle*> handles_opened;
-  if (is_db_ttl_) {
+  if (is_db_txn_) {
+    // TransactionDB mode
+    if (is_db_ttl_) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "Cannot use both --ttl and --use_txn flags together");
+      return;
+    }
+    if (!secondary_path_.empty() || !leader_path_.empty()) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "TransactionDB does not support secondary or follower mode");
+      return;
+    }
+    if (is_read_only_) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "TransactionDB does not support read-only mode");
+      return;
+    }
+    TransactionDBOptions txn_db_options;
+    txn_db_options.write_policy =
+        static_cast<TxnDBWritePolicy>(txn_write_policy_);
+    if (column_families_.empty()) {
+      st = TransactionDB::Open(options_, txn_db_options, db_path_, &db_txn_);
+    } else {
+      st = TransactionDB::Open(options_, txn_db_options, db_path_,
+                               column_families_, &handles_opened, &db_txn_);
+    }
+    db_.reset(db_txn_);
+  } else if (is_db_ttl_) {
     // ldb doesn't yet support TTL DB with multiple column families
     if (!column_family_name_.empty() || !column_families_.empty()) {
       exec_state_ = LDBCommandExecuteResult::Failed(
@@ -561,7 +614,7 @@ void LDBCommand::OpenDB() {
     } else {
       st = DBWithTTL::Open(options_, db_path_, &db_ttl_);
     }
-    db_ = db_ttl_;
+    db_.reset(db_ttl_);
   } else {
     if (!secondary_path_.empty() && !leader_path_.empty()) {
       exec_state_ = LDBCommandExecuteResult::Failed(
@@ -581,9 +634,7 @@ void LDBCommand::OpenDB() {
         } else if (!secondary_path_.empty()) {
           st = DB::OpenAsSecondary(options_, db_path_, secondary_path_, &db_);
         } else {
-          std::unique_ptr<DB> dbptr;
-          st = DB::OpenAsFollower(options_, db_path_, leader_path_, &dbptr);
-          db_ = dbptr.release();
+          st = DB::OpenAsFollower(options_, db_path_, leader_path_, &db_);
         }
       } else {
         if (secondary_path_.empty() && leader_path_.empty()) {
@@ -593,10 +644,8 @@ void LDBCommand::OpenDB() {
           st = DB::OpenAsSecondary(options_, db_path_, secondary_path_,
                                    column_families_, &handles_opened, &db_);
         } else {
-          std::unique_ptr<DB> dbptr;
           st = DB::OpenAsFollower(options_, db_path_, leader_path_,
-                                  column_families_, &handles_opened, &dbptr);
-          db_ = dbptr.release();
+                                  column_families_, &handles_opened, &db_);
         }
       }
     }
@@ -641,8 +690,9 @@ void LDBCommand::CloseDB() {
     }
     Status s = db_->Close();
     s.PermitUncheckedError();
-    delete db_;
-    db_ = nullptr;
+    db_.reset();
+    db_ttl_ = nullptr;
+    db_txn_ = nullptr;
   }
 }
 
@@ -668,6 +718,7 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_LEADER_PATH,
                                   ARG_BLOOM_BITS,
                                   ARG_BLOCK_SIZE,
+                                  ARG_UNIFORM_CV_THRESHOLD,
                                   ARG_AUTO_COMPACTION,
                                   ARG_COMPRESSION_TYPE,
                                   ARG_COMPRESSION_MAX_DICT_BYTES,
@@ -687,7 +738,9 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_BLOB_FILE_STARTING_LEVEL,
                                   ARG_PREPOPULATE_BLOB_CACHE,
                                   ARG_IGNORE_UNKNOWN_OPTIONS,
-                                  ARG_CF_NAME};
+                                  ARG_CF_NAME,
+                                  ARG_USE_TXN,
+                                  ARG_TXN_WRITE_POLICY};
   ret.insert(ret.end(), options.begin(), options.end());
   return ret;
 }
@@ -868,13 +921,21 @@ bool LDBCommand::ParseCompressionTypeOption(
             "No compressions are supported in this build for \"mixed\".");
         return false;
       }
-      // A temporary hack to generate an SST file with a mix of compression
-      // types, as this has been *de facto* supported for a long time on the
-      // read side with no code to generate them on the write side. We can test
-      // that functionality, e.g. in check_format_compatible.sh, with this hack
-      g_hack_mixed_compression_in_block_based_table.StoreRelaxed(1);
-      // Need to list zstd in compression_name table property if it's
-      // potentially in the mix, for proper handling of context and dictionary.
+      options_.compression = kZSTD;
+      options_.bottommost_compression = kZSTD;
+      auto mgr =
+          std::make_shared<RoundRobinManager>(GetBuiltinV2CompressionManager());
+      options_.compression_manager = mgr;
+
+      // Need to list zstd in the compression_name table property if it's
+      // potentially used by being in the mix (i.e., potentially at least one
+      // data block in the table is compressed by zstd). This ensures proper
+      // context and dictionary handling, and prevents crashes in older RocksDB
+      // versions.
+      //
+      // To achieve this, set `value` (the compression_type in Options which
+      // will be used to set compression_name table property) to kZSTD, even if
+      // multiple compression types are used within a single table.
       value = ZSTD_Supported() ? kZSTD : GetSupportedCompressions()[0];
       return true;
 #endif  // !NDEBUG
@@ -968,6 +1029,13 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
       exec_state_ =
           LDBCommandExecuteResult::Failed(ARG_BLOCK_SIZE + " must be > 0.");
     }
+  }
+
+  double uniform_cv_threshold;
+  if (ParseDoubleOption(option_map_, ARG_UNIFORM_CV_THRESHOLD,
+                        uniform_cv_threshold, exec_state_)) {
+    use_table_options = true;
+    table_options.uniform_cv_threshold = uniform_cv_threshold;
   }
 
   // Default comparator is BytewiseComparator, so only when it's not, it
@@ -1141,6 +1209,7 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
 // Second, overrides the options according to the CLI arguments and the
 // specific subcommand being run.
 void LDBCommand::PrepareOptions() {
+  DbStressCustomCompressionManager::Register();
   std::vector<ColumnFamilyDescriptor> column_families_from_options;
 
   if (!create_if_missing_ && try_load_options_) {
@@ -1421,7 +1490,7 @@ CompactorCommand::CompactorCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false,
+    : LDBCommand(options, flags, false /* is_read_only */,
                  BuildCmdLineOptions({ARG_FROM, ARG_TO, ARG_HEX, ARG_KEY_HEX,
                                       ARG_VALUE_HEX, ARG_TTL})),
       null_from_(true),
@@ -1496,7 +1565,7 @@ DBLoaderCommand::DBLoaderCommand(
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
     : LDBCommand(
-          options, flags, false,
+          options, flags, false /* is_read_only */,
           BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM,
                                ARG_TO, ARG_CREATE_IF_MISSING, ARG_DISABLE_WAL,
                                ARG_BULK_LOAD, ARG_COMPACT})),
@@ -1596,15 +1665,67 @@ void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
   WriteController wc(options.delayed_write_rate);
   WriteBufferManager wb(options.db_write_buffer_size);
   ImmutableDBOptions immutable_db_options(options);
-  VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
+  VersionSet versions(dbname, &immutable_db_options, MutableDBOptions{}, sopt,
+                      tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
                       /*db_id=*/"", /*db_session_id=*/"",
                       options.daily_offpeak_time_utc,
-                      /*error_handler=*/nullptr, /*read_only=*/true);
+                      /*error_handler=*/nullptr, /*unchanging=*/true);
   Status s = versions.DumpManifest(options, file, verbose, hex, json, cf_descs);
   if (!s.ok()) {
     fprintf(stderr, "Error in processing file %s %s\n", file.c_str(),
             s.ToString().c_str());
+  }
+}
+
+void DumpCompactionProgressFile(const std::string& file_path) {
+  Status s;
+  std::unique_ptr<SequentialFileReader> file_reader;
+
+  std::unique_ptr<FSSequentialFile> file;
+  const std::shared_ptr<FileSystem>& fs = Env::Default()->GetFileSystem();
+  s = fs->NewSequentialFile(file_path, FileOptions(), &file, nullptr);
+  if (!s.ok()) {
+    fprintf(stderr, "Failed to open compaction progress file %s: %s\n",
+            file_path.c_str(), s.ToString().c_str());
+    return;
+  }
+
+  file_reader = std::make_unique<SequentialFileReader>(std::move(file),
+                                                       file_path, 0, nullptr);
+
+  log::Reader reader(nullptr, std::move(file_reader), nullptr,
+                     true /* checksum */, 0);
+
+  Slice record;
+  std::string scratch;
+  int count = 0;
+
+  fprintf(stdout, "Compaction Progress File: %s\n", file_path.c_str());
+  fprintf(stdout, "============================================\n");
+
+  while (reader.ReadRecord(&record, &scratch)) {
+    VersionEdit edit;
+    s = edit.DecodeFrom(record);
+    if (!s.ok()) {
+      fprintf(stderr, "Failed to decode VersionEdit: %s\n",
+              s.ToString().c_str());
+      continue;
+    }
+
+    if (edit.HasSubcompactionProgress()) {
+      fprintf(stdout, "Progress Record %d:\n", count);
+      const auto& progress = edit.GetSubcompactionProgress();
+      fprintf(stdout, "%s\n", progress.ToString().c_str());
+      ++count;
+    }
+  }
+
+  if (count == 0) {
+    fprintf(stdout,
+            "No valid records found in the compaction progress file.\n");
+  } else {
+    fprintf(stdout, "\nTotal records: %d\n", count);
   }
 }
 
@@ -1628,7 +1749,7 @@ ManifestDumpCommand::ManifestDumpCommand(
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
     : LDBCommand(
-          options, flags, false,
+          options, flags, true /* is_read_only */,
           BuildCmdLineOptions({ARG_VERBOSE, ARG_PATH, ARG_HEX, ARG_JSON})),
       verbose_(false),
       json_(false) {
@@ -1740,11 +1861,12 @@ Status GetLiveFilesChecksumInfoFromVersionSet(Options options,
   WriteController wc(options.delayed_write_rate);
   WriteBufferManager wb(options.db_write_buffer_size);
   ImmutableDBOptions immutable_db_options(options);
-  VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
+  VersionSet versions(dbname, &immutable_db_options, MutableDBOptions{options},
+                      sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
                       /*db_id=*/"", /*db_session_id=*/"",
                       options.daily_offpeak_time_utc,
-                      /*error_handler=*/nullptr, /*read_only=*/true);
+                      /*error_handler=*/nullptr, /*unchanging=*/true);
   std::vector<std::string> cf_name_list;
   s = versions.ListColumnFamilies(&cf_name_list, db_path,
                                   immutable_db_options.fs.get());
@@ -1776,7 +1898,7 @@ FileChecksumDumpCommand::FileChecksumDumpCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false,
+    : LDBCommand(options, flags, true /* is_read_only */,
                  BuildCmdLineOptions({ARG_PATH, ARG_HEX})) {
   auto itr = options.find(ARG_PATH);
   if (itr != options.end()) {
@@ -1840,7 +1962,8 @@ GetPropertyCommand::GetPropertyCommand(
     const std::vector<std::string>& params,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true, BuildCmdLineOptions({})) {
+    : LDBCommand(options, flags, true /* is_read_only */,
+                 BuildCmdLineOptions({})) {
   if (params.size() != 1) {
     exec_state_ =
         LDBCommandExecuteResult::Failed("property name must be specified");
@@ -1891,7 +2014,8 @@ ListColumnFamiliesCommand::ListColumnFamiliesCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false, BuildCmdLineOptions({})) {}
+    : LDBCommand(options, flags, true /* is_read_only */,
+                 BuildCmdLineOptions({})) {}
 
 void ListColumnFamiliesCommand::DoCommand() {
   PrepareOptions();
@@ -1925,7 +2049,7 @@ CreateColumnFamilyCommand::CreateColumnFamilyCommand(
     const std::vector<std::string>& params,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true, {ARG_DB}) {
+    : LDBCommand(options, flags, false /* is_read_only */, {ARG_DB}) {
   if (params.size() != 1) {
     exec_state_ = LDBCommandExecuteResult::Failed(
         "new column family name must be specified");
@@ -1962,7 +2086,7 @@ DropColumnFamilyCommand::DropColumnFamilyCommand(
     const std::vector<std::string>& params,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true, {ARG_DB}) {
+    : LDBCommand(options, flags, false /* is_read_only */, {ARG_DB}) {
   if (params.size() != 1) {
     exec_state_ = LDBCommandExecuteResult::Failed(
         "The name of column family to drop must be specified");
@@ -2038,7 +2162,7 @@ InternalDumpCommand::InternalDumpCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true,
+    : LDBCommand(options, flags, true /* is_read_only */,
                  BuildCmdLineOptions(
                      {ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM, ARG_TO,
                       ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM, ARG_STATS,
@@ -2111,8 +2235,9 @@ void InternalDumpCommand::DoCommand() {
 
   // Cast as DBImpl to get internal iterator
   std::vector<KeyVersion> key_versions;
-  Status st = GetAllKeyVersions(db_, GetCfHandle(), from_, to_, max_keys_,
-                                &key_versions);
+  Status st = GetAllKeyVersions(
+      db_.get(), GetCfHandle(), has_from_ ? from_ : OptSlice{},
+      has_to_ ? to_ : OptSlice{}, max_keys_, &key_versions);
   if (!st.ok()) {
     exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
     return;
@@ -2219,7 +2344,7 @@ DBDumperCommand::DBDumperCommand(
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
     : LDBCommand(
-          options, flags, true,
+          options, flags, true /* is_read_only */,
           BuildCmdLineOptions(
               {ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM, ARG_TO,
                ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM, ARG_STATS,
@@ -2231,7 +2356,8 @@ DBDumperCommand::DBDumperCommand(
       count_only_(false),
       count_delim_(false),
       print_stats_(false),
-      decode_blob_index_(false) {
+      decode_blob_index_(false),
+      dump_uncompressed_blobs_(false) {
   auto itr = options.find(ARG_FROM);
   if (itr != options.end()) {
     null_from_ = false;
@@ -2513,6 +2639,13 @@ void DBDumperCommand::DoDumpCommand() {
     }
   }
 
+  // Check for iterator errors that may have occurred during iteration
+  st = iter->status();
+  if (!st.ok()) {
+    exec_state_ =
+        LDBCommandExecuteResult::Failed("Iterator error: " + st.ToString());
+  }
+
   if (num_buckets > 1 && is_db_ttl_) {
     PrintBucketCounts(bucket_counts, ttl_start, ttl_end, bucket_size,
                       num_buckets);
@@ -2539,7 +2672,7 @@ ReduceDBLevelsCommand::ReduceDBLevelsCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false,
+    : LDBCommand(options, flags, false /* is_read_only */,
                  BuildCmdLineOptions({ARG_NEW_LEVELS, ARG_PRINT_OLD_LEVELS})),
       old_levels_(1 << 7),
       new_levels_(-1),
@@ -2592,11 +2725,12 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt, int* levels) {
   const InternalKeyComparator cmp(opt.comparator);
   WriteController wc(opt.delayed_write_rate);
   WriteBufferManager wb(opt.db_write_buffer_size);
-  VersionSet versions(db_path_, &db_options, soptions, tc.get(), &wb, &wc,
+  VersionSet versions(db_path_, &db_options, MutableDBOptions{opt}, soptions,
+                      tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
                       /*db_id=*/"", /*db_session_id=*/"",
                       opt.daily_offpeak_time_utc,
-                      /*error_handler=*/nullptr, /*read_only=*/true);
+                      /*error_handler=*/nullptr, /*unchanging=*/false);
   std::vector<ColumnFamilyDescriptor> dummy;
   ColumnFamilyDescriptor dummy_descriptor(kDefaultColumnFamilyName,
                                           ColumnFamilyOptions(opt));
@@ -2678,7 +2812,7 @@ ChangeCompactionStyleCommand::ChangeCompactionStyleCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false,
+    : LDBCommand(options, flags, false /* is_read_only */,
                  BuildCmdLineOptions(
                      {ARG_OLD_COMPACTION_STYLE, ARG_NEW_COMPACTION_STYLE})),
       old_compaction_style_(-1),
@@ -3224,7 +3358,7 @@ WALDumperCommand::WALDumperCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true,
+    : LDBCommand(options, flags, true /* is_read_only */,
                  BuildCmdLineOptions({ARG_WAL_FILE, ARG_DB, ARG_WRITE_COMMITTED,
                                       ARG_PRINT_HEADER, ARG_PRINT_VALUE,
                                       ARG_ONLY_PRINT_SEQNO_GAPS})),
@@ -3280,7 +3414,7 @@ void WALDumperCommand::DoCommand() {
 GetCommand::GetCommand(const std::vector<std::string>& params,
                        const std::map<std::string, std::string>& options,
                        const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true,
+    : LDBCommand(options, flags, true /* is_read_only */,
                  BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX,
                                       ARG_VALUE_HEX, ARG_READ_TIMESTAMP})) {
   if (params.size() != 1) {
@@ -3339,7 +3473,7 @@ MultiGetCommand::MultiGetCommand(
     const std::vector<std::string>& params,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true,
+    : LDBCommand(options, flags, true /* is_read_only */,
                  BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX,
                                       ARG_READ_TIMESTAMP})) {
   if (params.size() < 1) {
@@ -3414,7 +3548,7 @@ GetEntityCommand::GetEntityCommand(
     const std::vector<std::string>& params,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true,
+    : LDBCommand(options, flags, true /* is_read_only */,
                  BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX,
                                       ARG_VALUE_HEX, ARG_READ_TIMESTAMP})) {
   if (params.size() != 1) {
@@ -3552,7 +3686,7 @@ ApproxSizeCommand::ApproxSizeCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true,
+    : LDBCommand(options, flags, true /* is_read_only */,
                  BuildCmdLineOptions(
                      {ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM, ARG_TO})) {
   if (options.find(ARG_FROM) != options.end()) {
@@ -3608,7 +3742,7 @@ BatchPutCommand::BatchPutCommand(
     const std::vector<std::string>& params,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false,
+    : LDBCommand(options, flags, false /* is_read_only */,
                  BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX,
                                       ARG_VALUE_HEX, ARG_CREATE_IF_MISSING})) {
   if (params.size() < 2) {
@@ -3680,7 +3814,7 @@ ScanCommand::ScanCommand(const std::vector<std::string>& /*params*/,
                          const std::map<std::string, std::string>& options,
                          const std::vector<std::string>& flags)
     : LDBCommand(
-          options, flags, true,
+          options, flags, true /* is_read_only */,
           BuildCmdLineOptions({ARG_TTL, ARG_NO_VALUE, ARG_HEX, ARG_KEY_HEX,
                                ARG_TO, ARG_VALUE_HEX, ARG_FROM, ARG_TIMESTAMP,
                                ARG_MAX_KEYS, ARG_TTL_START, ARG_TTL_END,
@@ -3857,7 +3991,7 @@ void ScanCommand::DoCommand() {
 DeleteCommand::DeleteCommand(const std::vector<std::string>& params,
                              const std::map<std::string, std::string>& options,
                              const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false,
+    : LDBCommand(options, flags, false /* is_read_only */,
                  BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
   if (params.size() != 1) {
     exec_state_ = LDBCommandExecuteResult::Failed(
@@ -3893,7 +4027,7 @@ SingleDeleteCommand::SingleDeleteCommand(
     const std::vector<std::string>& params,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false,
+    : LDBCommand(options, flags, false /* is_read_only */,
                  BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
   if (params.size() != 1) {
     exec_state_ = LDBCommandExecuteResult::Failed(
@@ -3929,7 +4063,7 @@ DeleteRangeCommand::DeleteRangeCommand(
     const std::vector<std::string>& params,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false,
+    : LDBCommand(options, flags, false /* is_read_only */,
                  BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
   if (params.size() != 2) {
     exec_state_ = LDBCommandExecuteResult::Failed(
@@ -3967,7 +4101,7 @@ void DeleteRangeCommand::DoCommand() {
 PutCommand::PutCommand(const std::vector<std::string>& params,
                        const std::map<std::string, std::string>& options,
                        const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false,
+    : LDBCommand(options, flags, false /* is_read_only */,
                  BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX,
                                       ARG_VALUE_HEX, ARG_CREATE_IF_MISSING})) {
   if (params.size() != 2) {
@@ -4021,7 +4155,7 @@ PutEntityCommand::PutEntityCommand(
     const std::vector<std::string>& params,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false,
+    : LDBCommand(options, flags, false /* is_read_only */,
                  BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX,
                                       ARG_VALUE_HEX, ARG_CREATE_IF_MISSING})) {
   if (params.size() < 2) {
@@ -4103,7 +4237,7 @@ DBQuerierCommand::DBQuerierCommand(
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
     : LDBCommand(
-          options, flags, false,
+          options, flags, false /* is_read_only */,
           BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
 
 }
@@ -4339,7 +4473,8 @@ CheckConsistencyCommand::CheckConsistencyCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true, BuildCmdLineOptions({})) {}
+    : LDBCommand(options, flags, true /* is_read_only */,
+                 BuildCmdLineOptions({})) {}
 
 void CheckConsistencyCommand::Help(std::string& ret) {
   ret.append("  ");
@@ -4386,7 +4521,7 @@ void CheckPointCommand::DoCommand() {
     return;
   }
   Checkpoint* checkpoint;
-  Status status = Checkpoint::Create(db_, &checkpoint);
+  Status status = Checkpoint::Create(db_.get(), &checkpoint);
   status = checkpoint->CreateCheckpoint(checkpoint_dir_);
   if (status.ok()) {
     fprintf(stdout, "OK\n");
@@ -4402,7 +4537,8 @@ const std::string RepairCommand::ARG_VERBOSE = "verbose";
 RepairCommand::RepairCommand(const std::vector<std::string>& /*params*/,
                              const std::map<std::string, std::string>& options,
                              const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false, BuildCmdLineOptions({ARG_VERBOSE})) {
+    : LDBCommand(options, flags, false /* is_read_only */,
+                 BuildCmdLineOptions({ARG_VERBOSE})) {
   verbose_ = IsFlagPresent(flags, ARG_VERBOSE);
 }
 
@@ -4540,7 +4676,7 @@ void BackupCommand::DoCommand() {
     exec_state_ = LDBCommandExecuteResult::Failed(status.ToString());
     return;
   }
-  status = backup_engine->CreateNewBackup(db_);
+  status = backup_engine->CreateNewBackup(db_.get());
   if (status.ok()) {
     fprintf(stdout, "create new backup OK\n");
   } else {
@@ -4655,7 +4791,6 @@ void DumpBlobFile(const std::string& filename, bool is_key_hex,
       dump_uncompressed_blobs ? blob_type : BlobDumpTool::DisplayType::kNone;
   BlobDumpTool::DisplayType show_blob =
       dump_uncompressed_blobs ? BlobDumpTool::DisplayType::kNone : blob_type;
-
   BlobDumpTool::DisplayType show_key = is_key_hex
                                            ? BlobDumpTool::DisplayType::kHex
                                            : BlobDumpTool::DisplayType::kRaw;
@@ -4683,7 +4818,7 @@ DBFileDumperCommand::DBFileDumperCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true,
+    : LDBCommand(options, flags, true /* is_read_only */,
                  BuildCmdLineOptions(
                      {ARG_DECODE_BLOB_INDEX, ARG_DUMP_UNCOMPRESSED_BLOBS})),
       decode_blob_index_(IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX)),
@@ -4693,8 +4828,8 @@ DBFileDumperCommand::DBFileDumperCommand(
 void DBFileDumperCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(DBFileDumperCommand::Name());
-  ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "] ");
-  ret.append(" [--" + ARG_DUMP_UNCOMPRESSED_BLOBS + "] ");
+  ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "]");
+  ret.append(" [--" + ARG_DUMP_UNCOMPRESSED_BLOBS + "]");
   ret.append("\n");
 }
 
@@ -4804,7 +4939,7 @@ DBLiveFilesMetadataDumperCommand::DBLiveFilesMetadataDumperCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true,
+    : LDBCommand(options, flags, true /* is_read_only */,
                  BuildCmdLineOptions({ARG_SORT_BY_FILENAME})) {
   sort_by_filename_ = IsFlagPresent(flags, ARG_SORT_BY_FILENAME);
 }
@@ -5119,7 +5254,8 @@ void IngestExternalSstFilesCommand::OverrideBaseOptions() {
 ListFileRangeDeletesCommand::ListFileRangeDeletesCommand(
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true, BuildCmdLineOptions({ARG_MAX_KEYS})) {
+    : LDBCommand(options, flags, true /* is_read_only */,
+                 BuildCmdLineOptions({ARG_MAX_KEYS})) {
   auto itr = options.find(ARG_MAX_KEYS);
   if (itr != options.end()) {
     try {
@@ -5285,6 +5421,37 @@ void UpdateManifestCommand::DoCommand() {
     exec_state_ =
         LDBCommandExecuteResult::Succeed("Manifest updates successful");
   }
+}
+
+const std::string CompactionProgressDumpCommand::ARG_PATH = "path";
+
+CompactionProgressDumpCommand::CompactionProgressDumpCommand(
+    const std::vector<std::string>& /*params*/,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, false, BuildCmdLineOptions({ARG_PATH})) {
+  auto itr = options.find(ARG_PATH);
+  if (itr != options.end()) {
+    path_ = itr->second;
+  } else {
+    path_ = "";
+  }
+
+  if (path_.empty()) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "The --path option is required for compaction_progress_dump command");
+  }
+}
+
+void CompactionProgressDumpCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(CompactionProgressDumpCommand::Name());
+  ret.append(" [--" + ARG_PATH + "=<path_to_compaction_progress_file>]");
+  ret.append("\n");
+}
+
+void CompactionProgressDumpCommand::DoCommand() {
+  DumpCompactionProgressFile(path_);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

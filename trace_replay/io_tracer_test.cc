@@ -145,7 +145,8 @@ TEST_F(IOTracerTest, MultipleRecordsWithDifferentIOOpOptions) {
     // Write record with IODebugContext.
     io_op_data = 0;
     IODebugContext dbg;
-    dbg.SetRequestId("request_id_1");
+    const std::string test_request_id = "request_id_1";
+    dbg.SetRequestId(&test_request_id);
     IOTraceRecord record5(0, TraceType::kIOTracer, io_op_data,
                           GetFileOperation(5), 10 /*latency*/,
                           IOStatus::OK().ToString(), file_name);

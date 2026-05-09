@@ -129,7 +129,7 @@ class CompactedDBImpl : public DBImpl {
   // Share with DBImplReadOnly?
 
  protected:
-  Status FlushForGetLiveFiles() override {
+  Status FlushForGetLiveFiles(bool /*force_atomic_flush*/) override {
     // No-op for read-only DB
     return Status::OK();
   }
@@ -143,5 +143,6 @@ class CompactedDBImpl : public DBImpl {
   Version* version_;
   const Comparator* user_comparator_;
   LevelFilesBrief files_;
+  int files_level_{0};
 };
 }  // namespace ROCKSDB_NAMESPACE

@@ -129,7 +129,9 @@ class MultiGetContext {
       lookup_key_ptr_ = reinterpret_cast<LookupKey*>(lookup_key_heap_buf.get());
     }
 
-    for (size_t iter = 0; iter != num_keys_; ++iter) {
+    for (size_t iter = 0;
+         iter < num_keys_ && /* suppress a warning */ iter < MAX_BATCH_SIZE;
+         ++iter) {
       // autovector may not be contiguous storage, so make a copy
       sorted_keys_[iter] = (*sorted_keys)[begin + iter];
       sorted_keys_[iter]->lkey = new (&lookup_key_ptr_[iter])
@@ -219,7 +221,9 @@ class MultiGetContext {
         while (++index_ < range_->end_ &&
                (Mask{1} << index_) &
                    (range_->ctx_->value_mask_ | range_->skip_mask_ |
-                    range_->invalid_mask_));
+                    range_->invalid_mask_)) {
+          // empty loop body
+        }
         return *this;
       }
 

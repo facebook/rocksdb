@@ -617,7 +617,6 @@ TEST_F(TtlTest, UnregisteredMergeOperator) {
    public:
     const char* Name() const override { return "UnregisteredMergeOperator"; }
   };
-  options_.fail_if_options_file_error = true;
   options_.merge_operator = std::make_shared<UnregisteredMergeOperator>();
   OpenTtl();
   CloseTtl();
@@ -659,7 +658,7 @@ TEST_F(TtlTest, TtlFiftenYears) {
 }
 
 TEST_F(TtlTest, ColumnFamiliesTest) {
-  DB* db;
+  std::unique_ptr<DB> db;
   Options options;
   options.create_if_missing = true;
   options.env = env_.get();
@@ -670,7 +669,7 @@ TEST_F(TtlTest, ColumnFamiliesTest) {
                                    "ttl_column_family", &handle));
 
   delete handle;
-  delete db;
+  db.reset();
 
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.emplace_back(kDefaultColumnFamilyName,
@@ -721,6 +720,9 @@ TEST_F(TtlTest, ChangeTtlOnOpenDb) {
 
   OpenTtl(1);  // T=0:Open the db with ttl = 2
   SetTtl(3);
+  int32_t ttl = 0;
+  ASSERT_OK(db_ttl_->GetTtl(db_ttl_->DefaultColumnFamily(), &ttl));
+  ASSERT_EQ(ttl, 3);
   PutValues(0, kSampleSize_);  // T=0:Insert Set1. Delete at t=2
   SleepCompactCheck(2, 0, kSampleSize_, true);  // T=2:Set1 should be there
   CloseTtl();

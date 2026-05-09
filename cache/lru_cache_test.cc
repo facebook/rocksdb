@@ -1405,9 +1405,9 @@ TEST_P(BasicSecondaryCacheTest, SaveFailTest) {
   TestItem* item1 = new TestItem(str1.data(), str1.length());
   ASSERT_OK(cache->Insert(k1.AsSlice(), item1, GetHelperFail(), str1.length()));
   std::string str2 = rnd.RandomString(1020);
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
-  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_OK(cache->Insert(k2.AsSlice(), item2, GetHelperFail(), str2.length()));
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
 
@@ -1503,7 +1503,7 @@ TEST_P(BasicSecondaryCacheTest, FullCapacityTest) {
         /*context*/ this, Cache::Priority::LOW);
     ASSERT_EQ(handle1, nullptr);
 
-    // k1 promotion can fail with strict_capacit_limit=true, but Lookup still
+    // k1 promotion can fail with strict_capacity_limit=true, but Lookup still
     // succeeds using a standalone handle
     handle1 = cache->Lookup(k1.AsSlice(), GetHelper(),
                             /*context*/ this, Cache::Priority::LOW);
@@ -1680,7 +1680,7 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
   // After Flush is successful, RocksDB will do the paranoid check for the new
   // SST file. Meta blocks are always cached in the block cache and they
   // will not be evicted. When block_2 is cache miss and read out, it is
-  // inserted to the block cache. Thefore, block_1 is evicted from block
+  // inserted to the block cache. Therefore, block_1 is evicted from block
   // cache and successfully inserted to the secondary cache. Here are 2
   // lookups in the secondary cache for block_1 and block_2.
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
@@ -1721,7 +1721,7 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
   v = Get(Key(0));
   ASSERT_EQ(1007, v.size());
   // This Get needs to access block_1, since block_1 is not in block cache
-  // there is one econdary cache lookup. Then, block_1 is cached in the
+  // there is one secondary cache lookup. Then, block_1 is cached in the
   // block cache.
   ASSERT_EQ(secondary_cache->num_inserts(), 2u);
   ASSERT_EQ(secondary_cache->num_lookups(), 5u);
@@ -1785,7 +1785,7 @@ TEST_P(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
   std::string v = Get(Key(0));
   ASSERT_EQ(1000, v.size());
   // Since the block cache is large enough, all the blocks are cached. we
-  // do not need to lookup the seondary cache.
+  // do not need to lookup the secondary cache.
   ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_EQ(secondary_cache->num_lookups(), 2u);
 
@@ -2150,7 +2150,7 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   ASSERT_OK(Flush());
   Compact("a", "z");
 
-  // do th eread for all the key value pairs, so all the blocks should be in
+  // do the read for all the key value pairs, so all the blocks should be in
   // cache
   uint32_t start_insert = cache->GetInsertCount();
   uint32_t start_lookup = cache->GetLookupcount();
@@ -2179,7 +2179,7 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
                             &cache_dumper);
   ASSERT_OK(s);
   std::vector<DB*> db_list;
-  db_list.push_back(db_);
+  db_list.push_back(db_.get());
   s = cache_dumper->SetDumpFilter(db_list);
   ASSERT_OK(s);
   s = cache_dumper->DumpCacheEntriesToWriter();
@@ -2263,11 +2263,11 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   options.env = fault_env_.get();
   std::string dbname1 = test::PerThreadDBPath("db_1");
   ASSERT_OK(DestroyDB(dbname1, options));
-  DB* db1 = nullptr;
+  std::unique_ptr<DB> db1;
   ASSERT_OK(DB::Open(options, dbname1, &db1));
   std::string dbname2 = test::PerThreadDBPath("db_2");
   ASSERT_OK(DestroyDB(dbname2, options));
-  DB* db2 = nullptr;
+  std::unique_ptr<DB> db2;
   ASSERT_OK(DB::Open(options, dbname2, &db2));
   fault_fs_->SetFailGetUniqueId(true);
 
@@ -2335,7 +2335,7 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
                             &cache_dumper);
   ASSERT_OK(s);
   std::vector<DB*> db_list;
-  db_list.push_back(db1);
+  db_list.push_back(db1.get());
   s = cache_dumper->SetDumpFilter(db_list);
   ASSERT_OK(s);
   s = cache_dumper->DumpCacheEntriesToWriter();
@@ -2377,7 +2377,7 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   ASSERT_OK(s);
 
   ASSERT_OK(db1->Close());
-  delete db1;
+  db1.reset();
   ASSERT_OK(DB::Open(options, dbname1, &db1));
 
   // After load, we do the Get again. To validate the cache, we do not allow any
@@ -2406,8 +2406,8 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   ASSERT_EQ(256, static_cast<int>(block_lookup));
   fault_fs_->SetFailGetUniqueId(false);
   fault_fs_->SetFilesystemActive(true);
-  delete db1;
-  delete db2;
+  db1.reset();
+  db2.reset();
   ASSERT_OK(DestroyDB(dbname1, options));
   ASSERT_OK(DestroyDB(dbname2, options));
 }
@@ -2464,7 +2464,7 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
   std::string v = Get(Key(0));
   ASSERT_EQ(1007, v.size());
 
-  // Check the data in first block. Cache miss, direclty read from SST file.
+  // Check the data in first block. Cache miss, directly read from SST file.
   ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_EQ(secondary_cache->num_lookups(), 0u);
 
@@ -2598,7 +2598,7 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
 }
 
 // Two DB test. We create 2 DBs sharing the same block cache and secondary
-// cache. We diable the secondary cache option for DB2.
+// cache. We disable the secondary cache option for DB2.
 TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
   if (IsHyperClock()) {
     ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
@@ -2619,11 +2619,11 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
   options.paranoid_file_checks = true;
   std::string dbname1 = test::PerThreadDBPath("db_t_1");
   ASSERT_OK(DestroyDB(dbname1, options));
-  DB* db1 = nullptr;
+  std::unique_ptr<DB> db1;
   ASSERT_OK(DB::Open(options, dbname1, &db1));
   std::string dbname2 = test::PerThreadDBPath("db_t_2");
   ASSERT_OK(DestroyDB(dbname2, options));
-  DB* db2 = nullptr;
+  std::unique_ptr<DB> db2;
   Options options2 = options;
   options2.lowest_used_cache_tier = CacheTier::kVolatileTier;
   ASSERT_OK(DB::Open(options2, dbname2, &db2));
@@ -2700,8 +2700,8 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
 
   fault_fs_->SetFailGetUniqueId(false);
   fault_fs_->SetFilesystemActive(true);
-  delete db1;
-  delete db2;
+  db1.reset();
+  db2.reset();
   ASSERT_OK(DestroyDB(dbname1, options));
   ASSERT_OK(DestroyDB(dbname2, options));
 }

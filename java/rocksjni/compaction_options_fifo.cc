@@ -73,6 +73,54 @@ jboolean Java_org_rocksdb_CompactionOptionsFIFO_allowCompaction(JNIEnv*, jclass,
 
 /*
  * Class:     org_rocksdb_CompactionOptionsFIFO
+ * Method:    setMaxDataFilesSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_CompactionOptionsFIFO_setMaxDataFilesSize(
+    JNIEnv*, jclass, jlong jhandle, jlong jmax_data_files_size) {
+  auto* opt =
+      reinterpret_cast<ROCKSDB_NAMESPACE::CompactionOptionsFIFO*>(jhandle);
+  opt->max_data_files_size = static_cast<uint64_t>(jmax_data_files_size);
+}
+
+/*
+ * Class:     org_rocksdb_CompactionOptionsFIFO
+ * Method:    maxDataFilesSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_CompactionOptionsFIFO_maxDataFilesSize(JNIEnv*, jclass,
+                                                              jlong jhandle) {
+  auto* opt =
+      reinterpret_cast<ROCKSDB_NAMESPACE::CompactionOptionsFIFO*>(jhandle);
+  return static_cast<jlong>(opt->max_data_files_size);
+}
+
+/*
+ * Class:     org_rocksdb_CompactionOptionsFIFO
+ * Method:    setUseKvRatioCompaction
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_CompactionOptionsFIFO_setUseKvRatioCompaction(
+    JNIEnv*, jclass, jlong jhandle, jboolean use_kv_ratio_compaction) {
+  auto* opt =
+      reinterpret_cast<ROCKSDB_NAMESPACE::CompactionOptionsFIFO*>(jhandle);
+  opt->use_kv_ratio_compaction = static_cast<bool>(use_kv_ratio_compaction);
+}
+
+/*
+ * Class:     org_rocksdb_CompactionOptionsFIFO
+ * Method:    useKvRatioCompaction
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_CompactionOptionsFIFO_useKvRatioCompaction(
+    JNIEnv*, jclass, jlong jhandle) {
+  auto* opt =
+      reinterpret_cast<ROCKSDB_NAMESPACE::CompactionOptionsFIFO*>(jhandle);
+  return static_cast<jboolean>(opt->use_kv_ratio_compaction);
+}
+
+/*
+ * Class:     org_rocksdb_CompactionOptionsFIFO
  * Method:    disposeInternal
  * Signature: (J)V
  */

@@ -9,6 +9,7 @@
 #include <mutex>
 #include <unordered_set>
 
+#include "db_stress_tool/db_stress_compaction_service.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "file/filename.h"
 #include "file/writable_file_writer.h"
@@ -21,7 +22,6 @@
 #include "util/gflags_compat.h"
 #include "util/random.h"
 #include "utilities/fault_injection_fs.h"
-
 DECLARE_int32(compact_files_one_in);
 
 extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
@@ -31,7 +31,7 @@ namespace ROCKSDB_NAMESPACE {
 // Verify across process executions that all seen IDs are unique
 class UniqueIdVerifier {
  public:
-  explicit UniqueIdVerifier(const std::string& db_name, Env* env);
+  explicit UniqueIdVerifier(const std::string& dir);
   ~UniqueIdVerifier();
 
   void Verify(const std::string& id);
@@ -41,7 +41,7 @@ class UniqueIdVerifier {
 
  private:
   std::mutex mutex_;
-  // IDs persisted to a hidden file inside DB dir
+  // IDs persisted to a hidden file inside expected_values_dir (or DB dir)
   std::string path_;
   std::unique_ptr<WritableFileWriter> data_file_writer_;
   // Starting byte for which 8 bytes to check in memory within 24 byte ID
@@ -55,12 +55,14 @@ class DbStressListener : public EventListener {
   DbStressListener(const std::string& db_name,
                    const std::vector<DbPath>& db_paths,
                    const std::vector<ColumnFamilyDescriptor>& column_families,
-                   Env* env, SharedState* shared)
+                   SharedState* shared)
       : db_name_(db_name),
         db_paths_(db_paths),
         column_families_(column_families),
         num_pending_file_creations_(0),
-        unique_ids_(db_name, env),
+        unique_ids_(FLAGS_expected_values_dir.empty()
+                        ? db_name
+                        : FLAGS_expected_values_dir),
         shared_(shared) {}
 
   const char* Name() const override { return kClassName(); }
@@ -226,6 +228,13 @@ class DbStressListener : public EventListener {
     RandomSleep();
   }
 
+  void OnBackgroundJobPressureChanged(
+      DB* /*db*/, const BackgroundJobPressure& pressure) override {
+    RandomSleep();
+    std::lock_guard<std::mutex> lk(bg_pressure_mu_);
+    last_bg_pressure_ = pressure;
+  }
+
   void OnFileReadFinish(const FileOperationInfo& info) override {
     // Even empty callback is valuable because sometimes some locks are
     // released in order to make the callback.
@@ -265,7 +274,7 @@ class DbStressListener : public EventListener {
       fault_fs_guard->DisableAllThreadLocalErrorInjection();
       // TODO(hx235): only exempt the flush thread during error recovery instead
       // of all the flush threads from error injection
-      fault_fs_guard->SetIOActivtiesExcludedFromFaultInjection(
+      fault_fs_guard->SetIOActivitiesExcludedFromFaultInjection(
           {Env::IOActivity::kFlush});
     }
   }
@@ -275,7 +284,7 @@ class DbStressListener : public EventListener {
     RandomSleep();
     if (FLAGS_error_recovery_with_no_fault_injection && fault_fs_guard) {
       fault_fs_guard->EnableAllThreadLocalErrorInjection();
-      fault_fs_guard->SetIOActivtiesExcludedFromFaultInjection({});
+      fault_fs_guard->SetIOActivitiesExcludedFromFaultInjection({});
     }
   }
 
@@ -309,6 +318,11 @@ class DbStressListener : public EventListener {
           return;
         }
       }
+    }
+    // We can't do exact matching since remote workers use dynamic temp paths
+    if (file_dir.find(DbStressCompactionService::kTempOutputDirectoryPrefix) !=
+        std::string::npos) {
+      return;
     }
     assert(false);
 #else
@@ -361,6 +375,8 @@ class DbStressListener : public EventListener {
   std::atomic<int> num_pending_file_creations_;
   UniqueIdVerifier unique_ids_;
   SharedState* shared_;
+  mutable std::mutex bg_pressure_mu_;
+  BackgroundJobPressure last_bg_pressure_;
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

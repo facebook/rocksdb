@@ -159,6 +159,11 @@ Status TestRandomAccessFile::MultiRead(ReadRequest* reqs, size_t num_reqs) {
   return target_->MultiRead(reqs, num_reqs);
 }
 
+Status TestRandomAccessFile::GetFileSize(uint64_t* file_size) {
+  assert(target_);
+  return target_->GetFileSize(file_size);
+}
+
 TestWritableFile::TestWritableFile(const std::string& fname,
                                    std::unique_ptr<WritableFile>&& f,
                                    FaultInjectionTestEnv* env)

@@ -96,7 +96,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  // All data is hot, only output to penultimate level
+  // All data is hot, only output to proximal level
   ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
@@ -185,7 +185,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
   options.num_levels = kNumLevels;
   options.level_compaction_dynamic_level_bytes = true;
   // TODO(zjay): for level compaction, auto-compaction may stuck in deadloop, if
-  //  the penultimate level score > 1, but the hot is not cold enough to compact
+  //  the proximal level score > 1, but the hot is not cold enough to compact
   //  to last level, which will keep triggering compaction.
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);
@@ -205,7 +205,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
-  // All data is hot, only output to penultimate level
+  // All data is hot, only output to proximal level
   ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
@@ -661,14 +661,14 @@ TEST_P(SeqnoTimeTablePropTest, MultiInstancesBasic) {
   options.stats_dump_period_sec = 0;
   options.stats_persist_period_sec = 0;
 
-  auto dbs = std::vector<DB*>(kInstanceNum);
+  auto dbs = std::vector<std::unique_ptr<DB>>(kInstanceNum);
   for (int i = 0; i < kInstanceNum; i++) {
     ASSERT_OK(
         DB::Open(options, test::PerThreadDBPath(std::to_string(i)), &(dbs[i])));
   }
 
   // Make sure the second instance has the worker enabled
-  auto dbi = static_cast_with_check<DBImpl>(dbs[1]);
+  auto dbi = static_cast_with_check<DBImpl>(dbs[1].get());
   WriteOptions wo;
   for (int i = 0; i < 200; i++) {
     ASSERT_OK(dbi->Put(wo, Key(i), "value"));
@@ -680,7 +680,7 @@ TEST_P(SeqnoTimeTablePropTest, MultiInstancesBasic) {
 
   for (int i = 0; i < kInstanceNum; i++) {
     ASSERT_OK(dbs[i]->Close());
-    delete dbs[i];
+    dbs[i].reset();
   }
 }
 
@@ -753,7 +753,7 @@ TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
-  // make sure the data is all compacted to penultimate level if the feature is
+  // make sure the data is all compacted to proximal level if the feature is
   // on, otherwise, compacted to the last level.
   if (options.preclude_last_level_data_seconds > 0) {
     ASSERT_GT(NumTableFilesAtLevel(5), 0);
@@ -792,9 +792,8 @@ TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
   }
   ASSERT_GT(num_seqno_zeroing, 0);
   std::vector<KeyVersion> key_versions;
-  ASSERT_OK(GetAllKeyVersions(db_, Slice(), Slice(),
-                              std::numeric_limits<size_t>::max(),
-                              &key_versions));
+  ASSERT_OK(GetAllKeyVersions(
+      db_.get(), {}, {}, std::numeric_limits<size_t>::max(), &key_versions));
   // make sure there're more than 300 keys and first 100 keys are having seqno
   // zeroed out, the last 100 key seqno not zeroed out
   ASSERT_GT(key_versions.size(), 300);

@@ -151,6 +151,14 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
     return;
   }
 
+#ifndef NDEBUG
+  bool skip = false;
+  TEST_SYNC_POINT_CALLBACK("PlainTableBuilder::Add::skip", (void*)&skip);
+  if (skip) {
+    return;
+  }
+#endif  // !NDEBUG
+
   // Store key hash
   if (store_index_in_file_) {
     if (moptions_.prefix_extractor == nullptr) {

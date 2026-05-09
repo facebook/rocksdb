@@ -19,8 +19,18 @@ namespace xpress {
 
 bool Compress(const char* input, size_t length, std::string* output);
 
+// Returns written size or 0 on failure including if buffer is too small.
+size_t CompressWithMaxSize(const char* input, size_t length, char* output,
+                           size_t max_output_size);
+
 char* Decompress(const char* input_data, size_t input_length,
                  size_t* uncompressed_size);
+
+int64_t GetDecompressedSize(const char* input, size_t input_length);
+
+int64_t DecompressToBuffer(const char* input, size_t input_length, char* output,
+                           size_t output_length);
+
 }  // namespace xpress
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE

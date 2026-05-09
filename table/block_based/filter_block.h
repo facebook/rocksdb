@@ -68,6 +68,18 @@ class FilterBlockBuilder {
   // For reporting stats on how many entries the builder considered unique
   virtual size_t EstimateEntriesAdded() = 0;
 
+  // Returns an estimate of the current filter size based on the builder's
+  // state. Implementations should cache the estimate and update it via
+  // UpdateFilterSizeEstimate() to avoid recalculating on every key add.
+  //
+  // Can be called at any time during table construction, even before calling
+  // Finish(). Used during table construction to determine when to cut files.
+  virtual size_t CurrentFilterSizeEstimate() = 0;
+
+  // Provides a hook for filter builder when a data block is finalized, such as
+  // to update cached filter size estimates.
+  virtual void OnDataBlockFinalized(uint64_t /* num_data_blocks */) {}
+
   // When using AddWithPrevKey, this must be called before Finish(). (May also
   // be called without AddWithPrevKey, but prev_key_without_ts must be
   // accurate regardless.)
@@ -110,6 +122,11 @@ class FilterBlockBuilder {
     return filter;
   }
 #endif  // NDEBUG
+
+ protected:
+  // Update cached filter size estimate. Subclasses should override to update
+  // estimates based on their internal state.
+  virtual void UpdateFilterSizeEstimate(uint64_t /* num_data_blocks */) {}
 };
 
 // A FilterBlockReader is used to parse filter from SST table.

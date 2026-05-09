@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <atomic>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -27,16 +26,20 @@
 #include "memory/concurrent_arena.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/cf_options.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
 #include "table/multiget_context.h"
+#include "util/atomic.h"
 #include "util/cast_util.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
 #include "util/hash_containers.h"
+#include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
 
+class BlobFilePartitionManager;
 struct FlushJobInfo;
 class Mutex;
 class MemTableIterator;
@@ -64,6 +67,8 @@ struct ImmutableMemTableOptions {
   uint32_t protection_bytes_per_key;
   bool allow_data_in_errors;
   bool paranoid_memory_checks;
+  bool memtable_veirfy_per_key_checksum_on_seek;
+  bool memtable_batch_lookup_optimization;
 };
 
 // Batched counters to updated when inserting keys in one write batch.
@@ -314,6 +319,25 @@ class ReadOnlyMemTable {
 
   virtual uint64_t ApproximateOldestKeyTime() const = 0;
 
+  // Inserts a range tombstone [start_key, end_key) that is logically redundant
+  // — it is derived from existing point tombstones observed during iteration
+  // and does not delete any data that isn't already deleted. This is a
+  // best-effort optimization. It allows future reads to skip iterating over
+  // continuous single deletion tombstones.
+  //
+  // Adding a range tombstone may fail if
+  // - memtable switches to immutable state
+  // - a range tombstone with the same key+seq already exists (duplicate insert)
+  // - the per-memtable ingest seqno barrier already exceeds `seq` (an
+  //   ingestion has committed an L0 file at a seq that this converted
+  //   tombstone would shadow) or an ingestion is in progress.
+  // Returns true if the range tombstone was inserted, false if skipped.
+  virtual bool AddLogicallyRedundantRangeTombstone(
+      SequenceNumber /*seq*/, const Slice& /*start_key*/,
+      const Slice& /*end_key*/, port::RWMutex& /*ingest_sst_lock*/) {
+    return false;
+  }
+
   // Returns whether a fragmented range tombstone list is already constructed
   // for this memtable. It should be constructed right before a memtable is
   // added to an immutable memtable list. Note that if a memtable does not have
@@ -327,7 +351,7 @@ class ReadOnlyMemTable {
   // `persist_user_defined_timestamps` to false. The tracked newest UDT will be
   // used by flush job in the background to help check the MemTable's
   // eligibility for Flush.
-  virtual const Slice& GetNewestUDT() const = 0;
+  virtual Slice GetNewestUDT() const = 0;
 
   // Increase reference count.
   // REQUIRES: external synchronization to prevent simultaneous
@@ -342,10 +366,21 @@ class ReadOnlyMemTable {
     --refs_;
     assert(refs_ >= 0);
     if (refs_ <= 0) {
+      ReleaseProtectedSealedBlobFiles();
       return this;
     }
     return nullptr;
   }
+
+  // Registers sealed direct-write blob files that this memtable can still
+  // resolve through lazy blob indexes. The protection lasts until the
+  // memtable's final Unref(). The manager handle is shared here because
+  // immutable memtables can outlive the ColumnFamilyData that created them.
+  // REQUIRES: external synchronization to prevent simultaneous operations on
+  // the same MemTable.
+  void ProtectSealedBlobFiles(
+      const std::shared_ptr<BlobFilePartitionManager>& blob_partition_manager,
+      const std::vector<uint64_t>& file_numbers);
 
   // Returns the edits area that is needed for flushing the memtable
   VersionEdit* GetEdits() { return &edit_; }
@@ -354,13 +389,13 @@ class ReadOnlyMemTable {
   // be flushed to storage
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
-  uint64_t GetNextLogNumber() const { return mem_next_logfile_number_; }
+  uint64_t GetNextLogNumber() const { return mem_next_walfile_number_; }
 
   // Sets the next active logfile number when this memtable is about to
   // be flushed to storage
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
-  void SetNextLogNumber(uint64_t num) { mem_next_logfile_number_ = num; }
+  void SetNextLogNumber(uint64_t num) { mem_next_walfile_number_ = num; }
 
   // REQUIRES: db_mutex held.
   void SetID(uint64_t id) { id_ = id; }
@@ -496,6 +531,10 @@ class ReadOnlyMemTable {
     return false;
   }
 
+  void MarkForFlush() { marked_for_flush_.StoreRelaxed(true); }
+
+  bool IsMarkedForFlush() const { return marked_for_flush_.LoadRelaxed(); }
+
  protected:
   friend class MemTableList;
 
@@ -511,7 +550,7 @@ class ReadOnlyMemTable {
   VersionEdit edit_;
 
   // The log files earlier than this number can be deleted.
-  uint64_t mem_next_logfile_number_{0};
+  uint64_t mem_next_walfile_number_{0};
 
   // Memtable id to track flush.
   uint64_t id_ = 0;
@@ -524,6 +563,14 @@ class ReadOnlyMemTable {
 
   // Flush job info of the current memtable.
   std::unique_ptr<FlushJobInfo> flush_job_info_;
+
+  RelaxedAtomic<bool> marked_for_flush_{false};
+
+ private:
+  void ReleaseProtectedSealedBlobFiles();
+
+  std::shared_ptr<BlobFilePartitionManager> protected_blob_file_manager_;
+  std::vector<uint64_t> protected_blob_file_numbers_;
 };
 
 class MemTable final : public ReadOnlyMemTable {
@@ -561,7 +608,7 @@ class MemTable final : public ReadOnlyMemTable {
   // As a cheap version of `ApproximateMemoryUsage()`, this function doesn't
   // require external synchronization. The value may be less accurate though
   size_t ApproximateMemoryUsageFast() const {
-    return approximate_memory_usage_.load(std::memory_order_relaxed);
+    return approximate_memory_usage_.LoadRelaxed();
   }
 
   size_t MemoryAllocatedBytes() const override {
@@ -590,6 +637,11 @@ class MemTable final : public ReadOnlyMemTable {
     return flush_state_.compare_exchange_strong(before, FLUSH_SCHEDULED,
                                                 std::memory_order_relaxed,
                                                 std::memory_order_relaxed);
+  }
+
+  // Returns true if a flush has already been scheduled for this memtable
+  bool HasFlushScheduled() const {
+    return flush_state_.load(std::memory_order_relaxed) == FLUSH_SCHEDULED;
   }
 
   InternalIterator* NewIterator(
@@ -681,49 +733,42 @@ class MemTable final : public ReadOnlyMemTable {
   // Update counters and flush status after inserting a whole write batch
   // Used in concurrent memtable inserts.
   void BatchPostProcess(const MemTablePostProcessInfo& update_counters) {
-    num_entries_.fetch_add(update_counters.num_entries,
-                           std::memory_order_relaxed);
-    data_size_.fetch_add(update_counters.data_size, std::memory_order_relaxed);
+    table_->BatchPostProcess();
+    num_entries_.FetchAddRelaxed(update_counters.num_entries);
+    data_size_.FetchAddRelaxed(update_counters.data_size);
     if (update_counters.num_deletes != 0) {
-      num_deletes_.fetch_add(update_counters.num_deletes,
-                             std::memory_order_relaxed);
+      num_deletes_.FetchAddRelaxed(update_counters.num_deletes);
     }
     if (update_counters.num_range_deletes > 0) {
-      num_range_deletes_.fetch_add(update_counters.num_range_deletes,
-                                   std::memory_order_relaxed);
+      num_range_deletes_.FetchAddRelaxed(update_counters.num_range_deletes);
+      // noop for skip-list memtable
+      // Besides correctness test in stress test, memtable flush record count
+      // check will catch this if it were not noop.
+      // range_del_table_->BatchPostProcess();
     }
     UpdateFlushState();
   }
 
-  uint64_t NumEntries() const override {
-    return num_entries_.load(std::memory_order_relaxed);
-  }
+  uint64_t NumEntries() const override { return num_entries_.LoadRelaxed(); }
 
-  uint64_t NumDeletion() const override {
-    return num_deletes_.load(std::memory_order_relaxed);
-  }
+  uint64_t NumDeletion() const override { return num_deletes_.LoadRelaxed(); }
 
   uint64_t NumRangeDeletion() const override {
-    return num_range_deletes_.load(std::memory_order_relaxed);
+    return num_range_deletes_.LoadRelaxed();
   }
 
-  uint64_t GetDataSize() const override {
-    return data_size_.load(std::memory_order_relaxed);
-  }
+  uint64_t GetDataSize() const override { return data_size_.LoadRelaxed(); }
 
-  size_t write_buffer_size() const {
-    return write_buffer_size_.load(std::memory_order_relaxed);
-  }
+  size_t write_buffer_size() const { return write_buffer_size_.LoadRelaxed(); }
 
   // Dynamically change the memtable's capacity. If set below the current usage,
   // the next key added will trigger a flush. Can only increase size when
   // memtable prefix bloom is disabled, since we can't easily allocate more
-  // space.
+  // space. Non-atomic update ok because this is only called with DB mutex held.
   void UpdateWriteBufferSize(size_t new_write_buffer_size) {
     if (bloom_filter_ == nullptr ||
-        new_write_buffer_size < write_buffer_size_) {
-      write_buffer_size_.store(new_write_buffer_size,
-                               std::memory_order_relaxed);
+        new_write_buffer_size < write_buffer_size_.LoadRelaxed()) {
+      write_buffer_size_.StoreRelaxed(new_write_buffer_size);
     }
   }
 
@@ -768,6 +813,8 @@ class MemTable final : public ReadOnlyMemTable {
   uint64_t GetMinLogContainingPrepSection() override;
 
   void MarkImmutable() override {
+    WriteLock wl(&immutable_mutex_);
+    is_immutable_.StoreRelaxed(true);
     table_->MarkReadOnly();
     mem_tracker_.DoneAllocating();
   }
@@ -813,17 +860,36 @@ class MemTable final : public ReadOnlyMemTable {
   // SwitchMemtable() may fail.
   void ConstructFragmentedRangeTombstones();
 
+  bool AddLogicallyRedundantRangeTombstone(
+      SequenceNumber seq, const Slice& start_key, const Slice& end_key,
+      port::RWMutex& ingest_sst_lock) override;
+
+  // Monotonically raises ingest_seqno_barrier_ to `y` (no-op if `y` is not
+  // greater than the current value). The conversion's barrier check
+  // (`seq < ingest_seqno_barrier_.LoadRelaxed()`) refuses converted
+  // range tombstones that would shadow a just-installed L0 file.
+  //
+  // REQUIRES: DB mutex held by the caller. The DB mutex serializes all
+  // callers, so the load-then-store pattern is race-free without needing
+  // a CAS loop. Only IngestExternalFiles calls this.
+  void BumpIngestSeqnoBarrier(SequenceNumber y);
+
   bool IsFragmentedRangeTombstonesConstructed() const override {
     return fragmented_range_tombstone_list_.get() != nullptr ||
-           is_range_del_table_empty_;
+           is_range_del_table_empty_.LoadRelaxed();
   }
 
-  const Slice& GetNewestUDT() const override;
+  //  Gets the newest user defined timestamps in the memtable. This should only
+  //  be called when user defined timestamp is enabled.
+  Slice GetNewestUDT() const override;
 
   // Returns Corruption status if verification fails.
   static Status VerifyEntryChecksum(const char* entry,
                                     uint32_t protection_bytes_per_key,
                                     bool allow_data_in_errors = false);
+
+  // Validate the checksum of the key/value pair.
+  Status ValidateKey(const char* key, bool allow_data_in_errors);
 
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
@@ -839,16 +905,27 @@ class MemTable final : public ReadOnlyMemTable {
   ConcurrentArena arena_;
   std::unique_ptr<MemTableRep> table_;
   std::unique_ptr<MemTableRep> range_del_table_;
-  std::atomic_bool is_range_del_table_empty_;
+  // This is OK to be relaxed access because consistency between table_ and
+  // range_del_table_ is provided by explicit multi-versioning with sequence
+  // numbers. It's ok for stale memory to say the range_del_table_ is empty when
+  // it's actually not because if it was relevant to our read (based on sequence
+  // number), the relaxed memory read would get a sufficiently updated value
+  // because of the ordering provided by LastPublishedSequence().
+  RelaxedAtomic<bool> is_range_del_table_empty_;
+
+  // Set to true by MarkImmutable(). Used as a "fast-path" to avoid acquiring
+  // immutable_mutex_.
+  RelaxedAtomic<bool> is_immutable_{false};
+  port::RWMutex immutable_mutex_;
 
   // Total data size of all data inserted
-  std::atomic<uint64_t> data_size_;
-  std::atomic<uint64_t> num_entries_;
-  std::atomic<uint64_t> num_deletes_;
-  std::atomic<uint64_t> num_range_deletes_;
+  RelaxedAtomic<uint64_t> data_size_;
+  RelaxedAtomic<uint64_t> num_entries_;
+  RelaxedAtomic<uint64_t> num_deletes_;
+  RelaxedAtomic<uint64_t> num_range_deletes_;
 
   // Dynamically changeable memtable option
-  std::atomic<size_t> write_buffer_size_;
+  RelaxedAtomic<size_t> write_buffer_size_;
 
   // The sequence number of the kv that was inserted first
   std::atomic<SequenceNumber> first_seqno_;
@@ -856,6 +933,10 @@ class MemTable final : public ReadOnlyMemTable {
   // The db sequence number at the time of creation or kMaxSequenceNumber
   // if not set.
   std::atomic<SequenceNumber> earliest_seqno_;
+
+  // Seqno of the latest ingested external SST. See also
+  // ColumnFamilyData::ingest_sst_lock_.
+  RelaxedAtomic<SequenceNumber> ingest_seqno_barrier_{0};
 
   SequenceNumber creation_seq_;
 
@@ -884,7 +965,7 @@ class MemTable final : public ReadOnlyMemTable {
 
   // keep track of memory usage in table_, arena_, and range_del_table_.
   // Gets refreshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
-  std::atomic<uint64_t> approximate_memory_usage_;
+  RelaxedAtomic<uint64_t> approximate_memory_usage_;
 
   // max range deletions in a memtable,  before automatic flushing, 0 for
   // unlimited.
@@ -893,15 +974,11 @@ class MemTable final : public ReadOnlyMemTable {
   // Size in bytes for the user-defined timestamps.
   size_t ts_sz_;
 
-  // Whether to persist user-defined timestamps
-  bool persist_user_defined_timestamps_;
-
-  // Newest user-defined timestamp contained in this MemTable. For ts1, and ts2
-  // if Comparator::CompareTimestamp(ts1, ts2) > 0, ts1 is considered newer than
-  // ts2. We track this field for a MemTable if its column family has UDT
-  // feature enabled and the `persist_user_defined_timestamp` flag is false.
-  // Otherwise, this field just contains an empty Slice.
-  Slice newest_udt_;
+  // Pointer to the newest user-defined timestamp data in this MemTable. The
+  // pointed-to memory lives in the arena and remains valid for the lifetime of
+  // the memtable. Stored as an atomic pointer so that concurrent range
+  // tombstone inserts from the read path can safely update it via CAS.
+  Atomic<const char*> newest_udt_data_{nullptr};
 
   // Updates flush_state_ using ShouldFlushNow()
   void UpdateFlushState();
@@ -941,12 +1018,13 @@ class MemTable final : public ReadOnlyMemTable {
   std::mutex range_del_mutex_;
   CoreLocalArray<std::shared_ptr<FragmentedRangeTombstoneListCache>>
       cached_range_tombstone_;
-
   void UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
                            const Slice& key, const Slice& value, ValueType type,
                            SequenceNumber s, char* checksum_ptr);
 
   void MaybeUpdateNewestUDT(const Slice& user_key);
+
+  const std::function<Status(const char*, bool)> key_validation_callback_;
 };
 
 const char* EncodeKey(std::string* scratch, const Slice& target);

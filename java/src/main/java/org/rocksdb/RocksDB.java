@@ -84,13 +84,7 @@ public class RocksDB extends RocksObject {
       return;
     }
 
-    while (libraryLoaded.get() == LibraryState.LOADING) {
-      try {
-        Thread.sleep(10);
-      } catch(final InterruptedException e) {
-        //ignore
-      }
-    }
+    waitForLibraryToBeLoaded();
   }
 
   /**
@@ -146,12 +140,28 @@ public class RocksDB extends RocksObject {
       return;
     }
 
-    while (libraryLoaded.get() == LibraryState.LOADING) {
-      try {
-        Thread.sleep(10);
-      } catch(final InterruptedException e) {
-        //ignore
+    waitForLibraryToBeLoaded();
+  }
+
+  private static void waitForLibraryToBeLoaded() {
+    final long wait = 10; // Time to wait before re-checking if another thread loaded the library
+    final long timeout =
+        10 * 1000; // Maximum time to wait for another thread to load the library (10 seconds)
+    long waited = 0;
+    try {
+      while (libraryLoaded.get() == LibraryState.LOADING) {
+        Thread.sleep(wait);
+        waited += wait;
+
+        if (waited >= timeout) {
+          throw new RuntimeException(
+              "Exceeded timeout whilst trying to load the RocksDB shared library");
+        }
       }
+    } catch (final InterruptedException e) {
+      // restore interrupted status
+      Thread.currentThread().interrupt();
+      throw new RuntimeException("Interrupted whilst trying to load the RocksDB shared library", e);
     }
   }
 
@@ -4075,6 +4085,23 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * Abort all running and pending compaction jobs. This method will signal
+   * all active compactions to terminate and wait for them to complete.
+   * No new compactions will be scheduled until {@link #resumeAllCompactions()} is called.
+   */
+  public void abortAllCompactions() {
+    abortAllCompactions(nativeHandle_);
+  }
+
+  /**
+   * Resume compaction scheduling after {@link #abortAllCompactions()} was called.
+   * Must be called the same number of times as {@link #abortAllCompactions()}.
+   */
+  public void resumeAllCompactions() {
+    resumeAllCompactions(nativeHandle_);
+  }
+
+  /**
    * Enable automatic compactions for the given column
    * families if they were previously disabled.
    * <p>
@@ -4126,6 +4153,7 @@ public class RocksDB extends RocksObject {
    *
    * @return the maximum level
    */
+  @Deprecated
   public int maxMemCompactionLevel() {
     return maxMemCompactionLevel(null);
   }
@@ -4633,10 +4661,13 @@ public class RocksDB extends RocksObject {
    * @param targetLevel the target level for L0
    *
    * @throws RocksDBException if an error occurs whilst promoting L0
+   *
+   * @deprecated this API may be removed in a future release.
    */
+  @Deprecated
   public void promoteL0(
-      /* @Nullable */final ColumnFamilyHandle columnFamilyHandle,
-      final int targetLevel) throws RocksDBException {
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle, final int targetLevel)
+      throws RocksDBException {
     promoteL0(nativeHandle_,
         columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
         targetLevel);
@@ -4648,9 +4679,11 @@ public class RocksDB extends RocksObject {
    * @param targetLevel the target level for L0
    *
    * @throws RocksDBException if an error occurs whilst promoting L0
+   *
+   * @deprecated this API may be removed in a future release.
    */
-  public void promoteL0(final int targetLevel)
-      throws RocksDBException {
+  @Deprecated
+  public void promoteL0(final int targetLevel) throws RocksDBException {
     promoteL0(null, targetLevel);
   }
 
@@ -5020,6 +5053,8 @@ public class RocksDB extends RocksObject {
   private static native void cancelAllBackgroundWork(final long handle, final boolean wait);
   private static native void pauseBackgroundWork(final long handle) throws RocksDBException;
   private static native void continueBackgroundWork(final long handle) throws RocksDBException;
+  private static native void abortAllCompactions(final long handle);
+  private static native void resumeAllCompactions(final long handle);
   private static native void enableAutoCompaction(
       final long handle, final long[] columnFamilyHandles) throws RocksDBException;
   private static native int numberLevels(final long handle, final long columnFamilyHandle);

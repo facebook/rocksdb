@@ -29,6 +29,12 @@ if ./ldb --version 2>/dev/null >/dev/null; then
   rm -rf $db_dir
 fi
 
+# Check if deleterange command is supported by grepping ldb --help
+deleterange_support=
+if ./ldb --help 2>&1 | grep -q deleterange; then
+  deleterange_support=1
+fi
+
 echo == Loading data from $input_data_dir to $db_dir
 
 declare -a compression_opts=("no" "snappy" "zlib" "bzip2")
@@ -65,5 +71,33 @@ do
   fi
   ./ldb load --db=$db_dir --compression_type=$c $d_arg --bloom_bits=10 \
     --auto_compaction=false --create_if_missing < $input_data_dir/$f
+
+  # Use md5sum of file to deterministically decide whether to add a range
+  # tombstone (approximately 1/4 of files) and which key to delete
+  file_path=$input_data_dir/$f
+  hash=$(md5sum "$file_path" | cut -c1-8)
+  hash_int=$((16#$hash))
+
+  if [ $((hash_int % 4)) -eq 0 ]; then
+    # Pick a key from this file based on the hash
+    line_count=$(wc -l < "$file_path")
+    if [ "$line_count" -gt 0 ]; then
+      line_num=$((hash_int % line_count + 1))
+      key=$(sed -n "${line_num}p" "$file_path" | cut -d' ' -f1)
+      if [ -n "$key" ]; then
+        # Create end key by appending a character to make a small range
+        end_key="${key}0"
+        if [ "$deleterange_support" == "1" ]; then
+          echo "== Deleting range [$key, $end_key) from $f"
+          ./ldb deleterange --db=$db_dir "$key" "$end_key"
+        else
+          # Fall back to point delete for equivalent logical contents
+          echo "== Deleting key $key from $f"
+          ./ldb delete --db=$db_dir "$key"
+        fi
+      fi
+    fi
+  fi
+
   let "n = n + 1"
 done

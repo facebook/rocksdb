@@ -40,8 +40,6 @@ struct ImmutableCFOptions {
 
   int min_write_buffer_number_to_merge;
 
-  int max_write_buffer_number_to_maintain;
-
   int64_t max_write_buffer_size_to_maintain;
 
   bool inplace_update_support;
@@ -83,7 +81,24 @@ struct ImmutableCFOptions {
 
   std::shared_ptr<Cache> blob_cache;
 
+  // Immutable snapshot of
+  // AdvancedColumnFamilyOptions::enable_blob_direct_write.
+  bool enable_blob_direct_write;
+
+  // Immutable snapshot of
+  // AdvancedColumnFamilyOptions::blob_direct_write_partitions.
+  uint32_t blob_direct_write_partitions;
+
+  // Immutable snapshot of
+  // AdvancedColumnFamilyOptions::blob_direct_write_partition_strategy.
+  std::shared_ptr<BlobFilePartitionStrategy>
+      blob_direct_write_partition_strategy;
+
   bool persist_user_defined_timestamps;
+
+  bool cf_allow_ingest_behind;
+
+  bool memtable_batch_lookup_optimization;
 };
 
 struct ImmutableOptions : public ImmutableDBOptions, public ImmutableCFOptions {
@@ -132,10 +147,14 @@ struct MutableCFOptions {
         max_compaction_bytes(options.max_compaction_bytes),
         target_file_size_base(options.target_file_size_base),
         target_file_size_multiplier(options.target_file_size_multiplier),
+        target_file_size_is_upper_bound(
+            options.target_file_size_is_upper_bound),
         max_bytes_for_level_base(options.max_bytes_for_level_base),
         max_bytes_for_level_multiplier(options.max_bytes_for_level_multiplier),
         ttl(options.ttl),
         periodic_compaction_seconds(options.periodic_compaction_seconds),
+        read_triggered_compaction_threshold(
+            options.read_triggered_compaction_threshold),
         max_bytes_for_level_multiplier_additional(
             options.max_bytes_for_level_multiplier_additional),
         compaction_options_fifo(options.compaction_options_fifo),
@@ -143,10 +162,12 @@ struct MutableCFOptions {
         preclude_last_level_data_seconds(
             options.preclude_last_level_data_seconds),
         preserve_internal_time_seconds(options.preserve_internal_time_seconds),
+        verify_output_flags(options.verify_output_flags),
         enable_blob_files(options.enable_blob_files),
         min_blob_size(options.min_blob_size),
         blob_file_size(options.blob_file_size),
         blob_compression_type(options.blob_compression_type),
+        blob_compression_opts(options.blob_compression_opts),
         enable_blob_garbage_collection(options.enable_blob_garbage_collection),
         blob_garbage_collection_age_cutoff(
             options.blob_garbage_collection_age_cutoff),
@@ -163,19 +184,27 @@ struct MutableCFOptions {
         bottommost_compression(options.bottommost_compression),
         compression_opts(options.compression_opts),
         bottommost_compression_opts(options.bottommost_compression_opts),
+        compression_manager(options.compression_manager),
         last_level_temperature(options.last_level_temperature),
         default_write_temperature(options.default_write_temperature),
         memtable_protection_bytes_per_key(
             options.memtable_protection_bytes_per_key),
         block_protection_bytes_per_key(options.block_protection_bytes_per_key),
         paranoid_memory_checks(options.paranoid_memory_checks),
+        memtable_veirfy_per_key_checksum_on_seek(
+            options.memtable_veirfy_per_key_checksum_on_seek),
         sample_for_compression(
             options.sample_for_compression),  // TODO: is 0 fine here?
         compression_per_level(options.compression_per_level),
         memtable_max_range_deletions(options.memtable_max_range_deletions),
         bottommost_file_compaction_delay(
             options.bottommost_file_compaction_delay),
-        uncache_aggressiveness(options.uncache_aggressiveness) {
+        uncache_aggressiveness(options.uncache_aggressiveness),
+        memtable_op_scan_flush_trigger(options.memtable_op_scan_flush_trigger),
+        memtable_avg_op_scan_flush_trigger(
+            options.memtable_avg_op_scan_flush_trigger),
+        min_tombstones_for_range_conversion(
+            options.min_tombstones_for_range_conversion) {
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
 
@@ -200,17 +229,21 @@ struct MutableCFOptions {
         max_compaction_bytes(0),
         target_file_size_base(0),
         target_file_size_multiplier(0),
+        target_file_size_is_upper_bound(false),
         max_bytes_for_level_base(0),
         max_bytes_for_level_multiplier(0),
         ttl(0),
         periodic_compaction_seconds(0),
+        read_triggered_compaction_threshold(0.0),
         compaction_options_fifo(),
         preclude_last_level_data_seconds(0),
         preserve_internal_time_seconds(0),
+        verify_output_flags(VerifyOutputFlags::kVerifyNone),
         enable_blob_files(false),
         min_blob_size(0),
         blob_file_size(0),
         blob_compression_type(kNoCompression),
+        blob_compression_opts(),
         enable_blob_garbage_collection(false),
         blob_garbage_collection_age_cutoff(0.0),
         blob_garbage_collection_force_threshold(0.0),
@@ -227,10 +260,14 @@ struct MutableCFOptions {
         memtable_protection_bytes_per_key(0),
         block_protection_bytes_per_key(0),
         paranoid_memory_checks(false),
+        memtable_veirfy_per_key_checksum_on_seek(false),
         sample_for_compression(0),
         memtable_max_range_deletions(0),
         bottommost_file_compaction_delay(0),
-        uncache_aggressiveness(0) {}
+        uncache_aggressiveness(0),
+        memtable_op_scan_flush_trigger(0),
+        memtable_avg_op_scan_flush_trigger(0),
+        min_tombstones_for_range_conversion(0) {}
 
   explicit MutableCFOptions(const Options& options);
 
@@ -251,9 +288,7 @@ struct MutableCFOptions {
 
   void Dump(Logger* log) const;
 
-#if __cplusplus >= 202002L
   bool operator==(const MutableCFOptions& rhs) const = default;
-#endif
 
   // Memtable related options
   size_t write_buffer_size;
@@ -297,21 +332,25 @@ struct MutableCFOptions {
   uint64_t max_compaction_bytes;
   uint64_t target_file_size_base;
   int target_file_size_multiplier;
+  bool target_file_size_is_upper_bound;
   uint64_t max_bytes_for_level_base;
   double max_bytes_for_level_multiplier;
   uint64_t ttl;
   uint64_t periodic_compaction_seconds;
+  double read_triggered_compaction_threshold;
   std::vector<int> max_bytes_for_level_multiplier_additional;
   CompactionOptionsFIFO compaction_options_fifo;
   CompactionOptionsUniversal compaction_options_universal;
   uint64_t preclude_last_level_data_seconds;
   uint64_t preserve_internal_time_seconds;
+  VerifyOutputFlags verify_output_flags;
 
   // Blob file related options
   bool enable_blob_files;
   uint64_t min_blob_size;
   uint64_t blob_file_size;
   CompressionType blob_compression_type;
+  CompressionOptions blob_compression_opts;
   bool enable_blob_garbage_collection;
   double blob_garbage_collection_age_cutoff;
   double blob_garbage_collection_force_threshold;
@@ -327,17 +366,22 @@ struct MutableCFOptions {
   CompressionType bottommost_compression;
   CompressionOptions compression_opts;
   CompressionOptions bottommost_compression_opts;
+  std::shared_ptr<CompressionManager> compression_manager;
   Temperature last_level_temperature;
   Temperature default_write_temperature;
   uint32_t memtable_protection_bytes_per_key;
   uint8_t block_protection_bytes_per_key;
   bool paranoid_memory_checks;
+  bool memtable_veirfy_per_key_checksum_on_seek;
 
   uint64_t sample_for_compression;
   std::vector<CompressionType> compression_per_level;
   uint32_t memtable_max_range_deletions;
   uint32_t bottommost_file_compaction_delay;
   uint32_t uncache_aggressiveness;
+  uint32_t memtable_op_scan_flush_trigger;
+  uint32_t memtable_avg_op_scan_flush_trigger;
+  uint32_t min_tombstones_for_range_conversion;
 
   // Derived options
   // Per-level target file size.

@@ -1,7 +1,7 @@
 ---
 title: Dynamic Level Size for Level-Based Compaction
 layout: post
-author: sdong
+author: siying
 category: blog
 redirect_from:
   - /blog/2207/dynamic-level/

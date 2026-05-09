@@ -37,6 +37,17 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
                                        bool async_prefetch) {
   // TODO(hx235): set `seek_key_prefix_for_readahead_trimming_`
   // even when `target == nullptr` that is when `SeekToFirst()` is called
+  if (!multi_scan_status_.ok()) {
+    return;
+  }
+
+  // MultiScan requires an explicit seek key — SeekToFirst() is not supported
+  if (multi_scan_read_set_ && !target) {
+    multi_scan_status_ = Status::InvalidArgument("No seek key for MultiScan");
+    RecordTick(table_->GetStatistics(), MULTISCAN_SEEK_ERRORS);
+    return;
+  }
+
   if (target != nullptr && prefix_extractor_ &&
       read_options_.prefix_same_as_start) {
     const Slice& seek_user_key = ExtractUserKey(*target);
@@ -56,10 +67,10 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
   ResetBlockCacheLookupVar();
 
   bool autotune_readaheadsize =
-      is_first_pass && read_options_.auto_readahead_size &&
+      read_options_.auto_readahead_size &&
       (read_options_.iterate_upper_bound || read_options_.prefix_same_as_start);
 
-  if (autotune_readaheadsize &&
+  if (autotune_readaheadsize && !multi_scan_read_set_ &&
       table_->get_rep()->table_options.block_cache.get() &&
       direction_ == IterDirection::kForward) {
     readahead_cache_lookup_ = true;
@@ -89,8 +100,10 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
   //  In case of readahead_cache_lookup_, index_iter_ could change to find the
   //  readahead size in BlockCacheLookupForReadAheadSize so it needs to
   //  reseek.
-  if (IsIndexAtCurr() && block_iter_points_to_real_block_ &&
-      block_iter_.Valid()) {
+  // MultiScan must always go through index_iter_->Seek() so that
+  // MultiScanIndexIterator can update its scan range tracking state.
+  if (!multi_scan_read_set_ && IsIndexAtCurr() &&
+      block_iter_points_to_real_block_ && block_iter_.Valid()) {
     // Reseek.
     prev_block_offset_ = index_iter_->value().handle.offset();
 
@@ -144,7 +157,7 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
   } else {
     // Need to use the data block.
     if (!same_block) {
-      if (read_options_.async_io && async_prefetch) {
+      if (read_options_.async_io && async_prefetch && !multi_scan_read_set_) {
         AsyncInitDataBlock(/*is_first_pass=*/true);
         if (async_read_in_progress_) {
           // Status::TryAgain indicates asynchronous request for retrieval of
@@ -155,6 +168,10 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
         }
       } else {
         InitDataBlock();
+        if (multi_scan_read_set_ && !block_iter_points_to_real_block_) {
+          // MultiScan InitDataBlock failed (e.g., prefetch limit or IO error)
+          return;
+        }
       }
     } else {
       // When the user does a reseek, the iterate_upper_bound might have
@@ -176,11 +193,19 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
   CheckOutOfBound();
 
   if (target) {
-    assert(!Valid() || icomp_.Compare(*target, key()) <= 0);
+    // MultiScan uses user-key separators in its index, so after a reseek
+    // with the same user key but a different sequence number (e.g., from
+    // max_sequential_skip_in_iterations), the data block entry may appear
+    // "before" the target in internal key order. The user-key invariant
+    // still holds and the iteration is correct because DBIter will skip
+    // remaining same-user-key entries.
+    assert(multi_scan_read_set_ || !Valid() ||
+           icomp_.Compare(*target, key()) <= 0);
   }
 }
 
 void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
+  ResetMultiScan();
   direction_ = IterDirection::kBackward;
   ResetBlockCacheLookupVar();
   is_out_of_bound_ = false;
@@ -255,6 +280,7 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
 }
 
 void BlockBasedTableIterator::SeekToLast() {
+  ResetMultiScan();
   direction_ = IterDirection::kBackward;
   ResetBlockCacheLookupVar();
   is_out_of_bound_ = false;
@@ -278,7 +304,9 @@ void BlockBasedTableIterator::SeekToLast() {
 }
 
 void BlockBasedTableIterator::Next() {
+  assert(Valid());
   if (is_at_first_key_from_index_ && !MaterializeCurrentBlock()) {
+    assert(!multi_scan_read_set_);
     return;
   }
   assert(block_iter_points_to_real_block_);
@@ -299,7 +327,8 @@ bool BlockBasedTableIterator::NextAndGetResult(IterateResult* result) {
 }
 
 void BlockBasedTableIterator::Prev() {
-  if (readahead_cache_lookup_ && !IsIndexAtCurr()) {
+  if ((readahead_cache_lookup_ && !IsIndexAtCurr()) || multi_scan_read_set_) {
+    ResetMultiScan();
     // In case of readahead_cache_lookup_, index_iter_ has moved forward. So we
     // need to reseek the index_iter_ to point to current block by using
     // block_iter_'s key.
@@ -344,6 +373,41 @@ void BlockBasedTableIterator::Prev() {
 }
 
 void BlockBasedTableIterator::InitDataBlock() {
+  // MultiScan path: load block from ReadSet
+  if (multi_scan_read_set_) {
+    BlockHandle data_block_handle = index_iter_->value().handle;
+    if (!block_iter_points_to_real_block_ ||
+        data_block_handle.offset() != prev_block_offset_) {
+      if (block_iter_points_to_real_block_) {
+        ResetDataIter();
+      }
+      size_t rs_idx = multi_scan_index_iter_->current_read_set_index();
+      if (rs_idx >= prefetch_max_idx_) {
+        if (multi_scan_index_iter_->GetMaxPrefetchSize() == 0) {
+          // max_prefetch_size is not set, treat as end of file
+          return;
+        } else {
+          // max_prefetch_size is set, treat as error
+          multi_scan_status_ = Status::PrefetchLimitReached();
+          return;
+        }
+      }
+      CachableEntry<Block> block_entry;
+      multi_scan_status_ =
+          multi_scan_read_set_->ReadIndex(rs_idx, &block_entry);
+      if (!multi_scan_status_.ok()) {
+        return;
+      }
+      table_->NewDataBlockIterator<DataBlockIter>(read_options_, block_entry,
+                                                  &block_iter_, Status::OK());
+      block_iter_points_to_real_block_ = true;
+      prev_block_offset_ = data_block_handle.offset();
+      CheckDataBlockWithinUpperBound();
+    }
+    return;
+  }
+
+  // Regular path
   BlockHandle data_block_handle;
   bool is_in_cache = false;
   bool use_block_cache_for_lookup = true;
@@ -576,8 +640,14 @@ void BlockBasedTableIterator::FindBlockForward() {
     //  index_iter_ can point to different block in case of
     //  readahead_cache_lookup_. readahead_cache_lookup_ will be handle the
     //  upper_bound check.
+    // MultiScan handles scan range boundaries via IsScanRangeExhausted()
+    // after index_iter_->Next(), so we must not use the
+    // next_block_is_out_of_bound mechanism which can prematurely terminate
+    // a scan range when the block separator >= iterate_upper_bound but
+    // valid keys still remain in the current range's blocks.
     bool next_block_is_out_of_bound =
-        IsIndexAtCurr() && read_options_.iterate_upper_bound != nullptr &&
+        !multi_scan_read_set_ && IsIndexAtCurr() &&
+        read_options_.iterate_upper_bound != nullptr &&
         block_iter_points_to_real_block_ &&
         block_upper_bound_check_ == BlockUpperBound::kUpperBoundInCurBlock;
 
@@ -608,6 +678,18 @@ void BlockBasedTableIterator::FindBlockForward() {
         if (is_index_out_of_bound_) {
           next_block_is_out_of_bound = is_index_out_of_bound_;
           is_index_out_of_bound_ = false;
+        }
+        // MultiScan: detect scan range boundary after Next()
+        if (multi_scan_index_iter_ &&
+            multi_scan_index_iter_->IsScanRangeExhausted()) {
+          if (multi_scan_index_iter_->HasMoreScanRanges()) {
+            // More ranges remain — signal out-of-bound so DBIter/LevelIter
+            // will trigger the next Seek for the next scan range.
+            is_out_of_bound_ = true;
+          }
+          // For last range: index_iter_->Valid() is false, so we fall
+          // through to the !Valid() return below. LevelIterator advances.
+          return;
         }
       } else {
         // Skip Next as index_iter_ already points to correct index when it
@@ -640,6 +722,10 @@ void BlockBasedTableIterator::FindBlockForward() {
       }
     }
     InitDataBlock();
+    if (multi_scan_read_set_ && !block_iter_points_to_real_block_) {
+      // MultiScan InitDataBlock failed (prefetch limit or IO error)
+      return;
+    }
     block_iter_.SeekToFirst();
   } while (!block_iter_.Valid());
 }
@@ -749,7 +835,7 @@ void BlockBasedTableIterator::InitializeStartAndEndOffsets(
       // It can be when Reseek is from block cache (which doesn't clear the
       // buffers in FilePrefetchBuffer but clears block handles from queue) and
       // reseek also lies within the buffer. So Next will get data from
-      // exisiting buffers untill this callback is made to prefetch additional
+      // existing buffers until this callback is made to prefetch additional
       // data. All handles need to be added to the queue starting from
       // index_iter_.
       assert(index_iter_->Valid());
@@ -784,6 +870,14 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
   // readahead_cache_lookup_ can be set false, if after Seek and Next
   // there is SeekForPrev or any other backward operation.
   if (!readahead_cache_lookup_) {
+    return;
+  }
+
+  // Readahead lookup may advance index_iter_ to the end of the file while the
+  // current block is still being consumed. In that case there is no next block
+  // boundary to inspect, so skip further tuning instead of dereferencing an
+  // exhausted index iterator.
+  if (!index_iter_->Valid()) {
     return;
   }
 
@@ -899,6 +993,209 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
   end_offset = end_updated_offset;
   start_offset = start_updated_offset;
   ResetPreviousBlockOffset();
+}
+
+// Note:
+// - Iterator should not be reused for multiple multiscans or mixing
+// multiscan with regular iterator usage.
+// - scan ranges should be non-overlapping, and have increasing start keys.
+// If a scan range's limit is not set, then there should only be one scan range.
+// - After Prepare(), the iterator expects Seek to be called on the start key
+// of each ScanOption in order. If any other Seek is done, an error status is
+// returned
+// - Whenever all blocks of a scan opt are exhausted, the iterator will become
+// invalid and UpperBoundCheckResult() will return kOutOfBound. So that the
+// upper layer (LevelIterator) will stop scanning instead thinking EOF is
+// reached and continue into the next file. The only exception is for the last
+// scan opt. If we reach the end of the last scan opt, UpperBoundCheckResult()
+// will return kUnknown instead of kOutOfBound. This mechanism requires that
+// scan opts are properly pruned such that there is no scan opt that is after
+// this file's key range.
+// FIXME: DBIter and MergingIterator may
+// internally do Seek() on child iterators, e.g. due to
+// ReadOptions::max_skippable_internal_keys or reseeking into range deletion
+// end key. These Seeks will be handled properly, as long as the target is
+// moving forward.
+void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
+  assert(!multi_scan_read_set_);
+  RecordTick(table_->GetStatistics(), MULTISCAN_PREPARE_CALLS);
+  StopWatch sw(table_->get_rep()->ioptions.clock, table_->GetStatistics(),
+               MULTISCAN_PREPARE_MICROS);
+
+  if (!index_iter_->status().ok()) {
+    multi_scan_status_ = index_iter_->status();
+    RecordTick(table_->GetStatistics(), MULTISCAN_PREPARE_ERRORS);
+    return;
+  }
+  if (multi_scan_read_set_) {
+    multi_scan_read_set_.reset();
+    multi_scan_status_ = Status::InvalidArgument("Prepare already called");
+    RecordTick(table_->GetStatistics(), MULTISCAN_PREPARE_ERRORS);
+    return;
+  }
+
+  index_iter_->Prepare(multiscan_opts);
+
+  std::vector<BlockHandle> scan_block_handles;
+  std::vector<std::string> data_block_separators;
+  std::vector<std::tuple<size_t, size_t>> block_index_ranges_per_scan;
+  const std::vector<ScanOptions>& scan_opts = multiscan_opts->GetScanRanges();
+  multi_scan_status_ =
+      CollectBlockHandles(scan_opts, &scan_block_handles,
+                          &block_index_ranges_per_scan, &data_block_separators);
+  if (!multi_scan_status_.ok()) {
+    RecordTick(table_->GetStatistics(), MULTISCAN_PREPARE_ERRORS);
+    return;
+  }
+
+  // Calculate prefetch_max_idx (enforces max_prefetch_size)
+  size_t prefetch_max_idx = scan_block_handles.size();
+  if (multiscan_opts->max_prefetch_size > 0) {
+    uint64_t total_size = 0;
+    for (size_t i = 0; i < scan_block_handles.size(); ++i) {
+      total_size +=
+          BlockBasedTable::BlockSizeWithTrailer(scan_block_handles[i]);
+      if (total_size > multiscan_opts->max_prefetch_size) {
+        prefetch_max_idx = i;
+        break;
+      }
+    }
+  }
+
+  // Create block handles vector for IODispatcher (limited to prefetch_max_idx)
+  std::vector<BlockHandle> blocks_to_prefetch;
+  if (prefetch_max_idx > 0) {
+    blocks_to_prefetch.assign(scan_block_handles.begin(),
+                              scan_block_handles.begin() + prefetch_max_idx);
+  }
+
+  // Submit to IODispatcher
+  auto job = std::make_shared<IOJob>();
+  job->table = const_cast<BlockBasedTable*>(table_);
+  job->block_handles = std::move(blocks_to_prefetch);
+  job->job_options.io_coalesce_threshold =
+      multiscan_opts->io_coalesce_threshold;
+  job->job_options.read_options = read_options_;
+  job->job_options.read_options.async_io = multiscan_opts->use_async_io;
+
+  std::shared_ptr<ReadSet> read_set;
+  // IODispatcher should be provided by DBIter::Prepare() to enable sharing
+  // across all BlockBasedTableIterators in the scan. Create one if not
+  // provided (for direct calls to Prepare, e.g., in unit tests).
+  std::shared_ptr<IODispatcher> dispatcher = multiscan_opts->io_dispatcher;
+  if (!dispatcher) {
+    dispatcher.reset(NewIODispatcher());
+  }
+  multi_scan_status_ = dispatcher->SubmitJob(job, &read_set);
+  if (!multi_scan_status_.ok()) {
+    RecordTick(table_->GetStatistics(), MULTISCAN_PREPARE_ERRORS);
+    return;
+  }
+
+  // Successful Prepare. Create MultiScanIndexIterator and swap it in as
+  // the index iterator. The original index_iter_ is saved for restoration
+  // on backward operations.
+  // Note: data_block_separators keeps full size for seek logic, even though
+  // only blocks up to prefetch_max_idx are actually prefetched.
+  auto multi_scan_idx_iter = std::make_unique<MultiScanIndexIterator>(
+      std::move(scan_block_handles), std::move(data_block_separators),
+      std::move(block_index_ranges_per_scan), multiscan_opts, read_set,
+      prefetch_max_idx, icomp_, table_->GetStatistics());
+  assert(multi_scan_idx_iter->status().ok());
+
+  multi_scan_read_set_ = std::move(read_set);
+  multi_scan_index_iter_ = multi_scan_idx_iter.get();
+  prefetch_max_idx_ = prefetch_max_idx;
+  original_index_iter_ = std::move(index_iter_);
+  index_iter_ = std::move(multi_scan_idx_iter);
+
+  is_index_at_curr_block_ = false;
+  block_iter_points_to_real_block_ = false;
+}
+
+constexpr auto kVerbose = false;
+
+Status BlockBasedTableIterator::CollectBlockHandles(
+    const std::vector<ScanOptions>& scan_opts,
+    std::vector<BlockHandle>* scan_block_handles,
+    std::vector<std::tuple<size_t, size_t>>* block_index_ranges_per_scan,
+    std::vector<std::string>* data_block_separators) {
+  // print file name and level
+  if (UNLIKELY(kVerbose)) {
+    auto file_name = table_->get_rep()->file->file_name();
+    auto level = table_->get_rep()->level;
+    printf("file name : %s, level %d\n", file_name.c_str(), level);
+  }
+  for (const auto& scan_opt : scan_opts) {
+    size_t num_blocks = 0;
+    bool check_overlap = !scan_block_handles->empty();
+
+    InternalKey start_key;
+    const size_t timestamp_size =
+        user_comparator_.user_comparator()->timestamp_size();
+    if (timestamp_size == 0) {
+      start_key = InternalKey(scan_opt.range.start.value(), kMaxSequenceNumber,
+                              kValueTypeForSeek);
+    } else {
+      std::string seek_key;
+      AppendKeyWithMaxTimestamp(&seek_key, scan_opt.range.start.value(),
+                                timestamp_size);
+      start_key = InternalKey(seek_key, kMaxSequenceNumber, kValueTypeForSeek);
+    }
+    index_iter_->Seek(start_key.Encode());
+    while (index_iter_->status().ok() && index_iter_->Valid() &&
+           (!scan_opt.range.limit.has_value() ||
+            user_comparator_.CompareWithoutTimestamp(index_iter_->user_key(),
+                                                     /*a_has_ts*/ true,
+                                                     *scan_opt.range.limit,
+                                                     /*b_has_ts=*/false) < 0)) {
+      // Only add the block if the index separator is smaller than limit. When
+      // they are equal or larger, it will be handled later below.
+      if (check_overlap &&
+          scan_block_handles->back() == index_iter_->value().handle) {
+        // Skip the current block since it's already in the list
+      } else {
+        scan_block_handles->push_back(index_iter_->value().handle);
+        // clone the Slice to avoid the lifetime issue
+        data_block_separators->push_back(index_iter_->user_key().ToString());
+      }
+      ++num_blocks;
+      index_iter_->Next();
+      check_overlap = false;
+    }
+
+    if (!index_iter_->status().ok()) {
+      // Abort: index iterator error
+      return index_iter_->status();
+    }
+
+    if (index_iter_->Valid()) {
+      // Handle the last block when its separator is equal or larger than limit
+      if (check_overlap &&
+          scan_block_handles->back() == index_iter_->value().handle) {
+        // Skip adding the current block since it's already in the list
+      } else {
+        scan_block_handles->push_back(index_iter_->value().handle);
+        data_block_separators->push_back(index_iter_->user_key().ToString());
+      }
+      ++num_blocks;
+    }
+    block_index_ranges_per_scan->emplace_back(
+        scan_block_handles->size() - num_blocks, scan_block_handles->size());
+    if (UNLIKELY(kVerbose)) {
+      printf("separators :");
+      for (const auto& separator : *data_block_separators) {
+        printf("%s, ", separator.c_str());
+      }
+      printf("\nblock_index_ranges_per_scan :");
+      for (auto const& block_index_range : *block_index_ranges_per_scan) {
+        printf("[%zu, %zu], ", std::get<0>(block_index_range),
+               std::get<1>(block_index_range));
+      }
+      printf("\n");
+    }
+  }
+  return Status::OK();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

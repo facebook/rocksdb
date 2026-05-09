@@ -65,7 +65,8 @@ class CompactionPicker {
       const MutableDBOptions& mutable_db_options,
       const std::vector<SequenceNumber>& existing_snapshots,
       const SnapshotChecker* snapshot_checker, VersionStorageInfo* vstorage,
-      LogBuffer* log_buffer) = 0;
+      LogBuffer* log_buffer, const std::string& full_history_ts_low,
+      bool require_max_output_level = false) = 0;
 
   // The returned Compaction might not include the whole requested range.
   // In that case, compaction_end will be set to the next key that needs
@@ -75,14 +76,15 @@ class CompactionPicker {
   // *compaction_end should point to valid InternalKey!
   // REQUIRES: If not compacting all levels (input_level == kCompactAllLevels),
   // then levels between input_level and output_level should be empty.
-  virtual Compaction* CompactRange(
+  virtual Compaction* PickCompactionForCompactRange(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
       int input_level, int output_level,
       const CompactRangeOptions& compact_range_options,
       const InternalKey* begin, const InternalKey* end,
       InternalKey** compaction_end, bool* manual_conflict,
-      uint64_t max_file_num_to_ignore, const std::string& trim_ts);
+      uint64_t max_file_num_to_ignore, const std::string& trim_ts,
+      const std::string& full_history_ts_low);
 
   // The maximum allowed output level.  Default value is NumberLevels() - 1.
   virtual int MaxOutputLevel() const { return NumberLevels() - 1; }
@@ -117,12 +119,17 @@ class CompactionPicker {
   // Caller must provide a set of input files that has been passed through
   // `SanitizeAndConvertCompactionInputFiles` earlier. The lock should not be
   // released between that call and this one.
-  Compaction* CompactFiles(const CompactionOptions& compact_options,
-                           const std::vector<CompactionInputFiles>& input_files,
-                           int output_level, VersionStorageInfo* vstorage,
-                           const MutableCFOptions& mutable_cf_options,
-                           const MutableDBOptions& mutable_db_options,
-                           uint32_t output_path_id);
+  //
+  //  TODO - Remove default values for earliest_snapshot and snapshot_checker
+  //  and require all callers to pass them in so that DB::CompactFiles() can
+  //  also benefit from Standalone Range Tombstone Optimization
+  Compaction* PickCompactionForCompactFiles(
+      const CompactionOptions& compact_options,
+      const std::vector<CompactionInputFiles>& input_files, int output_level,
+      VersionStorageInfo* vstorage, const MutableCFOptions& mutable_cf_options,
+      const MutableDBOptions& mutable_db_options, uint32_t output_path_id,
+      std::optional<SequenceNumber> earliest_snapshot = std::nullopt,
+      const SnapshotChecker* snapshot_checker = nullptr);
 
   // Converts a set of compaction input file numbers into
   // a list of CompactionInputFiles.
@@ -136,6 +143,12 @@ class CompactionPicker {
   // Is there currently a compaction involving level 0 taking place
   bool IsLevel0CompactionInProgress() const {
     return !level0_compactions_in_progress_.empty();
+  }
+
+  // Is any compaction in progress
+  bool IsCompactionInProgress() const {
+    return !(level0_compactions_in_progress_.empty() &&
+             compactions_in_progress_.empty());
   }
 
   // Return true if the passed key range overlap with a compaction output
@@ -190,15 +203,18 @@ class CompactionPicker {
   // key range of a currently running compaction.
   bool FilesRangeOverlapWithCompaction(
       const std::vector<CompactionInputFiles>& inputs, int level,
-      int penultimate_level) const;
+      int proximal_level) const;
 
+  // @param starting_l0_file If not null, restricts L0 file selection to only
+  //                         include files at or older than starting_l0_file.
   bool SetupOtherInputs(const std::string& cf_name,
                         const MutableCFOptions& mutable_cf_options,
                         VersionStorageInfo* vstorage,
                         CompactionInputFiles* inputs,
                         CompactionInputFiles* output_level_inputs,
                         int* parent_index, int base_index,
-                        bool only_expand_towards_right = false);
+                        bool only_expand_towards_right = false,
+                        const FileMetaData* starting_l0_file = nullptr);
 
   void GetGrandparents(VersionStorageInfo* vstorage,
                        const CompactionInputFiles& inputs,
@@ -211,9 +227,12 @@ class CompactionPicker {
       CompactionInputFiles* start_level_inputs,
       std::function<bool(const FileMetaData*)> skip_marked_file);
 
+  // @param starting_l0_file If not null, restricts L0 file selection to only
+  //                         include files at or older than starting_l0_file.
   bool GetOverlappingL0Files(VersionStorageInfo* vstorage,
                              CompactionInputFiles* start_level_inputs,
-                             int output_level, int* parent_index);
+                             int output_level, int* parent_index,
+                             const FileMetaData* starting_l0_file = nullptr);
 
   // Register this compaction in the set of running compactions
   void RegisterCompaction(Compaction* c);
@@ -266,23 +285,24 @@ class NullCompactionPicker : public CompactionPicker {
       const MutableDBOptions& /*mutable_db_options*/,
       const std::vector<SequenceNumber>& /*existing_snapshots*/,
       const SnapshotChecker* /*snapshot_checker*/,
-      VersionStorageInfo* /*vstorage*/, LogBuffer* /* log_buffer */) override {
+      VersionStorageInfo* /*vstorage*/, LogBuffer* /* log_buffer */,
+      const std::string& /*full_history_ts_low*/,
+      bool /*require_max_output_level*/) override {
     return nullptr;
   }
 
   // Always return "nullptr"
-  Compaction* CompactRange(const std::string& /*cf_name*/,
-                           const MutableCFOptions& /*mutable_cf_options*/,
-                           const MutableDBOptions& /*mutable_db_options*/,
-                           VersionStorageInfo* /*vstorage*/,
-                           int /*input_level*/, int /*output_level*/,
-                           const CompactRangeOptions& /*compact_range_options*/,
-                           const InternalKey* /*begin*/,
-                           const InternalKey* /*end*/,
-                           InternalKey** /*compaction_end*/,
-                           bool* /*manual_conflict*/,
-                           uint64_t /*max_file_num_to_ignore*/,
-                           const std::string& /*trim_ts*/) override {
+  Compaction* PickCompactionForCompactRange(
+      const std::string& /*cf_name*/,
+      const MutableCFOptions& /*mutable_cf_options*/,
+      const MutableDBOptions& /*mutable_db_options*/,
+      VersionStorageInfo* /*vstorage*/, int /*input_level*/,
+      int /*output_level*/,
+      const CompactRangeOptions& /*compact_range_options*/,
+      const InternalKey* /*begin*/, const InternalKey* /*end*/,
+      InternalKey** /*compaction_end*/, bool* /*manual_conflict*/,
+      uint64_t /*max_file_num_to_ignore*/, const std::string& /*trim_ts*/,
+      const std::string& /*full_history_ts_low*/) override {
     return nullptr;
   }
 
@@ -308,11 +328,10 @@ class NullCompactionPicker : public CompactionPicker {
 //                                        files. Cannot be nullptr.
 //
 // @return                                true iff compaction was found.
-bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
-                           size_t min_files_to_compact,
-                           uint64_t max_compact_bytes_per_del_file,
-                           uint64_t max_compaction_bytes,
-                           CompactionInputFiles* comp_inputs);
+bool PickCostBasedIntraL0Compaction(
+    const std::vector<FileMetaData*>& level_files, size_t min_files_to_compact,
+    uint64_t max_compact_bytes_per_del_file, uint64_t max_compaction_bytes,
+    CompactionInputFiles* comp_inputs);
 
 CompressionType GetCompressionType(const VersionStorageInfo* vstorage,
                                    const MutableCFOptions& mutable_cf_options,

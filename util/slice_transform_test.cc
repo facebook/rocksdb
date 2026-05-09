@@ -49,7 +49,7 @@ class SliceTransformDBTest : public testing::Test {
  private:
   std::string dbname_;
   Env* env_;
-  DB* db_;
+  std::unique_ptr<DB> db_;
 
  public:
   SliceTransformDBTest() : env_(Env::Default()), db_(nullptr) {
@@ -58,11 +58,11 @@ class SliceTransformDBTest : public testing::Test {
   }
 
   ~SliceTransformDBTest() override {
-    delete db_;
+    db_.reset();
     EXPECT_OK(DestroyDB(dbname_, last_options_));
   }
 
-  DB* db() { return db_; }
+  DB* db() { return db_.get(); }
 
   // Return the current option configuration.
   Options* GetOptions() { return &last_options_; }
@@ -74,14 +74,12 @@ class SliceTransformDBTest : public testing::Test {
   }
 
   void Destroy() {
-    delete db_;
-    db_ = nullptr;
+    db_.reset();
     ASSERT_OK(DestroyDB(dbname_, last_options_));
   }
 
   Status TryReopen() {
-    delete db_;
-    db_ = nullptr;
+    db_.reset();
     last_options_.create_if_missing = true;
 
     return DB::Open(last_options_, dbname_, &db_);

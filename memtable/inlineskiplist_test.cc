@@ -309,6 +309,308 @@ TEST_F(InlineSkipTest, InsertWithHint_CompatibleWithInsertWithoutHint) {
   Validate(&list);
 }
 
+TEST_F(InlineSkipTest, MultiGetBasic) {
+  const int N = 1000;
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  // Insert keys 0, 2, 4, ..., 2*(N-1)
+  for (int i = 0; i < N; i++) {
+    Key key = i * 2;
+    char* buf = list.AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    list.Insert(buf);
+  }
+
+  // Callback that records the first key found for each query
+  struct CallbackArg {
+    bool found;
+    Key found_key;
+  };
+  auto callback = [](void* arg, const char* entry) -> bool {
+    auto* cb = static_cast<CallbackArg*>(arg);
+    if (!cb->found) {
+      cb->found = true;
+      cb->found_key = Decode(entry);
+    }
+    return false;  // stop after first match
+  };
+
+  // MultiGet for a batch of sorted keys
+  const size_t num_queries = 10;
+  Key query_keys[num_queries];
+  const char* key_ptrs[num_queries];
+  void* cb_args[num_queries];
+  CallbackArg cb_data[num_queries];
+
+  for (size_t i = 0; i < num_queries; i++) {
+    // Query keys: 1, 101, 201, ..., 901 (odd, so exact matches won't exist)
+    query_keys[i] = 1 + i * 100;
+    key_ptrs[i] = Encode(&query_keys[i]);
+    cb_data[i].found = false;
+    cb_data[i].found_key = 0;
+    cb_args[i] = &cb_data[i];
+  }
+
+  ASSERT_OK(list.MultiGet(num_queries, key_ptrs, cb_args, callback));
+
+  // Verify: each query should find the next even number >= query key
+  for (size_t i = 0; i < num_queries; i++) {
+    Key expected = (query_keys[i] + 1) & ~1ULL;  // round up to next even
+    if (expected < static_cast<Key>(N * 2)) {
+      ASSERT_TRUE(cb_data[i].found)
+          << "Query key " << query_keys[i] << " should have found a match";
+      ASSERT_EQ(cb_data[i].found_key, expected)
+          << "Query key " << query_keys[i];
+    }
+  }
+}
+
+TEST_F(InlineSkipTest, MultiGetExactMatches) {
+  const int N = 500;
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  for (int i = 0; i < N; i++) {
+    Key key = i * 10;
+    char* buf = list.AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    list.Insert(buf);
+  }
+
+  // Query for exact matches: 0, 100, 200, ..., 900
+  const size_t num_queries = 10;
+  Key query_keys[num_queries];
+  const char* key_ptrs[num_queries];
+
+  struct CallbackArg {
+    bool found;
+    Key found_key;
+  };
+  void* cb_args[num_queries];
+  CallbackArg cb_data[num_queries];
+
+  auto callback = [](void* arg, const char* entry) -> bool {
+    auto* cb = static_cast<CallbackArg*>(arg);
+    if (!cb->found) {
+      cb->found = true;
+      cb->found_key = Decode(entry);
+    }
+    return false;
+  };
+
+  for (size_t i = 0; i < num_queries; i++) {
+    query_keys[i] = i * 100;
+    key_ptrs[i] = Encode(&query_keys[i]);
+    cb_data[i].found = false;
+    cb_data[i].found_key = 0;
+    cb_args[i] = &cb_data[i];
+  }
+
+  ASSERT_OK(list.MultiGet(num_queries, key_ptrs, cb_args, callback));
+
+  for (size_t i = 0; i < num_queries; i++) {
+    ASSERT_TRUE(cb_data[i].found) << "Key " << query_keys[i];
+    ASSERT_EQ(cb_data[i].found_key, query_keys[i]) << "Key " << query_keys[i];
+  }
+}
+
+TEST_F(InlineSkipTest, MultiGetEmpty) {
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  auto callback = [](void* /*arg*/, const char* /*entry*/) -> bool {
+    return false;
+  };
+
+  // MultiGet on empty list should not crash
+  Key query_key = 42;
+  const char* key_ptr = Encode(&query_key);
+  void* cb_arg = nullptr;
+  ASSERT_OK(list.MultiGet(1, &key_ptr, &cb_arg, callback));
+
+  // Zero keys
+  ASSERT_OK(list.MultiGet(0, nullptr, nullptr, callback));
+}
+
+TEST_F(InlineSkipTest, MultiGetSingleKey) {
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  Key key = 100;
+  char* buf = list.AllocateKey(sizeof(Key));
+  memcpy(buf, &key, sizeof(Key));
+  list.Insert(buf);
+
+  struct CallbackArg {
+    bool found;
+    Key found_key;
+  };
+  auto callback = [](void* arg, const char* entry) -> bool {
+    auto* cb = static_cast<CallbackArg*>(arg);
+    cb->found = true;
+    cb->found_key = Decode(entry);
+    return false;
+  };
+
+  // Query for the exact key
+  Key query = 100;
+  const char* key_ptr = Encode(&query);
+  CallbackArg cb_data{false, 0};
+  void* cb_arg = &cb_data;
+  ASSERT_OK(list.MultiGet(1, &key_ptr, &cb_arg, callback));
+
+  ASSERT_TRUE(cb_data.found);
+  ASSERT_EQ(cb_data.found_key, 100);
+}
+
+TEST_F(InlineSkipTest, MultiGetRandomized) {
+  uint32_t seed =
+      static_cast<uint32_t>(Env::Default()->NowMicros() & 0xFFFFFFFF);
+  SCOPED_TRACE("seed=" + std::to_string(seed));
+  Random rnd(seed);
+
+  const int N = 5000;
+  const int R = 10000;
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+  std::set<Key> inserted;
+
+  for (int i = 0; i < N; i++) {
+    Key key = rnd.Next() % R;
+    if (inserted.insert(key).second) {
+      char* buf = list.AllocateKey(sizeof(Key));
+      memcpy(buf, &key, sizeof(Key));
+      list.Insert(buf);
+    }
+  }
+
+  // Generate sorted query keys
+  const size_t num_queries = 100;
+  std::vector<Key> query_keys;
+  query_keys.reserve(num_queries);
+  for (size_t i = 0; i < num_queries; i++) {
+    query_keys.push_back(rnd.Next() % R);
+  }
+  std::sort(query_keys.begin(), query_keys.end());
+
+  struct CallbackArg {
+    bool found;
+    Key found_key;
+  };
+  auto callback = [](void* arg, const char* entry) -> bool {
+    auto* cb = static_cast<CallbackArg*>(arg);
+    if (!cb->found) {
+      cb->found = true;
+      cb->found_key = Decode(entry);
+    }
+    return false;
+  };
+
+  std::vector<const char*> key_ptrs(num_queries);
+  std::vector<CallbackArg> cb_data(num_queries);
+  std::vector<void*> cb_args(num_queries);
+
+  for (size_t i = 0; i < num_queries; i++) {
+    key_ptrs[i] = Encode(&query_keys[i]);
+    cb_data[i].found = false;
+    cb_data[i].found_key = 0;
+    cb_args[i] = &cb_data[i];
+  }
+
+  ASSERT_OK(
+      list.MultiGet(num_queries, key_ptrs.data(), cb_args.data(), callback));
+
+  // Validate against std::set::lower_bound
+  for (size_t i = 0; i < num_queries; i++) {
+    auto model_iter = inserted.lower_bound(query_keys[i]);
+    if (model_iter == inserted.end()) {
+      ASSERT_FALSE(cb_data[i].found) << "Query " << query_keys[i];
+    } else {
+      ASSERT_TRUE(cb_data[i].found) << "Query " << query_keys[i];
+      ASSERT_EQ(cb_data[i].found_key, *model_iter) << "Query " << query_keys[i];
+    }
+  }
+}
+
+// Reproduces a bug where duplicate keys in a MultiGet batch cause an assertion
+// failure when the callback walks forward (e.g., merge operands). After the
+// callback loop for key[i] advances finger.prev_[0] to an entry with the same
+// user key but a lower sequence number, the duplicate key[i+1] (which has
+// kMaxSequenceNumber and thus sorts BEFORE the advanced finger position in
+// internal key order) triggers the assertion:
+//   assert(before == head_ || KeyIsAfterNode(key, before))
+TEST_F(InlineSkipTest, MultiGetDuplicateKeysWithCallbackWalk) {
+  Arena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  // Insert keys: 10, 20, 30, 40, 50, 60
+  for (int i = 1; i <= 6; i++) {
+    Key key = i * 10;
+    char* buf = list.AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    list.Insert(buf);
+  }
+
+  // Callback that walks forward through multiple entries before stopping.
+  // This simulates the Merge operand accumulation in SaveValue — the callback
+  // returns true for entries until it reaches one >= stop_at, simulating
+  // walking through merge chain entries.
+  struct WalkingCallbackArg {
+    Key stop_at;      // stop when we reach this key
+    Key first_key;    // first key seen
+    int num_visited;  // number of entries visited
+  };
+  auto walking_callback = [](void* arg, const char* entry) -> bool {
+    auto* cb = static_cast<WalkingCallbackArg*>(arg);
+    Key k = Decode(entry);
+    if (cb->num_visited == 0) {
+      cb->first_key = k;
+    }
+    cb->num_visited++;
+    // Walk forward until we reach stop_at (simulates merge accumulation)
+    return k < cb->stop_at;
+  };
+
+  // Query with duplicate keys: [20, 20, 50]
+  // The first query for 20 walks forward to 40 (stop_at=40), advancing
+  // finger.prev_[0] to 30. Then the second query for 20 must still work
+  // correctly despite finger.prev_[0] being past key 20.
+  const size_t num_queries = 3;
+  Key query_keys[num_queries] = {20, 20, 50};
+  const char* key_ptrs[num_queries];
+  void* cb_args[num_queries];
+  WalkingCallbackArg cb_data[num_queries];
+
+  for (size_t i = 0; i < num_queries; i++) {
+    key_ptrs[i] = Encode(&query_keys[i]);
+    cb_data[i].stop_at = (i == 0) ? 40 : 0;  // first query walks to 40
+    cb_data[i].first_key = 0;
+    cb_data[i].num_visited = 0;
+    cb_args[i] = &cb_data[i];
+  }
+
+  // This should not crash with the assertion failure
+  ASSERT_OK(list.MultiGet(num_queries, key_ptrs, cb_args, walking_callback));
+
+  // First query for 20: should find 20 and walk forward through 30 (stop at
+  // 40)
+  ASSERT_EQ(cb_data[0].first_key, 20);
+  ASSERT_GE(cb_data[0].num_visited, 2);
+
+  // Second query for 20: should also find 20 (duplicate key)
+  ASSERT_EQ(cb_data[1].first_key, 20);
+
+  // Third query for 50: should find 50
+  ASSERT_EQ(cb_data[2].first_key, 50);
+}
+
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 // We want to make sure that with a single writer and multiple
 // concurrent readers (with no synchronization other than when a
@@ -653,6 +955,194 @@ TEST_F(InlineSkipTest, ConcurrentInsertWithHint2) {
 }
 TEST_F(InlineSkipTest, ConcurrentInsertWithHint3) {
   RunConcurrentInsert(3, true);
+}
+
+// Test read-after-write consistency with concurrent MultiGet and inserts.
+// Exercises skip list height growth handling in FindGreaterOrEqualWithFinger.
+//
+// Design:
+// - Generate a sequence of unique keys and split into per-thread chunks.
+// - Each thread inserts its keys one at a time, and after each insert,
+//   does a MultiGet batch that includes the just-inserted key plus random
+//   keys from a shared "recently inserted" set populated by all threads.
+// - Validates that the just-inserted key is always visible (read-after-write)
+//   and that any key from the shared set that was published before the
+//   MultiGet began is also visible.
+struct ConcurrentMultiGetState {
+  InlineSkipList<TestComparator>* list;
+  // Per-thread chunk of unique keys to insert
+  const Key* keys;
+  size_t num_keys;
+  int seed;
+  std::atomic<int>* error_count;
+  std::atomic<int>* batches_done;
+  // Shared ring buffer of recently inserted keys from all threads.
+  // Writers publish keys here after insertion; readers sample from it.
+  static const int kRingSize = 1024;
+  std::atomic<Key>* shared_ring;
+  // Monotonically increasing write cursor into the ring buffer.
+  std::atomic<uint64_t>* ring_cursor;
+};
+
+static void ConcurrentMultiGetWorker(void* arg) {
+  auto* state = static_cast<ConcurrentMultiGetState*>(arg);
+  Random rnd(state->seed);
+  const int kExtraQueryKeys = 15;  // additional random keys per batch
+
+  auto callback = [](void* cb_arg, const char* entry) -> bool {
+    auto* result = static_cast<Key*>(cb_arg);
+    *result = Decode(entry);
+    return false;  // point lookup: stop after first entry
+  };
+
+  for (size_t i = 0; i < state->num_keys; i++) {
+    Key my_key = state->keys[i];
+
+    // Insert this thread's next unique key
+    char* buf = state->list->AllocateKey(sizeof(Key));
+    memcpy(buf, &my_key, sizeof(Key));
+    state->list->InsertConcurrently(buf);
+
+    // Publish to shared ring buffer so other threads can query it
+    uint64_t slot = state->ring_cursor->fetch_add(1, std::memory_order_relaxed);
+    state->shared_ring[slot % ConcurrentMultiGetState::kRingSize].store(
+        my_key, std::memory_order_release);
+
+    // Build a MultiGet batch: the just-inserted key + random shared keys
+    std::vector<Key> query_keys;
+    query_keys.reserve(1 + kExtraQueryKeys);
+    query_keys.push_back(my_key);
+
+    // Sample recently inserted keys from other threads
+    uint64_t cursor = state->ring_cursor->load(std::memory_order_acquire);
+    for (int j = 0; j < kExtraQueryKeys; j++) {
+      // Sample from the most recent entries in the ring
+      uint64_t idx =
+          (cursor > 0)
+              ? (rnd.Next() %
+                 std::min(cursor, static_cast<uint64_t>(
+                                      ConcurrentMultiGetState::kRingSize)))
+              : 0;
+      Key shared_key = state
+                           ->shared_ring[(cursor - 1 - idx) %
+                                         ConcurrentMultiGetState::kRingSize]
+                           .load(std::memory_order_acquire);
+      if (shared_key != 0) {
+        query_keys.push_back(shared_key);
+      }
+    }
+
+    // Sort and deduplicate for MultiGet
+    std::sort(query_keys.begin(), query_keys.end());
+    query_keys.erase(std::unique(query_keys.begin(), query_keys.end()),
+                     query_keys.end());
+
+    size_t batch_size = query_keys.size();
+    std::vector<const char*> key_ptrs(batch_size);
+    std::vector<Key> results(batch_size, 0);
+    std::vector<void*> cb_args(batch_size);
+    for (size_t j = 0; j < batch_size; j++) {
+      key_ptrs[j] = Encode(&query_keys[j]);
+      cb_args[j] = &results[j];
+    }
+
+    Status s = state->list->MultiGet(batch_size, key_ptrs.data(),
+                                     cb_args.data(), callback);
+    if (!s.ok()) {
+      state->error_count->fetch_add(1, std::memory_order_relaxed);
+      return;
+    }
+
+    // Validate read-after-write: the key we just inserted MUST be visible.
+    // Find my_key's position in the sorted query_keys.
+    for (size_t j = 0; j < batch_size; j++) {
+      if (query_keys[j] == my_key) {
+        if (results[j] != my_key) {
+          state->error_count->fetch_add(1, std::memory_order_relaxed);
+          return;
+        }
+        break;
+      }
+    }
+
+    // Validate all results: each found result must equal its query key
+    // (since all queried keys were inserted, an exact match is expected).
+    // However, due to concurrent inserts, a key sampled from the ring
+    // might not yet be visible — so we only check that if a result is
+    // found, it equals the query key (i.e., no wrong key returned).
+    for (size_t j = 0; j < batch_size; j++) {
+      if (results[j] != 0 && results[j] != query_keys[j]) {
+        // Got a result that doesn't match the query — either a bug or
+        // the exact key wasn't inserted and we got the next one. Since
+        // all our query keys are inserted, this means the result should
+        // be >= query. For the just-inserted key we already checked
+        // exact match above.
+        if (results[j] < query_keys[j]) {
+          state->error_count->fetch_add(1, std::memory_order_relaxed);
+          return;
+        }
+      }
+    }
+
+    state->batches_done->fetch_add(1, std::memory_order_relaxed);
+  }
+}
+
+TEST_F(InlineSkipTest, ConcurrentMultiGet) {
+  uint32_t seed =
+      static_cast<uint32_t>(Env::Default()->NowMicros() & 0xFFFFFFFF);
+  SCOPED_TRACE("seed=" + std::to_string(seed));
+
+  ConcurrentArena arena;
+  TestComparator cmp;
+  InlineSkipList<TestComparator> list(cmp, &arena);
+
+  // Generate a sequence of unique keys and shuffle them
+  const int kTotalKeys = 20000;
+  const int kNumThreads = 4;
+  std::vector<Key> all_keys(kTotalKeys);
+  for (int i = 0; i < kTotalKeys; i++) {
+    all_keys[i] = static_cast<Key>(i + 1);  // keys 1..kTotalKeys
+  }
+  Random rnd(seed);
+  for (int i = kTotalKeys - 1; i > 0; i--) {
+    int j = rnd.Next() % (i + 1);
+    std::swap(all_keys[i], all_keys[j]);
+  }
+
+  // Shared ring buffer for cross-thread visibility checks
+  std::atomic<Key> shared_ring[ConcurrentMultiGetState::kRingSize];
+  for (auto& k : shared_ring) {
+    k.store(0, std::memory_order_relaxed);
+  }
+  std::atomic<uint64_t> ring_cursor{0};
+
+  std::atomic<int> error_count{0};
+  std::atomic<int> batches_done{0};
+
+  // Split keys into per-thread chunks and start worker threads.
+  // Use StartThread (not Schedule) so WaitForJoin waits for completion.
+  const int kKeysPerThread = kTotalKeys / kNumThreads;
+  std::vector<ConcurrentMultiGetState> states(kNumThreads);
+  for (int t = 0; t < kNumThreads; t++) {
+    states[t].list = &list;
+    states[t].keys = &all_keys[t * kKeysPerThread];
+    states[t].num_keys = kKeysPerThread;
+    states[t].seed = seed + t + 1;
+    states[t].error_count = &error_count;
+    states[t].batches_done = &batches_done;
+    states[t].shared_ring = shared_ring;
+    states[t].ring_cursor = &ring_cursor;
+    Env::Default()->StartThread(ConcurrentMultiGetWorker, &states[t]);
+  }
+
+  // Wait for all threads to finish
+  Env::Default()->WaitForJoin();
+
+  ASSERT_EQ(error_count.load(), 0)
+      << "Concurrent MultiGet read-after-write consistency check failed";
+  ASSERT_EQ(batches_done.load(), kTotalKeys)
+      << "Not all insert+query iterations completed";
 }
 
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)

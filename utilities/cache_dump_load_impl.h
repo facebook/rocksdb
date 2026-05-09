@@ -100,7 +100,7 @@ class CacheDumperImpl : public CacheDumper {
     dumped_size_bytes_ = 0;
   }
   ~CacheDumperImpl() { writer_.reset(); }
-  Status SetDumpFilter(std::vector<DB*> db_list) override;
+  Status SetDumpFilter(const std::vector<DB*>& db_list) override;
   IOStatus DumpCacheEntriesToWriter() override;
 
  private:

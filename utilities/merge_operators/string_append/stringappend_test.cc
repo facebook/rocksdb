@@ -23,6 +23,7 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "test_util/testharness.h"
+#include "util/cast_util.h"
 #include "util/random.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
@@ -34,8 +35,7 @@ const std::string kDbName = test::PerThreadDBPath("stringappend_test");
 
 namespace {
 // OpenDb opens a (possibly new) rocksdb database with a StringAppendOperator
-std::shared_ptr<DB> OpenNormalDb(const std::string& delim) {
-  DB* db;
+std::unique_ptr<DB> OpenNormalDb(const std::string& delim) {
   Options options;
   options.create_if_missing = true;
   MergeOperator* mergeOperator;
@@ -45,12 +45,13 @@ std::shared_ptr<DB> OpenNormalDb(const std::string& delim) {
     mergeOperator = new StringAppendOperator(delim);
   }
   options.merge_operator.reset(mergeOperator);
+  std::unique_ptr<DB> db;
   EXPECT_OK(DB::Open(options, kDbName, &db));
-  return std::shared_ptr<DB>(db);
+  return db;
 }
 
 // Open a TtlDB with a non-associative StringAppendTESTOperator
-std::shared_ptr<DB> OpenTtlDb(const std::string& delim) {
+std::unique_ptr<DB> OpenTtlDb(const std::string& delim) {
   DBWithTTL* db;
   Options options;
   options.create_if_missing = true;
@@ -62,7 +63,7 @@ std::shared_ptr<DB> OpenTtlDb(const std::string& delim) {
   }
   options.merge_operator.reset(mergeOperator);
   EXPECT_OK(DBWithTTL::Open(options, kDbName, &db, 123456));
-  return std::shared_ptr<DB>(db);
+  return std::unique_ptr<DB>(db);
 }
 }  // namespace
 
@@ -72,8 +73,7 @@ class StringLists {
  public:
   // Constructor: specifies the rocksdb db
   /* implicit */
-  StringLists(std::shared_ptr<DB> db)
-      : db_(db), merge_option_(), get_option_() {
+  StringLists(UnownedPtr<DB> db) : db_(db), merge_option_(), get_option_() {
     assert(db);
   }
 
@@ -113,7 +113,7 @@ class StringLists {
   }
 
  private:
-  std::shared_ptr<DB> db_;
+  UnownedPtr<DB> db_;
   WriteOptions merge_option_;
   ReadOptions get_option_;
 };
@@ -138,7 +138,7 @@ class StringAppendOperatorTest : public testing::Test,
     StringAppendOperatorTest::SetOpenDbFunction(&OpenNormalDb);
   }
 
-  using OpenFuncPtr = std::shared_ptr<DB> (*)(const std::string&);
+  using OpenFuncPtr = std::unique_ptr<DB> (*)(const std::string&);
 
   // Allows user to open databases with different configurations.
   // e.g.: Can open a DB or a TtlDB, etc.
@@ -154,7 +154,7 @@ StringAppendOperatorTest::OpenFuncPtr StringAppendOperatorTest::OpenDb =
 
 TEST_P(StringAppendOperatorTest, IteratorTest) {
   auto db_ = OpenDb(",");
-  StringLists slists(db_);
+  StringLists slists(db_.get());
 
   slists.Append("k1", "v1");
   slists.Append("k1", "v2");
@@ -249,7 +249,7 @@ TEST_P(StringAppendOperatorTest, IteratorTest) {
 
 TEST_P(StringAppendOperatorTest, SimpleTest) {
   auto db = OpenDb(",");
-  StringLists slists(db);
+  StringLists slists(db.get());
 
   slists.Append("k1", "v1");
   slists.Append("k1", "v2");
@@ -262,7 +262,7 @@ TEST_P(StringAppendOperatorTest, SimpleTest) {
 
 TEST_P(StringAppendOperatorTest, SimpleDelimiterTest) {
   auto db = OpenDb("|");
-  StringLists slists(db);
+  StringLists slists(db.get());
 
   slists.Append("k1", "v1");
   slists.Append("k1", "v2");
@@ -275,7 +275,7 @@ TEST_P(StringAppendOperatorTest, SimpleDelimiterTest) {
 
 TEST_P(StringAppendOperatorTest, EmptyDelimiterTest) {
   auto db = OpenDb("");
-  StringLists slists(db);
+  StringLists slists(db.get());
 
   slists.Append("k1", "v1");
   slists.Append("k1", "v2");
@@ -288,7 +288,7 @@ TEST_P(StringAppendOperatorTest, EmptyDelimiterTest) {
 
 TEST_P(StringAppendOperatorTest, MultiCharDelimiterTest) {
   auto db = OpenDb("<>");
-  StringLists slists(db);
+  StringLists slists(db.get());
 
   slists.Append("k1", "v1");
   slists.Append("k1", "v2");
@@ -302,7 +302,7 @@ TEST_P(StringAppendOperatorTest, MultiCharDelimiterTest) {
 TEST_P(StringAppendOperatorTest, DelimiterIsDefensivelyCopiedTest) {
   std::string delimiter = "<>";
   auto db = OpenDb(delimiter);
-  StringLists slists(db);
+  StringLists slists(db.get());
 
   slists.Append("k1", "v1");
   slists.Append("k1", "v2");
@@ -316,7 +316,7 @@ TEST_P(StringAppendOperatorTest, DelimiterIsDefensivelyCopiedTest) {
 
 TEST_P(StringAppendOperatorTest, OneValueNoDelimiterTest) {
   auto db = OpenDb("!");
-  StringLists slists(db);
+  StringLists slists(db.get());
 
   slists.Append("random_key", "single_val");
 
@@ -327,7 +327,7 @@ TEST_P(StringAppendOperatorTest, OneValueNoDelimiterTest) {
 
 TEST_P(StringAppendOperatorTest, VariousKeys) {
   auto db = OpenDb("\n");
-  StringLists slists(db);
+  StringLists slists(db.get());
 
   slists.Append("c", "asdasd");
   slists.Append("a", "x");
@@ -353,7 +353,7 @@ TEST_P(StringAppendOperatorTest, VariousKeys) {
 // Generate semi random keys/words from a small distribution.
 TEST_P(StringAppendOperatorTest, RandomMixGetAppend) {
   auto db = OpenDb(" ");
-  StringLists slists(db);
+  StringLists slists(db.get());
 
   // Generate a list of random keys and values
   const int kWordCount = 15;
@@ -402,7 +402,7 @@ TEST_P(StringAppendOperatorTest, RandomMixGetAppend) {
 
 TEST_P(StringAppendOperatorTest, BIGRandomMixGetAppend) {
   auto db = OpenDb(" ");
-  StringLists slists(db);
+  StringLists slists(db.get());
 
   // Generate a list of random keys and values
   const int kWordCount = 15;
@@ -453,7 +453,7 @@ TEST_P(StringAppendOperatorTest, PersistentVariousKeys) {
   // Perform the following operations in limited scope
   {
     auto db = OpenDb("\n");
-    StringLists slists(db);
+    StringLists slists(db.get());
 
     slists.Append("c", "asdasd");
     slists.Append("a", "x");
@@ -476,7 +476,7 @@ TEST_P(StringAppendOperatorTest, PersistentVariousKeys) {
   // Reopen the database (the previous changes should persist / be remembered)
   {
     auto db = OpenDb("\n");
-    StringLists slists(db);
+    StringLists slists(db.get());
 
     slists.Append("c", "bbnagnagsx");
     slists.Append("a", "sa");
@@ -502,7 +502,7 @@ TEST_P(StringAppendOperatorTest, PersistentVariousKeys) {
   // Reopen the database (the previous changes should persist / be remembered)
   {
     auto db = OpenDb("\n");
-    StringLists slists(db);
+    StringLists slists(db.get());
 
     // All changes should be on disk. This will test VersionSet Get()
     std::string a, b, c;
@@ -520,7 +520,7 @@ TEST_P(StringAppendOperatorTest, PersistentFlushAndCompaction) {
   // Perform the following operations in limited scope
   {
     auto db = OpenDb("\n");
-    StringLists slists(db);
+    StringLists slists(db.get());
     std::string a, b, c;
 
     // Append, Flush, Get
@@ -559,7 +559,7 @@ TEST_P(StringAppendOperatorTest, PersistentFlushAndCompaction) {
   // Reopen the database (the previous changes should persist / be remembered)
   {
     auto db = OpenDb("\n");
-    StringLists slists(db);
+    StringLists slists(db.get());
     std::string a, b, c;
 
     // Get (Quick check for persistence of previous database)
@@ -607,7 +607,7 @@ TEST_P(StringAppendOperatorTest, PersistentFlushAndCompaction) {
 
 TEST_P(StringAppendOperatorTest, SimpleTestNullDelimiter) {
   auto db = OpenDb(std::string(1, '\0'));
-  StringLists slists(db);
+  StringLists slists(db.get());
 
   slists.Append("k1", "v1");
   slists.Append("k1", "v2");

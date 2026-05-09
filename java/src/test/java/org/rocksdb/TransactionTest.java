@@ -346,6 +346,32 @@ public class TransactionTest extends AbstractTransactionTest {
   }
 
   @Test
+  public void multiGetAsList() throws RocksDBException {
+    final byte[] k1 = "k1".getBytes(UTF_8);
+    final byte[] k2 = "k2".getBytes(UTF_8);
+    final byte[] k3 = "k3".getBytes(UTF_8);
+    final byte[] v1 = "v1".getBytes(UTF_8);
+    final byte[] v2 = "v2".getBytes(UTF_8);
+
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions()) {
+      final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+
+      try (final Transaction txn = dbContainer.beginTransaction()) {
+        txn.put(testCf, k1, v1);
+        txn.put(testCf, k2, v2);
+        txn.commit();
+      }
+
+      try (final Transaction txn = dbContainer.beginTransaction()) {
+        final List<byte[]> result =
+            txn.multiGetAsList(readOptions, testCf, Arrays.asList(k1, k2, k3));
+        assertThat(result).containsExactly(v1, v2, null);
+      }
+    }
+  }
+
+  @Test
   public void name() throws RocksDBException {
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {

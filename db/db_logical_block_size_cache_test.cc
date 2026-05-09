@@ -67,7 +67,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenClose) {
   options.db_paths = {{data_path_0_, 2048}, {data_path_1_, 2048}};
 
   for (int i = 0; i < 2; i++) {
-    DB* db;
+    std::unique_ptr<DB> db;
     if (!i) {
       printf("Open\n");
       ASSERT_OK(DB::Open(options, dbname_, &db));
@@ -82,7 +82,6 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenClose) {
     ASSERT_EQ(1, cache_->GetRefCount(data_path_1_));
     ASSERT_OK(db->Close());
     ASSERT_EQ(0, cache_->Size());
-    delete db;
   }
   ASSERT_OK(DestroyDB(dbname_, options, {}));
 }
@@ -95,7 +94,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenDelete) {
   options.env = env_.get();
 
   for (int i = 0; i < 2; i++) {
-    DB* db;
+    std::unique_ptr<DB> db;
     if (!i) {
       printf("Open\n");
       ASSERT_OK(DB::Open(options, dbname_, &db));
@@ -106,7 +105,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenDelete) {
     ASSERT_EQ(1, cache_->Size());
     ASSERT_TRUE(cache_->Contains(dbname_));
     ASSERT_EQ(1, cache_->GetRefCount(dbname_));
-    delete db;
+    db.reset();
     ASSERT_EQ(0, cache_->Size());
   }
   ASSERT_OK(DestroyDB(dbname_, options, {}));
@@ -122,7 +121,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamily) {
   ColumnFamilyOptions cf_options;
   cf_options.cf_paths = {{cf_path_0_, 1024}, {cf_path_1_, 2048}};
 
-  DB* db;
+  std::unique_ptr<DB> db;
   ASSERT_OK(DB::Open(options, dbname_, &db));
   ASSERT_EQ(1, cache_->Size());
   ASSERT_TRUE(cache_->Contains(dbname_));
@@ -153,7 +152,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamily) {
   ASSERT_TRUE(cache_->Contains(dbname_));
   ASSERT_EQ(1, cache_->GetRefCount(dbname_));
 
-  delete db;
+  db.reset();
   ASSERT_EQ(0, cache_->Size());
   ASSERT_OK(DestroyDB(dbname_, options, {{"cf", cf_options}}));
 }
@@ -173,7 +172,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamilies) {
   ColumnFamilyOptions cf_options;
   cf_options.cf_paths = {{cf_path_0_, 1024}};
 
-  DB* db;
+  std::unique_ptr<DB> db;
   ASSERT_OK(DB::Open(options, dbname_, &db));
   ASSERT_EQ(1, cache_->Size());
   ASSERT_TRUE(cache_->Contains(dbname_));
@@ -211,7 +210,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamilies) {
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfs[1]));
   ASSERT_TRUE(cache_->Contains(dbname_));
   ASSERT_EQ(1, cache_->GetRefCount(dbname_));
-  delete db;
+  db.reset();
 
   // Now cf_path_0_ in cache_ has been properly decreased and cf_path_0_'s entry
   // is dropped from cache
@@ -233,15 +232,15 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenWithColumnFamilies) {
   cf_options.cf_paths = {{cf_path_0_, 1024}};
 
   for (int i = 0; i < 2; i++) {
-    DB* db;
+    std::unique_ptr<DB> db;
+    ASSERT_OK(DB::Open(options, dbname_, &db));
     ColumnFamilyHandle* cf1 = nullptr;
     ColumnFamilyHandle* cf2 = nullptr;
-    ASSERT_OK(DB::Open(options, dbname_, &db));
     ASSERT_OK(db->CreateColumnFamily(cf_options, "cf1", &cf1));
     ASSERT_OK(db->CreateColumnFamily(cf_options, "cf2", &cf2));
     ASSERT_OK(db->DestroyColumnFamilyHandle(cf1));
     ASSERT_OK(db->DestroyColumnFamilyHandle(cf2));
-    delete db;
+    db.reset();
     ASSERT_EQ(0, cache_->Size());
 
     std::vector<ColumnFamilyHandle*> cfs;
@@ -298,7 +297,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenWithColumnFamilies) {
     ASSERT_TRUE(cache_->Contains(dbname_));
     ASSERT_EQ(1, cache_->GetRefCount(dbname_));
 
-    delete db;
+    db.reset();
     ASSERT_EQ(0, cache_->Size());
   }
   ASSERT_OK(
@@ -315,7 +314,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, DestroyColumnFamilyHandle) {
   ColumnFamilyOptions cf_options;
   cf_options.cf_paths = {{cf_path_0_, 1024}};
 
-  DB* db;
+  std::unique_ptr<DB> db;
   ASSERT_OK(DB::Open(options, dbname_, &db));
   ASSERT_EQ(1, cache_->Size());
   ASSERT_TRUE(cache_->Contains(dbname_));
@@ -336,7 +335,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, DestroyColumnFamilyHandle) {
   ASSERT_TRUE(cache_->Contains(cf_path_0_));
   ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
 
-  delete db;
+  db.reset();
   ASSERT_EQ(0, cache_->Size());
 
   // Open with column families.
@@ -369,7 +368,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, DestroyColumnFamilyHandle) {
     ASSERT_TRUE(cache_->Contains(cf_path_0_));
     ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
 
-    delete db;
+    db.reset();
     ASSERT_EQ(0, cache_->Size());
   }
   ASSERT_OK(DestroyDB(dbname_, options, {{"cf", cf_options}}));
@@ -384,7 +383,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithDifferentPaths) {
 
   ASSERT_OK(env_->CreateDirIfMissing(dbname_));
 
-  DB* db0;
+  std::unique_ptr<DB> db0;
   ASSERT_OK(DB::Open(options, data_path_0_, &db0));
   ASSERT_EQ(1, cache_->Size());
   ASSERT_TRUE(cache_->Contains(data_path_0_));
@@ -399,7 +398,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithDifferentPaths) {
   ASSERT_TRUE(cache_->Contains(cf_path_0_));
   ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
 
-  DB* db1;
+  std::unique_ptr<DB> db1;
   ASSERT_OK(DB::Open(options, data_path_1_, &db1));
   ASSERT_EQ(3, cache_->Size());
   ASSERT_TRUE(cache_->Contains(data_path_0_));
@@ -424,7 +423,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithDifferentPaths) {
   ASSERT_EQ(1, cache_->GetRefCount(cf_path_1_));
 
   ASSERT_OK(db0->DestroyColumnFamilyHandle(cf0));
-  delete db0;
+  db0.reset();
   ASSERT_EQ(2, cache_->Size());
   ASSERT_TRUE(cache_->Contains(data_path_1_));
   ASSERT_EQ(1, cache_->GetRefCount(data_path_1_));
@@ -433,7 +432,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithDifferentPaths) {
   ASSERT_OK(DestroyDB(data_path_0_, options, {{"cf", cf_options0}}));
 
   ASSERT_OK(db1->DestroyColumnFamilyHandle(cf1));
-  delete db1;
+  db1.reset();
   ASSERT_EQ(0, cache_->Size());
   ASSERT_OK(DestroyDB(data_path_1_, options, {{"cf", cf_options1}}));
 }
@@ -450,7 +449,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithSamePaths) {
 
   ASSERT_OK(env_->CreateDirIfMissing(dbname_));
 
-  DB* db0;
+  std::unique_ptr<DB> db0;
   ASSERT_OK(DB::Open(options, dbname_ + "/db0", &db0));
   ASSERT_EQ(1, cache_->Size());
   ASSERT_TRUE(cache_->Contains(data_path_0_));
@@ -464,7 +463,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithSamePaths) {
   ASSERT_TRUE(cache_->Contains(cf_path_0_));
   ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
 
-  DB* db1;
+  std::unique_ptr<DB> db1;
   ASSERT_OK(DB::Open(options, dbname_ + "/db1", &db1));
   ASSERT_EQ(2, cache_->Size());
   ASSERT_TRUE(cache_->Contains(data_path_0_));
@@ -481,7 +480,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithSamePaths) {
   ASSERT_EQ(2, cache_->GetRefCount(cf_path_0_));
 
   ASSERT_OK(db0->DestroyColumnFamilyHandle(cf0));
-  delete db0;
+  db0.reset();
   ASSERT_EQ(2, cache_->Size());
   ASSERT_TRUE(cache_->Contains(data_path_0_));
   ASSERT_EQ(1, cache_->GetRefCount(data_path_0_));
@@ -490,7 +489,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithSamePaths) {
   ASSERT_OK(DestroyDB(dbname_ + "/db0", options, {{"cf", cf_options}}));
 
   ASSERT_OK(db1->DestroyColumnFamilyHandle(cf1));
-  delete db1;
+  db1.reset();
   ASSERT_EQ(0, cache_->Size());
   ASSERT_OK(DestroyDB(dbname_ + "/db1", options, {{"cf", cf_options}}));
 }

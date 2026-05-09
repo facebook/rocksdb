@@ -162,6 +162,8 @@ enum Tickers : uint32_t {
   COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE,
   // If a compaction was canceled in sfm to prevent ENOSPC
   COMPACTION_CANCELLED,
+  // Number of compactions aborted via AbortAllCompactions()
+  COMPACTION_ABORTED,
 
   // Number of keys written to the database via the Put and Write call's
   NUMBER_KEYS_WRITTEN,
@@ -301,7 +303,7 @@ enum Tickers : uint32_t {
   NUMBER_RATE_LIMITER_DRAINS,
 
   // BlobDB specific stats
-  // # of Put/PutTTL/PutUntil to BlobDB. Only applicable to legacy BlobDB.
+  // # of Put/PutWithTTL to BlobDB. Only applicable to legacy BlobDB.
   BLOB_DB_NUM_PUT,
   // # of Write to BlobDB. Only applicable to legacy BlobDB.
   BLOB_DB_NUM_WRITE,
@@ -326,12 +328,12 @@ enum Tickers : uint32_t {
   // # of bytes (keys + value) read from BlobDB. Only applicable to legacy
   // BlobDB.
   BLOB_DB_BYTES_READ,
-  // # of keys written by BlobDB as non-TTL inlined value. Only applicable to
-  // legacy BlobDB.
-  BLOB_DB_WRITE_INLINED,
-  // # of keys written by BlobDB as TTL inlined value. Only applicable to legacy
-  // BlobDB.
-  BLOB_DB_WRITE_INLINED_TTL,
+  // Deprecated: min_blob_size is no longer configurable. Retained to avoid
+  // shifting enum values.
+  BLOB_DB_WRITE_INLINED_DEPRECATED,
+  // Deprecated: min_blob_size is no longer configurable. Retained to avoid
+  // shifting enum values.
+  BLOB_DB_WRITE_INLINED_TTL_DEPRECATED,
   // # of keys written by BlobDB as non-TTL blob value. Only applicable to
   // legacy BlobDB.
   BLOB_DB_WRITE_BLOB,
@@ -440,13 +442,20 @@ enum Tickers : uint32_t {
   REMOTE_COMPACT_READ_BYTES,
   REMOTE_COMPACT_WRITE_BYTES,
 
+  // Bytes of output files successfully resumed during compaction
+  REMOTE_COMPACT_RESUMED_BYTES,
+
   // Tiered storage related statistics
   HOT_FILE_READ_BYTES,
   WARM_FILE_READ_BYTES,
+  COOL_FILE_READ_BYTES,
   COLD_FILE_READ_BYTES,
+  ICE_FILE_READ_BYTES,
   HOT_FILE_READ_COUNT,
   WARM_FILE_READ_COUNT,
+  COOL_FILE_READ_COUNT,
   COLD_FILE_READ_COUNT,
+  ICE_FILE_READ_COUNT,
 
   // Last level and non-last level read statistics
   LAST_LEVEL_READ_BYTES,
@@ -516,14 +525,16 @@ enum Tickers : uint32_t {
   // Number of FIFO compactions that drop files based on different reasons
   FIFO_MAX_SIZE_COMPACTIONS,
   FIFO_TTL_COMPACTIONS,
+  FIFO_CHANGE_TEMPERATURE_COMPACTIONS,
 
   // Number of bytes prefetched during user initiated scan
   PREFETCH_BYTES,
 
-  // Number of prefetched bytes that were actually useful
+  // Number of prefetched bytes that were actually useful during user initiated
+  // scan
   PREFETCH_BYTES_USEFUL,
 
-  // Number of FS reads avoided due to scan prefetching
+  // Number of FS reads avoided due to prefetching during user initiated scan
   PREFETCH_HITS,
 
   // Footer corruption detected when opening an SST file for reading
@@ -533,6 +544,64 @@ enum Tickers : uint32_t {
   // file system option after detecting a checksum mismatch
   FILE_READ_CORRUPTION_RETRY_COUNT,
   FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT,
+
+  // Counter for the number of times a WBWI is ingested into the DB. This
+  // happens when IngestWriteBatchWithIndex() is used and when large
+  // transaction optimization is enabled through
+  // TransactionOptions::large_txn_commit_optimize_threshold.
+  NUMBER_WBWI_INGEST,
+
+  // Failure to load the UDI during SST table open
+  SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT,
+
+  // MultiScan statistics
+  // # of Prepare() calls
+  MULTISCAN_PREPARE_CALLS,
+  // # of Prepare() calls that failed
+  MULTISCAN_PREPARE_ERRORS,
+  // # of data blocks prefetched from storage during MultiScan
+  MULTISCAN_BLOCKS_PREFETCHED,
+  // # of blocks found already in cache during MultiScan Prepare
+  MULTISCAN_BLOCKS_FROM_CACHE,
+  // Total bytes prefetched during MultiScan
+  MULTISCAN_PREFETCH_BYTES,
+  // # of prefetched blocks that were never accessed
+  MULTISCAN_PREFETCH_BLOCKS_WASTED,
+  // # of actual I/O requests issued during MultiScan
+  MULTISCAN_IO_REQUESTS,
+  // # of non-adjacent blocks coalesced into single I/O (within
+  // io_coalesce_threshold)
+  MULTISCAN_IO_COALESCED_NONADJACENT,
+  // # of seeks that failed validation (out of order, etc.)
+  MULTISCAN_SEEK_ERRORS,
+
+  // IODispatcher memory limiting statistics
+  // # of bytes granted to prefetch requests
+  PREFETCH_MEMORY_BYTES_GRANTED,
+  // # of bytes released from prefetch memory
+  PREFETCH_MEMORY_BYTES_RELEASED,
+  // # of prefetch requests that were blocked waiting for memory
+  PREFETCH_MEMORY_REQUESTS_BLOCKED,
+
+  // # of range tombstones inserted by read-path conversion from contiguous
+  // point tombstones
+  READ_PATH_RANGE_TOMBSTONES_INSERTED,
+  // # of range tombstones not inserted. Reasons include:
+  // - iterator's snapshot predates the memtable
+  // - tombstones may be uncommitted (transactions)
+  // - memtable already has a covering range tombstone
+  // - memtable switched to immutable state
+  READ_PATH_RANGE_TOMBSTONES_DISCARDED,
+
+  // Number of times file open metadata was retrieved from the file system
+  // via GetFileOpenMetadata() (when fast_sst_open is enabled)
+  FILE_OPEN_METADATA_RETRIEVED,
+  // Number of times file open metadata was passed to NewRandomAccessFile()
+  // via FileOptions::file_metadata (on DB open / table cache miss)
+  FILE_OPEN_METADATA_PASSED,
+
+  // # of times MANIFEST content validation detected corruption on DB close
+  MANIFEST_VALIDATION_FAILURE_COUNT,
 
   TICKER_ENUM_MAX
 };
@@ -612,8 +681,7 @@ enum Histograms : uint32_t {
   BLOB_DB_KEY_SIZE,
   // Size of values written to BlobDB. Only applicable to legacy BlobDB.
   BLOB_DB_VALUE_SIZE,
-  // BlobDB Put/PutWithTTL/PutUntil/Write latency. Only applicable to legacy
-  // BlobDB.
+  // BlobDB Put/PutWithTTL/Write latency. Only applicable to legacy BlobDB.
   BLOB_DB_WRITE_MICROS,
   // BlobDB Get latency. Only applicable to legacy BlobDB.
   BLOB_DB_GET_MICROS,
@@ -657,15 +725,35 @@ enum Histograms : uint32_t {
   ASYNC_READ_BYTES,
   POLL_WAIT_MICROS,
 
+  // Number of bytes for RocksDB's prefetching (as opposed to file
+  // system's prefetch) on SST file during compaction read
+  COMPACTION_PREFETCH_BYTES,
+
   // Number of prefetched bytes discarded by RocksDB.
   PREFETCHED_BYTES_DISCARDED,
 
   // Wait time for aborting async read in FilePrefetchBuffer destructor
   ASYNC_PREFETCH_ABORT_MICROS,
 
-  // Number of bytes read for RocksDB's prefetching contents (as opposed to file
+  // Number of bytes for RocksDB's prefetching contents (as opposed to file
   // system's prefetch) from the end of SST table during block based table open
   TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
+
+  // Number of operations per transaction.
+  NUM_OP_PER_TRANSACTION,
+
+  // MultiScan Prefill iterator Prepare cost
+  MULTISCAN_PREPARE_ITERATORS,
+
+  // Total Prepare() latency for MultiScan
+  MULTISCAN_PREPARE_MICROS,
+  // Distribution of blocks prefetched per MultiScan Prepare()
+  MULTISCAN_BLOCKS_PER_PREPARE,
+
+  // Coefficient of variation of key gaps in blocks, scaled by 10000
+  // (e.g., CV of 0.4532 is recorded as 4532). Currently only used by index
+  // blocks for uniform key distribution tracking.
+  BLOCK_KEY_DISTRIBUTION_CV,
 
   HISTOGRAM_ENUM_MAX
 };

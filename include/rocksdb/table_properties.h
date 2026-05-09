@@ -17,6 +17,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class InternalTblPropColl;
+class CompressionManager;
 
 // -- Table Properties
 // Other than basic table properties, each table may also have the user
@@ -46,10 +47,14 @@ struct TablePropertiesNames {
   static const std::string kTopLevelIndexSize;
   static const std::string kIndexKeyIsUserKey;
   static const std::string kIndexValueIsDeltaEncoded;
+  static const std::string kUDIIsPrimaryIndex;
   static const std::string kFilterSize;
   static const std::string kRawKeySize;
   static const std::string kRawValueSize;
   static const std::string kNumDataBlocks;
+  static const std::string kNumDataBlocksCompressionRejected;
+  static const std::string kNumDataBlocksCompressionBypassed;
+  static const std::string kNumUniformBlocks;
   static const std::string kNumEntries;
   static const std::string kNumFilterEntries;
   static const std::string kDeletedKeys;
@@ -76,6 +81,10 @@ struct TablePropertiesNames {
   static const std::string kTailStartOffset;
   static const std::string kUserDefinedTimestampsPersisted;
   static const std::string kKeyLargestSeqno;
+  static const std::string kKeySmallestSeqno;
+  static const std::string kDataBlockRestartInterval;
+  static const std::string kIndexBlockRestartInterval;
+  static const std::string kSeparateKeyValueInDataBlock;
 };
 
 // `TablePropertiesCollector` provides the mechanism for users to collect
@@ -109,6 +118,10 @@ class TablePropertiesCollector {
   // table.
   // @params key    the user key that is inserted into the table.
   // @params value  the value that is inserted into the table.
+  // @params file_size the current file size. For BlockBasedTable, this
+  //         includes all the data blocks written so far, upto but not including
+  //         the current block being built. With parallel compression, data
+  //         blocks are written async so it depends on the compression progress.
   virtual Status AddUserKey(const Slice& key, const Slice& value,
                             EntryType /*type*/, SequenceNumber /*seq*/,
                             uint64_t /*file_size*/) {
@@ -143,7 +156,7 @@ class TablePropertiesCollector {
   // The name of the properties collector can be used for debugging purpose.
   virtual const char* Name() const = 0;
 
-  // EXPERIMENTAL Return whether the output file should be further compacted
+  // Return whether the output file should be further compacted
   virtual bool NeedCompact() const { return false; }
 
   // For internal use only.
@@ -216,6 +229,8 @@ struct TableProperties {
   uint64_t orig_file_number = 0;
   // the total size of all data blocks.
   uint64_t data_size = 0;
+  // the total uncompressed size of all data blocks (since RocksDB 10.7)
+  uint64_t uncompressed_data_size = 0;
   // the size of index block.
   uint64_t index_size = 0;
   // Total number of index partitions if kTwoLevelIndexSearch is used
@@ -227,6 +242,9 @@ struct TableProperties {
   uint64_t index_key_is_user_key = 0;
   // Whether delta encoding is used to encode the index values.
   uint64_t index_value_is_delta_encoded = 0;
+  // Whether the UDI is the primary index for reads. The standard index is
+  // still fully populated alongside the UDI.
+  uint64_t udi_is_primary_index = 0;
   // the size of filter block.
   uint64_t filter_size = 0;
   // total raw (uncompressed, undelineated) key size
@@ -235,6 +253,15 @@ struct TableProperties {
   uint64_t raw_value_size = 0;
   // the number of blocks in this table
   uint64_t num_data_blocks = 0;
+  // Number of data blocks stored uncompressed because compression was
+  // attempted but the compressed output exceeded the ratio limit set by
+  // CompressionOptions::max_compressed_bytes_per_kb.
+  uint64_t num_data_blocks_compression_rejected = 0;
+  // Number of data blocks stored uncompressed because compression was
+  // never attempted (e.g., kNoCompression, no compressor available).
+  uint64_t num_data_blocks_compression_bypassed = 0;
+  // the number of uniform blocks in this table
+  uint64_t num_uniform_blocks = 0;
   // the number of entries in this table
   uint64_t num_entries = 0;
   // the number of unique entries (keys or prefixes) added to filters
@@ -303,6 +330,28 @@ struct TableProperties {
   // table is empty).
   uint64_t key_largest_seqno = UINT64_MAX;
 
+  bool HasKeyLargestSeqno() const { return key_largest_seqno != UINT64_MAX; }
+
+  // The smallest sequence number of keys in this file.
+  // UINT64_MAX means unknown.
+  // Only written to properties block if known (should be known unless the
+  // table is empty).
+  uint64_t key_smallest_seqno = UINT64_MAX;
+
+  bool HasKeySmallestSeqno() const { return key_smallest_seqno != UINT64_MAX; }
+
+  // Block restart intervals used when building this SST file.
+  // 0 means unknown (for backwards compatibility with older SST files).
+  uint64_t data_block_restart_interval = 0;
+  uint64_t index_block_restart_interval = 0;
+
+  // Whether the SST file uses separated key/value storage in data blocks (0 =
+  // false). The block footer stores the real source of truth of whether the
+  // block has separated key values, but this table property is useful for
+  // debugging/validation purposes. Consider removing this if we ever decide to
+  // mix separation strategies for a sst.
+  uint64_t separate_key_value_in_data_block = 0;
+
   // DB identity
   // db_id is an identifier generated the first time the DB is created
   // If DB identity is unset or unassigned, `db_id` will be an empty string.
@@ -344,7 +393,20 @@ struct TableProperties {
   // {collector_name[1]},{collector_name[2]},{collector_name[3]} ..
   std::string property_collectors_names;
 
-  // The compression algo used to compress the SST files.
+  // Identifies the compression algorithm or schema used in the file.
+  // Specifically:
+  // * For format_version < 7, it is one of several names for built-in
+  // compression types. Because of how some previous versions of RocksDB
+  // behave, this must be set to "ZSTD" if any blocks are compressed
+  // with zstd and must NOT be set to "NoCompression" if any blocks are
+  // compressed.
+  // * For format_version >= 7, the format is
+  //   <compatibility_name>;<hex-coded compression types>;<future use>
+  // where <compatibility_name> is the CompatibilityName() of the
+  // CompressionManager used for the file, or empty if compression was
+  // disabled; <hex-coded compression types> represents a sorted set of
+  // CompressionType values used in the file other than kNoCompression, each
+  // as 2-digit hex, e.g. 04 for LZ$, 07 for ZSTD, etc.
   std::string compression_name;
 
   // Compression options used to compress the SST files.
@@ -383,6 +445,28 @@ struct TableProperties {
                 const TableProperties* other_table_properties,
                 std::string* mismatch) const;
 };
+
+// Parse TableProperties::compression_name into human-readable format.
+// Thread-safe, but not purely local: the single-argument overload may consult
+// globally registered CompressionManagers via ObjectLibrary using the stored
+// compatibility name, and the two-argument overload consults the supplied
+// CompressionManager first before falling back to that lookup.
+// For format_version >= 7: "<compatibility_name>;<hex_codes>;" -> "ZSTD",
+// "LZ4", etc. For older versions (no semicolon): returns as-is (e.g., "ZSTD",
+// "Snappy", "kZSTD" are preserved with their original names). This means the
+// single-argument overload can now return manager-specific names for custom
+// compression types when a compatible CompressionManager is registered
+// globally; otherwise, reserved/custom values fall back to generic names such
+// as "Reserved7F" or "Custom8A". Returns "NoCompression" for an empty input,
+// an empty hex field such as "BuiltinV2;;", or when all parsed entries are
+// filtered out as NoCompression/DisableOption. Returns "Unknown" for malformed
+// format_version >= 7 metadata, including a missing second semicolon,
+// odd-length hex payload, or invalid hex characters. If multiple compression
+// types are present, returns a comma-separated list in input order.
+std::string ParseCompressionNameForDisplay(const std::string& compression_name);
+std::string ParseCompressionNameForDisplay(
+    const std::string& compression_name,
+    std::shared_ptr<CompressionManager> compression_manager);
 
 // Extra properties
 // Below is a list of non-basic properties that are collected by database

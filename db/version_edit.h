@@ -25,6 +25,7 @@
 #include "rocksdb/advanced_options.h"
 #include "table/table_reader.h"
 #include "table/unique_id_impl.h"
+#include "test_util/sync_point.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -72,6 +73,23 @@ enum Tag : uint32_t {
   kWalAddition2,
   kWalDeletion2,
   kPersistUserDefinedTimestamps,
+  kSubcompactionProgress,
+};
+
+enum SubcompactionProgressPerLevelCustomTag : uint32_t {
+  kSubcompactionProgressPerLevelTerminate = 1,  // End of fields marker
+  kOutputFilesDelta = 2,
+  kNumProcessedOutputRecords = 3,
+  kSubcompactionProgressPerLevelCustomTagSafeIgnoreMask = 1 << 16,
+};
+
+enum SubcompactionProgressCustomTag : uint32_t {
+  kSubcompactionProgressTerminate = 1,  // End of fields marker
+  kNextInternalKeyToCompact = 2,
+  kNumProcessedInputRecords = 3,
+  kOutputLevelProgress = 4,
+  kProximalOutputLevelProgress = 5,
+  kSubcompactionProgressCustomTagSafeIgnoreMask = 1 << 16,
 };
 
 enum NewFileCustomTag : uint32_t {
@@ -94,6 +112,7 @@ enum NewFileCustomTag : uint32_t {
   kCompensatedRangeDeletionSize = 14,
   kTailSize = 15,
   kUserDefinedTimestampsPersisted = 16,
+  kFileOpenMetadata = 17,
 
   // If this bit for the custom tag is set, opening DB should fail if
   // we don't know this field.
@@ -110,11 +129,52 @@ constexpr uint64_t kUnknownOldestAncesterTime = 0;
 constexpr uint64_t kUnknownNewestKeyTime = 0;
 constexpr uint64_t kUnknownFileCreationTime = 0;
 constexpr uint64_t kUnknownEpochNumber = 0;
-// If `Options::allow_ingest_behind` is true, this epoch number
+// If `Options::cf_allow_ingest_behind` is true, this epoch number
 // will be dedicated to files ingested behind.
 constexpr uint64_t kReservedEpochNumberForFileIngestedBehind = 1;
 
 uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
+
+// PinnedTableReader is used to safely access a table reader in a multi-threaded
+// context. It holds both a pointer to the table reader and a cache handle.
+class PinnedTableReader {
+ public:
+  PinnedTableReader() : reader_(nullptr), handle_(nullptr) {}
+  ~PinnedTableReader() = default;
+  PinnedTableReader(const PinnedTableReader& other)
+      : reader_(nullptr), handle_(nullptr) {
+    *this = other;
+  }
+  PinnedTableReader& operator=(const PinnedTableReader& other);
+  PinnedTableReader(PinnedTableReader&&) = delete;
+  PinnedTableReader& operator=(PinnedTableReader&&) = delete;
+
+  // Returns the pinned TableReader, or nullptr if not pinned.
+  TableReader* Get() const { return reader_.load(std::memory_order_acquire); }
+
+  // Returns the cache handle that keeps TableReader alive, or nullptr if not
+  // pinned.
+  Cache::Handle* GetCacheHandle() const;
+
+  // Pin a table reader with its cache handle.
+  void Pin(Cache::Handle* handle, TableReader* reader);
+
+  // Release the pinned handle via the given cache and reset state.
+  void Release(Cache* cache);
+
+  // Test-only: set a reader without a cache handle.
+  void TEST_SetReader(TableReader* reader) {
+    reader_.store(reader, std::memory_order_release);
+  }
+
+ private:
+  // Internally, we need to ensure reads and writes to reader_ and handle_ are
+  // properly ordered. handle_ must be written to before reader_ is written to
+  // with release semantics. handle_ must be read after reader_ is read with
+  // acquire semantics.
+  std::atomic<TableReader*> reader_;
+  Cache::Handle* handle_;
+};
 
 // A copyable structure contains information needed to read data from an SST
 // file. It can contain a pointer to a table reader opened for the file, or
@@ -122,8 +182,10 @@ uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
 // The behavior is undefined when a copied of the structure is used when the
 // file is not in any live version any more.
 struct FileDescriptor {
-  // Table reader in table_reader_handle
-  TableReader* table_reader;
+  // Fast access to table reader without cache lookup. Marked mutable because
+  // reads can pin the table reader, but can also be done safely in a
+  // multi-threaded context.
+  mutable PinnedTableReader pinned_reader;
   uint64_t packed_number_and_path_id;
   uint64_t file_size;             // File size in bytes
   SequenceNumber smallest_seqno;  // The smallest seqno in this file
@@ -136,7 +198,7 @@ struct FileDescriptor {
 
   FileDescriptor(uint64_t number, uint32_t path_id, uint64_t _file_size,
                  SequenceNumber _smallest_seqno, SequenceNumber _largest_seqno)
-      : table_reader(nullptr),
+      : pinned_reader(),
         packed_number_and_path_id(PackFileNumberAndPathId(number, path_id)),
         file_size(_file_size),
         smallest_seqno(_smallest_seqno),
@@ -145,7 +207,7 @@ struct FileDescriptor {
   FileDescriptor(const FileDescriptor& fd) { *this = fd; }
 
   FileDescriptor& operator=(const FileDescriptor& fd) {
-    table_reader = fd.table_reader;
+    pinned_reader = fd.pinned_reader;
     packed_number_and_path_id = fd.packed_number_and_path_id;
     file_size = fd.file_size;
     smallest_seqno = fd.smallest_seqno;
@@ -164,24 +226,26 @@ struct FileDescriptor {
 };
 
 struct FileSampledStats {
-  FileSampledStats() : num_reads_sampled(0) {}
+  FileSampledStats()
+      : num_reads_sampled(0), num_collapsible_entry_reads_sampled(0) {}
   FileSampledStats(const FileSampledStats& other) { *this = other; }
   FileSampledStats& operator=(const FileSampledStats& other) {
     num_reads_sampled = other.num_reads_sampled.load();
+    num_collapsible_entry_reads_sampled =
+        other.num_collapsible_entry_reads_sampled.load();
     return *this;
   }
 
   // number of user reads to this file.
   mutable std::atomic<uint64_t> num_reads_sampled;
+  // number of reads of type kNotFound, kMerge, kTypeSingleDeletion
+  mutable std::atomic<uint64_t> num_collapsible_entry_reads_sampled;
 };
 
 struct FileMetaData {
   FileDescriptor fd;
   InternalKey smallest;  // Smallest internal key served by table
   InternalKey largest;   // Largest internal key served by table
-
-  // Needs to be disposed when refs becomes 0.
-  Cache::Handle* table_reader_handle = nullptr;
 
   FileSampledStats stats;
 
@@ -259,6 +323,19 @@ struct FileMetaData {
   // false, it's explicitly written to Manifest.
   bool user_defined_timestamps_persisted = true;
 
+  // Minimum user-defined timestamp in the file. Empty if no UDT or unknown.
+  // This is populated from the table properties "rocksdb.timestamp_min".
+  std::string min_timestamp;
+
+  // Maximum user-defined timestamp in the file. Empty if no UDT or unknown.
+  // This is populated from the table properties "rocksdb.timestamp_max".
+  std::string max_timestamp;
+
+  // Opaque file system metadata that can be used to accelerate file opening.
+  // Retrieved via FSRandomAccessFile::GetFileOpenMetadata() and passed back
+  // via FileOptions::file_metadata on subsequent opens. Empty if not available.
+  std::string file_open_metadata;
+
   FileMetaData() = default;
 
   FileMetaData(uint64_t file, uint32_t file_path_id, uint64_t file_size,
@@ -271,7 +348,9 @@ struct FileMetaData {
                const std::string& _file_checksum_func_name,
                UniqueId64x2 _unique_id,
                const uint64_t _compensated_range_deletion_size,
-               uint64_t _tail_size, bool _user_defined_timestamps_persisted)
+               uint64_t _tail_size, bool _user_defined_timestamps_persisted,
+               const std::string& _min_timestamp,
+               const std::string& _max_timestamp)
       : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
         smallest(smallest_key),
         largest(largest_key),
@@ -286,7 +365,9 @@ struct FileMetaData {
         file_checksum_func_name(_file_checksum_func_name),
         unique_id(std::move(_unique_id)),
         tail_size(_tail_size),
-        user_defined_timestamps_persisted(_user_defined_timestamps_persisted) {
+        user_defined_timestamps_persisted(_user_defined_timestamps_persisted),
+        min_timestamp(_min_timestamp),
+        max_timestamp(_max_timestamp) {
     TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", this);
   }
 
@@ -317,9 +398,10 @@ struct FileMetaData {
   uint64_t TryGetOldestAncesterTime() {
     if (oldest_ancester_time != kUnknownOldestAncesterTime) {
       return oldest_ancester_time;
-    } else if (fd.table_reader != nullptr &&
-               fd.table_reader->GetTableProperties() != nullptr) {
-      return fd.table_reader->GetTableProperties()->creation_time;
+    }
+    TableReader* reader = fd.pinned_reader.Get();
+    if (reader != nullptr && reader->GetTableProperties() != nullptr) {
+      return reader->GetTableProperties()->creation_time;
     }
     return kUnknownOldestAncesterTime;
   }
@@ -327,9 +409,10 @@ struct FileMetaData {
   uint64_t TryGetFileCreationTime() {
     if (file_creation_time != kUnknownFileCreationTime) {
       return file_creation_time;
-    } else if (fd.table_reader != nullptr &&
-               fd.table_reader->GetTableProperties() != nullptr) {
-      return fd.table_reader->GetTableProperties()->file_creation_time;
+    }
+    TableReader* reader = fd.pinned_reader.Get();
+    if (reader != nullptr && reader->GetTableProperties() != nullptr) {
+      return reader->GetTableProperties()->file_creation_time;
     }
     return kUnknownFileCreationTime;
   }
@@ -337,10 +420,9 @@ struct FileMetaData {
   // Tries to get the newest key time from the current file
   // Falls back on oldest ancestor time of previous (newer) file
   uint64_t TryGetNewestKeyTime(FileMetaData* prev_file = nullptr) {
-    if (fd.table_reader != nullptr &&
-        fd.table_reader->GetTableProperties() != nullptr) {
-      uint64_t newest_key_time =
-          fd.table_reader->GetTableProperties()->newest_key_time;
+    TableReader* reader = fd.pinned_reader.Get();
+    if (reader != nullptr && reader->GetTableProperties() != nullptr) {
+      uint64_t newest_key_time = reader->GetTableProperties()->newest_key_time;
       if (newest_key_time != kUnknownNewestKeyTime) {
         return newest_key_time;
       }
@@ -369,7 +451,8 @@ struct FileMetaData {
     usage += sizeof(*this);
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
     usage += smallest.size() + largest.size() + file_checksum.size() +
-             file_checksum_func_name.size();
+             file_checksum_func_name.size() + min_timestamp.size() +
+             max_timestamp.size() + file_open_metadata.size();
     return usage;
   }
 
@@ -379,6 +462,33 @@ struct FileMetaData {
     bool res = num_range_deletions == 1 && num_entries == num_range_deletions;
     assert(!res || fd.smallest_seqno == fd.largest_seqno);
     return res;
+  }
+
+  static uint64_t CalculateTailSize(uint64_t file_size,
+                                    const TableProperties& props) {
+#ifndef NDEBUG
+    bool skip = false;
+    TEST_SYNC_POINT_CALLBACK("FileMetaData::CalculateTailSize", &skip);
+    if (skip) {
+      return 0;
+    }
+#endif  // NDEBUG
+    uint64_t tail_size = 0;
+
+    // Differentiate between a file with no data blocks (tail_start_offset = 0)
+    // and a file with unknown tail_start_offset (also set to 0 due to
+    // non-negative integer storage limitation)
+    bool contain_no_data_blocks =
+        props.num_entries == 0 ||
+        (props.num_entries > 0 &&
+         (props.num_entries == props.num_range_deletions));
+
+    if (props.tail_start_offset > 0 || contain_no_data_blocks) {
+      assert(props.tail_start_offset <= file_size);
+      tail_size = file_size - props.tail_start_offset;
+    }
+
+    return tail_size;
   }
 };
 
@@ -413,12 +523,194 @@ struct LevelFilesBrief {
   }
 };
 
+struct SubcompactionProgressPerLevel {
+  uint64_t GetNumProcessedOutputRecords() const {
+    return num_processed_output_records_;
+  }
+
+  void SetNumProcessedOutputRecords(uint64_t num) {
+    num_processed_output_records_ = num;
+  }
+
+  const autovector<FileMetaData>& GetOutputFiles() const {
+    return output_files_;
+  }
+
+  void AddToOutputFiles(const FileMetaData& file) {
+    output_files_.push_back(file);
+  }
+
+  size_t GetLastPersistedOutputFilesCount() const {
+    return last_persisted_output_files_count_;
+  }
+
+  void UpdateLastPersistedOutputFilesCount() {
+    last_persisted_output_files_count_ = output_files_.size();
+  }
+
+  void EncodeTo(std::string* dst) const;
+
+  Status DecodeFrom(Slice* input);
+
+  void Clear() {
+    num_processed_output_records_ = 0;
+    output_files_.clear();
+    last_persisted_output_files_count_ = 0;
+  }
+
+  std::string ToString() const {
+    std::ostringstream oss;
+    oss << "SubcompactionProgressPerLevel{";
+    oss << " num_processed_output_records=" << num_processed_output_records_;
+    oss << ", output_files_count=" << output_files_.size();
+    oss << ", last_persisted_output_files_count="
+        << last_persisted_output_files_count_;
+    oss << " }";
+    return oss.str();
+  }
+
+  void TEST_ClearOutputFiles() { output_files_.clear(); }
+
+ private:
+  uint64_t num_processed_output_records_ = 0;
+
+  autovector<FileMetaData> output_files_ = {};
+
+  // Number of files already persisted to help calculate the new output files to
+  // persist in the future. This is to prevent having to persist all the output
+  // files metadata so far every time of a "snapshot" of a progress is persisted
+  // which can lead to O(1+2+...+n) = O(n^2) file metadata being persisted. The
+  // current approach of persisting only the delta should always persist
+  // exactly the number (n) of output files in total.
+  size_t last_persisted_output_files_count_ = 0;
+
+  void EncodeOutputFiles(std::string* dst) const;
+
+  Status DecodeOutputFiles(Slice* input,
+                           autovector<FileMetaData>& temp_storage);
+};
+
+struct SubcompactionProgress {
+  std::string next_internal_key_to_compact;
+
+  uint64_t num_processed_input_records = 0;
+
+  SubcompactionProgressPerLevel output_level_progress;
+
+  SubcompactionProgressPerLevel proximal_output_level_progress;
+
+  SubcompactionProgress() = default;
+
+  void Clear() {
+    next_internal_key_to_compact.clear();
+    num_processed_input_records = 0;
+    output_level_progress.Clear();
+    proximal_output_level_progress.Clear();
+  }
+
+  void EncodeTo(std::string* dst) const;
+
+  Status DecodeFrom(Slice* input);
+
+  std::string ToString() const {
+    std::ostringstream oss;
+    oss << "SubcompactionProgress{";
+    oss << " next_internal_key_to_compact=";
+    if (next_internal_key_to_compact.empty()) {
+      oss << "";
+    } else {
+      ParsedInternalKey parsed_key;
+      Slice key_slice(next_internal_key_to_compact);
+      if (ParseInternalKey(key_slice, &parsed_key, false /* log_err_key */)
+              .ok()) {
+        oss << "user_key(hex)=" << parsed_key.user_key.ToString(true /* hex */);
+        oss << ", seq=";
+        if (parsed_key.sequence == kMaxSequenceNumber) {
+          oss << "kMaxSequenceNumber";
+        } else {
+          oss << parsed_key.sequence;
+        }
+        oss << ", type=";
+        if (parsed_key.type == kValueTypeForSeek) {
+          oss << "kValueTypeForSeek";
+        } else {
+          oss << static_cast<int>(parsed_key.type);
+        }
+      } else {
+        oss << "raw=" << key_slice.ToString(true /* hex */);
+      }
+    }
+    oss << ", num_processed_input_records=" << num_processed_input_records;
+    oss << ", output_level_progress=" << output_level_progress.ToString();
+    oss << ", proximal_output_level_progress="
+        << proximal_output_level_progress.ToString();
+    oss << " }";
+    return oss.str();
+  }
+};
+
+class VersionEdit;
+
+// Builder class to reconstruct complete subcompaction progress object
+// from multiple decoded VersionEdits containing delta output files information
+// of the same subcompaction. See
+// `SubcompactionProgressPerLevel::last_persisted_output_files_count_`'s comment
+//
+// WARNING: This class currently assumes all input VersionEdits contain progress
+// information for the SAME subcompaction. It does not validate
+// progress data from different subcompactions so mixing progress from
+// multiple subcompactions can result in corrupted state silently. The caller is
+// responsible for ensuring all VersionEdits processed by a single instance
+// of this builder correspond to the same subcompaction.
+class SubcompactionProgressBuilder {
+ public:
+  SubcompactionProgressBuilder() = default;
+
+  bool ProcessVersionEdit(const VersionEdit& edit);
+
+  const SubcompactionProgress& GetAccumulatedSubcompactionProgress() const {
+    return accumulated_subcompaction_progress_;
+  }
+
+  bool HasAccumulatedSubcompactionProgress() const {
+    return has_subcompaction_progress_;
+  }
+
+  void Clear();
+
+ private:
+  void MergeDeltaProgress(const SubcompactionProgress& delta_progress);
+
+  void MaybeMergeDeltaProgressPerLevel(
+      SubcompactionProgressPerLevel& accumulated_level_progress,
+      const SubcompactionProgressPerLevel& delta_level_progress);
+
+  SubcompactionProgress accumulated_subcompaction_progress_;
+  bool has_subcompaction_progress_ = false;
+};
+
+// Type alias for backward compatibility - vector of subcompaction progress
+using CompactionProgress = std::vector<SubcompactionProgress>;
+
 // The state of a DB at any given time is referred to as a Version.
 // Any modification to the Version is considered a Version Edit. A Version is
 // constructed by joining a sequence of Version Edits. Version Edits are written
 // to the MANIFEST file.
 class VersionEdit {
  public:
+  // Retrieve the table files added as well as their associated levels.
+  using NewFiles = std::vector<std::pair<int, FileMetaData>>;
+
+  static void EncodeToNewFile4(const FileMetaData& f, int level, size_t ts_sz,
+                               bool has_min_log_number_to_keep,
+                               uint64_t min_log_number_to_keep,
+                               bool& min_log_num_written, std::string* dst);
+
+  static const char* DecodeNewFile4From(Slice* input, int& max_level,
+                                        uint64_t& min_log_number_to_keep,
+                                        bool& has_min_log_number_to_keep,
+                                        NewFiles& new_files, FileMetaData& f);
+
   void Clear();
 
   void SetDBId(const std::string& db_id) {
@@ -511,17 +803,19 @@ class VersionEdit {
                const std::string& file_checksum_func_name,
                const UniqueId64x2& unique_id,
                const uint64_t compensated_range_deletion_size,
-               uint64_t tail_size, bool user_defined_timestamps_persisted) {
+               uint64_t tail_size, bool user_defined_timestamps_persisted,
+               const std::string& min_timestamp = "",
+               const std::string& max_timestamp = "") {
     assert(smallest_seqno <= largest_seqno);
     new_files_.emplace_back(
         level,
-        FileMetaData(file, file_path_id, file_size, smallest, largest,
-                     smallest_seqno, largest_seqno, marked_for_compaction,
-                     temperature, oldest_blob_file_number, oldest_ancester_time,
-                     file_creation_time, epoch_number, file_checksum,
-                     file_checksum_func_name, unique_id,
-                     compensated_range_deletion_size, tail_size,
-                     user_defined_timestamps_persisted));
+        FileMetaData(
+            file, file_path_id, file_size, smallest, largest, smallest_seqno,
+            largest_seqno, marked_for_compaction, temperature,
+            oldest_blob_file_number, oldest_ancester_time, file_creation_time,
+            epoch_number, file_checksum, file_checksum_func_name, unique_id,
+            compensated_range_deletion_size, tail_size,
+            user_defined_timestamps_persisted, min_timestamp, max_timestamp));
     files_to_quarantine_.push_back(file);
     if (!HasLastSequence() || largest_seqno > GetLastSequence()) {
       SetLastSequence(largest_seqno);
@@ -537,8 +831,6 @@ class VersionEdit {
     }
   }
 
-  // Retrieve the table files added as well as their associated levels.
-  using NewFiles = std::vector<std::pair<int, FileMetaData>>;
   const NewFiles& GetNewFiles() const { return new_files_; }
 
   NewFiles& GetMutableNewFiles() { return new_files_; }
@@ -708,6 +1000,26 @@ class VersionEdit {
     full_history_ts_low_ = std::move(full_history_ts_low);
   }
 
+  void SetSubcompactionProgress(const SubcompactionProgress& progress) {
+    has_subcompaction_progress_ = true;
+    subcompaction_progress_ = progress;
+  }
+
+  bool HasSubcompactionProgress() const { return has_subcompaction_progress_; }
+
+  const SubcompactionProgress& GetSubcompactionProgress() const {
+    return subcompaction_progress_;
+  }
+
+  void ClearSubcompactionProgress() {
+    has_subcompaction_progress_ = false;
+    subcompaction_progress_.Clear();
+  }
+
+  // Recovery-time per-column-family edits only need to be written when they
+  // advance the CF's log number or carry some other manifest state.
+  bool ShouldEmitPerColumnFamilyRecoveryEdit(uint64_t current_log_number) const;
+
   // return true on success.
   // `ts_sz` is the size in bytes for the user-defined timestamp contained in
   // a user key. This argument is optional because it's only required for
@@ -730,15 +1042,22 @@ class VersionEdit {
   std::string DebugJSON(int edit_num, bool hex_key = false) const;
 
  private:
-  bool GetLevel(Slice* input, int* level, const char** msg);
-
-  const char* DecodeNewFile4From(Slice* input);
-
+  // Decode level information from serialized VersionEdit data and and track the
+  // maximum level seen.
+  //
+  // Parameters:
+  //   input: Pointer to serialized data slice
+  //   level: Output parameter for the decoded level value
+  //   max_level: get updated if the decoded level is higher than passed in
+  //   value
+  //
+  // Returns: true on successful decode, false on parse error
+  static bool GetLevel(Slice* input, int* level, int& max_level);
   // Encode file boundaries `FileMetaData.smallest` and `FileMetaData.largest`.
   // User-defined timestamps in the user key will be stripped if they shouldn't
   // be persisted.
-  void EncodeFileBoundaries(std::string* dst, const FileMetaData& meta,
-                            size_t ts_sz) const;
+  static void EncodeFileBoundaries(std::string* dst, const FileMetaData& meta,
+                                   size_t ts_sz);
 
   int max_level_ = 0;
   std::string db_id_;
@@ -788,6 +1107,9 @@ class VersionEdit {
 
   std::string full_history_ts_low_;
   bool persist_user_defined_timestamps_ = true;
+
+  bool has_subcompaction_progress_ = false;
+  SubcompactionProgress subcompaction_progress_;
 
   // Newly created table files and blob files are eligible for deletion if they
   // are not registered as live files after the background jobs creating them

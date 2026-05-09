@@ -20,6 +20,7 @@ LIB_SOURCES =                                                   \
   db/blob/blob_file_addition.cc                                 \
   db/blob/blob_file_builder.cc                                  \
   db/blob/blob_file_cache.cc                                    \
+  db/blob/blob_file_partition_manager.cc                        \
   db/blob/blob_file_garbage.cc                                  \
   db/blob/blob_file_meta.cc                                     \
   db/blob/blob_file_reader.cc                                   \
@@ -28,6 +29,7 @@ LIB_SOURCES =                                                   \
   db/blob/blob_log_sequential_reader.cc                         \
   db/blob/blob_log_writer.cc                                    \
   db/blob/blob_source.cc                                        \
+  db/blob/blob_write_batch_transformer.cc                       \
   db/blob/prefetch_buffer_collection.cc                         \
   db/builder.cc                                                 \
   db/c.cc                                                       \
@@ -80,6 +82,7 @@ LIB_SOURCES =                                                   \
   db/memtable_list.cc                                           \
   db/merge_helper.cc                                            \
   db/merge_operator.cc                                          \
+  db/multi_scan.cc						\
   db/output_validator.cc                                        \
   db/periodic_task_scheduler.cc                                 \
   db/range_del_aggregator.cc                                    \
@@ -95,8 +98,10 @@ LIB_SOURCES =                                                   \
   db/version_edit.cc                                            \
   db/version_edit_handler.cc                                    \
   db/version_set.cc                                             \
+  db/version_util.cc                                            \
   db/wal_edit.cc                                                \
   db/wal_manager.cc                                             \
+  db/wide/read_path_blob_resolver.cc                             \
   db/wide/wide_column_serialization.cc                          \
   db/wide/wide_columns.cc                                       \
   db/wide/wide_columns_helper.cc                                \
@@ -181,6 +186,7 @@ LIB_SOURCES =                                                   \
   table/block_based/block_based_table_builder.cc                \
   table/block_based/block_based_table_factory.cc                \
   table/block_based/block_based_table_iterator.cc               \
+  table/block_based/multi_scan_index_iterator.cc                \
   table/block_based/block_based_table_reader.cc                 \
   table/block_based/block_builder.cc                            \
   table/block_based/block_cache.cc                              \
@@ -205,7 +211,7 @@ LIB_SOURCES =                                                   \
   table/cuckoo/cuckoo_table_builder.cc                          \
   table/cuckoo/cuckoo_table_factory.cc                          \
   table/cuckoo/cuckoo_table_reader.cc                           \
-  table/external_table_reader.cc				\
+  table/external_table.cc					\
   table/format.cc                                               \
   table/get_context.cc                                          \
   table/iterator.cc                                             \
@@ -237,6 +243,7 @@ LIB_SOURCES =                                                   \
   trace_replay/block_cache_tracer.cc                            \
   trace_replay/io_tracer.cc                                     \
   util/async_file_reader.cc					                            \
+  util/auto_tune_compressor.cc                                           \
   util/build_version.cc                                         \
   util/cleanable.cc                                             \
   util/coding.cc                                                \
@@ -256,11 +263,13 @@ LIB_SOURCES =                                                   \
   util/ribbon_config.cc                                         \
   util/slice.cc                                                 \
   util/file_checksum_helper.cc                                  \
+  util/simple_mixed_compressor.cc                               \
   util/status.cc                                                \
   util/stderr_logger.cc                                         \
   util/string_util.cc                                           \
   util/thread_local.cc                                          \
   util/threadpool_imp.cc                                        \
+  util/io_dispatcher_imp.cc                                     \
   util/udt_util.cc                                              \
   util/write_batch_util.cc                                      \
   util/xxhash.cc                                                \
@@ -278,6 +287,7 @@ LIB_SOURCES =                                                   \
   utilities/cassandra/merge_operator.cc                         \
   utilities/checkpoint/checkpoint_impl.cc                       \
   utilities/compaction_filters.cc                               \
+  utilities/sorted_run_builder/sorted_run_builder.cc            \
   utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
   utilities/convenience/info_log_finder.cc                      \
   utilities/counted_fs.cc                                       \
@@ -329,6 +339,9 @@ LIB_SOURCES =                                                   \
   utilities/transactions/write_unprepared_txn.cc                \
   utilities/transactions/write_unprepared_txn_db.cc             \
   utilities/ttl/db_ttl_impl.cc                                  \
+  utilities/trie_index/bitvector.cc                              \
+  utilities/trie_index/louds_trie.cc                             \
+  utilities/trie_index/trie_index_factory.cc                     \
   utilities/types_util.cc                                       \
   utilities/wal_filter.cc                                       \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
@@ -364,6 +377,7 @@ RANGE_TREE_SOURCES =\
   utilities/transactions/lock/range/range_tree/range_tree_lock_tracker.cc
 
 TOOL_LIB_SOURCES =                                              \
+  db_stress_tool/db_stress_compression_manager.cc               \
   tools/io_tracer_parser_tool.cc                                \
   tools/ldb_cmd.cc                                              \
   tools/ldb_tool.cc                                             \
@@ -382,19 +396,23 @@ BENCH_LIB_SOURCES =                                             \
   tools/tool_hooks.cc                                           \
   tools/simulated_hybrid_file_system.cc                         \
 
-CACHE_BENCH_LIB_SOURCES =					                              \
+CACHE_BENCH_LIB_SOURCES =                                       \
   cache/cache_bench_tool.cc                                     \
+
+POINT_LOCK_BENCH_LIB_SOURCES =                                  \
+  utilities/transactions/lock/point/point_lock_bench_tool.cc    \
 
 STRESS_LIB_SOURCES =                                           \
   db_stress_tool/batched_ops_stress.cc                         \
   db_stress_tool/cf_consistency_stress.cc                      \
   db_stress_tool/db_stress_common.cc                           \
+  db_stress_tool/db_stress_compaction_service.cc               \
+  db_stress_tool/db_stress_compression_manager.cc              \
   db_stress_tool/db_stress_driver.cc                           \
   db_stress_tool/db_stress_filters.cc                          \
   db_stress_tool/db_stress_gflags.cc                           \
   db_stress_tool/db_stress_listener.cc                         \
   db_stress_tool/db_stress_shared_state.cc                     \
-  db_stress_tool/db_stress_stat.cc                             \
   db_stress_tool/db_stress_test_base.cc                        \
   db_stress_tool/db_stress_tool.cc                             \
   db_stress_tool/db_stress_wide_merge_operator.cc              \
@@ -463,6 +481,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/blob/blob_garbage_meter_test.cc                                    \
   db/blob/blob_source_test.cc                                           \
   db/blob/db_blob_basic_test.cc                                         \
+  db/blob/db_blob_direct_write_test.cc                                  \
   db/blob/db_blob_compaction_test.cc                                    \
   db/blob/db_blob_corruption_test.cc                                    \
   db/blob/db_blob_index_test.cc                                         \
@@ -481,11 +500,13 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_basic_test.cc                                                   \
   db/db_block_cache_test.cc                                             \
   db/db_bloom_filter_test.cc                                            \
+  db/db_compaction_abort_test.cc                                        \
   db/db_compaction_filter_test.cc                                       \
   db/db_compaction_test.cc                                              \
   db/db_clip_test.cc                                                    \
   db/db_dynamic_level_test.cc                                           \
   db/db_encryption_test.cc                                              \
+  db/db_etc3_test.cc                                                    \
   db/db_flush_test.cc                                                   \
   db/db_follower_test.cc						                                    \
   db/db_readonly_with_timestamp_test.cc                                 \
@@ -501,6 +522,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_memtable_test.cc                                                \
   db/db_merge_operator_test.cc                                          \
   db/db_merge_operand_test.cc                                           \
+  db/db_open_with_config_test.cc                                        \
   db/db_options_test.cc                                                 \
   db/db_properties_test.cc                                              \
   db/db_range_del_test.cc                                               \
@@ -550,6 +572,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/version_set_test.cc                                                \
   db/wal_manager_test.cc                                                \
   db/wide/db_wide_basic_test.cc                                         \
+  db/wide/db_wide_blob_direct_write_test.cc                             \
   db/wide/wide_column_serialization_test.cc                             \
   db/wide/wide_columns_helper_test.cc                                   \
   db/write_batch_test.cc                                                \
@@ -591,6 +614,7 @@ TEST_MAIN_SOURCES =                                                     \
   table/table_test.cc                                                   \
   table/block_fetcher_test.cc                                           \
   test_util/testutil_test.cc                                            \
+  util/compression_test.cc                                            \
   tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc         \
   tools/io_tracer_parser_test.cc                                        \
   tools/ldb_cmd_test.cc                                                 \
@@ -609,6 +633,8 @@ TEST_MAIN_SOURCES =                                                     \
   util/file_reader_writer_test.cc                                       \
   util/hash_test.cc                                                     \
   util/heap_test.cc                                                     \
+  util/interval_test.cc                                                 \
+  util/io_dispatcher_test.cc                                            \
   util/random_test.cc                                                   \
   util/rate_limiter_test.cc                                             \
   util/repeatable_thread_test.cc                                        \
@@ -629,7 +655,9 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/cassandra/cassandra_row_merge_test.cc                       \
   utilities/cassandra/cassandra_serialize_test.cc                       \
   utilities/checkpoint/checkpoint_test.cc                               \
+  utilities/sorted_run_builder/sorted_run_builder_test.cc               \
   utilities/env_timed_test.cc                                           \
+  utilities/fault_injection_fs_test.cc                                  \
   utilities/memory/memory_test.cc                                       \
   utilities/merge_operators/string_append/stringappend_test.cc          \
   utilities/object_registry_test.cc                                     \
@@ -645,11 +673,15 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/transactions/lock/range/range_locking_test.cc               \
   utilities/transactions/transaction_test.cc                            \
   utilities/transactions/lock/point/point_lock_manager_test.cc          \
+  utilities/transactions/lock/point/point_lock_manager_stress_test.cc   \
   utilities/transactions/write_prepared_transaction_test.cc             \
+  utilities/transactions/write_prepared_transaction_seqno_test.cc       \
   utilities/transactions/write_unprepared_transaction_test.cc           \
   utilities/transactions/write_committed_transaction_ts_test.cc         \
   utilities/transactions/timestamped_snapshot_test.cc                   \
   utilities/ttl/ttl_test.cc                                             \
+  utilities/trie_index/trie_index_db_test.cc                            \
+  utilities/trie_index/trie_index_test.cc                               \
   utilities/types_util_test.cc                                          \
   utilities/util_merge_operators_test.cc                                \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \

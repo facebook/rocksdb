@@ -18,6 +18,10 @@ namespace ROCKSDB_NAMESPACE {
 // DbStressCompactionFilter is safe to use with db_stress as it does not perform
 // any mutation. It only makes `kRemove` decisions for keys that are already
 // non-existent according to the `SharedState`.
+// TODO: add follow-up stress coverage for wide-column blob entities through
+// both FilterV3 compatibility and FilterV4 lazy-resolution paths, including
+// blob direct write configurations. The current stress filter only exercises
+// FilterV2 behavior.
 class DbStressCompactionFilter : public CompactionFilter {
  public:
   DbStressCompactionFilter(SharedState* state, int cf_id)

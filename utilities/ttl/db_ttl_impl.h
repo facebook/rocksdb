@@ -32,7 +32,7 @@ class DBWithTTLImpl : public DBWithTTL {
                               SystemClock* clock);
 
   static void RegisterTtlClasses();
-  explicit DBWithTTLImpl(DB* db);
+  explicit DBWithTTLImpl(std::unique_ptr<DB>&& db);
 
   virtual ~DBWithTTLImpl();
 
@@ -99,6 +99,8 @@ class DBWithTTLImpl : public DBWithTTL {
   void SetTtl(int32_t ttl) override { SetTtl(DefaultColumnFamily(), ttl); }
 
   void SetTtl(ColumnFamilyHandle* h, int32_t ttl) override;
+
+  Status GetTtl(ColumnFamilyHandle* h, int32_t* ttl) override;
 
  private:
   // remember whether the Close completes or not
@@ -184,6 +186,7 @@ class TtlCompactionFilterFactory : public CompactionFilterFactory {
   std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) override;
   void SetTtl(int32_t ttl) { ttl_ = ttl; }
+  int32_t GetTtl() { return ttl_; }
 
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "TtlCompactionFilterFactory"; }

@@ -1672,55 +1672,75 @@ TEST_P(DBTestUniversalCompaction, ConcurrentBottomPriLowPriCompactions) {
   }
   const int kNumFilesTrigger = 3;
   Env::Default()->SetBackgroundThreads(1, Env::Priority::BOTTOM);
-  Options options = CurrentOptions();
-  options.compaction_style = kCompactionStyleUniversal;
-  options.max_background_compactions = 2;
-  options.num_levels = num_levels_;
-  options.write_buffer_size = 100 << 10;     // 100KB
-  options.target_file_size_base = 32 << 10;  // 32KB
-  options.level0_file_num_compaction_trigger = kNumFilesTrigger;
-  // Trigger compaction if size amplification exceeds 110%
-  options.compaction_options_universal.max_size_amplification_percent = 110;
-  DestroyAndReopen(options);
 
-  // Need to get a token to enable compaction parallelism up to
-  // `max_background_compactions` jobs.
-  auto pressure_token =
-      dbfull()->TEST_write_controler().GetCompactionPressureToken();
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {// wait for the full compaction to be picked before adding files intended
-       // for the second one.
-       {"DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
-        "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0"},
-       // the full (bottom-pri) compaction waits until a partial (low-pri)
-       // compaction has started to verify they can run in parallel.
-       {"DBImpl::BackgroundCompaction:NonTrivial",
-        "DBImpl::BGWorkBottomCompaction"}});
-  SyncPoint::GetInstance()->EnableProcessing();
+  for (bool universal_reduce_file_locking : {true, false}) {
+    Options options = CurrentOptions();
+    options.compaction_style = kCompactionStyleUniversal;
+    options.compaction_options_universal.reduce_file_locking =
+        universal_reduce_file_locking;
+    options.max_background_compactions = 2;
+    options.num_levels = num_levels_;
+    options.write_buffer_size = 100 << 10;     // 100KB
+    options.target_file_size_base = 32 << 10;  // 32KB
+    options.level0_file_num_compaction_trigger = kNumFilesTrigger;
+    // Trigger compaction if size amplification exceeds 110%
+    options.compaction_options_universal.max_size_amplification_percent = 110;
+    DestroyAndReopen(options);
 
-  Random rnd(301);
-  for (int i = 0; i < 2; ++i) {
-    for (int num = 0; num < kNumFilesTrigger; num++) {
-      int key_idx = 0;
-      GenerateNewFile(&rnd, &key_idx, true /* no_wait */);
-      // use no_wait above because that one waits for flush and compaction. We
-      // don't want to wait for compaction because the full compaction is
-      // intentionally blocked while more files are flushed.
-      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    // Need to get a token to enable compaction parallelism up to
+    // `max_background_compactions` jobs.
+    auto pressure_token =
+        dbfull()->TEST_write_controler().GetCompactionPressureToken();
+    if (universal_reduce_file_locking) {
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+          {// Wait for the full compaction to be repicked before adding files
+           // intended for the second compaction.
+           {"DBImpl::BackgroundCompaction():AfterPickCompactionBottomPri",
+            "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0"},
+           // Wait for the second compaction to run before running the full
+           // compaction to verify they can run in parallel
+           {"DBImpl::BackgroundCompaction:NonTrivial:BeforeRun",
+            "DBImpl::BackgroundCompaction:NonTrivial:BeforeRunBottomPri"}});
+    } else {
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+          {// Wait for the full compaction to be forwarded before adding files
+           // intended for the second compaction.
+           {"DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
+            "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0"},
+           // Wait for the second compaction to run before running the full
+           // compaction to verify they can run in parallel
+           {"DBImpl::BackgroundCompaction:NonTrivial:BeforeRun",
+            "DBImpl::BackgroundCompaction:NonTrivial:BeforeRunBottomPri"}});
     }
-    if (i == 0) {
-      TEST_SYNC_POINT(
-          "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0");
+
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    Random rnd(301);
+    for (int i = 0; i < 2; ++i) {
+      for (int num = 0; num < kNumFilesTrigger; num++) {
+        int key_idx = 0;
+        GenerateNewFile(&rnd, &key_idx, true /* no_wait */);
+        // use no_wait above because that one waits for flush and compaction. We
+        // don't want to wait for compaction because the full compaction is
+        // intentionally blocked while more files are flushed.
+        ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+      }
+      if (i == 0) {
+        TEST_SYNC_POINT(
+            "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0");
+      }
     }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+    // First compaction should output to bottom level. Second should output to
+    // L0 since older L0 files pending compaction prevent it from being placed
+    // lower.
+    ASSERT_EQ(NumSortedRuns(), 2);
+    ASSERT_GT(NumTableFilesAtLevel(0), 0);
+    ASSERT_GT(NumTableFilesAtLevel(num_levels_ - 1), 0);
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  // First compaction should output to bottom level. Second should output to L0
-  // since older L0 files pending compaction prevent it from being placed lower.
-  ASSERT_EQ(NumSortedRuns(), 2);
-  ASSERT_GT(NumTableFilesAtLevel(0), 0);
-  ASSERT_GT(NumTableFilesAtLevel(num_levels_ - 1), 0);
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
 }
 
@@ -2086,46 +2106,79 @@ TEST_F(DBTestUniversalCompaction2, OverlappingL0) {
 }
 
 TEST_F(DBTestUniversalCompaction2, IngestBehind) {
-  const int kNumKeys = 3000;
-  const int kWindowSize = 100;
-  const int kNumDelsTrigger = 90;
+  for (bool cf_option : {false, true}) {
+    SCOPED_TRACE("cf_option = " + std::to_string(cf_option));
+    const int kNumKeys = 3000;
+    const int kWindowSize = 100;
+    const int kNumDelsTrigger = 90;
 
-  Options opts = CurrentOptions();
-  opts.table_properties_collector_factories.emplace_back(
-      NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger));
-  opts.compaction_style = kCompactionStyleUniversal;
-  opts.level0_file_num_compaction_trigger = 2;
-  opts.compression = kNoCompression;
-  opts.allow_ingest_behind = true;
-  opts.compaction_options_universal.size_ratio = 10;
-  opts.compaction_options_universal.min_merge_width = 2;
-  opts.compaction_options_universal.max_size_amplification_percent = 200;
-  Reopen(opts);
-
-  // add an L1 file to prevent tombstones from dropping due to obsolescence
-  // during flush
-  int i;
-  for (i = 0; i < 2000; ++i) {
-    ASSERT_OK(Put(Key(i), "val"));
-  }
-  ASSERT_OK(Flush());
-  //  MoveFilesToLevel(6);
-  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-
-  for (i = 1999; i < kNumKeys; ++i) {
-    if (i >= kNumKeys - kWindowSize &&
-        i < kNumKeys - kWindowSize + kNumDelsTrigger) {
-      ASSERT_OK(Delete(Key(i)));
+    Options opts = CurrentOptions();
+    opts.table_properties_collector_factories.emplace_back(
+        NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger));
+    opts.compaction_style = kCompactionStyleUniversal;
+    opts.level0_file_num_compaction_trigger = 2;
+    opts.compression = kNoCompression;
+    if (cf_option) {
+      opts.cf_allow_ingest_behind = true;
     } else {
+      opts.allow_ingest_behind = true;
+    }
+    opts.compaction_options_universal.size_ratio = 10;
+    opts.compaction_options_universal.min_merge_width = 2;
+    opts.compaction_options_universal.max_size_amplification_percent = 200;
+    Reopen(opts);
+
+    // add an L1 file to prevent tombstones from dropping due to obsolescence
+    // during flush
+    int i;
+    for (i = 0; i < 2000; ++i) {
       ASSERT_OK(Put(Key(i), "val"));
     }
-  }
-  ASSERT_OK(Flush());
+    ASSERT_OK(Flush());
+    //  MoveFilesToLevel(6);
+    ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ(0, NumTableFilesAtLevel(0));
-  ASSERT_EQ(0, NumTableFilesAtLevel(6));
-  ASSERT_GT(NumTableFilesAtLevel(5), 0);
+    for (i = 1999; i < kNumKeys; ++i) {
+      if (i >= kNumKeys - kWindowSize &&
+          i < kNumKeys - kWindowSize + kNumDelsTrigger) {
+        ASSERT_OK(Delete(Key(i)));
+      } else {
+        ASSERT_OK(Put(Key(i), "val"));
+      }
+    }
+    ASSERT_OK(Flush());
+
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(0, NumTableFilesAtLevel(0));
+    ASSERT_EQ(0, NumTableFilesAtLevel(6));
+    ASSERT_GT(NumTableFilesAtLevel(5), 0);
+
+    if (cf_option) {
+      // Test that another CF does not allow ingest behind
+      ColumnFamilyHandle* new_cfh;
+      Options new_cf_option;
+      new_cf_option.compaction_style = kCompactionStyleUniversal;
+      new_cf_option.num_levels = 7;
+      // CreateColumnFamilies({"new_cf"}, new_cf_option);
+      ASSERT_OK(db_->CreateColumnFamily(new_cf_option, "new_cf", &new_cfh));
+      // handles_.push_back(new_cfh);
+      for (i = 0; i < 10; ++i) {
+        // ASSERT_OK(Put(1, Key(i), "val"));
+        ASSERT_OK(db_->Put(WriteOptions(), new_cfh, Key(i), "val"));
+      }
+      ASSERT_OK(
+          db_->CompactRange(CompactRangeOptions(), new_cfh, nullptr, nullptr));
+      // This CF can use the last leve.
+      std::string property;
+      EXPECT_TRUE(db_->GetProperty(
+          new_cfh, "rocksdb.num-files-at-level" + std::to_string(6),
+          &property));
+      ASSERT_EQ(1, atoi(property.c_str()));
+
+      ASSERT_OK(db_->DropColumnFamily(new_cfh));
+      ASSERT_OK(db_->DestroyColumnFamilyHandle(new_cfh));
+    }
+  }
 }
 
 TEST_F(DBTestUniversalCompaction2, PeriodicCompactionDefault) {

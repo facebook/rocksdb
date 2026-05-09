@@ -1,7 +1,7 @@
 ---
 title: RocksDB AMA
 layout: post
-author: yhchiang
+author: yhciang
 category: blog
 redirect_from:
   - /blog/3065/rocksdb-ama/

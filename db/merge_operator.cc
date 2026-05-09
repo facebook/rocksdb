@@ -32,6 +32,7 @@ bool MergeOperator::FullMergeV3(const MergeOperationInputV3& merge_in,
                                 MergeOperationOutputV3* merge_out) const {
   assert(merge_out);
 
+  Slice value_of_default;  // avoid warning about in_v2 pointing at this
   MergeOperationInput in_v2(merge_in.key, nullptr, merge_in.operand_list,
                             merge_in.logger);
 
@@ -66,7 +67,6 @@ bool MergeOperator::FullMergeV3(const MergeOperationInputV3& merge_in,
             const bool has_default_column =
                 WideColumnsHelper::HasDefaultColumn(existing_columns);
 
-            Slice value_of_default;
             if (has_default_column) {
               value_of_default = existing_columns.front().value();
             }

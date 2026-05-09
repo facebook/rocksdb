@@ -21,7 +21,8 @@ namespace ROCKSDB_NAMESPACE {
 class CompactionOutputs;
 using CompactionFileOpenFunc = std::function<Status(CompactionOutputs&)>;
 using CompactionFileCloseFunc =
-    std::function<Status(CompactionOutputs&, const Status&, const Slice&)>;
+    std::function<Status(const Status&, const ParsedInternalKey&, const Slice&,
+                         const CompactionIterator*, CompactionOutputs&)>;
 
 // Files produced by subcompaction, most of the functions are used by
 // compaction_job Open/Close compaction file functions.
@@ -30,30 +31,36 @@ class CompactionOutputs {
   // compaction output file
   struct Output {
     Output(FileMetaData&& _meta, const InternalKeyComparator& _icmp,
-           bool _enable_hash, bool _finished, uint64_t precalculated_hash)
+           bool _enable_hash, bool _finished, uint64_t precalculated_hash,
+           bool _is_proximal_level)
         : meta(std::move(_meta)),
           validator(_icmp, _enable_hash, precalculated_hash),
-          finished(_finished) {}
+          finished(_finished),
+          is_proximal_level(_is_proximal_level) {}
     FileMetaData meta;
     OutputValidator validator;
     bool finished;
+    bool is_proximal_level;
     std::shared_ptr<const TableProperties> table_properties;
   };
 
   CompactionOutputs() = delete;
 
   explicit CompactionOutputs(const Compaction* compaction,
-                             const bool is_penultimate_level);
+                             const bool is_proximal_level);
 
-  bool IsPenultimateLevel() const { return is_penultimate_level_; }
+  bool IsProximalLevel() const { return is_proximal_level_; }
 
   // Add generated output to the list
   void AddOutput(FileMetaData&& meta, const InternalKeyComparator& icmp,
                  bool enable_hash, bool finished = false,
                  uint64_t precalculated_hash = 0) {
     outputs_.emplace_back(std::move(meta), icmp, enable_hash, finished,
-                          precalculated_hash);
+                          precalculated_hash, is_proximal_level_);
   }
+
+  const std::vector<Output>& GetOutputs() const { return outputs_; }
+  std::vector<Output>& GetMutableOutputs() { return outputs_; }
 
   // Set new table builder for the current output
   void NewBuilder(const TableBuilderOptions& tboptions);
@@ -63,34 +70,42 @@ class CompactionOutputs {
     file_writer_.reset(writer);
   }
 
-  // TODO: Remove it when remote compaction support tiered compaction
-  void AddBytesWritten(uint64_t bytes) { stats_.bytes_written += bytes; }
-  void SetNumOutputRecords(uint64_t num) { stats_.num_output_records = num; }
-  void SetNumOutputFiles(uint64_t num) { stats_.num_output_files = num; }
-
   // TODO: Move the BlobDB builder into CompactionOutputs
   const std::vector<BlobFileAddition>& GetBlobFileAdditions() const {
-    if (is_penultimate_level_) {
+    if (is_proximal_level_) {
       assert(blob_file_additions_.empty());
     }
     return blob_file_additions_;
   }
 
   std::vector<BlobFileAddition>* GetBlobFileAdditionsPtr() {
-    assert(!is_penultimate_level_);
+    assert(!is_proximal_level_);
     return &blob_file_additions_;
   }
 
   bool HasBlobFileAdditions() const { return !blob_file_additions_.empty(); }
 
+  // Get all file paths (SST and blob) created during compaction.
+  const std::vector<std::string>& GetOutputFilePaths() const {
+    return output_file_paths_;
+  }
+
+  std::vector<std::string>* GetOutputFilePathsPtr() {
+    return &output_file_paths_;
+  }
+
+  void AddOutputFilePath(const std::string& path) {
+    output_file_paths_.push_back(path);
+  }
+
   BlobGarbageMeter* CreateBlobGarbageMeter() {
-    assert(!is_penultimate_level_);
+    assert(!is_proximal_level_);
     blob_garbage_meter_ = std::make_unique<BlobGarbageMeter>();
     return blob_garbage_meter_.get();
   }
 
   BlobGarbageMeter* GetBlobGarbageMeter() const {
-    if (is_penultimate_level_) {
+    if (is_proximal_level_) {
       // blobdb doesn't support per_key_placement yet
       assert(blob_garbage_meter_ == nullptr);
       return nullptr;
@@ -99,8 +114,9 @@ class CompactionOutputs {
   }
 
   void UpdateBlobStats() {
-    assert(!is_penultimate_level_);
-    stats_.num_output_files_blob = blob_file_additions_.size();
+    assert(!is_proximal_level_);
+    stats_.num_output_files_blob =
+        static_cast<int>(blob_file_additions_.size());
     for (const auto& blob : blob_file_additions_) {
       stats_.bytes_written_blob += blob.GetTotalBlobBytes();
     }
@@ -169,6 +185,10 @@ class CompactionOutputs {
 
   uint64_t NumEntries() const { return builder_->NumEntries(); }
 
+  uint64_t GetWorkerCPUMicros() const {
+    return worker_cpu_micros_ + (builder_ ? builder_->GetWorkerCPUMicros() : 0);
+  }
+
   void ResetBuilder() {
     builder_.reset();
     current_output_file_size_ = 0;
@@ -191,6 +211,10 @@ class CompactionOutputs {
       const InternalKeyComparator& icmp, SequenceNumber earliest_snapshot,
       std::pair<SequenceNumber, SequenceNumber> keep_seqno_range,
       const Slice& next_table_min_key, const std::string& full_history_ts_low);
+
+  void SetNumOutputRecords(uint64_t num_output_records) {
+    stats_.num_output_records = num_output_records;
+  }
 
  private:
   friend class SubcompactionState;
@@ -251,7 +275,8 @@ class CompactionOutputs {
   // close and open new compaction output with the functions provided.
   Status AddToOutput(const CompactionIterator& c_iter,
                      const CompactionFileOpenFunc& open_file_func,
-                     const CompactionFileCloseFunc& close_file_func);
+                     const CompactionFileCloseFunc& close_file_func,
+                     const ParsedInternalKey& prev_iter_output_internal_key);
 
   // Close the current output. `open_file_func` is needed for creating new file
   // for range-dels only output file.
@@ -267,9 +292,12 @@ class CompactionOutputs {
         !range_del_agg->IsEmpty()) {
       status = open_file_func(*this);
     }
+
     if (HasBuilder()) {
+      const ParsedInternalKey empty_internal_key{};
       const Slice empty_key{};
-      Status s = close_file_func(*this, status, empty_key);
+      Status s = close_file_func(status, empty_internal_key, empty_key,
+                                 nullptr /* c_iter */, *this);
       if (!s.ok() && status.ok()) {
         status = s;
       }
@@ -297,6 +325,9 @@ class CompactionOutputs {
   uint64_t current_output_file_size_ = 0;
   SequenceNumber smallest_preferred_seqno_ = kMaxSequenceNumber;
 
+  // Sum of all the GetWorkerCPUMicros() for all the closed builders so far.
+  uint64_t worker_cpu_micros_ = 0;
+
   // all the compaction outputs so far
   std::vector<Output> outputs_;
 
@@ -304,12 +335,18 @@ class CompactionOutputs {
   std::vector<BlobFileAddition> blob_file_additions_;
   std::unique_ptr<BlobGarbageMeter> blob_garbage_meter_;
 
-  // Basic compaction output stats for this level's outputs
-  InternalStats::CompactionOutputsStats stats_;
+  // All file paths (SST and blob) created during compaction.
+  // Used for cleanup on abort - ensures orphan files are deleted even if
+  // they were removed from outputs_ or blob_file_additions_ (e.g., by
+  // RemoveLastEmptyOutput when file_size is 0 because builder was abandoned).
+  std::vector<std::string> output_file_paths_;
 
-  // indicate if this CompactionOutputs obj for penultimate_level, should always
+  // Per level's output stat
+  InternalStats::CompactionStats stats_;
+
+  // indicate if this CompactionOutputs obj for proximal_level, should always
   // be false if per_key_placement feature is not enabled.
-  const bool is_penultimate_level_;
+  const bool is_proximal_level_;
 
   // partitioner information
   std::string last_key_for_partitioner_;
@@ -363,7 +400,7 @@ class CompactionOutputs {
   std::vector<size_t> level_ptrs_;
 };
 
-// helper struct to concatenate the last level and penultimate level outputs
+// helper struct to concatenate the last level and proximal level outputs
 // which could be replaced by std::ranges::join_view() in c++20
 struct OutputIterator {
  public:

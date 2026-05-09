@@ -836,19 +836,6 @@ public class ColumnFamilyOptions
   }
 
   @Override
-  public ColumnFamilyOptions setMaxWriteBufferNumberToMaintain(
-      final int maxWriteBufferNumberToMaintain) {
-    setMaxWriteBufferNumberToMaintain(
-        nativeHandle_, maxWriteBufferNumberToMaintain);
-    return this;
-  }
-
-  @Override
-  public int maxWriteBufferNumberToMaintain() {
-    return maxWriteBufferNumberToMaintain(nativeHandle_);
-  }
-
-  @Override
   public ColumnFamilyOptions setCompactionPriority(
       final CompactionPriority compactionPriority) {
     setCompactionPriority(nativeHandle_, compactionPriority.getValue());
@@ -968,6 +955,18 @@ public class ColumnFamilyOptions
   @Override
   public int memtableMaxRangeDeletions() {
     return memtableMaxRangeDeletions(nativeHandle_);
+  }
+
+  @Override
+  public ColumnFamilyOptions setMinTombstonesForRangeConversion(
+      final int minTombstonesForRangeConversion) {
+    setMinTombstonesForRangeConversion(nativeHandle_, minTombstonesForRangeConversion);
+    return this;
+  }
+
+  @Override
+  public int minTombstonesForRangeConversion() {
+    return minTombstonesForRangeConversion(nativeHandle_);
   }
 
   //
@@ -1235,6 +1234,18 @@ public class ColumnFamilyOptions
     return blobGarbageCollectionForceThreshold(nativeHandle_);
   }
 
+  @Override
+  public ColumnFamilyOptions setReadTriggeredCompactionThreshold(
+      final double readTriggeredCompactionThreshold) {
+    setReadTriggeredCompactionThreshold(nativeHandle_, readTriggeredCompactionThreshold);
+    return this;
+  }
+
+  @Override
+  public double readTriggeredCompactionThreshold() {
+    return readTriggeredCompactionThreshold(nativeHandle_);
+  }
+
   /**
    * Set compaction readahead for blob files.
    * <p>
@@ -1467,9 +1478,6 @@ public class ColumnFamilyOptions
   private static native int[] maxBytesForLevelMultiplierAdditional(long handle);
   private static native void setParanoidFileChecks(long handle, boolean paranoidFileChecks);
   private static native boolean paranoidFileChecks(long handle);
-  private static native void setMaxWriteBufferNumberToMaintain(
-      final long handle, final int maxWriteBufferNumberToMaintain);
-  private static native int maxWriteBufferNumberToMaintain(final long handle);
   private static native void setCompactionPriority(
       final long handle, final byte compactionPriority);
   private static native byte compactionPriority(final long handle);
@@ -1492,6 +1500,9 @@ public class ColumnFamilyOptions
       final long nativeHandle_, final long compactionThreadLimiterHandle);
   private static native void setMemtableMaxRangeDeletions(final long handle, final int count);
   private static native int memtableMaxRangeDeletions(final long handle);
+  private static native void setMinTombstonesForRangeConversion(
+      final long handle, final int minTombstonesForRangeConversion);
+  private static native int minTombstonesForRangeConversion(final long handle);
 
   private static native void setEnableBlobFiles(
       final long nativeHandle_, final boolean enableBlobFiles);
@@ -1512,6 +1523,9 @@ public class ColumnFamilyOptions
   private static native void setBlobGarbageCollectionForceThreshold(
       final long nativeHandle_, final double blobGarbageCollectionForceThreshold);
   private static native double blobGarbageCollectionForceThreshold(final long nativeHandle_);
+  private static native void setReadTriggeredCompactionThreshold(
+      final long nativeHandle_, final double readTriggeredCompactionThreshold);
+  private static native double readTriggeredCompactionThreshold(final long nativeHandle_);
   private static native void setBlobCompactionReadaheadSize(
       final long nativeHandle_, final long blobCompactionReadaheadSize);
   private static native long blobCompactionReadaheadSize(final long nativeHandle_);

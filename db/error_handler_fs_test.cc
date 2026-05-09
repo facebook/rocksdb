@@ -1550,7 +1550,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
   std::vector<FaultInjectionTestFS*> fault_fs;
   std::vector<Options> options;
   std::vector<std::shared_ptr<ErrorHandlerFSListener>> listener;
-  std::vector<DB*> db;
+  std::vector<std::unique_ptr<DB>> db;
   std::shared_ptr<SstFileManager> sfm(NewSstFileManager(def_env));
   int kNumDbInstances = 3;
   Random rnd(301);
@@ -1567,7 +1567,6 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
     options[i].writable_file_max_buffer_size = 32768;
     options[i].listeners.emplace_back(listener[i]);
     options[i].sst_file_manager = sfm;
-    DB* dbptr;
     char buf[16];
 
     listener[i]->EnableAutoRecovery();
@@ -1576,8 +1575,8 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
                                          IOStatus::NoSpace("Out of space"));
     snprintf(buf, sizeof(buf), "_%d", i);
     ASSERT_OK(DestroyDB(dbname_ + std::string(buf), options[i]));
-    ASSERT_OK(DB::Open(options[i], dbname_ + std::string(buf), &dbptr));
-    db.emplace_back(dbptr);
+    ASSERT_OK(
+        DB::Open(options[i], dbname_ + std::string(buf), &db.emplace_back()));
   }
 
   for (auto i = 0; i < kNumDbInstances; ++i) {
@@ -1609,7 +1608,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
   }
 
   for (auto i = 0; i < kNumDbInstances; ++i) {
-    Status s = static_cast<DBImpl*>(db[i])->TEST_WaitForCompact();
+    Status s = static_cast<DBImpl*>(db[i].get())->TEST_WaitForCompact();
     ASSERT_EQ(s.severity(), Status::Severity::kSoftError);
     fault_fs[i]->SetFilesystemActive(true);
   }
@@ -1618,7 +1617,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
   for (auto i = 0; i < kNumDbInstances; ++i) {
     std::string prop;
     ASSERT_EQ(listener[i]->WaitForRecovery(5000000), true);
-    ASSERT_OK(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact());
+    ASSERT_OK(static_cast<DBImpl*>(db[i].get())->TEST_WaitForCompact());
     EXPECT_TRUE(db[i]->GetProperty(
         "rocksdb.num-files-at-level" + std::to_string(0), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 0);
@@ -1634,7 +1633,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
   for (auto i = 0; i < kNumDbInstances; ++i) {
     char buf[16];
     snprintf(buf, sizeof(buf), "_%d", i);
-    delete db[i];
+    db[i].reset();
     fault_fs[i]->SetFilesystemActive(true);
     if (getenv("KEEP_DB")) {
       printf("DB is still at %s%s\n", dbname_.c_str(), buf);
@@ -1657,7 +1656,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
   std::vector<FaultInjectionTestFS*> fault_fs;
   std::vector<Options> options;
   std::vector<std::shared_ptr<ErrorHandlerFSListener>> listener;
-  std::vector<DB*> db;
+  std::vector<std::unique_ptr<DB>> db;
   std::shared_ptr<SstFileManager> sfm(NewSstFileManager(def_env));
   int kNumDbInstances = 3;
   Random rnd(301);
@@ -1674,7 +1673,6 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
     options[i].writable_file_max_buffer_size = 32768;
     options[i].listeners.emplace_back(listener[i]);
     options[i].sst_file_manager = sfm;
-    DB* dbptr;
     char buf[16];
 
     listener[i]->EnableAutoRecovery();
@@ -1695,8 +1693,8 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
     }
     snprintf(buf, sizeof(buf), "_%d", i);
     ASSERT_OK(DestroyDB(dbname_ + std::string(buf), options[i]));
-    ASSERT_OK(DB::Open(options[i], dbname_ + std::string(buf), &dbptr));
-    db.emplace_back(dbptr);
+    ASSERT_OK(
+        DB::Open(options[i], dbname_ + std::string(buf), &db.emplace_back()));
   }
 
   for (auto i = 0; i < kNumDbInstances; ++i) {
@@ -1732,7 +1730,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
   }
 
   for (auto i = 0; i < kNumDbInstances; ++i) {
-    Status s = static_cast<DBImpl*>(db[i])->TEST_WaitForCompact();
+    Status s = static_cast<DBImpl*>(db[i].get())->TEST_WaitForCompact();
     switch (i) {
       case 0:
         ASSERT_EQ(s.severity(), Status::Severity::kSoftError);
@@ -1754,7 +1752,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
       ASSERT_EQ(listener[i]->WaitForRecovery(5000000), true);
     }
     if (i == 1) {
-      ASSERT_OK(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact());
+      ASSERT_OK(static_cast<DBImpl*>(db[i].get())->TEST_WaitForCompact());
     }
     EXPECT_TRUE(db[i]->GetProperty(
         "rocksdb.num-files-at-level" + std::to_string(0), &prop));
@@ -1772,7 +1770,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
     char buf[16];
     snprintf(buf, sizeof(buf), "_%d", i);
     fault_fs[i]->SetFilesystemActive(true);
-    delete db[i];
+    db[i].reset();
     if (getenv("KEEP_DB")) {
       printf("DB is still at %s%s\n", dbname_.c_str(), buf);
     } else {

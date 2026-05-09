@@ -154,23 +154,18 @@ std::string IndexValue::ToString(bool hex, bool have_first_key) const {
 
 namespace {
 inline bool IsLegacyFooterFormat(uint64_t magic_number) {
-  return magic_number == kLegacyBlockBasedTableMagicNumber ||
-         magic_number == kLegacyPlainTableMagicNumber;
+  return magic_number == kLegacyPlainTableMagicNumber;
 }
+// Used when reading format_version=0 footers (plain tables)
 inline uint64_t UpconvertLegacyFooterFormat(uint64_t magic_number) {
-  if (magic_number == kLegacyBlockBasedTableMagicNumber) {
-    return kBlockBasedTableMagicNumber;
-  }
   if (magic_number == kLegacyPlainTableMagicNumber) {
     return kPlainTableMagicNumber;
   }
   assert(false);
   return magic_number;
 }
+// Used by plain tables to write format_version=0 footers
 inline uint64_t DownconvertToLegacyFooterFormat(uint64_t magic_number) {
-  if (magic_number == kBlockBasedTableMagicNumber) {
-    return kLegacyBlockBasedTableMagicNumber;
-  }
   if (magic_number == kPlainTableMagicNumber) {
     return kLegacyPlainTableMagicNumber;
   }
@@ -178,14 +173,18 @@ inline uint64_t DownconvertToLegacyFooterFormat(uint64_t magic_number) {
   return magic_number;
 }
 inline uint8_t BlockTrailerSizeForMagicNumber(uint64_t magic_number) {
-  if (magic_number == kBlockBasedTableMagicNumber ||
-      magic_number == kLegacyBlockBasedTableMagicNumber) {
+  if (magic_number == kBlockBasedTableMagicNumber) {
     return static_cast<uint8_t>(BlockBasedTable::kBlockTrailerSize);
   } else {
     return 0;
   }
 }
 
+// NOTE: format_version 0 is still used by plain tables and format_version 1 by
+// cuckoo table. For block-based tables, format_version < 2 is no longer
+// supported for reading or writing. Legacy magic numbers on block-based tables
+// are used only for good error reporting.
+//
 // Footer format, in three parts:
 // * Part1
 //   -> format_version == 0 (inferred from legacy magic number)
@@ -229,7 +228,8 @@ Status FooterBuilder::Build(uint64_t magic_number, uint32_t format_version,
                             const BlockHandle& index_handle,
                             uint32_t base_context_checksum) {
   assert(magic_number != Footer::kNullTableMagicNumber);
-  assert(IsSupportedFormatVersion(format_version));
+  assert(IsSupportedFormatVersionForWrite(magic_number, format_version) ||
+         TEST_AllowUnsupportedFormatVersion());
 
   char* part2;
   char* part3;
@@ -250,6 +250,7 @@ Status FooterBuilder::Build(uint64_t magic_number, uint32_t format_version,
     EncodeFixed64(cur, magic_number);
     assert(cur + 8 == slice_.data() + slice_.size());
   } else {
+    // format_version == 0 is used by plain tables
     slice_ = Slice(data_.data(), Footer::kVersion0EncodedLength);
     // Legacy SST files use kCRC32c checksum but it's not stored in footer.
     assert(checksum_type == kNoChecksum || checksum_type == kCRC32c);
@@ -336,9 +337,18 @@ Status Footer::DecodeFrom(Slice input, uint64_t input_offset,
   const char* magic_ptr = input.data() + input.size() - kMagicNumberLengthByte;
   uint64_t magic = DecodeFixed64(magic_ptr);
 
-  // We check for legacy formats here and silently upconvert them
+  // Legacy block-based tables (format_version < 2) are no longer supported.
+  // (This constant is only used here and in the corresponding test.)
+  if (magic == 0xdb4775248b80fb57ull) {
+    return Status::NotSupported(
+        "Unsupported legacy magic number for block-based SST format. Load with "
+        "RocksDB >= 4.6.0 and < 11.0.0 and run full compaction to upgrade.");
+  }
+
+  // Check for legacy formats
   bool legacy = IsLegacyFooterFormat(magic);
   if (legacy) {
+    // Legacy plain tables are still supported - upconvert magic
     magic = UpconvertLegacyFooterFormat(magic);
   }
   if (enforce_table_magic_number != 0 && enforce_table_magic_number != magic) {
@@ -354,6 +364,7 @@ Status Footer::DecodeFrom(Slice input, uint64_t input_offset,
   uint32_t computed_checksum = 0;
   uint64_t footer_offset = 0;
   if (legacy) {
+    // Legacy format (format_version=0, used by plain tables)
     // The size is already asserted to be at least kMinEncodedLength
     // at the beginning of the function
     input.remove_prefix(input.size() - kVersion0EncodedLength);
@@ -362,9 +373,11 @@ Status Footer::DecodeFrom(Slice input, uint64_t input_offset,
   } else {
     part3_ptr = magic_ptr - 4;
     format_version_ = DecodeFixed32(part3_ptr);
-    if (UNLIKELY(!IsSupportedFormatVersion(format_version_))) {
-      return Status::Corruption("Corrupt or unsupported format_version: " +
-                                std::to_string(format_version_));
+    if (UNLIKELY(!IsSupportedFormatVersionForRead(magic, format_version_) &&
+                 !TEST_AllowUnsupportedFormatVersion())) {
+      return Status::Corruption("Corrupt or unsupported format_version " +
+                                std::to_string(format_version_) +
+                                " for magic " + std::to_string(magic));
     }
     // All known format versions >= 1 occupy exactly this many bytes.
     if (UNLIKELY(input.size() < kNewVersionsEncodedLength)) {
@@ -475,15 +488,41 @@ std::string Footer::ToString() const {
   return result;
 }
 
-static Status ReadFooterFromFileInternal(const IOOptions& opts,
-                                         RandomAccessFileReader* file,
-                                         FileSystem& fs,
-                                         FilePrefetchBuffer* prefetch_buffer,
-                                         uint64_t file_size, Footer* footer,
-                                         uint64_t enforce_table_magic_number) {
-  if (file_size < Footer::kMinEncodedLength) {
+bool& TEST_AllowUnsupportedFormatVersion() {
+  static bool allow = false;
+  return allow;
+}
+
+static Status ReadFooterFromFileInternal(
+    const IOOptions& opts, RandomAccessFileReader* file, FileSystem& fs,
+    FilePrefetchBuffer* prefetch_buffer, uint64_t expected_file_size,
+    Footer* footer, uint64_t enforce_table_magic_number) {
+  uint64_t file_size_from_file_system = 0;
+  Status s;
+  // Prefer the more efficient FSRandomAccessFile::GetFileSize when available
+  s = file->file()->GetFileSize(&file_size_from_file_system);
+  if (!s.ok()) {
+    // Fall back on FileSystem::GetFileSize on failure
+    s = fs.GetFileSize(file->file_name(), IOOptions(),
+                       &file_size_from_file_system, nullptr);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  if (expected_file_size != file_size_from_file_system) {
+    // When file is opened during DB Open, the expected file size is from
+    // manifest. Otherwise it is not guaranteed.
+    return Status::Corruption("Sst file size mismatch between expected " +
+                              std::to_string(expected_file_size) +
+                              " and file system " +
+                              std::to_string(file_size_from_file_system) +
+                              " sstable: " + file->file_name());
+  }
+
+  if (expected_file_size < Footer::kMinEncodedLength) {
     return Status::Corruption("file is too short (" +
-                              std::to_string(file_size) +
+                              std::to_string(expected_file_size) +
                               " bytes) to be an "
                               "sstable: " +
                               file->file_name());
@@ -492,10 +531,9 @@ static Status ReadFooterFromFileInternal(const IOOptions& opts,
   std::array<char, Footer::kMaxEncodedLength + 1> footer_buf;
   AlignedBuf internal_buf;
   Slice footer_input;
-  uint64_t read_offset = (file_size > Footer::kMaxEncodedLength)
-                             ? file_size - Footer::kMaxEncodedLength
+  uint64_t read_offset = (expected_file_size > Footer::kMaxEncodedLength)
+                             ? expected_file_size - Footer::kMaxEncodedLength
                              : 0;
-  Status s;
   // TODO: Need to pass appropriate deadline to TryReadFromCache(). Right now,
   // there is no readahead for point lookups, so TryReadFromCache will fail if
   // the required data is not in the prefetch buffer. Once deadline is enabled
@@ -520,23 +558,14 @@ static Status ReadFooterFromFileInternal(const IOOptions& opts,
 
   TEST_SYNC_POINT_CALLBACK("ReadFooterFromFileInternal:0", &footer_input);
 
-  // Check that we actually read the whole footer from the file. It may be
-  // that size isn't correct.
+  // Check that we actually read the whole footer from the file.
   if (footer_input.size() < Footer::kMinEncodedLength) {
-    uint64_t size_on_disk = 0;
-    if (fs.GetFileSize(file->file_name(), IOOptions(), &size_on_disk, nullptr)
-            .ok()) {
-      // Similar to CheckConsistency message, but not completely sure the
-      // expected size always came from manifest.
-      return Status::Corruption("Sst file size mismatch: " + file->file_name() +
-                                ". Expected " + std::to_string(file_size) +
-                                ", actual size " +
-                                std::to_string(size_on_disk) + "\n");
-    } else {
-      return Status::Corruption(
-          "Missing SST footer data in file " + file->file_name() +
-          " File too short? Expected size: " + std::to_string(file_size));
-    }
+    return Status::Corruption(
+        "The number of bytes read for Footer input " +
+        std::to_string(footer_input.size()) +
+        " is smaller than minimum footer encoded length: " +
+        std::to_string(Footer::kMinEncodedLength) + " for file " +
+        file->file_name() + "\n");
   }
 
   s = footer->DecodeFrom(footer_input, read_offset, enforce_table_magic_number);
@@ -549,20 +578,21 @@ static Status ReadFooterFromFileInternal(const IOOptions& opts,
 
 Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
                           FileSystem& fs, FilePrefetchBuffer* prefetch_buffer,
-                          uint64_t file_size, Footer* footer,
+                          uint64_t expected_file_size, Footer* footer,
                           uint64_t enforce_table_magic_number,
                           Statistics* stats) {
-  Status s =
-      ReadFooterFromFileInternal(opts, file, fs, prefetch_buffer, file_size,
-                                 footer, enforce_table_magic_number);
+  Status s = ReadFooterFromFileInternal(opts, file, fs, prefetch_buffer,
+                                        expected_file_size, footer,
+                                        enforce_table_magic_number);
   if (s.IsCorruption() &&
       CheckFSFeatureSupport(&fs, FSSupportedOps::kVerifyAndReconstructRead)) {
     IOOptions new_opts = opts;
     new_opts.verify_and_reconstruct_read = true;
     footer->Reset();
     s = ReadFooterFromFileInternal(new_opts, file, fs,
-                                   /*prefetch_buffer=*/nullptr, file_size,
-                                   footer, enforce_table_magic_number);
+                                   /*prefetch_buffer=*/nullptr,
+                                   expected_file_size, footer,
+                                   enforce_table_magic_number);
     RecordTick(stats, FILE_READ_CORRUPTION_RETRY_COUNT);
     if (s.ok()) {
       RecordTick(stats, FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT);
@@ -653,70 +683,82 @@ uint32_t ComputeBuiltinChecksumWithLastByte(ChecksumType type, const char* data,
   }
 }
 
-Status UncompressBlockData(const UncompressionInfo& uncompression_info,
-                           const char* data, size_t size,
-                           BlockContents* out_contents, uint32_t format_version,
+Status DecompressBlockData(Decompressor::Args& args, Decompressor& decompressor,
+                           BlockContents* out_contents,
                            const ImmutableOptions& ioptions,
                            MemoryAllocator* allocator) {
-  Status ret = Status::OK();
-
-  assert(uncompression_info.type() != kNoCompression &&
-         "Invalid compression type");
+  assert(args.compression_type != kNoCompression && "Invalid compression type");
 
   StopWatchNano timer(ioptions.clock,
                       ShouldReportDetailedTime(ioptions.env, ioptions.stats));
-  size_t uncompressed_size = 0;
-  const char* error_msg = nullptr;
-  CacheAllocationPtr ubuf = UncompressData(
-      uncompression_info, data, size, &uncompressed_size,
-      GetCompressFormatForVersion(format_version), allocator, &error_msg);
-  if (!ubuf) {
-    if (!CompressionTypeSupported(uncompression_info.type())) {
-      ret = Status::NotSupported(
-          "Unsupported compression method for this build",
-          CompressionTypeToString(uncompression_info.type()));
-    } else {
-      std::ostringstream oss;
-      oss << "Corrupted compressed block contents";
-      if (error_msg) {
-        oss << ": " << error_msg;
-      }
-      ret = Status::Corruption(
-          oss.str(), CompressionTypeToString(uncompression_info.type()));
-    }
-    return ret;
+
+  Status s = decompressor.ExtractUncompressedSize(args);
+  if (UNLIKELY(!s.ok())) {
+    return s;
+  }
+  CacheAllocationPtr ubuf = AllocateBlock(args.uncompressed_size, allocator);
+  s = decompressor.DecompressBlock(args, ubuf.get());
+  if (UNLIKELY(!s.ok())) {
+    return s;
   }
 
-  *out_contents = BlockContents(std::move(ubuf), uncompressed_size);
+  *out_contents = BlockContents(std::move(ubuf), args.uncompressed_size);
 
   if (ShouldReportDetailedTime(ioptions.env, ioptions.stats)) {
     RecordTimeToHistogram(ioptions.stats, DECOMPRESSION_TIMES_NANOS,
                           timer.ElapsedNanos());
   }
-  RecordTick(ioptions.stats, BYTES_DECOMPRESSED_FROM, size);
+  RecordTick(ioptions.stats, BYTES_DECOMPRESSED_FROM,
+             args.compressed_data.size());
   RecordTick(ioptions.stats, BYTES_DECOMPRESSED_TO, out_contents->data.size());
   RecordTick(ioptions.stats, NUMBER_BLOCK_DECOMPRESSED);
+  PERF_COUNTER_ADD(block_decompress_count, 1);
 
-  TEST_SYNC_POINT_CALLBACK("UncompressBlockData:TamperWithReturnValue",
-                           static_cast<void*>(&ret));
-  TEST_SYNC_POINT_CALLBACK(
-      "UncompressBlockData:"
-      "TamperWithDecompressionOutput",
-      static_cast<void*>(out_contents));
+  TEST_SYNC_POINT_CALLBACK("DecompressBlockData:TamperWithReturnValue",
+                           static_cast<void*>(&s));
+  TEST_SYNC_POINT_CALLBACK("DecompressBlockData:TamperWithDecompressionOutput",
+                           static_cast<void*>(out_contents));
 
-  return ret;
+  return s;
 }
 
-Status UncompressSerializedBlock(const UncompressionInfo& uncompression_info,
-                                 const char* data, size_t size,
+Status DecompressBlockData(const char* data, size_t size, CompressionType type,
+                           Decompressor& decompressor,
+                           BlockContents* out_contents,
+                           const ImmutableOptions& ioptions,
+                           MemoryAllocator* allocator,
+                           Decompressor::ManagedWorkingArea* working_area) {
+  Decompressor::Args args;
+  args.compressed_data = Slice(data, size);
+  args.compression_type = type;
+  args.working_area = working_area;
+  return DecompressBlockData(args, decompressor, out_contents, ioptions,
+                             allocator);
+}
+
+Status DecompressSerializedBlock(const char* data, size_t size,
+                                 CompressionType type,
+                                 Decompressor& decompressor,
                                  BlockContents* out_contents,
-                                 uint32_t format_version,
                                  const ImmutableOptions& ioptions,
                                  MemoryAllocator* allocator) {
   assert(data[size] != kNoCompression);
-  assert(data[size] == static_cast<char>(uncompression_info.type()));
-  return UncompressBlockData(uncompression_info, data, size, out_contents,
-                             format_version, ioptions, allocator);
+  assert(data[size] == static_cast<char>(type));
+  return DecompressBlockData(data, size, type, decompressor, out_contents,
+                             ioptions, allocator);
+}
+
+Status DecompressSerializedBlock(Decompressor::Args& args,
+                                 Decompressor& decompressor,
+                                 BlockContents* out_contents,
+                                 const ImmutableOptions& ioptions,
+                                 MemoryAllocator* allocator) {
+  assert(args.compressed_data.data()[args.compressed_data.size()] !=
+         kNoCompression);
+  assert(args.compressed_data.data()[args.compressed_data.size()] ==
+         static_cast<char>(args.compression_type));
+  return DecompressBlockData(args, decompressor, out_contents, ioptions,
+                             allocator);
 }
 
 // Replace the contents of db_host_id with the actual hostname, if db_host_id

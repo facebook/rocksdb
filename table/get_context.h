@@ -11,6 +11,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 class BlobFetcher;
+class Cleanable;
 class Comparator;
 class Logger;
 class MergeContext;
@@ -18,6 +19,7 @@ class MergeOperator;
 class PinnableWideColumns;
 class PinnedIteratorsManager;
 class Statistics;
+class Status;
 class SystemClock;
 struct ParsedInternalKey;
 
@@ -139,8 +141,13 @@ class GetContext {
                  Cleanable* value_pinner = nullptr);
 
   // Simplified version of the previous function. Should only be used when we
-  // know that the operation is a Put.
-  void SaveValue(const Slice& value, SequenceNumber seq);
+  // know that the operation is a Put and the column family has no
+  // user-defined timestamps.
+  //
+  // value_pinner: if non-null, ownership of the underlying buffer is
+  // transferred via PinSlice (no copy). If null, value is copied via PinSelf.
+  void SaveValue(const Slice& value, SequenceNumber seq,
+                 Cleanable* value_pinner = nullptr);
 
   GetState State() const { return state_; }
 
@@ -194,6 +201,13 @@ class GetContext {
   void push_operand(const Slice& value, Cleanable* value_pinner);
 
  private:
+  Status SaveWideColumnEntityToPinnable(const Slice& user_key,
+                                        const Slice& entity,
+                                        Cleanable* value_pinner);
+  Status SaveWideColumnEntityToColumns(const Slice& user_key,
+                                       const Slice& entity,
+                                       Cleanable* value_pinner);
+
   // Helper method that postprocesses the results of merge operations, e.g. it
   // sets the state correctly upon merge errors.
   void PostprocessMerge(const Status& merge_status);

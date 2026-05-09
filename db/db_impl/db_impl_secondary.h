@@ -78,8 +78,9 @@ class DBImplSecondary : public DBImpl {
                   std::string secondary_path);
   ~DBImplSecondary() override;
 
-  // Recover by replaying MANIFEST and WAL. Also initialize manifest_reader_
-  // and log_readers_ to facilitate future operations.
+  // Recover by replaying MANIFEST only. Also initialize manifest_reader_
+  // to facilitate future operations. WAL recovery, if needed, is done
+  // separately after opening (see DB::OpenAsSecondary).
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only, bool error_if_wal_file_exists,
                  bool error_if_data_exists_in_wals, bool is_retry = false,
@@ -194,10 +195,11 @@ class DBImplSecondary : public DBImpl {
     return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
-  Status GetLiveFiles(std::vector<std::string>&,
-                      uint64_t* /*manifest_file_size*/,
-                      bool /*flush_memtable*/ = true) override {
-    return Status::NotSupported("Not supported operation in secondary mode.");
+  Status GetLiveFiles(std::vector<std::string>& ret,
+                      uint64_t* manifest_file_size,
+                      bool /*flush_memtable*/) override {
+    return DBImpl::GetLiveFiles(ret, manifest_file_size,
+                                false /* flush_memtable */);
   }
 
   using DBImpl::Flush;
@@ -216,9 +218,9 @@ class DBImplSecondary : public DBImpl {
 
   using DBImpl::SetOptions;
   Status SetOptions(
-      ColumnFamilyHandle* /*cfd*/,
-      const std::unordered_map<std::string, std::string>& /*options_map*/)
-      override {
+      const std::unordered_map<ColumnFamilyHandle*,
+                               std::unordered_map<std::string, std::string>>&
+      /*column_families_opts_map*/) override {
     // Currently not supported because changing certain options may cause
     // flush/compaction and/or write to MANIFEST.
     return Status::NotSupported("Not supported operation in secondary mode.");
@@ -248,12 +250,6 @@ class DBImplSecondary : public DBImpl {
   Status MaybeInitLogReader(uint64_t log_number,
                             log::FragmentBufferedReader** log_reader);
 
-  // Check if all live files exist on file system and that their file sizes
-  // matche to the in-memory records. It is possible that some live files may
-  // have been deleted by the primary. In this case, CheckConsistency() does
-  // not flag the missing file as inconsistency.
-  Status CheckConsistency() override;
-
 #ifndef NDEBUG
   Status TEST_CompactWithoutInstallation(const OpenAndCompactOptions& options,
                                          ColumnFamilyHandle* cfh,
@@ -264,7 +260,7 @@ class DBImplSecondary : public DBImpl {
 #endif  // NDEBUG
 
  protected:
-  Status FlushForGetLiveFiles() override {
+  Status FlushForGetLiveFiles(bool /*force_atomic_flush*/) override {
     // No-op for read-only DB
     return Status::OK();
   }
@@ -309,6 +305,98 @@ class DBImplSecondary : public DBImpl {
                                     const CompactionServiceInput& input,
                                     CompactionServiceResult* result);
 
+ private:
+  // Holds results of compaction progress files and output files from a single
+  // directory scan
+  struct CompactionProgressFilesScan {
+    // The latest (newest) progress file filename
+    std::optional<std::string> latest_progress_filename;
+    uint64_t latest_progress_timestamp = 0;
+
+    // Older progress file filenames (to be deleted)
+    autovector<std::string> old_progress_filenames;
+
+    // Temporary progress file filenames (to be deleted)
+    autovector<std::string> temp_progress_filenames;
+
+    // All output file numbers - for cleanup optimization
+    std::vector<uint64_t> table_file_numbers;
+
+    bool HasLatestProgressFile() const {
+      return latest_progress_filename.has_value();
+    }
+
+    void Clear() {
+      latest_progress_filename.reset();
+      latest_progress_timestamp = 0;
+      old_progress_filenames.clear();
+      temp_progress_filenames.clear();
+      table_file_numbers.clear();
+    }
+  };
+
+  Status InitializeCompactionWorkspace(
+      bool allow_resumption, std::unique_ptr<FSDirectory>* output_dir,
+      std::unique_ptr<log::Writer>* compaction_progress_writer);
+
+  Status PrepareCompactionProgressState();
+
+  Status ScanCompactionProgressFiles(CompactionProgressFilesScan* scan_result);
+
+  Status DeleteCompactionProgressFiles(
+      const std::vector<std::string>& filenames);
+
+  Status CleanupOldAndTemporaryCompactionProgressFiles(
+      bool preserve_latest, const CompactionProgressFilesScan& scan_result);
+
+  Status LoadCompactionProgressAndCleanupExtraOutputFiles(
+      const std::string& compaction_progress_file_path,
+      const CompactionProgressFilesScan& scan_result);
+
+  Status ParseCompactionProgressFile(
+      const std::string& compaction_progress_file_path,
+      CompactionProgress* compaction_progress);
+
+  Status HandleInvalidOrNoCompactionProgress(
+      const std::optional<std::string>& compaction_progress_file_path,
+      const CompactionProgressFilesScan& scan_result);
+
+  Status CleanupPhysicalCompactionOutputFiles(
+      bool preserve_tracked_files,
+      const CompactionProgressFilesScan& scan_result);
+
+  Status FinalizeCompactionProgressWriter(
+      std::unique_ptr<log::Writer>* compaction_progress_writer);
+
+  Status CreateCompactionProgressWriter(
+      const std::string& file_path,
+      std::unique_ptr<log::Writer>* compaction_progress_writer);
+
+  Status PersistInitialCompactionProgress(
+      log::Writer* compaction_progress_writer,
+      const CompactionProgress& compaction_progress);
+
+  Status RenameCompactionProgressFile(const std::string& temp_file_path,
+                                      std::string* final_file_path);
+
+  Status HandleCompactionProgressWriterCreationFailure(
+      const std::string& temp_file_path, const std::string& final_file_path,
+      std::unique_ptr<log::Writer>* compaction_progress_writer);
+
+  uint64_t CalculateResumedCompactionBytes(
+      const CompactionProgress& compaction_progress) const;
+
+  // Internal helper for opening a secondary instance. Recover() replays
+  // MANIFEST only. When recover_wal is true, WAL files are also replayed
+  // (needed by DB::OpenAsSecondary). When false, WAL replay is skipped
+  // (used by DB::OpenAndCompact which only needs LSM state).
+  static Status OpenAsSecondaryImpl(
+      const DBOptions& db_options, const std::string& dbname,
+      const std::string& secondary_path,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
+      bool recover_wal);
+
   // Cache log readers for each log number, used for continue WAL replay
   // after recovery
   std::map<uint64_t, std::unique_ptr<LogReaderContainer>> log_readers_;
@@ -317,6 +405,8 @@ class DBImplSecondary : public DBImpl {
   std::unordered_map<ColumnFamilyData*, uint64_t> cfd_to_current_log_;
 
   const std::string secondary_path_;
+
+  CompactionProgress compaction_progress_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

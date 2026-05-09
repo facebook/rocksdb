@@ -49,6 +49,7 @@ class InstrumentedMutex;
 class InstrumentedMutexLock;
 struct SuperVersionContext;
 class BlobFileCache;
+class BlobFilePartitionManager;
 class BlobSource;
 
 extern const double kIncSlowdownRatio;
@@ -281,9 +282,9 @@ Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options);
 Status CheckCFPathsSupported(const DBOptions& db_options,
                              const ColumnFamilyOptions& cf_options);
 
-ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
-                                    bool read_only,
-                                    const ColumnFamilyOptions& src);
+ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
+                                      bool read_only,
+                                      const ColumnFamilyOptions& src);
 // Wrap user defined table properties collector factories `from cf_options`
 // into internal ones in internal_tbl_prop_coll_factories. Add a system internal
 // one too.
@@ -415,6 +416,19 @@ class ColumnFamilyData {
   TableCache* table_cache() const { return table_cache_.get(); }
   BlobFileCache* blob_file_cache() const { return blob_file_cache_.get(); }
   BlobSource* blob_source() const { return blob_source_.get(); }
+  // Returns the write-path blob partition manager for this CF, or null if BDW
+  // is disabled.
+  BlobFilePartitionManager* blob_partition_manager() const {
+    return blob_partition_manager_.get();
+  }
+  // Returns a shared ownership handle for cold paths that must keep the
+  // manager alive beyond the lifetime of this ColumnFamilyData.
+  std::shared_ptr<BlobFilePartitionManager> blob_partition_manager_handle()
+      const {
+    return blob_partition_manager_;
+  }
+  // Installs the write-path blob partition manager for this CF.
+  void SetBlobPartitionManager(std::shared_ptr<BlobFilePartitionManager> mgr);
 
   // See documentation in compaction_picker.h
   // REQUIRES: DB mutex held
@@ -424,7 +438,8 @@ class ColumnFamilyData {
       const MutableCFOptions& mutable_options,
       const MutableDBOptions& mutable_db_options,
       const std::vector<SequenceNumber>& existing_snapshots,
-      const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer);
+      const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer,
+      bool require_max_output_level = false);
 
   // Check if the passed range overlap with any running compactions.
   // REQUIRES: DB mutex held
@@ -537,6 +552,12 @@ class ColumnFamilyData {
     assert(!ts_low.empty());
     const Comparator* ucmp = user_comparator();
     assert(ucmp);
+    // Guard against resurrected full_history_ts_low persisted in MANIFEST
+    // from previous DB sessions. This could happen if UDT was enabled and then
+    // disabled.
+    if (ucmp->timestamp_size() == 0) {
+      return;
+    }
     if (full_history_ts_low_.empty() ||
         ucmp->CompareTimestamp(ts_low, full_history_ts_low_) > 0) {
       full_history_ts_low_ = std::move(ts_low);
@@ -544,6 +565,11 @@ class ColumnFamilyData {
   }
 
   const std::string& GetFullHistoryTsLow() const {
+    const Comparator* ucmp = user_comparator();
+    assert(ucmp);
+    if (ucmp->timestamp_size() == 0) {
+      assert(full_history_ts_low_.empty());
+    }
     return full_history_ts_low_;
   }
 
@@ -588,16 +614,28 @@ class ColumnFamilyData {
     return (mem_->IsEmpty() ? 0 : 1) + imm_.NumNotFlushed();
   }
 
+  // thread-safe, DB mutex not needed.
+  bool AllowIngestBehind() const {
+    return ioptions_.cf_allow_ingest_behind || ioptions_.allow_ingest_behind;
+  }
+
+  // Per-CF reader-writer lock that serializes IngestExternalFiles with range
+  // tombstone conversion.
+  port::RWMutex& GetIngestSstLock() { return ingest_sst_lock_; }
+
  private:
   friend class ColumnFamilySet;
-  ColumnFamilyData(
-      uint32_t id, const std::string& name, Version* dummy_versions,
-      Cache* table_cache, WriteBufferManager* write_buffer_manager,
-      const ColumnFamilyOptions& options, const ImmutableDBOptions& db_options,
-      const FileOptions* file_options, ColumnFamilySet* column_family_set,
-      BlockCacheTracer* const block_cache_tracer,
-      const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
-      const std::string& db_session_id, bool read_only);
+  ColumnFamilyData(uint32_t id, const std::string& name,
+                   Version* dummy_versions, Cache* table_cache,
+                   WriteBufferManager* write_buffer_manager,
+                   const ColumnFamilyOptions& options,
+                   const ImmutableDBOptions& db_options,
+                   const FileOptions* file_options,
+                   ColumnFamilySet* column_family_set,
+                   BlockCacheTracer* const block_cache_tracer,
+                   const std::shared_ptr<IOTracer>& io_tracer,
+                   const std::string& db_id, const std::string& db_session_id,
+                   bool read_only, bool fast_sst_open = false);
 
   std::vector<std::string> GetDbPaths() const;
 
@@ -631,6 +669,8 @@ class ColumnFamilyData {
   std::unique_ptr<TableCache> table_cache_;
   std::unique_ptr<BlobFileCache> blob_file_cache_;
   std::unique_ptr<BlobSource> blob_source_;
+  // Per-CF manager for write-path blob direct-write files.
+  std::shared_ptr<BlobFilePartitionManager> blob_partition_manager_;
 
   std::unique_ptr<InternalStats> internal_stats_;
 
@@ -696,6 +736,10 @@ class ColumnFamilyData {
   bool mempurge_used_;
 
   std::atomic<uint64_t> next_epoch_number_;
+
+  // Used to synchronize IngestExternalFile with range tombstone conversion. See
+  // also Memtable::ingest_seqno_barrier_.
+  port::RWMutex ingest_sst_lock_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements
@@ -741,7 +785,8 @@ class ColumnFamilySet {
                   WriteController* _write_controller,
                   BlockCacheTracer* const block_cache_tracer,
                   const std::shared_ptr<IOTracer>& io_tracer,
-                  const std::string& db_id, const std::string& db_session_id);
+                  const std::string& db_id, const std::string& db_session_id,
+                  bool fast_sst_open = false);
   ~ColumnFamilySet();
 
   ColumnFamilyData* GetDefault() const;
@@ -776,6 +821,9 @@ class ColumnFamilySet {
   iterator end() { return iterator(dummy_cfd_); }
 
   Cache* get_table_cache() { return table_cache_; }
+
+  bool GetFastSstOpen() const { return fast_sst_open_; }
+  void SetFastSstOpen(bool v) { fast_sst_open_ = v; }
 
   WriteBufferManager* write_buffer_manager() { return write_buffer_manager_; }
 
@@ -825,6 +873,7 @@ class ColumnFamilySet {
   std::shared_ptr<IOTracer> io_tracer_;
   const std::string& db_id_;
   std::string db_session_id_;
+  bool fast_sst_open_;
 };
 
 // A wrapper for ColumnFamilySet that supports releasing DB mutex during each

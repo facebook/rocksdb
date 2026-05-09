@@ -21,6 +21,11 @@ Status SuggestCompactRange(DB* db, ColumnFamilyHandle* column_family,
                            const Slice* begin, const Slice* end);
 Status SuggestCompactRange(DB* db, const Slice* begin, const Slice* end);
 
+// DEPRECATED: this API may be removed in a future release.
+// This operation can be done through CompactRange() by setting
+// CompactRangeOptions::bottommost_level_compaction set to
+// BottommostLevelCompaction::kSkip and setting target level.
+//
 // Move all L0 files to target_level skipping compaction.
 // This operation succeeds only if the files in L0 have disjoint ranges; this
 // is guaranteed to happen, for instance, if keys are inserted in sorted
@@ -81,7 +86,7 @@ Status UpdateManifestForFilesState(
 // keys in a category to return an empty sequence of segments.
 //
 // To eliminate a confusing distinction between a segment that is empty vs.
-// "not present" for a particular key, each key is logically assiciated with
+// "not present" for a particular key, each key is logically associated with
 // an infinite sequence of segments, including some infinite tail of 0-length
 // segments. In practice, we only represent a finite sequence that (at least)
 // covers the non-trivial segments.
@@ -215,7 +220,7 @@ Status UpdateManifestForFilesState(
 // whole key.
 // * Range query - Whether there {definitely isn't, might be} any entries
 // within a lower and upper key bound, in an SST file (or partition, etc.).
-//    NOTE: For this disucssion, we ignore the detail of inclusive vs.
+//    NOTE: For this discussion, we ignore the detail of inclusive vs.
 //    exclusive bounds by assuming a generalized notion of "bound" (vs. key)
 //    that conveniently represents spaces between keys. For details, see
 //    https://github.com/facebook/rocksdb/pull/11434
@@ -295,7 +300,7 @@ Status UpdateManifestForFilesState(
 //     * Keys x and z are in categories in category set s, and
 //     * Key y is ordered x < y < z according to the CF comparator,
 // then both
-//     * The common segment prefix property is satisifed through ordinal i-1
+//     * The common segment prefix property is satisfied through ordinal i-1
 //     and with category set s
 //     * x_i..j <= y_i..j <= z_i..j according to segment comparator c, where
 //     x_i..j is the concatenation of segments i through j of key x (etc.).

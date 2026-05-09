@@ -3,10 +3,13 @@
 // COPYING file in the root directory) and Apache 2.0 License
 // (found in the LICENSE.Apache file in the root directory).
 
+#include "test_util/sync_point.h"
 #include "test_util/testharness.h"
+#include "util/random.h"
 
 #ifdef ROCKSDB_LIB_IO_POSIX
 #include "env/io_posix.h"
+#include "rocksdb/file_system.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -128,6 +131,89 @@ TEST_F(LogicalBlockSizeCacheTest, Ref) {
   ASSERT_EQ(0, cache.Size());
   ASSERT_EQ(1, cache.GetLogicalBlockSize("/db/sst0", 1));
   ASSERT_EQ(3, ncall);
+}
+#endif
+
+class PosixWritableFileTest : public testing::Test {};
+
+TEST_F(PosixWritableFileTest, SeekAfterTruncate) {
+  std::shared_ptr<FileSystem> fs = FileSystem::Default();
+  std::string path =
+      test::PerThreadDBPath("PosixWritableFileTest_SeekAfterTruncate");
+  Random rnd(300);
+  std::unique_ptr<FSWritableFile> wfile;
+
+  ASSERT_OK(fs->NewWritableFile(path, FileOptions(), &wfile, nullptr));
+  ASSERT_OK(wfile->Append(rnd.RandomString(16384), IOOptions(), nullptr));
+  ASSERT_OK(wfile->Truncate(4096, IOOptions(), nullptr));
+  ASSERT_OK(wfile->Append(rnd.RandomString(4096), IOOptions(), nullptr));
+  ASSERT_OK(wfile->Close(IOOptions(), nullptr));
+  wfile.reset();
+
+  uint64_t size = 0;
+  ASSERT_OK(fs->GetFileSize(path, IOOptions(), &size, nullptr));
+  ASSERT_EQ(size, 8192);
+  ASSERT_OK(fs->DeleteFile(path, IOOptions(), nullptr));
+}
+
+TEST_F(PosixWritableFileTest, SeekAfterExtend) {
+  std::shared_ptr<FileSystem> fs = FileSystem::Default();
+  std::string path =
+      test::PerThreadDBPath("PosixWritableFileTest_SeekAfterTruncate");
+  Random rnd(300);
+  std::unique_ptr<FSWritableFile> wfile;
+
+  ASSERT_OK(fs->NewWritableFile(path, FileOptions(), &wfile, nullptr));
+  ASSERT_OK(wfile->Append(rnd.RandomString(4096), IOOptions(), nullptr));
+  ASSERT_OK(wfile->Truncate(8192, IOOptions(), nullptr));
+  ASSERT_OK(wfile->Append(rnd.RandomString(8192), IOOptions(), nullptr));
+  ASSERT_OK(wfile->Close(IOOptions(), nullptr));
+  wfile.reset();
+
+  uint64_t size = 0;
+  ASSERT_OK(fs->GetFileSize(path, IOOptions(), &size, nullptr));
+  ASSERT_EQ(size, 16384);
+  ASSERT_OK(fs->DeleteFile(path, IOOptions(), nullptr));
+}
+
+#ifdef OS_LINUX
+class PosixDirectoryTest : public testing::Test {};
+
+TEST_F(PosixDirectoryTest, BtrfsFsyncFailedOpenDoesNotCloseInvalidFd) {
+  // When FsyncWithDirOptions is called with kFileRenamed on a btrfs filesystem
+  // and open() fails, close(-1) should not be called. Without the fix,
+  // close(-1) is called which is POSIX undefined behavior and overwrites the
+  // meaningful open error with a misleading "While closing file after fsync".
+  std::shared_ptr<FileSystem> fs = FileSystem::Default();
+  std::string dir_path =
+      test::PerThreadDBPath("PosixDirectoryTest_BtrfsFsyncFailedOpen");
+  ASSERT_OK(fs->CreateDirIfMissing(dir_path, IOOptions(), nullptr));
+
+  std::unique_ptr<FSDirectory> dir;
+  ASSERT_OK(fs->NewDirectory(dir_path, IOOptions(), &dir, nullptr));
+
+  // Force the btrfs code path via sync point
+  SyncPoint::GetInstance()->SetCallBack(
+      "PosixDirectory::FsyncWithDirOptions:ForceBtrfs",
+      [](void* arg) { *static_cast<bool*>(arg) = true; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Call FsyncWithDirOptions with a non-existent file for rename sync.
+  // open() will fail since the file doesn't exist.
+  DirFsyncOptions opts(std::string(dir_path + "/nonexistent_file"));
+  IOStatus s = dir->FsyncWithDirOptions(IOOptions(), nullptr, opts);
+
+  // Should get an error about open failing, NOT about closing
+  ASSERT_TRUE(s.IsIOError());
+  // The error message should mention "open", not "closing"
+  ASSERT_TRUE(s.ToString().find("open") != std::string::npos);
+  ASSERT_TRUE(s.ToString().find("closing") == std::string::npos);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(dir->Close(IOOptions(), nullptr));
+  ASSERT_OK(fs->DeleteDir(dir_path, IOOptions(), nullptr));
 }
 #endif
 

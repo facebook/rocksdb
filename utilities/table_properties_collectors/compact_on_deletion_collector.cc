@@ -17,16 +17,19 @@
 namespace ROCKSDB_NAMESPACE {
 
 CompactOnDeletionCollector::CompactOnDeletionCollector(
-    size_t sliding_window_size, size_t deletion_trigger, double deletion_ratio)
+    size_t sliding_window_size, size_t deletion_trigger, double deletion_ratio,
+    uint64_t min_file_size)
     : bucket_size_((sliding_window_size + kNumBuckets - 1) / kNumBuckets),
       current_bucket_(0),
       num_keys_in_current_bucket_(0),
       num_deletions_in_observation_window_(0),
       deletion_trigger_(deletion_trigger),
       deletion_ratio_(deletion_ratio),
+      min_file_size_(min_file_size),
+      cur_file_size_(0),
+      max_deletion_in_window_(0),
       deletion_ratio_enabled_(deletion_ratio > 0 && deletion_ratio <= 1),
-      need_compaction_(false),
-      finished_(false) {
+      need_compaction_(false) {
   memset(num_deletions_in_buckets_, 0, sizeof(size_t) * kNumBuckets);
 }
 
@@ -39,7 +42,7 @@ Status CompactOnDeletionCollector::AddUserKey(const Slice& /*key*/,
                                               const Slice& /*value*/,
                                               EntryType type,
                                               SequenceNumber /*seq*/,
-                                              uint64_t /*file_size*/) {
+                                              uint64_t file_size) {
   assert(!finished_);
   if (!bucket_size_ && !deletion_ratio_enabled_) {
     // This collector is effectively disabled
@@ -51,11 +54,14 @@ Status CompactOnDeletionCollector::AddUserKey(const Slice& /*key*/,
     return Status::OK();
   }
 
+  const bool is_delete = (type == kEntryDelete || type == kEntrySingleDelete ||
+                          type == kEntryDeleteWithTimestamp);
   if (deletion_ratio_enabled_) {
     total_entries_++;
-    if (type == kEntryDelete) {
+    if (is_delete) {
       deletion_entries_++;
     }
+    cur_file_size_ = file_size;
   }
 
   if (bucket_size_) {
@@ -76,12 +82,19 @@ Status CompactOnDeletionCollector::AddUserKey(const Slice& /*key*/,
     }
 
     num_keys_in_current_bucket_++;
-    if (type == kEntryDelete) {
+    if (is_delete) {
       num_deletions_in_observation_window_++;
       num_deletions_in_buckets_[current_bucket_]++;
-      if (num_deletions_in_observation_window_ >= deletion_trigger_) {
-        need_compaction_ = true;
+      if (num_deletions_in_observation_window_ >= max_deletion_in_window_) {
+        max_deletion_in_window_ = num_deletions_in_observation_window_;
       }
+    }
+
+    // The file may qualify for compaction based on file size constraints,
+    // even if max_deletion_in_window_ is not updated.
+    if (max_deletion_in_window_ >= deletion_trigger_ &&
+        file_size >= min_file_size_) {
+      need_compaction_ = true;
     }
   }
 
@@ -90,7 +103,8 @@ Status CompactOnDeletionCollector::AddUserKey(const Slice& /*key*/,
 
 Status CompactOnDeletionCollector::Finish(
     UserCollectedProperties* /*properties*/) {
-  if (!need_compaction_ && deletion_ratio_enabled_ && total_entries_ > 0) {
+  if (!need_compaction_ && deletion_ratio_enabled_ && total_entries_ > 0 &&
+      cur_file_size_ >= min_file_size_) {
     double ratio = static_cast<double>(deletion_entries_) / total_entries_;
     need_compaction_ = ratio >= deletion_ratio_;
   }
@@ -153,23 +167,43 @@ static std::unordered_map<std::string, OptionTypeInfo>
             return Status::OK();
           },
           nullptr}},
+        {"min_file_size",
+         {0, OptionType::kUnknown, OptionVerificationType::kNormal,
+          OptionTypeFlags::kCompareNever | OptionTypeFlags::kMutable,
+          [](const ConfigOptions&, const std::string&, const std::string& value,
+             void* addr) {
+            auto* factory =
+                static_cast<CompactOnDeletionCollectorFactory*>(addr);
+            factory->SetMinFileSize(ParseUint64(value));
+            return Status::OK();
+          },
+          [](const ConfigOptions&, const std::string&, const void* addr,
+             std::string* value) {
+            const auto* factory =
+                static_cast<const CompactOnDeletionCollectorFactory*>(addr);
+            *value = std::to_string(factory->GetMinFileSize());
+            return Status::OK();
+          },
+          nullptr}},
 
 };
 
 CompactOnDeletionCollectorFactory::CompactOnDeletionCollectorFactory(
-    size_t sliding_window_size, size_t deletion_trigger, double deletion_ratio)
+    size_t sliding_window_size, size_t deletion_trigger, double deletion_ratio,
+    uint64_t min_file_size)
     : sliding_window_size_(sliding_window_size),
       deletion_trigger_(deletion_trigger),
-      deletion_ratio_(deletion_ratio) {
+      deletion_ratio_(deletion_ratio),
+      min_file_size_(min_file_size) {
   RegisterOptions("", this, &on_deletion_collector_type_info);
 }
 
 TablePropertiesCollector*
 CompactOnDeletionCollectorFactory::CreateTablePropertiesCollector(
     TablePropertiesCollectorFactory::Context /*context*/) {
-  return new CompactOnDeletionCollector(sliding_window_size_.load(),
-                                        deletion_trigger_.load(),
-                                        deletion_ratio_.load());
+  return new CompactOnDeletionCollector(
+      sliding_window_size_.load(), deletion_trigger_.load(),
+      deletion_ratio_.load(), min_file_size_.load());
 }
 
 std::string CompactOnDeletionCollectorFactory::ToString() const {
@@ -183,10 +217,12 @@ std::string CompactOnDeletionCollectorFactory::ToString() const {
 std::shared_ptr<CompactOnDeletionCollectorFactory>
 NewCompactOnDeletionCollectorFactory(size_t sliding_window_size,
                                      size_t deletion_trigger,
-                                     double deletion_ratio) {
+                                     double deletion_ratio,
+                                     uint64_t min_file_size) {
   return std::shared_ptr<CompactOnDeletionCollectorFactory>(
       new CompactOnDeletionCollectorFactory(sliding_window_size,
-                                            deletion_trigger, deletion_ratio));
+                                            deletion_trigger, deletion_ratio,
+                                            min_file_size));
 }
 
 namespace {

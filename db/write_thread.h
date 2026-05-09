@@ -123,6 +123,10 @@ class WriteThread {
   // Information kept for every waiting writer.
   struct Writer {
     WriteBatch* batch;
+    // The logical user batch to record in query traces. This can differ from
+    // `batch` when the write path rewrites the applied batch, and preserved-
+    // order tracing consumes it later from each grouped writer.
+    WriteBatch* trace_batch;
     bool sync;
     bool no_slowdown;
     bool disable_wal;
@@ -132,7 +136,7 @@ class WriteThread {
     size_t protection_bytes_per_key;
     PreReleaseCallback* pre_release_callback;
     PostMemTableCallback* post_memtable_callback;
-    uint64_t log_used;  // log number that this batch was inserted into
+    uint64_t wal_used;  // log number that this batch was inserted into
     uint64_t log_ref;   // log number that memtable insert should reference
     WriteCallback* callback;
     UserWriteCallback* user_write_cb;
@@ -152,6 +156,7 @@ class WriteThread {
 
     Writer()
         : batch(nullptr),
+          trace_batch(nullptr),
           sync(false),
           no_slowdown(false),
           disable_wal(false),
@@ -161,7 +166,7 @@ class WriteThread {
           protection_bytes_per_key(0),
           pre_release_callback(nullptr),
           post_memtable_callback(nullptr),
-          log_used(0),
+          wal_used(0),
           log_ref(0),
           callback(nullptr),
           user_write_cb(nullptr),
@@ -177,9 +182,10 @@ class WriteThread {
            uint64_t _log_ref, bool _disable_memtable, size_t _batch_cnt = 0,
            PreReleaseCallback* _pre_release_callback = nullptr,
            PostMemTableCallback* _post_memtable_callback = nullptr,
-           bool _ingest_wbwi = false)
+           bool _ingest_wbwi = false, WriteBatch* _trace_batch = nullptr)
         : batch(_batch),
-          // TODO: store a copy of WriteOptions instead of its seperated data
+          trace_batch(_trace_batch != nullptr ? _trace_batch : _batch),
+          // TODO: store a copy of WriteOptions instead of its separated data
           // members
           sync(write_options.sync),
           no_slowdown(write_options.no_slowdown),
@@ -190,7 +196,7 @@ class WriteThread {
           protection_bytes_per_key(_batch->GetProtectionBytesPerKey()),
           pre_release_callback(_pre_release_callback),
           post_memtable_callback(_post_memtable_callback),
-          log_used(0),
+          wal_used(0),
           log_ref(_log_ref),
           callback(_callback),
           user_write_cb(_user_write_cb),

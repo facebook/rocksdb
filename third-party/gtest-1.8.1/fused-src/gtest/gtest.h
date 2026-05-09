@@ -3973,7 +3973,7 @@ const char* StringFromGTestEnv(const char* flag, const char* default_val);
 #include <ctype.h>
 #include <float.h>
 #include <string.h>
-#include <iomanip>
+// #include <iomanip> // Not included in newer versions of gtest
 #include <limits>
 #include <map>
 #include <set>
@@ -21451,27 +21451,7 @@ template <typename RawType>
 AssertionResult CmpHelperFloatingPointEQ(const char* lhs_expression,
                                          const char* rhs_expression,
                                          RawType lhs_value,
-                                         RawType rhs_value) {
-  const FloatingPoint<RawType> lhs(lhs_value), rhs(rhs_value);
-
-  if (lhs.AlmostEquals(rhs)) {
-    return AssertionSuccess();
-  }
-
-  ::std::stringstream lhs_ss;
-  lhs_ss << std::setprecision(std::numeric_limits<RawType>::digits10 + 2)
-         << lhs_value;
-
-  ::std::stringstream rhs_ss;
-  rhs_ss << std::setprecision(std::numeric_limits<RawType>::digits10 + 2)
-         << rhs_value;
-
-  return EqFailure(lhs_expression,
-                   rhs_expression,
-                   StringStreamToString(&lhs_ss),
-                   StringStreamToString(&rhs_ss),
-                   false);
-}
+                                         RawType rhs_value);
 
 // Helper function for implementing ASSERT_NEAR.
 //

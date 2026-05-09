@@ -34,11 +34,12 @@
 #undef min
 #endif
 
-jlong rocksdb_open_helper(JNIEnv* env, jlong jopt_handle, jstring jdb_path,
-                          std::function<ROCKSDB_NAMESPACE::Status(
-                              const ROCKSDB_NAMESPACE::Options&,
-                              const std::string&, ROCKSDB_NAMESPACE::DB**)>
-                              open_fn) {
+jlong rocksdb_open_helper(
+    JNIEnv* env, jlong jopt_handle, jstring jdb_path,
+    std::function<ROCKSDB_NAMESPACE::Status(
+        const ROCKSDB_NAMESPACE::Options&, const std::string&,
+        std::unique_ptr<ROCKSDB_NAMESPACE::DB>*)>
+        open_fn) {
   const char* db_path = env->GetStringUTFChars(jdb_path, nullptr);
   if (db_path == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -46,13 +47,13 @@ jlong rocksdb_open_helper(JNIEnv* env, jlong jopt_handle, jstring jdb_path,
   }
 
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jopt_handle);
-  ROCKSDB_NAMESPACE::DB* db = nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::DB> db;
   ROCKSDB_NAMESPACE::Status s = open_fn(*opt, db_path, &db);
 
   env->ReleaseStringUTFChars(jdb_path, db_path);
 
   if (s.ok()) {
-    return GET_CPLUSPLUS_POINTER(db);
+    return GET_CPLUSPLUS_POINTER(db.release());
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return 0;
@@ -67,11 +68,12 @@ jlong rocksdb_open_helper(JNIEnv* env, jlong jopt_handle, jstring jdb_path,
 jlong Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2(JNIEnv* env, jclass,
                                                           jlong jopt_handle,
                                                           jstring jdb_path) {
-  return rocksdb_open_helper(env, jopt_handle, jdb_path,
-                             (ROCKSDB_NAMESPACE::Status(*)(
-                                 const ROCKSDB_NAMESPACE::Options&,
-                                 const std::string&, ROCKSDB_NAMESPACE::DB**)) &
-                                 ROCKSDB_NAMESPACE::DB::Open);
+  return rocksdb_open_helper(
+      env, jopt_handle, jdb_path,
+      [](const ROCKSDB_NAMESPACE::Options& options, const std::string& db_path,
+         std::unique_ptr<ROCKSDB_NAMESPACE::DB>* db) {
+        return ROCKSDB_NAMESPACE::DB::Open(options, db_path, db);
+      });
 }
 
 /*
@@ -87,7 +89,7 @@ jlong Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2Z(
       env, jopt_handle, jdb_path,
       [error_if_wal_file_exists](const ROCKSDB_NAMESPACE::Options& options,
                                  const std::string& db_path,
-                                 ROCKSDB_NAMESPACE::DB** db) {
+                                 std::unique_ptr<ROCKSDB_NAMESPACE::DB>* db) {
         return ROCKSDB_NAMESPACE::DB::OpenForReadOnly(options, db_path, db,
                                                       error_if_wal_file_exists);
       });
@@ -100,7 +102,7 @@ jlongArray rocksdb_open_helper(
         const ROCKSDB_NAMESPACE::DBOptions&, const std::string&,
         const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&,
         std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>*,
-        ROCKSDB_NAMESPACE::DB**)>
+        std::unique_ptr<ROCKSDB_NAMESPACE::DB>*)>
         open_fn) {
   const char* db_path = env->GetStringUTFChars(jdb_path, nullptr);
   if (db_path == nullptr) {
@@ -141,7 +143,7 @@ jlongArray rocksdb_open_helper(
 
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jopt_handle);
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
-  ROCKSDB_NAMESPACE::DB* db = nullptr;
+  std::unique_ptr<ROCKSDB_NAMESPACE::DB> db;
   ROCKSDB_NAMESPACE::Status s =
       open_fn(*opt, db_path, column_families, &cf_handles, &db);
 
@@ -157,7 +159,7 @@ jlongArray rocksdb_open_helper(
   const jsize resultsLen = 1 + len_cols;  // db handle + column family handles
   std::unique_ptr<jlong[]> results =
       std::unique_ptr<jlong[]>(new jlong[resultsLen]);
-  results[0] = GET_CPLUSPLUS_POINTER(db);
+  results[0] = GET_CPLUSPLUS_POINTER(db.release());
   for (int i = 1; i <= len_cols; i++) {
     results[i] = GET_CPLUSPLUS_POINTER(cf_handles[i - 1]);
   }
@@ -196,7 +198,7 @@ jlongArray Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2_3_3B_3JZ(
           const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&
               column_families,
           std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>* handles,
-          ROCKSDB_NAMESPACE::DB** db) {
+          std::unique_ptr<ROCKSDB_NAMESPACE::DB>* db) {
         return ROCKSDB_NAMESPACE::DB::OpenForReadOnly(
             options, db_path, column_families, handles, db,
             error_if_wal_file_exists);
@@ -213,12 +215,15 @@ jlongArray Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2_3_3B_3J(
     jobjectArray jcolumn_names, jlongArray jcolumn_options) {
   return rocksdb_open_helper(
       env, jopt_handle, jdb_path, jcolumn_names, jcolumn_options,
-      (ROCKSDB_NAMESPACE::Status(*)(
-          const ROCKSDB_NAMESPACE::DBOptions&, const std::string&,
-          const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&,
-          std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>*,
-          ROCKSDB_NAMESPACE::DB**)) &
-          ROCKSDB_NAMESPACE::DB::Open);
+      [](const ROCKSDB_NAMESPACE::DBOptions& options,
+         const std::string& db_path,
+         const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&
+             column_families,
+         std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>* handles,
+         std::unique_ptr<ROCKSDB_NAMESPACE::DB>* db) {
+        return ROCKSDB_NAMESPACE::DB::Open(options, db_path, column_families,
+                                           handles, db);
+      });
 }
 
 /*
@@ -240,7 +245,7 @@ jlong Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_S
       env, jopt_handle, jdb_path,
       [secondary_db_path](const ROCKSDB_NAMESPACE::Options& options,
                           const std::string& db_path,
-                          ROCKSDB_NAMESPACE::DB** db) {
+                          std::unique_ptr<ROCKSDB_NAMESPACE::DB>* db) {
         return ROCKSDB_NAMESPACE::DB::OpenAsSecondary(options, db_path,
                                                       secondary_db_path, db);
       });
@@ -276,7 +281,7 @@ Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_String_
           const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&
               column_families,
           std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>* handles,
-          ROCKSDB_NAMESPACE::DB** db) {
+          std::unique_ptr<ROCKSDB_NAMESPACE::DB>* db) {
         return ROCKSDB_NAMESPACE::DB::OpenAsSecondary(
             options, db_path, secondary_db_path, column_families, handles, db);
       });
@@ -1210,6 +1215,9 @@ jint Java_org_rocksdb_RocksDB_getDirect(JNIEnv* env, jclass /*jdb*/,
           db->DefaultColumnFamily(), key.slice(), &value.pinnable_slice());
     }
 
+    if (s.IsNotFound()) {
+      return ROCKSDB_NAMESPACE::KVException::kNotFound;
+    }
     ROCKSDB_NAMESPACE::KVException::ThrowOnError(env, s);
     return value.Fetch();
   } catch (ROCKSDB_NAMESPACE::KVException& e) {
@@ -1453,10 +1461,13 @@ jbyteArray Java_org_rocksdb_RocksDB_get__J_3BII(JNIEnv* env, jclass,
   try {
     ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
     ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
-        env,
+    ROCKSDB_NAMESPACE::Status s =
         db->Get(ROCKSDB_NAMESPACE::ReadOptions(), db->DefaultColumnFamily(),
-                key.slice(), &value.pinnable_slice()));
+                key.slice(), &value.pinnable_slice());
+    if (s.IsNotFound()) {
+      return nullptr;
+    }
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(env, s);
     return value.NewByteArray();
 
   } catch (ROCKSDB_NAMESPACE::KVException&) {
@@ -1484,9 +1495,13 @@ jbyteArray Java_org_rocksdb_RocksDB_get__J_3BIIJ(JNIEnv* env, jclass,
   try {
     ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
     ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
-        env, db->Get(ROCKSDB_NAMESPACE::ReadOptions(), cf_handle, key.slice(),
-                     &value.pinnable_slice()));
+    ROCKSDB_NAMESPACE::Status s =
+        db->Get(ROCKSDB_NAMESPACE::ReadOptions(), cf_handle, key.slice(),
+                &value.pinnable_slice());
+    if (s.IsNotFound()) {
+      return nullptr;
+    }
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(env, s);
     return value.NewByteArray();
 
   } catch (ROCKSDB_NAMESPACE::KVException&) {
@@ -1509,11 +1524,13 @@ jbyteArray Java_org_rocksdb_RocksDB_get__JJ_3BII(JNIEnv* env, jclass,
   try {
     ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
     ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
-        env,
-        db->Get(
-            *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
-            db->DefaultColumnFamily(), key.slice(), &value.pinnable_slice()));
+    ROCKSDB_NAMESPACE::Status s = db->Get(
+        *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
+        db->DefaultColumnFamily(), key.slice(), &value.pinnable_slice());
+    if (s.IsNotFound()) {
+      return nullptr;
+    }
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(env, s);
     return value.NewByteArray();
   } catch (ROCKSDB_NAMESPACE::KVException&) {
     return nullptr;
@@ -1538,10 +1555,13 @@ jbyteArray Java_org_rocksdb_RocksDB_get__JJ_3BIIJ(
   try {
     ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
     ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
-        env, db->Get(*reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(
-                         jropt_handle),
-                     cf_handle, key.slice(), &value.pinnable_slice()));
+    ROCKSDB_NAMESPACE::Status s = db->Get(
+        *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
+        cf_handle, key.slice(), &value.pinnable_slice());
+    if (s.IsNotFound()) {
+      return nullptr;
+    }
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(env, s);
     return value.NewByteArray();
   } catch (ROCKSDB_NAMESPACE::KVException&) {
     return nullptr;
@@ -1563,10 +1583,13 @@ jint Java_org_rocksdb_RocksDB_get__J_3BII_3BII(JNIEnv* env, jclass,
     ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
     ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off,
                                                      jval_len);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
-        env,
+    ROCKSDB_NAMESPACE::Status s =
         db->Get(ROCKSDB_NAMESPACE::ReadOptions(), db->DefaultColumnFamily(),
-                key.slice(), &value.pinnable_slice()));
+                key.slice(), &value.pinnable_slice());
+    if (s.IsNotFound()) {
+      return ROCKSDB_NAMESPACE::KVException::kNotFound;
+    }
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(env, s);
     return value.Fetch();
 
   } catch (ROCKSDB_NAMESPACE::KVException& e) {
@@ -1595,9 +1618,13 @@ jint Java_org_rocksdb_RocksDB_get__J_3BII_3BIIJ(JNIEnv* env, jclass,
     ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
     ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off,
                                                      jval_len);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
-        env, db->Get(ROCKSDB_NAMESPACE::ReadOptions(), cf_handle, key.slice(),
-                     &value.pinnable_slice()));
+    ROCKSDB_NAMESPACE::Status s =
+        db->Get(ROCKSDB_NAMESPACE::ReadOptions(), cf_handle, key.slice(),
+                &value.pinnable_slice());
+    if (s.IsNotFound()) {
+      return ROCKSDB_NAMESPACE::KVException::kNotFound;
+    }
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(env, s);
     return value.Fetch();
 
   } catch (ROCKSDB_NAMESPACE::KVException& e) {
@@ -1621,11 +1648,13 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BII(JNIEnv* env, jclass,
     ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
     ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off,
                                                      jval_len);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
-        env,
-        db->Get(
-            *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
-            db->DefaultColumnFamily(), key.slice(), &value.pinnable_slice()));
+    ROCKSDB_NAMESPACE::Status s = db->Get(
+        *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
+        db->DefaultColumnFamily(), key.slice(), &value.pinnable_slice());
+    if (s.IsNotFound()) {
+      return ROCKSDB_NAMESPACE::KVException::kNotFound;
+    }
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(env, s);
     return value.Fetch();
 
   } catch (ROCKSDB_NAMESPACE::KVException& e) {
@@ -1652,10 +1681,13 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BIIJ(
     ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
     ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off,
                                                      jval_len);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
-        env, db->Get(*reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(
-                         jropt_handle),
-                     cf_handle, key.slice(), &value.pinnable_slice()));
+    ROCKSDB_NAMESPACE::Status s = db->Get(
+        *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
+        cf_handle, key.slice(), &value.pinnable_slice());
+    if (s.IsNotFound()) {
+      return ROCKSDB_NAMESPACE::KVException::kNotFound;
+    }
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(env, s);
     return value.Fetch();
 
   } catch (ROCKSDB_NAMESPACE::KVException& e) {
@@ -2510,6 +2542,11 @@ jlongArray Java_org_rocksdb_RocksDB_getApproximateSizes(
         (include_flags |
          ROCKSDB_NAMESPACE::DB::SizeApproximationFlags::INCLUDE_FILES);
   }
+  if (jinclude_flags & 4) {
+    include_flags =
+        (include_flags |
+         ROCKSDB_NAMESPACE::DB::SizeApproximationFlags::INCLUDE_BLOB_FILES);
+  }
 
   db->GetApproximateSizes(cf_handle, ranges.get(),
                           static_cast<int>(range_count), sizes.get(),
@@ -2953,6 +2990,28 @@ void Java_org_rocksdb_RocksDB_continueBackgroundWork(JNIEnv* env, jclass,
 
 /*
  * Class:     org_rocksdb_RocksDB
+ * Method:    abortAllCompactions
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_RocksDB_abortAllCompactions(JNIEnv*, jclass,
+                                                  jlong jdb_handle) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  db->AbortAllCompactions();
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    resumeAllCompactions
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_RocksDB_resumeAllCompactions(JNIEnv*, jclass,
+                                                   jlong jdb_handle) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  db->ResumeAllCompactions();
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
  * Method:    enableAutoCompaction
  * Signature: (J[J)V
  */
@@ -2996,17 +3055,9 @@ jint Java_org_rocksdb_RocksDB_numberLevels(JNIEnv*, jclass, jlong jdb_handle,
  * Signature: (JJ)I
  */
 jint Java_org_rocksdb_RocksDB_maxMemCompactionLevel(JNIEnv*, jclass,
-                                                    jlong jdb_handle,
-                                                    jlong jcf_handle) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
-  if (jcf_handle == 0) {
-    cf_handle = db->DefaultColumnFamily();
-  } else {
-    cf_handle =
-        reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  }
-  return static_cast<jint>(db->MaxMemCompactionLevel(cf_handle));
+                                                    jlong /*jdb_handle*/,
+                                                    jlong /*jcf_handle*/) {
+  return 0;
 }
 
 /*
@@ -3637,7 +3688,7 @@ void Java_org_rocksdb_RocksDB_destroyDB(JNIEnv* env, jclass, jstring jdb_path,
 }
 
 bool get_slice_helper(JNIEnv* env, jobjectArray ranges, jsize index,
-                      std::unique_ptr<ROCKSDB_NAMESPACE::Slice>& slice,
+                      ROCKSDB_NAMESPACE::OptSlice& opt_slice,
                       std::vector<std::unique_ptr<jbyte[]>>& ranges_to_free) {
   jobject jArray = env->GetObjectArrayElement(ranges, index);
   if (env->ExceptionCheck()) {
@@ -3659,8 +3710,8 @@ bool get_slice_helper(JNIEnv* env, jobjectArray ranges, jsize index,
     return false;
   }
   env->DeleteLocalRef(jArray);
-  slice.reset(new ROCKSDB_NAMESPACE::Slice(
-      reinterpret_cast<char*>(ranges_to_free.back().get()), len_ba));
+  opt_slice = ROCKSDB_NAMESPACE::Slice(
+      reinterpret_cast<char*>(ranges_to_free.back().get()), len_ba);
   return true;
 }
 /*
@@ -3675,24 +3726,24 @@ void Java_org_rocksdb_RocksDB_deleteFilesInRanges(JNIEnv* env, jclass /*jdb*/,
                                                   jboolean include_end) {
   jsize length = env->GetArrayLength(ranges);
 
-  std::vector<ROCKSDB_NAMESPACE::RangePtr> rangesVector;
-  std::vector<std::unique_ptr<ROCKSDB_NAMESPACE::Slice>> slices;
+  std::vector<ROCKSDB_NAMESPACE::RangeOpt> rangesVector;
+  std::vector<ROCKSDB_NAMESPACE::OptSlice> slices;
   std::vector<std::unique_ptr<jbyte[]>> ranges_to_free;
   for (jsize i = 0; (i + 1) < length; i += 2) {
-    slices.push_back(std::unique_ptr<ROCKSDB_NAMESPACE::Slice>());
+    slices.emplace_back();
     if (!get_slice_helper(env, ranges, i, slices.back(), ranges_to_free)) {
       // exception thrown
       return;
     }
 
-    slices.push_back(std::unique_ptr<ROCKSDB_NAMESPACE::Slice>());
+    slices.emplace_back();
     if (!get_slice_helper(env, ranges, i + 1, slices.back(), ranges_to_free)) {
       // exception thrown
       return;
     }
 
-    rangesVector.push_back(ROCKSDB_NAMESPACE::RangePtr(
-        slices[slices.size() - 2].get(), slices[slices.size() - 1].get()));
+    rangesVector.push_back(ROCKSDB_NAMESPACE::RangeOpt(
+        slices[slices.size() - 2], slices[slices.size() - 1]));
   }
 
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);

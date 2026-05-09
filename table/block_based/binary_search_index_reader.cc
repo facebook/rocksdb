@@ -63,7 +63,8 @@ InternalIteratorBase<IndexValue>* BinarySearchIndexReader::NewIterator(
       internal_comparator()->user_comparator(),
       rep->get_global_seqno(BlockType::kIndex), iter, kNullStats, true,
       index_has_first_key(), index_key_includes_seq(), index_value_is_full(),
-      false /* block_contents_pinned */, user_defined_timestamps_persisted());
+      false /* block_contents_pinned */, user_defined_timestamps_persisted(),
+      nullptr /* prefix_index */, rep->table_options.index_block_search_type);
 
   assert(it != nullptr);
   index_block.TransferTo(it);

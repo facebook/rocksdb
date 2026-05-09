@@ -442,6 +442,107 @@ TEST_P(DBRateLimiterOnWriteWALTest, AutoWalFlush) {
   EXPECT_EQ(actual_auto_wal_flush_request,
             options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
+
+class DBRateLimiterOnManualWALFlushTest
+    : public DBRateLimiterOnWriteTest,
+      public ::testing::WithParamInterface<Env::IOPriority> {
+ public:
+  static std::string GetTestNameSuffix(
+      ::testing::TestParamInfo<Env::IOPriority> info) {
+    std::ostringstream oss;
+    if (info.param == Env::IO_USER) {
+      oss << "RateLimitManualWALFlush";
+    } else if (info.param == Env::IO_TOTAL) {
+      oss << "NoRateLimitManualWALFlush";
+    } else if (info.param == Env::IO_HIGH) {
+      oss << "RateLimitManualWALFlushWithHighPriority";
+    } else {
+      oss << "RateLimitManualWALFlushWithLowPriority";
+    }
+    return oss.str();
+  }
+
+  explicit DBRateLimiterOnManualWALFlushTest()
+      : rate_limiter_priority_(GetParam()) {}
+
+  void Init() {
+    options_ = GetOptions();
+    // Enable manual WAL flush mode
+    options_.manual_wal_flush = true;
+    Reopen(options_);
+  }
+
+  WriteOptions GetWriteOptions() {
+    WriteOptions write_options;
+    // WAL must be enabled for manual WAL flush to work
+    write_options.disableWAL = false;
+    // In manual WAL flush mode, WAL write rate limiting should be done through
+    // FlushWAL(), not WriteOptions::rate_limiter_priority
+    write_options.rate_limiter_priority = Env::IO_TOTAL;
+    return write_options;
+  }
+
+ protected:
+  Env::IOPriority rate_limiter_priority_;
+};
+
+INSTANTIATE_TEST_CASE_P(DBRateLimiterOnManualWALFlushTest,
+                        DBRateLimiterOnManualWALFlushTest,
+                        ::testing::Values(Env::IO_TOTAL, Env::IO_USER,
+                                          Env::IO_HIGH, Env::IO_LOW),
+                        DBRateLimiterOnManualWALFlushTest::GetTestNameSuffix);
+
+TEST_P(DBRateLimiterOnManualWALFlushTest, ManualWALFlush) {
+  Init();
+
+  const bool no_rate_limit = (rate_limiter_priority_ == Env::IO_TOTAL);
+
+  ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL));
+
+  for (bool sync : {false, true}) {
+    std::int64_t prev_total_request =
+        options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL);
+
+    Status put_status = Put("key_" + std::to_string(sync),
+                            "value_" + std::to_string(sync), GetWriteOptions());
+
+    EXPECT_TRUE(put_status.ok());
+
+    // Since manual_wal_flush is enabled and write_options.rate_limiter_priority
+    // is IO_TOTAL, no rate limiting should have occurred for this user write
+    EXPECT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL) -
+                     prev_total_request);
+
+    // Now explicitly flush the WAL with the test's rate_limiter_priority
+    prev_total_request = options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL);
+    std::int64_t prev_priority_request =
+        options_.rate_limiter->GetTotalRequests(rate_limiter_priority_);
+
+    FlushWALOptions flush_options;
+    flush_options.sync = sync;
+    flush_options.rate_limiter_priority = rate_limiter_priority_;
+    Status flush_status = db_->FlushWAL(flush_options);
+
+    EXPECT_TRUE(flush_status.ok());
+
+    std::int64_t manual_wal_flush_requests_total =
+        options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL) -
+        prev_total_request;
+    std::int64_t manual_wal_flush_requests_for_priority =
+        options_.rate_limiter->GetTotalRequests(rate_limiter_priority_) -
+        prev_priority_request;
+
+    if (no_rate_limit) {
+      EXPECT_EQ(0, manual_wal_flush_requests_total);
+      EXPECT_EQ(0, manual_wal_flush_requests_for_priority);
+    } else {
+      EXPECT_EQ(manual_wal_flush_requests_total,
+                manual_wal_flush_requests_for_priority);
+      EXPECT_GT(manual_wal_flush_requests_for_priority, 0);
+    }
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

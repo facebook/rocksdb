@@ -210,7 +210,28 @@ public enum HistogramType {
    */
   TABLE_OPEN_PREFETCH_TAIL_READ_BYTES((byte) 0x3D),
 
-  // 0x3E for backwards compatibility on current minor version.
+  COMPACTION_PREFETCH_BYTES((byte) 0x3F),
+
+  /**
+   * MultiScan histogram statistics
+   */
+
+  /**
+   * Time spent in Iterator::Prepare() for multi-scan (microseconds)
+   */
+  MULTISCAN_PREPARE_MICROS((byte) 0x40),
+
+  /**
+   * Number of blocks per multi-scan Prepare() call
+   */
+  MULTISCAN_BLOCKS_PER_PREPARE((byte) 0x41),
+
+  /**
+   * Coefficient of variation of key gaps in data blocks, scaled by 10000.
+   */
+  BLOCK_KEY_DISTRIBUTION_CV((byte) 0x42),
+
+  // 0x3E is reserved for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x3E);
 
   private final byte value;

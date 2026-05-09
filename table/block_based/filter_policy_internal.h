@@ -90,6 +90,19 @@ class FilterBitsBuilder {
   // <= the specified number of bytes. Callers (including RocksDB) should
   // only use this result for optimizing performance and not as a guarantee.
   virtual size_t ApproximateNumEntries(size_t bytes) = 0;
+
+  // Calculate number of bytes needed for a new filter, including
+  // metadata. Passing the result to ApproximateNumEntries should
+  // (ideally, usually) return >= the num_entry passed in.
+  // When optimize_filters_for_memory is enabled, this function
+  // is not authoritative but represents a target size that should
+  // be close to the average size.
+  virtual size_t CalculateSpace(size_t num_entries) = 0;
+
+  // Returns an estimate of the FP rate of the returned filter if
+  // `num_entries` keys are added and the filter returned by Finish
+  // is `bytes` bytes.
+  virtual double EstimatedFpRate(size_t num_entries, size_t bytes) = 0;
 };
 
 // A class that checks if a key can be in filter
@@ -107,24 +120,6 @@ class FilterBitsReader {
       may_match[i] = MayMatch(*keys[i]);
     }
   }
-};
-
-// Exposes any extra information needed for testing built-in
-// FilterBitsBuilders
-class BuiltinFilterBitsBuilder : public FilterBitsBuilder {
- public:
-  // Calculate number of bytes needed for a new filter, including
-  // metadata. Passing the result to ApproximateNumEntries should
-  // (ideally, usually) return >= the num_entry passed in.
-  // When optimize_filters_for_memory is enabled, this function
-  // is not authoritative but represents a target size that should
-  // be close to the average size.
-  virtual size_t CalculateSpace(size_t num_entries) = 0;
-
-  // Returns an estimate of the FP rate of the returned filter if
-  // `num_entries` keys are added and the filter returned by Finish
-  // is `bytes` bytes.
-  virtual double EstimatedFpRate(size_t num_entries, size_t bytes) = 0;
 };
 
 // Base class for RocksDB built-in filter reader with

@@ -26,13 +26,13 @@ namespace ROCKSDB_NAMESPACE {
 // Maintains state and outputs for each sub-compaction
 // It contains 2 `CompactionOutputs`:
 //  1. one for the normal output files
-//  2. another for the penultimate level outputs
+//  2. another for the proximal level outputs
 // a `current` pointer maintains the current output group, when calling
 // `AddToOutput()`, it checks the output of the current compaction_iterator key
 // and point `current` to the target output group. By default, it just points to
 // normal compaction_outputs, if the compaction_iterator key should be placed on
-// the penultimate level, `current` is changed to point to
-// `penultimate_level_outputs`.
+// the proximal level, `current` is changed to point to
+// `proximal_level_outputs`.
 // The later operations uses `Current()` to get the target group.
 //
 // +----------+          +-----------------------------+      +---------+
@@ -43,7 +43,7 @@ namespace ROCKSDB_NAMESPACE {
 //       |                                                    |  ...    |
 //       |
 //       |               +-----------------------------+      +---------+
-//       +-------------> | penultimate_level_outputs   |----->| output  |
+//       +-------------> | proximal_level_outputs      |----->| output  |
 //                       +-----------------------------+      +---------+
 //                                                            |  ...    |
 
@@ -78,8 +78,17 @@ class SubcompactionState {
   Slice LargestUserKey() const;
 
   // Get all outputs from the subcompaction. For per_key_placement compaction,
-  // it returns both the last level outputs and penultimate level outputs.
+  // it returns both the last level outputs and proximal level outputs.
   OutputIterator GetOutputs() const;
+
+  // Get mutable access to outputs for post-processing (e.g., retrieving
+  // file open metadata).
+  std::vector<CompactionOutputs::Output>& GetMutableCompactionOutputs() {
+    return compaction_outputs_.GetMutableOutputs();
+  }
+  std::vector<CompactionOutputs::Output>& GetMutableProximalOutputs() {
+    return proximal_level_outputs_.GetMutableOutputs();
+  }
 
   // Assign range dels aggregator. The various tombstones will potentially
   // be filtered to different outputs.
@@ -92,7 +101,15 @@ class SubcompactionState {
 
   void RemoveLastEmptyOutput() {
     compaction_outputs_.RemoveLastEmptyOutput();
-    penultimate_level_outputs_.RemoveLastEmptyOutput();
+    proximal_level_outputs_.RemoveLastEmptyOutput();
+  }
+
+  // Cleanup output builders for abandoning in-progress files.
+  void CleanupOutputs() {
+    compaction_outputs_.Cleanup();
+    if (compaction->SupportsPerKeyPlacement()) {
+      proximal_level_outputs_.Cleanup();
+    }
   }
 
   void BuildSubcompactionJobInfo(
@@ -106,7 +123,11 @@ class SubcompactionState {
     subcompaction_job_info.subcompaction_job_id = static_cast<int>(sub_job_id);
     subcompaction_job_info.base_input_level = c->start_level();
     subcompaction_job_info.output_level = c->output_level();
+    subcompaction_job_info.compaction_reason = c->compaction_reason();
+    subcompaction_job_info.compression = c->output_compression();
     subcompaction_job_info.stats = compaction_job_stats;
+    subcompaction_job_info.blob_compression_type =
+        c->mutable_cf_options().blob_compression_type;
   }
 
   SubcompactionState() = delete;
@@ -119,14 +140,14 @@ class SubcompactionState {
         start(_start),
         end(_end),
         sub_job_id(_sub_job_id),
-        compaction_outputs_(c, /*is_penultimate_level=*/false),
-        penultimate_level_outputs_(c, /*is_penultimate_level=*/true) {
+        compaction_outputs_(c, /*is_proximal_level=*/false),
+        proximal_level_outputs_(c, /*is_proximal_level=*/true) {
     assert(compaction != nullptr);
     // Set output split key (used for RoundRobin feature) only for normal
-    // compaction_outputs, output to penultimate_level feature doesn't support
+    // compaction_outputs, output to proximal_level feature doesn't support
     // RoundRobin feature (and may never going to be supported, because for
     // RoundRobin, the data time is mostly naturally sorted, no need to have
-    // per-key placement with output_to_penultimate_level).
+    // per-key placement with output_to_proximal_level).
     compaction_outputs_.SetOutputSlitKey(start, end);
   }
 
@@ -141,32 +162,58 @@ class SubcompactionState {
         compaction_job_stats(std::move(state.compaction_job_stats)),
         sub_job_id(state.sub_job_id),
         compaction_outputs_(std::move(state.compaction_outputs_)),
-        penultimate_level_outputs_(std::move(state.penultimate_level_outputs_)),
+        proximal_level_outputs_(std::move(state.proximal_level_outputs_)),
         range_del_agg_(std::move(state.range_del_agg_)) {
-    current_outputs_ =
-        state.current_outputs_ == &state.penultimate_level_outputs_
-            ? &penultimate_level_outputs_
-            : &compaction_outputs_;
+    current_outputs_ = state.current_outputs_ == &state.proximal_level_outputs_
+                           ? &proximal_level_outputs_
+                           : &compaction_outputs_;
   }
 
   // Add all the new files from this compaction to version_edit
   void AddOutputsEdit(VersionEdit* out_edit) const {
-    for (const auto& file : penultimate_level_outputs_.outputs_) {
-      out_edit->AddFile(compaction->GetPenultimateLevel(), file.meta);
+    for (const auto& file : proximal_level_outputs_.outputs_) {
+      out_edit->AddFile(compaction->GetProximalLevel(), file.meta);
     }
     for (const auto& file : compaction_outputs_.outputs_) {
       out_edit->AddFile(compaction->output_level(), file.meta);
     }
   }
 
-  void Cleanup(Cache* cache);
+  void Cleanup(Cache* cache, const Status& overall_status);
 
   void AggregateCompactionOutputStats(
-      InternalStats::CompactionStatsFull& compaction_stats) const;
+      InternalStats::CompactionStatsFull& internal_stats) const;
 
   CompactionOutputs& Current() const {
     assert(current_outputs_);
     return *current_outputs_;
+  }
+
+  CompactionOutputs* Outputs(bool is_proximal_level) {
+    assert(compaction);
+    if (is_proximal_level) {
+      assert(compaction->SupportsPerKeyPlacement());
+      return &proximal_level_outputs_;
+    }
+    return &compaction_outputs_;
+  }
+
+  // Per-level stats for the output
+  InternalStats::CompactionStats* OutputStats(bool is_proximal_level) {
+    assert(compaction);
+    if (is_proximal_level) {
+      assert(compaction->SupportsPerKeyPlacement());
+      return &proximal_level_outputs_.stats_;
+    }
+    return &compaction_outputs_.stats_;
+  }
+
+  uint64_t GetWorkerCPUMicros() const {
+    uint64_t rv = compaction_outputs_.GetWorkerCPUMicros();
+    if (compaction->SupportsPerKeyPlacement()) {
+      rv += proximal_level_outputs_.GetWorkerCPUMicros();
+    }
+    return rv;
   }
 
   CompactionRangeDelAggregator* RangeDelAgg() const {
@@ -178,13 +225,22 @@ class SubcompactionState {
     return range_del_agg_ && !range_del_agg_->IsEmpty();
   }
 
-  // Add compaction_iterator key/value to the `Current` output group.
-  Status AddToOutput(const CompactionIterator& iter,
-                     bool use_penultimate_output,
-                     const CompactionFileOpenFunc& open_file_func,
-                     const CompactionFileCloseFunc& close_file_func);
+  void SetSubcompactionProgress(
+      const SubcompactionProgress& subcompaction_progress) {
+    subcompaction_progress_ = subcompaction_progress;
+  }
 
-  // Close all compaction output files, both output_to_penultimate_level outputs
+  SubcompactionProgress& GetSubcompactionProgressRef() {
+    return subcompaction_progress_;
+  }
+
+  // Add compaction_iterator key/value to the `Current` output group.
+  Status AddToOutput(const CompactionIterator& iter, bool use_proximal_output,
+                     const CompactionFileOpenFunc& open_file_func,
+                     const CompactionFileCloseFunc& close_file_func,
+                     const ParsedInternalKey& prev_iter_output_internal_key);
+
+  // Close all compaction output files, both output_to_proximal_level outputs
   // and normal outputs.
   Status CloseCompactionFiles(const Status& curr_status,
                               const CompactionFileOpenFunc& open_file_func,
@@ -195,11 +251,11 @@ class SubcompactionState {
     // CloseOutput() may open new compaction output files.
     Status s = curr_status;
     if (per_key) {
-      s = penultimate_level_outputs_.CloseOutput(
-          s, range_del_agg_.get(), open_file_func, close_file_func);
+      s = proximal_level_outputs_.CloseOutput(s, range_del_agg_.get(),
+                                              open_file_func, close_file_func);
     } else {
-      assert(penultimate_level_outputs_.HasBuilder() == false);
-      assert(penultimate_level_outputs_.HasOutput() == false);
+      assert(proximal_level_outputs_.HasBuilder() == false);
+      assert(proximal_level_outputs_.HasOutput() == false);
     }
     s = compaction_outputs_.CloseOutput(s, range_del_agg_.get(), open_file_func,
                                         close_file_func);
@@ -209,9 +265,11 @@ class SubcompactionState {
  private:
   // State kept for output being generated
   CompactionOutputs compaction_outputs_;
-  CompactionOutputs penultimate_level_outputs_;
+  CompactionOutputs proximal_level_outputs_;
   CompactionOutputs* current_outputs_ = &compaction_outputs_;
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg_;
+
+  SubcompactionProgress subcompaction_progress_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

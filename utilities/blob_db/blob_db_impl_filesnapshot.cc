@@ -59,10 +59,6 @@ Status BlobDBImpl::EnableFileDeletions() {
 Status BlobDBImpl::GetLiveFiles(std::vector<std::string>& ret,
                                 uint64_t* manifest_file_size,
                                 bool flush_memtable) {
-  if (!bdb_options_.path_relative) {
-    return Status::NotSupported(
-        "Not able to get relative blob file path from absolute blob_dir.");
-  }
   // Hold a lock in the beginning to avoid updates to base DB during the call
   ReadLock rl(&mutex_);
   Status s = db_->GetLiveFiles(ret, manifest_file_size, flush_memtable);
@@ -74,14 +70,12 @@ Status BlobDBImpl::GetLiveFiles(std::vector<std::string>& ret,
     auto blob_file = bfile_pair.second;
     // Path should be relative to db_name, but begin with slash.
     ret.emplace_back(
-        BlobFileName("", bdb_options_.blob_dir, blob_file->BlobFileNumber()));
+        BlobFileName("", kBlobDirName, blob_file->BlobFileNumber()));
   }
   return Status::OK();
 }
 
 void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
-  // Path should be relative to db_name.
-  assert(bdb_options_.path_relative);
   // Hold a lock in the beginning to avoid updates to base DB during the call
   ReadLock rl(&mutex_);
   db_->GetLiveFilesMetaData(metadata);
@@ -91,7 +85,7 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
     filemetadata.size = blob_file->GetFileSize();
     const uint64_t file_number = blob_file->BlobFileNumber();
     // Path should be relative to db_name, but begin with slash.
-    filemetadata.name = BlobFileName("", bdb_options_.blob_dir, file_number);
+    filemetadata.name = BlobFileName("", kBlobDirName, file_number);
     filemetadata.file_number = file_number;
     if (blob_file->HasTTL()) {
       filemetadata.oldest_ancester_time = blob_file->GetExpirationRange().first;

@@ -13,4 +13,6 @@ int CountTrailingZeroBitsForSmallEnumSet(uint64_t v) {
   return CountTrailingZeroBits(v);
 }
 
+int BitsSetToOneForSmallEnumSet(uint64_t v) { return BitsSetToOne(v); }
+
 }  // namespace ROCKSDB_NAMESPACE::detail

@@ -9,17 +9,84 @@
 
 #pragma once
 
+#include <cstdint>
+#include <string>
+
+#include "rocksdb/slice.h"
+#include "rocksdb/status.h"
 #include "rocksdb/table.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-uint32_t PackIndexTypeAndNumRestarts(
-    BlockBasedTableOptions::DataBlockIndexType index_type,
-    uint32_t num_restarts);
+// DataBlockFooter represents the footer of a data block, containing metadata
+// about the block's structure and features.
+//
+// Current encoding (may expand in future format versions):
+// - A single uint32_t where:
+//   - The low 28 bits store the number of restart points (num_restarts)
+//   - The high 4 bits are reserved for metadata/features:
+//     - Bit 31: Hash index present (kDataBlockBinaryAndHash)
+//     - Bit 30: IMPORTANT: Cannot be used without format version bump.
+//     - Bit 29: Uniform keys flag (for kAuto index block search)
+//     - Bit 28: Separated KV storage (keys and values stored in separate
+//       sections within the block)
+//
+// Note on forward compatibility: Bits 28-29 can be read by older versions of
+// RocksDB and interpreted as an extremely large, which will be caught as a
+// corruption. Bit 30 is special because num_restarts is multipled by 4, causing
+// overflow and the corruption check to be silently ignored
+// (https://github.com/facebook/rocksdb/blob/10.11.fb/table/block_based/block.cc#L1070-L1103)
+//
+// When separated KV is enabled, an additional uint32_t is prepended before the
+// packed footer, storing the offset to the values section within the block.
+//
+// When any unrecognized reserved bit is set, DecodeFrom() returns an error,
+// allowing older versions to fail gracefully on newer formats.
+//
+// The encoding size is not fixed - future format versions may expand it.
+// Use kMaxEncodedLength for buffer sizing.
+struct DataBlockFooter {
+  // Maximum number of restarts that can be stored (2^28 - 1 = 268,435,455).
+  // This reserves the top 4 bits for metadata (bit 31 for hash index, bits
+  // 28-30 for future features). For historical compatibility purposes, the
+  // limit is adequate because a 4GiB block (maximum due to 32-bit block size)
+  // with restart_interval=1 and minimum entries (12 bytes: 3 varint bytes +
+  // 9-byte internal key + empty value) plus 4-byte restart offsets = 16 bytes
+  // per restart, fits at most (2^32 - 4) / 16 ≈ 268 million restarts.
+  static constexpr uint32_t kMaxNumRestarts = (1u << 28) - 1;
 
-void UnPackIndexTypeAndNumRestarts(
-    uint32_t block_footer,
-    BlockBasedTableOptions::DataBlockIndexType* index_type,
-    uint32_t* num_restarts);
+  // Maximum encoded length of a DataBlockFooter (for buffer sizing).
+  // 8 bytes when separated KV is enabled (values_section_offset + packed),
+  // 4 bytes otherwise.
+  static constexpr uint32_t kMaxEncodedLength = 2 * sizeof(uint32_t);
+
+  // Minimum encoded length (for current format version)
+  static constexpr uint32_t kMinEncodedLength = sizeof(uint32_t);
+
+  BlockBasedTableOptions::DataBlockIndexType index_type =
+      BlockBasedTableOptions::kDataBlockBinarySearch;
+
+  // Whether the block uses separated KV storage (keys and values in separate
+  // sections). When true, values_section_offset indicates where the values
+  // section begins within the block data.
+  bool separated_kv = false;
+  uint32_t values_section_offset = 0;
+
+  uint32_t num_restarts = 0;
+  bool is_uniform = false;
+
+  DataBlockFooter() = default;
+  DataBlockFooter(BlockBasedTableOptions::DataBlockIndexType _index_type,
+                  uint32_t _num_restarts)
+      : index_type(_index_type), num_restarts(_num_restarts) {}
+
+  // Appends the encoded footer to dst.
+  void EncodeTo(std::string* dst) const;
+
+  // Decodes a footer from the end of input (consumes bytes from the end).
+  // Returns an error if reserved/unrecognized feature bits are set.
+  // On success, advances input to exclude the consumed footer bytes.
+  Status DecodeFrom(Slice* input);
+};
 
 }  // namespace ROCKSDB_NAMESPACE

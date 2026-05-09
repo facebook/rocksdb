@@ -34,15 +34,15 @@ namespace ROCKSDB_NAMESPACE {
 
 class MutexLock {
  public:
-  explicit MutexLock(port::Mutex *mu) : mu_(mu) { this->mu_->Lock(); }
+  explicit MutexLock(port::Mutex* mu) : mu_(mu) { this->mu_->Lock(); }
   // No copying allowed
-  MutexLock(const MutexLock &) = delete;
-  void operator=(const MutexLock &) = delete;
+  MutexLock(const MutexLock&) = delete;
+  void operator=(const MutexLock&) = delete;
 
   ~MutexLock() { this->mu_->Unlock(); }
 
  private:
-  port::Mutex *const mu_;
+  port::Mutex* const mu_;
 };
 
 //
@@ -52,15 +52,39 @@ class MutexLock {
 //
 class ReadLock {
  public:
-  explicit ReadLock(port::RWMutex *mu) : mu_(mu) { this->mu_->ReadLock(); }
+  explicit ReadLock(port::RWMutex* mu) : mu_(mu) { this->mu_->ReadLock(); }
   // No copying allowed
-  ReadLock(const ReadLock &) = delete;
-  void operator=(const ReadLock &) = delete;
+  ReadLock(const ReadLock&) = delete;
+  void operator=(const ReadLock&) = delete;
 
   ~ReadLock() { this->mu_->ReadUnlock(); }
 
  private:
-  port::RWMutex *const mu_;
+  port::RWMutex* const mu_;
+};
+
+//
+// Try to acquire a ReadLock on the specified RWMutex without blocking.
+//
+class TryReadLock {
+ public:
+  explicit TryReadLock(port::RWMutex* mu)
+      : mu_(mu), owns_(mu_->TryReadLock()) {}
+  // No copying allowed
+  TryReadLock(const TryReadLock&) = delete;
+  void operator=(const TryReadLock&) = delete;
+
+  ~TryReadLock() {
+    if (owns_) {
+      mu_->ReadUnlock();
+    }
+  }
+
+  bool OwnsLock() const { return owns_; }
+
+ private:
+  port::RWMutex* const mu_;
+  const bool owns_;
 };
 
 //
@@ -68,15 +92,15 @@ class ReadLock {
 //
 class ReadUnlock {
  public:
-  explicit ReadUnlock(port::RWMutex *mu) : mu_(mu) { mu->AssertHeld(); }
+  explicit ReadUnlock(port::RWMutex* mu) : mu_(mu) { mu->AssertHeld(); }
   // No copying allowed
-  ReadUnlock(const ReadUnlock &) = delete;
-  ReadUnlock &operator=(const ReadUnlock &) = delete;
+  ReadUnlock(const ReadUnlock&) = delete;
+  ReadUnlock& operator=(const ReadUnlock&) = delete;
 
   ~ReadUnlock() { mu_->ReadUnlock(); }
 
  private:
-  port::RWMutex *const mu_;
+  port::RWMutex* const mu_;
 };
 
 //
@@ -86,15 +110,42 @@ class ReadUnlock {
 //
 class WriteLock {
  public:
-  explicit WriteLock(port::RWMutex *mu) : mu_(mu) { this->mu_->WriteLock(); }
+  explicit WriteLock(port::RWMutex* mu) : mu_(mu) { this->mu_->WriteLock(); }
   // No copying allowed
-  WriteLock(const WriteLock &) = delete;
-  void operator=(const WriteLock &) = delete;
+  WriteLock(const WriteLock&) = delete;
+  void operator=(const WriteLock&) = delete;
 
   ~WriteLock() { this->mu_->WriteUnlock(); }
 
  private:
-  port::RWMutex *const mu_;
+  port::RWMutex* const mu_;
+};
+
+//
+// Try to acquire a WriteLock on the specified RWMutex without blocking.
+// If acquired, the lock is released when the object goes out of scope.
+// If not acquired, the destructor is a no-op. Use OwnsLock() to check
+// whether the lock was acquired.
+//
+class TryWriteLock {
+ public:
+  explicit TryWriteLock(port::RWMutex* mu)
+      : mu_(mu), owns_(mu_->TryWriteLock()) {}
+  // No copying allowed
+  TryWriteLock(const TryWriteLock&) = delete;
+  void operator=(const TryWriteLock&) = delete;
+
+  ~TryWriteLock() {
+    if (owns_) {
+      mu_->WriteUnlock();
+    }
+  }
+
+  bool OwnsLock() const { return owns_; }
+
+ private:
+  port::RWMutex* const mu_;
+  const bool owns_;
 };
 
 //
@@ -145,12 +196,12 @@ struct ALIGN_AS(CACHE_LINE_SIZE) CacheAlignedWrapper {
 template <class T>
 struct Unwrap {
   using type = T;
-  static type &Go(T &t) { return t; }
+  static type& Go(T& t) { return t; }
 };
 template <class T>
 struct Unwrap<CacheAlignedWrapper<T>> {
   using type = T;
-  static type &Go(CacheAlignedWrapper<T> &t) { return t.obj_; }
+  static type& Go(CacheAlignedWrapper<T>& t) { return t.obj_; }
 };
 
 //
@@ -169,7 +220,7 @@ class Striped {
       : stripe_count_(stripe_count), data_(new T[stripe_count]) {}
 
   using Unwrapped = typename Unwrap<T>::type;
-  Unwrapped &Get(const Key &key, uint64_t seed = 0) {
+  Unwrapped& Get(const Key& key, uint64_t seed = 0) {
     size_t index = FastRangeGeneric(hash_(key, seed), stripe_count_);
     return Unwrap<T>::Go(data_[index]);
   }

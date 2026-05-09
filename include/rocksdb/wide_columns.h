@@ -17,6 +17,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class ColumnFamilyHandle;
+class DBImpl;
 
 // Class representing a wide column, which is defined as a pair of column name
 // and column value.
@@ -140,13 +141,19 @@ class PinnableWideColumns {
   void CreateIndexForPlainValue();
   Status CreateIndexForWideColumns();
 
+  friend class DBImpl;
+
   PinnableSlice value_;
   WideColumns columns_;
+  // Internal-only metadata for V2 entities whose blob columns still point to
+  // serialized BlobIndex payloads in `value_`.
+  std::vector<size_t> unresolved_blob_column_indices_;
 };
 
 inline void PinnableWideColumns::Reset() {
   value_.Reset();
   columns_.clear();
+  unresolved_blob_column_indices_.clear();
 }
 
 inline void PinnableWideColumns::Move(PinnableWideColumns&& other) {
@@ -166,6 +173,8 @@ inline void PinnableWideColumns::Move(PinnableWideColumns&& other) {
 
   if (value_.data() == data) {
     columns_ = std::move(other.columns_);
+    unresolved_blob_column_indices_ =
+        std::move(other.unresolved_blob_column_indices_);
   } else {
     if (is_plain_value) {
       CreateIndexForPlainValue();
@@ -207,6 +216,7 @@ inline void PinnableWideColumns::MoveValue(std::string&& value) {
 }
 
 inline void PinnableWideColumns::CreateIndexForPlainValue() {
+  unresolved_blob_column_indices_.clear();
   columns_ = WideColumns{{kDefaultWideColumnName, value_}};
 }
 

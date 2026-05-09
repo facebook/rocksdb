@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" style="background-color: #fafafa;">
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7"
+     refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#333" />
+    </marker>
+    <marker id="red-arrowhead" markerWidth="10" markerHeight="7"
+     refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#d32f2f" />
+    </marker>
+    <marker id="blue-arrowhead" markerWidth="10" markerHeight="7"
+     refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#1976d2" />
+    </marker>
+    <marker id="green-arrowhead" markerWidth="10" markerHeight="7"
+     refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#388e3c" />
+    </marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="2" dy="2" stdDeviation="2" flood-color="#00000020"/>
+    </filter>
+  </defs>
+
+  <!-- Title -->
+  <text x="400" y="30" font-family="Arial, sans-serif" font-size="18" font-weight="bold" text-anchor="middle" fill="#333">
+    Ring Buffer Architecture (8 slots shown) for Parallel Compression
+  </text>
+
+  <!-- Ring Buffer Array -->
+  <g transform="translate(100,150)">
+    <!-- Array slots laid out horizontally -->
+
+    <!-- Slot 0 -->
+    <rect x="0" y="0" width="70" height="50" fill="#f5f5f5" stroke="#666" stroke-width="1" rx="5" filter="url(#shadow)"/>
+    <text x="35" y="20" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#333">Slot 0</text>
+    <text x="35" y="35" font-family="Arial, sans-serif" font-size="9" text-anchor="middle" fill="#666">Empty</text>
+
+    <!-- Slot 1 - NextToWrite=1, being written by Worker Thread 2 -->
+    <rect x="75" y="0" width="70" height="50" fill="#e8f5e8" stroke="#388e3c" stroke-width="3" rx="5" filter="url(#shadow)"/>
+    <text x="110" y="20" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#333">Slot 1</text>
+    <text x="110" y="35" font-family="Arial, sans-serif" font-size="9" text-anchor="middle" fill="#388e3c">Writing...</text>
+
+    <!-- Slot 2 - Compressed -->
+    <rect x="150" y="0" width="70" height="50" fill="#fff3e0" stroke="#f57c00" stroke-width="2" rx="5" filter="url(#shadow)"/>
+    <text x="185" y="20" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#333">Slot 2</text>
+    <text x="185" y="35" font-family="Arial, sans-serif" font-size="9" text-anchor="middle" fill="#666">Compressed</text>
+
+    <!-- Slot 3 - Being compressed by Worker Thread 1 -->
+    <rect x="225" y="0" width="70" height="50" fill="#e3f2fd" stroke="#1976d2" stroke-width="3" rx="5" filter="url(#shadow)"/>
+    <text x="260" y="20" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#333">Slot 3</text>
+    <text x="260" y="35" font-family="Arial, sans-serif" font-size="9" text-anchor="middle" fill="#1976d2">Compressing...</text>
+
+    <!-- Slot 4 - NextToCompress=4, uncompressed -->
+    <rect x="300" y="0" width="70" height="50" fill="#ffebee" stroke="#d32f2f" stroke-width="2" rx="5" filter="url(#shadow)"/>
+    <text x="335" y="20" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#333">Slot 4</text>
+    <text x="335" y="35" font-family="Arial, sans-serif" font-size="9" text-anchor="middle" fill="#666">Uncompressed</text>
+
+    <!-- Slot 5 - NextToEmit=5, adding block -->
+    <rect x="375" y="0" width="70" height="50" fill="#e1f5fe" stroke="#4fc3f7" stroke-width="3" rx="5" filter="url(#shadow)"/>
+    <text x="410" y="20" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#333">Slot 5</text>
+    <text x="410" y="35" font-family="Arial, sans-serif" font-size="9" text-anchor="middle" fill="#4fc3f7">Adding block...</text>
+
+    <!-- Slot 6 -->
+    <rect x="450" y="0" width="70" height="50" fill="#f5f5f5" stroke="#666" stroke-width="1" rx="5" filter="url(#shadow)"/>
+    <text x="485" y="20" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#333">Slot 6</text>
+    <text x="485" y="35" font-family="Arial, sans-serif" font-size="9" text-anchor="middle" fill="#666">Empty</text>
+
+    <!-- Slot 7 -->
+    <rect x="525" y="0" width="70" height="50" fill="#f5f5f5" stroke="#666" stroke-width="1" rx="5" filter="url(#shadow)"/>
+    <text x="560" y="20" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#333">Slot 7</text>
+    <text x="560" y="35" font-family="Arial, sans-serif" font-size="9" text-anchor="middle" fill="#666">Empty</text>
+  </g>
+
+  <!-- Arrows pointing to array positions - staggered vertically -->
+  <!-- NextToWrite=1 arrow (red) -->
+  <line x1="210" y1="100" x2="210" y2="145" stroke="#d32f2f" stroke-width="3" marker-end="url(#red-arrowhead)"/>
+  <text x="210" y="90" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#d32f2f">NextToWrite=1</text>
+
+  <!-- NextToCompress=4 arrow (blue) -->
+  <line x1="435" y1="110" x2="435" y2="145" stroke="#1976d2" stroke-width="3" marker-end="url(#blue-arrowhead)"/>
+  <text x="435" y="100" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1976d2">NextToCompress=4</text>
+
+  <!-- NextToEmit=5 arrow (light blue) -->
+  <line x1="510" y1="120" x2="510" y2="145" stroke="#4fc3f7" stroke-width="3" marker-end="url(#arrowhead)"/>
+  <text x="510" y="110" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#4fc3f7">NextToEmit=5</text>
+
+  <!-- Worker Thread 2 (wider box) -->
+  <g transform="translate(30,250)">
+    <rect x="0" y="0" width="160" height="70" fill="#e8f5e8" stroke="#388e3c" stroke-width="2" rx="8" filter="url(#shadow)"/>
+    <text x="80" y="25" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#333">Worker Thread 2</text>
+    <text x="80" y="40" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">Currently writing</text>
+    <text x="80" y="55" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">Can also compress</text>
+  </g>
+
+  <!-- Worker Thread 1 (wider box) -->
+  <g transform="translate(240,280)">
+    <rect x="0" y="0" width="160" height="70" fill="#e3f2fd" stroke="#1976d2" stroke-width="2" rx="8" filter="url(#shadow)"/>
+    <text x="80" y="25" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#333">Worker Thread 1</text>
+    <text x="80" y="40" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">Currently compressing</text>
+    <text x="80" y="55" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">Can also write</text>
+  </g>
+
+  <!-- Emit Thread (wider box) -->
+  <g transform="translate(460,250)">
+    <rect x="0" y="0" width="180" height="70" fill="#e1f5fe" stroke="#4fc3f7" stroke-width="2" rx="8" filter="url(#shadow)"/>
+    <text x="90" y="25" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#333">Emit Thread</text>
+    <text x="90" y="40" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">Generates uncompressed blocks</text>
+    <text x="90" y="55" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">Can help with compression</text>
+  </g>
+
+  <!-- Arrows from threads to array (no labels) -->
+  <!-- Worker Thread 2 to Slot 1 -->
+  <line x1="190" y1="285" x2="210" y2="210" stroke="#388e3c" stroke-width="2" marker-end="url(#green-arrowhead)"/>
+
+  <!-- Worker Thread 1 to Slot 3 -->
+  <line x1="320" y1="280" x2="360" y2="210" stroke="#1976d2" stroke-width="2" marker-end="url(#blue-arrowhead)"/>
+
+  <!-- Emit Thread to Slot 5 -->
+  <line x1="550" y1="250" x2="510" y2="210" stroke="#4fc3f7" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+  <!-- SST File Output (centered below Worker Thread 2) -->
+  <g transform="translate(50,380)">
+    <rect x="0" y="0" width="120" height="40" fill="#e8f5e8" stroke="#388e3c" stroke-width="2" rx="5" filter="url(#shadow)"/>
+    <text x="60" y="25" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#333">SST File</text>
+  </g>
+
+  <!-- Arrow from Worker Thread 2 to SST file -->
+  <line x1="110" y1="320" x2="110" y2="380" stroke="#388e3c" stroke-width="2" marker-end="url(#green-arrowhead)"/>
+
+  <!-- Invariant (moved to the right) -->
+  <g transform="translate(400,430)">
+    <text x="0" y="0" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#333">Invariant:</text>
+    <text x="0" y="20" font-family="Arial, sans-serif" font-size="11" fill="#666">NextToWrite ≤ NextToCompress ≤ NextToEmit (modulo ring buffer size)</text>
+  </g>
+</svg>

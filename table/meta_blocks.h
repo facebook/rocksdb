@@ -22,6 +22,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class Block;
 class BlockBuilder;
 class BlockHandle;
 class Env;
@@ -33,7 +34,6 @@ struct TableProperties;
 // Meta block names for metaindex
 extern const std::string kPropertiesBlockName;
 extern const std::string kIndexBlockName;
-extern const std::string kPropertiesBlockOldName;
 extern const std::string kCompressionDictBlockName;
 extern const std::string kRangeDelBlockName;
 
@@ -109,6 +109,10 @@ bool NotifyCollectTableCollectorsOnFinish(
     Logger* info_log, PropertyBlockBuilder* builder,
     UserCollectedProperties& user_collected_properties,
     UserCollectedProperties& readable_properties);
+
+Status ParsePropertiesBlock(
+    const ImmutableOptions& ioptions, uint64_t offset, Block& block,
+    std::unique_ptr<TableProperties>& new_table_properties);
 
 // Read table properties from a file using known BlockHandle.
 // @returns a status to indicate if the operation succeeded. On success,

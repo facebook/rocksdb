@@ -38,8 +38,8 @@ const std::string kDbName =
 
 namespace ROCKSDB_NAMESPACE {
 
-std::shared_ptr<DB> OpenDb(bool read_only = false) {
-  DB* db;
+std::unique_ptr<DB> OpenDb(bool read_only = false) {
+  std::unique_ptr<DB> db;
   Options options;
   options.create_if_missing = true;
   options.max_open_files = -1;
@@ -61,7 +61,7 @@ std::shared_ptr<DB> OpenDb(bool read_only = false) {
     s = DB::OpenForReadOnly(options, kDbName, &db);
   }
   EXPECT_OK(s);
-  return std::shared_ptr<DB>(db);
+  return db;
 }
 
 class PerfContextTest : public testing::Test {};
@@ -659,12 +659,11 @@ TEST_F(PerfContextTest, ToString) {
 
 TEST_F(PerfContextTest, MergeOperatorTime) {
   ASSERT_OK(DestroyDB(kDbName, Options()));
-  DB* db;
+  std::unique_ptr<DB> db;
   Options options;
   options.create_if_missing = true;
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
-  Status s = DB::Open(options, kDbName, &db);
-  EXPECT_OK(s);
+  EXPECT_OK(DB::Open(options, kDbName, &db));
 
   std::string val;
   ASSERT_OK(db->Merge(WriteOptions(), "k1", "val1"));
@@ -704,7 +703,7 @@ TEST_F(PerfContextTest, MergeOperatorTime) {
 #endif
   EXPECT_GT(get_perf_context()->merge_operator_time_nanos, 0);
 
-  delete db;
+  db.reset();
 }
 
 TEST_F(PerfContextTest, CopyAndMove) {
@@ -972,13 +971,12 @@ TEST_F(PerfContextTest, CPUTimer) {
 TEST_F(PerfContextTest, MergeOperandCount) {
   ASSERT_OK(DestroyDB(kDbName, Options()));
 
-  DB* db = nullptr;
   Options options;
   options.create_if_missing = true;
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
 
+  std::unique_ptr<DB> db;
   ASSERT_OK(DB::Open(options, kDbName, &db));
-  std::unique_ptr<DB> db_guard(db);
 
   constexpr size_t num_keys = 3;
   const std::string key_prefix("key");
@@ -1007,7 +1005,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
     for (size_t j = 0; j <= i; ++j) {
       // Take a snapshot before each Merge so they are preserved and not
       // collapsed during flush.
-      snapshots.emplace_back(db);
+      snapshots.emplace_back(db.get());
 
       ASSERT_OK(db->Merge(WriteOptions(), keys[i], value + std::to_string(j)));
     }
@@ -1124,7 +1122,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
 TEST_F(PerfContextTest, WriteMemtableTimePerfLevel) {
   // Write and check time
   ASSERT_OK(DestroyDB(kDbName, Options()));
-  std::shared_ptr<DB> db = OpenDb();
+  auto db = OpenDb();
 
   SetPerfLevel(PerfLevel::kEnableWait);
   PerfContext* perf_ctx = get_perf_context();

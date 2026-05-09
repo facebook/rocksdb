@@ -254,7 +254,7 @@ bool RandomAccessCacheFile::ParseRec(const LBA& lba, Slice* key, Slice* val,
 
   CacheRecord rec;
   if (!rec.Deserialize(data)) {
-    assert(!"Error deserializing data");
+    assert(false && "Error deserializing data");
     Error(log_, "Error de-serializing record from file %s off %d",
           Path().c_str(), lba.off_);
     return false;
@@ -339,7 +339,7 @@ bool WriteableCacheFile::Append(const Slice& key, const Slice& val, LBA* lba) {
   CacheRecord rec(key, val);
   if (!rec.Serialize(&bufs_, &buf_woff_)) {
     // unexpected error: unable to serialize the data
-    assert(!"Error serializing record");
+    assert(false && "Error serializing record");
     return false;
   }
 

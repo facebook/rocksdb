@@ -59,7 +59,7 @@ class Reader {
   // live while this Reader is in use.
   //
   // If "checksum" is true, verify checksums if available.
-  // TODO(hx235): seperate WAL related parameters from general `Reader`
+  // TODO(hx235): separate WAL related parameters from general `Reader`
   // parameters
   Reader(std::shared_ptr<Logger> info_log,
          std::unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
@@ -155,7 +155,7 @@ class Reader {
   // which log number this is
   uint64_t const log_number_;
 
-  // See `Optinos::track_and_verify_wals`
+  // See `Options::track_and_verify_wals`
   bool track_and_verify_wals_;
   // Below variables are used for WAL verification
   // TODO(hx235): To revise `stop_replay_for_corruption_` inside `LogReader`
@@ -175,7 +175,7 @@ class Reader {
   CompressionType compression_type_;
   // Track whether the compression type record has been read or not.
   bool compression_type_record_read_;
-  StreamingUncompress* uncompress_;
+  std::unique_ptr<StreamingUncompress> uncompress_;
   // Reusable uncompressed output buffer
   std::unique_ptr<char[]> uncompressed_buffer_;
   // Reusable uncompressed record
@@ -208,8 +208,8 @@ class Reader {
   };
 
   // Return type, or one of the preceding special values
-  // If WAL compressioned is enabled, fragment_checksum is the checksum of the
-  // fragment computed from the orginal buffer containinng uncompressed
+  // If WAL compression is enabled, fragment_checksum is the checksum of the
+  // fragment computed from the original buffer containing uncompressed
   // fragment.
   uint8_t ReadPhysicalRecord(Slice* result, size_t* drop_size,
                              uint64_t* fragment_checksum = nullptr);

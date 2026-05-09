@@ -10,6 +10,7 @@
 #include "table/merging_iterator.h"
 
 #include "db/arena_wrapped_db_iter.h"
+#include "monitoring/file_read_sample.h"
 
 namespace ROCKSDB_NAMESPACE {
 // MergingIterator uses a min/max heap to combine data from point iterators.
@@ -480,6 +481,12 @@ class MergingIterator : public InternalIterator {
     assert(Valid());
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
            current_->IsValuePinned();
+  }
+
+  void Prepare(const MultiScanArgs* scan_opts) override {
+    for (auto& child : children_) {
+      child.iter.Prepare(scan_opts);
+    }
   }
 
  private:

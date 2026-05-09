@@ -386,7 +386,7 @@ TEST_F(DBMergeOperatorTest, MergeOperandThresholdExceeded) {
   snapshots.reserve(3);
 
   for (size_t i = 0; i < keys.size(); ++i) {
-    snapshots.emplace_back(db_);
+    snapshots.emplace_back(db_.get());
 
     const std::string suffix = std::to_string(i + 1);
 
@@ -971,7 +971,7 @@ TEST_F(DBMergeOperatorTest, MaxSuccessiveMergesBaseValues) {
 
   // No base value
   {
-    constexpr char key[] = "key1";
+    const std::string key = "key1";
 
     ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key, foo));
     ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key, bar));
@@ -985,7 +985,7 @@ TEST_F(DBMergeOperatorTest, MaxSuccessiveMergesBaseValues) {
     // max_successive_merges.
     constexpr size_t max_key_versions = 8;
     std::vector<KeyVersion> key_versions;
-    ASSERT_OK(GetAllKeyVersions(db_, db_->DefaultColumnFamily(), key, key,
+    ASSERT_OK(GetAllKeyVersions(db_.get(), db_->DefaultColumnFamily(), key, key,
                                 max_key_versions, &key_versions));
     ASSERT_EQ(key_versions.size(), 2);
     ASSERT_EQ(key_versions[0].type, kTypeValue);
@@ -994,7 +994,7 @@ TEST_F(DBMergeOperatorTest, MaxSuccessiveMergesBaseValues) {
 
   // Plain base value
   {
-    constexpr char key[] = "key2";
+    const std::string key = "key2";
 
     ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), key, foo));
     ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key, bar));
@@ -1009,7 +1009,7 @@ TEST_F(DBMergeOperatorTest, MaxSuccessiveMergesBaseValues) {
     // max_successive_merges.
     constexpr size_t max_key_versions = 8;
     std::vector<KeyVersion> key_versions;
-    ASSERT_OK(GetAllKeyVersions(db_, db_->DefaultColumnFamily(), key, key,
+    ASSERT_OK(GetAllKeyVersions(db_.get(), db_->DefaultColumnFamily(), key, key,
                                 max_key_versions, &key_versions));
     ASSERT_EQ(key_versions.size(), 3);
     ASSERT_EQ(key_versions[0].type, kTypeValue);
@@ -1019,7 +1019,7 @@ TEST_F(DBMergeOperatorTest, MaxSuccessiveMergesBaseValues) {
 
   // Wide-column base value
   {
-    constexpr char key[] = "key3";
+    const std::string key = "key3";
     const WideColumns columns{{kDefaultWideColumnName, foo}, {bar, baz}};
 
     ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key,
@@ -1038,7 +1038,7 @@ TEST_F(DBMergeOperatorTest, MaxSuccessiveMergesBaseValues) {
     // max_successive_merges.
     constexpr size_t max_key_versions = 8;
     std::vector<KeyVersion> key_versions;
-    ASSERT_OK(GetAllKeyVersions(db_, db_->DefaultColumnFamily(), key, key,
+    ASSERT_OK(GetAllKeyVersions(db_.get(), db_->DefaultColumnFamily(), key, key,
                                 max_key_versions, &key_versions));
     ASSERT_EQ(key_versions.size(), 3);
     ASSERT_EQ(key_versions[0].type, kTypeWideColumnEntity);

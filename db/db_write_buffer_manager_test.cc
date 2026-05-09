@@ -183,11 +183,11 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferAcrossCFs2) {
 // is waiting to be finished but DBs tries to write meanwhile.
 TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB) {
   std::vector<std::string> dbnames;
-  std::vector<DB*> dbs;
+  std::vector<std::unique_ptr<DB>> dbs;
   int num_dbs = 3;
 
   for (int i = 0; i < num_dbs; i++) {
-    dbs.push_back(nullptr);
+    dbs.emplace_back();
     dbnames.push_back(
         test::PerThreadDBPath("db_shared_wb_db" + std::to_string(i)));
   }
@@ -266,7 +266,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB) {
   //  Last writer will write and when its blocked it will signal Flush to
   //  continue to clear the stall.
 
-  threads.emplace_back(write_db, db_);
+  threads.emplace_back(write_db, db_.get());
   // Wait untill first DB is blocked and then create the multiple writers for
   // different DBs which will be blocked from getting added to the queue because
   // stall is in effect.
@@ -277,7 +277,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB) {
     }
   }
   for (int i = 0; i < num_dbs; i++) {
-    threads.emplace_back(write_db, dbs[i]);
+    threads.emplace_back(write_db, dbs[i].get());
   }
   for (auto& t : threads) {
     t.join();
@@ -289,7 +289,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB) {
   for (int i = 0; i < num_dbs; i++) {
     ASSERT_OK(dbs[i]->Close());
     ASSERT_OK(DestroyDB(dbnames[i], options));
-    delete dbs[i];
+    dbs[i].reset();
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -300,11 +300,11 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB) {
 // blocked when stall by WriteBufferManager is in effect.
 TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
   std::vector<std::string> dbnames;
-  std::vector<DB*> dbs;
+  std::vector<std::unique_ptr<DB>> dbs;
   int num_dbs = 3;
 
   for (int i = 0; i < num_dbs; i++) {
-    dbs.push_back(nullptr);
+    dbs.emplace_back();
     dbnames.push_back(
         test::PerThreadDBPath("db_shared_wb_db" + std::to_string(i)));
   }
@@ -407,7 +407,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
   //  |
   //  Last writer thread will write and when its blocked it will signal Flush to
   //  continue to clear the stall.
-  threads.emplace_back(write_db, db_);
+  threads.emplace_back(write_db, db_.get());
   // Wait untill first thread is blocked and then create the multiple writer
   // threads.
   {
@@ -421,7 +421,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
     // Write to multiple columns of db_.
     writer_threads.emplace_back(write_cf, i % 3);
     // Write to different dbs.
-    threads.emplace_back(write_db, dbs[i]);
+    threads.emplace_back(write_db, dbs[i].get());
   }
   for (auto& t : threads) {
     t.join();
@@ -441,7 +441,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
   for (int i = 0; i < num_dbs; i++) {
     ASSERT_OK(dbs[i]->Close());
     ASSERT_OK(DestroyDB(dbnames[i], options));
-    delete dbs[i];
+    dbs[i].reset();
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -604,11 +604,11 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsSingleDB) {
 // dbs by passing different values to WriteOption.no_slown_down.
 TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
   std::vector<std::string> dbnames;
-  std::vector<DB*> dbs;
+  std::vector<std::unique_ptr<DB>> dbs;
   int num_dbs = 4;
 
   for (int i = 0; i < num_dbs; i++) {
-    dbs.push_back(nullptr);
+    dbs.emplace_back();
     dbnames.push_back(
         test::PerThreadDBPath("db_shared_wb_db" + std::to_string(i)));
   }
@@ -732,7 +732,7 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
   //  |
   //  Last writer thread will write and when its blocked/return it will signal
   //  Flush to continue to clear the stall.
-  threads.emplace_back(write_slow_down, db_);
+  threads.emplace_back(write_slow_down, db_.get());
   // Wait untill first thread writing to DB is blocked and then
   // create the multiple writers.
   {
@@ -744,11 +744,11 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
 
   for (int i = 0; i < num_dbs; i += 2) {
     // Write to multiple columns of db_.
-    writer_threads.emplace_back(write_slow_down, db_);
-    writer_threads.emplace_back(write_no_slow_down, db_);
+    writer_threads.emplace_back(write_slow_down, db_.get());
+    writer_threads.emplace_back(write_no_slow_down, db_.get());
     // Write to different DBs.
-    threads.emplace_back(write_slow_down, dbs[i]);
-    threads.emplace_back(write_no_slow_down, dbs[i + 1]);
+    threads.emplace_back(write_slow_down, dbs[i].get());
+    threads.emplace_back(write_no_slow_down, dbs[i + 1].get());
   }
 
   for (auto& t : threads) {
@@ -773,7 +773,7 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
   for (int i = 0; i < num_dbs; i++) {
     ASSERT_OK(dbs[i]->Close());
     ASSERT_OK(DestroyDB(dbnames[i], options));
-    delete dbs[i];
+    dbs[i].reset();
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -809,7 +809,7 @@ TEST_P(DBWriteBufferManagerTest, StopSwitchingMemTablesOnceFlushing) {
 
   Reopen(options);
   std::string dbname = test::PerThreadDBPath("db_shared_wbm_db");
-  DB* shared_wbm_db = nullptr;
+  std::unique_ptr<DB> shared_wbm_db;
 
   ASSERT_OK(DestroyDB(dbname, options));
   ASSERT_OK(DB::Open(options, dbname, &shared_wbm_db));
@@ -842,7 +842,7 @@ TEST_P(DBWriteBufferManagerTest, StopSwitchingMemTablesOnceFlushing) {
   sleeping_task_high.WaitUntilDone();
   ASSERT_OK(shared_wbm_db->Close());
   ASSERT_OK(DestroyDB(dbname, options));
-  delete shared_wbm_db;
+  shared_wbm_db.reset();
 }
 
 TEST_F(DBWriteBufferManagerTest, RuntimeChangeableAllowStall) {
@@ -911,6 +911,270 @@ TEST_F(DBWriteBufferManagerTest, RuntimeChangeableAllowStall) {
   ASSERT_TRUE(s.IsIncomplete());
   ASSERT_TRUE(s.ToString().find("Write stall") != std::string::npos);
   sleeping_task->WakeUp();
+}
+
+// Test that enforce_write_buffer_manager_during_recovery option controls
+// whether WriteBufferManager limits are respected during WAL recovery.
+// When enabled, flushes are triggered to keep memory bounded.
+// When disabled (default), memory can grow beyond the configured limit.
+TEST_F(DBWriteBufferManagerTest,
+       WriteBufferManagerLimitDuringWALRecoverySingleDB) {
+  const size_t kWbmLimit = 1 * 1024 * 1024;             // 1 MB
+  const size_t kWbmLimitForWrites = 100 * 1024 * 1024;  // 100 MB (no flush)
+
+  Options options = CurrentOptions();
+  options.arena_block_size = 4096;
+  options.write_buffer_size = 10 * 1024 * 1024;  // 10MB per CF, never hit
+  options.max_write_buffer_number = 10;          // Allow many memtables
+  options.disable_auto_compactions = true;
+
+  // Use avoid_flush_during_recovery = true to prevent any flushes triggered
+  // during the recovery
+  options.avoid_flush_during_recovery = true;
+
+  const int kNumKeys = 50;
+  const int kValueSize = 50 * 1024;  // 50 KB each, total ~2.5 MB > 1MB limit
+
+  // ========== Part 1: Test with enforcement DISABLED (default behavior) =====
+  // WBM limits are not enforced during recovery
+  options.enforce_write_buffer_manager_during_recovery = false;
+
+  // Use large WBM limit during writes to avoid triggering flushes
+  options.write_buffer_manager =
+      std::make_shared<WriteBufferManager>(kWbmLimitForWrites, nullptr, true);
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(Put(Key(i), DummyString(kValueSize)));
+  }
+
+  // Check to make sure there's no L0 file
+  ASSERT_EQ(0, TotalTableFiles());
+  Close();
+
+  // Use smaller WBM limit for recovery
+  options.write_buffer_manager =
+      std::make_shared<WriteBufferManager>(kWbmLimit, nullptr, true);
+
+  // Recovery without enforcement - memory should exceed the limit
+  Reopen(options);
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  size_t memory_without_enforcement =
+      options.write_buffer_manager->mutable_memtable_memory_usage();
+
+  ASSERT_GT(memory_without_enforcement, kWbmLimit)
+      << "Without enforcement, memory (" << memory_without_enforcement
+      << ") should exceed the WBM limit (" << kWbmLimit << ")";
+
+  // Still no L0 file since avoid_flush_during_recovery is true
+  ASSERT_EQ(0, TotalTableFiles());
+
+  // ========== Part 2: Test with enforcement ENABLED ==========================
+  options.enforce_write_buffer_manager_during_recovery = true;
+
+  // Use large WBM limit during writes to avoid triggering flushes
+  options.write_buffer_manager =
+      std::make_shared<WriteBufferManager>(kWbmLimitForWrites, nullptr, true);
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(Put(Key(i), DummyString(kValueSize)));
+  }
+  // Check to make sure there's no L0 file
+  ASSERT_EQ(0, TotalTableFiles());
+  Close();
+
+  // Use smaller WBM limit for recovery
+  options.write_buffer_manager =
+      std::make_shared<WriteBufferManager>(kWbmLimit, nullptr, true);
+
+  // Recovery with enforcement - memory should be bounded
+  Reopen(options);
+
+  // Wait for flush to finish
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // WBM's ShouldFlush() compares active memtable mem usage against
+  // mutable_limit_ which is 7/8 of buffer_size.
+  size_t expected_num_l0_files =
+      memory_without_enforcement / (kWbmLimit * 7 / 8) + 1;
+  ASSERT_EQ(expected_num_l0_files, TotalTableFiles());
+
+  size_t memory_with_enforcement =
+      options.write_buffer_manager->mutable_memtable_memory_usage();
+
+  ASSERT_LT(memory_with_enforcement, kWbmLimit)
+      << "With enforcement, memory (" << memory_with_enforcement
+      << ") should be less than the limit " << kWbmLimit << ")";
+}
+
+TEST_F(DBWriteBufferManagerTest,
+       WriteBufferManagerLimitDuringWALRecoveryMultipleDBs) {
+  // Two DBs with 4MB WBM limit.
+  // First DB writes 2.5MB and closes, no flush (mem usage goes back to 0)
+  // Second DB writes 2.5MB then first DB reopens.
+  const size_t kWbmLimitForTwoDbs = 4 * 1024 * 1024;
+
+  Options options = CurrentOptions();
+  options.arena_block_size = 2048;
+  options.write_buffer_size = 10 * 1024 * 1024;  // 10MB per CF, never hit
+  options.max_write_buffer_number = 10;          // Allow many memtables
+  options.disable_auto_compactions = true;
+
+  // Use avoid_flush_during_recovery = true to prevent any flushes triggered
+  // during the recovery
+  options.avoid_flush_during_recovery = true;
+
+  const int kNumKeys = 50;
+  const int kValueSize = 50 * 1024;
+
+  // ========== Part 1: Test with enforcement DISABLED (default behavior) =====
+  // WBM limits are not enforced during recovery
+  options.enforce_write_buffer_manager_during_recovery = false;
+
+  options.write_buffer_manager =
+      std::make_shared<WriteBufferManager>(kWbmLimitForTwoDbs, nullptr, true);
+  DestroyAndReopen(options);
+
+  // Use of 2.5MB shouldn't trigger flush
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(Put(Key(i), DummyString(kValueSize)));
+  }
+  ASSERT_EQ(0, TotalTableFiles());
+
+  size_t mem_usage_first_db_only =
+      options.write_buffer_manager->mutable_memtable_memory_usage();
+
+  ASSERT_LT(mem_usage_first_db_only, kWbmLimitForTwoDbs)
+      << "Memory (" << mem_usage_first_db_only
+      << ") should be less than the limit " << kWbmLimitForTwoDbs << ")";
+
+  Close();
+  ASSERT_EQ(0, options.write_buffer_manager->mutable_memtable_memory_usage());
+
+  // Open a second DB sharing the same WBM, write data to consume memory
+  std::string second_dbname = test::PerThreadDBPath("db_shared_wbm_recovery");
+  std::unique_ptr<DB> second_db;
+  ASSERT_OK(DestroyDB(second_dbname, options));
+  ASSERT_OK(DB::Open(options, second_dbname, &second_db));
+
+  WriteOptions wo;
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(second_db->Put(wo, Key(i), DummyString(kValueSize)));
+  }
+
+  // First DB reopens without enforcement
+  Reopen(options);
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // No flush
+  ASSERT_EQ(0, TotalTableFiles());
+
+  size_t memory_usage_for_both =
+      options.write_buffer_manager->mutable_memtable_memory_usage();
+  ASSERT_GT(memory_usage_for_both, kWbmLimitForTwoDbs)
+      << "Without enforcement + shared WBM, memory (" << memory_usage_for_both
+      << ") should be greater than the limit (" << kWbmLimitForTwoDbs << ")";
+
+  // Close the first DB
+  Close();
+
+  // ========== Part 2: Test with enforcement ENABLED =====
+  // WBM limits  enforced during recovery
+  options.enforce_write_buffer_manager_during_recovery = true;
+
+  // Reopen the first DB with enforcement option enabled.
+  Reopen(options);
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // With enforcement enabled, there were flushes
+  ASSERT_GT(TotalTableFiles(), 0);
+
+  memory_usage_for_both =
+      options.write_buffer_manager->mutable_memtable_memory_usage();
+  ASSERT_LT(memory_usage_for_both, kWbmLimitForTwoDbs)
+      << "With enforcement + shared WBM, memory (" << memory_usage_for_both
+      << ") should be less than the limit (" << kWbmLimitForTwoDbs << ")";
+
+  Close();
+
+  // Clean up second DB
+  ASSERT_OK(second_db->Close());
+  ASSERT_OK(DestroyDB(second_dbname, options));
+  second_db.reset();
+}
+
+// Regression test: a WriteBatch that exceeds both per-CF memtable limit and
+// WBM global limit during WAL recovery should not double-schedule a CF on
+// flush_scheduler_ (which crashes debug builds via assert).
+TEST_F(DBWriteBufferManagerTest, DoubleSchedulingBugDuringWALRecovery) {
+  Options options = CurrentOptions();
+  options.arena_block_size = 4096;
+  // Small per-CF limit so memtable triggers CheckMemtableFull during recovery
+  options.write_buffer_size = 64 * 1024;  // 64KB
+  options.max_write_buffer_number = 10;
+  options.disable_auto_compactions = true;
+  options.avoid_flush_during_recovery = true;
+  options.enforce_write_buffer_manager_during_recovery = true;
+
+  // WBM limit also small so the WBM loop in InsertLogRecordToMemtable fires
+  options.write_buffer_manager =
+      std::make_shared<WriteBufferManager>(128 * 1024, nullptr, true);
+
+  DestroyAndReopen(options);
+
+  // Write enough data to exceed both limits during recovery replay
+  for (int i = 0; i < 50; i++) {
+    ASSERT_OK(Put(Key(i), DummyString(4096)));  // ~200KB total > both limits
+  }
+
+  Close();
+
+  // Reopen triggers WAL recovery. Without the fix, this crashes in debug
+  // builds with assert(checking_set_.count(cfd) == 0) in ScheduleWork().
+  ASSERT_OK(TryReopen(options));
+}
+
+// Read-only WAL recovery with enforce_write_buffer_manager_during_recovery
+// should not crash due to duplicate ScheduleWork() calls on the
+// flush_scheduler_. The flush scheduler was not drained in read-only mode,
+// causing the same CFD to be scheduled twice on successive WAL records,
+// triggering assert(checking_set_.count(cfd) == 0).
+TEST_F(DBWriteBufferManagerTest, ReadOnlyRecoveryWithEnforceWBMDoesNotAssert) {
+  Options options = CurrentOptions();
+  options.arena_block_size = 4096;
+  options.write_buffer_size = 10 * 1024 * 1024;  // 10MB, never hit
+  options.max_write_buffer_number = 10;
+  options.disable_auto_compactions = true;
+  options.avoid_flush_during_recovery = true;
+  options.enforce_write_buffer_manager_during_recovery = true;
+
+  const size_t kWbmLimitForWrites = 100 * 1024 * 1024;  // 100MB (no flush)
+  options.write_buffer_manager =
+      std::make_shared<WriteBufferManager>(kWbmLimitForWrites, nullptr, true);
+
+  DestroyAndReopen(options);
+
+  // Write enough data so that WAL recovery will trigger
+  // WriteBufferManager::ShouldFlush() multiple times with a small WBM limit.
+  for (int i = 0; i < 50; i++) {
+    ASSERT_OK(Put(Key(i), DummyString(50 * 1024)));  // ~2.5MB total
+  }
+  ASSERT_EQ(0, TotalTableFiles());
+  Close();
+
+  // Reopen read-only with a small WBM limit that will trigger ShouldFlush()
+  // during WAL recovery. Without the fix, this crashes in debug builds with
+  // assert(checking_set_.count(cfd) == 0) in FlushScheduler::ScheduleWork().
+  const size_t kWbmLimit = 1 * 1024 * 1024;  // 1MB
+  options.write_buffer_manager =
+      std::make_shared<WriteBufferManager>(kWbmLimit, nullptr, true);
+  ASSERT_OK(ReadOnlyReopen(options));
+
+  // Verify data is readable
+  for (int i = 0; i < 50; i++) {
+    ASSERT_EQ(DummyString(50 * 1024), Get(Key(i)));
+  }
 }
 
 INSTANTIATE_TEST_CASE_P(DBWriteBufferManagerTest, DBWriteBufferManagerTest,

@@ -185,7 +185,7 @@ TEST_F(StatsHistoryTest, GetStatsHistoryInMemory) {
 
 TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   constexpr int kPeriodSec = 1;
-  constexpr int kEstimatedOneSliceSize = 16000;
+  constexpr int kEstimatedOneSliceSize = 22100;
 
   Options options;
   options.create_if_missing = true;
@@ -277,7 +277,7 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   // If `slice_count == 0` when new statistics are added, consider increasing
   // `kEstimatedOneSliceSize`
   ASSERT_EQ(slice_count, 1);
-  ASSERT_TRUE(stats_history_size_reopen < 16000 &&
+  ASSERT_TRUE(stats_history_size_reopen < kEstimatedOneSliceSize &&
               stats_history_size_reopen > 0);
   ASSERT_TRUE(stats_count_reopen < stats_count && stats_count_reopen > 0);
   Close();
@@ -616,7 +616,7 @@ TEST_F(StatsHistoryTest, ForceManualFlushStatsCF) {
   // LogNumbers: default: 16, stats: 10, pikachu: 5
   // Since in recovery process, cfd_stats column is created after WAL is
   // created, synced and MANIFEST is persisted, its log number which depends on
-  // logfile_number_ will be different. Since "pikachu" is never flushed, thus
+  // cur_wal_number_ will be different. Since "pikachu" is never flushed, thus
   // its log_number should be the smallest of the three.
   ASSERT_OK(Flush());
   ASSERT_LT(cfd_test->GetLogNumber(), cfd_stats->GetLogNumber());

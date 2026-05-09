@@ -562,19 +562,6 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
-  public void maxWriteBufferNumberToMaintain() {
-    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
-      int intValue = rand.nextInt();
-      // Size has to be positive
-      intValue = (intValue < 0) ? -intValue : intValue;
-      intValue = (intValue == 0) ? intValue + 1 : intValue;
-      opt.setMaxWriteBufferNumberToMaintain(intValue);
-      assertThat(opt.maxWriteBufferNumberToMaintain()).
-          isEqualTo(intValue);
-    }
-  }
-
-  @Test
   public void compactionPriorities() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
       for (final CompactionPriority compactionPriority :
@@ -717,6 +704,16 @@ public class ColumnFamilyOptionsTest {
       final int val = 32;
       assertThat(options.setMemtableMaxRangeDeletions(val)).isEqualTo(options);
       assertThat(options.memtableMaxRangeDeletions()).isEqualTo(val);
+    }
+  }
+
+  @Test
+  public void minTombstonesForRangeConversion() {
+    try (final ColumnFamilyOptions options = new ColumnFamilyOptions()) {
+      assertThat(options.minTombstonesForRangeConversion()).isEqualTo(0);
+      final int val = 100;
+      assertThat(options.setMinTombstonesForRangeConversion(val)).isEqualTo(options);
+      assertThat(options.minTombstonesForRangeConversion()).isEqualTo(val);
     }
   }
 }

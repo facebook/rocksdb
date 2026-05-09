@@ -28,9 +28,10 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-Status DBImpl::FlushForGetLiveFiles() {
-  return DBImpl::FlushAllColumnFamilies(FlushOptions(),
-                                        FlushReason::kGetLiveFiles);
+Status DBImpl::FlushForGetLiveFiles(bool force_atomic_flush) {
+  FlushOptions flush_opts;
+  flush_opts.force_atomic_flush = force_atomic_flush;
+  return DBImpl::FlushAllColumnFamilies(flush_opts, FlushReason::kGetLiveFiles);
 }
 
 Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
@@ -75,11 +76,9 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 
   ret.emplace_back(CurrentFileName(""));
   ret.emplace_back(DescriptorFileName("", versions_->manifest_file_number()));
-  // The OPTIONS file number is zero in read-write mode when OPTIONS file
-  // writing failed and the DB was configured with
-  // `fail_if_options_file_error == false`. In read-only mode the OPTIONS file
-  // number is zero when no OPTIONS file exist at all. In those cases we do not
-  // record any OPTIONS file in the live file list.
+  // In read-only mode the OPTIONS file number is zero when no OPTIONS file
+  // exist at all. In this cases we do not record any OPTIONS file in the live
+  // file list.
   if (versions_->options_file_number() != 0) {
     ret.emplace_back(OptionsFileName("", versions_->options_file_number()));
   }
@@ -111,6 +110,7 @@ Status DBImpl::GetSortedWalFilesImpl(VectorWalPtr& files, bool need_seqnos) {
   {
     InstrumentedMutexLock l(&mutex_);
     while (pending_purge_obsolete_files_ > 0 || bg_purge_scheduled_ > 0) {
+      TEST_SYNC_POINT("DBImpl::GetSortedWalFilesImpl:WaitPurge");
       bg_cv_.Wait();
     }
 
@@ -185,14 +185,14 @@ Status DBImpl::GetSortedWalFilesImpl(VectorWalPtr& files, bool need_seqnos) {
   return s;
 }
 
-Status DBImpl::GetCurrentWalFile(std::unique_ptr<WalFile>* current_log_file) {
+Status DBImpl::GetCurrentWalFile(std::unique_ptr<WalFile>* current_wal_file) {
   uint64_t current_logfile_number;
   {
     InstrumentedMutexLock l(&mutex_);
-    current_logfile_number = logfile_number_;
+    current_logfile_number = cur_wal_number_;
   }
 
-  return wal_manager_.GetLiveWalFile(current_logfile_number, current_log_file);
+  return wal_manager_.GetLiveWalFile(current_logfile_number, current_wal_file);
 }
 
 Status DBImpl::GetLiveFilesStorageInfo(
@@ -205,7 +205,6 @@ Status DBImpl::GetLiveFilesStorageInfo(
 
   // NOTE: This implementation was largely migrated from Checkpoint.
 
-  Status s;
   VectorWalPtr live_wal_files;
   bool flush_memtable = true;
   if (!immutable_db_options_.allow_2pc) {
@@ -217,12 +216,12 @@ Status DBImpl::GetLiveFilesStorageInfo(
       // Don't take archived log size into account when calculating wal
       // size for flush, and don't need to verify consistency with manifest
       // here & now.
-      s = wal_manager_.GetSortedWalFiles(live_wal_files,
-                                         /* need_seqnos */ false,
-                                         /*include_archived*/ false);
+      Status wal_s = wal_manager_.GetSortedWalFiles(live_wal_files,
+                                                    /* need_seqnos */ false,
+                                                    /*include_archived*/ false);
 
-      if (!s.ok()) {
-        return s;
+      if (!wal_s.ok()) {
+        return wal_s;
       }
 
       // Don't flush column families if total log size is smaller than
@@ -243,13 +242,28 @@ Status DBImpl::GetLiveFilesStorageInfo(
   // This is a modified version of GetLiveFiles, to get access to more
   // metadata.
   mutex_.Lock();
+  bool wal_locked = false;
+  const bool needs_blob_direct_write_flush =
+      HasInFlightBlobDirectWriteFilesWithLockHeld();
+  if (needs_blob_direct_write_flush && !flush_memtable) {
+    mutex_.Unlock();
+    return Status::NotSupported(
+        "Blob direct write requires flushing active blob files before "
+        "capturing live files. Retry with flush enabled.");
+  }
   if (flush_memtable) {
-    bool wal_locked = lock_wal_count_ > 0;
+    wal_locked = lock_wal_count_ > 0;
     if (wal_locked) {
+      if (needs_blob_direct_write_flush) {
+        mutex_.Unlock();
+        return Status::NotSupported(
+            "Blob direct write requires flushing active blob files before "
+            "capturing live files. Retry with WAL unlocked.");
+      }
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Can't FlushForGetLiveFiles while WAL is locked");
     } else {
-      Status status = FlushForGetLiveFiles();
+      Status status = FlushForGetLiveFiles(opts.atomic_flush);
       if (!status.ok()) {
         mutex_.Unlock();
         ROCKS_LOG_ERROR(immutable_db_options_.info_log,
@@ -332,7 +346,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
   const uint64_t options_size = versions_->options_file_size_;
   const uint64_t min_log_num = MinLogNumberToKeep();
   // Ensure consistency with manifest for track_and_verify_wals_in_manifest
-  const uint64_t max_log_num = logfile_number_;
+  const uint64_t max_log_num = cur_wal_number_;
 
   mutex_.Unlock();
 
@@ -369,11 +383,9 @@ Status DBImpl::GetLiveFilesStorageInfo(
     }
   }
 
-  // The OPTIONS file number is zero in read-write mode when OPTIONS file
-  // writing failed and the DB was configured with
-  // `fail_if_options_file_error == false`. In read-only mode the OPTIONS file
-  // number is zero when no OPTIONS file exist at all. In those cases we do not
-  // record any OPTIONS file in the live file list.
+  // In read-only mode the OPTIONS file number is zero when no OPTIONS file
+  // exist at all. In this cases we do not record any OPTIONS file in the live
+  // file list.
   if (options_number != 0) {
     results.emplace_back();
     LiveFileStorageInfo& info = results.back();
@@ -395,17 +407,15 @@ Status DBImpl::GetLiveFilesStorageInfo(
   TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles1");
   TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
 
-  if (s.ok()) {
-    // FlushWAL is required to ensure we can physically copy everything
-    // logically written to the WAL. (Sync not strictly required for
-    // active WAL to be copied rather than hard linked, even when
-    // Checkpoint guarantees that the copied-to file is sync-ed. Plus we can't
-    // help track_and_verify_wals_in_manifest after manifest_size is
-    // already determined.)
-    s = FlushWAL(/*sync=*/false);
-    if (s.IsNotSupported()) {  // read-only DB or similar
-      s = Status::OK();
-    }
+  // FlushWAL is required to ensure we can physically copy everything
+  // logically written to the WAL. (Sync not strictly required for
+  // active WAL to be copied rather than hard linked, even when
+  // Checkpoint guarantees that the copied-to file is sync-ed. Plus we can't
+  // help track_and_verify_wals_in_manifest after manifest_size is
+  // already determined.)
+  Status s = FlushWAL(/*sync=*/false);
+  if (s.IsNotSupported()) {  // read-only DB or similar
+    s = Status::OK();
   }
 
   TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1");

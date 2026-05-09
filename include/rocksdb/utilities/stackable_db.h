@@ -289,6 +289,13 @@ class StackableDB : public DB {
     return db_->NewAttributeGroupIterator(options, column_families);
   }
 
+  using DB::NewMultiScan;
+  std::unique_ptr<MultiScan> NewMultiScan(
+      const ReadOptions& opts, ColumnFamilyHandle* column_family,
+      const MultiScanArgs& scan_opts) override {
+    return db_->NewMultiScan(opts, column_family, scan_opts);
+  }
+
   const Snapshot* GetSnapshot() override { return db_->GetSnapshot(); }
 
   void ReleaseSnapshot(const Snapshot* snapshot) override {
@@ -368,6 +375,8 @@ class StackableDB : public DB {
   void DisableManualCompaction() override {
     return db_->DisableManualCompaction();
   }
+  void AbortAllCompactions() override { return db_->AbortAllCompactions(); }
+  void ResumeAllCompactions() override { return db_->ResumeAllCompactions(); }
 
   Status WaitForCompact(
       const WaitForCompactOptions& wait_for_compact_options) override {
@@ -377,11 +386,6 @@ class StackableDB : public DB {
   using DB::NumberLevels;
   int NumberLevels(ColumnFamilyHandle* column_family) override {
     return db_->NumberLevels(column_family);
-  }
-
-  using DB::MaxMemCompactionLevel;
-  int MaxMemCompactionLevel(ColumnFamilyHandle* column_family) override {
-    return db_->MaxMemCompactionLevel(column_family);
   }
 
   using DB::Level0StopWriteTrigger;
@@ -416,7 +420,11 @@ class StackableDB : public DB {
 
   Status SyncWAL() override { return db_->SyncWAL(); }
 
+  using DB::FlushWAL;
   Status FlushWAL(bool sync) override { return db_->FlushWAL(sync); }
+  Status FlushWAL(const FlushWALOptions& options) override {
+    return db_->FlushWAL(options);
+  }
 
   Status LockWAL() override { return db_->LockWAL(); }
 
@@ -443,6 +451,12 @@ class StackableDB : public DB {
   void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                ColumnFamilyMetaData* cf_meta) override {
     db_->GetColumnFamilyMetaData(column_family, cf_meta);
+  }
+
+  void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
+                               const GetColumnFamilyMetaDataOptions& options,
+                               ColumnFamilyMetaData* metadata) override {
+    db_->GetColumnFamilyMetaData(column_family, options, metadata);
   }
 
   using DB::StartBlockCacheTrace;
@@ -505,13 +519,18 @@ class StackableDB : public DB {
     return db_->GetFullHistoryTsLow(column_family, ts_low);
   }
 
+  Status GetNewestUserDefinedTimestamp(ColumnFamilyHandle* column_family,
+                                       std::string* newest_timestamp) override {
+    return db_->GetNewestUserDefinedTimestamp(column_family, newest_timestamp);
+  }
+
   Status GetSortedWalFiles(VectorWalPtr& files) override {
     return db_->GetSortedWalFiles(files);
   }
 
   Status GetCurrentWalFile(
-      std::unique_ptr<WalFile>* current_log_file) override {
-    return db_->GetCurrentWalFile(current_log_file);
+      std::unique_ptr<WalFile>* current_wal_file) override {
+    return db_->GetCurrentWalFile(current_wal_file);
   }
 
   Status GetCreationTimeOfOldestFile(uint64_t* creation_time) override {
@@ -527,10 +546,11 @@ class StackableDB : public DB {
   }
 
   using DB::SetOptions;
-  Status SetOptions(ColumnFamilyHandle* column_family_handle,
-                    const std::unordered_map<std::string, std::string>&
-                        new_options) override {
-    return db_->SetOptions(column_family_handle, new_options);
+  Status SetOptions(
+      const std::unordered_map<ColumnFamilyHandle*,
+                               std::unordered_map<std::string, std::string>>&
+          column_families_opts_map) override {
+    return db_->SetOptions(column_families_opts_map);
   }
 
   Status SetDBOptions(const std::unordered_map<std::string, std::string>&
@@ -552,6 +572,14 @@ class StackableDB : public DB {
       ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
       TablePropertiesCollection* props) override {
     return db_->GetPropertiesOfTablesInRange(column_family, range, n, props);
+  }
+
+  using DB::GetPropertiesOfTablesByLevel;
+  Status GetPropertiesOfTablesByLevel(
+      ColumnFamilyHandle* column_family,
+      std::vector<std::unique_ptr<TablePropertiesCollection>>* props_by_level)
+      override {
+    return db_->GetPropertiesOfTablesByLevel(column_family, props_by_level);
   }
 
   Status GetUpdatesSince(

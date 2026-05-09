@@ -6,6 +6,7 @@
 #pragma once
 
 #include <map>
+#include <memory>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -39,8 +40,11 @@ class MemoryUtil {
   // only report the usage of the input "cache_set" without
   // including those Cache usage inside the input list "dbs"
   // of DBs.
+  //
+  // Supports vectors of DB* or unique_ptr<DB>.
+  template <typename DBPtr>
   static Status GetApproximateMemoryUsageByType(
-      const std::vector<DB*>& dbs,
+      const std::vector<DBPtr>& dbs,
       const std::unordered_set<const Cache*> cache_set,
       std::map<MemoryUtil::UsageType, uint64_t>* usage_by_type);
 };

@@ -45,6 +45,11 @@ class TARGETSBuilder:
         self.total_bin = 0
         self.total_test = 0
         self.tests_cfg = ""
+    
+    def add_oncall(self, oncall):
+       with open(self.path, "ab") as targets_file:
+            targets_file.write(targets_cfg.oncall_template.format(name=oncall).encode("utf-8"))
+                
 
     def add_library(
         self,

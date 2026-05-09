@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <cinttypes>
+#include <future>
 #include <thread>
 #include <vector>
 
@@ -854,6 +855,113 @@ TEST_F(DeleteSchedulerTest,
   ASSERT_EQ(0, stats_->getAndResetTickerCount(FILES_MARKED_TRASH));
   ASSERT_EQ(2, stats_->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+}
+
+TEST_F(DeleteSchedulerTest, BucketSignalOnSingleFileCompletion) {
+  // Test that WaitForEmptyTrashBucket wakes up correctly when a single file
+  // in a bucket is deleted. This requires the pre-decrement fix: with
+  // post-decrement, the pending count is checked before it reaches zero,
+  // so the signal is never fired for the bucket, causing a hang.
+  //
+  // Strategy:
+  // 1. Block the background thread inside DeleteTrashFile for file 0 (mu_ is
+  //    NOT held at this point, since it's unlocked before calling
+  //    DeleteTrashFile).
+  // 2. Start WaitForEmptyTrashBucket(bucket0) on another thread. Since mu_ is
+  //    free, it acquires mu_, sees bucket0's pending count == 1, enters
+  //    cv_.Wait() (which releases mu_).
+  // 3. Unblock file 0's deletion. The background thread completes
+  //    DeleteTrashFile, re-acquires mu_, decrements the bucket counter. With
+  //    the post-decrement bug, pending_files_in_bucket gets 1 (old value),
+  //    so cv_.SignalAll() is NOT called. The wait thread stays stuck.
+  // 4. Also block file 1 inside DeleteTrashFile to keep pending_files_ > 0,
+  //    preventing the global pending_files_ == 0 check from triggering a
+  //    signal.
+  // 5. Assert the wait thread times out (bug) or completes (fix).
+  rate_bytes_per_sec_ = 1024 * 1024;  // 1 MB / s
+  NewDeleteScheduler();
+
+  std::atomic<int> delete_calls{0};
+  std::atomic<bool> unblock_file0{false};
+  std::atomic<bool> unblock_file1{false};
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteTrashFile:DeleteFile", [&](void* /*arg*/) {
+        int n = delete_calls.fetch_add(1) + 1;
+        if (n == 1) {
+          // Block file 0's deletion until we've set up the wait thread
+          while (!unblock_file0.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+          }
+        } else if (n == 2) {
+          // Block file 1's deletion to keep pending_files_ > 0
+          while (!unblock_file1.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+          }
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Bucket 0: single file
+  std::optional<int32_t> bucket0 = delete_scheduler_->NewTrashBucket();
+  ASSERT_TRUE(bucket0.has_value());
+  std::string file0 =
+      NewDummyFile("bucket_signal_file0.data", 1024, 0, /*track=*/false);
+  ASSERT_OK(delete_scheduler_->DeleteUnaccountedFile(file0, "",
+                                                     /*force_bg=*/false,
+                                                     bucket0));
+
+  // Bucket 1: single file (keeps pending_files_ > 0 when bucket 0 empties)
+  std::optional<int32_t> bucket1 = delete_scheduler_->NewTrashBucket();
+  ASSERT_TRUE(bucket1.has_value());
+  std::string file1 =
+      NewDummyFile("bucket_signal_file1.data", 1024, 0, /*track=*/false);
+  ASSERT_OK(delete_scheduler_->DeleteUnaccountedFile(file1, "",
+                                                     /*force_bg=*/false,
+                                                     bucket1));
+
+  // Wait for the background thread to reach the DeleteFile syncpoint for
+  // file 0. At this point mu_ is NOT held by the background thread.
+  while (delete_calls.load() < 1) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  // Start waiting for bucket 0 on another thread. Since the background thread
+  // doesn't hold mu_, this thread acquires mu_, sees iter->second == 1,
+  // and enters cv_.Wait() (releasing mu_).
+  std::atomic<bool> wait_done{false};
+  auto wait_future = std::async(std::launch::async, [&]() {
+    delete_scheduler_->WaitForEmptyTrashBucket(bucket0.value());
+    wait_done.store(true);
+  });
+
+  // Give the wait thread time to enter cv_.Wait(). We need it to be blocked
+  // in cv_.Wait() before unblocking the background thread.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  // Unblock file 0's deletion. The background thread will:
+  // - Complete DeleteTrashFile, re-acquire mu_
+  // - Decrement pending_files_ (2 -> 1) and bucket0 counter (1 -> 0)
+  // - With bug (post-decrement): pending_files_in_bucket = 1, no signal fired
+  // - With fix (pre-decrement): pending_files_in_bucket = 0, signal fired
+  // Then it moves to file 1 and blocks at the second DeleteFile syncpoint.
+  unblock_file0.store(true);
+
+  // Check if WaitForEmptyTrashBucket returns within 5 seconds.
+  // With the bug: no signal fired, wait thread stays stuck -> timeout
+  // With the fix: signal fired, wait thread wakes up -> completes quickly
+  auto status = wait_future.wait_for(std::chrono::seconds(5));
+  ASSERT_EQ(status, std::future_status::ready)
+      << "WaitForEmptyTrashBucket(bucket0) timed out - bucket signal not fired";
+
+  // Unblock file 1 and wait for bucket 1
+  unblock_file1.store(true);
+  delete_scheduler_->WaitForEmptyTrashBucket(bucket1.value());
+
+  ASSERT_EQ(0, delete_scheduler_->GetTotalTrashSize());
+  ASSERT_GE(delete_calls.load(), 2);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

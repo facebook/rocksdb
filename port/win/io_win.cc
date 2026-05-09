@@ -242,6 +242,16 @@ size_t WinMmapReadableFile::GetUniqueId(char* id, size_t max_size) const {
   return GetUniqueIdFromFile(hFile_, id, max_size);
 }
 
+IOStatus WinMmapReadableFile::GetFileSize(uint64_t* size) {
+  LARGE_INTEGER fileSize;
+  if (GetFileSizeEx(hFile_, &fileSize)) {
+    *size = fileSize.QuadPart;
+    return IOStatus::OK();
+  } else {
+    return IOStatus::IOError("Failed to get file size", filename_);
+  }
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 /// WinMmapFile
 
@@ -733,6 +743,16 @@ size_t WinRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
 
 size_t WinRandomAccessFile::GetRequiredBufferAlignment() const {
   return GetAlignment();
+}
+
+IOStatus WinRandomAccessFile::GetFileSize(uint64_t* size) {
+  LARGE_INTEGER fileSize;
+  if (GetFileSizeEx(hFile_, &fileSize)) {
+    *size = fileSize.QuadPart;
+    return IOStatus::OK();
+  } else {
+    return IOStatus::IOError("Failed to get file size", filename_);
+  }
 }
 
 /////////////////////////////////////////////////////////////////////////////

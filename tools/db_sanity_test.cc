@@ -41,9 +41,8 @@ class SanityTest {
     if (!s.ok()) {
       return s;
     }
-    DB* db = nullptr;
+    std::unique_ptr<DB> db;
     s = DB::Open(options, dbname, &db);
-    std::unique_ptr<DB> db_guard(db);
     if (!s.ok()) {
       return s;
     }
@@ -58,10 +57,9 @@ class SanityTest {
     return db->Flush(FlushOptions());
   }
   Status Verify() {
-    DB* db = nullptr;
+    std::unique_ptr<DB> db;
     std::string dbname = path_ + Name();
     Status s = DB::Open(GetOptions(), dbname, &db);
-    std::unique_ptr<DB> db_guard(db);
     if (!s.ok()) {
       return s;
     }

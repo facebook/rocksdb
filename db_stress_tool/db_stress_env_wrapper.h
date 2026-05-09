@@ -9,8 +9,11 @@
 
 #ifdef GFLAGS
 #pragma once
+
 #include "db_stress_tool/db_stress_common.h"
+#include "file/filename.h"
 #include "monitoring/thread_status_util.h"
+#include "rocksdb/file_checksum.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -173,6 +176,35 @@ class DbStressFSWrapper : public FileSystemWrapper {
                                const FileOptions& file_opts,
                                std::unique_ptr<FSRandomAccessFile>* r,
                                IODebugContext* dbg) override {
+    // verify that file checksums are propagated through FileOptions
+    // for SST file opens.
+
+    std::string basename = f.substr(f.rfind('/') + 1);
+    uint64_t file_number;
+    FileType file_type;
+    if (ParseFileName(basename, &file_number, &file_type) &&
+        file_type == kTableFile) {
+      // file_checksum_func_name must always be populated to be sure each call
+      // site within RocksDB is intentional about populating the fields with the
+      // best available information:
+      //  - kNoFileChecksumFuncName: no checksum context available
+      //    (e.g., SstFileDumper, SstFileReader, checksum generation),
+      //    always paired with empty checksum
+      //  - kUnknownFileChecksumFuncName: file created without a
+      //    checksum factory (from MANIFEST), always paired with
+      //    empty checksum
+      //  - a real name (e.g., "FileChecksumCrc32c"): checksum exists
+      assert(!file_opts.file_checksum_func_name.empty());
+      if (file_opts.file_checksum_func_name == kUnknownFileChecksumFuncName ||
+          file_opts.file_checksum_func_name == kNoFileChecksumFuncName) {
+        // No checksum available — checksum value must be empty
+        assert(file_opts.file_checksum.empty());
+      } else {
+        // A real checksum function — checksum value must be present
+        assert(!file_opts.file_checksum.empty());
+      }
+    }
+
     std::unique_ptr<FSRandomAccessFile> file;
     IOStatus s = target()->NewRandomAccessFile(f, file_opts, &file, dbg);
     if (s.ok()) {

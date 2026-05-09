@@ -71,18 +71,26 @@ class PessimisticTransaction : public TransactionBaseImpl {
                                             std::string* key) const override {
     std::lock_guard<std::mutex> lock(wait_mutex_);
     std::vector<TransactionID> ids(waiting_txn_ids_.size());
-    if (key) *key = waiting_key_ ? *waiting_key_ : "";
+    if (timed_out_key_.has_value()) {
+      if (key) *key = timed_out_key_.value();
+    } else {
+      if (key) *key = waiting_key_ ? *waiting_key_ : "";
+    }
     if (column_family_id) *column_family_id = waiting_cf_id_;
     std::copy(waiting_txn_ids_.begin(), waiting_txn_ids_.end(), ids.begin());
     return ids;
   }
 
-  void SetWaitingTxn(autovector<TransactionID> ids, uint32_t column_family_id,
-                     const std::string* key) {
+  void SetWaitingTxn(autovector<TransactionID>& ids, uint32_t column_family_id,
+                     const std::string* key, bool is_timed_out = false) {
     std::lock_guard<std::mutex> lock(wait_mutex_);
     waiting_txn_ids_ = ids;
     waiting_cf_id_ = column_family_id;
-    waiting_key_ = key;
+    if (is_timed_out) {
+      timed_out_key_ = key ? *key : "";
+    } else {
+      waiting_key_ = key;
+    }
   }
 
   void ClearWaitingTxn() {
@@ -105,6 +113,10 @@ class PessimisticTransaction : public TransactionBaseImpl {
   int64_t GetLockTimeout() const { return lock_timeout_; }
   void SetLockTimeout(int64_t timeout) override {
     lock_timeout_ = timeout * 1000;
+  }
+  int64_t GetDeadlockTimeout() const { return deadlock_timeout_us_; }
+  void SetDeadlockTimeout(int64_t timeout_ms) override {
+    deadlock_timeout_us_ = timeout_ms * 1000;
   }
 
   // Returns true if locks were stolen successfully, false otherwise.
@@ -166,10 +178,11 @@ class PessimisticTransaction : public TransactionBaseImpl {
   // Refer to
   // TransactionOptions::skip_prepare
   bool skip_prepare_ = false;
-  // Refer to
-  // TransactionOptions::commit_bypass_memtable
+  // Refer to TransactionOptions::commit_bypass_memtable
   uint32_t commit_bypass_memtable_threshold_ =
       std::numeric_limits<uint32_t>::max();
+  uint64_t commit_bypass_memtable_byte_threshold_ =
+      std::numeric_limits<uint64_t>::max();
 
  private:
   friend class TransactionTest_ValidateSnapshotTest_Test;
@@ -181,7 +194,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   // IDs for the transactions that are blocking the current transaction.
   //
-  // empty if current transaction is not waiting.
+  // empty if current transaction is not waiting or has timed out
   autovector<TransactionID> waiting_txn_ids_;
 
   // The following two represents the (cf, key) that a transaction is waiting
@@ -195,11 +208,18 @@ class PessimisticTransaction : public TransactionBaseImpl {
   uint32_t waiting_cf_id_;
   const std::string* waiting_key_;
 
+  // Waiting key with lifetime of the txn so it can be accessed after timeouts
+  std::optional<std::string> timed_out_key_;
+
   // Mutex protecting waiting_txn_ids_, waiting_cf_id_ and waiting_key_.
   mutable std::mutex wait_mutex_;
 
   // Timeout in microseconds when locking a key or -1 if there is no timeout.
   int64_t lock_timeout_;
+
+  // Timeout in microseconds before perform dead lock detection.
+  // If 0, deadlock detection will be performed immediately.
+  int64_t deadlock_timeout_us_;
 
   // Whether to perform deadlock detection or not.
   bool deadlock_detect_;

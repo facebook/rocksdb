@@ -67,33 +67,50 @@ class Block_kMetaIndex : public Block {
   static constexpr BlockType kBlockType = BlockType::kMetaIndex;
 };
 
+class Block_kUserDefinedIndex : public BlockContents {
+ public:
+  static constexpr CacheEntryRole kCacheEntryRole = CacheEntryRole::kIndexBlock;
+  static constexpr BlockType kBlockType = BlockType::kUserDefinedIndex;
+
+  explicit Block_kUserDefinedIndex(BlockContents&& other)
+      : BlockContents(std::move(other)) {}
+  const Slice& ContentSlice() const { return data; }
+};
+
 struct BlockCreateContext : public Cache::CreateContext {
   BlockCreateContext() {}
   BlockCreateContext(const BlockBasedTableOptions* _table_options,
                      const ImmutableOptions* _ioptions, Statistics* _statistics,
-                     bool _using_zstd, uint8_t _protection_bytes_per_key,
+                     Decompressor* _decompressor,
+                     uint8_t _protection_bytes_per_key,
                      const Comparator* _raw_ucmp,
                      bool _index_value_is_full = false,
-                     bool _index_has_first_key = false)
+                     bool _index_has_first_key = false,
+                     uint32_t _data_block_restart_interval = 0,
+                     uint32_t _index_block_restart_interval = 0)
       : table_options(_table_options),
         ioptions(_ioptions),
         statistics(_statistics),
+        decompressor(_decompressor),
         raw_ucmp(_raw_ucmp),
-        using_zstd(_using_zstd),
         protection_bytes_per_key(_protection_bytes_per_key),
         index_value_is_full(_index_value_is_full),
-        index_has_first_key(_index_has_first_key) {}
+        index_has_first_key(_index_has_first_key),
+        data_block_restart_interval(_data_block_restart_interval),
+        index_block_restart_interval(_index_block_restart_interval) {}
 
   const BlockBasedTableOptions* table_options = nullptr;
   const ImmutableOptions* ioptions = nullptr;
   Statistics* statistics = nullptr;
+  // TODO: refactor to avoid copying BlockCreateContext for dict in block cache
+  Decompressor* decompressor = nullptr;
   const Comparator* raw_ucmp = nullptr;
-  const UncompressionDict* dict = nullptr;
-  uint32_t format_version;
-  bool using_zstd = false;
   uint8_t protection_bytes_per_key = 0;
   bool index_value_is_full;
   bool index_has_first_key;
+  // Restart intervals from table properties (0 if not available)
+  uint32_t data_block_restart_interval = 0;
+  uint32_t index_block_restart_interval = 0;
 
   // For TypedCacheInterface
   template <typename TBlocklike>
@@ -102,12 +119,10 @@ struct BlockCreateContext : public Cache::CreateContext {
                      CompressionType type, MemoryAllocator* alloc) {
     BlockContents uncompressed_block_contents;
     if (type != CompressionType::kNoCompression) {
-      assert(dict != nullptr);
-      UncompressionContext context(type);
-      UncompressionInfo info(context, *dict, type);
-      Status s = UncompressBlockData(
-          info, data.data(), data.size(), &uncompressed_block_contents,
-          table_options->format_version, *ioptions, alloc);
+      assert(decompressor != nullptr);
+      Status s =
+          DecompressBlockData(data.data(), data.size(), type, *decompressor,
+                              &uncompressed_block_contents, *ioptions, alloc);
       if (!s.ok()) {
         parsed_out->reset();
         return;
@@ -128,9 +143,11 @@ struct BlockCreateContext : public Cache::CreateContext {
               BlockContents&& block);
   void Create(std::unique_ptr<Block_kMetaIndex>* parsed_out,
               BlockContents&& block);
+  void Create(std::unique_ptr<Block_kUserDefinedIndex>* parsed_out,
+              BlockContents&& block);
   void Create(std::unique_ptr<ParsedFullFilterBlock>* parsed_out,
               BlockContents&& block);
-  void Create(std::unique_ptr<UncompressionDict>* parsed_out,
+  void Create(std::unique_ptr<DecompressorDict>* parsed_out,
               BlockContents&& block);
 };
 

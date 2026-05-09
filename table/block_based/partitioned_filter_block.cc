@@ -39,13 +39,15 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
           use_value_delta_encoding,
           BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
           0.75 /* data_block_hash_table_util_ratio */, ts_sz,
-          persist_user_defined_timestamps, false /* is_user_key */),
+          persist_user_defined_timestamps, false /* is_user_key */,
+          /*use_separated_kv_storage=*/false),
       index_on_filter_block_builder_without_seq_(
           index_block_restart_interval, true /*use_delta_encoding*/,
           use_value_delta_encoding,
           BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
           0.75 /* data_block_hash_table_util_ratio */, ts_sz,
-          persist_user_defined_timestamps, true /* is_user_key */) {
+          persist_user_defined_timestamps, true /* is_user_key */,
+          /*use_separated_kv_storage=*/false) {
   // Compute keys_per_partition_
   keys_per_partition_ = static_cast<uint32_t>(
       filter_bits_builder_->ApproximateNumEntries(partition_size));
@@ -143,6 +145,7 @@ void PartitionedFilterBlockBuilder::CutAFilterBlock(const Slice* next_key,
     ikey = p_index_builder_->GetPartitionKey();
   }
   filters_.push_back({std::move(ikey), std::move(filter_data), filter});
+  completed_partitions_size_.FetchAddRelaxed(filter.size());
   partitioned_filters_construction_status_.UpdateIfOk(
       filter_construction_status);
 
@@ -209,6 +212,56 @@ size_t PartitionedFilterBlockBuilder::EstimateEntriesAdded() {
   return total_added_in_built_ + filter_bits_builder_->EstimateEntriesAdded();
 }
 
+size_t PartitionedFilterBlockBuilder::CurrentFilterSizeEstimate() {
+  size_t active_partition_size =
+      filter_bits_builder_->EstimateEntriesAdded() * 2;  // 2 bytes per key
+
+  return estimated_filter_size_.LoadRelaxed() + active_partition_size;
+}
+
+void PartitionedFilterBlockBuilder::OnDataBlockFinalized(
+    uint64_t num_data_blocks) {
+  UpdateFilterSizeEstimate(num_data_blocks);
+}
+
+void PartitionedFilterBlockBuilder::UpdateFilterSizeEstimate(
+    uint64_t num_data_blocks) {
+  size_t partitions_size = completed_partitions_size_.LoadRelaxed();
+
+  // Reserve space if no partitions have been cut
+  size_t active_filter_estimate = 0;
+  if (partitions_size == 0) {
+    size_t avg_bytes_per_entry =
+        2;  // 2 bytes per entry, approx 15 bits per key
+
+    // Estimate using keys_per_partition_ since we expect to cut the first
+    // partition once it reaches approx. this many entries.
+    active_filter_estimate = keys_per_partition_ * avg_bytes_per_entry;
+
+    // Add a 2x buffer (for top-level index, etc.)
+    active_filter_estimate = active_filter_estimate * 2;
+  }
+  size_t filter_estimate = std::max(partitions_size, active_filter_estimate);
+
+  // Estimate top-level partition index size
+  if (p_index_builder_->separator_is_key_plus_seq()) {
+    filter_estimate += index_on_filter_block_builder_.CurrentSizeEstimate();
+  } else {
+    filter_estimate +=
+        index_on_filter_block_builder_without_seq_.CurrentSizeEstimate();
+  }
+
+  // Reserve filter space for the next data block
+  size_t reserved = 0;
+  if (num_data_blocks > 0) {
+    reserved = (filter_estimate / num_data_blocks) *
+               2;  // 2x average size per data block
+    estimated_filter_size_.StoreRelaxed(filter_estimate + reserved);
+  } else {
+    estimated_filter_size_.StoreRelaxed(filter_estimate);
+  }
+}
+
 void PartitionedFilterBlockBuilder::PrevKeyBeforeFinish(
     const Slice& prev_key_without_ts) {
   assert(prev_key_without_ts.compare(DEBUG_add_with_prev_key_called_
@@ -238,9 +291,10 @@ Status PartitionedFilterBlockBuilder::Finish(
     last_encoded_handle_ = last_partition_block_handle;
     const Slice handle_delta_encoding_slice(handle_delta_encoding);
 
+    // NOTE: WriteBatch guarantees keys < 4GB; handle values are also small
     index_on_filter_block_builder_.Add(e.ikey, handle_encoding,
                                        &handle_delta_encoding_slice);
-    if (!p_index_builder_->seperator_is_key_plus_seq()) {
+    if (!p_index_builder_->separator_is_key_plus_seq()) {
       index_on_filter_block_builder_without_seq_.Add(
           ExtractUserKey(e.ikey), handle_encoding,
           &handle_delta_encoding_slice);
@@ -267,7 +321,7 @@ Status PartitionedFilterBlockBuilder::Finish(
     if (UNLIKELY(filters_.empty())) {
       if (!index_on_filter_block_builder_.empty()) {
         // Simplest to just add them all at the end
-        if (p_index_builder_->seperator_is_key_plus_seq()) {
+        if (p_index_builder_->separator_is_key_plus_seq()) {
           *filter = index_on_filter_block_builder_.Finish();
         } else {
           *filter = index_on_filter_block_builder_without_seq_.Finish();
@@ -413,8 +467,7 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
 
   const Status s = table()->RetrieveBlock(
       prefetch_buffer, read_options, fltr_blk_handle,
-      UncompressionDict::GetEmptyDict(), filter_block, get_context,
-      lookup_context,
+      /* decomp */ nullptr, filter_block, get_context, lookup_context,
       /* for_compaction */ false, /* use_cache */ true,
       /* async_read */ false, /* use_block_cache_for_lookup */ true);
 
@@ -592,7 +645,8 @@ Status PartitionedFilterBlockReader::CacheDependencies(
                                   /*usage=*/FilePrefetchBufferUsage::kUnknown);
 
     IOOptions opts;
-    s = rep->file->PrepareIOOptions(ro, opts);
+    IODebugContext dbg;
+    s = rep->file->PrepareIOOptions(ro, opts, &dbg);
     if (s.ok()) {
       s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
                                     static_cast<size_t>(prefetch_len));
@@ -610,7 +664,7 @@ Status PartitionedFilterBlockReader::CacheDependencies(
     // filter blocks
     s = table()->MaybeReadBlockAndLoadToCache(
         prefetch_buffer ? prefetch_buffer.get() : tail_prefetch_buffer, ro,
-        handle, UncompressionDict::GetEmptyDict(),
+        handle, /* dict */ nullptr,
         /* for_compaction */ false, &block, nullptr /* get_context */,
         &lookup_context, nullptr /* contents */, false,
         /* use_block_cache_for_lookup */ true);

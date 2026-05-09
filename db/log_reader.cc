@@ -48,15 +48,12 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       first_record_read_(false),
       compression_type_(kNoCompression),
       compression_type_record_read_(false),
-      uncompress_(nullptr),
+      uncompress_(),
       hash_state_(nullptr),
       uncompress_hash_state_(nullptr) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
-  if (uncompress_) {
-    delete uncompress_;
-  }
   if (hash_state_) {
     XXH3_freeState(hash_state_);
   }
@@ -95,7 +92,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
   uint64_t prospective_record_offset = 0;
 
   Slice fragment;
-  while (true) {
+  for (;;) {
     uint64_t physical_record_offset = end_of_buffer_offset_ - buffer_.size();
     size_t drop_size = 0;
     const uint8_t record_type =
@@ -140,7 +137,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         prospective_record_offset = physical_record_offset;
         scratch->assign(fragment.data(), fragment.size());
         in_fragmented_record = true;
-        break;
+        break;  // switch
 
       case kMiddleType:
       case kRecyclableMiddleType:
@@ -153,7 +150,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           }
           scratch->append(fragment.data(), fragment.size());
         }
-        break;
+        break;  // switch
 
       case kLastType:
       case kRecyclableLastType:
@@ -171,7 +168,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           first_record_read_ = true;
           return true;
         }
-        break;
+        break;  // switch
 
       case kSetCompressionType: {
         if (compression_type_record_read_) {
@@ -193,7 +190,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         } else {
           InitCompression(compression_record);
         }
-        break;
+        break;  // switch
       }
       case kPredecessorWALInfoType:
       case kRecyclePredecessorWALInfoType: {
@@ -210,7 +207,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           MaybeVerifyPredecessorWALInfo(wal_recovery_mode, fragment,
                                         recorded_predecessor_wal_info);
         }
-        break;
+        break;  // switch
       }
       case kUserDefinedTimestampSizeType:
       case kRecyclableUserDefinedTimestampSizeType: {
@@ -235,7 +232,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
             ReportCorruption(fragment.size(), s.getState());
           }
         }
-        break;
+        break;  // switch
       }
 
       case kBadHeader:
@@ -304,7 +301,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           in_fragmented_record = false;
           scratch->clear();
         }
-        break;
+        break;  // switch
 
       case kBadRecordLen:
         if (eof_) {
@@ -337,7 +334,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           in_fragmented_record = false;
           scratch->clear();
         }
-        break;
+        break;  // switch
 
       default: {
         if ((record_type & kRecordTypeSafeIgnoreMask) == 0) {
@@ -349,11 +346,11 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         }
         in_fragmented_record = false;
         scratch->clear();
-        break;
+        break;  // switch
       }
     }
   }
-  return false;
+  // unreachable
 }
 
 void Reader::MaybeVerifyPredecessorWALInfo(
@@ -380,8 +377,11 @@ void Reader::MaybeVerifyPredecessorWALInfo(
   } else {
     if (observed_predecessor_wal_info_.GetLogNumber() !=
         recorded_predecessor_log_number) {
-      std::string reason = "Missing WAL of log number " +
-                           std::to_string(recorded_predecessor_log_number);
+      std::string reason =
+          "Mismatched predecessor log number of WAL file " +
+          file_->file_name() + " Recorded " +
+          std::to_string(recorded_predecessor_log_number) + ". Observed " +
+          std::to_string(observed_predecessor_wal_info_.GetLogNumber());
       ReportCorruption(fragment.size(), reason.c_str(),
                        recorded_predecessor_log_number);
     } else if (observed_predecessor_wal_info_.GetLastSeqnoRecorded() !=

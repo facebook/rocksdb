@@ -21,6 +21,7 @@
 #include <string>
 
 #include "rocksdb/iterator_base.h"
+#include "rocksdb/options.h"
 #include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -93,6 +94,22 @@ class Iterator : public IteratorBase {
     assert(false);
     return Slice();
   }
+
+  // Prepare the iterator to scan the ranges specified in scan_opts. This
+  // includes prefetching relevant blocks from disk. The upper bound and
+  // other table specific limits should be specified for each
+  // scan for best results. If an upper bound is not specified, Prepare may
+  // skip prefetching as it cannot accurately determine how much to prefetch.
+  //
+  // Prepare should typically be followed by Seeks to the start keys in the
+  // order they're specified in scan_opts. If the user does a Seek to some
+  // other target key, the iterator should disregard the scan_opts from that
+  // point onwards and behave like a normal iterator. Its the user's
+  // responsibility to again call Prepare().
+  //
+  // If Prepare() is called, it overrides the iterate_upper_bound in
+  // ReadOptions
+  virtual void Prepare(const MultiScanArgs& /*scan_opts*/) {}
 };
 
 // Return an empty iterator (yields nothing).

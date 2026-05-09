@@ -305,7 +305,8 @@ int RegisterTtlObjects(ObjectLibrary& library, const std::string& /*arg*/) {
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 // Open the db inside DBWithTTLImpl because options needs pointer to its ttl
-DBWithTTLImpl::DBWithTTLImpl(DB* db) : DBWithTTL(db), closed_(false) {}
+DBWithTTLImpl::DBWithTTLImpl(std::unique_ptr<DB>&& db)
+    : DBWithTTL(std::move(db)), closed_(false) {}
 
 DBWithTTLImpl::~DBWithTTLImpl() {
   if (!closed_) {
@@ -372,7 +373,7 @@ Status DBWithTTL::Open(
     DBWithTTLImpl::SanitizeOptions(
         ttls[i], &column_families_sanitized[i].options, clock);
   }
-  DB* db;
+  std::unique_ptr<DB> db;
 
   Status st;
   if (read_only) {
@@ -382,7 +383,7 @@ Status DBWithTTL::Open(
     st = DB::Open(db_options, dbname, column_families_sanitized, handles, &db);
   }
   if (st.ok()) {
-    *dbptr = new DBWithTTLImpl(db);
+    *dbptr = new DBWithTTLImpl(std::move(db));
   } else {
     *dbptr = nullptr;
   }
@@ -633,6 +634,24 @@ void DBWithTTLImpl::SetTtl(ColumnFamilyHandle* h, int32_t ttl) {
     return;
   }
   filter->SetTtl(ttl);
+}
+
+Status DBWithTTLImpl::GetTtl(ColumnFamilyHandle* h, int32_t* ttl) {
+  if (h == nullptr || ttl == nullptr) {
+    return Status::InvalidArgument(
+        "column family handle or ttl cannot be null");
+  }
+  std::shared_ptr<TtlCompactionFilterFactory> filter;
+  Options opts;
+  opts = GetOptions(h);
+  filter = std::static_pointer_cast<TtlCompactionFilterFactory>(
+      opts.compaction_filter_factory);
+  if (!filter) {
+    return Status::InvalidArgument(
+        "TTLCompactionFilterFactory is not set for TTLDB");
+  }
+  *ttl = filter->GetTtl();
+  return Status::OK();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

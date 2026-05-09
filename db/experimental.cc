@@ -57,7 +57,8 @@ Status GetFileChecksumsFromCurrentManifest(FileSystem* fs,
   }
   assert(checksum_list);
 
-  const ReadOptions read_options(Env::IOActivity::kReadManifest);
+  const ReadOptions read_options(
+      Env::IOActivity::kGetFileChecksumsFromCurrentManifest);
   checksum_list->reset();
 
   std::unique_ptr<SequentialFileReader> file_reader;
@@ -87,11 +88,12 @@ Status GetFileChecksumsFromCurrentManifest(FileSystem* fs,
 
   // Read all records from the manifest file...
   uint64_t manifest_file_size = std::numeric_limits<uint64_t>::max();
-  FileChecksumRetriever retriever(read_options, manifest_file_size,
-                                  *checksum_list);
+  FileChecksumRetriever retriever(read_options, manifest_file_size);
   retriever.Iterate(reader, &s);
-
-  return retriever.status();
+  if (!retriever.status().ok()) {
+    return retriever.status();
+  }
+  return retriever.FetchFileChecksumList(*checksum_list);
 }
 
 Status UpdateManifestForFilesState(
@@ -156,15 +158,17 @@ Status UpdateManifestForFilesState(
               // Current state inconsistent with manifest
               ++files_updated;
               edit.DeleteFile(level, number);
-              edit.AddFile(
-                  level, number, lf->fd.GetPathId(), lf->fd.GetFileSize(),
-                  lf->smallest, lf->largest, lf->fd.smallest_seqno,
-                  lf->fd.largest_seqno, lf->marked_for_compaction, temp,
-                  lf->oldest_blob_file_number, lf->oldest_ancester_time,
-                  lf->file_creation_time, lf->epoch_number, lf->file_checksum,
-                  lf->file_checksum_func_name, lf->unique_id,
-                  lf->compensated_range_deletion_size, lf->tail_size,
-                  lf->user_defined_timestamps_persisted);
+              edit.AddFile(level, lf->fd.GetNumber(), lf->fd.GetPathId(),
+                           lf->fd.GetFileSize(), lf->smallest, lf->largest,
+                           lf->fd.smallest_seqno, lf->fd.largest_seqno,
+                           lf->marked_for_compaction, temp,
+                           lf->oldest_blob_file_number,
+                           lf->oldest_ancester_time, lf->file_creation_time,
+                           lf->epoch_number, lf->file_checksum,
+                           lf->file_checksum_func_name, lf->unique_id,
+                           lf->compensated_range_deletion_size, lf->tail_size,
+                           lf->user_defined_timestamps_persisted,
+                           lf->min_timestamp, lf->max_timestamp);
             }
           }
         } else {
@@ -1184,7 +1188,8 @@ class SstQueryFilterConfigsManagerImpl : public SstQueryFilterConfigsManager {
             break;
           default:
             // TODO? Report problem
-            {}
+            {
+            }
             // Unknown filter type
         }
         if (!may_match) {

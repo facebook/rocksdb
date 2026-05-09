@@ -31,6 +31,8 @@ class VersionEditHandlerBase {
 
   AtomicGroupReadBuffer& GetReadBuffer() { return read_buffer_; }
 
+  uint64_t GetLastValidRecordEnd() const { return last_valid_record_end_; }
+
  protected:
   explicit VersionEditHandlerBase(const ReadOptions& read_options,
                                   uint64_t max_read_size)
@@ -51,6 +53,10 @@ class VersionEditHandlerBase {
   Status status_;
 
   const ReadOptions& read_options_;
+
+  // File offset at the end of the last successfully completed and
+  // decoded logical record.
+  uint64_t last_valid_record_end_ = 0;
 
  private:
   AtomicGroupReadBuffer read_buffer_;
@@ -80,19 +86,42 @@ class ListColumnFamiliesHandler : public VersionEditHandlerBase {
 
 class FileChecksumRetriever : public VersionEditHandlerBase {
  public:
-  FileChecksumRetriever(const ReadOptions& read_options, uint64_t max_read_size,
-                        FileChecksumList& file_checksum_list)
-      : VersionEditHandlerBase(read_options, max_read_size),
-        file_checksum_list_(file_checksum_list) {}
+  FileChecksumRetriever(const ReadOptions& read_options, uint64_t max_read_size)
+      : VersionEditHandlerBase(read_options, max_read_size) {}
 
   ~FileChecksumRetriever() override {}
+
+  Status FetchFileChecksumList(FileChecksumList& file_checksum_list);
 
  protected:
   Status ApplyVersionEdit(VersionEdit& edit,
                           ColumnFamilyData** /*unused*/) override;
 
  private:
-  FileChecksumList& file_checksum_list_;
+  // Map from CF to file # to string pair, where first portion of the value
+  // is checksum, and second portion of the value is checksum function name.
+  //
+  // [column family id A]
+  //      |
+  //      |-- [file #1] -> [checksum #1, checksum function name #1]
+  //      |-- [file #2] -> [checksum #2, checksum function name #2]
+  //      |
+  //     ...
+  //      |
+  //      |-- [file #N] -> [checksum #N, checksum function name #N]
+  // [column family id B]
+  //      |
+  //      |-- [file #1] -> [checksum #1, checksum function name #1]
+  //      |
+  //     ...
+  //      |
+  //      |-- [file #M] -> [checksum #M, checksum function name #M]
+  //      |
+  //     ...
+  std::unordered_map<
+      uint32_t,
+      std::unordered_map<uint64_t, std::pair<std::string, std::string>>>
+      cf_file_checksums_;
 };
 
 using VersionBuilderUPtr = std::unique_ptr<BaseReferencedVersionBuilder>;
@@ -123,13 +152,13 @@ class VersionEditHandler : public VersionEditHandlerBase {
       const std::shared_ptr<IOTracer>& io_tracer,
       const ReadOptions& read_options, bool allow_incomplete_valid_version,
       EpochNumberRequirement epoch_number_requirement =
-          EpochNumberRequirement::kMustPresent)
-      : VersionEditHandler(read_only, column_families, version_set,
-                           track_found_and_missing_files,
-                           no_error_if_files_missing, io_tracer, read_options,
-                           /*skip_load_table_files=*/false,
-                           allow_incomplete_valid_version,
-                           epoch_number_requirement) {}
+          EpochNumberRequirement::kMustPresent,
+      bool skip_load_table_files = false)
+      : VersionEditHandler(
+            read_only, column_families, version_set,
+            track_found_and_missing_files, no_error_if_files_missing, io_tracer,
+            read_options, skip_load_table_files, allow_incomplete_valid_version,
+            epoch_number_requirement) {}
 
   ~VersionEditHandler() override {}
 
@@ -198,7 +227,9 @@ class VersionEditHandler : public VersionEditHandlerBase {
                             bool prefetch_index_and_filter_in_cache,
                             bool is_initial_load);
 
-  virtual bool MustOpenAllColumnFamilies() const { return !read_only_; }
+  virtual bool MustOpenAllColumnFamilies() const {
+    return !version_set_->unchanging();
+  }
 
   const bool read_only_;
   std::vector<ColumnFamilyDescriptor> column_families_;
@@ -334,10 +365,10 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
                           const ReadOptions& read_options,
                           EpochNumberRequirement epoch_number_requirement =
                               EpochNumberRequirement::kMustPresent)
-      : VersionEditHandlerPointInTime(/*read_only=*/false, column_families,
-                                      version_set, io_tracer, read_options,
-                                      /*allow_incomplete_valid_version=*/false,
-                                      epoch_number_requirement),
+      : VersionEditHandlerPointInTime(
+            /*read_only=*/true, column_families, version_set, io_tracer,
+            read_options,
+            /*allow_incomplete_valid_version=*/false, epoch_number_requirement),
         mode_(Mode::kRecovery) {}
 
   Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath, int level,

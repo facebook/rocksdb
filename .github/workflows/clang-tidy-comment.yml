@@ -1,0 +1,51 @@
+name: Post clang-tidy PR comment
+on:
+  workflow_run:
+    workflows: ["clang-tidy"]
+    types: [completed]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  comment:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout scripts
+      uses: actions/checkout@v4
+      with:
+        sparse-checkout: .github/scripts
+        sparse-checkout-cone-mode: true
+
+    - name: Download clang-tidy results
+      id: download
+      uses: actions/download-artifact@v4.1.3
+      with:
+        name: clang-tidy-result
+        run-id: ${{ github.event.workflow_run.id }}
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: true
+
+    - name: Post or update PR comment
+      if: steps.download.outcome == 'success'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          if (!fs.existsSync('clang-tidy-comment.md') || !fs.existsSync('pr_number.txt')) {
+            core.info('No clang-tidy results found; skipping.');
+            return;
+          }
+          const body = fs.readFileSync('clang-tidy-comment.md', 'utf8');
+          const prNumber = parseInt(fs.readFileSync('pr_number.txt', 'utf8').trim());
+          const post = require('./.github/scripts/post-pr-comment.js');
+
+          await post({
+            github,
+            context,
+            core,
+            prNumber,
+            body,
+            marker: '<!-- clang-tidy-bot -->',
+          });

@@ -11,13 +11,15 @@
 # Return value 0 means all regression tests pass. 1 if not pass.
 #
 # Environment options:
+#  SANITY_CHECK=1 - Do a syntax check and git checkout test as a sanity check
+#    that the script hasn't been broken by e.g. adding a new release wrongly.
 #  SHORT_TEST=1 - Test only the oldest branch for each kind of test. This is
 #    a good choice for PR validation as it is relatively fast and will find
 #    most issues.
 #  LONG_TEST=1 - Test all branches known to build for this test, rather than
 #    the default of randomly sampling the branches that aren't the oldest in
 #    each set.
-#  USE_SSH=1 - Connect to GitHub with ssh instead of https
+#  USE_SSH=1 - Connect to GitHub with ssh instead of https 
 
 if ! git diff-index --quiet HEAD; then
   echo "You have uncommitted changes. Aborting."
@@ -131,11 +133,22 @@ with open('${sorted_input_data}', 'w') as f:
     print(k + " ==> " + v, file=f)
 EOF
 
+# Generate a file with uniformly distributed keys
+uniform_input_data=$input_data_path/uniform_data
+echo == Generating file with uniform keys ${uniform_input_data}
+$python_bin - <<EOF
+with open('${uniform_input_data}', 'w') as f:
+  for i in range(0, 2000):
+    k = f"{i:012d}"
+    v = f"value{i:012d}"
+    print(k + " ==> " + v, file=f)
+EOF
+
 # db_backward_only_refs defined below the rest
 
 # To check for DB forward compatibility with loading options (old version
 # reading data from new), as well as backward compatibility
-declare -a db_forward_with_options_refs=("8.6.fb" "8.7.fb" "8.8.fb" "8.9.fb" "8.10.fb" "8.11.fb" "9.0.fb" "9.1.fb" "9.2.fb" "9.3.fb" "9.4.fb" "9.5.fb" "9.6.fb" "9.7.fb" "9.8.fb" "9.9.fb" "9.10.fb" "9.11.fb" "10.0.fb")
+declare -a db_forward_with_options_refs=("10.4.fb" "10.5.fb" "10.6.fb" "10.7.fb" "10.8.fb" "10.9.fb" "10.10.fb" "10.11.fb" "11.0.fb" "11.1.fb 11.2.fb")
 # To check for DB forward compatibility without loading options (in addition
 # to the "with loading options" set), as well as backward compatibility
 declare -a db_forward_no_options_refs=() # N/A at the moment
@@ -143,7 +156,7 @@ declare -a db_forward_no_options_refs=() # N/A at the moment
 # To check for SST ingestion backward compatibility (new version reading
 # data from old) (ldb ingest_extern_sst added in 5.16.x, back-ported to
 # 5.14.x, 5.15.x)
-declare -a ext_backward_only_refs=("5.14.fb" "5.15.fb" "5.16.fb" "5.17.fb" "5.18.fb" "6.0.fb" "6.1.fb" "6.2.fb" "6.3.fb" "6.4.fb" "6.5.fb" "6.6.fb" "6.7.fb" "6.8.fb" "6.9.fb" "6.10.fb" "6.11.fb" "6.12.fb" "6.13.fb" "6.14.fb" "6.15.fb" "6.16.fb" "6.17.fb" "6.18.fb" "6.19.fb" "6.20.fb" "6.21.fb" "6.22.fb" "6.23.fb" "6.24.fb" "6.25.fb" "6.26.fb" "6.27.fb" "6.28.fb" "6.29.fb" "7.0.fb" "7.1.fb" "7.2.fb" "7.3.fb" "7.4.fb" "7.5.fb" "7.6.fb" "7.7.fb" "7.8.fb" "7.9.fb" "7.10.fb" "8.0.fb" "8.1.fb" "8.2.fb" "8.3.fb" "8.4.fb" "8.5.fb")
+declare -a ext_backward_only_refs=("5.14.fb" "5.15.fb" "5.16.fb" "5.17.fb" "5.18.fb" "6.0.fb" "6.1.fb" "6.2.fb" "6.3.fb" "6.4.fb" "6.5.fb" "6.6.fb" "6.7.fb" "6.8.fb" "6.9.fb" "6.10.fb" "6.11.fb" "6.12.fb" "6.13.fb" "6.14.fb" "6.15.fb" "6.16.fb" "6.17.fb" "6.18.fb" "6.19.fb" "6.20.fb" "6.21.fb" "6.22.fb" "6.23.fb" "6.24.fb" "6.25.fb" "6.26.fb" "6.27.fb" "6.28.fb" "6.29.fb" "7.0.fb" "7.1.fb" "7.2.fb" "7.3.fb" "7.4.fb" "7.5.fb" "7.6.fb" "7.7.fb" "7.8.fb" "7.9.fb" "7.10.fb" "8.0.fb" "8.1.fb" "8.2.fb" "8.3.fb" "8.4.fb" "8.5.fb" "8.6.fb" "8.7.fb" "8.8.fb" "8.9.fb" "8.10.fb" "8.11.fb" "9.0.fb" "9.1.fb" "9.2.fb" "9.3.fb" "9.4.fb" "9.5.fb" "9.6.fb" "9.7.fb" "9.8.fb" "9.9.fb" "9.10.fb" "9.11.fb" "10.0.fb" "10.1.fb" "10.2.fb" "10.3.fb")
 # To check for SST ingestion forward compatibility (old version reading
 # data from new) as well as backward compatibility
 declare -a ext_forward_refs=("${db_forward_no_options_refs[@]}" "${db_forward_with_options_refs[@]}")
@@ -157,8 +170,9 @@ declare -a bak_forward_refs=("${db_forward_no_options_refs[@]}" "${db_forward_wi
 
 # Branches (git refs) to check for DB backward compatibility (new version
 # reading data from old) (in addition to the "forward compatible" list)
-# NOTE: 2.7.fb.branch shows assertion violation in some configurations
-declare -a db_backward_only_refs=("2.2.fb.branch" "2.3.fb.branch" "2.4.fb.branch" "2.5.fb.branch" "2.6.fb.branch" "2.8.1.fb" "3.0.fb.branch" "3.1.fb" "3.2.fb" "3.3.fb" "3.4.fb" "3.5.fb" "3.6.fb" "3.7.fb" "3.8.fb" "3.9.fb" "4.2.fb" "4.3.fb" "4.4.fb" "4.5.fb" "4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "${bak_backward_only_refs[@]}")
+# NOTE: format_version < 2 support was removed, so we only test back to 4.6.fb
+# (when format_version=2 became the default)
+declare -a db_backward_only_refs=("4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "${bak_backward_only_refs[@]}")
 
 if [ "$SHORT_TEST" ]; then
   # Use only the first (if exists) of each list
@@ -195,10 +209,14 @@ if [ "$SHORT_TEST" == "" ]; then
   done
 fi
 
+invoke_make()
+{
+    [ "$SANITY_CHECK" ] || make "$@"
+}
 generate_db()
 {
     set +e
-    bash "$script_copy_dir"/generate_random_db.sh "$1" "$2"
+    [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/generate_random_db.sh "$1" "$2"
     if [ $? -ne 0 ]; then
         echo ==== Error loading data from $2 to $1 ====
         exit 1
@@ -209,9 +227,20 @@ generate_db()
 compare_db()
 {
     set +e
-    bash "$script_copy_dir"/verify_random_db.sh "$1" "$2" "$3" "$4" "$5"
+    [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/verify_random_db.sh "$1" "$2" "$3" "$4" "$5"
     if [ $? -ne 0 ]; then
         echo ==== Read different content from $1 and $2 or error happened. ====
+        exit 1
+    fi
+    set -e
+}
+
+compact_db()
+{
+    set +e
+    [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/compact_db.sh "$1" "$2" "$3"
+    if [ $? -ne 0 ]; then
+        echo ==== Error compacting DB at $1 ====
         exit 1
     fi
     set -e
@@ -220,7 +249,7 @@ compare_db()
 write_external_sst()
 {
     set +e
-    bash "$script_copy_dir"/write_external_sst.sh "$1" "$2" "$3"
+    [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/write_external_sst.sh "$1" "$2" "$3"
     if [ $? -ne 0 ]; then
         echo ==== Error writing external SST file using data from $1 to $3 ====
         exit 1
@@ -231,7 +260,7 @@ write_external_sst()
 ingest_external_sst()
 {
     set +e
-    bash "$script_copy_dir"/ingest_external_sst.sh "$1" "$2"
+    [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/ingest_external_sst.sh "$1" "$2"
     if [ $? -ne 0 ]; then
         echo ==== Error ingesting external SST in $2 to DB at $1 ====
         exit 1
@@ -242,7 +271,7 @@ ingest_external_sst()
 backup_db()
 {
     set +e
-    bash "$script_copy_dir"/backup_db.sh "$1" "$2"
+    [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/backup_db.sh "$1" "$2"
     if [ $? -ne 0 ]; then
         echo ==== Error backing up DB $1 to $2 ====
         exit 1
@@ -253,7 +282,7 @@ backup_db()
 restore_db()
 {
     set +e
-    bash "$script_copy_dir"/restore_db.sh "$1" "$2"
+    [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/restore_db.sh "$1" "$2"
     if [ $? -ne 0 ]; then
         echo ==== Error restoring from $1 to $2 ====
         exit 1
@@ -297,8 +326,8 @@ current_checkout_name="$current_checkout_name ($current_checkout_hash)"
 echo "== Building $current_checkout_name debug"
 git checkout -B $tmp_branch $current_checkout_hash
 force_no_fbcode
-make clean
-DISABLE_WARNING_AS_ERROR=1 make ldb -j$J
+invoke_make clean
+DISABLE_WARNING_AS_ERROR=1 invoke_make ldb -j$J
 
 echo "== Using $current_checkout_name, generate DB with extern SST and ingest"
 current_ext_test_dir=$ext_test_dir"/current"
@@ -318,8 +347,8 @@ do
   echo "== Building $checkout_ref debug"
   git reset --hard $tmp_origin/$checkout_ref
   force_no_fbcode
-  make clean
-  DISABLE_WARNING_AS_ERROR=1 make ldb -j$J
+  invoke_make clean
+  DISABLE_WARNING_AS_ERROR=1 invoke_make ldb -j$J
 
   # We currently assume DB backward compatibility for every branch listed
   echo "== Use $checkout_ref to generate a DB ..."
@@ -349,6 +378,13 @@ do
   then
     echo "== Use $checkout_ref to open DB generated using $current_checkout_name..."
     compare_db $db_test_dir/$checkout_ref $current_db_test_dir forward_${checkout_ref}_dump.txt 0
+
+    echo "== Use $checkout_ref to compact a copy of DB generated using $current_checkout_name..."
+    [ "$SANITY_CHECK" ] || cp -a $current_db_test_dir ${current_db_test_dir}_copy_for_${checkout_ref}
+    compact_db ${current_db_test_dir}_copy_for_${checkout_ref} 0
+
+    echo "== After compaction, re-verify DB copy originally from $current_checkout_name..."
+    compare_db ${current_db_test_dir}_copy_for_${checkout_ref} $current_db_test_dir forward_${checkout_ref}_dump_after_compact.txt 0
   fi
 
   if member_of_array "$checkout_ref" "${db_forward_with_options_refs[@]}"
@@ -376,14 +412,20 @@ done
 echo "== Building $current_checkout_name debug (again, final)"
 git reset --hard $current_checkout_hash
 force_no_fbcode
-make clean
-DISABLE_WARNING_AS_ERROR=1 make ldb -j$J
+invoke_make clean
+DISABLE_WARNING_AS_ERROR=1 invoke_make ldb -j$J
 
 for checkout_ref in "${checkout_refs[@]}"
 do
-  # We currently assume DB backward compatibility for every branch listed
+  # We assume DB backward compatibility for every branch listed
   echo "== Use $current_checkout_name to open DB generated using $checkout_ref..."
   compare_db $db_test_dir/$checkout_ref $current_db_test_dir db_dump.txt 1 0
+
+  echo "== Use $current_checkout_name to compact DB generated using $checkout_ref..."
+  compact_db $db_test_dir/$checkout_ref 1 0
+
+  echo "== After compaction, re-verify DB originally from $checkout_ref..."
+  compare_db $db_test_dir/$checkout_ref $current_db_test_dir db_dump_after_compact.txt 1 0
 
   if member_of_array "$checkout_ref" "${ext_backward_only_refs[@]}" ||
     member_of_array "$checkout_ref" "${ext_forward_refs[@]}"
@@ -404,4 +446,8 @@ do
   fi
 done
 
-echo ==== Compatibility Test PASSED ====
+if [ "$SANITY_CHECK" ]; then
+  echo "==== check_format_compatible.sh sanity check PASSED ===="
+else
+  echo ==== Compatibility Test PASSED ====
+fi

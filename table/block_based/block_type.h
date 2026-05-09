@@ -27,8 +27,39 @@ enum class BlockType : uint8_t {
   kHashIndexMetadata,
   kMetaIndex,
   kIndex,
+  kUserDefinedIndex,
   // Note: keep kInvalid the last value when adding new enum values.
   kInvalid
 };
+
+inline const char* BlockTypeToString(BlockType block_type) {
+  switch (block_type) {
+    case BlockType::kData:
+      return "Data";
+    case BlockType::kFilter:
+      return "Filter";
+    case BlockType::kFilterPartitionIndex:
+      return "FilterPartitionIndex";
+    case BlockType::kProperties:
+      return "Properties";
+    case BlockType::kCompressionDictionary:
+      return "CompressionDictionary";
+    case BlockType::kRangeDeletion:
+      return "RangeDeletion";
+    case BlockType::kHashIndexPrefixes:
+      return "HashIndexPrefixes";
+    case BlockType::kHashIndexMetadata:
+      return "HashIndexMetadata";
+    case BlockType::kMetaIndex:
+      return "MetaIndex";
+    case BlockType::kIndex:
+      return "Index";
+    case BlockType::kUserDefinedIndex:
+      return "UserDefinedIndex";
+    case BlockType::kInvalid:
+      return "Invalid";
+  }
+  return "Unknown";
+}
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -46,6 +46,9 @@ static const char* msgs[static_cast<int>(Status::kMaxSubCode)] = {
     "IO fenced off",          // kIOFenced
     "Merge operator failed",  // kMergeOperatorFailed
     "Number of operands merged exceeded threshold",  // kMergeOperandThresholdExceeded
+    "MultiScan reached file prefetch limit",         // kPrefetchLimitReached
+    "Not expected code path",                        // kNotExpectedCodePath
+    "All compactions aborted",                       // kCompactionAborted
 };
 
 Status::Status(Code _code, SubCode _subcode, const Slice& msg,

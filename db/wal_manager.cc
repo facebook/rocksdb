@@ -192,7 +192,13 @@ void WalManager::PurgeObsoleteWALFiles() {
                          s.ToString().c_str());
           continue;
         }
-        if (now_seconds - file_m_time > db_options_.WAL_ttl_seconds) {
+
+        // Avoid expression `now_seconds - file_m_time` when
+        // `file_m_time > now_seconds` to prevent unsigned underflow in case
+        // system clock goes backwards. Both timestamps are based on wall clock
+        // time, which is not guaranteed to be monotonic.
+        if (file_m_time <= now_seconds &&
+            now_seconds - file_m_time > db_options_.WAL_ttl_seconds) {
           s = DeleteDBFile(&db_options_, file_path, archival_dir, false,
                            /*force_fg=*/!wal_in_db_path_);
           if (!s.ok()) {
@@ -283,6 +289,7 @@ void WalManager::ArchiveWALFile(const std::string& fname, uint64_t number) {
   // The sync point below is used in (DBTest,TransactionLogIteratorRace)
   TEST_SYNC_POINT("WalManager::PurgeObsoleteFiles:1");
   Status s = env_->RenameFile(fname, archived_log_name);
+  IGNORE_STATUS_IF_ERROR(s);
   // The sync point below is used in (DBTest,TransactionLogIteratorRace)
   TEST_SYNC_POINT("WalManager::PurgeObsoleteFiles:2");
   // The sync point below is used in

@@ -51,6 +51,24 @@ DECLARE_bool(enable_compaction_filter);
 namespace ROCKSDB_NAMESPACE {
 class StressTest;
 
+struct RemoteCompactionQueueItem {
+  std::string job_id;
+  CompactionServiceJobInfo job_info;
+  std::string serialized_input;
+  std::string output_directory;
+  bool canceled;
+
+  RemoteCompactionQueueItem(const std::string& id,
+                            const CompactionServiceJobInfo& info,
+                            const std::string& input,
+                            const std::string& output_dir, bool was_canceled)
+      : job_id(id),
+        job_info(info),
+        serialized_input(input),
+        output_directory(output_dir),
+        canceled(was_canceled) {}
+};
+
 // State shared by all concurrent executions of the same benchmark.
 class SharedState {
  public:
@@ -137,7 +155,7 @@ class SharedState {
     for (int i = 0; i < FLAGS_column_families; ++i) {
       key_locks_[i].reset(new port::Mutex[num_locks]);
     }
-    if (FLAGS_read_fault_one_in) {
+    if (FLAGS_read_fault_one_in || FLAGS_metadata_read_fault_one_in) {
 #ifdef NDEBUG
       // Unsupported in release mode because it relies on
       // `IGNORE_STATUS_IF_ERROR` to distinguish faults not expected to lead to
@@ -274,6 +292,64 @@ class SharedState {
   SequenceNumber GetPersistedSeqno() {
     MutexLock l(&persist_seqno_mu_);
     return expected_state_manager_->GetPersistedSeqno();
+  }
+
+  void EnqueueRemoteCompaction(const std::string& job_id,
+                               const CompactionServiceJobInfo& job_info,
+                               const std::string& serialized_input,
+                               const std::string& output_directory,
+                               bool canceled) {
+    MutexLock l(&remote_compaction_queue_mu_);
+    remote_compaction_queue_.emplace(job_id, job_info, serialized_input,
+                                     output_directory, canceled);
+  }
+
+  bool DequeueRemoteCompaction(std::string* job_id,
+                               CompactionServiceJobInfo* job_info,
+                               std::string* serialized_input,
+                               std::string* output_directory, bool* canceled) {
+    assert(job_id);
+    assert(job_info);
+    assert(serialized_input);
+    assert(output_directory);
+    assert(canceled);
+    MutexLock l(&remote_compaction_queue_mu_);
+    if (!remote_compaction_queue_.empty()) {
+      const RemoteCompactionQueueItem& item = remote_compaction_queue_.front();
+      *job_id = item.job_id;
+      *job_info = item.job_info;
+      *serialized_input = item.serialized_input;
+      *output_directory = item.output_directory;
+      *canceled = item.canceled;
+      remote_compaction_queue_.pop();
+      return true;
+    }
+    return false;
+  }
+
+  void AddRemoteCompactionResult(const std::string& job_id,
+                                 const Status& status,
+                                 const std::string& result) {
+    MutexLock l(&remote_compaction_result_map_mu_);
+    remote_compaction_result_map_.emplace(
+        job_id, std::pair<Status, std::string>{status, result});
+  }
+
+  std::optional<Status> GetRemoteCompactionResult(const std::string& job_id,
+                                                  std::string* result) {
+    MutexLock l(&remote_compaction_result_map_mu_);
+    if (remote_compaction_result_map_.find(job_id) !=
+        remote_compaction_result_map_.end()) {
+      const auto& pair = remote_compaction_result_map_.at(job_id);
+      *result = pair.second;
+      return pair.first;
+    }
+    return std::nullopt;
+  }
+
+  void RemoveRemoteCompactionResult(const std::string& job_id) {
+    MutexLock l(&remote_compaction_result_map_mu_);
+    remote_compaction_result_map_.erase(job_id);
   }
 
   // Prepare a Put that will be started but not finish yet
@@ -429,6 +505,15 @@ class SharedState {
   StressTest* stress_test_;
   std::atomic<bool> verification_failure_;
   std::atomic<bool> should_stop_test_;
+
+  // Queue for the remote compaction.
+  port::Mutex remote_compaction_queue_mu_;
+  std::queue<RemoteCompactionQueueItem> remote_compaction_queue_;
+  // Result Map for the remote compaciton. Key is the scheduled_job_id and value
+  // is serialized compaction_service_result
+  port::Mutex remote_compaction_result_map_mu_;
+  std::unordered_map<std::string, std::pair<Status, std::string>>
+      remote_compaction_result_map_;
 
   // Keys that should not be overwritten
   const std::unordered_set<int64_t> no_overwrite_ids_;

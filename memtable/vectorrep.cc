@@ -30,6 +30,8 @@ class VectorRep : public MemTableRep {
   // collection.
   void Insert(KeyHandle handle) override;
 
+  void InsertConcurrently(KeyHandle handle) override;
+
   // Returns true iff an entry that compares equal to key is in the collection.
   bool Contains(const char* key) const override;
 
@@ -39,6 +41,8 @@ class VectorRep : public MemTableRep {
 
   void Get(const LookupKey& k, void* callback_args,
            bool (*callback_func)(void* arg, const char* entry)) override;
+
+  void BatchPostProcess() override;
 
   ~VectorRep() override = default;
 
@@ -79,6 +83,13 @@ class VectorRep : public MemTableRep {
     // Advance to the first entry with a key >= target
     void Seek(const Slice& user_key, const char* memtable_key) override;
 
+    // Seek and do some memory validation
+    Status SeekAndValidate(const Slice& internal_key, const char* memtable_key,
+                           bool allow_data_in_errors,
+                           bool detect_key_out_of_order,
+                           const std::function<Status(const char*, bool)>&
+                               key_validation_callback) override;
+
     // Advance to the first entry with a key <= target
     void SeekForPrev(const Slice& user_key, const char* memtable_key) override;
 
@@ -96,19 +107,40 @@ class VectorRep : public MemTableRep {
 
  private:
   friend class Iterator;
+  ALIGN_AS(CACHE_LINE_SIZE) RelaxedAtomic<size_t> bucket_size_;
   using Bucket = std::vector<const char*>;
   std::shared_ptr<Bucket> bucket_;
   mutable port::RWMutex rwlock_;
   bool immutable_;
   bool sorted_;
   const KeyComparator& compare_;
+  // Thread-local vector to buffer concurrent writes.
+  using TlBucket = std::vector<const char*>;
+  ThreadLocalPtr tl_writes_;
+
+  static void DeleteTlBucket(void* ptr) {
+    auto* v = static_cast<TlBucket*>(ptr);
+    delete v;
+  }
 };
 
 void VectorRep::Insert(KeyHandle handle) {
   auto* key = static_cast<char*>(handle);
-  WriteLock l(&rwlock_);
-  assert(!immutable_);
-  bucket_->push_back(key);
+  {
+    WriteLock l(&rwlock_);
+    assert(!immutable_);
+    bucket_->push_back(key);
+  }
+  bucket_size_.FetchAddRelaxed(1);
+}
+
+void VectorRep::InsertConcurrently(KeyHandle handle) {
+  auto* v = static_cast<TlBucket*>(tl_writes_.Get());
+  if (!v) {
+    v = new TlBucket();
+    tl_writes_.Reset(v);
+  }
+  v->push_back(static_cast<char*>(handle));
 }
 
 // Returns true iff an entry that compares equal to key is in the collection.
@@ -123,19 +155,35 @@ void VectorRep::MarkReadOnly() {
 }
 
 size_t VectorRep::ApproximateMemoryUsage() {
-  return sizeof(bucket_) + sizeof(*bucket_) +
-         bucket_->size() *
-             sizeof(
-                 std::remove_reference<decltype(*bucket_)>::type::value_type);
+  return bucket_size_.LoadRelaxed() *
+         sizeof(std::remove_reference<decltype(*bucket_)>::type::value_type);
+}
+
+void VectorRep::BatchPostProcess() {
+  auto* v = static_cast<TlBucket*>(tl_writes_.Get());
+  if (v) {
+    {
+      WriteLock l(&rwlock_);
+      assert(!immutable_);
+      for (auto& key : *v) {
+        bucket_->push_back(key);
+      }
+    }
+    bucket_size_.FetchAddRelaxed(v->size());
+    delete v;
+    tl_writes_.Reset(nullptr);
+  }
 }
 
 VectorRep::VectorRep(const KeyComparator& compare, Allocator* allocator,
                      size_t count)
     : MemTableRep(allocator),
+      bucket_size_(0),
       bucket_(new Bucket()),
       immutable_(false),
       sorted_(false),
-      compare_(compare) {
+      compare_(compare),
+      tl_writes_(DeleteTlBucket) {
   bucket_.get()->reserve(count);
 }
 
@@ -219,6 +267,24 @@ void VectorRep::Iterator::Seek(const Slice& user_key,
                             return compare_(a, b) < 0;
                           })
              .first;
+}
+
+Status VectorRep::Iterator::SeekAndValidate(
+    const Slice& /* internal_key */, const char* /* memtable_key */,
+    bool /* allow_data_in_errors */, bool /* detect_key_out_of_order */,
+    const std::function<Status(const char*, bool)>&
+    /* key_validation_callback */) {
+  if (vrep_) {
+    WriteLock l(&vrep_->rwlock_);
+    if (bucket_->begin() == bucket_->end()) {
+      // Memtable is empty
+      return Status::OK();
+    } else {
+      return Status::NotSupported("SeekAndValidate() not implemented");
+    }
+  } else {
+    return Status::NotSupported("SeekAndValidate() not implemented");
+  }
 }
 
 // Advance to the first entry with a key <= target

@@ -42,9 +42,9 @@ Status ArenaWrappedDBIter::GetProperty(std::string prop_name,
 void ArenaWrappedDBIter::Init(
     Env* env, const ReadOptions& read_options, const ImmutableOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, const Version* version,
-    const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iteration,
-    uint64_t version_number, ReadCallback* read_callback,
-    ColumnFamilyHandleImpl* cfh, bool expose_blob_index, bool allow_refresh) {
+    const SequenceNumber& sequence, uint64_t version_number,
+    ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
+    bool expose_blob_index, bool allow_refresh, ReadOnlyMemTable* active_mem) {
   read_options_ = read_options;
   if (!CheckFSFeatureSupport(env->GetFileSystem().get(),
                              FSSupportedOps::kAsyncIO)) {
@@ -52,15 +52,14 @@ void ArenaWrappedDBIter::Init(
   }
   read_options_.total_order_seek |= ioptions.prefix_seek_opt_in_only;
 
-  auto mem = arena_.AllocateAligned(sizeof(DBIter));
-  db_iter_ = new (mem) DBIter(env, read_options_, ioptions, mutable_cf_options,
-                              ioptions.user_comparator,
-                              /* iter */ nullptr, version, sequence, true,
-                              max_sequential_skip_in_iteration, read_callback,
-                              cfh, expose_blob_index);
+  db_iter_ = DBIter::NewIter(
+      env, read_options_, ioptions, mutable_cf_options,
+      ioptions.user_comparator, /*internal_iter=*/nullptr, version, sequence,
+      read_callback, active_mem, cfh, expose_blob_index, &arena_);
 
   sv_number_ = version_number;
   allow_refresh_ = allow_refresh;
+  allow_mark_memtable_for_flush_ = active_mem;
   memtable_range_tombstone_iter_ = nullptr;
 }
 
@@ -166,9 +165,8 @@ void ArenaWrappedDBIter::DoRefresh(const Snapshot* snapshot,
     read_callback_->Refresh(read_seq);
   }
   Init(env, read_options_, cfd->ioptions(), sv->mutable_cf_options, sv->current,
-       read_seq, sv->mutable_cf_options.max_sequential_skip_in_iterations,
-       sv->version_number, read_callback_, cfh_, expose_blob_index_,
-       allow_refresh_);
+       read_seq, sv->version_number, read_callback_, cfh_, expose_blob_index_,
+       allow_refresh_, allow_mark_memtable_for_flush_ ? sv->mem : nullptr);
 
   InternalIterator* internal_iter = db_impl->NewInternalIterator(
       read_options_, cfd, sv, &arena_, read_seq,
@@ -253,20 +251,26 @@ Status ArenaWrappedDBIter::Refresh(const Snapshot* snapshot) {
 }
 
 ArenaWrappedDBIter* NewArenaWrappedDbIterator(
-    Env* env, const ReadOptions& read_options, const ImmutableOptions& ioptions,
-    const MutableCFOptions& mutable_cf_options, const Version* version,
-    const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
-    uint64_t version_number, ReadCallback* read_callback,
-    ColumnFamilyHandleImpl* cfh, bool expose_blob_index, bool allow_refresh) {
-  ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
-  iter->Init(env, read_options, ioptions, mutable_cf_options, version, sequence,
-             max_sequential_skip_in_iterations, version_number, read_callback,
-             cfh, expose_blob_index, allow_refresh);
+    Env* env, const ReadOptions& read_options, ColumnFamilyHandleImpl* cfh,
+    SuperVersion* sv, const SequenceNumber& sequence,
+    ReadCallback* read_callback, DBImpl* db_impl, bool expose_blob_index,
+    bool allow_refresh, bool allow_mark_memtable_for_flush) {
+  ArenaWrappedDBIter* db_iter = new ArenaWrappedDBIter();
+  db_iter->Init(env, read_options, cfh->cfd()->ioptions(),
+                sv->mutable_cf_options, sv->current, sequence,
+                sv->version_number, read_callback, cfh, expose_blob_index,
+                allow_refresh,
+                allow_mark_memtable_for_flush ? sv->mem : nullptr);
   if (cfh != nullptr && allow_refresh) {
-    iter->StoreRefreshInfo(cfh, read_callback, expose_blob_index);
+    db_iter->StoreRefreshInfo(cfh, read_callback, expose_blob_index);
   }
 
-  return iter;
+  InternalIterator* internal_iter = db_impl->NewInternalIterator(
+      db_iter->GetReadOptions(), cfh->cfd(), sv, db_iter->GetArena(), sequence,
+      /*allow_unprepared_value=*/true, db_iter);
+  db_iter->SetIterUnderDBIter(internal_iter);
+
+  return db_iter;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

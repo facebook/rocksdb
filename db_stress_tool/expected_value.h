@@ -253,20 +253,20 @@ class PendingExpectedValue {
 class ExpectedValueHelper {
  public:
   // Return whether the key associated with `pre_read_expected_value` and
-  // `post_read_expected_value` is expected not to exist from begining till the
+  // `post_read_expected_value` is expected not to exist from beginning till the
   // end of the read
   //
   // The negation of `MustHaveNotExisted()` is "may have not existed".
-  // To assert some key must have existsed, please use `MustHaveExisted()`
+  // To assert some key must have existed, please use `MustHaveExisted()`
   static bool MustHaveNotExisted(ExpectedValue pre_read_expected_value,
                                  ExpectedValue post_read_expected_value);
 
   // Return whether the key associated with `pre_read_expected_value` and
-  // `post_read_expected_value` is expected to exist from begining till the end
+  // `post_read_expected_value` is expected to exist from beginning till the end
   // of the read.
   //
   // The negation of `MustHaveExisted()` is "may have existed".
-  // To assert some key must have not existsed, please use
+  // To assert some key must have not existed, please use
   // `MustHaveNotExisted()`
   static bool MustHaveExisted(ExpectedValue pre_read_expected_value,
                               ExpectedValue post_read_expected_value);

@@ -9,8 +9,6 @@
 
 #pragma once
 
-#include <array>
-#include <atomic>
 #include <climits>
 #include <cstddef>
 #include <cstdint>
@@ -19,14 +17,10 @@
 
 #include "cache/cache_key.h"
 #include "cache/sharded_cache.h"
-#include "port/lang.h"
-#include "port/malloc.h"
 #include "port/mmap.h"
-#include "port/port.h"
 #include "rocksdb/cache.h"
-#include "rocksdb/secondary_cache.h"
 #include "util/atomic.h"
-#include "util/autovector.h"
+#include "util/bit_fields.h"
 #include "util/math.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -323,40 +317,89 @@ struct ClockHandle : public ClockHandleBasicData {
   // | acquire counter      | release counter     | hit bit | state marker |
   // -----------------------------------------------------------------------
 
-  // For reading or updating counters in meta word.
-  static constexpr uint8_t kCounterNumBits = 30;
-  static constexpr uint64_t kCounterMask = (uint64_t{1} << kCounterNumBits) - 1;
+  struct SlotMeta : public BitFields<uint64_t, SlotMeta> {
+    // For reading or updating counters in meta word.
+    static constexpr uint8_t kCounterNumBits = 30;
+    // Number of times the a reference has been acquired (or attempted)
+    // since last reset by eviction processing
+    using AcquireCounter =
+        UnsignedBitField<SlotMeta, kCounterNumBits, NoPrevBitField>;
+    // Number of times the a reference has been released (or attempted)
+    // since last reset by eviction processing
+    using ReleaseCounter =
+        UnsignedBitField<SlotMeta, kCounterNumBits, AcquireCounter>;
+    // Metadata bit in support of secondary cache
+    using HitFlag = BoolBitField<SlotMeta, ReleaseCounter>;
+    // Occupied means any state other than empty
+    using OccupiedFlag = BoolBitField<SlotMeta, HitFlag>;
+    // Shareable means the entry is reference counted (visible or invisible)
+    // (only set if also occupied)
+    using ShareableFlag = BoolBitField<SlotMeta, OccupiedFlag>;
+    // Visible is only set if also shareable (invisible can't be found by
+    // Lookup)
+    using VisibleFlag = BoolBitField<SlotMeta, ShareableFlag>;
 
-  static constexpr uint8_t kAcquireCounterShift = 0;
-  static constexpr uint64_t kAcquireIncrement = uint64_t{1}
-                                                << kAcquireCounterShift;
-  static constexpr uint8_t kReleaseCounterShift = kCounterNumBits;
-  static constexpr uint64_t kReleaseIncrement = uint64_t{1}
-                                                << kReleaseCounterShift;
+    // Convenience functions
+    uint32_t GetAcquireCounter() const { return Get<AcquireCounter>(); }
+    void SetAcquireCounter(uint32_t val) { Set<AcquireCounter>(val); }
+    uint32_t GetReleaseCounter() const { return Get<ReleaseCounter>(); }
+    void SetReleaseCounter(uint32_t val) { Set<ReleaseCounter>(val); }
+    uint32_t GetRefcount() const {
+      return Get<AcquireCounter>() - Get<ReleaseCounter>();
+    }
+    bool GetHit() const { return Get<HitFlag>(); }
+    void SetHit(bool val) { Set<HitFlag>(val); }
 
-  // For setting the hit bit
-  static constexpr uint8_t kHitBitShift = 2U * kCounterNumBits;
-  static constexpr uint64_t kHitBitMask = uint64_t{1} << kHitBitShift;
+    // Some distinct states for the various state flags
+    bool IsEmpty() const {
+      bool rv = !Get<OccupiedFlag>();
+      if (rv) {
+        assert(!Get<ShareableFlag>());
+        assert(!Get<VisibleFlag>());
+      }
+      return rv;
+    }
 
-  // For reading or updating the state marker in meta word
-  static constexpr uint8_t kStateShift = kHitBitShift + 1;
+    bool IsUnderConstruction() const {
+      bool rv = Get<OccupiedFlag>() && !Get<ShareableFlag>();
+      if (rv) {
+        assert(!Get<VisibleFlag>());
+      }
+      return rv;
+    }
+    void SetUnderConstruction() {
+      Set<OccupiedFlag>(true);
+      Set<ShareableFlag>(false);
+      Set<VisibleFlag>(false);
+    }
 
-  // Bits contribution to state marker.
-  // Occupied means any state other than empty
-  static constexpr uint8_t kStateOccupiedBit = 0b100;
-  // Shareable means the entry is reference counted (visible or invisible)
-  // (only set if also occupied)
-  static constexpr uint8_t kStateShareableBit = 0b010;
-  // Visible is only set if also shareable
-  static constexpr uint8_t kStateVisibleBit = 0b001;
+    bool IsShareable() const { return Get<ShareableFlag>(); }
+    bool IsInvisible() const {
+      bool rv = Get<ShareableFlag>() && !Get<VisibleFlag>();
+      if (rv) {
+        assert(Get<OccupiedFlag>());
+      }
+      return rv;
+    }
+    void SetInvisible() {
+      Set<OccupiedFlag>(true);
+      Set<ShareableFlag>(true);
+      Set<VisibleFlag>(false);
+    }
 
-  // Complete state markers (not shifted into full word)
-  static constexpr uint8_t kStateEmpty = 0b000;
-  static constexpr uint8_t kStateConstruction = kStateOccupiedBit;
-  static constexpr uint8_t kStateInvisible =
-      kStateOccupiedBit | kStateShareableBit;
-  static constexpr uint8_t kStateVisible =
-      kStateOccupiedBit | kStateShareableBit | kStateVisibleBit;
+    bool IsVisible() const {
+      bool rv = Get<ShareableFlag>() && Get<VisibleFlag>();
+      if (rv) {
+        assert(Get<OccupiedFlag>());
+      }
+      return rv;
+    }
+    void SetVisible() {
+      Set<OccupiedFlag>(true);
+      Set<ShareableFlag>(true);
+      Set<VisibleFlag>(true);
+    }
+  };
 
   // Constants for initializing the countdown clock. (Countdown clock is only
   // in effect with zero refs, acquire counter == release counter, and in that
@@ -370,7 +413,7 @@ struct ClockHandle : public ClockHandleBasicData {
   // TODO: make these coundown values tuning parameters for eviction?
 
   // See above. Mutable for read reference counting.
-  mutable AcqRelAtomic<uint64_t> meta{};
+  mutable BitFieldsAtomic<SlotMeta> meta{};
 };  // struct ClockHandle
 
 class BaseClockTable {
@@ -383,25 +426,20 @@ class BaseClockTable {
     int eviction_effort_cap;
   };
 
-  BaseClockTable(CacheMetadataChargePolicy metadata_charge_policy,
+  BaseClockTable(size_t capacity, bool strict_capacity_limit,
+                 int eviction_effort_cap,
+                 CacheMetadataChargePolicy metadata_charge_policy,
                  MemoryAllocator* allocator,
                  const Cache::EvictionCallback* eviction_callback,
-                 const uint32_t* hash_seed)
-      : metadata_charge_policy_(metadata_charge_policy),
-        allocator_(allocator),
-        eviction_callback_(*eviction_callback),
-        hash_seed_(*hash_seed) {}
+                 const uint32_t* hash_seed);
 
   template <class Table>
   typename Table::HandleImpl* CreateStandalone(ClockHandleBasicData& proto,
-                                               size_t capacity,
-                                               uint32_t eec_and_scl,
                                                bool allow_uncharged);
 
   template <class Table>
   Status Insert(const ClockHandleBasicData& proto,
-                typename Table::HandleImpl** handle, Cache::Priority priority,
-                size_t capacity, uint32_t eec_and_scl);
+                typename Table::HandleImpl** handle, Cache::Priority priority);
 
   void Ref(ClockHandle& handle);
 
@@ -410,6 +448,18 @@ class BaseClockTable {
   size_t GetUsage() const { return usage_.LoadRelaxed(); }
 
   size_t GetStandaloneUsage() const { return standalone_usage_.LoadRelaxed(); }
+
+  size_t GetCapacity() const { return capacity_.LoadRelaxed(); }
+
+  void SetCapacity(size_t capacity) { capacity_.StoreRelaxed(capacity); }
+
+  void SetStrictCapacityLimit(bool strict_capacity_limit) {
+    if (strict_capacity_limit) {
+      eec_and_scl_.ApplyRelaxed(StrictCapacityLimit::SetTransform());
+    } else {
+      eec_and_scl_.ApplyRelaxed(StrictCapacityLimit::ClearTransform());
+    }
+  }
 
   uint32_t GetHashSeed() const { return hash_seed_; }
 
@@ -427,11 +477,12 @@ class BaseClockTable {
 
   void TrackAndReleaseEvictedEntry(ClockHandle* h);
 
+  bool IsEvictionEffortExceeded(const BaseClockTable::EvictionData& data) const;
 #ifndef NDEBUG
   // Acquire N references
-  void TEST_RefN(ClockHandle& handle, size_t n);
+  void TEST_RefN(ClockHandle& handle, uint32_t n);
   // Helper for TEST_ReleaseN
-  void TEST_ReleaseNMinus1(ClockHandle* handle, size_t n);
+  void TEST_ReleaseNMinus1(ClockHandle* handle, uint32_t n);
 #endif
 
  private:  // fns
@@ -448,9 +499,8 @@ class BaseClockTable {
   // required, and the operation should fail if not possible.
   // NOTE: Otherwise, occupancy_ is not managed in this function
   template <class Table>
-  Status ChargeUsageMaybeEvictStrict(size_t total_charge, size_t capacity,
+  Status ChargeUsageMaybeEvictStrict(size_t total_charge,
                                      bool need_evict_for_occupancy,
-                                     uint32_t eviction_effort_cap,
                                      typename Table::InsertState& state);
 
   // Helper for updating `usage_` for new entry with given `total_charge`
@@ -462,9 +512,8 @@ class BaseClockTable {
   // true, indicating success.
   // NOTE: occupancy_ is not managed in this function
   template <class Table>
-  bool ChargeUsageMaybeEvictNonStrict(size_t total_charge, size_t capacity,
+  bool ChargeUsageMaybeEvictNonStrict(size_t total_charge,
                                       bool need_evict_for_occupancy,
-                                      uint32_t eviction_effort_cap,
                                       typename Table::InsertState& state);
 
  protected:  // data
@@ -489,13 +538,32 @@ class BaseClockTable {
   // TODO: is this separation needed if we don't do background evictions?
   ALIGN_AS(CACHE_LINE_SIZE)
   // Number of elements in the table.
-  AcqRelAtomic<size_t> occupancy_{};
+  Atomic<size_t> occupancy_{};
 
   // Memory usage by entries tracked by the cache (including standalone)
-  AcqRelAtomic<size_t> usage_{};
+  Atomic<size_t> usage_{};
 
   // Part of usage by standalone entries (not in table)
-  AcqRelAtomic<size_t> standalone_usage_{};
+  Atomic<size_t> standalone_usage_{};
+
+  // Maximum total charge of all elements stored in the table.
+  // (Relaxed: eventual consistency/update is OK)
+  RelaxedAtomic<size_t> capacity_;
+
+  // Encodes eviction_effort_cap (bottom 31 bits) and strict_capacity_limit
+  // (top bit). See HyperClockCacheOptions::eviction_effort_cap etc.
+  struct EecAndScl : public BitFields<uint32_t, EecAndScl> {
+    uint32_t GetEffectiveEvictionEffortCap() const {
+      // Because setting strict_capacity_limit is supposed to imply infinite
+      // cap on eviction effort, we can let the bit for strict_capacity_limit
+      // in the upper-most bit position to used as part of the effective cap.
+      return underlying;
+    }
+  };
+  using EvictionEffortCap = UnsignedBitField<EecAndScl, 31, NoPrevBitField>;
+  using StrictCapacityLimit = BoolBitField<EecAndScl, EvictionEffortCap>;
+  // (Relaxed: eventual consistency/update is OK)
+  RelaxedBitFieldsAtomic<EecAndScl> eec_and_scl_;
 
   ALIGN_AS(CACHE_LINE_SIZE)
   const CacheMetadataChargePolicy metadata_charge_policy_;
@@ -551,7 +619,7 @@ class FixedHyperClockTable : public BaseClockTable {
     size_t estimated_value_size;
   };
 
-  FixedHyperClockTable(size_t capacity,
+  FixedHyperClockTable(size_t capacity, bool strict_capacity_limit,
                        CacheMetadataChargePolicy metadata_charge_policy,
                        MemoryAllocator* allocator,
                        const Cache::EvictionCallback* eviction_callback,
@@ -567,14 +635,13 @@ class FixedHyperClockTable : public BaseClockTable {
   bool GrowIfNeeded(size_t new_occupancy, InsertState& state);
 
   HandleImpl* DoInsert(const ClockHandleBasicData& proto,
-                       uint64_t initial_countdown, bool take_ref,
+                       uint32_t initial_countdown, bool take_ref,
                        InsertState& state);
 
   // Runs the clock eviction algorithm trying to reclaim at least
   // requested_charge. Returns how much is evicted, which could be less
   // if it appears impossible to evict the requested amount without blocking.
-  void Evict(size_t requested_charge, InsertState& state, EvictionData* data,
-             uint32_t eviction_effort_cap);
+  void Evict(size_t requested_charge, InsertState& state, EvictionData* data);
 
   HandleImpl* Lookup(const UniqueId64x2& hashed_key);
 
@@ -596,7 +663,7 @@ class FixedHyperClockTable : public BaseClockTable {
   }
 
   // Release N references
-  void TEST_ReleaseN(HandleImpl* handle, size_t n);
+  void TEST_ReleaseN(HandleImpl* handle, uint32_t n);
 #endif
 
   // The load factor p is a real number in (0, 1) such that at all
@@ -757,6 +824,7 @@ class AutoHyperClockTable : public BaseClockTable {
     // chain--specifically the next entry in the chain.
     // * The end of a chain is given a special "end" marker and refers back
     // to the head of the chain.
+    // These decorated pointers use the NextWithShift bit field struct below.
     //
     // Why do we need shift on each pointer? To make Lookup wait-free, we need
     // to be able to query a chain without missing anything, and preferably
@@ -776,47 +844,63 @@ class AutoHyperClockTable : public BaseClockTable {
     // it is normal to see "under construction" entries on the chain, and it
     // is not safe to read their hashed key without either a read reference
     // on the entry or a rewrite lock on the chain.
+    struct NextWithShift : public BitFields<uint64_t, NextWithShift> {
+      // The "shift" associated with this decorated pointer (see description
+      // above).
+      using Shift = UnsignedBitField<NextWithShift, 6, NoPrevBitField>;
+      // Marker for the end of a chain. Must also (a) point back to the head of
+      // the chain (with end marker removed), and (b) set the LockedFlag
+      // (below), so that attempting to lock an empty chain has no effect (not
+      // needed, as the lock is only needed for removals).
+      using EndFlag = BoolBitField<NextWithShift, Shift>;
+      // Marker that some thread owning writes to the chain structure (except
+      // for inserts), but only if not an "end" pointer. Also called the
+      // "rewrite lock."
+      using LockedFlag = BoolBitField<NextWithShift, EndFlag>;
+      // The "next" associated with this decorated pointer, which is an index
+      // into the table's array_ (see description above).
+      using Next = UnsignedBitField<NextWithShift, 56, LockedFlag>;
 
-    // Marker in a "with_shift" head pointer for some thread owning writes
-    // to the chain structure (except for inserts), but only if not an
-    // "end" pointer. Also called the "rewrite lock."
-    static constexpr uint64_t kHeadLocked = uint64_t{1} << 7;
+      bool IsLocked() const { return Get<LockedFlag>(); }
+      bool IsEnd() const {
+        // End flag should imply locked flag
+        assert(!Get<EndFlag>() || Get<LockedFlag>());
+        return Get<EndFlag>();
+      }
+      bool IsLockedNotEnd() const {
+        // NOTE: helping GCC to optimize this simpler code:
+        // return IsLocked() && !IsEnd();
+        constexpr U kEndFlag = U{1} << EndFlag::kBitOffset;
+        constexpr U kLockedFlag = U{1} << LockedFlag::kBitOffset;
+        return (underlying & (kEndFlag | kLockedFlag)) == kLockedFlag;
+      }
+      auto GetNext() const { return Get<Next>(); }
+      auto GetShift() const { return Get<Shift>(); }
 
-    // Marker in a "with_shift" pointer for the end of a chain. Must also
-    // point back to the head of the chain (with end marker removed).
-    // Also includes the "locked" bit so that attempting to lock an empty
-    // chain has no effect (not needed, as the lock is only needed for
-    // removals).
-    static constexpr uint64_t kNextEndFlags = (uint64_t{1} << 6) | kHeadLocked;
+      static NextWithShift Make(size_t next, int shift) {
+        return NextWithShift{}.With<Next>(next).With<Shift>(
+            static_cast<uint8_t>(shift));
+      }
 
-    static inline bool IsEnd(uint64_t next_with_shift) {
-      // Assuming certain values never used, suffices to check this one bit
-      constexpr auto kCheckBit = kNextEndFlags ^ kHeadLocked;
-      return next_with_shift & kCheckBit;
-    }
-
-    // Bottom bits to right shift away to get an array index from a
-    // "with_shift" pointer.
-    static constexpr int kNextShift = 8;
-
-    // A bit mask for the "shift" associated with each "with_shift" pointer.
-    // Always bottommost bits.
-    static constexpr int kShiftMask = 63;
+      static NextWithShift MakeEnd(size_t next, int shift) {
+        return Make(next, shift).With<EndFlag>(true).With<LockedFlag>(true);
+      }
+    };
 
     // A marker for head_next_with_shift that indicates this HandleImpl is
     // heap allocated (standalone) rather than in the table.
-    static constexpr uint64_t kStandaloneMarker = UINT64_MAX;
+    static constexpr NextWithShift kStandaloneMarker{UINT64_MAX};
 
     // A marker for head_next_with_shift indicating the head is not yet part
     // of the usable table, or for chain_next_with_shift indicating that the
     // entry is not present or is not yet part of a chain (must not be
     // "shareable" state).
-    static constexpr uint64_t kUnusedMarker = 0;
+    static constexpr NextWithShift kUnusedMarker{0};
 
     // See above. The head pointer is logically independent of the rest of
     // the entry, including the chain next pointer.
-    AcqRelAtomic<uint64_t> head_next_with_shift{kUnusedMarker};
-    AcqRelAtomic<uint64_t> chain_next_with_shift{kUnusedMarker};
+    BitFieldsAtomic<NextWithShift> head_next_with_shift{kUnusedMarker};
+    BitFieldsAtomic<NextWithShift> chain_next_with_shift{kUnusedMarker};
 
     // For supporting CreateStandalone and some fallback cases.
     inline bool IsStandalone() const {
@@ -841,7 +925,7 @@ class AutoHyperClockTable : public BaseClockTable {
     size_t min_avg_value_size;
   };
 
-  AutoHyperClockTable(size_t capacity,
+  AutoHyperClockTable(size_t capacity, bool strict_capacity_limit,
                       CacheMetadataChargePolicy metadata_charge_policy,
                       MemoryAllocator* allocator,
                       const Cache::EvictionCallback* eviction_callback,
@@ -862,14 +946,13 @@ class AutoHyperClockTable : public BaseClockTable {
   bool GrowIfNeeded(size_t new_occupancy, InsertState& state);
 
   HandleImpl* DoInsert(const ClockHandleBasicData& proto,
-                       uint64_t initial_countdown, bool take_ref,
+                       uint32_t initial_countdown, bool take_ref,
                        InsertState& state);
 
   // Runs the clock eviction algorithm trying to reclaim at least
   // requested_charge. Returns how much is evicted, which could be less
   // if it appears impossible to evict the requested amount without blocking.
-  void Evict(size_t requested_charge, InsertState& state, EvictionData* data,
-             uint32_t eviction_effort_cap);
+  void Evict(size_t requested_charge, InsertState& state, EvictionData* data);
 
   HandleImpl* Lookup(const UniqueId64x2& hashed_key);
 
@@ -891,7 +974,7 @@ class AutoHyperClockTable : public BaseClockTable {
   }
 
   // Release N references
-  void TEST_ReleaseN(HandleImpl* handle, size_t n);
+  void TEST_ReleaseN(HandleImpl* handle, uint32_t n);
 #endif
 
   // Maximum ratio of number of occupied slots to number of usable slots. The
@@ -973,7 +1056,7 @@ class AutoHyperClockTable : public BaseClockTable {
   // To maximize parallelization of Grow() operations, this field is only
   // updated opportunistically after Grow() operations and in DoInsert() where
   // it is found to be out-of-date. See CatchUpLengthInfoNoWait().
-  AcqRelAtomic<uint64_t> length_info_;
+  Atomic<uint64_t> length_info_;
 
   // An already-computed version of the usable length times the max load
   // factor. Could be slightly out of date but GrowIfNeeded()/Grow() handle
@@ -1096,21 +1179,12 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
     return table_.TEST_MutableOccupancyLimit();
   }
   // Acquire/release N references
-  void TEST_RefN(HandleImpl* handle, size_t n);
-  void TEST_ReleaseN(HandleImpl* handle, size_t n);
+  void TEST_RefN(HandleImpl* handle, uint32_t n);
+  void TEST_ReleaseN(HandleImpl* handle, uint32_t n);
 #endif
 
  private:  // data
   Table table_;
-
-  // Maximum total charge of all elements stored in the table.
-  // (Relaxed: eventual consistency/update is OK)
-  RelaxedAtomic<size_t> capacity_;
-
-  // Encodes eviction_effort_cap (bottom 31 bits) and strict_capacity_limit
-  // (top bit). See HyperClockCacheOptions::eviction_effort_cap etc.
-  // (Relaxed: eventual consistency/update is OK)
-  RelaxedAtomic<uint32_t> eec_and_scl_;
 };  // class ClockCacheShard
 
 template <class Table>

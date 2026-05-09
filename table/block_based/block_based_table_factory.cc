@@ -20,11 +20,14 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/table.h"
+#include "rocksdb/user_defined_index.h"
+#include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_reader.h"
@@ -182,6 +185,13 @@ static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
         {"kBinarySearchWithFirstKey",
          BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey}};
 
+static std::unordered_map<std::string, BlockBasedTableOptions::BlockSearchType>
+    block_base_table_index_search_type_string_map = {
+        {"kBinary", BlockBasedTableOptions::BlockSearchType::kBinary},
+        {"kInterpolation",
+         BlockBasedTableOptions::BlockSearchType::kInterpolation},
+        {"kAuto", BlockBasedTableOptions::BlockSearchType::kAuto}};
+
 static std::unordered_map<std::string,
                           BlockBasedTableOptions::DataBlockIndexType>
     block_base_table_data_block_index_type_string_map = {
@@ -221,7 +231,9 @@ static std::unordered_map<std::string,
     block_base_table_prepopulate_block_cache_string_map = {
         {"kDisable", BlockBasedTableOptions::PrepopulateBlockCache::kDisable},
         {"kFlushOnly",
-         BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly}};
+         BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly},
+        {"kFlushAndCompaction",
+         BlockBasedTableOptions::PrepopulateBlockCache::kFlushAndCompaction}};
 
 static struct BlockBasedTableTypeInfo {
   std::unordered_map<std::string, OptionTypeInfo> info;
@@ -259,6 +271,10 @@ static struct BlockBasedTableTypeInfo {
         {"index_type", OptionTypeInfo::Enum<BlockBasedTableOptions::IndexType>(
                            offsetof(struct BlockBasedTableOptions, index_type),
                            &block_base_table_index_type_string_map)},
+        {"index_block_search_type",
+         OptionTypeInfo::Enum<BlockBasedTableOptions::BlockSearchType>(
+             offsetof(struct BlockBasedTableOptions, index_block_search_type),
+             &block_base_table_index_search_type_string_map)},
         {"hash_index_allow_collision",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated}},
         {"data_block_index_type",
@@ -312,6 +328,11 @@ static struct BlockBasedTableTypeInfo {
          OptionTypeInfo::AsCustomSharedPtr<const FilterPolicy>(
              offsetof(struct BlockBasedTableOptions, filter_policy),
              OptionVerificationType::kByNameAllowFromNull)},
+        {"user_defined_index_factory",
+         OptionTypeInfo::AsCustomSharedPtr<UserDefinedIndexFactory>(
+             offsetof(struct BlockBasedTableOptions,
+                      user_defined_index_factory),
+             OptionVerificationType::kByNameAllowFromNull)},
         {"whole_key_filtering",
          {offsetof(struct BlockBasedTableOptions, whole_key_filtering),
           OptionType::kBoolean, OptionVerificationType::kNormal}},
@@ -328,6 +349,13 @@ static struct BlockBasedTableTypeInfo {
         {"format_version",
          {offsetof(struct BlockBasedTableOptions, format_version),
           OptionType::kUInt32T, OptionVerificationType::kNormal}},
+        {"separate_key_value_in_data_block",
+         {offsetof(struct BlockBasedTableOptions,
+                   separate_key_value_in_data_block),
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"uniform_cv_threshold",
+         {offsetof(struct BlockBasedTableOptions, uniform_cv_threshold),
+          OptionType::kDouble, OptionVerificationType::kNormal}},
         {"verify_compression",
          {offsetof(struct BlockBasedTableOptions, verify_compression),
           OptionType::kBoolean, OptionVerificationType::kNormal}},
@@ -357,6 +385,13 @@ static struct BlockBasedTableTypeInfo {
         {"block_align",
          {offsetof(struct BlockBasedTableOptions, block_align),
           OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"super_block_alignment_size",
+         {offsetof(struct BlockBasedTableOptions, super_block_alignment_size),
+          OptionType::kSizeT, OptionVerificationType::kNormal}},
+        {"super_block_alignment_space_overhead_ratio",
+         {offsetof(struct BlockBasedTableOptions,
+                   super_block_alignment_space_overhead_ratio),
+          OptionType::kSizeT, OptionVerificationType::kNormal}},
         {"pin_top_level_index_and_filter",
          {offsetof(struct BlockBasedTableOptions,
                    pin_top_level_index_and_filter),
@@ -392,6 +427,12 @@ static struct BlockBasedTableTypeInfo {
          {offsetof(struct BlockBasedTableOptions,
                    num_file_reads_for_auto_readahead),
           OptionType::kUInt64T, OptionVerificationType::kNormal}},
+        {"fail_if_no_udi_on_open",
+         {offsetof(struct BlockBasedTableOptions, fail_if_no_udi_on_open),
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"use_udi_as_primary_index",
+         {offsetof(struct BlockBasedTableOptions, use_udi_as_primary_index),
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
     };
   }
 } block_based_table_type_info;
@@ -427,10 +468,10 @@ void BlockBasedTableFactory::InitializeOptions() {
   if (table_options_.no_block_cache) {
     table_options_.block_cache.reset();
   } else if (table_options_.block_cache == nullptr) {
-    LRUCacheOptions co;
-    // 32MB, the recommended minimum size for 64 shards, to reduce contention
-    co.capacity = 32 << 20;
-    table_options_.block_cache = NewLRUCache(co);
+    // Now using AutoHCC by default, with existing default size of 32MB
+    // which is just one cache shard in HCC
+    HyperClockCacheOptions hcc_opts{size_t{32} << 20};
+    table_options_.block_cache = hcc_opts.MakeSharedCache();
   }
   if (table_options_.block_size_deviation < 0 ||
       table_options_.block_size_deviation > 100) {
@@ -467,6 +508,21 @@ void BlockBasedTableFactory::InitializeOptions() {
       options_overrides_iter->second.charged = options.charged;
     }
   }
+
+  if (table_options_.format_version < kMinSupportedBbtFormatVersionForWrite) {
+    // In TEST mode, allow writing format versions that are at least supported
+    // for reading (so that we have a way of testing the read side).
+    if (TEST_AllowUnsupportedFormatVersion()) {
+      if (table_options_.format_version <
+          kMinSupportedBbtFormatVersionForRead) {
+        table_options_.format_version = kMinSupportedBbtFormatVersionForWrite;
+      }
+    } else {
+      table_options_.format_version = kMinSupportedBbtFormatVersionForWrite;
+    }
+  }
+  // NOTE: do not sanitize too high format_version, so that it can be rejected
+  // in validation
 }
 
 Status BlockBasedTableFactory::PrepareOptions(const ConfigOptions& opts) {
@@ -555,9 +611,11 @@ Status BlockBasedTableFactory::NewTableReader(
       file_size, table_reader_options.block_protection_bytes_per_key,
       table_reader, table_reader_options.tail_size,
       shared_state_->table_reader_cache_res_mgr,
-      table_reader_options.prefix_extractor, prefetch_index_and_filter_in_cache,
-      table_reader_options.skip_filters, table_reader_options.level,
-      table_reader_options.immortal, table_reader_options.largest_seqno,
+      table_reader_options.prefix_extractor,
+      table_reader_options.compression_manager,
+      prefetch_index_and_filter_in_cache, table_reader_options.skip_filters,
+      table_reader_options.level, table_reader_options.immortal,
+      table_reader_options.largest_seqno,
       table_reader_options.force_direct_prefetch,
       &shared_state_->tail_prefetch_stats,
       table_reader_options.block_cache_tracer,
@@ -582,6 +640,14 @@ Status BlockBasedTableFactory::ValidateOptions(
         "Hash index is specified for block-based "
         "table, but prefix_extractor is not given");
   }
+  if (table_options_.index_block_search_type ==
+      BlockBasedTableOptions::kInterpolation) {
+    // Interpolation search requires BytewiseComparator
+    if (cf_opts.comparator != BytewiseComparator()) {
+      return Status::InvalidArgument(
+          "Interpolation search requires BytewiseComparator");
+    }
+  }
   if (table_options_.cache_index_and_filter_blocks &&
       table_options_.no_block_cache) {
     return Status::InvalidArgument(
@@ -594,28 +660,71 @@ Status BlockBasedTableFactory::ValidateOptions(
         "Enable pin_l0_filter_and_index_blocks_in_cache, "
         ", but block cache is disabled");
   }
-  if (!IsSupportedFormatVersion(table_options_.format_version)) {
+  // In TEST mode, also allow writing
+  // (a) old format_versions that for users are only supported for reads
+  // (b) future "draft" format versions that are not yet published to users
+  if (!(IsSupportedFormatVersionForWrite(kBlockBasedTableMagicNumber,
+                                         table_options_.format_version) ||
+        (TEST_AllowUnsupportedFormatVersion() &&
+         table_options_.format_version >=
+             kMinSupportedBbtFormatVersionForRead))) {
     return Status::InvalidArgument(
         "Unsupported BlockBasedTable format_version. Please check "
         "include/rocksdb/table.h for more info");
   }
-  if (table_options_.block_align && (cf_opts.compression != kNoCompression)) {
-    return Status::InvalidArgument(
-        "Enable block_align, but compression "
-        "enabled");
+  bool using_builtin_compatible_compression = true;
+  if (cf_opts.compression_manager &&
+      strcmp(cf_opts.compression_manager->CompatibilityName(),
+             GetBuiltinV2CompressionManager()->CompatibilityName()) != 0) {
+    if (FormatVersionUsesCompressionManagerName(
+            table_options_.format_version)) {
+      using_builtin_compatible_compression = false;
+    } else {
+      return Status::InvalidArgument(
+          "Using a CompressionManager incompatible with built-in (custom "
+          "CompatibilityName()) is not supported for format_version < 7");
+    }
   }
-  if (table_options_.block_align &&
-      cf_opts.bottommost_compression != kDisableCompressionOption &&
-      cf_opts.bottommost_compression != kNoCompression) {
-    return Status::InvalidArgument(
-        "Enable block_align, but bottommost_compression enabled");
-  }
-  if (table_options_.block_align) {
-    for (auto level_compression : cf_opts.compression_per_level) {
-      if (level_compression != kDisableCompressionOption &&
-          level_compression != kNoCompression) {
+  auto validate_compression_type_fn = [&](CompressionType ctype,
+                                          const char* context) {
+    if (ctype == kNoCompression) {
+      return Status::OK();
+    }
+    if (ctype == kDisableCompressionOption) {
+      if (strcmp(context, "compression") == 0) {
         return Status::InvalidArgument(
-            "Enable block_align, but compression_per_level enabled");
+            "kDisableCompressionOption not permitted for option: "
+            "compression");
+      } else {
+        return Status::OK();
+      }
+    }
+    if (table_options_.block_align) {
+      return Status::InvalidArgument("Enable block_align, but " +
+                                     std::string(context) + " enabled");
+    }
+    if (ctype > kLastBuiltinCompression &&
+        using_builtin_compatible_compression) {
+      return Status::InvalidArgument(
+          "Using a CompressionType other than built-in ...");  // TODO
+    }
+    // Otherwise
+    return Status::OK();
+  };
+  {
+    Status s = validate_compression_type_fn(cf_opts.compression, "compression");
+    if (!s.ok()) {
+      return s;
+    }
+    s = validate_compression_type_fn(cf_opts.bottommost_compression,
+                                     "bottommost_compression");
+    if (!s.ok()) {
+      return s;
+    }
+    for (auto ctype : cf_opts.compression_per_level) {
+      s = validate_compression_type_fn(ctype, "compression_per_level");
+      if (!s.ok()) {
+        return s;
       }
     }
   }
@@ -628,12 +737,53 @@ Status BlockBasedTableFactory::ValidateOptions(
     return Status::InvalidArgument(
         "block size exceeds maximum number (4GiB) allowed");
   }
+  if ((table_options_.super_block_alignment_size &
+       (table_options_.super_block_alignment_size - 1))) {
+    return Status::InvalidArgument(
+        "Super Block alignment requested but super block alignment size is not "
+        "a power of 2");
+  }
+  if (table_options_.super_block_alignment_size >
+      std::numeric_limits<uint32_t>::max()) {
+    return Status::InvalidArgument(
+        "Super block alignment size exceeds maximum number (4GiB) allowed");
+  }
+  if (table_options_.super_block_alignment_space_overhead_ratio > 0 &&
+      table_options_.super_block_alignment_space_overhead_ratio < 4) {
+    return Status::InvalidArgument(
+        "Super block alignment space overhead is too high");
+  }
   if (table_options_.data_block_index_type ==
           BlockBasedTableOptions::kDataBlockBinaryAndHash &&
       table_options_.data_block_hash_table_util_ratio <= 0) {
     return Status::InvalidArgument(
         "data_block_hash_table_util_ratio should be greater than 0 when "
         "data_block_index_type is set to kDataBlockBinaryAndHash");
+  }
+  if (table_options_.user_defined_index_factory) {
+    if (cf_opts.compression_opts.parallel_threads > 1 ||
+        cf_opts.bottommost_compression_opts.parallel_threads > 1) {
+      return Status::InvalidArgument(
+          "user_defined_index_factory not supported with parallel compression");
+    }
+    if (table_options_.use_udi_as_primary_index) {
+      if (table_options_.index_type ==
+          BlockBasedTableOptions::kTwoLevelIndexSearch) {
+        return Status::InvalidArgument(
+            "use_udi_as_primary_index is incompatible with partitioned index "
+            "(kTwoLevelIndexSearch). The UDI wrapper currently only supports "
+            "flat (single-level) index builders.");
+      }
+      if (table_options_.partition_filters) {
+        return Status::InvalidArgument(
+            "use_udi_as_primary_index is incompatible with partitioned "
+            "filters. The UDI wrapper does not support the partitioned "
+            "index/filter layout.");
+      }
+    }
+  } else if (table_options_.use_udi_as_primary_index) {
+    return Status::InvalidArgument(
+        "use_udi_as_primary_index requires user_defined_index_factory");
   }
   if (db_opts.unordered_write && cf_opts.max_successive_merges > 0) {
     // TODO(myabandeh): support it
@@ -806,6 +956,17 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
                ? "nullptr"
                : table_options_.filter_policy->Name());
   ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  user_defined_index_factory: %s\n",
+           table_options_.user_defined_index_factory == nullptr
+               ? "nullptr"
+               : table_options_.user_defined_index_factory->Name());
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  use_udi_as_primary_index: %d\n",
+           table_options_.use_udi_as_primary_index);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  fail_if_no_udi_on_open: %d\n",
+           table_options_.fail_if_no_udi_on_open);
+  ret.append(buffer);
   snprintf(buffer, kBufferSize, "  whole_key_filtering: %d\n",
            table_options_.whole_key_filtering);
   ret.append(buffer);
@@ -818,11 +979,23 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
   snprintf(buffer, kBufferSize, "  format_version: %d\n",
            table_options_.format_version);
   ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  uniform_cv_threshold: %lf\n",
+           table_options_.uniform_cv_threshold);
+  ret.append(buffer);
   snprintf(buffer, kBufferSize, "  enable_index_compression: %d\n",
            table_options_.enable_index_compression);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  block_align: %d\n",
            table_options_.block_align);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize,
+           "  super_block_alignment_size: %" ROCKSDB_PRIszt "\n",
+           table_options_.super_block_alignment_size);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize,
+           "  super_block_alignment_space_overhead_ratio: %" ROCKSDB_PRIszt
+           "\n",
+           table_options_.super_block_alignment_space_overhead_ratio);
   ret.append(buffer);
   snprintf(buffer, kBufferSize,
            "  max_auto_readahead_size: %" ROCKSDB_PRIszt "\n",
@@ -948,6 +1121,13 @@ Status GetBlockBasedTableOptionsFromMap(
 TableFactory* NewBlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options) {
   return new BlockBasedTableFactory(_table_options);
+}
+
+Status UserDefinedIndexFactory::CreateFromString(
+    const ConfigOptions& config_options, const std::string& value,
+    std::shared_ptr<UserDefinedIndexFactory>* factory) {
+  return LoadSharedObject<UserDefinedIndexFactory>(config_options, value,
+                                                   factory);
 }
 
 const std::string BlockBasedTablePropertyNames::kIndexType =

@@ -466,6 +466,90 @@ TEST_F(DBBlockCacheTest, WarmCacheWithDataBlocksDuringFlush) {
             options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
 }
 
+// Cache wrapper that tracks the priority of each Insert call.
+namespace {
+class PriorityTrackingCache : public CacheWrapper {
+ public:
+  explicit PriorityTrackingCache(std::shared_ptr<Cache> target)
+      : CacheWrapper(std::move(target)) {}
+
+  const char* Name() const override { return "PriorityTrackingCache"; }
+
+  Status Insert(const Slice& key, ObjectPtr value,
+                const CacheItemHelper* helper, size_t charge,
+                Handle** handle = nullptr, Priority priority = Priority::LOW,
+                const Slice& compressed_value = Slice(),
+                CompressionType type = kNoCompression) override {
+    insert_priorities_.push_back(priority);
+    return CacheWrapper::Insert(key, value, helper, charge, handle, priority,
+                                compressed_value, type);
+  }
+
+  void ResetPriorities() { insert_priorities_.clear(); }
+
+  bool HasPriority(Priority p) const {
+    return std::find(insert_priorities_.begin(), insert_priorities_.end(), p) !=
+           insert_priorities_.end();
+  }
+
+ private:
+  std::vector<Priority> insert_priorities_;
+};
+}  // namespace
+
+TEST_F(DBBlockCacheTest, WarmCacheWithDataBlocksDuringCompaction) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  options.disable_auto_compactions = true;
+
+  auto tracking_cache =
+      std::make_shared<PriorityTrackingCache>(NewLRUCache(1 << 25, 0, false));
+
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = tracking_cache;
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.prepopulate_block_cache =
+      BlockBasedTableOptions::PrepopulateBlockCache::kFlushAndCompaction;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  std::string value(kValueSize, 'a');
+
+  // Flush warming: inserts should use LOW priority.
+  tracking_cache->ResetPriorities();
+  ASSERT_OK(Put("key", value));
+  ASSERT_OK(Flush());
+  EXPECT_TRUE(tracking_cache->HasPriority(Cache::Priority::LOW));
+  EXPECT_FALSE(tracking_cache->HasPriority(Cache::Priority::BOTTOM));
+
+  // Write overlapping key to force a real merge compaction (not trivial move).
+  ASSERT_OK(Put("key", value + "2"));
+  ASSERT_OK(Flush());
+
+  auto data_add_before =
+      options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD);
+
+  // Compaction warming: data block inserts should use BOTTOM priority.
+  // Internal cache bookkeeping (e.g., cache entry stats) may insert at HIGH,
+  // so we check for BOTTOM presence and LOW absence.
+  tracking_cache->ResetPriorities();
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  ASSERT_OK(db_->CompactRange(cro, /*begin=*/nullptr, /*end=*/nullptr));
+  EXPECT_GT(options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD),
+            data_add_before);
+  EXPECT_TRUE(tracking_cache->HasPriority(Cache::Priority::BOTTOM));
+  EXPECT_FALSE(tracking_cache->HasPriority(Cache::Priority::LOW));
+
+  // Compaction output is in cache — reads should have zero misses.
+  auto data_miss_before =
+      options.statistics->getTickerCount(BLOCK_CACHE_DATA_MISS);
+  ASSERT_EQ(value + "2", Get("key"));
+  EXPECT_EQ(data_miss_before,
+            options.statistics->getTickerCount(BLOCK_CACHE_DATA_MISS));
+}
+
 // This test cache data, index and filter blocks during flush.
 class DBBlockCacheTest1 : public DBTestBase,
                           public ::testing::WithParamInterface<uint32_t> {
@@ -506,6 +590,8 @@ TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
   table_options.prepopulate_block_cache =
       BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  // Include a compression dictionary block
+  options.compression_opts.max_dict_bytes = 123;
   DestroyAndReopen(options);
 
   std::string value(kValueSize, 'a');
@@ -537,6 +623,9 @@ TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
                 options.statistics->getTickerCount(BLOCK_CACHE_FILTER_HIT));
     }
     ASSERT_EQ(0, options.statistics->getTickerCount(BLOCK_CACHE_FILTER_MISS));
+
+    // Including compression dict
+    ASSERT_EQ(0, options.statistics->getTickerCount(BLOCK_CACHE_MISS));
   }
 
   // Verify compaction not counted
@@ -614,6 +703,36 @@ TEST_F(DBBlockCacheTest, DynamicOptions) {
   ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
   ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_MISS));
   ASSERT_EQ(1, st->getAndResetTickerCount(BLOCK_CACHE_DATA_HIT));
+
+  // Switch to kFlushAndCompaction
+  ++i;
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"block_based_table_factory",
+        "{prepopulate_block_cache=kFlushAndCompaction;}"}}));
+
+  ASSERT_OK(Put(std::to_string(i), value));
+  ASSERT_OK(Flush());
+  // Flush warming still works
+  ASSERT_EQ(1, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+
+  ASSERT_EQ(value, Get(std::to_string(i)));
+  ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+  ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_MISS));
+  ASSERT_EQ(1, st->getAndResetTickerCount(BLOCK_CACHE_DATA_HIT));
+
+  // Switch back to kDisable
+  ++i;
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"block_based_table_factory", "{prepopulate_block_cache=kDisable;}"}}));
+
+  ASSERT_OK(Put(std::to_string(i), value));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+
+  ASSERT_EQ(value, Get(std::to_string(i)));
+  ASSERT_EQ(1, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+  ASSERT_EQ(1, st->getAndResetTickerCount(BLOCK_CACHE_DATA_MISS));
+  ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_HIT));
 
   ++i;
   // NOT YET SUPPORTED
@@ -824,68 +943,78 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
   const int kNumEntriesPerFile = 128;
   const int kNumBytesPerEntry = 1024;
 
-  // Try all the available libraries that support dictionary compression
-  std::vector<CompressionType> compression_types;
-  if (Zlib_Supported()) {
-    compression_types.push_back(kZlibCompression);
-  }
-  if (LZ4_Supported()) {
-    compression_types.push_back(kLZ4Compression);
-    compression_types.push_back(kLZ4HCCompression);
-  }
-  if (ZSTD_Supported()) {
-    compression_types.push_back(kZSTD);
-  }
+  std::vector<CompressionType> dict_compressions =
+      GetSupportedDictCompressions();
   Random rnd(301);
-  for (auto compression_type : compression_types) {
-    Options options = CurrentOptions();
-    options.bottommost_compression = compression_type;
-    options.bottommost_compression_opts.max_dict_bytes = 4096;
-    options.bottommost_compression_opts.enabled = true;
-    options.create_if_missing = true;
-    options.num_levels = 2;
-    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    options.target_file_size_base = kNumEntriesPerFile * kNumBytesPerEntry;
-    BlockBasedTableOptions table_options;
-    table_options.cache_index_and_filter_blocks = true;
-    table_options.block_cache.reset(new MockCache());
-    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-    DestroyAndReopen(options);
+  // Format version before and after compression handling changes
+  for (int format_version : {6, 7}) {
+    // Test all supported compression types because (at least historically)
+    // dictionary compression could be enabled and a dictionary block saved
+    // but ignored by some compression types. Ensure we at least don't crash
+    // or return corruption for those.
+    for (auto compression_type : GetSupportedCompressions()) {
+      // Extra handling checks only for types actually supporting dictionary
+      // compression.
+      bool dict_supported =
+          std::count(dict_compressions.begin(), dict_compressions.end(),
+                     compression_type) > 0;
 
-    RecordCacheCountersForCompressionDict(options);
+      Options options = CurrentOptions();
+      options.bottommost_compression = compression_type;
+      options.bottommost_compression_opts.max_dict_bytes = 4096;
+      options.bottommost_compression_opts.enabled = true;
+      options.create_if_missing = true;
+      options.num_levels = 2;
+      options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+      options.target_file_size_base = kNumEntriesPerFile * kNumBytesPerEntry;
+      BlockBasedTableOptions table_options;
+      table_options.cache_index_and_filter_blocks = true;
+      table_options.block_cache.reset(new MockCache());
+      table_options.format_version = format_version;
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      DestroyAndReopen(options);
 
-    for (int i = 0; i < kNumFiles; ++i) {
-      ASSERT_EQ(i, NumTableFilesAtLevel(0, 0));
-      for (int j = 0; j < kNumEntriesPerFile; ++j) {
-        std::string value = rnd.RandomString(kNumBytesPerEntry);
-        ASSERT_OK(Put(Key(j * kNumFiles + i), value.c_str()));
+      RecordCacheCountersForCompressionDict(options);
+
+      for (int i = 0; i < kNumFiles; ++i) {
+        ASSERT_EQ(i, NumTableFilesAtLevel(0, 0));
+        for (int j = 0; j < kNumEntriesPerFile; ++j) {
+          std::string value = rnd.RandomString(kNumBytesPerEntry);
+          ASSERT_OK(Put(Key(j * kNumFiles + i), value.c_str()));
+        }
+        ASSERT_OK(Flush());
       }
-      ASSERT_OK(Flush());
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+      ASSERT_EQ(0, NumTableFilesAtLevel(0));
+      ASSERT_EQ(kNumFiles, NumTableFilesAtLevel(1));
+
+      if (dict_supported) {
+        // Compression dictionary blocks are preloaded.
+        CheckCacheCountersForCompressionDict(
+            options, kNumFiles /* expected_compression_dict_misses */,
+            0 /* expected_compression_dict_hits */,
+            kNumFiles /* expected_compression_dict_inserts */);
+      }
+
+      // Seek to a key in a file. It should cause the SST's dictionary
+      // meta-block to be read.
+      RecordCacheCounters(options);
+      RecordCacheCountersForCompressionDict(options);
+      ReadOptions read_options;
+      ASSERT_NE("NOT_FOUND", Get(Key(kNumFiles * kNumEntriesPerFile - 1)));
+
+      if (dict_supported) {
+        // Two block hits: index and dictionary since they are prefetched
+        // One block missed/added: data block
+        CheckCacheCounters(options, 1 /* expected_misses */,
+                           2 /* expected_hits */, 1 /* expected_inserts */,
+                           0 /* expected_failures */);
+        CheckCacheCountersForCompressionDict(
+            options, 0 /* expected_compression_dict_misses */,
+            1 /* expected_compression_dict_hits */,
+            0 /* expected_compression_dict_inserts */);
+      }
     }
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
-    ASSERT_EQ(0, NumTableFilesAtLevel(0));
-    ASSERT_EQ(kNumFiles, NumTableFilesAtLevel(1));
-
-    // Compression dictionary blocks are preloaded.
-    CheckCacheCountersForCompressionDict(
-        options, kNumFiles /* expected_compression_dict_misses */,
-        0 /* expected_compression_dict_hits */,
-        kNumFiles /* expected_compression_dict_inserts */);
-
-    // Seek to a key in a file. It should cause the SST's dictionary meta-block
-    // to be read.
-    RecordCacheCounters(options);
-    RecordCacheCountersForCompressionDict(options);
-    ReadOptions read_options;
-    ASSERT_NE("NOT_FOUND", Get(Key(kNumFiles * kNumEntriesPerFile - 1)));
-    // Two block hits: index and dictionary since they are prefetched
-    // One block missed/added: data block
-    CheckCacheCounters(options, 1 /* expected_misses */, 2 /* expected_hits */,
-                       1 /* expected_inserts */, 0 /* expected_failures */);
-    CheckCacheCountersForCompressionDict(
-        options, 0 /* expected_compression_dict_misses */,
-        1 /* expected_compression_dict_hits */,
-        0 /* expected_compression_dict_inserts */);
   }
 }
 
@@ -1646,7 +1775,7 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
   std::string export_files_dir = dbname_ + "/exported";
   ExportImportFilesMetaData* metadata_ptr_ = nullptr;
   Checkpoint* checkpoint;
-  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
   ASSERT_OK(checkpoint->ExportColumnFamily(handles_[1], export_files_dir,
                                            &metadata_ptr_));
   ASSERT_NE(metadata_ptr_, nullptr);
@@ -1683,7 +1812,7 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
   // StableCacheKeyTestFS, Checkpoint will resort to full copy not hard link.
   // (Checkpoint  not available in LITE mode to test this.)
   auto db_copy_name = dbname_ + "-copy";
-  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
   ASSERT_OK(checkpoint->CreateCheckpoint(db_copy_name));
   delete checkpoint;
 

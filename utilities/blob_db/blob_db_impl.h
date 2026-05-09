@@ -26,7 +26,6 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
-#include "rocksdb/wal_filter.h"
 #include "util/mutexlock.h"
 #include "util/timer_queue.h"
 #include "utilities/blob_db/blob_db.h"
@@ -75,9 +74,6 @@ class BlobDBImpl : public BlobDB {
   friend class BlobIndexCompactionFilterGC;
 
  public:
-  // deletions check period
-  static constexpr uint32_t kDeleteCheckPeriodMillisecs = 2 * 1000;
-
   // sanity check task
   static constexpr uint32_t kSanityCheckPeriodMillisecs = 20 * 60 * 1000;
 
@@ -92,10 +88,6 @@ class BlobDBImpl : public BlobDB {
 
   // how often to schedule expired files eviction.
   static constexpr uint32_t kEvictExpiredFilesPeriodMillisecs = 10 * 1000;
-
-  // when should oldest file be evicted:
-  // on reaching 90% of blob_dir_size
-  static constexpr double kEvictOldestFileAtSize = 0.9;
 
   using BlobDB::Put;
   Status Put(const WriteOptions& options, const Slice& key,
@@ -136,10 +128,6 @@ class BlobDBImpl : public BlobDB {
   Status PutWithTTL(const WriteOptions& options, const Slice& key,
                     const Slice& value, uint64_t ttl) override;
 
-  using BlobDB::PutUntil;
-  Status PutUntil(const WriteOptions& options, const Slice& key,
-                  const Slice& value, uint64_t expiration) override;
-
   using BlobDB::CompactFiles;
   Status CompactFiles(
       const CompactionOptions& compact_options,
@@ -147,8 +135,6 @@ class BlobDBImpl : public BlobDB {
       const int output_path_id = -1,
       std::vector<std::string>* const output_file_names = nullptr,
       CompactionJobInfo* compaction_job_info = nullptr) override;
-
-  BlobDBOptions GetBlobDBOptions() const override;
 
   BlobDBImpl(const std::string& dbname, const BlobDBOptions& bdb_options,
              const DBOptions& db_options,
@@ -168,8 +154,6 @@ class BlobDBImpl : public BlobDB {
   ~BlobDBImpl();
 
   Status Open(std::vector<ColumnFamilyHandle*>* handles);
-
-  Status SyncBlobFiles(const WriteOptions& write_options) override;
 
   // Common part of the two GetCompactionContext methods below.
   // REQUIRES: read lock on mutex_
@@ -198,9 +182,9 @@ class BlobDBImpl : public BlobDB {
                              SequenceNumber obsolete_seq = 0,
                              bool update_size = true);
 
-  void TEST_EvictExpiredFiles();
-
   void TEST_DeleteObsoleteFiles();
+
+  void TEST_EvictExpiredFiles();
 
   uint64_t TEST_live_sst_size();
 
@@ -222,6 +206,8 @@ class BlobDBImpl : public BlobDB {
   // Return true if a snapshot is created.
   bool SetSnapshotIfNeeded(ReadOptions* read_options);
 
+  Status SyncBlobFiles(const WriteOptions& write_options);
+
   Status GetImpl(const ReadOptions& read_options,
                  ColumnFamilyHandle* column_family, const Slice& key,
                  PinnableSlice* value, uint64_t* expiration = nullptr);
@@ -231,15 +217,7 @@ class BlobDBImpl : public BlobDB {
 
   Status GetRawBlobFromFile(const Slice& key, uint64_t file_number,
                             uint64_t offset, uint64_t size,
-                            PinnableSlice* value,
-                            CompressionType* compression_type);
-
-  Slice GetCompressedSlice(const Slice& raw,
-                           std::string* compression_output) const;
-
-  Status DecompressSlice(const Slice& compressed_value,
-                         CompressionType compression_type,
-                         PinnableSlice* value_output) const;
+                            PinnableSlice* value);
 
   // Close a file by appending a footer, and removes file from open files list.
   // REQUIRES: lock held on write_mutex_, write lock held on both the db mutex_
@@ -299,16 +277,13 @@ class BlobDBImpl : public BlobDB {
   // or GC). Check whether any snapshots exist which refer to the same.
   std::pair<bool, int64_t> DeleteObsoleteFiles(bool aborted);
 
-  // periodically check if open blob files and their TTL's has expired
-  // if expired, close the sequential writer and make the file immutable
-  std::pair<bool, int64_t> EvictExpiredFiles(bool aborted);
-
   // if the number of open files, approaches ULIMIT's this
   // task will close random readers, which are kept around for
   // efficiency
   std::pair<bool, int64_t> ReclaimOpenFiles(bool aborted);
 
-  std::pair<bool, int64_t> RemoveTimerQ(TimerQueue* tq, bool aborted);
+  // Evict expired blob files from the TTL queue.
+  std::pair<bool, int64_t> EvictExpiredFiles(bool aborted);
 
   // Adds the background tasks to the timer queue
   void StartBackgroundTasks();
@@ -371,7 +346,11 @@ class BlobDBImpl : public BlobDB {
   void MarkUnreferencedBlobFilesObsolete();
   void MarkUnreferencedBlobFilesObsoleteDuringOpen();
 
-  void UpdateLiveSSTSize(const WriteOptions& write_options);
+  void UpdateLiveSSTSize();
+
+  // Check if writing blob_size bytes would exceed max_db_size limit.
+  // Returns Status::NoSpace() if limit would be exceeded.
+  Status CheckDbSizeLimit(uint64_t blob_size);
 
   Status GetBlobFileReader(const std::shared_ptr<BlobFile>& blob_file,
                            std::shared_ptr<RandomAccessFileReader>* reader);
@@ -392,19 +371,8 @@ class BlobDBImpl : public BlobDB {
   // checks if there is no snapshot which is referencing the
   // blobs
   bool VisibleToActiveSnapshot(const std::shared_ptr<BlobFile>& file);
-  bool FileDeleteOk_SnapshotCheckLocked(const std::shared_ptr<BlobFile>& bfile);
-
-  void CopyBlobFiles(std::vector<std::shared_ptr<BlobFile>>* bfiles_copy);
 
   uint64_t EpochNow() { return clock_->NowMicros() / 1000000; }
-
-  // Check if inserting a new blob will make DB grow out of space.
-  // If is_fifo = true, FIFO eviction will be triggered to make room for the
-  // new blob. If force_evict = true, FIFO eviction will evict blob files
-  // even eviction will not make enough room for the new blob.
-  Status CheckSizeAndEvictBlobFiles(const WriteOptions& write_options,
-                                    uint64_t blob_size,
-                                    bool force_evict = false);
 
   Status CloseImpl();
 
@@ -474,16 +442,6 @@ class BlobDBImpl : public BlobDB {
   // total size of SST files.
   std::atomic<uint64_t> live_sst_size_;
 
-  // Latest FIFO eviction timestamp
-  //
-  // REQUIRES: access with metex_ lock held.
-  uint64_t fifo_eviction_seq_;
-
-  // The expiration up to which latest FIFO eviction evicts.
-  //
-  // REQUIRES: access with metex_ lock held.
-  uint64_t evict_expiration_up_to_;
-
   std::list<std::shared_ptr<BlobFile>> obsolete_files_;
 
   // DeleteObsoleteFiles, DiableFileDeletions and EnableFileDeletions block
@@ -505,8 +463,6 @@ class BlobDBImpl : public BlobDB {
   //
   // REQUIRES: access with delete_file_mutex_ held.
   int disable_file_deletions_ = 0;
-
-  uint32_t debug_level_;
 };
 
 }  // namespace blob_db

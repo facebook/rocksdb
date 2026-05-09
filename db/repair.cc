@@ -100,13 +100,15 @@ class Repairer {
         db_options_(SanitizeOptions(dbname_, db_options)),
         immutable_db_options_(ImmutableDBOptions(db_options_)),
         icmp_(default_cf_opts.comparator),
-        default_cf_opts_(SanitizeOptions(immutable_db_options_,
-                                         /*read_only*/ false, default_cf_opts)),
+        default_cf_opts_(SanitizeCfOptions(immutable_db_options_,
+                                           /*read_only*/ false,
+                                           default_cf_opts)),
         default_iopts_(
             ImmutableOptions(immutable_db_options_, default_cf_opts_)),
         default_mopts_(MutableCFOptions(default_cf_opts_)),
-        unknown_cf_opts_(SanitizeOptions(immutable_db_options_,
-                                         /*read_only*/ false, unknown_cf_opts)),
+        unknown_cf_opts_(SanitizeCfOptions(immutable_db_options_,
+                                           /*read_only*/ false,
+                                           unknown_cf_opts)),
         create_unknown_cfs_(create_unknown_cfs),
         raw_table_cache_(
             // TableCache can be small since we expect each table to be opened
@@ -118,8 +120,8 @@ class Repairer {
                                     /*io_tracer=*/nullptr, db_session_id_)),
         wb_(db_options_.db_write_buffer_size),
         wc_(db_options_.delayed_write_rate),
-        vset_(dbname_, &immutable_db_options_, file_options_,
-              raw_table_cache_.get(), &wb_, &wc_,
+        vset_(dbname_, &immutable_db_options_, MutableDBOptions{db_options_},
+              file_options_, raw_table_cache_.get(), &wb_, &wc_,
               /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
               /*db_id=*/"", db_session_id_, db_options.daily_offpeak_time_utc,
               /*error_handler=*/nullptr, /*read_only=*/false),
@@ -456,8 +458,9 @@ class Repairer {
       meta.file_creation_time = current_time;
       SnapshotChecker* snapshot_checker = DisableGCSnapshotChecker::Instance();
 
-      auto write_hint =
-          cfd->current()->storage_info()->CalculateSSTWriteHint(/*level=*/0);
+      auto write_hint = cfd->current()->storage_info()->CalculateSSTWriteHint(
+          /*level=*/0, db_options_.calculate_sst_write_lifetime_hint_set);
+
       std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
           range_del_iters;
       auto range_del_iter = mem->NewRangeTombstoneIterator(
@@ -575,14 +578,7 @@ class Repairer {
           static_cast<bool>(props->user_defined_timestamps_persisted);
     }
     if (status.ok()) {
-      uint64_t tail_size = 0;
-      bool contain_no_data_blocks =
-          props->num_entries > 0 &&
-          (props->num_entries == props->num_range_deletions);
-      if (props->tail_start_offset > 0 || contain_no_data_blocks) {
-        assert(props->tail_start_offset <= file_size);
-        tail_size = file_size - props->tail_start_offset;
-      }
+      uint64_t tail_size = FileMetaData::CalculateTailSize(file_size, *props);
       t->meta.tail_size = tail_size;
     }
     ColumnFamilyData* cfd = nullptr;
@@ -708,17 +704,17 @@ class Repairer {
       VersionEdit dummy_edit;
       for (const auto* table : cf_id_and_tables.second) {
         // TODO(opt): separate out into multiple levels
+        const auto& meta = table->meta;
         dummy_edit.AddFile(
-            0, table->meta.fd.GetNumber(), table->meta.fd.GetPathId(),
-            table->meta.fd.GetFileSize(), table->meta.smallest,
-            table->meta.largest, table->meta.fd.smallest_seqno,
-            table->meta.fd.largest_seqno, table->meta.marked_for_compaction,
-            table->meta.temperature, table->meta.oldest_blob_file_number,
-            table->meta.oldest_ancester_time, table->meta.file_creation_time,
-            table->meta.epoch_number, table->meta.file_checksum,
-            table->meta.file_checksum_func_name, table->meta.unique_id,
-            table->meta.compensated_range_deletion_size, table->meta.tail_size,
-            table->meta.user_defined_timestamps_persisted);
+            0, meta.fd.GetNumber(), meta.fd.GetPathId(), meta.fd.GetFileSize(),
+            meta.smallest, meta.largest, meta.fd.smallest_seqno,
+            meta.fd.largest_seqno, meta.marked_for_compaction, meta.temperature,
+            meta.oldest_blob_file_number, meta.oldest_ancester_time,
+            meta.file_creation_time, meta.epoch_number, meta.file_checksum,
+            meta.file_checksum_func_name, meta.unique_id,
+            meta.compensated_range_deletion_size, meta.tail_size,
+            meta.user_defined_timestamps_persisted, meta.min_timestamp,
+            meta.max_timestamp);
       }
       s = dummy_version_builder.Apply(&dummy_edit);
       if (s.ok()) {

@@ -25,7 +25,7 @@ void ForceReleaseCachedEntry(void* arg, void* h) {
 // WART: this is specific to block-based table
 Status VerifyBlockChecksum(const Footer& footer, const char* data,
                            size_t block_size, const std::string& file_name,
-                           uint64_t offset) {
+                           uint64_t offset, BlockType block_type) {
   PERF_TIMER_GUARD(block_checksum_time);
 
   assert(footer.GetBlockTrailerSize() == 5);
@@ -58,7 +58,8 @@ Status VerifyBlockChecksum(const Footer& footer, const char* data,
         std::string(modifier ? "(context removed)" : "") + " = " +
         std::to_string(stored) + ", computed = " + std::to_string(computed) +
         ", type = " + std::to_string(type) + "  in " + file_name + " offset " +
-        std::to_string(offset) + " size " + std::to_string(block_size));
+        std::to_string(offset) + " size " + std::to_string(block_size) +
+        ", block_type = " + BlockTypeToString(block_type));
   }
 }
 }  // namespace ROCKSDB_NAMESPACE

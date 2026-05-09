@@ -11,7 +11,7 @@ void CompactionJobStats::Reset() {
   elapsed_micros = 0;
   cpu_micros = 0;
 
-  has_num_input_records = true;
+  has_accurate_num_input_records = true;
   num_input_records = 0;
   num_blobs_read = 0;
   num_input_files = 0;
@@ -59,7 +59,7 @@ void CompactionJobStats::Add(const CompactionJobStats& stats) {
   elapsed_micros += stats.elapsed_micros;
   cpu_micros += stats.cpu_micros;
 
-  has_num_input_records &= stats.has_num_input_records;
+  has_accurate_num_input_records &= stats.has_accurate_num_input_records;
   num_input_records += stats.num_input_records;
   num_blobs_read += stats.num_blobs_read;
   num_input_files += stats.num_input_files;

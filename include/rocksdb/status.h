@@ -115,6 +115,9 @@ class Status {
     kIOFenced = 14,
     kMergeOperatorFailed = 15,
     kMergeOperandThresholdExceeded = 16,
+    kPrefetchLimitReached = 17,
+    kNotExpectedCodePath = 18,
+    kCompactionAborted = 19,
     kMaxSubCode
   };
 
@@ -316,11 +319,20 @@ class Status {
     return Status(kInvalidArgument, kTxnNotPrepared, msg, msg2);
   }
 
+  static Status LockLimit() { return Status(kAborted, kLockLimit); }
+
+  static Status PrefetchLimitReached() {
+    return Status(kIncomplete, kPrefetchLimitReached);
+  }
+
   // Returns true iff the status indicates success.
   bool ok() const {
     MarkChecked();
     return code() == kOk;
   }
+
+  // Assert the status is OK in debug mode
+  void AssertOK() const { assert(ok()); }
 
   // Returns true iff the status indicates success *with* something
   // overwritten
@@ -472,6 +484,13 @@ class Status {
     return (code() == kIncomplete) && (subcode() == kManualCompactionPaused);
   }
 
+  // Returns true iff the status indicates compaction aborted. This
+  // is caused by a call to AbortAllCompactions
+  bool IsCompactionAborted() const {
+    MarkChecked();
+    return (code() == kIncomplete) && (subcode() == kCompactionAborted);
+  }
+
   // Returns true iff the status indicates a TxnNotPrepared error.
   bool IsTxnNotPrepared() const {
     MarkChecked();
@@ -482,6 +501,13 @@ class Status {
   bool IsIOFenced() const {
     MarkChecked();
     return (code() == kIOError) && (subcode() == kIOFenced);
+  }
+
+  // Returns true iff the status indicates prefetch limit reached during
+  // MultiScan.
+  bool IsPrefetchLimitReached() const {
+    MarkChecked();
+    return (code() == kIncomplete) && (subcode() == kPrefetchLimitReached);
   }
 
   // Return a string representation of this status suitable for printing.

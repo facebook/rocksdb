@@ -903,15 +903,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void failIfOptionsFileError() {
-    try (final Options opt = new Options()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setFailIfOptionsFileError(boolValue);
-      assertThat(opt.failIfOptionsFileError()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
   public void dumpMallocStats() {
     try (final Options opt = new Options()) {
       final boolean boolValue = rand.nextBoolean();
@@ -1202,19 +1193,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void maxWriteBufferNumberToMaintain() {
-    try (final Options options = new Options()) {
-      int intValue = rand.nextInt();
-      // Size has to be positive
-      intValue = (intValue < 0) ? -intValue : intValue;
-      intValue = (intValue == 0) ? intValue + 1 : intValue;
-      options.setMaxWriteBufferNumberToMaintain(intValue);
-      assertThat(options.maxWriteBufferNumberToMaintain()).
-          isEqualTo(intValue);
-    }
-  }
-
-  @Test
   public void compactionPriorities() {
     try (final Options options = new Options()) {
       for (final CompactionPriority compactionPriority :
@@ -1426,21 +1404,22 @@ public class OptionsTest {
   }
 
   @Test
-  public void skipCheckingSstFileSizesOnDbOpen() {
-    try (final Options options = new Options()) {
-      assertThat(options.skipCheckingSstFileSizesOnDbOpen()).isEqualTo(false);
-      assertThat(options.setSkipCheckingSstFileSizesOnDbOpen(true)).isEqualTo(options);
-      assertThat(options.skipCheckingSstFileSizesOnDbOpen()).isEqualTo(true);
-    }
-  }
-
-  @Test
   public void memtableMaxRangeDeletions() {
     try (final Options options = new Options()) {
       assertThat(options.memtableMaxRangeDeletions()).isEqualTo(0);
       final int val = 32;
       assertThat(options.setMemtableMaxRangeDeletions(val)).isEqualTo(options);
       assertThat(options.memtableMaxRangeDeletions()).isEqualTo(val);
+    }
+  }
+
+  @Test
+  public void minTombstonesForRangeConversion() {
+    try (final Options options = new Options()) {
+      assertThat(options.minTombstonesForRangeConversion()).isEqualTo(0);
+      final int val = 100;
+      assertThat(options.setMinTombstonesForRangeConversion(val)).isEqualTo(options);
+      assertThat(options.minTombstonesForRangeConversion()).isEqualTo(val);
     }
   }
 

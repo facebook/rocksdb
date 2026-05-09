@@ -33,9 +33,10 @@ fi
 
 set -e
 echo == Dumping data from $db_dir to $db_dump
-./ldb dump --db=$db_dir $extra_params > $db_dump
+# NOTE: old versions of `ldb dump` could swallow errors, so we use `scan`
+./ldb scan --db=$db_dir $extra_params > $db_dump
 
 echo == Dumping data from $base_db_dir to $base_db_dump
-./ldb dump --db=$base_db_dir $extra_params > $base_db_dump
+./ldb scan --db=$base_db_dir $extra_params > $base_db_dump
 
 diff $db_dump $base_db_dump

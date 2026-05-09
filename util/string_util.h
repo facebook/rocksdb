@@ -40,6 +40,16 @@ inline void PutBaseChars(char** buf, size_t n, uint64_t v, bool uppercase) {
   *buf += n;
 }
 
+// Construct a string of n digits from v in base kBase
+template <size_t kBase>
+inline std::string ToBaseCharsString(size_t n, uint64_t v, bool uppercase) {
+  std::string result;
+  result.resize(n);
+  char* buf = &result[0];
+  PutBaseChars<kBase>(&buf, n, v, uppercase);
+  return result;
+}
+
 // Parse n digits from *buf in base kBase to *v and advance *buf to the
 // position after what was read. On success, true is returned. On failure,
 // false is returned, *buf is placed at the first bad character, and *v

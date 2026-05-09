@@ -126,6 +126,8 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
 
   if (usage_ == FilePrefetchBufferUsage::kUserScanPrefetch) {
     RecordTick(stats_, PREFETCH_BYTES, read_len);
+  } else if (usage_ == FilePrefetchBufferUsage::kCompactionPrefetch) {
+    RecordInHistogram(stats_, COMPACTION_PREFETCH_BYTES, read_len);
   }
   if (!use_fs_buffer) {
     // Update the buffer size.
@@ -154,8 +156,22 @@ Status FilePrefetchBuffer::ReadAsync(BufferInfo* buf, const IOOptions& opts,
                                &(buf->del_fn_), /*aligned_buf =*/nullptr);
   req.status.PermitUncheckedError();
   if (s.ok()) {
-    RecordTick(stats_, PREFETCH_BYTES, read_len);
+    if (usage_ == FilePrefetchBufferUsage::kUserScanPrefetch) {
+      RecordTick(stats_, PREFETCH_BYTES, read_len);
+    }
     buf->async_read_in_progress_ = true;
+  } else if (s.IsNotSupported()) {
+    // Async IO is not available (e.g., io_uring failed to initialize).
+    // Fall back to synchronous read so the buffer is populated inline
+    // and callers proceed transparently.
+    s = reader->Read(opts, start_offset, read_len, &result,
+                     buf->buffer_.BufferStart(), /*aligned_buf=*/nullptr);
+    if (s.ok()) {
+      buf->buffer_.Size(buf->CurrentSize() + result.size());
+      if (usage_ == FilePrefetchBufferUsage::kUserScanPrefetch) {
+        RecordTick(stats_, PREFETCH_BYTES, read_len);
+      }
+    }
   }
   return s;
 }
@@ -347,7 +363,7 @@ void FilePrefetchBuffer::ClearOutdatedData(uint64_t offset, size_t length) {
   assert(IsBufferQueueEmpty() || buf->IsOffsetInBuffer(offset));
 }
 
-void FilePrefetchBuffer::PollIfNeeded(uint64_t offset, size_t length) {
+Status FilePrefetchBuffer::PollIfNeeded(uint64_t offset, size_t length) {
   BufferInfo* buf = GetFirstBuffer();
 
   if (buf->async_read_in_progress_ && fs_ != nullptr) {
@@ -358,7 +374,16 @@ void FilePrefetchBuffer::PollIfNeeded(uint64_t offset, size_t length) {
       std::vector<void*> handles;
       handles.emplace_back(buf->io_handle_);
       StopWatch sw(clock_, stats_, POLL_WAIT_MICROS);
-      fs_->Poll(handles, 1).PermitUncheckedError();
+      IOStatus io_s = fs_->Poll(handles, 1);
+      // Allow tests to inject Poll errors
+      TEST_SYNC_POINT_CALLBACK("FilePrefetchBuffer::PollIfNeeded:IOStatus",
+                               &io_s);
+      if (!io_s.ok()) {
+        // On Poll failure, clean up the handle and abort.
+        // DestroyAndClearIOHandle also sets async_read_in_progress_ to false.
+        DestroyAndClearIOHandle(buf);
+        return io_s;
+      }
     }
 
     // Reset and Release io_handle after the Poll API as request has been
@@ -369,6 +394,7 @@ void FilePrefetchBuffer::PollIfNeeded(uint64_t offset, size_t length) {
   // Always call outdated data after Poll as Buffers might be out of sync w.r.t
   // offset and length.
   ClearOutdatedData(offset, length);
+  return Status::OK();
 }
 
 // ReadAheadSizeTuning API calls readaheadsize_cb_
@@ -507,7 +533,10 @@ Status FilePrefetchBuffer::HandleOverlappingAsyncData(
   // by Seek, but the next access is at another offset.
   if (buf->async_read_in_progress_ &&
       buf->IsOffsetInBufferWithAsyncProgress(offset)) {
-    PollIfNeeded(offset, length);
+    Status poll_status = PollIfNeeded(offset, length);
+    if (!poll_status.ok()) {
+      return poll_status;
+    }
   }
 
   if (IsBufferQueueEmpty() || NumBuffersAllocated() == 1) {
@@ -642,7 +671,10 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
       return s;
     }
   } else {
-    PollIfNeeded(tmp_offset, tmp_length);
+    Status poll_status = PollIfNeeded(tmp_offset, tmp_length);
+    if (!poll_status.ok()) {
+      return poll_status;
+    }
   }
 
   AllocateBufferIfEmpty();

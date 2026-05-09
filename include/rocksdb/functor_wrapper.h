@@ -44,7 +44,7 @@ void call(Function f, Tuple t) {
 template <typename... Args>
 class FunctorWrapper {
  public:
-  explicit FunctorWrapper(std::function<void(Args...)> functor, Args &&...args)
+  explicit FunctorWrapper(std::function<void(Args...)> functor, Args&&... args)
       : functor_(std::move(functor)), args_(std::forward<Args>(args)...) {}
 
   void invoke() { detail::call(functor_, args_); }

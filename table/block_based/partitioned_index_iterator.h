@@ -81,8 +81,6 @@ class PartitionedIndexIterator : public InternalIteratorBase<IndexValue> {
     }
   }
   inline IterBoundCheck UpperBoundCheckResult() override {
-    // Shouldn't be called.
-    assert(false);
     return IterBoundCheck::kUnknown;
   }
   void SetPinnedItersMgr(PinnedIteratorsManager*) override {

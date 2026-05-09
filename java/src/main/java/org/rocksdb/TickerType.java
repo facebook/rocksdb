@@ -550,14 +550,14 @@ public enum TickerType {
     BLOB_DB_BYTES_READ((byte) -0x2),
 
     /**
-     * # of keys written by BlobDB as non-TTL inlined value.
+     * Deprecated and unused. Retained to avoid shifting enum values.
      */
-    BLOB_DB_WRITE_INLINED((byte) -0x3),
+    @Deprecated BLOB_DB_WRITE_INLINED((byte) -0x3),
 
     /**
-     * # of keys written by BlobDB as TTL inlined value.
+     * Deprecated and unused. Retained to avoid shifting enum values.
      */
-    BLOB_DB_WRITE_INLINED_TTL((byte) -0x4),
+    @Deprecated BLOB_DB_WRITE_INLINED_TTL((byte) -0x4),
 
     /**
      * # of keys written by BlobDB as non-TTL blob value.
@@ -764,10 +764,14 @@ public enum TickerType {
      */
     HOT_FILE_READ_BYTES((byte) -0x31),
     WARM_FILE_READ_BYTES((byte) -0x32),
+    COOL_FILE_READ_BYTES((byte) -0x5B),
     COLD_FILE_READ_BYTES((byte) -0x33),
+    ICE_FILE_READ_BYTES((byte) -0x59),
     HOT_FILE_READ_COUNT((byte) -0x34),
     WARM_FILE_READ_COUNT((byte) -0x35),
+    COOL_FILE_READ_COUNT((byte) -0x5C),
     COLD_FILE_READ_COUNT((byte) -0x36),
+    ICE_FILE_READ_COUNT((byte) -0x5A),
 
     /**
      * (non-)last level read statistics
@@ -870,6 +874,8 @@ public enum TickerType {
 
     FIFO_TTL_COMPACTIONS((byte) -0x50),
 
+    FIFO_CHANGE_TEMPERATURE_COMPACTIONS((byte) -0x58),
+
     PREFETCH_BYTES((byte) -0x51),
 
     PREFETCH_BYTES_USEFUL((byte) -0x52),
@@ -881,6 +887,90 @@ public enum TickerType {
     FILE_READ_CORRUPTION_RETRY_COUNT((byte) -0x56),
 
     FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT((byte) -0x57),
+
+    /**
+     * Counter for the number of times a WBWI is ingested into the DB. This
+     * happens when IngestWriteBatchWithIndex() is used and when large
+     * transaction optimization is enabled through
+     * TransactionOptions::large_txn_commit_optimize_threshold.
+     */
+    NUMBER_WBWI_INGEST((byte) -0x5D),
+
+    /**
+     * Failure to load the UDI during SST table open
+     */
+    SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT((byte) -0x5E),
+
+    /**
+     * Bytes of output files successfully resumed during remote compaction
+     */
+    REMOTE_COMPACT_RESUMED_BYTES((byte) -0x5F),
+
+    /**
+     * MultiScan statistics
+     */
+
+    /**
+     * # of calls to Iterator::Prepare() for multi-scan
+     */
+    MULTISCAN_PREPARE_CALLS((byte) -0x60),
+
+    /**
+     * # of errors during Iterator::Prepare() for multi-scan
+     */
+    MULTISCAN_PREPARE_ERRORS((byte) -0x61),
+
+    /**
+     * # of data blocks prefetched during multi-scan Prepare()
+     */
+    MULTISCAN_BLOCKS_PREFETCHED((byte) -0x62),
+
+    /**
+     * # of data blocks found in cache during multi-scan Prepare()
+     */
+    MULTISCAN_BLOCKS_FROM_CACHE((byte) -0x63),
+
+    /**
+     * Total bytes prefetched during multi-scan Prepare()
+     */
+    MULTISCAN_PREFETCH_BYTES((byte) -0x64),
+
+    /**
+     * # of prefetched blocks that were never accessed (wasted)
+     */
+    MULTISCAN_PREFETCH_BLOCKS_WASTED((byte) -0x65),
+
+    /**
+     * # of I/O requests issued during multi-scan Prepare()
+     */
+    MULTISCAN_IO_REQUESTS((byte) -0x66),
+
+    /**
+     * # of non-adjacent blocks coalesced into single I/O request
+     */
+    MULTISCAN_IO_COALESCED_NONADJACENT((byte) -0x67),
+
+    /**
+     * # of seek errors during multi-scan iteration
+     */
+    MULTISCAN_SEEK_ERRORS((byte) -0x68),
+
+    /**
+     * # of range tombstones inserted by read-path conversion from contiguous
+     * point tombstones
+     */
+    READ_PATH_RANGE_TOMBSTONES_INSERTED((byte) -0x69),
+
+    /**
+     * # of range tombstones not inserted because the memtable was already
+     * switched to immutable
+     */
+    READ_PATH_RANGE_TOMBSTONES_DISCARDED((byte) -0x6A),
+
+    /**
+     * # of times MANIFEST content validation detected corruption on DB close
+     */
+    MANIFEST_VALIDATION_FAILURE_COUNT((byte) -0x6B),
 
     TICKER_ENUM_MAX((byte) -0x54);
 

@@ -18,7 +18,6 @@ struct BlockCacheLookupContext;
 class FilePrefetchBuffer;
 class GetContext;
 struct ReadOptions;
-struct UncompressionDict;
 
 // Provides access to the uncompression dictionary regardless of whether
 // it is owned by the reader or stored in the cache, or whether it is pinned
@@ -34,13 +33,13 @@ class UncompressionDictReader {
   Status GetOrReadUncompressionDictionary(
       FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
       GetContext* get_context, BlockCacheLookupContext* lookup_context,
-      CachableEntry<UncompressionDict>* uncompression_dict) const;
+      CachableEntry<DecompressorDict>* uncompression_dict) const;
 
   size_t ApproximateMemoryUsage() const;
 
  private:
   UncompressionDictReader(const BlockBasedTable* t,
-                          CachableEntry<UncompressionDict>&& uncompression_dict)
+                          CachableEntry<DecompressorDict>&& uncompression_dict)
       : table_(t), uncompression_dict_(std::move(uncompression_dict)) {
     assert(table_);
   }
@@ -51,10 +50,10 @@ class UncompressionDictReader {
       const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
       const ReadOptions& read_options, bool use_cache, GetContext* get_context,
       BlockCacheLookupContext* lookup_context,
-      CachableEntry<UncompressionDict>* uncompression_dict);
+      CachableEntry<DecompressorDict>* uncompression_dict);
 
   const BlockBasedTable* table_;
-  CachableEntry<UncompressionDict> uncompression_dict_;
+  CachableEntry<DecompressorDict> uncompression_dict_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

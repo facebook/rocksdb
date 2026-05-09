@@ -44,10 +44,9 @@ class OccLockBucketsImpl : public OccLockBucketsImplBase {
 class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
  public:
   explicit OptimisticTransactionDBImpl(
-      DB* db, const OptimisticTransactionDBOptions& occ_options,
-      bool take_ownership = true)
-      : OptimisticTransactionDB(db),
-        db_owner_(take_ownership),
+      std::unique_ptr<DB>&& db,
+      const OptimisticTransactionDBOptions& occ_options)
+      : OptimisticTransactionDB(std::move(db)),
         validate_policy_(occ_options.validate_policy) {
     if (validate_policy_ == OccValidationPolicy::kValidateParallel) {
       auto bucketed_locks = occ_options.shared_lock_buckets;
@@ -60,13 +59,7 @@ class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
     }
   }
 
-  ~OptimisticTransactionDBImpl() {
-    // Prevent this stackable from destroying
-    // base db
-    if (!db_owner_) {
-      db_ = nullptr;
-    }
-  }
+  ~OptimisticTransactionDBImpl() override = default;
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const OptimisticTransactionOptions& txn_options,
@@ -96,8 +89,6 @@ class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
 
  private:
   std::shared_ptr<OccLockBucketsImplBase> bucketed_locks_;
-
-  bool db_owner_;
 
   const OccValidationPolicy validate_policy_;
 

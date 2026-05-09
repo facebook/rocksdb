@@ -26,6 +26,17 @@ Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
 
 Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
                            const RangePtr* ranges, size_t n, bool include_end) {
+  std::vector<RangeOpt> range_opts(n);
+  for (size_t i = 0; i < n; ++i) {
+    range_opts[i] = {OptSlice::CopyFromPtr(ranges[i].start),
+                     OptSlice::CopyFromPtr(ranges[i].limit)};
+  }
+  return DeleteFilesInRanges(db, column_family, range_opts.data(), n,
+                             include_end);
+}
+
+Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
+                           const RangeOpt* ranges, size_t n, bool include_end) {
   return (static_cast_with_check<DBImpl>(db->GetRootDB()))
       ->DeleteFilesInRanges(column_family, ranges, n, include_end);
 }
@@ -54,7 +65,7 @@ Status VerifySstFileChecksum(const Options& options,
 }
 
 Status VerifySstFileChecksumInternal(const Options& options,
-                                     const EnvOptions& env_options,
+                                     const FileOptions& file_options,
                                      const ReadOptions& read_options,
                                      const std::string& file_path,
                                      const SequenceNumber& largest_seqno) {
@@ -63,8 +74,8 @@ Status VerifySstFileChecksumInternal(const Options& options,
   InternalKeyComparator internal_comparator(options.comparator);
   ImmutableOptions ioptions(options);
 
-  Status s = ioptions.fs->NewRandomAccessFile(
-      file_path, FileOptions(env_options), &file, nullptr);
+  Status s =
+      ioptions.fs->NewRandomAccessFile(file_path, file_options, &file, nullptr);
   if (s.ok()) {
     s = ioptions.fs->GetFileSize(file_path, IOOptions(), &file_size, nullptr);
   } else {
@@ -82,9 +93,10 @@ Status VerifySstFileChecksumInternal(const Options& options,
           nullptr /* file_read_hist */, ioptions.rate_limiter.get()));
   const bool kImmortal = true;
   auto reader_options = TableReaderOptions(
-      ioptions, options.prefix_extractor, env_options, internal_comparator,
-      options.block_protection_bytes_per_key, false /* skip_filters */,
-      !kImmortal, false /* force_direct_prefetch */, -1 /* level */);
+      ioptions, options.prefix_extractor, options.compression_manager.get(),
+      file_options, internal_comparator, options.block_protection_bytes_per_key,
+      false /* skip_filters */, !kImmortal, false /* force_direct_prefetch */,
+      -1 /* level */);
   reader_options.largest_seqno = largest_seqno;
   s = options.table_factory->NewTableReader(
       read_options, reader_options, std::move(file_reader), file_size,

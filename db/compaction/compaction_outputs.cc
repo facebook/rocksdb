@@ -49,12 +49,16 @@ Status CompactionOutputs::Finish(
     meta->fd.file_size = current_bytes;
     meta->tail_size = builder_->GetTailSize();
     meta->marked_for_compaction = builder_->NeedCompact();
-    meta->user_defined_timestamps_persisted = static_cast<bool>(
-        builder_->GetTableProperties().user_defined_timestamps_persisted);
+    const TableProperties& tp = builder_->GetTableProperties();
+    meta->user_defined_timestamps_persisted =
+        static_cast<bool>(tp.user_defined_timestamps_persisted);
+    ExtractTimestampFromTableProperties(tp, meta);
   }
   current_output().finished = true;
   stats_.bytes_written += current_bytes;
-  stats_.num_output_files = outputs_.size();
+  stats_.bytes_written_pre_comp += builder_->PreCompressionSize();
+  stats_.num_output_files = static_cast<int>(outputs_.size());
+  worker_cpu_micros_ += builder_->GetWorkerCPUMicros();
 
   return s;
 }
@@ -276,7 +280,11 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   }
 
   // reach the max file size
-  if (current_output_file_size_ >= compaction_->max_output_file_size()) {
+  uint64_t estimated_file_size = current_output_file_size_;
+  if (compaction_->mutable_cf_options().target_file_size_is_upper_bound) {
+    estimated_file_size += builder_->EstimatedTailSize();
+  }
+  if (estimated_file_size >= compaction_->max_output_file_size()) {
     return true;
   }
 
@@ -357,7 +365,8 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
 Status CompactionOutputs::AddToOutput(
     const CompactionIterator& c_iter,
     const CompactionFileOpenFunc& open_file_func,
-    const CompactionFileCloseFunc& close_file_func) {
+    const CompactionFileCloseFunc& close_file_func,
+    const ParsedInternalKey& prev_iter_output_internal_key) {
   Status s;
   bool is_range_del = c_iter.IsDeleteRangeSentinelKey();
   if (is_range_del && compaction_->bottommost_level()) {
@@ -368,7 +377,8 @@ Status CompactionOutputs::AddToOutput(
   }
   const Slice& key = c_iter.key();
   if (ShouldStopBefore(c_iter) && HasBuilder()) {
-    s = close_file_func(*this, c_iter.InputStatus(), key);
+    s = close_file_func(c_iter.InputStatus(), prev_iter_output_internal_key,
+                        key, &c_iter, *this);
     if (!s.ok()) {
       return s;
     }
@@ -792,8 +802,8 @@ void CompactionOutputs::FillFilesToCutForTtl() {
 }
 
 CompactionOutputs::CompactionOutputs(const Compaction* compaction,
-                                     const bool is_penultimate_level)
-    : compaction_(compaction), is_penultimate_level_(is_penultimate_level) {
+                                     const bool is_proximal_level)
+    : compaction_(compaction), is_proximal_level_(is_proximal_level) {
   partitioner_ = compaction->output_level() == 0
                      ? nullptr
                      : compaction->CreateSstPartitioner();

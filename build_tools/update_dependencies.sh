@@ -101,6 +101,5 @@ get_lib_base benchmark  LATEST  platform010
 get_lib_base kernel-headers fb platform010
 get_lib_base binutils   LATEST centos8-native
 get_lib_base valgrind   LATEST platform010
-get_lib_base lua        5.3.4  platform010
 
 git diff $OUTPUT

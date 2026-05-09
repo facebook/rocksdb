@@ -16,19 +16,20 @@
 namespace ROCKSDB_NAMESPACE {
 
 Status DefaultHooks::Open(const Options& db_options, const std::string& name,
-                          DB** dbptr) {
+                          std::unique_ptr<DB>* dbptr) {
   return DB::Open(db_options, name, dbptr);
 };
 
 Status DefaultHooks::Open(
     const DBOptions& db_options, const std::string& name,
     const std::vector<ColumnFamilyDescriptor>& column_families,
-    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
+    std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr) {
   return DB::Open(db_options, name, column_families, handles, dbptr);
 };
 
 Status DefaultHooks::OpenForReadOnly(const Options& options,
-                                     const std::string& name, DB** dbptr,
+                                     const std::string& name,
+                                     std::unique_ptr<DB>* dbptr,
                                      bool error_if_wal_file_exists = false) {
   return DB::OpenForReadOnly(options, name, dbptr, error_if_wal_file_exists);
 };
@@ -36,7 +37,7 @@ Status DefaultHooks::OpenForReadOnly(const Options& options,
 Status DefaultHooks::OpenForReadOnly(
     const Options& options, const std::string& name,
     const std::vector<ColumnFamilyDescriptor>& column_families,
-    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
+    std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr) {
   return DB::OpenForReadOnly(options, name, column_families, handles, dbptr);
 };
 Status DefaultHooks::OpenTransactionDB(
@@ -72,7 +73,7 @@ Status DefaultHooks::OpenOptimisticTransactionDB(
 Status DefaultHooks::OpenAsSecondary(const Options& options,
                                      const std::string& name,
                                      const std::string& secondary_path,
-                                     DB** dbptr) {
+                                     std::unique_ptr<DB>* dbptr) {
   return DB::OpenAsSecondary(options, name, secondary_path, dbptr);
 }
 Status DefaultHooks::OpenAsFollower(const Options& options,

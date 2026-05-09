@@ -21,7 +21,9 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
  bool skip_filters, bool skip_range_deletions, int level, TypedHandle* handle) {
   auto& fd = file_meta.fd;
   Status s;
-  TableReader* t = fd.table_reader;
+  TEST_SYNC_POINT_CALLBACK("TableCache::MultiGet::BeforeFindTable",
+                           const_cast<FileDescriptor*>(&fd));
+  TableReader* t = fd.pinned_reader.Get();
   MultiGetRange table_range(*mget_range, mget_range->begin(),
                             mget_range->end());
   if (handle != nullptr && t == nullptr) {
@@ -70,16 +72,14 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
     if (t == nullptr) {
       assert(handle == nullptr);
       s = FindTable(options, file_options_, internal_comparator, file_meta,
-                    &handle, mutable_cf_options,
+                    &handle, mutable_cf_options, &t,
                     options.read_tier == kBlockCacheTier /* no_io */,
                     file_read_hist, skip_filters, level,
                     true /* prefetch_index_and_filter_in_cache */,
-                    0 /*max_file_size_for_l0_meta_pin*/, file_meta.temperature);
+                    0 /*max_file_size_for_l0_meta_pin*/, file_meta.temperature,
+                    should_pin_table_handles_);
       TEST_SYNC_POINT_CALLBACK("TableCache::MultiGet:FindTable", &s);
-      if (s.ok()) {
-        t = cache_.Value(handle);
-        assert(t);
-      }
+      assert(!s.ok() || t);
     }
     if (s.ok() && !options.ignore_range_deletions && !skip_range_deletions) {
       UpdateRangeTombstoneSeqnums(options, t, table_range);

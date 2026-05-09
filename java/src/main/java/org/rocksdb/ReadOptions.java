@@ -187,37 +187,6 @@ public class ReadOptions extends RocksObject {
   }
 
   /**
-   * Returns whether managed iterators will be used.
-   *
-   * @return the setting of whether managed iterators will be used,
-   *     by default false
-   *
-   * @deprecated This options is not used anymore.
-   */
-  @Deprecated
-  public boolean managed() {
-    assert(isOwningHandle());
-    return managed(nativeHandle_);
-  }
-
-  /**
-   * Specify to create a managed iterator -- a special iterator that
-   * uses less resources by having the ability to free its underlying
-   * resources on request.
-   *
-   * @param managed if true, then managed iterators will be enabled.
-   * @return the reference to the current ReadOptions.
-   *
-   * @deprecated This options is not used anymore.
-   */
-  @Deprecated
-  public ReadOptions setManaged(final boolean managed) {
-    assert(isOwningHandle());
-    setManaged(nativeHandle_, managed);
-    return this;
-  }
-
-  /**
    * Returns whether a total seek order will be used
    *
    * @return the setting of whether a total seek order will be used
@@ -398,7 +367,10 @@ public class ReadOptions extends RocksObject {
    * Default: false
    *
    * @return true if keys deleted using the DeleteRange() API will be visible
+   *
+   * @deprecated This option may be remove in a future release.
    */
+  @Deprecated
   public boolean ignoreRangeDeletions() {
     assert(isOwningHandle());
     return ignoreRangeDeletions(nativeHandle_);
@@ -414,7 +386,10 @@ public class ReadOptions extends RocksObject {
    * @param ignoreRangeDeletions true if keys deleted using the DeleteRange()
    *     API should be visible
    * @return the reference to the current ReadOptions.
+   *
+   * @deprecated This option may be remove in a future release.
    */
+  @Deprecated
   public ReadOptions setIgnoreRangeDeletions(final boolean ignoreRangeDeletions) {
     assert(isOwningHandle());
     setIgnoreRangeDeletions(nativeHandle_, ignoreRangeDeletions);
@@ -813,8 +788,6 @@ public class ReadOptions extends RocksObject {
   private static native void setReadTier(long handle, byte readTierValue);
   private static native boolean tailing(long handle);
   private static native void setTailing(long handle, boolean tailing);
-  private static native boolean managed(long handle);
-  private static native void setManaged(long handle, boolean managed);
   private static native boolean totalOrderSeek(long handle);
   private static native void setTotalOrderSeek(long handle, boolean totalOrderSeek);
   private static native boolean prefixSameAsStart(long handle);

@@ -10,12 +10,12 @@
 #include "cache/clock_cache.h"
 
 #include <algorithm>
-#include <atomic>
 #include <bitset>
 #include <cassert>
 #include <cinttypes>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <exception>
 #include <functional>
 #include <numeric>
@@ -26,10 +26,9 @@
 #include "cache/cache_key.h"
 #include "cache/secondary_cache_adapter.h"
 #include "logging/logging.h"
-#include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics_impl.h"
-#include "port/lang.h"
+#include "port/likely.h"
 #include "rocksdb/env.h"
+#include "util/autovector.h"
 #include "util/hash.h"
 #include "util/math.h"
 #include "util/random.h"
@@ -39,13 +38,11 @@ namespace ROCKSDB_NAMESPACE {
 namespace clock_cache {
 
 namespace {
-inline uint64_t GetRefcount(uint64_t meta) {
-  return ((meta >> ClockHandle::kAcquireCounterShift) -
-          (meta >> ClockHandle::kReleaseCounterShift)) &
-         ClockHandle::kCounterMask;
-}
+using SlotMeta = ClockHandle::SlotMeta;
+using AcquireCounter = SlotMeta::AcquireCounter;
+using ReleaseCounter = SlotMeta::ReleaseCounter;
 
-inline uint64_t GetInitialCountdown(Cache::Priority priority) {
+inline uint32_t GetInitialCountdown(Cache::Priority priority) {
   // Set initial clock data from priority
   // TODO: configuration parameters for priority handling and clock cycle
   // count?
@@ -66,11 +63,11 @@ inline uint64_t GetInitialCountdown(Cache::Priority priority) {
 inline void MarkEmpty(ClockHandle& h) {
 #ifndef NDEBUG
   // Mark slot as empty, with assertion
-  uint64_t meta = h.meta.Exchange(0);
-  assert(meta >> ClockHandle::kStateShift == ClockHandle::kStateConstruction);
+  auto old_meta = h.meta.Exchange({});
+  assert(old_meta.IsUnderConstruction());
 #else
   // Mark slot as empty
-  h.meta.Store(0);
+  h.meta.Store({});
 #endif
 }
 
@@ -86,18 +83,20 @@ inline void FreeDataMarkEmpty(ClockHandle& h, MemoryAllocator* allocator) {
 
 // Called to undo the effect of referencing an entry for internal purposes,
 // so it should not be marked as having been used.
-inline void Unref(const ClockHandle& h, uint64_t count = 1) {
+inline void Unref(const ClockHandle& h, uint32_t count = 1) {
   // Pretend we never took the reference
   // WART: there's a tiny chance we release last ref to invisible
   // entry here. If that happens, we let eviction take care of it.
-  uint64_t old_meta = h.meta.FetchSub(ClockHandle::kAcquireIncrement * count);
-  assert(GetRefcount(old_meta) != 0);
+  SlotMeta old_meta;
+  h.meta.Apply(AcquireCounter::MinusTransformPromiseNoUnderflow(count),
+               &old_meta);
+  assert(old_meta.GetRefcount() != 0);
   (void)old_meta;
 }
 
 inline bool ClockUpdate(ClockHandle& h, BaseClockTable::EvictionData* data,
                         bool* purgeable = nullptr) {
-  uint64_t meta;
+  SlotMeta meta;
   if (purgeable) {
     assert(*purgeable == false);
     // In AutoHCC, our eviction process follows the chain structure, so we
@@ -111,46 +110,40 @@ inline bool ClockUpdate(ClockHandle& h, BaseClockTable::EvictionData* data,
     meta = h.meta.LoadRelaxed();
   }
 
-  if (((meta >> ClockHandle::kStateShift) & ClockHandle::kStateShareableBit) ==
-      0) {
+  if (!meta.IsShareable()) {
     // Only clock update Shareable entries
     if (purgeable) {
       *purgeable = true;
       // AutoHCC only: make sure we only attempt to update non-empty slots
-      assert((meta >> ClockHandle::kStateShift) &
-             ClockHandle::kStateOccupiedBit);
+      assert(!meta.IsEmpty());
     }
     return false;
   }
-  uint64_t acquire_count =
-      (meta >> ClockHandle::kAcquireCounterShift) & ClockHandle::kCounterMask;
-  uint64_t release_count =
-      (meta >> ClockHandle::kReleaseCounterShift) & ClockHandle::kCounterMask;
+  uint32_t acquire_count = meta.GetAcquireCounter();
+  uint32_t release_count = meta.GetReleaseCounter();
   if (acquire_count != release_count) {
     // Only clock update entries with no outstanding refs
     data->seen_pinned_count++;
     return false;
   }
-  if ((meta >> ClockHandle::kStateShift == ClockHandle::kStateVisible) &&
-      acquire_count > 0) {
+  if (meta.IsVisible() && acquire_count > 0) {
     // Decrement clock
-    uint64_t new_count =
-        std::min(acquire_count - 1, uint64_t{ClockHandle::kMaxCountdown} - 1);
+    uint32_t new_count =
+        std::min(acquire_count - 1, uint32_t{ClockHandle::kMaxCountdown} - 1);
     // Compare-exchange in the decremented clock info, but
     // not aggressively
-    uint64_t new_meta =
-        (uint64_t{ClockHandle::kStateVisible} << ClockHandle::kStateShift) |
-        (meta & ClockHandle::kHitBitMask) |
-        (new_count << ClockHandle::kReleaseCounterShift) |
-        (new_count << ClockHandle::kAcquireCounterShift);
+    SlotMeta new_meta = meta;
+    new_meta.SetReleaseCounter(new_count);
+    new_meta.SetAcquireCounter(new_count);
     h.meta.CasStrongRelaxed(meta, new_meta);
     return false;
   }
   // Otherwise, remove entry (either unreferenced invisible or
   // unreferenced and expired visible).
-  if (h.meta.CasStrong(meta, (uint64_t{ClockHandle::kStateConstruction}
-                              << ClockHandle::kStateShift) |
-                                 (meta & ClockHandle::kHitBitMask))) {
+  SlotMeta construction_meta;
+  construction_meta.SetUnderConstruction();
+  construction_meta.SetHit(meta.GetHit());
+  if (h.meta.CasStrong(meta, construction_meta)) {
     // Took ownership.
     data->freed_charge += h.GetTotalCharge();
     data->freed_count += 1;
@@ -216,39 +209,39 @@ inline bool ClockUpdate(ClockHandle& h, BaseClockTable::EvictionData* data,
 // counter to reach "high" state again and bumped back to "medium." (This
 // motivates only checking for release counter in high state, not both in high
 // state.)
-inline void CorrectNearOverflow(uint64_t old_meta,
-                                AcqRelAtomic<uint64_t>& meta) {
+inline void CorrectNearOverflow(SlotMeta old_meta,
+                                BitFieldsAtomic<SlotMeta>& meta) {
   // We clear both top-most counter bits at the same time.
-  constexpr uint64_t kCounterTopBit = uint64_t{1}
-                                      << (ClockHandle::kCounterNumBits - 1);
-  constexpr uint64_t kClearBits =
-      (kCounterTopBit << ClockHandle::kAcquireCounterShift) |
-      (kCounterTopBit << ClockHandle::kReleaseCounterShift);
-  // A simple check that allows us to initiate clearing the top bits for
-  // a large portion of the "high" state space on release counter.
-  constexpr uint64_t kCheckBits =
-      (kCounterTopBit | (ClockHandle::kMaxCountdown + 1))
-      << ClockHandle::kReleaseCounterShift;
+  constexpr uint32_t kCounterTopBit = uint32_t{1}
+                                      << (SlotMeta::kCounterNumBits - 1);
+  // The threshold for correcting "near overflow" is to ensure
+  // (a) the value has a top bit set that can be cleared
+  // (b) when we clear the top bit, the eviction state will be preserved
+  //     (everything >= kMaxCountdown is treated equivalently)
+  // As mentioned above, we only check the release count.
+  constexpr uint32_t kThreshold = kCounterTopBit + ClockHandle::kMaxCountdown;
 
-  if (UNLIKELY(old_meta & kCheckBits)) {
-    meta.FetchAndRelaxed(~kClearBits);
+  if (UNLIKELY(old_meta.GetReleaseCounter() > kThreshold)) {
+    auto clear_transform = AcquireCounter::AndTransform(kCounterTopBit - 1) +
+                           ReleaseCounter::AndTransform(kCounterTopBit - 1);
+    meta.ApplyRelaxed(clear_transform);
   }
 }
 
 inline bool BeginSlotInsert(const ClockHandleBasicData& proto, ClockHandle& h,
-                            uint64_t initial_countdown, bool* already_matches) {
+                            uint32_t initial_countdown, bool* already_matches) {
   assert(*already_matches == false);
   // Optimistically transition the slot from "empty" to
   // "under construction" (no effect on other states)
-  uint64_t old_meta = h.meta.FetchOr(uint64_t{ClockHandle::kStateOccupiedBit}
-                                     << ClockHandle::kStateShift);
-  uint64_t old_state = old_meta >> ClockHandle::kStateShift;
+  auto set_occupied = SlotMeta::OccupiedFlag::SetTransform();
+  SlotMeta old_meta;
+  h.meta.Apply(set_occupied, &old_meta);
 
-  if (old_state == ClockHandle::kStateEmpty) {
+  if (old_meta.IsEmpty()) {
     // We've started inserting into an available slot, and taken
     // ownership.
     return true;
-  } else if (old_state != ClockHandle::kStateVisible) {
+  } else if (!old_meta.IsVisible()) {
     // Slot not usable / touchable now
     return false;
   }
@@ -256,15 +249,17 @@ inline bool BeginSlotInsert(const ClockHandleBasicData& proto, ClockHandle& h,
   // But first, we need to acquire a ref to read it. In fact, number of
   // refs for initial countdown, so that we boost the clock state if
   // this is a match.
-  old_meta =
-      h.meta.FetchAdd(ClockHandle::kAcquireIncrement * initial_countdown);
+  auto add_acquire =
+      AcquireCounter::PlusTransformPromiseNoOverflow(initial_countdown);
+  h.meta.Apply(add_acquire, &old_meta);
   // Like Lookup
-  if ((old_meta >> ClockHandle::kStateShift) == ClockHandle::kStateVisible) {
+  if (old_meta.IsVisible()) {
     // Acquired a read reference
     if (h.hashed_key == proto.hashed_key) {
       // Match. Release in a way that boosts the clock state
-      old_meta =
-          h.meta.FetchAdd(ClockHandle::kReleaseIncrement * initial_countdown);
+      auto add_release =
+          ReleaseCounter::PlusTransformPromiseNoOverflow(initial_countdown);
+      h.meta.Apply(add_release, &old_meta);
       // Correct for possible (but rare) overflow
       CorrectNearOverflow(old_meta, h.meta);
       // Insert detached instead (only if return handle needed)
@@ -274,8 +269,7 @@ inline bool BeginSlotInsert(const ClockHandleBasicData& proto, ClockHandle& h,
       // Mismatch.
       Unref(h, initial_countdown);
     }
-  } else if (UNLIKELY((old_meta >> ClockHandle::kStateShift) ==
-                      ClockHandle::kStateInvisible)) {
+  } else if (UNLIKELY(old_meta.IsInvisible())) {
     // Pretend we never took the reference
     Unref(h, initial_countdown);
   } else {
@@ -287,25 +281,23 @@ inline bool BeginSlotInsert(const ClockHandleBasicData& proto, ClockHandle& h,
 }
 
 inline void FinishSlotInsert(const ClockHandleBasicData& proto, ClockHandle& h,
-                             uint64_t initial_countdown, bool keep_ref) {
+                             uint32_t initial_countdown, bool keep_ref) {
   // Save data fields
   ClockHandleBasicData* h_alias = &h;
   *h_alias = proto;
 
   // Transition from "under construction" state to "visible" state
-  uint64_t new_meta = uint64_t{ClockHandle::kStateVisible}
-                      << ClockHandle::kStateShift;
+  SlotMeta new_meta;
+  new_meta.SetVisible();
 
   // Maybe with an outstanding reference
-  new_meta |= initial_countdown << ClockHandle::kAcquireCounterShift;
-  new_meta |= (initial_countdown - keep_ref)
-              << ClockHandle::kReleaseCounterShift;
+  new_meta.SetAcquireCounter(initial_countdown);
+  new_meta.SetReleaseCounter(initial_countdown - (keep_ref ? 1 : 0));
 
 #ifndef NDEBUG
   // Save the state transition, with assertion
-  uint64_t old_meta = h.meta.Exchange(new_meta);
-  assert(old_meta >> ClockHandle::kStateShift ==
-         ClockHandle::kStateConstruction);
+  auto old_meta = h.meta.Exchange(new_meta);
+  assert(old_meta.IsUnderConstruction());
 #else
   // Save the state transition
   h.meta.Store(new_meta);
@@ -313,7 +305,7 @@ inline void FinishSlotInsert(const ClockHandleBasicData& proto, ClockHandle& h,
 }
 
 bool TryInsert(const ClockHandleBasicData& proto, ClockHandle& h,
-               uint64_t initial_countdown, bool keep_ref,
+               uint32_t initial_countdown, bool keep_ref,
                bool* already_matches) {
   bool b = BeginSlotInsert(proto, h, initial_countdown, already_matches);
   if (b) {
@@ -327,50 +319,40 @@ template <class HandleImpl, class Func>
 void ConstApplyToEntriesRange(const Func& func, const HandleImpl* begin,
                               const HandleImpl* end,
                               bool apply_if_will_be_deleted) {
-  uint64_t check_state_mask = ClockHandle::kStateShareableBit;
-  if (!apply_if_will_be_deleted) {
-    check_state_mask |= ClockHandle::kStateVisibleBit;
-  }
-
   for (const HandleImpl* h = begin; h < end; ++h) {
     // Note: to avoid using compare_exchange, we have to be extra careful.
-    uint64_t old_meta = h->meta.LoadRelaxed();
+    SlotMeta old_meta = h->meta.LoadRelaxed();
     // Check if it's an entry visible to lookups
-    if ((old_meta >> ClockHandle::kStateShift) & check_state_mask) {
-      // Increment acquire counter. Note: it's possible that the entry has
-      // completely changed since we loaded old_meta, but incrementing acquire
-      // count is always safe. (Similar to optimistic Lookup here.)
-      old_meta = h->meta.FetchAdd(ClockHandle::kAcquireIncrement);
-      // Check whether we actually acquired a reference.
-      if ((old_meta >> ClockHandle::kStateShift) &
-          ClockHandle::kStateShareableBit) {
-        // Apply func if appropriate
-        if ((old_meta >> ClockHandle::kStateShift) & check_state_mask) {
-          func(*h);
+    if (apply_if_will_be_deleted || old_meta.IsVisible()) {
+      if (old_meta.IsShareable()) {
+        // Increment acquire counter. Note: it's possible that the entry has
+        // completely changed since we loaded old_meta, but incrementing acquire
+        // count is always safe. (Similar to optimistic Lookup here.)
+        auto add_acquire = AcquireCounter::PlusTransformPromiseNoOverflow(1);
+        h->meta.Apply(add_acquire, &old_meta);
+        // Check whether we actually acquired a reference.
+        if (old_meta.IsShareable()) {
+          // Apply func if appropriate
+          if (apply_if_will_be_deleted || old_meta.IsVisible()) {
+            func(*h);
+          }
+          // Pretend we never took the reference
+          Unref(*h);
+          // No net change, so don't need to check for overflow
+        } else {
+          // For other states, incrementing the acquire counter has no effect
+          // so we don't need to undo it. Furthermore, we cannot safely undo
+          // it because we did not acquire a read reference to lock the
+          // entry in a Shareable state.
         }
-        // Pretend we never took the reference
-        Unref(*h);
-        // No net change, so don't need to check for overflow
-      } else {
-        // For other states, incrementing the acquire counter has no effect
-        // so we don't need to undo it. Furthermore, we cannot safely undo
-        // it because we did not acquire a read reference to lock the
-        // entry in a Shareable state.
       }
     }
   }
 }
 
-constexpr uint32_t kStrictCapacityLimitBit = 1u << 31;
-
-uint32_t SanitizeEncodeEecAndScl(int eviction_effort_cap,
-                                 bool strict_capacit_limit) {
+uint32_t SanitizeEvictionEffortCap(int eviction_effort_cap) {
   eviction_effort_cap = std::max(int{1}, eviction_effort_cap);
-  eviction_effort_cap =
-      std::min(static_cast<int>(~kStrictCapacityLimitBit), eviction_effort_cap);
-  uint32_t eec_and_scl = static_cast<uint32_t>(eviction_effort_cap);
-  eec_and_scl |= strict_capacit_limit ? kStrictCapacityLimitBit : 0;
-  return eec_and_scl;
+  return static_cast<uint32_t>(eviction_effort_cap);
 }
 
 }  // namespace
@@ -380,6 +362,22 @@ void ClockHandleBasicData::FreeData(MemoryAllocator* allocator) const {
     helper->del_cb(value, allocator);
   }
 }
+
+BaseClockTable::BaseClockTable(size_t capacity, bool strict_capacity_limit,
+                               int eviction_effort_cap,
+                               CacheMetadataChargePolicy metadata_charge_policy,
+                               MemoryAllocator* allocator,
+                               const Cache::EvictionCallback* eviction_callback,
+                               const uint32_t* hash_seed)
+    : capacity_(capacity),
+      eec_and_scl_(EecAndScl{}
+                       .With<EvictionEffortCap>(
+                           SanitizeEvictionEffortCap(eviction_effort_cap))
+                       .With<StrictCapacityLimit>(strict_capacity_limit)),
+      metadata_charge_policy_(metadata_charge_policy),
+      allocator_(allocator),
+      eviction_callback_(*eviction_callback),
+      hash_seed_(*hash_seed) {}
 
 template <class HandleImpl>
 HandleImpl* BaseClockTable::StandaloneInsert(
@@ -391,9 +389,9 @@ HandleImpl* BaseClockTable::StandaloneInsert(
   h->SetStandalone();
   // Single reference (standalone entries only created if returning a refed
   // Handle back to user)
-  uint64_t meta = uint64_t{ClockHandle::kStateInvisible}
-                  << ClockHandle::kStateShift;
-  meta |= uint64_t{1} << ClockHandle::kAcquireCounterShift;
+  SlotMeta meta;
+  meta.SetInvisible();
+  meta.SetAcquireCounter(1);
   h->meta.Store(meta);
   // Keep track of how much of usage is standalone
   standalone_usage_.FetchAddRelaxed(proto.GetTotalCharge());
@@ -402,8 +400,7 @@ HandleImpl* BaseClockTable::StandaloneInsert(
 
 template <class Table>
 typename Table::HandleImpl* BaseClockTable::CreateStandalone(
-    ClockHandleBasicData& proto, size_t capacity, uint32_t eec_and_scl,
-    bool allow_uncharged) {
+    ClockHandleBasicData& proto, bool allow_uncharged) {
   Table& derived = static_cast<Table&>(*this);
   typename Table::InsertState state;
   derived.StartInsert(state);
@@ -412,10 +409,10 @@ typename Table::HandleImpl* BaseClockTable::CreateStandalone(
   // NOTE: we can use eec_and_scl as eviction_effort_cap below because
   // strict_capacity_limit=true is supposed to disable the limit on eviction
   // effort, and a large value effectively does that.
-  if (eec_and_scl & kStrictCapacityLimitBit) {
+  if (eec_and_scl_.LoadRelaxed().Get<StrictCapacityLimit>()) {
     Status s = ChargeUsageMaybeEvictStrict<Table>(
-        total_charge, capacity,
-        /*need_evict_for_occupancy=*/false, eec_and_scl, state);
+        total_charge,
+        /*need_evict_for_occupancy=*/false, state);
     if (!s.ok()) {
       if (allow_uncharged) {
         proto.total_charge = 0;
@@ -426,8 +423,8 @@ typename Table::HandleImpl* BaseClockTable::CreateStandalone(
   } else {
     // Case strict_capacity_limit == false
     bool success = ChargeUsageMaybeEvictNonStrict<Table>(
-        total_charge, capacity,
-        /*need_evict_for_occupancy=*/false, eec_and_scl, state);
+        total_charge,
+        /*need_evict_for_occupancy=*/false, state);
     if (!success) {
       // Force the issue
       usage_.FetchAddRelaxed(total_charge);
@@ -439,8 +436,9 @@ typename Table::HandleImpl* BaseClockTable::CreateStandalone(
 
 template <class Table>
 Status BaseClockTable::ChargeUsageMaybeEvictStrict(
-    size_t total_charge, size_t capacity, bool need_evict_for_occupancy,
-    uint32_t eviction_effort_cap, typename Table::InsertState& state) {
+    size_t total_charge, bool need_evict_for_occupancy,
+    typename Table::InsertState& state) {
+  const size_t capacity = capacity_.LoadRelaxed();
   if (total_charge > capacity) {
     return Status::MemoryLimit(
         "Cache entry too large for a single cache shard: " +
@@ -465,8 +463,7 @@ Status BaseClockTable::ChargeUsageMaybeEvictStrict(
   }
   if (request_evict_charge > 0) {
     EvictionData data;
-    static_cast<Table*>(this)->Evict(request_evict_charge, state, &data,
-                                     eviction_effort_cap);
+    static_cast<Table*>(this)->Evict(request_evict_charge, state, &data);
     occupancy_.FetchSub(data.freed_count);
     if (LIKELY(data.freed_charge > need_evict_charge)) {
       assert(data.freed_count > 0);
@@ -495,8 +492,8 @@ Status BaseClockTable::ChargeUsageMaybeEvictStrict(
 
 template <class Table>
 inline bool BaseClockTable::ChargeUsageMaybeEvictNonStrict(
-    size_t total_charge, size_t capacity, bool need_evict_for_occupancy,
-    uint32_t eviction_effort_cap, typename Table::InsertState& state) {
+    size_t total_charge, bool need_evict_for_occupancy,
+    typename Table::InsertState& state) {
   // For simplicity, we consider that either the cache can accept the insert
   // with no evictions, or we must evict enough to make (at least) enough
   // space. It could lead to unnecessary failures or excessive evictions in
@@ -506,7 +503,8 @@ inline bool BaseClockTable::ChargeUsageMaybeEvictNonStrict(
   // charge. Thus, we should evict some extra if it's not a signifcant
   // portion of the shard capacity. This can have the side benefit of
   // involving fewer threads in eviction.
-  size_t old_usage = usage_.LoadRelaxed();
+  const size_t old_usage = usage_.LoadRelaxed();
+  const size_t capacity = capacity_.LoadRelaxed();
   size_t need_evict_charge;
   // NOTE: if total_charge > old_usage, there isn't yet enough to evict
   // `total_charge` amount. Even if we only try to evict `old_usage` amount,
@@ -532,8 +530,7 @@ inline bool BaseClockTable::ChargeUsageMaybeEvictNonStrict(
   }
   EvictionData data;
   if (need_evict_charge > 0) {
-    static_cast<Table*>(this)->Evict(need_evict_charge, state, &data,
-                                     eviction_effort_cap);
+    static_cast<Table*>(this)->Evict(need_evict_charge, state, &data);
     // Deal with potential occupancy deficit
     if (UNLIKELY(need_evict_for_occupancy) && data.freed_count == 0) {
       assert(data.freed_charge == 0);
@@ -557,11 +554,10 @@ void BaseClockTable::TrackAndReleaseEvictedEntry(ClockHandle* h) {
   if (eviction_callback_) {
     // For key reconstructed from hash
     UniqueId64x2 unhashed;
-    took_value_ownership =
-        eviction_callback_(ClockCacheShard<FixedHyperClockTable>::ReverseHash(
-                               h->GetHash(), &unhashed, hash_seed_),
-                           static_cast<Cache::Handle*>(h),
-                           h->meta.LoadRelaxed() & ClockHandle::kHitBitMask);
+    took_value_ownership = eviction_callback_(
+        ClockCacheShard<FixedHyperClockTable>::ReverseHash(
+            h->GetHash(), &unhashed, hash_seed_),
+        static_cast<Cache::Handle*>(h), h->meta.LoadRelaxed().GetHit());
   }
   if (!took_value_ownership) {
     h->FreeData(allocator_);
@@ -569,8 +565,10 @@ void BaseClockTable::TrackAndReleaseEvictedEntry(ClockHandle* h) {
   MarkEmpty(*h);
 }
 
-bool IsEvictionEffortExceeded(const BaseClockTable::EvictionData& data,
-                              uint32_t eviction_effort_cap) {
+bool BaseClockTable::IsEvictionEffortExceeded(
+    const BaseClockTable::EvictionData& data) const {
+  auto eviction_effort_cap =
+      eec_and_scl_.LoadRelaxed().GetEffectiveEvictionEffortCap();
   // Basically checks whether the ratio of useful effort to wasted effort is
   // too low, with a start-up allowance for wasted effort before any useful
   // effort.
@@ -581,8 +579,7 @@ bool IsEvictionEffortExceeded(const BaseClockTable::EvictionData& data,
 template <class Table>
 Status BaseClockTable::Insert(const ClockHandleBasicData& proto,
                               typename Table::HandleImpl** handle,
-                              Cache::Priority priority, size_t capacity,
-                              uint32_t eec_and_scl) {
+                              Cache::Priority priority) {
   using HandleImpl = typename Table::HandleImpl;
   Table& derived = static_cast<Table&>(*this);
 
@@ -603,9 +600,9 @@ Status BaseClockTable::Insert(const ClockHandleBasicData& proto,
   // NOTE: we can use eec_and_scl as eviction_effort_cap below because
   // strict_capacity_limit=true is supposed to disable the limit on eviction
   // effort, and a large value effectively does that.
-  if (eec_and_scl & kStrictCapacityLimitBit) {
+  if (eec_and_scl_.LoadRelaxed().Get<StrictCapacityLimit>()) {
     Status s = ChargeUsageMaybeEvictStrict<Table>(
-        total_charge, capacity, need_evict_for_occupancy, eec_and_scl, state);
+        total_charge, need_evict_for_occupancy, state);
     if (!s.ok()) {
       // Revert occupancy
       occupancy_.FetchSubRelaxed(1);
@@ -614,7 +611,7 @@ Status BaseClockTable::Insert(const ClockHandleBasicData& proto,
   } else {
     // Case strict_capacity_limit == false
     bool success = ChargeUsageMaybeEvictNonStrict<Table>(
-        total_charge, capacity, need_evict_for_occupancy, eec_and_scl, state);
+        total_charge, need_evict_for_occupancy, state);
     if (!success) {
       // Revert occupancy
       occupancy_.FetchSubRelaxed(1);
@@ -640,7 +637,7 @@ Status BaseClockTable::Insert(const ClockHandleBasicData& proto,
     // * Have to insert into a suboptimal location (more probes) so that the
     // old entry can be kept around as well.
 
-    uint64_t initial_countdown = GetInitialCountdown(priority);
+    uint32_t initial_countdown = GetInitialCountdown(priority);
     assert(initial_countdown > 0);
 
     HandleImpl* e =
@@ -685,44 +682,46 @@ Status BaseClockTable::Insert(const ClockHandleBasicData& proto,
 
 void BaseClockTable::Ref(ClockHandle& h) {
   // Increment acquire counter
-  uint64_t old_meta = h.meta.FetchAdd(ClockHandle::kAcquireIncrement);
+  SlotMeta old_meta;
+  h.meta.Apply(AcquireCounter::PlusTransformPromiseNoOverflow(1), &old_meta);
 
-  assert((old_meta >> ClockHandle::kStateShift) &
-         ClockHandle::kStateShareableBit);
+  assert(old_meta.IsShareable());
   // Must have already had a reference
-  assert(GetRefcount(old_meta) > 0);
+  assert(old_meta.GetRefcount() > 0);
   (void)old_meta;
 }
 
 #ifndef NDEBUG
-void BaseClockTable::TEST_RefN(ClockHandle& h, size_t n) {
+void BaseClockTable::TEST_RefN(ClockHandle& h, uint32_t n) {
   // Increment acquire counter
-  uint64_t old_meta = h.meta.FetchAdd(n * ClockHandle::kAcquireIncrement);
+  SlotMeta old_meta;
+  h.meta.Apply(AcquireCounter::PlusTransformPromiseNoOverflow(n), &old_meta);
 
-  assert((old_meta >> ClockHandle::kStateShift) &
-         ClockHandle::kStateShareableBit);
+  assert(old_meta.IsShareable());
   (void)old_meta;
 }
 
-void BaseClockTable::TEST_ReleaseNMinus1(ClockHandle* h, size_t n) {
+void BaseClockTable::TEST_ReleaseNMinus1(ClockHandle* h, uint32_t n) {
   assert(n > 0);
 
   // Like n-1 Releases, but assumes one more will happen in the caller to take
   // care of anything like erasing an unreferenced, invisible entry.
-  uint64_t old_meta =
-      h->meta.FetchAdd((n - 1) * ClockHandle::kReleaseIncrement);
-  assert((old_meta >> ClockHandle::kStateShift) &
-         ClockHandle::kStateShareableBit);
+  SlotMeta old_meta;
+  h->meta.Apply(ReleaseCounter::PlusTransformPromiseNoOverflow(n - 1),
+                &old_meta);
+  assert(old_meta.IsShareable());
   (void)old_meta;
 }
 #endif
 
 FixedHyperClockTable::FixedHyperClockTable(
-    size_t capacity, CacheMetadataChargePolicy metadata_charge_policy,
+    size_t capacity, bool strict_capacity_limit,
+    CacheMetadataChargePolicy metadata_charge_policy,
     MemoryAllocator* allocator,
     const Cache::EvictionCallback* eviction_callback, const uint32_t* hash_seed,
     const Opts& opts)
-    : BaseClockTable(metadata_charge_policy, allocator, eviction_callback,
+    : BaseClockTable(capacity, strict_capacity_limit, opts.eviction_effort_cap,
+                     metadata_charge_policy, allocator, eviction_callback,
                      hash_seed),
       length_bits_(CalcHashBits(capacity, opts.estimated_value_size,
                                 metadata_charge_policy)),
@@ -744,23 +743,20 @@ FixedHyperClockTable::~FixedHyperClockTable() {
   // in the table.
   for (size_t i = 0; i < GetTableSize(); i++) {
     HandleImpl& h = array_[i];
-    switch (h.meta.LoadRelaxed() >> ClockHandle::kStateShift) {
-      case ClockHandle::kStateEmpty:
-        // noop
-        break;
-      case ClockHandle::kStateInvisible:  // rare but possible
-      case ClockHandle::kStateVisible:
-        assert(GetRefcount(h.meta.LoadRelaxed()) == 0);
-        h.FreeData(allocator_);
+    SlotMeta meta = h.meta.LoadRelaxed();
+    if (meta.IsShareable()) {
+      // NOTE: Reaching here invisible is rare but possible
+      assert(meta.GetRefcount() == 0);
+      h.FreeData(allocator_);
 #ifndef NDEBUG
-        Rollback(h.hashed_key, &h);
-        ReclaimEntryUsage(h.GetTotalCharge());
+      Rollback(h.hashed_key, &h);
+      ReclaimEntryUsage(h.GetTotalCharge());
 #endif
-        break;
-      // otherwise
-      default:
-        assert(false);
-        break;
+    } else {
+      // Should be no transient "under construction" states unless a thread
+      // was killed or we are being destructed while another thread is still
+      // operating on the structure
+      assert(meta.IsEmpty());
     }
   }
 
@@ -782,7 +778,7 @@ bool FixedHyperClockTable::GrowIfNeeded(size_t new_occupancy, InsertState&) {
 }
 
 FixedHyperClockTable::HandleImpl* FixedHyperClockTable::DoInsert(
-    const ClockHandleBasicData& proto, uint64_t initial_countdown,
+    const ClockHandleBasicData& proto, uint32_t initial_countdown,
     bool keep_ref, InsertState&) {
   bool already_matches = false;
   HandleImpl* e = FindSlot(
@@ -833,47 +829,46 @@ FixedHyperClockTable::HandleImpl* FixedHyperClockTable::Lookup(
   HandleImpl* e = FindSlot(
       hashed_key,
       [&](HandleImpl* h) {
+        SlotMeta old_meta;
         // Mostly branch-free version (similar performance)
         /*
-        uint64_t old_meta = h->meta.FetchAdd(ClockHandle::kAcquireIncrement,
-                                     std::memory_order_acquire);
-        bool Shareable = (old_meta >> (ClockHandle::kStateShift + 1)) & 1U;
-        bool visible = (old_meta >> ClockHandle::kStateShift) & 1U;
-        bool match = (h->key == key) & visible;
-        h->meta.FetchSub(static_cast<uint64_t>(Shareable & !match) <<
-        ClockHandle::kAcquireCounterShift); return
-        match;
+        h->meta.Apply(AcquireCounter::PlusTransformPromiseNoOverflow(1),
+                      &old_meta);
+        bool shareable = old_meta.IsShareable();
+        bool visible = old_meta.IsVisible();
+        bool match = (h->hashed_key == hashed_key) & visible;
+        h->meta.Apply(AcquireCounter::MinusTransformPromiseNoUnderflow(
+            uint32_t{shareable} & uint32_t{!match}));
+        h->meta.Apply(SlotMeta::HitFlag::Or(match));
+        return match;
         */
         // Optimistic lookup should pay off when the table is relatively
         // sparse.
         constexpr bool kOptimisticLookup = true;
-        uint64_t old_meta;
         if (!kOptimisticLookup) {
           old_meta = h->meta.Load();
-          if ((old_meta >> ClockHandle::kStateShift) !=
-              ClockHandle::kStateVisible) {
+          if (!old_meta.IsVisible()) {
             return false;
           }
         }
         // (Optimistically) increment acquire counter
-        old_meta = h->meta.FetchAdd(ClockHandle::kAcquireIncrement);
+        h->meta.Apply(AcquireCounter::PlusTransformPromiseNoOverflow(1),
+                      &old_meta);
         // Check if it's an entry visible to lookups
-        if ((old_meta >> ClockHandle::kStateShift) ==
-            ClockHandle::kStateVisible) {
+        if (old_meta.IsVisible()) {
           // Acquired a read reference
           if (h->hashed_key == hashed_key) {
             // Match
             // Update the hit bit
             if (eviction_callback_) {
-              h->meta.FetchOrRelaxed(uint64_t{1} << ClockHandle::kHitBitShift);
+              h->meta.ApplyRelaxed(SlotMeta::HitFlag::SetTransform());
             }
             return true;
           } else {
             // Mismatch. Pretend we never took the reference
             Unref(*h);
           }
-        } else if (UNLIKELY((old_meta >> ClockHandle::kStateShift) ==
-                            ClockHandle::kStateInvisible)) {
+        } else if (UNLIKELY(old_meta.IsInvisible())) {
           // Pretend we never took the reference
           Unref(*h);
         } else {
@@ -897,53 +892,49 @@ bool FixedHyperClockTable::Release(HandleImpl* h, bool useful,
   // is only freed up by EvictFromClock (called by Insert when space is needed)
   // and Erase. We do this to avoid an extra atomic read of the variable usage_.
 
-  uint64_t old_meta;
+  SlotMeta old_meta;
   if (useful) {
     // Increment release counter to indicate was used
-    old_meta = h->meta.FetchAdd(ClockHandle::kReleaseIncrement);
+    auto add_release = ReleaseCounter::PlusTransformPromiseNoOverflow(1);
+    h->meta.Apply(add_release, &old_meta);
   } else {
     // Decrement acquire counter to pretend it never happened
-    old_meta = h->meta.FetchSub(ClockHandle::kAcquireIncrement);
+    auto sub_acquire = AcquireCounter::MinusTransformPromiseNoUnderflow(1);
+    h->meta.Apply(sub_acquire, &old_meta);
   }
 
-  assert((old_meta >> ClockHandle::kStateShift) &
-         ClockHandle::kStateShareableBit);
+  assert(old_meta.IsShareable());
   // No underflow
-  assert(((old_meta >> ClockHandle::kAcquireCounterShift) &
-          ClockHandle::kCounterMask) !=
-         ((old_meta >> ClockHandle::kReleaseCounterShift) &
-          ClockHandle::kCounterMask));
+  assert(old_meta.GetAcquireCounter() != old_meta.GetReleaseCounter());
 
-  if (erase_if_last_ref || UNLIKELY(old_meta >> ClockHandle::kStateShift ==
-                                    ClockHandle::kStateInvisible)) {
+  if (erase_if_last_ref || UNLIKELY(old_meta.IsInvisible())) {
     // FIXME: There's a chance here that another thread could replace this
     // entry and we end up erasing the wrong one.
 
-    // Update for last FetchAdd op
+    // Update for last Apply op
     if (useful) {
-      old_meta += ClockHandle::kReleaseIncrement;
+      old_meta.SetReleaseCounter(old_meta.GetReleaseCounter() + 1);
     } else {
-      old_meta -= ClockHandle::kAcquireIncrement;
+      old_meta.SetAcquireCounter(old_meta.GetAcquireCounter() - 1);
     }
     // Take ownership if no refs
+    SlotMeta construction_meta;
+    construction_meta.SetUnderConstruction();
     do {
-      if (GetRefcount(old_meta) != 0) {
+      if (old_meta.GetRefcount() != 0) {
         // Not last ref at some point in time during this Release call
         // Correct for possible (but rare) overflow
         CorrectNearOverflow(old_meta, h->meta);
         return false;
       }
-      if ((old_meta & (uint64_t{ClockHandle::kStateShareableBit}
-                       << ClockHandle::kStateShift)) == 0) {
+      if (!old_meta.IsShareable()) {
         // Someone else took ownership
         return false;
       }
       // Note that there's a small chance that we release, another thread
       // replaces this entry with another, reaches zero refs, and then we end
       // up erasing that other entry. That's an acceptable risk / imprecision.
-    } while (
-        !h->meta.CasWeak(old_meta, uint64_t{ClockHandle::kStateConstruction}
-                                       << ClockHandle::kStateShift));
+    } while (!h->meta.CasWeak(old_meta, construction_meta));
     // Took ownership
     size_t total_charge = h->GetTotalCharge();
     if (UNLIKELY(h->IsStandalone())) {
@@ -966,7 +957,7 @@ bool FixedHyperClockTable::Release(HandleImpl* h, bool useful,
 }
 
 #ifndef NDEBUG
-void FixedHyperClockTable::TEST_ReleaseN(HandleImpl* h, size_t n) {
+void FixedHyperClockTable::TEST_ReleaseN(HandleImpl* h, uint32_t n) {
   if (n > 0) {
     // Do n-1 simple releases first
     TEST_ReleaseNMinus1(h, n);
@@ -983,30 +974,29 @@ void FixedHyperClockTable::Erase(const UniqueId64x2& hashed_key) {
       [&](HandleImpl* h) {
         // Could be multiple entries in rare cases. Erase them all.
         // Optimistically increment acquire counter
-        uint64_t old_meta = h->meta.FetchAdd(ClockHandle::kAcquireIncrement);
+        auto add_acquire = AcquireCounter::PlusTransformPromiseNoOverflow(1);
+        SlotMeta old_meta, meta;
+        h->meta.Apply(add_acquire, &old_meta, &meta);
         // Check if it's an entry visible to lookups
-        if ((old_meta >> ClockHandle::kStateShift) ==
-            ClockHandle::kStateVisible) {
+        if (meta.IsVisible()) {
           // Acquired a read reference
           if (h->hashed_key == hashed_key) {
-            // Match. Set invisible.
-            old_meta =
-                h->meta.FetchAnd(~(uint64_t{ClockHandle::kStateVisibleBit}
-                                   << ClockHandle::kStateShift));
-            // Apply update to local copy
-            old_meta &= ~(uint64_t{ClockHandle::kStateVisibleBit}
-                          << ClockHandle::kStateShift);
+            // Match. Take ownership if no other refs, or set invisible other
+            // refs exist.
             for (;;) {
-              uint64_t refcount = GetRefcount(old_meta);
+              uint32_t refcount = meta.GetRefcount();
               assert(refcount > 0);
               if (refcount > 1) {
                 // Not last ref at some point in time during this Erase call
-                // Pretend we never took the reference
+                // Set invisible
+                h->meta.Apply(SlotMeta::VisibleFlag::ClearTransform());
+                // And pretend we never took the reference
                 Unref(*h);
                 break;
-              } else if (h->meta.CasWeak(
-                             old_meta, uint64_t{ClockHandle::kStateConstruction}
-                                           << ClockHandle::kStateShift)) {
+              }
+              SlotMeta construction_meta;
+              construction_meta.SetUnderConstruction();
+              if (h->meta.CasWeak(meta, construction_meta)) {
                 // Took ownership
                 assert(hashed_key == h->hashed_key);
                 size_t total_charge = h->GetTotalCharge();
@@ -1022,8 +1012,7 @@ void FixedHyperClockTable::Erase(const UniqueId64x2& hashed_key) {
             // Mismatch. Pretend we never took the reference
             Unref(*h);
           }
-        } else if (UNLIKELY((old_meta >> ClockHandle::kStateShift) ==
-                            ClockHandle::kStateInvisible)) {
+        } else if (UNLIKELY(old_meta.IsInvisible())) {
           // Pretend we never took the reference
           Unref(*h);
         } else {
@@ -1040,17 +1029,17 @@ void FixedHyperClockTable::EraseUnRefEntries() {
   for (size_t i = 0; i <= this->length_bits_mask_; i++) {
     HandleImpl& h = array_[i];
 
-    uint64_t old_meta = h.meta.LoadRelaxed();
-    if (old_meta & (uint64_t{ClockHandle::kStateShareableBit}
-                    << ClockHandle::kStateShift) &&
-        GetRefcount(old_meta) == 0 &&
-        h.meta.CasStrong(old_meta, uint64_t{ClockHandle::kStateConstruction}
-                                       << ClockHandle::kStateShift)) {
-      // Took ownership
-      size_t total_charge = h.GetTotalCharge();
-      Rollback(h.hashed_key, &h);
-      FreeDataMarkEmpty(h, allocator_);
-      ReclaimEntryUsage(total_charge);
+    SlotMeta old_meta = h.meta.LoadRelaxed();
+    if (old_meta.IsShareable() && old_meta.GetRefcount() == 0) {
+      SlotMeta construction_meta;
+      construction_meta.SetUnderConstruction();
+      if (h.meta.CasStrong(old_meta, construction_meta)) {
+        // Took ownership
+        size_t total_charge = h.GetTotalCharge();
+        Rollback(h.hashed_key, &h);
+        FreeDataMarkEmpty(h, allocator_);
+        ReclaimEntryUsage(total_charge);
+      }
     }
   }
 }
@@ -1113,8 +1102,7 @@ inline void FixedHyperClockTable::ReclaimEntryUsage(size_t total_charge) {
 }
 
 inline void FixedHyperClockTable::Evict(size_t requested_charge, InsertState&,
-                                        EvictionData* data,
-                                        uint32_t eviction_effort_cap) {
+                                        EvictionData* data) {
   // precondition
   assert(requested_charge > 0);
 
@@ -1149,7 +1137,7 @@ inline void FixedHyperClockTable::Evict(size_t requested_charge, InsertState&,
     if (old_clock_pointer >= max_clock_pointer) {
       return;
     }
-    if (IsEvictionEffortExceeded(*data, eviction_effort_cap)) {
+    if (IsEvictionEffortExceeded(*data)) {
       eviction_effort_exceeded_count_.FetchAddRelaxed(1);
       return;
     }
@@ -1167,14 +1155,11 @@ ClockCacheShard<Table>::ClockCacheShard(
     const Cache::EvictionCallback* eviction_callback, const uint32_t* hash_seed,
     const typename Table::Opts& opts)
     : CacheShardBase(metadata_charge_policy),
-      table_(capacity, metadata_charge_policy, allocator, eviction_callback,
-             hash_seed, opts),
-      capacity_(capacity),
-      eec_and_scl_(SanitizeEncodeEecAndScl(opts.eviction_effort_cap,
-                                           strict_capacity_limit)) {
+      table_(capacity, strict_capacity_limit, metadata_charge_policy, allocator,
+             eviction_callback, hash_seed, opts) {
   // Initial charge metadata should not exceed capacity
-  assert(table_.GetUsage() <= capacity_.LoadRelaxed() ||
-         capacity_.LoadRelaxed() < sizeof(HandleImpl));
+  assert(table_.GetUsage() <= table_.GetCapacity() ||
+         table_.GetCapacity() < sizeof(HandleImpl));
 }
 
 template <class Table>
@@ -1240,18 +1225,14 @@ int FixedHyperClockTable::CalcHashBits(
 
 template <class Table>
 void ClockCacheShard<Table>::SetCapacity(size_t capacity) {
-  capacity_.StoreRelaxed(capacity);
+  table_.SetCapacity(capacity);
   // next Insert will take care of any necessary evictions
 }
 
 template <class Table>
 void ClockCacheShard<Table>::SetStrictCapacityLimit(
     bool strict_capacity_limit) {
-  if (strict_capacity_limit) {
-    eec_and_scl_.FetchOrRelaxed(kStrictCapacityLimitBit);
-  } else {
-    eec_and_scl_.FetchAndRelaxed(~kStrictCapacityLimitBit);
-  }
+  table_.SetStrictCapacityLimit(strict_capacity_limit);
   // next Insert will take care of any necessary evictions
 }
 
@@ -1271,9 +1252,7 @@ Status ClockCacheShard<Table>::Insert(const Slice& key,
   proto.value = value;
   proto.helper = helper;
   proto.total_charge = charge;
-  return table_.template Insert<Table>(proto, handle, priority,
-                                       capacity_.LoadRelaxed(),
-                                       eec_and_scl_.LoadRelaxed());
+  return table_.template Insert<Table>(proto, handle, priority);
 }
 
 template <class Table>
@@ -1288,9 +1267,7 @@ typename Table::HandleImpl* ClockCacheShard<Table>::CreateStandalone(
   proto.value = obj;
   proto.helper = helper;
   proto.total_charge = charge;
-  return table_.template CreateStandalone<Table>(proto, capacity_.LoadRelaxed(),
-                                                 eec_and_scl_.LoadRelaxed(),
-                                                 allow_uncharged);
+  return table_.template CreateStandalone<Table>(proto, allow_uncharged);
 }
 
 template <class Table>
@@ -1322,12 +1299,12 @@ bool ClockCacheShard<Table>::Release(HandleImpl* handle, bool useful,
 
 #ifndef NDEBUG
 template <class Table>
-void ClockCacheShard<Table>::TEST_RefN(HandleImpl* h, size_t n) {
+void ClockCacheShard<Table>::TEST_RefN(HandleImpl* h, uint32_t n) {
   table_.TEST_RefN(*h, n);
 }
 
 template <class Table>
-void ClockCacheShard<Table>::TEST_ReleaseN(HandleImpl* h, size_t n) {
+void ClockCacheShard<Table>::TEST_ReleaseN(HandleImpl* h, uint32_t n) {
   table_.TEST_ReleaseN(h, n);
 }
 #endif
@@ -1359,7 +1336,7 @@ size_t ClockCacheShard<Table>::GetStandaloneUsage() const {
 
 template <class Table>
 size_t ClockCacheShard<Table>::GetCapacity() const {
-  return capacity_.LoadRelaxed();
+  return table_.GetCapacity();
 }
 
 template <class Table>
@@ -1375,8 +1352,8 @@ size_t ClockCacheShard<Table>::GetPinnedUsage() const {
       metadata_charge_policy_ == kFullChargeCacheMetadata;
   ConstApplyToEntriesRange(
       [&table_pinned_usage, charge_metadata](const HandleImpl& h) {
-        uint64_t meta = h.meta.LoadRelaxed();
-        uint64_t refcount = GetRefcount(meta);
+        SlotMeta meta = h.meta.LoadRelaxed();
+        uint32_t refcount = meta.GetRefcount();
         // Holding one ref for ConstApplyToEntriesRange
         assert(refcount > 0);
         if (refcount > 1) {
@@ -1496,7 +1473,7 @@ void AddShardEvaluation(const FixedHyperClockCache::Shard& shard,
 }
 
 bool IsSlotOccupied(const ClockHandle& h) {
-  return (h.meta.LoadRelaxed() >> ClockHandle::kStateShift) != 0;
+  return !h.meta.LoadRelaxed().IsEmpty();
 }
 }  // namespace
 
@@ -1727,10 +1704,13 @@ inline uint64_t UsedLengthToLengthInfo(size_t used_length) {
   return length_info;
 }
 
+// Avoid potential initialization order race with port::kPageSize
+constexpr size_t kPresumedPageSize = 4096;
+
 inline size_t GetStartingLength(size_t capacity) {
-  if (capacity > port::kPageSize) {
+  if (capacity > kPresumedPageSize) {
     // Start with one memory page
-    return port::kPageSize / sizeof(AutoHyperClockTable::HandleImpl);
+    return kPresumedPageSize / sizeof(AutoHyperClockTable::HandleImpl);
   } else {
     // Mostly to make unit tests happy
     return 4;
@@ -1751,26 +1731,6 @@ inline void GetHomeIndexAndShift(uint64_t length_info, uint64_t hash,
   assert(*home < LengthInfoToUsedLength(length_info));
 }
 
-inline int GetShiftFromNextWithShift(uint64_t next_with_shift) {
-  return BitwiseAnd(next_with_shift,
-                    AutoHyperClockTable::HandleImpl::kShiftMask);
-}
-
-inline size_t GetNextFromNextWithShift(uint64_t next_with_shift) {
-  return static_cast<size_t>(next_with_shift >>
-                             AutoHyperClockTable::HandleImpl::kNextShift);
-}
-
-inline uint64_t MakeNextWithShift(size_t next, int shift) {
-  return (uint64_t{next} << AutoHyperClockTable::HandleImpl::kNextShift) |
-         static_cast<uint64_t>(shift);
-}
-
-inline uint64_t MakeNextWithShiftEnd(size_t head, int shift) {
-  return AutoHyperClockTable::HandleImpl::kNextEndFlags |
-         MakeNextWithShift(head, shift);
-}
-
 // Helper function for Lookup
 inline bool MatchAndRef(const UniqueId64x2* hashed_key, const ClockHandle& h,
                         int shift = 0, size_t home = 0,
@@ -1778,12 +1738,12 @@ inline bool MatchAndRef(const UniqueId64x2* hashed_key, const ClockHandle& h,
   // Must be at least something to match
   assert(hashed_key || shift > 0);
 
-  uint64_t old_meta;
+  SlotMeta old_meta, new_meta;
   // (Optimistically) increment acquire counter.
-  old_meta = h.meta.FetchAdd(ClockHandle::kAcquireIncrement);
+  auto add_acquire = AcquireCounter::PlusTransformPromiseNoOverflow(1);
+  h.meta.Apply(add_acquire, &old_meta, &new_meta);
   // Check if it's a referencable (sharable) entry
-  if ((old_meta & (uint64_t{ClockHandle::kStateShareableBit}
-                   << ClockHandle::kStateShift)) == 0) {
+  if (!old_meta.IsShareable()) {
     // For non-sharable states, incrementing the acquire counter has no effect
     // so we don't need to undo it. Furthermore, we cannot safely undo
     // it because we did not acquire a read reference to lock the
@@ -1794,10 +1754,9 @@ inline bool MatchAndRef(const UniqueId64x2* hashed_key, const ClockHandle& h,
     return false;
   }
   // Else acquired a read reference
-  assert(GetRefcount(old_meta + ClockHandle::kAcquireIncrement) > 0);
+  assert(new_meta.GetRefcount() > 0);
   if (hashed_key && h.hashed_key == *hashed_key &&
-      LIKELY(old_meta & (uint64_t{ClockHandle::kStateVisibleBit}
-                         << ClockHandle::kStateShift))) {
+      LIKELY(old_meta.IsVisible())) {
     // Match on full key, visible
     if (full_match_or_unknown) {
       *full_match_or_unknown = true;
@@ -1820,36 +1779,39 @@ inline bool MatchAndRef(const UniqueId64x2* hashed_key, const ClockHandle& h,
   }
 }
 
+using NextWithShift = AutoHyperClockTable::HandleImpl::NextWithShift;
+
 // Assumes a chain rewrite lock prevents concurrent modification of
 // these chain pointers
 void UpgradeShiftsOnRange(AutoHyperClockTable::HandleImpl* arr,
-                          size_t& frontier, uint64_t stop_before_or_new_tail,
-                          int old_shift, int new_shift) {
+                          size_t& frontier,
+                          NextWithShift stop_before_or_new_tail, int old_shift,
+                          int new_shift) {
   assert(frontier != SIZE_MAX);
   assert(new_shift == old_shift + 1);
   (void)old_shift;
   (void)new_shift;
-  using HandleImpl = AutoHyperClockTable::HandleImpl;
   for (;;) {
-    uint64_t next_with_shift = arr[frontier].chain_next_with_shift.Load();
-    assert(GetShiftFromNextWithShift(next_with_shift) == old_shift);
+    NextWithShift next_with_shift = arr[frontier].chain_next_with_shift.Load();
+    assert(next_with_shift.GetShift() == old_shift);
     if (next_with_shift == stop_before_or_new_tail) {
       // Stopping at entry with pointer matching "stop before"
-      assert(!HandleImpl::IsEnd(next_with_shift));
+      assert(!next_with_shift.IsEnd());
       return;
     }
-    if (HandleImpl::IsEnd(next_with_shift)) {
+    if (next_with_shift.IsEnd()) {
       // Also update tail to new tail
-      assert(HandleImpl::IsEnd(stop_before_or_new_tail));
+      assert(stop_before_or_new_tail.IsEnd());
       arr[frontier].chain_next_with_shift.Store(stop_before_or_new_tail);
       // Mark nothing left to upgrade
       frontier = SIZE_MAX;
       return;
     }
     // Next is another entry to process, so upgrade and advance frontier
-    arr[frontier].chain_next_with_shift.FetchAdd(1U);
-    assert(GetShiftFromNextWithShift(next_with_shift + 1) == new_shift);
-    frontier = GetNextFromNextWithShift(next_with_shift);
+    arr[frontier].chain_next_with_shift.Apply(
+        NextWithShift::Shift::PlusTransformPromiseNoOverflow(1U));
+    assert(next_with_shift.GetShift() + 1 == new_shift);
+    frontier = next_with_shift.GetNext();
   }
 }
 
@@ -1887,19 +1849,19 @@ class AutoHyperClockTable::ChainRewriteLock {
   // RAII wrap existing lock held (or end)
   explicit ChainRewriteLock(HandleImpl* h,
                             RelaxedAtomic<uint64_t>& /*yield_count*/,
-                            uint64_t already_locked_or_end)
+                            NextWithShift already_locked_or_end)
       : head_ptr_(&h->head_next_with_shift) {
     saved_head_ = already_locked_or_end;
     // already locked or end
-    assert(saved_head_ & HandleImpl::kHeadLocked);
+    assert(saved_head_.IsLocked());
   }
 
   ~ChainRewriteLock() {
     if (!IsEnd()) {
       // Release lock
-      uint64_t old = head_ptr_->FetchAnd(~HandleImpl::kHeadLocked);
-      (void)old;
-      assert((old & HandleImpl::kNextEndFlags) == HandleImpl::kHeadLocked);
+      NextWithShift old;
+      head_ptr_->Apply(NextWithShift::LockedFlag::ClearTransform(), &old);
+      assert(old.IsLockedNotEnd());
     }
   }
 
@@ -1909,12 +1871,13 @@ class AutoHyperClockTable::ChainRewriteLock {
   }
 
   // Expected current state, assuming no parallel updates.
-  uint64_t GetSavedHead() const { return saved_head_; }
+  NextWithShift GetSavedHead() const { return saved_head_; }
 
-  bool CasUpdate(uint64_t next_with_shift,
+  bool CasUpdate(NextWithShift next_with_shift,
                  RelaxedAtomic<uint64_t>& yield_count) {
-    uint64_t new_head = next_with_shift | HandleImpl::kHeadLocked;
-    uint64_t expected = GetSavedHead();
+    NextWithShift new_head =
+        next_with_shift.With<NextWithShift::LockedFlag>(true);
+    NextWithShift expected = GetSavedHead();
     bool success = head_ptr_->CasStrong(expected, new_head);
     if (success) {
       // Ensure IsEnd() is kept up-to-date, including for dtor
@@ -1923,7 +1886,7 @@ class AutoHyperClockTable::ChainRewriteLock {
       // Parallel update to head, such as Insert()
       if (IsEnd()) {
         // Didn't previously hold a lock
-        if (HandleImpl::IsEnd(expected)) {
+        if (expected.IsEnd()) {
           // Still don't need to
           saved_head_ = expected;
         } else {
@@ -1932,28 +1895,25 @@ class AutoHyperClockTable::ChainRewriteLock {
         }
       } else {
         // Parallel update must preserve our lock
-        assert((expected & HandleImpl::kNextEndFlags) ==
-               HandleImpl::kHeadLocked);
+        assert(expected.IsLockedNotEnd());
         saved_head_ = expected;
       }
     }
     return success;
   }
 
-  bool IsEnd() const { return HandleImpl::IsEnd(saved_head_); }
+  bool IsEnd() const { return saved_head_.IsEnd(); }
 
  private:
   void Acquire(RelaxedAtomic<uint64_t>& yield_count) {
     for (;;) {
       // Acquire removal lock on the chain
-      uint64_t old_head = head_ptr_->FetchOr(HandleImpl::kHeadLocked);
-      if ((old_head & HandleImpl::kNextEndFlags) != HandleImpl::kHeadLocked) {
+      NextWithShift old_head;
+      head_ptr_->Apply(NextWithShift::LockedFlag::SetTransform(), &old_head,
+                       &saved_head_);
+      if (!old_head.IsLockedNotEnd()) {
         // Either acquired the lock or lock not needed (end)
-        assert((old_head & HandleImpl::kNextEndFlags) == 0 ||
-               (old_head & HandleImpl::kNextEndFlags) ==
-                   HandleImpl::kNextEndFlags);
-
-        saved_head_ = old_head | HandleImpl::kHeadLocked;
+        assert(old_head.IsEnd() == old_head.IsLocked());
         break;
       }
       // NOTE: one of the few yield-wait loops, which is rare enough in practice
@@ -1964,16 +1924,18 @@ class AutoHyperClockTable::ChainRewriteLock {
     }
   }
 
-  AcqRelAtomic<uint64_t>* head_ptr_;
-  uint64_t saved_head_;
+  BitFieldsAtomic<NextWithShift>* head_ptr_;
+  NextWithShift saved_head_;
 };
 
 AutoHyperClockTable::AutoHyperClockTable(
-    size_t capacity, CacheMetadataChargePolicy metadata_charge_policy,
+    size_t capacity, bool strict_capacity_limit,
+    CacheMetadataChargePolicy metadata_charge_policy,
     MemoryAllocator* allocator,
     const Cache::EvictionCallback* eviction_callback, const uint32_t* hash_seed,
     const Opts& opts)
-    : BaseClockTable(metadata_charge_policy, allocator, eviction_callback,
+    : BaseClockTable(capacity, strict_capacity_limit, opts.eviction_effort_cap,
+                     metadata_charge_policy, allocator, eviction_callback,
                      hash_seed),
       array_(MemMapping::AllocateLazyZeroed(
           sizeof(HandleImpl) * CalcMaxUsableLength(capacity,
@@ -1985,6 +1947,11 @@ AutoHyperClockTable::AutoHyperClockTable(
       grow_frontier_(GetTableSize()),
       clock_pointer_mask_(
           BottomNBits(UINT64_MAX, LengthInfoToMinShift(length_info_.Load()))) {
+  if (array_.Get() == nullptr) {
+    fprintf(stderr,
+            "Anonymous mmap for RocksDB HyperClockCache failed. Aborting.\n");
+    std::terminate();
+  }
   if (metadata_charge_policy ==
       CacheMetadataChargePolicy::kFullChargeCacheMetadata) {
     // NOTE: ignoring page boundaries for simplicity
@@ -2013,9 +1980,9 @@ AutoHyperClockTable::AutoHyperClockTable(
 #endif
     if (major + i < used_length) {
       array_[i].head_next_with_shift.StoreRelaxed(
-          MakeNextWithShiftEnd(i, max_shift));
+          NextWithShift::MakeEnd(i, max_shift));
       array_[major + i].head_next_with_shift.StoreRelaxed(
-          MakeNextWithShiftEnd(major + i, max_shift));
+          NextWithShift::MakeEnd(major + i, max_shift));
 #ifndef NDEBUG  // Extra invariant checking
       GetHomeIndexAndShift(length_info, i, &home, &shift);
       assert(home == i);
@@ -2026,7 +1993,7 @@ AutoHyperClockTable::AutoHyperClockTable(
 #endif
     } else {
       array_[i].head_next_with_shift.StoreRelaxed(
-          MakeNextWithShiftEnd(i, min_shift));
+          NextWithShift::MakeEnd(i, min_shift));
 #ifndef NDEBUG  // Extra invariant checking
       GetHomeIndexAndShift(length_info, i, &home, &shift);
       assert(home == i);
@@ -2052,52 +2019,54 @@ AutoHyperClockTable::~AutoHyperClockTable() {
              HandleImpl::kUnusedMarker) {
     used_end++;
   }
-#ifndef NDEBUG
-  for (size_t i = used_end; i < array_.Count(); i++) {
-    assert(array_[i].head_next_with_shift.LoadRelaxed() == 0);
-    assert(array_[i].chain_next_with_shift.LoadRelaxed() == 0);
-    assert(array_[i].meta.LoadRelaxed() == 0);
+  // This check can be extra expensive for a cache that is just created,
+  // maybe used for a small number of entries, as in a unit test, and then
+  // destroyed. Only do this in rare modes. REVISED: Don't scan the whole mmap,
+  // just a reasonable frontier past what we expect to have written.
+#ifdef MUST_FREE_HEAP_ALLOCATIONS
+  for (size_t i = used_end; i < array_.Count() && i < used_end + 64U; i++) {
+    assert(array_[i].head_next_with_shift.LoadRelaxed() ==
+           HandleImpl::kUnusedMarker);
+    assert(array_[i].chain_next_with_shift.LoadRelaxed() ==
+           HandleImpl::kUnusedMarker);
+    assert(array_[i].meta.LoadRelaxed() == SlotMeta{});
   }
+#endif          // MUST_FREE_HEAP_ALLOCATIONS
+#ifndef NDEBUG  // Extra invariant checking
   std::vector<bool> was_populated(used_end);
   std::vector<bool> was_pointed_to(used_end);
-#endif
+#endif  // !NDEBUG
   for (size_t i = 0; i < used_end; i++) {
     HandleImpl& h = array_[i];
-    switch (h.meta.LoadRelaxed() >> ClockHandle::kStateShift) {
-      case ClockHandle::kStateEmpty:
-        // noop
-        break;
-      case ClockHandle::kStateInvisible:  // rare but possible
-      case ClockHandle::kStateVisible:
-        assert(GetRefcount(h.meta.LoadRelaxed()) == 0);
-        h.FreeData(allocator_);
+    SlotMeta meta = h.meta.LoadRelaxed();
+    if (meta.IsShareable()) {
+      // NOTE: Reaching here invisible is rare but possible
+      assert(meta.GetRefcount() == 0);
+      h.FreeData(allocator_);
 #ifndef NDEBUG  // Extra invariant checking
-        usage_.FetchSubRelaxed(h.total_charge);
-        occupancy_.FetchSubRelaxed(1U);
-        was_populated[i] = true;
-        if (!HandleImpl::IsEnd(h.chain_next_with_shift.LoadRelaxed())) {
-          assert((h.chain_next_with_shift.LoadRelaxed() &
-                  HandleImpl::kHeadLocked) == 0);
-          size_t next =
-              GetNextFromNextWithShift(h.chain_next_with_shift.LoadRelaxed());
-          assert(!was_pointed_to[next]);
-          was_pointed_to[next] = true;
-        }
-#endif
-        break;
-      // otherwise
-      default:
-        assert(false);
-        break;
+      usage_.FetchSubRelaxed(h.total_charge);
+      occupancy_.FetchSubRelaxed(1U);
+      was_populated[i] = true;
+      if (!h.chain_next_with_shift.LoadRelaxed().IsEnd()) {
+        assert(!h.chain_next_with_shift.LoadRelaxed().IsLocked());
+        size_t next = h.chain_next_with_shift.LoadRelaxed().GetNext();
+        assert(!was_pointed_to[next]);
+        was_pointed_to[next] = true;
+      }
+#endif  // !NDEBUG
+    } else {
+      // Should be no transient "under construction" states unless a thread
+      // was killed or we are being destructed while another thread is still
+      // operating on the structure
+      assert(meta.IsEmpty());
     }
 #ifndef NDEBUG  // Extra invariant checking
-    if (!HandleImpl::IsEnd(h.head_next_with_shift.LoadRelaxed())) {
-      size_t next =
-          GetNextFromNextWithShift(h.head_next_with_shift.LoadRelaxed());
+    if (!h.head_next_with_shift.LoadRelaxed().IsEnd()) {
+      size_t next = h.head_next_with_shift.LoadRelaxed().GetNext();
       assert(!was_pointed_to[next]);
       was_pointed_to[next] = true;
     }
-#endif
+#endif  // !NDEBUG
   }
 #ifndef NDEBUG  // Extra invariant checking
   // This check is not perfect, but should detect most reasonable cases
@@ -2110,7 +2079,7 @@ AutoHyperClockTable::~AutoHyperClockTable() {
       assert(!was_pointed_to[i]);
     }
   }
-#endif
+#endif  // !NDEBUG
 
   // Metadata charging only follows the published table size
   assert(usage_.LoadRelaxed() == 0 ||
@@ -2208,10 +2177,10 @@ bool AutoHyperClockTable::Grow(InsertState& state) {
   // chain rewrite lock has been released.
   size_t old_old_home = BottomNBits(grow_home, old_shift - 1);
   for (;;) {
-    uint64_t old_old_head = array_[old_old_home].head_next_with_shift.Load();
-    if (GetShiftFromNextWithShift(old_old_head) >= old_shift) {
-      if ((old_old_head & HandleImpl::kNextEndFlags) !=
-          HandleImpl::kHeadLocked) {
+    NextWithShift old_old_head =
+        array_[old_old_home].head_next_with_shift.Load();
+    if (old_old_head.GetShift() >= old_shift) {
+      if (!old_old_head.IsLockedNotEnd()) {
         break;
       }
     }
@@ -2271,8 +2240,7 @@ void AutoHyperClockTable::CatchUpLengthInfoNoWait(
     if (published_usable_size < known_usable_grow_home) {
       int old_shift = FloorLog2(next_usable_size - 1);
       size_t old_home = BottomNBits(published_usable_size, old_shift);
-      int shift = GetShiftFromNextWithShift(
-          array_[old_home].head_next_with_shift.Load());
+      int shift = array_[old_home].head_next_with_shift.Load().GetShift();
       if (shift <= old_shift) {
         // Not ready
         break;
@@ -2423,9 +2391,10 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
   ChainRewriteLock zero_head_lock(&arr[old_home], yield_count_);
 
   // Used for locking the one chain below
-  uint64_t saved_one_head;
+  NextWithShift saved_one_head;
   // One head has not been written to
-  assert(arr[grow_home].head_next_with_shift.Load() == 0);
+  assert(arr[grow_home].head_next_with_shift.Load() ==
+         HandleImpl::kUnusedMarker);
 
   // old_home will also the head of the new "zero chain" -- all entries in the
   // "from" chain whose next hash bit is 0. grow_home will be head of the new
@@ -2447,7 +2416,7 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
     assert(cur == SIZE_MAX);
     assert(chain_frontier_first == -1);
 
-    uint64_t next_with_shift = zero_head_lock.GetSavedHead();
+    NextWithShift next_with_shift = zero_head_lock.GetSavedHead();
 
     // Find a single representative for each target chain, or scan the whole
     // chain if some target chain has no representative.
@@ -2460,16 +2429,16 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
       assert((cur == SIZE_MAX) == (zero_chain_frontier == SIZE_MAX &&
                                    one_chain_frontier == SIZE_MAX));
 
-      assert(GetShiftFromNextWithShift(next_with_shift) == old_shift);
+      assert(next_with_shift.GetShift() == old_shift);
 
       // Check for end of original chain
-      if (HandleImpl::IsEnd(next_with_shift)) {
+      if (next_with_shift.IsEnd()) {
         cur = SIZE_MAX;
         break;
       }
 
       // next_with_shift is not End
-      cur = GetNextFromNextWithShift(next_with_shift);
+      cur = next_with_shift.GetNext();
 
       if (BottomNBits(arr[cur].hashed_key[1], new_shift) == old_home) {
         // Entry for zero chain
@@ -2508,10 +2477,10 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
            (zero_chain_frontier == SIZE_MAX && one_chain_frontier == SIZE_MAX));
 
     // Always update one chain's head first (safe), and mark it as locked
-    saved_one_head = HandleImpl::kHeadLocked |
-                     (one_chain_frontier != SIZE_MAX
-                          ? MakeNextWithShift(one_chain_frontier, new_shift)
-                          : MakeNextWithShiftEnd(grow_home, new_shift));
+    saved_one_head = one_chain_frontier != SIZE_MAX
+                         ? NextWithShift::Make(one_chain_frontier, new_shift)
+                         : NextWithShift::MakeEnd(grow_home, new_shift);
+    saved_one_head.Set<NextWithShift::LockedFlag>(true);
     arr[grow_home].head_next_with_shift.Store(saved_one_head);
 
     // Make sure length_info_ hasn't been updated too early, as we're about
@@ -2521,8 +2490,8 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
     // Try to set zero's head.
     if (zero_head_lock.CasUpdate(
             zero_chain_frontier != SIZE_MAX
-                ? MakeNextWithShift(zero_chain_frontier, new_shift)
-                : MakeNextWithShiftEnd(old_home, new_shift),
+                ? NextWithShift::Make(zero_chain_frontier, new_shift)
+                : NextWithShift::MakeEnd(old_home, new_shift),
             yield_count_)) {
       // Both heads successfully updated to new shift
       break;
@@ -2556,10 +2525,10 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
     size_t& other_frontier = chain_frontier_first != 0
                                  ? /*&*/ zero_chain_frontier
                                  : /*&*/ one_chain_frontier;
-    uint64_t stop_before_or_new_tail =
+    NextWithShift stop_before_or_new_tail =
         other_frontier != SIZE_MAX
-            ? /*stop before*/ MakeNextWithShift(other_frontier, old_shift)
-            : /*new tail*/ MakeNextWithShiftEnd(
+            ? /*stop before*/ NextWithShift::Make(other_frontier, old_shift)
+            : /*new tail*/ NextWithShift::MakeEnd(
                   chain_frontier_first == 0 ? old_home : grow_home, new_shift);
     UpgradeShiftsOnRange(arr, first_frontier, stop_before_or_new_tail,
                          old_shift, new_shift);
@@ -2585,20 +2554,19 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
                                    ? /*&*/ zero_chain_frontier
                                    : /*&*/ one_chain_frontier;
       assert(cur != first_frontier);
-      assert(GetNextFromNextWithShift(
-                 arr[first_frontier].chain_next_with_shift.Load()) ==
+      assert(arr[first_frontier].chain_next_with_shift.Load().GetNext() ==
              other_frontier);
 
-      uint64_t next_with_shift = arr[cur].chain_next_with_shift.Load();
+      NextWithShift next_with_shift = arr[cur].chain_next_with_shift.Load();
 
       // Check for end of original chain
-      if (HandleImpl::IsEnd(next_with_shift)) {
+      if (next_with_shift.IsEnd()) {
         // Can set upgraded tail on first chain
-        uint64_t first_new_tail = MakeNextWithShiftEnd(
+        NextWithShift first_new_tail = NextWithShift::MakeEnd(
             chain_frontier_first == 0 ? old_home : grow_home, new_shift);
         arr[first_frontier].chain_next_with_shift.Store(first_new_tail);
         // And upgrade remainder of other chain
-        uint64_t other_new_tail = MakeNextWithShiftEnd(
+        NextWithShift other_new_tail = NextWithShift::MakeEnd(
             chain_frontier_first != 0 ? old_home : grow_home, new_shift);
         UpgradeShiftsOnRange(arr, other_frontier, other_new_tail, old_shift,
                              new_shift);
@@ -2607,7 +2575,7 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
       }
 
       // next_with_shift is not End
-      cur = GetNextFromNextWithShift(next_with_shift);
+      cur = next_with_shift.GetNext();
 
       int target_chain;
       if (BottomNBits(arr[cur].hashed_key[1], new_shift) == old_home) {
@@ -2620,7 +2588,7 @@ void AutoHyperClockTable::SplitForGrow(size_t grow_home, size_t old_home,
       }
       if (target_chain == chain_frontier_first) {
         // Found next entry to skip to on the first chain
-        uint64_t skip_to = MakeNextWithShift(cur, new_shift);
+        NextWithShift skip_to = NextWithShift::Make(cur, new_shift);
         arr[first_frontier].chain_next_with_shift.Store(skip_to);
         first_frontier = cur;
         // Upgrade other chain up to entry before that one
@@ -2661,17 +2629,17 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
 
   HandleImpl* const arr = array_.Get();
 
-  uint64_t next_with_shift = rewrite_lock.GetSavedHead();
-  assert(!HandleImpl::IsEnd(next_with_shift));
-  int home_shift = GetShiftFromNextWithShift(next_with_shift);
+  NextWithShift next_with_shift = rewrite_lock.GetSavedHead();
+  assert(!next_with_shift.IsEnd());
+  int home_shift = next_with_shift.GetShift();
   (void)home;
   (void)home_shift;
-  size_t next = GetNextFromNextWithShift(next_with_shift);
+  size_t next = next_with_shift.GetNext();
   assert(next < array_.Count());
   HandleImpl* h = &arr[next];
   HandleImpl* prev_to_keep = nullptr;
 #ifndef NDEBUG
-  uint64_t prev_to_keep_next_with_shift = 0;
+  NextWithShift prev_to_keep_next_with_shift{};
 #endif
   // Whether there are entries between h and prev_to_keep that should be
   // purged from the chain.
@@ -2698,20 +2666,17 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
           op_data->push_back(h);
           // Entries for eviction become purgeable
           purgeable = true;
-          assert((h->meta.Load() >> ClockHandle::kStateShift) ==
-                 ClockHandle::kStateConstruction);
+          assert(h->meta.Load().IsUnderConstruction());
         }
       } else {
         (void)op_data;
         (void)data;
-        purgeable = ((h->meta.Load() >> ClockHandle::kStateShift) &
-                     ClockHandle::kStateShareableBit) == 0;
+        purgeable = !h->meta.Load().IsShareable();
       }
     }
 
     if (purgeable) {
-      assert((h->meta.Load() >> ClockHandle::kStateShift) ==
-             ClockHandle::kStateConstruction);
+      assert(h->meta.Load().IsUnderConstruction());
       pending_purge = true;
     } else if (pending_purge) {
       if (prev_to_keep) {
@@ -2729,13 +2694,13 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
         // update any new entries just inserted in parallel.
         // Can simply restart (GetSavedHead() already updated from CAS failure).
         next_with_shift = rewrite_lock.GetSavedHead();
-        assert(!HandleImpl::IsEnd(next_with_shift));
-        next = GetNextFromNextWithShift(next_with_shift);
+        assert(!next_with_shift.IsEnd());
+        next = next_with_shift.GetNext();
         assert(next < array_.Count());
         h = &arr[next];
         pending_purge = false;
         assert(prev_to_keep == nullptr);
-        assert(GetShiftFromNextWithShift(next_with_shift) == home_shift);
+        assert(next_with_shift.GetShift() == home_shift);
         continue;
       }
       pending_purge = false;
@@ -2757,13 +2722,13 @@ void AutoHyperClockTable::PurgeImplLocked(OpData* op_data,
     }
 #endif
 
-    assert(GetShiftFromNextWithShift(next_with_shift) == home_shift);
+    assert(next_with_shift.GetShift() == home_shift);
 
     // Check for end marker
-    if (HandleImpl::IsEnd(next_with_shift)) {
+    if (next_with_shift.IsEnd()) {
       h = nullptr;
     } else {
-      next = GetNextFromNextWithShift(next_with_shift);
+      next = next_with_shift.GetNext();
       assert(next < array_.Count());
       h = &arr[next];
       assert(h != prev_to_keep);
@@ -2835,7 +2800,7 @@ void AutoHyperClockTable::PurgeImpl(OpData* op_data, size_t home,
     // Ensure we are at the correct home for the shift in effect for the
     // chain head.
     for (;;) {
-      int shift = GetShiftFromNextWithShift(rewrite_lock.GetSavedHead());
+      int shift = rewrite_lock.GetSavedHead().GetShift();
 
       if (shift > home_shift) {
         // Found a newer shift at candidate head, which must apply to us.
@@ -2871,7 +2836,7 @@ void AutoHyperClockTable::PurgeImpl(OpData* op_data, size_t home,
 }
 
 AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
-    const ClockHandleBasicData& proto, uint64_t initial_countdown,
+    const ClockHandleBasicData& proto, uint32_t initial_countdown,
     bool take_ref, InsertState& state) {
   size_t home;
   int orig_home_shift;
@@ -3031,14 +2996,14 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
   }
 
   // Now insert into chain using head pointer
-  uint64_t next_with_shift;
+  NextWithShift next_with_shift;
   int home_shift = orig_home_shift;
 
   // Might need to retry
   for (int i = 0;; ++i) {
     CHECK_TOO_MANY_ITERATIONS(i);
     next_with_shift = arr[home].head_next_with_shift.Load();
-    int shift = GetShiftFromNextWithShift(next_with_shift);
+    int shift = next_with_shift.GetShift();
 
     if (UNLIKELY(shift != home_shift)) {
       // NOTE: shift increases with table growth
@@ -3065,15 +3030,14 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::DoInsert(
     }
 
     // Values to update to
-    uint64_t head_next_with_shift = MakeNextWithShift(idx, home_shift);
-    uint64_t chain_next_with_shift = next_with_shift;
+    NextWithShift head_next_with_shift = NextWithShift::Make(idx, home_shift);
+    NextWithShift chain_next_with_shift = next_with_shift;
 
     // Preserve the locked state in head, without propagating to chain next
     // where it is meaningless (and not allowed)
-    if (UNLIKELY((next_with_shift & HandleImpl::kNextEndFlags) ==
-                 HandleImpl::kHeadLocked)) {
-      head_next_with_shift |= HandleImpl::kHeadLocked;
-      chain_next_with_shift &= ~HandleImpl::kHeadLocked;
+    if (UNLIKELY(next_with_shift.IsLockedNotEnd())) {
+      head_next_with_shift.Set<NextWithShift::LockedFlag>(true);
+      chain_next_with_shift.Set<NextWithShift::LockedFlag>(false);
     }
 
     arr[idx].chain_next_with_shift.Store(chain_next_with_shift);
@@ -3142,9 +3106,9 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
   // of a loop as possible.
 
   HandleImpl* const arr = array_.Get();
-  uint64_t next_with_shift = arr[home].head_next_with_shift.LoadRelaxed();
-  for (size_t i = 0; !HandleImpl::IsEnd(next_with_shift) && i < 10; ++i) {
-    HandleImpl* h = &arr[GetNextFromNextWithShift(next_with_shift)];
+  NextWithShift next_with_shift = arr[home].head_next_with_shift.LoadRelaxed();
+  for (size_t i = 0; !next_with_shift.IsEnd() && i < 10; ++i) {
+    HandleImpl* h = &arr[next_with_shift.IsEnd()];
     // Attempt cheap key match without acquiring a read ref. This could give a
     // false positive, which is re-checked after acquiring read ref, or false
     // negative, which is re-checked in the full Lookup. Also, this is a
@@ -3157,14 +3121,14 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
 #endif
     if (probably_equal) {
       // Increment acquire counter for definitive check
-      uint64_t old_meta = h->meta.FetchAdd(ClockHandle::kAcquireIncrement);
+      auto add_acquire = AcquireCounter::PlusTransformPromiseNoOverflow(1);
+      SlotMeta old_meta, new_meta;
+      h->meta.Apply(add_acquire, &old_meta, &new_meta);
       // Check if it's a referencable (sharable) entry
-      if (LIKELY(old_meta & (uint64_t{ClockHandle::kStateShareableBit}
-                             << ClockHandle::kStateShift))) {
-        assert(GetRefcount(old_meta + ClockHandle::kAcquireIncrement) > 0);
+      if (LIKELY(old_meta.IsShareable())) {
+        assert(new_meta.GetRefcount() > 0);
         if (LIKELY(h->hashed_key == hashed_key) &&
-            LIKELY(old_meta & (uint64_t{ClockHandle::kStateVisibleBit}
-                               << ClockHandle::kStateShift))) {
+            LIKELY(old_meta.IsVisible())) {
           return h;
         } else {
           Unref(*h);
@@ -3189,7 +3153,7 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
     // Read head or chain pointer
     next_with_shift = h ? h->chain_next_with_shift.Load()
                         : arr[home].head_next_with_shift.Load();
-    int shift = GetShiftFromNextWithShift(next_with_shift);
+    int shift = next_with_shift.GetShift();
 
     // Make sure it's usable
     size_t effective_home = home;
@@ -3243,10 +3207,10 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
     }
 
     // Check for end marker
-    if (HandleImpl::IsEnd(next_with_shift)) {
+    if (next_with_shift.IsEnd()) {
       // To ensure we didn't miss anything in the chain, the end marker must
       // point back to the correct home.
-      if (LIKELY(GetNextFromNextWithShift(next_with_shift) == effective_home)) {
+      if (LIKELY(next_with_shift.GetNext() == effective_home)) {
         // Complete, clean iteration of the chain, not found.
         // Clean up.
         if (read_ref_on_chain) {
@@ -3262,7 +3226,7 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
     }
 
     // Follow the next and check for full key match, home match, or neither
-    h = &arr[GetNextFromNextWithShift(next_with_shift)];
+    h = &arr[next_with_shift.GetNext()];
     bool full_match_or_unknown = false;
     if (MatchAndRef(&hashed_key, *h, shift, effective_home,
                     &full_match_or_unknown)) {
@@ -3285,7 +3249,7 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
         }
         // Update the hit bit
         if (eviction_callback_) {
-          h->meta.FetchOrRelaxed(uint64_t{1} << ClockHandle::kHitBitShift);
+          h->meta.ApplyRelaxed(SlotMeta::HitFlag::SetTransform());
         }
         // All done.
         return h;
@@ -3325,8 +3289,7 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
 }
 
 void AutoHyperClockTable::Remove(HandleImpl* h) {
-  assert((h->meta.Load() >> ClockHandle::kStateShift) ==
-         ClockHandle::kStateConstruction);
+  assert(h->meta.Load().IsUnderConstruction());
 
   const HandleImpl& c_h = *h;
   PurgeImpl(&c_h.hashed_key);
@@ -3334,26 +3297,23 @@ void AutoHyperClockTable::Remove(HandleImpl* h) {
 
 bool AutoHyperClockTable::TryEraseHandle(HandleImpl* h, bool holding_ref,
                                          bool mark_invisible) {
-  uint64_t meta;
-  if (mark_invisible) {
-    // Set invisible
-    meta = h->meta.FetchAnd(
-        ~(uint64_t{ClockHandle::kStateVisibleBit} << ClockHandle::kStateShift));
-    // To local variable also
-    meta &=
-        ~(uint64_t{ClockHandle::kStateVisibleBit} << ClockHandle::kStateShift);
-  } else {
-    meta = h->meta.Load();
-  }
+  SlotMeta meta = h->meta.Load();
+  assert(!holding_ref || meta.IsShareable());
 
-  // Take ownership if no other refs
+  // Take ownership if no other refs, or set invisible if other refs exist (and
+  // mark_invisible is set).
+  SlotMeta construction_meta;
+  construction_meta.SetUnderConstruction();
   do {
-    if (GetRefcount(meta) != uint64_t{holding_ref}) {
+    if (meta.GetRefcount() != uint32_t{holding_ref}) {
       // Not last ref at some point in time during this call
+      if (mark_invisible) {
+        // Set invisible
+        h->meta.Apply(SlotMeta::VisibleFlag::ClearTransform());
+      }
       return false;
     }
-    if ((meta & (uint64_t{ClockHandle::kStateShareableBit}
-                 << ClockHandle::kStateShift)) == 0) {
+    if (!meta.IsShareable()) {
       // Someone else took ownership
       return false;
     }
@@ -3361,8 +3321,7 @@ bool AutoHyperClockTable::TryEraseHandle(HandleImpl* h, bool holding_ref,
     // another thread replaces this entry with another, reaches zero refs, and
     // then we end up erasing that other entry. That's an acceptable risk /
     // imprecision.
-  } while (!h->meta.CasWeak(meta, uint64_t{ClockHandle::kStateConstruction}
-                                      << ClockHandle::kStateShift));
+  } while (!h->meta.CasWeak(meta, construction_meta));
   // Took ownership
   // TODO? Delay freeing?
   h->FreeData(allocator_);
@@ -3389,27 +3348,24 @@ bool AutoHyperClockTable::Release(HandleImpl* h, bool useful,
   // is needed) and Erase. We do this to avoid an extra atomic read of the
   // variable usage_.
 
-  uint64_t old_meta;
+  SlotMeta old_meta;
   if (useful) {
     // Increment release counter to indicate was used
-    old_meta = h->meta.FetchAdd(ClockHandle::kReleaseIncrement);
+    auto add_release = ReleaseCounter::PlusTransformPromiseNoOverflow(1);
+    h->meta.Apply(add_release, &old_meta);
     // Correct for possible (but rare) overflow
     CorrectNearOverflow(old_meta, h->meta);
   } else {
     // Decrement acquire counter to pretend it never happened
-    old_meta = h->meta.FetchSub(ClockHandle::kAcquireIncrement);
+    auto sub_acquire = AcquireCounter::MinusTransformPromiseNoUnderflow(1);
+    h->meta.Apply(sub_acquire, &old_meta);
   }
 
-  assert((old_meta >> ClockHandle::kStateShift) &
-         ClockHandle::kStateShareableBit);
+  assert(old_meta.IsShareable());
   // No underflow
-  assert(((old_meta >> ClockHandle::kAcquireCounterShift) &
-          ClockHandle::kCounterMask) !=
-         ((old_meta >> ClockHandle::kReleaseCounterShift) &
-          ClockHandle::kCounterMask));
+  assert(old_meta.GetAcquireCounter() != old_meta.GetReleaseCounter());
 
-  if ((erase_if_last_ref || UNLIKELY(old_meta >> ClockHandle::kStateShift ==
-                                     ClockHandle::kStateInvisible))) {
+  if ((erase_if_last_ref || UNLIKELY(old_meta.IsInvisible()))) {
     // FIXME: There's a chance here that another thread could replace this
     // entry and we end up erasing the wrong one.
     return TryEraseHandle(h, /*holding_ref=*/false, /*mark_invisible=*/false);
@@ -3419,7 +3375,7 @@ bool AutoHyperClockTable::Release(HandleImpl* h, bool useful,
 }
 
 #ifndef NDEBUG
-void AutoHyperClockTable::TEST_ReleaseN(HandleImpl* h, size_t n) {
+void AutoHyperClockTable::TEST_ReleaseN(HandleImpl* h, uint32_t n) {
   if (n > 0) {
     // Do n-1 simple releases first
     TEST_ReleaseNMinus1(h, n);
@@ -3449,27 +3405,26 @@ void AutoHyperClockTable::EraseUnRefEntries() {
   for (size_t i = 0; i < usable_size; i++) {
     HandleImpl& h = array_[i];
 
-    uint64_t old_meta = h.meta.LoadRelaxed();
-    if (old_meta & (uint64_t{ClockHandle::kStateShareableBit}
-                    << ClockHandle::kStateShift) &&
-        GetRefcount(old_meta) == 0 &&
-        h.meta.CasStrong(old_meta, uint64_t{ClockHandle::kStateConstruction}
-                                       << ClockHandle::kStateShift)) {
-      // Took ownership
-      h.FreeData(allocator_);
-      usage_.FetchSubRelaxed(h.total_charge);
-      // NOTE: could be more efficient with a dedicated variant of
-      // PurgeImpl, but this is not a common operation
-      Remove(&h);
-      MarkEmpty(h);
-      occupancy_.FetchSub(1U);
+    SlotMeta old_meta = h.meta.LoadRelaxed();
+    if (old_meta.IsShareable() && old_meta.GetRefcount() == 0) {
+      SlotMeta construction_meta;
+      construction_meta.SetUnderConstruction();
+      if (h.meta.CasStrong(old_meta, construction_meta)) {
+        // Took ownership
+        h.FreeData(allocator_);
+        usage_.FetchSubRelaxed(h.total_charge);
+        // NOTE: could be more efficient with a dedicated variant of
+        // PurgeImpl, but this is not a common operation
+        Remove(&h);
+        MarkEmpty(h);
+        occupancy_.FetchSub(1U);
+      }
     }
   }
 }
 
 void AutoHyperClockTable::Evict(size_t requested_charge, InsertState& state,
-                                EvictionData* data,
-                                uint32_t eviction_effort_cap) {
+                                EvictionData* data) {
   // precondition
   assert(requested_charge > 0);
 
@@ -3561,7 +3516,7 @@ void AutoHyperClockTable::Evict(size_t requested_charge, InsertState& state,
       return;
     }
 
-    if (IsEvictionEffortExceeded(*data, eviction_effort_cap)) {
+    if (IsEvictionEffortExceeded(*data)) {
       eviction_effort_exceeded_count_.FetchAddRelaxed(1);
       return;
     }
@@ -3579,7 +3534,7 @@ size_t AutoHyperClockTable::CalcMaxUsableLength(
   size_t num_slots =
       static_cast<size_t>(capacity / min_avg_slot_charge + 0.999999);
 
-  const size_t slots_per_page = port::kPageSize / sizeof(HandleImpl);
+  const size_t slots_per_page = kPresumedPageSize / sizeof(HandleImpl);
 
   // Round up to page size
   return ((num_slots + slots_per_page - 1) / slots_per_page) * slots_per_page;
@@ -3587,8 +3542,7 @@ size_t AutoHyperClockTable::CalcMaxUsableLength(
 
 namespace {
 bool IsHeadNonempty(const AutoHyperClockTable::HandleImpl& h) {
-  return !AutoHyperClockTable::HandleImpl::IsEnd(
-      h.head_next_with_shift.LoadRelaxed());
+  return !h.head_next_with_shift.LoadRelaxed().IsEnd();
 }
 bool IsEntryAtHome(const AutoHyperClockTable::HandleImpl& h, int shift,
                    size_t home) {

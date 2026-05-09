@@ -615,6 +615,10 @@ class BackupEngineImpl {
                                       std::string* checksum_hex,
                                       const Temperature src_temperature) const;
 
+  // Helper method to check if backup should be stopped. Can be overridden
+  // via sync points for testing.
+  bool ShouldStopBackup() const;
+
   // Obtain db_id and db_session_id from the table properties of file_path
   Status GetFileDbIdentities(Env* src_env, const EnvOptions& src_env_options,
                              const std::string& file_path,
@@ -1597,7 +1601,7 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
         } /* create_file_cb */,
         &sequence_number,
         options.flush_before_backup ? 0 : std::numeric_limits<uint64_t>::max(),
-        compare_checksum));
+        compare_checksum, options.atomic_flush));
     if (io_s.ok()) {
       new_backup->SetSequenceNumber(sequence_number);
     }
@@ -1882,7 +1886,10 @@ void BackupEngineImpl::SetBackupInfoFromBackupMeta(
       finfo.directory = dir;
       uint64_t number;
       FileType type;
-      bool ok = ParseFileName(file_ptr->filename, &number, &type);
+      // file_ptr->filename may contain directory components (e.g.
+      // "private/1/000008.log"). ParseFileName expects a bare filename,
+      // so use GetDbFileName() to extract it.
+      bool ok = ParseFileName(file_ptr->GetDbFileName(), &number, &type);
       if (ok) {
         finfo.file_number = number;
         finfo.file_type = type;
@@ -2353,6 +2360,10 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
     Temperature dst_temperature, uint64_t* bytes_toward_next_callback,
     uint64_t* size, std::string* checksum_hex) {
   assert(src.empty() != contents.empty());
+  if (ShouldStopBackup()) {
+    return status_to_io_status(Status::Incomplete("Backup stopped"));
+  }
+
   IOStatus io_s;
   std::unique_ptr<FSWritableFile> dst_file;
   std::unique_ptr<FSSequentialFile> src_file;
@@ -2372,7 +2383,11 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
 
   io_s = dst_env->GetFileSystem()->NewWritableFile(dst, dst_file_options,
                                                    &dst_file, nullptr);
-  if (io_s.ok() && !src.empty()) {
+  if (!io_s.ok()) {
+    return io_s;
+  }
+
+  if (!src.empty()) {
     auto src_file_options = FileOptions(src_env_options);
     src_file_options.temperature = *src_temperature;
     io_s = src_env->GetFileSystem()->NewSequentialFile(src, src_file_options,
@@ -2409,7 +2424,7 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
   Slice data;
   const IOOptions opts;
   do {
-    if (stop_backup_.load(std::memory_order_acquire)) {
+    if (ShouldStopBackup()) {
       return status_to_io_status(Status::Incomplete("Backup stopped"));
     }
     if (!src.empty()) {
@@ -2745,12 +2760,21 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
   return IOStatus::OK();
 }
 
+bool BackupEngineImpl::ShouldStopBackup() const {
+  bool should_stop = stop_backup_.load(std::memory_order_acquire);
+  TEST_SYNC_POINT_CALLBACK("BackupEngineImpl::ShouldStopBackup", &should_stop);
+  return should_stop;
+}
+
 IOStatus BackupEngineImpl::ReadFileAndComputeChecksum(
     const std::string& src, const std::shared_ptr<FileSystem>& src_fs,
     const EnvOptions& src_env_options, uint64_t size_limit,
     std::string* checksum_hex, const Temperature src_temperature) const {
   if (checksum_hex == nullptr) {
     return status_to_io_status(Status::Aborted("Checksum pointer is null"));
+  }
+  if (ShouldStopBackup()) {
+    return status_to_io_status(Status::Incomplete("Backup stopped"));
   }
   uint32_t checksum_value = 0;
   if (size_limit == 0) {
@@ -2779,7 +2803,7 @@ IOStatus BackupEngineImpl::ReadFileAndComputeChecksum(
   Slice data;
 
   do {
-    if (stop_backup_.load(std::memory_order_acquire)) {
+    if (ShouldStopBackup()) {
       return status_to_io_status(Status::Incomplete("Backup stopped"));
     }
     size_t buffer_to_read =
@@ -2825,7 +2849,7 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
     // Try to get table properties from the table reader of sst_reader
     if (!sst_reader.ReadTableProperties(&tp).ok()) {
       // FIXME (peterd): this logic is untested and seems obsolete.
-      // Try to use table properites from the initialization of sst_reader
+      // Try to use table properties from the initialization of sst_reader
       table_properties = sst_reader.GetInitTableProperties();
     } else {
       table_properties = tp.get();

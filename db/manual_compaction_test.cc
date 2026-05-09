@@ -98,7 +98,7 @@ class LogCompactionFilter : public CompactionFilter {
 
 TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
   for (int iter = 0; iter < 2; ++iter) {
-    DB* db;
+    std::unique_ptr<DB> db;
     Options options;
     if (iter == 0) {  // level compaction
       options.num_levels = 3;
@@ -128,7 +128,7 @@ TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
     delete itr;
 
     delete options.compaction_filter;
-    delete db;
+    db.reset();
     ASSERT_OK(DestroyDB(dbname_, options));
   }
 }
@@ -137,7 +137,7 @@ TEST_F(ManualCompactionTest, Test) {
   // Open database.  Disable compression since it affects the creation
   // of layers and the code below is trying to test against a very
   // specific scenario.
-  DB* db;
+  std::unique_ptr<DB> db;
   Options db_options;
   db_options.write_buffer_size = 1024;
   db_options.create_if_missing = true;
@@ -185,12 +185,12 @@ TEST_F(ManualCompactionTest, Test) {
   ASSERT_EQ(kNumKeys, num_keys) << "Bad number of keys";
 
   // close database
-  delete db;
+  db.reset();
   ASSERT_OK(DestroyDB(dbname_, Options()));
 }
 
 TEST_F(ManualCompactionTest, SkipLevel) {
-  DB* db;
+  std::unique_ptr<DB> db;
   Options options;
   options.level_compaction_dynamic_level_bytes = false;
   options.num_levels = 3;
@@ -298,7 +298,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
   }
 
   delete filter;
-  delete db;
+  db.reset();
   ASSERT_OK(DestroyDB(dbname_, options));
 }
 
