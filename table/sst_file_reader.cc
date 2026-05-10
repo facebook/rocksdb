@@ -14,6 +14,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/utilities/types_util.h"
 #include "table/get_context.h"
 #include "table/table_builder.h"
 #include "table/table_iterator.h"
@@ -270,6 +271,11 @@ std::unique_ptr<Iterator> SstFileReader::NewTableIterator() {
     return nullptr;
   }
   return std::make_unique<TableIterator>(internal_iter);
+}
+
+Status SstFileReader::ParseTableIteratorKey(const Slice& raw_table_key,
+                                            ParsedEntryInfo* parsed_key) const {
+  return ParseEntry(raw_table_key, rep_->options.comparator, parsed_key);
 }
 
 std::shared_ptr<const TableProperties> SstFileReader::GetTableProperties()
