@@ -1139,13 +1139,11 @@ def finalize_and_sanitize(src_params):
         dest_params["sync_fault_injection"] = 0
 
     # UDI now supports all operation types and all iteration directions.
-    # Only parallel compression and mmap_read remain incompatible.
+    # Only mmap_read remains incompatible.
     if dest_params.get("use_trie_index") == 1:
         # Trie UDI uses zero-copy pointers into block data, which is
         # incompatible with mmap_read.
         dest_params["mmap_read"] = 0
-        # Parallel compression is incompatible with UDI
-        dest_params["compression_parallel_threads"] = 1
         index_mode = dest_params.get("index_mode", 0)
         if index_mode >= 2:
             # kCustomDefault/kCustomOnly: the standard index is still fully
