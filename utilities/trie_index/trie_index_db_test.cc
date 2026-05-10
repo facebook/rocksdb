@@ -4984,6 +4984,86 @@ TEST_P(TrieIndexDBTest, PrefetchWithCustomIndexWrapper) {
   ASSERT_EQ(value, std::string(200, 'v'));
 }
 
+// End-to-end parallel compression test: a DB with the trie UDI factory
+// configured AND compression_opts.parallel_threads > 1 must produce
+// readable, correct SSTs in all three modes. This exercises:
+//   1. The post-builder all_support check in BlockBasedTableBuilder::Rep
+//      (TrieIndexBuilder reports SupportsParallelAddEntry == true, so
+//      parallel compression stays enabled).
+//   2. EmitBlockForParallel staging PrepareAddEntry on each custom builder.
+//   3. BGWorker calling FinishAddEntry on each custom builder in commit
+//      order, in parallel with the BG worker writing data blocks.
+//   4. The trie's parallel Prepare/Finish path producing the same trie
+//      structure as the serial AddIndexEntry path would.
+//
+// We also verify that the standard TrieIndexDBTest assertions (round-trip
+// reads, scans) hold, so any divergence between serial and parallel trie
+// construction would surface here.
+TEST_P(TrieIndexDBTest, ParallelCompressionWithTrieIndex) {
+  // Compression must be on for the parallel pipeline to actually run; with
+  // no compressor the table builder silently falls back to serial.
+  // ZLIB is preferred because it's universally linked via /usr/lib whereas
+  // Snappy / LZ4 / ZSTD depend on optional homebrew packages.
+  if (!Zlib_Supported()) {
+    fprintf(stderr, "Skipping: Zlib not linked into this build\n");
+    return;
+  }
+  options_.compression = kZlibCompression;
+  options_.compression_opts.parallel_threads = 4;
+  options_.write_buffer_size = 1 << 20;  // small buffer → multiple flushes
+
+  ASSERT_OK(OpenDB());
+
+  // Enough keys to produce many data blocks → many index entries flowing
+  // through the parallel pipeline.
+  constexpr int kNumKeys = 500;
+  for (int i = 0; i < kNumKeys; i++) {
+    char key[16];
+    snprintf(key, sizeof(key), "key_%06d", i);
+    ASSERT_OK(db_->Put(WriteOptions(), key, std::string(200, 'v')));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Standard index path: only meaningful when the standard index is
+  // populated (kStandardDefault and kCustomDefault). In kCustomOnly the
+  // standard index is an empty stub by design — reads via kBuiltin would
+  // return zero keys, which is expected, not a regression.
+  if (GetParam() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
+    ReadOptions ro = StandardIndexReadOptions();
+    auto keys = ScanAllKeys(ro);
+    ASSERT_EQ(keys.size(), static_cast<size_t>(kNumKeys));
+    for (int i = 0; i < kNumKeys; i++) {
+      char k[16];
+      snprintf(k, sizeof(k), "key_%06d", i);
+      EXPECT_EQ(keys[static_cast<size_t>(i)], k);
+    }
+  }
+
+  // Trie index path: must observe the same key set the serial-build code
+  // produced. If the parallel Finish path drifted from the serial
+  // AddIndexEntry path, we'd see missing or extra entries here.
+  {
+    ReadOptions ro = TrieIndexReadOptions();
+    auto keys = ScanAllKeys(ro);
+    ASSERT_EQ(keys.size(), static_cast<size_t>(kNumKeys));
+    for (int i = 0; i < kNumKeys; i++) {
+      char k[16];
+      snprintf(k, sizeof(k), "key_%06d", i);
+      EXPECT_EQ(keys[static_cast<size_t>(i)], k);
+    }
+  }
+
+  // Random point lookups via the trie path (the universally-valid path
+  // across all three modes).
+  for (int i : {0, 7, 123, 250, 499}) {
+    char k[16];
+    snprintf(k, sizeof(k), "key_%06d", i);
+    std::string v;
+    ASSERT_OK(db_->Get(TrieIndexReadOptions(), k, &v));
+    EXPECT_EQ(v, std::string(200, 'v'));
+  }
+}
+
 // Run all parameterized tests in all three custom UDI modes:
 // - kStandardDefault: UDI is secondary, reads require read_index
 // - kCustomDefault: UDI is primary, all reads use the trie by default

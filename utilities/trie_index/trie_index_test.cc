@@ -5736,6 +5736,174 @@ TEST_F(TrieIndexFactoryTest, AllScansExhaustedThenSeek) {
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
 }
 
+// ============================================================================
+// Parallel compression protocol tests
+// ============================================================================
+
+TEST_F(TrieIndexFactoryTest, SupportsParallelAddEntry) {
+  // The trie builder must opt into the parallel protocol so the table
+  // builder routes EmitBlockForParallel through PrepareAddEntry /
+  // FinishAddEntry instead of forcing a serial fallback.
+  IndexFactoryOptions option;
+  option.comparator = BytewiseComparator();
+  std::unique_ptr<IndexFactoryBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+  EXPECT_TRUE(builder->SupportsParallelAddEntry());
+
+  auto prep = builder->CreatePreparedAddEntry();
+  EXPECT_NE(prep, nullptr);
+}
+
+TEST_F(TrieIndexFactoryTest, ParallelMatchesSerialOutput) {
+  // Drive identical inputs through AddIndexEntry (serial) and through
+  // CreatePreparedAddEntry / PrepareAddEntry / FinishAddEntry (parallel).
+  // The two paths must produce byte-identical serialized index blocks
+  // and identical iterator behavior — otherwise parallel compression
+  // with a trie index produces silently divergent SSTs.
+  IndexFactoryOptions option;
+  option.comparator = BytewiseComparator();
+
+  // Mix of distinct user keys, same-user-key boundaries (where seqno
+  // disambiguation matters), and a final block.
+  struct Block {
+    std::string last_key;
+    std::string next_key;  // empty = last block (nullptr)
+    uint64_t offset;
+    uint64_t size;
+    SequenceNumber last_seq;
+    SequenceNumber first_seq;
+  };
+  const std::vector<Block> blocks = {
+      {"aaa", "bbb", 0, 100, 100, 90},
+      {"bbb", "bbb", 105, 100, 80, 70},  // same-user-key boundary
+      {"bbb", "ccc", 210, 100, 60, 50},
+      {"ccc", "ddd", 315, 100, 40, 30},
+      {"ddd", "", 420, 100, 20, 0},  // last block
+  };
+
+  // --- Serial build ---
+  std::unique_ptr<IndexFactoryBuilder> serial;
+  ASSERT_OK(factory_->NewBuilder(option, serial));
+  std::string scratch_serial;
+  for (const auto& b : blocks) {
+    IndexFactoryBuilder::BlockHandle h{b.offset, b.size};
+    if (!b.next_key.empty()) {
+      Slice next(b.next_key);
+      serial->AddIndexEntry(Slice(b.last_key), &next, h, &scratch_serial,
+                            EntryCtx(b.last_seq, b.first_seq));
+    } else {
+      serial->AddIndexEntry(Slice(b.last_key), nullptr, h, &scratch_serial,
+                            EntryCtx(b.last_seq, 0));
+    }
+  }
+  Slice serial_contents;
+  ASSERT_OK(serial->Finish(&serial_contents));
+
+  // --- Parallel build (Prepare on emit, Finish on writer) ---
+  std::unique_ptr<IndexFactoryBuilder> par;
+  ASSERT_OK(factory_->NewBuilder(option, par));
+  ASSERT_TRUE(par->SupportsParallelAddEntry());
+  std::vector<std::unique_ptr<IndexFactoryBuilder::PreparedAddEntry>> prepared;
+  prepared.reserve(blocks.size());
+  for (const auto& b : blocks) {
+    auto p = par->CreatePreparedAddEntry();
+    ASSERT_NE(p, nullptr);
+    if (!b.next_key.empty()) {
+      Slice next(b.next_key);
+      par->PrepareAddEntry(Slice(b.last_key), &next,
+                           EntryCtx(b.last_seq, b.first_seq), p.get());
+    } else {
+      par->PrepareAddEntry(Slice(b.last_key), nullptr, EntryCtx(b.last_seq, 0),
+                           p.get());
+    }
+    prepared.push_back(std::move(p));
+  }
+  std::string scratch_parallel;
+  for (size_t i = 0; i < blocks.size(); i++) {
+    IndexFactoryBuilder::BlockHandle h{blocks[i].offset, blocks[i].size};
+    par->FinishAddEntry(h, prepared[i].get(), &scratch_parallel,
+                        /*skip_delta_encoding=*/false);
+  }
+  Slice parallel_contents;
+  ASSERT_OK(par->Finish(&parallel_contents));
+
+  EXPECT_EQ(serial_contents.ToString(), parallel_contents.ToString());
+
+  // Verify the parallel output is also functionally correct — round-trip
+  // a few seeks through it.
+  std::unique_ptr<IndexFactoryReader> reader;
+  ASSERT_OK(factory_->NewReader(option, parallel_contents, reader));
+  ReadOptions ro;
+  auto iter = reader->NewIterator(ro);
+  IterateResult result;
+  ASSERT_OK(iter->SeekAndGetResult(Slice("aaa"), &result,
+                                   SeekCtx(kMaxSequenceNumber)));
+  EXPECT_EQ(iter->value().offset, 0u);
+  ASSERT_OK(iter->SeekAndGetResult(Slice("ddd"), &result,
+                                   SeekCtx(kMaxSequenceNumber)));
+  EXPECT_EQ(iter->value().offset, 420u);
+}
+
+TEST_F(TrieIndexFactoryTest, ParallelEstimatedSizeStaysMonotonic) {
+  // EstimatedSize() must remain monotonic under concurrent updates from
+  // FinishAddEntry on the BG worker thread. We don't actually spin a
+  // worker here; we just confirm the atomic counters are wired correctly
+  // by reading EstimatedSize between Finish calls and asserting it grows.
+  IndexFactoryOptions option;
+  option.comparator = BytewiseComparator();
+  std::unique_ptr<IndexFactoryBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  uint64_t last_size = builder->EstimatedSize();
+  EXPECT_EQ(last_size, 0u);
+
+  for (int i = 0; i < 8; i++) {
+    std::string key = "key";
+    PutFixed32(&key, i);
+    std::string next_key = "key";
+    PutFixed32(&next_key, i + 1);
+
+    auto p = builder->CreatePreparedAddEntry();
+    Slice next(next_key);
+    builder->PrepareAddEntry(Slice(key), &next, EntryCtx(100, 90), p.get());
+
+    IndexFactoryBuilder::BlockHandle h{static_cast<uint64_t>(i * 105), 100};
+    std::string scratch;
+    builder->FinishAddEntry(h, p.get(), &scratch,
+                            /*skip_delta_encoding=*/false);
+
+    const uint64_t cur_size = builder->EstimatedSize();
+    EXPECT_GT(cur_size, last_size) << "EstimatedSize should grow after Finish";
+    last_size = cur_size;
+  }
+}
+
+TEST_F(TrieIndexFactoryTest, ParallelInvalidPreparedEntrySkipped) {
+  // FinishAddEntry must safely no-op when the prepared slot wasn't
+  // populated (e.g., the table builder failed an upstream
+  // ParseInternalKey). The trie's invariants must hold: subsequent
+  // Finish must succeed and produce a usable index.
+  IndexFactoryOptions option;
+  option.comparator = BytewiseComparator();
+  std::unique_ptr<IndexFactoryBuilder> builder;
+  ASSERT_OK(factory_->NewBuilder(option, builder));
+
+  // Prepared entry never populated by PrepareAddEntry — just default-
+  // constructed via CreatePreparedAddEntry.
+  auto unfilled = builder->CreatePreparedAddEntry();
+  IndexFactoryBuilder::BlockHandle h{0, 100};
+  std::string scratch;
+  builder->FinishAddEntry(h, unfilled.get(), &scratch,
+                          /*skip_delta_encoding=*/false);
+
+  // No trie entries were committed; Finish should produce an empty index.
+  Slice contents;
+  ASSERT_OK(builder->Finish(&contents));
+  // Empty trie blob still has a small header / footer; just verify
+  // EstimatedSize reflects no committed entries.
+  EXPECT_EQ(builder->EstimatedSize(), 0u);
+}
+
 }  // namespace trie_index
 }  // namespace ROCKSDB_NAMESPACE
 

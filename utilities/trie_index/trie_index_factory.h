@@ -32,6 +32,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdlib>
 #include <memory>
 #include <string>
@@ -90,7 +91,27 @@ class TrieIndexBuilder final : public IndexFactoryBuilder {
   Status Finish(Slice* index_contents) override;
 
   // Returns an estimate of the current serialized index size.
+  // Thread safety: callable from the emit thread concurrently with
+  // FinishAddEntry() running on the BG worker; uses atomic counters.
   uint64_t EstimatedSize() const override;
+
+  // --- Parallel compression protocol ---
+  //
+  // The trie builder participates in the parallel pipeline by splitting
+  // AddIndexEntry into Prepare (emit thread, computes the separator) and
+  // Finish (write thread, attaches the now-known block handle and appends
+  // to buffered_entries_). Because FinishAddEntry runs serially on the BG
+  // worker thread (the table builder commits blocks in order), the entry
+  // buffer mutation needs no locking.
+  bool SupportsParallelAddEntry() const override { return true; }
+  std::unique_ptr<PreparedAddEntry> CreatePreparedAddEntry() override;
+  void PrepareAddEntry(const Slice& last_key_in_current_block,
+                       const Slice* first_key_in_next_block,
+                       const IndexEntryContext& context,
+                       PreparedAddEntry* out) override;
+  void FinishAddEntry(const BlockHandle& block_handle, PreparedAddEntry* entry,
+                      std::string* separator_scratch,
+                      bool skip_delta_encoding) override;
 
  private:
   const Comparator* comparator_;
@@ -127,7 +148,37 @@ class TrieIndexBuilder final : public IndexFactoryBuilder {
   };
   std::vector<BufferedEntry> buffered_entries_;
   // Running total of separator key bytes for O(1) EstimatedSize().
+  // Updated under the implicit single-writer invariants: sync path is
+  // single-threaded, parallel path mutates only on the serialized BG
+  // writer thread inside FinishAddEntry().
   uint64_t total_separator_bytes_ = 0;
+  // Mirror of total_separator_bytes_ readable from any thread. Updated
+  // alongside total_separator_bytes_ so EstimatedSize() can be called
+  // safely from the emit thread while FinishAddEntry() runs on the BG
+  // worker (parallel compression).
+  std::atomic<uint64_t> total_separator_bytes_atomic_{0};
+  std::atomic<uint64_t> num_buffered_entries_atomic_{0};
+
+  // Staged data for the parallel AddIndexEntry protocol. Populated by
+  // PrepareAddEntry on the emit thread, consumed by FinishAddEntry on
+  // the BG worker thread. The block handle is unknown when Prepare
+  // runs and is filled in by Finish.
+  struct PreparedTrieEntry : public IndexFactoryBuilder::PreparedAddEntry {
+    std::string separator_key;
+    // Real tag of last_key_in_current_block. Used as entry.tag for last
+    // blocks and for same-user-key runs.
+    uint64_t last_key_tag = 0;
+    // True if first_key_in_next_block was non-null at Prepare time.
+    bool has_next_block = false;
+    // True if last_key and first_key_in_next_block share the same user
+    // key (computed from inputs alone). Finish may upgrade this to true
+    // if FindShortestSeparator failed to shorten and the result matches
+    // the previous buffered entry's separator (a check that depends on
+    // buffer state and so must run during Finish).
+    bool same_user_key_initial = false;
+    // Set by PrepareAddEntry; FinishAddEntry skips on false.
+    bool valid = false;
+  };
 };
 
 // ============================================================================
