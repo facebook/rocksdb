@@ -130,7 +130,10 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
   // handles the last block correctly. The overhead is 8 bytes per leaf.
   must_use_separator_with_seq_ = true;
   entry.handle = handle;
-  total_separator_bytes_ += entry.separator_key.size();
+  const size_t sep_bytes = entry.separator_key.size();
+  total_separator_bytes_ += sep_bytes;
+  total_separator_bytes_atomic_.fetch_add(sep_bytes, std::memory_order_relaxed);
+  num_buffered_entries_atomic_.fetch_add(1, std::memory_order_relaxed);
   buffered_entries_.push_back(std::move(entry));
 
   return separator;
@@ -235,7 +238,108 @@ uint64_t TrieIndexBuilder::EstimatedSize() const {
   // uses ~2.5 bits per node plus the label data, rank/select tables, and block
   // handle arrays. For a rough estimate:
   // ~3 bytes per unique key byte + 16 bytes per entry for handles/metadata.
-  return total_separator_bytes_ * 3 + buffered_entries_.size() * 16;
+  //
+  // Use atomic mirrors of total_separator_bytes_ and buffered_entries_.size()
+  // so this method is safe to call from the emit thread while FinishAddEntry
+  // mutates them on the BG worker thread (parallel compression).
+  const uint64_t sep_bytes =
+      total_separator_bytes_atomic_.load(std::memory_order_relaxed);
+  const uint64_t entries =
+      num_buffered_entries_atomic_.load(std::memory_order_relaxed);
+  return sep_bytes * 3 + entries * 16;
+}
+
+// ---------------------------------------------------------------------------
+// Parallel compression protocol
+// ---------------------------------------------------------------------------
+
+std::unique_ptr<IndexFactoryBuilder::PreparedAddEntry>
+TrieIndexBuilder::CreatePreparedAddEntry() {
+  return std::make_unique<PreparedTrieEntry>();
+}
+
+void TrieIndexBuilder::PrepareAddEntry(const Slice& last_key_in_current_block,
+                                       const Slice* first_key_in_next_block,
+                                       const IndexEntryContext& context,
+                                       PreparedAddEntry* out) {
+  auto* p = static_cast<PreparedTrieEntry*>(out);
+  p->valid = false;
+  p->same_user_key_initial = false;
+  p->has_next_block = (first_key_in_next_block != nullptr);
+  p->last_key_tag = context.last_key_tag;
+
+  if (first_key_in_next_block != nullptr) {
+    // Detect same-user-key block boundary up front; this is purely a
+    // function of the inputs and so is safe to compute here.
+    p->same_user_key_initial =
+        comparator_->Compare(last_key_in_current_block,
+                             *first_key_in_next_block) == 0;
+
+    p->separator_key = last_key_in_current_block.ToString();
+    comparator_->FindShortestSeparator(&p->separator_key,
+                                       *first_key_in_next_block);
+  } else {
+    // Last block: separator is the last key itself (no shortening).
+    // Matches the same-block-as-AddIndexEntry sync path.
+    p->separator_key = last_key_in_current_block.ToString();
+  }
+
+  p->valid = true;
+}
+
+void TrieIndexBuilder::FinishAddEntry(const BlockHandle& block_handle,
+                                      PreparedAddEntry* entry,
+                                      std::string* /*separator_scratch*/,
+                                      bool /*skip_delta_encoding*/) {
+  auto* p = static_cast<PreparedTrieEntry*>(entry);
+  if (!p->valid) {
+    // PrepareAddEntry didn't populate this slot (e.g., due to an upstream
+    // ParseInternalKey failure). Skip.
+    return;
+  }
+
+  // Recheck the buffer-state-dependent branch of the same-user-key
+  // detection. Now that we run on the BG writer thread in commit order,
+  // buffered_entries_.back() is the immediately preceding block's entry.
+  bool same_user_key = p->same_user_key_initial;
+  if (!same_user_key && !buffered_entries_.empty() &&
+      buffered_entries_.back().separator_key == p->separator_key) {
+    same_user_key = true;
+  }
+  if (!p->has_next_block && !buffered_entries_.empty() &&
+      comparator_->Compare(buffered_entries_.back().separator_key,
+                           p->separator_key) == 0) {
+    same_user_key = true;
+  }
+
+  BufferedEntry be;
+  be.separator_key = std::move(p->separator_key);
+  if (same_user_key) {
+    // Same-user-key boundary: store the real tag for correct block
+    // selection within the overflow run.
+    be.tag = p->last_key_tag;
+  } else if (!p->has_next_block) {
+    // Last block: store the real tag (matches the sync path).
+    be.tag = p->last_key_tag;
+  } else {
+    // Intermediate non-boundary separator: 0 sentinel meaning "no
+    // seqno correction needed" (matches the sync path).
+    be.tag = 0;
+  }
+  be.handle.offset = block_handle.offset;
+  be.handle.size = block_handle.size;
+
+  // Seqno encoding must always be enabled (matches the sync path).
+  must_use_separator_with_seq_ = true;
+  const size_t sep_bytes = be.separator_key.size();
+  total_separator_bytes_ += sep_bytes;
+  total_separator_bytes_atomic_.fetch_add(sep_bytes, std::memory_order_relaxed);
+  num_buffered_entries_atomic_.fetch_add(1, std::memory_order_relaxed);
+  buffered_entries_.push_back(std::move(be));
+
+  // Reset valid so the same prepared slot can be reused (the table
+  // builder rotates BlockReps in a ring buffer).
+  p->valid = false;
 }
 
 TrieIndexIterator::TrieIndexIterator(const LoudsTrie* trie,
