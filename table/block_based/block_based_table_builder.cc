@@ -294,6 +294,15 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
     CompressionType compression_type = kNoCompression;
     std::unique_ptr<IndexFactoryBuilder::PreparedAddEntry> prepared_index_entry;
     bool index_entry_prepared = false;
+
+    // Per-custom-index staged entries (one per Rep::custom_indexes element,
+    // in matching order). Populated only when every custom builder reports
+    // SupportsParallelAddEntry() == true; empty otherwise. The post-builder
+    // parallel-support check in Rep::Rep guarantees that if this vector is
+    // non-empty here, the custom builders accept the parallel protocol.
+    std::vector<std::unique_ptr<IndexFactoryBuilder::PreparedAddEntry>>
+        custom_prepared_entries;
+    bool custom_entries_prepared = false;
   };
 
   // Ring buffer of emitted blocks that may or may not yet be compressed.
@@ -1393,16 +1402,13 @@ struct BlockBasedTableBuilder::Rep {
         compression_parallel_threads = recommended;
       }
     }
-    // Hard structural constraints override any recommendation. The
-    // user_defined_index_factory disable only applies when index_mode
-    // actually causes a custom index to be built; kStandardOnly behaves
-    // exactly like "no factory configured" by contract.
+    // Hard structural constraints override any recommendation. Note that
+    // user-defined-index compatibility is a per-implementation property
+    // (each IndexFactoryBuilder reports SupportsParallelAddEntry()), so
+    // that check is deferred to AFTER builder construction below.
     if ((table_opt.partition_filters &&
          !table_opt.decouple_partitioned_filters) ||
-        embedded_blob_options ||
-        (table_options.index_mode >=
-             BlockBasedTableOptions::IndexMode::kStandardDefault &&
-         table_options.user_defined_index_factory)) {
+        embedded_blob_options) {
       // Embedded-blob SSTs write blob records inline on the emit thread, so
       // they require single-threaded writes for correct, race-free ordering of
       // blob appends and data-block writes.
@@ -1453,28 +1459,10 @@ struct BlockBasedTableBuilder::Rep {
     if (table_options.index_mode >=
             BlockBasedTableOptions::IndexMode::kStandardDefault &&
         table_options.user_defined_index_factory != nullptr) {
-      if (tbo.moptions.compression_opts.parallel_threads > 1 ||
-          tbo.moptions.bottommost_compression_opts.parallel_threads > 1) {
-        // Parallel compression with a custom IndexFactory is not yet
-        // supported. The IndexFactoryBuilder interface exposes
-        // SupportsParallelAddEntry/PrepareAddEntry/FinishAddEntry hooks
-        // that custom implementations could override, but the table
-        // builder's parallel pipeline currently:
-        //   - has only one prepared_index_entry slot per BlockRep
-        //     (ParallelCompressionRep::BlockRep), shared by the built-in
-        //     index path; there is no per-custom-index slot
-        //   - calls PrepareAddEntry / FinishAddEntry only on the built-in
-        //     index_builder (see EmitBlockForParallel / BGWorker)
-        // Wiring custom indexes into the parallel pipeline requires
-        // per-builder slots and ordering work and will be addressed in
-        // a follow-up. Until then this combination is rejected.
-        SetStatus(Status::InvalidArgument(
-            "user_defined_index_factory is not supported with parallel "
-            "compression"));
-      } else if (table_options.index_mode >=
-                     BlockBasedTableOptions::IndexMode::kCustomDefault &&
-                 table_options.index_type ==
-                     BlockBasedTableOptions::kTwoLevelIndexSearch) {
+      if (table_options.index_mode >=
+              BlockBasedTableOptions::IndexMode::kCustomDefault &&
+          table_options.index_type ==
+              BlockBasedTableOptions::kTwoLevelIndexSearch) {
         SetStatus(Status::InvalidArgument(
             "index_mode kCustomDefault/kCustomOnly is incompatible with "
             "partitioned index (kTwoLevelIndexSearch)"));
@@ -1531,6 +1519,32 @@ struct BlockBasedTableBuilder::Rep {
         SetStatus(s);
       } else if (ci.builder != nullptr) {
         custom_indexes.push_back(std::move(ci));
+      }
+    }
+
+    // --- Decide final compression_parallel_threads based on builder support
+    // ---
+    //
+    // Whether the parallel AddEntry protocol is usable is a per-builder
+    // property (see IndexFactoryBuilder::SupportsParallelAddEntry()). If any
+    // builder we just created doesn't support it, fall back to single-
+    // threaded compression for the whole SST. We don't surface this as an
+    // error: the same silent fallback is what partition_filters does above.
+    if (compression_parallel_threads > 1) {
+      bool all_support = true;
+      if (index_builder && !index_builder->SupportsParallelAddEntry()) {
+        all_support = false;
+      }
+      if (all_support) {
+        for (const auto& ci : custom_indexes) {
+          if (!ci.builder->SupportsParallelAddEntry()) {
+            all_support = false;
+            break;
+          }
+        }
+      }
+      if (!all_support) {
+        compression_parallel_threads = 1;
       }
     }
 
@@ -2007,20 +2021,50 @@ void BlockBasedTableBuilder::EmitBlockForParallel(
   pc_rep.estimated_inflight_size.FetchAddRelaxed(uncompressed.size() +
                                                  kBlockTrailerSize);
   std::swap(uncompressed, block_rep->uncompressed);
-  // Parallel compression with a custom IndexFactory is rejected at
-  // construction (see Rep::Rep validation), and kCustomOnly mode forces
-  // compression_parallel_threads=1, so parallel compression always runs
-  // with a built-in index_builder present.
-  assert(r->index_builder);
-  // Built-in fast path: pass internal keys straight through, skipping the
+
+  // Stage the built-in index entry (when not kCustomOnly).
+  // Fast path: pass internal keys straight through, skipping the
   // ParseInternalKey + repack-into-context dance the public PrepareAddEntry
-  // forces. This is safe because BuiltinIndexFactoryBuilder is the only
-  // builder that runs in the parallel pipeline today.
-  static_cast<BuiltinIndexFactoryBuilder*>(r->index_builder.get())
-      ->PrepareAddEntryDirect(last_key_in_current_block,
-                              first_key_in_next_block,
-                              block_rep->prepared_index_entry.get());
-  block_rep->index_entry_prepared = true;
+  // forces.
+  if (r->index_builder) {
+    static_cast<BuiltinIndexFactoryBuilder*>(r->index_builder.get())
+        ->PrepareAddEntryDirect(last_key_in_current_block,
+                                first_key_in_next_block,
+                                block_rep->prepared_index_entry.get());
+    block_rep->index_entry_prepared = true;
+  }
+
+  // Stage entries for any custom indexes that opted into the parallel
+  // protocol. The construction-time check in Rep::Rep guarantees every
+  // custom builder here supports SupportsParallelAddEntry(), so we just
+  // dispatch — no per-call capability check needed in the hot path.
+  if (!r->custom_indexes.empty()) {
+    ParsedInternalKey last_pkey;
+    if (ParseInternalKey(last_key_in_current_block, &last_pkey,
+                         /*log_err_key=*/false)
+            .ok()) {
+      IndexFactoryBuilder::IndexEntryContext ctx;
+      ctx.last_key_tag =
+          PackSequenceAndType(last_pkey.sequence, last_pkey.type);
+      const Slice* next_user = nullptr;
+      ParsedInternalKey next_pkey;
+      if (first_key_in_next_block != nullptr &&
+          ParseInternalKey(*first_key_in_next_block, &next_pkey,
+                           /*log_err_key=*/false)
+              .ok()) {
+        next_user = &next_pkey.user_key;
+        ctx.first_key_tag =
+            PackSequenceAndType(next_pkey.sequence, next_pkey.type);
+      }
+      for (size_t i = 0; i < r->custom_indexes.size(); i++) {
+        r->custom_indexes[i].builder->PrepareAddEntry(
+            last_pkey.user_key, next_user, ctx,
+            block_rep->custom_prepared_entries[i].get());
+      }
+      block_rep->custom_entries_prepared = true;
+    }
+  }
+
   block_rep->compressed.Reset();
   block_rep->compression_type = kNoCompression;
 
@@ -2168,15 +2212,25 @@ void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
         rep_->props.data_size = rep_->get_offset();
         rep_->props.uncompressed_data_size += block_rep->uncompressed.size();
 
-        // Guard: index_builder is null when index_mode=kCustomOnly.
-        // Parallel compression is rejected with custom indexes, so this
-        // should be unreachable, but guard defensively.
+        // BGWorker is the only thread that processes blocks in write order
+        // here, so it's safe to call FinishAddEntry on each builder using
+        // the per-builder shared scratch buffer (no concurrent writers).
+        IndexFactoryBuilder::BlockHandle pub_handle{
+            rep_->pending_handle.offset(), rep_->pending_handle.size()};
+        // Built-in index (null only in kCustomOnly mode).
         if (rep_->index_builder && block_rep->index_entry_prepared) {
-          IndexFactoryBuilder::BlockHandle pub_handle{
-              rep_->pending_handle.offset(), rep_->pending_handle.size()};
           rep_->index_builder->FinishAddEntry(
               pub_handle, block_rep->prepared_index_entry.get(),
               &rep_->index_separator_scratch, skip_delta_encoding);
+        }
+        // Custom indexes that opted into the parallel protocol.
+        if (block_rep->custom_entries_prepared) {
+          for (size_t i = 0; i < rep_->custom_indexes.size(); i++) {
+            rep_->custom_indexes[i].builder->FinishAddEntry(
+                pub_handle, block_rep->custom_prepared_entries[i].get(),
+                &rep_->custom_indexes[i].separator_scratch,
+                /*skip_delta_encoding=*/false);
+          }
         }
       }
     };
@@ -2514,13 +2568,30 @@ void BlockBasedTableBuilder::MaybeStartParallelCompression() {
   rep_->pc_rep = std::make_unique<ParallelCompressionRep>(
       rep_->compression_parallel_threads);
   auto& pc_rep = *rep_->pc_rep;
-  // Guard: index_builder is null when index_mode=kCustomOnly. Parallel
-  // compression is rejected with custom indexes, so this should be
-  // unreachable, but guard defensively.
+  // index_builder is null only when index_mode == kCustomOnly. The
+  // post-builder check in Rep::Rep guarantees that path always forces
+  // compression_parallel_threads == 1 if any custom builder doesn't
+  // support the parallel protocol, so reaching this point with
+  // index_builder == nullptr means a kCustomOnly factory that opted in
+  // to parallel — supported below via the custom_prepared_entries path.
   if (rep_->index_builder) {
     for (uint32_t i = 0; i <= pc_rep.ring_buffer_mask; i++) {
       pc_rep.ring_buffer[i].prepared_index_entry =
           rep_->index_builder->CreatePreparedAddEntry();
+    }
+  }
+  // Initialize per-custom-index prepared entries when custom indexes exist.
+  // Construction-time validation (post-builder check in Rep::Rep) ensures
+  // that if we get here with custom_indexes non-empty, every custom builder
+  // supports the parallel protocol.
+  if (!rep_->custom_indexes.empty()) {
+    for (uint32_t i = 0; i <= pc_rep.ring_buffer_mask; i++) {
+      auto& slot = pc_rep.ring_buffer[i];
+      slot.custom_prepared_entries.reserve(rep_->custom_indexes.size());
+      for (auto& ci : rep_->custom_indexes) {
+        slot.custom_prepared_entries.emplace_back(
+            ci.builder->CreatePreparedAddEntry());
+      }
     }
   }
   pc_rep.worker_threads.reserve(pc_rep.num_worker_threads);
