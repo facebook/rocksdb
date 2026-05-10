@@ -200,6 +200,20 @@ bool VersionEdit::EncodeTo(std::string* dst,
     PutLengthPrefixedSlice(dst, encoded);
   }
 
+  for (const auto& external_log_file_addition : external_log_file_additions_) {
+    PutVarint32(dst, kExternalLogFileAddition);
+    std::string encoded;
+    external_log_file_addition.EncodeTo(&encoded);
+    PutLengthPrefixedSlice(dst, encoded);
+  }
+
+  for (const auto& external_log_file_deletion : external_log_file_deletions_) {
+    PutVarint32(dst, kExternalLogFileDeletion);
+    std::string encoded;
+    external_log_file_deletion.EncodeTo(&encoded);
+    PutLengthPrefixedSlice(dst, encoded);
+  }
+
   // 0 is default and does not need to be explicitly written
   if (column_family_ != 0) {
     PutVarint32(dst, kColumnFamily, column_family_);
@@ -827,6 +841,40 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
+      case kExternalLogFileAddition: {
+        Slice encoded;
+        if (!GetLengthPrefixedSlice(&input, &encoded)) {
+          msg = "ExternalLogFileAddition not prefixed by length";
+          break;
+        }
+
+        ExternalLogFileAddition external_log_file_addition;
+        const Status s = external_log_file_addition.DecodeFrom(&encoded);
+        if (!s.ok()) {
+          return s;
+        }
+
+        AddExternalLogFile(std::move(external_log_file_addition));
+        break;
+      }
+
+      case kExternalLogFileDeletion: {
+        Slice encoded;
+        if (!GetLengthPrefixedSlice(&input, &encoded)) {
+          msg = "ExternalLogFileDeletion not prefixed by length";
+          break;
+        }
+
+        ExternalLogFileDeletion external_log_file_deletion;
+        const Status s = external_log_file_deletion.DecodeFrom(&encoded);
+        if (!s.ok()) {
+          return s;
+        }
+
+        DeleteExternalLogFile(std::move(external_log_file_deletion));
+        break;
+      }
+
       case kColumnFamily:
         if (!GetVarint32(&input, &column_family_)) {
           if (!msg) {
@@ -1060,6 +1108,16 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append(wal_deletion_.DebugString());
   }
 
+  for (const auto& external_log_file_addition : external_log_file_additions_) {
+    r.append("\n  ExternalLogFileAddition: ");
+    r.append(external_log_file_addition.DebugString());
+  }
+
+  for (const auto& external_log_file_deletion : external_log_file_deletions_) {
+    r.append("\n  ExternalLogFileDeletion: ");
+    r.append(external_log_file_deletion.DebugString());
+  }
+
   r.append("\n  ColumnFamily: ");
   AppendNumberTo(&r, column_family_);
   if (is_column_family_add_) {
@@ -1220,6 +1278,36 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
     jw.StartObject();
     jw << wal_deletion_;
     jw.EndObject();
+  }
+
+  if (!external_log_file_additions_.empty()) {
+    jw << "ExternalLogFileAdditions";
+
+    jw.StartArray();
+
+    for (const auto& external_log_file_addition :
+         external_log_file_additions_) {
+      jw.StartArrayedObject();
+      jw << external_log_file_addition;
+      jw.EndArrayedObject();
+    }
+
+    jw.EndArray();
+  }
+
+  if (!external_log_file_deletions_.empty()) {
+    jw << "ExternalLogFileDeletions";
+
+    jw.StartArray();
+
+    for (const auto& external_log_file_deletion :
+         external_log_file_deletions_) {
+      jw.StartArrayedObject();
+      jw << external_log_file_deletion;
+      jw.EndArrayedObject();
+    }
+
+    jw.EndArray();
   }
 
   jw << "ColumnFamily" << column_family_;

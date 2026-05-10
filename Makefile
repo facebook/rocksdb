@@ -1606,6 +1606,9 @@ db_write_test: $(OBJ_DIR)/db/db_write_test.o $(TEST_LIBRARY) $(LIBRARY)
 error_handler_fs_test: $(OBJ_DIR)/db/error_handler_fs_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+external_log_file_test: $(OBJ_DIR)/db/external_log_file_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 external_sst_file_basic_test: $(OBJ_DIR)/db/external_sst_file_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 

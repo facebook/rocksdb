@@ -76,6 +76,8 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/error_handler.cc",
         "db/event_helpers.cc",
         "db/experimental.cc",
+        "db/external_log_file_edit.cc",
+        "db/external_log_file_impl.cc",
         "db/external_sst_file_ingestion_job.cc",
         "db/file_indexer.cc",
         "db/flush_job.cc",
@@ -5142,6 +5144,12 @@ cpp_unittest_wrapper(name="error_handler_fs_test",
 
 cpp_unittest_wrapper(name="event_logger_test",
             srcs=["logging/event_logger_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="external_log_file_test",
+            srcs=["db/external_log_file_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
