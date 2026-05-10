@@ -168,11 +168,8 @@ class PartitionedIndexFactory : public IndexFactory {
 
 // ---------------------------------------------------------------------------
 // Helper: dispatch on BlockBasedTableOptions::IndexType to construct the
-// appropriate built-in index factory and call NewBuilder() on it.
-//
-// Centralizes the index_type → factory switch that the table builder used
-// to perform inline. Keeps that knowledge next to the factory definitions
-// rather than scattered in BlockBasedTableBuilder::Rep::Rep().
+// matching built-in factory and call NewBuilder() on it. Co-locates the
+// dispatch with the factory definitions.
 // ---------------------------------------------------------------------------
 Status NewBuiltinIndexFactoryBuilder(
     BlockBasedTableOptions::IndexType index_type,
@@ -245,23 +242,19 @@ class BuiltinIndexFactoryBuilder : public IndexFactoryBuilder {
   // encoding assumption. Must be called before AddIndexEntry.
   void SetSkipDeltaEncoding(bool skip) { skip_delta_encoding_ = skip; }
 
-  // Fast path for when no user-key translation is needed. Passes internal
-  // keys directly to the underlying IndexBuilder, avoiding the decompose-
-  // recompose overhead of the public AddIndexEntry (which converts user
-  // keys back to internal keys). Used by ForwardAddIndexEntryToAll when
-  // there are no custom indexes.
+  // Synchronous fast path: pass internal keys straight through to the
+  // underlying IndexBuilder. Avoids the decompose/recompose overhead of
+  // the public AddIndexEntry (which works in user-key form).
   Slice AddIndexEntryDirect(const Slice& last_internal_key,
                             const Slice* first_internal_key_next,
                             const ::ROCKSDB_NAMESPACE::BlockHandle& handle,
                             std::string* separator_scratch,
                             bool skip_delta_encoding);
 
-  // Parallel-compression fast path counterpart to AddIndexEntryDirect.
-  // Stages a prepared index entry directly from internal keys, skipping
-  // the parse-and-repack roundtrip the public PrepareAddEntry forces
-  // when only user keys + context tags are available. Caller must later
-  // invoke FinishAddEntry() (with the resolved BlockHandle) to commit
-  // the entry.
+  // Parallel fast path: stages a prepared entry from internal keys
+  // directly, skipping the parse-and-repack the public PrepareAddEntry
+  // performs from user keys + context tags. Caller must later invoke
+  // FinishAddEntry() with the resolved BlockHandle to commit the entry.
   void PrepareAddEntryDirect(const Slice& last_internal_key,
                              const Slice* first_internal_key_next,
                              PreparedAddEntry* out);
