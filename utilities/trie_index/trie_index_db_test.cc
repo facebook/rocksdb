@@ -218,7 +218,7 @@ class TrieIndexDBTest
   ReadOptions TrieIndexReadOptions() const {
     ReadOptions ro;
     if (!IsPrimaryMode()) {
-      ro.read_index = ReadOptions::ReadIndex::kCustom;
+      ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
     }
     return ro;
   }
@@ -1535,7 +1535,7 @@ TEST_P(TrieIndexDBTest,
   };
 
   const ReadOptions::ReadIndex read_indices[] = {
-      ReadOptions::ReadIndex::kDefault, ReadOptions::ReadIndex::kCustom};
+      ReadOptions::ReadIndex::kDefault, ReadOptions::ReadIndex::kPreferCustom};
   for (const auto read_index : read_indices) {
     SCOPED_TRACE(read_index == ReadOptions::ReadIndex::kDefault
                      ? "builtin index"
@@ -1597,7 +1597,7 @@ TEST_P(TrieIndexDBTest, AutoRefreshSnapshotNextAcrossSameUserKeyBoundaries) {
   std_ro.allow_unprepared_value = true;
 
   ReadOptions trie_ro = std_ro;
-  trie_ro.read_index = ReadOptions::ReadIndex::kCustom;
+  trie_ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
 
   std::unique_ptr<Iterator> std_iter(db_->NewIterator(std_ro));
   std::unique_ptr<Iterator> trie_iter(db_->NewIterator(trie_ro));
@@ -1691,7 +1691,7 @@ TEST_P(TrieIndexDBTest,
   std_ro.allow_unprepared_value = true;
 
   ReadOptions trie_ro = std_ro;
-  trie_ro.read_index = ReadOptions::ReadIndex::kCustom;
+  trie_ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
 
   std::unique_ptr<Iterator> std_iter(db_->NewIterator(std_ro));
   std::unique_ptr<Iterator> trie_iter(db_->NewIterator(trie_ro));
@@ -1789,7 +1789,7 @@ TEST_P(TrieIndexDBTest,
     ro.auto_refresh_iterator_with_snapshot = true;
     ro.table_filter = sqfc_factory->GetTableFilterForRangeQuery(lb, ub);
     if (use_trie) {
-      ro.read_index = ReadOptions::ReadIndex::kCustom;
+      ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
     }
     if (use_coalescing) {
       return db_->NewCoalescingIterator(ro, {db_->DefaultColumnFamily()});
@@ -5122,7 +5122,7 @@ TEST_F(TrieIndexDBTest, ParallelCompressionWithHashStandardIndexAndTrieUdi) {
   // Trie path.
   {
     ReadOptions ro;
-    ro.read_index = ReadOptions::ReadIndex::kCustom;
+    ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
     auto keys = ScanAllKeys(ro);
     ASSERT_EQ(keys.size(), static_cast<size_t>(kNumKeys));
   }
@@ -5136,7 +5136,7 @@ TEST_F(TrieIndexDBTest, ParallelCompressionWithHashStandardIndexAndTrieUdi) {
     ASSERT_OK(db_->Get(ro_std, k, &v));
     EXPECT_EQ(v, std::string(200, 'v'));
     ReadOptions ro_trie;
-    ro_trie.read_index = ReadOptions::ReadIndex::kCustom;
+    ro_trie.read_index = ReadOptions::ReadIndex::kPreferCustom;
     ASSERT_OK(db_->Get(ro_trie, k, &v));
     EXPECT_EQ(v, std::string(200, 'v'));
   }
