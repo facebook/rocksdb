@@ -152,10 +152,11 @@ class IndexFactoryBuilder {
 
   // Returns the estimated size in bytes of the index built so far.
   // Used by BlockBasedTableBuilder for SST file size estimation.
-  // Thread safety: for built-in indexes, may be called concurrently from
-  // the emit thread. Custom IndexFactory implementations are single-
-  // threaded (parallel compression disabled), so concurrency is not a
-  // concern.
+  // Thread safety: may be called concurrently from the emit thread while
+  // the BGWorker thread invokes FinishAddEntry() (when parallel
+  // compression is active). Implementations that opt into parallel
+  // (see SupportsParallelAddEntry) must keep this safe under that
+  // concurrency.
   virtual uint64_t EstimatedSize() const = 0;
 
   // =========================================================================
@@ -200,9 +201,17 @@ class IndexFactoryBuilder {
   //   Phase 1 (emit thread): PrepareAddEntry — records keys + separator
   //   Phase 2 (write thread): FinishAddEntry — records the block handle
   //
-  // Custom implementations that don't support parallel compression leave
-  // SupportsParallelAddEntry() returning false. The table builder will
-  // use single-threaded AddIndexEntry instead.
+  // Whether parallel compression is usable is a per-implementation choice.
+  // An implementation that overrides SupportsParallelAddEntry() to return
+  // true must also implement CreatePreparedAddEntry / PrepareAddEntry /
+  // FinishAddEntry consistently. Implementations that leave the default
+  // (false) keep the single-threaded AddIndexEntry path.
+  //
+  // The table builder enables parallel compression for an SST only when
+  // every configured index builder (built-in plus any custom factory)
+  // reports SupportsParallelAddEntry() == true. If any builder returns
+  // false the entire SST falls back to single-threaded compression — there
+  // is no per-builder mixing of parallel and serial paths within one SST.
 
   struct PreparedAddEntry {
     virtual ~PreparedAddEntry() = default;
