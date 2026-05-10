@@ -269,8 +269,9 @@ void TrieIndexBuilder::PrepareAddEntry(const Slice& last_key_in_current_block,
   p->last_key_tag = context.last_key_tag;
 
   if (first_key_in_next_block != nullptr) {
-    // Detect same-user-key block boundary up front; this is purely a
-    // function of the inputs and so is safe to compute here.
+    // Same-user-key boundary detection from inputs alone. The buffer-
+    // state-dependent half of the check runs in FinishAddEntry, where
+    // back() is the immediately preceding committed entry.
     p->same_user_key_initial =
         comparator_->Compare(last_key_in_current_block,
                              *first_key_in_next_block) == 0;
@@ -279,8 +280,7 @@ void TrieIndexBuilder::PrepareAddEntry(const Slice& last_key_in_current_block,
     comparator_->FindShortestSeparator(&p->separator_key,
                                        *first_key_in_next_block);
   } else {
-    // Last block: separator is the last key itself (no shortening).
-    // Matches the same-block-as-AddIndexEntry sync path.
+    // Last block: store the last key itself (no shortening).
     p->separator_key = last_key_in_current_block.ToString();
   }
 
@@ -315,21 +315,21 @@ void TrieIndexBuilder::FinishAddEntry(const BlockHandle& block_handle,
   BufferedEntry be;
   be.separator_key = std::move(p->separator_key);
   if (same_user_key) {
-    // Same-user-key boundary: store the real tag for correct block
-    // selection within the overflow run.
+    // Same-user-key run: real tag distinguishes blocks within the run.
     be.tag = p->last_key_tag;
   } else if (!p->has_next_block) {
-    // Last block: store the real tag (matches the sync path).
+    // Last block: real tag covers any post-seek correction by seqno.
     be.tag = p->last_key_tag;
   } else {
-    // Intermediate non-boundary separator: 0 sentinel meaning "no
-    // seqno correction needed" (matches the sync path).
+    // Distinct-user-key separator: 0 sentinel — no seqno correction
+    // needed because the separator already disambiguates blocks.
     be.tag = 0;
   }
   be.handle.offset = block_handle.offset;
   be.handle.size = block_handle.size;
 
-  // Seqno encoding must always be enabled (matches the sync path).
+  // Always emit the seqno side-table so Finish()'s post-seek correction
+  // can disambiguate the last block (and any same-user-key runs).
   must_use_separator_with_seq_ = true;
   const size_t sep_bytes = be.separator_key.size();
   total_separator_bytes_ += sep_bytes;

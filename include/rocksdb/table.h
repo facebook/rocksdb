@@ -529,12 +529,12 @@ struct BlockBasedTableOptions {
 
   // EXPERIMENTAL
   //
-  // If non-nullptr, use the specified factory to build user-defined index.
-  // This allows users to define their own index format and build the index
-  // during table building.
-  //
-  // NOTE: IndexFactory currently disables parallel compression
-  // (CompressionOptions::parallel_threads sanitized to 1).
+  // If non-nullptr, build a custom index using this factory in addition to
+  // (or instead of) the standard index, controlled by index_mode below.
+  // Parallel compression is supported per-builder: see
+  // IndexFactoryBuilder::SupportsParallelAddEntry. If any configured
+  // builder doesn't opt in, the table builder falls back to single-
+  // threaded compression for the SST.
   std::shared_ptr<IndexFactory> user_defined_index_factory = nullptr;
 
   // EXPERIMENTAL
@@ -584,7 +584,6 @@ struct BlockBasedTableOptions {
   // Incompatible with:
   //   - Partitioned index (kTwoLevelIndexSearch) in kCustomDefault/kCustomOnly
   //   - Partitioned filters in kCustomDefault/kCustomOnly
-  //   - Parallel compression in any mode that uses a custom index
   enum class IndexMode {
     kStandardOnly = 0,
     kStandardDefault = 1,

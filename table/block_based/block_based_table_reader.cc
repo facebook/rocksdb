@@ -1342,9 +1342,10 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
         s = Status::Corruption(s.ToString(), rep_->file->file_name());
         return s;
       } else {
-        // kStandardDefault or kStandardOnly: the UDI is optional. When the
-        // block is absent the standard index handles all reads.  Log a warning
-        // so operators know they have pre-UDI SSTs that need compaction.
+        // kStandardDefault: the custom index is optional. Fall back to
+        // the standard index for this SST and log a warning so operators
+        // can identify SSTs missing the custom block (e.g., still pending
+        // compaction after enabling the factory).
         ROCKS_LOG_WARN(rep_->ioptions.logger,
                        "Failed to find the UDI block %s in file %s; %s",
                        udi_name.c_str(), rep_->file->file_name().c_str(),
