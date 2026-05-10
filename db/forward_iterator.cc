@@ -13,6 +13,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
+#include "db/iterator_mutable_options.h"
 #include "db/job_context.h"
 #include "db/range_del_aggregator.h"
 #include "db/range_tombstone_fragmenter.h"
@@ -195,6 +196,16 @@ class ForwardLevelIterator : public InternalIterator {
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
            file_iter_->IsValuePinned();
   }
+  Status PinCurrentKeyValue(PinnedIterKeyValue* out) override {
+    if (out == nullptr) {
+      return Status::InvalidArgument("PinnedIterKeyValue is nullptr");
+    }
+    out->Reset();
+    if (!valid_) {
+      return Status::InvalidArgument("Iterator is not valid");
+    }
+    return file_iter_->PinCurrentKeyValue(out);
+  }
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     pinned_iters_mgr_ = pinned_iters_mgr;
     if (file_iter_) {
@@ -361,6 +372,13 @@ bool ForwardIterator::IsOverUpperBound(const Slice& internal_key) const {
            cfd_->internal_comparator().user_comparator()->Compare(
                ExtractUserKey(internal_key),
                *read_options_.iterate_upper_bound) < 0);
+}
+
+void ForwardIterator::InvalidateCurrentPosition() {
+  current_ = nullptr;
+  valid_ = false;
+  current_over_upper_bound_ = false;
+  is_prev_set_ = false;
 }
 
 void ForwardIterator::Seek(const Slice& internal_key) {
@@ -657,6 +675,31 @@ Status ForwardIterator::GetProperty(std::string prop_name, std::string* prop) {
   return Status::InvalidArgument("Unrecognized property: " + prop_name);
 }
 
+Status ForwardIterator::SetMutableOptions(
+    const IteratorMutableOptions& options) {
+  Status s = ValidateIteratorMutableOptions(
+      options, cfd_ != nullptr ? cfd_->initial_cf_options().table_factory.get()
+                               : nullptr);
+  if (!s.ok()) {
+    return s;
+  }
+  ApplyIteratorMutableOptions(options, &read_options_.iterator_mutable_options);
+  if (sv_ != nullptr) {
+    RebuildIterators(false /* refresh_sv */);
+  }
+  InvalidateCurrentPosition();
+  return Status::OK();
+}
+
+Status ForwardIterator::GetMutableOptions(
+    IteratorMutableOptions* options) const {
+  if (options == nullptr) {
+    return Status::InvalidArgument("IteratorMutableOptions is nullptr");
+  }
+  *options = read_options_.iterator_mutable_options;
+  return Status::OK();
+}
+
 void ForwardIterator::SetPinnedItersMgr(
     PinnedIteratorsManager* pinned_iters_mgr) {
   pinned_iters_mgr_ = pinned_iters_mgr;
@@ -699,6 +742,17 @@ bool ForwardIterator::IsKeyPinned() const {
 bool ForwardIterator::IsValuePinned() const {
   return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
          current_->IsValuePinned();
+}
+
+Status ForwardIterator::PinCurrentKeyValue(PinnedIterKeyValue* out) {
+  if (out == nullptr) {
+    return Status::InvalidArgument("PinnedIterKeyValue is nullptr");
+  }
+  out->Reset();
+  if (!valid_ || current_ == nullptr) {
+    return Status::InvalidArgument("Iterator is not valid");
+  }
+  return current_->PinCurrentKeyValue(out);
 }
 
 void ForwardIterator::RebuildIterators(bool refresh_sv) {

@@ -1105,6 +1105,20 @@ class LevelIterator final : public InternalIterator {
            file_iter_.iter() && file_iter_.IsValuePinned();
   }
 
+  Status PinCurrentKeyValue(PinnedIterKeyValue* out) override {
+    if (out == nullptr) {
+      return Status::InvalidArgument("PinnedIterKeyValue is nullptr");
+    }
+    out->Reset();
+    if (to_return_sentinel_) {
+      return Status::NotSupported("Current entry is a file boundary sentinel");
+    }
+    if (!Valid()) {
+      return Status::InvalidArgument("Iterator is not valid");
+    }
+    return file_iter_.PinCurrentKeyValue(out);
+  }
+
   bool IsDeleteRangeSentinelKey() const override { return to_return_sentinel_; }
 
   void SetRangeDelReadSeqno(SequenceNumber read_seq) override {

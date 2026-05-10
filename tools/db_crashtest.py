@@ -496,6 +496,8 @@ default_params = {
     # TODO(jaykorean): Change to lambda: random.choice([0, 1]) after addressing all remote compaction failures
     "remote_compaction_failure_fall_back_to_local": 1,
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
+    "use_retained_block_buffer_provider": lambda: random.choice([0, 0, 0, 1]),
+    "test_iterator_pin_current_one_in": lambda: random.choice([0, 4, 16, 100]),
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
     "min_tombstones_for_range_conversion": lambda: random.choice([0, 2, 2, 4, 16]),

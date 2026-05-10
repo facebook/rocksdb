@@ -11,6 +11,7 @@
 
 #include <cinttypes>
 #include <cstdint>
+#include <cstring>
 #include <string>
 
 #include "block_fetcher.h"
@@ -614,6 +615,54 @@ inline uint32_t ModifyChecksumForLastByte(uint32_t checksum, char last_byte) {
 }
 }  // namespace
 
+Status AllocateOwnedBlockContents(
+    size_t allocation_size, size_t data_size, MemoryAllocator* allocator,
+    RetainedBlockBufferProvider* block_buffer_provider,
+    BlockContents* out_contents) {
+  assert(out_contents != nullptr);
+  assert(data_size <= allocation_size);
+
+  if (block_buffer_provider != nullptr) {
+    RetainedBlockBufferProvider::Lease lease;
+    Status s = block_buffer_provider->Allocate(allocation_size, 1, &lease);
+    if (!s.ok()) {
+      return s;
+    }
+    if (lease.data == nullptr || lease.size < allocation_size ||
+        lease.cleanup.get() == nullptr) {
+      return Status::InvalidArgument(
+          "RetainedBlockBufferProvider returned an invalid lease");
+    }
+
+    BlockContents contents;
+    contents.data = Slice(lease.data, data_size);
+    contents.SetRetainedBacking(std::move(lease.cleanup), lease.dedupe_token,
+                                lease.size);
+    *out_contents = std::move(contents);
+    return Status::OK();
+  }
+
+  CacheAllocationPtr buffer = AllocateBlock(allocation_size, allocator);
+  *out_contents = BlockContents(std::move(buffer), data_size);
+  return Status::OK();
+}
+
+Status CopyBufferToOwnedBlockContents(
+    const Slice& src, size_t data_size, MemoryAllocator* allocator,
+    RetainedBlockBufferProvider* block_buffer_provider,
+    BlockContents* out_contents) {
+  Status s = AllocateOwnedBlockContents(src.size(), data_size, allocator,
+                                        block_buffer_provider, out_contents);
+  if (!s.ok()) {
+    return s;
+  }
+  memcpy(const_cast<char*>(out_contents->data.data()), src.data(), src.size());
+#ifndef NDEBUG
+  out_contents->has_trailer = src.size() > data_size;
+#endif
+  return Status::OK();
+}
+
 uint32_t ComputeBuiltinChecksum(ChecksumType type, const char* data,
                                 size_t data_size) {
   switch (type) {
@@ -686,7 +735,8 @@ uint32_t ComputeBuiltinChecksumWithLastByte(ChecksumType type, const char* data,
 Status DecompressBlockData(Decompressor::Args& args, Decompressor& decompressor,
                            BlockContents* out_contents,
                            const ImmutableOptions& ioptions,
-                           MemoryAllocator* allocator) {
+                           MemoryAllocator* allocator,
+                           RetainedBlockBufferProvider* block_buffer_provider) {
   assert(args.compression_type != kNoCompression && "Invalid compression type");
 
   StopWatchNano timer(ioptions.clock,
@@ -696,13 +746,17 @@ Status DecompressBlockData(Decompressor::Args& args, Decompressor& decompressor,
   if (UNLIKELY(!s.ok())) {
     return s;
   }
-  CacheAllocationPtr ubuf = AllocateBlock(args.uncompressed_size, allocator);
-  s = decompressor.DecompressBlock(args, ubuf.get());
+  s = AllocateOwnedBlockContents(args.uncompressed_size, args.uncompressed_size,
+                                 allocator, block_buffer_provider,
+                                 out_contents);
   if (UNLIKELY(!s.ok())) {
     return s;
   }
-
-  *out_contents = BlockContents(std::move(ubuf), args.uncompressed_size);
+  s = decompressor.DecompressBlock(
+      args, const_cast<char*>(out_contents->data.data()));
+  if (UNLIKELY(!s.ok())) {
+    return s;
+  }
 
   if (ShouldReportDetailedTime(ioptions.env, ioptions.stats)) {
     RecordTimeToHistogram(ioptions.stats, DECOMPRESSION_TIMES_NANOS,
@@ -727,38 +781,39 @@ Status DecompressBlockData(const char* data, size_t size, CompressionType type,
                            BlockContents* out_contents,
                            const ImmutableOptions& ioptions,
                            MemoryAllocator* allocator,
-                           Decompressor::ManagedWorkingArea* working_area) {
+                           Decompressor::ManagedWorkingArea* working_area,
+                           RetainedBlockBufferProvider* block_buffer_provider) {
   Decompressor::Args args;
   args.compressed_data = Slice(data, size);
   args.compression_type = type;
   args.working_area = working_area;
   return DecompressBlockData(args, decompressor, out_contents, ioptions,
-                             allocator);
+                             allocator, block_buffer_provider);
 }
 
-Status DecompressSerializedBlock(const char* data, size_t size,
-                                 CompressionType type,
-                                 Decompressor& decompressor,
-                                 BlockContents* out_contents,
-                                 const ImmutableOptions& ioptions,
-                                 MemoryAllocator* allocator) {
+Status DecompressSerializedBlock(
+    const char* data, size_t size, CompressionType type,
+    Decompressor& decompressor, BlockContents* out_contents,
+    const ImmutableOptions& ioptions, MemoryAllocator* allocator,
+    RetainedBlockBufferProvider* block_buffer_provider) {
   assert(data[size] != kNoCompression);
   assert(data[size] == static_cast<char>(type));
   return DecompressBlockData(data, size, type, decompressor, out_contents,
-                             ioptions, allocator);
+                             ioptions, allocator, nullptr,
+                             block_buffer_provider);
 }
 
-Status DecompressSerializedBlock(Decompressor::Args& args,
-                                 Decompressor& decompressor,
-                                 BlockContents* out_contents,
-                                 const ImmutableOptions& ioptions,
-                                 MemoryAllocator* allocator) {
+Status DecompressSerializedBlock(
+    Decompressor::Args& args, Decompressor& decompressor,
+    BlockContents* out_contents, const ImmutableOptions& ioptions,
+    MemoryAllocator* allocator,
+    RetainedBlockBufferProvider* block_buffer_provider) {
   assert(args.compressed_data.data()[args.compressed_data.size()] !=
          kNoCompression);
   assert(args.compressed_data.data()[args.compressed_data.size()] ==
          static_cast<char>(args.compression_type));
   return DecompressBlockData(args, decompressor, out_contents, ioptions,
-                             allocator);
+                             allocator, block_buffer_provider);
 }
 
 // Replace the contents of db_host_id with the actual hostname, if db_host_id

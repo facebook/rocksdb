@@ -176,6 +176,11 @@ class IteratorWrapperBase {
     return iter_->IsValuePinned();
   }
 
+  Status PinCurrentKeyValue(PinnedIterKeyValue* out) {
+    assert(Valid());
+    return iter_->PinCurrentKeyValue(out);
+  }
+
   bool IsValuePrepared() const { return result_.value_prepared; }
 
   Slice user_key() const {

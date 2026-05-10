@@ -25,6 +25,47 @@ inline MemoryAllocator* GetMemoryAllocator(
              : nullptr;
 }
 
+inline RetainedBlockBufferProvider* GetRetainedBlockBufferProvider(
+    const BlockBasedTableOptions& table_options) {
+  return table_options.block_cache == nullptr
+             ? table_options.block_buffer_provider.get()
+             : nullptr;
+}
+
+inline RetainedBlockBufferProvider* GetRetainedBlockBufferProvider(
+    const BlockBasedTableOptions& table_options,
+    const ReadOptions& read_options) {
+  const auto& iterator_mutable_options = read_options.iterator_mutable_options;
+  if (!iterator_mutable_options.pinned_block_backing.has_value()) {
+    return GetRetainedBlockBufferProvider(table_options);
+  }
+
+  const auto& config = *iterator_mutable_options.pinned_block_backing;
+  switch (config.policy) {
+    case PinnedBlockBackingPolicy::kAuto:
+      if (table_options.block_cache == nullptr) {
+        return config.retained_block_buffer_provider != nullptr
+                   ? config.retained_block_buffer_provider.get()
+                   : table_options.block_buffer_provider.get();
+      }
+      return nullptr;
+    case PinnedBlockBackingPolicy::kUseBlockCache:
+      return nullptr;
+    case PinnedBlockBackingPolicy::kUseRetainedBlockBuffer:
+      return config.retained_block_buffer_provider != nullptr
+                 ? config.retained_block_buffer_provider.get()
+                 : table_options.block_buffer_provider.get();
+  }
+
+  return nullptr;
+}
+
+inline bool ShouldUseBlockCacheForIteratorDataBlocks(
+    const BlockBasedTableOptions& table_options,
+    const ReadOptions& read_options) {
+  return GetRetainedBlockBufferProvider(table_options, read_options) == nullptr;
+}
+
 // Assumes block has a trailer past `data + block_size` as in format.h.
 // `file_name` provided for generating diagnostic message in returned status.
 // `offset` might be required for proper verification (also used for message).

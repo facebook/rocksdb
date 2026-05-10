@@ -23,6 +23,7 @@
 #include <unordered_map>
 
 #include "rocksdb/cache.h"
+#include "rocksdb/cleanable.h"
 #include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
@@ -45,6 +46,50 @@ class WritableFileWriter;
 struct ConfigOptions;
 struct EnvOptions;
 class UserDefinedIndexFactory;
+
+// Programmatic-only hook for providing retainable storage for iterator data
+// blocks read from SST files.
+//
+// Requirements:
+// - `Allocate()` can be called concurrently by multiple readers and must be
+//   thread-safe.
+// - `Lease::data` must point to at least `size` bytes of writable contiguous
+//   memory that remains valid until every copy of `Lease::cleanup` is reset.
+// - `Lease::data` must be aligned to `alignment` bytes, where `alignment` is a
+//   power of two and `1` means no special alignment requirement.
+// - `Lease::cleanup` must be non-null on success.
+// - `Lease::dedupe_token` identifies a shared backing allocation so batch pin
+//   operations can avoid retaining the same block more than once.
+//
+// Example:
+//   class MyProvider : public RetainedBlockBufferProvider {
+//    public:
+//     Status Allocate(size_t size, size_t alignment, Lease* out) override;
+//   };
+//
+//   BlockBasedTableOptions bbto;
+//   bbto.block_buffer_provider = std::make_shared<MyProvider>();
+//
+//   ReadOptions ro;
+//   ro.iterator_mutable_options.pinned_block_backing =
+//       PinnedBlockBackingConfig{
+//           PinnedBlockBackingPolicy::kUseRetainedBlockBuffer};
+class RetainedBlockBufferProvider {
+ public:
+  struct Lease {
+    // Writable contiguous memory for the loaded block.
+    char* data = nullptr;
+    size_t size = 0;
+    // Keeps `data` alive for all derived pinned key/value slices.
+    SharedCleanablePtr cleanup;
+    // Opaque identity for de-duplicating multiple pins from the same block.
+    const void* dedupe_token = nullptr;
+  };
+
+  virtual ~RetainedBlockBufferProvider() = default;
+
+  virtual Status Allocate(size_t size, size_t alignment, Lease* out) = 0;
+};
 
 // Types of checksums to use for checking integrity of logical blocks within
 // files. All checksums currently use 32 bits of checking power (1 in 4B
@@ -326,6 +371,14 @@ struct BlockBasedTableOptions {
   // old block cache would go away. For now, dynamic changes to block cache
   // should be through the Cache object, e.g. Cache::SetCapacity().
   std::shared_ptr<Cache> block_cache = nullptr;
+
+  // Optional default provider for retainable iterator data-block buffers.
+  // When block cache is disabled, the iterator default (`kAuto`) will use this
+  // provider automatically. When block cache is enabled, iterators can opt into
+  // this provider through ReadOptions::iterator_mutable_options or
+  // Iterator::SetMutableOptions(). This option must be configured
+  // programmatically and the provider implementation must be thread-safe.
+  std::shared_ptr<RetainedBlockBufferProvider> block_buffer_provider;
 
   // If non-NULL use the specified cache for pages read from device
   // IF NULL, no page cache is used

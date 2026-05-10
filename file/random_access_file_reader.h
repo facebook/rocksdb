@@ -99,6 +99,8 @@ class RandomAccessFileReader {
           user_aligned_buf_(nullptr),
           user_offset_(0),
           user_len_(0),
+          use_external_direct_io_scratch_(false),
+          use_retained_direct_io_buffer_(false),
           is_aligned_(false) {}
 
     std::function<void(FSReadRequest&, void*)> cb_;
@@ -111,6 +113,8 @@ class RandomAccessFileReader {
     uint64_t user_offset_;
     size_t user_len_;
     Slice user_result_;
+    bool use_external_direct_io_scratch_;
+    bool use_retained_direct_io_buffer_;
     // Used in case of direct_io
     AlignedBuffer buf_;
     bool is_aligned_;
@@ -163,18 +167,31 @@ class RandomAccessFileReader {
   // 2. Otherwise, scratch is not used and can be null, the aligned_buf owns
   // the internally allocated buffer on return, and the result refers to a
   // region in aligned_buf.
-  IOStatus Read(const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
-                char* scratch, AlignedBuf* aligned_buf,
-                IODebugContext* dbg = nullptr) const;
+  // 3. Alternatively, direct_io_scratch can be provided as caller-owned
+  // aligned storage for the internally aligned direct I/O read, and result
+  // will refer into it without an extra copy.
+  // 4. Alternatively, retained_buffer_allocator can provide the internally
+  // aligned direct I/O buffer, and retained_buffer receives the cleanup
+  // metadata needed to keep the result slice alive.
+  IOStatus Read(
+      const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
+      char* scratch, AlignedBuf* aligned_buf, IODebugContext* dbg = nullptr,
+      char* direct_io_scratch = nullptr,
+      const RetainedBufferAllocator* retained_buffer_allocator = nullptr,
+      RetainedBufferAllocation* retained_buffer = nullptr) const;
 
   // REQUIRES:
   // num_reqs > 0, reqs do not overlap, and offsets in reqs are increasing.
   // In non-direct IO mode, aligned_buf should be null;
   // In direct IO mode, aligned_buf stores the aligned buffer allocated inside
   // MultiRead, the result Slices in reqs refer to aligned_buf.
-  IOStatus MultiRead(const IOOptions& opts, FSReadRequest* reqs,
-                     size_t num_reqs, AlignedBuf* aligned_buf,
-                     IODebugContext* dbg = nullptr) const;
+  // If retained_buffer_allocator is provided in direct IO mode, retained_buffer
+  // receives the cleanup metadata for the aligned buffer.
+  IOStatus MultiRead(
+      const IOOptions& opts, FSReadRequest* reqs, size_t num_reqs,
+      AlignedBuf* aligned_buf, IODebugContext* dbg = nullptr,
+      const RetainedBufferAllocator* retained_buffer_allocator = nullptr,
+      RetainedBufferAllocation* retained_buffer = nullptr) const;
 
   IOStatus Prefetch(const IOOptions& opts, uint64_t offset, size_t n,
                     IODebugContext* dbg = nullptr) const {
@@ -190,10 +207,13 @@ class RandomAccessFileReader {
   IOStatus PrepareIOOptions(const ReadOptions& ro, IOOptions& opts,
                             IODebugContext* dbg = nullptr) const;
 
-  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
-                     std::function<void(FSReadRequest&, void*)> cb,
-                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
-                     AlignedBuf* aligned_buf, IODebugContext* dbg = nullptr);
+  IOStatus ReadAsync(
+      FSReadRequest& req, const IOOptions& opts,
+      std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
+      void** io_handle, IOHandleDeleter* del_fn, AlignedBuf* aligned_buf,
+      IODebugContext* dbg = nullptr, char* direct_io_scratch = nullptr,
+      const RetainedBufferAllocator* retained_buffer_allocator = nullptr,
+      RetainedBufferAllocation* retained_buffer = nullptr);
 
   void ReadAsyncCallback(FSReadRequest& req, void* cb_arg);
 };

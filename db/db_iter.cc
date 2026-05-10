@@ -17,6 +17,7 @@
 #include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_index.h"
 #include "db/dbformat.h"
+#include "db/iterator_mutable_options.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
@@ -94,6 +95,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       timestamp_ub_(read_options.timestamp),
       timestamp_lb_(read_options.iter_start_ts),
       timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0),
+      mutable_options_(read_options.iterator_mutable_options),
       active_mem_(active_mem),
       memtable_seqno_lb_(kMaxSequenceNumber),
       memtable_op_scan_flush_trigger_(0),
@@ -192,6 +194,162 @@ Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
     return Status::OK();
   }
   return Status::InvalidArgument("Unidentified property.");
+}
+
+Status DBIter::PrepareForPinCurrent() {
+  if (!Valid()) {
+    return Status::InvalidArgument("Iterator is not valid");
+  }
+  if (direction_ != kForward) {
+    return Status::NotSupported(
+        "Pinning the current row is only supported during forward iteration");
+  }
+  if (timestamp_size_ != 0 || timestamp_lb_ != nullptr) {
+    return Status::NotSupported(
+        "Pinning the current row does not yet support user-defined timestamps");
+  }
+  if (current_entry_is_merged_) {
+    return Status::NotSupported(
+        "Pinning the current row does not support merge results");
+  }
+  if (!iter_.Valid()) {
+    return Status::NotSupported(
+        "Pinning the current row requires the current internal entry to "
+        "remain positioned");
+  }
+  if (!iter_.IsValuePrepared() && !PrepareValue()) {
+    return status();
+  }
+  if (ikey_.type != kTypeValue) {
+    return Status::NotSupported(
+        "Pinning the current row only supports kTypeValue rows");
+  }
+  return Status::OK();
+}
+
+Status DBIter::TryPinCurrentKeyValue(Slice* current_key, Slice* current_value,
+                                     PinnedIterKeyValue* pinned_kv) {
+  assert(current_key != nullptr);
+  assert(current_value != nullptr);
+  assert(pinned_kv != nullptr);
+
+  *current_key = key();
+  *current_value = value();
+  pinned_kv->Reset();
+  return iter_.PinCurrentKeyValue(pinned_kv);
+}
+
+Status DBIter::PinCurrent(PinnableKeyValue* out) {
+  if (out == nullptr) {
+    return Status::InvalidArgument("PinnableKeyValue is nullptr");
+  }
+  out->Reset();
+  Status prepare_status = PrepareForPinCurrent();
+  if (!prepare_status.ok()) {
+    return prepare_status;
+  }
+
+  Slice current_key;
+  Slice current_value;
+  PinnedIterKeyValue pinned_kv;
+  Status pin_status =
+      TryPinCurrentKeyValue(&current_key, &current_value, &pinned_kv);
+  if (!pin_status.ok()) {
+    if (!pin_status.IsNotSupported()) {
+      return pin_status;
+    }
+    out->CopyKey(current_key);
+    out->CopyValue(current_value);
+    return Status::OK();
+  }
+
+  out->SetCleanup(std::move(pinned_kv.cleanup));
+  out->SetPinnedBlockCacheUsage(pinned_kv.pinned_block_cache_usage);
+  if (pinned_kv.value_pinned) {
+    out->PinValue(pinned_kv.value);
+  } else {
+    out->CopyValue(current_value);
+  }
+
+  if (!pinned_kv.key_pinned) {
+    out->CopyKey(current_key);
+    return Status::OK();
+  }
+
+  out->PinKey(pinned_kv.user_key);
+  return Status::OK();
+}
+
+Status DBIter::AppendPinnedCurrent(PinnableKeyValueBatch* batch) {
+  if (batch == nullptr) {
+    return Status::InvalidArgument("PinnableKeyValueBatch is nullptr");
+  }
+
+  Status prepare_status = PrepareForPinCurrent();
+  if (!prepare_status.ok()) {
+    return prepare_status;
+  }
+
+  Slice current_key;
+  Slice current_value;
+  PinnedIterKeyValue pinned_kv;
+  Status pin_status =
+      TryPinCurrentKeyValue(&current_key, &current_value, &pinned_kv);
+  if (!pin_status.ok()) {
+    if (!pin_status.IsNotSupported()) {
+      return pin_status;
+    }
+    batch->Append(current_key, false /* pin_key */, current_value,
+                  false /* pin_value */, SharedCleanablePtr(),
+                  nullptr /* cleanup_dedupe_token */,
+                  0 /* pinned_block_cache_usage */);
+    return Status::OK();
+  }
+
+  const Slice key_slice =
+      pinned_kv.key_pinned ? pinned_kv.user_key : current_key;
+  const Slice value_slice =
+      pinned_kv.value_pinned ? pinned_kv.value : current_value;
+
+  batch->Append(key_slice, pinned_kv.key_pinned, value_slice,
+                pinned_kv.value_pinned, std::move(pinned_kv.cleanup),
+                pinned_kv.cleanup_dedupe_token,
+                pinned_kv.pinned_block_cache_usage);
+  return Status::OK();
+}
+
+Status DBIter::SetMutableOptions(const IteratorMutableOptions& options) {
+  Status s = ValidateIteratorMutableOptions(
+      options, cfh_ != nullptr
+                   ? cfh_->cfd()->initial_cf_options().table_factory.get()
+                   : nullptr);
+  if (!s.ok()) {
+    return s;
+  }
+  if (iter_.iter() == nullptr) {
+    ApplyMutableOptionsAndInvalidate(options);
+    return Status::OK();
+  }
+  s = iter_.iter()->SetMutableOptions(options);
+  if (!s.ok()) {
+    return s;
+  }
+  ApplyMutableOptionsAndInvalidate(options);
+  return Status::OK();
+}
+
+Status DBIter::GetMutableOptions(IteratorMutableOptions* options) const {
+  if (options == nullptr) {
+    return Status::InvalidArgument("IteratorMutableOptions is nullptr");
+  }
+  *options = mutable_options_;
+  return Status::OK();
+}
+
+void DBIter::ApplyMutableOptionsAndInvalidate(
+    const IteratorMutableOptions& options) {
+  ApplyIteratorMutableOptions(options, &mutable_options_);
+  InvalidateCurrentPosition();
 }
 
 bool DBIter::ParseKey(ParsedInternalKey* ikey) {

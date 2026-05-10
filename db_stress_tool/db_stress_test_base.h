@@ -269,6 +269,8 @@ class StressTest {
                              const std::vector<int>& rand_column_families,
                              const std::vector<int64_t>& rand_keys);
 
+  bool MaybeVerifyIteratorPinning(ThreadState* thread, Iterator* iter) const;
+
   // Given a key K, this creates an attribute group iterator which scans to K
   // and then does a random sequence of Next/Prev operations. Called only when
   // use_attribute_group=1

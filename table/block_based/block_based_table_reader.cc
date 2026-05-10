@@ -77,15 +77,6 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-namespace {
-
-CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
-  CacheAllocationPtr heap_buf;
-  heap_buf = AllocateBlock(buf.size(), allocator);
-  memcpy(heap_buf.get(), buf.data(), buf.size());
-  return heap_buf;
-}
-}  // namespace
 
 // Explicitly instantiate templates for each "blocklike" type we use (and
 // before implicit specialization).
@@ -204,7 +195,8 @@ Status ReadAndParseBlockFromFile(
     BlockCreateContext& create_context, bool maybe_compressed,
     UnownedPtr<Decompressor> decomp,
     const PersistentCacheOptions& cache_options,
-    MemoryAllocator* memory_allocator, bool for_compaction, bool async_read) {
+    MemoryAllocator* memory_allocator, bool for_compaction, bool async_read,
+    RetainedBlockBufferProvider* block_buffer_provider) {
   assert(result);
 
   BlockContents contents;
@@ -212,7 +204,7 @@ Status ReadAndParseBlockFromFile(
       file, prefetch_buffer, footer, options, handle, &contents, ioptions,
       /*do_uncompress*/ maybe_compressed, maybe_compressed,
       TBlocklike::kBlockType, decomp, cache_options, memory_allocator, nullptr,
-      for_compaction);
+      for_compaction, block_buffer_provider);
   Status s;
   // If prefetch_buffer is not allocated, it will fallback to synchronous
   // reading of block contents.
@@ -1492,7 +1484,8 @@ Status BlockBasedTable::ReadMetaIndexBlock(
       rep_->footer.metaindex_handle(), &metaindex, rep_->ioptions,
       rep_->create_context, true /*maybe_compressed*/, rep_->decompressor.get(),
       rep_->persistent_cache_options, GetMemoryAllocator(rep_->table_options),
-      false /* for_compaction */, false /* async_read */);
+      false /* for_compaction */, false /* async_read */,
+      GetRetainedBlockBufferProvider(rep_->table_options));
 
   if (!s.ok()) {
     ROCKS_LOG_ERROR(rep_->ioptions.logger,
@@ -1588,6 +1581,7 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::PutDataBlockToCache(
     BlockContents&& uncompressed_block_contents,
     BlockContents&& compressed_block_contents, CompressionType block_comp_type,
     UnownedPtr<Decompressor> decomp, MemoryAllocator* memory_allocator,
+    RetainedBlockBufferProvider* block_buffer_provider,
     GetContext* get_context) const {
   const ImmutableOptions& ioptions = rep_->ioptions;
   assert(out_parsed_block);
@@ -1601,10 +1595,11 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::PutDataBlockToCache(
       uncompressed_block_contents.data.empty()) {
     assert(compressed_block_contents.data.data());
     // Retrieve the uncompressed contents into a new buffer
-    s = DecompressBlockData(
-        compressed_block_contents.data.data(),
-        compressed_block_contents.data.size(), block_comp_type, *decomp,
-        &uncompressed_block_contents, ioptions, memory_allocator);
+    s = DecompressBlockData(compressed_block_contents.data.data(),
+                            compressed_block_contents.data.size(),
+                            block_comp_type, *decomp,
+                            &uncompressed_block_contents, ioptions,
+                            memory_allocator, nullptr, block_buffer_provider);
     if (!s.ok()) {
       return s;
     }
@@ -1777,20 +1772,23 @@ Status BlockBasedTable::CreateAndPinBlockInCache(
     UnownedPtr<Decompressor> decomp, BlockContents* contents,
     CachableEntry<TBlocklike>* out_parsed_block) const {
   CompressionType compression_type = GetBlockCompressionType(*contents);
+  Status s;
   // If we don't own the contents and we don't need to decompress, copy
   // the block to heap in order to have ownership. If decompression is
   // needed, then the decompressor will allocate a buffer.
   if (!contents->own_bytes() && compression_type == kNoCompression) {
     Slice src = Slice(contents->data.data(), BlockSizeWithTrailer(handle));
-    *contents = BlockContents(
-        CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), src),
-        handle.size());
+    s = CopyBufferToOwnedBlockContents(
+        src, handle.size(), GetMemoryAllocator(rep_->table_options),
+        GetRetainedBlockBufferProvider(rep_->table_options), contents);
+    if (!s.ok()) {
+      return s;
+    }
 #ifndef NDEBUG
     contents->has_trailer = true;
 #endif
   }
 
-  Status s;
   if (ro.fill_cache) {
     s = MaybeReadBlockAndLoadToCache(nullptr, ro, handle, decomp,
                                      /*for_compaction=*/false, out_parsed_block,
@@ -1808,10 +1806,11 @@ Status BlockBasedTable::CreateAndPinBlockInCache(
   if (out_parsed_block->GetValue() == nullptr && contents != nullptr) {
     BlockContents tmp_contents;
     if (compression_type != kNoCompression) {
-      s = DecompressSerializedBlock(contents->data.data(), handle.size(),
-                                    compression_type, *decomp, &tmp_contents,
-                                    rep_->ioptions,
-                                    GetMemoryAllocator(rep_->table_options));
+      s = DecompressSerializedBlock(
+          contents->data.data(), handle.size(), compression_type, *decomp,
+          &tmp_contents, rep_->ioptions,
+          GetMemoryAllocator(rep_->table_options),
+          GetRetainedBlockBufferProvider(rep_->table_options));
     } else {
       tmp_contents = std::move(*contents);
     }
@@ -1912,7 +1911,8 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
             &tmp_contents, rep_->ioptions, do_uncompress, maybe_compressed,
             TBlocklike::kBlockType, decomp, rep_->persistent_cache_options,
             GetMemoryAllocator(rep_->table_options),
-            /*allocator=*/nullptr);
+            /*allocator=*/nullptr, for_compaction,
+            GetRetainedBlockBufferProvider(rep_->table_options));
 
         // If prefetch_buffer is not allocated, it will fallback to synchronous
         // reading of block contents.
@@ -1958,7 +1958,8 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
           s = PutDataBlockToCache(
               key, block_cache, out_parsed_block, std::move(uncomp_contents),
               std::move(comp_contents), contents_comp_type, decomp,
-              GetMemoryAllocator(rep_->table_options), get_context);
+              GetMemoryAllocator(rep_->table_options),
+              GetRetainedBlockBufferProvider(rep_->table_options), get_context);
         }
       } else {
         contents_comp_type = GetBlockCompressionType(*contents);
@@ -1974,7 +1975,8 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
           s = PutDataBlockToCache(
               key, block_cache, out_parsed_block, std::move(uncomp_contents),
               std::move(comp_contents), contents_comp_type, decomp,
-              GetMemoryAllocator(rep_->table_options), get_context);
+              GetMemoryAllocator(rep_->table_options),
+              GetRetainedBlockBufferProvider(rep_->table_options), get_context);
         }
       }
     }
@@ -2129,11 +2131,15 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::RetrieveBlock(
     Histograms histogram =
         for_compaction ? READ_BLOCK_COMPACTION_MICROS : READ_BLOCK_GET_MICROS;
     StopWatch sw(rep_->ioptions.clock, rep_->ioptions.stats, histogram);
+    RetainedBlockBufferProvider* block_buffer_provider =
+        TBlocklike::kBlockType == BlockType::kData
+            ? GetRetainedBlockBufferProvider(rep_->table_options, ro)
+            : GetRetainedBlockBufferProvider(rep_->table_options);
     s = ReadAndParseBlockFromFile(
         rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle, &block,
         rep_->ioptions, rep_->create_context, maybe_compressed, decomp,
         rep_->persistent_cache_options, GetMemoryAllocator(rep_->table_options),
-        for_compaction, async_read);
+        for_compaction, async_read, block_buffer_provider);
 
     if (get_context) {
       switch (TBlocklike::kBlockType) {

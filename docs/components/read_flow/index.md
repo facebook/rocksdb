@@ -21,6 +21,7 @@ RocksDB serves reads through a layered search path: memtables, then SST files or
 | 9. Merge Operator Resolution | [09_merge_resolution.md](09_merge_resolution.md) | MergeContext operand collection, full vs partial merge, resolution in Get/Iterator/Compaction paths, and snapshot boundary constraints. |
 | 10. Prefetching and Async I/O | [10_prefetching_and_async_io.md](10_prefetching_and_async_io.md) | FilePrefetchBuffer, auto-readahead for scans, adaptive readahead, async I/O integration, and MultiGet I/O coalescing. |
 | 11. ReadOptions and Tuning | [11_read_options_and_tuning.md](11_read_options_and_tuning.md) | Key ReadOptions fields, prefix seek modes, iterator bounds, read tiers, performance characteristics, and common read patterns. |
+| 12. Retained Block Backing for Pin API | [12_retained_block_backing_for_pin_api.md](12_retained_block_backing_for_pin_api.md) | Retained block-buffer provider design for zero-copy iterator pinning when block cache is disabled or bypassed. |
 
 ## Key Characteristics
 

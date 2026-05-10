@@ -87,6 +87,8 @@ class BlockBasedTableFactory : public TableFactory {
     return &shared_state_->tail_prefetch_stats;
   }
 
+  const BlockBasedTableOptions& table_options() const { return table_options_; }
+
  protected:
   const void* GetOptionsPtr(const std::string& name) const override;
   Status ParseOption(const ConfigOptions& config_options,

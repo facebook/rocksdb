@@ -162,6 +162,10 @@ Cleanable* SharedCleanablePtr::get() {
   return ptr_;  // implicit upcast
 }
 
+const Cleanable* SharedCleanablePtr::get() const {
+  return ptr_;  // implicit upcast
+}
+
 void SharedCleanablePtr::RegisterCopyWith(Cleanable* target) {
   if (ptr_) {
     // "Virtual" copy of the pointer

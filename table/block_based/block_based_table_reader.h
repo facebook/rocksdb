@@ -466,7 +466,9 @@ class BlockBasedTable : public TableReader {
       BlockContents&& uncompressed_block_contents,
       BlockContents&& compressed_block_contents,
       CompressionType block_comp_type, UnownedPtr<Decompressor> decomp,
-      MemoryAllocator* memory_allocator, GetContext* get_context) const;
+      MemoryAllocator* memory_allocator,
+      RetainedBlockBufferProvider* block_buffer_provider,
+      GetContext* get_context) const;
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
   // after a call to Seek(key), until handle_result returns false.

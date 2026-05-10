@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include "file/file_prefetch_buffer.h"
@@ -400,10 +401,25 @@ uint32_t ComputeBuiltinChecksumWithLastByte(ChecksumType type, const char* data,
 // block type (see block_cache.h). Only trivially parsable block types
 // use BlockContents as the parsed form.
 //
+struct RetainedBlockContentsBacking {
+  SharedCleanablePtr cleanup;
+  const void* cleanup_dedupe_token = nullptr;
+  size_t backing_size = 0;
+
+  RetainedBlockContentsBacking() = default;
+  RetainedBlockContentsBacking(SharedCleanablePtr&& _cleanup,
+                               const void* _cleanup_dedupe_token,
+                               size_t _backing_size)
+      : cleanup(std::move(_cleanup)),
+        cleanup_dedupe_token(_cleanup_dedupe_token),
+        backing_size(_backing_size) {}
+};
+
 struct BlockContents {
   // Points to block payload (without trailer)
   Slice data;
   CacheAllocationPtr allocation;
+  std::unique_ptr<RetainedBlockContentsBacking> retained_backing;
 
 #ifndef NDEBUG
   // Whether there is a known trailer after what is pointed to by `data`.
@@ -412,6 +428,8 @@ struct BlockContents {
 #endif  // NDEBUG
 
   BlockContents() {}
+  BlockContents(const BlockContents&) = delete;
+  BlockContents& operator=(const BlockContents&) = delete;
 
   // Does not take ownership of the underlying data bytes.
   BlockContents(const Slice& _data) : data(_data) {}
@@ -427,7 +445,48 @@ struct BlockContents {
   }
 
   // Returns whether the object has ownership of the underlying data bytes.
-  bool own_bytes() const { return allocation.get() != nullptr; }
+  bool own_bytes() const {
+    return allocation.get() != nullptr || has_cleanup();
+  }
+
+  bool has_cleanup() const {
+    return retained_backing != nullptr &&
+           retained_backing->cleanup.get() != nullptr;
+  }
+
+  void SetRetainedBacking(SharedCleanablePtr&& cleanup,
+                          const void* cleanup_dedupe_token,
+                          size_t backing_size) {
+    assert(cleanup.get() != nullptr);
+    allocation.reset();
+    retained_backing = std::make_unique<RetainedBlockContentsBacking>(
+        std::move(cleanup), cleanup_dedupe_token, backing_size);
+  }
+
+  const SharedCleanablePtr& retained_cleanup() const {
+    assert(has_cleanup());
+    return retained_backing->cleanup;
+  }
+
+  const void* retained_cleanup_dedupe_token() const {
+    return retained_backing != nullptr ? retained_backing->cleanup_dedupe_token
+                                       : nullptr;
+  }
+
+  size_t retained_backing_size() const {
+    return retained_backing != nullptr ? retained_backing->backing_size : 0;
+  }
+
+  size_t retained_metadata_memory_usage() const {
+    if (retained_backing == nullptr) {
+      return 0;
+    }
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+    return malloc_usable_size(retained_backing.get());
+#else
+    return sizeof(*retained_backing);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+  }
 
   // The additional memory space taken by the block data.
   size_t usable_size() const {
@@ -442,13 +501,16 @@ struct BlockContents {
 #else
       return data.size();
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
+    } else if (has_cleanup()) {
+      size_t backing_size = retained_backing_size();
+      return backing_size > 0 ? backing_size : data.size();
     } else {
       return 0;  // no extra memory is occupied by the data
     }
   }
 
   size_t ApproximateMemoryUsage() const {
-    return usable_size() + sizeof(*this);
+    return usable_size() + sizeof(*this) + retained_metadata_memory_usage();
   }
 
   BlockContents(BlockContents&& other) noexcept { *this = std::move(other); }
@@ -456,29 +518,43 @@ struct BlockContents {
   BlockContents& operator=(BlockContents&& other) {
     data = std::move(other.data);
     allocation = std::move(other.allocation);
+    retained_backing = std::move(other.retained_backing);
 #ifndef NDEBUG
     has_trailer = other.has_trailer;
+#endif  // NDEBUG
+    other.data = Slice();
+#ifndef NDEBUG
+    other.has_trailer = false;
 #endif  // NDEBUG
     return *this;
   }
 };
 
+Status AllocateOwnedBlockContents(
+    size_t allocation_size, size_t data_size, MemoryAllocator* allocator,
+    RetainedBlockBufferProvider* block_buffer_provider,
+    BlockContents* out_contents);
+
+Status CopyBufferToOwnedBlockContents(
+    const Slice& src, size_t data_size, MemoryAllocator* allocator,
+    RetainedBlockBufferProvider* block_buffer_provider,
+    BlockContents* out_contents);
+
 // The `data` points to serialized block contents read in from file, which
 // must be compressed and include a trailer beyond `size`. A new buffer is
 // allocated with the given allocator (or default) and the uncompressed
 // contents are returned in `out_contents`. Statistics updated.
-Status DecompressSerializedBlock(const char* data, size_t size,
-                                 CompressionType type,
-                                 Decompressor& decompressor,
-                                 BlockContents* out_contents,
-                                 const ImmutableOptions& ioptions,
-                                 MemoryAllocator* allocator = nullptr);
+Status DecompressSerializedBlock(
+    const char* data, size_t size, CompressionType type,
+    Decompressor& decompressor, BlockContents* out_contents,
+    const ImmutableOptions& ioptions, MemoryAllocator* allocator = nullptr,
+    RetainedBlockBufferProvider* block_buffer_provider = nullptr);
 
-Status DecompressSerializedBlock(Decompressor::Args& args,
-                                 Decompressor& decompressor,
-                                 BlockContents* out_contents,
-                                 const ImmutableOptions& ioptions,
-                                 MemoryAllocator* allocator = nullptr);
+Status DecompressSerializedBlock(
+    Decompressor::Args& args, Decompressor& decompressor,
+    BlockContents* out_contents, const ImmutableOptions& ioptions,
+    MemoryAllocator* allocator = nullptr,
+    RetainedBlockBufferProvider* block_buffer_provider = nullptr);
 
 // This is a variant of DecompressSerializedBlock that does not expect a
 // block trailer beyond `size`. (CompressionType is passed in.)
@@ -486,12 +562,14 @@ Status DecompressBlockData(
     const char* data, size_t size, CompressionType type,
     Decompressor& decompressor, BlockContents* out_contents,
     const ImmutableOptions& ioptions, MemoryAllocator* allocator = nullptr,
-    Decompressor::ManagedWorkingArea* working_area = nullptr);
+    Decompressor::ManagedWorkingArea* working_area = nullptr,
+    RetainedBlockBufferProvider* block_buffer_provider = nullptr);
 
-Status DecompressBlockData(Decompressor::Args& args, Decompressor& decompressor,
-                           BlockContents* out_contents,
-                           const ImmutableOptions& ioptions,
-                           MemoryAllocator* allocator = nullptr);
+Status DecompressBlockData(
+    Decompressor::Args& args, Decompressor& decompressor,
+    BlockContents* out_contents, const ImmutableOptions& ioptions,
+    MemoryAllocator* allocator = nullptr,
+    RetainedBlockBufferProvider* block_buffer_provider = nullptr);
 
 // Replace db_host_id contents with the real hostname if necessary
 Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id);

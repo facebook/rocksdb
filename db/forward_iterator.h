@@ -80,9 +80,12 @@ class ForwardIterator : public InternalIterator {
   Status status() const override;
   bool PrepareValue() override;
   Status GetProperty(std::string prop_name, std::string* prop) override;
+  Status SetMutableOptions(const IteratorMutableOptions& options) override;
+  Status GetMutableOptions(IteratorMutableOptions* options) const override;
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override;
   bool IsKeyPinned() const override;
   bool IsValuePinned() const override;
+  Status PinCurrentKeyValue(PinnedIterKeyValue* out) override;
 
   bool TEST_CheckDeletedIters(int* deleted_iters, int* num_iters);
 
@@ -112,6 +115,7 @@ class ForwardIterator : public InternalIterator {
                            uint32_t right);
 
   bool IsOverUpperBound(const Slice& internal_key) const;
+  void InvalidateCurrentPosition();
 
   // Set PinnedIteratorsManager for all children Iterators, this function should
   // be called whenever we update children Iterators or pinned_iters_mgr_.

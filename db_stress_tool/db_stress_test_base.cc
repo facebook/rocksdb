@@ -32,11 +32,13 @@
 #include "rocksdb/io_dispatcher.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "test_util/testutil.h"
+#include "util/aligned_buffer.h"
 #include "util/cast_util.h"
 #include "util/simple_mixed_compressor.h"
 #include "utilities/backup/backup_engine_impl.h"
@@ -61,6 +63,45 @@ std::shared_ptr<const FilterPolicy> CreateFilterPolicy() {
         NewRibbonFilterPolicy(FLAGS_bloom_bits, FLAGS_bloom_before_level);
   }
   return std::shared_ptr<const FilterPolicy>(new_policy);
+}
+
+class DbStressRetainedBlockBufferProvider : public RetainedBlockBufferProvider {
+ public:
+  Status Allocate(size_t size, size_t alignment, Lease* out) override {
+    if (out == nullptr) {
+      return Status::InvalidArgument("lease output is nullptr");
+    }
+    if (alignment == 0 || (alignment & (alignment - 1)) != 0) {
+      return Status::InvalidArgument("alignment must be a power of two");
+    }
+
+    auto* allocation = new Allocation();
+    allocation->storage.Alignment(alignment);
+    allocation->storage.AllocateNewBuffer(size);
+
+    out->data = allocation->storage.BufferStart();
+    out->size = size;
+    out->cleanup.Allocate();
+    out->cleanup->RegisterCleanup(&ReleaseAllocation, allocation, nullptr);
+    out->dedupe_token = allocation;
+    return Status::OK();
+  }
+
+ private:
+  struct Allocation {
+    AlignedBuffer storage;
+  };
+
+  static void ReleaseAllocation(void* arg1, void* /*arg2*/) {
+    delete static_cast<Allocation*>(arg1);
+  }
+};
+
+void UseRetainedBlockBufferBacking(ReadOptions* read_options) {
+  assert(read_options != nullptr);
+  read_options->iterator_mutable_options.pinned_block_backing =
+      PinnedBlockBackingConfig{
+          PinnedBlockBackingPolicy::kUseRetainedBlockBuffer};
 }
 
 }  // namespace
@@ -1003,6 +1044,9 @@ void StressTest::OperateDb(ThreadState* thread) {
   read_opts.allow_unprepared_value = FLAGS_allow_unprepared_value;
   read_opts.auto_refresh_iterator_with_snapshot =
       FLAGS_auto_refresh_iterator_with_snapshot;
+  if (FLAGS_use_retained_block_buffer_provider) {
+    UseRetainedBlockBufferBacking(&read_opts);
+  }
   if (FLAGS_use_trie_index && !FLAGS_use_udi_as_primary_index && udi_factory_) {
     read_opts.table_index_factory = udi_factory_.get();
   }
@@ -1640,7 +1684,7 @@ Status StressTest::TestIterate(ThreadState* thread,
     }
   };
 
-  auto verify_func = [](Iterator* iter) {
+  auto verify_func = [this, thread](Iterator* iter) {
     if (!VerifyWideColumns(iter->value(), iter->columns())) {
       fprintf(stderr,
               "Value and columns inconsistent for iterator: value: %s, "
@@ -1649,11 +1693,68 @@ Status StressTest::TestIterate(ThreadState* thread,
               WideColumnsToHex(iter->columns()).c_str());
       return false;
     }
-    return true;
+    return MaybeVerifyIteratorPinning(thread, iter);
   };
 
   return TestIterateImpl<Iterator>(thread, read_opts, rand_column_families,
                                    rand_keys, new_iter_func, verify_func);
+}
+
+bool StressTest::MaybeVerifyIteratorPinning(ThreadState* thread,
+                                            Iterator* iter) const {
+  assert(thread != nullptr);
+  assert(iter != nullptr);
+
+  if (!thread->rand.OneInOpt(FLAGS_test_iterator_pin_current_one_in)) {
+    return true;
+  }
+  if (!iter->Valid()) {
+    return true;
+  }
+
+  const std::string expected_key = iter->key().ToString();
+  const std::string expected_value = iter->value().ToString();
+
+  PinnableKeyValue pinned;
+  Status s = iter->PinCurrent(&pinned);
+  if (s.IsNotSupported()) {
+    return true;
+  }
+  if (!s.ok()) {
+    fprintf(stderr, "Iterator::PinCurrent() failed: %s\n",
+            s.ToString().c_str());
+    return false;
+  }
+  if (pinned.key() != Slice(expected_key) ||
+      pinned.value() != Slice(expected_value)) {
+    fprintf(stderr,
+            "Iterator::PinCurrent() returned unexpected row. Expected key %s "
+            "value %s, got key %s value %s\n",
+            Slice(expected_key).ToString(/*hex=*/true).c_str(),
+            Slice(expected_value).ToString(/*hex=*/true).c_str(),
+            pinned.key().ToString(/*hex=*/true).c_str(),
+            pinned.value().ToString(/*hex=*/true).c_str());
+    return false;
+  }
+
+  PinnableKeyValueBatch batch;
+  s = iter->AppendPinnedCurrent(&batch);
+  if (!s.ok()) {
+    fprintf(stderr, "Iterator::AppendPinnedCurrent() failed: %s\n",
+            s.ToString().c_str());
+    return false;
+  }
+  if (batch.size() != 1 || batch.key(0) != Slice(expected_key) ||
+      batch.value(0) != Slice(expected_value)) {
+    fprintf(stderr,
+            "Iterator::AppendPinnedCurrent() returned unexpected row. "
+            "Expected key %s value %s, batch size %zu\n",
+            Slice(expected_key).ToString(/*hex=*/true).c_str(),
+            Slice(expected_value).ToString(/*hex=*/true).c_str(), batch.size());
+    return false;
+  }
+
+  return true;
 }
 
 Status StressTest::TestIterateAttributeGroups(
@@ -1748,7 +1849,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
 
   constexpr size_t kOpLogsLimit = 50000;
 
-  auto verify_func = [](Iterator* iterator) {
+  auto verify_func = [this, thread](Iterator* iterator) {
     if (!VerifyWideColumns(iterator->value(), iterator->columns())) {
       fprintf(stderr,
               "Value and columns inconsistent for iterator: value: %s, "
@@ -1757,7 +1858,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
               WideColumnsToHex(iterator->columns()).c_str());
       return false;
     }
-    return true;
+    return MaybeVerifyIteratorPinning(thread, iterator);
   };
 
   for (const ScanOptions& scan_opt : scan_opts.GetScanRanges()) {
@@ -4443,6 +4544,10 @@ void InitializeOptionsFromFlags(
   block_based_options.decouple_partitioned_filters =
       FLAGS_decouple_partitioned_filters;
   block_based_options.block_cache = cache;
+  if (FLAGS_use_retained_block_buffer_provider) {
+    block_based_options.block_buffer_provider =
+        std::make_shared<DbStressRetainedBlockBufferProvider>();
+  }
   block_based_options.cache_index_and_filter_blocks =
       FLAGS_cache_index_and_filter_blocks;
   block_based_options.metadata_cache_options.top_level_index_pinning =
@@ -4884,6 +4989,10 @@ void InitializeOptionsGeneral(
   if (table_options) {
     if (FLAGS_cache_size > 0) {
       table_options->block_cache = cache;
+    }
+    if (FLAGS_use_retained_block_buffer_provider) {
+      table_options->block_buffer_provider =
+          std::make_shared<DbStressRetainedBlockBufferProvider>();
     }
     if (!table_options->filter_policy) {
       table_options->filter_policy = filter_policy;

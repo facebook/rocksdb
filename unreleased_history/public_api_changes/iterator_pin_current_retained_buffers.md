@@ -1,0 +1,1 @@
+Added `Iterator::PinCurrent()` and `Iterator::AppendPinnedCurrent()` APIs for obtaining self-contained current key/value results. Added `Iterator::SetMutableOptions()` / `GetMutableOptions()`, `IteratorMutableOptions`, `PinnedBlockBackingPolicy`, and `BlockBasedTableOptions::block_buffer_provider` for selecting block-cache or retained block-buffer backing for iterator pinning.

@@ -44,13 +44,66 @@ struct IODispatcherImplData {
   virtual void ReleaseMemory(size_t bytes) = 0;
 };
 
+static Status ValidateRetainedBufferAllocation(
+    size_t requested_size, size_t requested_alignment,
+    const RetainedBufferAllocation& allocation) {
+  if (allocation.data == nullptr || allocation.size < requested_size ||
+      allocation.cleanup.get() == nullptr) {
+    return Status::InvalidArgument(
+        "RetainedBlockBufferProvider returned an invalid lease");
+  }
+  if (requested_alignment > 1 && (reinterpret_cast<uintptr_t>(allocation.data) &
+                                  (requested_alignment - 1)) != 0) {
+    return Status::InvalidArgument(
+        "RetainedBlockBufferProvider returned a misaligned lease");
+  }
+  return Status::OK();
+}
+
+static Status AllocateRetainedBuffer(
+    size_t size, size_t alignment,
+    RetainedBlockBufferProvider* block_buffer_provider,
+    RetainedBufferAllocation* out) {
+  assert(block_buffer_provider != nullptr);
+  assert(out != nullptr);
+  RetainedBlockBufferProvider::Lease lease;
+  Status s = block_buffer_provider->Allocate(size, alignment, &lease);
+  if (!s.ok()) {
+    return s;
+  }
+
+  out->data = lease.data;
+  out->size = lease.size;
+  out->cleanup = std::move(lease.cleanup);
+  out->dedupe_token = lease.dedupe_token;
+  if (Status validate_status =
+          ValidateRetainedBufferAllocation(size, alignment, *out);
+      !validate_status.ok()) {
+    return validate_status;
+  }
+  return Status::OK();
+}
+
+static Status AllocateRetainedBufferForAlignedBuffer(
+    void* state, size_t size, size_t alignment, RetainedBufferAllocation* out) {
+  auto* block_buffer_provider =
+      static_cast<RetainedBlockBufferProvider*>(state);
+  assert(block_buffer_provider != nullptr);
+  return AllocateRetainedBuffer(size, alignment, block_buffer_provider, out);
+}
+
 // Helper function to create and pin a block from a buffer
 // Used by both ReadSet::PollAndProcessAsyncIO and IODispatcherImpl::Impl
 static Status CreateAndPinBlockFromBuffer(
     const std::shared_ptr<IOJob>& job, const BlockHandle& block,
     uint64_t buffer_start_offset, const Slice& buffer_data,
+    const SharedCleanablePtr& read_buffer_cleanup,
+    const void* read_buffer_cleanup_dedupe_token,
     CachableEntry<Block>& pinned_block_entry) {
   auto* rep = job->table->get_rep();
+  const bool use_block_cache_for_data_blocks =
+      ShouldUseBlockCacheForIteratorDataBlocks(rep->table_options,
+                                               job->job_options.read_options);
 
   // Get decompressor
   UnownedPtr<Decompressor> decompressor = rep->decompressor.get();
@@ -71,20 +124,59 @@ static Status CreateAndPinBlockFromBuffer(
   const auto block_size_with_trailer =
       BlockBasedTable::BlockSizeWithTrailer(block);
   const auto block_offset_in_buffer = block.offset() - buffer_start_offset;
+  const char* block_data = buffer_data.data() + block_offset_in_buffer;
 
-  CacheAllocationPtr data = AllocateBlock(
-      block_size_with_trailer, GetMemoryAllocator(rep->table_options));
-  memcpy(data.get(), buffer_data.data() + block_offset_in_buffer,
-         block_size_with_trailer);
-  BlockContents tmp_contents(std::move(data), block.size());
+  if (use_block_cache_for_data_blocks) {
+    CacheAllocationPtr data = AllocateBlock(
+        block_size_with_trailer, GetMemoryAllocator(rep->table_options));
+    memcpy(data.get(), block_data, block_size_with_trailer);
+    BlockContents tmp_contents(std::move(data), block.size());
 
 #ifndef NDEBUG
-  tmp_contents.has_trailer = rep->footer.GetBlockTrailerSize() > 0;
+    tmp_contents.has_trailer = rep->footer.GetBlockTrailerSize() > 0;
 #endif
 
-  return job->table->CreateAndPinBlockInCache<Block_kData>(
-      job->job_options.read_options, block, decompressor, &tmp_contents,
-      &pinned_block_entry.As<Block_kData>());
+    return job->table->CreateAndPinBlockInCache<Block_kData>(
+        job->job_options.read_options, block, decompressor, &tmp_contents,
+        &pinned_block_entry.As<Block_kData>());
+  }
+
+  BlockContents tmp_contents;
+  const CompressionType compression_type =
+      BlockBasedTable::GetBlockCompressionType(block_data, block.size());
+  RetainedBlockBufferProvider* block_buffer_provider =
+      GetRetainedBlockBufferProvider(rep->table_options,
+                                     job->job_options.read_options);
+  Status s;
+  if (compression_type == kNoCompression) {
+    if (read_buffer_cleanup.get() != nullptr) {
+      tmp_contents.data = Slice(block_data, block.size());
+      tmp_contents.SetRetainedBacking(SharedCleanablePtr(read_buffer_cleanup),
+                                      read_buffer_cleanup_dedupe_token,
+                                      block_size_with_trailer);
+#ifndef NDEBUG
+      tmp_contents.has_trailer = rep->footer.GetBlockTrailerSize() > 0;
+#endif
+    } else {
+      s = CopyBufferToOwnedBlockContents(
+          Slice(block_data, block_size_with_trailer), block.size(),
+          GetMemoryAllocator(rep->table_options), block_buffer_provider,
+          &tmp_contents);
+    }
+  } else {
+    s = DecompressSerializedBlock(block_data, block.size(), compression_type,
+                                  *decompressor, &tmp_contents, rep->ioptions,
+                                  GetMemoryAllocator(rep->table_options),
+                                  block_buffer_provider);
+  }
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::unique_ptr<Block_kData> block_holder;
+  rep->create_context.Create(&block_holder, std::move(tmp_contents));
+  pinned_block_entry.As<Block_kData>().SetOwnedValue(std::move(block_holder));
+  return Status::OK();
 }
 
 // State for async IO operations (implementation detail)
@@ -97,6 +189,7 @@ struct AsyncIOState {
   AsyncIOState(AsyncIOState&&) = default;
   AsyncIOState& operator=(AsyncIOState&&) = default;
 
+  RetainedBufferAllocation retained_buf;
   std::unique_ptr<char[]> buf;
   AlignedBuf aligned_buf;
   void* io_handle = nullptr;
@@ -320,15 +413,22 @@ Status ReadSet::PollAndProcessAsyncIO(
   // Use the result slice from the callback which has been correctly set
   // with any necessary alignment adjustments for direct IO
   const Slice& buffer_data = async_state->read_req.result;
+  SharedCleanablePtr read_buffer_cleanup;
+  const void* read_buffer_cleanup_dedupe_token = nullptr;
+  if (async_state->retained_buf.cleanup.get() != nullptr) {
+    read_buffer_cleanup = std::move(async_state->retained_buf.cleanup);
+    read_buffer_cleanup_dedupe_token = async_state->retained_buf.dedupe_token;
+  }
 
   // Process all blocks in this async request
   for (size_t i = 0; i < async_state->block_indices.size(); ++i) {
     const size_t idx = async_state->block_indices[i];
     const auto& block_handle = async_state->blocks[i];
 
-    Status s =
-        CreateAndPinBlockFromBuffer(job_, block_handle, async_state->offset,
-                                    buffer_data, pinned_blocks_[idx]);
+    Status s = CreateAndPinBlockFromBuffer(
+        job_, block_handle, async_state->offset, buffer_data,
+        read_buffer_cleanup, read_buffer_cleanup_dedupe_token,
+        pinned_blocks_[idx]);
     if (!s.ok()) {
       return s;
     }
@@ -356,6 +456,9 @@ Status ReadSet::PollAndProcessAsyncIO(
 Status ReadSet::SyncRead(size_t block_index) {
   const auto& block_handle = job_->block_handles[block_index];
   auto* rep = job_->table->get_rep();
+  const bool use_block_cache_for_data_blocks =
+      ShouldUseBlockCacheForIteratorDataBlocks(rep->table_options,
+                                               job_->job_options.read_options);
 
   // Get dictionary-aware decompressor if available
   UnownedPtr<Decompressor> decompressor = rep->decompressor.get();
@@ -376,8 +479,9 @@ Status ReadSet::SyncRead(size_t block_index) {
       /*prefetch_buffer=*/nullptr, job_->job_options.read_options, block_handle,
       decompressor, &pinned_blocks_[block_index].As<Block_kData>(),
       /*get_context=*/nullptr, /*lookup_context=*/nullptr,
-      /*for_compaction=*/false, /*use_cache=*/true,
-      /*async_read=*/false, /*use_block_cache_for_lookup=*/true);
+      /*for_compaction=*/false, /*use_cache=*/use_block_cache_for_data_blocks,
+      /*async_read=*/false,
+      /*use_block_cache_for_lookup=*/use_block_cache_for_data_blocks);
 }
 
 // A pre-coalesced group of blocks for prefetching
@@ -705,9 +809,17 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
 
   // Step 1: Check cache and pin cached blocks
   std::vector<size_t> block_indices_to_read;
+  const bool use_block_cache_for_data_blocks =
+      ShouldUseBlockCacheForIteratorDataBlocks(
+          job->table->get_rep()->table_options, job->job_options.read_options);
 
   for (size_t i = 0; i < job->block_handles.size(); ++i) {
     const auto& data_block_handle = job->block_handles[i];
+
+    if (!use_block_cache_for_data_blocks) {
+      block_indices_to_read.emplace_back(i);
+      continue;
+    }
 
     // Lookup and pin block in cache
     Status s = job->table->LookupAndPinBlocksInCache<Block_kData>(
@@ -951,6 +1063,25 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
   }
 
   const bool direct_io = rep->file->use_direct_io();
+  const bool use_block_cache_for_data_blocks =
+      ShouldUseBlockCacheForIteratorDataBlocks(rep->table_options,
+                                               job->job_options.read_options);
+  RetainedBlockBufferProvider* block_buffer_provider =
+      GetRetainedBlockBufferProvider(rep->table_options,
+                                     job->job_options.read_options);
+  const bool use_retained_direct_io = direct_io &&
+                                      !use_block_cache_for_data_blocks &&
+                                      block_buffer_provider != nullptr;
+  const bool use_retained_scratch = !direct_io &&
+                                    !use_block_cache_for_data_blocks &&
+                                    block_buffer_provider != nullptr;
+  RetainedBufferAllocator retained_buffer_allocator;
+  const RetainedBufferAllocator* retained_buffer_allocator_ptr = nullptr;
+  if (use_retained_direct_io) {
+    retained_buffer_allocator = RetainedBufferAllocator(
+        block_buffer_provider, &AllocateRetainedBufferForAlignedBuffer);
+    retained_buffer_allocator_ptr = &retained_buffer_allocator;
+  }
 
   // Submit async read requests and store them in the ReadSet
   for (size_t i = 0; i < read_reqs.size(); ++i) {
@@ -966,6 +1097,15 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
 
     if (direct_io) {
       async_state->read_req.scratch = nullptr;
+    } else if (use_retained_scratch) {
+      s = AllocateRetainedBuffer(async_state->read_req.len, 1,
+                                 block_buffer_provider,
+                                 &async_state->retained_buf);
+      if (!s.ok()) {
+        *out_status = s;
+        return fallback_block_indices;
+      }
+      async_state->read_req.scratch = async_state->retained_buf.data;
     } else {
       async_state->buf.reset(new char[async_state->read_req.len]);
       async_state->read_req.scratch = async_state->buf.get();
@@ -980,10 +1120,14 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
       state->read_req.status = req.status;
     };
 
-    s = rep->file->ReadAsync(async_state->read_req, io_opts, cb,
-                             async_state.get(), &async_state->io_handle,
-                             &async_state->del_fn,
-                             direct_io ? &async_state->aligned_buf : nullptr);
+    s = rep->file->ReadAsync(
+        async_state->read_req, io_opts, cb, async_state.get(),
+        &async_state->io_handle, &async_state->del_fn,
+        use_retained_direct_io
+            ? nullptr
+            : (direct_io ? &async_state->aligned_buf : nullptr),
+        /*dbg=*/nullptr, /*direct_io_scratch=*/nullptr,
+        retained_buffer_allocator_ptr, &async_state->retained_buf);
 
     if (s.IsNotSupported()) {
       // Async IO may be compiled in but unavailable at runtime. Fall back to
@@ -1031,13 +1175,39 @@ Status IODispatcherImpl::Impl::ExecuteSyncIO(
   }
 
   const bool direct_io = rep->file->use_direct_io();
+  const bool use_block_cache_for_data_blocks =
+      ShouldUseBlockCacheForIteratorDataBlocks(rep->table_options,
+                                               job->job_options.read_options);
+  RetainedBlockBufferProvider* block_buffer_provider =
+      GetRetainedBlockBufferProvider(rep->table_options,
+                                     job->job_options.read_options);
+  const bool use_retained_scratch = !direct_io &&
+                                    !use_block_cache_for_data_blocks &&
+                                    block_buffer_provider != nullptr;
+  const bool use_retained_direct_io = direct_io &&
+                                      !use_block_cache_for_data_blocks &&
+                                      block_buffer_provider != nullptr;
+
+  std::vector<SharedCleanablePtr> read_req_cleanups;
+  std::vector<const void*> read_req_cleanup_dedupe_tokens;
 
   // Setup scratch buffers for MultiRead
   std::unique_ptr<char[]> buf;
+  std::vector<RetainedBufferAllocation> retained_buffers;
 
   if (direct_io) {
     for (auto& read_req : read_reqs) {
       read_req.scratch = nullptr;
+    }
+  } else if (use_retained_scratch) {
+    retained_buffers.resize(read_reqs.size());
+    for (size_t i = 0; i < read_reqs.size(); ++i) {
+      if (Status s = AllocateRetainedBuffer(
+              read_reqs[i].len, 1, block_buffer_provider, &retained_buffers[i]);
+          !s.ok()) {
+        return s;
+      }
+      read_reqs[i].scratch = retained_buffers[i].data;
     }
   } else {
     // Allocate a single contiguous buffer for all requests
@@ -1053,11 +1223,22 @@ Status IODispatcherImpl::Impl::ExecuteSyncIO(
     }
   }
 
+  RetainedBufferAllocator retained_buffer_allocator;
+  const RetainedBufferAllocator* retained_buffer_allocator_ptr = nullptr;
+  RetainedBufferAllocation multi_read_retained_buffer;
+  if (use_retained_direct_io) {
+    retained_buffer_allocator = RetainedBufferAllocator(
+        block_buffer_provider, &AllocateRetainedBufferForAlignedBuffer);
+    retained_buffer_allocator_ptr = &retained_buffer_allocator;
+  }
+
   // Execute MultiRead
   AlignedBuf aligned_buf;
   if (Status s =
           rep->file->MultiRead(io_opts, read_reqs.data(), read_reqs.size(),
-                               direct_io ? &aligned_buf : nullptr);
+                               direct_io ? &aligned_buf : nullptr,
+                               /*dbg=*/nullptr, retained_buffer_allocator_ptr,
+                               &multi_read_retained_buffer);
       !s.ok()) {
     return s;
   }
@@ -1065,6 +1246,23 @@ Status IODispatcherImpl::Impl::ExecuteSyncIO(
   for (const auto& rq : read_reqs) {
     if (!rq.status.ok()) {
       return rq.status;
+    }
+  }
+
+  if (use_retained_scratch) {
+    read_req_cleanups.resize(read_reqs.size());
+    read_req_cleanup_dedupe_tokens.resize(read_reqs.size(), nullptr);
+    for (size_t i = 0; i < retained_buffers.size(); ++i) {
+      read_req_cleanups[i] = std::move(retained_buffers[i].cleanup);
+      read_req_cleanup_dedupe_tokens[i] = retained_buffers[i].dedupe_token;
+    }
+  } else if (multi_read_retained_buffer.cleanup.get() != nullptr) {
+    read_req_cleanups.resize(read_reqs.size());
+    read_req_cleanup_dedupe_tokens.resize(read_reqs.size(), nullptr);
+    for (size_t i = 0; i < read_reqs.size(); ++i) {
+      read_req_cleanups[i] = multi_read_retained_buffer.cleanup;
+      read_req_cleanup_dedupe_tokens[i] =
+          multi_read_retained_buffer.dedupe_token;
     }
   }
 
@@ -1076,6 +1274,11 @@ Status IODispatcherImpl::Impl::ExecuteSyncIO(
 
       Status create_status = CreateAndPinBlockFromBuffer(
           job, block_handle, read_req.offset, read_req.result,
+          i < read_req_cleanups.size() ? read_req_cleanups[i]
+                                       : SharedCleanablePtr(),
+          i < read_req_cleanup_dedupe_tokens.size()
+              ? read_req_cleanup_dedupe_tokens[i]
+              : nullptr,
           read_set->pinned_blocks_[block_idx]);
       if (!create_status.ok()) {
         return create_status;

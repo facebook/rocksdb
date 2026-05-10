@@ -10,10 +10,13 @@
 
 #include <algorithm>
 #include <cassert>
+#include <functional>
 
 #include "port/malloc.h"
 #include "port/port.h"
+#include "rocksdb/cleanable.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/status.h"
 namespace ROCKSDB_NAMESPACE {
 
 // This file contains utilities to handle the alignment of pages and buffers.
@@ -41,6 +44,45 @@ inline size_t Roundup(size_t x, size_t y) { return ((x + y - 1) / y) * y; }
 //   Rounddown(201, 16) => 192
 inline size_t Rounddown(size_t x, size_t y) { return (x / y) * y; }
 
+struct RetainedBufferAllocation {
+  char* data = nullptr;
+  size_t size = 0;
+  SharedCleanablePtr cleanup;
+  const void* dedupe_token = nullptr;
+
+  void Reset() {
+    data = nullptr;
+    size = 0;
+    cleanup.Reset();
+    dedupe_token = nullptr;
+  }
+};
+
+class RetainedBufferAllocator {
+ public:
+  using AllocateFunction = Status (*)(void* state, size_t size,
+                                      size_t alignment,
+                                      RetainedBufferAllocation* out);
+
+  RetainedBufferAllocator() = default;
+  RetainedBufferAllocator(void* state, AllocateFunction allocate)
+      : state_(state), allocate_(allocate) {
+    assert(allocate_ != nullptr);
+  }
+
+  bool IsSet() const { return allocate_ != nullptr; }
+
+  Status Allocate(size_t size, size_t alignment,
+                  RetainedBufferAllocation* out) const {
+    assert(allocate_ != nullptr);
+    return allocate_(state_, size, alignment, out);
+  }
+
+ private:
+  void* state_ = nullptr;
+  AllocateFunction allocate_ = nullptr;
+};
+
 // AlignedBuffer manages a buffer by taking alignment into consideration, and
 // aligns the buffer start and end positions. It is mainly used for direct I/O,
 // though it can be used other purposes as well.
@@ -61,6 +103,9 @@ class AlignedBuffer {
   size_t capacity_;
   size_t cursize_;
   char* bufstart_;
+  SharedCleanablePtr retained_cleanup_;
+  const void* retained_dedupe_token_ = nullptr;
+  size_t retained_backing_size_ = 0;
 
  public:
   AlignedBuffer()
@@ -74,6 +119,14 @@ class AlignedBuffer {
     capacity_ = std::move(o.capacity_);
     cursize_ = std::move(o.cursize_);
     bufstart_ = std::move(o.bufstart_);
+    retained_cleanup_ = std::move(o.retained_cleanup_);
+    retained_dedupe_token_ = o.retained_dedupe_token_;
+    retained_backing_size_ = o.retained_backing_size_;
+    o.capacity_ = 0;
+    o.cursize_ = 0;
+    o.bufstart_ = nullptr;
+    o.retained_dedupe_token_ = nullptr;
+    o.retained_backing_size_ = 0;
     return *this;
   }
 
@@ -99,9 +152,33 @@ class AlignedBuffer {
 
   char* BufferStart() { return bufstart_; }
 
+  bool HasRetainedBuffer() const { return retained_cleanup_.get() != nullptr; }
+
+  const SharedCleanablePtr& retained_cleanup() const {
+    return retained_cleanup_;
+  }
+
+  const void* retained_dedupe_token() const { return retained_dedupe_token_; }
+
+  size_t retained_backing_size() const { return retained_backing_size_; }
+
   void Clear() { cursize_ = 0; }
 
   FSAllocationPtr Release() {
+    if (retained_cleanup_.get() != nullptr) {
+      SharedCleanablePtr cleanup = retained_cleanup_;
+      retained_cleanup_.Reset();
+      retained_dedupe_token_ = nullptr;
+      retained_backing_size_ = 0;
+      void* raw = buf_.release();
+      cursize_ = 0;
+      capacity_ = 0;
+      bufstart_ = nullptr;
+      // The retained provider owns the bytes. Keep a cleanup reference in the
+      // returned FSAllocationPtr so users can treat it like an owned buffer.
+      return FSAllocationPtr(raw,
+                             [cleanup](void*) mutable { cleanup.Reset(); });
+    }
     cursize_ = 0;
     capacity_ = 0;
     bufstart_ = nullptr;
@@ -123,6 +200,9 @@ class AlignedBuffer {
     capacity_ = result.size();
     cursize_ = result.size();
     buf_ = std::move(new_buf);
+    retained_cleanup_.Reset();
+    retained_dedupe_token_ = nullptr;
+    retained_backing_size_ = 0;
     assert(buf_.get() != nullptr);
     // Note: bufstart_ must point to result.data() and not new_buf, which can
     // point to any arbitrary object
@@ -172,11 +252,60 @@ class AlignedBuffer {
 
     bufstart_ = new_bufstart;
     capacity_ = new_capacity;
+    retained_cleanup_.Reset();
+    retained_dedupe_token_ = nullptr;
+    retained_backing_size_ = 0;
     // buf_ is a FSAllocationPtr which takes in a deleter
     // we can just wrap the regular default delete that would have been called
     buf_ = std::unique_ptr<void, std::function<void(void*)>>(
         static_cast<void*>(new_buf),
         [](void* p) { delete[] static_cast<char*>(p); });
+  }
+
+  Status AllocateNewBuffer(size_t requested_capacity,
+                           const RetainedBufferAllocator& allocator,
+                           bool copy_data = false, uint64_t copy_offset = 0,
+                           size_t copy_len = 0) {
+    assert(alignment_ > 0);
+    assert((alignment_ & (alignment_ - 1)) == 0);
+
+    copy_len = copy_len > 0 ? copy_len : cursize_;
+    if (copy_data && requested_capacity < copy_len) {
+      // Match AllocateNewBuffer(): retain the old buffer as-is.
+      return Status::OK();
+    }
+
+    const size_t new_capacity = Roundup(requested_capacity, alignment_);
+    RetainedBufferAllocation allocation;
+    Status s = allocator.Allocate(new_capacity, alignment_, &allocation);
+    if (!s.ok()) {
+      return s;
+    }
+    if (allocation.data == nullptr || allocation.size < new_capacity ||
+        allocation.cleanup.get() == nullptr) {
+      return Status::InvalidArgument(
+          "Retained buffer allocator returned an invalid allocation");
+    }
+    if (!isAligned(allocation.data, alignment_)) {
+      return Status::InvalidArgument(
+          "Retained buffer allocator returned a misaligned allocation");
+    }
+
+    if (copy_data) {
+      assert(bufstart_ + copy_offset + copy_len <= bufstart_ + cursize_);
+      memcpy(allocation.data, bufstart_ + copy_offset, copy_len);
+      cursize_ = copy_len;
+    } else {
+      cursize_ = 0;
+    }
+
+    bufstart_ = allocation.data;
+    capacity_ = new_capacity;
+    buf_ = FSAllocationPtr(static_cast<void*>(allocation.data), [](void*) {});
+    retained_cleanup_ = std::move(allocation.cleanup);
+    retained_dedupe_token_ = allocation.dedupe_token;
+    retained_backing_size_ = allocation.size;
+    return Status::OK();
   }
 
   // Append to the buffer.

@@ -18,13 +18,170 @@
 
 #pragma once
 
+#include <cassert>
 #include <string>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include "rocksdb/iterator_base.h"
 #include "rocksdb/options.h"
+#include "rocksdb/slice.h"
 #include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+// A self-contained key-value pair returned by Iterator::PinCurrent(). The
+// slices remain valid until Reset() or object destruction, regardless of
+// subsequent iterator movement.
+class PinnableKeyValue {
+ public:
+  PinnableKeyValue() = default;
+  PinnableKeyValue(PinnableKeyValue&&) = default;
+  PinnableKeyValue& operator=(PinnableKeyValue&&) = default;
+
+  PinnableKeyValue(const PinnableKeyValue&) = delete;
+  PinnableKeyValue& operator=(const PinnableKeyValue&) = delete;
+
+  Slice key() const { return key_; }
+  Slice value() const { return value_; }
+
+  bool IsKeyPinned() const { return key_.IsPinned(); }
+  bool IsValuePinned() const { return value_.IsPinned(); }
+
+  size_t GetPinnedBlockCacheUsage() const { return pinned_block_cache_usage_; }
+  size_t GetCopiedBytes() const { return copied_bytes_; }
+
+  void Reset() {
+    key_.Reset();
+    value_.Reset();
+    cleanup_.Reset();
+    pinned_block_cache_usage_ = 0;
+    copied_bytes_ = 0;
+  }
+
+ private:
+  friend class DBIter;
+
+  void PinKey(const Slice& key) { key_.PinSlice(key, nullptr); }
+  void CopyKey(const Slice& key) {
+    key_.PinSelf(key);
+    copied_bytes_ += key.size();
+  }
+
+  void PinValue(const Slice& value) { value_.PinSlice(value, nullptr); }
+  void CopyValue(const Slice& value) {
+    value_.PinSelf(value);
+    copied_bytes_ += value.size();
+  }
+
+  void SetCleanup(SharedCleanablePtr&& cleanup) {
+    cleanup_ = std::move(cleanup);
+  }
+
+  void SetPinnedBlockCacheUsage(size_t pinned_block_cache_usage) {
+    pinned_block_cache_usage_ = pinned_block_cache_usage;
+  }
+
+  PinnableSlice key_;
+  PinnableSlice value_;
+  SharedCleanablePtr cleanup_;
+  size_t pinned_block_cache_usage_ = 0;
+  size_t copied_bytes_ = 0;
+};
+
+// A self-contained batch of key-value pairs returned by
+// Iterator::AppendPinnedCurrent(). Each appended row remains valid until
+// Reset() or object destruction, regardless of subsequent iterator movement.
+class PinnableKeyValueBatch {
+ public:
+  PinnableKeyValueBatch() = default;
+  PinnableKeyValueBatch(PinnableKeyValueBatch&&) = default;
+  PinnableKeyValueBatch& operator=(PinnableKeyValueBatch&&) = default;
+
+  PinnableKeyValueBatch(const PinnableKeyValueBatch&) = delete;
+  PinnableKeyValueBatch& operator=(const PinnableKeyValueBatch&) = delete;
+
+  size_t size() const { return entries_.size(); }
+  bool empty() const { return entries_.empty(); }
+
+  Slice key(size_t index) const {
+    assert(index < entries_.size());
+    return entries_[index].key;
+  }
+
+  Slice value(size_t index) const {
+    assert(index < entries_.size());
+    return entries_[index].value;
+  }
+
+  bool IsKeyPinned(size_t index) const {
+    assert(index < entries_.size());
+    return entries_[index].key.IsPinned();
+  }
+
+  bool IsValuePinned(size_t index) const {
+    assert(index < entries_.size());
+    return entries_[index].value.IsPinned();
+  }
+
+  size_t GetPinnedBlockCacheUsage() const { return pinned_block_cache_usage_; }
+  size_t GetCopiedBytes() const { return copied_bytes_; }
+
+  void Reset() {
+    entries_.clear();
+    cleanups_.clear();
+    cleanup_dedupe_tokens_.clear();
+    pinned_block_cache_usage_ = 0;
+    copied_bytes_ = 0;
+  }
+
+ private:
+  friend class DBIter;
+
+  struct Entry {
+    PinnableSlice key;
+    PinnableSlice value;
+  };
+
+  void Append(const Slice& key, bool pin_key, const Slice& value,
+              bool pin_value, SharedCleanablePtr&& cleanup,
+              const void* cleanup_dedupe_token,
+              size_t pinned_block_cache_usage) {
+    if (cleanup.get() != nullptr) {
+      bool retain_cleanup = true;
+      if (cleanup_dedupe_token != nullptr) {
+        retain_cleanup =
+            cleanup_dedupe_tokens_.insert(cleanup_dedupe_token).second;
+      }
+      if (retain_cleanup) {
+        cleanups_.push_back(std::move(cleanup));
+        pinned_block_cache_usage_ += pinned_block_cache_usage;
+      }
+    }
+
+    entries_.emplace_back();
+    Entry& entry = entries_.back();
+    if (pin_key) {
+      entry.key.PinSlice(key, nullptr);
+    } else {
+      entry.key.PinSelf(key);
+      copied_bytes_ += key.size();
+    }
+    if (pin_value) {
+      entry.value.PinSlice(value, nullptr);
+    } else {
+      entry.value.PinSelf(value);
+      copied_bytes_ += value.size();
+    }
+  }
+
+  std::vector<Entry> entries_;
+  std::vector<SharedCleanablePtr> cleanups_;
+  std::unordered_set<const void*> cleanup_dedupe_tokens_;
+  size_t pinned_block_cache_usage_ = 0;
+  size_t copied_bytes_ = 0;
+};
 
 class Iterator : public IteratorBase {
  public:
@@ -110,6 +267,31 @@ class Iterator : public IteratorBase {
   // If Prepare() is called, it overrides the iterate_upper_bound in
   // ReadOptions
   virtual void Prepare(const MultiScanArgs& /*scan_opts*/) {}
+
+  // Populate `out` with the current key-value pair. Implementations may pin the
+  // underlying storage or copy into `out` as needed. The result remains valid
+  // until `out->Reset()` or object destruction. On any error, `out` is cleared.
+  //
+  // The initial DB iterator implementation supports only valid forward
+  // iterators positioned at plain kTypeValue rows. It returns NotSupported for
+  // reverse iteration, merge results, user-defined timestamps, wide-column
+  // entities, blobs, deletions, and other internal value types.
+  virtual Status PinCurrent(PinnableKeyValue* out);
+
+  // Append the current key-value pair to `batch`. Implementations may pin the
+  // underlying storage or copy into `batch` as needed. Appended rows remain
+  // valid until `batch->Reset()` or object destruction.
+  //
+  // This has the same DB iterator support limits as PinCurrent().
+  virtual Status AppendPinnedCurrent(PinnableKeyValueBatch* batch);
+
+  // Update mutable iterator settings and invalidate the iterator's current
+  // position. Callers must reseek before reading more entries. Any already
+  // pinned results remain valid until their owning objects are reset.
+  virtual Status SetMutableOptions(const IteratorMutableOptions& options);
+
+  // Returns the iterator's current mutable settings.
+  virtual Status GetMutableOptions(IteratorMutableOptions* options) const;
 };
 
 // Return an empty iterator (yields nothing).
