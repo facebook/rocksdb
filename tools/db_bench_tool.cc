@@ -3749,7 +3749,7 @@ class Benchmark {
       read_options_.auto_refresh_iterator_with_snapshot =
           FLAGS_auto_refresh_iterator_with_snapshot;
       if (FLAGS_use_trie_index && udi_factory_) {
-        read_options_.read_index = ReadOptions::ReadIndex::kCustom;
+        read_options_.read_index = ReadOptions::ReadIndex::kPreferCustom;
       }
 
       void (Benchmark::*method)(ThreadState*) = nullptr;

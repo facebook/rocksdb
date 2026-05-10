@@ -23,9 +23,9 @@
 //    BlockBasedTableOptions::IndexMode::kStandardDefault;
 //
 //  In kStandardDefault mode, reads use the standard index by default.
-//  Set ReadOptions::read_index to kCustom to use the trie:
+//  Set ReadOptions::read_index to kPreferCustom to use the trie:
 //    ReadOptions ro;
-//    ro.read_index = ReadOptions::ReadIndex::kCustom;
+//    ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
 //    auto iter = db->NewIterator(ro);
 //
 //  In kCustomDefault/kCustomOnly mode, all reads use the trie automatically.

@@ -186,16 +186,23 @@ class IndexFactoryReaderWrapper : public BlockBasedTable::IndexReader {
       IndexBlockIter* iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) override {
     // Determine whether to use the UDI for this read:
-    //   kDefault → udi_is_primary_ (kCustomDefault/kCustomOnly → custom,
-    //              kStandardOnly/kStandardDefault → standard)
-    //   kBuiltin → force standard index
-    //   kCustom  → force custom index
+    //   kDefault       → udi_is_primary_ (kCustomDefault/kCustomOnly → custom,
+    //                    kStandardOnly/kStandardDefault → standard)
+    //   kBuiltin       → force standard index
+    //   kPreferCustom  → force custom index when this SST has one. The
+    //                    fallback that gives the option its name happens
+    //                    at SST-open time: SSTs without a UDI block don't
+    //                    get this wrapper installed, so a kPreferCustom
+    //                    request on those reaches the standard reader
+    //                    directly. Once the wrapper IS installed (this
+    //                    method is reachable), the selection is strict —
+    //                    iterator failures return Status::Corruption.
     bool use_udi;
     switch (read_options.read_index) {
       case ReadOptions::ReadIndex::kBuiltin:
         use_udi = false;
         break;
-      case ReadOptions::ReadIndex::kCustom:
+      case ReadOptions::ReadIndex::kPreferCustom:
         use_udi = true;
         break;
       case ReadOptions::ReadIndex::kDefault:

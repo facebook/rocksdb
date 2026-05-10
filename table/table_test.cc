@@ -8528,7 +8528,7 @@ void UserDefinedIndexTestBase::BasicTest(bool use_partitioned_index) {
   ASSERT_OK(iter->status());
   iter.reset();
 
-  ro.read_index = ReadOptions::ReadIndex::kCustom;
+  ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
   iter.reset(reader->NewIterator(ro));
   ASSERT_NE(iter, nullptr);
 
@@ -9255,7 +9255,7 @@ TEST_P(UserDefinedIndexTest, IngestTest) {
   ASSERT_OK(iter->status());
   iter.reset();
 
-  ro.read_index = ReadOptions::ReadIndex::kCustom;
+  ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
   iter.reset(db->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
 
@@ -9361,7 +9361,7 @@ TEST_P(UserDefinedIndexTest, EmptyRangeTest) {
   ASSERT_OK(iter->status());
   iter.reset();
 
-  ro.read_index = ReadOptions::ReadIndex::kCustom;
+  ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
   std::vector<int> key_counts;
   MultiScanArgs scan_opts(options_.comparator);
   std::unordered_map<std::string, std::string> property_bag;
@@ -9565,7 +9565,7 @@ TEST_P(UserDefinedIndexTest, MultiScanFailureTest) {
 
   std::vector<std::string> key_ranges({"key03", "key05", "key12", "key14"});
   ReadOptions ro;
-  ro.read_index = ReadOptions::ReadIndex::kCustom;
+  ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
   Slice ub;
   ro.iterate_upper_bound = &ub;
   std::unordered_map<std::string, std::string> property_bag;
@@ -9769,7 +9769,7 @@ TEST_P(UserDefinedIndexTest, ConfigTest) {
   ReadOptions ro;
   Slice ub;
   ro.iterate_upper_bound = &ub;
-  ro.read_index = ReadOptions::ReadIndex::kCustom;
+  ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
   std::unique_ptr<Iterator> iter(db->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
   MultiScanArgs scan_opts(options_.comparator);
@@ -10399,7 +10399,7 @@ class UserDefinedIndexStressTest
 
       // Query ingest CF with UDI if it is enabled
       if (enable_udi_) {
-        ro.read_index = ReadOptions::ReadIndex::kCustom;
+        ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
       }
 
       iter.reset(db_->NewIterator(ro, ingest_cfh_));

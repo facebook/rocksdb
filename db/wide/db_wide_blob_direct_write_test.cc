@@ -181,7 +181,7 @@ class DBWideBlobDirectWriteTest : public DBTestBase {
 
     trie_index::TrieIndexFactory trie_index_factory;
     if (scenario.use_trie_index) {
-      coalescing_ro.read_index = ReadOptions::ReadIndex::kCustom;
+      coalescing_ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
     }
 
     ReadOptions control_ro = coalescing_ro;
@@ -1258,7 +1258,7 @@ TEST_F(DBWideBlobDirectWriteTest,
   read_options.snapshot = snapshot;
 
   trie_index::TrieIndexFactory trie_index_factory;
-  read_options.read_index = ReadOptions::ReadIndex::kCustom;
+  read_options.read_index = ReadOptions::ReadIndex::kPreferCustom;
 
   std::vector<ColumnFamilyHandle*> cfhs{handles_[1], handles_[0]};
   std::unique_ptr<Iterator> coalescing =
@@ -1389,7 +1389,7 @@ TEST_F(DBWideBlobDirectWriteTest,
 
     trie_index::TrieIndexFactory trie_index_factory;
     if (test_case.use_trie_index) {
-      read_options.read_index = ReadOptions::ReadIndex::kCustom;
+      read_options.read_index = ReadOptions::ReadIndex::kPreferCustom;
     }
 
     const auto verify_snapshot_reads = [&]() {

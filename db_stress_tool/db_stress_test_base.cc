@@ -1157,7 +1157,7 @@ void StressTest::OperateDb(ThreadState* thread) {
   if (FLAGS_use_trie_index && udi_factory_) {
     if (FLAGS_index_mode == 1) {
       // kStandardDefault: custom index is secondary, select explicitly per-read
-      read_opts.read_index = ReadOptions::ReadIndex::kCustom;
+      read_opts.read_index = ReadOptions::ReadIndex::kPreferCustom;
     }
     // kCustomDefault/kCustomOnly: custom index is default, no override needed
     // kStandardOnly: custom index not built, don't select it
@@ -1211,7 +1211,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       // Commenting this out as we don't want to reset stats on each open.
       // thread->stats.Start();
       if (FLAGS_use_trie_index && FLAGS_index_mode == 1 && udi_factory_) {
-        read_opts.read_index = ReadOptions::ReadIndex::kCustom;
+        read_opts.read_index = ReadOptions::ReadIndex::kPreferCustom;
       }
     }
 
@@ -2386,7 +2386,7 @@ void StressTest::DumpIteratorDivergenceDiagnostics(
 
   if (udi_factory_) {
     ReadOptions trie_ro = ro;
-    trie_ro.read_index = ReadOptions::ReadIndex::kCustom;
+    trie_ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
     dump_debug_iter("Debug trie direct", trie_ro,
                     /*use_multi_cf_iter=*/false);
   }
@@ -2396,7 +2396,7 @@ void StressTest::DumpIteratorDivergenceDiagnostics(
                     /*use_multi_cf_iter=*/true);
     if (udi_factory_) {
       ReadOptions trie_ro = ro;
-      trie_ro.read_index = ReadOptions::ReadIndex::kCustom;
+      trie_ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
       dump_debug_iter("Debug trie coalescing", trie_ro,
                       /*use_multi_cf_iter=*/true);
     }

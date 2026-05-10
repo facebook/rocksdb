@@ -2374,20 +2374,21 @@ struct ReadOptions {
   //     temporary fallback. In kCustomOnly mode, the built-in index
   //     is a minimal stub — reads will return no useful results.
   //
-  //   kCustom: select the custom IndexFactory index for this read.
-  //     In kStandardDefault mode, this is how you select the custom
-  //     index for individual reads. If no custom index is available
-  //     for a given SST, the read falls back to the standard index.
+  //   kPreferCustom: select the custom IndexFactory index when the SST has
+  //     one; fall back to the standard index for SSTs that don't (e.g.,
+  //     pre-UDI files still on disk during migration). Once the custom
+  //     reader is loaded for an SST the per-read selection is strict —
+  //     iterator-creation failures surface as Status::Corruption rather
+  //     than silently falling back.
+  //
   // ReadIndex is a two-way selector because each SST has exactly two
   // potential read targets: the standard index (selected by
   // BlockBasedTableOptions::index_type) and at most one custom index
-  // (from user_defined_index_factory). If the selected target is not
-  // available for a given SST (e.g., kCustom on an SST without a custom
-  // index), the read silently falls back to the available index.
+  // (from user_defined_index_factory).
   enum class ReadIndex : uint8_t {
     kDefault = 0,
     kBuiltin = 1,
-    kCustom = 2,
+    kPreferCustom = 2,
   };
   ReadIndex read_index = ReadIndex::kDefault;
 
