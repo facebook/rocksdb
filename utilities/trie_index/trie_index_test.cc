@@ -4342,7 +4342,7 @@ TEST_F(TrieIndexSSTTest, WriteAndReadWithTrieUDI) {
     ASSERT_OK(reader.Open(sst_path_));
 
     ReadOptions ro;
-    ro.read_index = ReadOptions::ReadIndex::kCustom;
+    ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
     std::unique_ptr<Iterator> iter(reader.NewIterator(ro));
 
     // Full forward scan via Seek.
@@ -4374,7 +4374,7 @@ TEST_F(TrieIndexSSTTest, SeekWithTrieUDI) {
   ASSERT_OK(reader.Open(sst_path_));
 
   ReadOptions ro;
-  ro.read_index = ReadOptions::ReadIndex::kCustom;
+  ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
   std::unique_ptr<Iterator> iter(reader.NewIterator(ro));
 
   // Seek to the middle.
@@ -4415,7 +4415,7 @@ TEST_F(TrieIndexSSTTest, SeekWithUpperBound) {
   ASSERT_OK(reader.Open(sst_path_));
 
   ReadOptions ro;
-  ro.read_index = ReadOptions::ReadIndex::kCustom;
+  ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
   Slice upper_bound("key_0075");
   ro.iterate_upper_bound = &upper_bound;
   std::unique_ptr<Iterator> iter(reader.NewIterator(ro));
@@ -4448,7 +4448,7 @@ TEST_F(TrieIndexSSTTest, SmallSST) {
   ASSERT_OK(reader.Open(sst_path_));
 
   ReadOptions ro;
-  ro.read_index = ReadOptions::ReadIndex::kCustom;
+  ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
   std::unique_ptr<Iterator> iter(reader.NewIterator(ro));
 
   iter->Seek("key_0000");
@@ -4845,7 +4845,7 @@ TEST_F(TrieIndexSSTTest, MixedKeyTypesWithTrieUDI) {
     ASSERT_OK(reader.Open(sst_path_));
 
     ReadOptions ro;
-    ro.read_index = ReadOptions::ReadIndex::kCustom;
+    ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
     std::unique_ptr<Iterator> iter(reader.NewIterator(ro));
 
     // Full forward scan -- expect 6 logically visible entries.
@@ -4976,7 +4976,7 @@ TEST_F(TrieIndexSSTTest, LargeMixedKeyTypesWithTrieUDI) {
     ASSERT_OK(reader.Open(sst_path_));
 
     ReadOptions ro;
-    ro.read_index = ReadOptions::ReadIndex::kCustom;
+    ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
     std::unique_ptr<Iterator> iter(reader.NewIterator(ro));
 
     // Full forward scan -- only visible keys should appear.
