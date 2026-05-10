@@ -104,6 +104,7 @@ class IndexFactoryBuilder {
     kDelete = 1,
     kMerge = 2,
     kOther = 3,
+    kTypeMax,  // Sentinel — must be last. Value may change across releases.
   };
 
   virtual ~IndexFactoryBuilder() = default;
