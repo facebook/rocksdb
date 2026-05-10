@@ -778,11 +778,13 @@ Status BlockBasedTableFactory::ValidateOptions(
       return Status::InvalidArgument(
           "index_mode >= kStandardDefault requires user_defined_index_factory");
     }
-    if (cf_opts.compression_opts.parallel_threads > 1 ||
-        cf_opts.bottommost_compression_opts.parallel_threads > 1) {
-      return Status::InvalidArgument(
-          "user_defined_index_factory not supported with parallel compression");
-    }
+    // Whether parallel compression is usable with a particular UDI is a
+    // per-implementation property
+    // (IndexFactoryBuilder::SupportsParallelAddEntry). The table builder makes
+    // the actual decision when builders are created (see
+    // BlockBasedTableBuilder::Rep::Rep) and silently falls back to
+    // single-threaded when any builder doesn't support the parallel
+    // protocol. We don't reject the configuration here.
     if (table_options_.index_mode >=
         BlockBasedTableOptions::IndexMode::kCustomDefault) {
       if (table_options_.index_type ==
