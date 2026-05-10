@@ -31,59 +31,52 @@ struct ReadOptions;
 class Comparator;
 class PartitionCoordinator;
 
-// Prefix for meta block keys used by custom index implementations.
-//
-// The string value is intentionally kept as "rocksdb.user_defined_index." for
-// on-disk format backward compatibility — SSTs written by older RocksDB
-// versions that supported the prior UserDefinedIndex API use this exact
-// prefix and must remain readable by current code. The constant name reflects
-// the current IndexFactory abstraction; the string value reflects the stable
-// on-disk identifier.
+// On-disk meta block prefix for custom indexes. Treated as part of the
+// SST format: changing the string would break readability of existing
+// SSTs that use the UserDefinedIndex feature.
 inline constexpr const char* kIndexFactoryMetaPrefix =
     "rocksdb.user_defined_index.";
 
 // ============================================================================
 // IndexFactory: pluggable index for BlockBasedTable SST files.
 //
-// The IndexFactory interface allows custom index implementations (e.g., trie,
-// learned index, etc.) to coexist alongside the built-in standard index.
-// In most modes, both indexes are built and stored in each SST file:
-//   - The built-in standard index (present in kStandardDefault/kCustomDefault)
-//   - The custom index (present when an IndexFactory is configured)
-// In kCustomOnly mode, only the custom index is built.
+// Lets custom index implementations (e.g., trie, learned index) coexist
+// with the built-in standard index. Per BlockBasedTableOptions::index_mode:
+//   - kStandardOnly: only the built-in index is built; any factory pointer
+//     is ignored.
+//   - kStandardDefault / kCustomDefault: both indexes are built. Reads
+//     default to the standard index in kStandardDefault and to the custom
+//     index in kCustomDefault. ReadOptions::read_index can override
+//     per-read.
+//   - kCustomOnly: only the custom index is built. A minimal empty stub
+//     replaces the standard index block to satisfy the SST footer format.
 //
-// Read routing:
-//   - By default (index_mode=kStandardOnly), reads use the built-in standard
-//     index.
-//   - When index_mode is kCustomDefault or kCustomOnly in
-//     BlockBasedTableOptions, all reads (including internal operations) route
-//     through the custom index.
-//   - Per-read override: set ReadOptions::read_index to select the
-//     custom index for a specific read (relevant in kStandardDefault mode).
-//
-// This follows the FilterPolicy model: the built-in standard index is
-// analogous to the default data block format, while custom IndexFactory
-// implementations are analogous to custom FilterPolicy implementations.
-//
-// Single-index mode (kCustomOnly): the built-in standard index is
-// not built. Only the custom IndexFactory produces an index, stored as a
-// meta block in the SST. A minimal empty index block is written to
-// satisfy the SST footer format.
+// Design: mirrors FilterPolicy — the built-in standard index is analogous
+// to the default data block format, custom IndexFactory implementations to
+// custom FilterPolicy implementations.
 // ============================================================================
 
 // ---------------------------------------------------------------------------
 // IndexFactoryBuilder: builds a custom index during SST construction.
 //
-// Called by BlockBasedTableBuilder for every key and every data block
-// boundary. The builder accumulates index entries and serializes them
-// into a meta block stored in the SST.
+// Called by BlockBasedTableBuilder for every key (OnKeyAdded) and every
+// data block boundary (AddIndexEntry / PrepareAddEntry+FinishAddEntry).
+// The builder accumulates index entries and serializes them into a meta
+// block stored in the SST.
 //
-// Thread safety: all methods except EstimatedSize() are called from a
-// single thread (the emit thread in BlockBasedTableBuilder). Custom
-// IndexFactory implementations can support parallel compression by
-// overriding SupportsParallelAddEntry(), PrepareAddEntry(), and
-// FinishAddEntry(). When not overridden, the default single-threaded
-// AddIndexEntry() path is used.
+// Thread safety:
+//   - AddIndexEntry, OnKeyAdded, Finish: called only on the emit thread.
+//   - PrepareAddEntry: called on the emit thread.
+//   - FinishAddEntry: called on the BG writer thread (in commit order)
+//     when parallel compression is active; otherwise on the emit thread.
+//   - EstimatedSize: may be called on the emit thread concurrently with
+//     FinishAddEntry on the BG writer thread when an implementation opts
+//     into parallel compression.
+//
+// To opt into parallel compression an implementation overrides
+// SupportsParallelAddEntry / CreatePreparedAddEntry / PrepareAddEntry /
+// FinishAddEntry. The default (false from SupportsParallelAddEntry) keeps
+// the synchronous AddIndexEntry path on a single thread.
 // ---------------------------------------------------------------------------
 class IndexFactoryBuilder {
  public:
@@ -152,11 +145,9 @@ class IndexFactoryBuilder {
 
   // Returns the estimated size in bytes of the index built so far.
   // Used by BlockBasedTableBuilder for SST file size estimation.
-  // Thread safety: may be called concurrently from the emit thread while
-  // the BGWorker thread invokes FinishAddEntry() (when parallel
-  // compression is active). Implementations that opt into parallel
-  // (see SupportsParallelAddEntry) must keep this safe under that
-  // concurrency.
+  // Implementations that opt into parallel compression (see
+  // SupportsParallelAddEntry) must keep this safe under concurrent
+  // FinishAddEntry calls on the BG writer thread.
   virtual uint64_t EstimatedSize() const = 0;
 
   // =========================================================================
@@ -197,21 +188,20 @@ class IndexFactoryBuilder {
 
   // --- Parallel compression protocol ---
   //
-  // Splits AddIndexEntry into two phases for concurrent block compression:
-  //   Phase 1 (emit thread): PrepareAddEntry — records keys + separator
-  //   Phase 2 (write thread): FinishAddEntry — records the block handle
+  // Splits AddIndexEntry into two phases so the table builder can run
+  // data block compression in parallel:
+  //   Phase 1 (emit thread): PrepareAddEntry — record separator keys.
+  //   Phase 2 (BG writer thread): FinishAddEntry — record the block handle.
   //
-  // Whether parallel compression is usable is a per-implementation choice.
-  // An implementation that overrides SupportsParallelAddEntry() to return
-  // true must also implement CreatePreparedAddEntry / PrepareAddEntry /
-  // FinishAddEntry consistently. Implementations that leave the default
-  // (false) keep the single-threaded AddIndexEntry path.
+  // An implementation that returns true from SupportsParallelAddEntry()
+  // must also implement CreatePreparedAddEntry, PrepareAddEntry, and
+  // FinishAddEntry as a consistent set. The default returns false so
+  // implementations stay on the synchronous AddIndexEntry path.
   //
-  // The table builder enables parallel compression for an SST only when
-  // every configured index builder (built-in plus any custom factory)
-  // reports SupportsParallelAddEntry() == true. If any builder returns
-  // false the entire SST falls back to single-threaded compression — there
-  // is no per-builder mixing of parallel and serial paths within one SST.
+  // The table builder turns parallel compression on for an SST only if
+  // every configured builder (built-in plus any custom factory) returns
+  // true. If any builder returns false the SST falls back to single-
+  // threaded compression — there is no per-builder mixing within an SST.
 
   struct PreparedAddEntry {
     virtual ~PreparedAddEntry() = default;

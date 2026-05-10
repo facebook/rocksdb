@@ -5000,10 +5000,10 @@ TEST_P(TrieIndexDBTest, PrefetchWithCustomIndexWrapper) {
 // reads, scans) hold, so any divergence between serial and parallel trie
 // construction would surface here.
 TEST_P(TrieIndexDBTest, ParallelCompressionWithTrieIndex) {
-  // Compression must be on for the parallel pipeline to actually run; with
-  // no compressor the table builder silently falls back to serial.
-  // ZLIB is preferred because it's universally linked via /usr/lib whereas
-  // Snappy / LZ4 / ZSTD depend on optional homebrew packages.
+  // Compression must be on for the parallel pipeline to actually run;
+  // with no compressor the table builder silently falls back to serial.
+  // Use Zlib because it's reliably linked across test build configs
+  // where Snappy / LZ4 / ZSTD may not be.
   if (!Zlib_Supported()) {
     fprintf(stderr, "Skipping: Zlib not linked into this build\n");
     return;
@@ -5060,6 +5060,84 @@ TEST_P(TrieIndexDBTest, ParallelCompressionWithTrieIndex) {
     snprintf(k, sizeof(k), "key_%06d", i);
     std::string v;
     ASSERT_OK(db_->Get(TrieIndexReadOptions(), k, &v));
+    EXPECT_EQ(v, std::string(200, 'v'));
+  }
+}
+
+// Trie + parallel compression on top of the kHashSearch built-in index.
+//
+// kCustomDefault / kCustomOnly restrict index_type to kBinarySearch /
+// kBinarySearchWithFirstKey (the UDI wrapper layout is incompatible with
+// hash / partitioned indexes). kStandardDefault has no such restriction,
+// so the trie can coexist with any built-in index_type. The
+// parameterized ParallelCompressionWithTrieIndex above covers the
+// kBinarySearch case; this test covers kHashSearch. kTwoLevelIndexSearch
+// is excluded because partition_filters constraints force
+// parallel_threads = 1.
+TEST_F(TrieIndexDBTest, ParallelCompressionWithHashStandardIndexAndTrieUdi) {
+  if (!Zlib_Supported()) {
+    fprintf(stderr, "Skipping: Zlib not linked into this build\n");
+    return;
+  }
+
+  options_.create_if_missing = true;
+  options_.compression = kZlibCompression;
+  options_.compression_opts.parallel_threads = 4;
+  options_.write_buffer_size = 1 << 20;
+  options_.prefix_extractor.reset(NewFixedPrefixTransform(4));
+
+  BlockBasedTableOptions table_options;
+  table_options.user_defined_index_factory = trie_factory_;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.index_type = BlockBasedTableOptions::kHashSearch;
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  last_options_ = options_;
+
+  ASSERT_OK(DB::Open(options_, dbname_, &db_));
+
+  // Enough keys to fill multiple blocks → multiple iterations through
+  // the parallel ring buffer for both the hash builder and the trie
+  // builder.
+  constexpr int kNumKeys = 500;
+  for (int i = 0; i < kNumKeys; i++) {
+    char key[16];
+    snprintf(key, sizeof(key), "key_%06d", i);
+    ASSERT_OK(db_->Put(WriteOptions(), key, std::string(200, 'v')));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Standard hash index path.
+  {
+    ReadOptions ro;
+    auto keys = ScanAllKeys(ro);
+    ASSERT_EQ(keys.size(), static_cast<size_t>(kNumKeys));
+    for (int i = 0; i < kNumKeys; i++) {
+      char k[16];
+      snprintf(k, sizeof(k), "key_%06d", i);
+      EXPECT_EQ(keys[static_cast<size_t>(i)], k);
+    }
+  }
+
+  // Trie path.
+  {
+    ReadOptions ro;
+    ro.read_index = ReadOptions::ReadIndex::kCustom;
+    auto keys = ScanAllKeys(ro);
+    ASSERT_EQ(keys.size(), static_cast<size_t>(kNumKeys));
+  }
+
+  // Random Get via both index paths.
+  for (int i : {0, 7, 123, 250, 499}) {
+    char k[16];
+    snprintf(k, sizeof(k), "key_%06d", i);
+    std::string v;
+    ReadOptions ro_std;
+    ASSERT_OK(db_->Get(ro_std, k, &v));
+    EXPECT_EQ(v, std::string(200, 'v'));
+    ReadOptions ro_trie;
+    ro_trie.read_index = ReadOptions::ReadIndex::kCustom;
+    ASSERT_OK(db_->Get(ro_trie, k, &v));
     EXPECT_EQ(v, std::string(200, 'v'));
   }
 }

@@ -118,21 +118,10 @@ class TrieIndexBuilder final : public IndexFactoryBuilder {
   LoudsTrieBuilder trie_builder_;
   bool finished_;
 
-  // --- Sequence number handling ---
-  //
-  // Seqno encoding is always enabled: AddIndexEntry() unconditionally sets
-  // must_use_separator_with_seq_ to true (the unconditional set at the end of
-  // AddIndexEntry()). This means the 8-byte-per-leaf seqno side-table overhead
-  // is always incurred. The flag exists so that Finish() can check it to decide
-  // whether to serialize the seqno side-table (true path) or emit a plain
-  // trie without seqno data (false/else path, only reachable for an empty
-  // trie with zero entries).
-  //
-  // We buffer all separator entries during building, then at Finish() feed
-  // them to the trie with seqno side-table metadata.
-  //
-  // Always set to true in AddIndexEntry() -- seqno encoding is
-  // unconditionally enabled. The 8-byte per-leaf overhead is always incurred.
+  // Always set to true when an entry is staged so Finish() emits the
+  // seqno side-table needed by the post-seek correction. The 8-byte per-
+  // leaf overhead is unconditional. The false path in Finish() is only
+  // reachable for an empty trie (no entries at all).
   bool must_use_separator_with_seq_;
 
   // Buffered separator entries: (separator_key, tag, handle).
