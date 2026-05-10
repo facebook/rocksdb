@@ -1158,6 +1158,12 @@ def finalize_and_sanitize(src_params):
             # the primary's), losing the UDI factory. Without the factory,
             # reads cannot be routed through the trie.
             dest_params["test_secondary"] = 0
+            # Remote compaction worker threads simulate a separate process
+            # by re-opening the DB through OpenAndCompact, which deserializes
+            # OPTIONS and loses the user_defined_index_factory shared_ptr.
+            # That triggers the validation: index_mode >= kStandardDefault
+            # requires user_defined_index_factory to be set.
+            dest_params["remote_compaction_worker_threads"] = 0
     else:
         # index_mode >= kStandardDefault requires use_trie_index
         dest_params["index_mode"] = 0
