@@ -1164,6 +1164,26 @@ def finalize_and_sanitize(src_params):
             # That triggers the validation: index_mode >= kStandardDefault
             # requires user_defined_index_factory to be set.
             dest_params["remote_compaction_worker_threads"] = 0
+            # cf_consistency requires bit-identical CRCs across column
+            # families. In primary UDI modes (kCustomDefault/kCustomOnly),
+            # write-fault injection on the UDI meta block can corrupt
+            # reads:
+            #   - kCustomOnly: no standard-index fallback, so a corrupted
+            #     UDI block silently drops keys.
+            #   - kCustomDefault: reads route through the UDI block first;
+            #     a corruption in one CF's UDI but not the other still
+            #     diverges the per-CF read view.
+            # The same condition is already guarded for
+            # compaction_verify_record_count in
+            # db_stress_test_base.cc:4557. Disable fault injection here so
+            # cf_consistency can still verify the index-routing path
+            # without false-positive CRC mismatches.
+            if dest_params.get("test_cf_consistency") == 1:
+                dest_params["metadata_write_fault_one_in"] = 0
+                dest_params["write_fault_one_in"] = 0
+                dest_params["open_metadata_write_fault_one_in"] = 0
+                dest_params["open_write_fault_one_in"] = 0
+                dest_params["sync_fault_injection"] = 0
     else:
         # index_mode >= kStandardDefault requires use_trie_index
         dest_params["index_mode"] = 0
