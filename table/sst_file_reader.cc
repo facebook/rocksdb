@@ -84,10 +84,10 @@ Status SstFileReader::Open(const std::string& file_path) {
   return s;
 }
 
-void SstFileReader::MayMatch(const ReadOptions& roptions, const Slice* keys,
-                             size_t num_keys, bool* results) {
+Status SstFileReader::MayMatch(const ReadOptions& roptions, const Slice* keys,
+                               size_t num_keys, bool* results) {
   if (num_keys == 0) {
-    return;
+    return Status::OK();
   }
 
   auto r = rep_.get();
@@ -95,12 +95,13 @@ void SstFileReader::MayMatch(const ReadOptions& roptions, const Slice* keys,
     for (size_t i = 0; i < num_keys; ++i) {
       results[i] = true;
     }
-    return;
+    return Status::InvalidArgument("SstFileReader::Open was not called");
   }
   const auto sequence = roptions.snapshot != nullptr
                             ? roptions.snapshot->GetSequenceNumber()
                             : kMaxSequenceNumber;
 
+  Status first_error;
   for (size_t base = 0; base < num_keys;
        base += MultiGetContext::MAX_BATCH_SIZE) {
     const size_t batch_size =
@@ -128,6 +129,9 @@ void SstFileReader::MayMatch(const ReadOptions& roptions, const Slice* keys,
       for (size_t i = 0; i < batch_size; ++i) {
         results[base + i] = true;
       }
+      if (first_error.ok()) {
+        first_error = s;
+      }
       continue;
     }
 
@@ -138,11 +142,12 @@ void SstFileReader::MayMatch(const ReadOptions& roptions, const Slice* keys,
       results[base + iter.index()] = true;
     }
   }
+  return first_error;
 }
 
-void SstFileReader::MayMatch(const Slice* keys, size_t num_keys,
-                             bool* results) {
-  MayMatch(ReadOptions(), keys, num_keys, results);
+Status SstFileReader::MayMatch(const Slice* keys, size_t num_keys,
+                               bool* results) {
+  return MayMatch(ReadOptions(), keys, num_keys, results);
 }
 
 std::vector<Status> SstFileReader::MultiGet(

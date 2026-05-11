@@ -137,8 +137,10 @@ class SstFileReaderBenchFixture {
   Status status() const { return status_; }
 
   void RunMayMatch() {
-    reader_.MayMatch(read_options_, lookup_keys_.data(), lookup_keys_.size(),
-                     may_match_results_.get());
+    reader_
+        .MayMatch(read_options_, lookup_keys_.data(), lookup_keys_.size(),
+                  may_match_results_.get())
+        .PermitUncheckedError();
     benchmark::DoNotOptimize(may_match_results_.get());
   }
 
@@ -201,8 +203,10 @@ class SstFileReaderBenchFixture {
   }
 
   void WarmFilter() {
-    reader_.MayMatch(read_options_, lookup_keys_.data(), lookup_keys_.size(),
-                     may_match_results_.get());
+    reader_
+        .MayMatch(read_options_, lookup_keys_.data(), lookup_keys_.size(),
+                  may_match_results_.get())
+        .PermitUncheckedError();
   }
 
   Options options_;

@@ -175,8 +175,8 @@ TEST_F(SstFileReaderTest, MayMatchUsesBloomFilter) {
   bool may_match[3] = {};
   ReadOptions read_options;
   ASSERT_OK(options_.statistics->Reset());
-  reader.MayMatch(read_options, lookup_keys.data(), lookup_keys.size(),
-                  may_match);
+  ASSERT_OK(reader.MayMatch(read_options, lookup_keys.data(),
+                            lookup_keys.size(), may_match));
   ASSERT_TRUE(may_match[0]);
   ASSERT_TRUE(may_match[1]);
   ASSERT_FALSE(may_match[2]);
@@ -200,7 +200,7 @@ TEST_F(SstFileReaderTest, MayMatchReturnsAllTrueWithoutFilter) {
   std::vector<Slice> lookup_keys = ToSlices(lookup_storage);
 
   bool may_match[3] = {};
-  reader.MayMatch(lookup_keys.data(), lookup_keys.size(), may_match);
+  ASSERT_OK(reader.MayMatch(lookup_keys.data(), lookup_keys.size(), may_match));
   ASSERT_TRUE(may_match[0]);
   ASSERT_TRUE(may_match[1]);
   ASSERT_TRUE(may_match[2]);
@@ -225,7 +225,7 @@ TEST_F(SstFileReaderTest, MayMatchKeepsAllPresentKeys) {
   std::vector<Slice> lookup_keys = ToSlices(lookup_storage);
 
   bool may_match[3] = {};
-  reader.MayMatch(lookup_keys.data(), lookup_keys.size(), may_match);
+  ASSERT_OK(reader.MayMatch(lookup_keys.data(), lookup_keys.size(), may_match));
   ASSERT_TRUE(may_match[0]);
   ASSERT_TRUE(may_match[1]);
   ASSERT_TRUE(may_match[2]);
@@ -261,7 +261,8 @@ TEST_F(SstFileReaderTest, MayMatchHandlesMultipleBatches) {
 
   std::array<bool, MultiGetContext::MAX_BATCH_SIZE + 5> may_match;
   may_match.fill(true);
-  reader.MayMatch(lookup_keys.data(), lookup_keys.size(), may_match.data());
+  ASSERT_OK(
+      reader.MayMatch(lookup_keys.data(), lookup_keys.size(), may_match.data()));
   for (size_t i = 0; i < num_lookups; ++i) {
     ASSERT_EQ(expected[i], may_match[i]) << "lookup index " << i;
   }
@@ -288,8 +289,8 @@ TEST_F(SstFileReaderTest, MayMatchAcceptsSnapshot) {
   read_options.snapshot = &snapshot;
 
   bool may_match[2] = {};
-  reader.MayMatch(read_options, lookup_keys.data(), lookup_keys.size(),
-                  may_match);
+  ASSERT_OK(reader.MayMatch(read_options, lookup_keys.data(),
+                            lookup_keys.size(), may_match));
   ASSERT_TRUE(may_match[0]);
   ASSERT_FALSE(may_match[1]);
 }
@@ -310,7 +311,7 @@ TEST_F(SstFileReaderTest, MayMatchZeroKeysWithFilterDoesNotWriteResults) {
 
   Slice dummy;
   bool may_match = false;
-  reader.MayMatch(&dummy, 0, &may_match);
+  ASSERT_OK(reader.MayMatch(&dummy, 0, &may_match));
   ASSERT_FALSE(may_match);
 }
 

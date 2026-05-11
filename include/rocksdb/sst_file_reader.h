@@ -55,13 +55,17 @@ class SstFileReader {
   // (e.g. read_tier=kBlockCacheTier and filter not in cache). This call
   // never reads data blocks; it only consults the filter.
   //
-  // Errors from the filter read are treated as "may match" and are not
-  // surfaced to the caller. (See MultiGet for an API that returns Status.)
-  void MayMatch(const ReadOptions& read_options, const Slice* keys,
-                size_t num_keys, bool* results);
+  // Returns OK on success. If the underlying filter probe returns a non-OK
+  // status for any batch (e.g. Incomplete from kBlockCacheTier with the
+  // filter not cached, NotSupported from a table type without a filter-only
+  // batch probe, or an I/O / corruption error), the first such status is
+  // returned and the corresponding result entries are left as true so the
+  // results array is always safe for the caller to consult.
+  Status MayMatch(const ReadOptions& read_options, const Slice* keys,
+                  size_t num_keys, bool* results);
 
   // Equivalent to MayMatch(ReadOptions(), keys, num_keys, results).
-  void MayMatch(const Slice* keys, size_t num_keys, bool* results);
+  Status MayMatch(const Slice* keys, size_t num_keys, bool* results);
 
   // Returns a new iterator over the table contents as a raw table iterator,
   // a.k.a a `TableIterator`that iterates all point data entries in the table
