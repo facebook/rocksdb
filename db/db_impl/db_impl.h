@@ -1855,6 +1855,11 @@ class DBImpl : public DB {
   // Background work function for async file opening.
   static void BGWorkAsyncFileOpen(void* arg);
 
+  // Block the until any in-flight async file open work has
+  // completed. No-op when open_files_async is false. Returns early if
+  // shutdown begins.
+  void WaitForAsyncFileOpen();
+
   void InvokeWalFilterIfNeededOnColumnFamilyToWalNumberMap();
 
   // Return true to proceed with current WAL record whose content is stored in

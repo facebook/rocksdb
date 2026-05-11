@@ -8203,6 +8203,98 @@ TEST_P(OpenFilesAsyncTest, BeforeRead) {
   }
 }
 
+// For modern DBs (manifest carries file_creation_time),
+// GetCreationTimeOfOldestFile returns the real value without waiting for async
+// file open.
+TEST_P(OpenFilesAsyncTest, GetCreationTimeOfOldestFileSkipsWaitForModernDB) {
+  if (max_open_files_ != -1) {
+    return;
+  }
+
+  Options options = CurrentOptions();
+  ASSERT_NO_FATAL_FAILURE(SetupData(options));
+
+  // If WaitForAsyncFileOpen is entered, the test fails — modern DBs must
+  // never need the wait.
+  std::atomic<bool> waited{false};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WaitForAsyncFileOpen::BeforeWait",
+      [&](void* /*arg*/) { waited.store(true); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  OpenTestDB(options);
+
+  uint64_t creation_time = std::numeric_limits<uint64_t>::max();
+  ASSERT_OK(dbfull()->GetCreationTimeOfOldestFile(&creation_time));
+  EXPECT_GT(creation_time, 0);
+  EXPECT_LT(creation_time, std::numeric_limits<uint64_t>::max());
+  EXPECT_FALSE(waited.load());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
+}
+
+// For legacy DBs (manifest lacks file_creation_time, value comes from the
+// pinned reader), GetCreationTimeOfOldestFile must block until
+// BGWorkAsyncFileOpen pins the readers; otherwise it returns 0 (the "info
+// unavailable" sentinel) instead of the real value.
+TEST_P(OpenFilesAsyncTest,
+       GetCreationTimeOfOldestFileBlocksOnAsyncOpenForLegacyDB) {
+  if (max_open_files_ != -1) {
+    return;
+  }
+
+  Options options = CurrentOptions();
+  ASSERT_NO_FATAL_FAILURE(SetupData(options));
+
+  // Simulate a legacy DB: force TryGetFileCreationTime to return
+  // kUnknownFileCreationTime until BGWorkAsyncFileOpen completes (i.e., what
+  // would happen if the manifest had no file_creation_time and the pinned
+  // reader was the only source).
+  std::atomic<bool> async_open_done{false};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BGWorkAsyncFileOpen:Done",
+      [&](void* /*arg*/) { async_open_done.store(true); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "Version::GetCreationTimeOfOldestFile::FileCreationTime", [&](void* arg) {
+        if (!async_open_done.load()) {
+          *static_cast<uint64_t*>(arg) = kUnknownFileCreationTime;
+        }
+      });
+
+  // Dependency chain: caller's first pass returns 0, enters
+  // WaitForAsyncFileOpen -> main thread confirms wait -> main thread releases
+  // async open -> background worker completes -> caller wakes -> second pass
+  // sees the real value.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::WaitForAsyncFileOpen::BeforeWait",
+        "OpenFilesAsyncTest::CreationTime::CallerBlocked"},
+       {"OpenFilesAsyncTest::CreationTime::CallerBlocked",
+        "OpenFilesAsyncTest::CreationTime::ReleaseAsyncOpen"},
+       {"OpenFilesAsyncTest::CreationTime::ReleaseAsyncOpen",
+        "DBImpl::BGWorkAsyncFileOpen::Start"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  OpenTestDB(options);
+
+  uint64_t creation_time = std::numeric_limits<uint64_t>::max();
+  port::Thread caller([&]() {
+    ASSERT_OK(dbfull()->GetCreationTimeOfOldestFile(&creation_time));
+  });
+
+  TEST_SYNC_POINT("OpenFilesAsyncTest::CreationTime::CallerBlocked");
+  TEST_SYNC_POINT("OpenFilesAsyncTest::CreationTime::ReleaseAsyncOpen");
+  caller.join();
+
+  EXPECT_GT(creation_time, 0);
+  EXPECT_LT(creation_time, std::numeric_limits<uint64_t>::max());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
+}
+
 TEST_P(OpenFilesAsyncTest, Shutdown) {
   Options options = CurrentOptions();
   ASSERT_NO_FATAL_FAILURE(SetupData(options));

@@ -482,6 +482,18 @@ void DBImpl::WaitForBackgroundWork() {
   }
 }
 
+void DBImpl::WaitForAsyncFileOpen() {
+  if (!immutable_db_options_.open_files_async) {
+    return;
+  }
+  InstrumentedMutexLock l(&mutex_);
+  TEST_SYNC_POINT("DBImpl::WaitForAsyncFileOpen::BeforeWait");
+  while (bg_async_file_open_state_ == AsyncFileOpenState::kScheduled &&
+         !shutting_down_.load(std::memory_order_acquire)) {
+    bg_cv_.Wait();
+  }
+}
+
 // Will lock the mutex_,  will wait for completion if wait is true
 void DBImpl::CancelAllBackgroundWork(bool wait) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -7384,6 +7396,7 @@ Status DBImpl::ReserveFileNumbersBeforeIngestion(
 Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   if (mutable_db_options_.max_open_files == -1) {
     uint64_t oldest_time = std::numeric_limits<uint64_t>::max();
+    std::once_flag waited_for_async_open;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (!cfd->IsDropped()) {
         uint64_t ctime;
@@ -7391,6 +7404,17 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
           SuperVersion* sv = GetAndRefSuperVersion(cfd);
           Version* version = sv->current;
           version->GetCreationTimeOfOldestFile(&ctime);
+          // For modern DBs, manifest carries file_creation_time and the
+          // first call returns the real value. We only need to wait for
+          // BGWorkAsyncFileOpen on legacy DBs whose manifest lacks
+          // file_creation_time — those rely on the pinned reader, which is
+          // null until async file open completes.
+          if (ctime == 0 && immutable_db_options_.open_files_async) {
+            std::call_once(waited_for_async_open, [&]() {
+              WaitForAsyncFileOpen();
+              version->GetCreationTimeOfOldestFile(&ctime);
+            });
+          }
           ReturnAndCleanupSuperVersion(cfd, sv);
         }
 
