@@ -59,7 +59,7 @@ Status ReadPathBlobResolver::ResolveColumn(size_t column_index,
         blob_resolver_util::FindBlobColumn(blob_columns_, column_index);
 
     if (blob_index_ptr == nullptr) {
-      // Inline column — return the value directly
+      // Inline column -- return the value directly
       *resolved_value = (*columns_)[column_index].value();
     } else {
       // Check if already resolved

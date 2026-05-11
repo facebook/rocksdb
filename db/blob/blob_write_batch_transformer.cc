@@ -278,7 +278,7 @@ Status BlobWriteBatchTransformer::MergeCF(uint32_t column_family_id,
 Status BlobWriteBatchTransformer::PutBlobIndexCF(uint32_t column_family_id,
                                                  const Slice& key,
                                                  const Slice& value) {
-  // Already a blob index — pass through unchanged.
+  // Already a blob index -- pass through unchanged.
   return WriteBatchInternal::PutBlobIndex(output_batch_, column_family_id, key,
                                           value);
 }

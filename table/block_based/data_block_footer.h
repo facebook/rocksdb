@@ -52,7 +52,7 @@ struct DataBlockFooter {
   // limit is adequate because a 4GiB block (maximum due to 32-bit block size)
   // with restart_interval=1 and minimum entries (12 bytes: 3 varint bytes +
   // 9-byte internal key + empty value) plus 4-byte restart offsets = 16 bytes
-  // per restart, fits at most (2^32 - 4) / 16 ≈ 268 million restarts.
+  // per restart, fits at most (2^32 - 4) / 16 ~= 268 million restarts.
   static constexpr uint32_t kMaxNumRestarts = (1u << 28) - 1;
 
   // Maximum encoded length of a DataBlockFooter (for buffer sizing).

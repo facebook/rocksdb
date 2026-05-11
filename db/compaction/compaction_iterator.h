@@ -75,7 +75,7 @@ class CompactionBlobResolver : public WideColumnBlobResolver {
   bool track_resolve_error_ = false;
 
   // Cache for resolved blob values to avoid re-fetching. Uses a vector of
-  // (column_index, PinnableSlice) pairs — typical entities have few blob
+  // (column_index, PinnableSlice) pairs -- typical entities have few blob
   // columns (<5), making linear scan cheaper than hash map overhead.
   std::vector<std::pair<size_t, std::unique_ptr<PinnableSlice>>>
       resolved_cache_;

@@ -3883,7 +3883,7 @@ TEST_F(DBFlushTest, LeakedTableCacheEntryOnFlushInstallFailure) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  // Trigger flush — BuildTable succeeds but LogAndApply fails.
+  // Trigger flush -- BuildTable succeeds but LogAndApply fails.
   Status s = Flush();
   ASSERT_NOK(s);
 

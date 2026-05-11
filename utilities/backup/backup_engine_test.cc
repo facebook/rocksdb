@@ -3436,7 +3436,7 @@ TEST_F(BackupEngineTest, FileDetailsHaveCorrectFileType) {
   bool found_options = false;
 
   for (const auto& file_info : backup_info.file_details) {
-    // No file should have the default kTempFile type — ParseFileName should
+    // No file should have the default kTempFile type -- ParseFileName should
     // have successfully identified all backup files.
     EXPECT_NE(file_info.file_type, kTempFile)
         << "Unexpected kTempFile for: " << file_info.relative_filename;

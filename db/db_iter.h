@@ -589,7 +589,7 @@ class DBIter final : public Iterator {
 
   // If enough contiguous tombstones have been tracked, insert a range
   // tombstone [first_key, end_key) into the mutable memtable.
-  // end_key is the exclusive upper bound — typically the next live key.
+  // end_key is the exclusive upper bound -- typically the next live key.
   void MaybeInsertRangeTombstone(const Slice& end_key);
   void ResetContiguousTombstoneTracking() {
     contiguous_tombstone_count_ = 0;

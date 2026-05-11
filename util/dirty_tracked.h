@@ -16,7 +16,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 // Wraps a value of type T and tracks whether it has been mutated since the
-// last Reset(). Reset() short-circuits when the value is not dirty — useful
+// last Reset(). Reset() short-circuits when the value is not dirty -- useful
 // when T::Reset() is non-trivial (allocations, container clears) and the
 // value is rarely populated on a hot path.
 //
@@ -41,7 +41,7 @@ class DirtyTracked {
   const T* operator->() const { return &value_; }
   const T& operator*() const { return value_; }
 
-  // Explicit mutating access — marks dirty, returns a mutable pointer.
+  // Explicit mutating access -- marks dirty, returns a mutable pointer.
   T* mut() {
     dirty_ = true;
     return &value_;

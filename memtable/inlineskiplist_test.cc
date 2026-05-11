@@ -559,7 +559,7 @@ TEST_F(InlineSkipTest, MultiGetDuplicateKeysWithCallbackWalk) {
   }
 
   // Callback that walks forward through multiple entries before stopping.
-  // This simulates the Merge operand accumulation in SaveValue — the callback
+  // This simulates the Merge operand accumulation in SaveValue -- the callback
   // returns true for entries until it reaches one >= stop_at, simulating
   // walking through merge chain entries.
   struct WalkingCallbackArg {
@@ -1068,11 +1068,11 @@ static void ConcurrentMultiGetWorker(void* arg) {
     // Validate all results: each found result must equal its query key
     // (since all queried keys were inserted, an exact match is expected).
     // However, due to concurrent inserts, a key sampled from the ring
-    // might not yet be visible — so we only check that if a result is
+    // might not yet be visible -- so we only check that if a result is
     // found, it equals the query key (i.e., no wrong key returned).
     for (size_t j = 0; j < batch_size; j++) {
       if (results[j] != 0 && results[j] != query_keys[j]) {
-        // Got a result that doesn't match the query — either a bug or
+        // Got a result that doesn't match the query -- either a bug or
         // the exact key wasn't inserted and we got the next one. Since
         // all our query keys are inserted, this means the result should
         // be >= query. For the just-inserted key we already checked

@@ -434,14 +434,14 @@ void InstallStackTraceHandler() {
   // Ignore SIGPIPE so that broken-pipe writes (e.g. to a closed stdout)
   // return EPIPE instead of killing the process.
   signal(SIGPIPE, SIG_IGN);
-  // Crash signals — invoke full stack trace + ring buffer
+  // Crash signals -- invoke full stack trace + ring buffer
   signal(SIGILL, StackTraceHandler);
   signal(SIGSEGV, StackTraceHandler);
   signal(SIGBUS, StackTraceHandler);
   signal(SIGABRT, StackTraceHandler);
   signal(SIGFPE, StackTraceHandler);
   signal(SIGQUIT, StackTraceHandler);
-  // Termination signals — print ring buffer only, no stack trace
+  // Termination signals -- print ring buffer only, no stack trace
   signal(SIGTERM, TerminationHandler);
   signal(SIGINT, TerminationHandler);
   atexit(AtExit);

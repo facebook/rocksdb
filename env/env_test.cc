@@ -1892,7 +1892,7 @@ TEST_F(EnvPosixTest, SupportedOpsNoAsyncIOOnIOUringInitFailure) {
   int64_t thread_supported_ops2 = 0;
   std::thread t([&]() {
     fs->SupportedOps(thread_supported_ops);
-    // Second call on the same thread — cached failure, no retry.
+    // Second call on the same thread -- cached failure, no retry.
     fs->SupportedOps(thread_supported_ops2);
   });
   t.join();
@@ -1903,7 +1903,7 @@ TEST_F(EnvPosixTest, SupportedOpsNoAsyncIOOnIOUringInitFailure) {
   // Second call should also lack kAsyncIO.
   ASSERT_EQ(thread_supported_ops2 & (1 << FSSupportedOps::kAsyncIO), 0);
   ASSERT_NE(thread_supported_ops2 & (1 << FSSupportedOps::kFSPrefetch), 0);
-  // CreateIOUring must have been called exactly once — not retried.
+  // CreateIOUring must have been called exactly once -- not retried.
   ASSERT_EQ(create_count, 1);
 
   SyncPoint::GetInstance()->DisableProcessing();

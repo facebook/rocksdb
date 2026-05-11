@@ -221,7 +221,7 @@ IOStatus GenerateOneFileChecksum(
     std::unique_ptr<FSRandomAccessFile> r_file;
     FileOptions fopts = file_options;
     if (fopts.file_checksum.empty()) {
-      // No expected checksum is known — this is a from-scratch computation.
+      // No expected checksum is known -- this is a from-scratch computation.
       fopts.file_checksum_func_name = kNoFileChecksumFuncName;
     }
     io_s = fs->NewRandomAccessFile(file_path, fopts, &r_file, nullptr);

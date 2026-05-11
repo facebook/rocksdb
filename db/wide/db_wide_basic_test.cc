@@ -2776,7 +2776,7 @@ TEST_F(DBWideBasicTest, EntityBlobBlockCacheTierGet) {
   // Reopen to clear any caches
   Reopen(options);
 
-  // Read with kBlockCacheTier — blob is not in cache
+  // Read with kBlockCacheTier -- blob is not in cache
   ReadOptions read_opts;
   read_opts.read_tier = kBlockCacheTier;
   PinnableSlice result;
@@ -2998,7 +2998,7 @@ TEST_F(DBWideBasicTest, MergeEntityWithBlobColumnsBlockCacheTier) {
   // Reopen to clear caches
   Reopen(options);
 
-  // Read with kBlockCacheTier — blob not in cache, merge needs blob resolution
+  // Read with kBlockCacheTier -- blob not in cache, merge needs blob resolution
   ReadOptions read_opts;
   read_opts.read_tier = kBlockCacheTier;
   PinnableSlice result;

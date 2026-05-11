@@ -1101,7 +1101,7 @@ TEST_F(CompactionPickerTest, ReadTriggeredSkipsLastLevel) {
   Add(0, 1U, "150", "200", kFileSize, 0, 500, 550);
   Add(4, 3U, "301", "350", kFileSize, 0, 101, 150);
 
-  // File 3 is at the last non-empty level — should NOT be marked for
+  // File 3 is at the last non-empty level -- should NOT be marked for
   // read-triggered compaction. Bottommost file cleanup is handled
   // separately by ComputeBottommostFilesMarkedForCompaction().
   file_map_[3U].first->stats.num_collapsible_entry_reads_sampled.store(

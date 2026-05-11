@@ -186,14 +186,14 @@ TEST_F(DBBasicTest,
 }
 
 // When the per-CF log_number actually advances, the per-CF skip must NOT
-// fire — the edit carries real information and must be emitted.
+// fire -- the edit carries real information and must be emitted.
 TEST_F(DBBasicTest, OptimizeManifestForRecoveryEmitsPerCFWhenLogAdvances) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.optimize_manifest_for_recovery = true;
   DestroyAndReopen(options);
   ASSERT_OK(Put("k", "v"));
-  // Write data and close WITHOUT flushing — the WAL has un-replayed
+  // Write data and close WITHOUT flushing -- the WAL has un-replayed
   // records, so on reopen recovery flushes the memtable and the per-CF
   // edit's log_number must advance past the prior WAL.
   Close();
@@ -230,7 +230,7 @@ TEST_F(DBBasicTest, OptimizeManifestForRecoveryPreservesWalTracking) {
 // best_efforts_recovery requires a fresh MANIFEST + CURRENT to be
 // produced on every open (the salvage contract). Even with the option
 // on, none of the SkippedNoopEdit branches must fire under
-// best_efforts_recovery — otherwise CURRENT can be left missing or
+// best_efforts_recovery -- otherwise CURRENT can be left missing or
 // stale (regression caught by DBBasicTest.RecoverWithNoCurrentFile and
 // DBTest2.BestEffortsRecoveryWithSstUniqueIdVerification under an
 // option-on default).
@@ -267,7 +267,7 @@ TEST_F(DBBasicTest, OptimizeManifestForRecoveryMultiCF) {
   ASSERT_OK(Put(1, "k", "v1"));
   ASSERT_OK(Put(2, "k", "v2"));
   ASSERT_OK(Flush(0));
-  // CF 1 and 2 keep dirty memtables — recovery must emit their per-CF
+  // CF 1 and 2 keep dirty memtables -- recovery must emit their per-CF
   // edits (log_number advance from WAL replay).
   Close();
 
@@ -662,7 +662,7 @@ TEST_F(DBBasicTest, ReuseManifestOnOpenStillRotatesOnSizeCap) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
   // The Flush after Reopen must have triggered a rotation given the
-  // tiny size cap — proves the size-driven rotation path still runs
+  // tiny size cap -- proves the size-driven rotation path still runs
   // when descriptor_log_ is bound by reuse.
   EXPECT_GT(rotations.load(), 0);
   EXPECT_EQ("v", Get("k"));
@@ -685,7 +685,7 @@ TEST_F(DBBasicTest, ReuseManifestOnOpenMultiCF) {
   Close();
 
   ReopenWithColumnFamilies({"default", "alpha", "beta"}, options);
-  // Trigger more writes post-reopen on each CF — these get appended to
+  // Trigger more writes post-reopen on each CF -- these get appended to
   // the reused MANIFEST.
   ASSERT_OK(Put(0, "k2", "v0b"));
   ASSERT_OK(Put(1, "k2", "v1b"));
@@ -777,7 +777,7 @@ TEST_F(DBBasicTest, WritableFileWriterInitialFileSizeAdoptsExistingSize) {
     ASSERT_OK(raw->Close());
   }
 
-  // Reopen and wrap in a WritableFileWriter without initial_file_size —
+  // Reopen and wrap in a WritableFileWriter without initial_file_size --
   // GetFileSize() should be 0 (the constructor's default).
   std::unique_ptr<FSWritableFile> fs_file;
   ASSERT_OK(env->GetFileSystem()->ReopenWritableFile(
@@ -805,7 +805,7 @@ TEST_F(DBBasicTest, WritableFileWriterInitialFileSizeAdoptsExistingSize) {
 }
 
 // Tail corruption: appending garbage bytes to the MANIFEST after a
-// clean close must prevent reuse — the physical size exceeds the
+// clean close must prevent reuse -- the physical size exceeds the
 // last valid record end.
 TEST_F(DBBasicTest, ReuseManifestOnOpenSkipsOnTailCorruption) {
   Options options = CurrentOptions();

@@ -1553,7 +1553,7 @@ Status DB::OpenAndCompact(
     }
   }
 
-  // 5. Open db As Secondary (skip WAL recovery — remote compaction only
+  // 5. Open db As Secondary (skip WAL recovery -- remote compaction only
   //    needs LSM state from MANIFEST, not memtable data from WAL replay)
   std::unique_ptr<DB> db;
   std::vector<ColumnFamilyHandle*> handles;
