@@ -6116,6 +6116,46 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
   ASSERT_EQ("value", Get("key"));
 }
 
+// Verify that a manifest write failure during DB::Open (recovery) does not
+// corrupt the DB: a subsequent Open without the injected error must succeed
+// and return all previously committed data.
+// Exercised with and without optimize_manifest_for_recovery.
+TEST_F(DBBasicTest, ManifestWriteFailureDuringRecovery) {
+  for (bool optimize : {false, true}) {
+    SCOPED_TRACE("optimize_manifest_for_recovery=" + std::to_string(optimize));
+    Options options = GetDefaultOptions();
+    options.create_if_missing = true;
+    options.disable_auto_compactions = true;
+    options.env = env_;
+    options.optimize_manifest_for_recovery = optimize;
+
+    // Populate the DB with flushed data + unflushed WAL data so that
+    // recovery replays the WAL and LogAndApplyForRecovery writes to
+    // the MANIFEST.
+    DestroyAndReopen(options);
+    ASSERT_OK(Put("flushed_key", "flushed_val"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put("wal_key", "wal_val"));
+    // Close without flushing — the second key lives only in the WAL.
+    Close();
+
+    // Inject IOError on any MANIFEST write.
+    env_->manifest_write_error_.store(true, std::memory_order_release);
+
+    // Open should fail because the manifest write is injected to fail.
+    Status s = TryReopen(options);
+    ASSERT_TRUE(s.IsIOError()) << s.ToString();
+
+    // Clear the injection.
+    env_->manifest_write_error_.store(false, std::memory_order_release);
+
+    // A clean reopen must succeed — the old MANIFEST must still be intact.
+    Reopen(options);
+    ASSERT_EQ("flushed_val", Get("flushed_key"));
+    ASSERT_EQ("wal_val", Get("wal_key"));
+  }
+}
+
 TEST_F(DBBasicTest, DestroyDefaultCfHandle) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
