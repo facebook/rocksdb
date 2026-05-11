@@ -144,6 +144,7 @@ JAVA_TESTS = \
 	org.rocksdb.FlushTest\
 	org.rocksdb.ImportColumnFamilyTest\
 	org.rocksdb.InfoLogLevelTest\
+	org.rocksdb.KeyExistsBlobTest \
 	org.rocksdb.KeyExistsTest \
 	org.rocksdb.KeyMayExistTest\
 	org.rocksdb.ConcurrentTaskLimiterTest\
