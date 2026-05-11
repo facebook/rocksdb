@@ -59,6 +59,10 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     return iter;
   }
 
+  const bool use_block_cache_for_data_blocks =
+      block_type != BlockType::kData ||
+      ShouldUseBlockCacheForIteratorDataBlocks(rep_->table_options, ro);
+
   CachableEntry<Block> block;
   {
     CachableEntry<DecompressorDict> dict;
@@ -85,15 +89,18 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     }
 
     if (block_type == BlockType::kRangeDeletion) {
-      s = RetrieveBlock(prefetch_buffer, ro, handle, decomp,
-                        &block.As<Block_kRangeDeletion>(), get_context,
-                        lookup_context, for_compaction, /* use_cache */ true,
-                        async_read, use_block_cache_for_lookup);
+      s = RetrieveBlock(
+          prefetch_buffer, ro, handle, decomp,
+          &block.As<Block_kRangeDeletion>(), get_context, lookup_context,
+          for_compaction,
+          /* use_cache */ use_block_cache_for_data_blocks, async_read,
+          use_block_cache_for_lookup && use_block_cache_for_data_blocks);
     } else {
       s = RetrieveBlock(
           prefetch_buffer, ro, handle, decomp, &block.As<IterBlocklike>(),
           get_context, lookup_context, for_compaction,
-          /* use_cache */ true, async_read, use_block_cache_for_lookup);
+          /* use_cache */ use_block_cache_for_data_blocks, async_read,
+          use_block_cache_for_lookup && use_block_cache_for_data_blocks);
     }
   }
 
@@ -116,17 +123,18 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   // is destroyed as long as cleanup functions are moved to another object,
   // when:
   // 1. block cache handle is set to be released in cleanup function, or
-  // 2. it's pointing to immortal source. If own_bytes is true then we are
+  // 2. block contents are backed by a retained external provider, or
+  // 3. it's pointing to immortal source. If own_bytes is true then we are
   //    not reading data from the original source, whether immortal or not.
   //    Otherwise, the block is pinned iff the source is immortal.
   const bool block_contents_pinned =
-      block.IsCached() ||
+      block.IsCached() || block.GetValue()->HasRetainedContentsBacking() ||
       (!block.GetValue()->own_bytes() && rep_->immortal_table);
   iter = InitBlockIterator<TBlockIter>(rep_, block.GetValue(), block_type, iter,
                                        block_contents_pinned);
 
   if (!block.IsCached()) {
-    if (!ro.fill_cache) {
+    if (!ro.fill_cache && use_block_cache_for_data_blocks) {
       IterPlaceholderCacheInterface block_cache{
           rep_->table_options.block_cache.get()};
       if (block_cache) {
@@ -147,6 +155,11 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     }
   } else {
     iter->SetCacheHandle(block.GetCacheHandle());
+  }
+  if (block.GetValue()->HasRetainedContentsBacking()) {
+    iter->SetBlockContentsCleanup(
+        block.GetValue()->contents_cleanup(),
+        block.GetValue()->contents_cleanup_dedupe_token());
   }
 
   block.TransferTo(iter);
@@ -178,17 +191,19 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(const ReadOptions& ro,
   // is destroyed as long as cleanup functions are moved to another object,
   // when:
   // 1. block cache handle is set to be released in cleanup function, or
-  // 2. it's pointing to immortal source. If own_bytes is true then we are
+  // 2. block contents are backed by a retained external provider, or
+  // 3. it's pointing to immortal source. If own_bytes is true then we are
   //    not reading data from the original source, whether immortal or not.
   //    Otherwise, the block is pinned iff the source is immortal.
   const bool block_contents_pinned =
-      block.IsCached() ||
+      block.IsCached() || block.GetValue()->HasRetainedContentsBacking() ||
       (!block.GetValue()->own_bytes() && rep_->immortal_table);
   iter = InitBlockIterator<TBlockIter>(rep_, block.GetValue(), BlockType::kData,
                                        iter, block_contents_pinned);
 
   if (!block.IsCached()) {
-    if (!ro.fill_cache) {
+    if (!ro.fill_cache &&
+        ShouldUseBlockCacheForIteratorDataBlocks(rep_->table_options, ro)) {
       IterPlaceholderCacheInterface block_cache{
           rep_->table_options.block_cache.get()};
       if (block_cache) {
@@ -209,6 +224,11 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(const ReadOptions& ro,
     }
   } else {
     iter->SetCacheHandle(block.GetCacheHandle());
+  }
+  if (block.GetValue()->HasRetainedContentsBacking()) {
+    iter->SetBlockContentsCleanup(
+        block.GetValue()->contents_cleanup(),
+        block.GetValue()->contents_cleanup_dedupe_token());
   }
 
   block.TransferTo(iter);

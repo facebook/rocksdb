@@ -10,10 +10,79 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+
+void ReleasePinnedBlockCacheHandle(void* arg1, void* arg2) {
+  auto* cache = static_cast<Cache*>(arg1);
+  auto* cache_handle = static_cast<Cache::Handle*>(arg2);
+  assert(cache != nullptr);
+  assert(cache_handle != nullptr);
+  cache->Release(cache_handle);
+}
+
+}  // namespace
+
 void BlockBasedTableIterator::SeekToFirst() { SeekImpl(nullptr, false); }
 
 void BlockBasedTableIterator::Seek(const Slice& target) {
   SeekImpl(&target, true);
+}
+
+Status BlockBasedTableIterator::PinCurrentKeyValue(PinnedIterKeyValue* out) {
+  if (out == nullptr) {
+    return Status::InvalidArgument("PinnedIterKeyValue is nullptr");
+  }
+  out->Reset();
+  if (!Valid()) {
+    return Status::InvalidArgument("Iterator is not valid");
+  }
+  if (!PrepareValue()) {
+    return status();
+  }
+  if (!block_iter_points_to_real_block_ || !block_iter_.Valid()) {
+    return Status::NotSupported("Current entry is not backed by a data block");
+  }
+  if (!block_iter_.IsValuePinned()) {
+    return Status::NotSupported(
+        "Current entry is not backed by pinned block contents");
+  }
+
+  Cache* block_cache = table_->get_rep()->table_options.block_cache.get();
+  Cache::Handle* cache_handle = block_iter_.cache_handle();
+  if (block_cache != nullptr && cache_handle != nullptr) {
+    if (!block_cache->Ref(cache_handle)) {
+      return Status::NotSupported(
+          "Failed to reference current data block cache entry");
+    }
+
+    out->cleanup.Allocate();
+    out->cleanup->RegisterCleanup(&ReleasePinnedBlockCacheHandle, block_cache,
+                                  cache_handle);
+    out->cleanup_dedupe_token = cache_handle;
+    out->key = block_iter_.key();
+    out->user_key = block_iter_.user_key();
+    out->value = block_iter_.value();
+    out->key_pinned = block_iter_.IsKeyPinned();
+    out->value_pinned = true;
+    out->pinned_block_cache_usage = block_cache->GetCharge(cache_handle);
+    return Status::OK();
+  }
+
+  SharedCleanablePtr cleanup = block_iter_.block_contents_cleanup();
+  if (cleanup.get() == nullptr) {
+    return Status::NotSupported(
+        "Current entry is not backed by a retainable block buffer");
+  }
+
+  out->cleanup = cleanup;
+  out->cleanup_dedupe_token = block_iter_.block_contents_cleanup_dedupe_token();
+  out->key = block_iter_.key();
+  out->user_key = block_iter_.user_key();
+  out->value = block_iter_.value();
+  out->key_pinned = block_iter_.IsKeyPinned();
+  out->value_pinned = true;
+  out->pinned_block_cache_usage = 0;
+  return Status::OK();
 }
 
 void BlockBasedTableIterator::SeekSecondPass(const Slice* target) {
@@ -71,6 +140,8 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
       (read_options_.iterate_upper_bound || read_options_.prefix_same_as_start);
 
   if (autotune_readaheadsize && !multi_scan_read_set_ &&
+      ShouldUseBlockCacheForIteratorDataBlocks(table_->get_rep()->table_options,
+                                               read_options_) &&
       table_->get_rep()->table_options.block_cache.get() &&
       direction_ == IterDirection::kForward) {
     readahead_cache_lookup_ = true;
@@ -373,6 +444,11 @@ void BlockBasedTableIterator::Prev() {
 }
 
 void BlockBasedTableIterator::InitDataBlock() {
+  if (!ShouldUseBlockCacheForIteratorDataBlocks(
+          table_->get_rep()->table_options, read_options_)) {
+    ResetBlockCacheLookupVar();
+  }
+
   // MultiScan path: load block from ReadSet
   if (multi_scan_read_set_) {
     BlockHandle data_block_handle = index_iter_->value().handle;
@@ -485,6 +561,11 @@ void BlockBasedTableIterator::InitDataBlock() {
 }
 
 void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
+  if (!ShouldUseBlockCacheForIteratorDataBlocks(
+          table_->get_rep()->table_options, read_options_)) {
+    ResetBlockCacheLookupVar();
+  }
+
   BlockHandle data_block_handle;
   bool is_for_compaction =
       lookup_context_.caller == TableReaderCaller::kCompaction;

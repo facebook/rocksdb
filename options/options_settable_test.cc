@@ -123,6 +123,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<FlushBlockPolicyFactory>)},
       {offsetof(struct BlockBasedTableOptions, block_cache),
        sizeof(std::shared_ptr<Cache>)},
+      {offsetof(struct BlockBasedTableOptions, block_buffer_provider),
+       sizeof(std::shared_ptr<RetainedBlockBufferProvider>)},
       {offsetof(struct BlockBasedTableOptions, persistent_cache),
        sizeof(std::shared_ptr<PersistentCache>)},
       {offsetof(struct BlockBasedTableOptions, cache_usage_options),

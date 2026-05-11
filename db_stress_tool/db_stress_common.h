@@ -455,6 +455,8 @@ DECLARE_int32(remote_compaction_worker_interval);
 DECLARE_bool(remote_compaction_failure_fall_back_to_local);
 DECLARE_int32(allow_resumption_one_in);
 DECLARE_bool(auto_refresh_iterator_with_snapshot);
+DECLARE_bool(use_retained_block_buffer_provider);
+DECLARE_int32(test_iterator_pin_current_one_in);
 DECLARE_uint32(memtable_op_scan_flush_trigger);
 DECLARE_uint32(memtable_avg_op_scan_flush_trigger);
 DECLARE_uint32(min_tombstones_for_range_conversion);

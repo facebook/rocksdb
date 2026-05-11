@@ -411,6 +411,15 @@ static struct BlockBasedTableTypeInfo {
             auto* cache = static_cast<std::shared_ptr<Cache>*>(addr);
             return Cache::CreateFromString(opts, value, cache);
           }}},
+        {"block_buffer_provider",
+         {offsetof(struct BlockBasedTableOptions, block_buffer_provider),
+          OptionType::kUnknown, OptionVerificationType::kNormal,
+          (OptionTypeFlags::kCompareNever | OptionTypeFlags::kDontSerialize),
+          [](const ConfigOptions&, const std::string&, const std::string&,
+             void*) {
+            return Status::NotSupported(
+                "block_buffer_provider must be configured programmatically");
+          }}},
         {"block_cache_compressed",
          {0, OptionType::kUnknown, OptionVerificationType::kDeprecated}},
         {"max_auto_readahead_size",

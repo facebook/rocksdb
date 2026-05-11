@@ -9,6 +9,7 @@
 
 #include "db/arena_wrapped_db_iter.h"
 
+#include "db/iterator_mutable_options.h"
 #include "memory/arena.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -37,6 +38,35 @@ Status ArenaWrappedDBIter::GetProperty(std::string prop_name,
     return Status::OK();
   }
   return db_iter_->GetProperty(prop_name, prop);
+}
+
+Status ArenaWrappedDBIter::SetMutableOptions(
+    const IteratorMutableOptions& options) {
+  Status s = ValidateIteratorMutableOptions(
+      options, cfh_ != nullptr
+                   ? cfh_->cfd()->initial_cf_options().table_factory.get()
+                   : nullptr);
+  if (!s.ok()) {
+    return s;
+  }
+  ApplyIteratorMutableOptions(options, &read_options_.iterator_mutable_options);
+  if (db_iter_ != nullptr) {
+    if (cfh_ == nullptr) {
+      db_iter_->ApplyMutableOptionsAndInvalidate(options);
+    } else {
+      DoRefresh(read_options_.snapshot, sv_number_);
+    }
+  }
+  return Status::OK();
+}
+
+Status ArenaWrappedDBIter::GetMutableOptions(
+    IteratorMutableOptions* options) const {
+  if (options == nullptr) {
+    return Status::InvalidArgument("IteratorMutableOptions is nullptr");
+  }
+  *options = read_options_.iterator_mutable_options;
+  return Status::OK();
 }
 
 void ArenaWrappedDBIter::Init(

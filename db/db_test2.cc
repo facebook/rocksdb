@@ -36,6 +36,624 @@ namespace ROCKSDB_NAMESPACE {
 class DBTest2 : public DBTestBase {
  public:
   DBTest2() : DBTestBase("db_test2", /*env_do_fsync=*/true) {}
+
+ protected:
+  struct PinnedKVBatchSnapshot {
+    std::vector<std::string> keys;
+    std::vector<std::string> values;
+    std::vector<bool> key_pinned;
+    std::vector<bool> value_pinned;
+    size_t pinned_block_cache_usage = 0;
+    size_t copied_bytes = 0;
+  };
+
+  static std::string PinnedKVTestKey(int index) {
+    return "prefix" + std::to_string(100000 + index);
+  }
+
+  Options CurrentPinnedKVOptions(
+      size_t block_size, bool use_block_cache,
+      std::shared_ptr<Cache>* block_cache, bool use_delta_encoding = true,
+      std::shared_ptr<RetainedBlockBufferProvider> block_buffer_provider =
+          nullptr,
+      CompressionType compression = kNoCompression) const {
+    Options options = CurrentOptions();
+    options.compression = compression;
+    BlockBasedTableOptions bbto;
+    if (use_block_cache) {
+      bbto.block_cache = NewLRUCache(1 << 20);
+      if (block_cache != nullptr) {
+        *block_cache = bbto.block_cache;
+      }
+    } else {
+      bbto.no_block_cache = true;
+    }
+    bbto.block_size = block_size;
+    bbto.block_restart_interval = 16;
+    bbto.use_delta_encoding = use_delta_encoding;
+    bbto.block_buffer_provider = std::move(block_buffer_provider);
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    return options;
+  }
+
+  void PutPinnedKVRows(int count, size_t value_size,
+                       std::vector<std::string>* values) {
+    assert(values != nullptr);
+    values->clear();
+    values->reserve(count);
+    for (int i = 0; i < count; ++i) {
+      values->emplace_back(value_size, static_cast<char>('a' + (i % 26)));
+      ASSERT_OK(Put(PinnedKVTestKey(i), values->back()));
+    }
+  }
+
+  void AssertPinnedBatchEntry(const PinnableKeyValueBatch& batch, size_t index,
+                              const std::string& expected_key,
+                              const std::string& expected_value,
+                              bool expect_key_pinned,
+                              bool expect_value_pinned) {
+    ASSERT_LT(index, batch.size());
+    ASSERT_EQ(expected_key, batch.key(index).ToString());
+    ASSERT_EQ(expected_value, batch.value(index).ToString());
+    ASSERT_EQ(expect_key_pinned, batch.IsKeyPinned(index));
+    ASSERT_EQ(expect_value_pinned, batch.IsValuePinned(index));
+  }
+
+  void AssertEmptyPinnedKeyValue(const PinnableKeyValue& pinned_kv) {
+    ASSERT_TRUE(pinned_kv.key().empty());
+    ASSERT_TRUE(pinned_kv.value().empty());
+    ASSERT_FALSE(pinned_kv.IsKeyPinned());
+    ASSERT_FALSE(pinned_kv.IsValuePinned());
+    ASSERT_EQ(0U, pinned_kv.GetPinnedBlockCacheUsage());
+    ASSERT_EQ(0U, pinned_kv.GetCopiedBytes());
+  }
+
+  void AssertEmptyPinnedKeyValueBatch(const PinnableKeyValueBatch& batch) {
+    ASSERT_TRUE(batch.empty());
+    ASSERT_EQ(0U, batch.GetPinnedBlockCacheUsage());
+    ASSERT_EQ(0U, batch.GetCopiedBytes());
+  }
+
+  void AssertPinAPIsNotSupportedForCurrentRow(Iterator* iter) {
+    assert(iter != nullptr);
+    assert(iter->Valid());
+
+    PinnableKeyValue pinned_kv;
+    PinnableKeyValueBatch batch;
+
+    Status pin_status = iter->PinCurrent(&pinned_kv);
+    ASSERT_TRUE(pin_status.IsNotSupported());
+    AssertEmptyPinnedKeyValue(pinned_kv);
+
+    Status append_status = iter->AppendPinnedCurrent(&batch);
+    ASSERT_TRUE(append_status.IsNotSupported());
+    AssertEmptyPinnedKeyValueBatch(batch);
+  }
+
+  PinnedKVBatchSnapshot CaptureBatchSnapshot(
+      const PinnableKeyValueBatch& batch) {
+    PinnedKVBatchSnapshot snapshot;
+    snapshot.pinned_block_cache_usage = batch.GetPinnedBlockCacheUsage();
+    snapshot.copied_bytes = batch.GetCopiedBytes();
+    snapshot.keys.reserve(batch.size());
+    snapshot.values.reserve(batch.size());
+    snapshot.key_pinned.reserve(batch.size());
+    snapshot.value_pinned.reserve(batch.size());
+    for (size_t i = 0; i < batch.size(); ++i) {
+      snapshot.keys.push_back(batch.key(i).ToString());
+      snapshot.values.push_back(batch.value(i).ToString());
+      snapshot.key_pinned.push_back(batch.IsKeyPinned(i));
+      snapshot.value_pinned.push_back(batch.IsValuePinned(i));
+    }
+    return snapshot;
+  }
+
+  void AssertBatchMatchesSnapshot(const PinnableKeyValueBatch& batch,
+                                  const PinnedKVBatchSnapshot& snapshot) {
+    ASSERT_EQ(snapshot.keys.size(), batch.size());
+    ASSERT_EQ(snapshot.pinned_block_cache_usage,
+              batch.GetPinnedBlockCacheUsage());
+    ASSERT_EQ(snapshot.copied_bytes, batch.GetCopiedBytes());
+    for (size_t i = 0; i < snapshot.keys.size(); ++i) {
+      AssertPinnedBatchEntry(batch, i, snapshot.keys[i], snapshot.values[i],
+                             snapshot.key_pinned[i], snapshot.value_pinned[i]);
+    }
+  }
+
+  class TestRetainedBlockBufferProvider : public RetainedBlockBufferProvider {
+   public:
+    struct Allocation {
+      TestRetainedBlockBufferProvider* owner = nullptr;
+      char* data = nullptr;
+      size_t size = 0;
+      size_t alignment = 1;
+      AlignedBuffer storage;
+    };
+
+    struct AllocationRange {
+      const char* data = nullptr;
+      size_t size = 0;
+    };
+
+    Status Allocate(size_t size, size_t alignment, Lease* out) override {
+      if (out == nullptr) {
+        return Status::InvalidArgument("lease output is nullptr");
+      }
+      if (alignment == 0 || (alignment & (alignment - 1)) != 0) {
+        return Status::InvalidArgument("alignment must be a power of two");
+      }
+      auto* allocation = new Allocation();
+      allocation->owner = this;
+      allocation->size = size;
+      allocation->alignment = alignment;
+      allocation->storage.Alignment(alignment);
+      allocation->storage.AllocateNewBuffer(size);
+      allocation->data = allocation->storage.BufferStart();
+      bytes_outstanding_.fetch_add(size, std::memory_order_relaxed);
+      allocations_.fetch_add(1, std::memory_order_relaxed);
+      size_t current_alignment =
+          max_requested_alignment_.load(std::memory_order_relaxed);
+      while (current_alignment < alignment &&
+             !max_requested_alignment_.compare_exchange_weak(
+                 current_alignment, alignment, std::memory_order_relaxed,
+                 std::memory_order_relaxed)) {
+      }
+      {
+        std::lock_guard<std::mutex> lock(live_allocations_mutex_);
+        live_allocations_.push_back(AllocationRange{allocation->data, size});
+      }
+
+      out->data = allocation->data;
+      out->size = size;
+      out->cleanup.Allocate();
+      out->cleanup->RegisterCleanup(&ReleaseAllocation, allocation, nullptr);
+      out->dedupe_token = allocation;
+      return Status::OK();
+    }
+
+    size_t allocations() const {
+      return allocations_.load(std::memory_order_relaxed);
+    }
+
+    size_t releases() const {
+      return releases_.load(std::memory_order_relaxed);
+    }
+
+    size_t bytes_outstanding() const {
+      return bytes_outstanding_.load(std::memory_order_relaxed);
+    }
+
+    size_t max_requested_alignment() const {
+      return max_requested_alignment_.load(std::memory_order_relaxed);
+    }
+
+    bool OwnsLiveAddressRange(const Slice& slice) const {
+      if (slice.data() == nullptr) {
+        return false;
+      }
+      const uintptr_t slice_begin = reinterpret_cast<uintptr_t>(slice.data());
+      const uintptr_t slice_end = slice_begin + slice.size();
+
+      std::lock_guard<std::mutex> lock(live_allocations_mutex_);
+      for (const auto& allocation : live_allocations_) {
+        const uintptr_t allocation_begin =
+            reinterpret_cast<uintptr_t>(allocation.data);
+        const uintptr_t allocation_end = allocation_begin + allocation.size;
+        if (slice_begin >= allocation_begin && slice_end <= allocation_end) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+   private:
+    static void ReleaseAllocation(void* arg1, void* /*arg2*/) {
+      auto* allocation = static_cast<Allocation*>(arg1);
+      allocation->owner->bytes_outstanding_.fetch_sub(
+          allocation->size, std::memory_order_relaxed);
+      allocation->owner->releases_.fetch_add(1, std::memory_order_relaxed);
+      {
+        std::lock_guard<std::mutex> lock(
+            allocation->owner->live_allocations_mutex_);
+        auto& live_allocations = allocation->owner->live_allocations_;
+        for (auto it = live_allocations.begin(); it != live_allocations.end();
+             ++it) {
+          if (it->data == allocation->data) {
+            live_allocations.erase(it);
+            break;
+          }
+        }
+      }
+      delete allocation;
+    }
+
+    std::atomic<size_t> allocations_{0};
+    std::atomic<size_t> releases_{0};
+    std::atomic<size_t> bytes_outstanding_{0};
+    std::atomic<size_t> max_requested_alignment_{1};
+    mutable std::mutex live_allocations_mutex_;
+    std::vector<AllocationRange> live_allocations_;
+  };
+
+  class InvalidRetainedBlockBufferProvider
+      : public RetainedBlockBufferProvider {
+   public:
+    enum class Mode {
+      kReturnError,
+      kNullData,
+      kShortSize,
+      kMissingCleanup,
+    };
+
+    explicit InvalidRetainedBlockBufferProvider(Mode mode) : mode_(mode) {}
+    ~InvalidRetainedBlockBufferProvider() override {
+      for (char* ptr : owned_buffers_) {
+        delete[] ptr;
+      }
+    }
+
+    Status Allocate(size_t size, size_t /*alignment*/, Lease* out) override {
+      if (out == nullptr) {
+        return Status::InvalidArgument("lease output is nullptr");
+      }
+      switch (mode_) {
+        case Mode::kReturnError:
+          return Status::MemoryLimit("injected allocate failure");
+        case Mode::kNullData:
+          out->size = size;
+          out->cleanup.Allocate();
+          return Status::OK();
+        case Mode::kShortSize:
+          out->data = new char[size];
+          owned_buffers_.push_back(out->data);
+          out->size = size - 1;
+          out->cleanup.Allocate();
+          return Status::OK();
+        case Mode::kMissingCleanup:
+          out->data = new char[size];
+          owned_buffers_.push_back(out->data);
+          out->size = size;
+          return Status::OK();
+      }
+      return Status::InvalidArgument("unknown invalid provider mode");
+    }
+
+   private:
+    Mode mode_;
+    std::vector<char*> owned_buffers_;
+  };
+
+  class ObservedDirectIOFS : public FileSystemWrapper {
+   public:
+    struct ScratchRange {
+      const char* data = nullptr;
+      size_t size = 0;
+    };
+
+    explicit ObservedDirectIOFS(const std::shared_ptr<FileSystem>& target)
+        : FileSystemWrapper(target) {}
+
+    static const char* kClassName() { return "ObservedDirectIOFS"; }
+    const char* Name() const override { return kClassName(); }
+
+    void SupportedOps(int64_t& supported_ops) override {
+      target()->SupportedOps(supported_ops);
+      supported_ops |= (1 << FSSupportedOps::kAsyncIO);
+    }
+
+    IOStatus NewRandomAccessFile(const std::string& fname,
+                                 const FileOptions& opts,
+                                 std::unique_ptr<FSRandomAccessFile>* result,
+                                 IODebugContext* dbg) override {
+      std::unique_ptr<FSRandomAccessFile> file;
+      IOStatus s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+      if (s.ok()) {
+        result->reset(new ObservedDirectIOFile(*this, std::move(file)));
+      }
+      return s;
+    }
+
+    IOStatus Poll(std::vector<void*>& io_handles,
+                  size_t /*min_completions*/) override {
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        ++poll_calls_;
+      }
+      for (void* io_handle : io_handles) {
+        auto* handle = static_cast<AsyncReadHandle*>(io_handle);
+        if (handle == nullptr || handle->completed) {
+          continue;
+        }
+        handle->completed = true;
+        handle->req.status =
+            handle->file->CompleteAsyncRead(handle->req, handle->opts);
+        handle->cb(handle->req, handle->cb_arg);
+      }
+      return IOStatus::OK();
+    }
+
+    IOStatus AbortIO(std::vector<void*>& io_handles) override {
+      for (void* io_handle : io_handles) {
+        auto* handle = static_cast<AsyncReadHandle*>(io_handle);
+        if (handle == nullptr || handle->completed) {
+          continue;
+        }
+        handle->completed = true;
+        handle->req.status = IOStatus::Aborted();
+        handle->cb(handle->req, handle->cb_arg);
+      }
+      return IOStatus::OK();
+    }
+
+    std::vector<ScratchRange> sync_scratch_ranges() const {
+      std::lock_guard<std::mutex> lock(mutex_);
+      return sync_scratch_ranges_;
+    }
+
+    std::vector<ScratchRange> async_scratch_ranges() const {
+      std::lock_guard<std::mutex> lock(mutex_);
+      return async_scratch_ranges_;
+    }
+
+    size_t async_read_calls() const {
+      std::lock_guard<std::mutex> lock(mutex_);
+      return async_read_calls_;
+    }
+
+    size_t poll_calls() const {
+      std::lock_guard<std::mutex> lock(mutex_);
+      return poll_calls_;
+    }
+
+   private:
+    class ObservedDirectIOFile;
+
+    struct AsyncReadHandle {
+      ObservedDirectIOFile* file = nullptr;
+      FSReadRequest req;
+      IOOptions opts;
+      std::function<void(FSReadRequest&, void*)> cb;
+      void* cb_arg = nullptr;
+      bool completed = false;
+    };
+
+    class ObservedDirectIOFile : public FSRandomAccessFileOwnerWrapper {
+     public:
+      ObservedDirectIOFile(ObservedDirectIOFS& owner,
+                           std::unique_ptr<FSRandomAccessFile>&& target)
+          : FSRandomAccessFileOwnerWrapper(std::move(target)), owner_(owner) {}
+
+      IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
+                    Slice* result, char* scratch,
+                    IODebugContext* dbg) const override {
+        owner_.RecordSyncScratch(scratch, n);
+        return target()->Read(offset, n, options, result, scratch, dbg);
+      }
+
+      IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                         const IOOptions& options,
+                         IODebugContext* dbg) override {
+        for (size_t i = 0; i < num_reqs; ++i) {
+          owner_.RecordSyncScratch(reqs[i].scratch, reqs[i].len);
+        }
+        return target()->MultiRead(reqs, num_reqs, options, dbg);
+      }
+
+      IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                         std::function<void(FSReadRequest&, void*)> cb,
+                         void* cb_arg, void** io_handle,
+                         IOHandleDeleter* del_fn,
+                         IODebugContext* /*dbg*/) override {
+        owner_.RecordAsyncScratch(req.scratch, req.len);
+        auto* handle = new AsyncReadHandle();
+        handle->file = this;
+        handle->req.offset = req.offset;
+        handle->req.len = req.len;
+        handle->req.scratch = req.scratch;
+        handle->req.result = req.result;
+        handle->req.status = req.status;
+        handle->opts = opts;
+        handle->cb = std::move(cb);
+        handle->cb_arg = cb_arg;
+        if (io_handle != nullptr) {
+          *io_handle = handle;
+        }
+        if (del_fn != nullptr) {
+          *del_fn = [](void* arg) {
+            delete static_cast<AsyncReadHandle*>(arg);
+          };
+        }
+        return IOStatus::OK();
+      }
+
+      IOStatus CompleteAsyncRead(FSReadRequest& req, const IOOptions& opts) {
+        return target()->Read(req.offset, req.len, opts, &req.result,
+                              req.scratch, nullptr);
+      }
+
+     private:
+      ObservedDirectIOFS& owner_;
+    };
+
+    void RecordSyncScratch(char* scratch, size_t size) {
+      if (scratch == nullptr) {
+        return;
+      }
+      std::lock_guard<std::mutex> lock(mutex_);
+      sync_scratch_ranges_.push_back(ScratchRange{scratch, size});
+    }
+
+    void RecordAsyncScratch(char* scratch, size_t size) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      ++async_read_calls_;
+      if (scratch != nullptr) {
+        async_scratch_ranges_.push_back(ScratchRange{scratch, size});
+      }
+    }
+
+    friend class ObservedDirectIOFile;
+
+    mutable std::mutex mutex_;
+    std::vector<ScratchRange> sync_scratch_ranges_;
+    std::vector<ScratchRange> async_scratch_ranges_;
+    size_t async_read_calls_ = 0;
+    size_t poll_calls_ = 0;
+  };
+
+  size_t CountObservedScratchRangesBackedByRetainedProvider(
+      const std::vector<ObservedDirectIOFS::ScratchRange>& scratch_ranges,
+      const TestRetainedBlockBufferProvider& block_buffer_provider,
+      size_t alignment) {
+    size_t matching_ranges = 0;
+    for (const auto& scratch_range : scratch_ranges) {
+      EXPECT_NE(scratch_range.data, nullptr);
+      EXPECT_GT(scratch_range.size, 0U);
+      if (block_buffer_provider.OwnsLiveAddressRange(
+              Slice(scratch_range.data, scratch_range.size))) {
+        EXPECT_EQ(0U, reinterpret_cast<uintptr_t>(scratch_range.data) &
+                          (alignment - 1));
+        ++matching_ranges;
+      }
+    }
+    return matching_ranges;
+  }
+
+  void RunIteratorPrepareMultiScanUsesRetainedProviderAcrossRanges(
+      bool use_direct_io, bool use_async_io = false,
+      CompressionType compression = kNoCompression) {
+    auto block_buffer_provider =
+        std::make_shared<TestRetainedBlockBufferProvider>();
+    std::shared_ptr<Cache> block_cache;
+    Options options = CurrentPinnedKVOptions(
+        160 /* block_size */, true /* use_block_cache */, &block_cache,
+        true /* use_delta_encoding */, block_buffer_provider, compression);
+    if (compression != kNoCompression) {
+      options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    }
+    std::shared_ptr<ObservedDirectIOFS> observed_fs;
+    std::unique_ptr<Env> wrapped_env;
+    if (use_direct_io) {
+      observed_fs = std::make_shared<ObservedDirectIOFS>(env_->GetFileSystem());
+      wrapped_env.reset(new CompositeEnvWrapper(env_, observed_fs));
+      options.env = wrapped_env.get();
+      options.use_direct_reads = true;
+      options.allow_mmap_reads = false;
+    }
+    Reopen(options);
+    Defer close_db([this]() { Close(); });
+
+    std::vector<std::string> values;
+    PutPinnedKVRows(18, 48, &values);
+    ASSERT_OK(Flush());
+
+    const size_t baseline_allocations = block_buffer_provider->allocations();
+    const size_t baseline_releases = block_buffer_provider->releases();
+    const size_t baseline_bytes = block_buffer_provider->bytes_outstanding();
+
+    struct ScanRange {
+      int start_index = 0;
+      int limit_index = 0;
+      std::string start_key;
+      std::string limit_key;
+    };
+
+    const std::vector<ScanRange> scan_ranges = {
+        {1, 4, PinnedKVTestKey(1), PinnedKVTestKey(4)},
+        {6, 9, PinnedKVTestKey(6), PinnedKVTestKey(9)},
+        {11, 14, PinnedKVTestKey(11), PinnedKVTestKey(14)},
+    };
+
+    std::vector<std::string> expected_keys;
+    std::vector<std::string> expected_values;
+    for (const auto& range : scan_ranges) {
+      for (int i = range.start_index; i < range.limit_index; ++i) {
+        expected_keys.push_back(PinnedKVTestKey(i));
+        expected_values.push_back(values[i]);
+      }
+    }
+
+    Slice upper_bound;
+    std::string upper_bound_storage;
+    ReadOptions read_options;
+    read_options.iterate_upper_bound = &upper_bound;
+    read_options.iterator_mutable_options.pinned_block_backing =
+        PinnedBlockBackingConfig{
+            PinnedBlockBackingPolicy::kUseRetainedBlockBuffer};
+
+    MultiScanArgs scan_options(BytewiseComparator());
+    scan_options.use_async_io = use_async_io;
+    for (const auto& range : scan_ranges) {
+      scan_options.insert(range.start_key, range.limit_key);
+    }
+
+    std::vector<std::string> seen_keys;
+    std::vector<std::string> seen_values;
+    bool saw_provider_backed_value = false;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_NE(iter, nullptr);
+    iter->Prepare(scan_options);
+    ASSERT_OK(iter->status()) << iter->status().ToString();
+    ASSERT_GT(block_buffer_provider->allocations(), baseline_allocations);
+    if (compression == kNoCompression) {
+      ASSERT_EQ(baseline_releases, block_buffer_provider->releases());
+    }
+    ASSERT_GT(block_buffer_provider->bytes_outstanding(), baseline_bytes);
+    if (use_direct_io) {
+      ASSERT_GT(block_buffer_provider->max_requested_alignment(), 1U);
+      ASSERT_NE(observed_fs, nullptr);
+      if (use_async_io) {
+        ASSERT_GT(observed_fs->async_read_calls(), 0U);
+        ASSERT_EQ(
+            observed_fs->async_scratch_ranges().size(),
+            CountObservedScratchRangesBackedByRetainedProvider(
+                observed_fs->async_scratch_ranges(), *block_buffer_provider,
+                block_buffer_provider->max_requested_alignment()));
+      } else {
+        ASSERT_EQ(0U, observed_fs->async_read_calls());
+        ASSERT_GT(
+            CountObservedScratchRangesBackedByRetainedProvider(
+                observed_fs->sync_scratch_ranges(), *block_buffer_provider,
+                block_buffer_provider->max_requested_alignment()),
+            0U);
+      }
+    } else {
+      ASSERT_EQ(1U, block_buffer_provider->max_requested_alignment());
+    }
+
+    for (const auto& range : scan_ranges) {
+      upper_bound_storage = range.limit_key;
+      upper_bound = upper_bound_storage;
+
+      iter->Seek(range.start_key);
+      while (iter->status().ok() && iter->Valid()) {
+        const Slice value_slice = iter->value();
+        ASSERT_TRUE(block_buffer_provider->OwnsLiveAddressRange(value_slice));
+        ASSERT_GT(block_buffer_provider->allocations(), baseline_allocations);
+        saw_provider_backed_value = true;
+
+        seen_keys.push_back(iter->key().ToString());
+        seen_values.push_back(value_slice.ToString());
+        iter->Next();
+      }
+
+      ASSERT_OK(iter->status()) << iter->status().ToString();
+      ASSERT_FALSE(iter->Valid());
+    }
+
+    ASSERT_TRUE(saw_provider_backed_value);
+    ASSERT_EQ(expected_keys, seen_keys);
+    ASSERT_EQ(expected_values, seen_values);
+    if (compression != kNoCompression) {
+      ASSERT_GT(TestGetTickerCount(options, NUMBER_BLOCK_DECOMPRESSED), 0U);
+    }
+    if (use_direct_io && use_async_io) {
+      ASSERT_GT(observed_fs->poll_calls(), 0U);
+    }
+
+    iter.reset();
+    ASSERT_GT(block_buffer_provider->releases(), baseline_releases);
+    ASSERT_EQ(baseline_bytes, block_buffer_provider->bytes_outstanding());
+  }
 };
 
 TEST_F(DBTest2, OpenForReadOnly) {
@@ -4544,6 +5162,969 @@ TEST_F(DBTest2, PinnableSliceAndMmapReads) {
   ASSERT_EQ(pinned_value.ToString(), "bar");
 }
 
+TEST_F(DBTest2, IteratorPinCurrentDeltaEncodedKeyAndPinnedValue) {
+  std::shared_ptr<Cache> block_cache;
+  Options options = CurrentPinnedKVOptions(
+      160 /* block_size */, true /* use_block_cache */, &block_cache);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(20, 48, &values);
+  ASSERT_OK(Flush());
+  const size_t baseline_pinned_usage = block_cache->GetPinnedUsage();
+
+  PinnableKeyValue pinned_kv;
+  {
+    ReadOptions read_options;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    iter->Seek(PinnedKVTestKey(1));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->PinCurrent(&pinned_kv));
+    ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+    ASSERT_EQ(values[1], pinned_kv.value().ToString());
+    ASSERT_FALSE(pinned_kv.IsKeyPinned());
+    ASSERT_TRUE(pinned_kv.IsValuePinned());
+    ASSERT_EQ(pinned_kv.GetCopiedBytes(), pinned_kv.key().size());
+    ASSERT_GT(pinned_kv.GetPinnedBlockCacheUsage(), 0);
+    ASSERT_GE(block_cache->GetPinnedUsage(),
+              pinned_kv.GetPinnedBlockCacheUsage());
+
+    iter->Seek(PinnedKVTestKey(10));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+    ASSERT_EQ(values[1], pinned_kv.value().ToString());
+  }
+
+  ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+  ASSERT_EQ(values[1], pinned_kv.value().ToString());
+  const size_t row_pinned_usage = pinned_kv.GetPinnedBlockCacheUsage();
+  const size_t pinned_usage_before_reset = block_cache->GetPinnedUsage();
+  ASSERT_GE(pinned_usage_before_reset,
+            baseline_pinned_usage + row_pinned_usage);
+
+  pinned_kv.Reset();
+  const size_t pinned_usage_after_reset = block_cache->GetPinnedUsage();
+  ASSERT_GT(pinned_usage_before_reset, pinned_usage_after_reset);
+  ASSERT_GE(pinned_usage_before_reset - pinned_usage_after_reset,
+            row_pinned_usage);
+  ASSERT_EQ(baseline_pinned_usage, pinned_usage_after_reset);
+}
+
+TEST_F(DBTest2, IteratorPinAPIsPinNonDeltaEncodedKeyAndValue) {
+  std::shared_ptr<Cache> block_cache;
+  Options options =
+      CurrentPinnedKVOptions(160 /* block_size */, true /* use_block_cache */,
+                             &block_cache, false /* use_delta_encoding */);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(3, 48, &values);
+  ASSERT_OK(Flush());
+
+  PinnableKeyValue pinned_kv;
+  PinnableKeyValueBatch batch;
+  const size_t baseline_pinned_usage = block_cache->GetPinnedUsage();
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(PinnedKVTestKey(1));
+    ASSERT_TRUE(iter->Valid());
+
+    ASSERT_OK(iter->PinCurrent(&pinned_kv));
+    ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+    ASSERT_EQ(values[1], pinned_kv.value().ToString());
+    ASSERT_TRUE(pinned_kv.IsKeyPinned());
+    ASSERT_TRUE(pinned_kv.IsValuePinned());
+    ASSERT_EQ(0U, pinned_kv.GetCopiedBytes());
+    ASSERT_GT(pinned_kv.GetPinnedBlockCacheUsage(), 0);
+
+    ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+    ASSERT_EQ(1U, batch.size());
+    AssertPinnedBatchEntry(batch, 0, PinnedKVTestKey(1), values[1],
+                           true /* expect_key_pinned */,
+                           true /* expect_value_pinned */);
+    ASSERT_EQ(0U, batch.GetCopiedBytes());
+
+    iter->Seek(PinnedKVTestKey(2));
+    ASSERT_TRUE(iter->Valid());
+  }
+
+  ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+  ASSERT_EQ(values[1], pinned_kv.value().ToString());
+  AssertPinnedBatchEntry(batch, 0, PinnedKVTestKey(1), values[1],
+                         true /* expect_key_pinned */,
+                         true /* expect_value_pinned */);
+
+  pinned_kv.Reset();
+  batch.Reset();
+  ASSERT_EQ(baseline_pinned_usage, block_cache->GetPinnedUsage());
+}
+
+TEST_F(DBTest2, IteratorPinCurrentFallsBackToCopyWithoutBlockCache) {
+  Options options =
+      CurrentPinnedKVOptions(160 /* block_size */, false /* use_block_cache */,
+                             nullptr /* block_cache */);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(3, 48, &values);
+  ASSERT_OK(Flush());
+
+  PinnableKeyValue pinned_kv;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(PinnedKVTestKey(1));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->PinCurrent(&pinned_kv));
+    ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+    ASSERT_EQ(values[1], pinned_kv.value().ToString());
+    ASSERT_FALSE(pinned_kv.IsKeyPinned());
+    ASSERT_FALSE(pinned_kv.IsValuePinned());
+    ASSERT_EQ(pinned_kv.GetCopiedBytes(),
+              pinned_kv.key().size() + pinned_kv.value().size());
+    ASSERT_EQ(0, pinned_kv.GetPinnedBlockCacheUsage());
+  }
+
+  ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+  ASSERT_EQ(values[1], pinned_kv.value().ToString());
+}
+
+TEST_F(DBTest2, IteratorPinCurrentUsesRetainedProviderWithoutBlockCache) {
+  auto block_buffer_provider =
+      std::make_shared<TestRetainedBlockBufferProvider>();
+  Options options = CurrentPinnedKVOptions(
+      160 /* block_size */, false /* use_block_cache */,
+      nullptr /* block_cache */, true /* use_delta_encoding */,
+      block_buffer_provider);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(3, 48, &values);
+  ASSERT_OK(Flush());
+  const size_t baseline_allocations = block_buffer_provider->allocations();
+  const size_t baseline_releases = block_buffer_provider->releases();
+  const size_t baseline_bytes = block_buffer_provider->bytes_outstanding();
+
+  PinnableKeyValue pinned_kv;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(PinnedKVTestKey(1));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->PinCurrent(&pinned_kv));
+    ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+    ASSERT_EQ(values[1], pinned_kv.value().ToString());
+    ASSERT_FALSE(pinned_kv.IsKeyPinned());
+    ASSERT_TRUE(pinned_kv.IsValuePinned());
+    ASSERT_EQ(pinned_kv.GetCopiedBytes(), pinned_kv.key().size());
+    ASSERT_EQ(0U, pinned_kv.GetPinnedBlockCacheUsage());
+    ASSERT_GT(block_buffer_provider->allocations(), baseline_allocations);
+    ASSERT_EQ(baseline_releases, block_buffer_provider->releases());
+    ASSERT_GT(block_buffer_provider->bytes_outstanding(), baseline_bytes);
+
+    iter->Seek(PinnedKVTestKey(2));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+    ASSERT_EQ(values[1], pinned_kv.value().ToString());
+  }
+
+  ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+  ASSERT_EQ(values[1], pinned_kv.value().ToString());
+  ASSERT_EQ(baseline_releases, block_buffer_provider->releases());
+  ASSERT_GT(block_buffer_provider->bytes_outstanding(), baseline_bytes);
+
+  pinned_kv.Reset();
+  ASSERT_GT(block_buffer_provider->releases(), baseline_releases);
+  ASSERT_EQ(baseline_bytes, block_buffer_provider->bytes_outstanding());
+}
+
+TEST_F(DBTest2, IteratorAppendPinnedCurrentKeepsProviderBackedBlockAlive) {
+  auto block_buffer_provider =
+      std::make_shared<TestRetainedBlockBufferProvider>();
+  Options options = CurrentPinnedKVOptions(
+      4096 /* block_size */, false /* use_block_cache */,
+      nullptr /* block_cache */, true /* use_delta_encoding */,
+      block_buffer_provider);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(3, 32, &values);
+  ASSERT_OK(Flush());
+  const size_t baseline_allocations = block_buffer_provider->allocations();
+  const size_t baseline_releases = block_buffer_provider->releases();
+  const size_t baseline_bytes = block_buffer_provider->bytes_outstanding();
+
+  PinnableKeyValueBatch batch;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(PinnedKVTestKey(1));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+    ASSERT_EQ(1U, batch.size());
+    AssertPinnedBatchEntry(batch, 0, PinnedKVTestKey(1), values[1],
+                           false /* expect_key_pinned */,
+                           true /* expect_value_pinned */);
+    ASSERT_EQ(PinnedKVTestKey(1).size(), batch.GetCopiedBytes());
+    ASSERT_EQ(0U, batch.GetPinnedBlockCacheUsage());
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+    ASSERT_EQ(2U, batch.size());
+    AssertPinnedBatchEntry(batch, 1, PinnedKVTestKey(2), values[2],
+                           false /* expect_key_pinned */,
+                           true /* expect_value_pinned */);
+    ASSERT_EQ(PinnedKVTestKey(1).size() + PinnedKVTestKey(2).size(),
+              batch.GetCopiedBytes());
+    ASSERT_GT(block_buffer_provider->allocations(), baseline_allocations);
+    ASSERT_EQ(baseline_releases, block_buffer_provider->releases());
+    ASSERT_GT(block_buffer_provider->bytes_outstanding(), baseline_bytes);
+  }
+
+  AssertPinnedBatchEntry(batch, 0, PinnedKVTestKey(1), values[1],
+                         false /* expect_key_pinned */,
+                         true /* expect_value_pinned */);
+  AssertPinnedBatchEntry(batch, 1, PinnedKVTestKey(2), values[2],
+                         false /* expect_key_pinned */,
+                         true /* expect_value_pinned */);
+  ASSERT_EQ(baseline_releases, block_buffer_provider->releases());
+
+  batch.Reset();
+  ASSERT_GT(block_buffer_provider->releases(), baseline_releases);
+  ASSERT_EQ(baseline_bytes, block_buffer_provider->bytes_outstanding());
+}
+
+TEST_F(DBTest2,
+       IteratorPinCurrentProviderPinsNonDeltaEncodedKeyAndValueWithoutCache) {
+  auto block_buffer_provider =
+      std::make_shared<TestRetainedBlockBufferProvider>();
+  Options options = CurrentPinnedKVOptions(
+      160 /* block_size */, false /* use_block_cache */,
+      nullptr /* block_cache */, false /* use_delta_encoding */,
+      block_buffer_provider);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(3, 48, &values);
+  ASSERT_OK(Flush());
+  const size_t baseline_releases = block_buffer_provider->releases();
+  const size_t baseline_bytes = block_buffer_provider->bytes_outstanding();
+
+  PinnableKeyValue pinned_kv;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(PinnedKVTestKey(1));
+    ASSERT_TRUE(iter->Valid());
+
+    ASSERT_OK(iter->PinCurrent(&pinned_kv));
+    ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+    ASSERT_EQ(values[1], pinned_kv.value().ToString());
+    ASSERT_TRUE(pinned_kv.IsKeyPinned());
+    ASSERT_TRUE(pinned_kv.IsValuePinned());
+    ASSERT_EQ(0U, pinned_kv.GetCopiedBytes());
+    ASSERT_EQ(0U, pinned_kv.GetPinnedBlockCacheUsage());
+    ASSERT_EQ(baseline_releases, block_buffer_provider->releases());
+    ASSERT_GT(block_buffer_provider->bytes_outstanding(), baseline_bytes);
+  }
+
+  ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+  ASSERT_EQ(values[1], pinned_kv.value().ToString());
+  ASSERT_EQ(baseline_releases, block_buffer_provider->releases());
+
+  pinned_kv.Reset();
+  ASSERT_GT(block_buffer_provider->releases(), baseline_releases);
+  ASSERT_EQ(baseline_bytes, block_buffer_provider->bytes_outstanding());
+}
+
+TEST_F(DBTest2, IteratorPinCurrentProviderRetainsBlockUntilAllPinsReset) {
+  auto block_buffer_provider =
+      std::make_shared<TestRetainedBlockBufferProvider>();
+  Options options = CurrentPinnedKVOptions(
+      4096 /* block_size */, false /* use_block_cache */,
+      nullptr /* block_cache */, true /* use_delta_encoding */,
+      block_buffer_provider);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(3, 32, &values);
+  ASSERT_OK(Flush());
+  const size_t baseline_releases = block_buffer_provider->releases();
+  const size_t baseline_bytes = block_buffer_provider->bytes_outstanding();
+
+  PinnableKeyValue first_pin;
+  PinnableKeyValue second_pin;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(PinnedKVTestKey(1));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->PinCurrent(&first_pin));
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->PinCurrent(&second_pin));
+  }
+
+  ASSERT_EQ(PinnedKVTestKey(1), first_pin.key().ToString());
+  ASSERT_EQ(values[1], first_pin.value().ToString());
+  ASSERT_EQ(PinnedKVTestKey(2), second_pin.key().ToString());
+  ASSERT_EQ(values[2], second_pin.value().ToString());
+  ASSERT_EQ(baseline_releases, block_buffer_provider->releases());
+  ASSERT_GT(block_buffer_provider->bytes_outstanding(), baseline_bytes);
+
+  first_pin.Reset();
+  ASSERT_EQ(baseline_releases, block_buffer_provider->releases());
+  ASSERT_GT(block_buffer_provider->bytes_outstanding(), baseline_bytes);
+
+  second_pin.Reset();
+  ASSERT_GT(block_buffer_provider->releases(), baseline_releases);
+  ASSERT_EQ(baseline_bytes, block_buffer_provider->bytes_outstanding());
+}
+
+TEST_F(DBTest2, IteratorPinCurrentUsesRetainedProviderForCompressedBlocks) {
+  if (!Snappy_Supported()) {
+    ROCKSDB_GTEST_SKIP("Test requires Snappy support");
+    return;
+  }
+
+  auto block_buffer_provider =
+      std::make_shared<TestRetainedBlockBufferProvider>();
+  Options options = CurrentOptions();
+  options.compression = kSnappyCompression;
+  BlockBasedTableOptions bbto;
+  bbto.no_block_cache = true;
+  bbto.block_size = 160;
+  bbto.block_restart_interval = 16;
+  bbto.use_delta_encoding = false;
+  bbto.block_buffer_provider = block_buffer_provider;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(3, 256, &values);
+  ASSERT_OK(Flush());
+  const size_t baseline_releases = block_buffer_provider->releases();
+  const size_t baseline_bytes = block_buffer_provider->bytes_outstanding();
+
+  PinnableKeyValue pinned_kv;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(PinnedKVTestKey(1));
+    ASSERT_TRUE(iter->Valid());
+
+    ASSERT_OK(iter->PinCurrent(&pinned_kv));
+    ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+    ASSERT_EQ(values[1], pinned_kv.value().ToString());
+    ASSERT_TRUE(pinned_kv.IsKeyPinned());
+    ASSERT_TRUE(pinned_kv.IsValuePinned());
+    ASSERT_EQ(0U, pinned_kv.GetCopiedBytes());
+    ASSERT_EQ(0U, pinned_kv.GetPinnedBlockCacheUsage());
+    ASSERT_EQ(baseline_releases, block_buffer_provider->releases());
+    ASSERT_GT(block_buffer_provider->bytes_outstanding(), baseline_bytes);
+  }
+
+  ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+  ASSERT_EQ(values[1], pinned_kv.value().ToString());
+  pinned_kv.Reset();
+  ASSERT_GT(block_buffer_provider->releases(), baseline_releases);
+  ASSERT_EQ(baseline_bytes, block_buffer_provider->bytes_outstanding());
+}
+
+TEST_F(DBTest2,
+       IteratorPinCurrentUsesRetainedProviderWithBlockCacheWhenRequested) {
+  auto block_buffer_provider =
+      std::make_shared<TestRetainedBlockBufferProvider>();
+  std::shared_ptr<Cache> block_cache;
+  Options options = CurrentPinnedKVOptions(
+      160 /* block_size */, true /* use_block_cache */, &block_cache,
+      true /* use_delta_encoding */, block_buffer_provider);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(4, 48, &values);
+  ASSERT_OK(Flush());
+  const size_t baseline_allocations = block_buffer_provider->allocations();
+  const size_t baseline_releases = block_buffer_provider->releases();
+  const size_t baseline_bytes = block_buffer_provider->bytes_outstanding();
+  const size_t baseline_pinned_usage = block_cache->GetPinnedUsage();
+
+  ReadOptions read_options;
+  read_options.iterator_mutable_options.pinned_block_backing =
+      PinnedBlockBackingConfig{
+          PinnedBlockBackingPolicy::kUseRetainedBlockBuffer};
+
+  PinnableKeyValue pinned_kv;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    iter->Seek(PinnedKVTestKey(1));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->PinCurrent(&pinned_kv));
+    ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+    ASSERT_EQ(values[1], pinned_kv.value().ToString());
+    ASSERT_EQ(0U, pinned_kv.GetPinnedBlockCacheUsage());
+    ASSERT_GT(block_buffer_provider->allocations(), baseline_allocations);
+    ASSERT_EQ(baseline_releases, block_buffer_provider->releases());
+    ASSERT_GT(block_buffer_provider->bytes_outstanding(), baseline_bytes);
+    ASSERT_EQ(baseline_pinned_usage, block_cache->GetPinnedUsage());
+  }
+  pinned_kv.Reset();
+  ASSERT_GT(block_buffer_provider->releases(), baseline_releases);
+  ASSERT_EQ(baseline_bytes, block_buffer_provider->bytes_outstanding());
+  ASSERT_EQ(baseline_pinned_usage, block_cache->GetPinnedUsage());
+}
+
+TEST_F(DBTest2, IteratorPrepareMultiScanUsesRetainedProviderAcrossRanges) {
+  RunIteratorPrepareMultiScanUsesRetainedProviderAcrossRanges(
+      false /* use_direct_io */);
+}
+
+TEST_F(DBTest2,
+       IteratorPrepareMultiScanUsesRetainedProviderForCompressedBlocks) {
+  if (!Snappy_Supported()) {
+    ROCKSDB_GTEST_SKIP("Test requires Snappy support");
+    return;
+  }
+
+  RunIteratorPrepareMultiScanUsesRetainedProviderAcrossRanges(
+      false /* use_direct_io */, false /* use_async_io */, kSnappyCompression);
+}
+
+TEST_F(DBTest2,
+       IteratorPrepareMultiScanUsesRetainedProviderAcrossRangesWithDirectIO) {
+  if (!IsDirectIOSupported()) {
+    return;
+  }
+  RunIteratorPrepareMultiScanUsesRetainedProviderAcrossRanges(
+      true /* use_direct_io */);
+}
+
+TEST_F(
+    DBTest2,
+    IteratorPrepareMultiScanUsesRetainedProviderAcrossRangesWithDirectIOAsync) {
+  if (!IsDirectIOSupported()) {
+    return;
+  }
+  RunIteratorPrepareMultiScanUsesRetainedProviderAcrossRanges(
+      true /* use_direct_io */, true /* use_async_io */);
+}
+
+TEST_F(DBTest2, IteratorSetMutableOptionsInvalidatesAndRequiresReseek) {
+  auto block_buffer_provider =
+      std::make_shared<TestRetainedBlockBufferProvider>();
+  std::shared_ptr<Cache> block_cache;
+  Options options = CurrentPinnedKVOptions(
+      160 /* block_size */, true /* use_block_cache */, &block_cache,
+      true /* use_delta_encoding */, block_buffer_provider);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(8, 64, &values);
+  ASSERT_OK(Flush());
+
+  const size_t baseline_allocations = block_buffer_provider->allocations();
+  const size_t baseline_releases = block_buffer_provider->releases();
+  const size_t baseline_bytes = block_buffer_provider->bytes_outstanding();
+  const size_t baseline_pinned_usage = block_cache->GetPinnedUsage();
+
+  PinnableKeyValue cache_backed_before_switch;
+  PinnableKeyValue current_block_after_retained_switch;
+  PinnableKeyValue retained_backed;
+  PinnableKeyValue current_block_after_cache_switch;
+  PinnableKeyValue cache_backed_after_switch;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+
+    iter->Seek(PinnedKVTestKey(1));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->PinCurrent(&cache_backed_before_switch));
+    ASSERT_GT(cache_backed_before_switch.GetPinnedBlockCacheUsage(), 0U);
+    const size_t cache_pin_usage_before_switch =
+        cache_backed_before_switch.GetPinnedBlockCacheUsage();
+    ASSERT_GE(block_cache->GetPinnedUsage(),
+              baseline_pinned_usage + cache_pin_usage_before_switch);
+    ASSERT_EQ(baseline_allocations, block_buffer_provider->allocations());
+    ASSERT_EQ(baseline_bytes, block_buffer_provider->bytes_outstanding());
+
+    IteratorMutableOptions retained_options;
+    retained_options.pinned_block_backing = PinnedBlockBackingConfig{
+        PinnedBlockBackingPolicy::kUseRetainedBlockBuffer};
+    ASSERT_OK(iter->SetMutableOptions(retained_options));
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->PinCurrent(&current_block_after_retained_switch)
+                    .IsInvalidArgument());
+    ASSERT_EQ(PinnedKVTestKey(1), cache_backed_before_switch.key().ToString());
+    ASSERT_EQ(values[1], cache_backed_before_switch.value().ToString());
+    ASSERT_GE(block_cache->GetPinnedUsage(),
+              baseline_pinned_usage + cache_pin_usage_before_switch);
+    ASSERT_EQ(baseline_bytes, block_buffer_provider->bytes_outstanding());
+
+    IteratorMutableOptions got_options;
+    ASSERT_OK(iter->GetMutableOptions(&got_options));
+    ASSERT_TRUE(got_options.pinned_block_backing.has_value());
+    ASSERT_EQ(PinnedBlockBackingPolicy::kUseRetainedBlockBuffer,
+              got_options.pinned_block_backing->policy);
+
+    iter->Seek(PinnedKVTestKey(7));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->PinCurrent(&retained_backed));
+    ASSERT_EQ(0U, retained_backed.GetPinnedBlockCacheUsage());
+    ASSERT_EQ(PinnedKVTestKey(7), retained_backed.key().ToString());
+    ASSERT_EQ(values[7], retained_backed.value().ToString());
+    ASSERT_GT(block_buffer_provider->allocations(), baseline_allocations);
+    ASSERT_EQ(baseline_releases, block_buffer_provider->releases());
+    ASSERT_GT(block_buffer_provider->bytes_outstanding(), baseline_bytes);
+    const size_t pinned_usage_with_retained_and_cache_pin =
+        block_cache->GetPinnedUsage();
+    ASSERT_GE(pinned_usage_with_retained_and_cache_pin,
+              baseline_pinned_usage + cache_pin_usage_before_switch);
+
+    IteratorMutableOptions cache_options;
+    cache_options.pinned_block_backing =
+        PinnedBlockBackingConfig{PinnedBlockBackingPolicy::kUseBlockCache};
+    ASSERT_OK(iter->SetMutableOptions(cache_options));
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->PinCurrent(&current_block_after_cache_switch)
+                    .IsInvalidArgument());
+    ASSERT_EQ(PinnedKVTestKey(7), retained_backed.key().ToString());
+    ASSERT_EQ(values[7], retained_backed.value().ToString());
+    ASSERT_EQ(pinned_usage_with_retained_and_cache_pin,
+              block_cache->GetPinnedUsage());
+    ASSERT_GT(block_buffer_provider->bytes_outstanding(), baseline_bytes);
+
+    iter->Seek(PinnedKVTestKey(1));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->PinCurrent(&cache_backed_after_switch));
+    ASSERT_GT(cache_backed_after_switch.GetPinnedBlockCacheUsage(), 0U);
+    const size_t pinned_usage_before_resets = block_cache->GetPinnedUsage();
+    ASSERT_GE(pinned_usage_before_resets,
+              baseline_pinned_usage + cache_pin_usage_before_switch);
+
+    ASSERT_EQ(PinnedKVTestKey(7), retained_backed.key().ToString());
+    ASSERT_EQ(values[7], retained_backed.value().ToString());
+
+    retained_backed.Reset();
+    ASSERT_GT(block_buffer_provider->releases(), baseline_releases);
+    ASSERT_EQ(baseline_bytes, block_buffer_provider->bytes_outstanding());
+    ASSERT_EQ(pinned_usage_before_resets, block_cache->GetPinnedUsage());
+
+    cache_backed_before_switch.Reset();
+    const size_t pinned_usage_after_first_cache_reset =
+        block_cache->GetPinnedUsage();
+    ASSERT_LE(pinned_usage_after_first_cache_reset, pinned_usage_before_resets);
+    ASSERT_GE(pinned_usage_after_first_cache_reset, baseline_pinned_usage);
+
+    cache_backed_after_switch.Reset();
+    ASSERT_GE(block_cache->GetPinnedUsage(), baseline_pinned_usage);
+  }
+  ASSERT_EQ(baseline_pinned_usage, block_cache->GetPinnedUsage());
+}
+
+TEST_F(DBTest2, IteratorSetMutableOptionsValidatesPinnedBackingRequirements) {
+  {
+    Options options = CurrentPinnedKVOptions(160 /* block_size */,
+                                             false /* use_block_cache */,
+                                             nullptr /* block_cache */);
+    Reopen(options);
+    std::vector<std::string> values;
+    PutPinnedKVRows(2, 48, &values);
+    ASSERT_OK(Flush());
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    IteratorMutableOptions cache_only_options;
+    cache_only_options.pinned_block_backing =
+        PinnedBlockBackingConfig{PinnedBlockBackingPolicy::kUseBlockCache};
+    Status s = iter->SetMutableOptions(cache_only_options);
+    ASSERT_TRUE(s.IsInvalidArgument());
+
+    IteratorMutableOptions got_options;
+    ASSERT_OK(iter->GetMutableOptions(&got_options));
+    ASSERT_FALSE(got_options.pinned_block_backing.has_value());
+  }
+
+  {
+    std::shared_ptr<Cache> block_cache;
+    Options options = CurrentPinnedKVOptions(
+        160 /* block_size */, true /* use_block_cache */, &block_cache);
+    Reopen(options);
+    std::vector<std::string> values;
+    PutPinnedKVRows(2, 48, &values);
+    ASSERT_OK(Flush());
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    IteratorMutableOptions retained_options;
+    retained_options.pinned_block_backing = PinnedBlockBackingConfig{
+        PinnedBlockBackingPolicy::kUseRetainedBlockBuffer};
+    Status s = iter->SetMutableOptions(retained_options);
+    ASSERT_TRUE(s.IsInvalidArgument());
+
+    IteratorMutableOptions got_options;
+    ASSERT_OK(iter->GetMutableOptions(&got_options));
+    ASSERT_FALSE(got_options.pinned_block_backing.has_value());
+  }
+}
+
+TEST_F(DBTest2, ReopenFailsWhenRetainedProviderReturnsError) {
+  Options options =
+      CurrentPinnedKVOptions(160 /* block_size */, false /* use_block_cache */,
+                             nullptr /* block_cache */);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(3, 48, &values);
+  ASSERT_OK(Flush());
+  Close();
+
+  auto block_buffer_provider =
+      std::make_shared<InvalidRetainedBlockBufferProvider>(
+          InvalidRetainedBlockBufferProvider::Mode::kReturnError);
+  options = CurrentPinnedKVOptions(
+      160 /* block_size */, false /* use_block_cache */,
+      nullptr /* block_cache */, true /* use_delta_encoding */,
+      block_buffer_provider);
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsMemoryLimit());
+}
+
+TEST_F(DBTest2, ReopenRejectsMalformedRetainedProviderLeases) {
+  const auto run_case = [this](InvalidRetainedBlockBufferProvider::Mode mode) {
+    Options options = CurrentPinnedKVOptions(160 /* block_size */,
+                                             false /* use_block_cache */,
+                                             nullptr /* block_cache */);
+    Reopen(options);
+
+    std::vector<std::string> values;
+    PutPinnedKVRows(3, 48, &values);
+    ASSERT_OK(Flush());
+    Close();
+
+    auto block_buffer_provider =
+        std::make_shared<InvalidRetainedBlockBufferProvider>(mode);
+    options = CurrentPinnedKVOptions(
+        160 /* block_size */, false /* use_block_cache */,
+        nullptr /* block_cache */, true /* use_delta_encoding */,
+        block_buffer_provider);
+    Status s = TryReopen(options);
+    ASSERT_TRUE(s.IsInvalidArgument());
+    ASSERT_TRUE(s.ToString().find("invalid lease") != std::string::npos);
+  };
+
+  run_case(InvalidRetainedBlockBufferProvider::Mode::kNullData);
+  run_case(InvalidRetainedBlockBufferProvider::Mode::kShortSize);
+  run_case(InvalidRetainedBlockBufferProvider::Mode::kMissingCleanup);
+}
+
+TEST_F(DBTest2, IteratorAppendPinnedCurrentDedupesSameBlockLease) {
+  std::shared_ptr<Cache> block_cache;
+  Options options = CurrentPinnedKVOptions(
+      4096 /* block_size */, true /* use_block_cache */, &block_cache);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(3, 32, &values);
+  ASSERT_OK(Flush());
+  const size_t baseline_pinned_usage = block_cache->GetPinnedUsage();
+
+  PinnableKeyValueBatch batch;
+  size_t first_row_pinned_usage = 0;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(PinnedKVTestKey(1));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+    first_row_pinned_usage = batch.GetPinnedBlockCacheUsage();
+    ASSERT_GT(first_row_pinned_usage, 0);
+    AssertPinnedBatchEntry(batch, 0, PinnedKVTestKey(1), values[1],
+                           false /* expect_key_pinned */,
+                           true /* expect_value_pinned */);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+    ASSERT_EQ(2U, batch.size());
+    AssertPinnedBatchEntry(batch, 1, PinnedKVTestKey(2), values[2],
+                           false /* expect_key_pinned */,
+                           true /* expect_value_pinned */);
+    ASSERT_EQ(first_row_pinned_usage, batch.GetPinnedBlockCacheUsage());
+    ASSERT_EQ(batch.key(0).size() + batch.key(1).size(),
+              batch.GetCopiedBytes());
+
+    iter->Seek(PinnedKVTestKey(0));
+    ASSERT_TRUE(iter->Valid());
+  }
+
+  AssertPinnedBatchEntry(batch, 0, PinnedKVTestKey(1), values[1],
+                         false /* expect_key_pinned */,
+                         true /* expect_value_pinned */);
+  AssertPinnedBatchEntry(batch, 1, PinnedKVTestKey(2), values[2],
+                         false /* expect_key_pinned */,
+                         true /* expect_value_pinned */);
+  const size_t batch_pinned_usage = batch.GetPinnedBlockCacheUsage();
+  const size_t pinned_usage_before_reset = block_cache->GetPinnedUsage();
+  ASSERT_GE(pinned_usage_before_reset,
+            baseline_pinned_usage + batch_pinned_usage);
+
+  batch.Reset();
+  const size_t pinned_usage_after_reset = block_cache->GetPinnedUsage();
+  ASSERT_GT(pinned_usage_before_reset, pinned_usage_after_reset);
+  ASSERT_GE(pinned_usage_before_reset - pinned_usage_after_reset,
+            batch_pinned_usage);
+  ASSERT_EQ(baseline_pinned_usage, pinned_usage_after_reset);
+}
+
+TEST_F(DBTest2, IteratorAppendPinnedCurrentTracksDistinctBlockUsage) {
+  std::shared_ptr<Cache> block_cache;
+  Options options = CurrentPinnedKVOptions(
+      160 /* block_size */, true /* use_block_cache */, &block_cache);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(20, 48, &values);
+  ASSERT_OK(Flush());
+  const size_t baseline_pinned_usage = block_cache->GetPinnedUsage();
+
+  PinnableKeyValueBatch batch;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(PinnedKVTestKey(1));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+    const size_t first_block_usage = batch.GetPinnedBlockCacheUsage();
+    ASSERT_GT(first_block_usage, 0);
+
+    iter->Seek(PinnedKVTestKey(10));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+    ASSERT_EQ(2U, batch.size());
+    ASSERT_GT(batch.GetPinnedBlockCacheUsage(), first_block_usage);
+  }
+
+  ASSERT_EQ(PinnedKVTestKey(1), batch.key(0).ToString());
+  ASSERT_EQ(values[1], batch.value(0).ToString());
+  ASSERT_TRUE(batch.IsValuePinned(0));
+  ASSERT_EQ(PinnedKVTestKey(10), batch.key(1).ToString());
+  ASSERT_EQ(values[10], batch.value(1).ToString());
+  ASSERT_TRUE(batch.IsValuePinned(1));
+  const size_t batch_pinned_usage = batch.GetPinnedBlockCacheUsage();
+  const size_t pinned_usage_before_reset = block_cache->GetPinnedUsage();
+  ASSERT_GE(pinned_usage_before_reset,
+            baseline_pinned_usage + batch_pinned_usage);
+
+  batch.Reset();
+  const size_t pinned_usage_after_reset = block_cache->GetPinnedUsage();
+  ASSERT_GT(pinned_usage_before_reset, pinned_usage_after_reset);
+  ASSERT_GE(pinned_usage_before_reset - pinned_usage_after_reset,
+            batch_pinned_usage);
+  ASSERT_EQ(baseline_pinned_usage, pinned_usage_after_reset);
+}
+
+TEST_F(DBTest2, IteratorAppendPinnedCurrentFallsBackToCopyWithoutBlockCache) {
+  Options options =
+      CurrentPinnedKVOptions(160 /* block_size */, false /* use_block_cache */,
+                             nullptr /* block_cache */);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(3, 48, &values);
+  ASSERT_OK(Flush());
+
+  PinnableKeyValueBatch batch;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(PinnedKVTestKey(0));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+  }
+
+  ASSERT_EQ(2U, batch.size());
+  AssertPinnedBatchEntry(batch, 0, PinnedKVTestKey(0), values[0],
+                         false /* expect_key_pinned */,
+                         false /* expect_value_pinned */);
+  AssertPinnedBatchEntry(batch, 1, PinnedKVTestKey(1), values[1],
+                         false /* expect_key_pinned */,
+                         false /* expect_value_pinned */);
+  ASSERT_EQ(batch.key(0).size() + batch.value(0).size() + batch.key(1).size() +
+                batch.value(1).size(),
+            batch.GetCopiedBytes());
+  ASSERT_EQ(0, batch.GetPinnedBlockCacheUsage());
+}
+
+TEST_F(DBTest2, IteratorPinCurrentClearsOutputOnReverseIterationNotSupported) {
+  Options options =
+      CurrentPinnedKVOptions(160 /* block_size */, true /* use_block_cache */,
+                             nullptr /* block_cache */);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(3, 48, &values);
+  ASSERT_OK(Flush());
+
+  PinnableKeyValue pinned_kv;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->Seek(PinnedKVTestKey(0));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->PinCurrent(&pinned_kv));
+  ASSERT_EQ(PinnedKVTestKey(0), pinned_kv.key().ToString());
+  ASSERT_EQ(values[0], pinned_kv.value().ToString());
+
+  iter->SeekToLast();
+  ASSERT_TRUE(iter->Valid());
+  Status status = iter->PinCurrent(&pinned_kv);
+  ASSERT_TRUE(status.IsNotSupported());
+  AssertEmptyPinnedKeyValue(pinned_kv);
+}
+
+TEST_F(DBTest2, IteratorPinAPIsHandleReverseIterationSafely) {
+  Options options =
+      CurrentPinnedKVOptions(160 /* block_size */, true /* use_block_cache */,
+                             nullptr /* block_cache */);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(3, 48, &values);
+  ASSERT_OK(Flush());
+
+  PinnableKeyValue pinned_kv;
+  PinnableKeyValueBatch batch;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+
+  iter->Seek(PinnedKVTestKey(0));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->PinCurrent(&pinned_kv));
+  ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+  const PinnedKVBatchSnapshot snapshot = CaptureBatchSnapshot(batch);
+
+  iter->SeekToLast();
+  ASSERT_TRUE(iter->Valid());
+  Status pin_status = iter->PinCurrent(&pinned_kv);
+  ASSERT_TRUE(pin_status.IsNotSupported());
+  AssertEmptyPinnedKeyValue(pinned_kv);
+
+  Status append_status = iter->AppendPinnedCurrent(&batch);
+  ASSERT_TRUE(append_status.IsNotSupported());
+  AssertBatchMatchesSnapshot(batch, snapshot);
+}
+
+TEST_F(DBTest2, IteratorAppendPinnedCurrentResetReleasesAndReusesBatch) {
+  std::shared_ptr<Cache> block_cache;
+  Options options = CurrentPinnedKVOptions(
+      160 /* block_size */, true /* use_block_cache */, &block_cache);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(20, 48, &values);
+  ASSERT_OK(Flush());
+  const size_t baseline_pinned_usage = block_cache->GetPinnedUsage();
+
+  PinnableKeyValueBatch batch;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->Seek(PinnedKVTestKey(1));
+  ASSERT_TRUE(iter->Valid());
+  const size_t pinned_usage_before_first_append = block_cache->GetPinnedUsage();
+  ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+  const size_t first_batch_pinned_usage = batch.GetPinnedBlockCacheUsage();
+  ASSERT_GT(first_batch_pinned_usage, 0);
+
+  batch.Reset();
+  ASSERT_TRUE(batch.empty());
+  ASSERT_EQ(0U, batch.GetPinnedBlockCacheUsage());
+  ASSERT_EQ(0U, batch.GetCopiedBytes());
+  ASSERT_EQ(pinned_usage_before_first_append, block_cache->GetPinnedUsage());
+
+  iter->Seek(PinnedKVTestKey(10));
+  ASSERT_TRUE(iter->Valid());
+  const size_t pinned_usage_before_second_append =
+      block_cache->GetPinnedUsage();
+  ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+  ASSERT_EQ(1U, batch.size());
+  AssertPinnedBatchEntry(batch, 0, PinnedKVTestKey(10), values[10],
+                         false /* expect_key_pinned */,
+                         true /* expect_value_pinned */);
+  ASSERT_GT(batch.GetPinnedBlockCacheUsage(), 0);
+  ASSERT_EQ(batch.key(0).size(), batch.GetCopiedBytes());
+
+  const size_t second_batch_pinned_usage = batch.GetPinnedBlockCacheUsage();
+  batch.Reset();
+  ASSERT_GT(second_batch_pinned_usage, 0);
+  ASSERT_EQ(pinned_usage_before_second_append, block_cache->GetPinnedUsage());
+
+  iter.reset();
+  ASSERT_EQ(baseline_pinned_usage, block_cache->GetPinnedUsage());
+}
+
+TEST_F(DBTest2, IteratorPinAPIsRejectNullOutputPointers) {
+  Options options =
+      CurrentPinnedKVOptions(160 /* block_size */, true /* use_block_cache */,
+                             nullptr /* block_cache */);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(1, 48, &values);
+  ASSERT_OK(Flush());
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->Seek(PinnedKVTestKey(0));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(iter->PinCurrent(nullptr).IsInvalidArgument());
+  ASSERT_TRUE(iter->AppendPinnedCurrent(nullptr).IsInvalidArgument());
+}
+
+TEST_F(DBTest2, IteratorPinAPIsRejectBlobRowsAfterPrepareValue) {
+  Options options = CurrentOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  DestroyAndReopen(options);
+
+  const std::string blob_value(128, 'b');
+  ASSERT_OK(Put("blob-key", blob_value));
+  ASSERT_OK(Flush());
+
+  ReadOptions read_options;
+  read_options.allow_unprepared_value = true;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  iter->Seek("blob-key");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(iter->PrepareValue());
+  ASSERT_EQ(blob_value, iter->value().ToString());
+  AssertPinAPIsNotSupportedForCurrentRow(iter.get());
+}
+
+TEST_F(DBTest2, IteratorPinAPIsRejectWideColumnEntityRows) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+
+  const WideColumns columns{{kDefaultWideColumnName, "default"},
+                            {"attr", "value"}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           "wide-key", columns));
+  ASSERT_OK(Flush());
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->Seek("wide-key");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("default", iter->value().ToString());
+  AssertPinAPIsNotSupportedForCurrentRow(iter.get());
+}
+
+TEST_F(DBTest2, IteratorPinAPIsRejectUserDefinedTimestampRows) {
+  Options options = CurrentOptions();
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  DestroyAndReopen(options);
+
+  std::string ts;
+  PutFixed64(&ts, 7);
+  ASSERT_OK(db_->Put(WriteOptions(), "ts-key", ts, "value"));
+  ASSERT_OK(Flush());
+
+  const Slice read_ts_slice(ts);
+  ReadOptions read_options;
+  read_options.timestamp = &read_ts_slice;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  iter->Seek("ts-key");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("value", iter->value().ToString());
+  AssertPinAPIsNotSupportedForCurrentRow(iter.get());
+}
+
 TEST_F(DBTest2, DISABLED_IteratorPinnedMemory) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -8144,47 +9725,6 @@ TEST_F(DBTest2, FastSstOpenIngestion) {
 
   // Metadata should be passed when opening the ingested SST
   ASSERT_GE(test_fs->GetMetadataPassedOnOpenCount(), 1);
-
-  db.reset();
-  ASSERT_OK(DestroyDB(test_dbname, options));
-}
-
-TEST_F(DBTest2, FastSstOpenDisableAfterMetadataPersisted) {
-  // Verify that disabling fast_sst_open prevents previously-persisted
-  // metadata from being passed to NewRandomAccessFile. This is critical
-  // for cases where stale metadata (e.g. expired credentials) would
-  // cause file open failures.
-  auto test_fs = std::make_shared<FastOpenTestFS>(env_->GetFileSystem());
-  std::unique_ptr<Env> test_env(new CompositeEnvWrapper(env_, test_fs));
-
-  Options options;
-  options.env = test_env.get();
-  options.fast_sst_open = true;
-  options.create_if_missing = true;
-
-  std::string test_dbname = test::PerThreadDBPath("fast_open_disable_after");
-  ASSERT_OK(DestroyDB(test_dbname, options));
-
-  // Open with fast_sst_open enabled, write and flush to persist metadata
-  std::unique_ptr<DB> db;
-  ASSERT_OK(DB::Open(options, test_dbname, &db));
-  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
-  ASSERT_OK(db->Flush(FlushOptions()));
-  ASSERT_EQ(1, test_fs->GetMetadataRetrievedCount());
-  db.reset();
-
-  // Reopen with fast_sst_open DISABLED — metadata is in the MANIFEST
-  // but should NOT be passed to the filesystem
-  options.fast_sst_open = false;
-  test_fs->ResetCounters();
-  ASSERT_OK(DB::Open(options, test_dbname, &db));
-
-  std::string value;
-  ASSERT_OK(db->Get(ReadOptions(), "key1", &value));
-  ASSERT_EQ("value1", value);
-
-  // No metadata should have been passed despite being in the MANIFEST
-  ASSERT_EQ(0, test_fs->GetMetadataPassedOnOpenCount());
 
   db.reset();
   ASSERT_OK(DestroyDB(test_dbname, options));

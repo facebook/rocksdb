@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -172,6 +173,13 @@ class Block {
   size_t usable_size() const { return contents_.usable_size(); }
   uint32_t NumRestarts() const { return num_restarts_; }
   bool own_bytes() const { return contents_.own_bytes(); }
+  bool HasRetainedContentsBacking() const { return contents_.has_cleanup(); }
+  const SharedCleanablePtr& contents_cleanup() const {
+    return contents_.retained_cleanup();
+  }
+  const void* contents_cleanup_dedupe_token() const {
+    return contents_.retained_cleanup_dedupe_token();
+  }
   bool IsUniform() const { return is_uniform_; }
 
   BlockBasedTableOptions::DataBlockIndexType IndexType() const;
@@ -450,6 +458,29 @@ class BlockIter : public InternalIteratorBase<TValue> {
 
   Cache::Handle* cache_handle() { return cache_handle_; }
 
+  void SetBlockContentsCleanup(const SharedCleanablePtr& cleanup,
+                               const void* dedupe_token) {
+    if (cleanup.get() == nullptr) {
+      block_contents_retained_backing_.reset();
+    } else {
+      block_contents_retained_backing_ =
+          std::make_unique<RetainedBlockContentsBacking>(
+              SharedCleanablePtr(cleanup), dedupe_token, 0 /* backing_size */);
+    }
+  }
+
+  SharedCleanablePtr block_contents_cleanup() const {
+    return block_contents_retained_backing_ != nullptr
+               ? block_contents_retained_backing_->cleanup
+               : SharedCleanablePtr();
+  }
+
+  const void* block_contents_cleanup_dedupe_token() const {
+    return block_contents_retained_backing_ != nullptr
+               ? block_contents_retained_backing_->cleanup_dedupe_token
+               : nullptr;
+  }
+
  protected:
   InternalKeyComparator icmp_;
   const char* data_;       // underlying block contents
@@ -576,6 +607,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
     pad_min_timestamp_ = ts_sz_ > 0 && !user_defined_timestamp_persisted;
     block_contents_pinned_ = block_contents_pinned;
     cache_handle_ = nullptr;
+    block_contents_retained_backing_.reset();
     cur_entry_idx_ = -1;
     protection_bytes_per_key_ = protection_bytes_per_key;
     kv_checksum_ = kv_checksum;
@@ -693,6 +725,8 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // PinnableSlices reference the block, they need the cache handle in order
   // to bump up the ref count
   Cache::Handle* cache_handle_;
+  std::unique_ptr<RetainedBlockContentsBacking>
+      block_contents_retained_backing_;
 
  public:
   // Return the offset in data_ just past the end of the current entry.

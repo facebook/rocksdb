@@ -52,6 +52,7 @@ class MergeOperator;
 class Snapshot;
 class MemTableRepFactory;
 class RateLimiter;
+class RetainedBlockBufferProvider;
 class Slice;
 class Statistics;
 class InternalKeyComparator;
@@ -2050,6 +2051,36 @@ class MultiScanArgs {
   std::vector<ScanOptions> original_ranges_;
 };
 
+enum class PinnedBlockBackingPolicy : uint8_t {
+  // Preserve the default behavior for the target table:
+  // - prefer block cache when it is configured
+  // - otherwise use BlockBasedTableOptions::block_buffer_provider if set
+  kAuto = 0,
+  // Require iterator data blocks to use block cache-backed storage.
+  kUseBlockCache = 1,
+  // Require iterator data blocks to bypass data block cache and use
+  // retainable provider-backed storage instead.
+  kUseRetainedBlockBuffer = 2,
+};
+
+struct PinnedBlockBackingConfig {
+  PinnedBlockBackingPolicy policy = PinnedBlockBackingPolicy::kAuto;
+
+  // Optional per-iterator override. When nullptr, the iterator falls back to
+  // BlockBasedTableOptions::block_buffer_provider.
+  std::shared_ptr<RetainedBlockBufferProvider> retained_block_buffer_provider;
+};
+
+// Mutable iterator settings that can be provided at iterator creation time via
+// ReadOptions and updated later through Iterator::SetMutableOptions().
+//
+// Fields are optional so callers can update only the subset they care about.
+// For a given field, std::nullopt means "leave the current setting unchanged"
+// when used with Iterator::SetMutableOptions().
+struct IteratorMutableOptions {
+  std::optional<PinnedBlockBackingConfig> pinned_block_backing;
+};
+
 // Options that control read operations
 struct ReadOptions {
   // *** BEGIN options relevant to point lookups as well as scans ***
@@ -2367,6 +2398,10 @@ struct ReadOptions {
   // the UDI is a secondary index and you want to explicitly select it for
   // reads.
   const UserDefinedIndexFactory* table_index_factory = nullptr;
+
+  // Initial mutable settings for iterators created with this ReadOptions.
+  // These settings only affect iterators and are ignored by point-lookups.
+  IteratorMutableOptions iterator_mutable_options;
 
   // *** END options only relevant to iterators or scans ***
 

@@ -54,6 +54,26 @@ inline void RecordBlockReadBytePerfCounter(BlockType block_type,
   }
 }
 
+Status AllocateRetainedBufferForAlignedBuffer(void* state, size_t size,
+                                              size_t alignment,
+                                              RetainedBufferAllocation* out) {
+  auto* block_buffer_provider =
+      static_cast<RetainedBlockBufferProvider*>(state);
+  assert(block_buffer_provider != nullptr);
+  assert(out != nullptr);
+
+  RetainedBlockBufferProvider::Lease lease;
+  Status s = block_buffer_provider->Allocate(size, alignment, &lease);
+  if (!s.ok()) {
+    return s;
+  }
+  out->data = lease.data;
+  out->size = lease.size;
+  out->cleanup = std::move(lease.cleanup);
+  out->dedupe_token = lease.dedupe_token;
+  return Status::OK();
+}
+
 }  // namespace
 
 inline void BlockFetcher::ProcessTrailerIfPresent() {
@@ -150,6 +170,18 @@ inline bool BlockFetcher::TryGetSerializedBlockFromPersistentCache() {
 }
 
 inline void BlockFetcher::PrepareBufferForBlockFromFile() {
+  if (block_buffer_provider_ != nullptr && !maybe_compressed_) {
+    Status s = AllocateOwnedBlockContents(
+        block_size_with_trailer_, block_size_with_trailer_, memory_allocator_,
+        block_buffer_provider_, &retained_buf_contents_);
+    if (!s.ok()) {
+      io_status_ = status_to_io_status(std::move(s));
+      return;
+    }
+    used_buf_ = const_cast<char*>(retained_buf_contents_.data.data());
+    return;
+  }
+
   // cache miss read from device
   if ((do_uncompress_ || ioptions_.allow_mmap_reads) &&
       block_size_with_trailer_ < kDefaultStackBufferSize) {
@@ -238,7 +270,33 @@ inline void BlockFetcher::CopyBufferToCompressedBuf() {
 // compressed_buf_ and heap_buf_ points to compressed_buf_, otherwise should be
 // in heap_buf_.
 inline void BlockFetcher::GetBlockContents() {
-  if (slice_.data() != used_buf_) {
+  if (block_buffer_provider_ != nullptr &&
+      compression_type() == kNoCompression) {
+    if (!retained_buf_contents_.data.empty() &&
+        slice_.data() == retained_buf_contents_.data.data()) {
+      *contents_ = std::move(retained_buf_contents_);
+      contents_->data = Slice(contents_->data.data(), block_size_);
+    } else if (direct_io_retained_buf_.cleanup.get() != nullptr) {
+      *contents_ = BlockContents();
+      contents_->data = Slice(slice_.data(), block_size_);
+      contents_->SetRetainedBacking(std::move(direct_io_retained_buf_.cleanup),
+                                    direct_io_retained_buf_.dedupe_token,
+                                    direct_io_retained_buf_.size);
+      direct_io_retained_buf_.Reset();
+    } else {
+      // Provider-backed pinning needs retained ownership. This branch handles
+      // reads whose bytes came from a transient source such as prefetch,
+      // persistent cache, mmap, or a stack/heap scratch buffer.
+      Status s = CopyBufferToOwnedBlockContents(
+          Slice(slice_.data(), block_size_with_trailer_), block_size_,
+          memory_allocator_, block_buffer_provider_, contents_);
+      if (!s.ok()) {
+        io_status_ = status_to_io_status(std::move(s));
+        return;
+      }
+      retained_buf_contents_ = BlockContents();
+    }
+  } else if (slice_.data() != used_buf_) {
     // the slice content is not the buffer provided
     *contents_ = BlockContents(Slice(slice_.data(), block_size_));
   } else {
@@ -281,13 +339,22 @@ void BlockFetcher::ReadBlock(bool retry) {
   // Actual file read
   if (io_status_.ok()) {
     if (file_->use_direct_io()) {
+      RetainedBufferAllocator retained_buffer_allocator;
+      const RetainedBufferAllocator* retained_buffer_allocator_ptr = nullptr;
+      if (block_buffer_provider_ != nullptr) {
+        retained_buffer_allocator = RetainedBufferAllocator(
+            block_buffer_provider_, &AllocateRetainedBufferForAlignedBuffer);
+        retained_buffer_allocator_ptr = &retained_buffer_allocator;
+      }
       PERF_TIMER_GUARD(block_read_time);
       PERF_CPU_TIMER_GUARD(
           block_read_cpu_time,
           ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
       io_status_ =
           file_->Read(opts, handle_.offset(), block_size_with_trailer_, &slice_,
-                      /*scratch=*/nullptr, &direct_io_buf_, &dbg);
+                      /*scratch=*/nullptr, &direct_io_buf_, &dbg,
+                      /*direct_io_scratch=*/nullptr,
+                      retained_buffer_allocator_ptr, &direct_io_retained_buf_);
       PERF_COUNTER_ADD(block_read_count, 1);
       used_buf_ = const_cast<char*>(slice_.data());
     } else if (use_fs_scratch_) {
@@ -307,6 +374,9 @@ void BlockFetcher::ReadBlock(bool retry) {
     } else {
       // It allocates/assign used_buf_
       PrepareBufferForBlockFromFile();
+      if (!io_status_.ok()) {
+        return;
+      }
 
       PERF_TIMER_GUARD(block_read_time);
       PERF_CPU_TIMER_GUARD(
@@ -383,6 +453,8 @@ void BlockFetcher::ReadBlock(bool retry) {
     direct_io_buf_.reset();
     compressed_buf_.reset();
     heap_buf_.reset();
+    retained_buf_contents_ = BlockContents();
+    direct_io_retained_buf_.Reset();
     used_buf_ = nullptr;
   }
 }
@@ -423,7 +495,8 @@ IOStatus BlockFetcher::ReadBlockContents() {
     slice_.size_ = block_size_;
     decomp_args_.compressed_data = slice_;
     io_status_ = status_to_io_status(DecompressSerializedBlock(
-        decomp_args_, *decompressor_, contents_, ioptions_, memory_allocator_));
+        decomp_args_, *decompressor_, contents_, ioptions_, memory_allocator_,
+        block_buffer_provider_));
 #ifndef NDEBUG
     num_heap_buf_memcpy_++;
 #endif
@@ -477,9 +550,9 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
           // Process the compressed block without trailer
           slice_.size_ = block_size_;
           decomp_args_.compressed_data = slice_;
-          io_status_ = status_to_io_status(
-              DecompressSerializedBlock(decomp_args_, *decompressor_, contents_,
-                                        ioptions_, memory_allocator_));
+          io_status_ = status_to_io_status(DecompressSerializedBlock(
+              decomp_args_, *decompressor_, contents_, ioptions_,
+              memory_allocator_, block_buffer_provider_));
 #ifndef NDEBUG
           num_heap_buf_memcpy_++;
 #endif

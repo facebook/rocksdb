@@ -55,6 +55,9 @@ class RandomAccessFileReaderTest : public testing::Test {
     }
   }
 
+  const std::shared_ptr<FileSystem>& file_system() const { return fs_; }
+  std::string TestPath(const std::string& fname) { return Path(fname); }
+
  private:
   Env* env_;
   std::shared_ptr<FileSystem> fs_;
@@ -62,6 +65,62 @@ class RandomAccessFileReaderTest : public testing::Test {
 
   std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
 };
+
+namespace {
+
+struct TestRetainedBufferAllocatorState {
+  size_t allocations = 0;
+};
+
+void DeleteRetainedBufferForTest(void* arg1, void* /*arg2*/) {
+  delete[] static_cast<char*>(arg1);
+}
+
+Status AllocateRetainedBufferForTest(void* state, size_t size, size_t alignment,
+                                     RetainedBufferAllocation* out) {
+  assert(out != nullptr);
+  auto* allocator_state = static_cast<TestRetainedBufferAllocatorState*>(state);
+  allocator_state->allocations++;
+
+  const size_t extra = alignment > 1 ? alignment - 1 : 0;
+  char* raw = new char[size + extra];
+  uintptr_t aligned = reinterpret_cast<uintptr_t>(raw);
+  if (alignment > 1) {
+    aligned =
+        (aligned + alignment - 1) & ~static_cast<uintptr_t>(alignment - 1);
+  }
+
+  out->Reset();
+  out->data = reinterpret_cast<char*>(aligned);
+  out->size = size;
+  out->cleanup.Allocate();
+  out->cleanup->RegisterCleanup(&DeleteRetainedBufferForTest, raw, nullptr);
+  out->dedupe_token = out->data;
+  return Status::OK();
+}
+
+class SyncReadAsyncFile : public FSRandomAccessFileOwnerWrapper {
+ public:
+  explicit SyncReadAsyncFile(std::unique_ptr<FSRandomAccessFile>&& target)
+      : FSRandomAccessFileOwnerWrapper(std::move(target)) {}
+
+  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                     std::function<void(FSReadRequest&, void*)> cb,
+                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
+                     IODebugContext* dbg) override {
+    req.status = Read(req.offset, req.len, opts, &req.result, req.scratch, dbg);
+    if (io_handle != nullptr) {
+      *io_handle = nullptr;
+    }
+    if (del_fn != nullptr) {
+      *del_fn = nullptr;
+    }
+    cb(req, cb_arg);
+    return IOStatus::OK();
+  }
+};
+
+}  // namespace
 
 // Skip the following tests in lite mode since direct I/O is unsupported.
 
@@ -297,6 +356,174 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(RandomAccessFileReaderTest, ReadAsyncDirectIOExternalScratch) {
+  std::string fname = "read-async-direct-io-external-scratch";
+  Random rand(0);
+  std::string content = rand.RandomString(2 * kDefaultPageSize);
+  Write(fname, content);
+
+  FileOptions opts;
+  opts.use_direct_reads = true;
+  std::string fpath = TestPath(fname);
+  std::unique_ptr<FSRandomAccessFile> file;
+  ASSERT_OK(file_system()->NewRandomAccessFile(fpath, opts, &file, nullptr));
+  std::unique_ptr<FSRandomAccessFile> sync_async_file(
+      new SyncReadAsyncFile(std::move(file)));
+  std::unique_ptr<RandomAccessFileReader> r(new RandomAccessFileReader(
+      std::move(sync_async_file), fpath, SystemClock::Default().get()));
+  ASSERT_TRUE(r->use_direct_io());
+
+  const size_t page_size = r->file()->GetRequiredBufferAlignment();
+
+  FSReadRequest req;
+  req.offset = page_size / 2;
+  req.len = page_size / 3;
+  req.scratch = nullptr;
+  req.status.PermitUncheckedError();
+
+  const FSReadRequest aligned_req = Align(req, page_size);
+  ASSERT_OK(aligned_req.status);
+  std::unique_ptr<char[]> raw_scratch(
+      new char[aligned_req.len + page_size - 1]);
+  const uintptr_t raw = reinterpret_cast<uintptr_t>(raw_scratch.get());
+  const uintptr_t aligned = ((raw + page_size - 1) / page_size) * page_size;
+  char* aligned_scratch = reinterpret_cast<char*>(aligned);
+
+  bool callback_called = false;
+  Slice callback_result;
+  IOStatus callback_status;
+  void* io_handle = nullptr;
+  IOHandleDeleter del_fn;
+  auto cb = [&](FSReadRequest& cb_req, void* /*cb_arg*/) {
+    callback_called = true;
+    callback_result = cb_req.result;
+    callback_status = cb_req.status;
+  };
+
+  ASSERT_OK(r->ReadAsync(req, IOOptions(), cb, nullptr, &io_handle, &del_fn,
+                         /*aligned_buf=*/nullptr, /*dbg=*/nullptr,
+                         aligned_scratch));
+  ASSERT_EQ(nullptr, io_handle);
+
+  ASSERT_TRUE(callback_called);
+  ASSERT_OK(callback_status);
+  ASSERT_EQ(content.substr(req.offset, req.len), callback_result.ToString());
+  ASSERT_GE(callback_result.data(), aligned_scratch);
+  ASSERT_LE(callback_result.data() + callback_result.size(),
+            aligned_scratch + aligned_req.len);
+}
+
+TEST_F(RandomAccessFileReaderTest, ReadAsyncDirectIORetainedBuffer) {
+  std::string fname = "read-async-direct-io-retained-buffer";
+  Random rand(0);
+  std::string content = rand.RandomString(2 * kDefaultPageSize);
+  Write(fname, content);
+
+  FileOptions opts;
+  opts.use_direct_reads = true;
+  std::string fpath = TestPath(fname);
+  std::unique_ptr<FSRandomAccessFile> file;
+  ASSERT_OK(file_system()->NewRandomAccessFile(fpath, opts, &file, nullptr));
+  std::unique_ptr<FSRandomAccessFile> sync_async_file(
+      new SyncReadAsyncFile(std::move(file)));
+  std::unique_ptr<RandomAccessFileReader> r(new RandomAccessFileReader(
+      std::move(sync_async_file), fpath, SystemClock::Default().get()));
+  ASSERT_TRUE(r->use_direct_io());
+
+  const size_t page_size = r->file()->GetRequiredBufferAlignment();
+
+  FSReadRequest req;
+  req.offset = page_size / 2;
+  req.len = page_size / 3;
+  req.scratch = nullptr;
+  req.status.PermitUncheckedError();
+
+  TestRetainedBufferAllocatorState allocator_state;
+  RetainedBufferAllocator allocator(&allocator_state,
+                                    &AllocateRetainedBufferForTest);
+  RetainedBufferAllocation retained_buffer;
+
+  bool callback_called = false;
+  Slice callback_result;
+  IOStatus callback_status;
+  void* io_handle = nullptr;
+  IOHandleDeleter del_fn;
+  auto cb = [&](FSReadRequest& cb_req, void* /*cb_arg*/) {
+    callback_called = true;
+    callback_result = cb_req.result;
+    callback_status = cb_req.status;
+  };
+
+  ASSERT_OK(r->ReadAsync(req, IOOptions(), cb, nullptr, &io_handle, &del_fn,
+                         /*aligned_buf=*/nullptr, /*dbg=*/nullptr,
+                         /*direct_io_scratch=*/nullptr, &allocator,
+                         &retained_buffer));
+  ASSERT_EQ(nullptr, io_handle);
+
+  ASSERT_TRUE(callback_called);
+  ASSERT_OK(callback_status);
+  ASSERT_EQ(1U, allocator_state.allocations);
+  ASSERT_NE(nullptr, retained_buffer.cleanup.get());
+  ASSERT_EQ(content.substr(req.offset, req.len), callback_result.ToString());
+  ASSERT_GE(reinterpret_cast<uintptr_t>(callback_result.data()),
+            reinterpret_cast<uintptr_t>(retained_buffer.data));
+  ASSERT_LE(
+      reinterpret_cast<uintptr_t>(callback_result.data() +
+                                  callback_result.size()),
+      reinterpret_cast<uintptr_t>(retained_buffer.data + retained_buffer.size));
+}
+
+TEST_F(RandomAccessFileReaderTest, MultiReadDirectIORetainedBuffer) {
+  std::string fname = "multi-read-direct-io-retained-buffer";
+  Random rand(0);
+  std::string content = rand.RandomString(2 * kDefaultPageSize);
+  Write(fname, content);
+
+  FileOptions opts;
+  opts.use_direct_reads = true;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+  ASSERT_TRUE(r->use_direct_io());
+
+  const size_t page_size = r->file()->GetRequiredBufferAlignment();
+
+  FSReadRequest r0;
+  r0.offset = page_size / 4;
+  r0.len = page_size / 4;
+  r0.scratch = nullptr;
+
+  FSReadRequest r1;
+  r1.offset = page_size + page_size / 4;
+  r1.len = page_size / 2;
+  r1.scratch = nullptr;
+
+  std::vector<FSReadRequest> reqs;
+  reqs.push_back(std::move(r0));
+  reqs.push_back(std::move(r1));
+
+  TestRetainedBufferAllocatorState allocator_state;
+  RetainedBufferAllocator allocator(&allocator_state,
+                                    &AllocateRetainedBufferForTest);
+  RetainedBufferAllocation retained_buffer;
+  AlignedBuf aligned_buf;
+  IODebugContext dbg;
+  ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
+                         &dbg, &allocator, &retained_buffer));
+
+  AssertResult(content, reqs);
+  ASSERT_EQ(1U, allocator_state.allocations);
+  ASSERT_NE(nullptr, retained_buffer.cleanup.get());
+  ASSERT_EQ(retained_buffer.data, aligned_buf.get());
+  for (const auto& req : reqs) {
+    ASSERT_GE(reinterpret_cast<uintptr_t>(req.result.data()),
+              reinterpret_cast<uintptr_t>(retained_buffer.data));
+    ASSERT_LE(
+        reinterpret_cast<uintptr_t>(req.result.data() + req.result.size()),
+        reinterpret_cast<uintptr_t>(retained_buffer.data +
+                                    retained_buffer.size));
+  }
 }
 
 TEST(FSReadRequest, Align) {

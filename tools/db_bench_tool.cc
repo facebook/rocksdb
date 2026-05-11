@@ -78,6 +78,7 @@
 #include "test_util/testutil.h"
 #include "test_util/transaction_test_util.h"
 #include "tools/simulated_hybrid_file_system.h"
+#include "util/aligned_buffer.h"
 #include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -754,6 +755,15 @@ DEFINE_bool(separate_key_value_in_data_block,
             ROCKSDB_NAMESPACE::BlockBasedTableOptions()
                 .separate_key_value_in_data_block,
             "If true, data blocks store keys and values separately.");
+
+DEFINE_bool(use_retained_block_buffer_provider, false,
+            "If true, configure BlockBasedTableOptions.block_buffer_provider "
+            "for retained iterator data-block buffers.");
+
+DEFINE_string(
+    iterator_pinned_block_backing_policy, "auto",
+    "Mutable iterator pinned-block backing policy: auto, block_cache, or "
+    "retained_block_buffer.");
 
 DEFINE_int64(prepopulate_block_cache, 0,
              "Pre-populate hot/warm blocks in block cache. 0 to disable, 1 "
@@ -1990,6 +2000,66 @@ static Status CreateMemTableRepFactory(
     }
   }
   return s;
+}
+
+class DbBenchRetainedBlockBufferProvider : public RetainedBlockBufferProvider {
+ public:
+  Status Allocate(size_t size, size_t alignment, Lease* out) override {
+    if (out == nullptr) {
+      return Status::InvalidArgument("lease output is nullptr");
+    }
+    if (alignment == 0 || (alignment & (alignment - 1)) != 0) {
+      return Status::InvalidArgument("alignment must be a power of two");
+    }
+
+    auto* allocation = new Allocation();
+    allocation->storage.Alignment(alignment);
+    allocation->storage.AllocateNewBuffer(size);
+
+    out->data = allocation->storage.BufferStart();
+    out->size = size;
+    out->cleanup.Allocate();
+    out->cleanup->RegisterCleanup(&ReleaseAllocation, allocation, nullptr);
+    out->dedupe_token = allocation;
+    return Status::OK();
+  }
+
+ private:
+  struct Allocation {
+    AlignedBuffer storage;
+  };
+
+  static void ReleaseAllocation(void* arg1, void* /*arg2*/) {
+    delete static_cast<Allocation*>(arg1);
+  }
+};
+
+std::shared_ptr<RetainedBlockBufferProvider>
+NewDbBenchRetainedBlockBufferProvider() {
+  return std::make_shared<DbBenchRetainedBlockBufferProvider>();
+}
+
+void ConfigureIteratorPinnedBlockBacking(ReadOptions* read_options) {
+  assert(read_options != nullptr);
+
+  if (FLAGS_iterator_pinned_block_backing_policy == "auto") {
+    return;
+  }
+
+  PinnedBlockBackingConfig config;
+  if (FLAGS_iterator_pinned_block_backing_policy == "block_cache") {
+    config.policy = PinnedBlockBackingPolicy::kUseBlockCache;
+  } else if (FLAGS_iterator_pinned_block_backing_policy ==
+             "retained_block_buffer") {
+    config.policy = PinnedBlockBackingPolicy::kUseRetainedBlockBuffer;
+  } else {
+    fprintf(stderr, "Unknown iterator_pinned_block_backing_policy: %s\n",
+            FLAGS_iterator_pinned_block_backing_policy.c_str());
+    db_bench_exit(1);
+  }
+
+  read_options->iterator_mutable_options.pinned_block_backing =
+      std::move(config);
 }
 
 }  // namespace
@@ -3688,6 +3758,7 @@ class Benchmark {
       read_options_.auto_readahead_size = FLAGS_auto_readahead_size;
       read_options_.auto_refresh_iterator_with_snapshot =
           FLAGS_auto_refresh_iterator_with_snapshot;
+      ConfigureIteratorPinnedBlockBacking(&read_options_);
       if (FLAGS_use_trie_index && udi_factory_) {
         read_options_.table_index_factory = udi_factory_.get();
       }
@@ -4717,6 +4788,12 @@ class Benchmark {
       if (cache_ == nullptr) {
         block_based_options.no_block_cache = true;
       }
+      if (FLAGS_use_retained_block_buffer_provider ||
+          FLAGS_iterator_pinned_block_backing_policy ==
+              "retained_block_buffer") {
+        block_based_options.block_buffer_provider =
+            NewDbBenchRetainedBlockBufferProvider();
+      }
       block_based_options.cache_index_and_filter_blocks =
           FLAGS_cache_index_and_filter_blocks;
       block_based_options.pin_l0_filter_and_index_blocks_in_cache =
@@ -5136,6 +5213,12 @@ class Benchmark {
         // nullptr), and our regression tests assume this will be the shared
         // block cache, even with OPTIONS file provided.
         table_options->block_cache = cache_;
+      }
+      if (FLAGS_use_retained_block_buffer_provider ||
+          FLAGS_iterator_pinned_block_backing_policy ==
+              "retained_block_buffer") {
+        table_options->block_buffer_provider =
+            NewDbBenchRetainedBlockBufferProvider();
       }
       if (table_options->filter_policy == nullptr) {
         if (FLAGS_bloom_bits < 0) {

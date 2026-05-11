@@ -1610,6 +1610,7 @@ size_t Block::ApproximateMemoryUsage() const {
   if (read_amp_bitmap_) {
     usage += read_amp_bitmap_->ApproximateMemoryUsage();
   }
+  usage += contents_.retained_metadata_memory_usage();
   usage += checksum_size_;
   return usage;
 }

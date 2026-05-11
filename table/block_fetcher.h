@@ -14,6 +14,7 @@
 #include "table/block_based/block_type.h"
 #include "table/format.h"
 #include "table/persistent_cache_options.h"
+#include "util/aligned_buffer.h"
 #include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -51,7 +52,8 @@ class BlockFetcher {
                const PersistentCacheOptions& cache_options /* ref retained */,
                MemoryAllocator* memory_allocator = nullptr,
                MemoryAllocator* memory_allocator_compressed = nullptr,
-               bool for_compaction = false)
+               bool for_compaction = false,
+               RetainedBlockBufferProvider* block_buffer_provider = nullptr)
       : file_(file),
         prefetch_buffer_(prefetch_buffer),
         footer_(footer),
@@ -68,7 +70,8 @@ class BlockFetcher {
         cache_options_(cache_options),
         memory_allocator_(memory_allocator),
         memory_allocator_compressed_(memory_allocator_compressed),
-        for_compaction_(for_compaction) {
+        for_compaction_(for_compaction),
+        block_buffer_provider_(block_buffer_provider) {
     io_status_.PermitUncheckedError();  // TODO(AR) can we improve on this?
     if (CheckFSFeatureSupport(ioptions_.fs.get(), FSSupportedOps::kFSBuffer)) {
       use_fs_scratch_ = true;
@@ -133,8 +136,10 @@ class BlockFetcher {
   Slice slice_;
   char* used_buf_ = nullptr;
   AlignedBuf direct_io_buf_;
+  RetainedBufferAllocation direct_io_retained_buf_;
   CacheAllocationPtr heap_buf_;
   CacheAllocationPtr compressed_buf_;
+  BlockContents retained_buf_contents_;
   char stack_buf_[kDefaultStackBufferSize];
   bool got_from_prefetch_buffer_ = false;
   bool for_compaction_ = false;
@@ -142,6 +147,7 @@ class BlockFetcher {
   bool retry_corrupt_read_ = false;
   FSAllocationPtr fs_buf_;
   Decompressor::Args decomp_args_;
+  RetainedBlockBufferProvider* block_buffer_provider_ = nullptr;
 
   // return true if found
   bool TryGetUncompressBlockFromPersistentCache();

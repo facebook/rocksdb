@@ -116,6 +116,23 @@ inline void RecordIOStats(Statistics* stats, Temperature file_temperature,
   }
 }
 
+inline void SaveRetainedBufferMetadata(
+    const AlignedBuffer& buffer, RetainedBufferAllocation* retained_buffer) {
+  if (retained_buffer == nullptr) {
+    return;
+  }
+
+  retained_buffer->Reset();
+  if (!buffer.HasRetainedBuffer()) {
+    return;
+  }
+
+  retained_buffer->data = const_cast<char*>(buffer.BufferStart());
+  retained_buffer->size = buffer.retained_backing_size();
+  retained_buffer->cleanup = buffer.retained_cleanup();
+  retained_buffer->dedupe_token = buffer.retained_dedupe_token();
+}
+
 IOStatus RandomAccessFileReader::Create(
     const std::shared_ptr<FileSystem>& fs, const std::string& fname,
     const FileOptions& file_opts,
@@ -128,11 +145,24 @@ IOStatus RandomAccessFileReader::Create(
   return io_s;
 }
 
-IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
-                                      size_t n, Slice* result, char* scratch,
-                                      AlignedBuf* aligned_buf,
-                                      IODebugContext* dbg) const {
+IOStatus RandomAccessFileReader::Read(
+    const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
+    char* scratch, AlignedBuf* aligned_buf, IODebugContext* dbg,
+    char* direct_io_scratch,
+    const RetainedBufferAllocator* retained_buffer_allocator,
+    RetainedBufferAllocation* retained_buffer) const {
   (void)aligned_buf;
+  assert(direct_io_scratch == nullptr || aligned_buf == nullptr);
+  assert(direct_io_scratch == nullptr || retained_buffer_allocator == nullptr);
+  if (direct_io_scratch != nullptr &&
+      (aligned_buf != nullptr || retained_buffer_allocator != nullptr)) {
+    return IOStatus::InvalidArgument(
+        "direct_io_scratch cannot be combined with aligned_buf or "
+        "retained_buffer_allocator");
+  }
+  if (retained_buffer != nullptr) {
+    retained_buffer->Reset();
+  }
   const Env::IOPriority rate_limiter_priority = opts.rate_limiter_priority;
 
   TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read", nullptr);
@@ -172,18 +202,32 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
       size_t read_size =
           Roundup(static_cast<size_t>(offset + n), alignment) - aligned_offset;
       AlignedBuffer buf;
-      buf.Alignment(alignment);
-      buf.AllocateNewBuffer(read_size);
-      while (buf.CurrentSize() < read_size) {
+      char* aligned_scratch = direct_io_scratch;
+      size_t aligned_size = 0;
+      if (direct_io_scratch == nullptr) {
+        buf.Alignment(alignment);
+        if (retained_buffer_allocator != nullptr) {
+          Status s =
+              buf.AllocateNewBuffer(read_size, *retained_buffer_allocator);
+          if (!s.ok()) {
+            return status_to_io_status(std::move(s));
+          }
+          SaveRetainedBufferMetadata(buf, retained_buffer);
+        } else {
+          buf.AllocateNewBuffer(read_size);
+        }
+        aligned_scratch = buf.BufferStart();
+      }
+      while (aligned_size < read_size) {
         size_t allowed;
         if (rate_limiter_priority != Env::IO_TOTAL &&
             rate_limiter_ != nullptr) {
           allowed = rate_limiter_->RequestToken(
-              buf.Capacity() - buf.CurrentSize(), buf.Alignment(),
-              rate_limiter_priority, stats_, RateLimiter::OpType::kRead);
+              read_size - aligned_size, alignment, rate_limiter_priority,
+              stats_, RateLimiter::OpType::kRead);
         } else {
-          assert(buf.CurrentSize() == 0);
-          allowed = read_size;
+          assert(aligned_size == 0);
+          allowed = read_size - aligned_size;
         }
         Slice tmp;
 
@@ -191,7 +235,7 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
         uint64_t orig_offset = 0;
         if (ShouldNotifyListeners()) {
           start_ts = FileOperationInfo::StartNow();
-          orig_offset = aligned_offset + buf.CurrentSize();
+          orig_offset = aligned_offset + aligned_size;
         }
 
         {
@@ -201,8 +245,8 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
           // one iteration of this loop, so we don't need to check and adjust
           // the opts.timeout before calling file_->Read
           assert(!opts.timeout.count() || allowed == read_size);
-          io_s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, opts,
-                             &tmp, buf.Destination(), dbg);
+          io_s = file_->Read(aligned_offset + aligned_size, allowed, opts, &tmp,
+                             aligned_scratch + aligned_size, dbg);
         }
         if (ShouldNotifyListeners()) {
           auto finish_ts = FileOperationInfo::FinishNow();
@@ -214,15 +258,22 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
           }
         }
 
-        buf.Size(buf.CurrentSize() + tmp.size());
+        aligned_size += tmp.size();
         if (!io_s.ok() || tmp.size() < allowed) {
           break;
         }
       }
       size_t res_len = 0;
-      if (io_s.ok() && offset_advance < buf.CurrentSize()) {
-        res_len = std::min(buf.CurrentSize() - offset_advance, n);
-        if (aligned_buf == nullptr) {
+      if (io_s.ok() && offset_advance < aligned_size) {
+        res_len = std::min(aligned_size - offset_advance, n);
+        if (direct_io_scratch != nullptr) {
+          scratch = direct_io_scratch + offset_advance;
+        } else if (retained_buffer_allocator != nullptr) {
+          scratch = buf.BufferStart() + offset_advance;
+          if (aligned_buf != nullptr) {
+            *aligned_buf = buf.Release();
+          }
+        } else if (aligned_buf == nullptr) {
           buf.Read(scratch, offset_advance, res_len);
         } else {
           scratch = buf.BufferStart() + offset_advance;
@@ -335,13 +386,16 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
   return true;
 }
 
-IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
-                                           FSReadRequest* read_reqs,
-                                           size_t num_reqs,
-                                           AlignedBuf* aligned_buf,
-                                           IODebugContext* dbg) const {
+IOStatus RandomAccessFileReader::MultiRead(
+    const IOOptions& opts, FSReadRequest* read_reqs, size_t num_reqs,
+    AlignedBuf* aligned_buf, IODebugContext* dbg,
+    const RetainedBufferAllocator* retained_buffer_allocator,
+    RetainedBufferAllocation* retained_buffer) const {
   (void)aligned_buf;  // suppress warning of unused variable in LITE mode
   assert(num_reqs > 0);
+  if (retained_buffer != nullptr) {
+    retained_buffer->Reset();
+  }
 
 #ifndef NDEBUG
   for (size_t i = 0; i < num_reqs - 1; ++i) {
@@ -405,7 +459,15 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
       }
       AlignedBuffer buf;
       buf.Alignment(alignment);
-      buf.AllocateNewBuffer(total_len);
+      if (retained_buffer_allocator != nullptr) {
+        Status s = buf.AllocateNewBuffer(total_len, *retained_buffer_allocator);
+        if (!s.ok()) {
+          return status_to_io_status(std::move(s));
+        }
+        SaveRetainedBufferMetadata(buf, retained_buffer);
+      } else {
+        buf.AllocateNewBuffer(total_len);
+      }
       char* scratch = buf.BufferStart();
       for (auto& r : aligned_reqs) {
         r.scratch = scratch;
@@ -517,16 +579,32 @@ IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
 
 // Notes for when direct_io is enabled:
 // Unless req.offset, req.len, req.scratch are all already aligned,
-// RandomAccessFileReader will creats aligned requests and aligned buffer for
-// the request. User should only provide either req.scratch or aligned_buf. If
-// only req.scratch is provided, result will be copied from allocated aligned
-// buffer to req.scratch. If only alignd_buf is provided, it will be set to
-// the ailgned buf allocated by RandomAccessFileReader and saves a copy.
+// RandomAccessFileReader will create an aligned request. If
+// direct_io_scratch is provided, it is used as the aligned scratch buffer and
+// saves a copy. Otherwise, RandomAccessFileReader allocates an aligned buffer.
+// User should only provide one of req.scratch, aligned_buf, or
+// direct_io_scratch. If only req.scratch is provided, result will be copied
+// from the aligned buffer to req.scratch. If only aligned_buf is provided, it
+// will be set to the aligned buffer allocated by RandomAccessFileReader and
+// saves a copy.
 IOStatus RandomAccessFileReader::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
     std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, AlignedBuf* aligned_buf,
-    IODebugContext* dbg) {
+    IODebugContext* dbg, char* direct_io_scratch,
+    const RetainedBufferAllocator* retained_buffer_allocator,
+    RetainedBufferAllocation* retained_buffer) {
+  assert(direct_io_scratch == nullptr || aligned_buf == nullptr);
+  assert(direct_io_scratch == nullptr || retained_buffer_allocator == nullptr);
+  if (direct_io_scratch != nullptr &&
+      (aligned_buf != nullptr || retained_buffer_allocator != nullptr)) {
+    return IOStatus::InvalidArgument(
+        "direct_io_scratch cannot be combined with aligned_buf or "
+        "retained_buffer_allocator");
+  }
+  if (retained_buffer != nullptr) {
+    retained_buffer->Reset();
+  }
   IOStatus s;
   TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::ReadAsync:InjectStatus",
                            &s);
@@ -556,21 +634,39 @@ IOStatus RandomAccessFileReader::ReadAsync(
     FSReadRequest aligned_req = Align(req, alignment);
     aligned_req.status.PermitUncheckedError();
 
-    // Allocate aligned buffer.
-    read_async_info->buf_.Alignment(alignment);
-    read_async_info->buf_.AllocateNewBuffer(aligned_req.len);
-
-    // Set rem fields in aligned FSReadRequest.
-    aligned_req.scratch = read_async_info->buf_.BufferStart();
-
     // Set user provided fields to populate back in callback.
     read_async_info->user_scratch_ = req.scratch;
     read_async_info->user_aligned_buf_ = aligned_buf;
     read_async_info->user_len_ = req.len;
     read_async_info->user_offset_ = req.offset;
     read_async_info->user_result_ = req.result;
+    read_async_info->use_external_direct_io_scratch_ =
+        direct_io_scratch != nullptr;
+    read_async_info->use_retained_direct_io_buffer_ =
+        retained_buffer_allocator != nullptr;
 
-    assert(read_async_info->buf_.CurrentSize() == 0);
+    if (direct_io_scratch != nullptr) {
+      aligned_req.scratch = direct_io_scratch;
+    } else {
+      // Allocate aligned buffer.
+      read_async_info->buf_.Alignment(alignment);
+      if (retained_buffer_allocator != nullptr) {
+        Status alloc_status = read_async_info->buf_.AllocateNewBuffer(
+            aligned_req.len, *retained_buffer_allocator);
+        if (!alloc_status.ok()) {
+          delete read_async_info;
+          return status_to_io_status(std::move(alloc_status));
+        }
+        SaveRetainedBufferMetadata(read_async_info->buf_, retained_buffer);
+      } else {
+        read_async_info->buf_.AllocateNewBuffer(aligned_req.len);
+      }
+
+      // Set rem fields in aligned FSReadRequest.
+      aligned_req.scratch = read_async_info->buf_.BufferStart();
+
+      assert(read_async_info->buf_.CurrentSize() == 0);
+    }
 
     StopWatch sw(clock_, stats_, hist_type_,
                  GetFileReadHistograms(stats_, opts.io_activity),
@@ -618,20 +714,30 @@ void RandomAccessFileReader::ReadAsyncCallback(FSReadRequest& req,
     user_req.result = req.result;
     user_req.status = req.status;
 
-    read_async_info->buf_.Size(read_async_info->buf_.CurrentSize() +
-                               req.result.size());
+    size_t aligned_result_size = req.result.size();
+    if (!read_async_info->use_external_direct_io_scratch_) {
+      read_async_info->buf_.Size(read_async_info->buf_.CurrentSize() +
+                                 req.result.size());
+      aligned_result_size = read_async_info->buf_.CurrentSize();
+    }
 
     size_t offset_advance_len = static_cast<size_t>(
         /*offset_passed_by_user=*/read_async_info->user_offset_ -
         /*aligned_offset=*/req.offset);
 
     size_t res_len = 0;
-    if (req.status.ok() &&
-        offset_advance_len < read_async_info->buf_.CurrentSize()) {
-      res_len =
-          std::min(read_async_info->buf_.CurrentSize() - offset_advance_len,
-                   read_async_info->user_len_);
-      if (read_async_info->user_aligned_buf_ == nullptr) {
+    if (req.status.ok() && offset_advance_len < aligned_result_size) {
+      res_len = std::min(aligned_result_size - offset_advance_len,
+                         read_async_info->user_len_);
+      if (read_async_info->use_external_direct_io_scratch_ ||
+          read_async_info->use_retained_direct_io_buffer_) {
+        user_req.scratch =
+            const_cast<char*>(req.result.data()) + offset_advance_len;
+        if (read_async_info->use_retained_direct_io_buffer_ &&
+            read_async_info->user_aligned_buf_ != nullptr) {
+          *read_async_info->user_aligned_buf_ = read_async_info->buf_.Release();
+        }
+      } else if (read_async_info->user_aligned_buf_ == nullptr) {
         // Copy the data into user's scratch.
 // Clang analyzer assumes that it will take use_direct_io() == false in
 // ReadAsync and use_direct_io() == true in Callback which cannot be true.

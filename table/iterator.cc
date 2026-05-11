@@ -30,6 +30,32 @@ Status Iterator::GetProperty(std::string prop_name, std::string* prop) {
   return Status::InvalidArgument("Unidentified property.");
 }
 
+Status Iterator::PinCurrent(PinnableKeyValue* out) {
+  if (out == nullptr) {
+    return Status::InvalidArgument("PinnableKeyValue is nullptr");
+  }
+  out->Reset();
+  return Status::NotSupported("PinCurrent is not supported");
+}
+
+Status Iterator::AppendPinnedCurrent(PinnableKeyValueBatch* batch) {
+  if (batch == nullptr) {
+    return Status::InvalidArgument("PinnableKeyValueBatch is nullptr");
+  }
+  return Status::NotSupported("AppendPinnedCurrent is not supported");
+}
+
+Status Iterator::SetMutableOptions(const IteratorMutableOptions& /*options*/) {
+  return Status::NotSupported("SetMutableOptions is not supported");
+}
+
+Status Iterator::GetMutableOptions(IteratorMutableOptions* options) const {
+  if (options == nullptr) {
+    return Status::InvalidArgument("IteratorMutableOptions is nullptr");
+  }
+  return Status::NotSupported("GetMutableOptions is not supported");
+}
+
 namespace {
 class EmptyIterator : public Iterator {
  public:

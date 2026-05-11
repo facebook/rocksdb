@@ -1669,6 +1669,15 @@ DEFINE_bool(
     ROCKSDB_NAMESPACE::ReadOptions().auto_refresh_iterator_with_snapshot,
     "ReadOptions.auto_refresh_iterator_with_snapshot");
 
+DEFINE_bool(use_retained_block_buffer_provider, false,
+            "If true, configure BlockBasedTableOptions.block_buffer_provider "
+            "and force iterator data blocks to use retained block buffers.");
+
+DEFINE_int32(test_iterator_pin_current_one_in, 0,
+             "If non-zero, call Iterator::PinCurrent() and "
+             "Iterator::AppendPinnedCurrent() once every N iterator "
+             "verification points on average.");
+
 DEFINE_uint32(
     memtable_op_scan_flush_trigger,
     ROCKSDB_NAMESPACE::ColumnFamilyOptions().memtable_op_scan_flush_trigger,

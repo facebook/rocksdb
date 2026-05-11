@@ -252,6 +252,11 @@ class DBIter final : public Iterator {
   bool PrepareValue() override;
 
   void Prepare(const MultiScanArgs& scan_opts) override;
+  Status PinCurrent(PinnableKeyValue* out) override;
+  Status AppendPinnedCurrent(PinnableKeyValueBatch* batch) override;
+  Status SetMutableOptions(const IteratorMutableOptions& options) override;
+  Status GetMutableOptions(IteratorMutableOptions* options) const override;
+  void ApplyMutableOptionsAndInvalidate(const IteratorMutableOptions& options);
   Status ValidateScanOptions(const MultiScanArgs& multiscan_opts) const;
 
  private:
@@ -532,6 +537,9 @@ class DBIter final : public Iterator {
                                       const Slice& blob_index);
   bool SetValueAndColumnsFromBlob(const Slice& user_key,
                                   const Slice& blob_index);
+  Status PrepareForPinCurrent();
+  Status TryPinCurrentKeyValue(Slice* current_key, Slice* current_value,
+                               PinnedIterKeyValue* pinned_kv);
 
   bool SetValueAndColumnsFromEntity(Slice slice);
   bool MaterializeLazyEntityColumns() const;
@@ -626,6 +634,21 @@ class DBIter final : public Iterator {
     prefix_.reset();
   }
 
+  void InvalidateCurrentPosition() {
+    ReleaseTempPinnedData();
+    ResetBlobData();
+    ResetValueAndColumns();
+    ResetInternalKeysSkippedCounter();
+    ResetContiguousTombstoneTracking();
+    saved_key_.Clear();
+    saved_timestamp_.clear();
+    prefix_.reset();
+    current_entry_is_merged_ = false;
+    is_key_seqnum_zero_ = false;
+    valid_ = false;
+    status_ = Status::OK();
+  }
+
   void MarkMemtableForFlushForAvgTrigger() {
     if (avg_op_scan_flush_trigger_ &&
         mem_hidden_op_scanned_since_seek_ >= memtable_op_scan_flush_trigger_ &&
@@ -713,6 +736,7 @@ class DBIter final : public Iterator {
   std::string saved_timestamp_;
   std::optional<MultiScanArgs> scan_opts_;
   size_t scan_index_{0};
+  IteratorMutableOptions mutable_options_;
   ReadOnlyMemTable* const active_mem_;
   SequenceNumber memtable_seqno_lb_;
   uint32_t memtable_op_scan_flush_trigger_;
