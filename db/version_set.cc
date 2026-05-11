@@ -6696,7 +6696,7 @@ std::unique_ptr<log::Writer> VersionSet::CreateManifestWriter(
   const size_t block_offset = initial_file_size % log::kBlockSize;
   return std::make_unique<log::Writer>(
       std::move(file_writer), /*log_number=*/0, /*recycle_log_files=*/false,
-      /*manual_flush=*/recovery_in_progress_, kNoCompression,
+      /*manual_flush=*/manifest_manual_flush_, kNoCompression,
       /*track_and_verify_wals=*/false, block_offset);
 }
 

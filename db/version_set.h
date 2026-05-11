@@ -1806,11 +1806,12 @@ class VersionSet {
   // Opened lazily
   std::unique_ptr<log::Writer> descriptor_log_;
 
-  // Set during recovery to enable manual_flush on the MANIFEST writer,
-  // so that records accumulate in the WritableFileWriter buffer and are
-  // flushed in fewer, larger writes.  Cleared after recovery so that
-  // normal-operation writes flush per record (surviving process crash).
-  bool recovery_in_progress_ = false;
+  // When true, CreateManifestWriter uses manual_flush so that MANIFEST
+  // records accumulate in the WritableFileWriter buffer and reach the
+  // filesystem in fewer, larger writes.  Set by LogAndApplyForRecovery
+  // when optimize_manifest_for_recovery is enabled; cleared (and the
+  // writer switched back to per-record flush) after recovery.
+  bool manifest_manual_flush_ = false;
 
   // generates a increasing version number for every new version
   uint64_t current_version_number_;

@@ -178,6 +178,8 @@ IOStatus Writer::AddRecord(const WriteOptions& write_options,
   if (s.ok()) {
     if (!manual_flush_) {
       s = dest_->Flush(opts);
+    } else {
+      TEST_SYNC_POINT("LogWriter::AddRecord:ManualFlushSkipped");
     }
   }
 

@@ -761,6 +761,55 @@ TEST_F(DBBasicTest, ReuseManifestOnOpenFullStackComposition) {
   EXPECT_EQ("v", Get("k"));
 }
 
+// optimize_manifest_for_recovery=true buffers MANIFEST writes during
+// recovery, skipping per-record flush calls.  Verified by counting the
+// ManualFlushSkipped sync point (fires each time a manifest AddRecord
+// skips its per-record Flush due to manual_flush_ being set).
+// Uses an un-flushed memtable so WAL replay produces real edits.
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryBuffersManifestWrites) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  auto* sp = ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
+
+  // --- baseline: optimize OFF, should never skip flush ---
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k1", "v1"));
+  // No Flush — leave data in WAL so recovery replays it and writes edits.
+  Close();
+
+  std::atomic<int> skips_off{0};
+  sp->SetCallBack("LogWriter::AddRecord:ManualFlushSkipped",
+                  [&](void*) { skips_off.fetch_add(1); });
+  sp->EnableProcessing();
+  Reopen(options);
+  sp->DisableProcessing();
+  sp->ClearAllCallBacks();
+  ASSERT_EQ("v1", Get("k1"));
+  ASSERT_EQ(0, skips_off.load());
+  Close();
+
+  // --- test: optimize ON, should skip per-record flushes ---
+  options.optimize_manifest_for_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k2", "v2"));
+  // No Flush — leave data in WAL so recovery replays it and writes edits.
+  Close();
+
+  std::atomic<int> skips_on{0};
+  sp->SetCallBack("LogWriter::AddRecord:ManualFlushSkipped",
+                  [&](void*) { skips_on.fetch_add(1); });
+  sp->EnableProcessing();
+  Reopen(options);
+  sp->DisableProcessing();
+  sp->ClearAllCallBacks();
+  ASSERT_EQ("v2", Get("k2"));
+
+  // With buffering, the MANIFEST AddRecord calls skip their per-record
+  // flush.  The exact count depends on the number of VersionEdits written
+  // during recovery, but it must be > 0.
+  ASSERT_GT(skips_on.load(), 0);
+}
+
 // Direct unit test for WritableFileWriter's initial_file_size parameter:
 // verifies the visible size accessors report the existing on-disk size
 // immediately, rather than the constructor's zero default.
