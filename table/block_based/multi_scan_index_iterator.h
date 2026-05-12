@@ -58,7 +58,7 @@ class MultiScanIndexIterator : public InternalIteratorBase<IndexValue> {
   // Move to the first block of the first scan range.
   void SeekToFirst() override;
 
-  // Not supported — sets valid_ = false.
+  // Not supported -- sets valid_ = false.
   void SeekForPrev(const Slice& target) override;
   void SeekToLast() override;
   void Prev() override;

@@ -107,7 +107,7 @@ TEST_F(DBTest2, ReadOnlyDBWalInDbPathInitialized) {
   ASSERT_OK(Put("key2", "value2"));
   Close();
 
-  // Reopen as read-only — wal_in_db_path_ must be properly initialized.
+  // Reopen as read-only -- wal_in_db_path_ must be properly initialized.
   // Before the fix, closing this DB would read an uninitialized bool in
   // DeleteObsoleteFileImpl, which UBSan catches as undefined behavior.
   std::unique_ptr<DB> db_ptr;
@@ -115,7 +115,7 @@ TEST_F(DBTest2, ReadOnlyDBWalInDbPathInitialized) {
   std::string value;
   ASSERT_OK(db_ptr->Get(ReadOptions(), "key1", &value));
   ASSERT_EQ("value1", value);
-  // Close the read-only DB — this triggers PurgeObsoleteFiles which reads
+  // Close the read-only DB -- this triggers PurgeObsoleteFiles which reads
   // wal_in_db_path_. Under UBSan, an uninitialized bool here would fail.
   db_ptr.reset();
 
@@ -8203,6 +8203,47 @@ TEST_F(DBTest2, FastSstOpenIngestion) {
 
   // Metadata should be passed when opening the ingested SST
   ASSERT_GE(test_fs->GetMetadataPassedOnOpenCount(), 1);
+
+  db.reset();
+  ASSERT_OK(DestroyDB(test_dbname, options));
+}
+
+TEST_F(DBTest2, FastSstOpenDisableAfterMetadataPersisted) {
+  // Verify that disabling fast_sst_open prevents previously-persisted
+  // metadata from being passed to NewRandomAccessFile. This is critical
+  // for cases where stale metadata (e.g. expired credentials) would
+  // cause file open failures.
+  auto test_fs = std::make_shared<FastOpenTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> test_env(new CompositeEnvWrapper(env_, test_fs));
+
+  Options options;
+  options.env = test_env.get();
+  options.fast_sst_open = true;
+  options.create_if_missing = true;
+
+  std::string test_dbname = test::PerThreadDBPath("fast_open_disable_after");
+  ASSERT_OK(DestroyDB(test_dbname, options));
+
+  // Open with fast_sst_open enabled, write and flush to persist metadata
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+  ASSERT_EQ(1, test_fs->GetMetadataRetrievedCount());
+  db.reset();
+
+  // Reopen with fast_sst_open DISABLED -- metadata is in the MANIFEST
+  // but should NOT be passed to the filesystem
+  options.fast_sst_open = false;
+  test_fs->ResetCounters();
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+
+  std::string value;
+  ASSERT_OK(db->Get(ReadOptions(), "key1", &value));
+  ASSERT_EQ("value1", value);
+
+  // No metadata should have been passed despite being in the MANIFEST
+  ASSERT_EQ(0, test_fs->GetMetadataPassedOnOpenCount());
 
   db.reset();
   ASSERT_OK(DestroyDB(test_dbname, options));

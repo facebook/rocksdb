@@ -7240,7 +7240,8 @@ TEST_F(ExternalTableTest, BasicTest) {
         ExternalTableBuilderOptions(ReadOptions(), WriteOptions(),
                                     std::shared_ptr<const SliceTransform>(),
                                     BytewiseComparator(), "default",
-                                    TableFileCreationReason::kMisc),
+                                    TableFileCreationReason::kMisc,
+                                    /*fs=*/nullptr),
         file_path, /*file=*/nullptr));
     builder->Add("foo", "bar");
     ASSERT_OK(builder->Finish());
@@ -7321,10 +7322,18 @@ TEST_F(ExternalTableTest, SstReaderTest) {
   ASSERT_FALSE(iter->Valid());
   ASSERT_TRUE(iter->status().ok());
 
+  // Verify external table Get() goes through the simple SaveValue entry point
+  std::atomic<int> simple_save_value_count{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "GetContext::SaveValue::Simple",
+      [&](void* /*arg*/) { simple_save_value_count.fetch_add(1); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
   // Test MultiGet
   std::vector<Slice> keys = {"a", "b", "missing", "c"};
   std::vector<std::string> values;
   std::vector<Status> statuses = reader->MultiGet(ReadOptions(), keys, &values);
+  ASSERT_EQ(simple_save_value_count, 3);
   ASSERT_EQ(values.size(), keys.size());
   ASSERT_EQ(statuses.size(), keys.size());
   ASSERT_OK(statuses[0]);
@@ -7334,6 +7343,9 @@ TEST_F(ExternalTableTest, SstReaderTest) {
   ASSERT_TRUE(statuses[2].IsNotFound());
   ASSERT_OK(statuses[3]);
   ASSERT_EQ(values[3], "val_c");
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(ExternalTableTest, PinnedGetTest) {
@@ -7363,6 +7375,14 @@ TEST_F(ExternalTableTest, PinnedGetTest) {
   factory->last_reader()->SetPinnedData(
       {{"key1", "pinned_val1"}, {"key2", "pinned_val2"}});
 
+  // Verify external table Get() goes through the simple SaveValue entry point
+  // (the no-ParsedInternalKey overload) rather than the complex one.
+  std::atomic<int> simple_save_value_count{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "GetContext::SaveValue::Simple",
+      [&](void* /*arg*/) { simple_save_value_count.fetch_add(1); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
   PinnableSlice pinnable;
   ASSERT_OK(
       db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "key1", &pinnable));
@@ -7376,13 +7396,17 @@ TEST_F(ExternalTableTest, PinnedGetTest) {
   ASSERT_TRUE(pinnable.IsPinned());
   pinnable.Reset();
 
+  // Two found Gets => simple SaveValue invoked twice.
+  ASSERT_EQ(simple_save_value_count.load(), 2);
+
   // Verify cleanup ran for both Gets
   ASSERT_EQ(factory->last_reader()->pin_cleanup_count(), 2);
 
-  // Verify NotFound still works
+  // Verify NotFound still works (does not invoke SaveValue)
   Status s =
       db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "missing", &pinnable);
   ASSERT_TRUE(s.IsNotFound());
+  ASSERT_EQ(simple_save_value_count.load(), 2);
 
   // Test MultiGet with PinnableSlice to exercise the batched pin path
   const size_t num_keys = 3;
@@ -7408,6 +7432,9 @@ TEST_F(ExternalTableTest, PinnedGetTest) {
     v.Reset();
   }
   ASSERT_EQ(factory->last_reader()->pin_cleanup_count(), 4);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(ExternalTableTest, SstReaderPinnableMultiGetTest) {
@@ -8606,9 +8633,9 @@ TEST_P(UserDefinedIndexTest, ValueTypeMappingViaDBFlush) {
   // ValueTypes by writing various operation types via the DB API, flushing,
   // and inspecting what the TestUserDefinedIndexBuilder received.
   if (is_reverse_comparator_) {
-    // Skip for reverse comparator — the key ordering makes this test
+    // Skip for reverse comparator -- the key ordering makes this test
     // unnecessarily complex and the mapping logic is comparator-independent.
-    ROCKSDB_GTEST_SKIP("Skipped for reverse comparator");
+    ROCKSDB_GTEST_BYPASS("Skipped for reverse comparator");
     return;
   }
   std::string dbname = test::PerThreadDBPath("udi_valuetype_mapping_test");
@@ -8676,7 +8703,7 @@ TEST_P(UserDefinedIndexTest, CompactionWithSnapshotsAndUDI) {
   // Verify that compaction with snapshots (producing multiple versions of the
   // same user key) works correctly with UDI.
   if (is_reverse_comparator_) {
-    ROCKSDB_GTEST_SKIP("Skipped for reverse comparator");
+    ROCKSDB_GTEST_BYPASS("Skipped for reverse comparator");
     return;
   }
   std::string dbname = test::PerThreadDBPath("udi_compaction_snapshot_test");
@@ -8708,7 +8735,7 @@ TEST_P(UserDefinedIndexTest, CompactionWithSnapshotsAndUDI) {
   ASSERT_OK(db->Delete(WriteOptions(), "key_bb"));
   ASSERT_OK(db->Flush(FlushOptions()));
 
-  // Compact L0 → L1. With the snapshot held, both versions of key_aa
+  // Compact L0 -> L1. With the snapshot held, both versions of key_aa
   // and the delete tombstone for key_bb must be preserved in the compaction
   // output. The UDI builder receives multiple entries for key_aa.
   ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -8720,7 +8747,7 @@ TEST_P(UserDefinedIndexTest, CompactionWithSnapshotsAndUDI) {
   const auto& log = user_defined_index_factory->key_type_log_;
   ASSERT_FALSE(log.empty());
 
-  // Count total occurrences of key_aa across all builders — at least 4:
+  // Count total occurrences of key_aa across all builders -- at least 4:
   // flush1 (v1) + flush2 (v2) + compaction (v2, v1).
   int key_aa_count = 0;
   int key_bb_count = 0;

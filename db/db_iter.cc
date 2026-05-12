@@ -76,7 +76,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       user_comparator_(cmp),
       merge_operator_(ioptions.merge_operator.get()),
       iter_(iter),
-      blob_reader_(
+      blob_state_(
           version, read_options.read_tier, read_options.verify_checksums,
           read_options.fill_cache, read_options.io_activity,
           cfh ? cfh->cfd()->blob_file_cache() : nullptr,
@@ -125,7 +125,6 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
               : 0),
       expose_blob_index_(expose_blob_index),
       allow_unprepared_value_(read_options.allow_unprepared_value),
-      is_blob_(false),
       arena_mode_(arena_mode) {
   RecordTick(statistics_, NO_ITERATOR_CREATED);
   if (pin_thru_lifetime_) {
@@ -178,7 +177,7 @@ Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
   } else if (prop_name == "rocksdb.iterator.is-value-pinned") {
     if (valid_) {
       *prop = (pin_thru_lifetime_ && iter_.Valid() &&
-               iter_.value().data() == value_columns_state_.value().data())
+               iter_.value().data() == value_columns_state_->value().data())
                   ? "1"
                   : "0";
     } else {
@@ -308,24 +307,24 @@ bool DBIter::SetValueAndColumnsFromBlobImpl(const Slice& user_key,
   // has a write-path partition manager.
   const bool allow_write_path_fallback =
       cfh_ != nullptr && cfh_->cfd()->blob_partition_manager() != nullptr;
-  const Status s = blob_reader_.RetrieveAndSetBlobValue(
+  const Status s = blob_state_.mut()->reader.RetrieveAndSetBlobValue(
       user_key, blob_index, allow_write_path_fallback);
   if (!s.ok()) {
     status_ = s;
     valid_ = false;
-    is_blob_ = false;
+    blob_state_.mut()->is_blob = false;
     return false;
   }
 
-  SetValueAndColumnsFromPlain(blob_reader_.GetBlobValue());
+  SetValueAndColumnsFromPlain(blob_state_->reader.GetBlobValue());
 
   return true;
 }
 
 bool DBIter::SetValueAndColumnsFromBlob(const Slice& user_key,
                                         const Slice& blob_index) {
-  assert(!is_blob_);
-  is_blob_ = true;
+  assert(!blob_state_->is_blob);
+  blob_state_.mut()->is_blob = true;
 
   if (expose_blob_index_) {
     SetValueAndColumnsFromPlain(blob_index);
@@ -333,11 +332,11 @@ bool DBIter::SetValueAndColumnsFromBlob(const Slice& user_key,
   }
 
   if (allow_unprepared_value_) {
-    assert(value_columns_state_.value().empty());
-    assert(value_columns_state_.wide_columns().empty());
+    assert(value_columns_state_->value().empty());
+    assert(value_columns_state_->wide_columns().empty());
 
-    assert(lazy_blob_index_.empty());
-    lazy_blob_index_ = blob_index;
+    assert(blob_state_->lazy_blob_index.empty());
+    blob_state_.mut()->lazy_blob_index = blob_index;
 
     return true;
   }
@@ -346,7 +345,10 @@ bool DBIter::SetValueAndColumnsFromBlob(const Slice& user_key,
 }
 
 bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
-  auto& state = value_columns_state_;
+  // Auto-marks dirty via mut() up front since every successful path below
+  // populates wide_columns_ (and possibly the lazy entity/blob column
+  // vectors).
+  auto& state = *value_columns_state_.mut();
   state.AssertReadyForEntity();
 
   // Fast path: if no blob columns, use the simpler Deserialize
@@ -409,7 +411,7 @@ bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
 }
 
 bool DBIter::MaterializeLazyEntityColumns() const {
-  const auto& state = value_columns_state_;
+  const auto& state = *value_columns_state_;
   if (state.lazy_entity_columns().empty() || !state.wide_columns().empty()) {
     return true;
   }
@@ -420,7 +422,7 @@ bool DBIter::MaterializeLazyEntityColumns() const {
   }
 
   DBIter* const mutable_this = const_cast<DBIter*>(this);
-  auto& mutable_state = mutable_this->value_columns_state_;
+  auto& mutable_state = *mutable_this->value_columns_state_.mut();
   WideColumns materialized_columns;
   materialized_columns.reserve(state.lazy_entity_columns().size());
   for (const auto& col : state.lazy_entity_columns()) {
@@ -454,7 +456,7 @@ bool DBIter::SetValueAndColumnsFromMergeResult(const Status& merge_status,
   }
 
   if (result_type == kTypeWideColumnEntity) {
-    if (!SetValueAndColumnsFromEntity(value_columns_state_.saved_value())) {
+    if (!SetValueAndColumnsFromEntity(value_columns_state_->saved_value())) {
       assert(!valid_);
       return false;
     }
@@ -466,7 +468,7 @@ bool DBIter::SetValueAndColumnsFromMergeResult(const Status& merge_status,
   assert(result_type == kTypeValue);
   SetValueAndColumnsFromPlain(pinned_value_.data()
                                   ? pinned_value_
-                                  : value_columns_state_.saved_value());
+                                  : value_columns_state_->saved_value());
   valid_ = true;
   return true;
 }
@@ -474,17 +476,17 @@ bool DBIter::SetValueAndColumnsFromMergeResult(const Status& merge_status,
 bool DBIter::PrepareValue() {
   assert(valid_);
 
-  if (lazy_blob_index_.empty()) {
+  if (blob_state_->lazy_blob_index.empty()) {
     return true;
   }
 
   assert(allow_unprepared_value_);
-  assert(is_blob_);
+  assert(blob_state_->is_blob);
 
-  const bool result =
-      SetValueAndColumnsFromBlobImpl(saved_key_.GetUserKey(), lazy_blob_index_);
+  const bool result = SetValueAndColumnsFromBlobImpl(
+      saved_key_.GetUserKey(), blob_state_->lazy_blob_index);
 
-  lazy_blob_index_.clear();
+  blob_state_.mut()->lazy_blob_index.clear();
 
   return result;
 }
@@ -621,7 +623,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
               MarkMemtableForFlushForPerOpTrigger(mem_hidden_op_scanned);
               // Track contiguous tombstones for range conversion.
-              // Skip if outside seek prefix — the top-of-loop check
+              // Skip if outside seek prefix -- the top-of-loop check
               // flushed any pending run, but we must also avoid starting
               // a new run outside the prefix.
               if (min_tombstones_for_range_conversion_ > 0 &&
@@ -774,25 +776,18 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
     }
   } while (iter_.Valid());
 
-  // If we accumulated tombstones, insert the range tombstone.  Use
-  // iterate_upper_bound_ if within the seek prefix, otherwise fall back to
-  // saved_key_ (the last tracked delete, covering n-1 deletes).
+  // If we accumulated tombstones, use the last tracked tombstone as the
+  // exclusive end key. It may be more optimal to use iterator upper bound if it
+  // exists, but the current iterator API makes that dangerous as upper bound
+  // points to user memory which is not guaranteed immutable.
   if (contiguous_tombstone_count_ > 0 && iter_.status().ok()) {
-    if (iterate_upper_bound_ != nullptr && PrefixCheck(*iterate_upper_bound_)) {
-      if (timestamp_size_ == 0) {
-        MaybeInsertRangeTombstone(*iterate_upper_bound_);
-      } else {
-        // iterate_upper_bound_ is a plain user key without a timestamp
-        // suffix. Pad with min timestamp so it sorts after all entries with
-        // this user key, preserving the exclusive bound semantics.
-        std::string end_key_with_ts;
-        AppendKeyWithMinTimestamp(&end_key_with_ts, *iterate_upper_bound_,
-                                  timestamp_size_);
-        MaybeInsertRangeTombstone(end_key_with_ts);
-      }
-    } else if (prefix_.has_value()) {
-      MaybeInsertRangeTombstone(saved_key_.GetUserKey());
-    }
+    // It is unsafe to use iter_.key() here even when iter_.Valid() and the key
+    // is within the seek prefix. This is because memtable iterators are still
+    // valid past the upper bound, but sst iterators are not. So iter_.key() can
+    // point to a memtable entry that has skipped past real live entries in
+    // ssts.
+    assert(PrefixCheck(saved_key_.GetUserKey()));
+    MaybeInsertRangeTombstone(saved_key_.GetUserKey());
   }
   ResetContiguousTombstoneTracking();
 
@@ -1102,7 +1097,7 @@ void DBIter::PrevInternal() {
     if (min_tombstones_for_range_conversion_ > 0 &&
         range_tomb_end_key_.Size() > 0 && timestamp_lb_ == nullptr) {
       if (!valid_ && found_visible && PrefixCheck(saved_key_without_ts)) {
-        // Key was deleted and is within the seek prefix — track it.
+        // Key was deleted and is within the seek prefix -- track it.
         TrackContiguousTombstone(saved_key_.GetUserKey(),
                                  /*always_update_first_key=*/true);
       } else if (valid_) {
@@ -1146,7 +1141,7 @@ void DBIter::PrevInternal() {
 // Sets ikey_ to the last visible entry's internal key.  When found_visible
 // is false, ikey_ is not updated and may contain stale data.
 // Sets found_visible to true if at least one entry passed the IsVisible()
-// check (seqno <= snapshot).  When false, no entry was visible — the key
+// check (seqno <= snapshot).  When false, no entry was visible -- the key
 // does not exist at this snapshot and should not be treated as a tombstone.
 // Returns false if an error occurred, and !status().ok() and !valid_.
 //
@@ -1201,7 +1196,7 @@ bool DBIter::FindValueForCurrentKey(bool& found_visible) {
       break;
     }
 
-    // Entry survived the visibility check — at least one visible version
+    // Entry survived the visibility check -- at least one visible version
     // exists for this user key.
     found_visible = true;
 
@@ -1592,7 +1587,7 @@ bool DBIter::MergeWithNoBaseValue(const Slice& user_key) {
       merge_operator_, user_key, MergeHelper::kNoBaseValue,
       merge_context_.GetOperands(), logger_, statistics_, clock_,
       /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
-      &value_columns_state_.saved_value(), &pinned_value_, &result_type);
+      &value_columns_state_.mut()->saved_value(), &pinned_value_, &result_type);
   return SetValueAndColumnsFromMergeResult(s, result_type);
 }
 
@@ -1605,13 +1600,13 @@ bool DBIter::MergeWithPlainBaseValue(const Slice& value,
       merge_operator_, user_key, MergeHelper::kPlainBaseValue, value,
       merge_context_.GetOperands(), logger_, statistics_, clock_,
       /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
-      &value_columns_state_.saved_value(), &pinned_value_, &result_type);
+      &value_columns_state_.mut()->saved_value(), &pinned_value_, &result_type);
   return SetValueAndColumnsFromMergeResult(s, result_type);
 }
 
 bool DBIter::MergeWithBlobBaseValue(const Slice& blob_index,
                                     const Slice& user_key) {
-  assert(!is_blob_);
+  assert(!blob_state_->is_blob);
 
   if (expose_blob_index_) {
     status_ =
@@ -1622,7 +1617,7 @@ bool DBIter::MergeWithBlobBaseValue(const Slice& blob_index,
 
   const bool allow_write_path_fallback =
       cfh_ != nullptr && cfh_->cfd()->blob_partition_manager() != nullptr;
-  const Status s = blob_reader_.RetrieveAndSetBlobValue(
+  const Status s = blob_state_.mut()->reader.RetrieveAndSetBlobValue(
       user_key, blob_index, allow_write_path_fallback);
   if (!s.ok()) {
     status_ = s;
@@ -1632,11 +1627,11 @@ bool DBIter::MergeWithBlobBaseValue(const Slice& blob_index,
 
   valid_ = true;
 
-  if (!MergeWithPlainBaseValue(blob_reader_.GetBlobValue(), user_key)) {
+  if (!MergeWithPlainBaseValue(blob_state_->reader.GetBlobValue(), user_key)) {
     return false;
   }
 
-  blob_reader_.ResetBlobValue();
+  blob_state_.Reset();
 
   return true;
 }
@@ -1645,7 +1640,7 @@ bool DBIter::MergeWithWideColumnBaseValue(const Slice& entity,
                                           const Slice& user_key) {
   // Resolve V2 entity blob columns if present, since TimedFullMerge only
   // supports V1 format.
-  BlobFetcher blob_fetcher = blob_reader_.CreateBlobFetcher();
+  BlobFetcher blob_fetcher = blob_state_->reader.CreateBlobFetcher();
   std::string resolved_entity;
   Slice effective_entity;
   Status s_resolve = WideColumnSerialization::ResolveEntityForMerge(
@@ -1664,7 +1659,7 @@ bool DBIter::MergeWithWideColumnBaseValue(const Slice& entity,
       merge_operator_, user_key, MergeHelper::kWideBaseValue, effective_entity,
       merge_context_.GetOperands(), logger_, statistics_, clock_,
       /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
-      &value_columns_state_.saved_value(), &pinned_value_, &result_type);
+      &value_columns_state_.mut()->saved_value(), &pinned_value_, &result_type);
   return SetValueAndColumnsFromMergeResult(s, result_type);
 }
 
@@ -1788,7 +1783,7 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
     return;
   }
 
-  // Insert at the read sequence so the synthesized tombstone is visible only
+  // Insert at the read sequence so the converted tombstone is visible only
   // to readers that could already observe the deletion run.
   SequenceNumber insert_seq = sequence_;
 
@@ -1819,8 +1814,10 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
     }
   }
 
+  assert(cfh_ != nullptr);
   if (active_mem_->AddLogicallyRedundantRangeTombstone(
-          insert_seq, range_tomb_first_key_.GetUserKey(), end_key)) {
+          insert_seq, range_tomb_first_key_.GetUserKey(), end_key,
+          cfh_->cfd()->GetIngestSstLock())) {
     RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_INSERTED);
     ROCKS_LOG_DEBUG(logger_,
                     "Inserted range tombstone [%s, %s) @ seq %" PRIu64

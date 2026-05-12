@@ -140,6 +140,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableDBOptions, verify_manifest_content_on_close),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"optimize_manifest_for_recovery",
+         {offsetof(struct MutableDBOptions, optimize_manifest_for_recovery),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"daily_offpeak_time_utc",
          {offsetof(struct MutableDBOptions, daily_offpeak_time_utc),
           OptionType::kString, OptionVerificationType::kNormal,
@@ -436,6 +440,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"write_dbid_to_manifest",
          {offsetof(struct ImmutableDBOptions, write_dbid_to_manifest),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"reuse_manifest_on_open",
+         {offsetof(struct ImmutableDBOptions, reuse_manifest_on_open),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"write_identity_file",
@@ -806,6 +814,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       prefix_seek_opt_in_only(options.prefix_seek_opt_in_only),
       persist_stats_to_disk(options.persist_stats_to_disk),
       write_dbid_to_manifest(options.write_dbid_to_manifest),
+      reuse_manifest_on_open(options.reuse_manifest_on_open),
       write_identity_file(options.write_identity_file),
       log_readahead_size(options.log_readahead_size),
       file_checksum_gen_factory(options.file_checksum_gen_factory),
@@ -985,6 +994,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    persist_stats_to_disk);
   ROCKS_LOG_HEADER(log, "                Options.write_dbid_to_manifest: %d",
                    write_dbid_to_manifest);
+  ROCKS_LOG_HEADER(log, "                Options.reuse_manifest_on_open: %d",
+                   reuse_manifest_on_open);
   ROCKS_LOG_HEADER(log, "                Options.write_identity_file: %d",
                    write_identity_file);
   ROCKS_LOG_HEADER(
@@ -1073,6 +1084,7 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       manifest_preallocation_size(options.manifest_preallocation_size),
       verify_manifest_content_on_close(
           options.verify_manifest_content_on_close),
+      optimize_manifest_for_recovery(options.optimize_manifest_for_recovery),
       fast_sst_open(options.fast_sst_open),
       daily_offpeak_time_utc(options.daily_offpeak_time_utc),
       max_compaction_trigger_wakeup_seconds(
@@ -1131,6 +1143,8 @@ void MutableDBOptions::Dump(Logger* log) const {
       manifest_preallocation_size);
   ROCKS_LOG_HEADER(log, "      Options.verify_manifest_content_on_close: %d",
                    verify_manifest_content_on_close);
+  ROCKS_LOG_HEADER(log, "         Options.optimize_manifest_for_recovery: %d",
+                   optimize_manifest_for_recovery);
   ROCKS_LOG_HEADER(log, "Options.daily_offpeak_time_utc: %s",
                    daily_offpeak_time_utc.c_str());
   ROCKS_LOG_HEADER(log,

@@ -7,6 +7,13 @@ set -euo pipefail
 
 if ! command -v ruby >/dev/null 2>&1; then
   echo "ruby is required to validate GitHub Actions workflow YAML"
+  echo "On CentOS Stream: sudo dnf install ruby rubygems rubygem-psych"
+  exit 1
+fi
+
+if ! ruby -e 'require "psych"' 2>/dev/null; then
+  echo "ruby is installed but cannot load required library 'psych'"
+  echo "On CentOS Stream: sudo dnf install rubygems rubygem-psych"
   exit 1
 fi
 

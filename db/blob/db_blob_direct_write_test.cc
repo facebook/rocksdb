@@ -151,6 +151,48 @@ class DBBlobDirectWriteTest : public DBTestBase {
     return reader.ReadHeader(header);
   }
 
+  Status ReadBlobFileRecords(uint64_t blob_file_number, size_t num_records,
+                             std::vector<BlobLogRecord>* records) {
+    assert(records != nullptr);
+    records->clear();
+
+    std::unique_ptr<FSRandomAccessFile> file;
+    FileOptions file_options;
+    constexpr IODebugContext* dbg = nullptr;
+    const std::string blob_file_path = BlobFileName(dbname_, blob_file_number);
+    FileSystem* fs = env_->GetFileSystem().get();
+    SystemClock* clock = env_->GetSystemClock().get();
+
+    Status s =
+        fs->NewRandomAccessFile(blob_file_path, file_options, &file, dbg);
+    if (!s.ok()) {
+      return s;
+    }
+
+    std::unique_ptr<RandomAccessFileReader> file_reader(
+        new RandomAccessFileReader(std::move(file), blob_file_path, clock));
+    BlobLogSequentialReader reader(std::move(file_reader), clock,
+                                   /*statistics=*/nullptr);
+
+    BlobLogHeader header;
+    s = reader.ReadHeader(&header);
+    if (!s.ok()) {
+      return s;
+    }
+
+    records->reserve(num_records);
+    for (size_t i = 0; i < num_records; ++i) {
+      BlobLogRecord record;
+      s = reader.ReadRecord(&record,
+                            BlobLogSequentialReader::kReadHeaderKeyBlob);
+      if (!s.ok()) {
+        return s;
+      }
+      records->push_back(std::move(record));
+    }
+
+    return Status::OK();
+  }
   CompressionType GetSupportedCompressedBlobCompression() {
     static constexpr std::array<CompressionType, 6> kCandidates{
         kSnappyCompression, kLZ4Compression,   kZSTD,
@@ -942,6 +984,70 @@ TEST_F(DBBlobDirectWriteTest,
   ASSERT_EQ(Get(first_key), first_value);
   ASSERT_EQ(Get(second_key), second_value);
   ASSERT_EQ(Get(third_key), third_value);
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteCompressionOptionsUpdateRebuildsCachedCompressor) {
+#ifndef ZSTD
+  ROCKSDB_GTEST_SKIP("This test requires ZSTD support");
+  return;
+#else
+  // Goal: verify BDW picks up dynamic blob_compression_opts updates instead of
+  // reusing a stale per-thread compressor keyed only by compression type.
+  // We toggle the ZSTD frame checksum flag on and off, then inspect the raw
+  // blob records in one blob file. With identical inputs and level, enabling
+  // checksum should add exactly 4 bytes to the stored compressed blob.
+  Options options = GetDirectWriteOptions();
+  options.blob_file_size = 1 << 20;
+  options.blob_compression_type = kZSTD;
+  options.blob_compression_opts.level = 1;
+  options.blob_compression_opts.checksum = false;
+
+  Reopen(options);
+
+  const std::string first_key = "checksum_off_before_update";
+  const std::string second_key = "checksum_on_after_update";
+  const std::string third_key = "checksum_off_after_second_update";
+  const std::string value(256, 'v');
+
+  ASSERT_OK(Put(first_key, value));
+  ASSERT_EQ(Get(first_key), value);
+
+  ASSERT_OK(
+      db_->SetOptions(db_->DefaultColumnFamily(),
+                      {{"blob_compression_opts", "{level=1;checksum=true}"}}));
+  ASSERT_OK(Put(second_key, value));
+  ASSERT_EQ(Get(second_key), value);
+
+  ASSERT_OK(
+      db_->SetOptions(db_->DefaultColumnFamily(),
+                      {{"blob_compression_opts", "{level=1;checksum=false}"}}));
+  ASSERT_OK(Put(third_key, value));
+  ASSERT_EQ(Get(third_key), value);
+
+  ASSERT_OK(Flush());
+  ASSERT_EQ(CountBlobFiles(), 1U);
+
+  const std::vector<uint64_t> blob_file_numbers = GetBlobFileNumbers();
+  ASSERT_EQ(blob_file_numbers.size(), 1U);
+
+  std::vector<BlobLogRecord> records;
+  ASSERT_OK(
+      ReadBlobFileRecords(blob_file_numbers[0], /*num_records=*/3, &records));
+  ASSERT_EQ(records.size(), 3U);
+  ASSERT_EQ(records[0].key.ToString(), first_key);
+  ASSERT_EQ(records[1].key.ToString(), second_key);
+  ASSERT_EQ(records[2].key.ToString(), third_key);
+  ASSERT_EQ(records[0].value.size(), records[2].value.size());
+  ASSERT_EQ(records[1].value.size(), records[0].value.size() + 4);
+
+  Close();
+  Reopen(options);
+
+  ASSERT_EQ(Get(first_key), value);
+  ASSERT_EQ(Get(second_key), value);
+  ASSERT_EQ(Get(third_key), value);
+#endif  // ZSTD
 }
 
 TEST_F(DBBlobDirectWriteTest, DirectWriteFailedBatchTrackedAsInitialGarbage) {

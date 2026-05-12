@@ -600,6 +600,9 @@ enum Tickers : uint32_t {
   // via FileOptions::file_metadata (on DB open / table cache miss)
   FILE_OPEN_METADATA_PASSED,
 
+  // # of times MANIFEST content validation detected corruption on DB close
+  MANIFEST_VALIDATION_FAILURE_COUNT,
+
   TICKER_ENUM_MAX
 };
 

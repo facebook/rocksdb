@@ -169,6 +169,9 @@ class WritableFileWriter {
   Temperature temperature_;
 
  public:
+  // `initial_file_size` seeds size accounting when wrapping a reopened file
+  // that will continue appending from its current end. Leave at 0 for newly
+  // created files and reuse-from-offset-0 paths.
   WritableFileWriter(
       std::unique_ptr<FSWritableFile>&& file, const std::string& _file_name,
       const FileOptions& options, SystemClock* clock = nullptr,
@@ -178,21 +181,21 @@ class WritableFileWriter {
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
       FileChecksumGenFactory* file_checksum_gen_factory = nullptr,
       bool perform_data_verification = false,
-      bool buffered_data_with_checksum = false)
+      bool buffered_data_with_checksum = false, uint64_t initial_file_size = 0)
       : file_name_(_file_name),
         writable_file_(std::move(file), io_tracer, _file_name),
         clock_(clock),
         buf_(),
         max_buffer_size_(options.writable_file_max_buffer_size),
-        filesize_(0),
-        flushed_size_(0),
-        next_write_offset_(0),
+        filesize_(initial_file_size),
+        flushed_size_(initial_file_size),
+        next_write_offset_(initial_file_size),
         pending_sync_(false),
         seen_error_(false),
 #ifndef NDEBUG
         seen_injected_error_(false),
 #endif  // NDEBUG
-        last_sync_size_(0),
+        last_sync_size_(initial_file_size),
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter),
         stats_(stats),

@@ -1,1 +1,0 @@
-Added `SstFileReader::Get` and `SstFileReader::MultiGet` overloads that accept `PinnableSlice`/`std::vector<PinnableSlice>*`, enabling zero-copy reads when the underlying `TableReader` supports pinning.

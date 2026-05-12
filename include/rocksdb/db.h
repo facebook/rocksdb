@@ -1868,6 +1868,13 @@ class DB {
   // and may not have file_creation_time property. In both the cases
   // file_creation_time is considered 0 which means this API will return
   // creation_time = 0 as there wouldn't be a timestamp lower than 0.
+  //
+  // NOTE: When the DB was opened with open_files_async = true, this API may
+  // block to wait for background SST file loading to complete, but only when
+  // necessary (i.e., when a file's manifest does not carry file_creation_time
+  // and the value must come from the SST reader). Modern DBs return the real
+  // value immediately. It is possible to have an incomplete result if the DB
+  // is closed while files are still being opened in the background.
   virtual Status GetCreationTimeOfOldestFile(uint64_t* creation_time) = 0;
 
   // Note: this API is not yet consistent with WritePrepared transactions.

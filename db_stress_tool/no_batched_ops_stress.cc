@@ -2900,7 +2900,7 @@ class NonBatchedOpsStressTest : public StressTest {
       op_logs += "N";
     }
 
-    // backward scan — skip when backward iteration is not supported
+    // backward scan -- skip when backward iteration is not supported
     if (FLAGS_test_backward_scan) {
       key_str = Key(ub - 1);
       iter->SeekForPrev(key_str);

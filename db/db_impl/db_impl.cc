@@ -15,6 +15,7 @@
 
 #include <cinttypes>
 #include <cstdio>
+#include <deque>
 #include <map>
 #include <memory>
 #include <optional>
@@ -482,6 +483,18 @@ void DBImpl::WaitForBackgroundWork() {
   }
 }
 
+void DBImpl::WaitForAsyncFileOpen() {
+  if (!immutable_db_options_.open_files_async) {
+    return;
+  }
+  InstrumentedMutexLock l(&mutex_);
+  TEST_SYNC_POINT("DBImpl::WaitForAsyncFileOpen::BeforeWait");
+  while (bg_async_file_open_state_ == AsyncFileOpenState::kScheduled &&
+         !shutting_down_.load(std::memory_order_acquire)) {
+    bg_cv_.Wait();
+  }
+}
+
 // Will lock the mutex_,  will wait for completion if wait is true
 void DBImpl::CancelAllBackgroundWork(bool wait) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -637,6 +650,105 @@ void DBImpl::UnregisterBlobDirectWriteColumnFamily() {
   assert(false);
 }
 
+Status DBImpl::MaybeWriteWalMarkersToManifestOnClose() {
+  mutex_.AssertHeld();
+  if (!mutable_db_options_.optimize_manifest_for_recovery ||
+      !opened_successfully_ || versions_ == nullptr || logs_.empty()) {
+    return Status::OK();
+  }
+
+  TEST_SYNC_POINT("DBImpl::CloseHelper:WriteWalMarkersOnCloseEntered");
+  const ReadOptions read_options(Env::IOActivity::kUnknown);
+  const WriteOptions write_options(Env::IOActivity::kUnknown);
+  uint64_t max_wal_number = logs_.back().number;
+  TEST_SYNC_POINT_CALLBACK("DBImpl::CloseHelper:CapturedMaxWal",
+                           &max_wal_number);
+  const uint64_t new_log_num = max_wal_number + 1;
+
+  // std::deque keeps VersionEdit pointers stable across emplace_back.
+  std::deque<VersionEdit> edits;
+  autovector<ColumnFamilyData*> cfds;
+  autovector<autovector<VersionEdit*>> edit_lists;
+  VersionEdit global_edit;
+  bool persist_global_edit = false;
+  bool reserved_log_number = false;
+
+  bool all_cfs_empty = true;
+  for (auto* cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    // cfd->IsEmpty() checks both mem and imm. An immutable memtable queued for
+    // flush still pins an older WAL; advancing past it would drop unflushed
+    // records on the next open.
+    if (!cfd->IsEmpty()) {
+      all_cfs_empty = false;
+      continue;
+    }
+    if (new_log_num > cfd->GetLogNumber()) {
+      if (!reserved_log_number) {
+        const uint64_t next_file_number = versions_->current_next_file_number();
+        if (next_file_number <= new_log_num) {
+          versions_->FetchAddFileNumber(new_log_num + 1 - next_file_number);
+          global_edit.SetNextFile(versions_->current_next_file_number());
+          persist_global_edit = true;
+        }
+        reserved_log_number = true;
+      }
+      edits.emplace_back();
+      VersionEdit& edit = edits.back();
+      edit.SetLogNumber(new_log_num);
+      edit.SetColumnFamily(cfd->GetID());
+      cfds.push_back(cfd);
+      edit_lists.emplace_back();
+      edit_lists.back().push_back(&edit);
+    }
+  }
+
+  if (all_cfs_empty && !allow_2pc()) {
+    if (new_log_num > versions_->min_log_number_to_keep()) {
+      global_edit.SetMinLogNumberToKeep(new_log_num);
+      persist_global_edit = true;
+    }
+    // Mirror the monotonicity guard in db_impl_files.cc:
+    // PrecomputeWalDeletionEdit emits DeleteWalsBefore only when the
+    // marker actually advances the WalSet's existing min. Skipping
+    // this guard would let a stale-replay edit regress WalSet state.
+    if (immutable_db_options_.track_and_verify_wals_in_manifest &&
+        new_log_num > versions_->GetWalSet().GetMinWalNumberToKeep()) {
+      global_edit.DeleteWalsBefore(new_log_num);
+      persist_global_edit = true;
+    }
+  }
+
+  if (persist_global_edit) {
+    ColumnFamilyData* default_cfd =
+        versions_->GetColumnFamilySet()->GetDefault();
+    if (default_cfd && !default_cfd->IsDropped()) {
+      bool attached_to_existing = false;
+      for (size_t i = 0; i < cfds.size(); ++i) {
+        if (cfds[i] == default_cfd) {
+          edit_lists[i].push_back(&global_edit);
+          attached_to_existing = true;
+          break;
+        }
+      }
+      if (!attached_to_existing) {
+        cfds.push_back(default_cfd);
+        edit_lists.emplace_back();
+        edit_lists.back().push_back(&global_edit);
+      }
+    }
+  }
+
+  if (cfds.empty()) {
+    return Status::OK();
+  }
+  return versions_->LogAndApply(cfds, read_options, write_options, edit_lists,
+                                &mutex_, directories_.GetDbDir(),
+                                /*new_descriptor_log=*/false);
+}
+
 Status DBImpl::CloseHelper() {
   // Guarantee that there is no background error recovery in progress before
   // continuing with the shutdown
@@ -740,6 +852,17 @@ Status DBImpl::CloseHelper() {
     }
     job_context.Clean();
     mutex_.Lock();
+  }
+  // Best-effort warm-reopen optimization: after obsolete-file cleanup and
+  // before logs_.clear(), persist close-time WAL markers that can reduce
+  // recovery work on the next open. This matters most when some CFs have no
+  // unflushed writes and/or the newest WAL is empty, since recovery would
+  // otherwise append marker-only MANIFEST edits on reopen.
+  Status manifest_s = MaybeWriteWalMarkersToManifestOnClose();
+  if (!manifest_s.ok()) {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "optimize_manifest_for_recovery close-time write failed: %s",
+                   manifest_s.ToString().c_str());
   }
   {
     InstrumentedMutexLock lock(&wal_write_mutex_);
@@ -1666,9 +1789,12 @@ Status DBImpl::SetDBOptions(
                                           : new_options.max_open_files - 10);
       // Potential table cache capacity change requires updating if table
       // handles should get pinned.
+      versions_->GetColumnFamilySet()->SetFastSstOpen(
+          new_options.fast_sst_open);
       for (auto cfd : *versions_->GetColumnFamilySet()) {
         if (!cfd->IsDropped()) {
           cfd->table_cache()->UpdateShouldPinTableHandles();
+          cfd->table_cache()->SetFastSstOpen(new_options.fast_sst_open);
         }
       }
       wal_other_option_changed = mutable_db_options_.wal_bytes_per_sync !=
@@ -6662,6 +6788,19 @@ Status DBImpl::IngestExternalFiles(
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeJobsRun:0");
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeJobsRun:1");
   TEST_SYNC_POINT("DBImpl::AddFile:Start");
+
+  // Acquire per-CF ingest_sst_lock as ReadLocks (shared) BEFORE the DB
+  // mutex so the lock-acquisition order is ingest_sst_lock -> DB mutex
+  // throughout. Use readlock so we still allow concurrent ingestions.
+  std::vector<std::unique_ptr<ReadLock>> ingest_read_locks;
+  ingest_read_locks.reserve(num_cfs);
+  for (size_t i = 0; i != num_cfs; ++i) {
+    auto* cfd = ingestion_jobs[i].GetColumnFamilyData();
+    if (!cfd->IsDropped()) {
+      ingest_read_locks.emplace_back(
+          std::make_unique<ReadLock>(&cfd->GetIngestSstLock()));
+    }
+  }
   {
     InstrumentedMutexLock l(&mutex_);
     TEST_SYNC_POINT("DBImpl::AddFile:MutexLock");
@@ -6749,6 +6888,23 @@ Status DBImpl::IngestExternalFiles(
           break;
         }
         ingestion_jobs[i].RegisterRange();
+      }
+    }
+    // Now that Run() has assigned the actual seqno for each ingested file,
+    // bump each affected memtable's ingest_seqno_barrier_ to that exact
+    // value. We still hold the per-CF ingest_sst_lock as a ReadLock; any
+    // concurrent conversion's TryWriteLock on the same lock fails, so no
+    // converter can be reading or about to read the barrier while we
+    // update it. After we release the ReadLocks at function exit, the
+    // next conversion observes the new barrier and refuses any insert
+    // with insert_seq < assigned.
+    if (status.ok()) {
+      for (size_t i = 0; i != num_cfs; ++i) {
+        auto* cfd = ingestion_jobs[i].GetColumnFamilyData();
+        SequenceNumber assigned = ingestion_jobs[i].MaxAssignedSequenceNumber();
+        if (assigned > 0) {
+          cfd->mem()->BumpIngestSeqnoBarrier(assigned);
+        }
       }
     }
     if (status.ok()) {
@@ -7412,6 +7568,7 @@ Status DBImpl::ReserveFileNumbersBeforeIngestion(
 Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   if (mutable_db_options_.max_open_files == -1) {
     uint64_t oldest_time = std::numeric_limits<uint64_t>::max();
+    std::once_flag waited_for_async_open;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (!cfd->IsDropped()) {
         uint64_t ctime;
@@ -7419,6 +7576,17 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
           SuperVersion* sv = GetAndRefSuperVersion(cfd);
           Version* version = sv->current;
           version->GetCreationTimeOfOldestFile(&ctime);
+          // For modern DBs, manifest carries file_creation_time and the
+          // first call returns the real value. We only need to wait for
+          // BGWorkAsyncFileOpen on legacy DBs whose manifest lacks
+          // file_creation_time -- those rely on the pinned reader, which is
+          // null until async file open completes.
+          if (ctime == 0 && immutable_db_options_.open_files_async) {
+            std::call_once(waited_for_async_open, [&]() {
+              WaitForAsyncFileOpen();
+              version->GetCreationTimeOfOldestFile(&ctime);
+            });
+          }
           ReturnAndCleanupSuperVersion(cfd, sv);
         }
 

@@ -2197,7 +2197,7 @@ TEST_F(DBBlobIndexTest, EntityBlobFilterV3Remove) {
       db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
   ASSERT_OK(Flush());
 
-  // Compact to trigger the filter — entity should be removed
+  // Compact to trigger the filter -- entity should be removed
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   // Key should be gone

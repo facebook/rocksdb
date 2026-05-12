@@ -1696,7 +1696,7 @@ TEST_F(EventListenerTest, BackgroundJobPressure) {
                  Env::Priority::LOW);
   sleeping_task.WaitUntilSleeping();
 
-  // Phase 1: No pressure — 3 SST files (below slowdown trigger=4).
+  // Phase 1: No pressure -- 3 SST files (below slowdown trigger=4).
   for (int i = 0; i < 3; i++) {
     ASSERT_OK(Put("k" + std::to_string(i), std::string(100, 'x')));
     ASSERT_OK(Flush());
@@ -1714,7 +1714,7 @@ TEST_F(EventListenerTest, BackgroundJobPressure) {
   // MaybeScheduleFlushOrCompaction() runs before the pressure callback and
   // may schedule new flush work, making flush counts non-deterministic.
 
-  // Phase 2: Build pressure — flush past slowdown trigger (4 L0 SST files).
+  // Phase 2: Build pressure -- flush past slowdown trigger (4 L0 SST files).
   // Compaction is blocked, so L0 SST files pile up.
   listener->Reset();
   {
@@ -1750,7 +1750,7 @@ TEST_F(EventListenerTest, BackgroundJobPressure) {
   ASSERT_TRUE(found_compaction_scheduled);
   ASSERT_TRUE(found_high_proximity);
 
-  // Phase 3: Relieve pressure — unblock compaction, wait for completion.
+  // Phase 3: Relieve pressure -- unblock compaction, wait for completion.
   listener->Reset();
   sleeping_task.WakeUp();
   sleeping_task.WaitUntilDone();

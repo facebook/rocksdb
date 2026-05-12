@@ -47,7 +47,7 @@ class SortedRunBuilderImpl : public SortedRunBuilder {
     // Universal compaction for merging all L0 files
     db_options.compaction_style = kCompactionStyleUniversal;
 
-    // Disable auto compaction — we compact manually at the end
+    // Disable auto compaction -- we compact manually at the end
     db_options.disable_auto_compactions = true;
 
     // Memory budget
@@ -75,7 +75,7 @@ class SortedRunBuilderImpl : public SortedRunBuilder {
       db_options.table_factory = options_.table_factory;
     }
 
-    // WAL is not needed — resumability comes from flushed SSTs
+    // WAL is not needed -- resumability comes from flushed SSTs
     db_options.manual_wal_flush = true;
     db_options.wal_bytes_per_sync = 0;
 

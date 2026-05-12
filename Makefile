@@ -384,6 +384,10 @@ endif
 # TSAN doesn't work well with jemalloc. If we're compiling with TSAN, we should use regular malloc.
 ifdef COMPILE_WITH_TSAN
 	DISABLE_JEMALLOC=1
+	# Use a suppressions file instead of the process-wide TSAN default
+	# suppressions hook, which belongs to the final application.
+	TSAN_OPTIONS?=suppressions=$(CURDIR)/tools/tsan_suppressions.txt
+	export TSAN_OPTIONS
 	EXEC_LDFLAGS += -fsanitize=thread
 	PLATFORM_CCFLAGS += -fsanitize=thread -fPIC -DFOLLY_SANITIZE_THREAD
 	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC -DFOLLY_SANITIZE_THREAD
@@ -1268,6 +1272,8 @@ check-format:
 	build_tools/format-diff.sh -c
 
 
+# Crude alternative to setup-hooks: copies hooks into .git/hooks/ instead of
+# using core.hooksPath. The copies won't track changes to githooks/.
 install-hooks:
 	@echo "Installing git hooks from githooks/..."
 	@if [ -d githooks ]; then \
@@ -1283,6 +1289,7 @@ install-hooks:
 		exit 1; \
 	fi
 
+# Reverse of install-hooks (not needed if using setup-hooks / core.hooksPath).
 uninstall-hooks:
 	@echo "Removing installed git hooks..."
 	@for hook in githooks/*; do \
