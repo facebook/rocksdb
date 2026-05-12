@@ -27,7 +27,9 @@ DbStressListener::DbStressListener(
       unique_ids_(shared->GetStressTest()->GetExpectedValuesDir().empty()
                       ? db_name
                       : shared->GetStressTest()->GetExpectedValuesDir()),
-      shared_(shared) {}
+      shared_(shared),
+      db_fault_injection_fs_(
+          shared->GetStressTest()->GetDbFaultInjectionFs()) {}
 
 UniqueIdVerifier::UniqueIdVerifier(const std::string& dir)
     : path_(dir + "/.unique_ids") {

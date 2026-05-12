@@ -13,6 +13,7 @@
 
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
+#include "env/composite_env_wrapper.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/user_defined_index.h"
 #include "utilities/fault_injection_fs.h"
@@ -76,6 +77,9 @@ class StressTest {
   }
   Options GetOptions(int cf_id);
   void CleanUp();
+  std::shared_ptr<FaultInjectionTestFS> GetDbFaultInjectionFs() const {
+    return db_fault_injection_fs_;
+  }
 
  protected:
   static int GetMinInjectedErrorCount(int error_count_1, int error_count_2) {
@@ -419,6 +423,9 @@ class StressTest {
   void CleanUpColumnFamilies();
 
   int db_index_;
+
+  std::shared_ptr<FaultInjectionTestFS> db_fault_injection_fs_;
+  std::unique_ptr<CompositeEnvWrapper> db_fault_injection_env_wrapper_;
 
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
