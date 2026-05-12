@@ -66,6 +66,7 @@ void ThreadBody(void* v) {
 bool RunStressTestImpl(SharedState* shared) {
   SystemClock* clock = db_stress_env->GetSystemClock().get();
   StressTest* stress = shared->GetStressTest();
+  const std::string label = "[" + stress->GetDbLabel() + "] ";
 
   if (shared->ShouldVerifyAtBeginning() && FLAGS_preserve_unverified_changes) {
     const std::string db_path = stress->GetDbPath();
@@ -75,8 +76,8 @@ bool RunStressTestImpl(SharedState* shared) {
       s = InitUnverifiedSubdir(expected_values_dir);
     }
     if (!s.ok()) {
-      fprintf(stderr, "Failed to setup unverified state dir: %s\n",
-              s.ToString().c_str());
+      fprintf(stderr, "%sFailed to setup unverified state dir: %s\n",
+              label.c_str(), s.ToString().c_str());
       exit(1);
     }
   }
@@ -86,8 +87,8 @@ bool RunStressTestImpl(SharedState* shared) {
 
   uint32_t n = FLAGS_threads;
   uint64_t now = clock->NowMicros();
-  fprintf(stdout, "%s Initializing worker threads\n",
-          clock->TimeToString(now / 1000000).c_str());
+  fprintf(stdout, "%s %sInitializing worker threads\n",
+          clock->TimeToString(now / 1000000).c_str(), label.c_str());
 
   shared->SetThreads(n);
 
@@ -158,17 +159,19 @@ bool RunStressTestImpl(SharedState* shared) {
     }
     if (shared->ShouldVerifyAtBeginning()) {
       if (shared->HasVerificationFailedYet()) {
-        fprintf(stderr, "Crash-recovery verification failed :(\n");
+        fprintf(stderr, "%sCrash-recovery verification failed :(\n",
+                label.c_str());
       } else {
-        fprintf(stdout, "Crash-recovery verification passed :)\n");
+        fprintf(stdout, "%sCrash-recovery verification passed :)\n",
+                label.c_str());
         const std::string ev_dir = stress->GetExpectedValuesDir();
         Status s = DestroyUnverifiedSubdir(stress->GetDbPath());
         if (s.ok() && !ev_dir.empty()) {
           s = DestroyUnverifiedSubdir(ev_dir);
         }
         if (!s.ok()) {
-          fprintf(stderr, "Failed to cleanup unverified state dir: %s\n",
-                  s.ToString().c_str());
+          fprintf(stderr, "%sFailed to cleanup unverified state dir: %s\n",
+                  label.c_str(), s.ToString().c_str());
           exit(1);
         }
       }
@@ -194,8 +197,8 @@ bool RunStressTestImpl(SharedState* shared) {
         Status s = stress->EnableAutoCompaction();
         assert(s.ok());
       }
-      fprintf(stdout, "%s Starting database operations\n",
-              clock->TimeToString(now / 1000000).c_str());
+      fprintf(stdout, "%s %sStarting database operations\n",
+              clock->TimeToString(now / 1000000).c_str(), label.c_str());
 
       shared->SetStart();
       shared->GetCondVar()->SignalAll();
@@ -205,14 +208,17 @@ bool RunStressTestImpl(SharedState* shared) {
 
       now = clock->NowMicros();
       if (FLAGS_test_batches_snapshots) {
-        fprintf(stdout, "%s Limited verification already done during gets\n",
-                clock->TimeToString((uint64_t)now / 1000000).c_str());
+        fprintf(stdout, "%s %sLimited verification already done during gets\n",
+                clock->TimeToString((uint64_t)now / 1000000).c_str(),
+                label.c_str());
       } else if (FLAGS_skip_verifydb) {
-        fprintf(stdout, "%s Verification skipped\n",
-                clock->TimeToString((uint64_t)now / 1000000).c_str());
+        fprintf(stdout, "%s %sVerification skipped\n",
+                clock->TimeToString((uint64_t)now / 1000000).c_str(),
+                label.c_str());
       } else {
-        fprintf(stdout, "%s Starting verification\n",
-                clock->TimeToString((uint64_t)now / 1000000).c_str());
+        fprintf(stdout, "%s %sStarting verification\n",
+                clock->TimeToString((uint64_t)now / 1000000).c_str(),
+                label.c_str());
       }
 
       shared->SetStartVerify();
@@ -234,7 +240,7 @@ bool RunStressTestImpl(SharedState* shared) {
     for (unsigned int i = 1; i < n; i++) {
       threads[0]->stats.Merge(threads[i]->stats);
     }
-    threads[0]->stats.Report("Stress Test");
+    threads[0]->stats.Report((label + "Stress Test").c_str());
   }
 
   for (unsigned int i = 0; i < n; i++) {
@@ -245,8 +251,8 @@ bool RunStressTestImpl(SharedState* shared) {
   now = clock->NowMicros();
   if (!FLAGS_skip_verifydb && !FLAGS_test_batches_snapshots &&
       !shared->HasVerificationFailedYet()) {
-    fprintf(stdout, "%s Verification successful\n",
-            clock->TimeToString(now / 1000000).c_str());
+    fprintf(stdout, "%s %sVerification successful\n",
+            clock->TimeToString(now / 1000000).c_str(), label.c_str());
   }
 
   if (!FLAGS_verification_only) {
@@ -275,7 +281,7 @@ bool RunStressTestImpl(SharedState* shared) {
   }
 
   if (shared->HasVerificationFailedYet()) {
-    fprintf(stderr, "Verification failed :(\n");
+    fprintf(stderr, "%sVerification failed :(\n", label.c_str());
     return false;
   }
   return true;

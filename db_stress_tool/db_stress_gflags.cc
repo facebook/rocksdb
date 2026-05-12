@@ -1708,4 +1708,7 @@ DEFINE_uint64(multiscan_max_prefetch_memory_bytes, 0,
               "used for prefetching data blocks across all concurrent "
               "MultiScan ReadSets.");
 
+DEFINE_int32(num_dbs, 1,
+             "Number of DB instances to run in parallel.");
+
 #endif  // GFLAGS

@@ -484,6 +484,11 @@ extern std::shared_ptr<ROCKSDB_NAMESPACE::FileSystem> db_stress_raw_fs;
 extern std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache>
     compressed_secondary_cache;
 extern std::shared_ptr<ROCKSDB_NAMESPACE::Cache> block_cache;
+DECLARE_int32(num_dbs);
+// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
+extern std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager> wbm;
+extern std::shared_ptr<ROCKSDB_NAMESPACE::RateLimiter> rate_limiter;
+// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 extern enum ROCKSDB_NAMESPACE::CompressionType compression_type_e;
 extern enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e;

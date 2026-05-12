@@ -181,6 +181,8 @@ class Stats {
     double rate = bytes_mb / elapsed;
     double throughput = (double)done_ / elapsed;
 
+    // Lock stdout to prevent interleaving with other DBs' stats output.
+    flockfile(stdout);
     fprintf(stdout, "%-12s: ", name);
     fprintf(stdout, "%.3f micros/op %ld ops/sec\n", seconds_ * 1e6 / done_,
             (long)throughput);
@@ -199,17 +201,16 @@ class Stats {
     fprintf(stdout, "%-12s: Deleted %ld key-ranges\n", "", range_deletions_);
     fprintf(stdout, "%-12s: Range deletions covered %ld keys\n", "",
             covered_by_range_deletions_);
-
     fprintf(stdout, "%-12s: Got errors %ld times\n", "", errors_);
     fprintf(stdout, "%-12s: %ld CompactFiles() succeed\n", "",
             num_compact_files_succeed_);
     fprintf(stdout, "%-12s: %ld CompactFiles() did not succeed\n", "",
             num_compact_files_failed_);
-
     if (FLAGS_histogram) {
       fprintf(stdout, "Microseconds per op:\n%s\n", hist_.ToString().c_str());
     }
     fflush(stdout);
+    funlockfile(stdout);
   }
 };
 }  // namespace ROCKSDB_NAMESPACE

@@ -363,7 +363,6 @@ class SharedState {
 
   // Pick random keys in each column family that will not experience overwrite.
   std::unordered_set<int64_t> GenerateNoOverwriteIds() const {
-    fprintf(stdout, "Choosing random keys with no overwrite\n");
     // Start with the identity permutation. Subsequent iterations of
     // for loop below will start with perm of previous for loop
     std::vector<int64_t> permutation(max_key_);

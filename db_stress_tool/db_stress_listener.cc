@@ -120,7 +120,8 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& dir)
       size = 0;
     }
   }
-  fprintf(stdout, "(Re-)verified %zu unique IDs\n", id_set_.size());
+  fprintf(stdout, "(Re-)verified %zu unique IDs in %s\n", id_set_.size(),
+          dir.c_str());
 
   std::unique_ptr<FSWritableFile> file_writer;
   st = fs->NewWritableFile(path_, FileOptions(), &file_writer, /*dbg*/ nullptr);
