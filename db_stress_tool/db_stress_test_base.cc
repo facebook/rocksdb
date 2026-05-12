@@ -4059,6 +4059,19 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         GetDbPath(), options_.db_paths, cf_descriptors, shared));
     RegisterAdditionalListeners();
 
+    if (!FLAGS_listener_uri.empty()) {
+      std::shared_ptr<EventListener> listener;
+      Status listener_status =
+          ObjectRegistry::Default()->NewSharedObject<EventListener>(
+              FLAGS_listener_uri, &listener);
+      if (!listener_status.ok()) {
+        fprintf(stderr, "Failed to create listener from URI '%s': %s\n",
+                FLAGS_listener_uri.c_str(), listener_status.ToString().c_str());
+        _exit(1);
+      }
+      options_.listeners.emplace_back(std::move(listener));
+    }
+
     // If this is for DB reopen,  error injection may have been enabled.
     // Disable it here in case there is no open fault injection.
     if (db_fault_injection_fs_) {
