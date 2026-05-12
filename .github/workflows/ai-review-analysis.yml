@@ -531,7 +531,9 @@ jobs:
               core.warning(
                 `Could not parse classifier output: ${error.message}`);
             }
-            const budget = label === 'simple' ? '16000' : '32000';
+            // Keep Claude's thinking budget below the action's effective
+            // max_tokens so the API has room for the final review text.
+            const budget = label === 'simple' ? '16000' : '24000';
             core.info(
               `Complexity classified as: ${label} ` +
               `-> MAX_THINKING_TOKENS=${budget}`
@@ -1115,9 +1117,19 @@ jobs:
             }
             const override = (process.env.OVERRIDE || '').trim();
             if (override && /^\d+$/.test(override)) {
-              core.info(`Using thinking_budget override: ${override}`);
+              const maxSafeBudget = 24000;
+              const requested = parseInt(override, 10);
+              const budget = Math.min(requested, maxSafeBudget).toString();
+              if (budget !== override) {
+                core.info(
+                  `Clamping thinking_budget override from ${override} ` +
+                  `to ${budget} so max_tokens can exceed thinking tokens.`
+                );
+              } else {
+                core.info(`Using thinking_budget override: ${budget}`);
+              }
               core.setOutput('label', 'override');
-              core.setOutput('tokens', override);
+              core.setOutput('tokens', budget);
               return;
             }
             let label = 'complex';
@@ -1135,7 +1147,9 @@ jobs:
               core.warning(
                 `Could not parse classifier output: ${error.message}`);
             }
-            const budget = label === 'simple' ? '16000' : '32000';
+            // Keep Claude's thinking budget below the action's effective
+            // max_tokens so the API has room for the final review text.
+            const budget = label === 'simple' ? '16000' : '24000';
             core.info(
               `Complexity classified as: ${label} ` +
               `-> MAX_THINKING_TOKENS=${budget}`
