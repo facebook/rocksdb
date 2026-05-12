@@ -175,7 +175,6 @@ TEST_F(DBEtc3Test, AutoTuneManifestSize) {
   //   and the first AddCf will rotate (manifest is already ~10KB > 3000)
   // - With persisted compacted size loaded, tuned = max(3000, 5000*3) = 15000,
   //   so no rotation until we exceed 15KB
-  Close();
   options.max_manifest_file_size = 3000;
   options.max_manifest_space_amp_pct = 200;
   options.reuse_manifest_on_open = true;
