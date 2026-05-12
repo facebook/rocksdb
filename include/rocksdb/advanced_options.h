@@ -946,7 +946,7 @@ struct AdvancedColumnFamilyOptions {
   // (estimated_reads / file_size) exceeds this threshold. This helps reduce
   // read amplification for hot keys by compacting frequently-read files.
   //
-  // Only "collapsible" reads are counted — lookups that return NotFound
+  // Only "collapsible" reads are counted -- lookups that return NotFound
   // (bloom filter false positive), Delete/SingleDeletion (tombstone), or
   // Merge (partial result). These are reads where the file contributed no
   // final value and compaction would eliminate the wasted work.
@@ -972,15 +972,15 @@ struct AdvancedColumnFamilyOptions {
   //     r * S * B = 2 * (1 + F) * S
   //     r = 2 * (1 + F) / B
   //
-  //   With F = 10, B = 4096:  r = 22 / 4096 ≈ 0.005.
+  //   With F = 10, B = 4096:  r = 22 / 4096 ~= 0.005.
   //
-  // With a block-cache hit rate h (0 ≤ h < 1), each collapsible read
+  // With a block-cache hit rate h (0 <= h < 1), each collapsible read
   // only costs (1 - h) * B bytes of actual disk IO, so:
   //     r = 2 * (1 + F) / ((1 - h) * B)
   //
-  //   h = 0   → r ≈ 0.005
-  //   h = 0.5 → r ≈ 0.01
-  //   h = 0.9 → r ≈ 0.05
+  //   h = 0   -> r ~= 0.005
+  //   h = 0.5 -> r ~= 0.01
+  //   h = 0.9 -> r ~= 0.05
   //
   // A recommended starting point is 0.01, which avoids triggering
   // compactions that cost more IO than they save for most cache-friendly

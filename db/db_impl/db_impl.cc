@@ -7407,7 +7407,7 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
           // For modern DBs, manifest carries file_creation_time and the
           // first call returns the real value. We only need to wait for
           // BGWorkAsyncFileOpen on legacy DBs whose manifest lacks
-          // file_creation_time — those rely on the pinned reader, which is
+          // file_creation_time -- those rely on the pinned reader, which is
           // null until async file open completes.
           if (ctime == 0 && immutable_db_options_.open_files_async) {
             std::call_once(waited_for_async_open, [&]() {

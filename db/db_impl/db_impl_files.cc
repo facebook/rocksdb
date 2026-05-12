@@ -1206,7 +1206,7 @@ Status DBImpl::MaybeUpdateNextFileNumber(RecoveryContext* recovery_ctx) {
       normalized_fpath += kFilePathSeparator;
       normalized_fpath.append(fname);
       // Use >= so a crashed-mid-allocation file at exactly
-      // prev_next_file_number triggers the advance — otherwise the next
+      // prev_next_file_number triggers the advance -- otherwise the next
       // NewFileNumber() would collide with it.
       if (number >= prev_next_file_number) {
         on_disk_file_advanced_counter = true;

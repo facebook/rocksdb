@@ -1726,7 +1726,7 @@ class VersionSet {
   // MANIFEST as before) if ReopenWritableFile fails.
   Status ReopenManifestForAppend(const std::string& manifest_path);
 
-  // FileOptions for MANIFEST writes — applies the FS's
+  // FileOptions for MANIFEST writes -- applies the FS's
   // OptimizeForManifestWrite tuning, then re-applies the user-configured
   // temperature so a custom FS can't override it.
   FileOptions GetFileOptionsForManifestWrite() const;

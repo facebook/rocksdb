@@ -4118,7 +4118,7 @@ TEST_P(WritePreparedTransactionTest, RangeTombstoneInsertionWithWritePrepared) {
       ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));
     }
 
-    // Begin a transaction and prepare it — the prepare_seq will be higher
+    // Begin a transaction and prepare it -- the prepare_seq will be higher
     // than the tombstone seqnos above.
     std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
     ASSERT_NE(txn, nullptr);
@@ -4173,14 +4173,14 @@ TEST_P(WritePreparedTransactionTest,
     }
     ASSERT_OK(db->Flush(FlushOptions()));
 
-    // Prepare a transaction first — the prepare_seq will be low.
+    // Prepare a transaction first -- the prepare_seq will be low.
     std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
     ASSERT_NE(txn, nullptr);
     ASSERT_OK(txn->SetName("txn1"));
     ASSERT_OK(txn->Put("z", "txn_val"));
     ASSERT_OK(txn->Prepare());
 
-    // Now delete 5 contiguous keys — these tombstones get seqnos AFTER
+    // Now delete 5 contiguous keys -- these tombstones get seqnos AFTER
     // the prepare_seq, so max_tombstone_seq >= min_uncommitted.
     for (char c = 'c'; c <= 'g'; c++) {
       ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));

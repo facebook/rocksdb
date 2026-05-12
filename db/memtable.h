@@ -320,7 +320,7 @@ class ReadOnlyMemTable {
   virtual uint64_t ApproximateOldestKeyTime() const = 0;
 
   // Inserts a range tombstone [start_key, end_key) that is logically redundant
-  // — it is derived from existing point tombstones observed during iteration
+  // -- it is derived from existing point tombstones observed during iteration
   // and does not delete any data that isn't already deleted. This is a
   // best-effort optimization. It allows future reads to skip iterating over
   // continuous single deletion tombstones.

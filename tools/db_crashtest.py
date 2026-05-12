@@ -1936,7 +1936,7 @@ def execute_cmd(cmd, timeout=None, timeout_pstack=False):
         hit_timeout = True
         if timeout_pstack:
             os.system("pstack %d" % pid)
-        child.terminate()  # SIGTERM — triggers TerminationHandler
+        child.terminate()  # SIGTERM -- triggers TerminationHandler
         try:
             outs, errs = child.communicate(timeout=3)
             print("TERMINATED %d\n" % child.pid)

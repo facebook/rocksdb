@@ -197,10 +197,10 @@ class DbStressFSWrapper : public FileSystemWrapper {
       assert(!file_opts.file_checksum_func_name.empty());
       if (file_opts.file_checksum_func_name == kUnknownFileChecksumFuncName ||
           file_opts.file_checksum_func_name == kNoFileChecksumFuncName) {
-        // No checksum available — checksum value must be empty
+        // No checksum available -- checksum value must be empty
         assert(file_opts.file_checksum.empty());
       } else {
-        // A real checksum function — checksum value must be present
+        // A real checksum function -- checksum value must be present
         assert(!file_opts.file_checksum.empty());
       }
     }

@@ -556,7 +556,7 @@ struct IOErrorInfo {
   uint64_t offset;
 };
 
-// EXPERIMENTAL — under active development, fields may change.
+// EXPERIMENTAL -- under active development, fields may change.
 // Point-in-time snapshot of background job pressure for one DB: how busy
 // compaction and flush are, and how close the DB is to write-stalling.
 struct BackgroundJobPressure {

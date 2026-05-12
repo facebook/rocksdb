@@ -8214,7 +8214,7 @@ TEST_P(OpenFilesAsyncTest, GetCreationTimeOfOldestFileSkipsWaitForModernDB) {
   Options options = CurrentOptions();
   ASSERT_NO_FATAL_FAILURE(SetupData(options));
 
-  // If WaitForAsyncFileOpen is entered, the test fails — modern DBs must
+  // If WaitForAsyncFileOpen is entered, the test fails -- modern DBs must
   // never need the wait.
   std::atomic<bool> waited{false};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(

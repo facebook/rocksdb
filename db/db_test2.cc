@@ -107,7 +107,7 @@ TEST_F(DBTest2, ReadOnlyDBWalInDbPathInitialized) {
   ASSERT_OK(Put("key2", "value2"));
   Close();
 
-  // Reopen as read-only — wal_in_db_path_ must be properly initialized.
+  // Reopen as read-only -- wal_in_db_path_ must be properly initialized.
   // Before the fix, closing this DB would read an uninitialized bool in
   // DeleteObsoleteFileImpl, which UBSan catches as undefined behavior.
   std::unique_ptr<DB> db_ptr;
@@ -115,7 +115,7 @@ TEST_F(DBTest2, ReadOnlyDBWalInDbPathInitialized) {
   std::string value;
   ASSERT_OK(db_ptr->Get(ReadOptions(), "key1", &value));
   ASSERT_EQ("value1", value);
-  // Close the read-only DB — this triggers PurgeObsoleteFiles which reads
+  // Close the read-only DB -- this triggers PurgeObsoleteFiles which reads
   // wal_in_db_path_. Under UBSan, an uninitialized bool here would fail.
   db_ptr.reset();
 
@@ -8173,7 +8173,7 @@ TEST_F(DBTest2, FastSstOpenDisableAfterMetadataPersisted) {
   ASSERT_EQ(1, test_fs->GetMetadataRetrievedCount());
   db.reset();
 
-  // Reopen with fast_sst_open DISABLED — metadata is in the MANIFEST
+  // Reopen with fast_sst_open DISABLED -- metadata is in the MANIFEST
   // but should NOT be passed to the filesystem
   options.fast_sst_open = false;
   test_fs->ResetCounters();

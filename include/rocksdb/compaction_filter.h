@@ -420,7 +420,7 @@ class CompactionFilter : public Customizable {
 
   // Returns true if the filter overrides FilterV4 and can handle
   // WideColumnBlobResolver (lazy blob loading). When false (default),
-  // FilterV4 delegates to FilterV3 with fully resolved column values —
+  // FilterV4 delegates to FilterV3 with fully resolved column values --
   // blob columns are eagerly fetched before the filter is called, ensuring
   // backward compatibility with FilterV3-only filters.
   //
