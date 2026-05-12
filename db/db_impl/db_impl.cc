@@ -788,10 +788,25 @@ Status DBImpl::CloseHelper() {
          bg_flush_scheduled_ || bg_purge_scheduled_ ||
          bg_pressure_callback_in_progress_ ||
          bg_async_file_open_state_ == AsyncFileOpenState::kScheduled ||
+         async_wal_precreate_state_ == AsyncWALPrecreateState::kScheduled ||
          pending_purge_obsolete_files_ ||
          error_handler_.IsRecoveryInProgress()) {
     TEST_SYNC_POINT("DBImpl::~DBImpl:WaitJob");
     bg_cv_.Wait();
+  }
+
+  // Release any opened-but-unpublished WAL writer after the in-flight worker
+  // has published its result. Clear the DB-owned async slot while holding
+  // mutex_, but destroy the detached writer after dropping mutex_ because
+  // log::Writer / WritableFileWriter destruction can flush and close the file.
+  // The file itself can be left behind as an empty future WAL; recovery already
+  // tolerates it and marks its file number used if observed.
+  UnpublishedWAL unused_async_wal = std::move(async_wal_precreate_wal_);
+  async_wal_precreate_state_ = AsyncWALPrecreateState::kNotScheduled;
+  if (unused_async_wal.writer) {
+    mutex_.Unlock();
+    unused_async_wal.Reset();
+    mutex_.Lock();
   }
 
   // Ensure subclasses don't forget to schedule async file opening

@@ -1818,6 +1818,11 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_recycle_log_file_num(
     rocksdb_options_t*, size_t);
 extern ROCKSDB_LIBRARY_API size_t
 rocksdb_options_get_recycle_log_file_num(rocksdb_options_t*);
+// Set/get DBOptions::async_wal_precreate.
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_async_wal_precreate(
+    rocksdb_options_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_async_wal_precreate(rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_soft_pending_compaction_bytes_limit(rocksdb_options_t* opt,
                                                         size_t v);

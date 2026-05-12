@@ -431,6 +431,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "strict_bytes_per_sync=true;"
       "enable_thread_tracking=false;"
       "recycle_log_file_num=0;"
+      "async_wal_precreate=true;"
       "create_missing_column_families=true;"
       "log_file_time_to_roll=3097;"
       "max_background_flushes=35;"

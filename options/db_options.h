@@ -48,6 +48,8 @@ struct ImmutableDBOptions {
   size_t log_file_time_to_roll;
   size_t keep_log_file_num;
   size_t recycle_log_file_num;
+  // Immutable copy of DBOptions::async_wal_precreate.
+  bool async_wal_precreate;
   int table_cache_numshardbits;
   uint64_t WAL_ttl_seconds;
   uint64_t WAL_size_limit_MB;

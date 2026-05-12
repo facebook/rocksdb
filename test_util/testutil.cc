@@ -315,6 +315,7 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->use_adaptive_mutex = rnd->Uniform(2);
   db_opt->use_fsync = rnd->Uniform(2);
   db_opt->recycle_log_file_num = rnd->Uniform(2);
+  db_opt->async_wal_precreate = rnd->Uniform(2);
   db_opt->avoid_flush_during_recovery = rnd->Uniform(2);
   db_opt->avoid_flush_during_shutdown = rnd->Uniform(2);
   db_opt->enforce_single_del_contracts = rnd->Uniform(2);

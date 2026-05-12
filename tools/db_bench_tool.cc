@@ -1916,6 +1916,8 @@ DEFINE_bool(track_and_verify_wals_in_manifest, false,
 
 DEFINE_bool(track_and_verify_wals, false, "See Options.track_and_verify_wals");
 
+DEFINE_bool(async_wal_precreate, false, "See Options.async_wal_precreate");
+
 DEFINE_int32(same_value_percentage, 0,
              "Percentage of time value will be same i.e good for compression "
              "of the block");
@@ -5063,6 +5065,7 @@ class Benchmark {
     options.track_and_verify_wals_in_manifest =
         FLAGS_track_and_verify_wals_in_manifest;
     options.track_and_verify_wals = FLAGS_track_and_verify_wals;
+    options.async_wal_precreate = FLAGS_async_wal_precreate;
 
     // Integrated BlobDB
     options.enable_blob_files = FLAGS_enable_blob_files;

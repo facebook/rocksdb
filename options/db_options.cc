@@ -315,6 +315,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, recycle_log_file_num),
           OptionType::kSizeT, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"async_wal_precreate",
+         {offsetof(struct ImmutableDBOptions, async_wal_precreate),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"log_file_time_to_roll",
          {offsetof(struct ImmutableDBOptions, log_file_time_to_roll),
           OptionType::kSizeT, OptionVerificationType::kNormal,
@@ -770,6 +774,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       log_file_time_to_roll(options.log_file_time_to_roll),
       keep_log_file_num(options.keep_log_file_num),
       recycle_log_file_num(options.recycle_log_file_num),
+      async_wal_precreate(options.async_wal_precreate),
       table_cache_numshardbits(options.table_cache_numshardbits),
       WAL_ttl_seconds(options.WAL_ttl_seconds),
       WAL_size_limit_MB(options.WAL_size_limit_MB),
@@ -893,6 +898,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(
       log, "                   Options.recycle_log_file_num: %" ROCKSDB_PRIszt,
       recycle_log_file_num);
+  ROCKS_LOG_HEADER(log, "                    Options.async_wal_precreate: %d",
+                   async_wal_precreate);
   ROCKS_LOG_HEADER(log, "                        Options.allow_fallocate: %d",
                    allow_fallocate);
   ROCKS_LOG_HEADER(log, "                       Options.allow_mmap_reads: %d",

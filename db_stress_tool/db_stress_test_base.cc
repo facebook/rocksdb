@@ -4589,6 +4589,7 @@ void InitializeOptionsFromFlags(
   }
   options.max_open_files = FLAGS_open_files;
   options.open_files_async = FLAGS_open_files_async;
+  options.async_wal_precreate = FLAGS_async_wal_precreate;
   if (FLAGS_open_files_async && !FLAGS_skip_stats_update_on_db_open) {
     FLAGS_skip_stats_update_on_db_open = true;
     fprintf(stderr,

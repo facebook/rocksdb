@@ -5011,6 +5011,16 @@ class TickerTypeJni {
         return 0x53;
       case ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES:
         return 0x54;
+      case ROCKSDB_NAMESPACE::Tickers::WAL_PRECREATE_HIT:
+        return -0x6C;
+      case ROCKSDB_NAMESPACE::Tickers::WAL_PRECREATE_MISS:
+        return -0x6D;
+      case ROCKSDB_NAMESPACE::Tickers::WAL_PRECREATE_WAITED:
+        return -0x6E;
+      case ROCKSDB_NAMESPACE::Tickers::WAL_PRECREATE_WAIT_MICROS:
+        return -0x6F;
+      case ROCKSDB_NAMESPACE::Tickers::WAL_PRECREATE_FAILED:
+        return -0x70;
       case ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_SELF:
         return 0x55;
       case ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_OTHER:
@@ -5509,6 +5519,16 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::WAL_FILE_SYNCED;
       case 0x54:
         return ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES;
+      case -0x6C:
+        return ROCKSDB_NAMESPACE::Tickers::WAL_PRECREATE_HIT;
+      case -0x6D:
+        return ROCKSDB_NAMESPACE::Tickers::WAL_PRECREATE_MISS;
+      case -0x6E:
+        return ROCKSDB_NAMESPACE::Tickers::WAL_PRECREATE_WAITED;
+      case -0x6F:
+        return ROCKSDB_NAMESPACE::Tickers::WAL_PRECREATE_WAIT_MICROS;
+      case -0x70:
+        return ROCKSDB_NAMESPACE::Tickers::WAL_PRECREATE_FAILED;
       case 0x55:
         return ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_SELF;
       case 0x56:
