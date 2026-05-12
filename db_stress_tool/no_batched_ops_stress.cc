@@ -24,7 +24,8 @@
 namespace ROCKSDB_NAMESPACE {
 class NonBatchedOpsStressTest : public StressTest {
  public:
-  NonBatchedOpsStressTest() = default;
+  explicit NonBatchedOpsStressTest(int db_index)
+      : StressTest(db_index) {}
 
   virtual ~NonBatchedOpsStressTest() = default;
 
@@ -2325,11 +2326,11 @@ class NonBatchedOpsStressTest : public StressTest {
         FLAGS_test_ingest_standalone_range_deletion_one_in);
     std::vector<std::string> external_files;
     const std::string sst_filename =
-        FLAGS_db + "/." + std::to_string(thread->tid) + ".sst";
+        GetDbPath() + "/." + std::to_string(thread->tid) + ".sst";
     external_files.push_back(sst_filename);
     std::string standalone_rangedel_filename;
     if (test_standalone_range_deletion) {
-      standalone_rangedel_filename = FLAGS_db + "/." +
+      standalone_rangedel_filename = GetDbPath() + "/." +
                                      std::to_string(thread->tid) +
                                      "_standalone_rangedel.sst";
       external_files.push_back(standalone_rangedel_filename);
@@ -3485,8 +3486,8 @@ class NonBatchedOpsStressTest : public StressTest {
   }
 };
 
-StressTest* CreateNonBatchedOpsStressTest() {
-  return new NonBatchedOpsStressTest();
+StressTest* CreateNonBatchedOpsStressTest(int db_index) {
+  return new NonBatchedOpsStressTest(db_index);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

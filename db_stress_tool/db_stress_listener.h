@@ -55,15 +55,7 @@ class DbStressListener : public EventListener {
   DbStressListener(const std::string& db_name,
                    const std::vector<DbPath>& db_paths,
                    const std::vector<ColumnFamilyDescriptor>& column_families,
-                   SharedState* shared)
-      : db_name_(db_name),
-        db_paths_(db_paths),
-        column_families_(column_families),
-        num_pending_file_creations_(0),
-        unique_ids_(FLAGS_expected_values_dir.empty()
-                        ? db_name
-                        : FLAGS_expected_values_dir),
-        shared_(shared) {}
+                   SharedState* shared);
 
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "DBStressListener"; }

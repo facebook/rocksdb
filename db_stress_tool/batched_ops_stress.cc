@@ -13,7 +13,8 @@
 namespace ROCKSDB_NAMESPACE {
 class BatchedOpsStressTest : public StressTest {
  public:
-  BatchedOpsStressTest() = default;
+  explicit BatchedOpsStressTest(int db_index)
+      : StressTest(db_index) {}
   virtual ~BatchedOpsStressTest() = default;
 
   bool IsStateTracked() const override { return false; }
@@ -722,7 +723,9 @@ class BatchedOpsStressTest : public StressTest {
   }
 };
 
-StressTest* CreateBatchedOpsStressTest() { return new BatchedOpsStressTest(); }
+StressTest* CreateBatchedOpsStressTest(int db_index) {
+  return new BatchedOpsStressTest(db_index);
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

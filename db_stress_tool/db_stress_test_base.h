@@ -40,11 +40,17 @@ class StressTest {
   // from optimistic transactions when conflict detection retries are exhausted.
   static bool IsExpectedTxnError(const Status& s);
 
-  StressTest();
+  explicit StressTest(int db_index);
 
   virtual ~StressTest() {}
 
-  std::shared_ptr<Cache> NewCache(size_t capacity, int32_t num_shard_bits);
+  std::string GetDbLabel() const;
+  std::string GetDbPath() const;
+  std::string GetExpectedValuesDir() const;
+  std::string GetSecondariesBase() const;
+
+  static std::shared_ptr<Cache> NewCache(size_t capacity,
+                                         int32_t num_shard_bits);
 
   static std::vector<std::string> GetBlobCompressionTags();
 
@@ -391,7 +397,6 @@ class StressTest {
                                  const WideColumns& columns);
 
   void PrintEnv() const;
-
   void Open(SharedState* shared, bool reopen = false);
 
   void Reopen(ThreadState* thread);
@@ -412,6 +417,8 @@ class StressTest {
                                           ReadOptions& read_opts);
 
   void CleanUpColumnFamilies();
+
+  int db_index_;
 
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;

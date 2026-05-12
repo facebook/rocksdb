@@ -21,7 +21,8 @@
 namespace ROCKSDB_NAMESPACE {
 class CfConsistencyStressTest : public StressTest {
  public:
-  CfConsistencyStressTest() : batch_id_(0) {}
+  explicit CfConsistencyStressTest(int db_index)
+      : StressTest(db_index), batch_id_(0) {}
 
   ~CfConsistencyStressTest() override = default;
 
@@ -1543,8 +1544,8 @@ class CfConsistencyStressTest : public StressTest {
   std::deque<DebugEvent> recent_debug_events_;
 };
 
-StressTest* CreateCfConsistencyStressTest() {
-  return new CfConsistencyStressTest();
+StressTest* CreateCfConsistencyStressTest(int db_index) {
+  return new CfConsistencyStressTest(db_index);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

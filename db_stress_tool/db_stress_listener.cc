@@ -7,6 +7,7 @@
 
 #include <cstdint>
 
+#include "db_stress_tool/db_stress_test_base.h"
 #include "file/file_util.h"
 #include "rocksdb/file_system.h"
 #include "util/coding_lean.h"
@@ -14,6 +15,19 @@
 namespace ROCKSDB_NAMESPACE {
 
 #ifdef GFLAGS
+
+DbStressListener::DbStressListener(
+    const std::string& db_name, const std::vector<DbPath>& db_paths,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    SharedState* shared)
+    : db_name_(db_name),
+      db_paths_(db_paths),
+      column_families_(column_families),
+      num_pending_file_creations_(0),
+      unique_ids_(shared->GetStressTest()->GetExpectedValuesDir().empty()
+                      ? db_name
+                      : shared->GetStressTest()->GetExpectedValuesDir()),
+      shared_(shared) {}
 
 UniqueIdVerifier::UniqueIdVerifier(const std::string& dir)
     : path_(dir + "/.unique_ids") {

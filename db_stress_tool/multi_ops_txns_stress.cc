@@ -1767,8 +1767,8 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
   }
 }
 
-StressTest* CreateMultiOpsTxnsStressTest() {
-  return new MultiOpsTxnsStressTest();
+StressTest* CreateMultiOpsTxnsStressTest(int db_index) {
+  return new MultiOpsTxnsStressTest(db_index);
 }
 
 void CheckAndSetOptionsForMultiOpsTxnStressTest() {
