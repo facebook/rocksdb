@@ -3,15 +3,21 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "db/version_builder.h"
+
 #include <cstring>
 #include <iomanip>
 #include <memory>
 #include <sstream>
 #include <string>
 
+#include "db/db_test_util.h"
+#include "db/table_cache.h"
 #include "db/version_edit.h"
 #include "db/version_set.h"
+#include "file/filename.h"
 #include "rocksdb/advanced_options.h"
+#include "rocksdb/sst_file_writer.h"
 #include "table/unique_id_impl.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -153,6 +159,12 @@ class VersionBuilderTest : public testing::Test {
   void UpdateVersionStorageInfo() { UpdateVersionStorageInfo(&vstorage_); }
 };
 
+class VersionBuilderDBTest : public DBTestBase {
+ public:
+  VersionBuilderDBTest()
+      : DBTestBase("version_builder_db_test", /*env_do_fsync=*/false) {}
+};
+
 void UnrefFilesInVersion(VersionStorageInfo* new_vstorage) {
   for (int i = 0; i < new_vstorage->num_levels(); i++) {
     for (auto* f : new_vstorage->LevelFiles(i)) {
@@ -215,6 +227,64 @@ TEST_F(VersionBuilderTest, ApplyAndSaveTo) {
   ASSERT_EQ(300U, new_vstorage.NumLevelBytes(3));
 
   UnrefFilesInVersion(&new_vstorage);
+}
+
+TEST_F(VersionBuilderDBTest, FailedLogAndApplyEvictsTableCacheEntry) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
+                  dbfull()->DefaultColumnFamily())
+                  ->cfd();
+  Cache* table_cache = dbfull()->TEST_table_cache();
+
+  const uint64_t file_number = dbfull()->TEST_Current_Next_FileNo() + 1000;
+  const std::string table_file_path = MakeTableFileName(dbname_, file_number);
+
+  SstFileWriter sst_writer(EnvOptions(), options);
+  ExternalSstFileInfo file_info;
+  ASSERT_OK(sst_writer.Open(table_file_path));
+  ASSERT_OK(sst_writer.Put("key", "value"));
+  ASSERT_OK(sst_writer.Finish(&file_info));
+
+  VersionEdit edit;
+  edit.AddFile(0 /* level */, file_number, 0 /* file_path_id */,
+               file_info.file_size, InternalKey("key", 0, kTypeValue),
+               InternalKey("key", 0, kTypeValue), 0 /* smallest_seqno */,
+               0 /* largest_seqno */, false /* marked_for_compaction */,
+               Temperature::kUnknown, kInvalidBlobFileNumber,
+               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+               1 /* epoch_number */, kUnknownFileChecksum,
+               kUnknownFileChecksumFuncName, kNullUniqueId64x2,
+               0 /* compensated_range_deletion_size */, 0 /* tail_size */,
+               true /* user_defined_timestamps_persisted */);
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:AfterSyncManifest", [](void* arg) {
+        *static_cast<Status*>(arg) = Status::IOError("injected");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  {
+    InstrumentedMutexLock l(dbfull()->mutex());
+    Status s = dbfull()->GetVersionSet()->LogAndApply(
+        cfd, ReadOptions(), WriteOptions(), &edit, dbfull()->mutex(),
+        nullptr /* db_directory */);
+    ASSERT_NOK(s);
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  Cache::Handle* leaked = TableCache::Lookup(table_cache, file_number);
+  const bool leaked_cache_entry = leaked != nullptr;
+  if (leaked != nullptr) {
+    table_cache->Release(leaked);
+    TableCache::Evict(table_cache, file_number);
+  }
+  ASSERT_OK(env_->DeleteFile(table_file_path));
+  ASSERT_FALSE(leaked_cache_entry);
 }
 
 TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic) {
