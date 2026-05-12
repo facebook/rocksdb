@@ -30,6 +30,10 @@ class DBWideBasicTest : public DBTestBase {
     return wide_column_test_util::GetOptionsForBlobTest(GetDefaultOptions());
   }
 
+  Options GetDirectWriteOptions() {
+    return wide_column_test_util::GetDirectWriteOptions(GetDefaultOptions());
+  }
+
   // Helper: runs the EntityBlobAfterFlush test logic with the given options.
   void RunEntityBlobAfterFlush(const Options& options);
 
@@ -2159,6 +2163,57 @@ TEST_F(DBWideBasicTest, MultiGetEntityWithBlobResolution) {
   }
 }
 
+TEST_F(DBWideBasicTest,
+       MultiGetBlobBackedEntityDirectWriteMemtableBatchLookup) {
+  // Goal: force the memtable batch MultiGet optimization to read a direct-write
+  // blob-backed entity from the active memtable. One key exercises merge
+  // resolution against a blob-backed entity base, which requires Saver to carry
+  // the BlobFetcher through the batched callback path. The second key proves
+  // the non-merge default-column path still resolves correctly in the same
+  // batched request.
+  Options options = GetDirectWriteOptions();
+  options.min_blob_size = 50;
+  options.memtable_batch_lookup_optimization = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator("|");
+
+  DestroyAndReopen(options);
+
+  const std::string merge_key = "multiget_direct_write_merge_key";
+  const std::string plain_key = "multiget_direct_write_plain_key";
+  const std::string default_value = GenerateLargeValue(100, 'd');
+  const std::string other_default_value = GenerateLargeValue(110, 'p');
+  const std::string large_value = GenerateLargeValue(120, 'l');
+  const std::string small_value = GenerateSmallValue();
+  const std::string merge_operand = "tail";
+
+  WideColumns merge_columns{{kDefaultWideColumnName, default_value},
+                            {"col_large", large_value},
+                            {"col_small", small_value}};
+  WideColumns plain_columns{{kDefaultWideColumnName, other_default_value},
+                            {"col_large", large_value},
+                            {"col_small", small_value}};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           merge_key, merge_columns));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           plain_key, plain_columns));
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), merge_key,
+                       merge_operand));
+
+  std::array<Slice, 2> keys{{merge_key, plain_key}};
+  std::array<PinnableSlice, 2> values;
+  std::array<Status, 2> statuses;
+
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), keys.size(),
+                keys.data(), values.data(), statuses.data());
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], default_value + "|" + merge_operand);
+
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[1], other_default_value);
+}
+
 void DBWideBasicTest::RunEntityBlobAfterFlush(const Options& options) {
   Reopen(options);
 
@@ -2906,6 +2961,347 @@ TEST_F(DBWideBasicTest, MergeEntityWithBlobColumns) {
     ASSERT_OK(
         db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result));
     ASSERT_EQ(result, expected_default);
+  }
+}
+
+TEST_F(DBWideBasicTest, GetMergeOperandsWithBlobBackedEntityDefaultColumn) {
+  // Goal: cover both GetMergeOperands code paths that read a compacted V2
+  // wide-column entity whose default column was moved to a blob file. The
+  // first read exercises the base-value path directly, then a merge operand is
+  // added so the second read exercises the merge-plus-base path.
+  Options options = GetBlobTestOptions();
+  options.min_blob_size = 50;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator("|");
+
+  DestroyAndReopen(options);
+
+  const std::string key = "merge_operands_blob_entity";
+  const std::string default_value = GenerateLargeValue(100, 'd');
+  const std::string large_value = GenerateLargeValue(120, 'l');
+  const std::string small_value = GenerateSmallValue();
+  const std::string merge_operand = "suffix";
+
+  WideColumns columns{{kDefaultWideColumnName, default_value},
+                      {"col_large", large_value},
+                      {"col_small", small_value}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_FALSE(GetBlobFileNumbers().empty());
+
+  {
+    // The compacted V2 entity becomes the first operand when there are no
+    // newer merge operands above it.
+    GetMergeOperandsOptions get_merge_opts;
+    get_merge_opts.expected_max_number_of_operands = 1;
+
+    std::array<PinnableSlice, 2> merge_operands;
+    int number_of_operands = 0;
+
+    ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                    key, merge_operands.data(), &get_merge_opts,
+                                    &number_of_operands));
+    ASSERT_EQ(number_of_operands, 1);
+    ASSERT_EQ(merge_operands[0], default_value);
+  }
+
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key,
+                       merge_operand));
+
+  {
+    // After a merge is added, GetMergeOperands must still resolve the blob
+    // backed base default column while traversing the older base entry below
+    // the newer merge operand.
+    GetMergeOperandsOptions get_merge_opts;
+    get_merge_opts.expected_max_number_of_operands = 2;
+
+    std::array<PinnableSlice, 2> merge_operands;
+    int number_of_operands = 0;
+
+    ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                    key, merge_operands.data(), &get_merge_opts,
+                                    &number_of_operands));
+    ASSERT_EQ(number_of_operands, 2);
+    ASSERT_EQ(merge_operands[0], default_value);
+    ASSERT_EQ(merge_operands[1], merge_operand);
+  }
+}
+
+TEST_F(DBWideBasicTest,
+       GetMergeOperandsWithBlobBackedEntityDefaultColumnDirectWriteMemtable) {
+  // Goal: cover the pre-flush memtable path when blob direct write stores a
+  // blob-backed V2 entity in memory. The first GetMergeOperands call exercises
+  // the no-merge base-operand path. After adding a merge, DB::Get exercises
+  // merge resolution against the same memtable entity, and a second
+  // GetMergeOperands call exercises the merge-plus-base path.
+  Options options = GetDirectWriteOptions();
+  options.min_blob_size = 50;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator("|");
+
+  DestroyAndReopen(options);
+
+  const std::string key = "direct_write_merge_operands_blob_entity";
+  const std::string default_value = GenerateLargeValue(100, 'd');
+  const std::string large_value = GenerateLargeValue(120, 'l');
+  const std::string small_value = GenerateSmallValue();
+  const std::string merge_operand = "suffix";
+  const std::string expected_merged = default_value + "|" + merge_operand;
+
+  WideColumns columns{{kDefaultWideColumnName, default_value},
+                      {"col_large", large_value},
+                      {"col_small", small_value}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+
+  {
+    GetMergeOperandsOptions get_merge_opts;
+    get_merge_opts.expected_max_number_of_operands = 1;
+
+    std::array<PinnableSlice, 2> merge_operands;
+    int number_of_operands = 0;
+
+    ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                    key, merge_operands.data(), &get_merge_opts,
+                                    &number_of_operands));
+    ASSERT_EQ(number_of_operands, 1);
+    ASSERT_EQ(merge_operands[0], default_value);
+  }
+
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key,
+                       merge_operand));
+
+  {
+    PinnableSlice result;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result));
+    ASSERT_EQ(result, expected_merged);
+  }
+
+  {
+    GetMergeOperandsOptions get_merge_opts;
+    get_merge_opts.expected_max_number_of_operands = 2;
+
+    std::array<PinnableSlice, 2> merge_operands;
+    int number_of_operands = 0;
+
+    ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                    key, merge_operands.data(), &get_merge_opts,
+                                    &number_of_operands));
+    ASSERT_EQ(number_of_operands, 2);
+    ASSERT_EQ(merge_operands[0], default_value);
+    ASSERT_EQ(merge_operands[1], merge_operand);
+  }
+}
+
+TEST_F(DBWideBasicTest,
+       GetAndGetEntityWithBlobBackedDefaultColumnDirectWriteMemtableReadOnly) {
+  // Goal: cover the read-only reopen path after writing a blob-backed
+  // direct-write entity without manually flushing it first. The test checks
+  // both `Get()`, which must resolve the default-column blob reference, and
+  // `GetEntity()`, which must eagerly resolve the entity's unresolved blob
+  // columns before returning them to the caller.
+  Options options = GetDirectWriteOptions();
+  options.min_blob_size = 50;
+
+  DestroyAndReopen(options);
+
+  const std::string key = "readonly_direct_write_memtable_entity";
+  const std::string default_value = GenerateLargeValue(100, 'd');
+  const std::string large_value = GenerateLargeValue(120, 'l');
+  const std::string small_value = GenerateSmallValue();
+  WideColumns columns{{kDefaultWideColumnName, default_value},
+                      {"col_large", large_value},
+                      {"col_small", small_value}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+
+  Close();
+  options.avoid_flush_during_recovery = true;
+  ASSERT_OK(ReadOnlyReopen(options));
+
+  {
+    PinnableSlice result;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result));
+    ASSERT_EQ(result, default_value);
+  }
+
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key,
+                             &result));
+    ASSERT_EQ(result.columns(), columns);
+  }
+}
+
+TEST_F(DBWideBasicTest, ReadOnlyDirectWriteMemtableBlobBlockCacheTier) {
+  // Goal: cover the read-only memtable path under kBlockCacheTier. The test
+  // keeps a blob-backed direct-write entity in WAL-backed recovery state so
+  // resolving either Get() or GetEntity() would require blob I/O, which must
+  // surface as Incomplete rather than silently reading the blob file.
+  Options options = GetDirectWriteOptions();
+  options.min_blob_size = 50;
+
+  DestroyAndReopen(options);
+
+  const std::string key = "readonly_direct_write_memtable_block_cache_tier";
+  const std::string default_value = GenerateLargeValue(100, 'd');
+  const std::string large_value = GenerateLargeValue(120, 'l');
+  const std::string small_value = GenerateSmallValue();
+  WideColumns columns{{kDefaultWideColumnName, default_value},
+                      {"col_large", large_value},
+                      {"col_small", small_value}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+
+  Close();
+  options.avoid_flush_during_recovery = true;
+  ASSERT_OK(ReadOnlyReopen(options));
+
+  ReadOptions read_opts;
+  read_opts.read_tier = kBlockCacheTier;
+
+  {
+    PinnableSlice result;
+    const Status s =
+        db_->Get(read_opts, db_->DefaultColumnFamily(), key, &result);
+    ASSERT_TRUE(s.IsIncomplete()) << s.ToString();
+    ASSERT_TRUE(result.empty());
+  }
+
+  {
+    PinnableWideColumns result;
+    const Status s =
+        db_->GetEntity(read_opts, db_->DefaultColumnFamily(), key, &result);
+    ASSERT_TRUE(s.IsIncomplete()) << s.ToString();
+    ASSERT_TRUE(result.columns().empty());
+  }
+}
+
+TEST_F(DBWideBasicTest,
+       GetMergeOperandsWithBlobBackedEntityDefaultColumnReadOnly) {
+  // Goal: exercise OpenForReadOnly on a blob-backed V2 entity base in SST with
+  // a newer merge operand in a separate SST. The read-only DB must resolve the
+  // blob-backed default column for both Get() and GetMergeOperands() without
+  // relying on mutable memtable state.
+  Options options = GetBlobTestOptions();
+  options.min_blob_size = 50;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator("|");
+
+  DestroyAndReopen(options);
+
+  const std::string key = "readonly_merge_operands_blob_entity";
+  const std::string default_value = GenerateLargeValue(100, 'd');
+  const std::string large_value = GenerateLargeValue(120, 'l');
+  const std::string small_value = GenerateSmallValue();
+  const std::string merge_operand = "suffix";
+  const std::string expected_merged = default_value + "|" + merge_operand;
+
+  WideColumns columns{{kDefaultWideColumnName, default_value},
+                      {"col_large", large_value},
+                      {"col_small", small_value}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_FALSE(GetBlobFileNumbers().empty());
+
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key,
+                       merge_operand));
+  ASSERT_OK(Flush());
+
+  Close();
+  ASSERT_OK(ReadOnlyReopen(options));
+
+  {
+    PinnableSlice result;
+    ASSERT_OK(
+        db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result));
+    ASSERT_EQ(result, expected_merged);
+  }
+
+  {
+    GetMergeOperandsOptions get_merge_opts;
+    get_merge_opts.expected_max_number_of_operands = 2;
+
+    std::array<PinnableSlice, 2> merge_operands;
+    int number_of_operands = 0;
+
+    ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                    key, merge_operands.data(), &get_merge_opts,
+                                    &number_of_operands));
+    ASSERT_EQ(number_of_operands, 2);
+    ASSERT_EQ(merge_operands[0], default_value);
+    ASSERT_EQ(merge_operands[1], merge_operand);
+  }
+}
+
+TEST_F(DBWideBasicTest,
+       GetMergeOperandsWithBlobBackedEntityDefaultColumnBlockCacheTier) {
+  // Goal: prove the SST-backed GetMergeOperands path propagates Incomplete
+  // when resolving a blob-backed default column would require I/O. One key
+  // covers the direct base-entity path, and the other covers the merge-plus-
+  // base path with the merge operand flushed to a newer SST.
+  Options options = GetBlobTestOptions();
+  options.min_blob_size = 50;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator("|");
+
+  DestroyAndReopen(options);
+
+  const std::string base_key = "merge_operands_blob_entity_cache_base";
+  const std::string merge_key = "merge_operands_blob_entity_cache_merge";
+  const std::string default_value = GenerateLargeValue(100, 'd');
+  const std::string large_value = GenerateLargeValue(120, 'l');
+  const std::string small_value = GenerateSmallValue();
+
+  WideColumns columns{{kDefaultWideColumnName, default_value},
+                      {"col_large", large_value},
+                      {"col_small", small_value}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), base_key,
+                           columns));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           merge_key, columns));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), merge_key,
+                       "tail"));
+  ASSERT_OK(Flush());
+
+  // Reopen to clear any cached blob readers/values so kBlockCacheTier must
+  // report Incomplete instead of succeeding through a warm cache.
+  Reopen(options);
+
+  ReadOptions read_opts;
+  read_opts.read_tier = kBlockCacheTier;
+
+  {
+    GetMergeOperandsOptions get_merge_opts;
+    get_merge_opts.expected_max_number_of_operands = 1;
+
+    std::array<PinnableSlice, 2> merge_operands;
+    int number_of_operands = 0;
+
+    const Status s = db_->GetMergeOperands(
+        read_opts, db_->DefaultColumnFamily(), base_key, merge_operands.data(),
+        &get_merge_opts, &number_of_operands);
+    ASSERT_TRUE(s.IsIncomplete()) << s.ToString();
+  }
+
+  {
+    GetMergeOperandsOptions get_merge_opts;
+    get_merge_opts.expected_max_number_of_operands = 2;
+
+    std::array<PinnableSlice, 2> merge_operands;
+    int number_of_operands = 0;
+
+    const Status s = db_->GetMergeOperands(
+        read_opts, db_->DefaultColumnFamily(), merge_key, merge_operands.data(),
+        &get_merge_opts, &number_of_operands);
+    ASSERT_TRUE(s.IsIncomplete()) << s.ToString();
   }
 }
 

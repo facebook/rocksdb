@@ -128,6 +128,16 @@ class DBBlobIndexTest : public DBTestBase {
         columns, s, is_blob_index, value_found);
   }
 
+  bool MaybeResolveMemtableBlobValueForTest(const Slice& key,
+                                            const BlobFetcher* blob_fetcher,
+                                            PinnableSlice* value,
+                                            PinnableWideColumns* columns,
+                                            Status* s, bool* is_blob_index,
+                                            bool* value_found = nullptr) {
+    return DBImpl::MaybeResolveMemtableBlobValue(
+        key, blob_fetcher, value, columns, s, is_blob_index, value_found);
+  }
+
   Options GetTestOptions() {
     Options options;
     options.env = CurrentOptions().env;
@@ -269,6 +279,55 @@ TEST_F(DBBlobIndexTest,
   ASSERT_TRUE(s.IsIOError() || s.IsNotFound()) << s.ToString();
   ASSERT_FALSE(is_blob_index);
   ASSERT_EQ(static_cast<char>(BlobIndex::Type::kUnknown), blob_index.front());
+}
+
+TEST_F(DBBlobIndexTest,
+       MaybeResolveMemtableBlobValueWithoutFetcherFailsClosed) {
+  // Goal: if a readonly/secondary memtable hit produces a blob-backed payload
+  // but no BlobFetcher is available, the helper must fail closed instead of
+  // handing raw blob-index bytes back to the caller as if they were the value.
+  std::string blob_index;
+  BlobIndex::EncodeBlob(&blob_index, /*file_number=*/123, /*offset=*/456,
+                        /*size=*/789, kNoCompression);
+
+  PinnableSlice value;
+  value.GetSelf()->assign(blob_index.data(), blob_index.size());
+  value.PinSelf();
+
+  Status s = Status::OK();
+  bool is_blob_index = true;
+  ASSERT_TRUE(MaybeResolveMemtableBlobValueForTest(
+      Slice("key"), /*blob_fetcher=*/nullptr, &value, /*columns=*/nullptr, &s,
+      &is_blob_index));
+
+  ASSERT_TRUE(s.IsNotSupported()) << s.ToString();
+  ASSERT_TRUE(value.empty());
+  ASSERT_FALSE(is_blob_index);
+}
+
+TEST_F(DBBlobIndexTest, ReadOnlyGetImplReturnsBlobIndexWhenRequested) {
+  // Goal: cover the internal read-only GetImpl contract when the caller
+  // explicitly asks for raw blob-index bytes via `is_blob_index`. Recovery
+  // keeps the blob index in the memtable, and the read-only path must preserve
+  // the encoded index instead of eagerly resolving or rejecting it.
+  Options options = GetTestOptions();
+
+  DestroyAndReopen(options);
+
+  std::string blob_index;
+  BlobIndex::EncodeInlinedTTL(&blob_index, /*expiration=*/9876543210, "blob");
+
+  WriteBatch batch;
+  ASSERT_OK(PutBlobIndex(&batch, "blob_key", blob_index));
+  ASSERT_OK(Write(&batch));
+
+  Close();
+  options.avoid_flush_during_recovery = true;
+  ASSERT_OK(ReadOnlyReopen(options));
+
+  bool is_blob_index = false;
+  ASSERT_EQ(blob_index, GetImpl("blob_key", &is_blob_index));
+  ASSERT_TRUE(is_blob_index);
 }
 
 class PlainBlobValueFilterV3 : public CompactionFilter {

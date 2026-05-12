@@ -157,6 +157,8 @@ std::vector<Status> SstFileReader::MultiGet(
           statuses[i] = Status::MergeInProgress();
           break;
         case GetContext::kCorrupt:
+          statuses[i] = Status::Corruption();
+          break;
         case GetContext::kUnexpectedBlobIndex:
         case GetContext::kMergeOperatorFailed:
           statuses[i] = Status::Corruption();
@@ -218,6 +220,8 @@ Status SstFileReader::Get(const ReadOptions& roptions, const Slice& key,
         status = Status::MergeInProgress();
         break;
       case GetContext::kCorrupt:
+        status = Status::Corruption();
+        break;
       case GetContext::kUnexpectedBlobIndex:
       case GetContext::kMergeOperatorFailed:
         status = Status::Corruption();
