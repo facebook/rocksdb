@@ -4265,7 +4265,6 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
                                       const std::string& column_family_name,
                                       ColumnFamilyHandle** handle) {
   options_mutex_.AssertHeld();
-  Status s;
   *handle = nullptr;
 
   // The empty string is reserved as a "no/unknown column family name" sentinel
@@ -4278,6 +4277,8 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
     return Status::InvalidArgument(
         "Column family name cannot be the empty string");
   }
+
+  Status s;
 
   DBOptions db_options =
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
