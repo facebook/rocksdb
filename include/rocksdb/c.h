@@ -205,6 +205,8 @@ extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open(
 extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_with_ttl(
     const rocksdb_options_t* options, const char* name, int ttl, char** errptr);
 
+/* If error_if_wal_file_exists is non-zero, returns an error when a non-empty
+ * WAL file exists. Empty WAL files are tolerated. */
 extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_for_read_only(
     const rocksdb_options_t* options, const char* name,
     unsigned char error_if_wal_file_exists, char** errptr);
@@ -450,6 +452,8 @@ extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_column_families_with_ttl(
     rocksdb_column_family_handle_t** column_family_handles, const int* ttls,
     char** errptr);
 
+/* If error_if_wal_file_exists is non-zero, returns an error when a non-empty
+ * WAL file exists. Empty WAL files are tolerated. */
 extern ROCKSDB_LIBRARY_API rocksdb_t*
 rocksdb_open_for_read_only_column_families(
     const rocksdb_options_t* options, const char* name, int num_column_families,
