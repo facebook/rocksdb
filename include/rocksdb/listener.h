@@ -676,9 +676,46 @@ class EventListener : public Customizable {
   // returns.  Otherwise, RocksDB may be blocked.
   virtual void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& /*ci*/) {}
 
+  // A callback function for RocksDB which will be called when a registered
+  // RocksDB has finished writing a compaction job's output files, but
+  // *before* the manifest write commits the new Version (i.e. before
+  // input files are released and output files become visible to readers
+  // and the compaction picker). At this point the input files in
+  // `ci.input_files` still have `FileMetaData::being_compacted == true`,
+  // so no other thread can pick them up for a new compaction.
+  //
+  // This callback fires strictly between `OnCompactionBegin` and
+  // `OnCompactionCompleted` for the same compaction. It is the right
+  // place for listeners to clean up their own bookkeeping of which input
+  // files they think are being compacted: doing it here, rather than in
+  // `OnCompactionCompleted`, avoids a race where `OnCompactionBegin` for
+  // the same file fires before `OnCompactionCompleted` for the previous
+  // compaction. The default implementation is a no-op.
+  //
+  // As with `OnCompactionCompleted`, the DB mutex is released for the
+  // duration of this callback, but other manifest writers may be waiting,
+  // so cheap implementations are strongly preferred.
+  //
+  // @param db a pointer to the rocksdb instance which just compacted a file.
+  // @param ci a reference to a CompactionJobInfo struct. 'ci' is released
+  //  after this function is returned, and must be copied if it is needed
+  //  outside of this function.
+  virtual void OnCompactionPreCommit(DB* /*db*/,
+                                     const CompactionJobInfo& /*ci*/) {}
+
   // A callback function for RocksDB which will be called whenever
   // a registered RocksDB compacts a file. The default implementation
   // is a no-op.
+  //
+  // At the time this callback fires, the manifest commit has applied:
+  // output files in `ci.output_files` are live in the DB (visible to
+  // readers and the compaction picker, and possibly already picked up
+  // by another compaction), and input files in `ci.input_files` have
+  // been removed from the live Version with `being_compacted == false`
+  // (their on-disk files may still exist if held by snapshots / iterators
+  // / pending physical deletion; see `OnTableFileDeleted`). To observe
+  // state *before* input files are released, use
+  // `OnCompactionPreCommit` instead.
   //
   // Note that this function must be implemented in a way such that
   // it should not run for an extended period of time before the function

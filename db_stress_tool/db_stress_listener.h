@@ -6,6 +6,7 @@
 #ifdef GFLAGS
 #pragma once
 
+#include <cinttypes>
 #include <mutex>
 #include <unordered_set>
 
@@ -122,7 +123,47 @@ class DbStressListener : public EventListener {
     RandomSleep();
   }
 
-  void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& /*ci*/) override {
+  void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& ci) override {
+    // Sanity check inspired by a Meta-internal check: the same input file must
+    // not be in two concurrent compactions. Inserting input file numbers into a
+    // shared set on Begin and removing them on PreCommit (rather than on
+    // Completed) is what exercises the new OnCompactionPreCommit
+    // callback. Removing on Completed would race with another picker that
+    // grabs the same file as soon as ReleaseCompactionFiles flips
+    // FileMetaData::being_compacted back to false; PreCommit runs
+    // while being_compacted is still true and so closes that race.
+    {
+      std::lock_guard<std::mutex> lock(compacting_files_mu_);
+      for (const auto& info : ci.input_file_infos) {
+        auto [_, inserted] = compacting_files_.insert(info.file_number);
+        if (!inserted) {
+          fprintf(stderr,
+                  "Concurrent compaction of SST file detected: cf=%s "
+                  "file_number=%" PRIu64 "\n",
+                  ci.cf_name.c_str(), info.file_number);
+          fflush(stderr);
+          std::abort();
+        }
+      }
+    }
+    RandomSleep();
+  }
+
+  void OnCompactionPreCommit(DB* /*db*/, const CompactionJobInfo& ci) override {
+    // Pair with OnCompactionBegin's bookkeeping. See the comment there for
+    // why we clean up here rather than in OnCompactionCompleted.
+    std::lock_guard<std::mutex> lock(compacting_files_mu_);
+    for (const auto& info : ci.input_file_infos) {
+      size_t erased = compacting_files_.erase(info.file_number);
+      if (erased != 1) {
+        fprintf(stderr,
+                "OnCompactionPreCommit for file not in tracking set: "
+                "cf=%s file_number=%" PRIu64 "\n",
+                ci.cf_name.c_str(), info.file_number);
+        fflush(stderr);
+        std::abort();
+      }
+    }
     RandomSleep();
   }
 
@@ -377,6 +418,12 @@ class DbStressListener : public EventListener {
   SharedState* shared_;
   mutable std::mutex bg_pressure_mu_;
   BackgroundJobPressure last_bg_pressure_;
+  // Files (by file_number) currently in flight from OnCompactionBegin to
+  // OnCompactionPreCommit. Used to detect concurrent compaction of
+  // the same SST file -- the bug fixed by the OnCompactionPreCommit
+  // callback. Protected by compacting_files_mu_.
+  std::mutex compacting_files_mu_;
+  std::unordered_set<uint64_t> compacting_files_;
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

@@ -454,6 +454,18 @@ class Compaction {
     return notify_on_compaction_completion_;
   }
 
+  // Called by DBImpl::NotifyOnCompactionPreCommit to ensure the
+  // OnCompactionPreCommit listener callback fires at most once per
+  // compaction lifecycle, even though the notify helper is invoked at multiple
+  // potential ReleaseCompactionFiles() sites for safety.
+  void SetNotifyOnCompactionPreCommitCalled() {
+    notify_on_compaction_pre_commit_called_ = true;
+  }
+
+  bool WasNotifyOnCompactionPreCommitCalled() const {
+    return notify_on_compaction_pre_commit_called_;
+  }
+
   static constexpr int kInvalidLevel = -1;
 
   // Evaluate proximal output level. If the compaction supports
@@ -625,6 +637,12 @@ class Compaction {
   // Notify on compaction completion only if listener was notified on compaction
   // begin.
   bool notify_on_compaction_completion_;
+
+  // Tracks whether OnCompactionPreCommit has already fired for this
+  // compaction. The notify helper is called from multiple potential
+  // ReleaseCompactionFiles() call sites; this flag guarantees that listeners
+  // observe the callback exactly once per compaction.
+  bool notify_on_compaction_pre_commit_called_ = false;
 
   // Enable/disable GC collection for blobs during compaction.
   bool enable_blob_garbage_collection_;

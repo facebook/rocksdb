@@ -1527,6 +1527,15 @@ class DBImpl : public DB {
                                    const Status& st,
                                    const CompactionJobStats& job_stats,
                                    int job_id);
+  // Fires the OnCompactionPreCommit listener callback. Mirrors
+  // NotifyOnCompactionCompleted but is invoked before ReleaseCompactionFiles()
+  // (i.e. while input files still have being_compacted == true). Idempotent:
+  // safe to call from multiple potential release sites; only fires once per
+  // compaction, and only if NotifyOnCompactionBegin previously fired.
+  void NotifyOnCompactionPreCommit(ColumnFamilyData* cfd, Compaction* c,
+                                   const Status& st,
+                                   const CompactionJobStats& job_stats,
+                                   int job_id);
   void NotifyOnMemTableSealed(ColumnFamilyData* cfd,
                               const MemTableInfo& mem_table_info);
 
