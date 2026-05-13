@@ -1726,7 +1726,7 @@ class VersionSet {
   // MANIFEST as before) if ReopenWritableFile fails.
   Status ReopenManifestForAppend(const std::string& manifest_path);
 
-  // FileOptions for MANIFEST writes — applies the FS's
+  // FileOptions for MANIFEST writes -- applies the FS's
   // OptimizeForManifestWrite tuning, then re-applies the user-configured
   // temperature so a custom FS can't override it.
   FileOptions GetFileOptionsForManifestWrite() const;
@@ -1898,7 +1898,9 @@ class ReactiveVersionSet : public VersionSet {
                      const FileOptions& _file_options, Cache* table_cache,
                      WriteBufferManager* write_buffer_manager,
                      WriteController* write_controller,
-                     const std::shared_ptr<IOTracer>& io_tracer);
+                     const std::shared_ptr<IOTracer>& io_tracer,
+                     const std::string& db_id,
+                     const std::string& db_session_id);
 
   ~ReactiveVersionSet() override;
 

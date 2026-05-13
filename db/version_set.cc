@@ -2243,8 +2243,10 @@ void Version::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   uint64_t oldest_time = std::numeric_limits<uint64_t>::max();
   for (int level = 0; level < storage_info_.num_non_empty_levels_; level++) {
     for (FileMetaData* meta : storage_info_.LevelFiles(level)) {
-      assert(meta->fd.pinned_reader.Get() != nullptr);
       uint64_t file_creation_time = meta->TryGetFileCreationTime();
+      TEST_SYNC_POINT_CALLBACK(
+          "Version::GetCreationTimeOfOldestFile::FileCreationTime",
+          &file_creation_time);
       if (file_creation_time == kUnknownFileCreationTime) {
         *creation_time = 0;
         return;
@@ -4217,10 +4219,10 @@ void VersionStorageInfo::ComputeFilesMarkedForReadTriggeredCompaction(
     return;
   }
 
-  // Skip files at the last non-empty level — there is no lower level to
+  // Skip files at the last non-empty level -- there is no lower level to
   // compact into. Exception: L0 files are allowed even when L0 is the last
   // non-empty level, because in single-level universal or FIFO compaction, L0
-  // files can be compacted together (L0 → L0).
+  // files can be compacted together (L0 -> L0).
   int last_non_empty = num_non_empty_levels_ - 1;
 
   for (int level = 0; level < num_levels(); level++) {
@@ -5690,7 +5692,7 @@ Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
           content_manifest_name, fs_->OptimizeForManifestRead(file_options_),
           &manifest_file, nullptr);
       if (!content_io_s.ok()) {
-        // Surface I/O errors to the caller — users who call DB::Close() and
+        // Surface I/O errors to the caller -- users who call DB::Close() and
         // check the status should know about filesystem problems.
         s = content_io_s;
         ROCKS_LOG_ERROR(db_options_->info_log,
@@ -5742,7 +5744,7 @@ Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
       corrupt_io_s.PermitUncheckedError();
       io_error_info.io_status.PermitUncheckedError();
       if (content_check == 0) {
-        // First check failed — rewrite and verify again
+        // First check failed -- rewrite and verify again
         ROCKS_LOG_ERROR(db_options_->info_log,
                         "MANIFEST content verification on Close failed, "
                         "filename %s, rewriting manifest\n",
@@ -5753,7 +5755,7 @@ Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
         s = LogAndApply(cfd, ReadOptions(), WriteOptions(), &recovery_edit, mu,
                         db_dir);
       } else {
-        // Rewritten manifest is also corrupt — likely a recurring filesystem
+        // Rewritten manifest is also corrupt -- likely a recurring filesystem
         // issue. Surface it so DB::Close() callers can detect the problem.
         ROCKS_LOG_ERROR(db_options_->info_log,
                         "MANIFEST content verification on Close failed again "
@@ -6715,7 +6717,7 @@ Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
   FileOptions opt_file_opts = GetFileOptionsForManifestWrite();
 
   // Bail if the on-disk size diverges from what Recover's Reader
-  // consumed — likely a torn tail from a prior crash; mid-block append
+  // consumed -- likely a torn tail from a prior crash; mid-block append
   // would mis-frame the record stream.
   uint64_t physical_size = 0;
   IOStatus stat_s = fs_->GetFileSize(manifest_path, IOOptions(), &physical_size,
@@ -8183,11 +8185,12 @@ ReactiveVersionSet::ReactiveVersionSet(
     const MutableDBOptions& mutable_db_options,
     const FileOptions& _file_options, Cache* table_cache,
     WriteBufferManager* write_buffer_manager, WriteController* write_controller,
-    const std::shared_ptr<IOTracer>& io_tracer)
+    const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
+    const std::string& db_session_id)
     : VersionSet(dbname, imm_db_options, mutable_db_options, _file_options,
                  table_cache, write_buffer_manager, write_controller,
-                 /*block_cache_tracer=*/nullptr, io_tracer, /*db_id*/ "",
-                 /*db_session_id*/ "", /*daily_offpeak_time_utc*/ "",
+                 /*block_cache_tracer=*/nullptr, io_tracer, db_id,
+                 db_session_id, /*daily_offpeak_time_utc*/ "",
                  /*error_handler=*/nullptr, /*unchanging=*/false) {}
 
 ReactiveVersionSet::~ReactiveVersionSet() = default;

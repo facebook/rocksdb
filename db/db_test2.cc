@@ -107,7 +107,7 @@ TEST_F(DBTest2, ReadOnlyDBWalInDbPathInitialized) {
   ASSERT_OK(Put("key2", "value2"));
   Close();
 
-  // Reopen as read-only — wal_in_db_path_ must be properly initialized.
+  // Reopen as read-only -- wal_in_db_path_ must be properly initialized.
   // Before the fix, closing this DB would read an uninitialized bool in
   // DeleteObsoleteFileImpl, which UBSan catches as undefined behavior.
   std::unique_ptr<DB> db_ptr;
@@ -115,7 +115,7 @@ TEST_F(DBTest2, ReadOnlyDBWalInDbPathInitialized) {
   std::string value;
   ASSERT_OK(db_ptr->Get(ReadOptions(), "key1", &value));
   ASSERT_EQ("value1", value);
-  // Close the read-only DB — this triggers PurgeObsoleteFiles which reads
+  // Close the read-only DB -- this triggers PurgeObsoleteFiles which reads
   // wal_in_db_path_. Under UBSan, an uninitialized bool here would fail.
   db_ptr.reset();
 
@@ -7510,6 +7510,65 @@ TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   ASSERT_EQ(0, options.statistics->getTickerCount(GET_HIT_L0));
 }
 
+TEST_F(DBTest2,
+       GetLatestSequenceForKeyFromHistoryWithBlobBackedWideColumnEntity) {
+  // Goal: exercise the memtable history lookup in GetLatestSequenceForKey()
+  // after blob direct write stores a blob-backed V2 entity in a flushed
+  // memtable. Using cache_only=true ensures the lookup succeeds only if the
+  // history path can resolve the wide-column base value under the newer merge.
+  Destroy(last_options_);
+
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.enable_blob_direct_write = true;
+  options.min_blob_size = 50;
+  options.allow_concurrent_memtable_write = false;
+  options.blob_direct_write_partitions = 1;
+  options.max_write_buffer_size_to_maintain = 64 << 10;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator("|");
+
+  Reopen(options);
+
+  const std::string key = "history_blob_entity";
+  const std::string default_value(100, 'd');
+  const std::string merge_operand = "suffix";
+  WideColumns columns{{kDefaultWideColumnName, default_value},
+                      {"meta", "inline"}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key,
+                       merge_operand));
+  const SequenceNumber expected_seq = dbfull()->GetLatestSequenceNumber();
+
+  ASSERT_OK(Flush());
+  ASSERT_FALSE(GetBlobFileNumbers().empty());
+
+  uint64_t num_immutable_memtables = 0;
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumImmutableMemTable,
+                                  &num_immutable_memtables));
+  ASSERT_EQ(num_immutable_memtables, 0);
+
+  auto* cfhi = static_cast_with_check<ColumnFamilyHandleImpl>(
+      dbfull()->DefaultColumnFamily());
+  assert(cfhi);
+  assert(cfhi->cfd());
+  SuperVersion* sv = cfhi->cfd()->GetSuperVersion();
+
+  SequenceNumber seq = kMaxSequenceNumber;
+  bool found_record_for_key = false;
+  bool is_blob_index = false;
+  const Status s = dbfull()->GetLatestSequenceForKey(
+      sv, key, /*cache_only=*/true, /*lower_bound_seq=*/0, &seq,
+      /*timestamp=*/nullptr, &found_record_for_key, &is_blob_index);
+
+  ASSERT_OK(s);
+  ASSERT_TRUE(found_record_for_key);
+  ASSERT_EQ(expected_seq, seq);
+  ASSERT_FALSE(is_blob_index);
+}
+
 #if defined(ZSTD)
 TEST_F(DBTest2, ZSTDChecksum) {
   // Verify that corruption during decompression is caught.
@@ -8173,7 +8232,7 @@ TEST_F(DBTest2, FastSstOpenDisableAfterMetadataPersisted) {
   ASSERT_EQ(1, test_fs->GetMetadataRetrievedCount());
   db.reset();
 
-  // Reopen with fast_sst_open DISABLED — metadata is in the MANIFEST
+  // Reopen with fast_sst_open DISABLED -- metadata is in the MANIFEST
   // but should NOT be passed to the filesystem
   options.fast_sst_open = false;
   test_fs->ResetCounters();

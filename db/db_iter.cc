@@ -623,7 +623,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key) {
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
               MarkMemtableForFlushForPerOpTrigger(mem_hidden_op_scanned);
               // Track contiguous tombstones for range conversion.
-              // Skip if outside seek prefix — the top-of-loop check
+              // Skip if outside seek prefix -- the top-of-loop check
               // flushed any pending run, but we must also avoid starting
               // a new run outside the prefix.
               if (min_tombstones_for_range_conversion_ > 0 &&
@@ -1097,7 +1097,7 @@ void DBIter::PrevInternal() {
     if (min_tombstones_for_range_conversion_ > 0 &&
         range_tomb_end_key_.Size() > 0 && timestamp_lb_ == nullptr) {
       if (!valid_ && found_visible && PrefixCheck(saved_key_without_ts)) {
-        // Key was deleted and is within the seek prefix — track it.
+        // Key was deleted and is within the seek prefix -- track it.
         TrackContiguousTombstone(saved_key_.GetUserKey(),
                                  /*always_update_first_key=*/true);
       } else if (valid_) {
@@ -1141,7 +1141,7 @@ void DBIter::PrevInternal() {
 // Sets ikey_ to the last visible entry's internal key.  When found_visible
 // is false, ikey_ is not updated and may contain stale data.
 // Sets found_visible to true if at least one entry passed the IsVisible()
-// check (seqno <= snapshot).  When false, no entry was visible — the key
+// check (seqno <= snapshot).  When false, no entry was visible -- the key
 // does not exist at this snapshot and should not be treated as a tombstone.
 // Returns false if an error occurred, and !status().ok() and !valid_.
 //
@@ -1196,7 +1196,7 @@ bool DBIter::FindValueForCurrentKey(bool& found_visible) {
       break;
     }
 
-    // Entry survived the visibility check — at least one visible version
+    // Entry survived the visibility check -- at least one visible version
     // exists for this user key.
     found_visible = true;
 

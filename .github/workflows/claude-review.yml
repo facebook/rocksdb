@@ -34,7 +34,7 @@ on:
           - claude-sonnet-4-6
         default: claude-opus-4-6
       thinking_budget:
-        description: Override MAX_THINKING_TOKENS (blank = auto-classify)
+        description: Override MAX_THINKING_TOKENS (blank = auto-classify, capped at 24000)
         required: false
         type: string
         default: ""

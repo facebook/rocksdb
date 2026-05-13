@@ -8633,7 +8633,7 @@ TEST_P(UserDefinedIndexTest, ValueTypeMappingViaDBFlush) {
   // ValueTypes by writing various operation types via the DB API, flushing,
   // and inspecting what the TestUserDefinedIndexBuilder received.
   if (is_reverse_comparator_) {
-    // Skip for reverse comparator — the key ordering makes this test
+    // Skip for reverse comparator -- the key ordering makes this test
     // unnecessarily complex and the mapping logic is comparator-independent.
     ROCKSDB_GTEST_BYPASS("Skipped for reverse comparator");
     return;
@@ -8735,7 +8735,7 @@ TEST_P(UserDefinedIndexTest, CompactionWithSnapshotsAndUDI) {
   ASSERT_OK(db->Delete(WriteOptions(), "key_bb"));
   ASSERT_OK(db->Flush(FlushOptions()));
 
-  // Compact L0 → L1. With the snapshot held, both versions of key_aa
+  // Compact L0 -> L1. With the snapshot held, both versions of key_aa
   // and the delete tombstone for key_bb must be preserved in the compaction
   // output. The UDI builder receives multiple entries for key_aa.
   ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -8747,7 +8747,7 @@ TEST_P(UserDefinedIndexTest, CompactionWithSnapshotsAndUDI) {
   const auto& log = user_defined_index_factory->key_type_log_;
   ASSERT_FALSE(log.empty());
 
-  // Count total occurrences of key_aa across all builders — at least 4:
+  // Count total occurrences of key_aa across all builders -- at least 4:
   // flush1 (v1) + flush2 (v2) + compaction (v2, v1).
   int key_aa_count = 0;
   int key_bb_count = 0;

@@ -443,7 +443,7 @@ TEST_F(CheckpointTest, ExportEmptyColumnFamily) {
   options.create_if_missing = true;
   CreateAndReopenWithCF({}, options);
 
-  // Do NOT put any data — the default CF has no levels.
+  // Do NOT put any data -- the default CF has no levels.
 
   Checkpoint* checkpoint;
   ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));

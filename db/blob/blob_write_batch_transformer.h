@@ -35,7 +35,7 @@ struct BlobDirectWriteSettings {
   CompressionType compression_type = kNoCompression;
   // Compression options for newly written blob records.
   CompressionOptions compression_opts;
-  // Raw pointer — the Cache is owned by ColumnFamilyOptions and outlives all
+  // Raw pointer -- the Cache is owned by ColumnFamilyOptions and outlives all
   // settings snapshots. Using raw avoids 2 atomic ref-count ops per Put().
   Cache* blob_cache = nullptr;
   // Blob-cache prepopulation policy for direct-write records.

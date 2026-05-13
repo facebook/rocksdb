@@ -1,0 +1,1 @@
+Reject the empty string as a column family name in `DB::CreateColumnFamily` / `DB::CreateColumnFamilies`. Previously such calls returned OK and a usable handle, but the column family was not persisted in the manifest, so any data written to it was silently lost on DB reopen.

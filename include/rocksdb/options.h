@@ -2952,7 +2952,7 @@ struct SizeApproximationOptions {
   // blob file data in the key range. When enabled, the total blob file size
   // is prorated by the ratio of SST data in the range to the total SST data:
   //
-  //   blob_size_in_range ≈ total_blob_size * (sst_in_range / total_sst)
+  //   blob_size_in_range ~= total_blob_size * (sst_in_range / total_sst)
   //
   // Limitations of this approximation:
   // - Assumes blob data is distributed proportionally to SST data, which

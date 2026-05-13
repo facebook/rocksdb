@@ -309,7 +309,7 @@ TEST_F(SortedRunBuilderTest, NumEntriesAfterDedup) {
   std::unique_ptr<SortedRunBuilder> builder;
   ASSERT_OK(SortedRunBuilder::Create(opts, &builder));
 
-  // Add duplicate keys — pre-Finish count includes duplicates
+  // Add duplicate keys -- pre-Finish count includes duplicates
   ASSERT_OK(builder->Add("key1", "old_value"));
   ASSERT_OK(builder->Add("key1", "new_value"));
   ASSERT_OK(builder->Add("key2", "value2"));
@@ -317,7 +317,7 @@ TEST_F(SortedRunBuilderTest, NumEntriesAfterDedup) {
 
   ASSERT_OK(builder->Finish());
 
-  // After Finish(), duplicates are resolved — only 2 unique keys remain
+  // After Finish(), duplicates are resolved -- only 2 unique keys remain
   ASSERT_EQ(builder->GetNumEntries(), 2);
 }
 
@@ -412,7 +412,7 @@ TEST_F(SortedRunBuilderTest, DuplicateKeys) {
   std::unique_ptr<SortedRunBuilder> builder;
   ASSERT_OK(SortedRunBuilder::Create(opts, &builder));
 
-  // Add duplicate keys — later value should win (RocksDB semantics)
+  // Add duplicate keys -- later value should win (RocksDB semantics)
   ASSERT_OK(builder->Add("key1", "old_value"));
   ASSERT_OK(builder->Add("key1", "new_value"));
   ASSERT_OK(builder->Add("key2", "value2"));
@@ -510,7 +510,7 @@ TEST_F(SortedRunBuilderTest, DestructionWithoutFinish) {
     std::unique_ptr<SortedRunBuilder> builder;
     ASSERT_OK(SortedRunBuilder::Create(opts, &builder));
     ASSERT_OK(builder->Add("key1", "value1"));
-    // Intentionally not calling Finish() — destructor should clean up
+    // Intentionally not calling Finish() -- destructor should clean up
   }
 
   // Verify temp dir is cleaned up
