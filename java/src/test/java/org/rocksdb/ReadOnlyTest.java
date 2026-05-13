@@ -6,6 +6,8 @@ package org.rocksdb;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -200,11 +202,12 @@ public class ReadOnlyTest {
   }
 
   @Test(expected = RocksDBException.class)
-  public void errorIfWalFileExists() throws RocksDBException {
+  public void errorIfWalFileExists() throws RocksDBException, IOException {
     try (final Options options = new Options().setCreateIfMissing(true);
          final RocksDB ignored = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       // no-op
     }
+    Files.write(dbFolder.getRoot().toPath().resolve("999999.log"), new byte[] {1});
 
     try (final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions()) {
       final List<ColumnFamilyDescriptor> cfDescriptors = Collections.singletonList(
