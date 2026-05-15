@@ -8,6 +8,7 @@
 
 #include <cinttypes>
 #include <mutex>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "db_stress_tool/db_stress_compaction_service.h"
@@ -119,7 +120,24 @@ class DbStressListener : public EventListener {
     }
   }
 
-  void OnTableFileDeleted(const TableFileDeletionInfo& /*info*/) override {
+  void OnTableFileDeleted(const TableFileDeletionInfo& info) override {
+    // A file must not be deleted while it is still between
+    // OnCompactionBegin and OnCompactionPreCommit (i.e. actively being
+    // compacted with being_compacted == true). (Perhaps more realistically,
+    // this is checking for failure to call OnCompactionPreCommit.)
+    {
+      std::lock_guard<std::mutex> lock(compacting_files_mu_);
+      uint64_t file_number = FileNumberFromPath(info.file_path);
+      if (file_number != 0 &&
+          compacting_files_.find(file_number) != compacting_files_.end()) {
+        fprintf(stderr,
+                "OnTableFileDeleted for file tracked as being compacted "
+                "(between Begin and PreCommit): file_number=%" PRIu64 "\n",
+                file_number);
+        fflush(stderr);
+        std::abort();
+      }
+    }
     RandomSleep();
   }
 
@@ -150,9 +168,10 @@ class DbStressListener : public EventListener {
   }
 
   void OnCompactionPreCommit(DB* /*db*/, const CompactionJobInfo& ci) override {
-    // Pair with OnCompactionBegin's bookkeeping. See the comment there for
-    // why we clean up here rather than in OnCompactionCompleted.
+    // Pair with OnCompactionBegin's bookkeeping: move files from
+    // compacting_files_ and record the job for Completed verification.
     std::lock_guard<std::mutex> lock(compacting_files_mu_);
+    std::unordered_set<uint64_t> job_files;
     for (const auto& info : ci.input_file_infos) {
       size_t erased = compacting_files_.erase(info.file_number);
       if (erased != 1) {
@@ -163,6 +182,15 @@ class DbStressListener : public EventListener {
         fflush(stderr);
         std::abort();
       }
+      job_files.insert(info.file_number);
+    }
+    auto [_, inserted] =
+        precommitted_jobs_.emplace(ci.job_id, std::move(job_files));
+    if (!inserted) {
+      fprintf(stderr, "OnCompactionPreCommit: duplicate job_id %d\n",
+              ci.job_id);
+      fflush(stderr);
+      std::abort();
     }
     RandomSleep();
   }
@@ -176,6 +204,45 @@ class DbStressListener : public EventListener {
     for (const auto& file_path : ci.output_files) {
       VerifyFilePath(file_path);
     }
+
+    // Verify that OnCompactionPreCommit fired before OnCompactionCompleted
+    // for the same job, with matching input files.
+    {
+      std::lock_guard<std::mutex> lock(compacting_files_mu_);
+      auto it = precommitted_jobs_.find(ci.job_id);
+      if (it == precommitted_jobs_.end()) {
+        fprintf(stderr,
+                "OnCompactionCompleted without prior OnCompactionPreCommit: "
+                "cf=%s job_id=%d\n",
+                ci.cf_name.c_str(), ci.job_id);
+        fflush(stderr);
+        std::abort();
+      }
+      // Verify input file sets match between PreCommit and Completed.
+      for (const auto& info : ci.input_file_infos) {
+        if (it->second.find(info.file_number) == it->second.end()) {
+          fprintf(stderr,
+                  "OnCompactionCompleted: input file %" PRIu64
+                  " not in PreCommit set for job_id=%d\n",
+                  info.file_number, ci.job_id);
+          fflush(stderr);
+          std::abort();
+        }
+        // File must not still be in compacting_files_ (should have been
+        // removed by PreCommit).
+        if (compacting_files_.find(info.file_number) !=
+            compacting_files_.end()) {
+          fprintf(stderr,
+                  "OnCompactionCompleted: file %" PRIu64
+                  " still in compacting set for job_id=%d\n",
+                  info.file_number, ci.job_id);
+          fflush(stderr);
+          std::abort();
+        }
+      }
+      precommitted_jobs_.erase(it);
+    }
+
     // pretending doing some work here
     RandomSleep();
   }
@@ -424,6 +491,26 @@ class DbStressListener : public EventListener {
   // callback. Protected by compacting_files_mu_.
   std::mutex compacting_files_mu_;
   std::unordered_set<uint64_t> compacting_files_;
+  // Jobs that have passed OnCompactionPreCommit but not yet
+  // OnCompactionCompleted. Maps job_id -> input file numbers.
+  // Used to verify Begin -> PreCommit -> Completed ordering per job.
+  // Protected by compacting_files_mu_.
+  std::unordered_map<int, std::unordered_set<uint64_t>> precommitted_jobs_;
+
+  // Extract file number from a file path like "/path/to/000123.sst".
+  // Returns 0 if the path cannot be parsed.
+  static uint64_t FileNumberFromPath(const std::string& file_path) {
+    size_t pos = file_path.find_last_of("/");
+    std::string file_name =
+        (pos == std::string::npos) ? file_path : file_path.substr(pos + 1);
+    uint64_t file_number = 0;
+    FileType file_type;
+    if (ParseFileName(file_name, &file_number, &file_type) &&
+        file_type == kTableFile) {
+      return file_number;
+    }
+    return 0;
+  }
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

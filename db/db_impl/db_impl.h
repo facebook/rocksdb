@@ -2583,10 +2583,15 @@ class DBImpl : public DB {
   // Helper function to perform trivial move by updating manifest metadata
   // without rewriting data files. This is called when IsTrivialMove() is true.
   // REQUIRES: mutex held
-  // Returns: Status of the trivial move operation
-  Status PerformTrivialMove(Compaction& c, LogBuffer* log_buffer,
-                            bool& compaction_released, size_t& moved_files,
-                            size_t& moved_bytes);
+  // Populates the Compaction's edit with DeleteFile/AddFile entries for
+  // a trivial move (no data rewriting). Does not commit the edit.
+  void PrepareTrivialMoveEdit(Compaction& c, LogBuffer* log_buffer,
+                              size_t& moved_files, size_t& moved_bytes);
+
+  // REQUIRES: mutex held, PrepareTrivialMoveEdit already called
+  // Commits the trivial move by calling LogAndApply on the prepared edit.
+  // Returns: Status of the manifest write
+  Status CommitTrivialMove(Compaction& c, bool& compaction_released);
 
   // REQUIRES: mutex unlocked
   void TrackOrUntrackFiles(const std::vector<std::string>& existing_data_files,

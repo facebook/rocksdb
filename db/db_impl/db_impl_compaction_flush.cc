@@ -1581,9 +1581,8 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
   return s;
 }
 
-Status DBImpl::PerformTrivialMove(Compaction& c, LogBuffer* log_buffer,
-                                  bool& compaction_released,
-                                  size_t& moved_files, size_t& moved_bytes) {
+void DBImpl::PrepareTrivialMoveEdit(Compaction& c, LogBuffer* log_buffer,
+                                    size_t& moved_files, size_t& moved_bytes) {
   mutex_.AssertHeld();
 
   ROCKS_LOG_BUFFER(log_buffer, "[%s] Moving %d files to level-%d\n",
@@ -1616,6 +1615,10 @@ Status DBImpl::PerformTrivialMove(Compaction& c, LogBuffer* log_buffer,
     }
     moved_files += c.num_input_files(l);
   }
+}
+
+Status DBImpl::CommitTrivialMove(Compaction& c, bool& compaction_released) {
+  mutex_.AssertHeld();
 
   // Install the new version
   const ReadOptions read_options(Env::IOActivity::kCompaction);
@@ -1740,8 +1743,8 @@ Status DBImpl::CompactFilesImpl(
     bool compaction_released = false;
     size_t moved_files = 0;
     size_t moved_bytes = 0;
-    Status status = PerformTrivialMove(
-        *c.get(), log_buffer, compaction_released, moved_files, moved_bytes);
+    PrepareTrivialMoveEdit(*c.get(), log_buffer, moved_files, moved_bytes);
+    Status status = CommitTrivialMove(*c.get(), compaction_released);
 
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(
@@ -4593,14 +4596,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     // Perform the trivial move
     size_t moved_files = 0;
     size_t moved_bytes = 0;
-    // Fire OnCompactionPreCommit before PerformTrivialMove's
-    // LogAndApply runs ReleaseCompactionFiles in its manifest write callback.
-    // PerformTrivialMove holds DBImpl::mutex_ throughout, so firing here is
-    // equivalent to firing immediately before that LogAndApply.
+    // Populate the edit first so that CompactionJobInfo has output file
+    // info when OnCompactionPreCommit fires.
+    PrepareTrivialMoveEdit(*c.get(), log_buffer, moved_files, moved_bytes);
     NotifyOnCompactionPreCommit(c->column_family_data(), c.get(), status,
                                 compaction_job_stats, job_context->job_id);
-    status = PerformTrivialMove(*c.get(), log_buffer, compaction_released,
-                                moved_files, moved_bytes);
+    status = CommitTrivialMove(*c.get(), compaction_released);
     io_s = versions_->io_status();
     InstallSuperVersionAndScheduleWork(
         c->column_family_data(), job_context->superversion_contexts.data());

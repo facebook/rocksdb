@@ -692,6 +692,13 @@ class EventListener : public Customizable {
   // the same file fires before `OnCompactionCompleted` for the previous
   // compaction. The default implementation is a no-op.
   //
+  // Unlike `OnCompactionCompleted`, `ci.status` does not reflect the
+  // final outcome: the manifest commit has not yet occurred, so it
+  // does not capture commit failures. Other `CompactionJobInfo` quirks
+  // that also apply to `OnCompactionCompleted`: for trivial moves and
+  // FIFO deletion-only compactions, `ci.stats` is minimal (no
+  // `CompactionJob` runs), and FIFO deletions have no output files.
+  //
   // As with `OnCompactionCompleted`, the DB mutex is released for the
   // duration of this callback, but other manifest writers may be waiting,
   // so cheap implementations are strongly preferred.
