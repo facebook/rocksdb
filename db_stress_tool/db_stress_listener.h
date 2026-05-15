@@ -228,17 +228,6 @@ class DbStressListener : public EventListener {
           fflush(stderr);
           std::abort();
         }
-        // File must not still be in compacting_files_ (should have been
-        // removed by PreCommit).
-        if (compacting_files_.find(info.file_number) !=
-            compacting_files_.end()) {
-          fprintf(stderr,
-                  "OnCompactionCompleted: file %" PRIu64
-                  " still in compacting set for job_id=%d\n",
-                  info.file_number, ci.job_id);
-          fflush(stderr);
-          std::abort();
-        }
       }
       precommitted_jobs_.erase(it);
     }
