@@ -19,6 +19,7 @@
 #include "rocksdb/compression_type.h"
 #include "rocksdb/db.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/io_dispatcher.h"
 #include "rocksdb/options.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -1346,6 +1347,63 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, DISABLED_MultiScanPrepare) {
       last_read_key_index += rnd.Uniform(100);
     }
   }
+}
+
+TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest,
+       MultiScanPrepareUsesProvidedIODispatcher) {
+  auto param = GetParam();
+  auto fill_cache = param.fill_cache;
+  auto use_async_io = param.use_async_io;
+
+  options_.statistics = CreateDBStatistics();
+  ReadOptions read_opts;
+  read_opts.fill_cache = fill_cache;
+  size_t ts_sz = options_.comparator->timestamp_size();
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          20 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          ts_sz, same_key_diff_ts_, comparator_);
+  std::string table_name = "BlockBasedTableReaderTest_ProvidedIODispatcher" +
+                           CompressionTypeToString(compression_type_) +
+                           "_async" + std::to_string(use_async_io);
+  ImmutableOptions ioptions(options_);
+  CreateTable(table_name, ioptions, compression_type_,
+              std::vector<std::pair<std::string, std::string>>{
+                  kv.begin() + 4 * kEntriesPerBlock,
+                  kv.begin() + 16 * kEntriesPerBlock},
+              compression_parallel_threads_, compression_dict_bytes_);
+
+  std::unique_ptr<BlockBasedTable> table;
+  FileOptions foptions;
+  foptions.use_direct_reads = use_direct_reads_;
+  InternalKeyComparator comparator(options_.comparator);
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table,
+                           true /* prefetch_index_and_filter_in_cache */,
+                           nullptr /* status */, persist_udt_);
+
+  std::unique_ptr<InternalIterator> iter;
+  iter.reset(table->NewIterator(
+      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  auto tracking_dispatcher = std::make_shared<TrackingIODispatcher>();
+
+  MultiScanArgs scan_options(comparator_);
+  scan_options.use_async_io = use_async_io;
+  scan_options.io_dispatcher = tracking_dispatcher;
+  scan_options.insert(ExtractUserKey(kv[5 * kEntriesPerBlock].first),
+                      ExtractUserKey(kv[10 * kEntriesPerBlock].first));
+
+  iter->Prepare(&scan_options);
+  ASSERT_GE(tracking_dispatcher->GetReadSets().size(), 1);
+
+  iter->Seek(kv[5 * kEntriesPerBlock].first);
+  for (size_t i = 5 * kEntriesPerBlock; i < 10 * kEntriesPerBlock; ++i) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), kv[i].first);
+    iter->Next();
+  }
+  ASSERT_OK(iter->status());
 }
 
 TEST_P(BlockBasedTableReaderMultiScanTest, MultiScanPrefetchSizeLimit) {

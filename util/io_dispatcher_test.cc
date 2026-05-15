@@ -10,12 +10,14 @@
 
 #include "rocksdb/io_dispatcher.h"
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <thread>
 
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
+#include "file/filename.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
@@ -120,6 +122,22 @@ class ReadTrackingFS : public FileSystemWrapper {
     read_ops_.clear();
   }
 
+  void FailNextMultiRead() {
+    fail_next_multiread_.store(true, std::memory_order_release);
+  }
+
+  void FailNextReadAsync() {
+    fail_next_read_async_.store(true, std::memory_order_release);
+  }
+
+  bool ConsumeFailNextMultiRead() {
+    return fail_next_multiread_.exchange(false, std::memory_order_acq_rel);
+  }
+
+  bool ConsumeFailNextReadAsync() {
+    return fail_next_read_async_.exchange(false, std::memory_order_acq_rel);
+  }
+
   // Get count of MultiRead operations
   size_t GetMultiReadCount() const {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -147,6 +165,8 @@ class ReadTrackingFS : public FileSystemWrapper {
  private:
   mutable std::mutex mutex_;
   std::vector<ReadOp> read_ops_;
+  std::atomic<bool> fail_next_multiread_{false};
+  std::atomic<bool> fail_next_read_async_{false};
 };
 
 IOStatus ReadTrackingRandomAccessFile::MultiRead(FSReadRequest* reqs,
@@ -161,6 +181,10 @@ IOStatus ReadTrackingRandomAccessFile::MultiRead(FSReadRequest* reqs,
   }
   fs_->RecordMultiRead(recorded_reqs);
 
+  if (fs_->ConsumeFailNextMultiRead()) {
+    return IOStatus::IOError("Injected MultiRead failure");
+  }
+
   // Delegate to underlying file
   return target()->MultiRead(reqs, num_reqs, options, dbg);
 }
@@ -172,12 +196,23 @@ IOStatus ReadTrackingRandomAccessFile::ReadAsync(
   // Record the read operation before executing it
   fs_->RecordReadAsync(req.offset, req.len);
 
+  if (fs_->ConsumeFailNextReadAsync()) {
+    return IOStatus::IOError("Injected ReadAsync failure");
+  }
+
   // Delegate to underlying file
   return target()->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, dbg);
 }
 
 class IODispatcherTest : public DBTestBase {
  public:
+  struct SSTOptions {
+    int level = -1;
+    uint64_t file_num = 0;
+    size_t block_size = 16 * 1024;
+    size_t max_auto_readahead_size = 0;
+  };
+
   IODispatcherTest()
       : DBTestBase("io_dispatcher_test", /*env_do_fsync=*/false) {}
 
@@ -276,10 +311,17 @@ class IODispatcherTest : public DBTestBase {
   // The BlockBasedTable keeps references to these options
   std::vector<std::unique_ptr<ImmutableOptions>> all_ioptions_;
   std::vector<std::unique_ptr<EnvOptions>> all_env_options_;
+  std::vector<std::unique_ptr<BlockCacheTracer>> all_block_cache_tracers_;
 
   // Helper to create an SST file and open it as a table
   // Following pattern from table_test.cc TableConstructor
   Status CreateAndOpenSST(int num_blocks,
+                          std::unique_ptr<BlockBasedTable>* table,
+                          std::vector<BlockHandle>* block_handles_out) {
+    return CreateAndOpenSST(num_blocks, SSTOptions{}, table, block_handles_out);
+  }
+
+  Status CreateAndOpenSST(int num_blocks, const SSTOptions& sst_options,
                           std::unique_ptr<BlockBasedTable>* table,
                           std::vector<BlockHandle>* block_handles_out) {
     // Create options - store in member variables to avoid use-after-scope
@@ -288,17 +330,23 @@ class IODispatcherTest : public DBTestBase {
     options.statistics = nullptr;
     BlockBasedTableOptions table_options;
     table_options.block_cache = NewLRUCache(8 * 1024 * 1024);
-    table_options.block_size = 16 * 1024;
+    table_options.block_size = sst_options.block_size;
+    table_options.max_auto_readahead_size = sst_options.max_auto_readahead_size;
     table_options.no_block_cache = false;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     // Store these in member variables so they outlive the function
     auto ioptions = std::make_unique<ImmutableOptions>(options);
     auto moptions = MutableCFOptions{options};
-    InternalKeyComparator internal_comparator(options.comparator);
+
+    const uint64_t file_num =
+        sst_options.file_num != 0 ? sst_options.file_num : cur_file_num_++;
+    if (sst_options.file_num != 0 && file_num >= cur_file_num_) {
+      cur_file_num_ = file_num + 1;
+    }
 
     // Create in-memory file using StringSink (like table_test.cc)
-    auto table_name = "test_table";
+    auto table_name = MakeTableFileName(file_num);
     std::unique_ptr<WritableFileWriter> file_writer;
     NewFileWriter(table_name, &file_writer);
 
@@ -309,10 +357,13 @@ class IODispatcherTest : public DBTestBase {
     std::vector<std::unique_ptr<InternalTblPropCollFactory>>
         int_tbl_prop_coll_factories;
     TableBuilderOptions builder_options(
-        *ioptions, moptions, read_options, write_options, internal_comparator,
-        &int_tbl_prop_coll_factories, kNoCompression, options.compression_opts,
-        0 /* column_family_id */, column_family_name, -1 /* level */,
-        kUnknownNewestKeyTime);
+        *ioptions, moptions, read_options, write_options,
+        ioptions->internal_comparator, &int_tbl_prop_coll_factories,
+        kNoCompression, options.compression_opts, 0 /* column_family_id */,
+        column_family_name, sst_options.level, kUnknownNewestKeyTime,
+        false /* is_bottommost */, TableFileCreationReason::kMisc,
+        0 /* oldest_key_time */, 0 /* file_creation_time */, "" /* db_id */,
+        "" /* db_session_id */, 0 /* target_file_size */, file_num);
 
     std::unique_ptr<TableBuilder> builder(
         options.table_factory->NewTableBuilder(builder_options,
@@ -349,14 +400,17 @@ class IODispatcherTest : public DBTestBase {
 
     // Store EnvOptions and InternalKeyComparator to avoid use-after-scope
     auto soptions = std::make_unique<EnvOptions>();
-    BlockCacheTracer block_cache_tracer;
+    auto block_cache_tracer = std::make_unique<BlockCacheTracer>();
     std::unique_ptr<TableReader> table_reader;
 
-    auto ikc = InternalKeyComparator(options.comparator);
-    TableReaderOptions reader_options(*ioptions, moptions.prefix_extractor,
-                                      moptions.compression_manager.get(),
-                                      *soptions, ikc,
-                                      0 /* block_protection_bytes_per_key */);
+    TableReaderOptions reader_options(
+        *ioptions, moptions.prefix_extractor,
+        moptions.compression_manager.get(), *soptions,
+        ioptions->internal_comparator, 0 /* block_protection_bytes_per_key */,
+        false /* skip_filters */, false /* immortal */,
+        false /* force_direct_prefetch */, sst_options.level,
+        block_cache_tracer.get(), 0 /* max_file_size_for_l0_meta_pin */,
+        "" /* cur_db_session_id */, file_num);
 
     s = options.table_factory->NewTableReader(reader_options, std::move(file),
                                               file_size, &table_reader);
@@ -378,6 +432,7 @@ class IODispatcherTest : public DBTestBase {
     // Store all options in member variables to keep them alive
     all_ioptions_.push_back(std::move(ioptions));
     all_env_options_.push_back(std::move(soptions));
+    all_block_cache_tracers_.push_back(std::move(block_cache_tracer));
 
     return Status::OK();
   }
@@ -386,6 +441,15 @@ class IODispatcherTest : public DBTestBase {
 };
 
 uint64_t IODispatcherTest::cur_file_num_ = 1;
+
+std::shared_ptr<IOJob> NewSingleBlockJob(BlockBasedTable* table,
+                                         const BlockHandle& block_handle) {
+  auto job = std::make_shared<IOJob>();
+  job->table = table;
+  job->block_handles = {block_handle};
+  job->job_options.read_options.async_io = false;
+  return job;
+}
 
 TEST_F(IODispatcherTest, BasicSSTRead) {
   std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
@@ -1788,6 +1852,390 @@ TEST_F(IODispatcherTest, CoalescedGroupsSplitByMemoryBudget) {
   for (size_t i = 0; i < blocks_per_dispatch.size(); ++i) {
     EXPECT_LE(blocks_per_dispatch[i], 5)
         << "Dispatch " << i << " exceeded memory budget";
+  }
+}
+
+TEST_F(IODispatcherTest,
+       FairnessDifferentNonL0LevelsGetSeparateInitialReservation) {
+  SSTOptions l1_options;
+  l1_options.level = 1;
+  l1_options.file_num = 101;
+  l1_options.max_auto_readahead_size = 64 * 1024;
+
+  SSTOptions l2_options;
+  l2_options.level = 2;
+  l2_options.file_num = 202;
+  l2_options.max_auto_readahead_size = 64 * 1024;
+
+  std::unique_ptr<BlockBasedTable> l1_table;
+  std::unique_ptr<BlockBasedTable> l2_table;
+  std::vector<BlockHandle> l1_handles;
+  std::vector<BlockHandle> l2_handles;
+  ASSERT_OK(CreateAndOpenSST(1, l1_options, &l1_table, &l1_handles));
+  ASSERT_OK(CreateAndOpenSST(1, l2_options, &l2_table, &l2_handles));
+  ASSERT_EQ(l1_handles.size(), 1);
+  ASSERT_EQ(l2_handles.size(), 1);
+
+  IODispatcherOptions options;
+  options.max_prefetch_memory_bytes =
+      BlockBasedTable::BlockSizeWithTrailer(l1_handles.front());
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(options));
+
+  std::vector<size_t> blocks_per_dispatch;
+  SyncPoint::GetInstance()->SetCallBack(
+      "IODispatcherImpl::DispatchPrefetch:BlockCount", [&](void* arg) {
+        auto* indices = static_cast<std::vector<size_t>*>(arg);
+        blocks_per_dispatch.push_back(indices->size());
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::shared_ptr<ReadSet> read_set_l1;
+  ASSERT_OK(dispatcher->SubmitJob(
+      NewSingleBlockJob(l1_table.get(), l1_handles[0]), &read_set_l1));
+  ASSERT_EQ(blocks_per_dispatch, std::vector<size_t>({1}));
+
+  std::shared_ptr<ReadSet> read_set_l2;
+  ASSERT_OK(dispatcher->SubmitJob(
+      NewSingleBlockJob(l2_table.get(), l2_handles[0]), &read_set_l2));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  EXPECT_EQ(blocks_per_dispatch.size(), 2);
+  if (blocks_per_dispatch.size() >= 2) {
+    EXPECT_EQ(blocks_per_dispatch[1], 1);
+  }
+
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set_l1->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  block.Reset();
+  ASSERT_OK(read_set_l2->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+}
+
+TEST_F(IODispatcherTest, FairnessSameNonL0LevelSharesReservationAcrossFiles) {
+  SSTOptions first_options;
+  first_options.level = 3;
+  first_options.file_num = 303;
+  first_options.max_auto_readahead_size = 20 * 1024;
+
+  SSTOptions second_options = first_options;
+  second_options.file_num = 304;
+
+  std::unique_ptr<BlockBasedTable> first_table;
+  std::unique_ptr<BlockBasedTable> second_table;
+  std::vector<BlockHandle> first_handles;
+  std::vector<BlockHandle> second_handles;
+  ASSERT_OK(CreateAndOpenSST(1, first_options, &first_table, &first_handles));
+  ASSERT_OK(
+      CreateAndOpenSST(1, second_options, &second_table, &second_handles));
+  ASSERT_EQ(first_handles.size(), 1);
+  ASSERT_EQ(second_handles.size(), 1);
+
+  const auto first_block_bytes =
+      BlockBasedTable::BlockSizeWithTrailer(first_handles.front());
+
+  IODispatcherOptions options;
+  options.max_prefetch_memory_bytes = first_block_bytes;
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(options));
+
+  std::vector<size_t> blocks_per_dispatch;
+  SyncPoint::GetInstance()->SetCallBack(
+      "IODispatcherImpl::DispatchPrefetch:BlockCount", [&](void* arg) {
+        auto* indices = static_cast<std::vector<size_t>*>(arg);
+        blocks_per_dispatch.push_back(indices->size());
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::shared_ptr<ReadSet> first_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(
+      NewSingleBlockJob(first_table.get(), first_handles[0]), &first_read_set));
+  ASSERT_EQ(blocks_per_dispatch, std::vector<size_t>({1}));
+
+  std::shared_ptr<ReadSet> second_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(
+      NewSingleBlockJob(second_table.get(), second_handles[0]),
+      &second_read_set));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  EXPECT_EQ(blocks_per_dispatch.size(), 1);
+
+  CachableEntry<Block> block;
+  ASSERT_OK(first_read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  block.Reset();
+  ASSERT_OK(second_read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+}
+
+TEST_F(IODispatcherTest, FairnessDistinctL0FilesGetSeparateReservation) {
+  SSTOptions first_options;
+  first_options.level = 0;
+  first_options.file_num = 401;
+  first_options.max_auto_readahead_size = 64 * 1024;
+
+  SSTOptions second_options = first_options;
+  second_options.file_num = 402;
+
+  std::unique_ptr<BlockBasedTable> first_table;
+  std::unique_ptr<BlockBasedTable> second_table;
+  std::vector<BlockHandle> first_handles;
+  std::vector<BlockHandle> second_handles;
+  ASSERT_OK(CreateAndOpenSST(1, first_options, &first_table, &first_handles));
+  ASSERT_OK(
+      CreateAndOpenSST(1, second_options, &second_table, &second_handles));
+  ASSERT_EQ(first_handles.size(), 1);
+  ASSERT_EQ(second_handles.size(), 1);
+
+  IODispatcherOptions options;
+  options.max_prefetch_memory_bytes =
+      BlockBasedTable::BlockSizeWithTrailer(first_handles.front());
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(options));
+
+  std::vector<size_t> blocks_per_dispatch;
+  SyncPoint::GetInstance()->SetCallBack(
+      "IODispatcherImpl::DispatchPrefetch:BlockCount", [&](void* arg) {
+        auto* indices = static_cast<std::vector<size_t>*>(arg);
+        blocks_per_dispatch.push_back(indices->size());
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::shared_ptr<ReadSet> first_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(
+      NewSingleBlockJob(first_table.get(), first_handles[0]), &first_read_set));
+  ASSERT_EQ(blocks_per_dispatch, std::vector<size_t>({1}));
+
+  std::shared_ptr<ReadSet> second_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(
+      NewSingleBlockJob(second_table.get(), second_handles[0]),
+      &second_read_set));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  EXPECT_EQ(blocks_per_dispatch.size(), 2);
+  if (blocks_per_dispatch.size() >= 2) {
+    EXPECT_EQ(blocks_per_dispatch[1], 1);
+  }
+
+  CachableEntry<Block> block;
+  ASSERT_OK(first_read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  block.Reset();
+  ASSERT_OK(second_read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+}
+
+TEST_F(IODispatcherTest,
+       FairnessReservedOvercommitStillCountsAgainstParentBudget) {
+  auto stats = CreateDBStatistics();
+
+  SSTOptions l1_options;
+  l1_options.level = 1;
+  l1_options.file_num = 501;
+  l1_options.max_auto_readahead_size = 20 * 1024;
+
+  SSTOptions l2_options;
+  l2_options.level = 2;
+  l2_options.file_num = 502;
+  l2_options.max_auto_readahead_size = 20 * 1024;
+
+  SSTOptions same_level_options = l1_options;
+  same_level_options.file_num = 503;
+
+  std::unique_ptr<BlockBasedTable> l1_table;
+  std::unique_ptr<BlockBasedTable> l2_table;
+  std::unique_ptr<BlockBasedTable> same_level_table;
+  std::vector<BlockHandle> l1_handles;
+  std::vector<BlockHandle> l2_handles;
+  std::vector<BlockHandle> same_level_handles;
+  ASSERT_OK(CreateAndOpenSST(1, l1_options, &l1_table, &l1_handles));
+  ASSERT_OK(CreateAndOpenSST(1, l2_options, &l2_table, &l2_handles));
+  ASSERT_OK(CreateAndOpenSST(1, same_level_options, &same_level_table,
+                             &same_level_handles));
+  ASSERT_EQ(l1_handles.size(), 1);
+  ASSERT_EQ(l2_handles.size(), 1);
+  ASSERT_EQ(same_level_handles.size(), 1);
+
+  const auto l1_block_bytes =
+      BlockBasedTable::BlockSizeWithTrailer(l1_handles.front());
+  const auto l2_block_bytes =
+      BlockBasedTable::BlockSizeWithTrailer(l2_handles.front());
+
+  IODispatcherOptions options;
+  options.max_prefetch_memory_bytes = l1_block_bytes;
+  options.statistics = stats.get();
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(options));
+
+  std::shared_ptr<ReadSet> l1_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(
+      NewSingleBlockJob(l1_table.get(), l1_handles[0]), &l1_read_set));
+  EXPECT_EQ(stats->getTickerCount(PREFETCH_MEMORY_BYTES_GRANTED),
+            l1_block_bytes);
+
+  std::shared_ptr<ReadSet> l2_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(
+      NewSingleBlockJob(l2_table.get(), l2_handles[0]), &l2_read_set));
+  EXPECT_EQ(stats->getTickerCount(PREFETCH_MEMORY_BYTES_GRANTED),
+            l1_block_bytes + l2_block_bytes);
+  EXPECT_GT(stats->getTickerCount(PREFETCH_MEMORY_BYTES_GRANTED),
+            options.max_prefetch_memory_bytes);
+
+  std::shared_ptr<ReadSet> same_level_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(
+      NewSingleBlockJob(same_level_table.get(), same_level_handles[0]),
+      &same_level_read_set));
+  EXPECT_EQ(stats->getTickerCount(PREFETCH_MEMORY_BYTES_GRANTED),
+            l1_block_bytes + l2_block_bytes);
+
+  CachableEntry<Block> block;
+  ASSERT_OK(l1_read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  block.Reset();
+  ASSERT_OK(l2_read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  block.Reset();
+  ASSERT_OK(same_level_read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+}
+
+TEST_F(IODispatcherTest, FairnessPendingRoundRobinAcrossGroups) {
+  SSTOptions l1_options;
+  l1_options.level = 1;
+  l1_options.file_num = 601;
+  l1_options.block_size = 4 * 1024;
+  l1_options.max_auto_readahead_size = 6 * 1024;
+
+  SSTOptions l2_options = l1_options;
+  l2_options.level = 2;
+  l2_options.file_num = 602;
+
+  std::unique_ptr<BlockBasedTable> l1_table;
+  std::unique_ptr<BlockBasedTable> l2_table;
+  std::vector<BlockHandle> l1_handles;
+  std::vector<BlockHandle> l2_handles;
+  ASSERT_OK(CreateAndOpenSST(2, l1_options, &l1_table, &l1_handles));
+  ASSERT_OK(CreateAndOpenSST(2, l2_options, &l2_table, &l2_handles));
+  ASSERT_GE(l1_handles.size(), 2);
+  ASSERT_GE(l2_handles.size(), 2);
+
+  const size_t block_bytes =
+      BlockBasedTable::BlockSizeWithTrailer(l1_handles.front());
+  ASSERT_LT(block_bytes, l1_options.max_auto_readahead_size);
+  ASSERT_GT(block_bytes * 2, l1_options.max_auto_readahead_size);
+
+  IODispatcherOptions options;
+  options.max_prefetch_memory_bytes = block_bytes;
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(options));
+
+  std::unordered_map<int, uint64_t> level_to_group;
+  std::vector<uint64_t> granted_group_ids;
+  auto* sync_point = SyncPoint::GetInstance();
+  sync_point->SetCallBack("IODispatcherImpl::GetFairnessGroup", [&](void* arg) {
+    auto* info = static_cast<std::tuple<int, uint64_t, uint64_t>*>(arg);
+    const int level = std::get<0>(*info);
+    if (level > 0) {
+      level_to_group[level] = std::get<2>(*info);
+    }
+  });
+  sync_point->SetCallBack(
+      "IODispatcherImpl::TryAcquireMemory:Granted", [&](void* arg) {
+        auto* info = static_cast<std::tuple<uint64_t, size_t, bool>*>(arg);
+        granted_group_ids.push_back(std::get<0>(*info));
+      });
+  sync_point->EnableProcessing();
+
+  auto l1_job = std::make_shared<IOJob>();
+  l1_job->table = l1_table.get();
+  l1_job->block_handles = {l1_handles[0], l1_handles[1]};
+
+  auto l2_job = std::make_shared<IOJob>();
+  l2_job->table = l2_table.get();
+  l2_job->block_handles = {l2_handles[0], l2_handles[1]};
+
+  std::shared_ptr<ReadSet> l1_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(l1_job, &l1_read_set));
+  std::shared_ptr<ReadSet> l2_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(l2_job, &l2_read_set));
+
+  ASSERT_EQ(level_to_group.size(), 2);
+  ASSERT_NE(level_to_group[1], level_to_group[2]);
+  ASSERT_TRUE(l1_read_set->IsBlockAvailable(0));
+  ASSERT_TRUE(l2_read_set->IsBlockAvailable(0));
+
+  granted_group_ids.clear();
+
+  // Level 1 still occupies its reservation, so a FIFO pending queue would stop
+  // on that blocked group here. The fair scheduler should skip it and dispatch
+  // level 2's pending block instead.
+  l2_read_set->ReleaseBlock(0);
+  ASSERT_EQ(granted_group_ids.size(), 1);
+  EXPECT_EQ(granted_group_ids.front(), level_to_group[2]);
+
+  granted_group_ids.clear();
+  l1_read_set->ReleaseBlock(0);
+  ASSERT_EQ(granted_group_ids.size(), 1);
+  EXPECT_EQ(granted_group_ids.front(), level_to_group[1]);
+
+  sync_point->DisableProcessing();
+  sync_point->ClearAllCallBacks();
+
+  CachableEntry<Block> block;
+  ASSERT_OK(l1_read_set->ReadIndex(1, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  block.Reset();
+  ASSERT_OK(l2_read_set->ReadIndex(1, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+}
+
+TEST_F(IODispatcherTest, AcquiredBytesReleasedWhenDispatchDeliversNoBlocks) {
+  for (bool async : {false, true}) {
+    if (async && !kIOUringPresent) {
+      continue;
+    }
+    SCOPED_TRACE("async_io=" + std::to_string(async));
+
+    auto stats = CreateDBStatistics();
+    IODispatcherOptions opts;
+    opts.max_prefetch_memory_bytes = 64 * 1024;
+    opts.statistics = stats.get();
+    std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(opts));
+
+    std::unique_ptr<BlockBasedTable> table;
+    std::vector<BlockHandle> block_handles;
+    ASSERT_OK(CreateAndOpenSST(1, &table, &block_handles));
+    ASSERT_EQ(block_handles.size(), 1);
+
+    if (async) {
+      tracking_fs_->FailNextReadAsync();
+    } else {
+      tracking_fs_->FailNextMultiRead();
+    }
+
+    auto job = NewSingleBlockJob(table.get(), block_handles.front());
+    job->job_options.read_options.async_io = async;
+
+    std::shared_ptr<ReadSet> read_set;
+    ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+    ASSERT_NE(read_set, nullptr);
+
+    const uint64_t granted =
+        stats->getTickerCount(PREFETCH_MEMORY_BYTES_GRANTED);
+    const uint64_t released =
+        stats->getTickerCount(PREFETCH_MEMORY_BYTES_RELEASED);
+    ASSERT_GT(granted, 0);
+    EXPECT_EQ(released, granted);
+
+    CachableEntry<Block> block;
+    ASSERT_OK(read_set->ReadIndex(0, &block));
+    ASSERT_NE(block.GetValue(), nullptr);
+    read_set->ReleaseBlock(0);
+
+    EXPECT_EQ(stats->getTickerCount(PREFETCH_MEMORY_BYTES_RELEASED),
+              stats->getTickerCount(PREFETCH_MEMORY_BYTES_GRANTED));
   }
 }
 

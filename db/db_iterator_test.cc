@@ -10,6 +10,11 @@
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <memory>
+#include <mutex>
+#include <tuple>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "db/arena_wrapped_db_iter.h"
 #include "db/db_iter.h"
@@ -22,6 +27,7 @@
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"
 #include "table/block_based/flush_block_policy_impl.h"
+#include "test_util/sync_point.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
@@ -34,6 +40,15 @@ class DummyReadCallback : public ReadCallback {
   DummyReadCallback() : ReadCallback(kMaxSequenceNumber) {}
   bool IsVisibleFullCheck(SequenceNumber /*seq*/) override { return true; }
   void SetSnapshot(SequenceNumber seq) { max_visible_seq_ = seq; }
+};
+
+class SyncPointScope {
+ public:
+  ~SyncPointScope() {
+    auto* sync_point = SyncPoint::GetInstance();
+    sync_point->DisableProcessing();
+    sync_point->ClearAllCallBacks();
+  }
 };
 
 class DBIteratorBaseTest : public DBTestBase {
@@ -4925,6 +4940,135 @@ class NoAsyncIOFS : public FileSystemWrapper {
   };
 };
 
+enum class ObservedIOType {
+  kRead,
+  kMultiRead,
+  kReadAsync,
+  kPrefetch,
+};
+
+struct ObservedRandomRead {
+  std::string file_name;
+  ObservedIOType type;
+  uint64_t offset;
+  size_t len;
+};
+
+static std::string NormalizeObservedFileName(const std::string& path) {
+  const size_t slash_pos = path.find_last_of("/\\");
+  std::string name =
+      slash_pos == std::string::npos ? path : path.substr(slash_pos + 1);
+  constexpr char kSstSuffix[] = ".sst";
+  constexpr size_t kSstSuffixLen = sizeof(kSstSuffix) - 1;
+  if (name.size() > kSstSuffixLen &&
+      name.compare(name.size() - kSstSuffixLen, kSstSuffixLen, kSstSuffix) ==
+          0) {
+    name.resize(name.size() - kSstSuffixLen);
+  }
+  return name;
+}
+
+class FairnessObservingFS : public FileSystemWrapper {
+ public:
+  explicit FairnessObservingFS(const std::shared_ptr<FileSystem>& target)
+      : FileSystemWrapper(target) {}
+
+  static const char* kClassName() { return "FairnessObservingFS"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    IOStatus s = target()->NewRandomAccessFile(fname, opts, result, dbg);
+    if (s.ok()) {
+      *result = std::make_unique<ObservingRandomAccessFile>(
+          std::move(*result), this, NormalizeObservedFileName(fname));
+    }
+    return s;
+  }
+
+  void ClearEvents() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    events_.clear();
+  }
+
+  std::vector<ObservedRandomRead> GetEvents() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return events_;
+  }
+
+ private:
+  class ObservingRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
+   public:
+    ObservingRandomAccessFile(std::unique_ptr<FSRandomAccessFile>&& target,
+                              FairnessObservingFS* observer,
+                              std::string file_name)
+        : FSRandomAccessFileOwnerWrapper(std::move(target)),
+          observer_(observer),
+          file_name_(std::move(file_name)) {}
+
+    IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
+                  Slice* result, char* scratch,
+                  IODebugContext* dbg) const override {
+      IOStatus s = target()->Read(offset, n, options, result, scratch, dbg);
+      if (s.ok()) {
+        observer_->RecordEvent(file_name_, ObservedIOType::kRead, offset, n);
+      }
+      return s;
+    }
+
+    IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                       const IOOptions& options, IODebugContext* dbg) override {
+      IOStatus s = target()->MultiRead(reqs, num_reqs, options, dbg);
+      if (!s.ok()) {
+        return s;
+      }
+      for (size_t i = 0; i < num_reqs; ++i) {
+        observer_->RecordEvent(file_name_, ObservedIOType::kMultiRead,
+                               reqs[i].offset, reqs[i].len);
+      }
+      return s;
+    }
+
+    IOStatus Prefetch(uint64_t offset, size_t n, const IOOptions& options,
+                      IODebugContext* dbg) override {
+      IOStatus s = target()->Prefetch(offset, n, options, dbg);
+      if (s.ok()) {
+        observer_->RecordEvent(file_name_, ObservedIOType::kPrefetch, offset,
+                               n);
+      }
+      return s;
+    }
+
+    IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                       std::function<void(FSReadRequest&, void*)> cb,
+                       void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
+                       IODebugContext* dbg) override {
+      IOStatus s =
+          target()->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, dbg);
+      if (s.ok()) {
+        observer_->RecordEvent(file_name_, ObservedIOType::kReadAsync,
+                               req.offset, req.len);
+      }
+      return s;
+    }
+
+   private:
+    FairnessObservingFS* observer_;
+    std::string file_name_;
+  };
+
+  void RecordEvent(const std::string& file_name, ObservedIOType type,
+                   uint64_t offset, size_t len) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    events_.push_back({file_name, type, offset, len});
+  }
+
+  mutable std::mutex mutex_;
+  std::vector<ObservedRandomRead> events_;
+};
+
 TEST_P(DBMultiScanIteratorTest, AsyncIOFallbackWithoutFSSupport) {
   // Verify that MultiScan works correctly when use_async_io = true but the
   // filesystem does NOT support kAsyncIO. The constructor should silently
@@ -5065,6 +5209,292 @@ TEST_P(DBMultiScanIteratorTest, AsyncPrefetchMultipleLevels) {
 
   // Should have keys from all three ranges
   ASSERT_GT(total_keys, 0);
+  iter.reset();
+}
+
+TEST_P(DBMultiScanIteratorTest, IODispatcherFairnessGroupingAcrossLevels) {
+  auto options = CurrentOptions();
+  options.target_file_size_base = 1 << 15;  // 32KiB
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 50;
+  options.compression = kNoCompression;
+  DestroyAndReopen(options);
+
+  Random rnd(309);
+
+  for (int i = 0; i < 800; ++i) {
+    std::stringstream ss;
+    ss << "k" << std::setw(5) << std::setfill('0') << i;
+    ASSERT_OK(Put(ss.str(), rnd.RandomString(1 << 10)));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+  ASSERT_GT(NumTableFilesAtLevel(49), 2);
+
+  for (int i = 100; i < 160; ++i) {
+    std::stringstream ss;
+    ss << "k" << std::setw(5) << std::setfill('0') << i;
+    ASSERT_OK(Put(ss.str(), rnd.RandomString(1 << 10)));
+  }
+  ASSERT_OK(Flush());
+  for (int i = 120; i < 180; ++i) {
+    std::stringstream ss;
+    ss << "k" << std::setw(5) << std::setfill('0') << i;
+    ASSERT_OK(Put(ss.str(), rnd.RandomString(1 << 10)));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_GE(NumTableFilesAtLevel(0), 2);
+  ASSERT_GT(NumTableFilesAtLevel(49), 2);
+
+  ReadOptions ro;
+  ro.fill_cache = false;
+
+  auto dispatcher_stats = CreateDBStatistics();
+  IODispatcherOptions dispatcher_options;
+  dispatcher_options.max_prefetch_memory_bytes = 20 * 1024;
+  dispatcher_options.statistics = dispatcher_stats.get();
+  auto dispatcher =
+      std::shared_ptr<IODispatcher>(NewIODispatcher(dispatcher_options));
+
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.use_async_io = true;
+  scan_options.io_dispatcher = dispatcher;
+  scan_options.insert("k00000", "k00800");
+
+  std::unordered_map<uint64_t, uint64_t> l0_file_to_group;
+  std::unordered_map<uint64_t, uint64_t> non_l0_file_to_group;
+  std::unordered_set<int> non_l0_levels;
+  std::unordered_set<uint64_t> reserved_group_ids;
+
+  SyncPointScope sync_point_scope;
+  auto* sync_point = SyncPoint::GetInstance();
+  sync_point->SetCallBack("IODispatcherImpl::GetFairnessGroup", [&](void* arg) {
+    auto* info = static_cast<std::tuple<int, uint64_t, uint64_t>*>(arg);
+    const int level = std::get<0>(*info);
+    const uint64_t file_number = std::get<1>(*info);
+    const uint64_t group_id = std::get<2>(*info);
+    if (file_number == UINT64_MAX) {
+      return;
+    }
+    if (level == 0) {
+      l0_file_to_group[file_number] = group_id;
+    } else if (level > 0) {
+      non_l0_levels.insert(level);
+      non_l0_file_to_group[file_number] = group_id;
+    }
+  });
+  sync_point->SetCallBack(
+      "IODispatcherImpl::TryAcquireMemory:Granted", [&](void* arg) {
+        auto* info = static_cast<std::tuple<uint64_t, size_t, bool>*>(arg);
+        if (std::get<2>(*info)) {
+          reserved_group_ids.insert(std::get<0>(*info));
+        }
+      });
+  sync_point->EnableProcessing();
+
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+  ASSERT_NE(iter, nullptr);
+
+  int total_keys = 0;
+  try {
+    for (auto range : *iter) {
+      for (auto it : range) {
+        it.first.ToString();
+        total_keys++;
+      }
+    }
+  } catch (MultiScanException& ex) {
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+
+  ASSERT_GT(total_keys, 0);
+  ASSERT_GE(l0_file_to_group.size(), 2);
+  ASSERT_GE(non_l0_file_to_group.size(), 2);
+  ASSERT_EQ(non_l0_levels.size(), 1);
+
+  std::unordered_set<uint64_t> l0_group_ids;
+  for (const auto& [file_number, group_id] : l0_file_to_group) {
+    (void)file_number;
+    l0_group_ids.insert(group_id);
+  }
+  ASSERT_EQ(l0_group_ids.size(), l0_file_to_group.size());
+
+  std::unordered_set<uint64_t> non_l0_group_ids;
+  for (const auto& [file_number, group_id] : non_l0_file_to_group) {
+    (void)file_number;
+    non_l0_group_ids.insert(group_id);
+  }
+  ASSERT_EQ(non_l0_group_ids.size(), 1);
+
+  size_t reserved_l0_group_count = 0;
+  for (const auto group_id : l0_group_ids) {
+    reserved_l0_group_count += reserved_group_ids.count(group_id);
+  }
+  ASSERT_GE(reserved_l0_group_count, 1);
+
+  size_t reserved_non_l0_group_count = 0;
+  for (const auto group_id : non_l0_group_ids) {
+    reserved_non_l0_group_count += reserved_group_ids.count(group_id);
+  }
+  ASSERT_EQ(reserved_non_l0_group_count, non_l0_group_ids.size());
+
+  iter.reset();
+}
+
+TEST_P(DBMultiScanIteratorTest, IODispatcherFairnessFsObservationAcrossLevels) {
+  // Supplemental integration coverage for fairness: observe externally
+  // visible FS-level prefetch progress rather than internal fairness groups.
+  auto options = CurrentOptions();
+  options.target_file_size_base = 4
+                                  << 20;  // Keep each level's data in one SST.
+  options.compaction_style = kCompactionStyleLevel;
+  options.num_levels = 3;
+  options.disable_auto_compactions = true;
+  options.compression = kNoCompression;
+
+  auto tracking_fs =
+      std::make_shared<FairnessObservingFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> wrapped_env(new CompositeEnvWrapper(env_, tracking_fs));
+  struct CloseBeforeEnvReset {
+    DBTestBase* db_test;
+    ~CloseBeforeEnvReset() { db_test->Close(); }
+  } close_before_env_reset{this};
+  options.env = wrapped_env.get();
+  DestroyAndReopen(options);
+
+  Random rnd(310);
+
+  for (int i = 0; i < 800; ++i) {
+    std::stringstream ss;
+    ss << "k" << std::setw(5) << std::setfill('0') << i;
+    ASSERT_OK(Put(ss.str(), rnd.RandomString(1 << 10)));
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+
+  for (int i = 100; i < 160; ++i) {
+    std::stringstream ss;
+    ss << "k" << std::setw(5) << std::setfill('0') << i;
+    ASSERT_OK(Put(ss.str(), rnd.RandomString(1 << 10)));
+  }
+  ASSERT_OK(Flush());
+
+  Close();
+  Reopen(options);
+
+  const std::string lower = "k00100";
+  const std::string upper = "k00160";
+
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
+  ASSERT_EQ(1, NumTableFilesAtLevel(2));
+
+  std::vector<LiveFileMetaData> file_meta;
+  db_->GetLiveFilesMetaData(&file_meta);
+
+  std::unordered_map<std::string, int> tracked_file_levels;
+  std::unordered_set<std::string> level0_files;
+  std::unordered_set<std::string> level2_files;
+  for (const auto& meta : file_meta) {
+    const std::string file_name = NormalizeObservedFileName(meta.name);
+    tracked_file_levels.emplace(file_name, meta.level);
+    if (meta.level == 0) {
+      level0_files.insert(file_name);
+    } else if (meta.level == 2) {
+      level2_files.insert(file_name);
+    }
+  }
+  ASSERT_EQ(level0_files.size(), 1);
+  ASSERT_EQ(level2_files.size(), 1);
+
+  ReadOptions ro;
+  ro.fill_cache = GetParam();
+
+  auto dispatcher_stats = CreateDBStatistics();
+  IODispatcherOptions dispatcher_options;
+  dispatcher_options.max_prefetch_memory_bytes = 20 * 1024;
+  dispatcher_options.statistics = dispatcher_stats.get();
+  auto dispatcher =
+      std::shared_ptr<IODispatcher>(NewIODispatcher(dispatcher_options));
+
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.use_async_io = true;
+  scan_options.io_dispatcher = dispatcher;
+  scan_options.insert(lower, upper);
+
+  tracking_fs->ClearEvents();
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+  ASSERT_NE(iter, nullptr);
+
+  const auto prepare_events = tracking_fs->GetEvents();
+  std::stringstream raw_prepare_trace;
+  for (const auto& event : prepare_events) {
+    raw_prepare_trace << event.file_name << ":" << static_cast<int>(event.type)
+                      << " ";
+  }
+
+  int total_keys = 0;
+  try {
+    for (auto range : *iter) {
+      for (auto it : range) {
+        it.first.ToString();
+        total_keys++;
+      }
+    }
+  } catch (MultiScanException& ex) {
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+
+  ASSERT_GT(total_keys, 0);
+
+  std::unordered_set<std::string> seen_progress_files;
+  bool saw_level0_progress = false;
+  bool saw_level2_progress = false;
+  std::stringstream progress_trace;
+
+  for (const auto& event : prepare_events) {
+    if (event.type != ObservedIOType::kReadAsync &&
+        event.type != ObservedIOType::kMultiRead &&
+        event.type != ObservedIOType::kPrefetch) {
+      continue;
+    }
+    auto level_it = tracked_file_levels.find(event.file_name);
+    if (level_it == tracked_file_levels.end()) {
+      continue;
+    }
+    progress_trace << event.file_name << "@L" << level_it->second << ":"
+                   << static_cast<int>(event.type) << " ";
+    if (level_it->second == 0) {
+      saw_level0_progress = true;
+    } else if (level_it->second == 2) {
+      saw_level2_progress = true;
+    }
+    seen_progress_files.insert(event.file_name);
+  }
+
+  ASSERT_TRUE(saw_level0_progress) << "filtered=" << progress_trace.str()
+                                   << " raw=" << raw_prepare_trace.str();
+  ASSERT_TRUE(saw_level2_progress) << "filtered=" << progress_trace.str()
+                                   << " raw=" << raw_prepare_trace.str();
+  ASSERT_GE(seen_progress_files.size(), 2)
+      << "filtered=" << progress_trace.str()
+      << " raw=" << raw_prepare_trace.str();
+
   iter.reset();
 }
 
