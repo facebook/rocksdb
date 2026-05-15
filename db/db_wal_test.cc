@@ -78,8 +78,10 @@ class DBWALTestBase : public DBTestBase {
     return sbuf.st_blocks * 512;
   }
 
+#if defined(ROCKSDB_FALLOCATE_PRESENT)
   bool ShouldSkipAllocationCheck(const std::string& file_name) {
-#if defined(ROCKSDB_PLATFORM_POSIX) && defined(OS_LINUX)
+    (void)file_name;
+#if defined(OS_LINUX)
     struct statfs fs_stat;
     if (statfs(file_name.c_str(), &fs_stat) == 0) {
       if (fs_stat.f_type ==
@@ -99,6 +101,7 @@ class DBWALTestBase : public DBTestBase {
 #endif
     return false;
   }
+#endif  // ROCKSDB_FALLOCATE_PRESENT
 #endif  // ROCKSDB_PLATFORM_POSIX
 };
 
