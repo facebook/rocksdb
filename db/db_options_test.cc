@@ -102,6 +102,40 @@ TEST_F(DBOptionsTest, ImmutableTrackAndVerifyWalsInManifest) {
   ASSERT_FALSE(s.ok());
 }
 
+TEST_F(DBOptionsTest, ImmutableAsyncWalPrecreate) {
+  Options options;
+  options.env = env_;
+  options.async_wal_precreate = true;
+
+  ImmutableDBOptions db_options(options);
+  ASSERT_TRUE(db_options.async_wal_precreate);
+
+  Reopen(options);
+  ASSERT_TRUE(dbfull()->GetDBOptions().async_wal_precreate);
+
+  Status s = dbfull()->SetDBOptions({{"async_wal_precreate", "false"}});
+  ASSERT_FALSE(s.ok());
+}
+
+TEST_F(DBOptionsTest, SanitizeAsyncWalPrecreateWithWalRecycle) {
+  // This checks the option-level contract for the incompatible WAL paths:
+  // SanitizeOptions() preserves WAL recycling and disables only the
+  // opportunistic async precreation path, so the immutable options reflect
+  // effective behavior.
+  Options options;
+  options.env = env_;
+  options.async_wal_precreate = true;
+  options.recycle_log_file_num = 1;
+
+  Options sanitized_options = SanitizeOptions(dbname_, options);
+  ASSERT_FALSE(sanitized_options.async_wal_precreate);
+  ASSERT_EQ(1U, sanitized_options.recycle_log_file_num);
+
+  options.recycle_log_file_num = 0;
+  sanitized_options = SanitizeOptions(dbname_, options);
+  ASSERT_TRUE(sanitized_options.async_wal_precreate);
+}
+
 TEST_F(DBOptionsTest, ImmutableVerifySstUniqueIdInManifest) {
   Options options;
   options.env = env_;

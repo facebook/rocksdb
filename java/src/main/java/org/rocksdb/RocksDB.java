@@ -404,7 +404,7 @@ public class RocksDB extends RocksObject {
    * @param options {@link Options} instance.
    * @param path the path to the RocksDB.
    * @param errorIfWalFileExists true to raise an error when opening the db
-   *            if a Write Ahead Log file exists, false otherwise.
+   *            if a non-empty Write Ahead Log file exists, false otherwise.
    * @return a {@link RocksDB} instance on success, null if the specified
    *     {@link RocksDB} can not be opened.
    *
@@ -493,7 +493,7 @@ public class RocksDB extends RocksObject {
    * @param columnFamilyHandles will be filled with ColumnFamilyHandle instances
    *     on open.
    * @param errorIfWalFileExists true to raise an error when opening the db
-   *            if a Write Ahead Log file exists, false otherwise.
+   *            if a non-empty Write Ahead Log file exists, false otherwise.
    * @return a {@link RocksDB} instance on success, null if the specified
    *     {@link RocksDB} can not be opened.
    *

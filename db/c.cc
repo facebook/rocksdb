@@ -5286,6 +5286,15 @@ size_t rocksdb_options_get_recycle_log_file_num(rocksdb_options_t* opt) {
   return opt->rep.recycle_log_file_num;
 }
 
+void rocksdb_options_set_async_wal_precreate(rocksdb_options_t* opt,
+                                             unsigned char v) {
+  opt->rep.async_wal_precreate = v;
+}
+
+unsigned char rocksdb_options_get_async_wal_precreate(rocksdb_options_t* opt) {
+  return opt->rep.async_wal_precreate;
+}
+
 void rocksdb_options_set_soft_pending_compaction_bytes_limit(
     rocksdb_options_t* opt, size_t v) {
   opt->rep.soft_pending_compaction_bytes_limit = v;

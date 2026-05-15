@@ -975,6 +975,17 @@ struct DBOptions {
   // Default: 0
   size_t recycle_log_file_num = 0;
 
+  // EXPERIMENTAL: If true, RocksDB asynchronously precreates the next WAL file
+  // so foreground memtable switching can usually avoid the filesystem latency
+  // of creating a new WAL. The precreated file is only reserved empty storage;
+  // it does not become a logical WAL and is not added to WAL tracking until it
+  // is consumed by a foreground WAL rotation.
+  //
+  // The option is sanitized to false when recycle_log_file_num is non-zero.
+  //
+  // Default: false
+  bool async_wal_precreate = false;
+
   // The manifest file is rolled over on reaching this limit AND the
   // space amp limit described in max_manifest_space_amp_pct. More trade-off
   // details there.

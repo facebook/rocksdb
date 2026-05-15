@@ -172,6 +172,10 @@ class DB {
 
   // Open the database for read only.
   //
+  // If error_if_wal_file_exists is true, returns an error when a non-empty
+  // WAL file exists. Empty WAL files can be left behind by features such as
+  // async WAL precreation and are tolerated.
+  //
   static Status OpenForReadOnly(const Options& options, const std::string& name,
                                 std::unique_ptr<DB>* dbptr,
                                 bool error_if_wal_file_exists = false);
@@ -182,6 +186,10 @@ class DB {
   // families in the database that should be opened. However, you always need
   // to specify default column family. The default column family name is
   // 'default' and it's stored in ROCKSDB_NAMESPACE::kDefaultColumnFamilyName
+  //
+  // If error_if_wal_file_exists is true, returns an error when a non-empty
+  // WAL file exists. Empty WAL files can be left behind by features such as
+  // async WAL precreation and are tolerated.
   //
   static Status OpenForReadOnly(
       const DBOptions& db_options, const std::string& name,

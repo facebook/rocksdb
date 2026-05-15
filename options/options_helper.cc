@@ -101,6 +101,7 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.log_file_time_to_roll = immutable_db_options.log_file_time_to_roll;
   options.keep_log_file_num = immutable_db_options.keep_log_file_num;
   options.recycle_log_file_num = immutable_db_options.recycle_log_file_num;
+  options.async_wal_precreate = immutable_db_options.async_wal_precreate;
   options.max_manifest_file_size = mutable_db_options.max_manifest_file_size;
   options.max_manifest_space_amp_pct =
       mutable_db_options.max_manifest_space_amp_pct;
