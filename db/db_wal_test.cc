@@ -19,23 +19,23 @@
 #include "utilities/fault_injection_env.h"
 #include "utilities/fault_injection_fs.h"
 
-#if defined(ROCKSDB_PLATFORM_POSIX)
+#if defined(OS_LINUX)
 #include <sys/statfs.h>
 #endif
 
-#if defined(ROCKSDB_PLATFORM_POSIX) && !defined(BTRFS_SUPER_MAGIC)
+#if defined(OS_LINUX) && !defined(BTRFS_SUPER_MAGIC)
 #define BTRFS_SUPER_MAGIC 0x9123683E
 #endif
 
-#if defined(ROCKSDB_PLATFORM_POSIX) && !defined(TMPFS_MAGIC)
+#if defined(OS_LINUX) && !defined(TMPFS_MAGIC)
 #define TMPFS_MAGIC 0x01021994
 #endif
 
-#if defined(ROCKSDB_PLATFORM_POSIX) && !defined(OVERLAYFS_SUPER_MAGIC)
+#if defined(OS_LINUX) && !defined(OVERLAYFS_SUPER_MAGIC)
 #define OVERLAYFS_SUPER_MAGIC 0x794c7630
 #endif
 
-#if defined(ROCKSDB_PLATFORM_POSIX) && !defined(ZFS_SUPER_MAGIC)
+#if defined(OS_LINUX) && !defined(ZFS_SUPER_MAGIC)
 #define ZFS_SUPER_MAGIC 0x2fc12fc1
 #endif
 
