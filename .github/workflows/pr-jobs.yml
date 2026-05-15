@@ -314,6 +314,12 @@ jobs:
     - run: CC=clang-21 CXX=clang++-21 USE_CLANG=1 make -j32 all microbench
     - run: make clean
     - run: CC=clang-21 CXX=clang++-21 USE_CLANG=1 DEBUG_LEVEL=0 make -j32 release
+    - name: Install clang-format-21 for C API gen check
+      run: apt-get install -y clang-format-21
+    - name: Check C API generated files are up to date
+      run: |
+        CXX=clang++-21 python3 tools/c_api_gen/verify_generated_up_to_date.py \
+          --clang-format clang-format-21
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"

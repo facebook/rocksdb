@@ -12,6 +12,7 @@
 #include <cinttypes>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "cache/cache_entry_roles.h"
@@ -28,12 +29,14 @@
 #include "rocksdb/table.h"
 #include "rocksdb/user_defined_index.h"
 #include "rocksdb/utilities/customizable_util.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
+#include "utilities/trie_index/trie_index_factory.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -1126,6 +1129,11 @@ TableFactory* NewBlockBasedTableFactory(
 Status UserDefinedIndexFactory::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<UserDefinedIndexFactory>* factory) {
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    trie_index::RegisterBuiltinTrieIndexFactory(
+        *(ObjectLibrary::Default().get()), "");
+  });
   return LoadSharedObject<UserDefinedIndexFactory>(config_options, value,
                                                    factory);
 }
