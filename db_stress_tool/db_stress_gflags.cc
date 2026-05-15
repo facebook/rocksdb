@@ -1664,6 +1664,10 @@ DEFINE_double(read_triggered_compaction_threshold,
               ROCKSDB_NAMESPACE::Options().read_triggered_compaction_threshold,
               "Sets CF option read_triggered_compaction_threshold.");
 
+DEFINE_string(listener_uri, "",
+              "URI for an additional EventListener to attach (e.g. "
+              "auto_tuner://). Empty means none.");
+
 DEFINE_bool(
     auto_refresh_iterator_with_snapshot,
     ROCKSDB_NAMESPACE::ReadOptions().auto_refresh_iterator_with_snapshot,
