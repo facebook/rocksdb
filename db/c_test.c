@@ -3675,12 +3675,35 @@ int main(int argc, char** argv) {
                    rocksdb_backup_engine_options_get_restore_rate_limit(bdo));
 
     {
-      rocksdb_ratelimiter_t* limiter =
-          rocksdb_ratelimiter_create_with_mode(1024 * 1024, 100 * 1000, 10, 2,
-                                               0);
+      rocksdb_ratelimiter_t* limiter = rocksdb_ratelimiter_create_with_mode(
+          1024 * 1024, 100 * 1000, 10, 2, 0);
       rocksdb_backup_engine_options_set_backup_rate_limiter(bdo, limiter);
       rocksdb_backup_engine_options_set_restore_rate_limiter(bdo, limiter);
       rocksdb_ratelimiter_destroy(limiter);
+
+      rocksdb_backup_engine_options_t* rate_beo =
+          rocksdb_backup_engine_options_create(dbbackupname);
+      rocksdb_ratelimiter_t* backup_limiter =
+          rocksdb_ratelimiter_create_with_mode(1024 * 1024, 100 * 1000, 10, 2,
+                                               0);
+      rocksdb_ratelimiter_t* restore_limiter =
+          rocksdb_ratelimiter_create_with_mode(1024 * 1024, 100 * 1000, 10, 2,
+                                               0);
+      rocksdb_backup_engine_options_set_backup_rate_limiter(rate_beo,
+                                                            backup_limiter);
+      rocksdb_backup_engine_options_set_restore_rate_limiter(rate_beo,
+                                                             restore_limiter);
+      rocksdb_ratelimiter_destroy(backup_limiter);
+      rocksdb_ratelimiter_destroy(restore_limiter);
+      rocksdb_env_t* rate_benv = rocksdb_create_default_env();
+      rocksdb_backup_engine_t* rate_be =
+          rocksdb_backup_engine_open_opts(rate_beo, rate_benv, &err);
+      rocksdb_backup_engine_options_destroy(rate_beo);
+      rocksdb_env_destroy(rate_benv);
+      CheckNoError(err);
+      rocksdb_backup_engine_create_new_backup(rate_be, db, &err);
+      CheckNoError(err);
+      rocksdb_backup_engine_close(rate_be);
     }
 
     rocksdb_backup_engine_options_set_max_background_operations(bdo, 20);
