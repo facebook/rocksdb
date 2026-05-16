@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+#  Copyright (c) Meta Platforms, Inc. and affiliates.
+#  This source code is licensed under both the GPLv2 (found in the COPYING file in the root directory)
+#  and the Apache 2.0 License (found in the LICENSE.Apache file in the root directory).
 """
 Pre-download packages with unreliable mirrors using fallback mirrors.
 Reads package info from folly's getdeps manifest files.
