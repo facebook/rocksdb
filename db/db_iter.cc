@@ -1480,7 +1480,9 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     if (timestamp_lb_ != nullptr) {
       saved_key_.SetInternalKey(ikey);
     } else {
-      saved_key_.SetUserKey(ikey.user_key);
+      saved_key_.SetUserKey(
+          ikey.user_key,
+          !pin_thru_lifetime_ || !iter_.iter()->IsKeyPinned() /* copy */);
     }
 
     valid_ = true;
