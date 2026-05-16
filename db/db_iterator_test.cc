@@ -7181,6 +7181,52 @@ TEST_P(ReadPathRangeTombstoneTest,
   db_->ReleaseSnapshot(snap);
 }
 
+// SeekForPrev uses the reverse path: PrevInternal -> FindValueForCurrentKey.
+// When a key has more versions than max_sequential_skip_in_iterations,
+// FindValueForCurrentKey delegates to FindValueForCurrentKeyUsingSeek which
+// re-seeks forward to the newest visible version. That function must preserve
+// key pinning by passing the correct `copy` parameter to
+// saved_key_.SetUserKey().
+TEST_P(DBIteratorTest, SeekForPrevKeyPinnedWithManyVersions) {
+  Options options = CurrentOptions();
+  options.max_sequential_skip_in_iterations = 8;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  // 20 versions > max_sequential_skip (8), forcing the reseek path.
+  // No flush: keeps all versions alive in the memtable.
+  for (int i = 0; i < 20; i++) {
+    ASSERT_OK(Put("key1", "value" + std::to_string(i)));
+  }
+
+  ReadOptions ro;
+  ro.pin_data = true;
+
+  std::unique_ptr<Iterator> iter(NewIterator(ro));
+  std::string prop_value;
+
+  // Seek (forward) correctly reports key as pinned.
+  iter->Seek("key1");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
+  ASSERT_EQ("1", prop_value);
+
+  uint64_t reseeks_before =
+      options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION);
+
+  iter->SeekForPrev("key1");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("key1", iter->key().ToString());
+
+  // Confirm FindValueForCurrentKeyUsingSeek was actually taken.
+  uint64_t reseeks_after =
+      options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION);
+  ASSERT_GT(reseeks_after, reseeks_before);
+
+  ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
+  ASSERT_EQ("1", prop_value);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
