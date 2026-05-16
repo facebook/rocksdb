@@ -1,3 +1,7 @@
+#  Copyright (c) Meta Platforms, Inc. and affiliates.
+#  This source code is licensed under both the GPLv2 (found in the COPYING file in the root directory)
+#  and the Apache 2.0 License (found in the LICENSE.Apache file in the root directory).
+
 #!/usr/bin/env python3
 """
 Run clang-tidy on locally changed code and filter results to changed lines.
