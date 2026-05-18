@@ -6247,6 +6247,16 @@ unsigned char rocksdb_readoptions_get_async_io(rocksdb_readoptions_t* opt) {
   return opt->rep.async_io;
 }
 
+void rocksdb_readoptions_set_optimize_multiget_for_io(
+    rocksdb_readoptions_t* opt, unsigned char v) {
+  opt->rep.optimize_multiget_for_io = v;
+}
+
+unsigned char rocksdb_readoptions_get_optimize_multiget_for_io(
+    rocksdb_readoptions_t* opt) {
+  return opt->rep.optimize_multiget_for_io;
+}
+
 void rocksdb_readoptions_set_timestamp(rocksdb_readoptions_t* opt,
                                        const char* ts, size_t tslen) {
   if (ts == nullptr) {
