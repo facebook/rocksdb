@@ -125,10 +125,12 @@ class DbStressListener : public EventListener {
     // OnCompactionBegin and OnCompactionPreCommit (i.e. actively being
     // compacted with being_compacted == true). (Perhaps more realistically,
     // this is checking for failure to call OnCompactionPreCommit.)
-    // During shutdown, listener notifications are skipped so tracking
-    // state may be stale -- skip the check.
     {
       std::lock_guard<std::mutex> lock(compacting_files_mu_);
+      // During shutdown, listener notifications are skipped so tracking
+      // state may be stale -- skip the check. db_stress driver should ensure
+      // that DBImpl::shutting_down_ is only true if ShouldStopBgThread() is
+      // also true.
       if (!shared_->ShouldStopBgThread()) {
         uint64_t file_number = FileNumberFromPath(info.file_path);
         if (file_number != 0 &&
