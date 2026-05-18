@@ -1869,7 +1869,7 @@ TEST_F(EventListenerTest, BackgroundJobPressure) {
   listener->Reset();
   sleeping_task.WakeUp();
   sleeping_task.WaitUntilDone();
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
 
   snapshots = listener->GetSnapshots();
   CheckInvariants(snapshots);
