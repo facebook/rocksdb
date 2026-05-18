@@ -1,1 +1,0 @@
-Add experimental DB option `async_wal_precreate` to precreate the next WAL file in a background thread and reduce foreground WAL rotation latency. The option is sanitized to false when WAL recycling is enabled.

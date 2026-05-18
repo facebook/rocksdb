@@ -654,6 +654,8 @@ if(USE_FOLLY)
     FMT_INST_PATH)
     exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../gflags* OUTPUT_VARIABLE
     GFLAGS_INST_PATH)
+    exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../glog* OUTPUT_VARIABLE
+    GLOG_INST_PATH)
     set(Boost_DIR ${BOOST_INST_PATH}/lib/cmake/Boost-1.83.0)
     if(EXISTS ${FMT_INST_PATH}/lib64)
       set(fmt_DIR ${FMT_INST_PATH}/lib64/cmake/fmt)
@@ -661,6 +663,42 @@ if(USE_FOLLY)
       set(fmt_DIR ${FMT_INST_PATH}/lib/cmake/fmt)
     endif()
     set(gflags_DIR ${GFLAGS_INST_PATH}/lib/cmake/gflags)
+    if(EXISTS ${GLOG_INST_PATH}/lib64/cmake/glog)
+      set(GLOG_CMAKE_DIR ${GLOG_INST_PATH}/lib64/cmake/glog)
+    elseif(EXISTS ${GLOG_INST_PATH}/lib/cmake/glog)
+      set(GLOG_CMAKE_DIR ${GLOG_INST_PATH}/lib/cmake/glog)
+    endif()
+    if(NOT GLOG_CMAKE_DIR)
+      find_library(GETDEPS_GLOG_LIBRARY NAMES glogd glog
+        PATHS ${GLOG_INST_PATH}/lib64 ${GLOG_INST_PATH}/lib
+        NO_DEFAULT_PATH)
+      if(NOT GETDEPS_GLOG_LIBRARY OR
+         NOT EXISTS ${GLOG_INST_PATH}/include/glog/logging.h)
+        message(FATAL_ERROR "Could not find getdeps glog under "
+          "${GLOG_INST_PATH}")
+      endif()
+      set(GLOG_CMAKE_DIR ${CMAKE_CURRENT_BINARY_DIR}/getdeps-glog-cmake)
+      file(MAKE_DIRECTORY ${GLOG_CMAKE_DIR})
+      file(WRITE ${GLOG_CMAKE_DIR}/glog-config.cmake
+        "if(NOT TARGET glog::glog)\n"
+        "  add_library(glog::glog UNKNOWN IMPORTED)\n"
+        "  set_target_properties(glog::glog PROPERTIES\n"
+        "    IMPORTED_LOCATION \"${GETDEPS_GLOG_LIBRARY}\"\n"
+        "    INTERFACE_INCLUDE_DIRECTORIES \"${GLOG_INST_PATH}/include\")\n"
+        "endif()\n"
+        "set(glog_FOUND TRUE)\n"
+        "set(Glog_FOUND TRUE)\n"
+        "set(GLOG_FOUND TRUE)\n"
+        "set(GLOG_LIBRARY \"${GETDEPS_GLOG_LIBRARY}\")\n"
+        "set(GLOG_LIBRARIES \"${GETDEPS_GLOG_LIBRARY}\")\n"
+        "set(GLOG_INCLUDE_DIR \"${GLOG_INST_PATH}/include\")\n")
+    endif()
+    set(glog_DIR ${GLOG_CMAKE_DIR})
+    set(Glog_DIR ${GLOG_CMAKE_DIR})
+    # Unlike gflags, glog may also be installed system-wide. Pre-resolve the
+    # getdeps copy so folly-config.cmake cannot fall back to another version.
+    find_package(glog CONFIG REQUIRED PATHS ${GLOG_CMAKE_DIR}
+                 NO_DEFAULT_PATH)
 
     exec_program(sed ARGS -i 's/gflags_shared//g'
     ${FOLLY_INST_PATH}/lib/cmake/folly/folly-targets.cmake)
