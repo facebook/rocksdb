@@ -1,6 +1,28 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.3.0 (05/15/2026)
+### New Features
+* Add experimental DB option `async_wal_precreate` to precreate the next WAL file in a background thread and reduce foreground WAL rotation latency. The option is sanitized to false when WAL recycling is enabled.
+* Added a new `EventListener::OnCompactionPreCommit` callback that fires after a compaction job finishes but before its input files are released (i.e. while `FileMetaData::being_compacted` is still true). Listeners that maintain bookkeeping of which files are currently being compacted can clean up such state in this new callback to avoid races with concurrent compaction picking, where another thread might pick up the same files for a new compaction immediately after `being_compacted` is flipped back to false but before `OnCompactionCompleted` fires. The default implementation is a no-op so this is not a breaking change.
+* Add mutable DBOption `optimize_manifest_for_recovery` (default false). When enabled, RocksDB can reduce recovery work after a clean shutdown, which may lower DB::Open latency on warm reopens.
+* Added public utility APIs `ParseCompressionNameForDisplay()` to convert `TableProperties::compression_name` into a human-readable compression name for both legacy and format_version 7+ SST metadata, including custom `CompressionManager`-provided display names for custom compression types.
+* Add `reuse_manifest_on_open` DBOption (default false). When enabled, DB::Open reuses the existing MANIFEST file for append instead of creating a fresh one, avoiding the cost of serializing the entire database state into a new MANIFEST on the first post-open write. To prevent this feature from interfering with manifest file size auto-tuning, an extra forward-compatible field is now always added to the MANIFEST (to track the last "compacted" size).
+
+### Behavior Changes
+* Read-only open with `error_if_wal_file_exists=true` now tolerates empty WAL files so empty precreated WALs do not prevent inspection.
+* WriteCommitted TransactionDB now matches WritePrepared and WriteUnprepared compaction filtering in both single- and two-write-queue modes: a compaction filter's FilterMergeOperand will not be invoked on merge operands at or below the latest published sequence number.
+
+### Bug Fixes
+* Fixed blob-backed wide-column merge reads to preserve correct status
+propagation and resolution across memtable, read-only, and secondary DB
+paths.
+* Fixed a bug where `DB::GetCreationTimeOfOldestFile()` could return inaccurate results instead of the real creation time when called shortly after opening a legacy DB (one whose manifest lacks `file_creation_time`) with `open_files_async = true`. The API now waits for background SST file loading to complete only when needed; modern DBs are unaffected.
+* Fixed merge reads against wide-column/blob-backed base values to preserve precise failure statuses, including `GetMergeOperands()` and direct-write memtable reads.
+* Fix bug in range tombstone synthesis that covers live keys added during an IngestExternalFile
+* Reject the empty string as a column family name in `DB::CreateColumnFamily` / `DB::CreateColumnFamilies`. Previously such calls returned OK and a usable handle, but the column family was not persisted in the manifest, so any data written to it was silently lost on DB reopen.
+* Fixed a bug where a WriteCommitted TransactionDB using commit-bypass WBWI ingestion could drop an entry that is still visible at the published sequence boundary.
+
 ## 11.2.0 (04/18/2026)
 ### New Features
 * Added experimental `DBOptions::fast_sst_open` option. When enabled, RocksDB retrieves opaque file system metadata for SST files after flush, compaction, and external file ingestion, persists it in the MANIFEST, and passes it back to the file system on subsequent file opens to accelerate DB open time.
