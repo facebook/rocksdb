@@ -238,6 +238,13 @@ extra/more accurate runtime checks for those files without a full clean.
 When in doubt, `make clean` is cheap insurance compared to chasing a
 phantom bug.
 
+### Source checks
+* Run `make check-sources` before committing. This catches non-ASCII
+    characters in source files and other source-level issues that CI will
+    reject. In particular, **do not use Unicode characters** (em dashes,
+    smart quotes, etc.) in comments or strings — use ASCII equivalents
+    (`--` instead of `—`, `'` instead of `'`, etc.).
+
 ### Unit Test
 * After all of the unit tests are added, review them and try to extract common
     reusable utility functions to reduce code duplication due to copy past between
