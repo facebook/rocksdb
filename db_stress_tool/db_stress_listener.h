@@ -21,6 +21,7 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/unique_id.h"
+#include "util/atomic.h"
 #include "util/gflags_compat.h"
 #include "util/random.h"
 #include "utilities/fault_injection_fs.h"
@@ -71,6 +72,13 @@ class DbStressListener : public EventListener {
   static const char* kClassName() { return "DBStressListener"; }
 
   ~DbStressListener() override { assert(num_pending_file_creations_ == 0); }
+
+  // Signal that the DB is about to shut down. Must be called before DB::Close()
+  // or CancelAllBackgroundWork(). Why? Listener notifications, especially for
+  // compaction, have different (mostly relaxed) contracts during shutdown, and
+  // not all callbacks take a DB object. Ideally, public API improvements would
+  // make this unnecessary in the future.
+  void NotifyShuttingDown() { shutting_down_.Store(true); }
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     assert(IsValidColumnFamilyName(info.cf_name));
     VerifyFilePath(info.file_path);
@@ -125,7 +133,10 @@ class DbStressListener : public EventListener {
     // OnCompactionBegin and OnCompactionPreCommit (i.e. actively being
     // compacted with being_compacted == true). (Perhaps more realistically,
     // this is checking for failure to call OnCompactionPreCommit.)
-    {
+    //
+    // During shutdown, compaction notifications are skipped so tracking
+    // state may be stale -- skip the check.
+    if (!shutting_down_.Load()) {
       std::lock_guard<std::mutex> lock(compacting_files_mu_);
       uint64_t file_number = FileNumberFromPath(info.file_path);
       if (file_number != 0 &&
@@ -170,27 +181,29 @@ class DbStressListener : public EventListener {
   void OnCompactionPreCommit(DB* /*db*/, const CompactionJobInfo& ci) override {
     // Pair with OnCompactionBegin's bookkeeping: move files from
     // compacting_files_ and record the job for Completed verification.
-    std::lock_guard<std::mutex> lock(compacting_files_mu_);
-    std::unordered_set<uint64_t> job_files;
-    for (const auto& info : ci.input_file_infos) {
-      size_t erased = compacting_files_.erase(info.file_number);
-      if (erased != 1) {
-        fprintf(stderr,
-                "OnCompactionPreCommit for file not in tracking set: "
-                "cf=%s file_number=%" PRIu64 "\n",
-                ci.cf_name.c_str(), info.file_number);
+    {
+      std::lock_guard<std::mutex> lock(compacting_files_mu_);
+      std::unordered_set<uint64_t> job_files;
+      for (const auto& info : ci.input_file_infos) {
+        size_t erased = compacting_files_.erase(info.file_number);
+        if (erased != 1) {
+          fprintf(stderr,
+                  "OnCompactionPreCommit for file not in tracking set: "
+                  "cf=%s file_number=%" PRIu64 "\n",
+                  ci.cf_name.c_str(), info.file_number);
+          fflush(stderr);
+          std::abort();
+        }
+        job_files.insert(info.file_number);
+      }
+      auto [_, inserted] =
+          precommitted_jobs_.emplace(ci.job_id, std::move(job_files));
+      if (!inserted) {
+        fprintf(stderr, "OnCompactionPreCommit: duplicate job_id %d\n",
+                ci.job_id);
         fflush(stderr);
         std::abort();
       }
-      job_files.insert(info.file_number);
-    }
-    auto [_, inserted] =
-        precommitted_jobs_.emplace(ci.job_id, std::move(job_files));
-    if (!inserted) {
-      fprintf(stderr, "OnCompactionPreCommit: duplicate job_id %d\n",
-              ci.job_id);
-      fflush(stderr);
-      std::abort();
     }
     RandomSleep();
   }
@@ -480,6 +493,8 @@ class DbStressListener : public EventListener {
   // callback. Protected by compacting_files_mu_.
   std::mutex compacting_files_mu_;
   std::unordered_set<uint64_t> compacting_files_;
+  // Set before DB close to suppress false positives from stale tracking.
+  Atomic<bool> shutting_down_{false};
   // Jobs that have passed OnCompactionPreCommit but not yet
   // OnCompactionCompleted. Maps job_id -> input file numbers.
   // Used to verify Begin -> PreCommit -> Completed ordering per job.
@@ -489,9 +504,14 @@ class DbStressListener : public EventListener {
   // Extract file number from a file path like "/path/to/000123.sst".
   // Returns 0 if the path cannot be parsed.
   static uint64_t FileNumberFromPath(const std::string& file_path) {
-    size_t pos = file_path.find_last_of("/");
-    std::string file_name =
-        (pos == std::string::npos) ? file_path : file_path.substr(pos + 1);
+    size_t pos = file_path.find_last_of('/');
+    // Avoid copying file_path when no '/' separator is found
+    std::string file_name_buf;
+    if (pos != std::string::npos) {
+      file_name_buf = file_path.substr(pos + 1);
+    }
+    const std::string& file_name =
+        (pos == std::string::npos) ? file_path : file_name_buf;
     uint64_t file_number = 0;
     FileType file_type;
     if (ParseFileName(file_name, &file_number, &file_type) &&

@@ -95,6 +95,9 @@ StressTest::StressTest()
 }
 
 void StressTest::CleanUp() {
+  // Notify listener before DB close so it can tolerate stale tracking
+  // from skipped notifications during shutdown.
+  NotifyListenerShuttingDown();
   CleanUpColumnFamilies();
   if (db_) {
     db_->Close();
@@ -103,6 +106,15 @@ void StressTest::CleanUp() {
   db_ = nullptr;
 
   secondary_db_.reset();
+}
+
+void StressTest::NotifyListenerShuttingDown() {
+  for (auto& listener : options_.listeners) {
+    if (strcmp(listener->Name(), DbStressListener::kClassName()) == 0) {
+      static_cast_with_check<DbStressListener>(listener.get())
+          ->NotifyShuttingDown();
+    }
+  }
 }
 
 void StressTest::CleanUpColumnFamilies() {
@@ -4242,6 +4254,10 @@ void StressTest::Open(SharedState* shared, bool reopen) {
 }
 
 void StressTest::Reopen(ThreadState* thread) {
+  // Notify listener before DB close so it can tolerate stale tracking
+  // from skipped notifications during shutdown.
+  NotifyListenerShuttingDown();
+
   // BG jobs in WritePrepared must be canceled first because i) they can access
   // the db via a callbac ii) they hold on to a snapshot and the upcoming
   // ::Close would complain about it.

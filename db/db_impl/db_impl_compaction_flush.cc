@@ -2019,6 +2019,9 @@ void DBImpl::NotifyOnCompactionPreCommit(
     return;
   }
   mutex_.AssertHeld();
+  if (shutting_down_.load(std::memory_order_acquire)) {
+    return;
+  }
 
   // Only fire if OnCompactionBegin has fired for this compaction.
   if (c->ShouldNotifyOnCompactionCompleted() == false) {
