@@ -674,6 +674,9 @@ class EventListener : public Customizable {
   // Note that the this function must be implemented in a way such that
   // it should not run for an extended period of time before the function
   // returns.  Otherwise, RocksDB may be blocked.
+  //
+  // WART: this callback is skipped during DB shutdown, so a compaction
+  // that commits during shutdown may never be observed by listeners.
   virtual void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& /*ci*/) {}
 
   // A callback function for RocksDB which will be called when a registered
@@ -703,6 +706,9 @@ class EventListener : public Customizable {
   // duration of this callback, but other manifest writers may be waiting,
   // so cheap implementations are strongly preferred.
   //
+  // WART: this callback is skipped during DB shutdown, so a compaction
+  // that commits during shutdown may never be observed by listeners.
+  //
   // @param db a pointer to the rocksdb instance which just compacted a file.
   // @param ci a reference to a CompactionJobInfo struct. 'ci' is released
   //  after this function is returned, and must be copied if it is needed
@@ -727,6 +733,9 @@ class EventListener : public Customizable {
   // Note that this function must be implemented in a way such that
   // it should not run for an extended period of time before the function
   // returns. Otherwise, RocksDB may be blocked.
+  //
+  // WART: this callback is skipped during DB shutdown, so a compaction
+  // that commits during shutdown may never be observed by listeners.
   //
   // @param db a pointer to the rocksdb instance which just compacted
   //   a file.

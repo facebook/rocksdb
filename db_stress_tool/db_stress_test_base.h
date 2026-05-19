@@ -71,6 +71,9 @@ class StressTest {
   Options GetOptions(int cf_id);
   void CleanUp();
 
+ private:
+  void NotifyListenerShuttingDown();
+
  protected:
   static int GetMinInjectedErrorCount(int error_count_1, int error_count_2) {
     if (error_count_1 > 0 && error_count_2 > 0) {
