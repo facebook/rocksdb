@@ -102,6 +102,14 @@ class ArenaWrappedDBIter : public Iterator {
     db_iter_->Prepare(scan_opts);
   }
 
+  Status PinCurrent(PinnableKeyValue* out) override {
+    return db_iter_->PinCurrent(out);
+  }
+
+  Status AppendPinnedCurrent(PinnableKeyValueBatch* batch) override {
+    return db_iter_->AppendPinnedCurrent(batch);
+  }
+
   // FIXME: we could just pass SV in for mutable cf option, version and version
   // number, but this is used by SstFileReader which does not have a SV.
   void Init(Env* env, const ReadOptions& read_options,

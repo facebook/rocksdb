@@ -322,7 +322,7 @@ bool Slice::DecodeHex(std::string* result) const {
   return true;
 }
 
-PinnableSlice::PinnableSlice(PinnableSlice&& other) {
+PinnableSlice::PinnableSlice(PinnableSlice&& other) : PinnableSlice() {
   *this = std::move(other);
 }
 

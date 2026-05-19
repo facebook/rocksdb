@@ -195,6 +195,16 @@ class ForwardLevelIterator : public InternalIterator {
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
            file_iter_->IsValuePinned();
   }
+  Status PinCurrentKeyValue(PinnedIterKeyValue* out) override {
+    if (out == nullptr) {
+      return Status::InvalidArgument("PinnedIterKeyValue is nullptr");
+    }
+    out->Reset();
+    if (!valid_) {
+      return Status::InvalidArgument("Iterator is not valid");
+    }
+    return file_iter_->PinCurrentKeyValue(out);
+  }
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     pinned_iters_mgr_ = pinned_iters_mgr;
     if (file_iter_) {
@@ -699,6 +709,17 @@ bool ForwardIterator::IsKeyPinned() const {
 bool ForwardIterator::IsValuePinned() const {
   return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
          current_->IsValuePinned();
+}
+
+Status ForwardIterator::PinCurrentKeyValue(PinnedIterKeyValue* out) {
+  if (out == nullptr) {
+    return Status::InvalidArgument("PinnedIterKeyValue is nullptr");
+  }
+  out->Reset();
+  if (!valid_ || current_ == nullptr) {
+    return Status::InvalidArgument("Iterator is not valid");
+  }
+  return current_->PinCurrentKeyValue(out);
 }
 
 void ForwardIterator::RebuildIterators(bool refresh_sv) {

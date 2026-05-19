@@ -10,10 +10,65 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+
+void ReleasePinnedBlockCacheHandle(void* arg1, void* arg2) {
+  auto* cache = static_cast<Cache*>(arg1);
+  auto* cache_handle = static_cast<Cache::Handle*>(arg2);
+  assert(cache != nullptr);
+  assert(cache_handle != nullptr);
+  cache->Release(cache_handle);
+}
+
+}  // namespace
+
 void BlockBasedTableIterator::SeekToFirst() { SeekImpl(nullptr, false); }
 
 void BlockBasedTableIterator::Seek(const Slice& target) {
   SeekImpl(&target, true);
+}
+
+Status BlockBasedTableIterator::PinCurrentKeyValue(PinnedIterKeyValue* out) {
+  if (out == nullptr) {
+    return Status::InvalidArgument("PinnedIterKeyValue is nullptr");
+  }
+  out->Reset();
+  if (!Valid()) {
+    return Status::InvalidArgument("Iterator is not valid");
+  }
+  if (!PrepareValue()) {
+    return status();
+  }
+  if (!block_iter_points_to_real_block_ || !block_iter_.Valid()) {
+    return Status::NotSupported("Current entry is not backed by a data block");
+  }
+  if (!block_iter_.IsValuePinned()) {
+    return Status::NotSupported(
+        "Current entry is not backed by pinned block contents");
+  }
+
+  Cache* block_cache = table_->get_rep()->table_options.block_cache.get();
+  Cache::Handle* cache_handle = block_iter_.cache_handle();
+  if (block_cache == nullptr || cache_handle == nullptr) {
+    return Status::NotSupported(
+        "Current entry is not backed by a block cache entry");
+  }
+  if (!block_cache->Ref(cache_handle)) {
+    return Status::TryAgain(
+        "Failed to reference current data block cache entry");
+  }
+
+  out->cleanup.Allocate();
+  out->cleanup->RegisterCleanup(&ReleasePinnedBlockCacheHandle, block_cache,
+                                cache_handle);
+  out->cleanup_dedupe_token = cache_handle;
+  out->key = block_iter_.key();
+  out->user_key = block_iter_.user_key();
+  out->value = block_iter_.value();
+  out->key_pinned = block_iter_.IsKeyPinned();
+  out->value_pinned = true;
+  out->pinned_block_cache_usage = block_cache->GetCharge(cache_handle);
+  return Status::OK();
 }
 
 void BlockBasedTableIterator::SeekSecondPass(const Slice* target) {

@@ -252,6 +252,8 @@ class DBIter final : public Iterator {
   bool PrepareValue() override;
 
   void Prepare(const MultiScanArgs& scan_opts) override;
+  Status PinCurrent(PinnableKeyValue* out) override;
+  Status AppendPinnedCurrent(PinnableKeyValueBatch* batch) override;
   Status ValidateScanOptions(const MultiScanArgs& multiscan_opts) const;
 
  private:
@@ -532,6 +534,9 @@ class DBIter final : public Iterator {
                                       const Slice& blob_index);
   bool SetValueAndColumnsFromBlob(const Slice& user_key,
                                   const Slice& blob_index);
+  Status PrepareForPinCurrent();
+  Status TryPinCurrentKeyValue(Slice* current_key, Slice* current_value,
+                               PinnedIterKeyValue* pinned_kv);
 
   bool SetValueAndColumnsFromEntity(Slice slice);
   bool MaterializeLazyEntityColumns() const;

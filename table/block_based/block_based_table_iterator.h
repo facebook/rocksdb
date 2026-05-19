@@ -99,6 +99,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         ->MaterializeCurrentBlock();
   }
 
+  Status PinCurrentKeyValue(PinnedIterKeyValue* out) override;
+
   uint64_t write_unix_time() const override {
     assert(Valid());
     ParsedInternalKey pikey;
