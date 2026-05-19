@@ -418,13 +418,9 @@ class SharedState {
 
   uint32_t GetSeed() const { return seed_; }
 
-  void SetShouldStopBgThread() {
-    should_stop_bg_thread_.store(true, std::memory_order_release);
-  }
+  void SetShouldStopBgThread() { should_stop_bg_thread_ = true; }
 
-  bool ShouldStopBgThread() const {
-    return should_stop_bg_thread_.load(std::memory_order_acquire);
-  }
+  bool ShouldStopBgThread() { return should_stop_bg_thread_; }
 
   void IncBgThreads() { ++num_bg_threads_; }
 
@@ -504,7 +500,7 @@ class SharedState {
   bool start_;
   bool start_verify_;
   int num_bg_threads_;
-  std::atomic<bool> should_stop_bg_thread_;
+  bool should_stop_bg_thread_;
   int bg_thread_finished_;
   StressTest* stress_test_;
   std::atomic<bool> verification_failure_;

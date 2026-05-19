@@ -11,7 +11,6 @@
 #include "db_stress_tool/db_stress_shared_state.h"
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
-#include "util/defer.h"
 #include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -67,11 +66,6 @@ void ThreadBody(void* v) {
 bool RunStressTestImpl(SharedState* shared) {
   SystemClock* clock = db_stress_env->GetSystemClock().get();
   StressTest* stress = shared->GetStressTest();
-
-  // Ensure background threads are signaled to stop on any exit path
-  // (normal, error, or exception), so listener checks that rely on
-  // ShouldStopBgThread() don't produce false positives during cleanup.
-  Defer bg_stop_guard([shared]() { shared->SetShouldStopBgThread(); });
 
   if (shared->ShouldVerifyAtBeginning() && FLAGS_preserve_unverified_changes) {
     Status s = InitUnverifiedSubdir(FLAGS_db);

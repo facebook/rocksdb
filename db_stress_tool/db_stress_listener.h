@@ -21,6 +21,7 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/unique_id.h"
+#include "util/atomic.h"
 #include "util/gflags_compat.h"
 #include "util/random.h"
 #include "utilities/fault_injection_fs.h"
@@ -71,6 +72,13 @@ class DbStressListener : public EventListener {
   static const char* kClassName() { return "DBStressListener"; }
 
   ~DbStressListener() override { assert(num_pending_file_creations_ == 0); }
+
+  // Signal that the DB is about to shut down. Must be called before DB::Close()
+  // or CancelAllBackgroundWork(). Why? Listener notifications, especially for
+  // compaction, have different (mostly relaxed) contracts during shutdown, and
+  // not all callbacks take a DB object. Ideally, public API improvements would
+  // make this unnecessary in the future.
+  void NotifyShuttingDown() { shutting_down_.Store(true); }
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     assert(IsValidColumnFamilyName(info.cf_name));
     VerifyFilePath(info.file_path);
@@ -125,23 +133,20 @@ class DbStressListener : public EventListener {
     // OnCompactionBegin and OnCompactionPreCommit (i.e. actively being
     // compacted with being_compacted == true). (Perhaps more realistically,
     // this is checking for failure to call OnCompactionPreCommit.)
-    {
+    //
+    // During shutdown, compaction notifications are skipped so tracking
+    // state may be stale -- skip the check.
+    if (!shutting_down_.Load()) {
       std::lock_guard<std::mutex> lock(compacting_files_mu_);
-      // During shutdown, listener notifications are skipped so tracking
-      // state may be stale -- skip the check. db_stress driver should ensure
-      // that DBImpl::shutting_down_ is only true if ShouldStopBgThread() is
-      // also true.
-      if (!shared_->ShouldStopBgThread()) {
-        uint64_t file_number = FileNumberFromPath(info.file_path);
-        if (file_number != 0 &&
-            compacting_files_.find(file_number) != compacting_files_.end()) {
-          fprintf(stderr,
-                  "OnTableFileDeleted for file tracked as being compacted "
-                  "(between Begin and PreCommit): file_number=%" PRIu64 "\n",
-                  file_number);
-          fflush(stderr);
-          std::abort();
-        }
+      uint64_t file_number = FileNumberFromPath(info.file_path);
+      if (file_number != 0 &&
+          compacting_files_.find(file_number) != compacting_files_.end()) {
+        fprintf(stderr,
+                "OnTableFileDeleted for file tracked as being compacted "
+                "(between Begin and PreCommit): file_number=%" PRIu64 "\n",
+                file_number);
+        fflush(stderr);
+        std::abort();
       }
     }
     RandomSleep();
@@ -488,6 +493,8 @@ class DbStressListener : public EventListener {
   // callback. Protected by compacting_files_mu_.
   std::mutex compacting_files_mu_;
   std::unordered_set<uint64_t> compacting_files_;
+  // Set before DB close to suppress false positives from stale tracking.
+  Atomic<bool> shutting_down_{false};
   // Jobs that have passed OnCompactionPreCommit but not yet
   // OnCompactionCompleted. Maps job_id -> input file numbers.
   // Used to verify Begin -> PreCommit -> Completed ordering per job.
