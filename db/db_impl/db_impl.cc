@@ -2810,6 +2810,9 @@ Status DBImpl::ResolveDirectWritePlainValue(
   if (status.ok()) {
     status = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
         read_options, key, blob_idx, current, cfd->blob_file_cache(),
+        current != nullptr
+            ? current->GetMutableCFOptions().compression_manager.get()
+            : cfd->GetLatestMutableCFOptions().compression_manager.get(),
         nullptr /* prefetch_buffer */, target, nullptr /* bytes_read */);
     if (status.ok() && columns != nullptr) {
       columns->SetPlainValue(std::move(*target));
@@ -2864,6 +2867,9 @@ Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
     } else {
       s = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
           read_options, key, blob_idx, current, cfd->blob_file_cache(),
+          current != nullptr
+              ? current->GetMutableCFOptions().compression_manager.get()
+              : cfd->GetLatestMutableCFOptions().compression_manager.get(),
           nullptr /* prefetch_buffer */,
           &resolved_blob_values[unresolved_blob_idx], nullptr /* bytes_read */);
       if (!s.ok()) {

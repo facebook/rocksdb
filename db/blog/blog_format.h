@@ -186,7 +186,10 @@ enum BlogFileHeaderFlags : uint8_t {
                              // sequence (recycled/stale, not corruption).
 };
 
-static constexpr uint8_t kBlogCurrentSchemaVersion = 0;
+// Schema version 0 is reserved outside the file format to denote legacy blob
+// files that predate blog format. Blog files therefore start at schema
+// version 1.
+static constexpr uint8_t kBlogCurrentSchemaVersion = 1;
 
 struct BlogFileHeader {
   uint8_t schema_version = kBlogCurrentSchemaVersion;

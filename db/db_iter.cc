@@ -80,7 +80,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
           version, read_options.read_tier, read_options.verify_checksums,
           read_options.fill_cache, read_options.io_activity,
           cfh ? cfh->cfd()->blob_file_cache() : nullptr,
-          cfh != nullptr && cfh->cfd()->blob_partition_manager() != nullptr),
+          cfh != nullptr && cfh->cfd()->blob_partition_manager() != nullptr,
+          mutable_cf_options.compression_manager.get()),
       read_callback_(read_callback),
       sequence_(s),
       value_columns_state_(version, read_options, cfh),
@@ -287,7 +288,8 @@ Status DBIter::BlobReader::RetrieveAndSetBlobValue(
 
   return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
       read_options, user_key, blob_idx, version_, blob_file_cache_,
-      prefetch_buffer, &blob_value_, bytes_read);
+      configured_compression_manager_, prefetch_buffer, &blob_value_,
+      bytes_read);
 }
 
 BlobFetcher DBIter::BlobReader::CreateBlobFetcher() const {
@@ -297,7 +299,8 @@ BlobFetcher DBIter::BlobReader::CreateBlobFetcher() const {
   read_options.fill_cache = fill_cache_;
   read_options.io_activity = io_activity_;
   return BlobFetcher(version_, read_options, blob_file_cache_,
-                     allow_write_path_fallback_);
+                     allow_write_path_fallback_,
+                     configured_compression_manager_);
 }
 
 bool DBIter::SetValueAndColumnsFromBlobImpl(const Slice& user_key,

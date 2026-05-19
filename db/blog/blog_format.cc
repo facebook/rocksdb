@@ -490,7 +490,10 @@ bool VerifyBlogFooterLocator(const char* buffer, size_t buffer_size,
     // Valid footer locator record found.
     if (locator_out && length > 0) {
       const char* payload = varint_end + 6;
-      locator_out->DecodeFrom(Slice(payload, static_cast<size_t>(length)));
+      if (!locator_out->DecodeFrom(Slice(payload, static_cast<size_t>(length)))
+               .ok()) {
+        continue;  // malformed locator payload
+      }
     }
     if (locator_file_offset_out) {
       *locator_file_offset_out = buffer_file_offset + esc_start;

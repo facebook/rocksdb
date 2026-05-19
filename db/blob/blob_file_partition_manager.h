@@ -156,8 +156,10 @@ class BlobFilePartitionManager {
   static Status ResolveBlobDirectWriteIndex(
       const ReadOptions& read_options, const Slice& user_key,
       const BlobIndex& blob_idx, const Version* version,
-      BlobFileCache* blob_file_cache, FilePrefetchBuffer* prefetch_buffer,
-      PinnableSlice* blob_value, uint64_t* bytes_read);
+      BlobFileCache* blob_file_cache,
+      CompressionManager* configured_compression_manager,
+      FilePrefetchBuffer* prefetch_buffer, PinnableSlice* blob_value,
+      uint64_t* bytes_read);
 
  private:
   struct Partition {

@@ -8,7 +8,9 @@
 #include <cinttypes>
 #include <memory>
 
+#include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_read_request.h"
+#include "db/blog/blog_format.h"
 #include "file/random_access_file_reader.h"
 #include "rocksdb/advanced_compression.h"
 #include "rocksdb/compression_type.h"
@@ -39,7 +41,23 @@ class BlobFileReader {
                        std::unique_ptr<BlobFileReader>* reader) {
     return Create(immutable_options, read_options, file_options,
                   column_family_id, blob_file_read_hist, blob_file_number,
-                  io_tracer, /*skip_footer_validation=*/false, reader);
+                  io_tracer, /*configured_compression_manager=*/nullptr,
+                  /*skip_footer_validation=*/false, reader);
+  }
+
+  static Status Create(const ImmutableOptions& immutable_options,
+                       const ReadOptions& read_options,
+                       const FileOptions& file_options,
+                       uint32_t column_family_id,
+                       HistogramImpl* blob_file_read_hist,
+                       uint64_t blob_file_number,
+                       const std::shared_ptr<IOTracer>& io_tracer,
+                       CompressionManager* configured_compression_manager,
+                       std::unique_ptr<BlobFileReader>* reader) {
+    return Create(immutable_options, read_options, file_options,
+                  column_family_id, blob_file_read_hist, blob_file_number,
+                  io_tracer, configured_compression_manager,
+                  /*skip_footer_validation=*/false, reader);
   }
 
   // Allows opening in-flight direct-write blob files by optionally skipping
@@ -49,6 +67,19 @@ class BlobFileReader {
       const ReadOptions& read_options, const FileOptions& file_options,
       uint32_t column_family_id, HistogramImpl* blob_file_read_hist,
       uint64_t blob_file_number, const std::shared_ptr<IOTracer>& io_tracer,
+      bool skip_footer_validation, std::unique_ptr<BlobFileReader>* reader) {
+    return Create(immutable_options, read_options, file_options,
+                  column_family_id, blob_file_read_hist, blob_file_number,
+                  io_tracer, /*configured_compression_manager=*/nullptr,
+                  skip_footer_validation, reader);
+  }
+
+  static Status Create(
+      const ImmutableOptions& immutable_options,
+      const ReadOptions& read_options, const FileOptions& file_options,
+      uint32_t column_family_id, HistogramImpl* blob_file_read_hist,
+      uint64_t blob_file_number, const std::shared_ptr<IOTracer>& io_tracer,
+      CompressionManager* configured_compression_manager,
       bool skip_footer_validation, std::unique_ptr<BlobFileReader>* reader);
 
   BlobFileReader(const BlobFileReader&) = delete;
@@ -71,16 +102,27 @@ class BlobFileReader {
           blob_reqs,
       uint64_t* bytes_read) const;
 
-  CompressionType GetCompressionType() const { return compression_type_; }
-
+  bool IsBlogFormat() const { return is_blog_format_; }
+  // Legacy blob files store one file-wide compression type in the header.
+  // Blog files compress per record, so this accessor is only meaningful for
+  // legacy files.
+  CompressionType GetLegacyCompressionType() const {
+    assert(!is_blog_format_);
+    return compression_type_;
+  }
   uint64_t GetFileSize() const { return file_size_; }
+  uint8_t GetBlogSchemaVersion() const { return blog_schema_version_; }
+  Slice GetBlogFileIdentity() const {
+    return is_blog_format_
+               ? Slice(blog_escape_sequence_, kBlogEscapeSequenceSize)
+               : Slice();
+  }
 
  private:
   // `has_footer` tracks whether offset validation should reserve footer space.
   BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
-                 uint64_t file_size, CompressionType compression_type,
-                 std::shared_ptr<Decompressor> decompressor, SystemClock* clock,
-                 Statistics* statistics, bool has_footer);
+                 uint64_t file_size, SystemClock* clock, Statistics* statistics,
+                 bool has_footer);
 
   // `skip_footer_size_check` is used for direct-write files that are still
   // missing their footer at open time.
@@ -95,13 +137,20 @@ class BlobFileReader {
 
   // Read and validate the file header. Detects blog format vs legacy format,
   // setting is_blog_format_ and related fields accordingly. For legacy format,
-  // validates column_family_id and sets compression_type_.
-  Status ReadHeader(const ReadOptions& read_options, uint32_t column_family_id);
+  // validates column_family_id and sets compression_type_. For blog format,
+  // resolves the per-file compatible compression manager needed by ReadFooter.
+  Status ReadHeader(
+      const ReadOptions& read_options, uint32_t column_family_id,
+      CompressionManager* configured_compression_manager,
+      std::shared_ptr<CompressionManager>* blog_compression_manager);
 
   // Validate the file footer. For legacy format, reads and validates the
   // BlobLogFooter. For blog format, scans backward for the footer locator
-  // record to verify the file was cleanly sealed.
-  Status ReadFooter(const ReadOptions& read_options);
+  // record to verify the file was cleanly sealed and optionally refine the
+  // decompressor based on footer properties.
+  Status ReadFooter(
+      const ReadOptions& read_options,
+      const std::shared_ptr<CompressionManager>& blog_compression_manager);
 
   using Buffer = std::unique_ptr<char[]>;
 
@@ -131,7 +180,7 @@ class BlobFileReader {
 
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   uint64_t file_size_;
-  CompressionType compression_type_;
+  CompressionType compression_type_ = kNoCompression;
   std::shared_ptr<Decompressor> decompressor_;
   SystemClock* clock_;
   Statistics* statistics_;
@@ -139,6 +188,7 @@ class BlobFileReader {
   bool has_footer_;
   // True when the file uses blog format instead of legacy blob log format.
   bool is_blog_format_ = false;
+  uint8_t blog_schema_version_ = kLegacyBlobFileSchemaVersion;
   // For blog format: fields from the file header used for record checksum
   // verification and footer validation.
   uint32_t blog_incarnation_id_ = 0;

@@ -21,14 +21,100 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
+#include "table/format.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
+#include "test_util/testutil.h"
+#include "util/coding.h"
 #include "util/compression.h"
+#include "util/prefix_varint.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+
+class CustomBlogCompressionManager : public CompressionManager {
+ public:
+  const char* Name() const override { return "CustomBlogCompressionManager"; }
+
+  const char* CompatibilityName() const override {
+    return "BlobReaderTestCustom";
+  }
+
+  bool SupportsCompressionType(CompressionType type) const override {
+    return type == kCustomCompression8A ||
+           GetBuiltinV2CompressionManager()->SupportsCompressionType(type);
+  }
+
+  std::unique_ptr<Compressor> GetCompressor(const CompressionOptions& opts,
+                                            CompressionType type) override {
+    if (type == kCustomCompression8A) {
+      return std::make_unique<
+          test::CompressorCustomAlg<kCustomCompression8A>>();
+    }
+    return GetBuiltinV2CompressionManager()->GetCompressor(opts, type);
+  }
+
+  std::shared_ptr<Decompressor> GetDecompressor() override {
+    return std::make_shared<test::DecompressorCustomAlg>();
+  }
+
+  std::shared_ptr<Decompressor> GetDecompressorForTypes(
+      const CompressionType* types_begin,
+      const CompressionType* types_end) override {
+    auto decompressor = std::make_shared<test::DecompressorCustomAlg>();
+    decompressor->SetAllowedTypes(types_begin, types_end);
+    return decompressor;
+  }
+};
+
+void AppendMalformedFooterLocatorRecord(BlogFileWriter* blog_writer,
+                                        const BlogFileHeader& blog_header,
+                                        uint64_t props_offset) {
+  assert(blog_writer != nullptr);
+
+  const uint64_t locator_offset = blog_writer->current_offset();
+
+  std::string payload;
+  payload.push_back(static_cast<char>(kBlogFooterPropertiesRecord));
+  PutFixed32(&payload,
+             static_cast<uint32_t>((locator_offset - props_offset) / 4));
+  payload.push_back('x');  // trailing byte -> malformed locator payload
+
+  std::string record;
+  record.append(blog_header.escape_sequence, kBlogEscapeSequenceSize);
+
+  char varint_buf[kMaxPrefixVarint64Length];
+  char* varint_end = EncodePrefixVarint64<kBlogCompactVarintMaxBytes + 1>(
+      varint_buf, payload.size());
+  const size_t varint_len = static_cast<size_t>(varint_end - varint_buf);
+  record.append(varint_buf, varint_len);
+  record.push_back(static_cast<char>(kBlogFooterLocatorRecord));
+  record.push_back(static_cast<char>(kNoCompression));
+
+  uint32_t prefix_checksum =
+      ComputeBuiltinChecksum(blog_header.checksum_type,
+                             record.data() + kBlogEscapeSequenceSize,
+                             varint_len + 2) +
+      ChecksumModifierForContext(blog_header.incarnation_id(), locator_offset);
+  PutFixed32(&record, prefix_checksum);
+
+  const uint64_t payload_file_offset =
+      locator_offset + kBlogEscapeSequenceSize + varint_len + 6;
+  record.append(payload);
+
+  char trailer[kBlogBlockTrailerSize];
+  trailer[0] = static_cast<char>(kNoCompression);
+  EncodeFixed32(
+      trailer + 1,
+      ComputeBlogRecordChecksum(
+          blog_header.checksum_type, payload.data(), payload.size(), trailer[0],
+          blog_header.incarnation_id(), payload_file_offset));
+  record.append(trailer, kBlogBlockTrailerSize);
+
+  ASSERT_OK(blog_writer->file()->Append(IOOptions(), record));
+}
 
 // Creates a test blob file with `num` blobs in it.
 void WriteBlobFile(const ImmutableOptions& immutable_options,
@@ -130,12 +216,12 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
 }
 
 // Creates a test blob file in blog format with `num` blobs in it.
-void WriteBlogBlobFile(const ImmutableOptions& immutable_options,
-                       uint64_t blob_file_number,
-                       const std::vector<Slice>& blobs,
-                       CompressionType compression,
-                       std::vector<uint64_t>& blob_offsets,
-                       std::vector<uint64_t>& blob_sizes) {
+void WriteBlogBlobFile(
+    const ImmutableOptions& immutable_options, uint64_t blob_file_number,
+    const std::vector<Slice>& blobs, CompressionType compression,
+    std::vector<uint64_t>& blob_offsets, std::vector<uint64_t>& blob_sizes,
+    const std::shared_ptr<CompressionManager>& compression_manager = nullptr,
+    bool write_malformed_locator = false) {
   assert(!immutable_options.cf_paths.empty());
 
   const size_t num = blobs.size();
@@ -157,32 +243,65 @@ void WriteBlogBlobFile(const ImmutableOptions& immutable_options,
   blog_header.compact_record_type = kBlogBlobRecord;
   blog_header.GenerateRandomFields();
   blog_header.SetProperty(kBlogPropRole, "blob");
+  const auto& manager_to_use = compression_manager != nullptr
+                                   ? compression_manager
+                                   : GetBuiltinV2CompressionManager();
+  std::unique_ptr<Compressor> compressor;
+  Compressor::ManagedWorkingArea compressor_wa;
+  if (compression != kNoCompression) {
+    compressor = manager_to_use->GetCompressor({}, compression);
+    ASSERT_NE(compressor, nullptr);
+    compressor_wa = compressor->ObtainWorkingArea();
+    blog_header.SetProperty(kBlogPropCompressionCompatibilityName,
+                            manager_to_use->CompatibilityName());
+  }
 
   BlogFileWriter blog_writer(std::move(file_writer), blog_header);
   ASSERT_OK(blog_writer.WriteHeader(WriteOptions()));
 
+  std::vector<GrowableBuffer> compressed_blobs(num);
+  SmallEnumSet<CompressionType, kDisableCompressionOption> compression_types;
   for (size_t i = 0; i < num; ++i) {
-    // For blog format, compression type in the BlobIndex comes from
-    // CompressBlock output. For test simplicity, write uncompressed.
-    ASSERT_OK(blog_writer.AddBlobRecord(WriteOptions(), blobs[i], compression,
-                                        &blob_offsets[i], blobs[i].size()));
-    blob_sizes[i] = blobs[i].size();
+    Slice blob_to_write = blobs[i];
+    CompressionType actual_type = kNoCompression;
+    if (compressor != nullptr) {
+      size_t upper_bound = ((19 * blobs[i].size()) >> 4) + 609;
+      compressed_blobs[i].ResetForSize(upper_bound);
+      ASSERT_OK(compressor->CompressBlock(blobs[i], compressed_blobs[i].data(),
+                                          &compressed_blobs[i].MutableSize(),
+                                          &actual_type, &compressor_wa));
+      ASSERT_NE(actual_type, kNoCompression);
+      blob_to_write = compressed_blobs[i];
+      compression_types.Add(actual_type);
+    }
+
+    ASSERT_OK(blog_writer.AddBlobRecord(WriteOptions(), blob_to_write,
+                                        actual_type, &blob_offsets[i],
+                                        blobs[i].size()));
+    blob_sizes[i] = blob_to_write.size();
   }
 
   // Write footer
   BlogFileFooterProperties footer_props;
   footer_props.SetBlobCount(num);
+  if (!compression_types.empty()) {
+    footer_props.SetCompressionTypes(compression_types);
+  }
 
   uint64_t props_offset = blog_writer.current_offset();
   ASSERT_OK(
       blog_writer.AddFooterPropertiesRecord(WriteOptions(), footer_props));
 
-  BlogFileFooterLocator locator;
-  uint64_t locator_offset = blog_writer.current_offset();
-  locator.entries.push_back(
-      {kBlogFooterPropertiesRecord,
-       static_cast<uint32_t>((locator_offset - props_offset) / 4)});
-  ASSERT_OK(blog_writer.AddFooterLocatorRecord(WriteOptions(), locator));
+  if (write_malformed_locator) {
+    AppendMalformedFooterLocatorRecord(&blog_writer, blog_header, props_offset);
+  } else {
+    BlogFileFooterLocator locator;
+    uint64_t locator_offset = blog_writer.current_offset();
+    locator.entries.push_back(
+        {kBlogFooterPropertiesRecord,
+         static_cast<uint32_t>((locator_offset - props_offset) / 4)});
+    ASSERT_OK(blog_writer.AddFooterLocatorRecord(WriteOptions(), locator));
+  }
   ASSERT_OK(blog_writer.Sync(WriteOptions()));
   ASSERT_OK(blog_writer.Close(WriteOptions()));
 }
@@ -1291,6 +1410,96 @@ TEST_F(BlobFileReaderTest, BlogFormatChecksumCorruption) {
   Status s = reader->GetBlob(read_options, key, blob_offsets[0], blob_sizes[0],
                              kNoCompression, prefetch_buffer, allocator, &value,
                              &bytes_read);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+}
+
+TEST_F(BlobFileReaderTest, BlogFormatCustomCompressionManager) {
+  if (!test::CompressorCustomAlg<kCustomCompression8A>::Supported()) {
+    return;
+  }
+
+  auto compression_manager = std::make_shared<CustomBlogCompressionManager>();
+
+  Options options;
+  options.env = mock_env_.get();
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(mock_env_.get(),
+                            "BlogFormatCustomCompressionManager"),
+      0);
+  options.enable_blob_files = true;
+  options.use_blog_format_for_blobs = true;
+  options.compression_manager = compression_manager;
+
+  ImmutableOptions immutable_options(options);
+
+  constexpr uint64_t blob_file_number = 1;
+  const std::vector<std::string> blob_strs = {std::string(8192, 'A')};
+  const std::vector<Slice> blobs = {blob_strs[0]};
+
+  std::vector<uint64_t> blob_offsets(1);
+  std::vector<uint64_t> blob_sizes(1);
+
+  WriteBlogBlobFile(immutable_options, blob_file_number, blobs,
+                    kCustomCompression8A, blob_offsets, blob_sizes,
+                    compression_manager);
+
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+  constexpr uint32_t column_family_id = 1;
+  std::unique_ptr<BlobFileReader> reader;
+
+  ReadOptions read_options;
+  read_options.verify_checksums = true;
+  ASSERT_OK(BlobFileReader::Create(
+      immutable_options, read_options, FileOptions(), column_family_id,
+      blob_file_read_hist, blob_file_number, nullptr, compression_manager.get(),
+      &reader));
+
+  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+  constexpr MemoryAllocator* allocator = nullptr;
+
+  std::unique_ptr<BlobContents> value;
+  uint64_t bytes_read = 0;
+  const std::string key_str = "key";
+  Slice key(key_str);
+  ASSERT_OK(reader->GetBlob(read_options, key, blob_offsets[0], blob_sizes[0],
+                            kCustomCompression8A, prefetch_buffer, allocator,
+                            &value, &bytes_read));
+  ASSERT_NE(value, nullptr);
+  ASSERT_EQ(value->data(), blobs[0]);
+}
+
+TEST_F(BlobFileReaderTest, BlogFormatMalformedFooterLocatorRejected) {
+  Options options;
+  options.env = mock_env_.get();
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(mock_env_.get(),
+                            "BlogFormatMalformedFooterLocatorRejected"),
+      0);
+  options.enable_blob_files = true;
+  options.use_blog_format_for_blobs = true;
+
+  ImmutableOptions immutable_options(options);
+
+  constexpr uint64_t blob_file_number = 1;
+  const std::vector<std::string> blob_strs = {"blob"};
+  const std::vector<Slice> blobs = {blob_strs[0]};
+
+  std::vector<uint64_t> blob_offsets(1);
+  std::vector<uint64_t> blob_sizes(1);
+
+  WriteBlogBlobFile(immutable_options, blob_file_number, blobs, kNoCompression,
+                    blob_offsets, blob_sizes,
+                    /*compression_manager=*/nullptr,
+                    /*write_malformed_locator=*/true);
+
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+  constexpr uint32_t column_family_id = 1;
+  std::unique_ptr<BlobFileReader> reader;
+
+  ReadOptions read_options;
+  Status s = BlobFileReader::Create(
+      immutable_options, read_options, FileOptions(), column_family_id,
+      blob_file_read_hist, blob_file_number, nullptr, &reader);
   ASSERT_TRUE(s.IsCorruption()) << s.ToString();
 }
 

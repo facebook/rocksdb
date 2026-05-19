@@ -2617,9 +2617,10 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   assert(blob_source_);
   value->Reset();
   const Status s = blob_source_->GetBlob(
-      read_options, user_key, blob_file_number, blob_index.offset(),
-      blob_file_meta->GetBlobFileSize(), blob_index.size(),
-      blob_index.compression(), prefetch_buffer, value, bytes_read);
+      read_options, user_key, mutable_cf_options_.compression_manager.get(),
+      blob_file_number, blob_index.offset(), blob_file_meta->GetBlobFileSize(),
+      blob_index.size(), blob_index.compression(), prefetch_buffer, value,
+      bytes_read);
 
   return s;
 }
@@ -2674,8 +2675,9 @@ void Version::MultiGetBlob(
   }
 
   if (blob_reqs.size() > 0) {
-    blob_source_->MultiGetBlob(read_options, blob_reqs,
-                               /*bytes_read=*/nullptr);
+    blob_source_->MultiGetBlob(
+        read_options, mutable_cf_options_.compression_manager.get(), blob_reqs,
+        /*bytes_read=*/nullptr);
   }
 
   for (auto& ctx : blob_ctxs) {
@@ -7453,7 +7455,9 @@ Status VersionSet::WriteCurrentStateToManifest(
 
         edit.AddBlobFile(blob_file_number, meta->GetTotalBlobCount(),
                          meta->GetTotalBlobBytes(), meta->GetChecksumMethod(),
-                         meta->GetChecksumValue());
+                         meta->GetChecksumValue(),
+                         meta->GetPhysicalBlobFileSize(),
+                         meta->GetSchemaVersion(), meta->GetFileIdentity());
         if (meta->GetGarbageBlobCount() > 0) {
           edit.AddBlobFileGarbage(blob_file_number, meta->GetGarbageBlobCount(),
                                   meta->GetGarbageBlobBytes());

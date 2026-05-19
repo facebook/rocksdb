@@ -34,6 +34,18 @@ class DBBlobBasicTest : public DBTestBase {
  protected:
   DBBlobBasicTest()
       : DBTestBase("db_blob_basic_test", /* env_do_fsync */ false) {}
+
+  CompressionType GetSupportedBlobCompression() {
+    static constexpr std::array<CompressionType, 6> kCandidates{
+        kSnappyCompression, kLZ4Compression,   kZSTD,
+        kZlibCompression,   kBZip2Compression, kLZ4HCCompression};
+    for (CompressionType compression : kCandidates) {
+      if (CompressionTypeSupported(compression)) {
+        return compression;
+      }
+    }
+    return kNoCompression;
+  }
 };
 
 TEST_F(DBBlobBasicTest, GetBlob) {
@@ -165,6 +177,44 @@ TEST_F(DBBlobBasicTest, GetBlobFromCache) {
     // should already be in their respective caches.
     ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result));
     ASSERT_EQ(result, blob_value);
+  }
+}
+
+TEST_F(DBBlobBasicTest, CompressedBlogBlobPointReadsMatchMultiGet) {
+  const CompressionType compression = GetSupportedBlobCompression();
+  if (compression == kNoCompression) {
+    return;
+  }
+
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.use_blog_format_for_blobs = true;
+  options.blob_compression_type = compression;
+
+  Reopen(options);
+
+  const std::array<std::string, 2> keys{"key0", "key1"};
+  const std::array<std::string, 2> values{std::string(4096, 'a'),
+                                          std::string(4096, 'b')};
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_OK(Put(keys[i], values[i]));
+  }
+  ASSERT_OK(Flush());
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_EQ(Get(keys[i]), values[i]);
+  }
+
+  const std::array<Slice, 2> key_slices{Slice(keys[0]), Slice(keys[1])};
+  std::array<PinnableSlice, 2> results;
+  std::array<Status, 2> statuses;
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), key_slices.size(),
+                key_slices.data(), results.data(), statuses.data());
+
+  for (size_t i = 0; i < key_slices.size(); ++i) {
+    ASSERT_OK(statuses[i]);
+    ASSERT_EQ(results[i], values[i]);
   }
 }
 

@@ -57,8 +57,8 @@
 |  Record types: blob, WriteBatch, preamble-start, footer records.    |
 +---------------------------------------------------------------------+
 |                    FILE FOOTER (optional)                            |
-|  Footer index records (0xFD), footer properties record (0xFE),      |
-|  footer locator record (0xFF) -- must be last.                      |
+|  Footer index records (0xF0), footer properties record (0xF8),      |
+|  file checksum info (0xFC, placeholder), locator (0xFF) last.       |
 +---------------------------------------------------------------------+</div>
 
 <h3>Fixed Header (40 bytes)</h3>
@@ -66,7 +66,7 @@
 <table>
 <tr><th>Offset</th><th>Size</th><th>Field</th></tr>
 <tr><td>0</td><td>12</td><td>File magic: <code>kBlogFileMagic</code> -- opaque 12 bytes ("Blog" ASCII + XXH3_64bits("Blog"))</td></tr>
-<tr><td>12</td><td>1</td><td>Schema version (currently 0). Newer versions are rejected by older readers.</td></tr>
+<tr><td>12</td><td>1</td><td>Schema version (currently 1). Newer versions are rejected by older readers. Value 0 is reserved outside the file format to denote legacy blob files in MANIFEST metadata.</td></tr>
 <tr><td>13</td><td>1</td><td>Checksum type (<code>ChecksumType</code> enum: 0=none, 1=CRC32c, 4=XXH3). Configured via <code>DBOptions::blog_checksum</code>.</td></tr>
 <tr><td>14</td><td>1</td><td>Compact record type (<code>BlogRecordType</code> -- type for all compact-format records)</td></tr>
 <tr><td>15</td><td>1</td><td>Flags: bit 0 = <code>kBlogFileRecycled</code> (file may contain trailing stale data)</td></tr>
@@ -233,7 +233,7 @@ Currently only ZSTD is supported for streaming compression. The <code>WriteBatch
 
 <p>Context checksums provide defense-in-depth for recycling detection and general data integrity verification with zero per-record overhead.</p>
 
-<p>The checksum type is configured from the CF's <code>BlockBasedTableOptions::checksum</code> setting (for blob files) or the default CF's setting (for WAL files). This is a reasonable but hopefully temporary way of configuring blog file internal checksums; a dedicated option may be added later.</p>
+<p>The checksum type is configured via <code>DBOptions::blog_checksum</code>. The same option is intended to govern blog-format internal checksums across file roles.</p>
 
 <!-- ======================================================================= -->
 <h2 id="s7">Footer</h2>
@@ -272,6 +272,29 @@ Currently only ZSTD is supported for streaming compression. The <code>WriteBatch
   <li>Compression ratio (compressed blobs): <code>blobCompressedBytes / blobUncompressedBytes</code></li>
   <li>Uncompressed blob payload bytes: <code>blobPayloadBytes &minus; blobCompressedBytes</code></li>
   <li>Total blob file bytes (approximate): <code>blobPayloadBytes + blobOverheadBytes + header + footer</code></li>
+</ul>
+<p>Exact physical file size, when known, is tracked separately in blob MANIFEST metadata.</p>
+
+<!-- ======================================================================= -->
+<h2 id="s7a">Blob MANIFEST Metadata</h2>
+
+<p>Blob files are tracked in MANIFEST via <code>BlobFileAddition</code> records. In addition to the long-standing blob count/byte totals and file checksum fields, the current blob implementation persists the following per-file metadata for format-aware accounting and verification.</p>
+
+<table>
+<tr><th>Field</th><th>Encoding / When Present</th><th>Purpose</th></tr>
+<tr><td><code>physical_blob_file_size</code></td><td>Forward-compatible custom field. Varint64 actual file size. Emitted when known for both legacy and blog blob files.</td><td>Provides an exact physical size for verification and accounting. This avoids relying on format-specific estimates from <code>total_blob_bytes</code> plus hard-coded header/footer constants.</td></tr>
+<tr><td><code>format descriptor</code></td><td>Forward-incompatible custom field. Emitted only for non-legacy blog blob files. Payload: <code>[schema_version: 1B][file_identity: 10B]</code>.</td><td>Makes the blob file format explicit on a per-file basis and ensures older readers fail fast rather than silently misinterpreting a blog blob file.</td></tr>
+<tr><td><code>schema_version</code></td><td>Stored inside the format descriptor. Manifest value <code>0</code> is reserved to mean legacy blob log format by omission of the descriptor. Current blog blob files use schema version <code>1</code>.</td><td>Determines how blob bytes are interpreted for mixed legacy/blog deployments and future schema evolution.</td></tr>
+<tr><td><code>file_identity</code></td><td>Stored inside the format descriptor. Exactly the blog file header's 10-byte escape sequence.</td><td>Provides a cheap but precise check that the MANIFEST entry refers to the same physical blob file that is being opened.</td></tr>
+</table>
+
+<p>On open, RocksDB verifies this metadata against the actual blob file: physical size, legacy-vs-blog format, blog schema version, and file identity must all match.</p>
+
+<p>Motivation:</p>
+<ul>
+  <li>Mixed legacy/blog blob files can coexist in one DB across option flips or upgrades, so format interpretation must be per-file rather than inferred from a DB-wide setting.</li>
+  <li><code>total_blob_bytes</code> intentionally tracks blob payload plus record framing, not an exact file length. Persisting the physical file size removes avoidable approximation error from header/footer differences.</li>
+  <li>Using the escape sequence as MANIFEST-side file identity catches stale or mismatched files early during recovery and verification without inventing a second file-identity mechanism.</li>
 </ul>
 
 <!-- ======================================================================= -->
@@ -345,10 +368,10 @@ Currently only ZSTD is supported for streaming compression. The <code>WriteBatch
 <tr><td>Escape sequence size</td><td>10 bytes: 6 random + 4 derived. First byte not 0x00/0xFF.</td></tr>
 <tr><td>Header/footer encoding</td><td>40-byte fixed header + required-only property section with 5-byte trailer. Ignorable properties in separate body records (0x01). Footer uses regular full-format records: index (0xF0), properties (0xF8), file checksum info (0xFC, placeholder), locator (0xFF). Record types: 0x01-0x0F blog meta, 0x10-0x7F body, 0xF0-0xFF footer.</td></tr>
 <tr><td>Preamble-start record format</td><td>Trivial format, length=0, type 0x11. Minimal -- just the type tag.</td></tr>
-<tr><td>WriteBatch record framing</td><td>Same compact/full format as blob records, type 0x03.</td></tr>
+<tr><td>WriteBatch record framing</td><td>Same compact/full format as blob records, type 0x12.</td></tr>
 <tr><td>Record format selection</td><td>Trivial: length=0, type + checksum, no payload. Compact: length 1&ndash;16383 (1&ndash;2 byte prefix varint), matches compact_record_type, no type byte. Full: prefix varint &ge; 3B (possibly irregular), includes type + pre-payload compression_type + prefix_checksum with context modifier.</td></tr>
 <tr><td>Checksum context</td><td>All checksums (fixed header, property section, record prefix, record trailer) use context checksum modifiers with the incarnation ID, ensuring nonzero stored values even with <code>kNoChecksum</code>.</td></tr>
-<tr><td>Schema version</td><td>Starts at 0. Newer versions are rejected by older readers (returns <code>NotSupported</code>). Checksum is verified before schema version is checked.</td></tr>
+<tr><td>Schema version</td><td>Blog file schema versions start at 1. Value 0 is reserved outside the file format for legacy blob-file manifest metadata. Newer versions are rejected by older readers (returns <code>NotSupported</code>). Checksum is verified before schema version is checked.</td></tr>
 <tr><td>Streaming compression sentinel</td><td><code>kStreamingCompressionSentinel = 0x7F</code> defined in <code>CompressionType</code> enum (compression_type.h). Used in blog record trailers for streaming-compressed WriteBatch payloads.</td></tr>
 </table>
 

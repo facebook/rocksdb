@@ -67,6 +67,8 @@ class BlobLogWriter {
 
   const WritableFileWriter* file() const { return dest_.get(); }
 
+  uint64_t current_offset() const { return block_offset_; }
+
   Status Sync(const WriteOptions& write_options);
 
  private:

@@ -173,9 +173,10 @@ Status BlobSource::InsertEntryIntoCache(const Slice& key, BlobContents* value,
 }
 
 Status BlobSource::GetBlob(const ReadOptions& read_options,
-                           const Slice& user_key, uint64_t file_number,
-                           uint64_t offset, uint64_t file_size,
-                           uint64_t value_size,
+                           const Slice& user_key,
+                           CompressionManager* configured_compression_manager,
+                           uint64_t file_number, uint64_t offset,
+                           uint64_t file_size, uint64_t value_size,
                            CompressionType compression_type,
                            FilePrefetchBuffer* prefetch_buffer,
                            PinnableSlice* value, uint64_t* bytes_read) {
@@ -235,16 +236,13 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
   {
     CacheHandleGuard<BlobFileReader> blob_file_reader;
     s = blob_file_cache_->GetBlobFileReader(read_options, file_number,
+                                            configured_compression_manager,
                                             &blob_file_reader);
     if (!s.ok()) {
       return s;
     }
 
     assert(blob_file_reader.GetValue());
-
-    if (compression_type != blob_file_reader.GetValue()->GetCompressionType()) {
-      return Status::Corruption("Compression type mismatch when reading blob");
-    }
 
     MemoryAllocator* const allocator =
         (blob_cache_ && read_options.fill_cache)
@@ -262,15 +260,11 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
       std::unique_ptr<BlobFileReader> fresh_reader;
       s = blob_file_cache_->OpenBlobFileReaderUncached(
-          read_options, file_number, &fresh_reader,
+          read_options, file_number, configured_compression_manager,
+          &fresh_reader,
           /*allow_footer_skip_retry=*/false);
       if (!s.ok()) {
         return AppendBlobRefreshRetryFailure(stale_status, s);
-      }
-
-      if (compression_type != fresh_reader->GetCompressionType()) {
-        return Status::Corruption(
-            "Compression type mismatch when reading blob");
       }
 
       blob_contents.reset();
@@ -313,9 +307,10 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
   return s;
 }
 
-void BlobSource::MultiGetBlob(const ReadOptions& read_options,
-                              autovector<BlobFileReadRequests>& blob_reqs,
-                              uint64_t* bytes_read) {
+void BlobSource::MultiGetBlob(
+    const ReadOptions& read_options,
+    CompressionManager* configured_compression_manager,
+    autovector<BlobFileReadRequests>& blob_reqs, uint64_t* bytes_read) {
   assert(blob_reqs.size() > 0);
 
   uint64_t total_bytes_read = 0;
@@ -329,8 +324,9 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options,
           return lhs.offset < rhs.offset;
         });
 
-    MultiGetBlobFromOneFile(read_options, file_number, file_size,
-                            blob_reqs_in_file, &bytes_read_in_file);
+    MultiGetBlobFromOneFile(read_options, configured_compression_manager,
+                            file_number, file_size, blob_reqs_in_file,
+                            &bytes_read_in_file);
 
     total_bytes_read += bytes_read_in_file;
   }
@@ -340,11 +336,11 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options,
   }
 }
 
-void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
-                                         uint64_t file_number,
-                                         uint64_t /*file_size*/,
-                                         autovector<BlobReadRequest>& blob_reqs,
-                                         uint64_t* bytes_read) {
+void BlobSource::MultiGetBlobFromOneFile(
+    const ReadOptions& read_options,
+    CompressionManager* configured_compression_manager, uint64_t file_number,
+    uint64_t /*file_size*/, autovector<BlobReadRequest>& blob_reqs,
+    uint64_t* bytes_read) {
   const size_t num_blobs = blob_reqs.size();
   assert(num_blobs > 0);
   assert(num_blobs <= MultiGetContext::MAX_BATCH_SIZE);
@@ -432,8 +428,9 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
     }
 
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    Status s = blob_file_cache_->GetBlobFileReader(read_options, file_number,
-                                                   &blob_file_reader);
+    Status s = blob_file_cache_->GetBlobFileReader(
+        read_options, file_number, configured_compression_manager,
+        &blob_file_reader);
     if (!s.ok()) {
       for (size_t i = 0; i < _blob_reqs.size(); ++i) {
         BlobReadRequest* const req = _blob_reqs[i].first;
@@ -472,7 +469,8 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
 
       std::unique_ptr<BlobFileReader> fresh_reader;
       s = blob_file_cache_->OpenBlobFileReaderUncached(
-          read_options, file_number, &fresh_reader,
+          read_options, file_number, configured_compression_manager,
+          &fresh_reader,
           /*allow_footer_skip_retry=*/false);
       if (!s.ok()) {
         for (const auto& blob_req : _blob_reqs) {

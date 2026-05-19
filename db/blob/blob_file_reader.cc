@@ -17,12 +17,14 @@
 #include "file/filename.h"
 #include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "table/format.h"
 #include "table/multiget_context.h"
 #include "test_util/sync_point.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/prefix_varint.h"
@@ -30,11 +32,163 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+
+Status ResolveBlogCompressionManager(
+    Slice compatibility_name,
+    CompressionManager* configured_compression_manager,
+    std::shared_ptr<CompressionManager>* resolved_manager) {
+  assert(resolved_manager != nullptr);
+
+  if (compatibility_name.empty()) {
+    *resolved_manager = GetBuiltinV2CompressionManager();
+    return Status::OK();
+  }
+
+  Status s = ResolveCompressionManagerByCompatibilityName(
+      compatibility_name, configured_compression_manager, resolved_manager);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (*resolved_manager == nullptr) {
+    return Status::Corruption(
+        "Blog blob file: no compatible compression "
+        "manager for \"" +
+        compatibility_name.ToString() + "\"");
+  }
+
+  return Status::OK();
+}
+
+Status ParseBlogFooterPropertiesRecordFromBuffer(
+    const Slice& buffer, uint64_t buffer_file_offset, uint64_t props_esc_offset,
+    const char* expected_escape_seq, ChecksumType checksum_type,
+    uint32_t incarnation_id, BlogFileFooterProperties* footer_props) {
+  assert(expected_escape_seq != nullptr);
+  assert(footer_props != nullptr);
+
+  const uint64_t buffer_end_offset = buffer_file_offset + buffer.size();
+  if (props_esc_offset < buffer_file_offset ||
+      props_esc_offset >= buffer_end_offset) {
+    return Status::Corruption(
+        "Blog blob file: footer properties record outside trailing buffer");
+  }
+
+  const size_t buf_pos =
+      static_cast<size_t>(props_esc_offset - buffer_file_offset);
+  const size_t remaining_total = buffer.size() - buf_pos;
+  if (remaining_total < kBlogEscapeSequenceSize + 1) {
+    return Status::Corruption(
+        "Blog blob file: truncated footer properties record");
+  }
+
+  const char* esc = buffer.data() + buf_pos;
+  if (memcmp(esc, expected_escape_seq, kBlogEscapeSequenceSize) != 0) {
+    return Status::Corruption(
+        "Blog blob file: footer locator points to wrong escape sequence");
+  }
+
+  const char* rec = esc + kBlogEscapeSequenceSize;
+  const size_t remaining = remaining_total - kBlogEscapeSequenceSize;
+
+  uint64_t length = 0;
+  const char* varint_end = GetPrefixVarint64Ptr(rec, rec + remaining, &length);
+  if (varint_end == nullptr) {
+    return Status::Corruption(
+        "Blog blob file: invalid footer properties length varint");
+  }
+
+  const size_t varint_len = static_cast<size_t>(varint_end - rec);
+  const uint64_t esc_file_offset = props_esc_offset;
+
+  if (length == 0) {
+    if (remaining < varint_len + 5) {
+      return Status::Corruption(
+          "Blog blob file: truncated trivial footer properties record");
+    }
+
+    BlogRecordType type =
+        lossless_cast<BlogRecordType>(lossless_cast<uint8_t>(varint_end[0]));
+    if (type != kBlogFooterPropertiesRecord) {
+      return Status::Corruption(
+          "Blog blob file: locator target is not footer properties record");
+    }
+
+    uint32_t stored_checksum = DecodeFixed32(varint_end + 1);
+    uint32_t computed_checksum =
+        ComputeBuiltinChecksum(checksum_type, rec, varint_len + 1) +
+        ChecksumModifierForContext(incarnation_id, esc_file_offset);
+    if (stored_checksum != computed_checksum) {
+      return Status::Corruption(
+          "Blog blob file: trivial footer properties checksum mismatch");
+    }
+
+    footer_props->properties.clear();
+    return Status::OK();
+  }
+
+  if (varint_len <= kBlogCompactVarintMaxBytes) {
+    return Status::Corruption(
+        "Blog blob file: footer properties record unexpectedly used compact "
+        "format");
+  }
+
+  if (remaining < varint_len + 6) {
+    return Status::Corruption(
+        "Blog blob file: truncated footer properties prefix");
+  }
+
+  BlogRecordType type =
+      lossless_cast<BlogRecordType>(lossless_cast<uint8_t>(varint_end[0]));
+  if (type != kBlogFooterPropertiesRecord) {
+    return Status::Corruption(
+        "Blog blob file: locator target is not footer properties record");
+  }
+
+  uint32_t stored_prefix_checksum = DecodeFixed32(varint_end + 2);
+  uint32_t computed_prefix_checksum =
+      ComputeBuiltinChecksum(checksum_type, rec, varint_len + 2) +
+      ChecksumModifierForContext(incarnation_id, esc_file_offset);
+  if (stored_prefix_checksum != computed_prefix_checksum) {
+    return Status::Corruption(
+        "Blog blob file: footer properties prefix checksum mismatch");
+  }
+
+  const size_t after_prefix = remaining - varint_len - 6;
+  if (after_prefix < length + kBlogBlockTrailerSize) {
+    return Status::Corruption(
+        "Blog blob file: truncated footer properties payload");
+  }
+
+  const char* payload = varint_end + 6;
+  const uint64_t payload_file_offset =
+      props_esc_offset + kBlogEscapeSequenceSize + varint_len + 6;
+  CompressionType actual_comp_type = kNoCompression;
+  Status s = VerifyBlogRecordTrailer(
+      checksum_type, payload, static_cast<size_t>(length), incarnation_id,
+      payload_file_offset, &actual_comp_type);
+  if (!s.ok()) {
+    return Status::Corruption(
+        "Blog blob file: footer properties trailer checksum mismatch");
+  }
+  if (actual_comp_type != kNoCompression) {
+    return Status::Corruption(
+        "Blog blob file: compressed footer properties record not supported");
+  }
+
+  return footer_props->DecodeFrom(Slice(payload, static_cast<size_t>(length)));
+}
+
+}  // namespace
+
 Status BlobFileReader::Create(
     const ImmutableOptions& immutable_options, const ReadOptions& read_options,
     const FileOptions& file_options, uint32_t column_family_id,
     HistogramImpl* blob_file_read_hist, uint64_t blob_file_number,
-    const std::shared_ptr<IOTracer>& io_tracer, bool skip_footer_validation,
+    const std::shared_ptr<IOTracer>& io_tracer,
+    CompressionManager* configured_compression_manager,
+    bool skip_footer_validation,
     std::unique_ptr<BlobFileReader>* blob_file_reader) {
   assert(blob_file_reader);
   assert(!*blob_file_reader);
@@ -55,17 +209,17 @@ Status BlobFileReader::Create(
   assert(file_reader);
 
   Statistics* const statistics = immutable_options.stats;
+  std::shared_ptr<CompressionManager> blog_compression_manager;
 
-  // Construct with defaults; ReadHeader will detect blog vs legacy format
-  // and populate the appropriate fields.
-  blob_file_reader->reset(
-      new BlobFileReader(std::move(file_reader), file_size, kNoCompression,
-                         /*decompressor=*/nullptr, immutable_options.clock,
-                         statistics, /*has_footer=*/false));
+  blob_file_reader->reset(new BlobFileReader(
+      std::move(file_reader), file_size, immutable_options.clock, statistics,
+      /*has_footer=*/false));
 
   {
-    const Status s =
-        (*blob_file_reader)->ReadHeader(read_options, column_family_id);
+    const Status s = (*blob_file_reader)
+                         ->ReadHeader(read_options, column_family_id,
+                                      configured_compression_manager,
+                                      &blog_compression_manager);
     if (!s.ok()) {
       blob_file_reader->reset();
       return s;
@@ -73,7 +227,8 @@ Status BlobFileReader::Create(
   }
 
   if (!skip_footer_validation) {
-    const Status s = (*blob_file_reader)->ReadFooter(read_options);
+    const Status s =
+        (*blob_file_reader)->ReadFooter(read_options, blog_compression_manager);
     if (!s.ok()) {
       blob_file_reader->reset();
       return s;
@@ -160,17 +315,20 @@ Status BlobFileReader::OpenFile(
   return Status::OK();
 }
 
-Status BlobFileReader::ReadHeader(const ReadOptions& read_options,
-                                  uint32_t column_family_id) {
+Status BlobFileReader::ReadHeader(
+    const ReadOptions& read_options, uint32_t column_family_id,
+    CompressionManager* configured_compression_manager,
+    std::shared_ptr<CompressionManager>* blog_compression_manager) {
   assert(file_reader_);
+  assert(blog_compression_manager != nullptr);
+  blog_compression_manager->reset();
 
   // Read ~4 KiB from the start to cover both legacy (30B) and blog (40B
   // fixed + property section) headers in a single I/O. This is enough for
   // typical blog headers; only if the property section exceeds ~4 KiB do
   // we need a second read.
   constexpr size_t kInitialReadSize = 4096;
-  const size_t read_size =
-      std::min(static_cast<uint64_t>(kInitialReadSize), file_size_);
+  const size_t read_size = std::min(uint64_t{kInitialReadSize}, file_size_);
 
   Slice header_slice;
   Buffer buf;
@@ -223,12 +381,19 @@ Status BlobFileReader::ReadHeader(const ReadOptions& read_options,
     }
 
     is_blog_format_ = true;
+    blog_schema_version_ = blog_header.schema_version;
     blog_checksum_type_ = blog_header.checksum_type;
     blog_incarnation_id_ = blog_header.incarnation_id();
     memcpy(blog_escape_sequence_, blog_header.escape_sequence,
            kBlogEscapeSequenceSize);
+    Status s_mgr = ResolveBlogCompressionManager(
+        blog_header.GetProperty(kBlogPropCompressionCompatibilityName),
+        configured_compression_manager, blog_compression_manager);
+    if (!s_mgr.ok()) {
+      return s_mgr;
+    }
     compression_type_ = kNoCompression;
-    decompressor_ = GetBuiltinV2CompressionManager()->GetDecompressor();
+    decompressor_ = (*blog_compression_manager)->GetDecompressor();
     return Status::OK();
   }
 
@@ -267,10 +432,16 @@ Status BlobFileReader::ReadHeader(const ReadOptions& read_options,
   return Status::OK();
 }
 
-Status BlobFileReader::ReadFooter(const ReadOptions& read_options) {
+Status BlobFileReader::ReadFooter(
+    const ReadOptions& read_options,
+    const std::shared_ptr<CompressionManager>& blog_compression_manager) {
   assert(file_reader_);
 
   if (is_blog_format_) {
+    if (blog_compression_manager == nullptr) {
+      return Status::Corruption(
+          "Blog blob file: missing resolved compression manager");
+    }
     // Blog format: verify the file was cleanly sealed by scanning backward
     // from EOF for the last record's escape sequence. Read the trailing
     // ~4 KiB in a single I/O and scan within the buffer.
@@ -284,9 +455,7 @@ Status BlobFileReader::ReadFooter(const ReadOptions& read_options) {
     // and file positions share the same alignment grid.
     const uint64_t trailing_offset =
         (file_size_ -
-         std::min(static_cast<uint64_t>(kTrailingReadSize),
-                  file_size_ - min_offset) +
-         3) &
+         std::min(uint64_t{kTrailingReadSize}, file_size_ - min_offset) + 3) &
         ~uint64_t{3};
     const size_t trailing_size =
         static_cast<size_t>(file_size_ - trailing_offset);
@@ -321,39 +490,30 @@ Status BlobFileReader::ReadFooter(const ReadOptions& read_options) {
       // The locator offset is relative (in 4-byte units) from the locator's
       // escape sequence backward to the properties record's escape sequence.
       uint64_t props_esc_offset =
-          locator_offset - static_cast<uint64_t>(entry.relative_offset_4B) * 4;
+          locator_offset - uint64_t{entry.relative_offset_4B} * 4;
       if (props_esc_offset < trailing_offset) {
         break;  // properties record not in our trailing buffer
       }
-      // Parse the properties record from the trailing buffer. Skip the
-      // escape sequence and full-format prefix to reach the payload.
-      size_t buf_pos = static_cast<size_t>(props_esc_offset - trailing_offset);
-      const char* rec =
-          trailing_slice.data() + buf_pos + kBlogEscapeSequenceSize;
-      size_t remaining = trailing_size - buf_pos - kBlogEscapeSequenceSize;
-      uint64_t props_length = 0;
-      const char* varint_end =
-          GetPrefixVarint64Ptr(rec, rec + remaining, &props_length);
-      if (varint_end && props_length > 0) {
-        // Skip type(1) + comp(1) + prefix_checksum(4) to reach payload.
-        const char* props_payload = varint_end + 6;
-        BlogFileFooterProperties footer_props;
-        Slice props_slice(props_payload, static_cast<size_t>(props_length));
-        if (footer_props.DecodeFrom(props_slice).ok()) {
-          for (const auto& [name, value] : footer_props.properties) {
-            if (name == "compressionTypes" && !value.empty()) {
-              std::vector<CompressionType> types;
-              for (char c : value) {
-                types.push_back(
-                    static_cast<CompressionType>(static_cast<uint8_t>(c)));
-              }
-              std::sort(types.begin(), types.end());
-              decompressor_ =
-                  GetBuiltinV2CompressionManager()->GetDecompressorForTypes(
-                      types.data(), types.data() + types.size());
-              break;
-            }
+      BlogFileFooterProperties footer_props;
+      s = ParseBlogFooterPropertiesRecordFromBuffer(
+          trailing_slice, trailing_offset, props_esc_offset,
+          blog_escape_sequence_, blog_checksum_type_, blog_incarnation_id_,
+          &footer_props);
+      if (!s.ok()) {
+        return s;
+      }
+
+      for (const auto& [name, value] : footer_props.properties) {
+        if (name == "compressionTypes" && !value.empty()) {
+          std::vector<CompressionType> types;
+          for (char c : value) {
+            types.push_back(
+                lossless_cast<CompressionType>(lossless_cast<uint8_t>(c)));
           }
+          std::sort(types.begin(), types.end());
+          decompressor_ = blog_compression_manager->GetDecompressorForTypes(
+              types.data(), types.data() + types.size());
+          break;
         }
       }
       break;
@@ -453,13 +613,9 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
 
 BlobFileReader::BlobFileReader(
     std::unique_ptr<RandomAccessFileReader>&& file_reader, uint64_t file_size,
-    CompressionType compression_type,
-    std::shared_ptr<Decompressor> decompressor, SystemClock* clock,
-    Statistics* statistics, bool has_footer)
+    SystemClock* clock, Statistics* statistics, bool has_footer)
     : file_reader_(std::move(file_reader)),
       file_size_(file_size),
-      compression_type_(compression_type),
-      decompressor_(std::move(decompressor)),
       clock_(clock),
       statistics_(statistics),
       has_footer_(has_footer) {

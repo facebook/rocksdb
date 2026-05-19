@@ -408,6 +408,9 @@ Status BlobFileBuilder::CloseBlobFile() {
 
   std::string checksum_method;
   std::string checksum_value;
+  uint64_t physical_blob_file_size = 0;
+  uint8_t schema_version = kLegacyBlobFileSchemaVersion;
+  std::string file_identity;
   Status s;
 
   if (blog_writer_) {
@@ -448,6 +451,10 @@ Status BlobFileBuilder::CloseBlobFile() {
       s = blog_writer_->Close(*write_options_);
     }
     if (s.ok()) {
+      physical_blob_file_size = blog_writer_->current_offset();
+      schema_version = blog_writer_->header().schema_version;
+      file_identity.assign(blog_writer_->header().escape_sequence,
+                           kBlogEscapeSequenceSize);
       std::string method = blog_writer_->file()->GetFileChecksumFuncName();
       if (method != kUnknownFileChecksumFuncName) {
         checksum_method = std::move(method);
@@ -463,6 +470,9 @@ Status BlobFileBuilder::CloseBlobFile() {
 
     s = writer_->LegacyAppendFooterAndClose(*write_options_, footer,
                                             &checksum_method, &checksum_value);
+    if (s.ok()) {
+      physical_blob_file_size = writer_->current_offset();
+    }
   }
 
   TEST_SYNC_POINT_CALLBACK(
@@ -482,9 +492,10 @@ Status BlobFileBuilder::CloseBlobFile() {
   }
 
   assert(blob_file_additions_);
-  blob_file_additions_->emplace_back(blob_file_number, blob_count_, blob_bytes_,
-                                     std::move(checksum_method),
-                                     std::move(checksum_value));
+  blob_file_additions_->emplace_back(
+      blob_file_number, blob_count_, blob_bytes_, std::move(checksum_method),
+      std::move(checksum_value), physical_blob_file_size, schema_version,
+      std::move(file_identity));
 
   assert(immutable_options_);
   ROCKS_LOG_INFO(immutable_options_->logger,

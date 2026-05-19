@@ -1553,7 +1553,9 @@ InternalIterator* CompactionJob::CreateInputIterator(
 
   if (sub_compact->compaction->DoesInputReferenceBlobFiles()) {
     BlobGarbageMeter* meter = sub_compact->Current().CreateBlobGarbageMeter(
-        db_options_.use_blog_format_for_blobs);
+        db_options_.use_blog_format_for_blobs,
+        BlobGarbageMeter::CollectBlobFileSchemaVersions(
+            sub_compact->compaction->input_version()->storage_info()));
     iterators.blob_counter =
         std::make_unique<BlobCountingIterator>(input, meter);
     input = iterators.blob_counter.get();

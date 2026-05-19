@@ -47,7 +47,7 @@ class RoundRobinBlobFilePartitionStrategy : public BlobFilePartitionStrategy {
     assert(num_partitions > 0);
     return static_cast<uint32_t>(
         next_partition_.fetch_add(1, std::memory_order_relaxed) %
-        static_cast<uint64_t>(num_partitions));
+        uint64_t{num_partitions});
   }
 
  private:
@@ -66,12 +66,10 @@ DirectWriteCompressionState& GetDirectWriteCompressionState(
   assert(compression <= kLastBuiltinCompression);
 
   static thread_local std::array<DirectWriteCompressionState,
-                                 static_cast<size_t>(kLastBuiltinCompression) +
-                                     1>
+                                 size_t{kLastBuiltinCompression} + 1>
       compression_states;
 
-  auto& compression_state =
-      compression_states[static_cast<size_t>(compression)];
+  auto& compression_state = compression_states[size_t{compression}];
   if (compression != kNoCompression &&
       (compression_state.compressor == nullptr ||
        compression_state.compression_opts != compression_opts)) {
@@ -327,6 +325,9 @@ Status BlobFilePartitionManager::FinalizeBlobFile(
 
   std::string checksum_method;
   std::string checksum_value;
+  uint64_t physical_blob_file_size = 0;
+  uint8_t schema_version = kLegacyBlobFileSchemaVersion;
+  std::string file_identity;
 
   if (blog_writer) {
     const auto& bs = blog_writer->blob_stats();
@@ -369,6 +370,11 @@ Status BlobFilePartitionManager::FinalizeBlobFile(
     if (!ios.ok()) {
       return static_cast<Status>(ios);
     }
+
+    physical_blob_file_size = blog_writer->current_offset();
+    schema_version = blog_writer->header().schema_version;
+    file_identity.assign(blog_writer->header().escape_sequence,
+                         kBlogEscapeSequenceSize);
   } else {
     BlobLogFooter footer;
     footer.blob_count = blob_count;
@@ -377,6 +383,7 @@ Status BlobFilePartitionManager::FinalizeBlobFile(
     if (!s.ok()) {
       return s;
     }
+    physical_blob_file_size = writer->current_offset();
   }
 
   if (blob_callback_ != nullptr) {
@@ -390,9 +397,10 @@ Status BlobFilePartitionManager::FinalizeBlobFile(
     }
   }
 
-  *addition =
-      BlobFileAddition(file_number, blob_count, total_blob_bytes,
-                       std::move(checksum_method), std::move(checksum_value));
+  *addition = BlobFileAddition(
+      file_number, blob_count, total_blob_bytes, std::move(checksum_method),
+      std::move(checksum_value), physical_blob_file_size, schema_version,
+      std::move(file_identity));
   return Status::OK();
 }
 
@@ -416,7 +424,7 @@ bool BlobFilePartitionManager::MarkPartitionGarbage(Partition* partition,
                                                     uint64_t blob_bytes) {
   assert(partition != nullptr);
 
-  if (!partition->writer || partition->file_number != file_number) {
+  if (!partition->is_open() || partition->file_number != file_number) {
     return false;
   }
 
@@ -869,8 +877,10 @@ void BlobFilePartitionManager::RemoveFilePartitionMappings(
 Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
     const ReadOptions& read_options, const Slice& user_key,
     const BlobIndex& blob_idx, const Version* version,
-    BlobFileCache* blob_file_cache, FilePrefetchBuffer* prefetch_buffer,
-    PinnableSlice* blob_value, uint64_t* bytes_read) {
+    BlobFileCache* blob_file_cache,
+    CompressionManager* configured_compression_manager,
+    FilePrefetchBuffer* prefetch_buffer, PinnableSlice* blob_value,
+    uint64_t* bytes_read) {
   assert(blob_value != nullptr);
 
   if (version != nullptr) {
@@ -900,9 +910,9 @@ Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
 
   Status s;
   CacheHandleGuard<BlobFileReader> reader;
-  s = blob_file_cache->GetBlobFileReader(read_options, blob_idx.file_number(),
-                                         &reader,
-                                         /*allow_footer_skip_retry=*/true);
+  s = blob_file_cache->GetBlobFileReader(
+      read_options, blob_idx.file_number(), configured_compression_manager,
+      &reader, /*allow_footer_skip_retry=*/true);
   if (!s.ok()) {
     return s;
   }
@@ -926,7 +936,8 @@ Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
 
   std::unique_ptr<BlobFileReader> fresh_reader;
   s = blob_file_cache->OpenBlobFileReaderUncached(
-      read_options, blob_idx.file_number(), &fresh_reader,
+      read_options, blob_idx.file_number(), configured_compression_manager,
+      &fresh_reader,
       /*allow_footer_skip_retry=*/true);
   if (!s.ok()) {
     return s;
