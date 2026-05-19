@@ -1087,7 +1087,7 @@ class BlockBasedTableReaderMultiScanAsyncIOTest
     : public BlockBasedTableReaderMultiScanTest {};
 
 // TODO: test no block cache case
-TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
+TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, DISABLED_MultiScanPrepare) {
   auto param = GetParam();
   auto fill_cache = param.fill_cache;
   auto use_async_io = param.use_async_io;

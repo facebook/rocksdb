@@ -9,6 +9,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -55,6 +56,12 @@ class SstFileReader {
   // created by a DB, to be used by third party tools. DB optimization
   // capabilities like filling cache, read ahead are disabled.
   std::unique_ptr<Iterator> NewTableIterator();
+
+  // Parses a raw key returned by NewTableIterator().
+  // The Slice fields in parsed_key point into raw_table_key and are valid only
+  // while raw_table_key remains valid.
+  Status ParseTableIteratorKey(const Slice& raw_table_key,
+                               ParsedEntryInfo* parsed_key) const;
 
   std::shared_ptr<const TableProperties> GetTableProperties() const;
 

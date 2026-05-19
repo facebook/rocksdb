@@ -94,11 +94,23 @@ Step 3 - **Synced**: `fsync()` is called when `WriteOptions::sync` is true, or w
 
 Step 4 - **Obsolete**: After all memtables referencing this WAL are flushed, the WAL becomes obsolete and is either recycled or deleted.
 
+## Async WAL Precreation
+
+When `DBOptions::async_wal_precreate` is enabled, RocksDB keeps at most one future WAL file precreated in the background. RocksDB reserves a file number before scheduling the background task; the task opens the file/writer, but deliberately leaves the file as reserved empty storage:
+
+- It does not write compression metadata.
+- It does not write predecessor WAL info.
+- It does not add the file to `logs_`, `alive_wal_files_`, or MANIFEST WAL tracking.
+
+The file becomes a logical WAL only when foreground `SwitchMemtable()` consumes it. At that point RocksDB writes the normal WAL metadata, flushes the previous WAL writer buffer, and installs the new WAL in the same order as synchronous WAL creation. If foreground rotation reaches the switch while the background task is still running, the writer waits for the reserved file number instead of allocating a higher numbered WAL. This avoids a late lower-numbered WAL appearing after a newer WAL has become live. If background precreation fails, the background task logs the failure and foreground rotation falls back to normal synchronous WAL creation.
+
+Unused precreated WALs are safe across crashes and clean shutdowns because they are zero-record future WAL files. Recovery processes WAL files by log number, marks every observed WAL number as used, and treats an empty future WAL as EOF. On clean close, RocksDB releases the unpublished WAL writer but does not need to delete the empty file. The option is sanitized to false when `recycle_log_file_num > 0`.
+
 ## WAL Tracking in MANIFEST
 
 `WalSet` (see `db/wal_edit.h`, tracked in `VersionSet`) manages WAL metadata in the MANIFEST:
 
-- `WalAddition` records are written when a WAL is created or when a closed/inactive WAL's synced size is finalized
+- `WalAddition` records are written when a closed/inactive WAL's synced size is finalized
 - `WalDeletion` records are written when a WAL becomes obsolete after flush
 - Live-WAL syncs (via `DB::SyncWAL()` or `WriteOptions::sync`) are intentionally not tracked in MANIFEST
 

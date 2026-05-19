@@ -103,7 +103,7 @@ When a flush is triggered, `DBImpl::SwitchMemtable()` (see `db/db_impl/db_impl_w
 
 Step 1 - Writes any recoverable state to the current memtable.
 
-Step 2 - Creates a new WAL file (unless the current WAL is empty) with the next file number from `VersionSet::NewFileNumber()`.
+Step 2 - Creates a new WAL file (unless the current WAL is empty) with the next file number from `VersionSet::NewFileNumber()`. If `DBOptions::async_wal_precreate` has prepared a future WAL, this step consumes that reserved file number and finalizes the WAL metadata instead of creating the file synchronously.
 
 Step 3 - Constructs a new `MemTable` with `earliest_seq` set to the current last sequence.
 

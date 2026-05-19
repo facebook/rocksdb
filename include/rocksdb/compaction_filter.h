@@ -287,6 +287,10 @@ class CompactionFilter : public Customizable {
   // may not realize there is a write conflict and may allow a Transaction to
   // Commit that should have failed.  Instead, it is better to implement any
   // Merge filtering inside the MergeOperator.
+  //
+  // Note: Under WritePrepared, WriteUnprepared, and WriteCommitted
+  // TransactionDB, this method is skipped for operands at or below the latest
+  // published sequence, typically every operand in the input.
   virtual bool FilterMergeOperand(int /*level*/, const Slice& /*key*/,
                                   const Slice& /*operand*/) const {
     return false;
@@ -416,7 +420,7 @@ class CompactionFilter : public Customizable {
 
   // Returns true if the filter overrides FilterV4 and can handle
   // WideColumnBlobResolver (lazy blob loading). When false (default),
-  // FilterV4 delegates to FilterV3 with fully resolved column values —
+  // FilterV4 delegates to FilterV3 with fully resolved column values --
   // blob columns are eagerly fetched before the filter is called, ensuring
   // backward compatibility with FilterV3-only filters.
   //

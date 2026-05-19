@@ -11834,7 +11834,7 @@ TEST_F(DBCompactionTest, RoundRobinCleanCutWithSharedBoundary) {
 // 2. A post-verification step fails (injected here via sync point), setting
 //    compact_->status to error while each subcompaction's status stays OK.
 // 3. SubcompactionState::Cleanup checks individual status (OK) and skips
-//    ReleaseObsolete — the cache entries leak.
+//    ReleaseObsolete -- the cache entries leak.
 // 4. FaultInjectionTestFS injects metadata read errors, causing GetChildren
 //    to fail in FindObsoleteFiles.
 // 5. Close()'s FindObsoleteFiles also fails to find the orphan for the same
@@ -11865,7 +11865,7 @@ TEST_F(DBCompactionTest, LeakedTableCacheEntryOnCompactionFailure) {
   // fail while individual subcompaction statuses stay OK (so Cleanup skips
   // ReleaseObsolete). The filesystem deactivation makes GetChildren fail
   // in FindObsoleteFiles, preventing the backstop from evicting the leaked
-  // cache entries — matching the crash test's metadata read fault injection.
+  // cache entries -- matching the crash test's metadata read fault injection.
   std::atomic<bool> inject_error{true};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():AfterVerifyOutputFiles", [&](void* arg) {
@@ -11877,7 +11877,7 @@ TEST_F(DBCompactionTest, LeakedTableCacheEntryOnCompactionFailure) {
   // Enable metadata read fault injection on the bg compaction thread after
   // the compaction job finishes but before FindObsoleteFiles runs. This
   // makes GetChildren fail (metadata read), matching crash test's
-  // --open_metadata_read_fault_one_in=8. Only metadata reads fail —
+  // --open_metadata_read_fault_one_in=8. Only metadata reads fail --
   // logging and other IO operations continue normally.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BackgroundCallCompaction:1", [&](void*) {
@@ -11890,7 +11890,7 @@ TEST_F(DBCompactionTest, LeakedTableCacheEntryOnCompactionFailure) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  // Trigger compaction — fails after VerifyOutputFiles.
+  // Trigger compaction -- fails after VerifyOutputFiles.
   Status s = dbfull()->TEST_CompactRange(0, nullptr, nullptr);
   ASSERT_NOK(s);
 
@@ -11972,7 +11972,7 @@ TEST_F(DBCompactionTest, LeakedTableCacheEntryOnInstallFailure) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  // Trigger compaction — Run() succeeds but Install() fails.
+  // Trigger compaction -- Run() succeeds but Install() fails.
   Status s = dbfull()->TEST_CompactRange(0, nullptr, nullptr);
   ASSERT_NOK(s);
 
@@ -12033,7 +12033,7 @@ TEST_F(DBCompactionTest, ObsoleteFileTableCacheEntryWithConcurrentRef) {
       TableCache::Lookup(table_cache, target_file_number);
   ASSERT_NE(concurrent_handle, nullptr);
 
-  // Call ReleaseObsolete directly — this is what PurgeObsoleteFiles calls
+  // Call ReleaseObsolete directly -- this is what PurgeObsoleteFiles calls
   // when a file becomes obsolete. Pass nullptr for the handle to make
   // ReleaseObsolete do its own Lookup internally.
   TableCache::ReleaseObsolete(table_cache, target_file_number,
@@ -12048,6 +12048,88 @@ TEST_F(DBCompactionTest, ObsoleteFileTableCacheEntryWithConcurrentRef) {
   // released. Without the fix, the entry leaks here.
   Cache::Handle* leaked = TableCache::Lookup(table_cache, target_file_number);
   ASSERT_EQ(leaked, nullptr);
+}
+
+// Regression test for the atomic flush path leaking table cache entries when
+// InstallMemtableAtomicFlushResults (MANIFEST write) fails.
+// 1. atomic_flush is enabled with two column families.
+// 2. Both CFs have data, a flush is triggered.
+// 3. FlushJob::Run() succeeds for both (files are added to table cache by
+//    BuildTable), but write_manifest=false so no install happens in Run().
+// 4. The combined MANIFEST write (InstallMemtableAtomicFlushResults) fails
+//    due to injected I/O error.
+// 5. Without the fix, the files remain in the table cache but are not in
+//    any Version, causing TEST_VerifyNoObsoleteFilesCached to fire during
+//    Close() (especially when metadata_read_fault_one_in disables the
+//    FindObsoleteFiles backstop).
+TEST_F(DBCompactionTest, LeakedTableCacheEntryOnAtomicFlushInstallFailure) {
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> fault_env(NewCompositeEnv(fault_fs));
+
+  Options options = CurrentOptions();
+  options.env = fault_env.get();
+  options.atomic_flush = true;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  // Enough buffer so auto-flush doesn't trigger prematurely.
+  options.write_buffer_size = 64 << 20;
+  DestroyAndReopen(options);
+
+  // Create a second column family.
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_EQ(2, handles_.size());
+
+  // Write data to both CFs.
+  ASSERT_OK(Put(0, "key0", std::string(1024, 'a')));
+  ASSERT_OK(Put(1, "key1", std::string(1024, 'b')));
+
+  // Inject a write error during the combined MANIFEST write that happens
+  // inside InstallMemtableAtomicFlushResults (via LogAndApply).
+  std::atomic<bool> inject_error{true};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest", [&](void*) {
+        if (inject_error.exchange(false)) {
+          fault_fs->SetThreadLocalErrorContext(
+              FaultInjectionIOType::kWrite, /*seed=*/0, /*one_in=*/1,
+              /*retryable=*/false, /*has_data_loss=*/false);
+          fault_fs->EnableThreadLocalErrorInjection(
+              FaultInjectionIOType::kWrite);
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Trigger atomic flush - Run() succeeds but MANIFEST write fails.
+  FlushOptions flush_opts;
+  flush_opts.wait = true;
+  Status s = db_->Flush(flush_opts, handles_);
+  ASSERT_NOK(s);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Disable the write fault so Close() can proceed.
+  fault_fs->DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+
+  // Enable metadata read fault injection on the main thread so that
+  // Close()'s FindObsoleteFiles full-scan backstop cannot find the orphan
+  // files (simulating metadata_read_fault_one_in from the stress test).
+  fault_fs->SetThreadLocalErrorContext(
+      FaultInjectionIOType::kMetadataRead, /*seed=*/0, /*one_in=*/1,
+      /*retryable=*/false, /*has_data_loss=*/false);
+  fault_fs->EnableThreadLocalErrorInjection(
+      FaultInjectionIOType::kMetadataRead);
+
+  // Destroy column family handles before closing.
+  for (auto h : handles_) {
+    ASSERT_OK(db_->DestroyColumnFamilyHandle(h));
+  }
+  handles_.clear();
+
+  // Close the DB. Without the fix, TEST_VerifyNoObsoleteFilesCached fires.
+  s = db_->Close();
+  ASSERT_OK(s);
+  db_ = nullptr;
 }
 
 TEST_F(DBCompactionTest, VerifyFileChecksumOnCompactionOutput) {

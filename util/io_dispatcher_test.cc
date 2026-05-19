@@ -1830,7 +1830,7 @@ TEST_F(IODispatcherTest, MemoryReleasedAfterReadIndexThenReleaseBlock) {
     // Some memory should have been granted for prefetch
     ASSERT_GT(stats->getTickerCount(PREFETCH_MEMORY_BYTES_GRANTED), 0);
 
-    // Read all blocks — ReadIndex moves values out of pinned_blocks_.
+    // Read all blocks -- ReadIndex moves values out of pinned_blocks_.
     // This also triggers TryDispatchPendingPrefetches as memory is released,
     // which acquires more memory for pending groups. So granted grows during
     // this loop.
@@ -1840,7 +1840,7 @@ TEST_F(IODispatcherTest, MemoryReleasedAfterReadIndexThenReleaseBlock) {
       ASSERT_NE(block.GetValue(), nullptr);
     }
 
-    // Release all blocks — should be a no-op for memory accounting since
+    // Release all blocks -- should be a no-op for memory accounting since
     // ReadIndex already released memory when moving values out
     for (size_t i = 0; i < block_handles.size(); ++i) {
       read_set->ReleaseBlock(i);
@@ -1894,12 +1894,12 @@ TEST_F(IODispatcherTest, DestructorReleasesMemoryAfterReadIndex) {
       ASSERT_GT(granted, 0);
 
       // Read all blocks via ReadIndex (moves values out of pinned_blocks_)
-      // but do NOT call ReleaseBlock — let the destructor handle cleanup
+      // but do NOT call ReleaseBlock -- let the destructor handle cleanup
       for (size_t i = 0; i < block_handles.size(); ++i) {
         CachableEntry<Block> block;
         ASSERT_OK(read_set->ReadIndex(i, &block));
       }
-      // read_set goes out of scope — destructor should release all memory
+      // read_set goes out of scope -- destructor should release all memory
     }
 
     uint64_t granted = stats->getTickerCount(PREFETCH_MEMORY_BYTES_GRANTED);

@@ -1,4 +1,4 @@
-//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
@@ -47,7 +47,7 @@ class SortedRunBuilderImpl : public SortedRunBuilder {
     // Universal compaction for merging all L0 files
     db_options.compaction_style = kCompactionStyleUniversal;
 
-    // Disable auto compaction — we compact manually at the end
+    // Disable auto compaction -- we compact manually at the end
     db_options.disable_auto_compactions = true;
 
     // Memory budget
@@ -75,7 +75,7 @@ class SortedRunBuilderImpl : public SortedRunBuilder {
       db_options.table_factory = options_.table_factory;
     }
 
-    // WAL is not needed — resumability comes from flushed SSTs
+    // WAL is not needed -- resumability comes from flushed SSTs
     db_options.manual_wal_flush = true;
     db_options.wal_bytes_per_sync = 0;
 

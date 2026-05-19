@@ -216,7 +216,7 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
 
   // Case 3: Block needs synchronous read (pending or never-dispatched blocks).
   // No ReleaseMemory() needed here because blocks reaching this path never had
-  // TryAcquireMemory() called — they were either pending prefetch or skipped
+  // TryAcquireMemory() called -- they were either pending prefetch or skipped
   // during SubmitJob. block_sizes_[block_index] may be > 0 (set during
   // SubmitJob for all uncached blocks) but that does not imply memory was
   // acquired.

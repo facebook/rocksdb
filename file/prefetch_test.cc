@@ -3899,7 +3899,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
                            &result, &s, for_compaction);
   // Platforms that don't have IO uring may not support async IO.
   // With the ReadAsync sync fallback, s will be OK even when async IO is
-  // unavailable — detect by checking if the second buffer has an async read
+  // unavailable -- detect by checking if the second buffer has an async read
   // in progress.
   if (use_async_prefetch && s.IsNotSupported()) {
     return;

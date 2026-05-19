@@ -4151,7 +4151,7 @@ TEST_P(DBIteratorTest, PrefixSameAsStartSeekToNonInDomainKey) {
   ASSERT_OK(Put("abc2", "v2"));
   ASSERT_OK(Put("abc3", "v3"));
 
-  // Seek to "ab" (2 bytes) — out-of-domain for FixedPrefixTransform(3).
+  // Seek to "ab" (2 bytes) -- out-of-domain for FixedPrefixTransform(3).
   // ShouldSetPrefix returns false for out-of-domain targets, so no prefix
   // constraint is set. The seek should find "abc1" and iteration should
   // proceed without prefix_same_as_start enforcement.
@@ -5820,13 +5820,13 @@ TEST_P(ReadPathRangeTombstoneTest, ExhaustedIteratorWithBounds) {
   // Both directions encounter two tombstone runs (a-d and g-j).
   ASSERT_EQ(attempted_insert_ranges_.size(), 2);
   if (Forward()) {
-    // Forward: sees a-d tombstones first → live e terminates → [a, e).
-    // Then g-j → exhaustion past j, saved_key_="j" fallback → [g, j),
+    // Forward: sees a-d tombstones first -> live e terminates -> [a, e).
+    // Then g-j -> exhaustion past j, saved_key_="j" fallback -> [g, j),
     // covering g,h,i. j remains a point tombstone.
     AssertRange(0, "a", "e");
     AssertRange(1, "g", "j");
   } else {
-    // Reverse: sees j-g tombstones first, then f,e live, then d-a → exhausts.
+    // Reverse: sees j-g tombstones first, then f,e live, then d-a -> exhausts.
     AssertRange(0, "g", "z");
     AssertRange(1, "a", "e");
   }
@@ -5863,8 +5863,8 @@ TEST_P(ReadPathRangeTombstoneTest, ExhaustedIteratorNoBounds) {
   VerifyIteration({"e", "f"});
 
   if (Forward()) {
-    // Forward: a-d run terminates at live e → [a, e). g-j run exhausts
-    // past j → saved_key_ fallback → [g, j), covering g,h,i with j as a
+    // Forward: a-d run terminates at live e -> [a, e). g-j run exhausts
+    // past j -> saved_key_ fallback -> [g, j), covering g,h,i with j as a
     // point tombstone.
     ASSERT_EQ(attempted_insert_ranges_.size(), 2);
     AssertRange(0, "a", "e");
@@ -6061,7 +6061,7 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterDefaultReadOptions) {
 }
 
 TEST_P(ReadPathRangeTombstoneTest, PrefixFilterTotalOrderSeek) {
-  // total_order_seek=true disables prefix filtering — all files visible.
+  // total_order_seek=true disables prefix filtering -- all files visible.
   // The delete run spans from prefix 'b' into prefix 'c', terminated by
   // live key "cb" from L0. The tombstone [ba, cb) crosses prefix boundaries,
   // which is safe because total_order_seek makes all files visible.
@@ -6103,7 +6103,7 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterTotalOrderSeek) {
     ASSERT_OK(Flush());
 
     // Memtable: contiguous deletes spanning prefixes 'b' and 'c'.
-    // No live key between "bb" and "cb" — the run crosses prefix boundaries.
+    // No live key between "bb" and "cb" -- the run crosses prefix boundaries.
     ASSERT_OK(put("aa", "below"));
     ASSERT_OK(del("ba"));
     ASSERT_OK(del("bb"));
@@ -6311,7 +6311,7 @@ TEST_P(ReadPathRangeTombstoneTest, PrefixFilterOutOfDomainSeek) {
   ro.prefix_same_as_start = true;
   auto it = std::unique_ptr<Iterator>(db_->NewIterator(ro));
   if (Forward()) {
-    // Seek with a 1-byte key — out-of-domain for FixedPrefixTransform(4).
+    // Seek with a 1-byte key -- out-of-domain for FixedPrefixTransform(4).
     // prefix_same_as_start cannot set a prefix bound for this target.
     it->Seek("b");
     while (it->Valid()) {
@@ -6674,7 +6674,7 @@ TEST_P(ReadPathRangeTombstoneTest, ExhaustedWithUDT) {
 
   ASSERT_EQ(attempted_insert_ranges_.size(), 1);
   if (Forward()) {
-    // Forward exhaustion past h: saved_key_="h"+ts fallback → [e+ts, h+ts).
+    // Forward exhaustion past h: saved_key_="h"+ts fallback -> [e+ts, h+ts).
     AssertRange(0, std::string("e") + ts, std::string("h") + ts);
   } else {
     // Reverse exhaustion: range is [a+ts, e+ts).
@@ -6687,9 +6687,9 @@ TEST_P(ReadPathRangeTombstoneTest, ExhaustedWithUDT) {
 
 TEST_P(ReadPathRangeTombstoneTest, SeekForPrevTombstone) {
   // SeekForPrev lands directly on tombstones. No upper bound. Forward
-  // exhaustion past h falls back to saved_key_="h" → [e, h), covering
+  // exhaustion past h falls back to saved_key_="h" -> [e, h), covering
   // e,f,g with h as a point tombstone.
-  // Reverse: SeekForPrev("h") → Delete(h,g,f,e) → live "d" → range [e, h).
+  // Reverse: SeekForPrev("h") -> Delete(h,g,f,e) -> live "d" -> range [e, h).
   for (bool use_udt : {false, true}) {
     SCOPED_TRACE(use_udt ? "with UDT" : "without UDT");
     Options options = CurrentOptions();
@@ -6727,7 +6727,7 @@ TEST_P(ReadPathRangeTombstoneTest, SeekForPrevTombstone) {
         keys.push_back(iter->key().ToString());
       }
     } else {
-      // SeekForPrev("h") lands on Delete(h), traverses g,f,e → finds "d".
+      // SeekForPrev("h") lands on Delete(h), traverses g,f,e -> finds "d".
       for (iter->SeekForPrev("h"); iter->Valid(); iter->Prev()) {
         keys.push_back(iter->key().ToString());
       }
@@ -6738,7 +6738,7 @@ TEST_P(ReadPathRangeTombstoneTest, SeekForPrevTombstone) {
 
     ASSERT_EQ(attempted_insert_ranges_.size(), 1);
     if (Forward()) {
-      // Forward exhausts past h → saved_key_="h" fallback → [e, h),
+      // Forward exhausts past h -> saved_key_="h" fallback -> [e, h),
       // covering e,f,g with h as a point tombstone.
       if (use_udt) {
         AssertRange(0, std::string("e") + ts, std::string("h") + ts);
@@ -6761,11 +6761,11 @@ TEST_P(ReadPathRangeTombstoneTest, SeekForPrevTombstone) {
 
 TEST_P(ReadPathRangeTombstoneTest, UpperBoundTombstone) {
   // iterate_upper_bound lands past the data. Both directions see tombstones
-  // e-h. Forward exhausts naturally past h (no key in DB ≥ upper) so the
+  // e-h. Forward exhausts naturally past h (no key in DB >= upper) so the
   // forward path falls back to saved_key_ ("h") as the exclusive end_key,
-  // covering n-1 of n deletes — [e, h). The remaining tombstone for h
+  // covering n-1 of n deletes -- [e, h). The remaining tombstone for h
   // stays as a point delete. Reverse captures the live key "d" before the
-  // run and uses it via range_tomb_end_key_ — [e, i) when SeekToLast
+  // run and uses it via range_tomb_end_key_ -- [e, i) when SeekToLast
   // delegates to SeekForPrev("i").
   for (bool use_udt : {false, true}) {
     SCOPED_TRACE(use_udt ? "with UDT" : "without UDT");
@@ -6837,8 +6837,8 @@ TEST_P(ReadPathRangeTombstoneTest, UpperBoundTombstone) {
 
 TEST_P(ReadPathRangeTombstoneTest, LowerBoundTruncatesReverse) {
   // Keys a-j, delete a-h. Lower bound "e" truncates reverse iteration
-  // mid-tombstone-run. Forward: tombstones e-h ended by live key i → [e, i).
-  // Reverse: tombstones h,g,f,e then lower_bound hit → flush [e, i).
+  // mid-tombstone-run. Forward: tombstones e-h ended by live key i -> [e, i).
+  // Reverse: tombstones h,g,f,e then lower_bound hit -> flush [e, i).
   for (bool use_udt : {false, true}) {
     SCOPED_TRACE(use_udt ? "with UDT" : "without UDT");
     Options options = CurrentOptions();
@@ -6975,14 +6975,14 @@ TEST_P(ReadPathRangeTombstoneTest, InvisibleKeysDontBreakTombstoneRun) {
   ASSERT_OK(Put("f", "vf"));
   ASSERT_OK(Flush());
 
-  // Delete b, d — visible tombstones.
+  // Delete b, d -- visible tombstones.
   ASSERT_OK(Delete("b"));
   ASSERT_OK(Delete("d"));
 
   // Snapshot S.  At S: a(live), b(del), d(del), f(live).
   const Snapshot* snap = db_->GetSnapshot();
 
-  // Write c, e AFTER the snapshot — invisible at S.
+  // Write c, e AFTER the snapshot -- invisible at S.
   // At S the iterator sees: a(live), b(del), c(invis), d(del),
   //   e(invis), f(live).
   ASSERT_OK(Put("c", "vc"));
@@ -6994,7 +6994,7 @@ TEST_P(ReadPathRangeTombstoneTest, InvisibleKeysDontBreakTombstoneRun) {
   VerifyIteration({"a", "f"}, ro);
 
   // Invisible keys c and e should not break the tombstone run.
-  // 2 tombstones (b, d) ≥ threshold → range [b, f).
+  // 2 tombstones (b, d) >= threshold -> range [b, f).
   ASSERT_EQ(attempted_insert_ranges_.size(), 1);
   AssertRange(0, "b", "f");
 
@@ -7097,7 +7097,8 @@ TEST_P(ReadPathRangeTombstoneTest, SeekToLastStaleSavedKey) {
 
 TEST_P(ReadPathRangeTombstoneTest, SeekToLastTombstones) {
   if (Forward()) {
-    ROCKSDB_GTEST_SKIP("SeekToLast tombstone materialization is reverse-only.");
+    ROCKSDB_GTEST_BYPASS(
+        "SeekToLast tombstone materialization is reverse-only.");
   }
 
   Options options = CurrentOptions();
@@ -7178,6 +7179,52 @@ TEST_P(ReadPathRangeTombstoneTest,
   ASSERT_EQ(snap_value, "vc");
 
   db_->ReleaseSnapshot(snap);
+}
+
+// SeekForPrev uses the reverse path: PrevInternal -> FindValueForCurrentKey.
+// When a key has more versions than max_sequential_skip_in_iterations,
+// FindValueForCurrentKey delegates to FindValueForCurrentKeyUsingSeek which
+// re-seeks forward to the newest visible version. That function must preserve
+// key pinning by passing the correct `copy` parameter to
+// saved_key_.SetUserKey().
+TEST_P(DBIteratorTest, SeekForPrevKeyPinnedWithManyVersions) {
+  Options options = CurrentOptions();
+  options.max_sequential_skip_in_iterations = 8;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  // 20 versions > max_sequential_skip (8), forcing the reseek path.
+  // No flush: keeps all versions alive in the memtable.
+  for (int i = 0; i < 20; i++) {
+    ASSERT_OK(Put("key1", "value" + std::to_string(i)));
+  }
+
+  ReadOptions ro;
+  ro.pin_data = true;
+
+  std::unique_ptr<Iterator> iter(NewIterator(ro));
+  std::string prop_value;
+
+  // Seek (forward) correctly reports key as pinned.
+  iter->Seek("key1");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
+  ASSERT_EQ("1", prop_value);
+
+  uint64_t reseeks_before =
+      options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION);
+
+  iter->SeekForPrev("key1");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("key1", iter->key().ToString());
+
+  // Confirm FindValueForCurrentKeyUsingSeek was actually taken.
+  uint64_t reseeks_after =
+      options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION);
+  ASSERT_GT(reseeks_after, reseeks_before);
+
+  ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
+  ASSERT_EQ("1", prop_value);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

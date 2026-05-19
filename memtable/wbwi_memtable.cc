@@ -48,13 +48,18 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
                        SequenceNumber* max_covering_tombstone_seq,
                        SequenceNumber* out_seq, const ReadOptions&,
                        bool immutable_memtable, ReadCallback* callback,
-                       bool* is_blob_index, bool do_merge) {
+                       bool* is_blob_index, bool do_merge,
+                       const BlobFetcher* blob_fetcher) {
   assert(s->ok() || s->IsMergeInProgress());
   (void)immutable_memtable;
   (void)timestamp;
   (void)columns;
+  (void)blob_fetcher;
   assert(immutable_memtable);
   assert(!timestamp);  // TODO: support UDT
+  // IngestWriteBatchWithIndex() is rejected while any live column family has
+  // blob direct write enabled, so WBWI should never need blob resolution.
+  assert(blob_fetcher == nullptr);
   assert(assigned_seqno_.upper_bound != kMaxSequenceNumber);
   assert(assigned_seqno_.lower_bound != kMaxSequenceNumber);
   // WBWI does not support DeleteRange yet.
@@ -154,10 +159,15 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
 
 void WBWIMemTable::MultiGet(const ReadOptions& read_options,
                             MultiGetRange* range, ReadCallback* callback,
-                            bool immutable_memtable) {
+                            bool immutable_memtable,
+                            const BlobFetcher* blob_fetcher) {
   (void)immutable_memtable;
+  (void)blob_fetcher;
   // Should only be used as immutable memtable.
   assert(immutable_memtable);
+  // IngestWriteBatchWithIndex() is rejected while any live column family has
+  // blob direct write enabled, so WBWI should never need blob resolution.
+  assert(blob_fetcher == nullptr);
   // TODO: reuse the InternalIterator created in Get().
   for (auto iter = range->begin(); iter != range->end(); ++iter) {
     SequenceNumber dummy_seq = 0;

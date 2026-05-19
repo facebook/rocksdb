@@ -65,7 +65,7 @@ void MultiScanIndexIterator::Seek(const Slice& target) {
 
   // Enforce forward-only seek
   if (!prev_seek_key_.empty() && icomp_.Compare(target, prev_seek_key_) <= 0) {
-    // Seek key is not moving forward — keep current position
+    // Seek key is not moving forward -- keep current position
     return;
   }
   prev_seek_key_ = target.ToString();
@@ -87,11 +87,12 @@ void MultiScanIndexIterator::Seek(const Slice& target) {
   // The following diagram explains different seek targets seeking at various
   // positions on the table, while the next_scan_idx_ points to PreparedRange 2.
   //
-  // next_scan_idx_: ------------------┐
-  //                                   ▼
+  // next_scan_idx_: ------------------+
+  //                                   |
+  //                                   v
   // table:     : __[PreparedRange 1]__[PreparedRange 2]__[PreparedRange 3]__
-  // Seek target: <----- Case 1 ------>▲<------------- Case 2 -------------->
-  //                                   │
+  // Seek target: <----- Case 1 ------>^<------------- Case 2 -------------->
+  //                                   |
   //                                 Case 3
   //
   // Case 1: seek before the start of next prepared range. This could happen
@@ -103,7 +104,7 @@ void MultiScanIndexIterator::Seek(const Slice& target) {
   if (compare_next_scan_start_result < 0) {
     // Case 1: Seek before the start of the next prepared range
     if (next_scan_idx_ == 0) {
-      // Should not happen — seek before first prepared range
+      // Should not happen -- seek before first prepared range
       assert(false && "Seek target before the first prepared range");
       valid_ = false;
       return;
@@ -122,7 +123,7 @@ void MultiScanIndexIterator::Seek(const Slice& target) {
       valid_ = false;
       return;
     }
-    // Seek within a gap — advance to the right scan range and find block
+    // Seek within a gap -- advance to the right scan range and find block
     SeekToBlock(&user_seek_target);
   } else if (compare_next_scan_start_result > 0) {
     // Case 2: Seek after the start of the next prepared range
@@ -220,7 +221,7 @@ void MultiScanIndexIterator::SeekToBlockIdx(size_t block_idx) {
 void MultiScanIndexIterator::SetExhausted() {
   scan_range_exhausted_ = true;
   if (next_scan_idx_ < block_index_ranges_per_scan_.size()) {
-    // More ranges remain — signal out-of-bound for current range.
+    // More ranges remain -- signal out-of-bound for current range.
     valid_ = true;
     // Position at the start of the next range so that the next Seek()
     // can find it. We need to be "valid" so that FindBlockForward sets
@@ -232,7 +233,7 @@ void MultiScanIndexIterator::SetExhausted() {
     }
     valid_ = false;
   } else {
-    // Last range — natural EOF. Don't set out-of-bound so LevelIterator
+    // Last range -- natural EOF. Don't set out-of-bound so LevelIterator
     // advances to the next file.
     valid_ = false;
   }

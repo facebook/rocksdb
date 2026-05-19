@@ -373,14 +373,17 @@ jobs:
           crash_duration: 240
     container:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
-      options: --shm-size=16gb
+      options: --shm-size=16gb --ulimit nofile=1048576:1048576
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: mini-crashtest
-    - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=${{ matrix.crash_duration }} --max_key=2500000' ${{ matrix.crash_test_target }}
+    - run: |
+        ulimit -S -n $(ulimit -Hn) # Raise open files soft limit to hard limit
+        echo "Updated ulimit -Hn: $(ulimit -Hn) -Sn: $(ulimit -Sn)"
+        make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=${{ matrix.crash_duration }} --max_key=2500000' ${{ matrix.crash_test_target }}
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"

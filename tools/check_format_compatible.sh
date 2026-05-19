@@ -19,7 +19,7 @@
 #  LONG_TEST=1 - Test all branches known to build for this test, rather than
 #    the default of randomly sampling the branches that aren't the oldest in
 #    each set.
-#  USE_SSH=1 - Connect to GitHub with ssh instead of https 
+#  USE_SSH=1 - Connect to GitHub with ssh instead of https
 
 if ! git diff-index --quiet HEAD; then
   echo "You have uncommitted changes. Aborting."
@@ -148,7 +148,7 @@ EOF
 
 # To check for DB forward compatibility with loading options (old version
 # reading data from new), as well as backward compatibility
-declare -a db_forward_with_options_refs=("10.4.fb" "10.5.fb" "10.6.fb" "10.7.fb" "10.8.fb" "10.9.fb" "10.10.fb" "10.11.fb" "11.0.fb" "11.1.fb 11.2.fb")
+declare -a db_forward_with_options_refs=("10.4.fb" "10.5.fb" "10.6.fb" "10.7.fb" "10.8.fb" "10.9.fb" "10.10.fb" "10.11.fb" "11.0.fb" "11.1.fb" "11.2.fb" "11.3.fb")
 # To check for DB forward compatibility without loading options (in addition
 # to the "with loading options" set), as well as backward compatibility
 declare -a db_forward_no_options_refs=() # N/A at the moment
@@ -174,6 +174,28 @@ declare -a bak_forward_refs=("${db_forward_no_options_refs[@]}" "${db_forward_wi
 # (when format_version=2 became the default)
 declare -a db_backward_only_refs=("4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "${bak_backward_only_refs[@]}")
 
+validate_release_refs()
+{
+  local list_name="$1"
+  local checkout_ref
+  shift
+  for checkout_ref in "$@"
+  do
+    if [[ ! "$checkout_ref" =~ ^[0-9]+\.[0-9]+\.fb$ ]]; then
+      echo "Invalid ref in ${list_name}: '${checkout_ref}'" >&2
+      exit 1
+    fi
+  done
+}
+
+validate_release_refs "db_backward_only_refs" "${db_backward_only_refs[@]}"
+validate_release_refs "db_forward_no_options_refs" "${db_forward_no_options_refs[@]}"
+validate_release_refs "db_forward_with_options_refs" "${db_forward_with_options_refs[@]}"
+validate_release_refs "ext_backward_only_refs" "${ext_backward_only_refs[@]}"
+validate_release_refs "ext_forward_refs" "${ext_forward_refs[@]}"
+validate_release_refs "bak_backward_only_refs" "${bak_backward_only_refs[@]}"
+validate_release_refs "bak_forward_refs" "${bak_forward_refs[@]}"
+
 if [ "$SHORT_TEST" ]; then
   # Use only the first (if exists) of each list
   db_backward_only_refs=(${db_backward_only_refs[0]})
@@ -190,20 +212,20 @@ declare -a checkout_refs=()
 # Always include first release on each list
 for checkout_ref in "${db_backward_only_refs[0]}" "${db_forward_no_options_refs[0]}" "${db_forward_with_options_refs[0]}" "${ext_backward_only_refs[0]}" "${ext_forward_refs[0]}" "${bak_backward_only_refs[0]}" "${bak_forward_refs[0]}"
 do
-  if [ ! -e $db_test_dir/$checkout_ref ]; then
-    mkdir -p $db_test_dir/$checkout_ref
-    checkout_refs+=($checkout_ref)
+  if [ ! -e "$db_test_dir/$checkout_ref" ]; then
+    mkdir -p "$db_test_dir/$checkout_ref"
+    checkout_refs+=("$checkout_ref")
   fi
 done
 # Maybe include rest if not short test
 if [ "$SHORT_TEST" == "" ]; then
   for checkout_ref in "${db_backward_only_refs[@]}" "${db_forward_no_options_refs[@]}" "${db_forward_with_options_refs[@]}" "${ext_backward_only_refs[@]}" "${ext_forward_refs[@]}" "${bak_backward_only_refs[@]}" "${bak_forward_refs[@]}"
   do
-    if [ ! -e $db_test_dir/$checkout_ref ]; then
-      mkdir -p $db_test_dir/$checkout_ref
+    if [ ! -e "$db_test_dir/$checkout_ref" ]; then
+      mkdir -p "$db_test_dir/$checkout_ref"
       # Randomly sample remaining releases, unless long test
       if [ "$LONG_TEST" ] || [ "$(($RANDOM % 3))" == "0" ]; then
-        checkout_refs+=($checkout_ref)
+        checkout_refs+=("$checkout_ref")
       fi
     fi
   done

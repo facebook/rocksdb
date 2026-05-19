@@ -16,6 +16,7 @@
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "db/wide/wide_columns_helper.h"
+#include "file/filename.h"
 #include "logging/logging.h"
 #include "memtable/wbwi_memtable.h"
 #include "monitoring/perf_context_imp.h"
@@ -1546,6 +1547,10 @@ Status DBImpl::WriteImpl(
       // Note: if we are to resume after non-OK statuses we need to revisit how
       // we react to non-OK statuses here.
       if (w.status.ok()) {  // Don't publish a partial batch write
+        TEST_SYNC_POINT(
+            "DBImpl::WriteImpl:AfterWBWIIngestBeforeSetLastSequence:pause");
+        TEST_SYNC_POINT(
+            "DBImpl::WriteImpl:AfterWBWIIngestBeforeSetLastSequence:resume");
         versions_->SetLastSequence(last_sequence);
       }
     }
@@ -3103,6 +3108,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   const WriteOptions write_options;
 
   log::Writer* new_log = nullptr;
+  UnpublishedWAL prepared_wal;
   MemTable* new_mem = nullptr;
   IOStatus io_s;
 
@@ -3130,8 +3136,16 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
       !wal_recycle_files_.empty() && IsFileDeletionsEnabled()) {
     recycle_log_number = wal_recycle_files_.front();
   }
-  uint64_t new_log_number =
-      creating_new_log ? versions_->NewFileNumber() : cur_wal_number_;
+  uint64_t new_log_number = cur_wal_number_;
+  if (creating_new_log) {
+    prepared_wal = WaitForAsyncWALPrecreate();
+    if (prepared_wal.writer) {
+      new_log_number = prepared_wal.log_number;
+    } else {
+      assert(prepared_wal.log_number == 0);
+      new_log_number = versions_->NewFileNumber();
+    }
+  }
   // For use outside of holding DB mutex
   const MutableCFOptions mutable_cf_options_copy =
       cfd->GetLatestMutableCFOptions();
@@ -3152,6 +3166,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   // Log this later after lock release. It may be outdated, e.g., if background
   // flush happens before logging, but that should be ok.
   int num_imm_unflushed = cfd->imm()->NumNotFlushed();
+  const DBOptions db_options_snapshot =
+      BuildDBOptions(immutable_db_options_, mutable_db_options_);
   const auto preallocate_block_size =
       GetWalPreallocateBlockSize(mutable_cf_options_copy.write_buffer_size);
   mutex_.Unlock();
@@ -3167,12 +3183,34 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
     wal_write_mutex_.Unlock();
     // TODO: Write buffer size passed in should be max of all CF's instead
     // of mutable_cf_options.write_buffer_size.
-    io_s = CreateWAL(write_options, new_log_number, recycle_log_number,
-                     preallocate_block_size, info, &new_log);
+    if (prepared_wal.writer) {
+      io_s = StartWALFile(write_options, info, prepared_wal.writer.get());
+      if (io_s.ok()) {
+        new_log = prepared_wal.writer.release();
+      }
+    } else {
+      io_s =
+          CreateWAL(db_options_snapshot, write_options, new_log_number,
+                    recycle_log_number, preallocate_block_size, info, &new_log);
+    }
     TEST_SYNC_POINT_CALLBACK("DBImpl::SwitchMemtable:AfterCreateWAL", &io_s);
     if (s.ok()) {
       s = io_s;
     }
+  }
+  if (!s.ok() && prepared_wal.writer) {
+    const uint64_t prepared_wal_number = prepared_wal.log_number;
+    const std::string prepared_wal_fname =
+        LogFileName(immutable_db_options_.GetWalDir(), prepared_wal_number);
+    prepared_wal.Reset();
+    Status delete_s = env_->DeleteFile(prepared_wal_fname);
+    if (!delete_s.ok() && !delete_s.IsNotFound()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Failed to delete unstarted async precreated WAL #%" PRIu64
+                     ": %s",
+                     prepared_wal_number, delete_s.ToString().c_str());
+    }
+    delete_s.PermitUncheckedError();
   }
   if (s.ok()) {
     // FIXME: from the comment for GetEarliestSequenceNumber(), any key with
@@ -3355,6 +3393,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
   InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context);
+  MaybeScheduleAsyncWALPrecreate(preallocate_block_size);
 
   // Notify client that memtable is sealed, now that we have successfully
   // installed a new memtable

@@ -217,6 +217,41 @@ The following patterns emerged as frequent sources of review feedback:
 * Use `make dbg` command to build all of the unit test in debug mode.
 * For -j in make command, use the number of CPU cores to decide it.
 
+### When to run `make clean` (avoid mixing build modes)
+
+The Makefile does **not** track build mode, so object files from a prior
+build are silently reused even when compiled with different flags, leading
+to confusing linker errors, sanitizer false negatives, ODR violations, or
+"phantom" bugs.
+
+Run `make clean` before switching any of these:
+* **`ASSERT_STATUS_CHECKED=1` ↔ unset** — changes the `Status` class layout (ABI break).
+* **Sanitizer builds** — toggling any of `COMPILE_WITH_ASAN=1`,
+    `COMPILE_WITH_UBSAN=1`, `COMPILE_WITH_TSAN=1` on/off.
+* `DEBUG_LEVEL=0` (release) ↔ `DEBUG_LEVEL=1` (debug, default for `make dbg`).
+* Different compilers, `OPT` levels, or other flags affecting codegen/ABI.
+
+**Notable exception:** `DEBUG_LEVEL=2` can be safely mixed with
+`DEBUG_LEVEL=1` — rebuild a subset of files with `DEBUG_LEVEL=2` to get
+extra/more accurate runtime checks for those files without a full clean.
+
+When in doubt, `make clean` is cheap insurance compared to chasing a
+phantom bug.
+
+### Source checks
+* Run `make check-sources` before committing. This catches non-ASCII
+    characters in source files and other source-level issues that CI will
+    reject. In particular, **do not use Unicode characters** (em dashes,
+    smart quotes, etc.) in comments or strings -- use ASCII equivalents
+    (`--` instead of em dash, `'` instead of smart quote, etc.).
+
+### RTTI and dynamic_cast
+* Production code and `db_stress` must build in **release mode
+    (`-fno-rtti`)**. Do not use `dynamic_cast` anywhere except unit tests.
+    Use `static_cast_with_check` from `util/cast_util.h` (validates with
+    `dynamic_cast` in debug builds, plain `static_cast` in release).
+* Unit tests (`*_test.cc`) are built in debug mode with RTTI enabled.
+
 ### Unit Test
 * After all of the unit tests are added, review them and try to extract common
     reusable utility functions to reduce code duplication due to copy past between

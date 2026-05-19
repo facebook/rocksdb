@@ -431,6 +431,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "strict_bytes_per_sync=true;"
       "enable_thread_tracking=false;"
       "recycle_log_file_num=0;"
+      "async_wal_precreate=true;"
       "create_missing_column_families=true;"
       "log_file_time_to_roll=3097;"
       "max_background_flushes=35;"
@@ -475,6 +476,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "avoid_unnecessary_blocking_io=false;"
       "log_readahead_size=0;"
       "write_dbid_to_manifest=false;"
+      "optimize_manifest_for_recovery=false;"
       "best_efforts_recovery=false;"
       "max_bgerror_resume_count=2;"
       "bgerror_resume_retry_interval=1000000;"
@@ -491,10 +493,12 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "wal_write_temperature=kHot;"
       "background_close_inactive_wals=true;"
       "write_dbid_to_manifest=true;"
+      "optimize_manifest_for_recovery=true;"
       "write_identity_file=true;"
       "verify_manifest_content_on_close=false;"
       "prefix_seek_opt_in_only=true;"
-      "fast_sst_open=true;",
+      "fast_sst_open=true;"
+      "reuse_manifest_on_open=true;",
       new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),

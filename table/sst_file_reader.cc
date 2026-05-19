@@ -8,11 +8,13 @@
 #include "db/arena_wrapped_db_iter.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
+#include "db/lookup_key.h"
 #include "file/random_access_file_reader.h"
 #include "options/cf_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/utilities/types_util.h"
 #include "table/get_context.h"
 #include "table/table_builder.h"
 #include "table/table_iterator.h"
@@ -156,6 +158,8 @@ std::vector<Status> SstFileReader::MultiGet(
           statuses[i] = Status::MergeInProgress();
           break;
         case GetContext::kCorrupt:
+          statuses[i] = Status::Corruption();
+          break;
         case GetContext::kUnexpectedBlobIndex:
         case GetContext::kMergeOperatorFailed:
           statuses[i] = Status::Corruption();
@@ -198,9 +202,10 @@ Status SstFileReader::Get(const ReadOptions& roptions, const Slice& key,
                      nullptr /* value_found */, &merge_context, true,
                      &max_covering_tombstone_seq, r->ioptions.clock);
 
-  status = r->table_reader->Get(
-      roptions, InternalKey(key, kMaxSequenceNumber, kTypeValue).Encode(),
-      &get_ctx, r->moptions.prefix_extractor.get(), false /* skip_filters */);
+  LookupKey lkey(key, kMaxSequenceNumber);
+  status = r->table_reader->Get(roptions, lkey.internal_key(), &get_ctx,
+                                r->moptions.prefix_extractor.get(),
+                                false /* skip_filters */);
 
   get_ctx.ReportCounters();
 
@@ -216,6 +221,8 @@ Status SstFileReader::Get(const ReadOptions& roptions, const Slice& key,
         status = Status::MergeInProgress();
         break;
       case GetContext::kCorrupt:
+        status = Status::Corruption();
+        break;
       case GetContext::kUnexpectedBlobIndex:
       case GetContext::kMergeOperatorFailed:
         status = Status::Corruption();
@@ -268,6 +275,11 @@ std::unique_ptr<Iterator> SstFileReader::NewTableIterator() {
     return nullptr;
   }
   return std::make_unique<TableIterator>(internal_iter);
+}
+
+Status SstFileReader::ParseTableIteratorKey(const Slice& raw_table_key,
+                                            ParsedEntryInfo* parsed_key) const {
+  return ParseEntry(raw_table_key, rep_->options.comparator, parsed_key);
 }
 
 std::shared_ptr<const TableProperties> SstFileReader::GetTableProperties()

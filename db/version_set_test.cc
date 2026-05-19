@@ -1203,7 +1203,7 @@ class VersionSetTestBase {
     reactive_versions_ = std::make_shared<ReactiveVersionSet>(
         dbname_, &imm_db_options_, mutable_db_options_, env_options_,
         table_cache_.get(), &write_buffer_manager_, &write_controller_,
-        nullptr);
+        /*io_tracer=*/nullptr, /*db_id=*/"", /*db_session_id=*/"");
     imm_db_options_.db_paths.emplace_back(dbname_,
                                           std::numeric_limits<uint64_t>::max());
   }
@@ -2440,7 +2440,7 @@ TEST_F(VersionSetTest, ManifestContentValidationOnCloseClean) {
   // Verify content validation actually ran
   ASSERT_TRUE(content_validation_ran);
 
-  // No corruption — counter should be zero
+  // No corruption -- counter should be zero
   ASSERT_EQ(0, stats->getTickerCount(MANIFEST_VALIDATION_FAILURE_COUNT));
 
   // Manifest path should be unchanged (no rotation)
@@ -2513,7 +2513,7 @@ TEST_F(VersionSetTest, ManifestContentValidationOnCloseCorruptRecord) {
 
 TEST_F(VersionSetTest, ManifestContentValidationOnCloseDisabled) {
   // Default (option disabled), corrupt manifest after writer close,
-  // verify no rotation occurred — corrupt manifest persists.
+  // verify no rotation occurred -- corrupt manifest persists.
   NewDB();
   auto stats = CreateDBStatistics();
   imm_db_options_.statistics = stats;
@@ -2538,7 +2538,7 @@ TEST_F(VersionSetTest, ManifestContentValidationOnCloseDisabled) {
 
   ASSERT_FALSE(content_validation_ran);
 
-  // Validation disabled — counter should be zero
+  // Validation disabled -- counter should be zero
   ASSERT_EQ(0, stats->getTickerCount(MANIFEST_VALIDATION_FAILURE_COUNT));
 
   // Manifest path should be unchanged (no rotation since validation is off)
@@ -2585,7 +2585,7 @@ TEST_F(VersionSetTest, ManifestContentValidationOnCloseSizeCheckFails) {
   SyncPoint::GetInstance()->DisableProcessing();
 
   // Size check caught the issue; content validation on rewritten manifest
-  // should pass — no content validation failure recorded
+  // should pass -- no content validation failure recorded
   ASSERT_EQ(0, stats->getTickerCount(MANIFEST_VALIDATION_FAILURE_COUNT));
 
   // Size check should have triggered rotation
@@ -2697,7 +2697,7 @@ TEST_F(VersionSetTest, ManifestContentValidationOnCloseOpenFails) {
 
   ASSERT_TRUE(close_s.IsIOError()) << close_s.ToString();
 
-  // File couldn't be opened — no content validation ran
+  // File couldn't be opened -- no content validation ran
   ASSERT_EQ(0, stats->getTickerCount(MANIFEST_VALIDATION_FAILURE_COUNT));
 }
 

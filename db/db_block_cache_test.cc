@@ -542,7 +542,7 @@ TEST_F(DBBlockCacheTest, WarmCacheWithDataBlocksDuringCompaction) {
   EXPECT_TRUE(tracking_cache->HasPriority(Cache::Priority::BOTTOM));
   EXPECT_FALSE(tracking_cache->HasPriority(Cache::Priority::LOW));
 
-  // Compaction output is in cache — reads should have zero misses.
+  // Compaction output is in cache -- reads should have zero misses.
   auto data_miss_before =
       options.statistics->getTickerCount(BLOCK_CACHE_DATA_MISS);
   ASSERT_EQ(value + "2", Get("key"));

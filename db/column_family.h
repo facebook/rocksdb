@@ -625,14 +625,17 @@ class ColumnFamilyData {
 
  private:
   friend class ColumnFamilySet;
-  ColumnFamilyData(
-      uint32_t id, const std::string& name, Version* dummy_versions,
-      Cache* table_cache, WriteBufferManager* write_buffer_manager,
-      const ColumnFamilyOptions& options, const ImmutableDBOptions& db_options,
-      const FileOptions* file_options, ColumnFamilySet* column_family_set,
-      BlockCacheTracer* const block_cache_tracer,
-      const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
-      const std::string& db_session_id, bool read_only);
+  ColumnFamilyData(uint32_t id, const std::string& name,
+                   Version* dummy_versions, Cache* table_cache,
+                   WriteBufferManager* write_buffer_manager,
+                   const ColumnFamilyOptions& options,
+                   const ImmutableDBOptions& db_options,
+                   const FileOptions* file_options,
+                   ColumnFamilySet* column_family_set,
+                   BlockCacheTracer* const block_cache_tracer,
+                   const std::shared_ptr<IOTracer>& io_tracer,
+                   const std::string& db_id, const std::string& db_session_id,
+                   bool read_only, bool fast_sst_open = false);
 
   std::vector<std::string> GetDbPaths() const;
 
@@ -782,7 +785,8 @@ class ColumnFamilySet {
                   WriteController* _write_controller,
                   BlockCacheTracer* const block_cache_tracer,
                   const std::shared_ptr<IOTracer>& io_tracer,
-                  const std::string& db_id, const std::string& db_session_id);
+                  const std::string& db_id, const std::string& db_session_id,
+                  bool fast_sst_open = false);
   ~ColumnFamilySet();
 
   ColumnFamilyData* GetDefault() const;
@@ -817,6 +821,9 @@ class ColumnFamilySet {
   iterator end() { return iterator(dummy_cfd_); }
 
   Cache* get_table_cache() { return table_cache_; }
+
+  bool GetFastSstOpen() const { return fast_sst_open_; }
+  void SetFastSstOpen(bool v) { fast_sst_open_ = v; }
 
   WriteBufferManager* write_buffer_manager() { return write_buffer_manager_; }
 
@@ -866,6 +873,7 @@ class ColumnFamilySet {
   std::shared_ptr<IOTracer> io_tracer_;
   const std::string& db_id_;
   std::string db_session_id_;
+  bool fast_sst_open_;
 };
 
 // A wrapper for ColumnFamilySet that supports releasing DB mutex during each

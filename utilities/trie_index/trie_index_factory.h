@@ -71,7 +71,7 @@ class TrieIndexBuilder final : public UserDefinedIndexBuilder {
                       std::string* separator_scratch,
                       const IndexEntryContext& context) override;
 
-  // Called for each key added to the SST. Currently a no-op — the trie is
+  // Called for each key added to the SST. Currently a no-op -- the trie is
   // built entirely from separator keys provided via AddIndexEntry().
   void OnKeyAdded(const Slice& key, ValueType type,
                   const Slice& value) override;
@@ -100,7 +100,7 @@ class TrieIndexBuilder final : public UserDefinedIndexBuilder {
   // We buffer all separator entries during building, then at Finish() feed
   // them to the trie with seqno side-table metadata.
   //
-  // Always set to true in AddIndexEntry() — seqno encoding is
+  // Always set to true in AddIndexEntry() -- seqno encoding is
   // unconditionally enabled. The 8-byte per-leaf overhead is always incurred.
   bool must_use_separator_with_seq_;
 
@@ -172,7 +172,7 @@ class TrieIndexIterator final : public UserDefinedIndexIterator {
   // is the seek target, for Next this is the previous separator key.
   // The trie stores separator keys (upper bounds on block contents), not
   // first-in-block keys, so we cannot compare the current separator against
-  // the limit directly — see the UDI API contract in user_defined_index.h.
+  // the limit directly -- see the UDI API contract in user_defined_index.h.
   IterBoundCheck CheckBounds(const Slice& reference_key) const;
 
   const Comparator* comparator_;

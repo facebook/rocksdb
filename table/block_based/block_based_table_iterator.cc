@@ -41,7 +41,7 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
     return;
   }
 
-  // MultiScan requires an explicit seek key — SeekToFirst() is not supported
+  // MultiScan requires an explicit seek key -- SeekToFirst() is not supported
   if (multi_scan_read_set_ && !target) {
     multi_scan_status_ = Status::InvalidArgument("No seek key for MultiScan");
     RecordTick(table_->GetStatistics(), MULTISCAN_SEEK_ERRORS);
@@ -683,7 +683,7 @@ void BlockBasedTableIterator::FindBlockForward() {
         if (multi_scan_index_iter_ &&
             multi_scan_index_iter_->IsScanRangeExhausted()) {
           if (multi_scan_index_iter_->HasMoreScanRanges()) {
-            // More ranges remain — signal out-of-bound so DBIter/LevelIter
+            // More ranges remain -- signal out-of-bound so DBIter/LevelIter
             // will trigger the next Seek for the next scan range.
             is_out_of_bound_ = true;
           }

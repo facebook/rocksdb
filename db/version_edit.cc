@@ -30,7 +30,7 @@ PinnedTableReader& PinnedTableReader::operator=(
   TableReader* r = other.reader_.load(std::memory_order_acquire);
   // Only read handle_ when reader_ is non-null. Pin() writes handle_ before
   // reader_ (with release), so a non-null reader_ guarantees handle_ is stable.
-  // If reader_ is null, Pin() may be in progress — avoid reading handle_.
+  // If reader_ is null, Pin() may be in progress -- avoid reading handle_.
   handle_ = (r != nullptr) ? other.handle_ : nullptr;
   reader_.store(r, std::memory_order_release);
   return *this;
@@ -108,6 +108,17 @@ Status FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
 }
 
 void VersionEdit::Clear() { *this = VersionEdit(); }
+
+bool VersionEdit::ShouldEmitPerColumnFamilyRecoveryEdit(
+    uint64_t current_log_number) const {
+  return (HasLogNumber() && GetLogNumber() > current_log_number) ||
+         NumEntries() > 0 || HasComparatorName() || HasPrevLogNumber() ||
+         HasNextFile() || HasMaxColumnFamily() || HasMinLogNumberToKeep() ||
+         HasLastSequence() || !GetCompactCursors().empty() || HasDbId() ||
+         IsColumnFamilyManipulation() || IsInAtomicGroup() ||
+         HasFullHistoryTsLow() || HasPersistUserDefinedTimestamps() ||
+         HasSubcompactionProgress();
+}
 
 bool VersionEdit::EncodeTo(std::string* dst,
                            std::optional<size_t> ts_sz) const {
@@ -227,6 +238,13 @@ bool VersionEdit::EncodeTo(std::string* dst,
     std::string progress_data;
     subcompaction_progress_.EncodeTo(&progress_data);
     PutLengthPrefixedSlice(dst, progress_data);
+  }
+
+  if (has_last_compacted_manifest_file_size_) {
+    PutVarint32(dst, kLastCompactedManifestFileSize);
+    std::string varint_size;
+    PutVarint64(&varint_size, last_compacted_manifest_file_size_);
+    PutLengthPrefixedSlice(dst, Slice(varint_size));
   }
 
   return true;
@@ -879,6 +897,17 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
+      case kLastCompactedManifestFileSize: {
+        Slice encoded;
+        if (GetLengthPrefixedSlice(&input, &encoded) &&
+            GetVarint64(&encoded, &last_compacted_manifest_file_size_)) {
+          has_last_compacted_manifest_file_size_ = true;
+        } else {
+          msg = "last compacted manifest file size";
+        }
+        break;
+      }
+
       default:
         if (tag & kTagSafeIgnoreMask) {
           // Tag from future which can be safely ignored.
@@ -1053,6 +1082,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n SubcompactionProgress: ");
     r.append(subcompaction_progress_.ToString());
   }
+  if (has_last_compacted_manifest_file_size_) {
+    r.append("\n  LastCompactedManifestFileSize: ");
+    AppendNumberTo(&r, last_compacted_manifest_file_size_);
+  }
   r.append("\n}\n");
   return r;
 }
@@ -1207,6 +1240,10 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
 
   if (HasSubcompactionProgress()) {
     jw << "SubcompactionProgress" << subcompaction_progress_.ToString();
+  }
+
+  if (has_last_compacted_manifest_file_size_) {
+    jw << "LastCompactedManifestFileSize" << last_compacted_manifest_file_size_;
   }
 
   jw.EndObject();

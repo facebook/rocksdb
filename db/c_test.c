@@ -2869,6 +2869,9 @@ int main(int argc, char** argv) {
     rocksdb_options_set_track_and_verify_wals_in_manifest(o, 42);
     CheckCondition(1 ==
                    rocksdb_options_get_track_and_verify_wals_in_manifest(o));
+    CheckCondition(0 == rocksdb_options_get_async_wal_precreate(o));
+    rocksdb_options_set_async_wal_precreate(o, 1);
+    CheckCondition(1 == rocksdb_options_get_async_wal_precreate(o));
 
     /* Blob Options */
     rocksdb_options_set_enable_blob_files(o, 1);

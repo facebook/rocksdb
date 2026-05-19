@@ -172,6 +172,10 @@ class DB {
 
   // Open the database for read only.
   //
+  // If error_if_wal_file_exists is true, returns an error when a non-empty
+  // WAL file exists. Empty WAL files can be left behind by features such as
+  // async WAL precreation and are tolerated.
+  //
   static Status OpenForReadOnly(const Options& options, const std::string& name,
                                 std::unique_ptr<DB>* dbptr,
                                 bool error_if_wal_file_exists = false);
@@ -182,6 +186,10 @@ class DB {
   // families in the database that should be opened. However, you always need
   // to specify default column family. The default column family name is
   // 'default' and it's stored in ROCKSDB_NAMESPACE::kDefaultColumnFamilyName
+  //
+  // If error_if_wal_file_exists is true, returns an error when a non-empty
+  // WAL file exists. Empty WAL files can be left behind by features such as
+  // async WAL precreation and are tolerated.
   //
   static Status OpenForReadOnly(
       const DBOptions& db_options, const std::string& name,
@@ -1868,6 +1876,13 @@ class DB {
   // and may not have file_creation_time property. In both the cases
   // file_creation_time is considered 0 which means this API will return
   // creation_time = 0 as there wouldn't be a timestamp lower than 0.
+  //
+  // NOTE: When the DB was opened with open_files_async = true, this API may
+  // block to wait for background SST file loading to complete, but only when
+  // necessary (i.e., when a file's manifest does not carry file_creation_time
+  // and the value must come from the SST reader). Modern DBs return the real
+  // value immediately. It is possible to have an incomplete result if the DB
+  // is closed while files are still being opened in the background.
   virtual Status GetCreationTimeOfOldestFile(uint64_t* creation_time) = 0;
 
   // Note: this API is not yet consistent with WritePrepared transactions.

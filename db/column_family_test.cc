@@ -734,6 +734,42 @@ TEST_P(ColumnFamilyTest, AddDrop) {
               std::vector<std::string>({"default", "four", "three"}));
 }
 
+TEST_P(ColumnFamilyTest, EmptyNameRejected) {
+  // Creating a column family with an empty-string name should be rejected with
+  // InvalidArgument. Empty strings are reserved by various RocksDB APIs and
+  // serialization formats to mean "unknown/unspecified column family" (e.g.
+  // TablePropertiesCollectorFactory::Context::kUnknownColumnFamily, table
+  // properties).
+  //
+  // Prior behavior was silently broken: CreateColumnFamily("") would return
+  // OK and a usable handle, but the CF was not persisted in the manifest --
+  // data written to it was lost on DB reopen.
+  Open();
+  ColumnFamilyHandle* handle = nullptr;
+  Status s =
+      db_->CreateColumnFamily(column_family_options_, std::string(), &handle);
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_EQ(handle, nullptr);
+
+  // Same via the bulk-by-names API. The first valid name should still get
+  // created; the failure should come on the empty one.
+  std::vector<ColumnFamilyHandle*> handles;
+  s = db_->CreateColumnFamilies(column_family_options_,
+                                {"ok_name", "", "another"}, &handles);
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  // Clean up the partially-created handle ("ok_name") before the failure.
+  ASSERT_EQ(handles.size(), 1U);
+  ASSERT_OK(db_->DropColumnFamily(handles[0]));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(handles[0]));
+  handles.clear();
+
+  // Same via the bulk-by-descriptor API.
+  s = db_->CreateColumnFamilies(
+      {ColumnFamilyDescriptor("", column_family_options_)}, &handles);
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_TRUE(handles.empty());
+}
+
 TEST_P(ColumnFamilyTest, BulkAddDrop) {
   constexpr int kNumCF = 1000;
   ColumnFamilyOptions cf_options;

@@ -357,7 +357,7 @@ TEST_F(BitvectorTest, NextSetBit) {
   ASSERT_EQ(bv.NextSetBit(64), 64u);    // Exact position.
   ASSERT_EQ(bv.NextSetBit(65), 128u);   // Next one.
   ASSERT_EQ(bv.NextSetBit(128), 128u);  // Exact.
-  ASSERT_EQ(bv.NextSetBit(129), 129u);  // Past end → num_bits_.
+  ASSERT_EQ(bv.NextSetBit(129), 129u);  // Past end -> num_bits_.
 }
 
 TEST_F(BitvectorTest, NextSetBitAllZeros) {
@@ -384,10 +384,10 @@ TEST_F(BitvectorTest, DistanceToNextSetBit) {
   Bitvector bv;
   bv.BuildFrom(builder);
 
-  ASSERT_EQ(bv.DistanceToNextSetBit(0), 3u);  // 0 → 3
-  ASSERT_EQ(bv.DistanceToNextSetBit(3), 2u);  // 3 → 5
+  ASSERT_EQ(bv.DistanceToNextSetBit(0), 3u);  // 0 -> 3
+  ASSERT_EQ(bv.DistanceToNextSetBit(3), 2u);  // 3 -> 5
   // Last set bit: distance to next = num_bits_ - pos.
-  ASSERT_EQ(bv.DistanceToNextSetBit(5), 1u);  // 5 → 6 (num_bits_)
+  ASSERT_EQ(bv.DistanceToNextSetBit(5), 1u);  // 5 -> 6 (num_bits_)
 }
 
 TEST_F(BitvectorTest, MultipleRankSampleBoundaries) {
@@ -576,7 +576,7 @@ TEST_F(BitvectorTest, NumZeros) {
 }
 
 TEST_F(BitvectorTest, InitFromDataNumOnesExceedsNumBits) {
-  // Craft a header where num_ones > num_bits — should return Corruption.
+  // Craft a header where num_ones > num_bits -- should return Corruption.
   std::string buf(2 * sizeof(uint64_t), '\0');
   uint64_t num_bits = 64;
   uint64_t num_ones = 65;  // Invalid: more ones than bits.
@@ -590,7 +590,7 @@ TEST_F(BitvectorTest, InitFromDataNumOnesExceedsNumBits) {
 }
 
 TEST_F(BitvectorTest, InitFromDataNumBitsExceedsUint32) {
-  // Craft a header where num_bits > UINT32_MAX — should return Corruption.
+  // Craft a header where num_bits > UINT32_MAX -- should return Corruption.
   std::string buf(2 * sizeof(uint64_t), '\0');
   uint64_t num_bits = static_cast<uint64_t>(UINT32_MAX) + 1;
   uint64_t num_ones = 0;
@@ -656,7 +656,7 @@ TEST_F(BitvectorTest, InitFromDataTruncatedSelect1Hints) {
   // Build a bitvector with enough ones to have select1 hints, then truncate
   // after the rank LUT so select1 hints cannot be read.
   BitvectorBuilder builder;
-  // 600 bits, all ones → lots of select1 hints.
+  // 600 bits, all ones -> lots of select1 hints.
   for (int i = 0; i < 600; i++) {
     builder.Append(true);
   }
@@ -682,7 +682,7 @@ TEST_F(BitvectorTest, InitFromDataTruncatedSelect0Hints) {
   // Build a bitvector with enough zeros to have select0 hints, then truncate
   // so select0 hints cannot be fully read.
   BitvectorBuilder builder;
-  // 600 bits, all zeros → lots of select0 hints, zero select1 hints.
+  // 600 bits, all zeros -> lots of select0 hints, zero select1 hints.
   for (int i = 0; i < 600; i++) {
     builder.Append(false);
   }
@@ -1443,7 +1443,7 @@ TEST_F(LoudsTrieTest, MultipleKeys) {
 }
 
 TEST_F(LoudsTrieTest, SharedPrefixKeys) {
-  // Keys with long shared prefixes — this exercises the trie's prefix
+  // Keys with long shared prefixes -- this exercises the trie's prefix
   // compression.
   LoudsTrieBuilder builder;
   std::vector<std::string> keys;
@@ -1541,7 +1541,7 @@ TEST_F(LoudsTrieTest, PrefixKeyHandleReorderVerification) {
 
   LoudsTrieIterator iter(&trie);
 
-  // Seek to "a" — should find "a" with handle {100, 10}.
+  // Seek to "a" -- should find "a" with handle {100, 10}.
   ASSERT_TRUE(iter.Seek(Slice("a")));
   ASSERT_EQ(iter.Key().ToString(), "a");
   ASSERT_EQ(iter.Value().offset, 100u);
@@ -1576,7 +1576,7 @@ TEST_F(LoudsTrieTest, PrefixKeySeekBetween) {
   ASSERT_OK(trie.InitFromData(data));
   LoudsTrieIterator iter(&trie);
 
-  // "aa" is between "a" (prefix key) and "ab" → should land on "ab".
+  // "aa" is between "a" (prefix key) and "ab" -> should land on "ab".
   ASSERT_TRUE(iter.Seek(Slice("aa")));
   ASSERT_EQ(iter.Key().ToString(), "ab");
 
@@ -1604,7 +1604,7 @@ TEST_F(LoudsTrieTest, IteratorSeekExact) {
 TEST_F(LoudsTrieTest, IteratorSeekBetweenKeys) {
   auto bt = BuildTrieFromKeys({"aaa", "bbb", "ccc", "ddd"});
 
-  // Seek to a key between "aaa" and "bbb" — should land on "bbb".
+  // Seek to a key between "aaa" and "bbb" -- should land on "bbb".
   ASSERT_TRUE(bt.iter->Seek(Slice("ab")));
   ASSERT_TRUE(bt.iter->Valid());
   ASSERT_EQ(bt.iter->Value().offset, 100u);  // "bbb"'s handle.
@@ -2144,7 +2144,7 @@ TEST_F(LoudsTrieTest, SparseBinarySearchPath) {
 
   LoudsTrieIterator iter(&trie);
 
-  // Seek to each key — exercises binary search in the 20-label root node.
+  // Seek to each key -- exercises binary search in the 20-label root node.
   for (size_t i = 0; i < keys.size(); i++) {
     ASSERT_TRUE(iter.Seek(Slice(keys[i])))
         << "Seek failed for key[" << i << "]";
@@ -2153,9 +2153,9 @@ TEST_F(LoudsTrieTest, SparseBinarySearchPath) {
   }
 
   // Seek to a key between existing labels (binary search inexact match).
-  // 'A' + 0.5 doesn't exist — seek "AAx" which is between "Ax" and "Bx".
+  // 'A' + 0.5 doesn't exist -- seek "AAx" which is between "Ax" and "Bx".
   ASSERT_TRUE(iter.Seek(Slice("AAx")));
-  // Should land on "Ax" or "Bx" — the first key >= "AAx".
+  // Should land on "Ax" or "Bx" -- the first key >= "AAx".
   ASSERT_TRUE(iter.Valid());
   std::string result_key = iter.Key().ToString();
   ASSERT_GE(result_key, "AAx");
@@ -2222,7 +2222,7 @@ TEST_F(LoudsTrieTest, ChainSeekVariousTargets) {
   }
 
   // 2. Chain mismatch: target < chain suffix.
-  // Seek to prefix + "L" — 'L' < 'M', so chain mismatch with target < suffix.
+  // Seek to prefix + "L" -- 'L' < 'M', so chain mismatch with target < suffix.
   // Should land on the first key (prefix + "Ma").
   {
     std::string target = prefix + "La";
@@ -2232,7 +2232,7 @@ TEST_F(LoudsTrieTest, ChainSeekVariousTargets) {
   }
 
   // 3. Chain mismatch: target > chain suffix.
-  // Seek to prefix + "Md" — 'd' > 'c' after chain, should advance past "Mc".
+  // Seek to prefix + "Md" -- 'd' > 'c' after chain, should advance past "Mc".
   {
     std::string target = prefix + "Md";
     ASSERT_TRUE(iter.Seek(Slice(target)));
@@ -2241,7 +2241,7 @@ TEST_F(LoudsTrieTest, ChainSeekVariousTargets) {
   }
 
   // 4. Target runs out before chain (shorter target < chain prefix).
-  // Seek to prefix + "L" (shorter than chain). 'L' < 'M' → target < chain.
+  // Seek to prefix + "L" (shorter than chain). 'L' < 'M' -> target < chain.
   {
     std::string target = prefix + "L";
     ASSERT_TRUE(iter.Seek(Slice(target)));
@@ -2250,7 +2250,7 @@ TEST_F(LoudsTrieTest, ChainSeekVariousTargets) {
   }
 
   // 5. Target runs out before chain (shorter target > chain prefix character).
-  // Seek to prefix + "O" — 'O' > 'N' (the highest chain prefix). Should
+  // Seek to prefix + "O" -- 'O' > 'N' (the highest chain prefix). Should
   // advance past all keys.
   {
     std::string target = prefix + "O";
@@ -2259,7 +2259,7 @@ TEST_F(LoudsTrieTest, ChainSeekVariousTargets) {
   }
 
   // 6. Target consumed exactly at the parent of the chain (target_remaining
-  // == 0). Seek to just the prefix "AAAAAAAAA" — shorter than any key.
+  // == 0). Seek to just the prefix "AAAAAAAAA" -- shorter than any key.
   // All keys are > prefix, so should land on the first key.
   {
     ASSERT_TRUE(iter.Seek(Slice(prefix)));
@@ -2282,7 +2282,7 @@ TEST_F(LoudsTrieTest, ChainSeekVariousTargets) {
 TEST_F(LoudsTrieTest, ChainSeekEndAtLeaf) {
   // Test path compression chains that end at a leaf node (end_child_idx ==
   // UINT32_MAX). This requires a key whose suffix after the chain endpoint
-  // has no children — i.e., the chain is the entire remaining path.
+  // has no children -- i.e., the chain is the entire remaining path.
   //
   // Strategy: Create keys with a long shared prefix and a single-character
   // difference at the very end, so the chain covers most of the key and
@@ -2324,7 +2324,7 @@ TEST_F(LoudsTrieTest, ChainSeekEndAtLeaf) {
   ASSERT_TRUE(iter.Valid());
   ASSERT_EQ(iter.Key().ToString(), chain_key);
 
-  // Seek to a target longer than the chain key — target has more bytes but
+  // Seek to a target longer than the chain key -- target has more bytes but
   // trie key ends at leaf. Should Advance() past it.
   std::string longer_target = chain_key + "Z";
   ASSERT_TRUE(iter.Seek(Slice(longer_target)));
@@ -2484,7 +2484,7 @@ TEST_F(TrieIndexFactoryTest, BasicBuildAndRead) {
   auto iter = reader->NewIterator(ro);
   ASSERT_NE(iter, nullptr);
 
-  // Seek to "banana" — should find the separator for the second block.
+  // Seek to "banana" -- should find the separator for the second block.
   IterateResult result;
   ASSERT_OK(iter->SeekAndGetResult(Slice("banana"), &result,
                                    SeekCtx(kMaxSequenceNumber)));
@@ -2568,17 +2568,17 @@ TEST_F(TrieIndexFactoryTest, IteratorBoundsChecking) {
   ScanOptions scan_opts(Slice("key_00"), Slice("key_01z"));
   iter->Prepare(&scan_opts, 1);
 
-  // Seek to first key — should be in bound.
+  // Seek to first key -- should be in bound.
   IterateResult result;
   ASSERT_OK(iter->SeekAndGetResult(Slice("key_00"), &result,
                                    SeekCtx(kMaxSequenceNumber)));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 
-  // Next — should be in bound (key_01 < key_01z).
+  // Next -- should be in bound (key_01 < key_01z).
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 
-  // Next — the previous separator is for block 1 (< "key_01z"), so
+  // Next -- the previous separator is for block 1 (< "key_01z"), so
   // CheckBounds conservatively returns kInbound. The data-level iterator
   // handles per-key filtering. This is correct per the UDI API contract:
   // since we don't store first-in-block keys, we cannot determine that
@@ -2609,7 +2609,7 @@ TEST_F(TrieIndexFactoryTest, IteratorNoBounds) {
   ReadOptions ro;
   auto iter = reader->NewIterator(ro);
 
-  // No Prepare() call — bounds should be kInbound.
+  // No Prepare() call -- bounds should be kInbound.
   IterateResult result;
   ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result,
                                    SeekCtx(kMaxSequenceNumber)));
@@ -2629,7 +2629,7 @@ TEST_F(TrieIndexFactoryTest, UpperBoundDoesNotDropValidBlocks) {
   std::unique_ptr<UserDefinedIndexBuilder> udi_builder;
   ASSERT_OK(factory_->NewBuilder(option, udi_builder));
 
-  // Block 0: last="az", next_first="c" → separator ≈ "b"
+  // Block 0: last="az", next_first="c" -> separator ~= "b"
   {
     UserDefinedIndexBuilder::BlockHandle handle{0, 1000};
     std::string scratch;
@@ -2637,7 +2637,7 @@ TEST_F(TrieIndexFactoryTest, UpperBoundDoesNotDropValidBlocks) {
     udi_builder->AddIndexEntry(Slice("az"), &next, handle, &scratch,
                                EntryCtx(100, 100));
   }
-  // Block 1: last="cz", next_first="e" → separator ≈ "d"
+  // Block 1: last="cz", next_first="e" -> separator ~= "d"
   {
     UserDefinedIndexBuilder::BlockHandle handle{1000, 1000};
     std::string scratch;
@@ -2645,7 +2645,7 @@ TEST_F(TrieIndexFactoryTest, UpperBoundDoesNotDropValidBlocks) {
     udi_builder->AddIndexEntry(Slice("cz"), &next, handle, &scratch,
                                EntryCtx(100, 100));
   }
-  // Block 2: last="ez", no next → separator ≈ "f"
+  // Block 2: last="ez", no next -> separator ~= "f"
   {
     UserDefinedIndexBuilder::BlockHandle handle{2000, 1000};
     std::string scratch;
@@ -2667,21 +2667,22 @@ TEST_F(TrieIndexFactoryTest, UpperBoundDoesNotDropValidBlocks) {
   iter->Prepare(&scan_opts, 1);
 
   IterateResult result;
-  // Seek("a") → lands on block 0 (separator "b"). target "a" < "d" → kInbound.
+  // Seek("a") -> lands on block 0 (separator "b"). target "a" < "d" ->
+  // kInbound.
   ASSERT_OK(
       iter->SeekAndGetResult(Slice("a"), &result, SeekCtx(kMaxSequenceNumber)));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(iter->value().offset, 0u);
 
-  // Next() → lands on block 1 (separator "d"). Previous separator "b" < "d"
-  // → kInbound (conservative). Block 1 contains keys like "c".."cz", which
+  // Next() -> lands on block 1 (separator "d"). Previous separator "b" < "d"
+  // -> kInbound (conservative). Block 1 contains keys like "c".."cz", which
   // are < "d", so returning kInbound is correct.
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(iter->value().offset, 1000u);
 
-  // Next() → lands on block 2 (separator "f"). Previous separator "d" >= "d"
-  // → kOutOfBound. All keys in block 2 are >= "d", so this is correct.
+  // Next() -> lands on block 2 (separator "f"). Previous separator "d" >= "d"
+  // -> kOutOfBound. All keys in block 2 are >= "d", so this is correct.
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
 }
@@ -2738,17 +2739,18 @@ TEST_F(TrieIndexFactoryTest, MultiScanBoundsAdvanceCorrectly) {
   IterateResult result;
 
   // --- Scan 0 ---
-  // Seek("a") → block 0 (separator "b"). target "a" < limit "c" → kInbound.
+  // Seek("a") -> block 0 (separator "b"). target "a" < limit "c" -> kInbound.
   ASSERT_OK(
       iter->SeekAndGetResult(Slice("a"), &result, SeekCtx(kMaxSequenceNumber)));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(iter->value().offset, 0u);
 
-  // Next() → block 1 (separator "d"). prev "b" < "c" → kInbound (conservative).
+  // Next() -> block 1 (separator "d"). prev "b" < "c" -> kInbound
+  // (conservative).
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 
-  // Next() → block 2 (separator "f"). prev "d" >= "c" → kOutOfBound.
+  // Next() -> block 2 (separator "f"). prev "d" >= "c" -> kOutOfBound.
   // Scan 0 is done.
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
@@ -2756,17 +2758,18 @@ TEST_F(TrieIndexFactoryTest, MultiScanBoundsAdvanceCorrectly) {
   // --- Scan 1 ---
   // Seek("e") should advance current_scan_idx_ to 1 (target "e" >= scan 0
   // limit "c"), then check against scan 1's limit "g".
-  // Lands on block 2 (separator "f"). target "e" < "g" → kInbound.
+  // Lands on block 2 (separator "f"). target "e" < "g" -> kInbound.
   ASSERT_OK(
       iter->SeekAndGetResult(Slice("e"), &result, SeekCtx(kMaxSequenceNumber)));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(iter->value().offset, 2000u);
 
-  // Next() → block 3 (separator "h"). prev "f" < "g" → kInbound (conservative).
+  // Next() -> block 3 (separator "h"). prev "f" < "g" -> kInbound
+  // (conservative).
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 
-  // Next() → block 4 (separator "j"). prev "h" >= "g" → kOutOfBound.
+  // Next() -> block 4 (separator "j"). prev "h" >= "g" -> kOutOfBound.
   // Scan 1 is done.
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
@@ -2867,13 +2870,13 @@ TEST_F(TrieIndexFactoryTest, EmptyTrieIterator) {
                                    SeekCtx(kMaxSequenceNumber)));
   // kUnknown: no leaf has a key >= target, so the target is past all blocks
   // in this SST. We return kUnknown (not kOutOfBound) because exhausting
-  // this SST says nothing about the upper bound — the next SST on the level
+  // this SST says nothing about the upper bound -- the next SST on the level
   // may still have in-bound keys.
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
 }
 
 TEST_F(TrieIndexFactoryTest, PrepareWithZeroScans) {
-  // Prepare with 0 scan ranges, then seek — should behave as no bounds.
+  // Prepare with 0 scan ranges, then seek -- should behave as no bounds.
   auto ctx = BuildTrieAndGetIterator({
       {"az", "c", 0, 500, 0, 0},
       {"cz", "e", 1000, 500, 0, 0},
@@ -2890,7 +2893,7 @@ TEST_F(TrieIndexFactoryTest, PrepareWithZeroScans) {
 }
 
 TEST_F(TrieIndexFactoryTest, RePrepareResetsScanState) {
-  // Call Prepare twice — second Prepare should reset scan state.
+  // Call Prepare twice -- second Prepare should reset scan state.
   auto ctx = BuildTrieAndGetIterator({
       {"az", "c", 0, 500, 0, 0},
       {"cz", "e", 1000, 500, 0, 0},
@@ -2940,7 +2943,7 @@ TEST_F(TrieIndexFactoryTest, ScanWithNoLimit) {
   ASSERT_OK(ctx.iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 
-  // No more blocks — kUnknown because exhausting this SST doesn't imply
+  // No more blocks -- kUnknown because exhausting this SST doesn't imply
   // the upper bound was reached.
   ASSERT_OK(ctx.iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
@@ -2967,7 +2970,7 @@ TEST_F(TrieIndexFactoryTest, OnKeyAddedNoOp) {
   std::unique_ptr<UserDefinedIndexBuilder> builder;
   ASSERT_OK(factory_->NewBuilder(option, builder));
 
-  // Call OnKeyAdded with all ValueType variants — all should be no-ops.
+  // Call OnKeyAdded with all ValueType variants -- all should be no-ops.
   builder->OnKeyAdded(Slice("key1"), UserDefinedIndexBuilder::kValue,
                       Slice("value1"));
   builder->OnKeyAdded(Slice("key2"), UserDefinedIndexBuilder::kDelete,
@@ -3002,7 +3005,7 @@ TEST_F(TrieIndexFactoryTest, NullComparator) {
   ASSERT_OK(factory_->NewBuilder(option, builder));
   ASSERT_NE(builder, nullptr);
 
-  // Add some entries — AddIndexEntry uses the defaulted comparator internally.
+  // Add some entries -- AddIndexEntry uses the defaulted comparator internally.
   std::string scratch;
   {
     UserDefinedIndexBuilder::BlockHandle h{0, 100};
@@ -3025,7 +3028,7 @@ TEST_F(TrieIndexFactoryTest, NullComparator) {
   ASSERT_OK(factory_->NewReader(option, index_contents, reader));
   ASSERT_NE(reader, nullptr);
 
-  // Verify the reader works — Seek uses the comparator for bounds checking.
+  // Verify the reader works -- Seek uses the comparator for bounds checking.
   ReadOptions ro;
   auto iter = reader->NewIterator(ro);
   IterateResult result;
@@ -3053,13 +3056,13 @@ TEST_F(TrieIndexFactoryTest, SeekSucceedsButTargetPastLimit) {
   ScanOptions scan(Slice("a"), Slice("c"));
   ctx.iter->Prepare(&scan, 1);
 
-  // Seek to "c" — target == limit, so CheckBounds returns kOutOfBound.
+  // Seek to "c" -- target == limit, so CheckBounds returns kOutOfBound.
   IterateResult result;
   ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("c"), &result,
                                        SeekCtx(kMaxSequenceNumber)));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
 
-  // Seek to "d" — target > limit, also kOutOfBound.
+  // Seek to "d" -- target > limit, also kOutOfBound.
   ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("d"), &result,
                                        SeekCtx(kMaxSequenceNumber)));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
@@ -3082,7 +3085,7 @@ TEST_F(TrieIndexFactoryTest, SameUserKeyBoundaryTriggersSeqnoEncoding) {
   // trie cannot distinguish the two blocks, causing incorrect Seek.
   auto ctx = BuildTrieAndGetIterator({
       // Block 0: last_key="foo" seq=100, next_first="foo" seq=50.
-      // Same user key at boundary — triggers must_use_separator_with_seq_.
+      // Same user key at boundary -- triggers must_use_separator_with_seq_.
       {"foo", "foo", 0, 1000, 100, 50},
       // Block 1: last_key="foo" seq=50, next_first="goo" seq=1.
       {"foo", "goo", 1000, 1000, 50, 1},
@@ -3092,7 +3095,7 @@ TEST_F(TrieIndexFactoryTest, SameUserKeyBoundaryTriggersSeqnoEncoding) {
 
   IterateResult result;
 
-  // Seek for "foo" with seq=100 (highest seqno — should find Block 0).
+  // Seek for "foo" with seq=100 (highest seqno -- should find Block 0).
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(ctx.iter.get(), Slice("foo"), 100, 0));
 
@@ -3107,17 +3110,17 @@ TEST_F(TrieIndexFactoryTest, SameUserKeyBoundaryTriggersSeqnoEncoding) {
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(ctx.iter.get(), Slice("foo"), 75, 1000));
 
-  // Seek for "foo" with seq=50 (exact seqno of Block 1's first key —
+  // Seek for "foo" with seq=50 (exact seqno of Block 1's first key --
   // should find Block 1).
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(ctx.iter.get(), Slice("foo"), 50, 1000));
 
-  // Seek for "foo" with seq=1 (lower than any foo seqno — should find
+  // Seek for "foo" with seq=1 (lower than any foo seqno -- should find
   // Block 1, because in descending seqno order seq=1 comes after seq=50).
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(ctx.iter.get(), Slice("foo"), 1, 1000));
 
-  // Seek for "goo" with kMaxSequenceNumber — should find Block 2.
+  // Seek for "goo" with kMaxSequenceNumber -- should find Block 2.
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(ctx.iter.get(), Slice("goo"), kMaxSequenceNumber, 2000));
 
@@ -3160,42 +3163,42 @@ TEST_F(TrieIndexFactoryTest, MultipleSameUserKeyBoundaries) {
       {"other", "", 3000, 1000, 50, 0},
   });
 
-  // Seek "key"|seq=300 → Block 0
+  // Seek "key"|seq=300 -> Block 0
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(ctx.iter.get(), Slice("key"), 300, 0));
 
-  // Seek "key"|seq=250 → Block 1. In internal key order, higher seqno is
+  // Seek "key"|seq=250 -> Block 1. In internal key order, higher seqno is
   // "smaller", so "key"|300 < "key"|250. Block 0's separator "key"+enc(300)
-  // is less than the target → skip. Block 1's separator "key"+enc(200)
-  // is >= target because enc(200) > enc(250) (lower seqno → larger encoded
+  // is less than the target -> skip. Block 1's separator "key"+enc(200)
+  // is >= target because enc(200) > enc(250) (lower seqno -> larger encoded
   // bytes). So the first separator >= target is Block 1.
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(ctx.iter.get(), Slice("key"), 250, 1000));
 
-  // Seek "key"|seq=200 → Block 1
+  // Seek "key"|seq=200 -> Block 1
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(ctx.iter.get(), Slice("key"), 200, 1000));
 
-  // Seek "key"|seq=150 → Block 2. "key"+enc(300) < target (skip Block 0),
+  // Seek "key"|seq=150 -> Block 2. "key"+enc(300) < target (skip Block 0),
   // "key"+enc(200) < target (skip Block 1, because enc(200) < enc(150):
-  // 200 > 150 → higher seqno → smaller encoding). The next separator is
-  // Block 2's separator which is >= target → Block 2.
+  // 200 > 150 -> higher seqno -> smaller encoding). The next separator is
+  // Block 2's separator which is >= target -> Block 2.
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(ctx.iter.get(), Slice("key"), 150, 2000));
 
-  // Seek "key"|seq=100 → Block 2
+  // Seek "key"|seq=100 -> Block 2
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(ctx.iter.get(), Slice("key"), 100, 2000));
 
-  // Seek "key"|seq=1 → Block 2 (below all key seqnos)
+  // Seek "key"|seq=1 -> Block 2 (below all key seqnos)
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(ctx.iter.get(), Slice("key"), 1, 2000));
 
-  // Seek "other"|kMaxSequenceNumber → Block 3
+  // Seek "other"|kMaxSequenceNumber -> Block 3
   ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(ctx.iter.get(), Slice("other"),
                                            kMaxSequenceNumber, 3000));
 
-  // Full forward scan: Block 0 → 1 → 2 → 3
+  // Full forward scan: Block 0 -> 1 -> 2 -> 3
   ASSERT_NO_FATAL_FAILURE(AssertFullForwardScan(ctx.iter.get(), Slice("key"),
                                                 {0, 1000, 2000, 3000}));
 }
@@ -3204,7 +3207,7 @@ TEST_F(TrieIndexFactoryTest, SameUserKeyWithZeroSeqnos) {
   // During bottommost compaction, RocksDB zeroes sequence numbers for keys
   // that no longer need version discrimination. When the same user key spans
   // multiple data blocks and all versions have seqno=0, the overflow entries
-  // in the same-key run also have seqno=0. This is valid — the reader's
+  // in the same-key run also have seqno=0. This is valid -- the reader's
   // post-seek correction handles it correctly:
   //   - Primary leaf seqno=0, and target_packed >= 0 so no advancement
   //   - Next() iterates overflow blocks by index, not seqno
@@ -3215,7 +3218,7 @@ TEST_F(TrieIndexFactoryTest, SameUserKeyWithZeroSeqnos) {
       {"zzz", "", 3000, 1000, 0, 0},
   });
 
-  // Seek "key"|kMaxSequenceNumber → Block 0 (primary, seqno=0 guard prevents
+  // Seek "key"|kMaxSequenceNumber -> Block 0 (primary, seqno=0 guard prevents
   // advancement through overflow blocks).
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(ctx.iter.get(), Slice("key"), kMaxSequenceNumber, 0));
@@ -3223,11 +3226,11 @@ TEST_F(TrieIndexFactoryTest, SameUserKeyWithZeroSeqnos) {
   // Seek "key"|seq=0 -> Block 0 (primary, target_packed=0 >= leaf_packed=0).
   ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(ctx.iter.get(), Slice("key"), 0, 0));
 
-  // Full forward scan: Block 0 → 1 → 2 → 3
+  // Full forward scan: Block 0 -> 1 -> 2 -> 3
   ASSERT_NO_FATAL_FAILURE(AssertFullForwardScan(ctx.iter.get(), Slice("key"),
                                                 {0, 1000, 2000, 3000}));
 
-  // SeekToFirst → Block 0, then full scan.
+  // SeekToFirst -> Block 0, then full scan.
   IterateResult result;
   ASSERT_OK(ctx.iter->SeekToFirstAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
@@ -3249,17 +3252,17 @@ TEST_F(TrieIndexFactoryTest, SameUserKeyLastBlockZeroSeqno) {
       {"key", "", 1000, 1000, 0, 0},  // last block
   });
 
-  // Seek → Block 0 (primary).
+  // Seek -> Block 0 (primary).
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(ctx.iter.get(), Slice("key"), kMaxSequenceNumber, 0));
 
-  // Next → Block 1 (overflow).
+  // Next -> Block 1 (overflow).
   IterateResult result;
   ASSERT_OK(ctx.iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(ctx.iter->value().offset, 1000u);
 
-  // Next → exhausted.
+  // Next -> exhausted.
   ASSERT_OK(ctx.iter->NextAndGetResult(&result));
   ASSERT_NE(result.bound_check_result, IterBoundCheck::kInbound);
 }
@@ -3273,10 +3276,10 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingRoundTripSerialization) {
       {"x", "", 500, 500, 5, 0},
   });
 
-  // Seek "x"|seq=10 → Block 0
+  // Seek "x"|seq=10 -> Block 0
   ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(ctx.iter.get(), Slice("x"), 10, 0));
 
-  // Seek "x"|seq=5 → Block 1
+  // Seek "x"|seq=5 -> Block 1
   ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(ctx.iter.get(), Slice("x"), 5, 500));
 }
 
@@ -3296,12 +3299,12 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingWithBoundsChecking) {
 
   IterateResult result;
 
-  // Seek "key"|seq=100 → Block 0, within bounds.
+  // Seek "key"|seq=100 -> Block 0, within bounds.
   ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("key"), &result, SeekCtx(100)));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(ctx.iter->value().offset, 0u);
 
-  // Next → Block 1, previous separator "key" < "zzz" → kInbound.
+  // Next -> Block 1, previous separator "key" < "zzz" -> kInbound.
   ASSERT_OK(ctx.iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(ctx.iter->value().offset, 1000u);
@@ -3326,7 +3329,7 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingWithBoundsChecking) {
 //   - Seeking non-existent keys when seqno encoding is active
 //   - Seeking past all keys / Next() past last block with seqno encoding
 //   - kUnknown on exhaustion with seqno encoding and overflow
-//   - Next() transitions: overflow→next leaf, overflow→next overflow run
+//   - Next() transitions: overflow->next leaf, overflow->next overflow run
 //   - Bounds checking during overflow run iteration
 //   - Size comparison: seqno-free trie same size as without the feature
 //   - Re-seeking after being positioned in an overflow run
@@ -3336,7 +3339,7 @@ TEST_F(TrieIndexFactoryTest, LargeOverflowRun) {
   // 12 blocks all with user key "key", seqnos descending from 1200 to 100.
   // The last "key" block transitions to "zzz", so
   // FindShortestSeparator("key", "zzz") = "l". The trie has:
-  //   "key" (11-block run, seqnos 1200..200) → "l" (block 11) → "zzz" (block
+  //   "key" (11-block run, seqnos 1200..200) -> "l" (block 11) -> "zzz" (block
   //   12)
   // The overflow run for "key" has 10 overflow entries (blocks 1-10).
   UserDefinedIndexOption option;
@@ -3353,7 +3356,7 @@ TEST_F(TrieIndexFactoryTest, LargeOverflowRun) {
     SequenceNumber seq = static_cast<SequenceNumber>((kNumKeyBlocks - i) * 100);
 
     if (i < kNumKeyBlocks - 1) {
-      // Same-user-key boundary: "key" → "key".
+      // Same-user-key boundary: "key" -> "key".
       Slice next("key");
       SequenceNumber next_seq =
           static_cast<SequenceNumber>((kNumKeyBlocks - i - 1) * 100);
@@ -3386,35 +3389,35 @@ TEST_F(TrieIndexFactoryTest, LargeOverflowRun) {
   auto iter = reader->NewIterator(ro);
   IterateResult result;
 
-  // Seek "key"|kMax → Block 0.
+  // Seek "key"|kMax -> Block 0.
   ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result,
                                    SeekCtx(kMaxSequenceNumber)));
   ASSERT_EQ(iter->value().offset, 0u);
 
-  // Seek "key"|1100 → leaf_seqno=1200, 1100<1200 → advance.
-  // overflow[0]=1100, 1100>=1100 → Block 1.
+  // Seek "key"|1100 -> leaf_seqno=1200, 1100<1200 -> advance.
+  // overflow[0]=1100, 1100>=1100 -> Block 1.
   ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, SeekCtx(1100)));
   ASSERT_EQ(iter->value().offset, 1000u);
 
-  // Seek "key"|550 → advance through overflow:
+  // Seek "key"|550 -> advance through overflow:
   //   overflow seqnos: 1100,1000,900,800,700,600,500,400,300,200
   //   550 < 1100..600, 550 >= 500? No, 550 is not < 600:
   //   Actually: 550<1100 skip, 550<1000 skip, 550<900 skip, 550<800 skip,
-  //   550<700 skip, 550<600 skip, 550>=500 → found at overflow index 6.
-  //   overflow_run_index_ = 7 (1-based) → Block 7, offset 7000.
+  //   550<700 skip, 550<600 skip, 550>=500 -> found at overflow index 6.
+  //   overflow_run_index_ = 7 (1-based) -> Block 7, offset 7000.
   ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, SeekCtx(550)));
   ASSERT_EQ(iter->value().offset, 7000u);
 
-  // Seek "key"|50 → below all "key" overflow seqnos (minimum is 200).
-  // All 10 overflow seqnos exhausted → advance to next leaf "l" (block 11).
+  // Seek "key"|50 -> below all "key" overflow seqnos (minimum is 200).
+  // All 10 overflow seqnos exhausted -> advance to next leaf "l" (block 11).
   ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, SeekCtx(50)));
   ASSERT_EQ(iter->value().offset, 11000u);
 
-  // Seek "key"|0 → same: advance past run → "l" (block 11).
+  // Seek "key"|0 -> same: advance past run -> "l" (block 11).
   ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result, SeekCtx(0)));
   ASSERT_EQ(iter->value().offset, 11000u);
 
-  // Full forward scan: blocks 0..10 ("key" run) → 11 ("l") → 12 ("zzz").
+  // Full forward scan: blocks 0..10 ("key" run) -> 11 ("l") -> 12 ("zzz").
   ASSERT_OK(iter->SeekAndGetResult(Slice("key"), &result,
                                    SeekCtx(kMaxSequenceNumber)));
   ASSERT_EQ(iter->value().offset, 0u);
@@ -3423,7 +3426,7 @@ TEST_F(TrieIndexFactoryTest, LargeOverflowRun) {
     ASSERT_EQ(iter->value().offset, static_cast<uint64_t>(i) * 1000)
         << "Next failed at block " << i;
   }
-  // Past end — kUnknown (exhaustion doesn't imply upper bound reached).
+  // Past end -- kUnknown (exhaustion doesn't imply upper bound reached).
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
 }
@@ -3432,14 +3435,14 @@ TEST_F(TrieIndexFactoryTest, MixedSameKeyRuns) {
   // Two different user keys each with multi-block runs, plus distinct blocks.
   //
   // The trie structure (after FindShortestSeparator shortening):
-  //   "aaa" (2-block run, seqnos 300, 200) → "b" (block 2) →
-  //   "mmm" (1-block, seqno 60) → "n" (block 4) → "zzz" (block 5)
+  //   "aaa" (2-block run, seqnos 300, 200) -> "b" (block 2) ->
+  //   "mmm" (1-block, seqno 60) -> "n" (block 4) -> "zzz" (block 5)
   //
-  // Block 0: "aaa"|300 → next "aaa"|200 (same-key → separator "aaa")
-  // Block 1: "aaa"|200 → next "mmm"    (diff-key → separator "b")
-  // Block 2: "mmm"|60  → next "mmm"|30 (same-key → separator "mmm")
-  // Block 3: "mmm"|30  → next "zzz"    (diff-key → separator "n")
-  // Block 4: "zzz"|10  → null          (last → separator "zzz")
+  // Block 0: "aaa"|300 -> next "aaa"|200 (same-key -> separator "aaa")
+  // Block 1: "aaa"|200 -> next "mmm"    (diff-key -> separator "b")
+  // Block 2: "mmm"|60  -> next "mmm"|30 (same-key -> separator "mmm")
+  // Block 3: "mmm"|30  -> next "zzz"    (diff-key -> separator "n")
+  // Block 4: "zzz"|10  -> null          (last -> separator "zzz")
   //
   // "aaa" run: blocks 0-1 (2 entries, run of 2 in trie)
   // block 2 gets separator "b" (separate trie leaf)
@@ -3447,12 +3450,12 @@ TEST_F(TrieIndexFactoryTest, MixedSameKeyRuns) {
   // block 4 gets separator "n" (separate trie leaf)
   // block 5 gets separator "zzz" (separate trie leaf, no shortening)
   //
-  // Wait — let me recount. We have 6 AddIndexEntry calls:
-  //   Entry 0: "aaa" 300 next="aaa" → sep="aaa"
-  //   Entry 1: "aaa" 200 next="mmm" → sep="b"
-  //   Entry 2: "mmm"  60 next="mmm" → sep="mmm"
-  //   Entry 3: "mmm"  30 next="zzz" → sep="n"
-  //   Entry 4: "zzz"  10 next=null  → sep="zzz"
+  // Wait -- let me recount. We have 6 AddIndexEntry calls:
+  //   Entry 0: "aaa" 300 next="aaa" -> sep="aaa"
+  //   Entry 1: "aaa" 200 next="mmm" -> sep="b"
+  //   Entry 2: "mmm"  60 next="mmm" -> sep="mmm"
+  //   Entry 3: "mmm"  30 next="zzz" -> sep="n"
+  //   Entry 4: "zzz"  10 next=null  -> sep="zzz"
   //
   // De-duplicated separators: "aaa" appears once (run=1), "b", "mmm" appears
   // once (run=1), "n", "zzz". So actually there are no overflow runs here!
@@ -3460,7 +3463,7 @@ TEST_F(TrieIndexFactoryTest, MixedSameKeyRuns) {
   // The "mmm" run is only block 2, and block 3 gets separator "n".
   //
   // For a true multi-block overflow run for "aaa", we need 3+ consecutive
-  // blocks ALL with "aaa" → "aaa" boundaries.
+  // blocks ALL with "aaa" -> "aaa" boundaries.
   UserDefinedIndexOption option;
   option.comparator = BytewiseComparator();
 
@@ -3482,7 +3485,7 @@ TEST_F(TrieIndexFactoryTest, MixedSameKeyRuns) {
     builder->AddIndexEntry(Slice("aaa"), &next, h, &scratch,
                            EntryCtx(200, 100));
   }
-  // Last "aaa" block transitions to "mmm" → separator "b".
+  // Last "aaa" block transitions to "mmm" -> separator "b".
   {
     UserDefinedIndexBuilder::BlockHandle h{2000, 1000};
     std::string scratch;
@@ -3496,14 +3499,14 @@ TEST_F(TrieIndexFactoryTest, MixedSameKeyRuns) {
     Slice next("mmm");
     builder->AddIndexEntry(Slice("mmm"), &next, h, &scratch, EntryCtx(60, 30));
   }
-  // Last "mmm" block transitions to "zzz" → separator "n".
+  // Last "mmm" block transitions to "zzz" -> separator "n".
   {
     UserDefinedIndexBuilder::BlockHandle h{4000, 1000};
     std::string scratch;
     Slice next("zzz");
     builder->AddIndexEntry(Slice("mmm"), &next, h, &scratch, EntryCtx(30, 10));
   }
-  // "zzz": 1 block (last → separator "zzz", no shortening).
+  // "zzz": 1 block (last -> separator "zzz", no shortening).
   {
     UserDefinedIndexBuilder::BlockHandle h{5000, 1000};
     std::string scratch;
@@ -3520,37 +3523,37 @@ TEST_F(TrieIndexFactoryTest, MixedSameKeyRuns) {
   auto iter = reader->NewIterator(ro);
   IterateResult result;
 
-  // Trie structure: "aaa"(run=2) → "b" → "mmm"(run=1) → "n" → "zzz"
+  // Trie structure: "aaa"(run=2) -> "b" -> "mmm"(run=1) -> "n" -> "zzz"
   //
-  // Seek "aaa"|kMax → Block 0.
+  // Seek "aaa"|kMax -> Block 0.
   ASSERT_OK(iter->SeekAndGetResult(Slice("aaa"), &result,
                                    SeekCtx(kMaxSequenceNumber)));
   ASSERT_EQ(iter->value().offset, 0u);
 
-  // Seek "aaa"|250 → leaf_seqno=300, 250<300 → advance.
-  // overflow[0]=200, 250>=200 → Block 1.
+  // Seek "aaa"|250 -> leaf_seqno=300, 250<300 -> advance.
+  // overflow[0]=200, 250>=200 -> Block 1.
   ASSERT_OK(iter->SeekAndGetResult(Slice("aaa"), &result, SeekCtx(250)));
   ASSERT_EQ(iter->value().offset, 1000u);
 
-  // Seek "aaa"|50 → leaf_seqno=300, 50<300 → advance.
-  // overflow[0]=200, 50<200 → skip. All exhausted → next leaf "b" (block 2).
+  // Seek "aaa"|50 -> leaf_seqno=300, 50<300 -> advance.
+  // overflow[0]=200, 50<200 -> skip. All exhausted -> next leaf "b" (block 2).
   ASSERT_OK(iter->SeekAndGetResult(Slice("aaa"), &result, SeekCtx(50)));
   ASSERT_EQ(iter->value().offset, 2000u);
 
-  // Seek "mmm"|kMax → Block 3 (the "mmm" trie leaf).
+  // Seek "mmm"|kMax -> Block 3 (the "mmm" trie leaf).
   ASSERT_OK(iter->SeekAndGetResult(Slice("mmm"), &result,
                                    SeekCtx(kMaxSequenceNumber)));
   ASSERT_EQ(iter->value().offset, 3000u);
 
-  // Seek "mmm"|45 → leaf_seqno=60, 45<60 → advance.
-  // "mmm" has run_size=1 (only 1 block in trie), no overflow → next leaf "n".
-  // Wait — "mmm" appears only once in the separator list (entry 2), because
+  // Seek "mmm"|45 -> leaf_seqno=60, 45<60 -> advance.
+  // "mmm" has run_size=1 (only 1 block in trie), no overflow -> next leaf "n".
+  // Wait -- "mmm" appears only once in the separator list (entry 2), because
   // entry 3 has separator "n". So "mmm" trie leaf has block_count=1.
-  // 45 < 60, no overflow → advance to "n" (block 4).
+  // 45 < 60, no overflow -> advance to "n" (block 4).
   ASSERT_OK(iter->SeekAndGetResult(Slice("mmm"), &result, SeekCtx(45)));
   ASSERT_EQ(iter->value().offset, 4000u);
 
-  // Full forward scan: 0 → 1 → 2 → 3 → 4 → 5.
+  // Full forward scan: 0 -> 1 -> 2 -> 3 -> 4 -> 5.
   ASSERT_OK(iter->SeekAndGetResult(Slice("aaa"), &result,
                                    SeekCtx(kMaxSequenceNumber)));
   ASSERT_EQ(iter->value().offset, 0u);
@@ -3561,7 +3564,7 @@ TEST_F(TrieIndexFactoryTest, MixedSameKeyRuns) {
     ASSERT_EQ(iter->value().offset, expected_offsets[i])
         << "Next failed at i=" << i;
   }
-  // Past end — kUnknown (exhaustion doesn't imply upper bound reached).
+  // Past end -- kUnknown (exhaustion doesn't imply upper bound reached).
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
 }
@@ -3571,15 +3574,15 @@ TEST_F(TrieIndexFactoryTest, AdjacentSameKeyRuns) {
   // the first run has a different-key boundary, creating a non-run trie leaf
   // between the two runs. To get true adjacency we make ALL "aaa" blocks
   // transition to "aaa", and ALL "bbb" blocks transition to "bbb", with
-  // the boundary between runs being "aaa"→"bbb".
+  // the boundary between runs being "aaa"->"bbb".
   //
   // Entries (separator after FindShortestSeparator):
-  //   Entry 0: "aaa" 200 next="aaa" → sep="aaa" (same-key)
-  //   Entry 1: "aaa" 100 next="bbb" → sep="b"   (diff-key)
-  //   Entry 2: "bbb"  80 next="bbb" → sep="bbb"  (same-key)
-  //   Entry 3: "bbb"  40 next=null  → sep="bbb"  (last block, no shortening)
+  //   Entry 0: "aaa" 200 next="aaa" -> sep="aaa" (same-key)
+  //   Entry 1: "aaa" 100 next="bbb" -> sep="b"   (diff-key)
+  //   Entry 2: "bbb"  80 next="bbb" -> sep="bbb"  (same-key)
+  //   Entry 3: "bbb"  40 next=null  -> sep="bbb"  (last block, no shortening)
   //
-  // Trie: "aaa"(run=1, seq=200) → "b"(1 block) → "bbb"(run=2, seqnos 80,40)
+  // Trie: "aaa"(run=1, seq=200) -> "b"(1 block) -> "bbb"(run=2, seqnos 80,40)
   // Note: the last block joins the "bbb" run since its separator also is "bbb".
   auto ctx = BuildTrieAndGetIterator({
       {"aaa", "aaa", 0, 1000, 200, 100},
@@ -3590,7 +3593,7 @@ TEST_F(TrieIndexFactoryTest, AdjacentSameKeyRuns) {
 
   IterateResult result;
 
-  // Full scan: "aaa" (block 0) → "b" (block 1) → "bbb" (block 2) → "bbb"
+  // Full scan: "aaa" (block 0) -> "b" (block 1) -> "bbb" (block 2) -> "bbb"
   // overflow (block 3).
   ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("aaa"), &result,
                                        SeekCtx(kMaxSequenceNumber)));
@@ -3609,7 +3612,7 @@ TEST_F(TrieIndexFactoryTest, AdjacentSameKeyRuns) {
   ASSERT_EQ(ctx.iter->value().offset, 3000u);
   ASSERT_EQ(result.key.ToString(), "bbb");
 
-  // Past end — kUnknown (exhaustion doesn't imply upper bound reached).
+  // Past end -- kUnknown (exhaustion doesn't imply upper bound reached).
   ASSERT_OK(ctx.iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
 }
@@ -3621,9 +3624,9 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingResultKeyIsUserKey) {
   // is shortened.
   //
   // Entries:
-  //   "foo" 100 next="foo" → sep="foo" (same-key, run of 2)
-  //   "foo"  50 next="zoo" → sep="g"   (FindShortestSeparator("foo","zoo"))
-  //   "zoo"   1 next=null  → sep="zoo" (last block, no successor shortening)
+  //   "foo" 100 next="foo" -> sep="foo" (same-key, run of 2)
+  //   "foo"  50 next="zoo" -> sep="g"   (FindShortestSeparator("foo","zoo"))
+  //   "zoo"   1 next=null  -> sep="zoo" (last block, no successor shortening)
   auto ctx = BuildTrieAndGetIterator({
       {"foo", "foo", 0, 500, 100, 50},
       {"foo", "zoo", 500, 500, 50, 1},
@@ -3632,12 +3635,12 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingResultKeyIsUserKey) {
 
   IterateResult result;
 
-  // Seek to "foo"|100 → "foo" leaf. result.key = "foo" (3 bytes, no suffix).
+  // Seek to "foo"|100 -> "foo" leaf. result.key = "foo" (3 bytes, no suffix).
   ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("foo"), &result, SeekCtx(100)));
   ASSERT_EQ(result.key.ToString(), "foo");
   ASSERT_EQ(result.key.size(), 3u);
 
-  // Next → "g" leaf (FindShortestSeparator("foo", "zoo") = "g").
+  // Next -> "g" leaf (FindShortestSeparator("foo", "zoo") = "g").
   // result.key = "g" (1 byte).
   ASSERT_OK(ctx.iter->NextAndGetResult(&result));
   ASSERT_EQ(result.key.size(), 1u);
@@ -3649,7 +3652,7 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingResultKeyIsUserKey) {
 TEST_F(TrieIndexFactoryTest, SeekNonExistentKeyWithSeqnoEncoding) {
   // Seeking for keys not in the trie when seqno encoding is active.
   //
-  // Trie: "mmm"(run=1, seq=100) → "n" → "zzz"
+  // Trie: "mmm"(run=1, seq=100) -> "n" -> "zzz"
   auto ctx = BuildTrieAndGetIterator({
       {"mmm", "mmm", 0, 1000, 100, 50},
       {"mmm", "zzz", 1000, 1000, 50, 1},
@@ -3657,14 +3660,14 @@ TEST_F(TrieIndexFactoryTest, SeekNonExistentKeyWithSeqnoEncoding) {
   });
   auto* iter = ctx.iter.get();
 
-  // Seek "aaa" (before all keys) → lands on "mmm" leaf, Block 0.
+  // Seek "aaa" (before all keys) -> lands on "mmm" leaf, Block 0.
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(iter, Slice("aaa"), kMaxSequenceNumber, 0u));
-  // Seek "nnn" (between "n" and "zzz") → lands on "zzz" leaf, Block 2.
+  // Seek "nnn" (between "n" and "zzz") -> lands on "zzz" leaf, Block 2.
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(iter, Slice("nnn"), kMaxSequenceNumber, 2000u));
 
-  // Seek "|" (past all keys, "|" > "zzz") → kUnknown.
+  // Seek "|" (past all keys, "|" > "zzz") -> kUnknown.
   IterateResult result;
   ASSERT_OK(
       iter->SeekAndGetResult(Slice("|"), &result, SeekCtx(kMaxSequenceNumber)));
@@ -3683,20 +3686,20 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingPastEndAndNextPastEnd) {
   auto* iter = ctx.iter.get();
   IterateResult result;
 
-  // Seek past all keys → kUnknown (exhaustion doesn't imply upper bound).
+  // Seek past all keys -> kUnknown (exhaustion doesn't imply upper bound).
   ASSERT_OK(iter->SeekAndGetResult(Slice("zzz"), &result,
                                    SeekCtx(kMaxSequenceNumber)));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
 
-  // Seek "key"|5 → seqno=10 on primary, 5<10 → overflow seqno=5, 5>=5 →
+  // Seek "key"|5 -> seqno=10 on primary, 5<10 -> overflow seqno=5, 5>=5 ->
   // overflow block 1.
   ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(iter, Slice("key"), 5, 500u));
 
-  // Next from last block in run → past end.
+  // Next from last block in run -> past end.
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
 
-  // Full forward scan: block 0 → block 1 → past end.
+  // Full forward scan: block 0 -> block 1 -> past end.
   ASSERT_NO_FATAL_FAILURE(AssertFullForwardScan(iter, Slice("key"), {0, 500}));
 }
 
@@ -3705,12 +3708,12 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingOutOfBoundWithOverflow) {
   // overflow blocks.
   //
   // Entries:
-  //   "key" 300 next="key" → sep="key" (same-key)
-  //   "key" 200 next="key" → sep="key" (same-key)
-  //   "key" 100 next="zzz" → sep="l"
-  //   "zzz"   1 next=null  → sep="zzz" (last block, no shortening)
+  //   "key" 300 next="key" -> sep="key" (same-key)
+  //   "key" 200 next="key" -> sep="key" (same-key)
+  //   "key" 100 next="zzz" -> sep="l"
+  //   "zzz"   1 next=null  -> sep="zzz" (last block, no shortening)
   //
-  // Trie: "key"(run=2, seqnos 300,200) → "l" → "zzz"
+  // Trie: "key"(run=2, seqnos 300,200) -> "l" -> "zzz"
   auto ctx = BuildTrieAndGetIterator({
       {"key", "key", 0, 1000, 300, 200},
       {"key", "key", 1000, 1000, 200, 100},
@@ -3724,22 +3727,23 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingOutOfBoundWithOverflow) {
 
   IterateResult result;
 
-  // Seek "key"|300 → Block 0, target "key" < "zzz" → kInbound.
+  // Seek "key"|300 -> Block 0, target "key" < "zzz" -> kInbound.
   ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("key"), &result, SeekCtx(300)));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(ctx.iter->value().offset, 0u);
 
-  // Next → Block 1 (overflow within "key" run), prev "key" < "zzz" → kInbound.
+  // Next -> Block 1 (overflow within "key" run), prev "key" < "zzz" ->
+  // kInbound.
   ASSERT_OK(ctx.iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(ctx.iter->value().offset, 1000u);
 
-  // Next → "l" leaf (block 2), prev "key" < "zzz" → kInbound.
+  // Next -> "l" leaf (block 2), prev "key" < "zzz" -> kInbound.
   ASSERT_OK(ctx.iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(ctx.iter->value().offset, 2000u);
 
-  // Next → "zzz" leaf (block 3). prev key is "l", "l" < "zzz" → kInbound.
+  // Next -> "zzz" leaf (block 3). prev key is "l", "l" < "zzz" -> kInbound.
   ASSERT_OK(ctx.iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(ctx.iter->value().offset, 3000u);
@@ -3750,19 +3754,19 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingOutOfBoundWithOverflow) {
   ScanOptions scan2(Slice("key"), Slice("l"));
   ctx.iter->Prepare(&scan2, 1);
 
-  // Seek "key"|300 → Block 0, target "key" < "l" → kInbound.
+  // Seek "key"|300 -> Block 0, target "key" < "l" -> kInbound.
   ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("key"), &result, SeekCtx(300)));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 
-  // Next → Block 1 (overflow), prev "key" < "l" → kInbound.
+  // Next -> Block 1 (overflow), prev "key" < "l" -> kInbound.
   ASSERT_OK(ctx.iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 
-  // Next → "l" leaf (block 2). prev "key" < "l" → kInbound (conservative).
+  // Next -> "l" leaf (block 2). prev "key" < "l" -> kInbound (conservative).
   ASSERT_OK(ctx.iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 
-  // Next → "zzz" leaf (block 3). prev "l" >= "l" → kOutOfBound.
+  // Next -> "zzz" leaf (block 3). prev "l" >= "l" -> kOutOfBound.
   ASSERT_OK(ctx.iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
 }
@@ -3798,7 +3802,7 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingConsistentSize) {
   ASSERT_OK(builder_no_seq->Finish(&contents_no_seq));
   size_t size_no_seq = contents_no_seq.size();
 
-  // Same keys but with nonzero seqnos (still distinct → no seqno encoding).
+  // Same keys but with nonzero seqnos (still distinct -> no seqno encoding).
   std::unique_ptr<UserDefinedIndexBuilder> builder_with_seq;
   ASSERT_OK(factory_->NewBuilder(option, builder_with_seq));
   for (int i = 0; i < 50; i++) {
@@ -3829,7 +3833,7 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingConsistentSize) {
 TEST_F(TrieIndexFactoryTest, SeekWithMaxSeqOnSameKeyBlocks) {
   // kMaxSequenceNumber should always land on Block 0 of a same-key run.
   //
-  // Trie: "key"(run=3, seqnos 400,300,200) → "l"
+  // Trie: "key"(run=3, seqnos 400,300,200) -> "l"
   auto ctx = BuildTrieAndGetIterator({
       {"key", "key", 0, 1000, 400, 300},
       {"key", "key", 1000, 1000, 300, 200},
@@ -3841,10 +3845,10 @@ TEST_F(TrieIndexFactoryTest, SeekWithMaxSeqOnSameKeyBlocks) {
 }
 
 TEST_F(TrieIndexFactoryTest, SeekWithZeroSeqOnSameKeyBlocks) {
-  // seq=0 is below all overflow seqnos → advance past the entire run.
+  // seq=0 is below all overflow seqnos -> advance past the entire run.
   //
-  // Trie: "key"(run=2, seqnos 300,200) → "l" → "zzz"
-  // seq=0 < all overflow seqnos → advance past run → lands on "l" (block 2).
+  // Trie: "key"(run=2, seqnos 300,200) -> "l" -> "zzz"
+  // seq=0 < all overflow seqnos -> advance past run -> lands on "l" (block 2).
   auto ctx = BuildTrieAndGetIterator({
       {"key", "key", 0, 1000, 300, 200},
       {"key", "key", 1000, 1000, 200, 100},
@@ -3885,14 +3889,14 @@ TEST_F(TrieIndexFactoryTest, NextTransitionOverflowToOverflow) {
   // same-key boundaries. We need a 3rd user key to separate them in the trie.
   //
   // Entries:
-  //   "aaa" 200 next="aaa" → sep="aaa" (same-key)
-  //   "aaa" 100 next="aaa" → sep="aaa" (same-key)
-  //   "aaa"  50 next="bbb" → sep="b"   (diff-key)
-  //   "bbb"  90 next="bbb" → sep="bbb" (same-key)
-  //   "bbb"  60 next="bbb" → sep="bbb" (same-key)
-  //   "bbb"  30 next=null  → sep="bbb" (last block, no successor shortening)
+  //   "aaa" 200 next="aaa" -> sep="aaa" (same-key)
+  //   "aaa" 100 next="aaa" -> sep="aaa" (same-key)
+  //   "aaa"  50 next="bbb" -> sep="b"   (diff-key)
+  //   "bbb"  90 next="bbb" -> sep="bbb" (same-key)
+  //   "bbb"  60 next="bbb" -> sep="bbb" (same-key)
+  //   "bbb"  30 next=null  -> sep="bbb" (last block, no successor shortening)
   //
-  // Trie: "aaa"(run=2, seqnos 200,100) → "b" → "bbb"(run=3, seqnos 90,60,30)
+  // Trie: "aaa"(run=2, seqnos 200,100) -> "b" -> "bbb"(run=3, seqnos 90,60,30)
   // Note: the last block's separator is "bbb" (not "c"), matching the standard
   // index builder's behavior with kShortenSeparators (the default). This means
   // the last block joins the "bbb" run, making it a 3-block run.
@@ -3959,11 +3963,11 @@ TEST_F(TrieIndexFactoryTest, NextTransitionOverflowToOverflow) {
   ASSERT_EQ(iter->value().offset, 1000u);
   ASSERT_EQ(result.key.ToString(), "aaa");
 
-  ASSERT_OK(iter->NextAndGetResult(&result));  // → "b" leaf (block 2)
+  ASSERT_OK(iter->NextAndGetResult(&result));  // -> "b" leaf (block 2)
   ASSERT_EQ(iter->value().offset, 2000u);
   ASSERT_EQ(result.key.ToString(), "b");
 
-  ASSERT_OK(iter->NextAndGetResult(&result));  // → "bbb" leaf (block 3)
+  ASSERT_OK(iter->NextAndGetResult(&result));  // -> "bbb" leaf (block 3)
   ASSERT_EQ(iter->value().offset, 3000u);
   ASSERT_EQ(result.key.ToString(), "bbb");
 
@@ -3975,7 +3979,7 @@ TEST_F(TrieIndexFactoryTest, NextTransitionOverflowToOverflow) {
   ASSERT_EQ(iter->value().offset, 5000u);
   ASSERT_EQ(result.key.ToString(), "bbb");
 
-  // Past end — kUnknown (exhaustion doesn't imply upper bound reached).
+  // Past end -- kUnknown (exhaustion doesn't imply upper bound reached).
   ASSERT_OK(iter->NextAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
 }
@@ -3990,13 +3994,13 @@ TEST_F(TrieIndexFactoryTest, SingleBlockWithSeqnoActive) {
   });
   auto* iter = ctx.iter.get();
 
-  // Seek "x"|10 ��� leaf_seqno=10, 10>=10 → Block 0.
+  // Seek "x"|10 -> leaf_seqno=10, 10>=10 -> Block 0.
   ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(iter, Slice("x"), 10, 0u));
-  // Seek "x"|7 → 7<10 → advance through overflow. overflow seqno=5, 7>=5 →
+  // Seek "x"|7 -> 7<10 -> advance through overflow. overflow seqno=5, 7>=5 ->
   // overflow block 1.
   ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(iter, Slice("x"), 7, 500u));
-  // Seek "x"|3 → 3<10 → advance. overflow seqno=5, 3<5 → not found. Advance
-  // past run. No more leaves → invalid. This matches the standard index
+  // Seek "x"|3 -> 3<10 -> advance. overflow seqno=5, 3<5 -> not found. Advance
+  // past run. No more leaves -> invalid. This matches the standard index
   // behavior: seeking for internal key "x"|3 is past the standard index's
   // last separator "x"|5.
   {
@@ -4017,12 +4021,12 @@ TEST_F(TrieIndexFactoryTest, TagDistinguishesSameSeqDifferentType) {
   // (kTypeValue) In internal key order, higher tag = smaller key, so
   // target (12801) < separator (12800). The trie should stay on Block 0.
   //
-  // With seqno-only comparison: 50 < 50 is false → stay. Same result.
+  // With seqno-only comparison: 50 < 50 is false -> stay. Same result.
   // But the reverse case matters:
   // Separator tag (50 << 8) | 1 = 12801 (kTypeValue)
   // Target tag (50 << 8) | 0 = 12800 (kTypeDeletion)
-  // target (12800) < separator (12801) → advance to Block 1.
-  // With seqno-only: 50 < 50 is false → stay (WRONG — should advance).
+  // target (12800) < separator (12801) -> advance to Block 1.
+  // With seqno-only: 50 < 50 is false -> stay (WRONG -- should advance).
 
   UserDefinedIndexOption option;
   option.comparator = BytewiseComparator();
@@ -4048,14 +4052,14 @@ TEST_F(TrieIndexFactoryTest, TagDistinguishesSameSeqDifferentType) {
   IterateResult result;
 
   // Target: ("x", seqno=50, kTypeValue=1), packed=12801.
-  // Separator packed=12801. 12801 >= 12801 → stay on Block 0. Correct.
+  // Separator packed=12801. 12801 >= 12801 -> stay on Block 0. Correct.
   ASSERT_OK(iter->SeekAndGetResult(Slice("x"), &result, {(50ULL << 8) | 1}));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(iter->value().offset, 0u);
 
   // Target: ("x", seqno=50, kTypeDeletion=0), packed=12800.
-  // Separator packed=12801. 12800 < 12801 → advance to Block 1. Correct.
-  // With seqno-only comparison (without tag): 50 < 50 → false →
+  // Separator packed=12801. 12800 < 12801 -> advance to Block 1. Correct.
+  // With seqno-only comparison (without tag): 50 < 50 -> false ->
   // stay on Block 0 (WRONG).
   ASSERT_OK(iter->SeekAndGetResult(Slice("x"), &result, {(50ULL << 8) | 0}));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
@@ -4066,7 +4070,7 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingReSeekAfterOverflow) {
   // Verify that re-seeking after being positioned in an overflow run
   // correctly resets the overflow state.
   //
-  // Trie: "key"(run=2, seqnos 300,200) → "l" → "zzz"
+  // Trie: "key"(run=2, seqnos 300,200) -> "l" -> "zzz"
   auto ctx = BuildTrieAndGetIterator({
       {"key", "key", 0, 1000, 300, 200},
       {"key", "key", 1000, 1000, 200, 100},
@@ -4075,11 +4079,11 @@ TEST_F(TrieIndexFactoryTest, SeqnoEncodingReSeekAfterOverflow) {
   });
   auto* iter = ctx.iter.get();
 
-  // Position in overflow: 150 < all run seqnos → advance to "l" (block 2).
+  // Position in overflow: 150 < all run seqnos -> advance to "l" (block 2).
   ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(iter, Slice("key"), 150, 2000u));
-  // Re-seek to "key"|300 → should reset to Block 0.
+  // Re-seek to "key"|300 -> should reset to Block 0.
   ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(iter, Slice("key"), 300, 0u));
-  // Re-seek to "zzz" → "zzz" leaf (block 3), overflow state should be clean.
+  // Re-seek to "zzz" -> "zzz" leaf (block 3), overflow state should be clean.
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(iter, Slice("zzz"), kMaxSequenceNumber, 3000u));
 
@@ -4101,12 +4105,12 @@ TEST_F(TrieIndexFactoryTest, AllFfLastKeyWithSameKeyBoundary) {
   });
   auto* iter = ctx.iter.get();
 
-  // Seek "\xff\xff"|200 → Block 0.
+  // Seek "\xff\xff"|200 -> Block 0.
   ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(iter, Slice(ff), 200, 0u));
-  // Seek "\xff\xff"|100 → advance to overflow Block 1.
+  // Seek "\xff\xff"|100 -> advance to overflow Block 1.
   ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(iter, Slice(ff), 100, 500u));
 
-  // Seek "\xff\xff"|50 → past entire run → exhausted → kUnknown.
+  // Seek "\xff\xff"|50 -> past entire run -> exhausted -> kUnknown.
   IterateResult result;
   ASSERT_OK(iter->SeekAndGetResult(Slice(ff), &result, SeekCtx(50)));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
@@ -4300,7 +4304,7 @@ TEST_F(TrieIndexSSTTest, WriteAndReadWithTrieUDI) {
   auto kvs = GenerateKVs(100);
   ASSERT_OK(WriteSST(kvs));
 
-  // Read without UDI (native index) — should work since native index is
+  // Read without UDI (native index) -- should work since native index is
   // always present alongside the UDI.
   {
     Options options;
@@ -4325,7 +4329,7 @@ TEST_F(TrieIndexSSTTest, WriteAndReadWithTrieUDI) {
     ASSERT_EQ(count, 100);
   }
 
-  // Read WITH trie UDI — use table_index_factory in ReadOptions.
+  // Read WITH trie UDI -- use table_index_factory in ReadOptions.
   {
     Options options;
     BlockBasedTableOptions table_options;
@@ -4544,7 +4548,7 @@ TEST_F(TrieIndexSSTTest, MixedKeyTypesWithCompressionDict) {
 // Compares the trie data structure against the actual RocksDB binary search
 // index (IndexBlockIter) which is used in production. The IndexBlockIter
 // operates on a prefix-compressed block with InternalKeys, varint decoding,
-// and the InternalKeyComparator abstraction — making it a realistic baseline.
+// and the InternalKeyComparator abstraction -- making it a realistic baseline.
 // ============================================================================
 
 class TrieSeekBenchmark : public testing::Test {
@@ -4607,14 +4611,14 @@ class TrieSeekBenchmark : public testing::Test {
 // their full production code paths:
 //
 // Trie (via UDI wrapper):
-//   ParseInternalKey → Seek(user_key) → Key().ToString() (string copy) →
-//   CheckBounds (no-op without Prepare) → Value() → BlockHandle
+//   ParseInternalKey -> Seek(user_key) -> Key().ToString() (string copy) ->
+//   CheckBounds (no-op without Prepare) -> Value() -> BlockHandle
 //
 // IndexBlockIter:
-//   Seek(internal_key) → value() → IndexValue with BlockHandle
+//   Seek(internal_key) -> value() -> IndexValue with BlockHandle
 //
 // The IndexBlockIter operates on a prefix-compressed block with InternalKeys,
-// varint decoding, and the InternalKeyComparator — matching production
+// varint decoding, and the InternalKeyComparator -- matching production
 // exactly.
 TEST_F(TrieSeekBenchmark, TrieVsRealIndexBlockIter) {
   static constexpr size_t kNumLookups = 200000;
@@ -4671,7 +4675,7 @@ TEST_F(TrieSeekBenchmark, TrieVsRealIndexBlockIter) {
     auto indices = GenerateRandomIndices(kNumLookups, num_keys);
 
     // Pre-build InternalKey seek targets (user_key + kMaxSequenceNumber).
-    // Both sides use the same InternalKey targets — the trie path parses
+    // Both sides use the same InternalKey targets -- the trie path parses
     // them to extract the user key (matching production), while
     // IndexBlockIter uses them directly.
     std::vector<std::string> seek_ikeys;
@@ -4688,18 +4692,18 @@ TEST_F(TrieSeekBenchmark, TrieVsRealIndexBlockIter) {
     }
 
     // ---- Benchmark: Trie Seek (full production path) ----
-    // Replicates UserDefinedIndexIteratorWrapper::Seek() →
+    // Replicates UserDefinedIndexIteratorWrapper::Seek() ->
     //   TrieIndexIterator::SeekAndGetResult():
     //   1. ParseInternalKey to extract user_key
     //   2. trie_iter.Seek(user_key)
-    //   3. trie_iter.Key().ToString() — string copy (result must outlive
+    //   3. trie_iter.Key().ToString() -- string copy (result must outlive
     //   call)
-    //   4. trie_iter.Value() — look up BlockHandle from packed arrays
+    //   4. trie_iter.Value() -- look up BlockHandle from packed arrays
     volatile uint64_t trie_checksum = 0;
     std::string key_scratch;  // Reused scratch, like current_key_scratch_
     auto t0 = std::chrono::high_resolution_clock::now();
     for (size_t i = 0; i < kNumLookups; i++) {
-      // Step 1: Parse InternalKey → user key (same as wrapper)
+      // Step 1: Parse InternalKey -> user key (same as wrapper)
       ParsedInternalKey pkey;
       ASSERT_OK(ParseInternalKey(seek_ikey_slices[i], &pkey,
                                  /*log_err_key=*/false));
@@ -4724,7 +4728,7 @@ TEST_F(TrieSeekBenchmark, TrieVsRealIndexBlockIter) {
         static_cast<double>(kNumLookups);
 
     // ---- Benchmark: Real IndexBlockIter Seek ----
-    // This is exactly what production does: Seek(InternalKey) → value().
+    // This is exactly what production does: Seek(InternalKey) -> value().
     std::unique_ptr<IndexBlockIter> ibi_iter(index_block.NewIndexIterator(
         BytewiseComparator(), kDisableGlobalSequenceNumber,
         /*iter=*/nullptr, /*stats=*/nullptr,
@@ -4757,7 +4761,7 @@ TEST_F(TrieSeekBenchmark, TrieVsRealIndexBlockIter) {
 }
 
 // ============================================================================
-// Mixed key type tests — verifies UDI works with Delete, Merge, etc.
+// Mixed key type tests -- verifies UDI works with Delete, Merge, etc.
 // ============================================================================
 
 TEST_F(TrieIndexSSTTest, MixedKeyTypesWithTrieUDI) {
@@ -4830,7 +4834,7 @@ TEST_F(TrieIndexSSTTest, MixedKeyTypesWithTrieUDI) {
     ro.table_index_factory = trie_factory_.get();
     std::unique_ptr<Iterator> iter(reader.NewIterator(ro));
 
-    // Full forward scan — expect 6 logically visible entries.
+    // Full forward scan -- expect 6 logically visible entries.
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     ASSERT_TRUE(iter->Valid())
@@ -4850,17 +4854,17 @@ TEST_F(TrieIndexSSTTest, MixedKeyTypesWithTrieUDI) {
     };
     ASSERT_EQ(visible_keys, expected_visible);
 
-    // Point seek to a merged key — should find it.
+    // Point seek to a merged key -- should find it.
     iter->Seek("key_0002");
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(iter->key().ToString(), "key_0002");
 
-    // Point seek to a deleted key — should advance past the tombstone.
+    // Point seek to a deleted key -- should advance past the tombstone.
     iter->Seek("key_0004");
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(iter->key().ToString(), "key_0005");
 
-    // Point seek to the last deleted key — should advance to key_0008.
+    // Point seek to the last deleted key -- should advance to key_0008.
     iter->Seek("key_0007");
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(iter->key().ToString(), "key_0008");
@@ -4897,7 +4901,7 @@ TEST_F(TrieIndexSSTTest, LargeMixedKeyTypesWithTrieUDI) {
     if (i % 5 == 0) {
       ASSERT_OK(writer.Delete(key));
       all_entries.emplace_back(key, 'D');
-      // Deletes are hidden by DBIter — not added to visible_keys.
+      // Deletes are hidden by DBIter -- not added to visible_keys.
     } else if (i % 5 == 1) {
       char val_buf[32];
       snprintf(val_buf, sizeof(val_buf), "merge_%06d", i);
@@ -4957,7 +4961,7 @@ TEST_F(TrieIndexSSTTest, LargeMixedKeyTypesWithTrieUDI) {
     ro.table_index_factory = trie_factory_.get();
     std::unique_ptr<Iterator> iter(reader.NewIterator(ro));
 
-    // Full forward scan — only visible keys should appear.
+    // Full forward scan -- only visible keys should appear.
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     ASSERT_TRUE(iter->Valid());
@@ -4979,7 +4983,7 @@ TEST_F(TrieIndexSSTTest, LargeMixedKeyTypesWithTrieUDI) {
       ASSERT_EQ(iter->key().ToString(), visible_keys[i]);
     }
 
-    // Point seek to deleted keys — should advance past the tombstone.
+    // Point seek to deleted keys -- should advance past the tombstone.
     for (int i = 0; i < kNumKeys; i++) {
       if (all_entries[i].second == 'D') {
         iter->Seek(all_entries[i].first);
@@ -5032,7 +5036,7 @@ TEST_F(TrieIndexFactoryTest, WrapperNextAndGetResultReturnsInternalKey) {
   // Wrap the UDI iterator in the adapter that converts to InternalIterator.
   UserDefinedIndexIteratorWrapper wrapper(std::move(udi_iter));
 
-  // Seek to "a" — constructs an internal key from user key "a".
+  // Seek to "a" -- constructs an internal key from user key "a".
   InternalKey seek_ikey;
   seek_ikey.Set(Slice("a"), kMaxSequenceNumber, kValueTypeForSeek);
   wrapper.Seek(Slice(*seek_ikey.const_rep()));
@@ -5048,7 +5052,7 @@ TEST_F(TrieIndexFactoryTest, WrapperNextAndGetResultReturnsInternalKey) {
   EXPECT_EQ(parsed.user_key.ToString(), "a");
   EXPECT_EQ(parsed.type, ValueType::kTypeValue);
 
-  // Now test NextAndGetResult — this is the method we fixed.
+  // Now test NextAndGetResult -- this is the method we fixed.
   IterateResult result;
   bool valid = wrapper.NextAndGetResult(&result);
   ASSERT_TRUE(valid);
@@ -5065,7 +5069,7 @@ TEST_F(TrieIndexFactoryTest, WrapperNextAndGetResultReturnsInternalKey) {
   EXPECT_EQ(parsed.user_key.ToString(), "b");
   EXPECT_EQ(parsed.type, ValueType::kTypeValue);
 
-  // result.key must match wrapper.key() — both views of the current key.
+  // result.key must match wrapper.key() -- both views of the current key.
   EXPECT_EQ(result.key, wrapper.key());
 
   // Advance again and verify. The last block's separator is "c"
@@ -5078,7 +5082,7 @@ TEST_F(TrieIndexFactoryTest, WrapperNextAndGetResultReturnsInternalKey) {
   EXPECT_EQ(parsed.user_key.ToString(), "c");
   EXPECT_EQ(result.key, wrapper.key());
 
-  // One more advance — past end.
+  // One more advance -- past end.
   valid = wrapper.NextAndGetResult(&result);
   EXPECT_FALSE(valid);
 }
@@ -5115,7 +5119,7 @@ TEST_F(TrieIndexFactoryTest, OverflowBfsReordering) {
   Slice sep;
 
   // Block 0: last="ab", next="ab" (same-key boundary)
-  // → sep="ab", same_user_key=true, seqno=500
+  // -> sep="ab", same_user_key=true, seqno=500
   {
     UserDefinedIndexBuilder::BlockHandle h{0, 100};
     Slice next("ab");
@@ -5123,8 +5127,8 @@ TEST_F(TrieIndexFactoryTest, OverflowBfsReordering) {
                                  EntryCtx(500, 0));
     ASSERT_EQ(scratch, "ab") << "Block 0 separator";
   }
-  // Block 1: last="ab", next="abc" (prefix — FindShortestSeparator no-op)
-  // → sep="ab", edge-case match with prev sep, same_user_key=true, seqno=400
+  // Block 1: last="ab", next="abc" (prefix -- FindShortestSeparator no-op)
+  // -> sep="ab", edge-case match with prev sep, same_user_key=true, seqno=400
   {
     UserDefinedIndexBuilder::BlockHandle h{100, 100};
     Slice next("abc");
@@ -5134,8 +5138,8 @@ TEST_F(TrieIndexFactoryTest, OverflowBfsReordering) {
   }
   // Block 2: last="abc", next="b"
   // FindShortestSeparator("abc","b"): diff_index=0, 'a' vs 'b',
-  // limit.size()-1=0 so fallback: increment start[1] 'b'→'c' → "ac"
-  // → sep="ac", different key, seqno=kMax→0
+  // limit.size()-1=0 so fallback: increment start[1] 'b'->'c' -> "ac"
+  // -> sep="ac", different key, seqno=kMax->0
   {
     UserDefinedIndexBuilder::BlockHandle h{200, 100};
     Slice next("b");
@@ -5144,7 +5148,7 @@ TEST_F(TrieIndexFactoryTest, OverflowBfsReordering) {
     ASSERT_EQ(scratch, "ac") << "Block 2 separator";
   }
   // Block 3: last="b", next="b" (same-key boundary)
-  // → sep="b", same_user_key=true, seqno=300
+  // -> sep="b", same_user_key=true, seqno=300
   {
     UserDefinedIndexBuilder::BlockHandle h{300, 100};
     Slice next("b");
@@ -5152,8 +5156,8 @@ TEST_F(TrieIndexFactoryTest, OverflowBfsReordering) {
                                  EntryCtx(300, 0));
     ASSERT_EQ(scratch, "b") << "Block 3 separator";
   }
-  // Block 4: last="b", next="ba" (prefix — FindShortestSeparator no-op)
-  // → sep="b", edge-case match with prev sep, same_user_key=true, seqno=200
+  // Block 4: last="b", next="ba" (prefix -- FindShortestSeparator no-op)
+  // -> sep="b", edge-case match with prev sep, same_user_key=true, seqno=200
   {
     UserDefinedIndexBuilder::BlockHandle h{400, 100};
     Slice next("ba");
@@ -5163,8 +5167,8 @@ TEST_F(TrieIndexFactoryTest, OverflowBfsReordering) {
   }
   // Block 5: last="ba", next="d"
   // FindShortestSeparator("ba","d"): diff_index=0, 'b' vs 'd',
-  // start_byte+1='c' < 'd' → increment and truncate → "c"
-  // → sep="c", different key, seqno=kMax→0
+  // start_byte+1='c' < 'd' -> increment and truncate -> "c"
+  // -> sep="c", different key, seqno=kMax->0
   {
     UserDefinedIndexBuilder::BlockHandle h{500, 100};
     Slice next("d");
@@ -5173,7 +5177,7 @@ TEST_F(TrieIndexFactoryTest, OverflowBfsReordering) {
     ASSERT_EQ(scratch, "c") << "Block 5 separator";
   }
   // Block 6: last="d", next=null (last block, no successor shortening)
-  // → sep="d", different from prev "c", seqno=kMax→0
+  // -> sep="d", different from prev "c", seqno=kMax->0
   {
     UserDefinedIndexBuilder::BlockHandle h{600, 100};
     sep = builder->AddIndexEntry(Slice("d"), nullptr, h, &scratch,
@@ -5239,36 +5243,36 @@ TEST_F(TrieIndexFactoryTest, OverflowBfsReordering) {
 
   // --- Seek-based tests: verify overflow data is correctly associated ---
 
-  // "ab" primary: Seek("ab", kMax) → offset=0
+  // "ab" primary: Seek("ab", kMax) -> offset=0
   ASSERT_OK(iter->SeekAndGetResult(Slice("ab"), &result,
                                    SeekCtx(kMaxSequenceNumber)));
   EXPECT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   EXPECT_EQ(iter->value().offset, 0u) << "Seek(ab,kMax): ab primary";
 
-  // "ab" overflow: Seek("ab", 400) → offset=100
-  // Primary seqno=500, 400<500 → advance to overflow. Overflow seqno=400,
-  // 400>=400 → match.
+  // "ab" overflow: Seek("ab", 400) -> offset=100
+  // Primary seqno=500, 400<500 -> advance to overflow. Overflow seqno=400,
+  // 400>=400 -> match.
   ASSERT_OK(iter->SeekAndGetResult(Slice("ab"), &result, SeekCtx(400)));
   EXPECT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   EXPECT_EQ(iter->value().offset, 100u) << "Seek(ab,400): ab overflow";
 
-  // "ab" advance past run: Seek("ab", 50) → advances to "ac" at offset=200
-  // Primary seqno=500, 50<500 → overflow seqno=400, 50<400 → exhaust run →
+  // "ab" advance past run: Seek("ab", 50) -> advances to "ac" at offset=200
+  // Primary seqno=500, 50<500 -> overflow seqno=400, 50<400 -> exhaust run ->
   // advance to next trie leaf "ac".
   ASSERT_OK(iter->SeekAndGetResult(Slice("ab"), &result, SeekCtx(50)));
   EXPECT_EQ(result.key.ToString(), "ac")
       << "Seek(ab,50): should advance past ab run";
   EXPECT_EQ(iter->value().offset, 200u) << "Seek(ab,50): expected ac (200)";
 
-  // "b" primary: Seek("b", kMax) → offset=300
+  // "b" primary: Seek("b", kMax) -> offset=300
   ASSERT_OK(
       iter->SeekAndGetResult(Slice("b"), &result, SeekCtx(kMaxSequenceNumber)));
   EXPECT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   EXPECT_EQ(iter->value().offset, 300u) << "Seek(b,kMax): b primary";
 
-  // "b" overflow: Seek("b", 200) → offset=400
-  // Primary seqno=300, 200<300 → advance to overflow. Overflow seqno=200,
-  // 200>=200 → match.
+  // "b" overflow: Seek("b", 200) -> offset=400
+  // Primary seqno=300, 200<300 -> advance to overflow. Overflow seqno=200,
+  // 200>=200 -> match.
   // If overflow blocks were NOT BFS-reordered, overflow[0] would contain
   // ab's data {offset=100,seqno=400}, and 200<400 would fail to match,
   // incorrectly advancing to "c".
@@ -5278,7 +5282,7 @@ TEST_F(TrieIndexFactoryTest, OverflowBfsReordering) {
       << "Seek(b,200): must stay on b, not advance";
   EXPECT_EQ(iter->value().offset, 400u) << "Seek(b,200): b overflow";
 
-  // "b" advance past run: Seek("b", 50) → advances to "c" at offset=500
+  // "b" advance past run: Seek("b", 50) -> advances to "c" at offset=500
   ASSERT_OK(iter->SeekAndGetResult(Slice("b"), &result, SeekCtx(50)));
   EXPECT_EQ(result.key.ToString(), "c")
       << "Seek(b,50): should advance past b run";
@@ -5370,23 +5374,23 @@ TEST_F(TrieIndexFactoryTest, LastBlockSeekWithRealSeqno) {
       {"cherry", "", 1000, 1000, 50, 0},
   });
 
-  // Seek "cherry" with kMaxSequenceNumber — should find block at offset 1000.
+  // Seek "cherry" with kMaxSequenceNumber -- should find block at offset 1000.
   ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(ctx.iter.get(), Slice("cherry"),
                                            kMaxSequenceNumber, 1000));
 
-  // Seek "cherry" with a real seqno (200) — the last block's separator has
+  // Seek "cherry" with a real seqno (200) -- the last block's separator has
   // seqno=50. In internal key order, 200 > 50 means target is SMALLER (higher
-  // seqno = smaller key). So target <= separator → should stay on this block.
+  // seqno = smaller key). So target <= separator -> should stay on this block.
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(ctx.iter.get(), Slice("cherry"), 200, 1000));
 
-  // Seek "cherry" with seqno=50 (equal to separator) — should stay.
+  // Seek "cherry" with seqno=50 (equal to separator) -- should stay.
   ASSERT_NO_FATAL_FAILURE(
       AssertSeekOffset(ctx.iter.get(), Slice("cherry"), 50, 1000));
 
-  // Seek "cherry" with seqno=10 (less than separator seqno=50) — target is
-  // LARGER in internal key order. target > separator → should advance past.
-  // But this is the last block — no next block → past end.
+  // Seek "cherry" with seqno=10 (less than separator seqno=50) -- target is
+  // LARGER in internal key order. target > separator -> should advance past.
+  // But this is the last block -- no next block -> past end.
   IterateResult result;
   ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("cherry"), &result, SeekCtx(10)));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
@@ -5395,7 +5399,7 @@ TEST_F(TrieIndexFactoryTest, LastBlockSeekWithRealSeqno) {
 TEST_F(TrieIndexFactoryTest, IntermediateNonBoundarySeparatorNoAdvance) {
   // Verifies that seeking with any seqno on an intermediate non-boundary
   // separator does NOT advance past it. Intermediate non-boundary separators
-  // store tag=0 (sentinel), making target_tag < 0 always false → stays.
+  // store tag=0 (sentinel), making target_tag < 0 always false -> stays.
   // This matches the standard index's index_key_is_user_key=true mode where
   // equal user keys always match without seqno comparison.
   auto ctx = BuildTrieAndGetIterator({
@@ -5415,7 +5419,7 @@ TEST_F(TrieIndexFactoryTest, IntermediateNonBoundarySeparatorNoAdvance) {
 
   // Seeking for "cherry" should find block 1 regardless of seqno.
   // The separator between block 0 and 1 is a shortened key (non-boundary).
-  // "cherry" matches block 1's separator — should stay with any seqno.
+  // "cherry" matches block 1's separator -- should stay with any seqno.
   ASSERT_NO_FATAL_FAILURE(AssertSeekOffset(ctx.iter.get(), Slice("cherry"),
                                            kMaxSequenceNumber, 1000));
   ASSERT_NO_FATAL_FAILURE(
@@ -5442,7 +5446,7 @@ TEST_F(TrieIndexFactoryTest, NonBoundarySeparatorSeekWhenShorteningFails) {
 
   // Seek for "acc" with any seqno should find block 1 at offset 1000.
   // The separator "acc" has tag=0 (non-boundary sentinel), so
-  // target_packed < 0 is always false → no advancement occurs.
+  // target_packed < 0 is always false -> no advancement occurs.
   //
   // Non-boundary separators use tag=0 (sentinel). For unsigned uint64_t,
   // target_packed < 0 is always false, so no advancement occurs. This
@@ -5476,7 +5480,7 @@ TEST_F(TrieIndexFactoryTest, PrevWithinOverflowRun) {
 
   IterateResult result;
 
-  // Seek to "key"|100 — should land on the last block in the "key" overflow
+  // Seek to "key"|100 -- should land on the last block in the "key" overflow
   // run (offset 2000) since seqno=100 matches that block's tag.
   ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("key"), &result, SeekCtx(100)));
   ASSERT_EQ(ctx.iter->value().offset, 2000u);
@@ -5502,7 +5506,8 @@ TEST_F(TrieIndexFactoryTest, SeekToLastWithOverflowRun) {
   auto ctx = BuildTrieAndGetIterator({
       // Block 0: "aaa" standalone.
       {"aaa", "zzz", 0, 1000, 100, 50},
-      // Block 1-3: "zzz" spans 3 blocks (overflow run) — this is the last leaf.
+      // Block 1-3: "zzz" spans 3 blocks (overflow run) -- this is the last
+      // leaf.
       {"zzz", "zzz", 1000, 1000, 50, 30},
       {"zzz", "zzz", 2000, 1000, 30, 10},
       {"zzz", "", 3000, 1000, 10, 0},
@@ -5560,7 +5565,7 @@ TEST_F(TrieIndexFactoryTest, PrevLandsOnLeafWithOverflow) {
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
   ASSERT_EQ(ctx.iter->value().offset, 2000u);
 
-  // Prev to "aaa" — should land on the LAST block in the overflow run
+  // Prev to "aaa" -- should land on the LAST block in the overflow run
   // (offset 1000), not the primary block (offset 0).
   ASSERT_OK(ctx.iter->PrevAndGetResult(&result));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
@@ -5631,7 +5636,7 @@ TEST_F(TrieIndexFactoryTest, OverflowExhaustionThenForwardScanThroughOverflow) {
 
   IterateResult result;
 
-  // Seek "key"|1 — seqno=1 is below all overflow tags in the "key" run
+  // Seek "key"|1 -- seqno=1 is below all overflow tags in the "key" run
   // (300, 200), so it exhausts the run and advances to the next leaf.
   // FindShortestSeparator("key", "zzz") = "l", so the next leaf is "l".
   ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("key"), &result, SeekCtx(1)));
@@ -5670,17 +5675,17 @@ TEST_F(TrieIndexFactoryTest, AllScansExhaustedThenSeek) {
 
   IterateResult result;
 
-  // Seek "a" — within first scan range, kInbound.
+  // Seek "a" -- within first scan range, kInbound.
   ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("a"), &result,
                                        SeekCtx(kMaxSequenceNumber)));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 
-  // Seek "c" — advances to second scan range, kInbound.
+  // Seek "c" -- advances to second scan range, kInbound.
   ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("c"), &result,
                                        SeekCtx(kMaxSequenceNumber)));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
 
-  // Seek "e" — past both scan ranges, kOutOfBound.
+  // Seek "e" -- past both scan ranges, kOutOfBound.
   ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("e"), &result,
                                        SeekCtx(kMaxSequenceNumber)));
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);

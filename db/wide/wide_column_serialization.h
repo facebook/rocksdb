@@ -153,6 +153,8 @@ class WideColumnSerialization {
   // value() is initially the serialized BlobIndex bytes from the entity.
   // blob_columns: receives (column_index, blob_index) pairs identifying which
   // entries in `columns` are blob references and their decoded BlobIndex data.
+  // For valid input, this must agree with HasBlobColumns() about whether blob
+  // column references are present.
   static Status DeserializeV2(
       Slice& input, std::vector<WideColumn>& columns,
       std::vector<std::pair<size_t, BlobIndex>>& blob_columns);
@@ -160,6 +162,8 @@ class WideColumnSerialization {
   // Check if the serialized entity has any blob column references.
   // Sets *has_blob_columns to true if version >= 2 and at least one column
   // has blob type; false otherwise.
+  // For valid input, this must agree with DeserializeV2() about whether blob
+  // column references are present.
   // Returns Status::Corruption on decode errors.
   static Status HasBlobColumns(const Slice& input, bool& has_blob_columns);
 

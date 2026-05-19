@@ -36,7 +36,7 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
   // comparator. FindShortestSeparator takes `*start` as both input and output:
   //   input:  *start == last_key_in_current_block
   //   output: *start modified to shortest string in [start, limit)
-  // If first_key_in_next_block is nullptr, this is the last block — use a
+  // If first_key_in_next_block is nullptr, this is the last block -- use a
   // short successor of the last key.
   Slice separator;
   // True when last_key and first_key_in_next_block are the same user key
@@ -85,7 +85,7 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
     // ":", but the data block only contains keys up to "9\xff\xff". A seek
     // targeting a key in that gap (e.g., "9\xff\xff\x01") would find a
     // block via the trie that contains no matching data, causing iterator
-    // desynchronization — the trie index returns a valid block while the
+    // desynchronization -- the trie index returns a valid block while the
     // standard index correctly reports no match.
     separator = last_key_in_current_block;
 
@@ -157,9 +157,9 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
 
   if (use_seqno) {
     // Feed de-duplicated separators to the trie with seqno side-table metadata.
-    // Consecutive identical separators form a "run" — only the first occurrence
-    // goes into the trie (as the primary block). The remaining blocks in the
-    // run are stored as overflow blocks in the side-table.
+    // Consecutive identical separators form a "run" -- only the first
+    // occurrence goes into the trie (as the primary block). The remaining
+    // blocks in the run are stored as overflow blocks in the side-table.
     //
     // For non-boundary separators (different user keys), the tag is 0
     // (sentinel meaning "no seqno correction needed"), matching the standard
@@ -213,11 +213,11 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
     assert(buffered_entries_.empty());
   }
 
-  // Release buffered entries — no longer needed after feeding to the trie.
+  // Release buffered entries -- no longer needed after feeding to the trie.
   buffered_entries_.clear();
   buffered_entries_.shrink_to_fit();
 
-  // Always finish the trie builder, even with 0 keys — this produces a valid
+  // Always finish the trie builder, even with 0 keys -- this produces a valid
   // serialized trie that can be parsed by NewReader. Without this, an empty
   // Slice would be returned, causing InitFromData to fail with "data too short
   // for header".
@@ -343,12 +343,12 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
 
   ResetOverflowState();
 
-  // Always seek with user key only — the trie stores user-key separators.
+  // Always seek with user key only -- the trie stores user-key separators.
   // When seqno encoding is active, post-seek correction handles the seqno.
   if (!iter_.Seek(target)) {
     // No leaf has a key >= target: the target is past all blocks in this SST.
     // Return kUnknown (not kOutOfBound) because exhausting this SST's trie
-    // says nothing about the upper bound — the next SST on the level may
+    // says nothing about the upper bound -- the next SST on the level may
     // still contain in-bound keys. kOutOfBound would cause LevelIterator to
     // stop scanning the level prematurely.
     result->bound_check_result = IterBoundCheck::kUnknown;
@@ -357,7 +357,7 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
   }
 
   // Set the result key (always a user key, no suffix stripping needed).
-  // Reuse current_key_scratch_ capacity — avoids heap allocation after warmup.
+  // Reuse current_key_scratch_ capacity -- avoids heap allocation after warmup.
   {
     Slice trie_key = iter_.Key();
     current_key_scratch_.assign(trie_key.data(), trie_key.size());
@@ -412,7 +412,7 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
         // the next trie leaf (the block after the run).
         if (!iter_.Next()) {
           // Exhausted all blocks: target is past the end of this SST.
-          // Return kUnknown — see comment in Seek path above.
+          // Return kUnknown -- see comment in Seek path above.
           result->bound_check_result = IterBoundCheck::kUnknown;
           result->key = Slice();
           return Status::OK();
@@ -428,7 +428,7 @@ Status TrieIndexIterator::SeekAndGetResult(const Slice& target,
         overflow_base_idx_ = 0;
         // Check if the new leaf also has overflow (unlikely but possible
         // with adjacent same-key runs for different user keys).
-        // iter_.Valid() is guaranteed here — Next() returned true above.
+        // iter_.Valid() is guaranteed here -- Next() returned true above.
         if (has_seqno_encoding_) {
           uint64_t new_leaf = iter_.LeafIndex();
           overflow_run_size_ = trie_->GetLeafBlockCount(new_leaf);
@@ -480,11 +480,11 @@ Status TrieIndexIterator::NextAndGetResult(IterateResult* result) {
 
 UserDefinedIndexBuilder::BlockHandle TrieIndexIterator::value() {
   if (overflow_run_index_ == 0) {
-    // Primary block — use the trie leaf's handle.
+    // Primary block -- use the trie leaf's handle.
     auto handle = iter_.Value();
     return UserDefinedIndexBuilder::BlockHandle{handle.offset, handle.size};
   }
-  // Overflow block — use the side-table handle.
+  // Overflow block -- use the side-table handle.
   // overflow_run_index_ is 1-based, overflow array is 0-based.
   uint32_t overflow_idx = overflow_base_idx_ + overflow_run_index_ - 1;
   auto handle = trie_->GetOverflowHandle(overflow_idx);
@@ -494,7 +494,7 @@ UserDefinedIndexBuilder::BlockHandle TrieIndexIterator::value() {
 IterBoundCheck TrieIndexIterator::CheckBounds(
     const Slice& reference_key) const {
   if (!prepared_ || scan_opts_.empty()) {
-    // No bounds to check — always in-bound.
+    // No bounds to check -- always in-bound.
     return IterBoundCheck::kInbound;
   }
 
@@ -549,7 +549,7 @@ size_t TrieIndexReader::ApproximateMemoryUsage() const {
   // and handle arrays, so the base cost is the serialized data size. On top
   // of that, InitFromData() heap-allocates child position lookup tables
   // (s_child_start_pos_ and s_child_end_pos_) for Select-free sparse
-  // traversal — 8 bytes per sparse internal node.
+  // traversal -- 8 bytes per sparse internal node.
   return data_size_ + trie_.ApproximateAuxMemoryUsage();
 }
 

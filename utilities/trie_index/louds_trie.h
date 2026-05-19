@@ -350,7 +350,7 @@ class LoudsTrie {
   // plus compact arrays indexed by chain ordinal (Rank1 on the bitmap).
   //
   // Lookup during Seek:
-  //   1. s_chain_bitmap_.GetBit(child_idx) — has chain?
+  //   1. s_chain_bitmap_.GetBit(child_idx) -- has chain?
   //   2. chain_idx = s_chain_bitmap_.Rank1(child_idx + 1) - 1
   //   3. s_chain_lens_[chain_idx], s_chain_suffix_offsets_[chain_idx], etc.
   //
@@ -628,7 +628,7 @@ class LoudsTrieIterator {
   // Descend from the given node to the rightmost leaf in its subtree,
   // pushing entries onto path_ and building key_buf_. Sets
   // leaf_index_ and valid_. Returns true if a leaf was found.
-  // Unlike DescendToLeftmostLeaf, this does NOT check prefix keys —
+  // Unlike DescendToLeftmostLeaf, this does NOT check prefix keys --
   // prefix keys are the smallest leaf at a node, so in reverse order
   // they are visited last (handled by Retreat when backtracking).
   bool DescendToRightmostLeaf(bool in_dense, uint64_t node_num);
@@ -668,7 +668,7 @@ class LoudsTrieIterator {
   // sparse levels, the byte is s_labels_[pos].
   //
   // Key reconstruction appends one byte per trie level in the Seek/Next
-  // hot loop, so the append operation must be as cheap as possible — a
+  // hot loop, so the append operation must be as cheap as possible -- a
   // single inlined store + increment with no function call overhead. The
   // buffer is heap-allocated once in the constructor to MaxDepth()+1 bytes.
   //
