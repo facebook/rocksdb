@@ -110,9 +110,9 @@ void StressTest::CleanUp() {
 
 void StressTest::NotifyListenerShuttingDown() {
   for (auto& listener : options_.listeners) {
-    auto* stress_listener = dynamic_cast<DbStressListener*>(listener.get());
-    if (stress_listener) {
-      stress_listener->NotifyShuttingDown();
+    if (strcmp(listener->Name(), DbStressListener::kClassName()) == 0) {
+      static_cast_with_check<DbStressListener>(listener.get())
+          ->NotifyShuttingDown();
     }
   }
 }
