@@ -44,6 +44,10 @@ class StressTest {
 
   virtual ~StressTest() {}
 
+  const std::string& GetDbPath() const;
+  const std::string& GetExpectedValuesDir() const;
+  const std::string& GetSecondariesBase() const;
+
   std::shared_ptr<Cache> NewCache(size_t capacity, int32_t num_shard_bits);
 
   static std::vector<std::string> GetBlobCompressionTags();

@@ -2325,11 +2325,11 @@ class NonBatchedOpsStressTest : public StressTest {
         FLAGS_test_ingest_standalone_range_deletion_one_in);
     std::vector<std::string> external_files;
     const std::string sst_filename =
-        FLAGS_db + "/." + std::to_string(thread->tid) + ".sst";
+        GetDbPath() + "/." + std::to_string(thread->tid) + ".sst";
     external_files.push_back(sst_filename);
     std::string standalone_rangedel_filename;
     if (test_standalone_range_deletion) {
-      standalone_rangedel_filename = FLAGS_db + "/." +
+      standalone_rangedel_filename = GetDbPath() + "/." +
                                      std::to_string(thread->tid) +
                                      "_standalone_rangedel.sst";
       external_files.push_back(standalone_rangedel_filename);
