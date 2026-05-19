@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 720" style="background-color: #fafafa;">
+  <defs>
+    <marker id="rf-arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#355070" />
+    </marker>
+    <filter id="rf-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="2" dy="2" stdDeviation="2" flood-color="#00000020"/>
+    </filter>
+  </defs>
+
+  <text x="500" y="36" font-family="Arial, sans-serif" font-size="22" font-weight="bold" text-anchor="middle" fill="#25364d">
+    Resuming a Remote Compaction
+  </text>
+
+  <g transform="translate(275,70)">
+    <rect x="0" y="0" width="450" height="64" rx="18" fill="#edf4ff" stroke="#9cb9dd" stroke-width="2" filter="url(#rf-shadow)"/>
+    <text x="225" y="28" font-family="Arial, sans-serif" font-size="18" font-weight="bold" text-anchor="middle" fill="#25364d">
+      OpenAndCompact(allow_resumption = true)
+    </text>
+    <text x="225" y="48" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#5b6573">
+      Retry with the same output_directory
+    </text>
+  </g>
+
+  <line x1="500" y1="134" x2="500" y2="180" stroke="#355070" stroke-width="3" marker-end="url(#rf-arrowhead)"/>
+
+  <g transform="translate(275,190)">
+    <rect x="0" y="0" width="450" height="78" rx="18" fill="#edf4ff" stroke="#9cb9dd" stroke-width="2" filter="url(#rf-shadow)"/>
+    <text x="225" y="30" font-family="Arial, sans-serif" font-size="18" font-weight="bold" text-anchor="middle" fill="#25364d">
+      Scan output_directory
+    </text>
+    <text x="225" y="52" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#5b6573">
+      Inspect the progress file and any existing SST files
+    </text>
+  </g>
+
+  <line x1="500" y1="268" x2="500" y2="316" stroke="#355070" stroke-width="3" marker-end="url(#rf-arrowhead)"/>
+
+  <polygon points="500,316 650,386 500,456 350,386" fill="#fff8e8" stroke="#d4a24a" stroke-width="2" filter="url(#rf-shadow)"/>
+  <text x="500" y="392" font-family="Arial, sans-serif" font-size="18" font-weight="bold" text-anchor="middle" fill="#6e4a16">
+    Valid progress file?
+  </text>
+
+  <line x1="350" y1="386" x2="220" y2="386" stroke="#355070" stroke-width="3" marker-end="url(#rf-arrowhead)"/>
+  <text x="308" y="372" font-family="Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#25364d">No</text>
+
+  <g transform="translate(40,344)">
+    <rect x="0" y="0" width="240" height="72" rx="18" fill="#fff0f0" stroke="#d97070" stroke-width="2" filter="url(#rf-shadow)"/>
+    <text x="120" y="30" font-family="Arial, sans-serif" font-size="17" font-weight="bold" text-anchor="middle" fill="#7f2323">
+      Start fresh
+    </text>
+    <text x="120" y="50" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#7f2323">
+      Clean output_directory
+    </text>
+  </g>
+
+  <line x1="650" y1="386" x2="780" y2="386" stroke="#355070" stroke-width="3" marker-end="url(#rf-arrowhead)"/>
+  <text x="694" y="372" font-family="Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#25364d">Yes</text>
+
+  <g transform="translate(720,310)">
+    <rect x="0" y="0" width="230" height="106" rx="18" fill="#eef8ef" stroke="#7db28e" stroke-width="2" filter="url(#rf-shadow)"/>
+    <text x="115" y="30" font-family="Arial, sans-serif" font-size="17" font-weight="bold" text-anchor="middle" fill="#24503a">
+      Resume from checkpoint
+    </text>
+    <text x="115" y="52" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#24503a">
+      Load progress state
+    </text>
+    <text x="115" y="70" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#24503a">
+      Seek the iterator to the resume key
+    </text>
+    <text x="115" y="88" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#24503a">
+      Restore output file state
+    </text>
+  </g>
+
+  <line x1="160" y1="416" x2="160" y2="560" stroke="#355070" stroke-width="3" marker-end="url(#rf-arrowhead)"/>
+  <line x1="835" y1="416" x2="835" y2="560" stroke="#355070" stroke-width="3" marker-end="url(#rf-arrowhead)"/>
+  <line x1="160" y1="560" x2="355" y2="560" stroke="#355070" stroke-width="3"/>
+  <line x1="835" y1="560" x2="645" y2="560" stroke="#355070" stroke-width="3"/>
+
+  <g transform="translate(355,526)">
+    <rect x="0" y="0" width="290" height="50" rx="18" fill="#edf4ff" stroke="#9cb9dd" stroke-width="2" filter="url(#rf-shadow)"/>
+    <text x="145" y="31" font-family="Arial, sans-serif" font-size="18" font-weight="bold" text-anchor="middle" fill="#25364d">
+      Continue compaction
+    </text>
+  </g>
+
+  <line x1="500" y1="576" x2="500" y2="646" stroke="#355070" stroke-width="3" marker-end="url(#rf-arrowhead)"/>
+
+  <g transform="translate(310,656)">
+    <rect x="0" y="0" width="380" height="44" rx="16" fill="#eef8ef" stroke="#7db28e" stroke-width="2" filter="url(#rf-shadow)"/>
+    <text x="190" y="28" font-family="Arial, sans-serif" font-size="17" font-weight="bold" text-anchor="middle" fill="#24503a">
+      Return CompactionServiceResult
+    </text>
+  </g>
+</svg>
