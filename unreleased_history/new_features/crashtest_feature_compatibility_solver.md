@@ -1,0 +1,1 @@
+`tools/db_crashtest.py` now uses a declarative feature-compatibility solver for crash-test option sanitization; during rollout, `ROCKSDB_CRASHTEST_COMPATIBILITY_MODE=legacy` switches back to the old sanitizer. See `docs/components/stress_test/crashtest_feature_compatibility_solver.md` for the design.
