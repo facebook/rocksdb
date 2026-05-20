@@ -6,60 +6,158 @@
 Pre-download packages with unreliable mirrors using fallback mirrors.
 Reads package info from folly's getdeps manifest files.
 """
-import sys
-import os
-import hashlib
-import subprocess
 import configparser
+import hashlib
+import os
+import shutil
+import sys
+import urllib.request
+
+DOWNLOAD_TIMEOUT_SECONDS = 120
+
+MIRROR_FALLBACKS = {
+    "ftpmirror.gnu.org/gnu/": [
+        "https://mirrors.kernel.org/gnu/",
+        "https://ftpmirror.gnu.org/gnu/",
+        "https://ftp.gnu.org/gnu/",
+    ],
+    "ftp.gnu.org/gnu/": [
+        "https://mirrors.kernel.org/gnu/",
+        "https://ftpmirror.gnu.org/gnu/",
+        "https://ftp.gnu.org/gnu/",
+    ],
+}
+
+PACKAGES_TO_CHECK = ("autoconf", "automake", "libtool", "libiberty")
+
 
 def sha256_file(path):
     """Calculate SHA256 hash of a file."""
     h = hashlib.sha256()
     try:
-        with open(path, 'rb') as f:
-            for chunk in iter(lambda: f.read(65536), b''):
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
                 h.update(chunk)
         return h.hexdigest()
     except Exception:
         return None
 
+
 def parse_manifest(manifest_path):
     """Parse a getdeps manifest file to extract download info."""
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(allow_no_value=True, interpolation=None)
     try:
-        config.read(manifest_path)
-        if 'download' in config:
-            return {
-                'url': config['download'].get('url', ''),
-                'sha256': config['download'].get('sha256', ''),
-            }
-    except Exception:
-        pass
+        with open(manifest_path, encoding="utf-8") as manifest_file:
+            config.read_file(manifest_file)
+    except Exception as ex:
+        print(f"  {os.path.basename(manifest_path)}: WARNING - parse failed: {ex}")
+        return None
+
+    if "download" in config:
+        return {
+            "url": config["download"].get("url", ""),
+            "sha256": config["download"].get("sha256", ""),
+        }
     return None
+
 
 def get_fallback_mirrors(url):
     """Get fallback mirror URLs for a given URL."""
-    # Fallback mirror patterns for known unreliable hosts
-    mirror_fallbacks = {
-        "ftp.gnu.org/gnu/": [
-            "https://mirrors.kernel.org/gnu/",
-            "https://ftpmirror.gnu.org/gnu/",
-            "https://ftp.gnu.org/gnu/",
-        ],
-        "ftpmirror.gnu.org/gnu/": [
-            "https://mirrors.kernel.org/gnu/",
-            "https://ftpmirror.gnu.org/gnu/",
-            "https://ftp.gnu.org/gnu/",
-        ],
-    }
-
-    for pattern, mirrors in mirror_fallbacks.items():
+    for pattern, mirrors in MIRROR_FALLBACKS.items():
         if pattern in url:
             # Extract the path after the pattern
             path_start = url.find(pattern) + len(pattern)
             path = url[path_start:]
             return [mirror + path for mirror in mirrors]
-    return [url]  # No fallback, use original
+    return []
+
+
+def download_url(url, filepath):
+    """Download URL to filepath without leaving partial files behind."""
+    tmp_filepath = filepath + ".tmp"
+    if os.path.exists(tmp_filepath):
+        os.remove(tmp_filepath)
+
+    request = urllib.request.Request(
+        url, headers={"User-Agent": "rocksdb-getdeps-fallback/1.0"}
+    )
+    try:
+        with urllib.request.urlopen(
+            request, timeout=DOWNLOAD_TIMEOUT_SECONDS
+        ) as response, open(tmp_filepath, "wb") as output:
+            shutil.copyfileobj(response, output)
+        os.replace(tmp_filepath, filepath)
+    finally:
+        if os.path.exists(tmp_filepath):
+            os.remove(tmp_filepath)
+
+
+def prepare_download(package, info, download_dir, cache_dir):
+    url = info["url"]
+    expected_sha256 = info["sha256"]
+    mirrors = get_fallback_mirrors(url)
+    if not mirrors:
+        return False
+
+    if not expected_sha256:
+        print(f"  {package}: WARNING - skipped fallback without sha256")
+        return False
+
+    # getdeps uses format: {package}-{filename}
+    filename = f"{package}-{os.path.basename(url)}"
+    filepath = os.path.join(download_dir, filename)
+    cache_path = os.path.join(cache_dir, filename)
+
+    # Check if already valid.
+    actual_sha256 = sha256_file(filepath) if os.path.exists(filepath) else None
+    if actual_sha256 == expected_sha256:
+        print(f"  {filename}: OK (already downloaded)")
+        return True
+    if actual_sha256 is not None:
+        print(
+            f"  {filename}: WARNING - removing invalid download "
+            f"sha256={actual_sha256}"
+        )
+        os.remove(filepath)
+
+    # Check cache.
+    actual_sha256 = sha256_file(cache_path) if os.path.exists(cache_path) else None
+    if actual_sha256 == expected_sha256:
+        print(f"  {filename}: OK (from cache)")
+        shutil.copy2(cache_path, filepath)
+        return True
+    if actual_sha256 is not None:
+        print(
+            f"  {filename}: WARNING - removing invalid cache "
+            f"sha256={actual_sha256}"
+        )
+        os.remove(cache_path)
+
+    # Try fallback mirrors.
+    for mirror_url in mirrors:
+        print(f"  {filename}: trying {mirror_url}...")
+        try:
+            download_url(mirror_url, filepath)
+        except Exception as ex:
+            print(f"  {filename}: WARNING - download failed: {ex}")
+            continue
+
+        actual_sha256 = sha256_file(filepath)
+        size = os.path.getsize(filepath)
+        if actual_sha256 == expected_sha256:
+            print(f"  {filename}: OK (downloaded, {size} bytes)")
+            shutil.copy2(filepath, cache_path)
+            return True
+
+        print(
+            f"  {filename}: WARNING - sha256 mismatch from {mirror_url}: "
+            f"expected={expected_sha256} actual={actual_sha256} size={size}"
+        )
+        os.remove(filepath)
+
+    print(f"  {filename}: WARNING - all mirrors failed")
+    return False
+
 
 def main():
     if len(sys.argv) != 4:
@@ -67,60 +165,26 @@ def main():
         sys.exit(1)
 
     download_dir, cache_dir, manifests_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+    os.makedirs(download_dir, exist_ok=True)
+    os.makedirs(cache_dir, exist_ok=True)
 
-    # Packages known to have unreliable mirrors
-    packages_to_check = ["autoconf", "automake", "libtool"]
-
-    for package in packages_to_check:
+    checked = 0
+    ready = 0
+    for package in PACKAGES_TO_CHECK:
         manifest_path = os.path.join(manifests_dir, package)
-        if not os.path.exists(manifest_path):
+        if not os.path.isfile(manifest_path):
             continue
 
         info = parse_manifest(manifest_path)
-        if not info or not info['url'] or not info['sha256']:
+        if not info or not info["url"]:
             continue
 
-        # Determine filename from URL
-        url = info['url']
-        expected_sha256 = info['sha256']
-        url_filename = os.path.basename(url)
+        if get_fallback_mirrors(info["url"]):
+            checked += 1
+            if prepare_download(package, info, download_dir, cache_dir):
+                ready += 1
 
-        # getdeps uses format: {package}-{filename}
-        filename = f"{package}-{url_filename}"
-        filepath = os.path.join(download_dir, filename)
-        cache_path = os.path.join(cache_dir, filename)
-
-        # Check if already valid
-        if os.path.exists(filepath) and sha256_file(filepath) == expected_sha256:
-            print(f"  {filename}: OK (already downloaded)")
-            continue
-
-        # Check cache
-        if os.path.exists(cache_path) and sha256_file(cache_path) == expected_sha256:
-            print(f"  {filename}: OK (from cache)")
-            subprocess.run(['cp', cache_path, filepath], check=True)
-            continue
-
-        # Try fallback mirrors
-        mirrors = get_fallback_mirrors(url)
-        downloaded = False
-        for mirror_url in mirrors:
-            print(f"  {filename}: trying {mirror_url}...")
-            try:
-                subprocess.run(['wget', '-q', '-O', filepath, mirror_url], check=True, timeout=120)
-                if sha256_file(filepath) == expected_sha256:
-                    print(f"  {filename}: OK (downloaded)")
-                    subprocess.run(['cp', filepath, cache_path], check=False)
-                    downloaded = True
-                    break
-                else:
-                    os.remove(filepath)
-            except Exception:
-                if os.path.exists(filepath):
-                    os.remove(filepath)
-
-        if not downloaded:
-            print(f"  {filename}: WARNING - all mirrors failed")
+    print(f"  fallback mirror downloads ready: {ready}/{checked}")
 
 if __name__ == "__main__":
     main()
