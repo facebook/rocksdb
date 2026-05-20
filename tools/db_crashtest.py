@@ -345,6 +345,8 @@ default_params = {
     "avoid_unnecessary_blocking_io": random.randint(0, 1),
     "write_dbid_to_manifest": random.randint(0, 1),
     "write_identity_file": random.randint(0, 1),
+    "optimize_manifest_for_recovery": lambda: 1 if random.randint(1, 5) == 1 else 0,
+    "reuse_manifest_on_open": lambda: 1 if random.randint(1, 5) == 1 else 0,
     "avoid_flush_during_recovery": lambda: random.choice(
         [1 if t == 0 else 0 for t in range(0, 8)]
     ),
