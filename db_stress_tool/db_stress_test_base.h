@@ -77,6 +77,9 @@ class StressTest {
 
  private:
   void NotifyListenerShuttingDown();
+  void InitializeListenersForOpen(
+      SharedState* shared,
+      const std::vector<ColumnFamilyDescriptor>& cf_descriptors);
 
  protected:
   static int GetMinInjectedErrorCount(int error_count_1, int error_count_2) {

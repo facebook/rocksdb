@@ -130,6 +130,28 @@ void StressTest::NotifyListenerShuttingDown() {
   }
 }
 
+void StressTest::InitializeListenersForOpen(
+    SharedState* shared,
+    const std::vector<ColumnFamilyDescriptor>& cf_descriptors) {
+  options_.listeners.clear();
+  options_.listeners.emplace_back(new DbStressListener(
+      GetDbPath(), options_.db_paths, cf_descriptors, shared));
+  RegisterAdditionalListeners();
+
+  if (!FLAGS_listener_uri.empty()) {
+    std::shared_ptr<EventListener> listener;
+    Status listener_status =
+        ObjectRegistry::Default()->NewSharedObject<EventListener>(
+            FLAGS_listener_uri, &listener);
+    if (!listener_status.ok()) {
+      fprintf(stderr, "Failed to create listener from URI '%s': %s\n",
+              FLAGS_listener_uri.c_str(), listener_status.ToString().c_str());
+      exit(1);
+    }
+    options_.listeners.emplace_back(std::move(listener));
+  }
+}
+
 void StressTest::CleanUpColumnFamilies() {
   for (auto cf : column_families_) {
     delete cf;
@@ -3983,23 +4005,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       column_family_names_.push_back(name);
     }
 
-    options_.listeners.clear();
-    options_.listeners.emplace_back(new DbStressListener(
-        db_path, options_.db_paths, cf_descriptors, shared));
-    RegisterAdditionalListeners();
-
-    if (!FLAGS_listener_uri.empty()) {
-      std::shared_ptr<EventListener> listener;
-      Status listener_status =
-          ObjectRegistry::Default()->NewSharedObject<EventListener>(
-              FLAGS_listener_uri, &listener);
-      if (!listener_status.ok()) {
-        fprintf(stderr, "Failed to create listener from URI '%s': %s\n",
-                FLAGS_listener_uri.c_str(), listener_status.ToString().c_str());
-        exit(1);
-      }
-      options_.listeners.emplace_back(std::move(listener));
-    }
+    InitializeListenersForOpen(shared, cf_descriptors);
 
     // If this is for DB reopen,  error injection may have been enabled.
     // Disable it here in case there is no open fault injection.
@@ -4125,6 +4131,10 @@ void StressTest::Open(SharedState* shared, bool reopen) {
                 fault_fs_guard->DropRandomUnsyncedFileData(&rand);
               }
             }
+            // DB::Open() can fail after scheduling background compaction. Use
+            // fresh listeners on retry so per-DBImpl listener state is not
+            // carried across failed open attempts.
+            InitializeListenersForOpen(shared, cf_descriptors);
             continue;
           }
         }
