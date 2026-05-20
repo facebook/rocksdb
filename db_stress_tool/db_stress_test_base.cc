@@ -76,7 +76,10 @@ StressTest::StressTest()
       new_column_family_name_(1),
       num_times_reopened_(0),
       db_preload_finished_(false),
-      is_db_stopped_(false) {
+      is_db_stopped_(false),
+      manifest_verify_mode_(MANIFEST_VERIFY_NONE),
+      manifest_file_number_before_reopen_(0),
+      manifest_file_size_before_reopen_(0) {
   if (FLAGS_destroy_db_initially) {
     const Status s = DbStressDestroyDb(FLAGS_db);
     if (!s.ok()) {
@@ -4253,13 +4256,256 @@ void StressTest::Open(SharedState* shared, bool reopen) {
   }
 }
 
+void StressTest::RecordManifestStateBeforeReopen() {
+  // Determine verification mode based on flags
+  if (FLAGS_best_efforts_recovery) {
+    // Options are disabled in BER mode
+    manifest_verify_mode_ = MANIFEST_VERIFY_NONE;
+    return;
+  }
+
+  const bool optimize_manifest = FLAGS_optimize_manifest_for_recovery;
+  const bool reuse_manifest = FLAGS_reuse_manifest_on_open;
+
+  if (!optimize_manifest && !reuse_manifest) {
+    manifest_verify_mode_ = MANIFEST_VERIFY_NONE;
+    return;
+  }
+
+  if (reuse_manifest && optimize_manifest) {
+    // Check if ALL conditions for complete avoidance are met.
+    // If so, use STRICT mode where failures are fatal.
+    const bool no_fault_injection = FLAGS_metadata_write_fault_one_in == 0 &&
+                                    FLAGS_open_metadata_write_fault_one_in == 0;
+    const bool no_manifest_writes_expected =
+        FLAGS_avoid_flush_during_recovery &&  // No flush during recovery
+        !FLAGS_write_dbid_to_manifest &&      // No DB_ID write on open
+        no_fault_injection;
+    // Note: avoid_flush_during_shutdown is NOT required for STRICT mode.
+    // If avoid_flush_during_shutdown=true leaves data in WAL, but
+    // avoid_flush_during_recovery=true prevents flushing it, so MANIFEST
+    // still won't be written. Complete avoidance is still achieved.
+
+    if (no_manifest_writes_expected) {
+      // All conditions met for complete MANIFEST write avoidance.
+      // Any MANIFEST write is a bug - make it fatal.
+      manifest_verify_mode_ = MANIFEST_VERIFY_STRICT;
+    } else {
+      // Both options enabled but some conditions prevent complete avoidance.
+      // Use NO_WRITE mode with warnings.
+      manifest_verify_mode_ = MANIFEST_VERIFY_NO_WRITE;
+    }
+  } else if (reuse_manifest) {
+    manifest_verify_mode_ = MANIFEST_VERIFY_REUSE;
+  } else {
+    // Only optimize_manifest_for_recovery is enabled without
+    // reuse_manifest_on_open. The optimize_manifest_for_recovery option reduces
+    // MANIFEST writes during recovery by skipping no-op edits (edits that don't
+    // change the VersionSet state). However, without reuse_manifest_on_open,
+    // the MANIFEST file may still be recreated on DB open as part of the normal
+    // open process. Verifying that the optimization worked (i.e., fewer edits
+    // were written during recovery) would require intrusive sync points or
+    // internal counters to track how many edits were skipped. Since we can't
+    // easily observe this from the outside without such instrumentation, we
+    // skip verification in this configuration.
+    manifest_verify_mode_ = MANIFEST_VERIFY_NONE;
+    return;
+  }
+
+  // Record MANIFEST file info
+  std::vector<std::string> files;
+  Status s = Env::Default()->GetChildren(FLAGS_db, &files);
+  if (!s.ok()) {
+    fprintf(
+        stderr,
+        "Warning: Failed to list DB directory for MANIFEST verification: %s\n",
+        s.ToString().c_str());
+    manifest_verify_mode_ = MANIFEST_VERIFY_NONE;
+    return;
+  }
+
+  manifest_file_number_before_reopen_ = 0;
+  manifest_file_size_before_reopen_ = 0;
+
+  for (const auto& f : files) {
+    if (f.find("MANIFEST-") == 0) {
+      // Extract file number from MANIFEST-xxxxxx
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(f, &number, &type) && type == kDescriptorFile) {
+        manifest_file_number_before_reopen_ = number;
+        std::string manifest_path = FLAGS_db + "/" + f;
+        Status file_s = Env::Default()->GetFileSize(
+            manifest_path, &manifest_file_size_before_reopen_);
+        if (!file_s.ok()) {
+          fprintf(stderr, "Warning: Failed to get MANIFEST file size: %s\n",
+                  file_s.ToString().c_str());
+          manifest_verify_mode_ = MANIFEST_VERIFY_NONE;
+          return;
+        }
+        break;
+      }
+    }
+  }
+
+  // Record CURRENT file content for both REUSE_ONLY and REUSE_AND_CURRENT
+  // modes. If the MANIFEST file is reused (same file number), CURRENT should
+  // not be updated since it already points to the correct MANIFEST.
+  std::string current_path = FLAGS_db + "/CURRENT";
+  s = ReadFileToString(Env::Default(), current_path,
+                       &current_file_content_before_reopen_);
+  if (!s.ok()) {
+    fprintf(stderr, "Warning: Failed to read CURRENT file: %s\n",
+            s.ToString().c_str());
+    // Clear the content so we skip CURRENT verification later
+    current_file_content_before_reopen_.clear();
+  }
+}
+
+void StressTest::VerifyManifestNotRewritten() {
+  if (manifest_verify_mode_ == MANIFEST_VERIFY_NONE) {
+    return;
+  }
+
+  const bool strict_mode = (manifest_verify_mode_ == MANIFEST_VERIFY_STRICT);
+
+  // Get current MANIFEST file info
+  std::vector<std::string> files;
+  Status s = Env::Default()->GetChildren(FLAGS_db, &files);
+  if (!s.ok()) {
+    fprintf(
+        stderr,
+        "Warning: Failed to list DB directory for MANIFEST verification: %s\n",
+        s.ToString().c_str());
+    manifest_verify_mode_ = MANIFEST_VERIFY_NONE;
+    return;
+  }
+
+  uint64_t current_manifest_number = 0;
+  uint64_t current_manifest_size = 0;
+
+  for (const auto& f : files) {
+    if (f.find("MANIFEST-") == 0) {
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(f, &number, &type) && type == kDescriptorFile) {
+        current_manifest_number = number;
+        std::string manifest_path = FLAGS_db + "/" + f;
+        Env::Default()->GetFileSize(manifest_path, &current_manifest_size);
+        break;
+      }
+    }
+  }
+
+  // Check MANIFEST reuse
+  if (current_manifest_number != manifest_file_number_before_reopen_) {
+    if (strict_mode) {
+      fprintf(stderr,
+              "FATAL: MANIFEST file was recreated despite "
+              "reuse_manifest_on_open=1 and all conditions for complete "
+              "avoidance being met. "
+              "Before: MANIFEST-%06" PRIu64 ", After: MANIFEST-%06" PRIu64 "\n",
+              manifest_file_number_before_reopen_, current_manifest_number);
+      fprintf(stderr, "This indicates a bug in the MANIFEST optimization.\n");
+      exit(1);
+    } else {
+      fprintf(stdout,
+              "WARNING: MANIFEST file was recreated despite "
+              "reuse_manifest_on_open=1. "
+              "Before: MANIFEST-%06" PRIu64 ", After: MANIFEST-%06" PRIu64 "\n",
+              manifest_file_number_before_reopen_, current_manifest_number);
+    }
+  } else {
+    // MANIFEST was reused, check size growth
+    const uint64_t size_growth =
+        (current_manifest_size > manifest_file_size_before_reopen_)
+            ? (current_manifest_size - manifest_file_size_before_reopen_)
+            : 0;
+    if (manifest_verify_mode_ == MANIFEST_VERIFY_NO_WRITE ||
+        manifest_verify_mode_ == MANIFEST_VERIFY_STRICT) {
+      // In NO_WRITE/STRICT mode, we expect complete avoidance - zero growth.
+      // This is the D103568447 guarantee: when both options are enabled
+      // and no recovery is needed, MANIFEST should not be written at all.
+      if (size_growth > 0) {
+        if (strict_mode) {
+          fprintf(stderr,
+                  "FATAL: MANIFEST file grew by %" PRIu64
+                  " bytes after reopen despite ALL conditions for complete "
+                  "avoidance being met:\n"
+                  "  - optimize_manifest_for_recovery=1\n"
+                  "  - reuse_manifest_on_open=1\n"
+                  "  - avoid_flush_during_recovery=true\n"
+                  "  - write_dbid_to_manifest=0\n"
+                  "  - No fault injection\n"
+                  "  - Not in BER mode\n"
+                  "Expected complete avoidance (0 bytes growth). "
+                  "This indicates a bug in the MANIFEST optimization.\n",
+                  size_growth);
+          exit(1);
+        } else {
+          fprintf(stdout,
+                  "WARNING: MANIFEST file grew by %" PRIu64
+                  " bytes after reopen despite both "
+                  "optimize_manifest_for_recovery=1 and "
+                  "reuse_manifest_on_open=1. "
+                  "Expected complete avoidance (0 bytes growth).\n",
+                  size_growth);
+        }
+      }
+    } else {
+      // In REUSE mode, allow up to 10KB growth for recovery edits
+      if (size_growth > 10240) {
+        fprintf(stdout,
+                "WARNING: MANIFEST file grew by %" PRIu64
+                " bytes after reopen "
+                "(may indicate unexpected writes)\n",
+                size_growth);
+      }
+    }
+  }
+
+  // Check CURRENT file in all verification modes.
+  // If the MANIFEST file was reused (same file number), CURRENT should not
+  // have been modified since it already points to the correct MANIFEST.
+  if (!current_file_content_before_reopen_.empty()) {
+    std::string current_path = FLAGS_db + "/CURRENT";
+    std::string current_content;
+    s = ReadFileToString(Env::Default(), current_path, &current_content);
+    if (s.ok()) {
+      if (current_content != current_file_content_before_reopen_) {
+        if (strict_mode) {
+          fprintf(
+              stderr,
+              "FATAL: CURRENT file was updated despite ALL conditions for "
+              "complete avoidance being met. MANIFEST was reused but CURRENT "
+              "was modified. This indicates a bug.\n");
+          exit(1);
+        } else if (manifest_verify_mode_ == MANIFEST_VERIFY_NO_WRITE) {
+          fprintf(stdout,
+                  "WARNING: CURRENT file was updated despite both "
+                  "optimize_manifest_for_recovery=1 and "
+                  "reuse_manifest_on_open=1\n");
+        } else {
+          fprintf(stdout,
+                  "WARNING: CURRENT file was updated despite "
+                  "reuse_manifest_on_open=1 and MANIFEST being reused\n");
+        }
+      }
+    }
+  }
+
+  // Reset verification mode
+  manifest_verify_mode_ = MANIFEST_VERIFY_NONE;
+}
+
 void StressTest::Reopen(ThreadState* thread) {
   // Notify listener before DB close so it can tolerate stale tracking
   // from skipped notifications during shutdown.
   NotifyListenerShuttingDown();
 
-  // BG jobs in WritePrepared must be canceled first because i) they can access
-  // the db via a callbac ii) they hold on to a snapshot and the upcoming
+  // BG jobs in WritePrepared must be canceled first because i) they can
+  // access the db via a callbac ii) they hold on to a snapshot and the
+  // upcoming
   // ::Close would complain about it.
   const bool write_prepared = FLAGS_use_txn && FLAGS_txn_write_policy != 0;
   bool bg_canceled __attribute__((unused)) = false;
@@ -4314,7 +4560,14 @@ void StressTest::Reopen(ThreadState* thread) {
   auto now = clock_->NowMicros();
   fprintf(stdout, "%s Reopening database for the %dth time\n",
           clock_->TimeToString(now / 1000000).c_str(), num_times_reopened_);
+
+  // Record MANIFEST state before reopen for verification
+  RecordManifestStateBeforeReopen();
+
   Open(thread->shared, /*reopen=*/true);
+
+  // Verify MANIFEST was not unnecessarily rewritten
+  VerifyManifestNotRewritten();
 
   if (thread->shared->GetStressTest()->MightHaveUnsyncedDataLoss() &&
       IsStateTracked()) {
