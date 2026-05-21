@@ -1455,6 +1455,13 @@ class DBImpl : public DB {
   std::atomic<int> next_job_id_ = 1;
 
   std::atomic<bool> shutting_down_ = false;
+  // Protected by mutex_. This is separate from shutting_down_ because
+  // OnDBShutdownBegin must fire before shutting_down_ is published, and the
+  // notification releases mutex_ while invoking listeners. Marking that the
+  // notification has started prevents a concurrent or reentrant
+  // CancelAllBackgroundWork() call from firing it again during that unlocked
+  // callback window.
+  bool shutdown_notification_sent_ = false;
 
   // No new background jobs can be queued if true. This is used to prevent new
   // background jobs from being queued after WaitForCompact() completes waiting
@@ -1538,6 +1545,7 @@ class DBImpl : public DB {
                                    const Status& st,
                                    const CompactionJobStats& job_stats,
                                    int job_id);
+  void NotifyOnDBShutdownBegin();
   void NotifyOnMemTableSealed(ColumnFamilyData* cfd,
                               const MemTableInfo& mem_table_info);
 

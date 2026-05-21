@@ -495,6 +495,21 @@ void DBImpl::WaitForAsyncFileOpen() {
   }
 }
 
+void DBImpl::NotifyOnDBShutdownBegin() {
+  mutex_.AssertHeld();
+  if (shutdown_notification_sent_ || immutable_db_options_.listeners.empty()) {
+    return;
+  }
+  shutdown_notification_sent_ = true;
+
+  // release lock while notifying events
+  mutex_.Unlock();
+  for (const auto& listener : immutable_db_options_.listeners) {
+    listener->OnDBShutdownBegin(this);
+  }
+  mutex_.Lock();
+}
+
 // Will lock the mutex_,  will wait for completion if wait is true
 void DBImpl::CancelAllBackgroundWork(bool wait) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -541,6 +556,9 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
     immutable_db_options_.compaction_service->CancelAwaitingJobs();
   }
 
+  if (!already_shutting_down) {
+    NotifyOnDBShutdownBegin();
+  }
   shutting_down_.store(true, std::memory_order_release);
   bg_cv_.SignalAll();
   if (!wait) {

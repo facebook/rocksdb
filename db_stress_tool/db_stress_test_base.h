@@ -76,7 +76,6 @@ class StressTest {
   void CleanUp();
 
  private:
-  void NotifyListenerShuttingDown();
   void InitializeListenersForOpen(
       SharedState* shared,
       const std::vector<ColumnFamilyDescriptor>& cf_descriptors);
