@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,7 @@
 #include "db/log_writer.h"
 #include "db/version_set.h"
 #include "util/autovector.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -211,6 +213,18 @@ struct JobContext {
   // min_log_number_to_keep is only updated after successful manifest commits.
   // So this data structure doesn't track log files.
   autovector<uint64_t> files_to_quarantine;
+
+  // Blob file numbers that PurgeObsoleteFiles must keep. This includes both
+  // actively written direct-write files and sealed direct-write files that are
+  // still reachable through live memtables / old SuperVersions.
+  // Collected under db_mutex_ in FindObsoleteFiles so PurgeObsoleteFiles can
+  // safely use the snapshot without taking DB mutex.
+  UnorderedSet<uint64_t> active_blob_direct_write_files;
+
+  // Snapshot of VersionSet's next file number taken before collecting active
+  // direct-write blob files. This keeps the current purge pass from racing a
+  // concurrently created blob file that was not yet part of the active set.
+  uint64_t min_blob_file_number_to_keep = std::numeric_limits<uint64_t>::max();
 
   // a list of manifest files that we need to delete
   std::vector<std::string> manifest_delete_files;

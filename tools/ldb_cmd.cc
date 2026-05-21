@@ -71,6 +71,8 @@ const std::string LDBCommand::ARG_CF_NAME = "column_family";
 const std::string LDBCommand::ARG_TTL = "ttl";
 const std::string LDBCommand::ARG_TTL_START = "start_time";
 const std::string LDBCommand::ARG_TTL_END = "end_time";
+const std::string LDBCommand::ARG_USE_TXN = "use_txn";
+const std::string LDBCommand::ARG_TXN_WRITE_POLICY = "txn_write_policy";
 const std::string LDBCommand::ARG_TIMESTAMP = "timestamp";
 const std::string LDBCommand::ARG_TRY_LOAD_OPTIONS = "try_load_options";
 const std::string LDBCommand::ARG_DISABLE_CONSISTENCY_CHECKS =
@@ -86,6 +88,7 @@ const std::string LDBCommand::ARG_COMPRESSION_TYPE = "compression_type";
 const std::string LDBCommand::ARG_COMPRESSION_MAX_DICT_BYTES =
     "compression_max_dict_bytes";
 const std::string LDBCommand::ARG_BLOCK_SIZE = "block_size";
+const std::string LDBCommand::ARG_UNIFORM_CV_THRESHOLD = "uniform_cv_threshold";
 const std::string LDBCommand::ARG_AUTO_COMPACTION = "auto_compaction";
 const std::string LDBCommand::ARG_DB_WRITE_BUFFER_SIZE = "db_write_buffer_size";
 const std::string LDBCommand::ARG_WRITE_BUFFER_SIZE = "write_buffer_size";
@@ -481,10 +484,13 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
                        const std::vector<std::string>& valid_cmd_line_options)
     : db_(nullptr),
       db_ttl_(nullptr),
+      db_txn_(nullptr),
       is_read_only_(is_read_only),
       is_key_hex_(false),
       is_value_hex_(false),
       is_db_ttl_(false),
+      is_db_txn_(false),
+      txn_write_policy_(0),
       timestamp_(false),
       try_load_options_(false),
       create_if_missing_(false),
@@ -528,6 +534,21 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   is_key_hex_ = IsKeyHex(options, flags);
   is_value_hex_ = IsValueHex(options, flags);
   is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
+  is_db_txn_ = IsFlagPresent(flags, ARG_USE_TXN);
+  itr = options.find(ARG_TXN_WRITE_POLICY);
+  if (itr != options.end()) {
+    try {
+      txn_write_policy_ = std::stoi(itr->second);
+      if (txn_write_policy_ < 0 || txn_write_policy_ > 2) {
+        fprintf(stderr, "Invalid txn_write_policy: %d. Must be 0, 1, or 2.\n",
+                txn_write_policy_);
+        txn_write_policy_ = 0;
+      }
+    } catch (const std::exception&) {
+      fprintf(stderr, "Invalid txn_write_policy value: %s\n",
+              itr->second.c_str());
+    }
+  }
   timestamp_ = IsFlagPresent(flags, ARG_TIMESTAMP);
   try_load_options_ = IsTryLoadOptions(options, flags);
   force_consistency_checks_ =
@@ -551,7 +572,34 @@ void LDBCommand::OpenDB() {
   // Open the DB.
   Status st;
   std::vector<ColumnFamilyHandle*> handles_opened;
-  if (is_db_ttl_) {
+  if (is_db_txn_) {
+    // TransactionDB mode
+    if (is_db_ttl_) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "Cannot use both --ttl and --use_txn flags together");
+      return;
+    }
+    if (!secondary_path_.empty() || !leader_path_.empty()) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "TransactionDB does not support secondary or follower mode");
+      return;
+    }
+    if (is_read_only_) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "TransactionDB does not support read-only mode");
+      return;
+    }
+    TransactionDBOptions txn_db_options;
+    txn_db_options.write_policy =
+        static_cast<TxnDBWritePolicy>(txn_write_policy_);
+    if (column_families_.empty()) {
+      st = TransactionDB::Open(options_, txn_db_options, db_path_, &db_txn_);
+    } else {
+      st = TransactionDB::Open(options_, txn_db_options, db_path_,
+                               column_families_, &handles_opened, &db_txn_);
+    }
+    db_.reset(db_txn_);
+  } else if (is_db_ttl_) {
     // ldb doesn't yet support TTL DB with multiple column families
     if (!column_family_name_.empty() || !column_families_.empty()) {
       exec_state_ = LDBCommandExecuteResult::Failed(
@@ -566,7 +614,7 @@ void LDBCommand::OpenDB() {
     } else {
       st = DBWithTTL::Open(options_, db_path_, &db_ttl_);
     }
-    db_ = db_ttl_;
+    db_.reset(db_ttl_);
   } else {
     if (!secondary_path_.empty() && !leader_path_.empty()) {
       exec_state_ = LDBCommandExecuteResult::Failed(
@@ -586,9 +634,7 @@ void LDBCommand::OpenDB() {
         } else if (!secondary_path_.empty()) {
           st = DB::OpenAsSecondary(options_, db_path_, secondary_path_, &db_);
         } else {
-          std::unique_ptr<DB> dbptr;
-          st = DB::OpenAsFollower(options_, db_path_, leader_path_, &dbptr);
-          db_ = dbptr.release();
+          st = DB::OpenAsFollower(options_, db_path_, leader_path_, &db_);
         }
       } else {
         if (secondary_path_.empty() && leader_path_.empty()) {
@@ -598,10 +644,8 @@ void LDBCommand::OpenDB() {
           st = DB::OpenAsSecondary(options_, db_path_, secondary_path_,
                                    column_families_, &handles_opened, &db_);
         } else {
-          std::unique_ptr<DB> dbptr;
           st = DB::OpenAsFollower(options_, db_path_, leader_path_,
-                                  column_families_, &handles_opened, &dbptr);
-          db_ = dbptr.release();
+                                  column_families_, &handles_opened, &db_);
         }
       }
     }
@@ -646,8 +690,9 @@ void LDBCommand::CloseDB() {
     }
     Status s = db_->Close();
     s.PermitUncheckedError();
-    delete db_;
-    db_ = nullptr;
+    db_.reset();
+    db_ttl_ = nullptr;
+    db_txn_ = nullptr;
   }
 }
 
@@ -673,6 +718,7 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_LEADER_PATH,
                                   ARG_BLOOM_BITS,
                                   ARG_BLOCK_SIZE,
+                                  ARG_UNIFORM_CV_THRESHOLD,
                                   ARG_AUTO_COMPACTION,
                                   ARG_COMPRESSION_TYPE,
                                   ARG_COMPRESSION_MAX_DICT_BYTES,
@@ -692,7 +738,9 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_BLOB_FILE_STARTING_LEVEL,
                                   ARG_PREPOPULATE_BLOB_CACHE,
                                   ARG_IGNORE_UNKNOWN_OPTIONS,
-                                  ARG_CF_NAME};
+                                  ARG_CF_NAME,
+                                  ARG_USE_TXN,
+                                  ARG_TXN_WRITE_POLICY};
   ret.insert(ret.end(), options.begin(), options.end());
   return ret;
 }
@@ -981,6 +1029,13 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
       exec_state_ =
           LDBCommandExecuteResult::Failed(ARG_BLOCK_SIZE + " must be > 0.");
     }
+  }
+
+  double uniform_cv_threshold;
+  if (ParseDoubleOption(option_map_, ARG_UNIFORM_CV_THRESHOLD,
+                        uniform_cv_threshold, exec_state_)) {
+    use_table_options = true;
+    table_options.uniform_cv_threshold = uniform_cv_threshold;
   }
 
   // Default comparator is BytewiseComparator, so only when it's not, it
@@ -2180,9 +2235,9 @@ void InternalDumpCommand::DoCommand() {
 
   // Cast as DBImpl to get internal iterator
   std::vector<KeyVersion> key_versions;
-  Status st =
-      GetAllKeyVersions(db_, GetCfHandle(), has_from_ ? from_ : OptSlice{},
-                        has_to_ ? to_ : OptSlice{}, max_keys_, &key_versions);
+  Status st = GetAllKeyVersions(
+      db_.get(), GetCfHandle(), has_from_ ? from_ : OptSlice{},
+      has_to_ ? to_ : OptSlice{}, max_keys_, &key_versions);
   if (!st.ok()) {
     exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
     return;
@@ -2301,7 +2356,8 @@ DBDumperCommand::DBDumperCommand(
       count_only_(false),
       count_delim_(false),
       print_stats_(false),
-      decode_blob_index_(false) {
+      decode_blob_index_(false),
+      dump_uncompressed_blobs_(false) {
   auto itr = options.find(ARG_FROM);
   if (itr != options.end()) {
     null_from_ = false;
@@ -2581,6 +2637,13 @@ void DBDumperCommand::DoDumpCommand() {
                     ucmp);
       fprintf(stdout, "%s\n", str.c_str());
     }
+  }
+
+  // Check for iterator errors that may have occurred during iteration
+  st = iter->status();
+  if (!st.ok()) {
+    exec_state_ =
+        LDBCommandExecuteResult::Failed("Iterator error: " + st.ToString());
   }
 
   if (num_buckets > 1 && is_db_ttl_) {
@@ -4458,7 +4521,7 @@ void CheckPointCommand::DoCommand() {
     return;
   }
   Checkpoint* checkpoint;
-  Status status = Checkpoint::Create(db_, &checkpoint);
+  Status status = Checkpoint::Create(db_.get(), &checkpoint);
   status = checkpoint->CreateCheckpoint(checkpoint_dir_);
   if (status.ok()) {
     fprintf(stdout, "OK\n");
@@ -4613,7 +4676,7 @@ void BackupCommand::DoCommand() {
     exec_state_ = LDBCommandExecuteResult::Failed(status.ToString());
     return;
   }
-  status = backup_engine->CreateNewBackup(db_);
+  status = backup_engine->CreateNewBackup(db_.get());
   if (status.ok()) {
     fprintf(stdout, "create new backup OK\n");
   } else {
@@ -4728,7 +4791,6 @@ void DumpBlobFile(const std::string& filename, bool is_key_hex,
       dump_uncompressed_blobs ? blob_type : BlobDumpTool::DisplayType::kNone;
   BlobDumpTool::DisplayType show_blob =
       dump_uncompressed_blobs ? BlobDumpTool::DisplayType::kNone : blob_type;
-
   BlobDumpTool::DisplayType show_key = is_key_hex
                                            ? BlobDumpTool::DisplayType::kHex
                                            : BlobDumpTool::DisplayType::kRaw;
@@ -4766,8 +4828,8 @@ DBFileDumperCommand::DBFileDumperCommand(
 void DBFileDumperCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(DBFileDumperCommand::Name());
-  ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "] ");
-  ret.append(" [--" + ARG_DUMP_UNCOMPRESSED_BLOBS + "] ");
+  ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "]");
+  ret.append(" [--" + ARG_DUMP_UNCOMPRESSED_BLOBS + "]");
   ret.append("\n");
 }
 

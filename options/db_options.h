@@ -24,6 +24,7 @@ struct ImmutableDBOptions {
   bool create_missing_column_families;
   bool error_if_exists;
   bool paranoid_checks;
+  bool open_files_async;
   bool flush_verify_memtable_count;
   bool compaction_verify_record_count;
   bool track_and_verify_wals_in_manifest;
@@ -47,6 +48,8 @@ struct ImmutableDBOptions {
   size_t log_file_time_to_roll;
   size_t keep_log_file_num;
   size_t recycle_log_file_num;
+  // Immutable copy of DBOptions::async_wal_precreate.
+  bool async_wal_precreate;
   int table_cache_numshardbits;
   uint64_t WAL_ttl_seconds;
   uint64_t WAL_size_limit_MB;
@@ -70,13 +73,13 @@ struct ImmutableDBOptions {
   uint64_t write_thread_max_yield_usec;
   uint64_t write_thread_slow_yield_usec;
   bool skip_stats_update_on_db_open;
-  bool skip_checking_sst_file_sizes_on_db_open;
   WALRecoveryMode wal_recovery_mode;
   bool allow_2pc;
   std::shared_ptr<Cache> row_cache;
   WalFilter* wal_filter;
   bool dump_malloc_stats;
   bool avoid_flush_during_recovery;
+  bool enforce_write_buffer_manager_during_recovery;
   bool allow_ingest_behind;
   bool two_write_queues;
   bool manual_wal_flush;
@@ -87,6 +90,7 @@ struct ImmutableDBOptions {
   bool prefix_seek_opt_in_only;
   bool persist_stats_to_disk;
   bool write_dbid_to_manifest;
+  bool reuse_manifest_on_open;
   bool write_identity_file;
   size_t log_readahead_size;
   std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory;
@@ -147,7 +151,11 @@ struct MutableDBOptions {
   uint64_t max_manifest_file_size;
   int max_manifest_space_amp_pct;
   size_t manifest_preallocation_size;
+  bool verify_manifest_content_on_close;
+  bool optimize_manifest_for_recovery;
+  bool fast_sst_open;
   std::string daily_offpeak_time_utc;
+  uint64_t max_compaction_trigger_wakeup_seconds;
 };
 
 Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,

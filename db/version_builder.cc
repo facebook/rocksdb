@@ -32,8 +32,10 @@
 #include "db/version_edit.h"
 #include "db/version_edit_handler.h"
 #include "db/version_set.h"
+#include "db/version_util.h"
 #include "port/port.h"
 #include "table/table_reader.h"
+#include "test_util/sync_point.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -430,12 +432,11 @@ class VersionBuilder::Rep {
   void UnrefFile(FileMetaData* f) {
     f->refs--;
     if (f->refs <= 0) {
-      if (f->table_reader_handle) {
+      if (f->fd.pinned_reader.Get() != nullptr) {
         assert(table_cache_ != nullptr);
         // NOTE: have to release in raw cache interface to avoid using a
-        // TypedHandle for FileMetaData::table_reader_handle
-        table_cache_->get_cache().get()->Release(f->table_reader_handle);
-        f->table_reader_handle = nullptr;
+        // TypedHandle for PinnedTableReader's internal handle
+        f->fd.pinned_reader.Release(table_cache_->get_cache().get());
       }
 
       if (file_metadata_cache_res_mgr_) {
@@ -1680,7 +1681,6 @@ class VersionBuilder::Rep {
 
     // <file metadata, level>
     std::vector<std::pair<FileMetaData*, int>> files_meta;
-    std::vector<Status> statuses;
     for (int level = 0; level < num_levels_; level++) {
       for (auto& file_meta_pair : levels_[level].added_files) {
         auto* file_meta = file_meta_pair.second;
@@ -1690,9 +1690,8 @@ class VersionBuilder::Rep {
           continue;
         }
         // If the file has been opened before, just skip it.
-        if (!file_meta->table_reader_handle) {
+        if (file_meta->fd.pinned_reader.Get() == nullptr) {
           files_meta.emplace_back(file_meta, level);
-          statuses.emplace_back(Status::OK());
         }
         if (files_meta.size() >= max_load) {
           break;
@@ -1703,49 +1702,11 @@ class VersionBuilder::Rep {
       }
     }
 
-    std::atomic<size_t> next_file_meta_idx(0);
-    std::function<void()> load_handlers_func([&]() {
-      while (true) {
-        size_t file_idx = next_file_meta_idx.fetch_add(1);
-        if (file_idx >= files_meta.size()) {
-          break;
-        }
-
-        auto* file_meta = files_meta[file_idx].first;
-        int level = files_meta[file_idx].second;
-        TableCache::TypedHandle* handle = nullptr;
-        statuses[file_idx] = table_cache_->FindTable(
-            read_options, file_options_,
-            *(base_vstorage_->InternalComparator()), *file_meta, &handle,
-            mutable_cf_options, false /*no_io */,
-            internal_stats->GetFileReadHist(level), false, level,
-            prefetch_index_and_filter_in_cache, max_file_size_for_l0_meta_pin,
-            file_meta->temperature);
-        if (handle != nullptr) {
-          file_meta->table_reader_handle = handle;
-          // Load table_reader
-          file_meta->fd.table_reader = table_cache_->get_cache().Value(handle);
-        }
-      }
-    });
-
-    std::vector<port::Thread> threads;
-    for (int i = 1; i < max_threads; i++) {
-      threads.emplace_back(load_handlers_func);
-    }
-    load_handlers_func();
-    for (auto& t : threads) {
-      t.join();
-    }
-    Status ret;
-    for (const auto& s : statuses) {
-      if (!s.ok()) {
-        if (ret.ok()) {
-          ret = s;
-        }
-      }
-    }
-    return ret;
+    return LoadTableHandlersHelper(
+        files_meta, table_cache_, file_options_,
+        *base_vstorage_->InternalComparator(), internal_stats, max_threads,
+        prefetch_index_and_filter_in_cache, mutable_cf_options,
+        max_file_size_for_l0_meta_pin, read_options);
   }
 };
 

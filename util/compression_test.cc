@@ -13,6 +13,7 @@
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "table/block_based/block_builder.h"
+#include "table/block_based/data_block_footer.h"
 #include "test_util/testutil.h"
 #include "util/auto_tune_compressor.h"
 #include "util/coding.h"
@@ -583,17 +584,15 @@ TEST_P(PresetCompressionDictTest, Flush) {
     ASSERT_GT(
         TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
         0);
-    // TODO(ajkr): fix the below assertion to work with ZSTD. The expectation on
-    // number of bytes needs to be adjusted in case the cached block is in
-    // ZSTD's digested dictionary format.
-    if (compression_type_ != kZSTD) {
-      // Although we limited buffering to `kBlockLen`, there may be up to two
-      // blocks of data included in the dictionary since we only check limit
-      // after each block is built.
-      ASSERT_LE(TestGetTickerCount(options,
-                                   BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-                2 * kBlockLen);
-    }
+    ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_ADD), 1);
+    // Although we stop buffering after `kBlockLen` bytes, there may be up to
+    // two blocks of data included in the dictionary since we only check limit
+    // after each block is built. And because block cache charges for bytes used
+    // by ZSTD's digested dictionary, we need a larger factor for the memory
+    // overheads in that case.
+    ASSERT_LE(
+        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
+        (compression_type_ == kZSTD ? 10 : 2) * kBlockLen);
   }
 }
 
@@ -642,8 +641,9 @@ TEST_P(PresetCompressionDictTest, CompactNonBottommost) {
   }
   ASSERT_EQ("2,0,1", FilesPerLevel(0));
 
-  uint64_t prev_compression_dict_bytes_inserted =
-      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT);
+  PopTicker(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT);
+  PopTicker(options, BLOCK_CACHE_COMPRESSION_DICT_ADD);
+
   // This L0->L1 compaction merges the two L0 files into L1. The produced L1
   // file is not bottommost due to the existing L2 file covering the same key-
   // range.
@@ -655,22 +655,20 @@ TEST_P(PresetCompressionDictTest, CompactNonBottommost) {
   if (bottommost_) {
     ASSERT_EQ(
         TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-        prev_compression_dict_bytes_inserted);
+        0);
   } else {
     ASSERT_GT(
         TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-        prev_compression_dict_bytes_inserted);
-    // TODO(ajkr): fix the below assertion to work with ZSTD. The expectation on
-    // number of bytes needs to be adjusted in case the cached block is in
-    // ZSTD's digested dictionary format.
-    if (compression_type_ != kZSTD) {
-      // Although we limited buffering to `kBlockLen`, there may be up to two
-      // blocks of data included in the dictionary since we only check limit
-      // after each block is built.
-      ASSERT_LE(TestGetTickerCount(options,
-                                   BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-                prev_compression_dict_bytes_inserted + 2 * kBlockLen);
-    }
+        0);
+    ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_ADD), 1);
+    // Although we stop buffering after `kBlockLen` bytes, there may be up to
+    // two blocks of data included in the dictionary since we only check limit
+    // after each block is built. And because block cache charges for bytes used
+    // by ZSTD's digested dictionary, we need a larger factor for the memory
+    // overheads in that case.
+    ASSERT_LE(
+        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
+        (compression_type_ == kZSTD ? 10 : 2) * kBlockLen);
   }
 }
 
@@ -713,25 +711,24 @@ TEST_P(PresetCompressionDictTest, CompactBottommost) {
   }
   ASSERT_EQ("2", FilesPerLevel(0));
 
-  uint64_t prev_compression_dict_bytes_inserted =
-      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT);
+  PopTicker(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT);
+  PopTicker(options, BLOCK_CACHE_COMPRESSION_DICT_ADD);
+
   CompactRangeOptions cro;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel(0));
   ASSERT_GT(
       TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-      prev_compression_dict_bytes_inserted);
-  // TODO(ajkr): fix the below assertion to work with ZSTD. The expectation on
-  // number of bytes needs to be adjusted in case the cached block is in ZSTD's
-  // digested dictionary format.
-  if (compression_type_ != kZSTD) {
-    // Although we limited buffering to `kBlockLen`, there may be up to two
-    // blocks of data included in the dictionary since we only check limit after
-    // each block is built.
-    ASSERT_LE(
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
-        prev_compression_dict_bytes_inserted + 2 * kBlockLen);
-  }
+      0);
+  ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_ADD), 1);
+  // Although we stop buffering after `kBlockLen` bytes, there may be up to
+  // two blocks of data included in the dictionary since we only check limit
+  // after each block is built. And because block cache charges for bytes used
+  // by ZSTD's digested dictionary, we need a larger factor for the memory
+  // overheads in that case.
+  ASSERT_LE(
+      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
+      (compression_type_ == kZSTD ? 10 : 2) * kBlockLen);
 }
 
 class CompactionCompressionListener : public EventListener {
@@ -829,9 +826,10 @@ TEST_P(CompressionFailuresTest, CompressionFailures) {
 
   if (compression_failure_type_ == kTestCompressionFail) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "CompressData:TamperWithReturnValue", [](void* arg) {
-          bool* ret = static_cast<bool*>(arg);
-          *ret = false;
+        "BlockBasedTableBuilder::CompressAndVerifyBlock:TamperWithResultType",
+        [](void* arg) {
+          CompressionType* ret = static_cast<CompressionType*>(arg);
+          *ret = kNoCompression;
         });
   } else if (compression_failure_type_ == kTestDecompressionFail) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
@@ -1113,18 +1111,24 @@ TEST_F(DBCompressionTest, RandomMixedCompressionManager) {
 namespace {
 // Template parameter to distinguish data blocks vs. v4+ index blocks
 template <bool kIndexBlockV4>
-static Status ValidateRocksBlock(Slice data) {
+static Status ValidateRocksBlock(Slice data, bool use_separated_kv,
+                                 uint64_t restart_interval) {
+  assert(!kIndexBlockV4 ||
+         !use_separated_kv);  // index blocks not currently supported
   const char* src = data.data();
   size_t srcSize = data.size();
   const char* const block_type_str =
       kIndexBlockV4 ? "Index block" : "Data block";
 
-  // Minimum RocksDB block content size: at least 1 entry + restarts
-  if (srcSize < 8) {
+  // Decode footer using DataBlockFooter
+  Slice input(src, srcSize);
+  DataBlockFooter footer;
+  Status s = footer.DecodeFrom(&input);
+  if (!s.ok()) {
     return Status::Corruption(std::string(block_type_str) + " too small");
   }
 
-  uint32_t numRestarts = DecodeFixed32(src + srcSize - sizeof(uint32_t));
+  uint32_t numRestarts = footer.num_restarts;
 
   // Sanity check: num_restarts should be reasonable
   // TODO: also support data block hash index
@@ -1133,17 +1137,26 @@ static Status ValidateRocksBlock(Slice data) {
                               block_type_str);
   }
 
-  size_t restartsSize = numRestarts * sizeof(uint32_t) + sizeof(uint32_t);
-  if (srcSize < restartsSize) {
+  size_t restartsSize = numRestarts * sizeof(uint32_t);
+  if (input.size() < restartsSize) {
     return Status::Corruption(std::string(block_type_str) +
                               " too small for restarts array");
   }
 
-  size_t entriesSize = srcSize - restartsSize;
+  size_t entriesSize;
+  uint32_t values_section_offset = 0;
+  if (footer.separated_kv) {
+    values_section_offset = footer.values_section_offset;
+    entriesSize = values_section_offset;  // keys section ends at value_offset
+  } else {
+    entriesSize = input.size() - restartsSize;
+  }
   const char* entriesEnd = src + entriesSize;
 
   // Parse entries
   const char* p = src;
+  uint32_t cur_idx = 0;
+  Slice current_value;
   while (p < entriesEnd) {
     // Parse shared_bytes varint
     uint32_t shared;
@@ -1170,6 +1183,17 @@ static Status ValidateRocksBlock(Slice data) {
       if (next == nullptr) {
         return Status::Corruption(
             std::string("Invalid value_length varint in ") + block_type_str);
+      }
+      p = next;
+    }
+
+    uint32_t value_offset = 0;
+    if (cur_idx % restart_interval == 0 && use_separated_kv) {
+      // For separated KV format, parse value_offset varint at restart points
+      next = GetVarint32Ptr(p, entriesEnd, &value_offset);
+      if (next == nullptr) {
+        return Status::Corruption(
+            std::string("Invalid value_offset varint in ") + block_type_str);
       }
       p = next;
     }
@@ -1204,12 +1228,35 @@ static Status ValidateRocksBlock(Slice data) {
       }
     } else {
       // For data blocks, validate value
-      if (p + valueLen > entriesEnd) {
-        return Status::Corruption(
-            std::string("Value exceeds end of entries in ") + block_type_str);
+      if (!use_separated_kv) {
+        // Inline values: value follows key delta
+        if (p + valueLen > entriesEnd) {
+          return Status::Corruption(
+              std::string("Value exceeds end of entries in ") + block_type_str);
+        }
+        p += valueLen;
+      } else {
+        // Separated KV: values are stored in a separate section
+        // value_offset is relative to values section start (set at restart
+        // points)
+        if (cur_idx % restart_interval == 0) {
+          current_value =
+              Slice(src + values_section_offset + value_offset, valueLen);
+        } else {
+          // Non-restart entries: value immediately follows previous value
+          current_value =
+              Slice(current_value.data() + current_value.size(), valueLen);
+        }
+
+        if (current_value.data() + current_value.size() >
+            src + srcSize - restartsSize) {
+          return Status::Corruption(
+              std::string("Value exceeds values section in ") + block_type_str);
+        }
       }
-      p += valueLen;
     }
+
+    ++cur_idx;
   }
 
   return Status::OK();
@@ -1218,20 +1265,23 @@ static Status ValidateRocksBlock(Slice data) {
 
 class DBCompressionTestMaybeParallel
     : public DBCompressionTest,
-      public testing::WithParamInterface<std::tuple<int, bool>> {
+      public testing::WithParamInterface<std::tuple<int, bool, bool>> {
  public:
   DBCompressionTestMaybeParallel()
       : DBCompressionTest(),
         parallel_threads_(std::get<0>(GetParam())),
-        use_dict_(std::get<1>(GetParam())) {}
+        use_dict_(std::get<1>(GetParam())),
+        separate_kv_(std::get<2>(GetParam())) {}
 
  protected:
   int parallel_threads_;
   bool use_dict_;
+  bool separate_kv_;
 };
 
 INSTANTIATE_TEST_CASE_P(DBCompressionTest, DBCompressionTestMaybeParallel,
                         ::testing::Combine(::testing::Values(1, 4),
+                                           ::testing::Values(false, true),
                                            ::testing::Values(false, true)));
 
 TEST_P(DBCompressionTestMaybeParallel, CompressionManagerWrapper) {
@@ -1248,6 +1298,10 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerWrapper) {
   static RelaxedAtomic<int> dataCheckedCount{0};
   static RelaxedAtomic<int> indexCheckedCount{0};
   static RelaxedAtomic<int> compressCalledCount{0};
+  static bool useSeparatedKV = false;
+
+  // Set the separated KV flag for the wrappers
+  useSeparatedKV = separate_kv_;
 
   // We also have wrappers here to help verify that when RocksDB asks to
   // specialize the Compressor for a particular kind of block, it only passes in
@@ -1270,7 +1324,9 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerWrapper) {
                          ManagedWorkingArea* working_area) override {
       dataCheckedCount.FetchAddRelaxed(1);
       // Parse and validate data block format before compressing
-      Status s = ValidateRocksBlock</*kIndexBlockV4=*/false>(uncompressed_data);
+      Status s = ValidateRocksBlock</*kIndexBlockV4=*/false>(
+          uncompressed_data, useSeparatedKV,
+          BlockBasedTableOptions().block_restart_interval);
       if (!s.ok()) {
         return s;
       }
@@ -1296,7 +1352,9 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerWrapper) {
                          ManagedWorkingArea* working_area) override {
       indexCheckedCount.FetchAddRelaxed(1);
       // Parse and validate index block v4 format before compressing
-      Status s = ValidateRocksBlock</*kIndexBlockV4=*/true>(uncompressed_data);
+      Status s = ValidateRocksBlock</*kIndexBlockV4=*/true>(
+          uncompressed_data, false,
+          BlockBasedTableOptions().index_block_restart_interval);
       if (!s.ok()) {
         return s;
       }
@@ -1365,9 +1423,9 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerWrapper) {
 
     std::unique_ptr<Compressor> MaybeCloneSpecialized(
         CacheEntryRole block_type,
-        DictSampleArgs&& dict_samples) const override {
+        DictConfigArgs&& dict_config) const override {
       std::unique_ptr<Compressor> result = std::make_unique<MyCompressor>(
-          wrapped_->CloneMaybeSpecialized(block_type, std::move(dict_samples)));
+          wrapped_->CloneMaybeSpecialized(block_type, std::move(dict_config)));
       if (block_type == CacheEntryRole::kDataBlock) {
         result = std::make_unique<CheckDataBlockCompressorWrapper>(
             std::move(result));
@@ -1396,7 +1454,8 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerWrapper) {
         continue;
       }
       SCOPED_TRACE("Compression type: " + std::to_string(type) +
-                   (use_wrapper ? " with " : " no ") + "wrapper");
+                   (use_wrapper ? " with " : " no ") + "wrapper" +
+                   (separate_kv_ ? " separated_kv" : ""));
 
       Options options = CurrentOptions();
       options.compression = type;
@@ -1409,6 +1468,7 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerWrapper) {
       bbto.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
       bbto.partition_filters = true;
       bbto.filter_policy.reset(NewBloomFilterPolicy(5));
+      bbto.separate_key_value_in_data_block = separate_kv_;
       options.table_factory.reset(NewBlockBasedTableFactory(bbto));
       options.compression_manager = use_wrapper ? mgr : nullptr;
       DestroyAndReopen(options);
@@ -1657,6 +1717,57 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerCustomCompression) {
   options.compression = kCustomCompression8B;
   ASSERT_EQ(TryReopen(options).code(), Status::Code::kInvalidArgument);
 
+  // Write data with mgr_claim_compatible (BuiltinV2 compat name) at fv=7
+  // using a built-in compression type. This should produce the new format
+  // compression_name property ("BuiltinV2;04;") and still be readable
+  // without the original compression manager.
+  options.compression_manager = mgr_claim_compatible;
+  options.compression = kLZ4Compression;
+  Reopen(options);
+  ASSERT_OK(Put("a1", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(Get("a1"), value);
+
+  // Verify it was compressed with the new format property
+  r = {"a1", "a10"};
+  tables_properties.clear();
+  ASSERT_OK(db_->GetPropertiesOfTablesInRange(db_->DefaultColumnFamily(), &r, 1,
+                                              &tables_properties));
+  ASSERT_EQ(tables_properties.size(), 1U);
+  EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
+  EXPECT_EQ(tables_properties.begin()->second->compression_name,
+            "BuiltinV2;04;");
+
+  // Re-open without original compression manager, just with defaults.
+  // Should work because the compat name is the built-in one.
+  // As a sanity check to ensure the custom compression manager isn't leaking
+  // into the re-open, verify that neither GetId() (used in OPTIONS files) nor
+  // CompatibilityName() (used in SST files) resolves to the custom manager.
+  // Both should resolve to the built-in manager instead.
+  {
+    ConfigOptions config_options;
+    std::shared_ptr<CompressionManager> tmp;
+    // GetId() is used in OPTIONS files. The custom manager's GetId()
+    // ("MyManager:BuiltinV2") is not registered, so CreateFromString
+    // returns OK with nullptr (unsupported options are ignored by default).
+    ASSERT_OK(CompressionManager::CreateFromString(
+        config_options, mgr_claim_compatible->GetId(), &tmp));
+    ASSERT_EQ(tmp, nullptr);
+    // CompatibilityName() is used in SST files. "BuiltinV2" resolves to
+    // the built-in manager, not MyManager.
+    ASSERT_OK(CompressionManager::CreateFromString(
+        config_options, mgr_claim_compatible->CompatibilityName(), &tmp));
+    ASSERT_NE(tmp, nullptr);
+    EXPECT_STREQ(tmp->CompatibilityName(), "BuiltinV2");
+    EXPECT_STRNE(tmp->Name(), mgr_claim_compatible->Name());
+  }
+  options.compression_manager = nullptr;
+  Reopen(options);
+  // Key "a" from fv=6 section still readable
+  ASSERT_EQ(Get("a").size(), kValueSize);
+  // Key "a1" from fv=7 section with BuiltinV2 compat name also readable
+  ASSERT_EQ(Get("a1"), value);
+
   // Custom compression schema, but specifying a custom compression type it
   // doesn't support.
   options.compression_manager = mgr_foo;
@@ -1668,7 +1779,7 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerCustomCompression) {
   Reopen(options);
   ASSERT_OK(Put("b", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
   ASSERT_OK(Flush());
-  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 3);
   ASSERT_EQ(Get("b"), value);
 
   // Verify it was compressed with LZ4
@@ -1689,7 +1800,7 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerCustomCompression) {
   ASSERT_OK(Put("c", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
   EXPECT_EQ(mgr_foo->used_compressor8A_count_, 0);
   ASSERT_OK(Flush());
-  ASSERT_EQ(NumTableFilesAtLevel(0), 3);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 4);
   ASSERT_EQ(Get("c"), value);
   EXPECT_EQ(mgr_foo->used_compressor8A_count_, 1);
 
@@ -1709,7 +1820,7 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerCustomCompression) {
   ASSERT_OK(dbfull()->SetOptions({{"compression", "kLZ4Compression"}}));
   ASSERT_OK(Put("d", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
   ASSERT_OK(Flush());
-  ASSERT_EQ(NumTableFilesAtLevel(0), 4);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 5);
   ASSERT_EQ(Get("d"), value);
 
   // Verify it was compressed with LZ4
@@ -1727,7 +1838,7 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerCustomCompression) {
   ASSERT_OK(dbfull()->SetOptions({{"compression", "kCustomCompression8B"}}));
   ASSERT_OK(Put("e", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
   ASSERT_OK(Flush());
-  ASSERT_EQ(NumTableFilesAtLevel(0), 5);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 6);
   ASSERT_EQ(Get("e"), value);
 
   // Verify it was compressed with custom format
@@ -1753,6 +1864,7 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerCustomCompression) {
 
   // Can still read everything
   ASSERT_EQ(Get("a").size(), kValueSize);
+  ASSERT_EQ(Get("a1").size(), kValueSize);
   ASSERT_EQ(Get("b").size(), kValueSize);
   ASSERT_EQ(Get("c").size(), kValueSize);
   ASSERT_EQ(Get("d").size(), kValueSize);
@@ -1761,7 +1873,7 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerCustomCompression) {
   // Add a file using mgr_bar
   ASSERT_OK(Put("f", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
   ASSERT_OK(Flush());
-  ASSERT_EQ(NumTableFilesAtLevel(0), 6);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 7);
   ASSERT_EQ(Get("f"), value);
 
   // Verify it was compressed appropriately
@@ -1793,6 +1905,7 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerCustomCompression) {
 
   // Can still read everything
   ASSERT_EQ(Get("a").size(), kValueSize);
+  ASSERT_EQ(Get("a1").size(), kValueSize);
   ASSERT_EQ(Get("b").size(), kValueSize);
   ASSERT_EQ(Get("c").size(), kValueSize);
   ASSERT_EQ(Get("d").size(), kValueSize);
@@ -2139,6 +2252,338 @@ TEST_F(DBCompressionCostPredictor, CostAwareCompressorManager) {
   // check the predictor is predicting the correct cpu and io cost
   WindowWrite();
   ASSERT_OK(Flush());
+}
+
+// Test pre-defined dictionary compression with a custom CompressionManager
+TEST_F(DBCompressionTest, PreDefinedDictionaryCompression) {
+  if (!ZSTD_Supported()) {
+    ROCKSDB_GTEST_BYPASS("ZSTD compression not supported");
+    return;
+  }
+
+  // A custom compressor that returns a pre-defined dictionary
+  class PreDefinedDictCompressor : public CompressorWrapper {
+   public:
+    explicit PreDefinedDictCompressor(std::unique_ptr<Compressor> wrapped,
+                                      std::string dict_data)
+        : CompressorWrapper(std::move(wrapped)),
+          predefined_dict_(std::move(dict_data)) {}
+
+    const char* Name() const override { return "PreDefinedDictCompressor"; }
+
+    DictConfig GetDictGuidance(CacheEntryRole block_type) const override {
+      if (block_type == CacheEntryRole::kDataBlock &&
+          !predefined_dict_.empty()) {
+        return DictPreDefined{/*copy*/ predefined_dict_};
+      }
+      return DictDisabled{};
+    }
+
+    std::unique_ptr<Compressor> Clone() const override {
+      return std::make_unique<PreDefinedDictCompressor>(wrapped_->Clone(),
+                                                        predefined_dict_);
+    }
+
+    std::unique_ptr<Compressor> MaybeCloneSpecialized(
+        CacheEntryRole block_type,
+        DictConfigArgs&& dict_config) const override {
+      // Delegate to wrapped compressor for dictionary handling
+      auto specialized =
+          wrapped_->MaybeCloneSpecialized(block_type, std::move(dict_config));
+      if (specialized) {
+        return specialized;
+      }
+      return nullptr;
+    }
+
+   private:
+    std::string predefined_dict_;
+  };
+
+  // Custom CompatibilityName so the builtin compression manager won't be used
+  static const char* kTestCompatibilityName = "PreDefinedDictTest";
+
+  class PreDefinedDictManager : public CompressionManagerWrapper {
+   public:
+    explicit PreDefinedDictManager(std::shared_ptr<CompressionManager> wrapped,
+                                   std::string dict_data)
+        : CompressionManagerWrapper(std::move(wrapped)),
+          predefined_dict_(std::move(dict_data)) {}
+
+    const char* Name() const override { return "PreDefinedDictManager"; }
+
+    const char* CompatibilityName() const override {
+      return kTestCompatibilityName;
+    }
+
+    std::unique_ptr<Compressor> GetCompressorForSST(
+        const FilterBuildingContext& context, const CompressionOptions& opts,
+        CompressionType preferred) override {
+      auto base = wrapped_->GetCompressorForSST(context, opts, preferred);
+      if (base) {
+        return std::make_unique<PreDefinedDictCompressor>(std::move(base),
+                                                          predefined_dict_);
+      }
+      return nullptr;
+    }
+
+   private:
+    std::string predefined_dict_;
+  };
+
+  // A broken manager that ignores the dictionary when decompressing.
+  // This simulates a buggy decompressor that doesn't properly apply the
+  // dictionary, causing ZSTD to produce wrong output when decompressing
+  // dictionary-compressed data.
+  class BrokenDictManager : public CompressionManagerWrapper {
+   public:
+    explicit BrokenDictManager(std::shared_ptr<CompressionManager> wrapped)
+        : CompressionManagerWrapper(std::move(wrapped)) {}
+
+    const char* Name() const override { return "BrokenDictManager"; }
+
+    const char* CompatibilityName() const override {
+      return kTestCompatibilityName;
+    }
+
+    std::shared_ptr<Decompressor> GetDecompressor() override {
+      return std::make_shared<IgnoreDictDecompressor>(
+          wrapped_->GetDecompressor());
+    }
+
+    std::shared_ptr<Decompressor> GetDecompressorOptimizeFor(
+        CompressionType optimize_for_type) override {
+      return std::make_shared<IgnoreDictDecompressor>(
+          wrapped_->GetDecompressorOptimizeFor(optimize_for_type));
+    }
+
+    std::shared_ptr<Decompressor> GetDecompressorForTypes(
+        const CompressionType* types_begin,
+        const CompressionType* types_end) override {
+      return std::make_shared<IgnoreDictDecompressor>(
+          wrapped_->GetDecompressorForTypes(types_begin, types_end));
+    }
+
+   private:
+    // A decompressor that stores the dictionary (for GetSerializedDict) but
+    // ignores it during decompression, causing ZSTD to produce garbage
+    class IgnoreDictDecompressor : public DecompressorWrapper {
+     public:
+      explicit IgnoreDictDecompressor(std::shared_ptr<Decompressor> wrapped)
+          : DecompressorWrapper(std::move(wrapped)) {}
+
+      IgnoreDictDecompressor(std::shared_ptr<Decompressor> wrapped,
+                             std::string dict)
+          : DecompressorWrapper(std::move(wrapped)),
+            dict_(std::move(dict)),
+            dict_slice_(dict_) {}
+
+      const char* Name() const override { return "IgnoreDictDecompressor"; }
+
+      const Slice& GetSerializedDict() const override { return dict_slice_; }
+
+      Status MaybeCloneForDict(const Slice& serialized_dict,
+                               std::unique_ptr<Decompressor>* out) override {
+        // Store the dict but don't actually use it for decompression
+        *out = std::make_unique<IgnoreDictDecompressor>(
+            wrapped_,
+            std::string(serialized_dict.data(), serialized_dict.size()));
+        return Status::OK();
+      }
+
+     private:
+      std::string dict_;
+      Slice dict_slice_;
+    };
+  };
+
+  // Create a dictionary that will be heavily referenced. The key insight is
+  // that ZSTD dictionary compression works by finding matches between the input
+  // data and the dictionary content. To force ZSTD to create dictionary
+  // references, we need to use data that contains exact copies of dictionary
+  // content.
+  Random rnd(42);
+
+  // Create a dictionary with recognizable patterns
+  std::string predefined_dict;
+  std::vector<std::string> dict_patterns;
+  for (int i = 0; i < 50; i++) {
+    std::string pattern = rnd.RandomString(200);
+    dict_patterns.push_back(pattern);
+    predefined_dict += pattern;
+  }
+  // Total dict size: 50 * 200 = 10000 bytes
+  size_t kDictSize = predefined_dict.size();
+
+  auto mgr = std::make_shared<PreDefinedDictManager>(
+      GetBuiltinV2CompressionManager(), predefined_dict);
+
+  Options options = CurrentOptions();
+  options.compression = kZSTD;
+  options.compression_opts.max_dict_bytes = static_cast<int>(kDictSize);
+  options.compression_manager = mgr;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  BlockBasedTableOptions bbto;
+  bbto.enable_index_compression = true;
+  // Need format_version >= 7 for custom CompatibilityName
+  bbto.format_version = 7;
+  // Need dictionary block load statistics
+  bbto.block_cache = NewLRUCache(1 << 20);
+  bbto.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  // Write data that uses the same patterns from the dictionary.
+  // This forces ZSTD to create back-references to the dictionary.
+  std::vector<std::string> expected_values;
+  for (int i = 0; i < 100; i++) {
+    std::string value;
+    // Compose value from random dictionary patterns - same content as dict
+    for (int j = 0; j < 5; j++) {
+      value +=
+          dict_patterns[rnd.Uniform(static_cast<int>(dict_patterns.size()))];
+    }
+    expected_values.push_back(value);
+    ASSERT_OK(Put(Key(i), value));
+  }
+  ASSERT_OK(Flush());
+
+  // Verify dictionary was used by checking that dict bytes were inserted
+  ASSERT_GE(
+      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
+      predefined_dict.size());
+
+  // Read back data and verify correctness
+  for (int i = 0; i < 100; i++) {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), Key(i), &value));
+    ASSERT_EQ(value, expected_values[i]);
+  }
+
+  // Now re-open with a broken decompressor that ignores dictionary.
+  // This should result in corruption on read because ZSTD will fail to
+  // decompress data that references the missing dictionary content.
+  Close();
+  auto broken_mgr =
+      std::make_shared<BrokenDictManager>(GetBuiltinV2CompressionManager());
+  options.compression_manager = broken_mgr;
+  // New block cache to ensure dictionary is re-loaded, because the
+  // dictionary block in cache is actually associated with a decompressor
+  bbto.block_cache = NewLRUCache(1 << 20);
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  ASSERT_OK(TryReopen(options));
+
+  // Read should fail with corruption because the decompressor ignores
+  // the dictionary, causing ZSTD to produce garbage output
+  std::string value;
+  ASSERT_EQ(db_->Get(ReadOptions(), Key(0), &value).code(),
+            Status::kCorruption);
+}
+
+TEST_F(DBCompressionTest, GetRecommendedParallelThreads) {
+  // Verify that built-in compressors return parallel_threads from their
+  // CompressionOptions
+  auto mgr = GetBuiltinV2CompressionManager();
+  CompressionOptions opts;
+
+  // Default parallel_threads is 1
+  opts.parallel_threads = 1;
+  for (auto type : {kSnappyCompression, kZlibCompression, kLZ4Compression,
+                    kLZ4HCCompression, kZSTD}) {
+    if (!mgr->SupportsCompressionType(type)) {
+      continue;
+    }
+    auto compressor = mgr->GetCompressor(opts, type);
+    ASSERT_NE(compressor, nullptr);
+    ASSERT_EQ(compressor->GetRecommendedParallelThreads(), 1U);
+  }
+
+  // Custom parallel_threads value is returned
+  opts.parallel_threads = 8;
+  for (auto type : {kSnappyCompression, kZlibCompression, kLZ4Compression,
+                    kLZ4HCCompression, kZSTD}) {
+    if (!mgr->SupportsCompressionType(type)) {
+      continue;
+    }
+    auto compressor = mgr->GetCompressor(opts, type);
+    ASSERT_NE(compressor, nullptr);
+    ASSERT_EQ(compressor->GetRecommendedParallelThreads(), 8U);
+  }
+}
+
+TEST_F(DBCompressionTest, CompressionManagerOverridesParallelThreads) {
+  // Test that a custom CompressionManager can override parallel_threads
+  // by modifying CompressionOptions in GetCompressorForSST, and that the
+  // override actually activates parallel compression.
+  if (!ZSTD_Supported()) {
+    ROCKSDB_GTEST_SKIP("ZSTD not supported");
+    return;
+  }
+
+  // A manager that forces parallel_threads to a specific value
+  class ParallelOverrideManager : public CompressionManagerWrapper {
+   public:
+    ParallelOverrideManager(std::shared_ptr<CompressionManager> wrapped,
+                            uint32_t forced_threads)
+        : CompressionManagerWrapper(std::move(wrapped)),
+          forced_threads_(forced_threads) {}
+
+    const char* Name() const override { return "ParallelOverrideManager"; }
+
+    const char* CompatibilityName() const override {
+      return wrapped_->CompatibilityName();
+    }
+
+    std::unique_ptr<Compressor> GetCompressorForSST(
+        const FilterBuildingContext& context, const CompressionOptions& opts,
+        CompressionType preferred) override {
+      CompressionOptions modified_opts = opts;
+      modified_opts.parallel_threads = forced_threads_;
+      return wrapped_->GetCompressorForSST(context, modified_opts, preferred);
+    }
+
+   private:
+    uint32_t forced_threads_;
+  };
+
+  Options options = CurrentOptions();
+  options.compression = kZSTD;
+  // Set parallel_threads=1 in the options, but the manager will override to 4
+  options.compression_opts.parallel_threads = 1;
+
+  auto mgr = std::make_shared<ParallelOverrideManager>(
+      GetBuiltinV2CompressionManager(), 4);
+  options.compression_manager = mgr;
+
+  // Use sync point to verify parallel compression is activated with the
+  // overridden thread count
+  uint32_t observed_threads = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::MaybeStartParallelCompression:Started",
+      [&](void* arg) { observed_threads = *static_cast<uint32_t*>(arg); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  DestroyAndReopen(options);
+
+  // Write enough data to produce some blocks
+  Random rnd(301);
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Verify parallel compression was activated with overridden thread count
+  ASSERT_EQ(observed_threads, 4U);
+
+  // Verify data is readable (parallel compression produced correct output)
+  for (int i = 0; i < 100; i++) {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), Key(i), &value));
+    ASSERT_EQ(value.size(), 100);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

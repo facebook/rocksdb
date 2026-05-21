@@ -30,18 +30,21 @@ class ToolHooks {
   ToolHooks() = default;
   virtual ~ToolHooks() = default;
   virtual Status Open(const Options& db_options, const std::string& name,
-                      DB** dbptr) = 0;
+                      std::unique_ptr<DB>* dbptr) = 0;
   virtual Status Open(
       const DBOptions& db_options, const std::string& name,
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) = 0;
+      std::vector<ColumnFamilyHandle*>* handles,
+      std::unique_ptr<DB>* dbptr) = 0;
   virtual Status OpenForReadOnly(const Options& options,
-                                 const std::string& name, DB** dbptr,
+                                 const std::string& name,
+                                 std::unique_ptr<DB>* dbptr,
                                  bool error_if_wal_file_exists) = 0;
   virtual Status OpenForReadOnly(
       const Options& options, const std::string& name,
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) = 0;
+      std::vector<ColumnFamilyHandle*>* handles,
+      std::unique_ptr<DB>* dbptr) = 0;
   virtual Status OpenTransactionDB(const Options& db_options,
                                    const TransactionDBOptions& txn_db_options,
                                    const std::string& dbname,
@@ -62,7 +65,7 @@ class ToolHooks {
   virtual Status OpenAsSecondary(const Options& options,
                                  const std::string& name,
                                  const std::string& secondary_path,
-                                 DB** dbptr) = 0;
+                                 std::unique_ptr<DB>* dbptr) = 0;
   virtual Status OpenAsFollower(const Options& options, const std::string& name,
                                 const std::string& leader_path,
                                 std::unique_ptr<DB>* dbptr) = 0;
@@ -77,18 +80,21 @@ class DefaultHooks : public ToolHooks {
   DefaultHooks() = default;
   ~DefaultHooks() override = default;
   virtual Status Open(const Options& db_options, const std::string& name,
-                      DB** dbptr) override;
+                      std::unique_ptr<DB>* dbptr) override;
   virtual Status Open(
       const DBOptions& db_options, const std::string& name,
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) override;
+      std::vector<ColumnFamilyHandle*>* handles,
+      std::unique_ptr<DB>* dbptr) override;
   virtual Status OpenForReadOnly(const Options& options,
-                                 const std::string& name, DB** dbptr,
+                                 const std::string& name,
+                                 std::unique_ptr<DB>* dbptr,
                                  bool error_if_wal_file_exists) override;
   virtual Status OpenForReadOnly(
       const Options& options, const std::string& name,
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) override;
+      std::vector<ColumnFamilyHandle*>* handles,
+      std::unique_ptr<DB>* dbptr) override;
   virtual Status OpenTransactionDB(const Options& db_options,
                                    const TransactionDBOptions& txn_db_options,
                                    const std::string& dbname,
@@ -110,7 +116,7 @@ class DefaultHooks : public ToolHooks {
   virtual Status OpenAsSecondary(const Options& options,
                                  const std::string& name,
                                  const std::string& secondary_path,
-                                 DB** dbptr) override;
+                                 std::unique_ptr<DB>* dbptr) override;
   virtual Status OpenAsFollower(const Options& options, const std::string& name,
                                 const std::string& leader_path,
                                 std::unique_ptr<DB>* dbptr) override;

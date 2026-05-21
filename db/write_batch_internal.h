@@ -94,6 +94,13 @@ class WriteBatchInternal {
   static Status PutEntity(WriteBatch* batch, uint32_t column_family_id,
                           const Slice& key, const WideColumns& columns);
 
+  // Appends an already-serialized wide-column entity. This is used by
+  // WriteBatch handlers that need to preserve the original entity bytes
+  // without a deserialize/re-serialize round-trip.
+  static Status PutEntitySerialized(WriteBatch* batch,
+                                    uint32_t column_family_id, const Slice& key,
+                                    const Slice& entity);
+
   static Status Delete(WriteBatch* batch, uint32_t column_family_id,
                        const SliceParts& key);
 

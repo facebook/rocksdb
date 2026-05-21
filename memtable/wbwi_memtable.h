@@ -134,10 +134,12 @@ class WBWIMemTable final : public ReadOnlyMemTable {
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, bool immutable_memtable,
            ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-           bool do_merge = true) override;
+           bool do_merge = true,
+           const BlobFetcher* blob_fetcher = nullptr) override;
 
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
-                ReadCallback* callback, bool immutable_memtable) override;
+                ReadCallback* callback, bool immutable_memtable,
+                const BlobFetcher* blob_fetcher = nullptr) override;
 
   uint64_t NumEntries() const override { return num_entries_; }
 
@@ -199,10 +201,10 @@ class WBWIMemTable final : public ReadOnlyMemTable {
     return true;
   }
 
-  const Slice& GetNewestUDT() const override {
+  Slice GetNewestUDT() const override {
     // FIXME: support UDT
     assert(false);
-    return newest_udt_;
+    return Slice();
   }
 
   // Assign a sequence number to the entries in this memtable.
@@ -224,7 +226,6 @@ class WBWIMemTable final : public ReadOnlyMemTable {
  private:
   inline InternalIterator* NewIterator() const;
 
-  Slice newest_udt_;
   std::shared_ptr<WriteBatchWithIndex> wbwi_;
   const Comparator* comparator_;
   InternalKeyComparator ikey_comparator_;

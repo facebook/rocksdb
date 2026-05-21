@@ -214,7 +214,9 @@ int RangeTreeLockManager::CompareDbtEndpoints(void* arg, const DBT* a_key,
   // Compare the values. The first byte encodes the endpoint type, its value
   // is either SUFFIX_INFIMUM or SUFFIX_SUPREMUM.
   Comparator* cmp = (Comparator*)arg;
-  int res = cmp->Compare(Slice(a + 1, min_len - 1), Slice(b + 1, min_len - 1));
+  int res = cmp->CompareWithoutTimestamp(
+      Slice(a + 1, min_len - 1), /*a_has_ts=*/false, Slice(b + 1, min_len - 1),
+      /*b_has_ts=*/false);
   if (!res) {
     if (b_len > min_len) {
       // a is shorter;

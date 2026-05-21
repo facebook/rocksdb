@@ -5,9 +5,33 @@
 
 #pragma once
 
+#include <atomic>
+#include <utility>
+#include <vector>
+
 #include "db/version_set.h"
+#include "rocksdb/file_system.h"
+#include "rocksdb/options.h"
+#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+class TableCache;
+struct FileMetaData;
+class InternalKeyComparator;
+class InternalStats;
+
+// Load table handlers (i.e., open SST files and populate the table cache) for
+// the given set of files. Used during DB open to eagerly warm the table cache.
+Status LoadTableHandlersHelper(
+    const std::vector<std::pair<FileMetaData*, int>>& files_meta,
+    TableCache* table_cache, const FileOptions& file_options,
+    const InternalKeyComparator& internal_comparator,
+    InternalStats* internal_stats, int max_threads,
+    bool prefetch_index_and_filter_in_cache,
+    const MutableCFOptions& mutable_cf_options,
+    size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options,
+    std::atomic<bool>* stop = nullptr);
 
 // Instead of opening a `DB` to perform certain manifest updates, this
 // uses the underlying `VersionSet` API to read and modify the MANIFEST. This

@@ -384,7 +384,7 @@ TEST_F(DBPropertiesTest, AggregatedTableProperties) {
 
     // Hold open a snapshot to prevent range tombstones from being compacted
     // away.
-    ManagedSnapshot snapshot(db_);
+    ManagedSnapshot snapshot(db_.get());
 
     Random rnd(5632);
     for (int table = 1; table <= kTableCount; ++table) {
@@ -582,7 +582,7 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   DestroyAndReopen(options);
 
   // Hold open a snapshot to prevent range tombstones from being compacted away.
-  ManagedSnapshot snapshot(db_);
+  ManagedSnapshot snapshot(db_.get());
 
   std::string level_tp_strings[kMaxLevel];
   std::string tp_string;
@@ -770,6 +770,72 @@ TEST_F(DBPropertiesTest, NumImmutableMemTable) {
     SetPerfLevel(kDisable);
     ASSERT_TRUE(GetPerfLevel() == kDisable);
   } while (ChangeCompactOptions());
+}
+
+TEST_F(DBPropertiesTest, ConcurrentWriteMemTableProperties) {
+  Options options = CurrentOptions();
+  options.allow_concurrent_memtable_write = true;
+  options.memtable_factory = std::make_shared<SkipListFactory>();
+  options.flush_verify_memtable_count = true;
+  DestroyAndReopen(options);
+
+  // Multi-threaded writes that go through the concurrent Add() +
+  // BatchPostProcess path.
+  const int kNumThreads = 4;
+  const int kEntriesPerThread = 100;
+  std::vector<port::Thread> threads;
+  threads.reserve(kNumThreads);
+  for (int t = 0; t < kNumThreads; t++) {
+    threads.emplace_back([&, t]() {
+      for (int i = 0; i < kEntriesPerThread; i++) {
+        std::string key = "k_" + std::to_string(t) + "_" + std::to_string(i);
+        ASSERT_OK(Put(key, "val"));
+      }
+    });
+  }
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  uint64_t num_entries;
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.num-entries-active-mem-table",
+                                       &num_entries));
+  ASSERT_EQ(num_entries,
+            static_cast<uint64_t>(kNumThreads * kEntriesPerThread));
+
+  // Write deletes and single deletes via concurrent path
+  threads.clear();
+  for (int t = 0; t < kNumThreads; t++) {
+    threads.emplace_back([&, t]() {
+      for (int i = 0; i < kEntriesPerThread; i++) {
+        std::string key = "d_" + std::to_string(t) + "_" + std::to_string(i);
+        if (i % 2 == 0) {
+          ASSERT_OK(Delete(key));
+        } else {
+          ASSERT_OK(SingleDelete(key));
+        }
+      }
+    });
+  }
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  uint64_t total_entries;
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.num-entries-active-mem-table",
+                                       &total_entries));
+  ASSERT_EQ(total_entries,
+            static_cast<uint64_t>(kNumThreads * kEntriesPerThread * 2));
+
+  uint64_t num_deletes;
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.num-deletes-active-mem-table",
+                                       &num_deletes));
+  ASSERT_EQ(num_deletes,
+            static_cast<uint64_t>(kNumThreads * kEntriesPerThread));
+
+  // Flush exercises the integrity check (flush_verify_memtable_count = true).
+  // If stat counters are wrong, this would return Corruption.
+  ASSERT_OK(Flush());
 }
 
 // TODO(techdept) : Disabled flaky test #12863555
@@ -1519,16 +1585,14 @@ TEST_F(DBPropertiesTest, NeedCompactHintPersistentTest) {
 
 // Excluded from RocksDB lite tests due to `GetPropertiesOfAllTables()` usage.
 TEST_F(DBPropertiesTest, BlockAddForCompressionSampling) {
-  // Sampled compression requires at least one of the following four types.
-  if (!Snappy_Supported() && !Zlib_Supported() && !LZ4_Supported() &&
-      !ZSTD_Supported()) {
-    return;
-  }
-
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.table_properties_collector_factories.emplace_back(
       std::make_shared<BlockCountingTablePropertiesCollectorFactory>());
+  options.compression = kNoCompression;
+
+  bool fast_sampling_supported = Snappy_Supported() || LZ4_Supported();
+  bool slow_sampling_supported = ZSTD_Supported() || Zlib_Supported();
 
   for (bool sample_for_compression : {false, true}) {
     // For simplicity/determinism, sample 100% when enabled, or 0% when disabled
@@ -1542,10 +1606,11 @@ TEST_F(DBPropertiesTest, BlockAddForCompressionSampling) {
     // L1_0 ["a", "b"]
     //
     // L0_0 was created by flush. L1_0 was created by compaction. Each file
-    // contains one data block.
+    // contains one data block with enough data to be compressible.
     for (int i = 0; i < 3; ++i) {
-      ASSERT_OK(Put("a", "val"));
-      ASSERT_OK(Put("b", "val"));
+      for (int j = 0; j < 50; ++j) {
+        ASSERT_OK(Put(std::to_string(j), "thisismyvalue"));
+      }
       ASSERT_OK(Flush());
       if (i == 1) {
         ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -1558,13 +1623,33 @@ TEST_F(DBPropertiesTest, BlockAddForCompressionSampling) {
     ASSERT_OK(db_->GetPropertiesOfAllTables(&file_to_props));
     ASSERT_EQ(2, file_to_props.size());
     for (const auto& file_and_props : file_to_props) {
-      auto& user_props = file_and_props.second->user_collected_properties;
+      auto& props = *file_and_props.second;
+      auto& user_props = props.user_collected_properties;
       ASSERT_TRUE(user_props.find(BlockCountingTablePropertiesCollector::
                                       kNumSampledBlocksPropertyName) !=
                   user_props.end());
       ASSERT_EQ(user_props.at(BlockCountingTablePropertiesCollector::
                                   kNumSampledBlocksPropertyName),
                 std::to_string(sample_for_compression ? 1 : 0));
+      if (sample_for_compression) {
+        EXPECT_GT(props.fast_compression_estimated_data_size, 0);
+        EXPECT_GT(props.slow_compression_estimated_data_size, 0);
+        if (fast_sampling_supported) {
+          EXPECT_LT(props.fast_compression_estimated_data_size,
+                    props.data_size);
+          if (slow_sampling_supported) {
+            EXPECT_LT(props.slow_compression_estimated_data_size,
+                      props.fast_compression_estimated_data_size);
+          }
+        }
+        if (slow_sampling_supported) {
+          EXPECT_LT(props.slow_compression_estimated_data_size,
+                    props.data_size);
+        }
+      } else {
+        EXPECT_EQ(props.fast_compression_estimated_data_size, 0);
+        EXPECT_EQ(props.slow_compression_estimated_data_size, 0);
+      }
     }
   }
 }
@@ -1845,7 +1930,7 @@ TEST_F(DBPropertiesTest, MinObsoleteSstNumberToKeep) {
   options.listeners.push_back(listener);
   options.level0_file_num_compaction_trigger = kNumL0Files;
   DestroyAndReopen(options);
-  listener->SetDB(db_);
+  listener->SetDB(db_.get());
 
   for (int i = 0; i < kNumL0Files; ++i) {
     // Make sure they overlap in keyspace to prevent trivial move

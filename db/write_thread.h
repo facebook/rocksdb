@@ -123,6 +123,10 @@ class WriteThread {
   // Information kept for every waiting writer.
   struct Writer {
     WriteBatch* batch;
+    // The logical user batch to record in query traces. This can differ from
+    // `batch` when the write path rewrites the applied batch, and preserved-
+    // order tracing consumes it later from each grouped writer.
+    WriteBatch* trace_batch;
     bool sync;
     bool no_slowdown;
     bool disable_wal;
@@ -152,6 +156,7 @@ class WriteThread {
 
     Writer()
         : batch(nullptr),
+          trace_batch(nullptr),
           sync(false),
           no_slowdown(false),
           disable_wal(false),
@@ -177,8 +182,9 @@ class WriteThread {
            uint64_t _log_ref, bool _disable_memtable, size_t _batch_cnt = 0,
            PreReleaseCallback* _pre_release_callback = nullptr,
            PostMemTableCallback* _post_memtable_callback = nullptr,
-           bool _ingest_wbwi = false)
+           bool _ingest_wbwi = false, WriteBatch* _trace_batch = nullptr)
         : batch(_batch),
+          trace_batch(_trace_batch != nullptr ? _trace_batch : _batch),
           // TODO: store a copy of WriteOptions instead of its separated data
           // members
           sync(write_options.sync),

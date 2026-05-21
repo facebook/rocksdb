@@ -2047,7 +2047,7 @@ TEST_F(DBRangeDelTest, IteratorReseek) {
   // Immutable memtable
   ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(1),
                              Key(2)));
-  ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
   std::string value;
   ASSERT_TRUE(dbfull()->GetProperty(db_->DefaultColumnFamily(),
                                     "rocksdb.num-immutable-mem-table", &value));

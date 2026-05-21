@@ -17,6 +17,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "table/block_based/block_based_table_builder.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
 #include "util/cast_util.h"
@@ -33,6 +34,17 @@ static std::string NEW_VALUE = "NewValue";
 class DBFlushTest : public DBTestBase {
  public:
   DBFlushTest() : DBTestBase("db_flush_test", /*env_do_fsync=*/true) {}
+
+  // Wait for all background flush callbacks to complete before Close().
+  // Close() calls db_.reset() which nulls the unique_ptr before the destructor
+  // runs, so a concurrent OnFlushCompleted reading test_->db_ would race.
+  // WaitForCompact() waits for bg_flush_scheduled_==0 (which is decremented
+  // after listener callbacks return) without setting shutting_down_ (so
+  // callbacks are not skipped) and without requiring NumNotFlushed()==0 (which
+  // would hang when mempurge leaves a memtable in imm()).
+  Status WaitForFlushCallbacks() {
+    return db_->WaitForCompact(WaitForCompactOptions());
+  }
 };
 
 class DBFlushDirectIOTest : public DBFlushTest,
@@ -709,7 +721,7 @@ class TestFlushListener : public EventListener {
     // that assumption does not hold (see the test case MultiDBMultiListeners
     // below).
     ASSERT_TRUE(test_);
-    if (db == test_->db_) {
+    if (db == test_->db_.get()) {
       std::vector<std::vector<FileMetaData>> files_by_level;
       test_->dbfull()->TEST_GetFilesMetaData(db->DefaultColumnFamily(),
                                              &files_by_level);
@@ -1055,6 +1067,7 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   ASSERT_EQ(Get(RNDKEY2), p_rv2);
   ASSERT_EQ(Get(RNDKEY3), p_rv3);
 
+  ASSERT_OK(WaitForFlushCallbacks());
   Close();
 }
 
@@ -1169,6 +1182,7 @@ TEST_F(DBFlushTest, MemPurgeBasicToggle) {
   // We expect no mempurge at all.
   EXPECT_EQ(mempurge_count.exchange(0), ZERO);
 
+  ASSERT_OK(WaitForFlushCallbacks());
   Close();
 }
 // End of MemPurgeBasicToggle, which is not
@@ -1425,6 +1439,7 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
     delete iter;
   }
 
+  ASSERT_OK(WaitForFlushCallbacks());
   Close();
 }
 
@@ -1837,6 +1852,8 @@ TEST_F(DBFlushTest, MemPurgeCorrectLogNumberAndSSTFileCreation) {
     }
   }
 
+  ASSERT_OK(WaitForFlushCallbacks());
+
   // Check that there was at least one mempurge
   uint32_t expected_min_mempurge_count = 1;
   // Check that there was no SST files created during flush.
@@ -1857,6 +1874,8 @@ TEST_F(DBFlushTest, MemPurgeCorrectLogNumberAndSSTFileCreation) {
     ASSERT_EQ(Get(key), value);
   }
 
+  ASSERT_OK(WaitForFlushCallbacks());
+
   // Check that there was at least one SST files created during flush.
   expected_sst_count = 1;
   EXPECT_GE(sst_count.load(), expected_sst_count);
@@ -1875,6 +1894,88 @@ TEST_F(DBFlushTest, MemPurgeCorrectLogNumberAndSSTFileCreation) {
   }
   // Extra check of database consistency.
   ASSERT_EQ(Get(key), value);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  Close();
+}
+
+// Reproduction for MemPurge memtable ID ordering bug.
+// When MemPurge runs, it releases db_mutex_. During that window, new
+// memtables can be switched to the immutable list with higher IDs. When
+// MemPurge re-acquires the mutex and adds its output memtable using the
+// stale ID from mems_.back(), the ordering assertion fires.
+TEST_F(DBFlushTest, MemPurgeIdOrdering) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+  options.write_buffer_size = 1 << 20;  // 1MB
+  // Allow enough immutable memtables so writes don't stall while the
+  // flush thread is paused in the sync point.
+  options.max_write_buffer_number = 8;
+  // Always attempt MemPurge on flush.
+  options.experimental_mempurge_threshold = 1.0;
+  ASSERT_OK(TryReopen(options));
+
+  // Coordinate via LoadDependency:
+  //   1. Flush thread hits BeforeReacquireMutex -> foreground unblocks
+  //   2. Foreground writes data, triggers memtable switch
+  //   3. Foreground hits SwitchDone -> flush thread unblocks at
+  //   AfterWaitForTest
+  //   4. Flush thread re-acquires mutex, tries AddMemTable with stale ID
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"FlushJob::MemPurge:BeforeReacquireMutex",
+        "DBFlushTest::MemPurgeIdOrdering:StartWriting"},
+       {"DBFlushTest::MemPurgeIdOrdering:SwitchDone",
+        "FlushJob::MemPurge:AfterWaitForTest"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  const int kValueSize = 10240;  // 10KB values like MemPurgeBasic
+  const int kNumKeys = 30;
+  Random rnd(301);
+
+  // Fill the memtable with overwrites of the same keys so MemPurge
+  // can compact them down (high garbage ratio). Each round is ~300KB,
+  // need ~3 rounds to approach the 1MB write_buffer_size.
+  for (int round = 0; round < 3; round++) {
+    for (int i = 0; i < kNumKeys; i++) {
+      ASSERT_OK(Put("key" + std::to_string(i), rnd.RandomString(kValueSize)));
+    }
+  }
+
+  // One more round should trigger a flush with MemPurge in the background.
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(Put("key" + std::to_string(i), rnd.RandomString(kValueSize)));
+  }
+
+  // Block until MemPurge reaches the sync point (db_mutex_ released).
+  TEST_SYNC_POINT("DBFlushTest::MemPurgeIdOrdering:StartWriting");
+
+  // Now MemPurge is paused with db_mutex_ released. Write enough data
+  // to fill another memtable and trigger a switch. This creates an
+  // immutable memtable with a higher ID than the one being mempurged.
+  for (int i = 0; i < kNumKeys * 4; i++) {
+    ASSERT_OK(Put("newkey" + std::to_string(i), rnd.RandomString(kValueSize)));
+  }
+
+  // Let MemPurge continue -- it will re-acquire the mutex and try to
+  // add the output memtable with the stale ID.
+  TEST_SYNC_POINT("DBFlushTest::MemPurgeIdOrdering:SwitchDone");
+
+  // Allow background work to finish.
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // If the bug is present, the assertion in AddMemTable fires before
+  // we reach here.
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_NE(Get("key" + std::to_string(i)), "NOT_FOUND");
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
   Close();
 }
@@ -2533,7 +2634,7 @@ TEST_F(DBFlushTest, TombstoneVisibleInSnapshot) {
 
   ASSERT_OK(db_->Put(WriteOptions(), "foo", "value0"));
 
-  ManagedSnapshot snapshot_guard(db_);
+  ManagedSnapshot snapshot_guard(db_.get());
 
   ColumnFamilyHandle* default_cf = db_->DefaultColumnFamily();
   ASSERT_OK(db_->Flush(FlushOptions(), default_cf));
@@ -2574,7 +2675,7 @@ TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
   txn_db_opts.write_policy = TxnDBWritePolicy::WRITE_COMMITTED;
   ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
   ASSERT_NE(txn_db, nullptr);
-  db_ = txn_db;
+  db_.reset(txn_db);
 
   // Create two more columns other than default CF.
   std::vector<std::string> cfs = {"puppy", "kitty"};
@@ -2638,9 +2739,8 @@ TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
   // it means atomic flush didn't write the min_log_number_to_keep to MANIFEST.
   cfs.push_back(kDefaultColumnFamilyName);
   ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
-  DBImpl* db_impl = static_cast<DBImpl*>(db_);
-  ASSERT_TRUE(db_impl->allow_2pc());
-  ASSERT_NE(db_impl->MinLogNumberToKeep(), 0);
+  ASSERT_TRUE(dbfull()->allow_2pc());
+  ASSERT_NE(dbfull()->MinLogNumberToKeep(), 0);
 }
 
 TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
@@ -3706,6 +3806,174 @@ INSTANTIATE_TEST_CASE_P(
                      // the case where required padded bytes is
                      // larger than the max allowed padding size
                      testing::Values(4, kLowSpaceOverheadRatio)));
+
+// Test that when the table builder's io_status becomes bad during flush
+// (simulating write fault injection), BuildTable properly propagates the
+// builder's IO error instead of producing a misleading Corruption from the
+// num_entries mismatch check.
+TEST_F(DBFlushTest, BuilderWriteFaultPropagationDuringFlush) {
+  Options options = CurrentOptions();
+  options.flush_verify_memtable_count = true;
+  options.table_factory.reset(
+      NewBlockBasedTableFactory(BlockBasedTableOptions()));
+
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put("key" + std::to_string(i),
+                  std::string(100, 'v') + std::to_string(i)));
+  }
+
+  // Skip all Add() calls to simulate entries not being committed (builder
+  // stays empty), as happens when fault injection causes early returns.
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::Add::skip",
+      [&](void* skip) { *(bool*)skip = true; });
+
+  // Inject an IOError into the builder's status before the empty check.
+  // This simulates the scenario where write fault injection puts the builder
+  // in an error state, causing all Add() calls to return early (ok() is false)
+  // and leaving the builder empty.
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeCheckEmpty", [&](void* arg) {
+        auto* builder = static_cast<BlockBasedTableBuilder*>(
+            static_cast<TableBuilder*>(arg));
+        builder->TEST_InjectIOError();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = Flush();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // With the fix, the builder's IOError is propagated instead of the
+  // misleading Corruption from the key count mismatch check.
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsIOError())
+      << "Expected IOError from builder error propagation, got: "
+      << s.ToString();
+
+  Close();
+}
+// Regression test for table cache leak when flush install fails.
+// BuildTable caches the flush output file (for user reads) but if the
+// subsequent TryInstallMemtableFlushResults (LogAndApply) fails, the
+// cache entry was never evicted. The FindObsoleteFiles backstop normally
+// catches this, but fails under metadata read fault injection
+// (open_metadata_read_fault_one_in), causing
+// TEST_VerifyNoObsoleteFilesCached to fire during Close().
+TEST_F(DBFlushTest, LeakedTableCacheEntryOnFlushInstallFailure) {
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> fault_env(NewCompositeEnv(fault_fs));
+
+  Options options = CurrentOptions();
+  options.env = fault_env.get();
+  options.paranoid_file_checks = true;
+  // Disable auto-recovery so it doesn't clean up the orphan on a separate
+  // thread where metadata faults aren't enabled.
+  options.max_bgerror_resume_count = 0;
+  DestroyAndReopen(options);
+
+  // Write data so flush produces a non-empty file.
+  ASSERT_OK(Put("a", std::string(1024, 'x')));
+
+  // After BuildTable succeeds (caching the output file), inject a failure
+  // before the install-or-rollback decision. This simulates scenarios like
+  // CF dropped or shutdown after BuildTable. Also deactivate the filesystem
+  // so the post-flush FindObsoleteFiles backstop cannot scan the directory.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::Run:PostBuildTable", [&](void* arg) {
+        *static_cast<Status*>(arg) = Status::IOError("injected");
+        fault_fs->SetFilesystemActive(false);
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Trigger flush -- BuildTable succeeds but LogAndApply fails.
+  Status s = Flush();
+  ASSERT_NOK(s);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // With the fix, the leaked cache entry was already evicted by
+  // ReleaseObsolete in FlushJob::Run(). Without the fix, it persists.
+  // We can verify by counting non-live cache entries. The quarantine
+  // includes the file (BG error is active), but that's only a workaround --
+  // the cache entry should not exist at all with the fix.
+  //
+  // Check: with the fix, the table cache should be empty (the flush output
+  // was never installed and the fix evicted it). Without the fix, there's
+  // a leaked entry.
+  int cache_entries = 0;
+  auto count_fn = [&cache_entries](const Slice&, Cache::ObjectPtr, size_t,
+                                   const Cache::CacheItemHelper*) {
+    cache_entries++;
+  };
+  dbfull()->TEST_table_cache()->ApplyToAllEntries(count_fn, {});
+  ASSERT_EQ(cache_entries, 0)
+      << "Leaked table cache entry for flush output that was never installed";
+
+  // Reactivate filesystem for clean shutdown.
+  fault_fs->SetFilesystemActive(true);
+  db_ = nullptr;  // destructor handles Close
+}
+
+// Verify that ConstructFragmentedRangeTombstones runs after MarkImmutable
+// in SwitchMemtable. A range tombstone inserted between construction and
+// immutability would cause a flush entry count mismatch.
+TEST_F(DBFlushTest, FlushAfterReadPathRangeTombstoneInsertion) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 2;
+  options.flush_verify_memtable_count = true;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  // Write base data and flush to L0.
+  for (char c = 'a'; c <= 'h'; c++) {
+    ASSERT_OK(Put(std::string(1, c), std::string("v") + c));
+  }
+  ASSERT_OK(Flush());
+
+  // Delete contiguous keys in the memtable.
+  for (const auto& key : {"b", "c", "d", "e"}) {
+    ASSERT_OK(Delete(key));
+  }
+
+  // When SwitchMemtable hits the sync point after
+  // ConstructFragmentedRangeTombstones, directly call
+  // AddLogicallyRedundantRangeTombstone on the memtable being switched.
+  // We can't create an iterator here (would deadlock on the DB mutex).
+  auto* cfh = static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily());
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SwitchMemtable:AfterConstructFragmentedRangeTombstones",
+      [&](void*) {
+        // Try to insert a range tombstone. With the fix (Construct after
+        // MarkImmutable), this returns false because the memtable is
+        // already immutable. Without the fix, this succeeds and creates
+        // an entry count mismatch.
+        // Try to insert a range tombstone. With the fix (Construct after
+        // MarkImmutable), this returns false because the memtable is
+        // already immutable. Without the fix, this succeeds and creates
+        // an entry count mismatch.
+        cfh->cfd()->mem()->AddLogicallyRedundantRangeTombstone(
+            1 /* seq */, "b", "f", cfh->cfd()->GetIngestSstLock());
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = Flush();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(s);
+
+  ASSERT_EQ(Get("a"), "va");
+  ASSERT_EQ(Get("b"), "NOT_FOUND");
+  ASSERT_EQ(Get("d"), "NOT_FOUND");
+  ASSERT_EQ(Get("f"), "vf");
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

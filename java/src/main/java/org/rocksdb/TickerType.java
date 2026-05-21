@@ -395,6 +395,31 @@ public enum TickerType {
     WAL_FILE_BYTES((byte) 0x54),
 
     /**
+     * Number of WAL rotations that consumed an async precreated WAL.
+     */
+    WAL_PRECREATE_HIT((byte) -0x6C),
+
+    /**
+     * Number of WAL rotations that found no async precreated WAL to consume.
+     */
+    WAL_PRECREATE_MISS((byte) -0x6D),
+
+    /**
+     * Number of WAL rotations that waited for an in-flight WAL precreation.
+     */
+    WAL_PRECREATE_WAITED((byte) -0x6E),
+
+    /**
+     * Total foreground wait time for in-flight WAL precreation.
+     */
+    WAL_PRECREATE_WAIT_MICROS((byte) -0x6F),
+
+    /**
+     * Number of async WAL precreation attempts that failed.
+     */
+    WAL_PRECREATE_FAILED((byte) -0x70),
+
+    /**
      * Writes can be processed by requesting thread or by the thread at the
      * head of the writers queue.
      */
@@ -550,14 +575,14 @@ public enum TickerType {
     BLOB_DB_BYTES_READ((byte) -0x2),
 
     /**
-     * # of keys written by BlobDB as non-TTL inlined value.
+     * Deprecated and unused. Retained to avoid shifting enum values.
      */
-    BLOB_DB_WRITE_INLINED((byte) -0x3),
+    @Deprecated BLOB_DB_WRITE_INLINED((byte) -0x3),
 
     /**
-     * # of keys written by BlobDB as TTL inlined value.
+     * Deprecated and unused. Retained to avoid shifting enum values.
      */
-    BLOB_DB_WRITE_INLINED_TTL((byte) -0x4),
+    @Deprecated BLOB_DB_WRITE_INLINED_TTL((byte) -0x4),
 
     /**
      * # of keys written by BlobDB as non-TTL blob value.
@@ -905,6 +930,72 @@ public enum TickerType {
      * Bytes of output files successfully resumed during remote compaction
      */
     REMOTE_COMPACT_RESUMED_BYTES((byte) -0x5F),
+
+    /**
+     * MultiScan statistics
+     */
+
+    /**
+     * # of calls to Iterator::Prepare() for multi-scan
+     */
+    MULTISCAN_PREPARE_CALLS((byte) -0x60),
+
+    /**
+     * # of errors during Iterator::Prepare() for multi-scan
+     */
+    MULTISCAN_PREPARE_ERRORS((byte) -0x61),
+
+    /**
+     * # of data blocks prefetched during multi-scan Prepare()
+     */
+    MULTISCAN_BLOCKS_PREFETCHED((byte) -0x62),
+
+    /**
+     * # of data blocks found in cache during multi-scan Prepare()
+     */
+    MULTISCAN_BLOCKS_FROM_CACHE((byte) -0x63),
+
+    /**
+     * Total bytes prefetched during multi-scan Prepare()
+     */
+    MULTISCAN_PREFETCH_BYTES((byte) -0x64),
+
+    /**
+     * # of prefetched blocks that were never accessed (wasted)
+     */
+    MULTISCAN_PREFETCH_BLOCKS_WASTED((byte) -0x65),
+
+    /**
+     * # of I/O requests issued during multi-scan Prepare()
+     */
+    MULTISCAN_IO_REQUESTS((byte) -0x66),
+
+    /**
+     * # of non-adjacent blocks coalesced into single I/O request
+     */
+    MULTISCAN_IO_COALESCED_NONADJACENT((byte) -0x67),
+
+    /**
+     * # of seek errors during multi-scan iteration
+     */
+    MULTISCAN_SEEK_ERRORS((byte) -0x68),
+
+    /**
+     * # of range tombstones inserted by read-path conversion from contiguous
+     * point tombstones
+     */
+    READ_PATH_RANGE_TOMBSTONES_INSERTED((byte) -0x69),
+
+    /**
+     * # of range tombstones not inserted because the memtable was already
+     * switched to immutable
+     */
+    READ_PATH_RANGE_TOMBSTONES_DISCARDED((byte) -0x6A),
+
+    /**
+     * # of times MANIFEST content validation detected corruption on DB close
+     */
+    MANIFEST_VALIDATION_FAILURE_COUNT((byte) -0x6B),
 
     TICKER_ENUM_MAX((byte) -0x54);
 

@@ -33,6 +33,7 @@
 #include "db/range_del_aggregator.h"
 #include "db/version_edit.h"
 #include "db/version_set.h"
+#include "file/file_util.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
 #include "file/sst_file_manager_impl.h"
@@ -57,6 +58,7 @@
 #include "table/table_builder.h"
 #include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
+#include "util/hash_containers.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -103,6 +105,8 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "RoundRobinTtl";
     case CompactionReason::kRefitLevel:
       return "RefitLevel";
+    case CompactionReason::kReadTriggered:
+      return "ReadTriggered";
     case CompactionReason::kNumOfReasons:
       // fall through
     default:
@@ -128,6 +132,10 @@ const char* GetCompactionProximalOutputRangeTypeString(
   }
 }
 
+// Static constant for compaction abort flag - always false, used for
+// compaction service jobs that don't support abort signaling
+const std::atomic<int> CompactionJob::kCompactionAbortedFalse{0};
+
 CompactionJob::CompactionJob(
     int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
     const MutableDBOptions& mutable_db_options, const FileOptions& file_options,
@@ -141,10 +149,10 @@ CompactionJob::CompactionJob(
     CompactionJobStats* compaction_job_stats, Env::Priority thread_pri,
     const std::shared_ptr<IOTracer>& io_tracer,
     const std::atomic<bool>& manual_compaction_canceled,
-    const std::string& db_id, const std::string& db_session_id,
-    std::string full_history_ts_low, std::string trim_ts,
-    BlobFileCompletionCallback* blob_callback, int* bg_compaction_scheduled,
-    int* bg_bottom_compaction_scheduled)
+    const std::atomic<int>& compaction_aborted, const std::string& db_id,
+    const std::string& db_session_id, std::string full_history_ts_low,
+    std::string trim_ts, BlobFileCompletionCallback* blob_callback,
+    int* bg_compaction_scheduled, int* bg_bottom_compaction_scheduled)
     : compact_(new CompactionState(compaction)),
       internal_stats_(compaction->compaction_reason(), 1),
       db_options_(db_options),
@@ -168,6 +176,7 @@ CompactionJob::CompactionJob(
       versions_(versions),
       shutting_down_(shutting_down),
       manual_compaction_canceled_(manual_compaction_canceled),
+      compaction_aborted_(compaction_aborted),
       db_directory_(db_directory),
       blob_output_directory_(blob_output_directory),
       db_mutex_(db_mutex),
@@ -708,6 +717,7 @@ void CompactionJob::InitializeCompactionRun() {
 }
 
 void CompactionJob::RunSubcompactions() {
+  TEST_SYNC_POINT("CompactionJob::RunSubcompactions:BeforeStart");
   const size_t num_threads = compact_->sub_compact_states.size();
   assert(num_threads > 0);
   compact_->compaction->GetOrInitInputTableProperties();
@@ -750,6 +760,71 @@ void CompactionJob::UpdateTimingStats(uint64_t start_micros) {
 void CompactionJob::RemoveEmptyOutputs() {
   for (auto& state : compact_->sub_compact_states) {
     state.RemoveLastEmptyOutput();
+  }
+}
+
+void CompactionJob::CleanupAbortedSubcompactions() {
+  ColumnFamilyData* cfd = compact_->compaction->column_family_data();
+
+  uint64_t total_sst_files_deleted = 0;
+  uint64_t total_blob_files_deleted = 0;
+
+  // Track the first file deletion error to report at the end
+  Status first_error;
+  int deletion_errors = 0;
+
+  // Mark all subcompactions as aborted and delete their output files
+  for (auto& sub_compact : compact_->sub_compact_states) {
+    // Mark this subcompaction as aborted
+    sub_compact.status =
+        Status::Incomplete(Status::SubCode::kCompactionAborted);
+
+    // Delete all files (SST and blob) tracked during compaction.
+    // GetOutputFilePaths() contains ALL file paths created, including
+    // in-progress files that may have been removed from outputs_ or
+    // blob_file_additions_.
+    for (const bool is_proximal_level : {false, true}) {
+      if (is_proximal_level &&
+          !compact_->compaction->SupportsPerKeyPlacement()) {
+        continue;
+      }
+      for (const std::string& file_path :
+           sub_compact.Outputs(is_proximal_level)->GetOutputFilePaths()) {
+        Status s = env_->DeleteFile(file_path);
+        if (s.ok()) {
+          // Count SST vs blob files by checking extension
+          if (file_path.find(".sst") != std::string::npos) {
+            total_sst_files_deleted++;
+          } else if (file_path.find(".blob") != std::string::npos) {
+            total_blob_files_deleted++;
+          }
+        } else if (!s.IsNotFound()) {
+          if (first_error.ok()) {
+            first_error = s;
+          }
+          deletion_errors++;
+        }
+      }
+    }
+    sub_compact.CleanupOutputs();
+  }
+
+  if (stats_) {
+    RecordTick(stats_, COMPACTION_ABORTED);
+  }
+
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "[%s] [JOB %d] Compaction aborted: deleted %" PRIu64
+                 " SST files and %" PRIu64 " blob files",
+                 cfd->GetName().c_str(), job_id_, total_sst_files_deleted,
+                 total_blob_files_deleted);
+
+  if (!first_error.ok()) {
+    ROCKS_LOG_ERROR(db_options_.info_log,
+                    "[%s] [JOB %d] Cleanup completed with %d file deletion "
+                    "errors. First error: %s",
+                    cfd->GetName().c_str(), job_id_, deletion_errors,
+                    first_error.ToString().c_str());
   }
 }
 
@@ -824,6 +899,10 @@ Status CompactionJob::VerifyOutputFiles() {
   }
 
   auto verify_table = [&](SubcompactionState& subcompaction_state) {
+    // Collect file open metadata during verification when fast_sst_open
+    // is enabled, keyed by file number.
+    UnorderedMap<uint64_t, std::string> file_open_metadata_map;
+
     for (const auto& output_file : subcompaction_state.GetOutputs()) {
       // Verify that the table is usable
       // We set for_compaction to false and don't
@@ -832,17 +911,21 @@ Status CompactionJob::VerifyOutputFiles() {
       // use_direct_io_for_flush_and_compaction is true, we will regard this
       // verification as user reads since the goal is to cache it here for
       // further user reads
-      ReadOptions verify_table_read_options(Env::IOActivity::kCompaction);
-      verify_table_read_options.verify_checksums = true;
-      verify_table_read_options.readahead_size =
+      ReadOptions verification_read_options(Env::IOActivity::kCompaction);
+      verification_read_options.verify_checksums = true;
+      verification_read_options.readahead_size =
           file_options_for_read_.compaction_readahead_size;
 
       std::unique_ptr<TableReader> table_reader_guard;
       TableReader* table_reader_ptr = table_reader_guard.get();
-      verify_table_read_options.rate_limiter_priority =
+      verification_read_options.rate_limiter_priority =
           GetRateLimiterPriority();
+      std::string file_open_metadata;
+      std::string* file_open_metadata_ptr =
+          mutable_db_options_copy_.fast_sst_open ? &file_open_metadata
+                                                 : nullptr;
       InternalIterator* iter = cfd->table_cache()->NewIterator(
-          verify_table_read_options, file_options_, cfd->internal_comparator(),
+          verification_read_options, file_options_, cfd->internal_comparator(),
           output_file.meta,
           /*range_del_agg=*/nullptr, compact_->compaction->mutable_cf_options(),
           /*table_reader_ptr=*/&table_reader_ptr,
@@ -853,7 +936,10 @@ Status CompactionJob::VerifyOutputFiles() {
           MaxFileSizeForL0MetaPin(compact_->compaction->mutable_cf_options()),
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr,
-          /*allow_unprepared_value=*/false);
+          /*allow_unprepared_value=*/false,
+          /*range_del_read_seqno=*/nullptr,
+          /*range_del_iter=*/nullptr,
+          /*maybe_pin_table_handle=*/false, file_open_metadata_ptr);
       auto s = iter->status();
       if (s.ok()) {
         // Check for remote/local compaction and verify_output_flags flags
@@ -870,12 +956,17 @@ Status CompactionJob::VerifyOutputFiles() {
               !!(verify_output_flags & VerifyOutputFlags::kVerifyBlockChecksum);
           const bool should_verify_iteration =
               !!(verify_output_flags & VerifyOutputFlags::kVerifyIteration);
+          const bool should_verify_file_checksum =
+              !!(verify_output_flags &
+                 VerifyOutputFlags::kVerifyFileChecksum) &&
+              db_options_.file_checksum_gen_factory != nullptr &&
+              output_file.meta.file_checksum != kUnknownFileChecksum;
           if (should_verify_block_checksum) {
             assert(table_reader_ptr != nullptr);
             // If verifying iteration as well, verify meta blocks here only to
             // avoid redundant checks on data blocks
             s = table_reader_ptr->VerifyChecksum(
-                verify_table_read_options, TableReaderCaller::kCompaction,
+                verification_read_options, TableReaderCaller::kCompaction,
                 /*meta_blocks_only=*/should_verify_iteration);
           }
           if (s.ok() && should_verify_iteration) {
@@ -896,6 +987,24 @@ Status CompactionJob::VerifyOutputFiles() {
                   "was computed when written");
             }
           }
+          if (s.ok() && should_verify_file_checksum) {
+            std::string file_checksum;
+            std::string file_checksum_func_name;
+            std::string fname =
+                GetTableFileName(output_file.meta.fd.GetNumber());
+            s = GenerateOneFileChecksum(
+                fs_.get(), fname, db_options_.file_checksum_gen_factory.get(),
+                output_file.meta.file_checksum_func_name, &file_checksum,
+                &file_checksum_func_name,
+                verification_read_options.readahead_size,
+                db_options_.allow_mmap_reads, io_tracer_,
+                db_options_.rate_limiter.get(), verification_read_options,
+                stats_, db_options_.clock, file_options_for_read_);
+            if (s.ok() && file_checksum != output_file.meta.file_checksum) {
+              s = Status::Corruption(
+                  "File checksum mismatch for compaction output file " + fname);
+            }
+          }
         }
       }
 
@@ -905,6 +1014,27 @@ Status CompactionJob::VerifyOutputFiles() {
         subcompaction_state.status = s;
         break;
       }
+
+      if (!file_open_metadata.empty()) {
+        file_open_metadata_map[output_file.meta.fd.GetNumber()] =
+            std::move(file_open_metadata);
+      }
+    }
+
+    // Apply collected file open metadata to mutable outputs
+    if (!file_open_metadata_map.empty()) {
+      auto apply_metadata =
+          [&file_open_metadata_map](
+              std::vector<CompactionOutputs::Output>& outputs) {
+            for (auto& output : outputs) {
+              auto it = file_open_metadata_map.find(output.meta.fd.GetNumber());
+              if (it != file_open_metadata_map.end()) {
+                output.meta.file_open_metadata = std::move(it->second);
+              }
+            }
+          };
+      apply_metadata(subcompaction_state.GetMutableCompactionOutputs());
+      apply_metadata(subcompaction_state.GetMutableProximalOutputs());
     }
   };
   for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
@@ -1004,6 +1134,15 @@ Status CompactionJob::Run() {
 
   Status status = CollectSubcompactionErrors();
 
+  // If compaction was aborted or manually paused, clean up any output files
+  // from completed subcompactions to prevent orphaned files on disk.
+  // Skip cleanup for resumable compaction (when progress writer is set)
+  // because the output files are needed for resumption.
+  if ((status.IsCompactionAborted() || status.IsManualCompactionPaused()) &&
+      compaction_progress_writer_ == nullptr) {
+    CleanupAbortedSubcompactions();
+  }
+
   if (status.ok()) {
     status = SyncOutputDirectories();
   }
@@ -1011,6 +1150,9 @@ Status CompactionJob::Run() {
   if (status.ok()) {
     status = VerifyOutputFiles();
   }
+
+  TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():AfterVerifyOutputFiles",
+                           &status);
 
   if (status.ok()) {
     SetOutputTableProperties();
@@ -1196,6 +1338,16 @@ Status CompactionJob::Install(bool* compaction_released) {
            << pl_stats.num_output_files_blob;
     stream << "proximal_level_bytes_written_blob"
            << pl_stats.bytes_written_blob;
+  }
+
+  // Propagate Install failure to compact_->status so that
+  // CleanupCompaction() -> SubcompactionState::Cleanup() sees the failure and
+  // calls ReleaseObsolete on output files' table cache entries. Without this,
+  // if Run() succeeds but InstallCompactionResults() fails, Cleanup would see
+  // overall_status = OK and skip ReleaseObsolete, leaking entries for output
+  // files that were never installed into any Version.
+  if (!status.ok() && compact_->status.ok()) {
+    compact_->status = status;
   }
 
   CleanupCompaction();
@@ -1415,10 +1567,10 @@ InternalIterator* CompactionJob::CreateInputIterator(
   return input;
 }
 
-void CompactionJob::CreateBlobFileBuilder(SubcompactionState* sub_compact,
-                                          ColumnFamilyData* cfd,
-                                          BlobFileResources& blob_resources,
-                                          const WriteOptions& write_options) {
+void CompactionJob::CreateBlobFileBuilder(
+    SubcompactionState* sub_compact, ColumnFamilyData* cfd,
+    std::unique_ptr<BlobFileBuilder>& blob_file_builder,
+    const WriteOptions& write_options) {
   const auto& mutable_cf_options =
       sub_compact->compaction->mutable_cf_options();
 
@@ -1427,24 +1579,24 @@ void CompactionJob::CreateBlobFileBuilder(SubcompactionState* sub_compact,
   if (mutable_cf_options.enable_blob_files &&
       sub_compact->compaction->output_level() >=
           mutable_cf_options.blob_file_starting_level) {
-    blob_resources.blob_file_builder = std::make_unique<BlobFileBuilder>(
+    blob_file_builder = std::make_unique<BlobFileBuilder>(
         versions_, fs_.get(), &sub_compact->compaction->immutable_options(),
         &mutable_cf_options, &file_options_, &write_options, db_id_,
         db_session_id_, job_id_, cfd->GetID(), cfd->GetName(), write_hint_,
         io_tracer_, blob_callback_, BlobFileCreationReason::kCompaction,
-        &blob_resources.blob_file_paths,
+        sub_compact->Current().GetOutputFilePathsPtr(),
         sub_compact->Current().GetBlobFileAdditionsPtr());
   } else {
-    blob_resources.blob_file_builder = nullptr;
+    blob_file_builder = nullptr;
   }
 }
 
 std::unique_ptr<CompactionIterator> CompactionJob::CreateCompactionIterator(
     SubcompactionState* sub_compact, ColumnFamilyData* cfd,
     InternalIterator* input, const CompactionFilter* compaction_filter,
-    MergeHelper& merge, BlobFileResources& blob_resources,
+    MergeHelper& merge, std::unique_ptr<BlobFileBuilder>& blob_file_builder,
     const WriteOptions& write_options) {
-  CreateBlobFileBuilder(sub_compact, cfd, blob_resources, write_options);
+  CreateBlobFileBuilder(sub_compact, cfd, blob_file_builder, write_options);
 
   const std::string* const full_history_ts_low =
       full_history_ts_low_.empty() ? nullptr : &full_history_ts_low_;
@@ -1456,7 +1608,7 @@ std::unique_ptr<CompactionIterator> CompactionJob::CreateCompactionIterator(
       job_context_->earliest_write_conflict_snapshot,
       job_context_->GetJobSnapshotSequence(), job_context_->snapshot_checker,
       env_, ShouldReportDetailedTime(env_, stats_), sub_compact->RangeDelAgg(),
-      blob_resources.blob_file_builder.get(), db_options_.allow_data_in_errors,
+      blob_file_builder.get(), db_options_.allow_data_in_errors,
       db_options_.enforce_single_del_contracts, manual_compaction_canceled_,
       sub_compact->compaction
           ->DoesInputReferenceBlobFiles() /* must_count_input_entries */,
@@ -1495,10 +1647,17 @@ Status CompactionJob::ProcessKeyValue(
     SubcompactionState* sub_compact, ColumnFamilyData* cfd,
     CompactionIterator* c_iter, const CompactionFileOpenFunc& open_file_func,
     const CompactionFileCloseFunc& close_file_func, uint64_t& prev_cpu_micros) {
-  Status status;
-  const uint64_t kRecordStatsEvery = 1000;
+  // Cron interval for periodic operations: stats update, abort check,
+  // and sync points. Uses 1024 (power of 2) for efficient bitwise check.
+  const uint64_t kCronEveryMask = (1 << 10) - 1;
   [[maybe_unused]] const std::optional<const Slice> end = sub_compact->end;
 
+  // Check for abort signal before starting key processing
+  if (compaction_aborted_.load(std::memory_order_acquire) > 0) {
+    return Status::Incomplete(Status::SubCode::kCompactionAborted);
+  }
+
+  Status status;
   IterKey prev_iter_output_key;
   ParsedInternalKey prev_iter_output_internal_key;
 
@@ -1511,8 +1670,16 @@ Status CompactionJob::ProcessKeyValue(
     assert(!end.has_value() ||
            cfd->user_comparator()->Compare(c_iter->user_key(), *end) < 0);
 
-    if (c_iter->iter_stats().num_input_records % kRecordStatsEvery ==
-        kRecordStatsEvery - 1) {
+    const uint64_t num_records = c_iter->iter_stats().num_input_records;
+
+    // Periodic cron operations: stats update, abort check.
+    if ((num_records & kCronEveryMask) == kCronEveryMask) {
+      // Check for abort signal periodically
+      if (compaction_aborted_.load(std::memory_order_acquire) > 0) {
+        status = Status::Incomplete(Status::SubCode::kCompactionAborted);
+        break;
+      }
+
       UpdateSubcompactionJobStatsIncrementally(
           c_iter, &sub_compact->compaction_job_stats,
           db_options_.clock->CPUMicros(), prev_cpu_micros);
@@ -1719,6 +1886,7 @@ Status CompactionJob::FinalizeBlobFiles(SubcompactionState* sub_compact,
 }
 
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
+  TEST_SYNC_POINT("CompactionJob::ProcessKeyValueCompaction:Start");
   assert(sub_compact);
   assert(sub_compact->compaction);
 
@@ -1772,11 +1940,11 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       false /* internal key corruption is expected */,
       job_context_->GetLatestSnapshotSequence(), job_context_->snapshot_checker,
       compact_->compaction->level(), db_options_.stats);
-  BlobFileResources blob_resources;
+  std::unique_ptr<BlobFileBuilder> blob_file_builder;
 
   auto c_iter =
       CreateCompactionIterator(sub_compact, cfd, input_iter, compaction_filter,
-                               merge, blob_resources, write_options);
+                               merge, blob_file_builder, write_options);
   assert(c_iter);
   c_iter->SeekToFirst();
 
@@ -1794,9 +1962,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   status = FinalizeProcessKeyValueStatus(cfd, input_iter, c_iter.get(), status);
 
   FinalizeSubcompaction(sub_compact, status, open_file_func, close_file_func,
-                        blob_resources.blob_file_builder.get(), c_iter.get(),
-                        input_iter, start_cpu_micros, prev_cpu_micros,
-                        io_stats);
+                        blob_file_builder.get(), c_iter.get(), input_iter,
+                        start_cpu_micros, prev_cpu_micros, io_stats);
 
   NotifyOnSubcompactionCompleted(sub_compact);
 }
@@ -2231,11 +2398,16 @@ Status CompactionJob::InstallCompactionResults(bool* compaction_released) {
     *compaction_released = true;
   };
 
-  return versions_->LogAndApply(compaction->column_family_data(), read_options,
-                                write_options, edit, db_mutex_, db_directory_,
-                                /*new_descriptor_log=*/false,
-                                /*column_family_options=*/nullptr,
-                                manifest_wcb);
+  Status s;
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionJob::InstallCompactionResults:BeforeLogAndApply", &s);
+  if (s.ok()) {
+    s = versions_->LogAndApply(compaction->column_family_data(), read_options,
+                               write_options, edit, db_mutex_, db_directory_,
+                               /*new_descriptor_log=*/false,
+                               /*column_family_options=*/nullptr, manifest_wcb);
+  }
+  return s;
 }
 
 void CompactionJob::RecordCompactionIOStats() {
@@ -2295,6 +2467,10 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   Status s;
   IOStatus io_s = NewWritableFile(fs_.get(), fname, &writable_file, fo_copy);
   s = io_s;
+  if (io_s.ok()) {
+    // Track the SST file path for cleanup on abort.
+    outputs.AddOutputFilePath(fname);
+  }
   if (sub_compact->io_status.ok()) {
     sub_compact->io_status = io_s;
     // Since this error is really a copy of the io_s that is checked below as s,
@@ -2371,8 +2547,16 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       return s;
     }
 
+    // Enable hash computation if paranoid_file_checks is on or if
+    // verify_output_flags includes kVerifyIteration, so that
+    // VerifyOutputFiles() can compare the hash of the written data
+    // against a re-read of the output file.
+    bool enable_output_hash =
+        paranoid_file_checks_ ||
+        !!(sub_compact->compaction->mutable_cf_options().verify_output_flags &
+           VerifyOutputFlags::kVerifyIteration);
     outputs.AddOutput(std::move(meta), cfd->internal_comparator(),
-                      paranoid_file_checks_);
+                      enable_output_hash);
   }
 
   writable_file->SetIOPriority(GetRateLimiterPriority());
@@ -2413,7 +2597,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
 
 void CompactionJob::CleanupCompaction() {
   for (SubcompactionState& sub_compact : compact_->sub_compact_states) {
-    sub_compact.Cleanup(table_cache_.get());
+    sub_compact.Cleanup(table_cache_.get(), compact_->status);
   }
   delete compact_;
   compact_ = nullptr;
@@ -2438,6 +2622,32 @@ bool CompactionJob::UpdateInternalStatsFromInputFiles(
   bool has_error = false;
   const ReadOptions read_options(Env::IOActivity::kCompaction);
   const auto& input_table_properties = compaction->GetInputTableProperties();
+
+  // Check all input files for old block-based SST format_version. Why? Old
+  // block-based SST files from roughly version 5.0 to 5.18 could produce
+  // inaccurate num_entries counts due to the evolution of its handling along
+  // with num_range_deletions. We have to disable some paranoid checks when
+  // compacting files from such an old release. However, we don't have great
+  // information to identify those files, so we heuristically over-approximate
+  // that set of files using
+  // (a) format_version < 5, which will be true for any files from RocksDB <
+  // 6.6.0 and should not be true for any recent production files
+  // (b) to avoid including non-block-based SST files (which still use older
+  // format_version markers, and do not support DeleteRange), we also require
+  // the presence of the user property "rocksdb.block.based.table.index.type",
+  // which was added in RocksDB 2.8 and is always present in block-based tables.
+  for (const auto& tp_pair : input_table_properties) {
+    if (tp_pair.second && tp_pair.second->format_version < 5) {
+      // Check for block-based table by looking for its index type property
+      const auto& user_props = tp_pair.second->user_collected_properties;
+      if (user_props.find(BlockBasedTablePropertyNames::kIndexType) !=
+          user_props.end()) {
+        job_stats_->has_accurate_num_input_records = false;
+        break;
+      }
+    }
+  }
+
   for (int input_level = 0;
        input_level < static_cast<int>(compaction->num_input_levels());
        ++input_level) {
@@ -2682,7 +2892,10 @@ Status CompactionJob::ReadTablePropertiesDirectly(
     std::shared_ptr<const TableProperties>* tp) {
   std::unique_ptr<FSRandomAccessFile> file;
   std::string file_name = GetTableFileName(file_meta->fd.GetNumber());
-  Status s = ioptions.fs->NewRandomAccessFile(file_name, file_options_, &file,
+  FileOptions fopts = file_options_;
+  fopts.file_checksum = file_meta->file_checksum;
+  fopts.file_checksum_func_name = file_meta->file_checksum_func_name;
+  Status s = ioptions.fs->NewRandomAccessFile(file_name, fopts, &file,
                                               nullptr /* dbg */);
   if (!s.ok()) {
     return s;
@@ -2776,12 +2989,17 @@ void CompactionJob::RestoreCompactionOutputs(
 
   const auto& output_files = subcompaction_progress_per_level.GetOutputFiles();
 
+  const bool enable_output_hash =
+      paranoid_file_checks_ ||
+      !!(compact_->compaction->mutable_cf_options().verify_output_flags &
+         VerifyOutputFlags::kVerifyIteration);
+
   for (size_t i = 0; i < output_files.size(); i++) {
     FileMetaData file_copy = output_files[i];
 
     outputs_to_restore->AddOutput(std::move(file_copy),
                                   cfd->internal_comparator(),
-                                  paranoid_file_checks_, true /* finished */);
+                                  enable_output_hash, true /* finished */);
 
     outputs_to_restore->UpdateTableProperties(
         *output_files_table_properties[i]);
@@ -2804,12 +3022,6 @@ void CompactionJob::RestoreCompactionOutputs(
 // - Status::NotFound(): No valid progress to resume from
 // - Status::Corruption(): Resume key is invalid, beyond input range, or output
 // restoration failed
-// - Other non-OK status: Iterator errors or file system issues during
-// restoration
-//
-// The caller must check for Status::IsIncomplete() to distinguish between
-// "no resume needed" (proceed with `InternalIterator::SeekToFirst()`) vs
-// "resume failed" scenarios.
 Status CompactionJob::MaybeResumeSubcompactionProgressOnInputIterator(
     SubcompactionState* sub_compact, InternalIterator* input_iter) {
   const ReadOptions read_options(Env::IOActivity::kCompaction);

@@ -39,20 +39,64 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 
 #include "db/dbformat.h"
+#include "monitoring/statistics_impl.h"
 #include "rocksdb/comparator.h"
+#include "table/block_based/block_util.h"
 #include "table/block_based/data_block_footer.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+// Tracks whether restart-point keys are uniformly distributed using Welford's
+// online algorithm to incrementally compute the coefficient of variation (CV)
+// of gaps between consecutive restart keys.
+class UniformDataTracker {
+ public:
+  void AddKey(uint64_t key_value) {
+    if (num_keys_ > 0) {
+      double gap = static_cast<double>(key_value - prev_key_value_);
+      size_t gap_count = num_keys_;
+      double delta = gap - mean_;
+      mean_ += delta / static_cast<double>(gap_count);
+      double delta2 = gap - mean_;
+      m2_ += delta * delta2;
+    }
+    prev_key_value_ = key_value;
+    num_keys_++;
+  }
+
+  // Returns the coefficient of variation (CV) of the key gaps, or -1.0 if
+  // there are not enough data points to compute it.
+  double GetCV() const {
+    size_t gap_count = num_keys_ > 0 ? num_keys_ - 1 : 0;
+    if (gap_count < 2 || mean_ <= 0) {
+      return -1.0;
+    }
+    return std::sqrt(m2_ / static_cast<double>(gap_count)) / mean_;
+  }
+
+ private:
+  uint64_t prev_key_value_ = 0;
+  size_t num_keys_ = 0;
+  double mean_ = 0;
+  double m2_ = 0;
+};
+
+}  // namespace
 
 BlockBuilder::BlockBuilder(
     int block_restart_interval, bool use_delta_encoding,
     bool use_value_delta_encoding,
     BlockBasedTableOptions::DataBlockIndexType index_type,
     double data_block_hash_table_util_ratio, size_t ts_sz,
-    bool persist_user_defined_timestamps, bool is_user_key)
+    bool persist_user_defined_timestamps, bool is_user_key,
+    bool use_separated_kv_storage, Statistics* statistics,
+    double uniform_cv_threshold)
     : block_restart_interval_(block_restart_interval),
       use_delta_encoding_(use_delta_encoding),
       use_value_delta_encoding_(use_value_delta_encoding),
@@ -60,7 +104,11 @@ BlockBuilder::BlockBuilder(
       is_user_key_(is_user_key),
       restarts_(1, 0),  // First restart point is at offset 0
       counter_(0),
-      finished_(false) {
+      finished_(false),
+      is_uniform_(false),
+      uniform_cv_threshold_(uniform_cv_threshold),
+      statistics_(statistics),
+      use_separated_kv_storage_(use_separated_kv_storage) {
   switch (index_type) {
     case BlockBasedTableOptions::kDataBlockBinarySearch:
       break;
@@ -72,20 +120,25 @@ BlockBuilder::BlockBuilder(
       assert(0);
   }
   assert(block_restart_interval_ >= 1);
-  estimate_ = sizeof(uint32_t) + sizeof(uint32_t);
+  estimate_ = sizeof(uint32_t) + sizeof(uint32_t) +
+              (use_separated_kv_storage_ ? sizeof(uint32_t) : 0);
 }
 
 void BlockBuilder::Reset() {
   buffer_.clear();
   restarts_.resize(1);  // First restart point is at offset 0
   assert(restarts_[0] == 0);
-  estimate_ = sizeof(uint32_t) + sizeof(uint32_t);
+  estimate_ = sizeof(uint32_t) + sizeof(uint32_t) +
+              (use_separated_kv_storage_ ? sizeof(uint32_t) : 0);
   counter_ = 0;
   finished_ = false;
+  is_uniform_ = false;
   last_key_.clear();
   if (data_block_hash_index_builder_.Valid()) {
     data_block_hash_index_builder_.Reset();
   }
+  values_buffer_.clear();
+
 #ifndef NDEBUG
   add_with_last_key_called_ = false;
 #endif
@@ -116,6 +169,12 @@ size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key,
     estimate += sizeof(uint32_t);  // a new restart entry.
   }
 
+  // For separated KV storage, value_offset varint is written at restart points
+  if (use_separated_kv_storage_ &&
+      (counter_ == 0 || counter_ >= block_restart_interval_)) {
+    estimate += VarintLength(values_buffer_.size());
+  }
+
   estimate += sizeof(int32_t);  // varint for shared prefix length.
   // Note: this is an imprecise estimate as we will have to encoded size, one
   // for shared key and one for non-shared key.
@@ -128,24 +187,34 @@ size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key,
 }
 
 Slice BlockBuilder::Finish() {
+  is_uniform_ = ScanForUniformity();
+
   // Append restart array
+  size_t values_buffer_offset = buffer_.size();
+
+  if (use_separated_kv_storage_) {
+    buffer_.append(values_buffer_);
+  }
+
   for (size_t i = 0; i < restarts_.size(); i++) {
     PutFixed32(&buffer_, restarts_[i]);
   }
 
-  uint32_t num_restarts = static_cast<uint32_t>(restarts_.size());
-  BlockBasedTableOptions::DataBlockIndexType index_type =
-      BlockBasedTableOptions::kDataBlockBinarySearch;
+  DataBlockFooter footer;
+  footer.num_restarts = static_cast<uint32_t>(restarts_.size());
+  footer.index_type = BlockBasedTableOptions::kDataBlockBinarySearch;
+  footer.is_uniform = is_uniform_;
   if (data_block_hash_index_builder_.Valid() &&
       CurrentSizeEstimate() <= kMaxBlockSizeSupportedByHashIndex) {
     data_block_hash_index_builder_.Finish(buffer_);
-    index_type = BlockBasedTableOptions::kDataBlockBinaryAndHash;
+    footer.index_type = BlockBasedTableOptions::kDataBlockBinaryAndHash;
   }
 
-  // footer is a packed format of data_block_index_type and num_restarts
-  uint32_t block_footer = PackIndexTypeAndNumRestarts(index_type, num_restarts);
-
-  PutFixed32(&buffer_, block_footer);
+  if (use_separated_kv_storage_) {
+    footer.separated_kv = true;
+    footer.values_section_offset = static_cast<uint32_t>(values_buffer_offset);
+  }
+  footer.EncodeTo(&buffer_);
   finished_ = true;
   return Slice(buffer_);
 }
@@ -200,6 +269,11 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
                                              size_t buffer_size) {
   assert(!finished_);
   assert(counter_ <= block_restart_interval_);
+  // Verify < 4GB assumption (see API comments on Add())
+  assert(key.size() < uint64_t{1} << 32);
+  assert(value.size() < uint64_t{1} << 32);
+  assert(last_key.size() < uint64_t{1} << 32);
+  assert(delta_value == nullptr || delta_value->size() < uint64_t{1} << 32);
   std::string key_buf;
   std::string last_key_buf;
   const Slice key_to_persist = MaybeStripTimestampFromKey(&key_buf, key);
@@ -209,40 +283,72 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
       last_key.size() == 0
           ? last_key
           : MaybeStripTimestampFromKey(&last_key_buf, last_key);
-  size_t shared = 0;  // number of bytes shared with prev key
+
+  // FIXME: check/enforce that buffer_ hasn't exceeded 4GB. The concern
+  // with adding that check and propagating the result is inner-loop
+  // performance. This case is HIGH concern because blocks like range deletions
+  // and non-partitioned indexes could pile large keys together into one block.
+  const uint32_t buffer_size32 = static_cast<uint32_t>(buffer_size);
+  // NOTE: assuming all slice sizes < 4GB (see API comments on Add())
+  uint32_t shared = 0;  // number of bytes shared with prev key
   if (counter_ >= block_restart_interval_) {
     // Restart compression
-    restarts_.push_back(static_cast<uint32_t>(buffer_size));
+    restarts_.push_back(buffer_size32);
     estimate_ += sizeof(uint32_t);
     counter_ = 0;
   } else if (use_delta_encoding_ && !skip_delta_encoding) {
     // See how much sharing to do with previous string
-    shared = key_to_persist.difference_offset(last_key_persisted);
+    shared = static_cast<uint32_t>(
+        key_to_persist.difference_offset(last_key_persisted));
   }
 
-  const size_t non_shared = key_to_persist.size() - shared;
+  const uint32_t non_shared =
+      static_cast<uint32_t>(key_to_persist.size()) - shared;
+  const size_t prev_values_size = values_buffer_.size();
 
+  // FIXME: check/enforce that values_buffer_ hasn't exceeded 4GB. The concern
+  // with adding that check and propagating the result is inner-loop
+  // performance. This case is low concern because it (at time of writing) only
+  // applies to data blocks and those are flushed as soon as the size exceeds
+  // the block size.
+  const uint32_t prev_values_size32 = static_cast<uint32_t>(prev_values_size);
+  const uint32_t value_size = static_cast<uint32_t>(value.size());
   if (use_value_delta_encoding_) {
-    // Add "<shared><non_shared>" to buffer_
-    PutVarint32Varint32(&buffer_, static_cast<uint32_t>(shared),
-                        static_cast<uint32_t>(non_shared));
+    if (use_separated_kv_storage_ && counter_ == 0) {
+      // Add "<shared><non_shared><value_offset>" to buffer_
+      PutVarint32(&buffer_, shared, non_shared, prev_values_size32);
+    } else {
+      // Add "<shared><non_shared>" to buffer_
+      PutVarint32(&buffer_, shared, non_shared);
+    }
   } else {
-    // Add "<shared><non_shared><value_size>" to buffer_
-    PutVarint32Varint32Varint32(&buffer_, static_cast<uint32_t>(shared),
-                                static_cast<uint32_t>(non_shared),
-                                static_cast<uint32_t>(value.size()));
+    if (use_separated_kv_storage_ && counter_ == 0) {
+      // Add "<shared><non_shared><value_size><value_offset>" to buffer_
+      PutVarint32(&buffer_, shared, non_shared, value_size, prev_values_size32);
+    } else {
+      // Add "<shared><non_shared><value_size>" to buffer_
+      PutVarint32(&buffer_, shared, non_shared, value_size);
+    }
   }
 
-  // Add string delta to buffer_ followed by value
+  // Add string delta to buffer_ (using only bottom 32 bits of size for
+  // consistent treatment in case of corruption)
   buffer_.append(key_to_persist.data() + shared, non_shared);
+
+  auto& values_buffer = use_separated_kv_storage_ ? values_buffer_ : buffer_;
   // Use value delta encoding only when the key has shared bytes. This would
   // simplify the decoding, where it can figure which decoding to use simply by
   // looking at the shared bytes size.
   if (shared != 0 && use_value_delta_encoding_) {
+    // Using only bottom 32 bits of size for consistent treatment in case of
+    // corruption
     assert(delta_value != nullptr);
-    buffer_.append(delta_value->data(), delta_value->size());
+    values_buffer.append(delta_value->data(),
+                         static_cast<uint32_t>(delta_value->size()));
   } else {
-    buffer_.append(value.data(), value.size());
+    // Using only bottom 32 bits of size for consistent treatment in case of
+    // corruption
+    values_buffer.append(value.data(), value_size);
   }
 
   // TODO(yuzhangyu): make user defined timestamp work with block hash index.
@@ -256,20 +362,82 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
   }
 
   counter_++;
-  estimate_ += buffer_.size() - buffer_size;
+  estimate_ +=
+      buffer_.size() - buffer_size + values_buffer_.size() - prev_values_size;
 }
 
 const Slice BlockBuilder::MaybeStripTimestampFromKey(std::string* key_buf,
                                                      const Slice& key) {
-  Slice stripped_key = key;
+  // Only use bottom 32 bits of size for internal consistency (see API
+  // comments on Add())
+  Slice stripped_key(key.data(), static_cast<uint32_t>(key.size()));
   if (strip_ts_sz_ > 0) {
     if (is_user_key_) {
       stripped_key.remove_suffix(strip_ts_sz_);
     } else {
-      StripTimestampFromInternalKey(key_buf, key, strip_ts_sz_);
+      StripTimestampFromInternalKey(key_buf, stripped_key, strip_ts_sz_);
       stripped_key = *key_buf;
     }
   }
   return stripped_key;
 }
+
+Slice BlockBuilder::GetRestartKey(uint32_t index, const char* limit) const {
+  assert(index < restarts_.size());
+  const char* p = buffer_.data() + restarts_[index];
+  uint32_t shared;
+  uint32_t non_shared;
+  // When separated KV storage is enabled, restart point entries include an
+  // extra value_offset varint that must be consumed to find the key delta.
+  uint32_t value_offset;
+  uint32_t* value_offset_ptr =
+      use_separated_kv_storage_ ? &value_offset : nullptr;
+  if (use_value_delta_encoding_) {
+    p = DecodeKeyV4()(p, limit, &shared, &non_shared, value_offset_ptr);
+  } else {
+    p = DecodeKey()(p, limit, &shared, &non_shared, value_offset_ptr);
+  }
+  assert(p != nullptr);
+  assert(shared == 0);
+  (void)shared;
+  return Slice(p, non_shared);
+}
+
+bool BlockBuilder::ScanForUniformity() const {
+  if (uniform_cv_threshold_ < 0 || restarts_.size() < 3) {
+    return false;
+  }
+
+  const char* limit = buffer_.data() + buffer_.size();
+
+  Slice first_key = GetRestartKey(0, limit);
+  Slice last_key =
+      GetRestartKey(static_cast<uint32_t>(restarts_.size() - 1), limit);
+
+  // Keys must be long enough for ReadBe64FromKey which strips internal bytes
+  if (!is_user_key_ && (first_key.size() < kNumInternalBytes ||
+                        last_key.size() < kNumInternalBytes)) {
+    return false;
+  }
+
+  size_t prefix_len = first_key.difference_offset(last_key);
+
+  UniformDataTracker tracker;
+  for (size_t i = 0; i < restarts_.size(); i++) {
+    Slice key = GetRestartKey(static_cast<uint32_t>(i), limit);
+    if (!is_user_key_ && key.size() < kNumInternalBytes) {
+      return false;
+    }
+    tracker.AddKey(ReadBe64FromKey(key, is_user_key_, prefix_len));
+  }
+
+  double cv = tracker.GetCV();
+  if (statistics_ != nullptr && cv >= 0) {
+    RecordInHistogram(statistics_, BLOCK_KEY_DISTRIBUTION_CV,
+                      static_cast<uint64_t>(cv * 10000));
+  }
+
+  return cv >= 0 && cv < uniform_cv_threshold_;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

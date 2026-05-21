@@ -40,6 +40,8 @@ class ReadCallback {
 
   inline SequenceNumber max_visible_seq() { return max_visible_seq_; }
 
+  inline SequenceNumber min_uncommitted() const { return min_uncommitted_; }
+
   // Refresh to a more recent visible seq
   virtual void Refresh(SequenceNumber seq) { max_visible_seq_ = seq; }
 

@@ -545,10 +545,10 @@ namespace ribbon {
 // solution satisfying all the cr@start -> rr entries added.
 template <bool kFirstCoeffAlwaysOne, typename BandingStorage,
           typename BacktrackStorage>
-bool BandingAdd(BandingStorage *bs, typename BandingStorage::Index start,
+bool BandingAdd(BandingStorage* bs, typename BandingStorage::Index start,
                 typename BandingStorage::ResultRow rr,
-                typename BandingStorage::CoeffRow cr, BacktrackStorage *bts,
-                typename BandingStorage::Index *backtrack_pos) {
+                typename BandingStorage::CoeffRow cr, BacktrackStorage* bts,
+                typename BandingStorage::Index* backtrack_pos) {
   using CoeffRow = typename BandingStorage::CoeffRow;
   using ResultRow = typename BandingStorage::ResultRow;
   using Index = typename BandingStorage::Index;
@@ -608,8 +608,8 @@ bool BandingAdd(BandingStorage *bs, typename BandingStorage::Index start,
 //
 template <typename BandingStorage, typename BacktrackStorage,
           typename BandingHasher, typename InputIterator>
-bool BandingAddRange(BandingStorage *bs, BacktrackStorage *bts,
-                     const BandingHasher &bh, InputIterator begin,
+bool BandingAddRange(BandingStorage* bs, BacktrackStorage* bts,
+                     const BandingHasher& bh, InputIterator begin,
                      InputIterator end) {
   using CoeffRow = typename BandingStorage::CoeffRow;
   using Index = typename BandingStorage::Index;
@@ -703,7 +703,7 @@ bool BandingAddRange(BandingStorage *bs, BacktrackStorage *bts,
 //
 template <typename BandingStorage, typename BandingHasher,
           typename InputIterator>
-bool BandingAddRange(BandingStorage *bs, const BandingHasher &bh,
+bool BandingAddRange(BandingStorage* bs, const BandingHasher& bh,
                      InputIterator begin, InputIterator end) {
   using Index = typename BandingStorage::Index;
   struct NoopBacktrackStorage {
@@ -754,7 +754,7 @@ bool BandingAddRange(BandingStorage *bs, const BandingHasher &bh,
 // Back-substitution for generating a solution from BandingStorage to
 // SimpleSolutionStorage.
 template <typename SimpleSolutionStorage, typename BandingStorage>
-void SimpleBackSubst(SimpleSolutionStorage *sss, const BandingStorage &bs) {
+void SimpleBackSubst(SimpleSolutionStorage* sss, const BandingStorage& bs) {
   using CoeffRow = typename BandingStorage::CoeffRow;
   using Index = typename BandingStorage::Index;
   using ResultRow = typename BandingStorage::ResultRow;
@@ -815,7 +815,7 @@ template <typename SimpleSolutionStorage>
 typename SimpleSolutionStorage::ResultRow SimpleQueryHelper(
     typename SimpleSolutionStorage::Index start_slot,
     typename SimpleSolutionStorage::CoeffRow cr,
-    const SimpleSolutionStorage &sss) {
+    const SimpleSolutionStorage& sss) {
   using CoeffRow = typename SimpleSolutionStorage::CoeffRow;
   using ResultRow = typename SimpleSolutionStorage::ResultRow;
 
@@ -833,8 +833,8 @@ typename SimpleSolutionStorage::ResultRow SimpleQueryHelper(
 // General PHSF query a key from SimpleSolutionStorage.
 template <typename SimpleSolutionStorage, typename PhsfQueryHasher>
 typename SimpleSolutionStorage::ResultRow SimplePhsfQuery(
-    const typename PhsfQueryHasher::Key &key, const PhsfQueryHasher &hasher,
-    const SimpleSolutionStorage &sss) {
+    const typename PhsfQueryHasher::Key& key, const PhsfQueryHasher& hasher,
+    const SimpleSolutionStorage& sss) {
   const typename PhsfQueryHasher::Hash hash = hasher.GetHash(key);
 
   static_assert(sizeof(typename SimpleSolutionStorage::Index) ==
@@ -850,9 +850,9 @@ typename SimpleSolutionStorage::ResultRow SimplePhsfQuery(
 
 // Filter query a key from SimpleSolutionStorage.
 template <typename SimpleSolutionStorage, typename FilterQueryHasher>
-bool SimpleFilterQuery(const typename FilterQueryHasher::Key &key,
-                       const FilterQueryHasher &hasher,
-                       const SimpleSolutionStorage &sss) {
+bool SimpleFilterQuery(const typename FilterQueryHasher::Key& key,
+                       const FilterQueryHasher& hasher,
+                       const SimpleSolutionStorage& sss) {
   const typename FilterQueryHasher::Hash hash = hasher.GetHash(key);
   const typename SimpleSolutionStorage::ResultRow expected =
       hasher.GetResultRowFromHash(hash);
@@ -968,9 +968,9 @@ bool SimpleFilterQuery(const typename FilterQueryHasher::Key &key,
 
 // A helper for InterleavedBackSubst.
 template <typename BandingStorage>
-inline void BackSubstBlock(typename BandingStorage::CoeffRow *state,
+inline void BackSubstBlock(typename BandingStorage::CoeffRow* state,
                            typename BandingStorage::Index num_columns,
-                           const BandingStorage &bs,
+                           const BandingStorage& bs,
                            typename BandingStorage::Index start_slot) {
   using CoeffRow = typename BandingStorage::CoeffRow;
   using Index = typename BandingStorage::Index;
@@ -1004,8 +1004,8 @@ inline void BackSubstBlock(typename BandingStorage::CoeffRow *state,
 // Back-substitution for generating a solution from BandingStorage to
 // InterleavedSolutionStorage.
 template <typename InterleavedSolutionStorage, typename BandingStorage>
-void InterleavedBackSubst(InterleavedSolutionStorage *iss,
-                          const BandingStorage &bs) {
+void InterleavedBackSubst(InterleavedSolutionStorage* iss,
+                          const BandingStorage& bs) {
   using CoeffRow = typename BandingStorage::CoeffRow;
   using Index = typename BandingStorage::Index;
 
@@ -1084,12 +1084,12 @@ void InterleavedBackSubst(InterleavedSolutionStorage *iss,
 // Prefetch memory for a key in InterleavedSolutionStorage.
 template <typename InterleavedSolutionStorage, typename PhsfQueryHasher>
 inline void InterleavedPrepareQuery(
-    const typename PhsfQueryHasher::Key &key, const PhsfQueryHasher &hasher,
-    const InterleavedSolutionStorage &iss,
-    typename PhsfQueryHasher::Hash *saved_hash,
-    typename InterleavedSolutionStorage::Index *saved_segment_num,
-    typename InterleavedSolutionStorage::Index *saved_num_columns,
-    typename InterleavedSolutionStorage::Index *saved_start_bit) {
+    const typename PhsfQueryHasher::Key& key, const PhsfQueryHasher& hasher,
+    const InterleavedSolutionStorage& iss,
+    typename PhsfQueryHasher::Hash* saved_hash,
+    typename InterleavedSolutionStorage::Index* saved_segment_num,
+    typename InterleavedSolutionStorage::Index* saved_num_columns,
+    typename InterleavedSolutionStorage::Index* saved_start_bit) {
   using Hash = typename PhsfQueryHasher::Hash;
   using CoeffRow = typename InterleavedSolutionStorage::CoeffRow;
   using Index = typename InterleavedSolutionStorage::Index;
@@ -1131,7 +1131,7 @@ inline typename InterleavedSolutionStorage::ResultRow InterleavedPhsfQuery(
     typename InterleavedSolutionStorage::Index segment_num,
     typename InterleavedSolutionStorage::Index num_columns,
     typename InterleavedSolutionStorage::Index start_bit,
-    const PhsfQueryHasher &hasher, const InterleavedSolutionStorage &iss) {
+    const PhsfQueryHasher& hasher, const InterleavedSolutionStorage& iss) {
   using CoeffRow = typename InterleavedSolutionStorage::CoeffRow;
   using Index = typename InterleavedSolutionStorage::Index;
   using ResultRow = typename InterleavedSolutionStorage::ResultRow;
@@ -1170,7 +1170,7 @@ inline bool InterleavedFilterQuery(
     typename InterleavedSolutionStorage::Index segment_num,
     typename InterleavedSolutionStorage::Index num_columns,
     typename InterleavedSolutionStorage::Index start_bit,
-    const FilterQueryHasher &hasher, const InterleavedSolutionStorage &iss) {
+    const FilterQueryHasher& hasher, const InterleavedSolutionStorage& iss) {
   using CoeffRow = typename InterleavedSolutionStorage::CoeffRow;
   using Index = typename InterleavedSolutionStorage::Index;
   using ResultRow = typename InterleavedSolutionStorage::ResultRow;

@@ -29,6 +29,7 @@
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/io_dispatcher.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/table_properties.h"
@@ -41,6 +42,7 @@
 #include "utilities/backup/backup_engine_impl.h"
 #include "utilities/fault_injection_fs.h"
 #include "utilities/fault_injection_secondary_cache.h"
+#include "utilities/trie_index/trie_index_factory.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -63,6 +65,16 @@ std::shared_ptr<const FilterPolicy> CreateFilterPolicy() {
 
 }  // namespace
 
+const std::string& StressTest::GetDbPath() const { return FLAGS_db; }
+
+const std::string& StressTest::GetExpectedValuesDir() const {
+  return FLAGS_expected_values_dir;
+}
+
+const std::string& StressTest::GetSecondariesBase() const {
+  return FLAGS_secondaries_base;
+}
+
 StressTest::StressTest()
     : cache_(NewCache(FLAGS_cache_size, FLAGS_cache_numshardbits)),
       filter_policy_(CreateFilterPolicy()),
@@ -74,25 +86,12 @@ StressTest::StressTest()
       new_column_family_name_(1),
       num_times_reopened_(0),
       db_preload_finished_(false),
-      secondary_db_(nullptr),
-      is_db_stopped_(false) {
+      is_db_stopped_(false),
+      manifest_verify_mode_(MANIFEST_VERIFY_NONE),
+      manifest_file_number_before_reopen_(0),
+      manifest_file_size_before_reopen_(0) {
   if (FLAGS_destroy_db_initially) {
-    std::vector<std::string> files;
-    db_stress_env->GetChildren(FLAGS_db, &files);
-    for (unsigned int i = 0; i < files.size(); i++) {
-      if (Slice(files[i]).starts_with("heap-")) {
-        db_stress_env->DeleteFile(FLAGS_db + "/" + files[i]);
-      }
-    }
-
-    Options options;
-    options.env = db_stress_env;
-    // Remove files without preserving manfiest files
-    const Status s = !FLAGS_use_blob_db
-                         ? DestroyDB(FLAGS_db, options)
-                         : blob_db::DestroyBlobDB(FLAGS_db, options,
-                                                  blob_db::BlobDBOptions());
-
+    const Status s = DbStressDestroyDb(GetDbPath());
     if (!s.ok()) {
       fprintf(stderr, "Cannot destroy original db: %s\n", s.ToString().c_str());
       exit(1);
@@ -109,15 +108,26 @@ StressTest::StressTest()
 }
 
 void StressTest::CleanUp() {
+  // Notify listener before DB close so it can tolerate stale tracking
+  // from skipped notifications during shutdown.
+  NotifyListenerShuttingDown();
   CleanUpColumnFamilies();
   if (db_) {
     db_->Close();
   }
-  delete db_;
+  db_owner_.reset();
   db_ = nullptr;
 
-  delete secondary_db_;
-  secondary_db_ = nullptr;
+  secondary_db_.reset();
+}
+
+void StressTest::NotifyListenerShuttingDown() {
+  for (auto& listener : options_.listeners) {
+    if (strcmp(listener->Name(), DbStressListener::kClassName()) == 0) {
+      static_cast_with_check<DbStressListener>(listener.get())
+          ->NotifyShuttingDown();
+    }
+  }
 }
 
 void StressTest::CleanUpColumnFamilies() {
@@ -167,7 +177,6 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
     }
     CompressedSecondaryCacheOptions opts;
     opts.capacity = FLAGS_compressed_secondary_cache_size;
-    opts.compress_format_version = FLAGS_compress_format_version;
     if (FLAGS_enable_do_not_compress_roles) {
       opts.do_not_compress_roles = {CacheEntryRoleSet::All()};
     }
@@ -769,12 +778,11 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
   }
   if (s.ok()) {
     CleanUpColumnFamilies();
-    delete db_;
+    db_owner_.reset();
     db_ = nullptr;
     txn_db_ = nullptr;
     optimistic_txn_db_ = nullptr;
-    delete secondary_db_;
-    secondary_db_ = nullptr;
+    secondary_db_.reset();
 
     db_preload_finished_.store(true);
     auto now = clock_->NowMicros();
@@ -948,6 +956,22 @@ Status StressTest::CommitTxn(Transaction& txn, ThreadState* thread) {
   return s;
 }
 
+bool StressTest::IsExpectedTxnError(const Status& s) {
+  if ((s.IsDeadlock() || s.IsTimedOut()) &&
+      (FLAGS_use_multiget || FLAGS_use_multi_get_entity)) {
+    return true;
+  }
+  // Optimistic transaction may return TryAgain when memtable history is
+  // insufficient for conflict detection (controlled by
+  // max_write_buffer_size_to_maintain). ExecuteTransaction retries up to 10
+  // times, and if all retries fail, it returns TryAgain. This is an expected
+  // condition and should not crash the stress test.
+  if (s.IsTryAgain() && FLAGS_use_optimistic_txn) {
+    return true;
+  }
+  return false;
+}
+
 Status StressTest::ExecuteTransaction(WriteOptions& write_opts,
                                       ThreadState* thread,
                                       std::function<Status(Transaction&)>&& ops,
@@ -1004,7 +1028,9 @@ void StressTest::OperateDb(ThreadState* thread) {
   read_opts.allow_unprepared_value = FLAGS_allow_unprepared_value;
   read_opts.auto_refresh_iterator_with_snapshot =
       FLAGS_auto_refresh_iterator_with_snapshot;
-
+  if (FLAGS_use_trie_index && !FLAGS_use_udi_as_primary_index && udi_factory_) {
+    read_opts.table_index_factory = udi_factory_.get();
+  }
   WriteOptions write_opts;
   if (FLAGS_rate_limit_auto_wal_flush) {
     write_opts.rate_limiter_priority = Env::IO_USER;
@@ -1053,6 +1079,9 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
       // Commenting this out as we don't want to reset stats on each open.
       // thread->stats.Start();
+      if (FLAGS_use_trie_index && udi_factory_) {
+        read_opts.table_index_factory = udi_factory_.get();
+      }
     }
 
 #ifndef NDEBUG
@@ -1286,6 +1315,11 @@ void StressTest::OperateDb(ThreadState* thread) {
         ProcessStatus(shared, "TestDisableManualCompaction", status);
       }
 
+      if (thread->rand.OneInOpt(FLAGS_abort_and_resume_compactions_one_in)) {
+        Status status = TestAbortAndResumeCompactions(thread);
+        ProcessStatus(shared, "TestAbortAndResumeCompactions", status);
+      }
+
       if (thread->rand.OneInOpt(FLAGS_verify_checksum_one_in)) {
         ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
         ThreadStatusUtil::SetThreadOperation(
@@ -1336,7 +1370,7 @@ void StressTest::OperateDb(ThreadState* thread) {
         uint64_t total_size = 0;
         if (FLAGS_backup_max_size > 0) {
           std::vector<FileAttributes> files;
-          db_stress_env->GetChildrenFileAttributes(FLAGS_db, &files);
+          db_stress_env->GetChildrenFileAttributes(GetDbPath(), &files);
           for (auto& file : files) {
             total_size += file.size_bytes;
           }
@@ -1387,11 +1421,11 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (thread->rand.OneInOpt(FLAGS_key_may_exist_one_in)) {
         TestKeyMayExist(thread, read_opts, rand_column_families, rand_keys);
       }
-      // Prefix-recoverability relies on tracing successful user writes.
-      // Currently we trace all user writes regardless of whether it later
-      // succeeds or not. To simplify, we disable any fault injection during
-      // user write.
-      // TODO(hx235): support tracing user writes with fault injection.
+      // Historical expected-state restore replays exactly
+      // `db->GetLatestSequenceNumber() - saved_seqno_` write ops from the
+      // trace. Missing trace entries are fatal, while extra suffix entries are
+      // tolerated. Keep fault injection disabled during user writes until each
+      // injected failure mode is audited against that contract.
       bool disable_fault_injection_during_user_write =
           fault_fs_guard && MightHaveUnsyncedDataLoss();
       int prob_op = thread->rand.Uniform(100);
@@ -1706,6 +1740,14 @@ Status StressTest::TestMultiScan(ThreadState* thread,
       FLAGS_multiscan_use_async_io &&
       CheckFSFeatureSupport(options_.env->GetFileSystem().get(),
                             FSSupportedOps::kAsyncIO);
+  std::shared_ptr<IODispatcher> io_dispatcher;
+  if (FLAGS_multiscan_max_prefetch_memory_bytes > 0) {
+    IODispatcherOptions io_opts;
+    io_opts.max_prefetch_memory_bytes =
+        FLAGS_multiscan_max_prefetch_memory_bytes;
+    io_dispatcher.reset(NewIODispatcher(io_opts));
+    scan_opts.io_dispatcher = io_dispatcher;
+  }
   start_key_strs.reserve(num_scans);
   end_key_strs.reserve(num_scans);
 
@@ -1801,7 +1843,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
     }
 
     VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
-                   key, op_logs, verify_func, &diverged);
+                   key, rand_column_families, op_logs, verify_func, &diverged);
 
     while (iter->Valid()) {
       iter->Next();
@@ -1828,7 +1870,8 @@ Status StressTest::TestMultiScan(ThreadState* thread,
       }
 
       VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
-                     key, op_logs, verify_func, &diverged);
+                     key, rand_column_families, op_logs, verify_func,
+                     &diverged);
 
       if (diverged) {
         if (thread->shared->HasVerificationFailedYet()) {
@@ -1990,7 +2033,11 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
 
     Slice key(key_str);
 
-    const bool support_seek_first_or_last = expect_total_order;
+    const bool support_seek_to_first =
+        expect_total_order && FLAGS_test_backward_scan;
+    const bool support_seek_to_last =
+        expect_total_order && FLAGS_test_backward_scan;
+    const bool support_seek_for_prev = FLAGS_test_backward_scan;
 
     // Write-prepared and Write-unprepared and multi-cf-iterator do not support
     // Refresh() yet.
@@ -2005,17 +2052,17 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
     }
 
     LastIterateOp last_op;
-    if (support_seek_first_or_last && thread->rand.OneIn(100)) {
+    if (support_seek_to_first && thread->rand.OneIn(100)) {
       iter->SeekToFirst();
       cmp_iter->SeekToFirst();
       last_op = kLastOpSeekToFirst;
       op_logs += "STF ";
-    } else if (support_seek_first_or_last && thread->rand.OneIn(100)) {
+    } else if (support_seek_to_last && thread->rand.OneIn(100)) {
       iter->SeekToLast();
       cmp_iter->SeekToLast();
       last_op = kLastOpSeekToLast;
       op_logs += "STL ";
-    } else if (thread->rand.OneIn(8)) {
+    } else if (support_seek_for_prev && thread->rand.OneIn(8)) {
       iter->SeekForPrev(key);
       cmp_iter->SeekForPrev(key);
       last_op = kLastOpSeekForPrev;
@@ -2044,10 +2091,11 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
     }
 
     VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
-                   key, op_logs, verify_func, &diverged);
+                   key, rand_column_families, op_logs, verify_func, &diverged);
 
     const bool no_reverse =
-        (FLAGS_memtablerep == "prefix_hash" && !expect_total_order);
+        (FLAGS_memtablerep == "prefix_hash" && !expect_total_order) ||
+        !FLAGS_test_backward_scan;
     for (uint64_t i = 0; i < FLAGS_num_iterations && iter->Valid(); ++i) {
       if (no_reverse || thread->rand.OneIn(2)) {
         iter->Next();
@@ -2084,7 +2132,8 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
       }
 
       VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
-                     key, op_logs, verify_func, &diverged);
+                     key, rand_column_families, op_logs, verify_func,
+                     &diverged);
     }
 
     thread->stats.AddIterations(1);
@@ -2109,8 +2158,9 @@ Status StressTest::TestGetLiveFilesMetaData() const {
 
 Status StressTest::TestGetLiveFilesStorageInfo() const {
   std::vector<LiveFileStorageInfo> live_file_storage_info;
-  return db_->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(),
-                                      &live_file_storage_info);
+  LiveFilesStorageInfoOptions live_opts;
+  live_opts.atomic_flush = FLAGS_checkpoint_atomic_flush;
+  return db_->GetLiveFilesStorageInfo(live_opts, &live_file_storage_info);
 }
 
 Status StressTest::TestGetAllColumnFamilyMetaData() const {
@@ -2129,6 +2179,99 @@ Status StressTest::TestGetCurrentWalFile() const {
   return db_->GetCurrentWalFile(&cur_wal_file);
 }
 
+void StressTest::DumpIteratorDivergenceDiagnostics(
+    ColumnFamilyHandle* cmp_cfh, const ReadOptions& ro, const Slice& seek_key,
+    const std::vector<int>& rand_column_families) const {
+  fprintf(stderr,
+          "Iterator divergence diagnostics: seek_key=%s, cmp_cf=%s, "
+          "prefix_extractor=%d, using_udi=%d, use_multi_cf_iterator=%d, "
+          "selected_cf_count=%zu\n",
+          seek_key.ToString(/*hex=*/true).c_str(), cmp_cfh->GetName().c_str(),
+          static_cast<int>(options_.prefix_extractor != nullptr),
+          static_cast<int>(ro.table_index_factory != nullptr),
+          static_cast<int>(FLAGS_use_multi_cf_iterator),
+          rand_column_families.size());
+
+  auto make_debug_iter =
+      [&](const ReadOptions& debug_ro,
+          bool use_multi_cf_iter) -> std::unique_ptr<Iterator> {
+    if (use_multi_cf_iter) {
+      std::vector<ColumnFamilyHandle*> cfhs;
+      cfhs.reserve(rand_column_families.size());
+      for (int cf_index : rand_column_families) {
+        cfhs.emplace_back(column_families_[cf_index]);
+      }
+      return db_->NewCoalescingIterator(debug_ro, cfhs);
+    }
+    return std::unique_ptr<Iterator>(db_->NewIterator(debug_ro, cmp_cfh));
+  };
+
+  auto dump_debug_iter = [&](const char* label, const ReadOptions& debug_ro,
+                             bool use_multi_cf_iter) {
+    auto debug_iter = make_debug_iter(debug_ro, use_multi_cf_iter);
+    debug_iter->Seek(seek_key);
+
+    std::string sv_number;
+    const Status prop_s = debug_iter->GetProperty(
+        "rocksdb.iterator.super-version-number", &sv_number);
+    fprintf(stderr,
+            "%s before_prepare: valid=%d, status=%s, sv=%s, key=%s, "
+            "value_size=%zu\n",
+            label, static_cast<int>(debug_iter->Valid()),
+            debug_iter->status().ToString().c_str(),
+            prop_s.ok() ? sv_number.c_str() : prop_s.ToString().c_str(),
+            debug_iter->Valid() ? debug_iter->key().ToString(true).c_str()
+                                : "(invalid)",
+            debug_iter->Valid() ? debug_iter->value().size() : 0U);
+
+    if (!debug_iter->Valid()) {
+      return;
+    }
+
+    bool prepared = true;
+    if (debug_ro.allow_unprepared_value) {
+      prepared = debug_iter->PrepareValue();
+    }
+
+    fprintf(stderr,
+            "%s after_prepare: prepared=%d, valid=%d, status=%s, key=%s, "
+            "value_size=%zu, columns=%zu, wide_columns_ok=%d\n",
+            label, static_cast<int>(prepared),
+            static_cast<int>(debug_iter->Valid()),
+            debug_iter->status().ToString().c_str(),
+            debug_iter->Valid() ? debug_iter->key().ToString(true).c_str()
+                                : "(invalid)",
+            debug_iter->Valid() ? debug_iter->value().size() : 0U,
+            debug_iter->Valid() ? debug_iter->columns().size() : 0U,
+            static_cast<int>(
+                debug_iter->Valid() &&
+                VerifyWideColumns(debug_iter->value(), debug_iter->columns())));
+  };
+
+  ReadOptions standard_ro = ro;
+  standard_ro.table_index_factory = nullptr;
+  dump_debug_iter("Debug standard direct", standard_ro,
+                  /*use_multi_cf_iter=*/false);
+
+  if (udi_factory_) {
+    ReadOptions trie_ro = ro;
+    trie_ro.table_index_factory = udi_factory_.get();
+    dump_debug_iter("Debug trie direct", trie_ro,
+                    /*use_multi_cf_iter=*/false);
+  }
+
+  if (FLAGS_use_multi_cf_iterator) {
+    dump_debug_iter("Debug standard coalescing", standard_ro,
+                    /*use_multi_cf_iter=*/true);
+    if (udi_factory_) {
+      ReadOptions trie_ro = ro;
+      trie_ro.table_index_factory = udi_factory_.get();
+      dump_debug_iter("Debug trie coalescing", trie_ro,
+                      /*use_multi_cf_iter=*/true);
+    }
+  }
+}
+
 // Compare the two iterator, iter and cmp_iter are in the same position,
 // unless iter might be made invalidate or undefined because of
 // upper or lower bounds, or prefix extractor.
@@ -2139,7 +2282,8 @@ template <typename IterType, typename VerifyFuncType>
 void StressTest::VerifyIterator(
     ThreadState* thread, ColumnFamilyHandle* cmp_cfh, const ReadOptions& ro,
     IterType* iter, Iterator* cmp_iter, LastIterateOp op, const Slice& seek_key,
-    const std::string& op_logs, VerifyFuncType verify_func, bool* diverged) {
+    const std::vector<int>& rand_column_families, const std::string& op_logs,
+    VerifyFuncType verify_func, bool* diverged) {
   assert(diverged);
 
   if (*diverged) {
@@ -2186,6 +2330,21 @@ void StressTest::VerifyIterator(
     // seek key or lower bound. Disable the check for now.
     *diverged = true;
     return;
+  }
+
+  if (!ro.total_order_seek && options_.prefix_extractor != nullptr &&
+      ro.iterate_lower_bound != nullptr) {
+    const SliceTransform* prefix_extractor = options_.prefix_extractor.get();
+    if (!prefix_extractor->InDomain(seek_key) ||
+        !prefix_extractor->InDomain(*ro.iterate_lower_bound) ||
+        prefix_extractor->Transform(seek_key) !=
+            prefix_extractor->Transform(*ro.iterate_lower_bound)) {
+      // ReadOptions requires the seek target and iterate_lower_bound to share
+      // a prefix when prefix iteration is enabled. Skip verification for this
+      // undefined configuration.
+      *diverged = true;
+      return;
+    }
   }
 
   const SliceTransform* pe = (ro.total_order_seek || ro.auto_prefix_mode)
@@ -2311,6 +2470,8 @@ void StressTest::VerifyIterator(
   }
 
   if (*diverged) {
+    DumpIteratorDivergenceDiagnostics(cmp_cfh, ro, seek_key,
+                                      rand_column_families);
     fprintf(stderr, "VerifyIterator failed. Control CF %s\n",
             cmp_cfh->GetName().c_str());
     thread->stats.AddErrors(1);
@@ -2332,9 +2493,9 @@ Status StressTest::TestBackupRestore(
   }
 
   const std::string backup_dir =
-      FLAGS_db + "/.backup" + std::to_string(thread->tid);
+      GetDbPath() + "/.backup" + std::to_string(thread->tid);
   const std::string restore_dir =
-      FLAGS_db + "/.restore" + std::to_string(thread->tid);
+      GetDbPath() + "/.restore" + std::to_string(thread->tid);
   BackupEngineOptions backup_opts(backup_dir);
   // For debugging, get info_log from live options
   backup_opts.info_log = db_->GetDBOptions().info_log.get();
@@ -2437,11 +2598,19 @@ Status StressTest::TestBackupRestore(
       // lock and wait on a background operation (flush).
       create_opts.flush_before_backup = true;
     }
+    if (FLAGS_atomic_flush) {
+      // When atomic flush is enabled for the DB, use it for backup too.
+      // This ensures cross-CF consistency without needing WAL files.
+      // flush_before_backup must be true for atomic_flush to take effect.
+      create_opts.flush_before_backup = true;
+      create_opts.atomic_flush = true;
+    }
     create_opts.decrease_background_thread_cpu_priority = thread->rand.OneIn(2);
     create_opts.background_thread_cpu_priority = static_cast<CpuPriority>(
         thread->rand.Next() % (static_cast<int>(CpuPriority::kHigh) + 1));
     create_backup_opt_oss << "flush_before_backup: "
                           << create_opts.flush_before_backup
+                          << ", atomic_flush: " << create_opts.atomic_flush
                           << ", decrease_background_thread_cpu_priority: "
                           << create_opts.decrease_background_thread_cpu_priority
                           << ", background_thread_cpu_priority: "
@@ -2517,7 +2686,7 @@ Status StressTest::TestBackupRestore(
       from = "BackupEngine::PurgeOldBackups";
     }
   }
-  DB* restored_db = nullptr;
+  std::unique_ptr<DB> restored_db;
   std::vector<ColumnFamilyHandle*> restored_cf_handles;
 
   // Not yet implemented: opening restored BlobDB or TransactionDB
@@ -2605,8 +2774,7 @@ Status StressTest::TestBackupRestore(
     for (auto* cf_handle : restored_cf_handles) {
       restored_db->DestroyColumnFamilyHandle(cf_handle);
     }
-    delete restored_db;
-    restored_db = nullptr;
+    restored_db.reset();
   }
   if (s.ok() && inplace_not_restore) {
     // Purge late if inplace open read-only
@@ -2760,7 +2928,8 @@ Status StressTest::TestApproximateSize(
     // Call GetApproximateSizes
     SizeApproximationOptions sao;
     sao.include_memtables = thread->rand.OneIn(2);
-    if (sao.include_memtables) {
+    sao.include_blob_files = thread->rand.OneIn(2);
+    if (sao.include_memtables || sao.include_blob_files) {
       sao.include_files = thread->rand.OneIn(2);
     }
     if (thread->rand.OneIn(2)) {
@@ -2790,7 +2959,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   }
 
   std::string checkpoint_dir =
-      FLAGS_db + "/.checkpoint" + std::to_string(thread->tid);
+      GetDbPath() + "/.checkpoint" + std::to_string(thread->tid);
   Options tmp_opts(options_);
   tmp_opts.listeners.clear();
   tmp_opts.env = db_stress_env;
@@ -2841,7 +3010,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   delete checkpoint;
   checkpoint = nullptr;
   std::vector<ColumnFamilyHandle*> cf_handles;
-  DB* checkpoint_db = nullptr;
+  std::unique_ptr<DB> checkpoint_db;
   if (s.ok()) {
     Options options(options_);
     options.best_efforts_recovery = false;
@@ -2905,8 +3074,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
       delete cfh;
     }
     cf_handles.clear();
-    delete checkpoint_db;
-    checkpoint_db = nullptr;
+    checkpoint_db.reset();
   }
 
   //  Temporarily disable error injection for clean-up
@@ -3062,8 +3230,9 @@ void StressTest::TestCompactFiles(ThreadState* thread,
         // TOOD (hx235): allow an exact list of tolerable failures under stress
         // test
         bool non_ok_status_allowed =
-            s.IsManualCompactionPaused() || IsErrorInjectedAndRetryable(s) ||
-            s.IsAborted() || s.IsInvalidArgument() || s.IsNotSupported();
+            s.IsManualCompactionPaused() || s.IsCompactionAborted() ||
+            IsErrorInjectedAndRetryable(s) || s.IsAborted() ||
+            s.IsInvalidArgument() || s.IsNotSupported();
         if (!non_ok_status_allowed) {
           fprintf(stderr,
                   "Unable to perform CompactFiles(): %s under specified "
@@ -3153,6 +3322,20 @@ Status StressTest::TestDisableManualCompaction(ThreadState* thread) {
       std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
   clock_->SleepForMicroseconds(1 << pwr2_micros);
   db_->EnableManualCompaction();
+  return Status::OK();
+}
+
+Status StressTest::TestAbortAndResumeCompactions(ThreadState* thread) {
+  // Abort all running compactions and prevent new ones from starting
+  db_->AbortAllCompactions();
+  // Sleep to allow other threads to attempt operations while aborted
+  // Uses same sleep pattern as TestPauseBackground and
+  // TestDisableManualCompaction
+  int pwr2_micros =
+      std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
+  clock_->SleepForMicroseconds(1 << pwr2_micros);
+  // Resume compactions
+  db_->ResumeAllCompactions();
   return Status::OK();
 }
 
@@ -3331,7 +3514,7 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
   if (!status.ok()) {
     // TOOD (hx235): allow an exact list of tolerable failures under stress test
     bool non_ok_status_allowed =
-        status.IsManualCompactionPaused() ||
+        status.IsManualCompactionPaused() || status.IsCompactionAborted() ||
         IsErrorInjectedAndRetryable(status) || status.IsAborted() ||
         status.IsInvalidArgument() || status.IsNotSupported();
     if (!non_ok_status_allowed) {
@@ -3589,6 +3772,10 @@ void StressTest::PrintEnv() const {
           static_cast<int>(FLAGS_avoid_unnecessary_blocking_io));
   fprintf(stdout, "Write DB ID to manifest   : %d\n",
           static_cast<int>(FLAGS_write_dbid_to_manifest));
+  fprintf(stdout, "Optimize manifest recovery: %d\n",
+          static_cast<int>(FLAGS_optimize_manifest_for_recovery));
+  fprintf(stdout, "Reuse manifest on open    : %d\n",
+          static_cast<int>(FLAGS_reuse_manifest_on_open));
   fprintf(stdout, "Max Write Batch Group Size: %" PRIu64 "\n",
           FLAGS_max_write_batch_group_size_bytes);
   fprintf(stdout, "Use dynamic level         : %d\n",
@@ -3623,6 +3810,8 @@ void StressTest::PrintEnv() const {
           FLAGS_wal_compression.c_str());
   fprintf(stdout, "Try verify sst unique id  : %d\n",
           static_cast<int>(FLAGS_verify_sst_unique_id_in_manifest));
+  fprintf(stdout, "Fast SST open             : %d\n",
+          static_cast<int>(FLAGS_fast_sst_open));
 
   fprintf(stdout, "------------------------------------------------\n");
 }
@@ -3631,8 +3820,12 @@ void StressTest::Open(SharedState* shared, bool reopen) {
   assert(db_ == nullptr);
   assert(txn_db_ == nullptr);
   assert(optimistic_txn_db_ == nullptr);
+  const auto& db_path = GetDbPath();
+  if (FLAGS_use_trie_index) {
+    udi_factory_ = std::make_shared<trie_index::TrieIndexFactory>();
+  }
   if (!InitializeOptionsFromFile(options_)) {
-    InitializeOptionsFromFlags(cache_, filter_policy_, options_);
+    InitializeOptionsFromFlags(cache_, filter_policy_, udi_factory_, options_);
   }
   InitializeOptionsGeneral(cache_, filter_policy_, sqfc_factory_, options_);
   DbStressCustomCompressionManager::Register();
@@ -3670,13 +3863,6 @@ void StressTest::Open(SharedState* shared, bool reopen) {
 
   // Remote Compaction
   if (FLAGS_remote_compaction_worker_threads > 0) {
-    // TODO(jaykorean) Remove this after fix - remote worker shouldn't recover
-    // from WAL
-    if (!FLAGS_disable_wal) {
-      fprintf(stderr,
-              "WAL is not compatible with Remote Compaction in Stress Test\n");
-      exit(1);
-    }
     if ((options_.enable_blob_files ||
          options_.enable_blob_garbage_collection ||
          FLAGS_allow_setting_blob_options_dynamically)) {
@@ -3713,12 +3899,14 @@ void StressTest::Open(SharedState* shared, bool reopen) {
 
   fprintf(stdout,
           "Integrated BlobDB: blob files enabled %d, min blob size %" PRIu64
+          ", direct write enabled %d, direct write partitions %" PRIu32
           ", blob file size %" PRIu64
           ", blob compression type %s, blob GC enabled %d, cutoff %f, force "
           "threshold %f, blob compaction readahead size %" PRIu64
           ", blob file starting level %d\n",
           options_.enable_blob_files, options_.min_blob_size,
-          options_.blob_file_size,
+          options_.enable_blob_direct_write,
+          options_.blob_direct_write_partitions, options_.blob_file_size,
           CompressionTypeToString(options_.blob_compression_type).c_str(),
           options_.enable_blob_garbage_collection,
           options_.blob_garbage_collection_age_cutoff,
@@ -3742,13 +3930,13 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
   }
 
-  fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
+  fprintf(stdout, "DB path: [%s]\n", db_path.c_str());
 
   Status s;
 
   if (FLAGS_ttl == -1) {
     std::vector<std::string> existing_column_families;
-    s = DB::ListColumnFamilies(DBOptions(options_), FLAGS_db,
+    s = DB::ListColumnFamilies(DBOptions(options_), db_path,
                                &existing_column_families);  // ignore errors
     if (!s.ok()) {
       // DB doesn't exist
@@ -3796,10 +3984,22 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     }
 
     options_.listeners.clear();
-    options_.listeners.emplace_back(
-        new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors,
-                             db_stress_listener_env, shared));
+    options_.listeners.emplace_back(new DbStressListener(
+        db_path, options_.db_paths, cf_descriptors, shared));
     RegisterAdditionalListeners();
+
+    if (!FLAGS_listener_uri.empty()) {
+      std::shared_ptr<EventListener> listener;
+      Status listener_status =
+          ObjectRegistry::Default()->NewSharedObject<EventListener>(
+              FLAGS_listener_uri, &listener);
+      if (!listener_status.ok()) {
+        fprintf(stderr, "Failed to create listener from URI '%s': %s\n",
+                FLAGS_listener_uri.c_str(), listener_status.ToString().c_str());
+        exit(1);
+      }
+      options_.listeners.emplace_back(std::move(listener));
+    }
 
     // If this is for DB reopen,  error injection may have been enabled.
     // Disable it here in case there is no open fault injection.
@@ -3818,8 +4018,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       if ((inject_sync_fault || inject_open_meta_read_error ||
            inject_open_meta_write_error || inject_open_read_error ||
            inject_open_write_error) &&
-          fault_fs_guard
-              ->FileExists(FLAGS_db + "/CURRENT", IOOptions(), nullptr)
+          fault_fs_guard->FileExists(db_path + "/CURRENT", IOOptions(), nullptr)
               .ok()) {
         if (inject_sync_fault || inject_open_write_error) {
           fault_fs_guard->SetFilesystemDirectWritable(false);
@@ -3859,26 +4058,28 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         // StackableDB-based BlobDB
         if (FLAGS_use_blob_db) {
           blob_db::BlobDBOptions blob_db_options;
-          blob_db_options.min_blob_size = FLAGS_blob_db_min_blob_size;
-          blob_db_options.bytes_per_sync = FLAGS_blob_db_bytes_per_sync;
           blob_db_options.blob_file_size = FLAGS_blob_db_file_size;
           blob_db_options.enable_garbage_collection = FLAGS_blob_db_enable_gc;
-          blob_db_options.garbage_collection_cutoff = FLAGS_blob_db_gc_cutoff;
 
           blob_db::BlobDB* blob_db = nullptr;
-          s = blob_db::BlobDB::Open(options_, blob_db_options, FLAGS_db,
+          s = blob_db::BlobDB::Open(options_, blob_db_options, db_path,
                                     cf_descriptors, &column_families_,
                                     &blob_db);
           if (s.ok()) {
+            db_owner_.reset(blob_db);
             db_ = blob_db;
           }
         } else {
           if (db_preload_finished_.load() && FLAGS_read_only) {
-            s = DB::OpenForReadOnly(DBOptions(options_), FLAGS_db,
-                                    cf_descriptors, &column_families_, &db_);
+            s = DB::OpenForReadOnly(DBOptions(options_), db_path,
+                                    cf_descriptors, &column_families_,
+                                    &db_owner_);
           } else {
-            s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
-                         &column_families_, &db_);
+            s = DB::Open(DBOptions(options_), db_path, cf_descriptors,
+                         &column_families_, &db_owner_);
+          }
+          if (s.ok()) {
+            db_ = db_owner_.get();
           }
         }
 
@@ -3894,10 +4095,9 @@ void StressTest::Open(SharedState* shared, bool reopen) {
             s = db_->GetRootDB()->WaitForCompact(WaitForCompactOptions());
             if (!s.ok()) {
               CleanUpColumnFamilies();
-              delete db_;
+              db_owner_.reset();
               db_ = nullptr;
-              delete secondary_db_;
-              secondary_db_ = nullptr;
+              secondary_db_.reset();
             }
           }
           if (!s.ok()) {
@@ -3945,7 +4145,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
           optimistic_txn_db_options.shared_lock_buckets = nullptr;
         }
         s = OptimisticTransactionDB::Open(
-            options_, optimistic_txn_db_options, FLAGS_db, cf_descriptors,
+            options_, optimistic_txn_db_options, db_path, cf_descriptors,
             &column_families_, &optimistic_txn_db_);
         if (!s.ok()) {
           fprintf(stderr, "Error in opening the OptimisticTransactionDB [%s]\n",
@@ -3954,11 +4154,16 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         }
         assert(s.ok());
         {
+          db_owner_.reset(optimistic_txn_db_);
           db_ = optimistic_txn_db_;
           db_aptr_.store(optimistic_txn_db_, std::memory_order_release);
         }
       } else {
         TransactionDBOptions txn_db_options;
+        // Match the 10-minute lock_timeout used for explicit transactions
+        // in NewTxn(), rather than the 1-second default which is too short
+        // for stress tests under heavy contention (see T228932399).
+        txn_db_options.default_lock_timeout = 600000;
         assert(FLAGS_txn_write_policy <= TxnDBWritePolicy::WRITE_UNPREPARED);
         txn_db_options.write_policy =
             static_cast<TxnDBWritePolicy>(FLAGS_txn_write_policy);
@@ -3978,7 +4183,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         txn_db_options.use_per_key_point_lock_mgr =
             FLAGS_use_per_key_point_lock_mgr;
         PrepareTxnDbOptions(shared, txn_db_options);
-        s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
+        s = TransactionDB::Open(options_, txn_db_options, db_path,
                                 cf_descriptors, &column_families_, &txn_db_);
         if (!s.ok()) {
           fprintf(stderr, "Error in opening the TransactionDB [%s]\n",
@@ -3989,6 +4194,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
 
         // Do not swap the order of the following.
         {
+          db_owner_.reset(txn_db_);
           db_ = txn_db_;
           db_aptr_.store(txn_db_, std::memory_order_release);
         }
@@ -4017,16 +4223,17 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       // TODO(yanqin) support max_open_files != -1 for secondary instance.
       tmp_opts.max_open_files = -1;
       tmp_opts.env = db_stress_env;
-      const std::string& secondary_path = FLAGS_secondaries_base;
-      s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
-                              cf_descriptors, &secondary_cfhs_, &secondary_db_);
+      const std::string& secondary_path = GetSecondariesBase();
+      s = DB::OpenAsSecondary(tmp_opts, db_path, secondary_path, cf_descriptors,
+                              &secondary_cfhs_, &secondary_db_);
       assert(s.ok());
       assert(secondary_cfhs_.size() ==
              static_cast<size_t>(FLAGS_column_families));
     }
   } else {
     DBWithTTL* db_with_ttl;
-    s = DBWithTTL::Open(options_, FLAGS_db, &db_with_ttl, FLAGS_ttl);
+    s = DBWithTTL::Open(options_, db_path, &db_with_ttl, FLAGS_ttl);
+    db_owner_.reset(db_with_ttl);
     db_ = db_with_ttl;
   }
 
@@ -4059,9 +4266,256 @@ void StressTest::Open(SharedState* shared, bool reopen) {
   }
 }
 
+void StressTest::RecordManifestStateBeforeReopen() {
+  // Determine verification mode based on flags
+  if (FLAGS_best_efforts_recovery) {
+    // Options are disabled in BER mode
+    manifest_verify_mode_ = MANIFEST_VERIFY_NONE;
+    return;
+  }
+
+  const bool optimize_manifest = FLAGS_optimize_manifest_for_recovery;
+  const bool reuse_manifest = FLAGS_reuse_manifest_on_open;
+
+  if (!optimize_manifest && !reuse_manifest) {
+    manifest_verify_mode_ = MANIFEST_VERIFY_NONE;
+    return;
+  }
+
+  if (reuse_manifest && optimize_manifest) {
+    // Check if ALL conditions for complete avoidance are met.
+    // If so, use STRICT mode where failures are fatal.
+    const bool no_fault_injection = FLAGS_metadata_write_fault_one_in == 0 &&
+                                    FLAGS_open_metadata_write_fault_one_in == 0;
+    const bool no_manifest_writes_expected =
+        FLAGS_avoid_flush_during_recovery &&  // No flush during recovery
+        !FLAGS_write_dbid_to_manifest &&      // No DB_ID write on open
+        no_fault_injection;
+    // Note: avoid_flush_during_shutdown is NOT required for STRICT mode.
+    // If avoid_flush_during_shutdown=true leaves data in WAL, but
+    // avoid_flush_during_recovery=true prevents flushing it, so MANIFEST
+    // still won't be written. Complete avoidance is still achieved.
+
+    if (no_manifest_writes_expected) {
+      // All conditions met for complete MANIFEST write avoidance.
+      // Any MANIFEST write is a bug - make it fatal.
+      manifest_verify_mode_ = MANIFEST_VERIFY_STRICT;
+    } else {
+      // Both options enabled but some conditions prevent complete avoidance.
+      // Use NO_WRITE mode with warnings.
+      manifest_verify_mode_ = MANIFEST_VERIFY_NO_WRITE;
+    }
+  } else if (reuse_manifest) {
+    manifest_verify_mode_ = MANIFEST_VERIFY_REUSE;
+  } else {
+    // Only optimize_manifest_for_recovery is enabled without
+    // reuse_manifest_on_open. The optimize_manifest_for_recovery option reduces
+    // MANIFEST writes during recovery by skipping no-op edits (edits that don't
+    // change the VersionSet state). However, without reuse_manifest_on_open,
+    // the MANIFEST file may still be recreated on DB open as part of the normal
+    // open process. Verifying that the optimization worked (i.e., fewer edits
+    // were written during recovery) would require intrusive sync points or
+    // internal counters to track how many edits were skipped. Since we can't
+    // easily observe this from the outside without such instrumentation, we
+    // skip verification in this configuration.
+    manifest_verify_mode_ = MANIFEST_VERIFY_NONE;
+    return;
+  }
+
+  // Record MANIFEST file info
+  std::vector<std::string> files;
+  Status s = Env::Default()->GetChildren(FLAGS_db, &files);
+  if (!s.ok()) {
+    fprintf(
+        stderr,
+        "Warning: Failed to list DB directory for MANIFEST verification: %s\n",
+        s.ToString().c_str());
+    manifest_verify_mode_ = MANIFEST_VERIFY_NONE;
+    return;
+  }
+
+  manifest_file_number_before_reopen_ = 0;
+  manifest_file_size_before_reopen_ = 0;
+
+  for (const auto& f : files) {
+    if (f.find("MANIFEST-") == 0) {
+      // Extract file number from MANIFEST-xxxxxx
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(f, &number, &type) && type == kDescriptorFile) {
+        manifest_file_number_before_reopen_ = number;
+        std::string manifest_path = FLAGS_db + "/" + f;
+        Status file_s = Env::Default()->GetFileSize(
+            manifest_path, &manifest_file_size_before_reopen_);
+        if (!file_s.ok()) {
+          fprintf(stderr, "Warning: Failed to get MANIFEST file size: %s\n",
+                  file_s.ToString().c_str());
+          manifest_verify_mode_ = MANIFEST_VERIFY_NONE;
+          return;
+        }
+        break;
+      }
+    }
+  }
+
+  // Record CURRENT file content for both REUSE_ONLY and REUSE_AND_CURRENT
+  // modes. If the MANIFEST file is reused (same file number), CURRENT should
+  // not be updated since it already points to the correct MANIFEST.
+  std::string current_path = FLAGS_db + "/CURRENT";
+  s = ReadFileToString(Env::Default(), current_path,
+                       &current_file_content_before_reopen_);
+  if (!s.ok()) {
+    fprintf(stderr, "Warning: Failed to read CURRENT file: %s\n",
+            s.ToString().c_str());
+    // Clear the content so we skip CURRENT verification later
+    current_file_content_before_reopen_.clear();
+  }
+}
+
+void StressTest::VerifyManifestNotRewritten() {
+  if (manifest_verify_mode_ == MANIFEST_VERIFY_NONE) {
+    return;
+  }
+
+  const bool strict_mode = (manifest_verify_mode_ == MANIFEST_VERIFY_STRICT);
+
+  // Get current MANIFEST file info
+  std::vector<std::string> files;
+  Status s = Env::Default()->GetChildren(FLAGS_db, &files);
+  if (!s.ok()) {
+    fprintf(
+        stderr,
+        "Warning: Failed to list DB directory for MANIFEST verification: %s\n",
+        s.ToString().c_str());
+    manifest_verify_mode_ = MANIFEST_VERIFY_NONE;
+    return;
+  }
+
+  uint64_t current_manifest_number = 0;
+  uint64_t current_manifest_size = 0;
+
+  for (const auto& f : files) {
+    if (f.find("MANIFEST-") == 0) {
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(f, &number, &type) && type == kDescriptorFile) {
+        current_manifest_number = number;
+        std::string manifest_path = FLAGS_db + "/" + f;
+        Env::Default()->GetFileSize(manifest_path, &current_manifest_size);
+        break;
+      }
+    }
+  }
+
+  // Check MANIFEST reuse
+  if (current_manifest_number != manifest_file_number_before_reopen_) {
+    if (strict_mode) {
+      fprintf(stderr,
+              "FATAL: MANIFEST file was recreated despite "
+              "reuse_manifest_on_open=1 and all conditions for complete "
+              "avoidance being met. "
+              "Before: MANIFEST-%06" PRIu64 ", After: MANIFEST-%06" PRIu64 "\n",
+              manifest_file_number_before_reopen_, current_manifest_number);
+      fprintf(stderr, "This indicates a bug in the MANIFEST optimization.\n");
+      exit(1);
+    } else {
+      fprintf(stdout,
+              "WARNING: MANIFEST file was recreated despite "
+              "reuse_manifest_on_open=1. "
+              "Before: MANIFEST-%06" PRIu64 ", After: MANIFEST-%06" PRIu64 "\n",
+              manifest_file_number_before_reopen_, current_manifest_number);
+    }
+  } else {
+    // MANIFEST was reused, check size growth
+    const uint64_t size_growth =
+        (current_manifest_size > manifest_file_size_before_reopen_)
+            ? (current_manifest_size - manifest_file_size_before_reopen_)
+            : 0;
+    if (manifest_verify_mode_ == MANIFEST_VERIFY_NO_WRITE ||
+        manifest_verify_mode_ == MANIFEST_VERIFY_STRICT) {
+      // In NO_WRITE/STRICT mode, we expect complete avoidance - zero growth.
+      // This is the D103568447 guarantee: when both options are enabled
+      // and no recovery is needed, MANIFEST should not be written at all.
+      if (size_growth > 0) {
+        if (strict_mode) {
+          fprintf(stderr,
+                  "FATAL: MANIFEST file grew by %" PRIu64
+                  " bytes after reopen despite ALL conditions for complete "
+                  "avoidance being met:\n"
+                  "  - optimize_manifest_for_recovery=1\n"
+                  "  - reuse_manifest_on_open=1\n"
+                  "  - avoid_flush_during_recovery=true\n"
+                  "  - write_dbid_to_manifest=0\n"
+                  "  - No fault injection\n"
+                  "  - Not in BER mode\n"
+                  "Expected complete avoidance (0 bytes growth). "
+                  "This indicates a bug in the MANIFEST optimization.\n",
+                  size_growth);
+          exit(1);
+        } else {
+          fprintf(stdout,
+                  "WARNING: MANIFEST file grew by %" PRIu64
+                  " bytes after reopen despite both "
+                  "optimize_manifest_for_recovery=1 and "
+                  "reuse_manifest_on_open=1. "
+                  "Expected complete avoidance (0 bytes growth).\n",
+                  size_growth);
+        }
+      }
+    } else {
+      // In REUSE mode, allow up to 10KB growth for recovery edits
+      if (size_growth > 10240) {
+        fprintf(stdout,
+                "WARNING: MANIFEST file grew by %" PRIu64
+                " bytes after reopen "
+                "(may indicate unexpected writes)\n",
+                size_growth);
+      }
+    }
+  }
+
+  // Check CURRENT file in all verification modes.
+  // If the MANIFEST file was reused (same file number), CURRENT should not
+  // have been modified since it already points to the correct MANIFEST.
+  if (!current_file_content_before_reopen_.empty()) {
+    std::string current_path = FLAGS_db + "/CURRENT";
+    std::string current_content;
+    s = ReadFileToString(Env::Default(), current_path, &current_content);
+    if (s.ok()) {
+      if (current_content != current_file_content_before_reopen_) {
+        if (strict_mode) {
+          fprintf(
+              stderr,
+              "FATAL: CURRENT file was updated despite ALL conditions for "
+              "complete avoidance being met. MANIFEST was reused but CURRENT "
+              "was modified. This indicates a bug.\n");
+          exit(1);
+        } else if (manifest_verify_mode_ == MANIFEST_VERIFY_NO_WRITE) {
+          fprintf(stdout,
+                  "WARNING: CURRENT file was updated despite both "
+                  "optimize_manifest_for_recovery=1 and "
+                  "reuse_manifest_on_open=1\n");
+        } else {
+          fprintf(stdout,
+                  "WARNING: CURRENT file was updated despite "
+                  "reuse_manifest_on_open=1 and MANIFEST being reused\n");
+        }
+      }
+    }
+  }
+
+  // Reset verification mode
+  manifest_verify_mode_ = MANIFEST_VERIFY_NONE;
+}
+
 void StressTest::Reopen(ThreadState* thread) {
-  // BG jobs in WritePrepared must be canceled first because i) they can access
-  // the db via a callbac ii) they hold on to a snapshot and the upcoming
+  // Notify listener before DB close so it can tolerate stale tracking
+  // from skipped notifications during shutdown.
+  NotifyListenerShuttingDown();
+
+  // BG jobs in WritePrepared must be canceled first because i) they can
+  // access the db via a callbac ii) they hold on to a snapshot and the
+  // upcoming
   // ::Close would complain about it.
   const bool write_prepared = FLAGS_use_txn && FLAGS_txn_write_policy != 0;
   bool bg_canceled __attribute__((unused)) = false;
@@ -4106,18 +4560,24 @@ void StressTest::Reopen(ThreadState* thread) {
   }
   assert((txn_db_ == nullptr && optimistic_txn_db_ == nullptr) ||
          (db_ == txn_db_ || db_ == optimistic_txn_db_));
-  delete db_;
+  db_owner_.reset();
   db_ = nullptr;
   txn_db_ = nullptr;
   optimistic_txn_db_ = nullptr;
-  delete secondary_db_;
-  secondary_db_ = nullptr;
+  secondary_db_.reset();
 
   num_times_reopened_++;
   auto now = clock_->NowMicros();
   fprintf(stdout, "%s Reopening database for the %dth time\n",
           clock_->TimeToString(now / 1000000).c_str(), num_times_reopened_);
+
+  // Record MANIFEST state before reopen for verification
+  RecordManifestStateBeforeReopen();
+
   Open(thread->shared, /*reopen=*/true);
+
+  // Verify MANIFEST was not unnecessarily rewritten
+  VerifyManifestNotRewritten();
 
   if (thread->shared->GetStressTest()->MightHaveUnsyncedDataLoss() &&
       IsStateTracked()) {
@@ -4269,6 +4729,7 @@ bool InitializeOptionsFromFile(Options& options) {
 void InitializeOptionsFromFlags(
     const std::shared_ptr<Cache>& cache,
     const std::shared_ptr<const FilterPolicy>& filter_policy,
+    const std::shared_ptr<UserDefinedIndexFactory>& udi_factory,
     Options& options) {
   BlockBasedTableOptions block_based_options;
   block_based_options.decouple_partitioned_filters =
@@ -4311,6 +4772,8 @@ void InitializeOptionsFromFlags(
             : CacheEntryRoleOptions::Decision::kDisabled}});
   block_based_options.format_version =
       static_cast<uint32_t>(FLAGS_format_version);
+  block_based_options.separate_key_value_in_data_block =
+      FLAGS_separate_key_value_in_data_block;
   block_based_options.index_block_restart_interval =
       static_cast<int32_t>(FLAGS_index_block_restart_interval);
   block_based_options.filter_policy = filter_policy;
@@ -4324,6 +4787,10 @@ void InitializeOptionsFromFlags(
   block_based_options.data_block_index_type =
       static_cast<BlockBasedTableOptions::DataBlockIndexType>(
           FLAGS_data_block_index_type);
+  block_based_options.index_block_search_type =
+      static_cast<BlockBasedTableOptions::BlockSearchType>(
+          FLAGS_index_block_search_type);
+  block_based_options.uniform_cv_threshold = FLAGS_uniform_cv_threshold;
   block_based_options.prepopulate_block_cache =
       static_cast<BlockBasedTableOptions::PrepopulateBlockCache>(
           FLAGS_prepopulate_block_cache);
@@ -4346,6 +4813,23 @@ void InitializeOptionsFromFlags(
       fLU64::FLAGS_super_block_alignment_size;
   block_based_options.super_block_alignment_space_overhead_ratio =
       fLU64::FLAGS_super_block_alignment_space_overhead_ratio;
+  if (udi_factory) {
+    block_based_options.user_defined_index_factory = udi_factory;
+    if (FLAGS_use_udi_as_primary_index) {
+      block_based_options.use_udi_as_primary_index = true;
+    }
+    // Write fault injection can corrupt the UDI meta block during SST
+    // creation. In primary mode all reads route through the UDI, so a
+    // corrupted UDI block causes the reader to fail, making compaction
+    // read zero keys from the affected SST and triggering a false
+    // positive in record count verification. In secondary mode this is
+    // not an issue because reads fall back to the standard index.
+    if (FLAGS_use_udi_as_primary_index &&
+        (FLAGS_write_fault_one_in > 0 ||
+         FLAGS_metadata_write_fault_one_in > 0)) {
+      options.compaction_verify_record_count = false;
+    }
+  }
   options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
   options.db_write_buffer_size = FLAGS_db_write_buffer_size;
   options.write_buffer_size = FLAGS_write_buffer_size;
@@ -4374,6 +4858,16 @@ void InitializeOptionsFromFlags(
       ROCKSDB_NAMESPACE::CompactionStyle::kCompactionStyleFIFO) {
     options.compaction_options_fifo.allow_compaction =
         FLAGS_fifo_allow_compaction;
+    if (FLAGS_fifo_compaction_max_data_files_size_mb > 0) {
+      options.compaction_options_fifo.max_data_files_size =
+          FLAGS_fifo_compaction_max_data_files_size_mb * 1024 * 1024;
+    }
+    if (FLAGS_fifo_compaction_max_table_files_size_mb > 0) {
+      options.compaction_options_fifo.max_table_files_size =
+          FLAGS_fifo_compaction_max_table_files_size_mb * 1024 * 1024;
+    }
+    options.compaction_options_fifo.use_kv_ratio_compaction =
+        FLAGS_fifo_compaction_use_kv_ratio_compaction;
   }
   options.compaction_pri =
       static_cast<ROCKSDB_NAMESPACE::CompactionPri>(FLAGS_compaction_pri);
@@ -4386,6 +4880,14 @@ void InitializeOptionsFromFlags(
     }
   }
   options.max_open_files = FLAGS_open_files;
+  options.open_files_async = FLAGS_open_files_async;
+  options.async_wal_precreate = FLAGS_async_wal_precreate;
+  if (FLAGS_open_files_async && !FLAGS_skip_stats_update_on_db_open) {
+    FLAGS_skip_stats_update_on_db_open = true;
+    fprintf(stderr,
+            "open_files_async requires skip_stats_update_on_db_open, "
+            "enabling it automatically\n");
+  }
   if (FLAGS_statistics) {
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   }
@@ -4431,6 +4933,8 @@ void InitializeOptionsFromFlags(
   }
   options.max_manifest_file_size = FLAGS_max_manifest_file_size;
   options.max_manifest_space_amp_pct = FLAGS_max_manifest_space_amp_pct;
+  options.verify_manifest_content_on_close =
+      FLAGS_verify_manifest_content_on_close;
   options.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
   options.allow_concurrent_memtable_write =
       FLAGS_allow_concurrent_memtable_write;
@@ -4440,6 +4944,8 @@ void InitializeOptionsFromFlags(
   options.daily_offpeak_time_utc = FLAGS_daily_offpeak_time_utc;
   options.stats_dump_period_sec =
       static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
+  options.max_compaction_trigger_wakeup_seconds =
+      FLAGS_max_compaction_trigger_wakeup_seconds;
   options.ttl = FLAGS_compaction_ttl;
   options.enable_pipelined_write = FLAGS_enable_pipelined_write;
   options.enable_write_thread_adaptive_yield =
@@ -4457,8 +4963,12 @@ void InitializeOptionsFromFlags(
   options.manual_wal_flush = FLAGS_manual_wal_flush_one_in > 0 ? true : false;
   options.avoid_unnecessary_blocking_io = FLAGS_avoid_unnecessary_blocking_io;
   options.write_dbid_to_manifest = FLAGS_write_dbid_to_manifest;
+  options.optimize_manifest_for_recovery = FLAGS_optimize_manifest_for_recovery;
   options.write_identity_file = FLAGS_write_identity_file;
+  options.reuse_manifest_on_open = FLAGS_reuse_manifest_on_open;
   options.avoid_flush_during_recovery = FLAGS_avoid_flush_during_recovery;
+  options.enforce_write_buffer_manager_during_recovery =
+      FLAGS_enforce_write_buffer_manager_during_recovery;
   options.max_write_batch_group_size_bytes =
       FLAGS_max_write_batch_group_size_bytes;
   options.level_compaction_dynamic_level_bytes =
@@ -4467,15 +4977,23 @@ void InitializeOptionsFromFlags(
   options.track_and_verify_wals = FLAGS_track_and_verify_wals;
   options.verify_sst_unique_id_in_manifest =
       FLAGS_verify_sst_unique_id_in_manifest;
+  options.fast_sst_open = FLAGS_fast_sst_open;
   options.memtable_protection_bytes_per_key =
       FLAGS_memtable_protection_bytes_per_key;
   options.block_protection_bytes_per_key = FLAGS_block_protection_bytes_per_key;
+  options.verify_output_flags =
+      static_cast<VerifyOutputFlags>(FLAGS_verify_output_flags);
   options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
   options.memtable_veirfy_per_key_checksum_on_seek =
       FLAGS_memtable_veirfy_per_key_checksum_on_seek;
+  options.memtable_batch_lookup_optimization =
+      FLAGS_memtable_batch_lookup_optimization;
 
   // Integrated BlobDB
   options.enable_blob_files = FLAGS_enable_blob_files;
+  options.enable_blob_direct_write = FLAGS_enable_blob_direct_write;
+  options.blob_direct_write_partitions =
+      static_cast<uint32_t>(FLAGS_blob_direct_write_partitions);
   options.min_blob_size = FLAGS_min_blob_size;
   options.blob_file_size = FLAGS_blob_file_size;
   options.blob_compression_type =
@@ -4487,6 +5005,8 @@ void InitializeOptionsFromFlags(
       FLAGS_blob_garbage_collection_force_threshold;
   options.blob_compaction_readahead_size = FLAGS_blob_compaction_readahead_size;
   options.blob_file_starting_level = FLAGS_blob_file_starting_level;
+  options.read_triggered_compaction_threshold =
+      FLAGS_read_triggered_compaction_threshold;
 
   if (FLAGS_use_blob_cache) {
     if (FLAGS_use_shared_block_and_blob_cache) {
@@ -4629,6 +5149,8 @@ void InitializeOptionsFromFlags(
   options.uncache_aggressiveness = FLAGS_uncache_aggressiveness;
 
   options.memtable_op_scan_flush_trigger = FLAGS_memtable_op_scan_flush_trigger;
+  options.min_tombstones_for_range_conversion =
+      FLAGS_min_tombstones_for_range_conversion;
   options.compaction_options_universal.reduce_file_locking =
       FLAGS_universal_reduce_file_locking;
 }
@@ -4701,10 +5223,18 @@ void InitializeOptionsGeneral(
               "`preserve_unverified_changes` to keep all files\n");
       options.avoid_flush_during_recovery = true;
     }
-    // Together with `avoid_flush_during_recovery == true`, this will prevent
-    // live files from becoming obsolete and deleted between `DB::Open()` and
-    // `DisableFileDeletions()` due to flush or compaction. We do not need to
-    // warn the user since we will reenable compaction soon.
+    if (options.enforce_write_buffer_manager_during_recovery) {
+      fprintf(
+          stderr,
+          "WARNING: flipping `enforce_write_buffer_manager_during_recovery` "
+          "to false for `preserve_unverified_changes` to keep all files\n");
+      options.enforce_write_buffer_manager_during_recovery = false;
+    }
+    // Together with `avoid_flush_during_recovery == true` and
+    // `enforce_write_buffer_manager_during_recovery == false`, this will
+    // prevent live files from becoming obsolete and deleted between
+    // `DB::Open()` and `DisableFileDeletions()` due to flush or compaction.
+    // We do not need to warn the user since we will reenable compaction soon.
     options.disable_auto_compactions = true;
   }
 

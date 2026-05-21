@@ -112,6 +112,7 @@ class StopWatchNano {
     }
   }
   void Start() {
+    assert(clock_);
     if constexpr (use_cpu_time) {
       start_ = clock_->CPUNanos();
     } else {
@@ -119,6 +120,7 @@ class StopWatchNano {
     }
   }
   uint64_t ElapsedNanos(bool reset = false) {
+    assert(clock_);
     uint64_t now = 0;
     if constexpr (use_cpu_time) {
       now = clock_->CPUNanos();

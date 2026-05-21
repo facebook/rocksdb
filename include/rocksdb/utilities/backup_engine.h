@@ -346,6 +346,15 @@ struct CreateBackupOptions {
   // so you can decrease to priorities lower than kNormal.
   bool decrease_background_thread_cpu_priority = false;
   CpuPriority background_thread_cpu_priority = CpuPriority::kNormal;
+
+  // If true, use atomic flush to flush all column families atomically
+  // before creating the backup. This ensures cross-CF consistency without
+  // needing WAL files. When combined with
+  // BackupEngineOptions::backup_log_files=false, this allows skipping WAL
+  // backup safely for multi-CF databases.
+  // Only takes effect when flush_before_backup is also true.
+  // Default: false
+  bool atomic_flush = false;
 };
 
 struct RestoreOptions {

@@ -133,13 +133,10 @@ Status DeleteScheduler::AddFileToDeletionQueue(const std::string& file_path,
     IGNORE_STATUS_IF_ERROR(s);
     ROCKS_LOG_ERROR(info_log_, "Failed to mark %s as trash -- %s",
                     file_path.c_str(), s.ToString().c_str());
-    s = fs_->DeleteFile(file_path, IOOptions(), nullptr);
+    s = DeleteFileImmediately(file_path, accounted);
     if (s.ok()) {
-      s = OnDeleteFile(file_path, accounted);
       ROCKS_LOG_INFO(info_log_, "Deleted file %s immediately",
                      trash_file.c_str());
-      InstrumentedMutexLock l(&mu_);
-      RecordTick(stats_.get(), FILES_DELETED_IMMEDIATELY);
     }
     return s;
   }
@@ -351,7 +348,7 @@ void DeleteScheduler::BackgroundEmptyTrash() {
           auto iter = pending_files_in_buckets_.find(bucket.value());
           assert(iter != pending_files_in_buckets_.end());
           if (iter != pending_files_in_buckets_.end()) {
-            pending_files_in_bucket = iter->second--;
+            pending_files_in_bucket = --iter->second;
           }
         }
       }

@@ -132,7 +132,7 @@ class RateLimiter {
   }
 
  protected:
-  Mode GetMode() { return mode_; }
+  Mode GetMode() const { return mode_; }
 
  private:
   const Mode mode_;

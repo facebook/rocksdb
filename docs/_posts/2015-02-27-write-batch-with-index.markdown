@@ -1,7 +1,7 @@
 ---
 title: 'WriteBatchWithIndex: Utility for Implementing Read-Your-Own-Writes'
 layout: post
-author: sdong
+author: siying
 category: blog
 redirect_from:
   - /blog/1901/write-batch-with-index/

@@ -123,7 +123,8 @@ class OptimisticTransactionDB : public StackableDB {
 
  protected:
   // To Create an OptimisticTransactionDB, call Open()
-  explicit OptimisticTransactionDB(DB* db) : StackableDB(db) {}
+  explicit OptimisticTransactionDB(std::unique_ptr<DB>&& db)
+      : StackableDB(std::move(db)) {}
 };
 
 }  // namespace ROCKSDB_NAMESPACE

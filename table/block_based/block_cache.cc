@@ -11,15 +11,17 @@ namespace ROCKSDB_NAMESPACE {
 
 void BlockCreateContext::Create(std::unique_ptr<Block_kData>* parsed_out,
                                 BlockContents&& block) {
-  parsed_out->reset(new Block_kData(
-      std::move(block), table_options->read_amp_bytes_per_bit, statistics));
+  parsed_out->reset(new Block_kData(std::move(block),
+                                    table_options->read_amp_bytes_per_bit,
+                                    statistics, data_block_restart_interval));
   parsed_out->get()->InitializeDataBlockProtectionInfo(protection_bytes_per_key,
                                                        raw_ucmp);
 }
 void BlockCreateContext::Create(std::unique_ptr<Block_kIndex>* parsed_out,
                                 BlockContents&& block) {
   parsed_out->reset(new Block_kIndex(std::move(block),
-                                     /*read_amp_bytes_per_bit*/ 0, statistics));
+                                     /*read_amp_bytes_per_bit*/ 0, statistics,
+                                     index_block_restart_interval));
   parsed_out->get()->InitializeIndexBlockProtectionInfo(
       protection_bytes_per_key, raw_ucmp, index_value_is_full,
       index_has_first_key);
@@ -28,7 +30,8 @@ void BlockCreateContext::Create(
     std::unique_ptr<Block_kFilterPartitionIndex>* parsed_out,
     BlockContents&& block) {
   parsed_out->reset(new Block_kFilterPartitionIndex(
-      std::move(block), /*read_amp_bytes_per_bit*/ 0, statistics));
+      std::move(block), /*read_amp_bytes_per_bit*/ 0, statistics,
+      index_block_restart_interval));
   parsed_out->get()->InitializeIndexBlockProtectionInfo(
       protection_bytes_per_key, raw_ucmp, index_value_is_full,
       index_has_first_key);

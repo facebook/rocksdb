@@ -126,6 +126,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"min_blob_size", "1K"},
       {"blob_file_size", "1G"},
       {"blob_compression_type", "kZSTD"},
+      {"blob_compression_opts", "-14:1:0:0:0:true"},
       {"enable_blob_garbage_collection", "true"},
       {"blob_garbage_collection_age_cutoff", "0.5"},
       {"blob_garbage_collection_force_threshold", "0.75"},
@@ -147,6 +148,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"track_and_verify_wals_in_manifest", "true"},
       {"track_and_verify_wals", "true"},
       {"verify_sst_unique_id_in_manifest", "true"},
+      {"async_wal_precreate", "true"},
+      {"fast_sst_open", "true"},
       {"max_open_files", "32"},
       {"max_total_wal_size", "33"},
       {"use_fsync", "true"},
@@ -282,6 +285,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
   ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
   ASSERT_EQ(new_cf_opt.blob_compression_type, kZSTD);
+  ASSERT_EQ(new_cf_opt.blob_compression_opts.level, 1);
   ASSERT_EQ(new_cf_opt.enable_blob_garbage_collection, true);
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_age_cutoff, 0.5);
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_force_threshold, 0.75);
@@ -329,6 +333,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.track_and_verify_wals_in_manifest, true);
   ASSERT_EQ(new_db_opt.track_and_verify_wals, true);
   ASSERT_EQ(new_db_opt.verify_sst_unique_id_in_manifest, true);
+  ASSERT_EQ(new_db_opt.async_wal_precreate, true);
+  ASSERT_EQ(new_db_opt.fast_sst_open, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   ASSERT_EQ(new_db_opt.max_total_wal_size, static_cast<uint64_t>(33));
   ASSERT_EQ(new_db_opt.use_fsync, true);
@@ -902,6 +908,8 @@ TEST_F(OptionsTest, OldInterfaceTest) {
       {"track_and_verify_wals_in_manifest", "true"},
       {"track_and_verify_wals", "true"},
       {"verify_sst_unique_id_in_manifest", "true"},
+      {"async_wal_precreate", "true"},
+      {"fast_sst_open", "true"},
       {"max_open_files", "32"},
       {"daily_offpeak_time_utc", "06:30-23:30"},
   };
@@ -918,6 +926,8 @@ TEST_F(OptionsTest, OldInterfaceTest) {
   ASSERT_EQ(new_db_opt.track_and_verify_wals_in_manifest, true);
   ASSERT_EQ(new_db_opt.track_and_verify_wals, true);
   ASSERT_EQ(new_db_opt.verify_sst_unique_id_in_manifest, true);
+  ASSERT_EQ(new_db_opt.async_wal_precreate, true);
+  ASSERT_EQ(new_db_opt.fast_sst_open, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   db_options_map["unknown_option"] = "1";
   Status s = GetDBOptionsFromMap(db_config_options, base_db_opt, db_options_map,
@@ -1752,6 +1762,19 @@ TEST_F(OptionsTest, MutableCFOptions) {
       config_options, cf_opts, {{"paranoid_file_checks", "false"}}, &cf_opts));
   ASSERT_EQ(cf_opts.paranoid_file_checks, false);
 
+  // Test verify_output_flags with kVerifyFileChecksum (bit 2)
+  // 2052 = 4 (kVerifyFileChecksum) | 2048 (kEnableForRemoteCompaction)
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, cf_opts, "verify_output_flags=2052;", &cf_opts));
+  ASSERT_NE(
+      (cf_opts.verify_output_flags & VerifyOutputFlags::kVerifyFileChecksum),
+      VerifyOutputFlags::kVerifyNone);
+  ASSERT_NE((cf_opts.verify_output_flags &
+             VerifyOutputFlags::kEnableForRemoteCompaction),
+            VerifyOutputFlags::kVerifyNone);
+  ASSERT_EQ(
+      (cf_opts.verify_output_flags & VerifyOutputFlags::kVerifyBlockChecksum),
+      VerifyOutputFlags::kVerifyNone);
   // Should replace the factory with the new setting
   ASSERT_OK(GetColumnFamilyOptionsFromMap(
       config_options, cf_opts,
@@ -2417,6 +2440,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"max_compaction_bytes", "21"},
       {"soft_rate_limit", "1.1"},
       {"hard_rate_limit", "2.1"},
+      {"snap_refresh_nanos", "1000000"},
       {"rate_limit_delay_max_milliseconds", "100"},
       {"hard_pending_compaction_bytes_limit", "211"},
       {"arena_block_size", "22"},
@@ -2447,6 +2471,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"min_blob_size", "1K"},
       {"blob_file_size", "1G"},
       {"blob_compression_type", "kZSTD"},
+      {"blob_compression_opts", "-14:1:0:0:0:true"},
       {"enable_blob_garbage_collection", "true"},
       {"blob_garbage_collection_age_cutoff", "0.5"},
       {"blob_garbage_collection_force_threshold", "0.75"},
@@ -2468,6 +2493,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"track_and_verify_wals_in_manifest", "true"},
       {"track_and_verify_wals", "true"},
       {"verify_sst_unique_id_in_manifest", "true"},
+      {"async_wal_precreate", "true"},
+      {"fast_sst_open", "true"},
       {"max_open_files", "32"},
       {"max_total_wal_size", "33"},
       {"use_fsync", "true"},
@@ -2600,6 +2627,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
   ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
   ASSERT_EQ(new_cf_opt.blob_compression_type, kZSTD);
+  ASSERT_EQ(new_cf_opt.blob_compression_opts.level, 1);
   ASSERT_EQ(new_cf_opt.enable_blob_garbage_collection, true);
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_age_cutoff, 0.5);
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_force_threshold, 0.75);
@@ -2655,6 +2683,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.paranoid_checks, true);
   ASSERT_EQ(new_db_opt.track_and_verify_wals_in_manifest, true);
   ASSERT_EQ(new_db_opt.track_and_verify_wals, true);
+  ASSERT_EQ(new_db_opt.async_wal_precreate, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   ASSERT_EQ(new_db_opt.max_total_wal_size, static_cast<uint64_t>(33));
   ASSERT_EQ(new_db_opt.use_fsync, true);

@@ -20,6 +20,21 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+
+Status AppendBlobRefreshRetryFailure(const Status& stale_status,
+                                     const Status& retry_status) {
+  assert(stale_status.IsCorruption());
+  assert(!retry_status.ok());
+  if (retry_status.IsCorruption()) {
+    return retry_status;
+  }
+  return Status::CopyAppendMessage(
+      stale_status, "; refresh retry failed: ", retry_status.ToString());
+}
+
+}  // namespace
+
 BlobSource::BlobSource(const ImmutableOptions& immutable_options,
                        const MutableCFOptions& mutable_cf_options,
                        const std::string& db_id,
@@ -231,6 +246,38 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     s = blob_file_reader.GetValue()->GetBlob(
         read_options, user_key, offset, value_size, compression_type,
         prefetch_buffer, allocator, &blob_contents, &read_size);
+    if (s.IsCorruption()) {
+      const Status stale_status = s;
+      blob_file_reader.Reset();
+      blob_file_cache_->Evict(file_number);
+
+      std::unique_ptr<BlobFileReader> fresh_reader;
+      s = blob_file_cache_->OpenBlobFileReaderUncached(
+          read_options, file_number, &fresh_reader,
+          /*allow_footer_skip_retry=*/false);
+      if (!s.ok()) {
+        return AppendBlobRefreshRetryFailure(stale_status, s);
+      }
+
+      if (compression_type != fresh_reader->GetCompressionType()) {
+        return Status::Corruption(
+            "Compression type mismatch when reading blob");
+      }
+
+      blob_contents.reset();
+      read_size = 0;
+      s = fresh_reader->GetBlob(read_options, user_key, offset, value_size,
+                                compression_type, prefetch_buffer, allocator,
+                                &blob_contents, &read_size);
+      if (!s.ok()) {
+        s = AppendBlobRefreshRetryFailure(stale_status, s);
+      } else {
+        CacheHandleGuard<BlobFileReader> ignored_reader;
+        blob_file_cache_
+            ->RefreshBlobFileReader(file_number, &fresh_reader, &ignored_reader)
+            .PermitUncheckedError();
+      }
+    }
     if (!s.ok()) {
       return s;
     }
@@ -396,6 +443,89 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
 
     blob_file_reader.GetValue()->MultiGetBlob(read_options, allocator,
                                               _blob_reqs, &_bytes_read);
+
+    bool needs_reader_refresh = false;
+    for (const auto& blob_req : _blob_reqs) {
+      BlobReadRequest* const req = blob_req.first;
+      assert(req != nullptr);
+      assert(req->status != nullptr);
+      if (req->status->IsCorruption()) {
+        needs_reader_refresh = true;
+        break;
+      }
+    }
+
+    if (needs_reader_refresh) {
+      blob_file_reader.Reset();
+      blob_file_cache_->Evict(file_number);
+
+      std::unique_ptr<BlobFileReader> fresh_reader;
+      s = blob_file_cache_->OpenBlobFileReaderUncached(
+          read_options, file_number, &fresh_reader,
+          /*allow_footer_skip_retry=*/false);
+      if (!s.ok()) {
+        for (const auto& blob_req : _blob_reqs) {
+          BlobReadRequest* const req = blob_req.first;
+          assert(req != nullptr);
+          assert(req->status != nullptr);
+          if (req->status->IsCorruption()) {
+            *req->status = AppendBlobRefreshRetryFailure(*req->status, s);
+          }
+        }
+        return;
+      }
+
+      autovector<std::pair<BlobReadRequest*, std::unique_ptr<BlobContents>>>
+          retry_blob_reqs;
+      autovector<Status> stale_statuses;
+      for (auto& blob_req : _blob_reqs) {
+        BlobReadRequest* const req = blob_req.first;
+        assert(req != nullptr);
+        assert(req->status != nullptr);
+        if (!req->status->IsCorruption()) {
+          continue;
+        }
+
+        stale_statuses.emplace_back(*req->status);
+        *req->status = Status::OK();
+        blob_req.second.reset();
+        retry_blob_reqs.emplace_back(req, std::unique_ptr<BlobContents>());
+      }
+
+      uint64_t refreshed_bytes_read = 0;
+      fresh_reader->MultiGetBlob(read_options, allocator, retry_blob_reqs,
+                                 &refreshed_bytes_read);
+      _bytes_read += refreshed_bytes_read;
+
+      bool install_fresh_reader = false;
+      for (size_t i = 0; i < retry_blob_reqs.size(); ++i) {
+        auto& retried_blob_req = retry_blob_reqs[i];
+        BlobReadRequest* const retried_req = retried_blob_req.first;
+        assert(retried_req != nullptr);
+        if (retried_req->status->ok()) {
+          install_fresh_reader = true;
+        } else {
+          *retried_req->status = AppendBlobRefreshRetryFailure(
+              stale_statuses[i], *retried_req->status);
+        }
+
+        for (auto& blob_req : _blob_reqs) {
+          if (blob_req.first != retried_req) {
+            continue;
+          }
+
+          blob_req.second = std::move(retried_blob_req.second);
+          break;
+        }
+      }
+
+      if (install_fresh_reader) {
+        CacheHandleGuard<BlobFileReader> ignored_reader;
+        blob_file_cache_
+            ->RefreshBlobFileReader(file_number, &fresh_reader, &ignored_reader)
+            .PermitUncheckedError();
+      }
+    }
 
     if (blob_cache_ && read_options.fill_cache) {
       // If filling cache is allowed and a cache is configured, try to put

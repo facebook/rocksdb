@@ -23,6 +23,7 @@
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
 #include "db/range_tombstone_fragmenter.h"
+#include "db/table_cache.h"
 #include "db/version_edit.h"
 #include "db/version_set.h"
 #include "file/file_util.h"
@@ -100,7 +101,8 @@ FlushJob::FlushJob(
     Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
     std::shared_ptr<const SeqnoToTimeMapping> seqno_to_time_mapping,
     const std::string& db_id, const std::string& db_session_id,
-    std::string full_history_ts_low, BlobFileCompletionCallback* blob_callback)
+    std::string full_history_ts_low, BlobFileCompletionCallback* blob_callback,
+    bool fast_sst_open)
     : dbname_(dbname),
       db_id_(db_id),
       db_session_id_(db_session_id),
@@ -132,6 +134,7 @@ FlushJob::FlushJob(
       clock_(db_options_.clock),
       full_history_ts_low_(std::move(full_history_ts_low)),
       blob_callback_(blob_callback),
+      fast_sst_open_(fast_sst_open),
       seqno_to_time_mapping_(std::move(seqno_to_time_mapping)) {
   assert(job_context->snapshot_context_initialized);
   // Update the thread status to indicate flush.
@@ -303,6 +306,8 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
     s = MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT();
   }
 
+  TEST_SYNC_POINT_CALLBACK("FlushJob::Run:PostBuildTable", &s);
+
   if (!s.ok()) {
     cfd_->imm()->RollbackMemtableFlush(
         mems_, /*rollback_succeeding_memtables=*/!db_options_.atomic_flush);
@@ -330,6 +335,18 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
                               but 'false' if mempurge successful: no new min log number
                               or new level 0 file path to write to manifest. */);
     }
+  }
+
+  if (!s.ok() && meta_.fd.GetFileSize() > 0) {
+    // If BuildTable succeeded (file was cached in table cache for user reads)
+    // but the flush failed to install (e.g., LogAndApply MANIFEST I/O error,
+    // CF dropped, shutdown), evict the cached entry. Without this, the file
+    // is cached but not in any Version, and the FindObsoleteFiles backstop
+    // can fail under metadata read fault injection, causing
+    // TEST_VerifyNoObsoleteFilesCached to fire during Close().
+    TableCache::ReleaseObsolete(cfd_->table_cache()->get_cache().get(),
+                                meta_.fd.GetNumber(), nullptr /*handle*/,
+                                mutable_cf_options_.uncache_aggressiveness);
   }
 
   if (s.ok() && file_meta != nullptr) {
@@ -571,6 +588,7 @@ Status FlushJob::MemPurge() {
         auto tombstone = range_del_it->Tombstone();
         new_first_seqno =
             tombstone.seq_ < new_first_seqno ? tombstone.seq_ : new_first_seqno;
+        MemTablePostProcessInfo post_process_info;
         s = new_mem->Add(
             tombstone.seq_,        // Sequence number
             kTypeRangeDeletion,    // KV type
@@ -579,12 +597,15 @@ Status FlushJob::MemPurge() {
             nullptr,               // KV protection info set as nullptr since it
                                    // should only be useful for the first add to
                                    // the original memtable.
-            false,                 // : allow concurrent_memtable_writes_
-                                   // Not seen as necessary for now.
-            nullptr,               // get_post_process_info(m) must be nullptr
-                      // when concurrent_memtable_writes is switched off.
+            true,                  // allow_concurrent: required for range
+                                   // deletions since range_del_table_ uses
+                                   // concurrent-safe SkipList.
+            &post_process_info,
             nullptr);  // hint, only used when concurrent_memtable_writes_
                        // is switched on.
+        if (s.ok()) {
+          new_mem->BatchPostProcess(post_process_info);
+        }
 
         if (!s.ok()) {
           break;
@@ -616,10 +637,17 @@ Status FlushJob::MemPurge() {
           !(new_mem->ShouldFlushNow())) {
         // Construct fragmented memtable range tombstones without mutex
         new_mem->ConstructFragmentedRangeTombstones();
+        TEST_SYNC_POINT("FlushJob::MemPurge:BeforeReacquireMutex");
+        TEST_SYNC_POINT("FlushJob::MemPurge:AfterWaitForTest");
         db_mutex_->Lock();
         // Take the newest id, so that memtables in MemtableList don't have
-        // out-of-order memtable ids.
-        uint64_t new_mem_id = mems_.back()->GetID();
+        // out-of-order memtable ids. While the db mutex was released during
+        // MemPurge, new memtables may have been switched to the immutable
+        // list with higher IDs, so we must use the maximum of the original
+        // flush batch ID and the current latest immutable memtable ID.
+        uint64_t new_mem_id = std::max(
+            mems_.back()->GetID(),
+            cfd_->imm()->GetLatestMemTableID(false /*for_atomic_flush*/));
 
         new_mem->SetID(new_mem_id);
         // Take the latest memtable's next log number.
@@ -861,6 +889,13 @@ Status FlushJob::WriteLevel0Table() {
       ts_sz > 0 && !cfd_->ioptions().persist_user_defined_timestamps;
 
   std::vector<BlobFileAddition> blob_file_additions;
+  std::vector<BlobFileGarbage> blob_file_garbages;
+  // Only direct-write memtables can carry blob indexes that reference
+  // pre-existing blob files. Plain flushes write new blob files from inline
+  // values, so there is no pre-existing blob garbage to meter on the input
+  // side.
+  std::vector<BlobFileGarbage>* const blob_file_garbages_for_filtering =
+      cfd_->blob_partition_manager() != nullptr ? &blob_file_garbages : nullptr;
   // Note that here we treat flush as level 0 compaction in internal stats
   InternalStats::CompactionStats flush_stats(CompactionReason::kFlush,
                                              1 /* count**/);
@@ -1004,8 +1039,8 @@ Status FlushJob::WriteLevel0Table() {
           &io_s, io_tracer_, BlobFileCreationReason::kFlush,
           seqno_to_time_mapping_.get(), event_logger_, job_context_->job_id,
           &table_properties_, write_hint, full_history_ts_low, blob_callback_,
-          base_, &memtable_payload_bytes, &memtable_garbage_bytes,
-          &flush_stats);
+          base_, &memtable_payload_bytes, &memtable_garbage_bytes, &flush_stats,
+          blob_file_garbages_for_filtering, fast_sst_open_);
       TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:s", &s);
       // TODO: Cleanup io_status in BuildTable and table builders
       assert(!s.ok() || io_s.ok());
@@ -1076,27 +1111,35 @@ Status FlushJob::WriteLevel0Table() {
   }
   base_->Unref();
 
-  // Note that if file_size is zero, the file has been deleted and
-  // should not be added to the manifest.
+  // Note that if file_size is zero, the SST has been deleted and should not be
+  // added to the manifest. Blob metadata updates may still need to be
+  // committed for direct-write files or flush-time filtering.
   const bool has_output = meta_.fd.GetFileSize() > 0;
 
-  if (s.ok() && has_output) {
-    TEST_SYNC_POINT("DBImpl::FlushJob:SSTFileCreated");
-    // if we have more than 1 background thread, then we cannot
-    // insert files directly into higher levels because some other
-    // threads could be concurrently producing compacted files for
-    // that key range.
-    // Add file to L0
-    edit_->AddFile(0 /* level */, meta_.fd.GetNumber(), meta_.fd.GetPathId(),
-                   meta_.fd.GetFileSize(), meta_.smallest, meta_.largest,
-                   meta_.fd.smallest_seqno, meta_.fd.largest_seqno,
-                   meta_.marked_for_compaction, meta_.temperature,
-                   meta_.oldest_blob_file_number, meta_.oldest_ancester_time,
-                   meta_.file_creation_time, meta_.epoch_number,
-                   meta_.file_checksum, meta_.file_checksum_func_name,
-                   meta_.unique_id, meta_.compensated_range_deletion_size,
-                   meta_.tail_size, meta_.user_defined_timestamps_persisted);
+  if (s.ok()) {
+    if (has_output) {
+      TEST_SYNC_POINT("DBImpl::FlushJob:SSTFileCreated");
+      // if we have more than 1 background thread, then we cannot
+      // insert files directly into higher levels because some other
+      // threads could be concurrently producing compacted files for
+      // that key range.
+      // Add file to L0
+      TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", &meta_);
+      edit_->AddFile(0 /* level */, meta_);
+    }
+
     edit_->SetBlobFileAdditions(std::move(blob_file_additions));
+    for (auto& garbage : blob_file_garbages) {
+      edit_->AddBlobFileGarbage(std::move(garbage));
+    }
+    for (auto& addition : external_blob_file_additions_) {
+      edit_->AddBlobFile(std::move(addition));
+    }
+    for (auto& garbage : external_blob_file_garbages_) {
+      edit_->AddBlobFileGarbage(std::move(garbage));
+    }
+    external_blob_file_additions_.clear();
+    external_blob_file_garbages_.clear();
   }
   // Piggyback FlushJobInfo on the first first flushed memtable.
   mems_[0]->SetFlushJobInfo(GetFlushJobInfo());

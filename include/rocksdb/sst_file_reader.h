@@ -9,6 +9,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -35,6 +36,19 @@ class SstFileReader {
                                const std::vector<Slice>& keys,
                                std::vector<std::string>* values);
 
+  // MultiGet variant that returns PinnableSlice values, enabling zero-copy
+  // when the underlying TableReader supports pinning.
+  std::vector<Status> MultiGet(const ReadOptions& options,
+                               const std::vector<Slice>& keys,
+                               std::vector<PinnableSlice>* values);
+
+  // Point lookup a single key from the SST.
+  Status Get(const ReadOptions& options, const Slice& key, std::string* value);
+
+  // Point lookup variant that returns a PinnableSlice.
+  Status Get(const ReadOptions& options, const Slice& key,
+             PinnableSlice* value);
+
   // Returns a new iterator over the table contents as a raw table iterator,
   // a.k.a a `TableIterator`that iterates all point data entries in the table
   // including logically invisible entries like delete entries.
@@ -42,6 +56,12 @@ class SstFileReader {
   // created by a DB, to be used by third party tools. DB optimization
   // capabilities like filling cache, read ahead are disabled.
   std::unique_ptr<Iterator> NewTableIterator();
+
+  // Parses a raw key returned by NewTableIterator().
+  // The Slice fields in parsed_key point into raw_table_key and are valid only
+  // while raw_table_key remains valid.
+  Status ParseTableIteratorKey(const Slice& raw_table_key,
+                               ParsedEntryInfo* parsed_key) const;
 
   std::shared_ptr<const TableProperties> GetTableProperties() const;
 

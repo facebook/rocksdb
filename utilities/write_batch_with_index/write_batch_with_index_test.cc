@@ -364,7 +364,7 @@ class WBWIBaseTest : public testing::Test {
 
     if (db_ != nullptr) {
       ReleaseSnapshot();
-      delete db_;
+      db_.reset();
       EXPECT_OK(DestroyDB(dbname_, options_));
     }
   }
@@ -435,7 +435,7 @@ class WBWIBaseTest : public testing::Test {
   }
 
  public:
-  DB* db_;
+  std::unique_ptr<DB> db_;
   std::string dbname_;
   Options options_;
   WriteOptions write_opts_;
@@ -1594,21 +1594,21 @@ TEST_P(WriteBatchWithIndexTest, TestGetFromBatchAndDB) {
   ASSERT_OK(batch_->Put("a", "batch_->a"));
   ASSERT_OK(batch_->Delete("b"));
 
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "a", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "a", &value));
   ASSERT_EQ("batch_->a", value);
 
-  Status s = batch_->GetFromBatchAndDB(db_, read_opts_, "b", &value);
+  Status s = batch_->GetFromBatchAndDB(db_.get(), read_opts_, "b", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "c", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "c", &value));
   ASSERT_EQ("c", value);
 
-  s = batch_->GetFromBatchAndDB(db_, read_opts_, "x", &value);
+  s = batch_->GetFromBatchAndDB(db_.get(), read_opts_, "x", &value);
   ASSERT_TRUE(s.IsNotFound());
 
   ASSERT_OK(db_->Delete(write_opts_, "x"));
 
-  s = batch_->GetFromBatchAndDB(db_, read_opts_, "x", &value);
+  s = batch_->GetFromBatchAndDB(db_.get(), read_opts_, "x", &value);
   ASSERT_TRUE(s.IsNotFound());
 }
 
@@ -1630,24 +1630,24 @@ TEST_P(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge) {
   ASSERT_OK(batch_->Merge("d", "d1"));
   ASSERT_OK(batch_->Merge("e", "e0"));
 
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "a", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "a", &value));
   ASSERT_EQ("a0,a1,a2", value);
 
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "b", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "b", &value));
   ASSERT_EQ("b0,b1,b2", value);
 
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "c", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "c", &value));
   ASSERT_EQ("c0", value);
 
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "d", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "d", &value));
   ASSERT_EQ("d0,d1", value);
 
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "e", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "e", &value));
   ASSERT_EQ("e0", value);
 
   ASSERT_OK(db_->Delete(write_opts_, "x"));
 
-  s = batch_->GetFromBatchAndDB(db_, read_opts_, "x", &value);
+  s = batch_->GetFromBatchAndDB(db_.get(), read_opts_, "x", &value);
   ASSERT_TRUE(s.IsNotFound());
 
   const Snapshot* snapshot = db_->GetSnapshot();
@@ -1656,42 +1656,44 @@ TEST_P(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge) {
 
   ASSERT_OK(db_->Delete(write_opts_, "a"));
 
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "a", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "a", &value));
   ASSERT_EQ("a1,a2", value);
 
-  ASSERT_OK(
-      s = batch_->GetFromBatchAndDB(db_, snapshot_read_options, "a", &value));
+  ASSERT_OK(s = batch_->GetFromBatchAndDB(db_.get(), snapshot_read_options, "a",
+                                          &value));
   ASSERT_EQ("a0,a1,a2", value);
 
   ASSERT_OK(batch_->Delete("a"));
 
-  s = batch_->GetFromBatchAndDB(db_, read_opts_, "a", &value);
+  s = batch_->GetFromBatchAndDB(db_.get(), read_opts_, "a", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  s = batch_->GetFromBatchAndDB(db_, snapshot_read_options, "a", &value);
+  s = batch_->GetFromBatchAndDB(db_.get(), snapshot_read_options, "a", &value);
   ASSERT_TRUE(s.IsNotFound());
 
   ASSERT_OK(s = db_->Merge(write_opts_, "c", "c1"));
 
-  ASSERT_OK(s = batch_->GetFromBatchAndDB(db_, read_opts_, "c", &value));
+  ASSERT_OK(s = batch_->GetFromBatchAndDB(db_.get(), read_opts_, "c", &value));
   ASSERT_EQ("c0,c1", value);
 
-  ASSERT_OK(
-      s = batch_->GetFromBatchAndDB(db_, snapshot_read_options, "c", &value));
+  ASSERT_OK(s = batch_->GetFromBatchAndDB(db_.get(), snapshot_read_options, "c",
+                                          &value));
   ASSERT_EQ("c0", value);
 
   ASSERT_OK(db_->Put(write_opts_, "e", "e1"));
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "e", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "e", &value));
   ASSERT_EQ("e1,e0", value);
 
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, snapshot_read_options, "e", &value));
+  ASSERT_OK(
+      batch_->GetFromBatchAndDB(db_.get(), snapshot_read_options, "e", &value));
   ASSERT_EQ("e0", value);
 
   ASSERT_OK(s = db_->Delete(write_opts_, "e"));
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "e", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "e", &value));
   ASSERT_EQ("e0", value);
 
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, snapshot_read_options, "e", &value));
+  ASSERT_OK(
+      batch_->GetFromBatchAndDB(db_.get(), snapshot_read_options, "e", &value));
   ASSERT_EQ("e0", value);
 
   db_->ReleaseSnapshot(snapshot);
@@ -1703,24 +1705,24 @@ TEST_F(WBWIOverwriteTest, TestGetFromBatchAndDBMerge2) {
 
   std::string value;
 
-  s = batch_->GetFromBatchAndDB(db_, read_opts_, "A", &value);
+  s = batch_->GetFromBatchAndDB(db_.get(), read_opts_, "A", &value);
   ASSERT_TRUE(s.IsNotFound());
 
   ASSERT_OK(batch_->Merge("A", "xxx"));
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "A", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "A", &value));
   ASSERT_EQ(value, "xxx");
 
   ASSERT_OK(batch_->Merge("A", "yyy"));
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "A", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "A", &value));
   ASSERT_EQ(value, "xxx,yyy");
 
   ASSERT_OK(db_->Put(write_opts_, "A", "a0"));
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "A", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "A", &value));
   ASSERT_EQ(value, "a0,xxx,yyy");
 
   ASSERT_OK(batch_->Delete("A"));
 
-  s = batch_->GetFromBatchAndDB(db_, read_opts_, "A", &value);
+  s = batch_->GetFromBatchAndDB(db_.get(), read_opts_, "A", &value);
   ASSERT_TRUE(s.IsNotFound());
 }
 
@@ -1735,7 +1737,7 @@ TEST_P(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge3) {
   ASSERT_OK(db_->Flush(flush_options, db_->DefaultColumnFamily()));
   ASSERT_OK(batch_->Merge("A", "2"));
 
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "A", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "A", &value));
   ASSERT_EQ(value, "1,2");
 }
 
@@ -1761,23 +1763,23 @@ TEST_P(WriteBatchWithIndexTest, TestPinnedGetFromBatchAndDB) {
       // Do it again with a flushed DB...
       ASSERT_OK(db_->Flush(FlushOptions(), db_->DefaultColumnFamily()));
     }
-    ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "a", &value));
+    ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "a", &value));
     ASSERT_EQ("a0,a1,a2", value.ToString());
 
-    ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "b", &value));
+    ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "b", &value));
     ASSERT_EQ("b0,b1,b2", value.ToString());
 
-    ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "c", &value));
+    ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "c", &value));
     ASSERT_EQ("c0", value.ToString());
 
-    ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "d", &value));
+    ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "d", &value));
     ASSERT_EQ("d0,d1", value.ToString());
 
-    ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "e", &value));
+    ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "e", &value));
     ASSERT_EQ("e0", value.ToString());
     ASSERT_OK(db_->Delete(write_opts_, "x"));
 
-    s = batch_->GetFromBatchAndDB(db_, read_opts_, "x", &value);
+    s = batch_->GetFromBatchAndDB(db_.get(), read_opts_, "x", &value);
     ASSERT_TRUE(s.IsNotFound());
   }
 }
@@ -2595,7 +2597,7 @@ TEST_P(WriteBatchWithIndexTest, MultiGetTest) {
   std::vector<PinnableSlice> values(keys.size());
   std::vector<Status> statuses(keys.size());
 
-  batch_->MultiGetFromBatchAndDB(db_, read_opts_, cf0, key_slices.size(),
+  batch_->MultiGetFromBatchAndDB(db_.get(), read_opts_, cf0, key_slices.size(),
                                  key_slices.data(), values.data(),
                                  statuses.data(), false);
   for (size_t i = 0; i < keys.size(); ++i) {
@@ -2674,7 +2676,7 @@ TEST_P(WriteBatchWithIndexTest, MultiGetTest2) {
       int random = rnd.Uniform(num_keys);
       key_slices.emplace_back(keys[random]);
     }
-    batch_->MultiGetFromBatchAndDB(db_, read_opts_, cf0, keys_per_pass,
+    batch_->MultiGetFromBatchAndDB(db_.get(), read_opts_, cf0, keys_per_pass,
                                    key_slices.data(), values.data(),
                                    statuses.data(), false);
     for (size_t i = 0; i < keys_per_pass; i++) {
@@ -2827,9 +2829,9 @@ TEST_P(WriteBatchWithIndexTest, GetFromBatchAndDBAfterMerge) {
   ASSERT_OK(db_->Put(write_opts_, "o", "aa"));
   ASSERT_OK(batch_->Merge("o", "bb"));  // Merging bb under key "o"
   ASSERT_OK(batch_->Merge("m", "cc"));  // Merging bc under key "m"
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "o", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "o", &value));
   ASSERT_EQ(value, "aa,bb");
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "m", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "m", &value));
   ASSERT_EQ(value, "cc");
 }
 
@@ -2843,19 +2845,19 @@ TEST_P(WriteBatchWithIndexTest, GetAfterPut) {
   ASSERT_OK(batch_->Put("key", "aa"));  // Writing aa under key
   ASSERT_OK(batch_->GetFromBatch(cf0, options_, "key", &value));
   ASSERT_EQ(value, "aa");
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "key", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "key", &value));
   ASSERT_EQ(value, "aa");
 
   ASSERT_OK(batch_->Merge("key", "bb"));  // Merging bb under key
   ASSERT_OK(batch_->GetFromBatch(cf0, options_, "key", &value));
   ASSERT_EQ(value, "aa,bb");
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "key", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "key", &value));
   ASSERT_EQ(value, "aa,bb");
 
   ASSERT_OK(batch_->Merge("key", "cc"));  // Merging cc under key
   ASSERT_OK(batch_->GetFromBatch(cf0, options_, "key", &value));
   ASSERT_EQ(value, "aa,bb,cc");
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "key", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "key", &value));
   ASSERT_EQ(value, "aa,bb,cc");
 }
 
@@ -2868,25 +2870,25 @@ TEST_P(WriteBatchWithIndexTest, GetAfterMergePut) {
   ASSERT_OK(batch_->Merge("key", "aa"));  // Merging aa under key
   Status s = batch_->GetFromBatch(cf0, options_, "key", &value);
   ASSERT_EQ(s.code(), Status::Code::kMergeInProgress);
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "key", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "key", &value));
   ASSERT_EQ(value, "orig,aa");
 
   ASSERT_OK(batch_->Merge("key", "bb"));  // Merging bb under key
   s = batch_->GetFromBatch(cf0, options_, "key", &value);
   ASSERT_EQ(s.code(), Status::Code::kMergeInProgress);
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "key", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "key", &value));
   ASSERT_EQ(value, "orig,aa,bb");
 
   ASSERT_OK(batch_->Put("key", "cc"));  // Writing cc under key
   ASSERT_OK(batch_->GetFromBatch(cf0, options_, "key", &value));
   ASSERT_EQ(value, "cc");
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "key", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "key", &value));
   ASSERT_EQ(value, "cc");
 
   ASSERT_OK(batch_->Merge("key", "dd"));  // Merging dd under key
   ASSERT_OK(batch_->GetFromBatch(cf0, options_, "key", &value));
   ASSERT_EQ(value, "cc,dd");
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "key", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "key", &value));
   ASSERT_EQ(value, "cc,dd");
 }
 
@@ -2898,30 +2900,30 @@ TEST_P(WriteBatchWithIndexTest, GetAfterMergeDelete) {
   ASSERT_OK(batch_->Merge("key", "aa"));  // Merging aa under key
   Status s = batch_->GetFromBatch(cf0, options_, "key", &value);
   ASSERT_EQ(s.code(), Status::Code::kMergeInProgress);
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "key", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "key", &value));
   ASSERT_EQ(value, "aa");
 
   ASSERT_OK(batch_->Merge("key", "bb"));  // Merging bb under key
   s = batch_->GetFromBatch(cf0, options_, "key", &value);
   ASSERT_EQ(s.code(), Status::Code::kMergeInProgress);
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "key", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "key", &value));
   ASSERT_EQ(value, "aa,bb");
 
   ASSERT_OK(batch_->Delete("key"));  // Delete key from batch
   s = batch_->GetFromBatch(cf0, options_, "key", &value);
   ASSERT_TRUE(s.IsNotFound());
-  s = batch_->GetFromBatchAndDB(db_, read_opts_, "key", &value);
+  s = batch_->GetFromBatchAndDB(db_.get(), read_opts_, "key", &value);
   ASSERT_TRUE(s.IsNotFound());
 
   ASSERT_OK(batch_->Merge("key", "cc"));  // Merging cc under key
   ASSERT_OK(batch_->GetFromBatch(cf0, options_, "key", &value));
   ASSERT_EQ(value, "cc");
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "key", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "key", &value));
   ASSERT_EQ(value, "cc");
   ASSERT_OK(batch_->Merge("key", "dd"));  // Merging dd under key
   ASSERT_OK(batch_->GetFromBatch(cf0, options_, "key", &value));
   ASSERT_EQ(value, "cc,dd");
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "key", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "key", &value));
   ASSERT_EQ(value, "cc,dd");
 }
 
@@ -2947,9 +2949,9 @@ TEST_P(WriteBatchWithIndexTest, TestBadMergeOperator) {
   ASSERT_OK(batch_->Put("b", "b0"));
 
   ASSERT_OK(batch_->Merge("a", "a1"));
-  ASSERT_NOK(batch_->GetFromBatchAndDB(db_, read_opts_, "a", &value));
+  ASSERT_NOK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "a", &value));
   ASSERT_NOK(batch_->GetFromBatch(column_family, options_, "a", &value));
-  ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, "b", &value));
+  ASSERT_OK(batch_->GetFromBatchAndDB(db_.get(), read_opts_, "b", &value));
   ASSERT_OK(batch_->GetFromBatch(column_family, options_, "b", &value));
 }
 
@@ -2972,7 +2974,7 @@ TEST_P(WriteBatchWithIndexTest, ColumnFamilyWithTimestamp) {
   {
     std::string value;
     ASSERT_TRUE(
-        batch_->GetFromBatchAndDB(db_, ReadOptions(), &cf2, "key", &value)
+        batch_->GetFromBatchAndDB(db_.get(), ReadOptions(), &cf2, "key", &value)
             .IsInvalidArgument());
   }
   {
@@ -2982,7 +2984,7 @@ TEST_P(WriteBatchWithIndexTest, ColumnFamilyWithTimestamp) {
         {PinnableSlice(), PinnableSlice()}};
     std::array<Status, num_keys> statuses{{Status(), Status()}};
     constexpr bool sorted_input = false;
-    batch_->MultiGetFromBatchAndDB(db_, ReadOptions(), &cf2, num_keys,
+    batch_->MultiGetFromBatchAndDB(db_.get(), ReadOptions(), &cf2, num_keys,
                                    keys.data(), pinnable_vals.data(),
                                    statuses.data(), sorted_input);
     for (const auto& s : statuses) {
@@ -3143,13 +3145,15 @@ TEST_P(WriteBatchWithIndexTest, WideColumnsBatchOnly) {
   // GetFromBatchAndDB
   {
     PinnableSlice value;
-    ASSERT_TRUE(batch_->GetFromBatchAndDB(db_, read_opts_, delete_key, &value)
-                    .IsNotFound());
+    ASSERT_TRUE(
+        batch_->GetFromBatchAndDB(db_.get(), read_opts_, delete_key, &value)
+            .IsNotFound());
   }
 
   for (size_t i = 1; i < num_keys; ++i) {
     PinnableSlice value;
-    ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, keys[i], &value));
+    ASSERT_OK(
+        batch_->GetFromBatchAndDB(db_.get(), read_opts_, keys[i], &value));
     ASSERT_EQ(value, expected[i].front().value());
   }
 
@@ -3159,9 +3163,9 @@ TEST_P(WriteBatchWithIndexTest, WideColumnsBatchOnly) {
     std::array<Status, num_keys> statuses;
     constexpr bool sorted_input = false;
 
-    batch_->MultiGetFromBatchAndDB(db_, read_opts_, db_->DefaultColumnFamily(),
-                                   num_keys, keys.data(), values.data(),
-                                   statuses.data(), sorted_input);
+    batch_->MultiGetFromBatchAndDB(
+        db_.get(), read_opts_, db_->DefaultColumnFamily(), num_keys,
+        keys.data(), values.data(), statuses.data(), sorted_input);
 
     ASSERT_TRUE(statuses[0].IsNotFound());
 
@@ -3175,7 +3179,7 @@ TEST_P(WriteBatchWithIndexTest, WideColumnsBatchOnly) {
   {
     PinnableWideColumns columns;
     ASSERT_TRUE(batch_
-                    ->GetEntityFromBatchAndDB(db_, read_opts_,
+                    ->GetEntityFromBatchAndDB(db_.get(), read_opts_,
                                               db_->DefaultColumnFamily(),
                                               delete_key, &columns)
                     .IsNotFound());
@@ -3184,7 +3188,7 @@ TEST_P(WriteBatchWithIndexTest, WideColumnsBatchOnly) {
   for (size_t i = 1; i < num_keys; ++i) {
     PinnableWideColumns columns;
     ASSERT_OK(batch_->GetEntityFromBatchAndDB(
-        db_, read_opts_, db_->DefaultColumnFamily(), keys[i], &columns));
+        db_.get(), read_opts_, db_->DefaultColumnFamily(), keys[i], &columns));
     ASSERT_EQ(columns.columns(), expected[i]);
   }
 
@@ -3195,8 +3199,8 @@ TEST_P(WriteBatchWithIndexTest, WideColumnsBatchOnly) {
     constexpr bool sorted_input = false;
 
     batch_->MultiGetEntityFromBatchAndDB(
-        db_, read_opts_, db_->DefaultColumnFamily(), num_keys, keys.data(),
-        results.data(), statuses.data(), sorted_input);
+        db_.get(), read_opts_, db_->DefaultColumnFamily(), num_keys,
+        keys.data(), results.data(), statuses.data(), sorted_input);
 
     ASSERT_TRUE(statuses[0].IsNotFound());
 
@@ -3293,14 +3297,15 @@ TEST_P(WriteBatchWithIndexTest, WideColumnsBatchAndDB) {
   // GetFromBatchAndDB
   for (size_t i = 0; i < num_keys - 1; ++i) {
     PinnableSlice value;
-    ASSERT_OK(batch_->GetFromBatchAndDB(db_, read_opts_, keys[i], &value));
+    ASSERT_OK(
+        batch_->GetFromBatchAndDB(db_.get(), read_opts_, keys[i], &value));
     ASSERT_EQ(value, expected[i].front().value());
   }
 
   {
     PinnableSlice value;
     ASSERT_TRUE(
-        batch_->GetFromBatchAndDB(db_, read_opts_, no_merge_c_key, &value)
+        batch_->GetFromBatchAndDB(db_.get(), read_opts_, no_merge_c_key, &value)
             .IsNotFound());
   }
 
@@ -3310,9 +3315,9 @@ TEST_P(WriteBatchWithIndexTest, WideColumnsBatchAndDB) {
     std::array<Status, num_keys> statuses;
     constexpr bool sorted_input = false;
 
-    batch_->MultiGetFromBatchAndDB(db_, read_opts_, db_->DefaultColumnFamily(),
-                                   num_keys, keys.data(), values.data(),
-                                   statuses.data(), sorted_input);
+    batch_->MultiGetFromBatchAndDB(
+        db_.get(), read_opts_, db_->DefaultColumnFamily(), num_keys,
+        keys.data(), values.data(), statuses.data(), sorted_input);
 
     for (size_t i = 0; i < num_keys - 1; ++i) {
       ASSERT_OK(statuses[i]);
@@ -3326,14 +3331,14 @@ TEST_P(WriteBatchWithIndexTest, WideColumnsBatchAndDB) {
   for (size_t i = 0; i < num_keys - 1; ++i) {
     PinnableWideColumns columns;
     ASSERT_OK(batch_->GetEntityFromBatchAndDB(
-        db_, read_opts_, db_->DefaultColumnFamily(), keys[i], &columns));
+        db_.get(), read_opts_, db_->DefaultColumnFamily(), keys[i], &columns));
     ASSERT_EQ(columns.columns(), expected[i]);
   }
 
   {
     PinnableWideColumns columns;
     ASSERT_TRUE(batch_
-                    ->GetEntityFromBatchAndDB(db_, read_opts_,
+                    ->GetEntityFromBatchAndDB(db_.get(), read_opts_,
                                               db_->DefaultColumnFamily(),
                                               no_merge_c_key, &columns)
                     .IsNotFound());
@@ -3346,8 +3351,8 @@ TEST_P(WriteBatchWithIndexTest, WideColumnsBatchAndDB) {
     constexpr bool sorted_input = false;
 
     batch_->MultiGetEntityFromBatchAndDB(
-        db_, read_opts_, db_->DefaultColumnFamily(), num_keys, keys.data(),
-        results.data(), statuses.data(), sorted_input);
+        db_.get(), read_opts_, db_->DefaultColumnFamily(), num_keys,
+        keys.data(), results.data(), statuses.data(), sorted_input);
 
     for (size_t i = 0; i < num_keys - 1; ++i) {
       ASSERT_OK(statuses[i]);
@@ -3551,15 +3556,15 @@ TEST_P(WriteBatchWithIndexTest, EntityReadSanityChecks) {
     constexpr ColumnFamilyHandle* column_family = nullptr;
     PinnableWideColumns columns;
     ASSERT_TRUE(batch_
-                    ->GetEntityFromBatchAndDB(db_, ReadOptions(), column_family,
-                                              foo, &columns)
+                    ->GetEntityFromBatchAndDB(db_.get(), ReadOptions(),
+                                              column_family, foo, &columns)
                     .IsInvalidArgument());
   }
 
   {
     constexpr PinnableWideColumns* columns = nullptr;
     ASSERT_TRUE(batch_
-                    ->GetEntityFromBatchAndDB(db_, ReadOptions(),
+                    ->GetEntityFromBatchAndDB(db_.get(), ReadOptions(),
                                               db_->DefaultColumnFamily(), foo,
                                               columns)
                     .IsInvalidArgument());
@@ -3571,7 +3576,7 @@ TEST_P(WriteBatchWithIndexTest, EntityReadSanityChecks) {
 
     PinnableWideColumns columns;
     ASSERT_TRUE(batch_
-                    ->GetEntityFromBatchAndDB(db_, read_options,
+                    ->GetEntityFromBatchAndDB(db_.get(), read_options,
                                               db_->DefaultColumnFamily(), foo,
                                               &columns)
                     .IsInvalidArgument());
@@ -3599,9 +3604,9 @@ TEST_P(WriteBatchWithIndexTest, EntityReadSanityChecks) {
     std::array<Status, num_keys> statuses;
     constexpr bool sorted_input = false;
 
-    batch_->MultiGetEntityFromBatchAndDB(db_, ReadOptions(), column_family,
-                                         num_keys, keys.data(), results.data(),
-                                         statuses.data(), sorted_input);
+    batch_->MultiGetEntityFromBatchAndDB(
+        db_.get(), ReadOptions(), column_family, num_keys, keys.data(),
+        results.data(), statuses.data(), sorted_input);
 
     ASSERT_TRUE(statuses[0].IsInvalidArgument());
     ASSERT_TRUE(statuses[1].IsInvalidArgument());
@@ -3614,7 +3619,7 @@ TEST_P(WriteBatchWithIndexTest, EntityReadSanityChecks) {
     constexpr bool sorted_input = false;
 
     batch_->MultiGetEntityFromBatchAndDB(
-        db_, ReadOptions(), db_->DefaultColumnFamily(), num_keys, keys,
+        db_.get(), ReadOptions(), db_->DefaultColumnFamily(), num_keys, keys,
         results.data(), statuses.data(), sorted_input);
 
     ASSERT_TRUE(statuses[0].IsInvalidArgument());
@@ -3628,8 +3633,8 @@ TEST_P(WriteBatchWithIndexTest, EntityReadSanityChecks) {
     constexpr bool sorted_input = false;
 
     batch_->MultiGetEntityFromBatchAndDB(
-        db_, ReadOptions(), db_->DefaultColumnFamily(), num_keys, keys.data(),
-        results, statuses.data(), sorted_input);
+        db_.get(), ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+        keys.data(), results, statuses.data(), sorted_input);
 
     ASSERT_TRUE(statuses[0].IsInvalidArgument());
     ASSERT_TRUE(statuses[1].IsInvalidArgument());
@@ -3645,8 +3650,8 @@ TEST_P(WriteBatchWithIndexTest, EntityReadSanityChecks) {
     constexpr bool sorted_input = false;
 
     batch_->MultiGetEntityFromBatchAndDB(
-        db_, read_options, db_->DefaultColumnFamily(), num_keys, keys.data(),
-        results.data(), statuses.data(), sorted_input);
+        db_.get(), read_options, db_->DefaultColumnFamily(), num_keys,
+        keys.data(), results.data(), statuses.data(), sorted_input);
     ASSERT_TRUE(statuses[0].IsInvalidArgument());
     ASSERT_TRUE(statuses[1].IsInvalidArgument());
   }

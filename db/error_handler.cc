@@ -201,6 +201,25 @@ std::map<std::tuple<BackgroundErrorReason, Status::Code, bool>,
         {std::make_tuple(BackgroundErrorReason::kManifestWriteNoWAL,
                          Status::Code::kIOError, false),
          Status::Severity::kFatalError},
+        // Errors during BG async file open
+        {std::make_tuple(BackgroundErrorReason::kAsyncFileOpen,
+                         Status::Code::kCorruption, true),
+         Status::Severity::kUnrecoverableError},
+        {std::make_tuple(BackgroundErrorReason::kAsyncFileOpen,
+                         Status::Code::kCorruption, false),
+         Status::Severity::kNoError},
+        {std::make_tuple(BackgroundErrorReason::kAsyncFileOpen,
+                         Status::Code::kIncomplete, true),
+         Status::Severity::kFatalError},
+        {std::make_tuple(BackgroundErrorReason::kAsyncFileOpen,
+                         Status::Code::kIncomplete, false),
+         Status::Severity::kNoError},
+        {std::make_tuple(BackgroundErrorReason::kAsyncFileOpen,
+                         Status::Code::kNotSupported, true),
+         Status::Severity::kFatalError},
+        {std::make_tuple(BackgroundErrorReason::kAsyncFileOpen,
+                         Status::Code::kNotSupported, false),
+         Status::Severity::kNoError},
 };
 
 std::map<std::tuple<BackgroundErrorReason, bool>, Status::Severity>
@@ -225,6 +244,11 @@ std::map<std::tuple<BackgroundErrorReason, bool>, Status::Severity>
          Status::Severity::kFatalError},
         {std::make_tuple(BackgroundErrorReason::kMemTable, false),
          Status::Severity::kFatalError},
+        // Errors during BG async file open
+        {std::make_tuple(BackgroundErrorReason::kAsyncFileOpen, true),
+         Status::Severity::kSoftError},
+        {std::make_tuple(BackgroundErrorReason::kAsyncFileOpen, false),
+         Status::Severity::kNoError},
 };
 
 void ErrorHandler::CancelErrorRecoveryForShutDown() {

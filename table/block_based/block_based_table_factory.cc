@@ -20,6 +20,7 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
@@ -184,6 +185,13 @@ static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
         {"kBinarySearchWithFirstKey",
          BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey}};
 
+static std::unordered_map<std::string, BlockBasedTableOptions::BlockSearchType>
+    block_base_table_index_search_type_string_map = {
+        {"kBinary", BlockBasedTableOptions::BlockSearchType::kBinary},
+        {"kInterpolation",
+         BlockBasedTableOptions::BlockSearchType::kInterpolation},
+        {"kAuto", BlockBasedTableOptions::BlockSearchType::kAuto}};
+
 static std::unordered_map<std::string,
                           BlockBasedTableOptions::DataBlockIndexType>
     block_base_table_data_block_index_type_string_map = {
@@ -223,7 +231,9 @@ static std::unordered_map<std::string,
     block_base_table_prepopulate_block_cache_string_map = {
         {"kDisable", BlockBasedTableOptions::PrepopulateBlockCache::kDisable},
         {"kFlushOnly",
-         BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly}};
+         BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly},
+        {"kFlushAndCompaction",
+         BlockBasedTableOptions::PrepopulateBlockCache::kFlushAndCompaction}};
 
 static struct BlockBasedTableTypeInfo {
   std::unordered_map<std::string, OptionTypeInfo> info;
@@ -261,6 +271,10 @@ static struct BlockBasedTableTypeInfo {
         {"index_type", OptionTypeInfo::Enum<BlockBasedTableOptions::IndexType>(
                            offsetof(struct BlockBasedTableOptions, index_type),
                            &block_base_table_index_type_string_map)},
+        {"index_block_search_type",
+         OptionTypeInfo::Enum<BlockBasedTableOptions::BlockSearchType>(
+             offsetof(struct BlockBasedTableOptions, index_block_search_type),
+             &block_base_table_index_search_type_string_map)},
         {"hash_index_allow_collision",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated}},
         {"data_block_index_type",
@@ -335,6 +349,13 @@ static struct BlockBasedTableTypeInfo {
         {"format_version",
          {offsetof(struct BlockBasedTableOptions, format_version),
           OptionType::kUInt32T, OptionVerificationType::kNormal}},
+        {"separate_key_value_in_data_block",
+         {offsetof(struct BlockBasedTableOptions,
+                   separate_key_value_in_data_block),
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"uniform_cv_threshold",
+         {offsetof(struct BlockBasedTableOptions, uniform_cv_threshold),
+          OptionType::kDouble, OptionVerificationType::kNormal}},
         {"verify_compression",
          {offsetof(struct BlockBasedTableOptions, verify_compression),
           OptionType::kBoolean, OptionVerificationType::kNormal}},
@@ -408,6 +429,9 @@ static struct BlockBasedTableTypeInfo {
           OptionType::kUInt64T, OptionVerificationType::kNormal}},
         {"fail_if_no_udi_on_open",
          {offsetof(struct BlockBasedTableOptions, fail_if_no_udi_on_open),
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"use_udi_as_primary_index",
+         {offsetof(struct BlockBasedTableOptions, use_udi_as_primary_index),
           OptionType::kBoolean, OptionVerificationType::kNormal}},
     };
   }
@@ -485,19 +509,20 @@ void BlockBasedTableFactory::InitializeOptions() {
     }
   }
 
-  if (table_options_.format_version < kMinSupportedFormatVersion) {
+  if (table_options_.format_version < kMinSupportedBbtFormatVersionForWrite) {
+    // In TEST mode, allow writing format versions that are at least supported
+    // for reading (so that we have a way of testing the read side).
     if (TEST_AllowUnsupportedFormatVersion()) {
-      // Allow old format version for testing.
-      // And relevant old sanitization.
-      if (table_options_.format_version == 0 &&
-          table_options_.checksum != kCRC32c) {
-        // silently convert format_version to 1 to support non-CRC32c checksum
-        table_options_.format_version = 1;
+      if (table_options_.format_version <
+          kMinSupportedBbtFormatVersionForRead) {
+        table_options_.format_version = kMinSupportedBbtFormatVersionForWrite;
       }
     } else {
-      table_options_.format_version = kMinSupportedFormatVersion;
+      table_options_.format_version = kMinSupportedBbtFormatVersionForWrite;
     }
   }
+  // NOTE: do not sanitize too high format_version, so that it can be rejected
+  // in validation
 }
 
 Status BlockBasedTableFactory::PrepareOptions(const ConfigOptions& opts) {
@@ -615,6 +640,14 @@ Status BlockBasedTableFactory::ValidateOptions(
         "Hash index is specified for block-based "
         "table, but prefix_extractor is not given");
   }
+  if (table_options_.index_block_search_type ==
+      BlockBasedTableOptions::kInterpolation) {
+    // Interpolation search requires BytewiseComparator
+    if (cf_opts.comparator != BytewiseComparator()) {
+      return Status::InvalidArgument(
+          "Interpolation search requires BytewiseComparator");
+    }
+  }
   if (table_options_.cache_index_and_filter_blocks &&
       table_options_.no_block_cache) {
     return Status::InvalidArgument(
@@ -627,8 +660,14 @@ Status BlockBasedTableFactory::ValidateOptions(
         "Enable pin_l0_filter_and_index_blocks_in_cache, "
         ", but block cache is disabled");
   }
-  if (!IsSupportedFormatVersion(table_options_.format_version) &&
-      !TEST_AllowUnsupportedFormatVersion()) {
+  // In TEST mode, also allow writing
+  // (a) old format_versions that for users are only supported for reads
+  // (b) future "draft" format versions that are not yet published to users
+  if (!(IsSupportedFormatVersionForWrite(kBlockBasedTableMagicNumber,
+                                         table_options_.format_version) ||
+        (TEST_AllowUnsupportedFormatVersion() &&
+         table_options_.format_version >=
+             kMinSupportedBbtFormatVersionForRead))) {
     return Status::InvalidArgument(
         "Unsupported BlockBasedTable format_version. Please check "
         "include/rocksdb/table.h for more info");
@@ -636,9 +675,7 @@ Status BlockBasedTableFactory::ValidateOptions(
   bool using_builtin_compatible_compression = true;
   if (cf_opts.compression_manager &&
       strcmp(cf_opts.compression_manager->CompatibilityName(),
-             GetBuiltinCompressionManager(
-                 GetCompressFormatForVersion(table_options_.format_version))
-                 ->CompatibilityName()) != 0) {
+             GetBuiltinV2CompressionManager()->CompatibilityName()) != 0) {
     if (FormatVersionUsesCompressionManagerName(
             table_options_.format_version)) {
       using_builtin_compatible_compression = false;
@@ -723,11 +760,30 @@ Status BlockBasedTableFactory::ValidateOptions(
         "data_block_hash_table_util_ratio should be greater than 0 when "
         "data_block_index_type is set to kDataBlockBinaryAndHash");
   }
-  if (table_options_.user_defined_index_factory &&
-      (cf_opts.compression_opts.parallel_threads > 1 ||
-       cf_opts.bottommost_compression_opts.parallel_threads > 1)) {
+  if (table_options_.user_defined_index_factory) {
+    if (cf_opts.compression_opts.parallel_threads > 1 ||
+        cf_opts.bottommost_compression_opts.parallel_threads > 1) {
+      return Status::InvalidArgument(
+          "user_defined_index_factory not supported with parallel compression");
+    }
+    if (table_options_.use_udi_as_primary_index) {
+      if (table_options_.index_type ==
+          BlockBasedTableOptions::kTwoLevelIndexSearch) {
+        return Status::InvalidArgument(
+            "use_udi_as_primary_index is incompatible with partitioned index "
+            "(kTwoLevelIndexSearch). The UDI wrapper currently only supports "
+            "flat (single-level) index builders.");
+      }
+      if (table_options_.partition_filters) {
+        return Status::InvalidArgument(
+            "use_udi_as_primary_index is incompatible with partitioned "
+            "filters. The UDI wrapper does not support the partitioned "
+            "index/filter layout.");
+      }
+    }
+  } else if (table_options_.use_udi_as_primary_index) {
     return Status::InvalidArgument(
-        "user_defined_index_factory not supported with parallel compression");
+        "use_udi_as_primary_index requires user_defined_index_factory");
   }
   if (db_opts.unordered_write && cf_opts.max_successive_merges > 0) {
     // TODO(myabandeh): support it
@@ -905,6 +961,9 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
                ? "nullptr"
                : table_options_.user_defined_index_factory->Name());
   ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  use_udi_as_primary_index: %d\n",
+           table_options_.use_udi_as_primary_index);
+  ret.append(buffer);
   snprintf(buffer, kBufferSize, "  fail_if_no_udi_on_open: %d\n",
            table_options_.fail_if_no_udi_on_open);
   ret.append(buffer);
@@ -919,6 +978,9 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  format_version: %d\n",
            table_options_.format_version);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  uniform_cv_threshold: %lf\n",
+           table_options_.uniform_cv_threshold);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  enable_index_compression: %d\n",
            table_options_.enable_index_compression);

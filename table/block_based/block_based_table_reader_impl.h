@@ -83,10 +83,18 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
         decomp = dict.GetValue()->decompressor_.get();
       }
     }
-    s = RetrieveBlock(
-        prefetch_buffer, ro, handle, decomp, &block.As<IterBlocklike>(),
-        get_context, lookup_context, for_compaction,
-        /* use_cache */ true, async_read, use_block_cache_for_lookup);
+
+    if (block_type == BlockType::kRangeDeletion) {
+      s = RetrieveBlock(prefetch_buffer, ro, handle, decomp,
+                        &block.As<Block_kRangeDeletion>(), get_context,
+                        lookup_context, for_compaction, /* use_cache */ true,
+                        async_read, use_block_cache_for_lookup);
+    } else {
+      s = RetrieveBlock(
+          prefetch_buffer, ro, handle, decomp, &block.As<IterBlocklike>(),
+          get_context, lookup_context, for_compaction,
+          /* use_cache */ true, async_read, use_block_cache_for_lookup);
+    }
   }
 
   if (s.IsTryAgain() && async_read) {
@@ -100,6 +108,9 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   }
 
   assert(block.GetValue() != nullptr);
+  assert(block_type != BlockType::kData ||
+         block.GetValue()->HasSeparatedKV() ==
+             rep_->separate_key_value_in_data_block);
 
   // Block contents are pinned and it is still pinned after the iterator
   // is destroyed as long as cleanup functions are moved to another object,
@@ -161,6 +172,8 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(const ReadOptions& ro,
   }
 
   assert(block.GetValue() != nullptr);
+  assert(block.GetValue()->HasSeparatedKV() ==
+         rep_->separate_key_value_in_data_block);
   // Block contents are pinned and it is still pinned after the iterator
   // is destroyed as long as cleanup functions are moved to another object,
   // when:

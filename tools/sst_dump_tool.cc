@@ -523,7 +523,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       bbto.block_size = block_size;
       bbto.enable_index_compression = enable_index_compression;
       // Maximize compression features available
-      bbto.format_version = kLatestFormatVersion;
+      bbto.format_version = kLatestBbtFormatVersion;
       options.table_factory = std::make_shared<BlockBasedTableFactory>(bbto);
     }
     options.compression_opts.max_dict_bytes = compression_max_dict_bytes;

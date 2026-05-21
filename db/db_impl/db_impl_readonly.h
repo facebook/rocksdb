@@ -121,6 +121,11 @@ class DBImplReadOnly : public DBImpl {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
+  using DBImpl::FlushWAL;
+  Status FlushWAL(const FlushWALOptions& /*options*/) override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+
   using DB::IngestExternalFile;
   Status IngestExternalFile(
       ColumnFamilyHandle* /*column_family*/,
@@ -181,7 +186,7 @@ class DBImplReadOnly : public DBImpl {
   // FIXME: some missing overrides for more "write" functions
 
  protected:
-  Status FlushForGetLiveFiles() override {
+  Status FlushForGetLiveFiles(bool /*force_atomic_flush*/) override {
     // No-op for read-only DB
     return Status::OK();
   }

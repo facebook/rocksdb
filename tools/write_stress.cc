@@ -145,13 +145,11 @@ class WriteStress {
     }
 
     // open DB
-    DB* db;
-    Status s = DB::Open(options, FLAGS_db, &db);
+    Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       fprintf(stderr, "Can't open database: %s\n", s.ToString().c_str());
       std::abort();
     }
-    db_.reset(db);
   }
 
   void WriteThread() {

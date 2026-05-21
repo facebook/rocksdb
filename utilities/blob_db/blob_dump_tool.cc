@@ -14,12 +14,12 @@
 #include "file/random_access_file_reader.h"
 #include "file/readahead_raf.h"
 #include "port/port.h"
+#include "rocksdb/advanced_compression.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/file_system.h"
 #include "table/format.h"
 #include "util/coding.h"
 #include "util/string_util.h"
-#include "utilities/blob_db/blob_db_impl.h"
 
 namespace ROCKSDB_NAMESPACE::blob_db {
 
@@ -207,17 +207,26 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
   std::string uncompressed_value;
   if (compression != kNoCompression &&
       (show_uncompressed_blob != DisplayType::kNone || show_summary)) {
-    BlockContents contents;
-    UncompressionContext context(compression);
-    UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
-                           compression);
-    s = DecompressBlockData(
-        slice.data() + key_size, static_cast<size_t>(value_size), compression,
-        BlobDecompressor(), &contents, ImmutableOptions(Options()));
+    auto decompressor =
+        GetBuiltinV2CompressionManager()->GetDecompressorOptimizeFor(
+            compression);
+    if (!decompressor) {
+      return Status::NotSupported("Unsupported compression type");
+    }
+    Slice compressed_data(slice.data() + key_size,
+                          static_cast<size_t>(value_size));
+    Decompressor::Args args;
+    args.compression_type = compression;
+    args.compressed_data = compressed_data;
+    s = decompressor->ExtractUncompressedSize(args);
     if (!s.ok()) {
       return s;
     }
-    uncompressed_value = contents.data.ToString();
+    uncompressed_value.resize(args.uncompressed_size);
+    s = decompressor->DecompressBlock(args, uncompressed_value.data());
+    if (!s.ok()) {
+      return s;
+    }
   }
   if (show_key != DisplayType::kNone) {
     fprintf(stdout, "  key        : ");

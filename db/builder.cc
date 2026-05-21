@@ -13,7 +13,10 @@
 #include <deque>
 #include <vector>
 
+#include "db/blob/blob_counting_iterator.h"
 #include "db/blob/blob_file_builder.h"
+#include "db/blob/blob_garbage_meter.h"
+#include "db/column_family.h"
 #include "db/compaction/compaction_iterator.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
@@ -56,6 +59,18 @@ TableBuilder* NewTableBuilder(const TableBuilderOptions& tboptions,
   return tboptions.moptions.table_factory->NewTableBuilder(tboptions, file);
 }
 
+void ExtractTimestampFromTableProperties(const TableProperties& tp,
+                                         FileMetaData* meta) {
+  auto min_ts_iter = tp.user_collected_properties.find("rocksdb.timestamp_min");
+  if (min_ts_iter != tp.user_collected_properties.end()) {
+    meta->min_timestamp = min_ts_iter->second;
+  }
+  auto max_ts_iter = tp.user_collected_properties.find("rocksdb.timestamp_max");
+  if (max_ts_iter != tp.user_collected_properties.end()) {
+    meta->max_timestamp = max_ts_iter->second;
+  }
+}
+
 Status BuildTable(
     const std::string& dbname, VersionSet* versions,
     const ImmutableDBOptions& db_options, const TableBuilderOptions& tboptions,
@@ -75,7 +90,8 @@ Status BuildTable(
     Env::WriteLifeTimeHint write_hint, const std::string* full_history_ts_low,
     BlobFileCompletionCallback* blob_callback, Version* version,
     uint64_t* memtable_payload_bytes, uint64_t* memtable_garbage_bytes,
-    InternalStats::CompactionStats* flush_stats) {
+    InternalStats::CompactionStats* flush_stats,
+    std::vector<BlobFileGarbage>* blob_file_garbages, bool fast_sst_open) {
   assert((tboptions.column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          tboptions.column_family_name.empty());
@@ -87,7 +103,24 @@ Status BuildTable(
                                    /*enable_hash=*/paranoid_file_checks);
   Status s;
   meta->fd.file_size = 0;
-  iter->SeekToFirst();
+  if (blob_file_garbages != nullptr) {
+    blob_file_garbages->clear();
+  }
+
+  InternalIterator* input = iter;
+  std::unique_ptr<BlobGarbageMeter> blob_garbage_meter;
+  std::unique_ptr<BlobCountingIterator> blob_counting_iter;
+  if (blob_file_garbages != nullptr) {
+    // Flush can drop blob-backed records via overwrite elision and flush-time
+    // compaction filters. Track input and surviving output refs just like the
+    // compaction path so the manifest learns about the new garbage.
+    blob_garbage_meter.reset(new BlobGarbageMeter());
+    blob_counting_iter.reset(
+        new BlobCountingIterator(iter, blob_garbage_meter.get()));
+    input = blob_counting_iter.get();
+  }
+
+  input->SeekToFirst();
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
       new CompactionRangeDelAggregator(&tboptions.internal_comparator,
                                        snapshots, full_history_ts_low));
@@ -116,7 +149,7 @@ Status BuildTable(
 
   TableProperties tp;
   bool table_file_created = false;
-  if (iter->Valid() || !range_del_agg->IsEmpty()) {
+  if (input->Valid() || !range_del_agg->IsEmpty()) {
     std::unique_ptr<CompactionFilter> compaction_filter;
     if (ioptions.compaction_filter_factory != nullptr &&
         ioptions.compaction_filter_factory->ShouldFilterTableFileCreation(
@@ -199,7 +232,7 @@ Status BuildTable(
 
     const std::atomic<bool> kManualCompactionCanceledFalse{false};
     CompactionIterator c_iter(
-        iter, ucmp, &merge, kMaxSequenceNumber, &snapshots, earliest_snapshot,
+        input, ucmp, &merge, kMaxSequenceNumber, &snapshots, earliest_snapshot,
         earliest_write_conflict_snapshot, job_snapshot, snapshot_checker, env,
         ShouldReportDetailedTime(env, ioptions.stats), range_del_agg.get(),
         blob_file_builder.get(), ioptions.allow_data_in_errors,
@@ -207,7 +240,17 @@ Status BuildTable(
         /*manual_compaction_canceled=*/kManualCompactionCanceledFalse,
         true /* must_count_input_entries */,
         /*compaction=*/nullptr, compaction_filter.get(),
-        /*shutting_down=*/nullptr, db_options.info_log, full_history_ts_low);
+        /*shutting_down=*/nullptr, db_options.info_log, full_history_ts_low,
+        std::nullopt, version, tboptions.read_options.io_activity);
+
+    if (version != nullptr) {
+      ColumnFamilyData* const cfd = version->cfd();
+      c_iter.SetBlobFetcher(
+          version, cfd != nullptr ? cfd->blob_file_cache() : nullptr,
+          tboptions.read_options.io_activity,
+          tboptions.reason == TableFileCreationReason::kFlush ||
+              tboptions.reason == TableFileCreationReason::kRecovery);
+    }
 
     SequenceNumber smallest_preferred_seqno = kMaxSequenceNumber;
     std::string key_after_flush_buf;
@@ -254,6 +297,14 @@ Status BuildTable(
 
       if (flush_stats) {
         flush_stats->num_output_records++;
+      }
+
+      if (blob_garbage_meter != nullptr) {
+        s = blob_garbage_meter->ProcessOutFlow(key_after_flush,
+                                               value_after_flush);
+        if (!s.ok()) {
+          break;
+        }
       }
 
       s = meta->UpdateBoundaries(key_after_flush, value_after_flush,
@@ -310,6 +361,8 @@ Status BuildTable(
     }
 
     TEST_SYNC_POINT("BuildTable:BeforeFinishBuildTable");
+    TEST_SYNC_POINT_CALLBACK("BuildTable:BeforeCheckEmpty",
+                             static_cast<TableBuilder*>(builder));
     const bool empty = builder->IsEmpty();
     if (flush_stats) {
       assert(c_iter.HasNumInputEntryScanned());
@@ -318,6 +371,14 @@ Status BuildTable(
     }
     if (!s.ok() || empty) {
       builder->Abandon();
+      // Propagate the builder's error when the builder is empty due to an
+      // internal error (e.g., write fault injection causing all Add() calls to
+      // return early). Without this, `s` would remain OK and the downstream
+      // key count validation in flush_job.cc would produce a misleading
+      // Corruption error instead of the actual builder error.
+      if (s.ok() && !builder->status().ok()) {
+        s = builder->status();
+      }
     } else {
       SeqnoToTimeMapping relevant_mapping;
       if (seqno_to_time_mapping) {
@@ -355,6 +416,7 @@ Status BuildTable(
       assert(meta->fd.GetFileSize() > 0);
       tp = builder
                ->GetTableProperties();  // refresh now that builder is finished
+      ExtractTimestampFromTableProperties(tp, meta);
       if (memtable_payload_bytes != nullptr &&
           memtable_garbage_bytes != nullptr) {
         const CompactionIterationStats& ci_stats = c_iter.iter_stats();
@@ -434,6 +496,8 @@ Status BuildTable(
       // here because this is a special case after we finish the table building.
       // No matter whether use_direct_io_for_flush_and_compaction is true,
       // the goal is to cache it here for further user reads.
+      std::string* file_open_metadata_ptr =
+          fast_sst_open ? &meta->file_open_metadata : nullptr;
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
           tboptions.read_options, file_options, tboptions.internal_comparator,
           *meta, nullptr /* range_del_agg */, mutable_cf_options, nullptr,
@@ -444,7 +508,10 @@ Status BuildTable(
           MaxFileSizeForL0MetaPin(mutable_cf_options),
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key*/ nullptr,
-          /*allow_unprepared_value*/ false));
+          /*allow_unprepared_value*/ false,
+          /*range_del_read_seqno=*/nullptr,
+          /*range_del_iter=*/nullptr,
+          /*maybe_pin_table_handle=*/false, file_open_metadata_ptr));
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
         OutputValidator file_validator(tboptions.internal_comparator,
@@ -462,8 +529,20 @@ Status BuildTable(
   }
 
   // Check for input iterator errors
-  if (!iter->status().ok()) {
-    s = iter->status();
+  if (!input->status().ok()) {
+    s = input->status();
+  }
+
+  if (s.ok() && blob_file_garbages != nullptr &&
+      blob_garbage_meter != nullptr) {
+    for (const auto& pair : blob_garbage_meter->flows()) {
+      const uint64_t blob_file_number = pair.first;
+      const BlobGarbageMeter::BlobInOutFlow& flow = pair.second;
+      if (flow.HasGarbage()) {
+        blob_file_garbages->emplace_back(
+            blob_file_number, flow.GetGarbageCount(), flow.GetGarbageBytes());
+      }
+    }
   }
 
   if (!s.ok() || meta->fd.GetFileSize() == 0) {

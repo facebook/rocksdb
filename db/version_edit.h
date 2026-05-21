@@ -25,6 +25,7 @@
 #include "rocksdb/advanced_options.h"
 #include "table/table_reader.h"
 #include "table/unique_id_impl.h"
+#include "test_util/sync_point.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -73,6 +74,7 @@ enum Tag : uint32_t {
   kWalDeletion2,
   kPersistUserDefinedTimestamps,
   kSubcompactionProgress,
+  kLastCompactedManifestFileSize,
 };
 
 enum SubcompactionProgressPerLevelCustomTag : uint32_t {
@@ -111,6 +113,7 @@ enum NewFileCustomTag : uint32_t {
   kCompensatedRangeDeletionSize = 14,
   kTailSize = 15,
   kUserDefinedTimestampsPersisted = 16,
+  kFileOpenMetadata = 17,
 
   // If this bit for the custom tag is set, opening DB should fail if
   // we don't know this field.
@@ -133,14 +136,57 @@ constexpr uint64_t kReservedEpochNumberForFileIngestedBehind = 1;
 
 uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
 
+// PinnedTableReader is used to safely access a table reader in a multi-threaded
+// context. It holds both a pointer to the table reader and a cache handle.
+class PinnedTableReader {
+ public:
+  PinnedTableReader() : reader_(nullptr), handle_(nullptr) {}
+  ~PinnedTableReader() = default;
+  PinnedTableReader(const PinnedTableReader& other)
+      : reader_(nullptr), handle_(nullptr) {
+    *this = other;
+  }
+  PinnedTableReader& operator=(const PinnedTableReader& other);
+  PinnedTableReader(PinnedTableReader&&) = delete;
+  PinnedTableReader& operator=(PinnedTableReader&&) = delete;
+
+  // Returns the pinned TableReader, or nullptr if not pinned.
+  TableReader* Get() const { return reader_.load(std::memory_order_acquire); }
+
+  // Returns the cache handle that keeps TableReader alive, or nullptr if not
+  // pinned.
+  Cache::Handle* GetCacheHandle() const;
+
+  // Pin a table reader with its cache handle.
+  void Pin(Cache::Handle* handle, TableReader* reader);
+
+  // Release the pinned handle via the given cache and reset state.
+  void Release(Cache* cache);
+
+  // Test-only: set a reader without a cache handle.
+  void TEST_SetReader(TableReader* reader) {
+    reader_.store(reader, std::memory_order_release);
+  }
+
+ private:
+  // Internally, we need to ensure reads and writes to reader_ and handle_ are
+  // properly ordered. handle_ must be written to before reader_ is written to
+  // with release semantics. handle_ must be read after reader_ is read with
+  // acquire semantics.
+  std::atomic<TableReader*> reader_;
+  Cache::Handle* handle_;
+};
+
 // A copyable structure contains information needed to read data from an SST
 // file. It can contain a pointer to a table reader opened for the file, or
 // file number and size, which can be used to create a new table reader for it.
 // The behavior is undefined when a copied of the structure is used when the
 // file is not in any live version any more.
 struct FileDescriptor {
-  // Table reader in table_reader_handle
-  TableReader* table_reader;
+  // Fast access to table reader without cache lookup. Marked mutable because
+  // reads can pin the table reader, but can also be done safely in a
+  // multi-threaded context.
+  mutable PinnedTableReader pinned_reader;
   uint64_t packed_number_and_path_id;
   uint64_t file_size;             // File size in bytes
   SequenceNumber smallest_seqno;  // The smallest seqno in this file
@@ -153,7 +199,7 @@ struct FileDescriptor {
 
   FileDescriptor(uint64_t number, uint32_t path_id, uint64_t _file_size,
                  SequenceNumber _smallest_seqno, SequenceNumber _largest_seqno)
-      : table_reader(nullptr),
+      : pinned_reader(),
         packed_number_and_path_id(PackFileNumberAndPathId(number, path_id)),
         file_size(_file_size),
         smallest_seqno(_smallest_seqno),
@@ -162,7 +208,7 @@ struct FileDescriptor {
   FileDescriptor(const FileDescriptor& fd) { *this = fd; }
 
   FileDescriptor& operator=(const FileDescriptor& fd) {
-    table_reader = fd.table_reader;
+    pinned_reader = fd.pinned_reader;
     packed_number_and_path_id = fd.packed_number_and_path_id;
     file_size = fd.file_size;
     smallest_seqno = fd.smallest_seqno;
@@ -181,24 +227,26 @@ struct FileDescriptor {
 };
 
 struct FileSampledStats {
-  FileSampledStats() : num_reads_sampled(0) {}
+  FileSampledStats()
+      : num_reads_sampled(0), num_collapsible_entry_reads_sampled(0) {}
   FileSampledStats(const FileSampledStats& other) { *this = other; }
   FileSampledStats& operator=(const FileSampledStats& other) {
     num_reads_sampled = other.num_reads_sampled.load();
+    num_collapsible_entry_reads_sampled =
+        other.num_collapsible_entry_reads_sampled.load();
     return *this;
   }
 
   // number of user reads to this file.
   mutable std::atomic<uint64_t> num_reads_sampled;
+  // number of reads of type kNotFound, kMerge, kTypeSingleDeletion
+  mutable std::atomic<uint64_t> num_collapsible_entry_reads_sampled;
 };
 
 struct FileMetaData {
   FileDescriptor fd;
   InternalKey smallest;  // Smallest internal key served by table
   InternalKey largest;   // Largest internal key served by table
-
-  // Needs to be disposed when refs becomes 0.
-  Cache::Handle* table_reader_handle = nullptr;
 
   FileSampledStats stats;
 
@@ -276,6 +324,19 @@ struct FileMetaData {
   // false, it's explicitly written to Manifest.
   bool user_defined_timestamps_persisted = true;
 
+  // Minimum user-defined timestamp in the file. Empty if no UDT or unknown.
+  // This is populated from the table properties "rocksdb.timestamp_min".
+  std::string min_timestamp;
+
+  // Maximum user-defined timestamp in the file. Empty if no UDT or unknown.
+  // This is populated from the table properties "rocksdb.timestamp_max".
+  std::string max_timestamp;
+
+  // Opaque file system metadata that can be used to accelerate file opening.
+  // Retrieved via FSRandomAccessFile::GetFileOpenMetadata() and passed back
+  // via FileOptions::file_metadata on subsequent opens. Empty if not available.
+  std::string file_open_metadata;
+
   FileMetaData() = default;
 
   FileMetaData(uint64_t file, uint32_t file_path_id, uint64_t file_size,
@@ -288,7 +349,9 @@ struct FileMetaData {
                const std::string& _file_checksum_func_name,
                UniqueId64x2 _unique_id,
                const uint64_t _compensated_range_deletion_size,
-               uint64_t _tail_size, bool _user_defined_timestamps_persisted)
+               uint64_t _tail_size, bool _user_defined_timestamps_persisted,
+               const std::string& _min_timestamp,
+               const std::string& _max_timestamp)
       : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
         smallest(smallest_key),
         largest(largest_key),
@@ -303,7 +366,9 @@ struct FileMetaData {
         file_checksum_func_name(_file_checksum_func_name),
         unique_id(std::move(_unique_id)),
         tail_size(_tail_size),
-        user_defined_timestamps_persisted(_user_defined_timestamps_persisted) {
+        user_defined_timestamps_persisted(_user_defined_timestamps_persisted),
+        min_timestamp(_min_timestamp),
+        max_timestamp(_max_timestamp) {
     TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", this);
   }
 
@@ -334,9 +399,10 @@ struct FileMetaData {
   uint64_t TryGetOldestAncesterTime() {
     if (oldest_ancester_time != kUnknownOldestAncesterTime) {
       return oldest_ancester_time;
-    } else if (fd.table_reader != nullptr &&
-               fd.table_reader->GetTableProperties() != nullptr) {
-      return fd.table_reader->GetTableProperties()->creation_time;
+    }
+    TableReader* reader = fd.pinned_reader.Get();
+    if (reader != nullptr && reader->GetTableProperties() != nullptr) {
+      return reader->GetTableProperties()->creation_time;
     }
     return kUnknownOldestAncesterTime;
   }
@@ -344,9 +410,10 @@ struct FileMetaData {
   uint64_t TryGetFileCreationTime() {
     if (file_creation_time != kUnknownFileCreationTime) {
       return file_creation_time;
-    } else if (fd.table_reader != nullptr &&
-               fd.table_reader->GetTableProperties() != nullptr) {
-      return fd.table_reader->GetTableProperties()->file_creation_time;
+    }
+    TableReader* reader = fd.pinned_reader.Get();
+    if (reader != nullptr && reader->GetTableProperties() != nullptr) {
+      return reader->GetTableProperties()->file_creation_time;
     }
     return kUnknownFileCreationTime;
   }
@@ -354,10 +421,9 @@ struct FileMetaData {
   // Tries to get the newest key time from the current file
   // Falls back on oldest ancestor time of previous (newer) file
   uint64_t TryGetNewestKeyTime(FileMetaData* prev_file = nullptr) {
-    if (fd.table_reader != nullptr &&
-        fd.table_reader->GetTableProperties() != nullptr) {
-      uint64_t newest_key_time =
-          fd.table_reader->GetTableProperties()->newest_key_time;
+    TableReader* reader = fd.pinned_reader.Get();
+    if (reader != nullptr && reader->GetTableProperties() != nullptr) {
+      uint64_t newest_key_time = reader->GetTableProperties()->newest_key_time;
       if (newest_key_time != kUnknownNewestKeyTime) {
         return newest_key_time;
       }
@@ -386,7 +452,8 @@ struct FileMetaData {
     usage += sizeof(*this);
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
     usage += smallest.size() + largest.size() + file_checksum.size() +
-             file_checksum_func_name.size();
+             file_checksum_func_name.size() + min_timestamp.size() +
+             max_timestamp.size() + file_open_metadata.size();
     return usage;
   }
 
@@ -737,17 +804,19 @@ class VersionEdit {
                const std::string& file_checksum_func_name,
                const UniqueId64x2& unique_id,
                const uint64_t compensated_range_deletion_size,
-               uint64_t tail_size, bool user_defined_timestamps_persisted) {
+               uint64_t tail_size, bool user_defined_timestamps_persisted,
+               const std::string& min_timestamp = "",
+               const std::string& max_timestamp = "") {
     assert(smallest_seqno <= largest_seqno);
     new_files_.emplace_back(
         level,
-        FileMetaData(file, file_path_id, file_size, smallest, largest,
-                     smallest_seqno, largest_seqno, marked_for_compaction,
-                     temperature, oldest_blob_file_number, oldest_ancester_time,
-                     file_creation_time, epoch_number, file_checksum,
-                     file_checksum_func_name, unique_id,
-                     compensated_range_deletion_size, tail_size,
-                     user_defined_timestamps_persisted));
+        FileMetaData(
+            file, file_path_id, file_size, smallest, largest, smallest_seqno,
+            largest_seqno, marked_for_compaction, temperature,
+            oldest_blob_file_number, oldest_ancester_time, file_creation_time,
+            epoch_number, file_checksum, file_checksum_func_name, unique_id,
+            compensated_range_deletion_size, tail_size,
+            user_defined_timestamps_persisted, min_timestamp, max_timestamp));
     files_to_quarantine_.push_back(file);
     if (!HasLastSequence() || largest_seqno > GetLastSequence()) {
       SetLastSequence(largest_seqno);
@@ -948,6 +1017,21 @@ class VersionEdit {
     subcompaction_progress_.Clear();
   }
 
+  void SetLastCompactedManifestFileSize(uint64_t size) {
+    has_last_compacted_manifest_file_size_ = true;
+    last_compacted_manifest_file_size_ = size;
+  }
+  bool HasLastCompactedManifestFileSize() const {
+    return has_last_compacted_manifest_file_size_;
+  }
+  uint64_t GetLastCompactedManifestFileSize() const {
+    return last_compacted_manifest_file_size_;
+  }
+
+  // Recovery-time per-column-family edits only need to be written when they
+  // advance the CF's log number or carry some other manifest state.
+  bool ShouldEmitPerColumnFamilyRecoveryEdit(uint64_t current_log_number) const;
+
   // return true on success.
   // `ts_sz` is the size in bytes for the user-defined timestamp contained in
   // a user key. This argument is optional because it's only required for
@@ -1038,6 +1122,9 @@ class VersionEdit {
 
   bool has_subcompaction_progress_ = false;
   SubcompactionProgress subcompaction_progress_;
+
+  bool has_last_compacted_manifest_file_size_ = false;
+  uint64_t last_compacted_manifest_file_size_ = 0;
 
   // Newly created table files and blob files are eligible for deletion if they
   // are not registered as live files after the background jobs creating them

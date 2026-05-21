@@ -126,7 +126,7 @@ DEFINE_bool(legend, false,
 
 DEFINE_uint32(runs, 1, "Number of times to rebuild and run benchmark tests");
 
-void _always_assert_fail(int line, const char *file, const char *expr) {
+void _always_assert_fail(int line, const char* file, const char* expr) {
   fprintf(stderr, "%s: %d: Assertion %s failed\n", file, line, expr);
   abort();
 }
@@ -195,7 +195,7 @@ struct KeyMaker {
       len += FastRange32(
           (val_num >> FLAGS_vary_key_size_log2_interval) * 1234567891, 5);
     }
-    char *data = buf_.get() + start;
+    char* data = buf_.get() + start;
     // Populate key data such that all data makes it into a key of at
     // least 8 bytes. We also don't want all the within-filter key
     // variance confined to a contiguous 32 bits, because then a 32 bit
@@ -220,7 +220,7 @@ void PrintWarnings() {
 #endif
 }
 
-void PrintError(const char *error) { fprintf(stderr, "ERROR: %s\n", error); }
+void PrintError(const char* error) { fprintf(stderr, "ERROR: %s\n", error); }
 
 struct FilterInfo {
   uint32_t filter_id_ = 0;
@@ -258,7 +258,7 @@ static const std::vector<TestMode> bestCaseTestModes = {
     kSingleFilter,
 };
 
-const char *TestModeToString(TestMode tm) {
+const char* TestModeToString(TestMode tm) {
   switch (tm) {
     case kSingleFilter:
       return "Single filter";
@@ -278,7 +278,7 @@ const char *TestModeToString(TestMode tm) {
 
 // Do just enough to keep some data dependence for the
 // compiler / CPU
-static uint32_t DryRunNoHash(Slice &s) {
+static uint32_t DryRunNoHash(Slice& s) {
   uint32_t sz = static_cast<uint32_t>(s.size());
   if (sz >= 4) {
     return sz + s.data()[3];
@@ -287,16 +287,16 @@ static uint32_t DryRunNoHash(Slice &s) {
   }
 }
 
-static uint32_t DryRunHash32(Slice &s) {
+static uint32_t DryRunHash32(Slice& s) {
   // Same perf characteristics as GetSliceHash()
   return BloomHash(s);
 }
 
-static uint32_t DryRunHash64(Slice &s) {
+static uint32_t DryRunHash64(Slice& s) {
   return Lower32of64(GetSliceHash64(s));
 }
 
-const std::shared_ptr<const FilterPolicy> &GetPolicy() {
+const std::shared_ptr<const FilterPolicy>& GetPolicy() {
   static std::shared_ptr<const FilterPolicy> policy;
   if (!policy) {
     policy = BloomLikeFilterPolicy::Create(
@@ -378,7 +378,7 @@ void FilterBench::Go() {
                                     FLAGS_average_keys_per_filter);
   const uint32_t variance_offset = variance_range / 2;
 
-  const std::vector<TestMode> &testModes = FLAGS_best_case ? bestCaseTestModes
+  const std::vector<TestMode>& testModes = FLAGS_best_case ? bestCaseTestModes
                                            : FLAGS_quick   ? quickTestModes
                                                            : allTestModes;
 
@@ -425,7 +425,7 @@ void FilterBench::Go() {
       keys_to_add = static_cast<uint32_t>(max_total_keys - total_keys_added);
     }
     infos_.emplace_back();
-    FilterInfo &info = infos_.back();
+    FilterInfo& info = infos_.back();
     info.filter_id_ = filter_id;
     info.keys_added_ = keys_to_add;
     if (FLAGS_use_plain_table_bloom) {
@@ -475,7 +475,7 @@ void FilterBench::Go() {
     total_size += info.filter_.size();
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
     total_memory_used +=
-        malloc_usable_size(const_cast<char *>(info.filter_.data()));
+        malloc_usable_size(const_cast<char*>(info.filter_.data()));
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
     total_keys_added += keys_to_add;
   }
@@ -513,7 +513,7 @@ void FilterBench::Go() {
         static_cast<uint32_t>(m_queries_ * 1000000 / infos_.size());
     uint64_t fps = 0;
     for (uint32_t i = 0; i < infos_.size(); ++i) {
-      FilterInfo &info = infos_[i];
+      FilterInfo& info = infos_[i];
       for (uint32_t j = 0; j < info.keys_added_; ++j) {
         if (FLAGS_use_plain_table_bloom) {
           uint32_t hash = GetSliceHash(kms_[0].Get(info.filter_id_, j));
@@ -593,7 +593,7 @@ void FilterBench::Go() {
 
 double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
                                     TestMode mode) {
-  for (auto &info : infos_) {
+  for (auto& info : infos_) {
     info.outside_queries_ = 0;
     info.false_positives_ = 0;
   }
@@ -644,14 +644,14 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
   }
   uint32_t batch_size = 1;
   std::unique_ptr<Slice[]> batch_slices;
-  std::unique_ptr<Slice *[]> batch_slice_ptrs;
+  std::unique_ptr<Slice*[]> batch_slice_ptrs;
   std::unique_ptr<bool[]> batch_results;
   if (mode == kBatchPrepared || mode == kBatchUnprepared) {
     batch_size = static_cast<uint32_t>(kms_.size());
   }
 
   batch_slices.reset(new Slice[batch_size]);
-  batch_slice_ptrs.reset(new Slice *[batch_size]);
+  batch_slice_ptrs.reset(new Slice*[batch_size]);
   batch_results.reset(new bool[batch_size]);
   for (uint32_t i = 0; i < batch_size; ++i) {
     batch_results[i] = false;
@@ -672,7 +672,7 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
       filter_index = num_primary_filters +
                      random_.Uniformish(num_infos - num_primary_filters);
     }
-    FilterInfo &info = infos_[filter_index];
+    FilterInfo& info = infos_[filter_index];
     for (uint32_t i = 0; i < batch_size; ++i) {
       if (inside_this_time) {
         batch_slices[i] =
@@ -767,7 +767,7 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
     uint64_t fp = 0;
     double worst_fp_rate = 0.0;
     double best_fp_rate = 1.0;
-    for (auto &info : infos_) {
+    for (auto& info : infos_) {
       q += info.outside_queries_;
       fp += info.false_positives_;
       if (info.outside_queries_ > 0) {
@@ -789,7 +789,7 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
   return ns;
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                   " [-quick] [OTHER OPTIONS]...");

@@ -289,6 +289,72 @@ TEST_F(MergeHelperTest, DontFilterMergeOperandsBeforeSnapshotTest) {
   ASSERT_FALSE(merge_output_iter.Valid());
 }
 
+// Requires ~8GB+ RAM due to large std::string operands that are copied into
+// the MergeHelper's internal iterator.
+TEST_F(MergeHelperTest, LargePartialMergeResultRejected) {
+  if (!test::HasBigMem()) {
+    ROCKSDB_GTEST_BYPASS("insufficient memory for reliable continuous testing");
+    return;
+  }
+
+  // A merge operator whose PartialMergeMulti concatenates operands
+  class ConcatMergeOp : public MergeOperator {
+   public:
+    bool FullMergeV2(const MergeOperationInput& merge_in,
+                     MergeOperationOutput* merge_out) const override {
+      merge_out->new_value.clear();
+      if (merge_in.existing_value) {
+        merge_out->new_value.append(merge_in.existing_value->data(),
+                                    merge_in.existing_value->size());
+      }
+      for (const auto& op : merge_in.operand_list) {
+        merge_out->new_value.append(op.data(), op.size());
+      }
+      return true;
+    }
+    bool PartialMergeMulti(const Slice& /*key*/,
+                           const std::deque<Slice>& operand_list,
+                           std::string* new_value,
+                           Logger* /*logger*/) const override {
+      new_value->clear();
+      for (const auto& op : operand_list) {
+        new_value->append(op.data(), op.size());
+      }
+      return true;
+    }
+    const char* Name() const override { return "ConcatMergeOp"; }
+  };
+
+  merge_op_ = std::make_shared<ConcatMergeOp>();
+
+  // Two merge operands that sum to > 4GB
+  constexpr size_t kHalfSize =
+      (size_t{std::numeric_limits<uint32_t>::max()} + 1) / 2;
+  std::string op1(kHalfSize, 'A');
+  std::string op2(kHalfSize, 'B');
+
+  AddKeyVal("a", 20, kTypeMerge, op1);
+  AddKeyVal("a", 10, kTypeMerge, op2);
+  AddKeyVal("b", 10, kTypeMerge, "x");  // different key to stop iteration
+
+  // at_bottom=false forces PartialMergeMulti path (not FullMerge)
+  ASSERT_TRUE(Run(0, false).IsCorruption());
+
+  // Control: just under 4GB should be accepted
+  ks_.clear();
+  vs_.clear();
+  op2.resize(kHalfSize - 1);
+  AddKeyVal("a", 20, kTypeMerge, op1);
+  AddKeyVal("a", 10, kTypeMerge, op2);
+  AddKeyVal("b", 10, kTypeMerge, "x");
+
+  Status s = Run(0, false);
+  ASSERT_TRUE(s.IsMergeInProgress()) << s.ToString();
+  ASSERT_EQ(1U, merge_helper_->keys().size());
+  ASSERT_EQ(size_t{std::numeric_limits<uint32_t>::max()},
+            merge_helper_->values()[0].size());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

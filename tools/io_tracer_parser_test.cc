@@ -50,8 +50,7 @@ class IOTracerParserTest : public testing::Test {
     if (db_ != nullptr) {
       Options options;
       options.env = env_;
-      delete db_;
-      db_ = nullptr;
+      db_.reset();
       EXPECT_OK(DestroyDB(dbname_, options));
     }
     EXPECT_OK(env_->DeleteDir(test_path_));
@@ -97,7 +96,7 @@ class IOTracerParserTest : public testing::Test {
     ASSERT_EQ(0, ROCKSDB_NAMESPACE::io_tracer_parser(argc, argv));
   }
 
-  DB* db_;
+  std::unique_ptr<DB> db_;
   Env* env_;
   EnvOptions env_options_;
   std::string trace_file_path_;

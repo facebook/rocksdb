@@ -31,6 +31,8 @@ class VersionEditHandlerBase {
 
   AtomicGroupReadBuffer& GetReadBuffer() { return read_buffer_; }
 
+  uint64_t GetLastValidRecordEnd() const { return last_valid_record_end_; }
+
  protected:
   explicit VersionEditHandlerBase(const ReadOptions& read_options,
                                   uint64_t max_read_size)
@@ -51,6 +53,10 @@ class VersionEditHandlerBase {
   Status status_;
 
   const ReadOptions& read_options_;
+
+  // File offset at the end of the last successfully completed and
+  // decoded logical record.
+  uint64_t last_valid_record_end_ = 0;
 
  private:
   AtomicGroupReadBuffer read_buffer_;
@@ -146,13 +152,13 @@ class VersionEditHandler : public VersionEditHandlerBase {
       const std::shared_ptr<IOTracer>& io_tracer,
       const ReadOptions& read_options, bool allow_incomplete_valid_version,
       EpochNumberRequirement epoch_number_requirement =
-          EpochNumberRequirement::kMustPresent)
-      : VersionEditHandler(read_only, column_families, version_set,
-                           track_found_and_missing_files,
-                           no_error_if_files_missing, io_tracer, read_options,
-                           /*skip_load_table_files=*/false,
-                           allow_incomplete_valid_version,
-                           epoch_number_requirement) {}
+          EpochNumberRequirement::kMustPresent,
+      bool skip_load_table_files = false)
+      : VersionEditHandler(
+            read_only, column_families, version_set,
+            track_found_and_missing_files, no_error_if_files_missing, io_tracer,
+            read_options, skip_load_table_files, allow_incomplete_valid_version,
+            epoch_number_requirement) {}
 
   ~VersionEditHandler() override {}
 

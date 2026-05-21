@@ -325,6 +325,19 @@ public class Options extends RocksObject
   }
 
   @Override
+  public boolean openFilesAsync() {
+    assert (isOwningHandle());
+    return openFilesAsync(nativeHandle_);
+  }
+
+  @Override
+  public Options setOpenFilesAsync(final boolean openFilesAsync) {
+    assert (isOwningHandle());
+    setOpenFilesAsync(nativeHandle_, openFilesAsync);
+    return this;
+  }
+
+  @Override
   public int maxOpenFiles() {
     assert(isOwningHandle());
     return maxOpenFiles(nativeHandle_);
@@ -768,6 +781,20 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setMaxCompactionTriggerWakeupSeconds(
+      final long maxCompactionTriggerWakeupSeconds) {
+    assert (isOwningHandle());
+    setMaxCompactionTriggerWakeupSeconds(nativeHandle_, maxCompactionTriggerWakeupSeconds);
+    return this;
+  }
+
+  @Override
+  public long maxCompactionTriggerWakeupSeconds() {
+    assert (isOwningHandle());
+    return maxCompactionTriggerWakeupSeconds(nativeHandle_);
+  }
+
+  @Override
   public Options setStatsPersistPeriodSec(
       final int statsPersistPeriodSec) {
     assert(isOwningHandle());
@@ -1043,19 +1070,6 @@ public class Options extends RocksObject
   public boolean skipStatsUpdateOnDbOpen() {
     assert(isOwningHandle());
     return skipStatsUpdateOnDbOpen(nativeHandle_);
-  }
-
-  @Override
-  public Options setSkipCheckingSstFileSizesOnDbOpen(
-      final boolean skipCheckingSstFileSizesOnDbOpen) {
-    setSkipCheckingSstFileSizesOnDbOpen(nativeHandle_, skipCheckingSstFileSizesOnDbOpen);
-    return this;
-  }
-
-  @Override
-  public boolean skipCheckingSstFileSizesOnDbOpen() {
-    assert (isOwningHandle());
-    return skipCheckingSstFileSizesOnDbOpen(nativeHandle_);
   }
 
   @Override
@@ -1965,6 +1979,17 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setMinTombstonesForRangeConversion(final int minTombstonesForRangeConversion) {
+    setMinTombstonesForRangeConversion(nativeHandle_, minTombstonesForRangeConversion);
+    return this;
+  }
+
+  @Override
+  public int minTombstonesForRangeConversion() {
+    return minTombstonesForRangeConversion(nativeHandle_);
+  }
+
+  @Override
   public Options setCompactionThreadLimiter(final ConcurrentTaskLimiter compactionThreadLimiter) {
     setCompactionThreadLimiter(nativeHandle_, compactionThreadLimiter.nativeHandle_);
     this.compactionThreadLimiter_ = compactionThreadLimiter;
@@ -2060,6 +2085,18 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setReadTriggeredCompactionThreshold(
+      final double readTriggeredCompactionThreshold) {
+    setReadTriggeredCompactionThreshold(nativeHandle_, readTriggeredCompactionThreshold);
+    return this;
+  }
+
+  @Override
+  public double readTriggeredCompactionThreshold() {
+    return readTriggeredCompactionThreshold(nativeHandle_);
+  }
+
+  @Override
   public Options setBlobCompactionReadaheadSize(final long blobCompactionReadaheadSize) {
     setBlobCompactionReadaheadSize(nativeHandle_, blobCompactionReadaheadSize);
     return this;
@@ -2150,6 +2187,8 @@ public class Options extends RocksObject
   private static native boolean errorIfExists(long handle);
   private static native void setParanoidChecks(long handle, boolean paranoidChecks);
   private static native boolean paranoidChecks(long handle);
+  private static native void setOpenFilesAsync(long handle, boolean openFilesAsync);
+  private static native boolean openFilesAsync(long handle);
   private static native void setRateLimiter(long handle, long rateLimiterHandle);
   private static native void setSstFileManager(final long handle, final long sstFileManagerHandle);
   private static native void setLogger(
@@ -2228,6 +2267,9 @@ public class Options extends RocksObject
   private static native boolean isFdCloseOnExec(long handle);
   private static native void setStatsDumpPeriodSec(long handle, int statsDumpPeriodSec);
   private static native int statsDumpPeriodSec(long handle);
+  private static native void setMaxCompactionTriggerWakeupSeconds(
+      long handle, long maxCompactionTriggerWakeupSeconds);
+  private static native long maxCompactionTriggerWakeupSeconds(long handle);
   private static native void setStatsPersistPeriodSec(
       final long handle, final int statsPersistPeriodSec);
   private static native int statsPersistPeriodSec(final long handle);
@@ -2283,9 +2325,6 @@ public class Options extends RocksObject
   private static native void setSkipStatsUpdateOnDbOpen(
       final long handle, final boolean skipStatsUpdateOnDbOpen);
   private static native boolean skipStatsUpdateOnDbOpen(final long handle);
-  private static native void setSkipCheckingSstFileSizesOnDbOpen(
-      final long handle, final boolean skipChecking);
-  private static native boolean skipCheckingSstFileSizesOnDbOpen(final long handle);
   private static native void setWalRecoveryMode(final long handle, final byte walRecoveryMode);
   private static native byte walRecoveryMode(final long handle);
   private static native void setAllow2pc(final long handle, final boolean allow2pc);
@@ -2452,6 +2491,9 @@ public class Options extends RocksObject
   private static native void setSstPartitionerFactory(long nativeHandle_, long newFactoryHandle);
   private static native void setMemtableMaxRangeDeletions(final long handle, final int count);
   private static native int memtableMaxRangeDeletions(final long handle);
+  private static native void setMinTombstonesForRangeConversion(
+      final long handle, final int minTombstonesForRangeConversion);
+  private static native int minTombstonesForRangeConversion(final long handle);
   private static native void setCompactionThreadLimiter(
       final long nativeHandle_, final long newLimiterHandle);
   private static native void setAvoidUnnecessaryBlockingIO(
@@ -2494,6 +2536,9 @@ public class Options extends RocksObject
   private static native void setBlobGarbageCollectionForceThreshold(
       final long nativeHandle_, final double blobGarbageCollectionForceThreshold);
   private static native double blobGarbageCollectionForceThreshold(final long nativeHandle_);
+  private static native void setReadTriggeredCompactionThreshold(
+      final long nativeHandle_, final double readTriggeredCompactionThreshold);
+  private static native double readTriggeredCompactionThreshold(final long nativeHandle_);
   private static native void setBlobCompactionReadaheadSize(
       final long nativeHandle_, final long blobCompactionReadaheadSize);
   private static native long blobCompactionReadaheadSize(final long nativeHandle_);

@@ -404,7 +404,7 @@ public class RocksDB extends RocksObject {
    * @param options {@link Options} instance.
    * @param path the path to the RocksDB.
    * @param errorIfWalFileExists true to raise an error when opening the db
-   *            if a Write Ahead Log file exists, false otherwise.
+   *            if a non-empty Write Ahead Log file exists, false otherwise.
    * @return a {@link RocksDB} instance on success, null if the specified
    *     {@link RocksDB} can not be opened.
    *
@@ -493,7 +493,7 @@ public class RocksDB extends RocksObject {
    * @param columnFamilyHandles will be filled with ColumnFamilyHandle instances
    *     on open.
    * @param errorIfWalFileExists true to raise an error when opening the db
-   *            if a Write Ahead Log file exists, false otherwise.
+   *            if a non-empty Write Ahead Log file exists, false otherwise.
    * @return a {@link RocksDB} instance on success, null if the specified
    *     {@link RocksDB} can not be opened.
    *
@@ -4085,6 +4085,23 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * Abort all running and pending compaction jobs. This method will signal
+   * all active compactions to terminate and wait for them to complete.
+   * No new compactions will be scheduled until {@link #resumeAllCompactions()} is called.
+   */
+  public void abortAllCompactions() {
+    abortAllCompactions(nativeHandle_);
+  }
+
+  /**
+   * Resume compaction scheduling after {@link #abortAllCompactions()} was called.
+   * Must be called the same number of times as {@link #abortAllCompactions()}.
+   */
+  public void resumeAllCompactions() {
+    resumeAllCompactions(nativeHandle_);
+  }
+
+  /**
    * Enable automatic compactions for the given column
    * families if they were previously disabled.
    * <p>
@@ -5036,6 +5053,8 @@ public class RocksDB extends RocksObject {
   private static native void cancelAllBackgroundWork(final long handle, final boolean wait);
   private static native void pauseBackgroundWork(final long handle) throws RocksDBException;
   private static native void continueBackgroundWork(final long handle) throws RocksDBException;
+  private static native void abortAllCompactions(final long handle);
+  private static native void resumeAllCompactions(final long handle);
   private static native void enableAutoCompaction(
       final long handle, final long[] columnFamilyHandles) throws RocksDBException;
   private static native int numberLevels(final long handle, final long columnFamilyHandle);

@@ -138,13 +138,11 @@ static void SetupDB(benchmark::State& state, Options& options,
       db_path + kFilePathSeparator + test_name + std::to_string(getpid());
   DestroyDB(db_name, options);
 
-  DB* db_ptr = nullptr;
-  s = DB::Open(options, db_name, &db_ptr);
+  s = DB::Open(options, db_name, db);
   if (!s.ok()) {
     state.SkipWithError(s.ToString().c_str());
     return;
   }
-  db->reset(db_ptr);
 }
 
 static void TeardownDB(benchmark::State& state, const std::unique_ptr<DB>& db,
@@ -181,12 +179,10 @@ static void DBOpen(benchmark::State& state) {
 
   for (auto _ : state) {
     {
-      DB* db_ptr = nullptr;
-      Status s = DB::Open(options, db_name, &db_ptr);
+      Status s = DB::Open(options, db_name, &db);
       if (!s.ok()) {
         state.SkipWithError(s.ToString().c_str());
       }
-      db.reset(db_ptr);
     }
     state.PauseTiming();
     auto wo = WriteOptions();
@@ -231,12 +227,10 @@ static void DBClose(benchmark::State& state) {
   for (auto _ : state) {
     state.PauseTiming();
     {
-      DB* db_ptr = nullptr;
-      Status s = DB::Open(options, db_name, &db_ptr);
+      Status s = DB::Open(options, db_name, &db);
       if (!s.ok()) {
         state.SkipWithError(s.ToString().c_str());
       }
-      db.reset(db_ptr);
     }
     auto wo = WriteOptions();
     Status s;
@@ -727,13 +721,11 @@ static void SimpleGetWithPerfContext(benchmark::State& state) {
     DestroyDB(db_name, options);
 
     {
-      DB* db_ptr = nullptr;
-      s = DB::Open(options, db_name, &db_ptr);
+      s = DB::Open(options, db_name, &db);
       if (!s.ok()) {
         state.SkipWithError(s.ToString().c_str());
         return;
       }
-      db.reset(db_ptr);
     }
     // load db
     auto wo = WriteOptions();

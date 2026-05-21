@@ -100,6 +100,8 @@ DECLARE_bool(enable_pipelined_write);
 DECLARE_bool(verify_before_write);
 DECLARE_bool(histogram);
 DECLARE_bool(destroy_db_initially);
+DECLARE_bool(destroy_db_and_exit);
+DECLARE_string(delete_dir_and_exit);
 DECLARE_bool(verbose);
 DECLARE_bool(progress_reports);
 DECLARE_uint64(db_write_buffer_size);
@@ -111,6 +113,8 @@ DECLARE_bool(use_write_buffer_manager);
 DECLARE_double(memtable_prefix_bloom_size_ratio);
 DECLARE_bool(memtable_whole_key_filtering);
 DECLARE_int32(open_files);
+DECLARE_bool(open_files_async);
+DECLARE_bool(async_wal_precreate);
 DECLARE_uint64(compressed_secondary_cache_size);
 DECLARE_int32(compressed_secondary_cache_numshardbits);
 DECLARE_int32(secondary_cache_update_interval);
@@ -123,6 +127,7 @@ DECLARE_int32(level0_slowdown_writes_trigger);
 DECLARE_int32(level0_stop_writes_trigger);
 DECLARE_int32(block_size);
 DECLARE_int32(format_version);
+DECLARE_bool(separate_key_value_in_data_block);
 DECLARE_int32(index_block_restart_interval);
 DECLARE_int32(max_background_compactions);
 DECLARE_int32(num_bottom_pri_threads);
@@ -136,6 +141,7 @@ DECLARE_int32(universal_max_size_amplification_percent);
 DECLARE_int32(universal_max_read_amp);
 DECLARE_int32(clear_column_family_one_in);
 DECLARE_int32(get_live_files_apis_one_in);
+DECLARE_bool(checkpoint_atomic_flush);
 DECLARE_int32(get_all_column_family_metadata_one_in);
 DECLARE_int32(get_sorted_wal_files_one_in);
 DECLARE_int32(get_current_wal_file_one_in);
@@ -159,6 +165,9 @@ DECLARE_uint64(periodic_compaction_seconds);
 DECLARE_string(daily_offpeak_time_utc);
 DECLARE_uint64(compaction_ttl);
 DECLARE_bool(fifo_allow_compaction);
+DECLARE_uint64(fifo_compaction_max_data_files_size_mb);
+DECLARE_uint64(fifo_compaction_max_table_files_size_mb);
+DECLARE_bool(fifo_compaction_use_kv_ratio_compaction);
 DECLARE_bool(allow_concurrent_memtable_write);
 DECLARE_double(experimental_mempurge_threshold);
 DECLARE_bool(enable_write_thread_adaptive_yield);
@@ -173,10 +182,18 @@ DECLARE_uint32(sqfc_version);
 DECLARE_bool(use_sqfc_for_range_queries);
 DECLARE_int32(index_type);
 DECLARE_int32(data_block_index_type);
+DECLARE_int32(index_block_search_type);
+DECLARE_double(uniform_cv_threshold);
+DECLARE_bool(use_trie_index);
+DECLARE_bool(use_udi_as_primary_index);
+DECLARE_bool(test_backward_scan);
 DECLARE_string(db);
 DECLARE_string(secondaries_base);
 DECLARE_bool(test_secondary);
 DECLARE_string(expected_values_dir);
+DECLARE_bool(expected_state_trace_debug);
+DECLARE_int64(expected_state_trace_debug_key);
+DECLARE_int32(expected_state_trace_debug_max_logs);
 DECLARE_bool(verify_checksum);
 DECLARE_bool(mmap_read);
 DECLARE_bool(mmap_write);
@@ -187,6 +204,7 @@ DECLARE_bool(statistics);
 DECLARE_bool(sync);
 DECLARE_bool(use_fsync);
 DECLARE_uint64(stats_dump_period_sec);
+DECLARE_uint64(max_compaction_trigger_wakeup_seconds);
 DECLARE_uint64(bytes_per_sync);
 DECLARE_uint64(wal_bytes_per_sync);
 DECLARE_int32(kill_random_test);
@@ -217,6 +235,7 @@ DECLARE_int32(reset_stats_one_in);
 DECLARE_int32(pause_background_one_in);
 DECLARE_int32(disable_file_deletions_one_in);
 DECLARE_int32(disable_manual_compaction_one_in);
+DECLARE_int32(abort_and_resume_compactions_one_in);
 DECLARE_int32(compact_range_width);
 DECLARE_int32(acquire_snapshot_one_in);
 DECLARE_bool(compare_full_db_state_snapshot);
@@ -249,6 +268,7 @@ DECLARE_uint64(ops_per_thread);
 DECLARE_uint64(log2_keys_per_lock);
 DECLARE_uint64(max_manifest_file_size);
 DECLARE_int32(max_manifest_space_amp_pct);
+DECLARE_bool(verify_manifest_content_on_close);
 DECLARE_bool(in_place_update);
 DECLARE_string(memtablerep);
 DECLARE_int32(prefix_size);
@@ -260,8 +280,11 @@ DECLARE_bool(use_full_merge_v1);
 DECLARE_int32(sync_wal_one_in);
 DECLARE_bool(avoid_unnecessary_blocking_io);
 DECLARE_bool(write_dbid_to_manifest);
+DECLARE_bool(optimize_manifest_for_recovery);
 DECLARE_bool(write_identity_file);
+DECLARE_bool(reuse_manifest_on_open);
 DECLARE_bool(avoid_flush_during_recovery);
+DECLARE_bool(enforce_write_buffer_manager_during_recovery);
 DECLARE_uint64(max_write_batch_group_size_bytes);
 DECLARE_bool(level_compaction_dynamic_level_bytes);
 DECLARE_int32(verify_checksum_one_in);
@@ -275,8 +298,10 @@ DECLARE_bool(verification_only);
 DECLARE_string(last_level_temperature);
 DECLARE_string(default_write_temperature);
 DECLARE_string(default_temperature);
+DECLARE_uint32(verify_output_flags);
 DECLARE_bool(paranoid_memory_checks);
 DECLARE_bool(memtable_veirfy_per_key_checksum_on_seek);
+DECLARE_bool(memtable_batch_lookup_optimization);
 
 // Options for transaction dbs.
 // Use TransactionDB (a.k.a. Pessimistic Transaction DB)
@@ -296,15 +321,14 @@ DECLARE_uint32(occ_lock_bucket_count);
 
 // Options for StackableDB-based BlobDB
 DECLARE_bool(use_blob_db);
-DECLARE_uint64(blob_db_min_blob_size);
-DECLARE_uint64(blob_db_bytes_per_sync);
 DECLARE_uint64(blob_db_file_size);
 DECLARE_bool(blob_db_enable_gc);
-DECLARE_double(blob_db_gc_cutoff);
 
 // Options for integrated BlobDB
 DECLARE_bool(allow_setting_blob_options_dynamically);
 DECLARE_bool(enable_blob_files);
+DECLARE_bool(enable_blob_direct_write);
+DECLARE_uint64(blob_direct_write_partitions);
 DECLARE_uint64(min_blob_size);
 DECLARE_uint64(blob_file_size);
 DECLARE_string(blob_compression_type);
@@ -343,6 +367,7 @@ DECLARE_bool(adaptive_readahead);
 DECLARE_bool(async_io);
 DECLARE_string(wal_compression);
 DECLARE_bool(verify_sst_unique_id_in_manifest);
+DECLARE_bool(fast_sst_open);
 
 DECLARE_int32(create_timestamped_snapshot_one_in);
 
@@ -398,7 +423,6 @@ DECLARE_bool(enable_index_compression);
 DECLARE_uint32(index_shortening);
 DECLARE_uint32(metadata_charge_policy);
 DECLARE_bool(use_adaptive_mutex_lru);
-DECLARE_uint32(compress_format_version);
 DECLARE_uint64(manifest_preallocation_size);
 DECLARE_bool(enable_checksum_handoff);
 DECLARE_string(compression_manager);
@@ -434,10 +458,12 @@ DECLARE_int32(allow_resumption_one_in);
 DECLARE_bool(auto_refresh_iterator_with_snapshot);
 DECLARE_uint32(memtable_op_scan_flush_trigger);
 DECLARE_uint32(memtable_avg_op_scan_flush_trigger);
+DECLARE_uint32(min_tombstones_for_range_conversion);
 DECLARE_uint32(ingest_wbwi_one_in);
 DECLARE_bool(universal_reduce_file_locking);
 DECLARE_bool(use_multiscan);
 DECLARE_bool(multiscan_use_async_io);
+DECLARE_uint64(multiscan_max_prefetch_memory_bytes);
 
 // Compaction deletion trigger declarations for stress testing
 DECLARE_bool(enable_compaction_on_deletion_trigger);
@@ -445,6 +471,9 @@ DECLARE_uint64(compaction_on_deletion_min_file_size);
 DECLARE_int32(compaction_on_deletion_trigger_count);
 DECLARE_int32(compaction_on_deletion_window_size);
 DECLARE_double(compaction_on_deletion_ratio);
+DECLARE_double(read_triggered_compaction_threshold);
+
+DECLARE_string(listener_uri);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
@@ -482,6 +511,8 @@ inline enum RepFactory StringToRepFactory(const char* ctype) {
 extern enum RepFactory FLAGS_rep_factory;
 
 namespace ROCKSDB_NAMESPACE {
+void RegisterDbStressBdwFlagValidators();
+
 inline enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);
@@ -820,5 +851,10 @@ Status SaveFilesInDirectory(const std::string& src_dirname,
                             const std::string& dst_dirname);
 Status DestroyUnverifiedSubdir(const std::string& dirname);
 Status InitUnverifiedSubdir(const std::string& dirname);
+
+// Destroy the DB at the given path under the env configured for db_stress.
+// Handles both regular DB and BlobDB, and cleans and removes the entire dir.
+Status DbStressDestroyDb(const std::string& db_path);
+
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

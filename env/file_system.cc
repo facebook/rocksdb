@@ -192,6 +192,13 @@ IOStatus WriteStringToFile(FileSystem* fs, const Slice& data,
   if (s.ok() && should_sync) {
     s = file->Sync(io_options, nullptr);
   }
+  // Explicitly close the file rather than relying on the unique_ptr destructor.
+  // The destructor may silently swallow write errors that occur during close
+  // (e.g., flushing buffered data), so we close here to detect and propagate
+  // such errors.
+  if (s.ok()) {
+    s = file->Close(io_options, nullptr);
+  }
   if (!s.ok()) {
     fs->DeleteFile(fname, io_options, nullptr);
   }

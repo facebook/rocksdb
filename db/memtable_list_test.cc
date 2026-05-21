@@ -33,12 +33,12 @@ std::string ValueWithWriteTime(std::string value, uint64_t write_time) {
 class MemTableListTest : public testing::Test {
  public:
   std::string dbname;
-  DB* db;
+  std::unique_ptr<DB> db;
   Options options;
   std::vector<ColumnFamilyHandle*> handles;
   std::atomic<uint64_t> file_number;
 
-  MemTableListTest() : db(nullptr), file_number(1) {
+  MemTableListTest() : file_number(1) {
     dbname = test::PerThreadDBPath("memtable_list_test");
     options.create_if_missing = true;
     EXPECT_OK(DestroyDB(dbname, options));
@@ -88,8 +88,7 @@ class MemTableListTest : public testing::Test {
         }
       }
       handles.clear();
-      delete db;
-      db = nullptr;
+      db.reset();
       EXPECT_OK(DestroyDB(dbname, options, cf_descs));
     }
   }
@@ -1152,6 +1151,63 @@ TEST_F(MemTableListWithTimestampTest, GetTableNewestUDT) {
     delete m;
   }
   to_delete.clear();
+}
+
+TEST_F(MemTableListWithTimestampTest, ConcurrentGetTableNewestUDT) {
+  const int num_threads = 4;
+  const int num_entries_per_thread = 100;
+
+  auto factory = std::make_shared<SkipListFactory>();
+  options.memtable_factory = factory;
+  options.persist_user_defined_timestamps = false;
+  ImmutableOptions ioptions(options);
+  const Comparator* ucmp = test::BytewiseComparatorWithU64TsWrapper();
+  InternalKeyComparator cmp(ucmp);
+  WriteBufferManager wb(options.db_write_buffer_size);
+  MutableCFOptions mutable_cf_options(options);
+
+  MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb,
+                               kMaxSequenceNumber, 0 /* column_family_id */);
+  mem->Ref();
+
+  std::atomic<uint64_t> next_seq{1};
+  uint64_t max_ts = num_threads * num_entries_per_thread - 1;
+
+  std::vector<port::Thread> threads;
+  threads.reserve(num_threads);
+
+  for (int t = 0; t < num_threads; t++) {
+    threads.emplace_back([&, t]() {
+      MemTablePostProcessInfo post_process_info;
+      for (int j = 0; j < num_entries_per_thread; j++) {
+        uint64_t ts = t * num_entries_per_thread + j;
+        std::string key = "key" + std::to_string(ts);
+        std::string write_ts;
+        PutFixed64(&write_ts, ts);
+        key.append(write_ts);
+
+        SequenceNumber seq = next_seq.fetch_add(1);
+        ASSERT_OK(mem->Add(seq, kTypeValue, key, "val",
+                           nullptr /* kv_prot_info */,
+                           true /* allow_concurrent */, &post_process_info));
+      }
+      mem->BatchPostProcess(post_process_info);
+    });
+  }
+
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  ASSERT_EQ(num_threads * num_entries_per_thread, mem->NumEntries());
+
+  Slice newest_udt = mem->GetNewestUDT();
+  ASSERT_EQ(sizeof(uint64_t), newest_udt.size());
+  uint64_t got_ts = DecodeFixed64(newest_udt.data());
+  ASSERT_EQ(max_ts, got_ts);
+
+  ReadOnlyMemTable* m = mem->Unref();
+  delete m;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

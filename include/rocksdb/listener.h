@@ -157,6 +157,8 @@ enum class CompactionReason : int {
   // [InternalOnly] DBImpl::ReFitLevel treated as a compaction,
   // Used only for internal conflict checking with other compactions
   kRefitLevel,
+  // Compaction triggered by high read frequency on SST files
+  kReadTriggered,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
 };
@@ -201,6 +203,7 @@ enum class BackgroundErrorReason {
   kManifestWrite,
   kFlushNoWAL,
   kManifestWriteNoWAL,
+  kAsyncFileOpen,
 };
 
 struct WriteStallInfo {
@@ -488,6 +491,9 @@ struct CompactionJobInfo {
   // Information about blob files deleted during compaction in Integrated
   // BlobDB.
   std::vector<BlobFileGarbageInfo> blob_file_garbage_infos;
+
+  // Whether this compaction was aborted via AbortAllCompactions()
+  bool aborted = false;
 };
 
 struct MemTableInfo {
@@ -548,6 +554,34 @@ struct IOErrorInfo {
   std::string file_path;
   size_t length;
   uint64_t offset;
+};
+
+// EXPERIMENTAL -- under active development, fields may change.
+// Point-in-time snapshot of background job pressure for one DB: how busy
+// compaction and flush are, and how close the DB is to write-stalling.
+struct BackgroundJobPressure {
+  // Compaction scheduling (LOW + BOTTOM priority combined)
+  int compaction_scheduled = 0;
+  int compaction_running = 0;
+
+  // Per-priority compaction breakdown
+  int compaction_low_scheduled = 0;
+  int compaction_low_running = 0;
+  int compaction_bottom_scheduled = 0;
+  int compaction_bottom_running = 0;
+
+  // Flush scheduling
+  int flush_scheduled = 0;
+  int flush_running = 0;
+
+  // How close the DB is to a write stall, as a percentage (0 = healthy,
+  // 100 = at stall threshold). Can exceed 100 when already stalling.
+  // Max across all column families based on write-stall triggers.
+  int write_stall_proximity_pct = 0;
+  // Whether RocksDB has activated compaction speedup due to write pressure
+  bool compaction_speedup_active = false;
+
+  bool operator==(const BackgroundJobPressure&) const = default;
 };
 
 // EventListener class contains a set of callback functions that will
@@ -640,15 +674,68 @@ class EventListener : public Customizable {
   // Note that the this function must be implemented in a way such that
   // it should not run for an extended period of time before the function
   // returns.  Otherwise, RocksDB may be blocked.
+  //
+  // WART: this callback is skipped during DB shutdown, so a compaction
+  // that commits during shutdown may never be observed by listeners.
   virtual void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& /*ci*/) {}
+
+  // A callback function for RocksDB which will be called when a registered
+  // RocksDB has finished writing a compaction job's output files, but
+  // *before* the manifest write commits the new Version (i.e. before
+  // input files are released and output files become visible to readers
+  // and the compaction picker). At this point the input files in
+  // `ci.input_files` still have `FileMetaData::being_compacted == true`,
+  // so no other thread can pick them up for a new compaction.
+  //
+  // This callback fires strictly between `OnCompactionBegin` and
+  // `OnCompactionCompleted` for the same compaction. It is the right
+  // place for listeners to clean up their own bookkeeping of which input
+  // files they think are being compacted: doing it here, rather than in
+  // `OnCompactionCompleted`, avoids a race where `OnCompactionBegin` for
+  // the same file fires before `OnCompactionCompleted` for the previous
+  // compaction. The default implementation is a no-op.
+  //
+  // Unlike `OnCompactionCompleted`, `ci.status` does not reflect the
+  // final outcome: the manifest commit has not yet occurred, so it
+  // does not capture commit failures. Other `CompactionJobInfo` quirks
+  // that also apply to `OnCompactionCompleted`: for trivial moves and
+  // FIFO deletion-only compactions, `ci.stats` is minimal (no
+  // `CompactionJob` runs), and FIFO deletions have no output files.
+  //
+  // As with `OnCompactionCompleted`, the DB mutex is released for the
+  // duration of this callback, but other manifest writers may be waiting,
+  // so cheap implementations are strongly preferred.
+  //
+  // WART: this callback is skipped during DB shutdown, so a compaction
+  // that commits during shutdown may never be observed by listeners.
+  //
+  // @param db a pointer to the rocksdb instance which just compacted a file.
+  // @param ci a reference to a CompactionJobInfo struct. 'ci' is released
+  //  after this function is returned, and must be copied if it is needed
+  //  outside of this function.
+  virtual void OnCompactionPreCommit(DB* /*db*/,
+                                     const CompactionJobInfo& /*ci*/) {}
 
   // A callback function for RocksDB which will be called whenever
   // a registered RocksDB compacts a file. The default implementation
   // is a no-op.
   //
+  // At the time this callback fires, the manifest commit has applied:
+  // output files in `ci.output_files` are live in the DB (visible to
+  // readers and the compaction picker, and possibly already picked up
+  // by another compaction), and input files in `ci.input_files` have
+  // been removed from the live Version with `being_compacted == false`
+  // (their on-disk files may still exist if held by snapshots / iterators
+  // / pending physical deletion; see `OnTableFileDeleted`). To observe
+  // state *before* input files are released, use
+  // `OnCompactionPreCommit` instead.
+  //
   // Note that this function must be implemented in a way such that
   // it should not run for an extended period of time before the function
   // returns. Otherwise, RocksDB may be blocked.
+  //
+  // WART: this callback is skipped during DB shutdown, so a compaction
+  // that commits during shutdown may never be observed by listeners.
   //
   // @param db a pointer to the rocksdb instance which just compacted
   //   a file.
@@ -865,6 +952,17 @@ class EventListener : public Customizable {
   // A callback function for RocksDB which will be called whenever an IO error
   // happens. ShouldBeNotifiedOnFileIO should be set to true to get a callback.
   virtual void OnIOError(const IOErrorInfo& /*info*/) {}
+
+  // EXPERIMENTAL
+  // Called after a flush or compaction background job completes, providing a
+  // snapshot of current background job scheduling pressure and write-stall
+  // proximity. Fires on the background thread that completed the job, without
+  // holding db_mutex_. This callback fires on every completion, even if
+  // pressure values have not changed from the previous call.
+  // Implementations should not run for an extended period of time before
+  // returning, as this blocks RocksDB background work.
+  virtual void OnBackgroundJobPressureChanged(
+      DB* /*db*/, const BackgroundJobPressure& /*pressure*/) {}
 
   ~EventListener() override {}
 };

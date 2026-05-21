@@ -20,6 +20,7 @@
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/statistics.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/mock_table.h"
 #include "table/unique_id_impl.h"
@@ -56,7 +57,8 @@ class GenerateLevelFilesBriefTest : public testing::Test {
         kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
         kUnknownFileCreationTime, kUnknownEpochNumber, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+        /* max timestamp */ "");
     files_.push_back(f);
   }
 
@@ -172,7 +174,8 @@ class VersionStorageInfoTestBase : public testing::Test {
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
         kUnknownEpochNumber, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
         kNullUniqueId64x2, compensated_range_deletion_size, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+        /* max timestamp */ "");
     vstorage_.AddFile(level, f);
   }
 
@@ -391,7 +394,8 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_1) {
   ASSERT_EQ(51450U, vstorage_.MaxBytesForLevel(3));
   ASSERT_EQ(257250U, vstorage_.MaxBytesForLevel(4));
 
-  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_,
+                                   /*full_history_ts_low=*/"");
   // Only L0 hits compaction.
   ASSERT_EQ(vstorage_.CompactionScoreLevel(0), 0);
 }
@@ -421,7 +425,8 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_2) {
   ASSERT_EQ(51450U, vstorage_.MaxBytesForLevel(3));
   ASSERT_EQ(257250U, vstorage_.MaxBytesForLevel(4));
 
-  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_,
+                                   /*full_history_ts_low=*/"");
   // Although L2 and l3 have higher unadjusted compaction score, considering
   // a relatively large L0 being compacted down soon, L4 is picked up for
   // compaction.
@@ -453,7 +458,8 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_3) {
   ASSERT_EQ(2, vstorage_.base_level());
   ASSERT_EQ(20000U, vstorage_.MaxBytesForLevel(2));
 
-  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_,
+                                   /*full_history_ts_low=*/"");
   // Although L2 has higher unadjusted compaction score, considering
   // a relatively large L0 being compacted down soon, L3 is picked up for
   // compaction.
@@ -483,7 +489,8 @@ TEST_F(VersionStorageInfoTest, DrainUnnecessaryLevel) {
   ASSERT_EQ(1, vstorage_.base_level());
   ASSERT_EQ(1000, vstorage_.MaxBytesForLevel(1));
   ASSERT_EQ(10100, vstorage_.MaxBytesForLevel(3));
-  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_,
+                                   /*full_history_ts_low=*/"");
 
   // Tests that levels 1 and 3 are eligible for compaction.
   // Levels 1 and 3 are much smaller than target size,
@@ -1196,7 +1203,7 @@ class VersionSetTestBase {
     reactive_versions_ = std::make_shared<ReactiveVersionSet>(
         dbname_, &imm_db_options_, mutable_db_options_, env_options_,
         table_cache_.get(), &write_buffer_manager_, &write_controller_,
-        nullptr);
+        /*io_tracer=*/nullptr, /*db_id=*/"", /*db_session_id=*/"");
     imm_db_options_.db_paths.emplace_back(dbname_,
                                           std::numeric_limits<uint64_t>::max());
   }
@@ -1222,11 +1229,12 @@ class VersionSetTestBase {
         SetIdentityFile(WriteOptions(), env_, dbname_, Temperature::kUnknown));
     VersionEdit new_db;
     if (imm_db_options_.write_dbid_to_manifest) {
-      DBOptions tmp_db_options;
-      tmp_db_options.env = env_;
-      std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
       std::string db_id;
-      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(IOOptions(), &db_id));
+      ASSERT_OK(ReadFileToString(env_, IdentityFileName(dbname_), &db_id));
+      // Strip trailing newline if present (old GenerateUniqueId format)
+      if (!db_id.empty() && db_id.back() == '\n') {
+        db_id.pop_back();
+      }
       new_db.SetDBId(db_id);
     }
     new_db.SetLogNumber(0);
@@ -1346,7 +1354,8 @@ class VersionSetTestBase {
           Temperature::kUnknown, info.oldest_blob_file_number, 0, 0,
           info.epoch_number, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
           kNullUniqueId64x2, 0, 0,
-          /* user_defined_timestamps_persisted */ true);
+          /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+          /* max timestamp */ "");
       if (info.file_missing) {
         ASSERT_OK(fs_->DeleteFile(fname, IOOptions(), nullptr));
       }
@@ -2398,6 +2407,298 @@ TEST_F(VersionSetTest, ManifestTruncateAfterClose) {
   SyncPoint::GetInstance()->DisableProcessing();
 
   ReopenDB();
+}
+
+TEST_F(VersionSetTest, ManifestContentValidationOnCloseClean) {
+  // Enable content validation, perform normal operations, close.
+  // Verify no manifest rotation (file number unchanged).
+  NewDB();
+  auto stats = CreateDBStatistics();
+  imm_db_options_.statistics = stats;
+  mutable_db_options_.verify_manifest_content_on_close = true;
+  mutex_.Lock();
+  versions_->UpdatedMutableDbOptions(mutable_db_options_, &mutex_);
+  mutex_.Unlock();
+
+  VersionEdit edit;
+  ASSERT_OK(LogAndApplyToDefaultCF(edit));
+
+  std::string manifest_path_before;
+  GetManifestPath(&manifest_path_before);
+
+  bool content_validation_ran = false;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Close:BeforeContentValidation",
+      [&](void*) { content_validation_ran = true; });
+  SyncPoint::GetInstance()->EnableProcessing();
+  CloseDB();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Verify content validation actually ran
+  ASSERT_TRUE(content_validation_ran);
+
+  // No corruption -- counter should be zero
+  ASSERT_EQ(0, stats->getTickerCount(MANIFEST_VALIDATION_FAILURE_COUNT));
+
+  // Manifest path should be unchanged (no rotation)
+  std::string manifest_path_after;
+  uint64_t manifest_file_number = 0;
+  ASSERT_OK(GetCurrentManifestPath(dbname_, fs_.get(), /*is_retry=*/false,
+                                   &manifest_path_after,
+                                   &manifest_file_number));
+  ASSERT_EQ(manifest_path_before, manifest_path_after);
+
+  ReopenDB();
+}
+
+TEST_F(VersionSetTest, ManifestContentValidationOnCloseCorruptRecord) {
+  // Enable content validation, corrupt the manifest after closing the writer,
+  // verify manifest rotation occurs and DB reopens cleanly.
+  NewDB();
+  auto stats = CreateDBStatistics();
+  imm_db_options_.statistics = stats;
+  mutable_db_options_.verify_manifest_content_on_close = true;
+  mutex_.Lock();
+  versions_->UpdatedMutableDbOptions(mutable_db_options_, &mutex_);
+  mutex_.Unlock();
+
+  VersionEdit edit;
+  ASSERT_OK(LogAndApplyToDefaultCF(edit));
+
+  std::string manifest_path_before;
+  GetManifestPath(&manifest_path_before);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Close:BeforeContentValidation", [&](void*) {
+        // Corrupt bytes in the middle of the manifest
+        std::string manifest_path;
+        GetManifestPath(&manifest_path);
+        std::string content;
+        Status s = ReadFileToString(env_, manifest_path, &content);
+        EXPECT_OK(s);
+        if (!s.ok()) {
+          return;
+        }
+        ASSERT_GT(content.size(), 20u);
+        // Corrupt several bytes in the middle to break CRC
+        for (size_t i = content.size() / 2; i < content.size() / 2 + 8; i++) {
+          content[i] ^= 0xFF;
+        }
+        s = WriteStringToFile(env_, content, manifest_path);
+        EXPECT_OK(s);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  CloseDB();
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // Corruption detected once, rewrite succeeded
+  ASSERT_EQ(1, stats->getTickerCount(MANIFEST_VALIDATION_FAILURE_COUNT));
+
+  // Manifest should have been rotated (new file number)
+  std::string manifest_path_after;
+  uint64_t manifest_file_number = 0;
+  ASSERT_OK(GetCurrentManifestPath(dbname_, fs_.get(), /*is_retry=*/false,
+                                   &manifest_path_after,
+                                   &manifest_file_number));
+  ASSERT_NE(manifest_path_before, manifest_path_after);
+
+  // DB should reopen cleanly with the fresh manifest
+  ReopenDB();
+}
+
+TEST_F(VersionSetTest, ManifestContentValidationOnCloseDisabled) {
+  // Default (option disabled), corrupt manifest after writer close,
+  // verify no rotation occurred -- corrupt manifest persists.
+  NewDB();
+  auto stats = CreateDBStatistics();
+  imm_db_options_.statistics = stats;
+  // verify_manifest_content_on_close defaults to false
+
+  VersionEdit edit;
+  ASSERT_OK(LogAndApplyToDefaultCF(edit));
+
+  std::string manifest_path_before;
+  GetManifestPath(&manifest_path_before);
+
+  bool content_validation_ran = false;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Close:BeforeContentValidation",
+      [&](void*) { content_validation_ran = true; });
+  SyncPoint::GetInstance()->EnableProcessing();
+  CloseDB();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_FALSE(content_validation_ran);
+
+  // Validation disabled -- counter should be zero
+  ASSERT_EQ(0, stats->getTickerCount(MANIFEST_VALIDATION_FAILURE_COUNT));
+
+  // Manifest path should be unchanged (no rotation since validation is off)
+  std::string manifest_path_after;
+  uint64_t manifest_file_number = 0;
+  ASSERT_OK(GetCurrentManifestPath(dbname_, fs_.get(), /*is_retry=*/false,
+                                   &manifest_path_after,
+                                   &manifest_file_number));
+  ASSERT_EQ(manifest_path_before, manifest_path_after);
+}
+
+TEST_F(VersionSetTest, ManifestContentValidationOnCloseSizeCheckFails) {
+  // Truncate manifest so size check fails first.
+  // Verify recovery happens via size-check path. Content validation still
+  // runs afterward on the freshly rewritten manifest.
+  NewDB();
+  auto stats = CreateDBStatistics();
+  imm_db_options_.statistics = stats;
+  mutable_db_options_.verify_manifest_content_on_close = true;
+  mutex_.Lock();
+  versions_->UpdatedMutableDbOptions(mutable_db_options_, &mutex_);
+  mutex_.Unlock();
+
+  VersionEdit edit;
+  ASSERT_OK(LogAndApplyToDefaultCF(edit));
+
+  std::string manifest_path_before;
+  GetManifestPath(&manifest_path_before);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Close:AfterClose", [&](void*) {
+        std::string manifest_path;
+        GetManifestPath(&manifest_path);
+        std::unique_ptr<WritableFile> manifest_file;
+        ASSERT_OK(env_->ReopenWritableFile(manifest_path, &manifest_file,
+                                           EnvOptions()));
+        ASSERT_OK(manifest_file->Truncate(0));
+        ASSERT_OK(manifest_file->Close());
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_NO_FATAL_FAILURE(CloseDB());
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // Size check caught the issue; content validation on rewritten manifest
+  // should pass -- no content validation failure recorded
+  ASSERT_EQ(0, stats->getTickerCount(MANIFEST_VALIDATION_FAILURE_COUNT));
+
+  // Size check should have triggered rotation
+  std::string manifest_path_after;
+  uint64_t manifest_file_number = 0;
+  ASSERT_OK(GetCurrentManifestPath(dbname_, fs_.get(), /*is_retry=*/false,
+                                   &manifest_path_after,
+                                   &manifest_file_number));
+  ASSERT_NE(manifest_path_before, manifest_path_after);
+
+  // DB should reopen cleanly
+  ReopenDB();
+}
+
+TEST_F(VersionSetTest, ManifestContentValidationOnCloseCorruptAfterRewrite) {
+  // Corrupt the manifest before content validation AND after the rewrite.
+  // The loop should detect corruption twice: once triggering a rewrite, and
+  // once reporting that the rewritten manifest is also corrupt.
+  NewDB();
+  auto stats = CreateDBStatistics();
+  imm_db_options_.statistics = stats;
+  mutable_db_options_.verify_manifest_content_on_close = true;
+  mutex_.Lock();
+  versions_->UpdatedMutableDbOptions(mutable_db_options_, &mutex_);
+  mutex_.Unlock();
+
+  VersionEdit edit;
+  ASSERT_OK(LogAndApplyToDefaultCF(edit));
+
+  int io_error_count = 0;
+  class IOErrorCountListener : public EventListener {
+   public:
+    int* count;
+    explicit IOErrorCountListener(int* c) : count(c) {}
+    void OnIOError(const IOErrorInfo& /*info*/) override { ++(*count); }
+  };
+  imm_db_options_.listeners.push_back(
+      std::make_shared<IOErrorCountListener>(&io_error_count));
+
+  auto corrupt_current_manifest = [&]() {
+    std::string manifest_path;
+    GetManifestPath(&manifest_path);
+    std::string content;
+    ASSERT_OK(ReadFileToString(env_, manifest_path, &content));
+    ASSERT_GT(content.size(), 20u);
+    for (size_t i = content.size() / 2; i < content.size() / 2 + 8; i++) {
+      content[i] ^= 0xFF;
+    }
+    ASSERT_OK(WriteStringToFile(env_, content, manifest_path));
+  };
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  // Corrupt before the first content check
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Close:BeforeContentValidation",
+      [&](void*) { corrupt_current_manifest(); });
+  // Corrupt again after the rewrite completes
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifestDone",
+      [&](void*) { corrupt_current_manifest(); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  mutex_.Lock();
+  Status close_s = versions_->Close(nullptr, &mutex_);
+  versions_.reset();
+  mutex_.Unlock();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Close should report the persistent corruption
+  ASSERT_TRUE(close_s.IsCorruption()) << close_s.ToString();
+
+  // OnIOError should have fired twice (once per corrupt detection)
+  ASSERT_EQ(io_error_count, 2);
+
+  // Validation failure counter should match
+  ASSERT_EQ(2, stats->getTickerCount(MANIFEST_VALIDATION_FAILURE_COUNT));
+}
+
+TEST_F(VersionSetTest, ManifestContentValidationOnCloseOpenFails) {
+  // Delete the manifest before content validation so it can't be opened.
+  // Close() should surface the I/O error to the caller.
+  NewDB();
+  auto stats = CreateDBStatistics();
+  imm_db_options_.statistics = stats;
+  mutable_db_options_.verify_manifest_content_on_close = true;
+  mutex_.Lock();
+  versions_->UpdatedMutableDbOptions(mutable_db_options_, &mutex_);
+  mutex_.Unlock();
+
+  VersionEdit edit;
+  ASSERT_OK(LogAndApplyToDefaultCF(edit));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::Close:BeforeContentValidation", [&](void*) {
+        std::string manifest_path;
+        GetManifestPath(&manifest_path);
+        ASSERT_OK(env_->DeleteFile(manifest_path));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  mutex_.Lock();
+  Status close_s = versions_->Close(nullptr, &mutex_);
+  versions_.reset();
+  mutex_.Unlock();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(close_s.IsIOError()) << close_s.ToString();
+
+  // File couldn't be opened -- no content validation ran
+  ASSERT_EQ(0, stats->getTickerCount(MANIFEST_VALIDATION_FAILURE_COUNT));
 }
 
 TEST_F(VersionStorageInfoTest, AddRangeDeletionCompensatedFileSize) {
@@ -3505,11 +3806,12 @@ class VersionSetTestEmptyDb
     if (imm_db_options_.write_dbid_to_manifest) {
       ASSERT_OK(SetIdentityFile(WriteOptions(), env_, dbname_,
                                 Temperature::kUnknown));
-      DBOptions tmp_db_options;
-      tmp_db_options.env = env_;
-      std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
       std::string db_id;
-      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(IOOptions(), &db_id));
+      ASSERT_OK(ReadFileToString(env_, IdentityFileName(dbname_), &db_id));
+      // Strip trailing newline if present (old GenerateUniqueId format)
+      if (!db_id.empty() && db_id.back() == '\n') {
+        db_id.pop_back();
+      }
       new_db.SetDBId(db_id);
     }
     const std::string manifest_path = DescriptorFileName(dbname_, 1);
@@ -3831,11 +4133,12 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
     log_writer->reset(new log::Writer(std::move(file_writer), 0, false));
     VersionEdit new_db;
     if (imm_db_options_.write_dbid_to_manifest) {
-      DBOptions tmp_db_options;
-      tmp_db_options.env = env_;
-      std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
       std::string db_id;
-      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(IOOptions(), &db_id));
+      ASSERT_OK(ReadFileToString(env_, IdentityFileName(dbname_), &db_id));
+      // Strip trailing newline if present (old GenerateUniqueId format)
+      if (!db_id.empty() && db_id.back() == '\n') {
+        db_id.pop_back();
+      }
       new_db.SetDBId(db_id);
     }
     {
@@ -3940,7 +4243,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         file_num /* epoch_number */, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+        /* max timestamp */ "");
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -4001,7 +4305,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         file_num /* epoch_number */, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+        /* max timestamp */ "");
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(

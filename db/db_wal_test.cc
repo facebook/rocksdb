@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <algorithm>
+
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
 #include "options/options_helper.h"
@@ -24,6 +26,36 @@ class DBWALTestBase : public DBTestBase {
  protected:
   explicit DBWALTestBase(const std::string& dir_name)
       : DBTestBase(dir_name, /*env_do_fsync=*/true) {}
+
+  std::vector<uint64_t> ListWalNumbers() {
+    std::vector<uint64_t> wal_numbers;
+    std::vector<std::string> files;
+    EXPECT_OK(env_->GetChildren(dbname_, &files));
+    for (const auto& file : files) {
+      uint64_t number = 0;
+      FileType type = kWalFile;
+      if (ParseFileName(file, &number, &type) && type == kWalFile) {
+        wal_numbers.push_back(number);
+      }
+    }
+    std::sort(wal_numbers.begin(), wal_numbers.end());
+    return wal_numbers;
+  }
+
+  void CreateEmptyWal(uint64_t wal_number) {
+    std::unique_ptr<WritableFile> file;
+    ASSERT_OK(env_->NewWritableFile(LogFileName(dbname_, wal_number), &file,
+                                    EnvOptions()));
+    ASSERT_OK(file->Close());
+  }
+
+  void CreateWalWithContents(uint64_t wal_number, const Slice& contents) {
+    std::unique_ptr<WritableFile> file;
+    ASSERT_OK(env_->NewWritableFile(LogFileName(dbname_, wal_number), &file,
+                                    EnvOptions()));
+    ASSERT_OK(file->Append(contents));
+    ASSERT_OK(file->Close());
+  }
 
 #if defined(ROCKSDB_PLATFORM_POSIX)
  public:
@@ -395,13 +427,13 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndNoFlush) {
     read_opts.timestamp = &ts_slice;
     ASSERT_OK(CreateAndReopenWithTs({"pikachu"}, ts_options, persist_udt,
                                     avoid_flush_during_recovery));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "pikachu"), 0U);
     ASSERT_OK(Put(1, "foo", ts1, "v1"));
     ASSERT_OK(Put(1, "baz", ts1, "v5"));
 
     ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options, persist_udt,
                                          avoid_flush_during_recovery));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "pikachu"), 0U);
     // Do a timestamped read with ts1 after second reopen.
     CheckGet(read_opts, 1, "foo", "v1", ts1);
     CheckGet(read_opts, 1, "baz", "v5", ts1);
@@ -415,7 +447,7 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndNoFlush) {
 
     ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options, persist_udt,
                                          avoid_flush_during_recovery));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "pikachu"), 0U);
     std::string ts3;
     PutFixed64(&ts3, 3);
     ASSERT_OK(Put(1, "foo", ts3, "v4"));
@@ -466,14 +498,14 @@ TEST_P(DBWALTestWithTimestamp, RecoverAndFlush) {
 
   ASSERT_OK(CreateAndReopenWithTs({"pikachu"}, ts_options, persist_udt));
   // No flush, no sst files, because of no data.
-  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 0U);
+  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "pikachu"), 0U);
   ASSERT_OK(Put(1, largest_ukey_without_ts, write_ts, "v1"));
   ASSERT_OK(Put(1, smallest_ukey_without_ts, write_ts, "v5"));
 
   ASSERT_OK(ReopenColumnFamiliesWithTs({"pikachu"}, ts_options, persist_udt));
   // Memtable recovered from WAL flushed because `avoid_flush_during_recovery`
   // defaults to false, created one L0 file.
-  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 1U);
+  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "pikachu"), 1U);
 
   std::vector<std::vector<FileMetaData>> level_to_files;
   dbfull()->TEST_GetFilesMetaData(handles_[1], &level_to_files);
@@ -600,9 +632,9 @@ TEST_F(DBWALTest, RecoverWithTableHandle) {
     for (const auto& level : files) {
       for (const auto& file : level) {
         if (options.max_open_files == kSmallMaxOpenFiles) {
-          ASSERT_TRUE(file.table_reader_handle == nullptr);
+          ASSERT_TRUE(file.fd.pinned_reader.Get() == nullptr);
         } else {
-          ASSERT_TRUE(file.table_reader_handle != nullptr);
+          ASSERT_TRUE(file.fd.pinned_reader.Get() != nullptr);
         }
       }
     }
@@ -1347,7 +1379,7 @@ TEST_F(DBWALTest, RecoverCheckFileAmountWithSmallWriteBuffer) {
     auto tables = ListTableFiles(env_, dbname_);
     ASSERT_EQ(tables.size(), static_cast<size_t>(1));
     // Make sure 'dobrynia' was flushed: check sst files amount
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "dobrynia"),
               static_cast<uint64_t>(1));
   }
   // New WAL file
@@ -1363,16 +1395,16 @@ TEST_F(DBWALTest, RecoverCheckFileAmountWithSmallWriteBuffer) {
                            options);
   {
     // No inserts => default is empty
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "default"),
               static_cast<uint64_t>(0));
     // First 4 keys goes to separate SSTs + 1 more SST for 2 smaller keys
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "pikachu"),
               static_cast<uint64_t>(5));
     // 1 SST for big key + 1 SST for small one
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "dobrynia"),
               static_cast<uint64_t>(2));
     // 1 SST for all keys
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "nikitich"),
               static_cast<uint64_t>(1));
   }
 }
@@ -1401,7 +1433,7 @@ TEST_F(DBWALTest, RecoverCheckFileAmount) {
   {
     auto tables = ListTableFiles(env_, dbname_);
     ASSERT_EQ(tables.size(), static_cast<size_t>(1));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "nikitich"),
               static_cast<uint64_t>(1));
   }
   // Memtable for 'nikitich' has flushed, new WAL file has opened
@@ -1425,7 +1457,7 @@ TEST_F(DBWALTest, RecoverCheckFileAmount) {
   {
     auto tables = ListTableFiles(env_, dbname_);
     ASSERT_EQ(tables.size(), static_cast<size_t>(2));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "nikitich"),
               static_cast<uint64_t>(2));
   }
 
@@ -1437,13 +1469,13 @@ TEST_F(DBWALTest, RecoverCheckFileAmount) {
     // first, second and third WALs  went to the same SST.
     // So, there is 6 SSTs: three  for 'nikitich', one for 'default', one for
     // 'dobrynia', one for 'pikachu'
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "default"),
               static_cast<uint64_t>(1));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "nikitich"),
               static_cast<uint64_t>(3));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "dobrynia"),
               static_cast<uint64_t>(1));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "pikachu"),
               static_cast<uint64_t>(1));
   }
 }
@@ -1521,9 +1553,9 @@ TEST_F(DBWALTest, DISABLED_RecycleMultipleWalsCrash) {
   // from an old incarnation of the WAL on recovery
   ASSERT_OK(db_->PauseBackgroundWork());
   ASSERT_OK(Put("ignore1", Random::GetTLSInstance()->RandomString(500)));
-  ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
   ASSERT_OK(Put("ignore2", Random::GetTLSInstance()->RandomString(500)));
-  ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
   ASSERT_OK(db_->ContinueBackgroundWork());
   ASSERT_OK(Flush());
   ASSERT_OK(Put("ignore3", Random::GetTLSInstance()->RandomString(500)));
@@ -1545,13 +1577,13 @@ TEST_F(DBWALTest, DISABLED_RecycleMultipleWalsCrash) {
   // gap in sequence numbers to interfere with recovery
   ASSERT_OK(db_->PauseBackgroundWork());
   ASSERT_OK(Put("key1", "val1"));
-  ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
   ASSERT_OK(Put("key2", "val2"));
-  ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
   // Need a gap in sequence numbers, so e.g. ingest external file
   // with an open snapshot
   {
-    ManagedSnapshot snapshot(db_);
+    ManagedSnapshot snapshot(db_.get());
     ASSERT_OK(
         db_->IngestExternalFile({external_file1}, IngestExternalFileOptions()));
   }
@@ -1560,7 +1592,7 @@ TEST_F(DBWALTest, DISABLED_RecycleMultipleWalsCrash) {
   // Need an SST file that is logically after that WAL, so that dropping WAL
   // data is not a valid point in time.
   {
-    ManagedSnapshot snapshot(db_);
+    ManagedSnapshot snapshot(db_.get());
     ASSERT_OK(
         db_->IngestExternalFile({external_file2}, IngestExternalFileOptions()));
   }
@@ -1613,7 +1645,7 @@ TEST_F(DBWALTest, SyncWalPartialFailure) {
       return s;
     }
 
-    AcqRelAtomic<uint32_t> syncs_before_failure_{UINT32_MAX};
+    Atomic<uint32_t> syncs_before_failure_{UINT32_MAX};
 
    protected:
     class MyTestWritableFile : public FSWritableFileOwnerWrapper {
@@ -1655,10 +1687,10 @@ TEST_F(DBWALTest, SyncWalPartialFailure) {
   // with a single thread, to exercise as much logic as we reasonably can.
   ASSERT_OK(db_->PauseBackgroundWork());
   ASSERT_OK(Put("key1", "val1"));
-  ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
   ASSERT_OK(db_->SyncWAL());
   ASSERT_OK(Put("key2", "val2"));
-  ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable());
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
   ASSERT_OK(Put("key3", "val3"));
 
   // Allow 1 of the WALs to sync, but another won't
@@ -1879,9 +1911,11 @@ TEST_F(DBWALTest, TrackAndVerifyWALsRecycleWAL) {
   // Drop `Put("key1", "old_value")` in the first WAL
   ASSERT_OK(test::TruncateFile(options.env, log_name, 0 /* new_length */));
 
-  Status s = DB::Open(options, dbname_, &db_);
+  {
+    Status s = DB::Open(options, dbname_, &db_);
 
-  ASSERT_OK(s);
+    ASSERT_OK(s);
+  }
 
   ASSERT_EQ("wal_to_recycle", Get("key_ignore2"));
   ASSERT_EQ("NOT_FOUND", Get("key1"));
@@ -1979,7 +2013,10 @@ TEST_P(DBWALTrackAndVerifyWALsWithParamsTest, Basic) {
       ASSERT_OK(options.env->DeleteFile(second_log_name));
     }
 
-    Status s = DB::Open(options, dbname_, &db_);
+    Status s;
+    {
+      s = DB::Open(options, dbname_, &db_);
+    }
 
     if (i == 0) {
       ASSERT_OK(s);
@@ -2266,11 +2303,10 @@ TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 
-  DB* db1 = nullptr;
+  std::unique_ptr<DB> db1;
   Status s = DB::OpenForReadOnly(options, dbname_, &db1);
   ASSERT_OK(s);
   assert(db1);
-  delete db1;
 }
 
 TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {
@@ -3065,6 +3101,284 @@ TEST_F(DBWALTest, EmptyWalReopenTest) {
 
     ASSERT_EQ(num_wal_files, 1);
   }
+}
+
+TEST_F(DBWALTest, AsyncWalPrecreateWaitsForPendingFile) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.statistics = CreateDBStatistics();
+  options.async_wal_precreate = true;
+  options.recycle_log_file_num = 0;
+  options.write_buffer_size = 1024;
+  options.max_write_buffer_number = 4;
+
+  // Goal: cover the race where foreground WAL rotation reaches the switch
+  // before the background precreate publishes its result. The sync points hold
+  // the async worker after it has created the file but before it marks it
+  // ready, then verify the foreground writer waits instead of allocating a
+  // higher WAL number.
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::BGWorkAsyncWALPrecreate:BeforePublish",
+       "DBWALTest::AsyncWalPrecreateWaitsForPendingFile:WorkerBlocked"},
+      {"DBWALTest::AsyncWalPrecreateWaitsForPendingFile:AllowPublish",
+       "DBImpl::BGWorkAsyncWALPrecreate:Publish"},
+      {"DBImpl::WaitForAsyncWALPrecreate:BeforeWait",
+       "DBWALTest::AsyncWalPrecreateWaitsForPendingFile:ForegroundWaiting"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  Reopen(options);
+  TEST_SYNC_POINT(
+      "DBWALTest::AsyncWalPrecreateWaitsForPendingFile:WorkerBlocked");
+
+  ASSERT_OK(Put("fill", "value"));
+  Status writer_status;
+  port::Thread writer(
+      [&]() { writer_status = dbfull()->TEST_SwitchMemtable(); });
+
+  TEST_SYNC_POINT(
+      "DBWALTest::AsyncWalPrecreateWaitsForPendingFile:ForegroundWaiting");
+  TEST_SYNC_POINT(
+      "DBWALTest::AsyncWalPrecreateWaitsForPendingFile:AllowPublish");
+  writer.join();
+  ASSERT_OK(writer_status);
+  ASSERT_OK(Put("trigger", "value"));
+  ASSERT_EQ("value", Get("trigger"));
+  ASSERT_EQ(1, options.statistics->getTickerCount(WAL_PRECREATE_HIT));
+  ASSERT_EQ(1, options.statistics->getTickerCount(WAL_PRECREATE_WAITED));
+  ASSERT_EQ(0, options.statistics->getTickerCount(WAL_PRECREATE_MISS));
+}
+
+TEST_F(DBWALTest, AsyncWalPrecreateConsumesReadyFile) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.statistics = CreateDBStatistics();
+  options.async_wal_precreate = true;
+  options.recycle_log_file_num = 0;
+  options.write_buffer_size = 1024;
+  options.max_write_buffer_number = 4;
+
+  // Goal: exercise the no-wait consumption path. The background task publishes
+  // a prepared future WAL before the foreground memtable switch, and the switch
+  // must install exactly that reserved WAL number instead of allocating
+  // another.
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::BGWorkAsyncWALPrecreate:Done",
+       "DBWALTest::AsyncWalPrecreateConsumesReadyFile:PrecreateDone"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  Reopen(options);
+  TEST_SYNC_POINT(
+      "DBWALTest::AsyncWalPrecreateConsumesReadyFile:PrecreateDone");
+
+  const std::vector<uint64_t> wal_numbers = ListWalNumbers();
+  ASSERT_GE(wal_numbers.size(), 2);
+  const uint64_t prepared_wal_number = wal_numbers.back();
+  ASSERT_NE(prepared_wal_number, dbfull()->TEST_GetCurrentLogNumber());
+
+  ASSERT_OK(Put("fill", "value"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  ASSERT_EQ(prepared_wal_number, dbfull()->TEST_GetCurrentLogNumber());
+  ASSERT_EQ(1, options.statistics->getTickerCount(WAL_PRECREATE_HIT));
+  ASSERT_EQ(0, options.statistics->getTickerCount(WAL_PRECREATE_MISS));
+  ASSERT_EQ(0, options.statistics->getTickerCount(WAL_PRECREATE_WAITED));
+}
+
+TEST_F(DBWALTest, AsyncWalPrecreateRecoveryToleratesActualFutureWal) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.async_wal_precreate = true;
+  options.recycle_log_file_num = 0;
+  options.track_and_verify_wals = true;
+  options.track_and_verify_wals_in_manifest = true;
+  options.avoid_flush_during_shutdown = true;
+  options.avoid_flush_during_recovery = true;
+
+  // Goal: cover the actual async precreation path, not a hand-forged empty WAL.
+  // The background task opens the future WAL, clean close releases the
+  // unpublished writer and leaves the empty future WAL behind, and recovery
+  // must tolerate that file while replaying the preceding WAL with real user
+  // data.
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::BGWorkAsyncWALPrecreate:Done",
+       "DBWALTest::AsyncWalPrecreateRecoveryToleratesActualFutureWal:"
+       "PrecreateDone"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  DestroyAndReopen(options);
+  TEST_SYNC_POINT(
+      "DBWALTest::AsyncWalPrecreateRecoveryToleratesActualFutureWal:"
+      "PrecreateDone");
+
+  const std::vector<uint64_t> wal_numbers = ListWalNumbers();
+  ASSERT_GE(wal_numbers.size(), 2);
+  const uint64_t future_wal_number = wal_numbers.back();
+  uint64_t future_wal_size = 0;
+  ASSERT_OK(env_->GetFileSize(LogFileName(dbname_, future_wal_number),
+                              &future_wal_size));
+  ASSERT_EQ(0, future_wal_size);
+
+  ASSERT_OK(Put("key", "value"));
+  Close();
+
+  ASSERT_OK(TryReopen(options));
+  ASSERT_EQ("value", Get("key"));
+  ASSERT_OK(Put("after-recovery", "value2"));
+  ASSERT_EQ("value2", Get("after-recovery"));
+}
+
+TEST_F(DBWALTest, AsyncWalPrecreateDeletesFileOnStartFailure) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.statistics = CreateDBStatistics();
+  options.async_wal_precreate = true;
+  options.recycle_log_file_num = 0;
+  options.write_buffer_size = 1024;
+  options.max_write_buffer_number = 4;
+
+  // Goal: force failure after consuming a prepared WAL but before it becomes a
+  // logical WAL. The failed, unpublished file must be deleted and its writer
+  // destroyed outside mutex_.
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::BGWorkAsyncWALPrecreate:Done",
+       "DBWALTest::AsyncWalPrecreateDeletesFileOnStartFailure:PrecreateDone"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  Reopen(options);
+  TEST_SYNC_POINT(
+      "DBWALTest::AsyncWalPrecreateDeletesFileOnStartFailure:PrecreateDone");
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::StartWALFile:AfterCompressionTypeRecord", [](void* arg) {
+        *static_cast<IOStatus*>(arg) =
+            IOStatus::IOError("injected async WAL start failure");
+      });
+  const std::vector<uint64_t> wal_numbers = ListWalNumbers();
+  ASSERT_GE(wal_numbers.size(), 2);
+  const uint64_t prepared_wal_number = wal_numbers.back();
+
+  ASSERT_OK(Put("fill", "value"));
+  ASSERT_NOK(dbfull()->TEST_SwitchMemtable());
+  ASSERT_TRUE(
+      env_->FileExists(LogFileName(dbname_, prepared_wal_number)).IsNotFound());
+  ASSERT_EQ(1, options.statistics->getTickerCount(WAL_PRECREATE_HIT));
+}
+
+TEST_F(DBWALTest, AsyncWalPrecreateFailureFallsBackToSyncCreation) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.statistics = CreateDBStatistics();
+  options.async_wal_precreate = true;
+  options.recycle_log_file_num = 0;
+  options.write_buffer_size = 1024;
+  options.max_write_buffer_number = 4;
+
+  // Goal: fail the background precreate file open after normal DB open has
+  // created the current WAL. The foreground switch should observe no prepared
+  // WAL, create one synchronously, and expose both failure and miss counters.
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::BGWorkAsyncWALPrecreate:Done",
+       "DBWALTest::AsyncWalPrecreateFailureFallsBackToSyncCreation:"
+       "PrecreateDone"},
+  });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::Open:AfterDeleteFiles",
+      [&](void*) { env_->non_writable_count_ = 1; });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([&] {
+    env_->non_writable_count_ = 0;
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  Reopen(options);
+  TEST_SYNC_POINT(
+      "DBWALTest::AsyncWalPrecreateFailureFallsBackToSyncCreation:"
+      "PrecreateDone");
+  ASSERT_EQ(1, options.statistics->getTickerCount(WAL_PRECREATE_FAILED));
+
+  ASSERT_OK(Put("fill", "value"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  ASSERT_EQ(1, options.statistics->getTickerCount(WAL_PRECREATE_MISS));
+}
+
+TEST_F(DBWALTest, ReadOnlyErrorIfWalFileExistsIgnoresEmptyWals) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  DestroyAndReopen(options);
+  Close();
+
+  // Goal: preserve error_if_wal_file_exists for WALs containing data while
+  // allowing empty future WALs left by async precreation. This creates empty
+  // WAL files directly so the test isolates the read-only open contract.
+  const std::vector<uint64_t> existing_wal_numbers = ListWalNumbers();
+  const uint64_t empty_wal_number =
+      existing_wal_numbers.empty() ? 1 : existing_wal_numbers.back() + 1;
+  CreateEmptyWal(empty_wal_number);
+
+  DBOptions db_options(options);
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.emplace_back(kDefaultColumnFamilyName,
+                               ColumnFamilyOptions(options));
+  std::vector<ColumnFamilyHandle*> handles;
+  std::unique_ptr<DB> read_only_db;
+  ASSERT_OK(DB::OpenForReadOnly(db_options, dbname_, column_families, &handles,
+                                &read_only_db,
+                                true /* error_if_wal_file_exists */));
+  for (ColumnFamilyHandle* handle : handles) {
+    ASSERT_OK(read_only_db->DestroyColumnFamilyHandle(handle));
+  }
+  read_only_db.reset();
+  handles.clear();
+
+  CreateWalWithContents(empty_wal_number + 1, Slice("not empty"));
+  ASSERT_NOK(DB::OpenForReadOnly(db_options, dbname_, column_families, &handles,
+                                 &read_only_db,
+                                 true /* error_if_wal_file_exists */));
+}
+
+TEST_F(DBWALTest, RecoveryToleratesEmptyFutureWal) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.track_and_verify_wals = true;
+  options.track_and_verify_wals_in_manifest = true;
+  options.avoid_flush_during_recovery = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key", "value"));
+  Close();
+
+  const std::vector<uint64_t> wal_numbers = ListWalNumbers();
+  ASSERT_FALSE(wal_numbers.empty());
+  const uint64_t future_wal_number = wal_numbers.back() + 1;
+  CreateEmptyWal(future_wal_number);
+
+  // Goal: model a crash after async WAL precreation but before consumption.
+  // Recovery should process the zero-byte future WAL, mark its file number
+  // used, and keep replaying the real preceding WAL without reporting a WAL
+  // chain or MANIFEST-tracking error.
+  ASSERT_OK(TryReopen(options));
+  ASSERT_EQ("value", Get("key"));
+  ASSERT_OK(Put("after-recovery", "value2"));
+  ASSERT_EQ("value2", Get("after-recovery"));
 }
 
 TEST_F(DBWALTest, RecoveryFlushSwitchWALOnEmptyMemtable) {

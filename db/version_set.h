@@ -200,7 +200,8 @@ class VersionStorageInfo {
   // REQUIRES: db_mutex held!!
   // TODO find a better way to pass compaction_options_fifo.
   void ComputeCompactionScore(const ImmutableOptions& immutable_options,
-                              const MutableCFOptions& mutable_cf_options);
+                              const MutableCFOptions& mutable_cf_options,
+                              const std::string& full_history_ts_low);
 
   // Estimate est_comp_needed_bytes_
   void EstimateCompactionBytesNeeded(
@@ -230,8 +231,15 @@ class VersionStorageInfo {
   // oldest snapshot changes as that is when bottom-level files can become
   // eligible for compaction.
   //
+  // For columns with User Defined Timestamps (UDT), also checks that the
+  // file's largest timestamp is below full_history_ts_low before marking,
+  // since compaction can only collapse timestamp when it is below this
+  // threshold.
+  //
   // REQUIRES: DB mutex held
-  void ComputeBottommostFilesMarkedForCompaction(bool allow_ingest_behind);
+  void ComputeBottommostFilesMarkedForCompaction(
+      bool allow_ingest_behind, const Comparator* ucmp,
+      const std::string& full_history_ts_low);
 
   // This computes files_marked_for_forced_blob_gc_ and is called by
   // ComputeCompactionScore()
@@ -242,13 +250,21 @@ class VersionStorageInfo {
       double blob_garbage_collection_force_threshold,
       bool enable_blob_garbage_collection);
 
+  // This computes read_triggered_compaction_files_ and is called by
+  // ComputeCompactionScore()
+  //
+  // REQUIRES: DB mutex held
+  void ComputeFilesMarkedForReadTriggeredCompaction(
+      double threshold, CompactionStyle compaction_style);
+
   bool level0_non_overlapping() const { return level0_non_overlapping_; }
 
   // Updates the oldest snapshot and related internal state, like the bottommost
   // files marked for compaction.
   // REQUIRES: DB mutex held
   void UpdateOldestSnapshot(SequenceNumber oldest_snapshot_seqnum,
-                            bool allow_ingest_behind);
+                            bool allow_ingest_behind, const Comparator* ucmp,
+                            const std::string& full_history_ts_low);
 
   int MaxInputLevel() const;
   int MaxOutputLevel(bool allow_ingest_behind) const;
@@ -527,6 +543,19 @@ class VersionStorageInfo {
     return files_marked_for_forced_blob_gc_;
   }
 
+  // REQUIRES: ComputeCompactionScore has been called
+  // REQUIRES: DB mutex held during access
+  const autovector<std::pair<int, FileMetaData*>>&
+  ReadTriggeredCompactionFiles() const {
+    assert(finalized_);
+    return read_triggered_compaction_files_;
+  }
+
+  void TEST_AddFileMarkedForReadTriggeredCompaction(int level,
+                                                    FileMetaData* f) {
+    read_triggered_compaction_files_.emplace_back(level, f);
+  }
+
   int base_level() const { return base_level_; }
   double level_multiplier() const { return level_multiplier_; }
 
@@ -734,6 +763,8 @@ class VersionStorageInfo {
       bottommost_files_marked_for_compaction_;
 
   autovector<std::pair<int, FileMetaData*>> files_marked_for_forced_blob_gc_;
+
+  autovector<std::pair<int, FileMetaData*>> read_triggered_compaction_files_;
 
   // Threshold for needing to mark another bottommost file. Maintain it so we
   // can quickly check when releasing a snapshot whether more bottommost files
@@ -953,11 +984,11 @@ class Version {
                  uint64_t* bytes_read) const;
 
   struct BlobReadContext {
-    BlobReadContext(const BlobIndex& blob_idx, const KeyContext* key_ctx)
+    BlobReadContext(const BlobIndex& blob_idx, KeyContext* key_ctx)
         : blob_index(blob_idx), key_context(key_ctx) {}
 
     BlobIndex blob_index;
-    const KeyContext* key_context;
+    KeyContext* key_context;
     PinnableSlice result;
   };
 
@@ -1425,6 +1456,29 @@ class VersionSet {
     return last_allocated_sequence_.fetch_add(s, std::memory_order_seq_cst);
   }
 
+  // Sync last_sequence_ with last_allocated_sequence_. This should be called
+  // during error recovery to ensure that any sequence numbers that were
+  // allocated (written to WAL) but not yet published are accounted for when
+  // creating new memtables/WALs. This prevents the "sequence number going
+  // backwards" corruption on subsequent recovery.
+  //
+  // This is necessary because with two_write_queues=true, writes allocate
+  // sequence numbers via FetchAddLastAllocatedSequence() before the write
+  // is complete, but only publish via SetLastSequence() after success.
+  // If an error occurs and recovery creates new memtables, SwitchMemtable
+  // uses LastSequence() which may be lower than already-allocated sequences.
+  //
+  // REQUIRED: DB mutex is held and no concurrent writers are active (i.e.,
+  // after WaitForBackgroundWork() in ResumeImpl).
+  void SyncLastSequenceWithAllocated() {
+    uint64_t alloc_seq =
+        last_allocated_sequence_.load(std::memory_order_seq_cst);
+    uint64_t last_seq = last_sequence_.load(std::memory_order_acquire);
+    if (alloc_seq > last_seq) {
+      last_sequence_.store(alloc_seq, std::memory_order_release);
+    }
+  }
+
   // Mark the specified file number as used.
   // REQUIRED: this is only called during single-threaded recovery or repair.
   void MarkFileNumberUsed(uint64_t number);
@@ -1665,6 +1719,33 @@ class VersionSet {
       const std::unordered_map<uint32_t, MutableCFState>& curr_state,
       const VersionEdit& wal_additions, log::Writer* log, IOStatus& io_s);
 
+  // Reopen the existing MANIFEST file for append at the end of Recover()
+  // when reuse_manifest_on_open is set, so the next LogAndApply appends
+  // to it instead of creating a fresh MANIFEST. Falls back to OK
+  // (descriptor_log_ stays null, next LogAndApply creates a fresh
+  // MANIFEST as before) if ReopenWritableFile fails.
+  Status ReopenManifestForAppend(const std::string& manifest_path);
+
+  // FileOptions for MANIFEST writes -- applies the FS's
+  // OptimizeForManifestWrite tuning, then re-applies the user-configured
+  // temperature so a custom FS can't override it.
+  FileOptions GetFileOptionsForManifestWrite() const;
+
+  // Create a log::Writer over the given FSWritableFile with all standard
+  // MANIFEST setup applied (preallocation block size, checksum-handoff
+  // classification, listeners, etc.). preallocation_size should be a
+  // snapshot of manifest_preallocation_size_ taken under the DB mutex
+  // (the fresh-path call site reads the field before releasing mu).
+  // When initial_file_size > 0 the writer is treated as resuming over
+  // an already-populated file: WritableFileWriter is constructed with the
+  // existing size so size accounting is correct, and the log writer's
+  // initial_block_offset aligns to the existing file's tail within the
+  // current 32 KiB block.
+  std::unique_ptr<log::Writer> CreateManifestWriter(
+      std::unique_ptr<FSWritableFile> file, const std::string& fname,
+      const FileOptions& opts, uint64_t preallocation_size,
+      uint64_t initial_file_size = 0) const;
+
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
@@ -1706,6 +1787,9 @@ class VersionSet {
   // The last sequence number of data committed to the descriptor (manifest
   // file).
   SequenceNumber descriptor_last_sequence_ = 0;
+  // See write_prepared_txn.h for a more detailed description of how Write
+  // Prepared transactions work, with concrete examples.
+  //
   // The last seq that is already allocated. It is applicable only when we have
   // two write queues. In that case seq might or might not have appreated in
   // memtable but it is expected to appear in the WAL.
@@ -1731,6 +1815,17 @@ class VersionSet {
   // Current size of manifest file
   uint64_t manifest_file_size_;
 
+  // File offset at the end of the last successfully completed logical
+  // record during MANIFEST recovery. Unlike manifest_file_size_ (the
+  // reader's I/O high-water mark, which includes any tolerated tail
+  // garbage), this value points to the byte after the last valid record.
+  // Used by ReopenManifestForAppend to detect intra-block tail
+  // corruption that doesn't extend the physical file size.
+  // manifest_file_size_ is kept separate because it is used for
+  // rotation decisions (ProcessManifestWrites), close-time verification
+  // (Close), and backup metadata.
+  uint64_t manifest_last_valid_record_end_;
+
   // Size of the populated manifest file last time it was re-written from
   // scratch.
   uint64_t last_compacted_manifest_file_size_;
@@ -1744,6 +1839,8 @@ class VersionSet {
   unsigned max_manifest_space_amp_pct_;
   // Saved copy from (Mutable)DBOptions
   size_t manifest_preallocation_size_;
+  // Saved copy from (Mutable)DBOptions
+  bool verify_manifest_content_on_close_;
 
   // Obsolete files, or during DB shutdown any files not referenced by what's
   // left of the in-memory LSM state.
@@ -1801,7 +1898,9 @@ class ReactiveVersionSet : public VersionSet {
                      const FileOptions& _file_options, Cache* table_cache,
                      WriteBufferManager* write_buffer_manager,
                      WriteController* write_controller,
-                     const std::shared_ptr<IOTracer>& io_tracer);
+                     const std::shared_ptr<IOTracer>& io_tracer,
+                     const std::string& db_id,
+                     const std::string& db_session_id);
 
   ~ReactiveVersionSet() override;
 

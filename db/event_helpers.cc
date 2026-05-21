@@ -259,6 +259,7 @@ void EventHelpers::NotifyOnErrorRecoveryEnd(
     db_mutex->Lock();
   } else {
     old_bg_error.PermitUncheckedError();
+    new_bg_error.PermitUncheckedError();
   }
 }
 

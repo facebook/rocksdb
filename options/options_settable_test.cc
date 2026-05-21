@@ -182,6 +182,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "pin_l0_filter_and_index_blocks_in_cache=1;"
       "pin_top_level_index_and_filter=1;"
       "index_type=kHashSearch;"
+      "index_block_search_type=kBinary;"
       "data_block_index_type=kDataBlockBinaryAndHash;"
       "index_shortening=kNoShortening;"
       "data_block_hash_table_util_ratio=0.75;"
@@ -206,7 +207,10 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "prepopulate_block_cache=kDisable;"
       "initial_auto_readahead_size=0;"
       "num_file_reads_for_auto_readahead=0;"
-      "fail_if_no_udi_on_open=true",
+      "fail_if_no_udi_on_open=true;"
+      "use_udi_as_primary_index=true;"
+      "separate_key_value_in_data_block=true;"
+      "uniform_cv_threshold=0.2",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,
@@ -276,7 +280,9 @@ TEST_F(OptionsSettableTest, TablePropertiesAllFieldsSettable) {
       "7265616461626C655F76616C7565;};compression_options=;compression_name=;"
       "property_collectors_names=;prefix_extractor_name=;db_host_id="
       "64625F686F73745F6964;db_session_id=64625F73657373696F6E5F6964;creation_"
-      "time=0;num_data_blocks=123;index_value_is_delta_encoded=0;top_level_"
+      "time=0;num_data_blocks=123;num_data_blocks_compression_rejected=42;"
+      "num_data_blocks_compression_bypassed=7;"
+      "index_value_is_delta_encoded=0;top_level_"
       "index_size=0;data_size=100;uncompressed_data_size=1234;"
       "merge_operator_name=;index_partitions=0;file_"
       "creation_time=0;raw_value_size=0;index_size=200;user_collected_"
@@ -292,7 +298,9 @@ TEST_F(OptionsSettableTest, TablePropertiesAllFieldsSettable) {
       "name=64656661756C74;user_defined_timestamps_persisted=1;num_entries=100;"
       "external_sst_file_global_seqno_offset=0;num_merge_operands=0;index_key_"
       "is_user_key=0;key_largest_seqno=18446744073709551615;key_smallest_seqno="
-      "18;",
+      "18;data_block_restart_interval=16;index_block_restart_interval=1;"
+      "separate_key_value_in_data_block=0;num_uniform_blocks=0;"
+      "udi_is_primary_index=0;",
       new_tp));
 
   // All bytes are set from the parse
@@ -385,102 +393,111 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
   ConfigOptions config_options(*options);
   config_options.input_strings_escaped = false;
   config_options.ignore_unknown_options = false;
-  ASSERT_OK(
-      GetDBOptionsFromString(config_options, *options,
-                             "wal_bytes_per_sync=4295048118;"
-                             "delete_obsolete_files_period_micros=4294967758;"
-                             "WAL_ttl_seconds=4295008036;"
-                             "WAL_size_limit_MB=4295036161;"
-                             "max_write_batch_group_size_bytes=1048576;"
-                             "wal_dir=path/to/wal_dir;"
-                             "db_write_buffer_size=2587;"
-                             "max_subcompactions=64330;"
-                             "table_cache_numshardbits=28;"
-                             "max_open_files=72;"
-                             "max_file_opening_threads=35;"
-                             "max_background_jobs=8;"
-                             "max_background_compactions=33;"
-                             "use_fsync=true;"
-                             "use_adaptive_mutex=false;"
-                             "max_total_wal_size=4295005604;"
-                             "compaction_readahead_size=0;"
-                             "keep_log_file_num=4890;"
-                             "skip_stats_update_on_db_open=false;"
-                             "skip_checking_sst_file_sizes_on_db_open=false;"
-                             "max_manifest_file_size=4295009941;"
-                             "max_manifest_space_amp_pct=321;"
-                             "db_log_dir=path/to/db_log_dir;"
-                             "writable_file_max_buffer_size=1048576;"
-                             "paranoid_checks=true;"
-                             "flush_verify_memtable_count=true;"
-                             "compaction_verify_record_count=true;"
-                             "track_and_verify_wals_in_manifest=true;"
-                             "track_and_verify_wals=true;"
-                             "verify_sst_unique_id_in_manifest=true;"
-                             "is_fd_close_on_exec=false;"
-                             "bytes_per_sync=4295013613;"
-                             "strict_bytes_per_sync=true;"
-                             "enable_thread_tracking=false;"
-                             "recycle_log_file_num=0;"
-                             "create_missing_column_families=true;"
-                             "log_file_time_to_roll=3097;"
-                             "max_background_flushes=35;"
-                             "create_if_missing=false;"
-                             "error_if_exists=true;"
-                             "delayed_write_rate=4294976214;"
-                             "manifest_preallocation_size=1222;"
-                             "allow_mmap_writes=false;"
-                             "stats_dump_period_sec=70127;"
-                             "stats_persist_period_sec=54321;"
-                             "persist_stats_to_disk=true;"
-                             "stats_history_buffer_size=14159;"
-                             "allow_fallocate=true;"
-                             "allow_mmap_reads=false;"
-                             "use_direct_reads=false;"
-                             "use_direct_io_for_flush_and_compaction=false;"
-                             "max_log_file_size=4607;"
-                             "advise_random_on_open=true;"
-                             "enable_pipelined_write=false;"
-                             "unordered_write=false;"
-                             "allow_concurrent_memtable_write=true;"
-                             "wal_recovery_mode=kPointInTimeRecovery;"
-                             "enable_write_thread_adaptive_yield=true;"
-                             "write_thread_slow_yield_usec=5;"
-                             "write_thread_max_yield_usec=1000;"
-                             "info_log_level=DEBUG_LEVEL;"
-                             "dump_malloc_stats=false;"
-                             "allow_2pc=false;"
-                             "avoid_flush_during_recovery=false;"
-                             "avoid_flush_during_shutdown=false;"
-                             "allow_ingest_behind=false;"
-                             "concurrent_prepare=false;"
-                             "two_write_queues=false;"
-                             "manual_wal_flush=false;"
-                             "wal_compression=kZSTD;"
-                             "background_close_inactive_wals=true;"
-                             "seq_per_batch=false;"
-                             "atomic_flush=false;"
-                             "avoid_unnecessary_blocking_io=false;"
-                             "log_readahead_size=0;"
-                             "write_dbid_to_manifest=false;"
-                             "best_efforts_recovery=false;"
-                             "max_bgerror_resume_count=2;"
-                             "bgerror_resume_retry_interval=1000000;"
-                             "db_host_id=hostname;"
-                             "lowest_used_cache_tier=kNonVolatileBlockTier;"
-                             "allow_data_in_errors=false;"
-                             "enforce_single_del_contracts=false;"
-                             "daily_offpeak_time_utc=08:30-19:00;"
-                             "follower_refresh_catchup_period_ms=123;"
-                             "follower_catchup_retry_count=456;"
-                             "follower_catchup_retry_wait_ms=789;"
-                             "metadata_write_temperature=kCold;"
-                             "wal_write_temperature=kHot;"
-                             "background_close_inactive_wals=true;"
-                             "write_dbid_to_manifest=true;"
-                             "write_identity_file=true;"
-                             "prefix_seek_opt_in_only=true;",
-                             new_options));
+  ASSERT_OK(GetDBOptionsFromString(
+      config_options, *options,
+      "wal_bytes_per_sync=4295048118;"
+      "delete_obsolete_files_period_micros=4294967758;"
+      "WAL_ttl_seconds=4295008036;"
+      "WAL_size_limit_MB=4295036161;"
+      "max_write_batch_group_size_bytes=1048576;"
+      "wal_dir=path/to/wal_dir;"
+      "db_write_buffer_size=2587;"
+      "max_subcompactions=64330;"
+      "table_cache_numshardbits=28;"
+      "max_open_files=72;"
+      "max_file_opening_threads=35;"
+      "max_background_jobs=8;"
+      "max_background_compactions=33;"
+      "use_fsync=true;"
+      "use_adaptive_mutex=false;"
+      "max_total_wal_size=4295005604;"
+      "compaction_readahead_size=0;"
+      "keep_log_file_num=4890;"
+      "skip_stats_update_on_db_open=false;"
+      "max_manifest_file_size=4295009941;"
+      "max_manifest_space_amp_pct=321;"
+      "db_log_dir=path/to/db_log_dir;"
+      "writable_file_max_buffer_size=1048576;"
+      "paranoid_checks=true;"
+      "open_files_async=true;"
+      "flush_verify_memtable_count=true;"
+      "compaction_verify_record_count=true;"
+      "track_and_verify_wals_in_manifest=true;"
+      "track_and_verify_wals=true;"
+      "verify_sst_unique_id_in_manifest=true;"
+      "fast_sst_open=true;"
+      "is_fd_close_on_exec=false;"
+      "bytes_per_sync=4295013613;"
+      "strict_bytes_per_sync=true;"
+      "enable_thread_tracking=false;"
+      "recycle_log_file_num=0;"
+      "async_wal_precreate=true;"
+      "create_missing_column_families=true;"
+      "log_file_time_to_roll=3097;"
+      "max_background_flushes=35;"
+      "create_if_missing=false;"
+      "error_if_exists=true;"
+      "delayed_write_rate=4294976214;"
+      "manifest_preallocation_size=1222;"
+      "allow_mmap_writes=false;"
+      "stats_dump_period_sec=70127;"
+      "stats_persist_period_sec=54321;"
+      "persist_stats_to_disk=true;"
+      "stats_history_buffer_size=14159;"
+      "allow_fallocate=true;"
+      "allow_mmap_reads=false;"
+      "use_direct_reads=false;"
+      "use_direct_io_for_flush_and_compaction=false;"
+      "max_log_file_size=4607;"
+      "advise_random_on_open=true;"
+      "enable_pipelined_write=false;"
+      "unordered_write=false;"
+      "allow_concurrent_memtable_write=true;"
+      "wal_recovery_mode=kPointInTimeRecovery;"
+      "enable_write_thread_adaptive_yield=true;"
+      "write_thread_slow_yield_usec=5;"
+      "write_thread_max_yield_usec=1000;"
+      "info_log_level=DEBUG_LEVEL;"
+      "dump_malloc_stats=false;"
+      "allow_2pc=false;"
+      "avoid_flush_during_recovery=false;"
+      "enforce_write_buffer_manager_during_recovery=true;"
+      "avoid_flush_during_shutdown=false;"
+      "allow_ingest_behind=false;"
+      "concurrent_prepare=false;"
+      "two_write_queues=false;"
+      "manual_wal_flush=false;"
+      "wal_compression=kZSTD;"
+      "background_close_inactive_wals=true;"
+      "seq_per_batch=false;"
+      "atomic_flush=false;"
+      "avoid_unnecessary_blocking_io=false;"
+      "log_readahead_size=0;"
+      "write_dbid_to_manifest=false;"
+      "optimize_manifest_for_recovery=false;"
+      "best_efforts_recovery=false;"
+      "max_bgerror_resume_count=2;"
+      "bgerror_resume_retry_interval=1000000;"
+      "db_host_id=hostname;"
+      "lowest_used_cache_tier=kNonVolatileBlockTier;"
+      "allow_data_in_errors=false;"
+      "enforce_single_del_contracts=false;"
+      "daily_offpeak_time_utc=08:30-19:00;"
+      "max_compaction_trigger_wakeup_seconds=43200;"
+      "follower_refresh_catchup_period_ms=123;"
+      "follower_catchup_retry_count=456;"
+      "follower_catchup_retry_wait_ms=789;"
+      "metadata_write_temperature=kCold;"
+      "wal_write_temperature=kHot;"
+      "background_close_inactive_wals=true;"
+      "write_dbid_to_manifest=true;"
+      "optimize_manifest_for_recovery=true;"
+      "write_identity_file=true;"
+      "verify_manifest_content_on_close=false;"
+      "prefix_seek_opt_in_only=true;"
+      "fast_sst_open=true;"
+      "reuse_manifest_on_open=true;",
+      new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
                                             kDBOptionsExcluded));
@@ -508,7 +525,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // ColumnFamilyOptions.
   const OffsetGap kColumnFamilyOptionsExcluded = {
       {offsetof(struct ColumnFamilyOptions, inplace_callback),
-       sizeof(UpdateStatus(*)(char*, uint32_t*, Slice, std::string*))},
+       sizeof(UpdateStatus (*)(char*, uint32_t*, Slice, std::string*))},
       {offsetof(struct ColumnFamilyOptions,
                 memtable_insert_with_hint_prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
@@ -528,8 +545,13 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(uint64_t)},
       {offsetof(struct ColumnFamilyOptions, preserve_internal_time_seconds),
        sizeof(uint64_t)},
+      {offsetof(struct ColumnFamilyOptions, blob_compression_opts),
+       sizeof(CompressionOptions)},
       {offsetof(struct ColumnFamilyOptions, blob_cache),
        sizeof(std::shared_ptr<Cache>)},
+      {offsetof(struct ColumnFamilyOptions,
+                blob_direct_write_partition_strategy),
+       sizeof(std::shared_ptr<BlobFilePartitionStrategy>)},
       {offsetof(struct ColumnFamilyOptions, comparator), sizeof(Comparator*)},
       {offsetof(struct ColumnFamilyOptions, merge_operator),
        sizeof(std::shared_ptr<MergeOperator>)},
@@ -541,8 +563,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<CompressionManager>)},
       {offsetof(struct ColumnFamilyOptions, prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
-      {offsetof(struct ColumnFamilyOptions, snap_refresh_nanos),
-       sizeof(uint64_t)},
       {offsetof(struct ColumnFamilyOptions, table_factory),
        sizeof(std::shared_ptr<TableFactory>)},
       {offsetof(struct ColumnFamilyOptions, cf_paths),
@@ -658,16 +678,24 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "disallow_memtable_writes=true;"
       "ttl=60;"
       "periodic_compaction_seconds=3600;"
+      "read_triggered_compaction_threshold=0.5;"
       "sample_for_compression=0;"
       "enable_blob_files=true;"
+      "enable_blob_direct_write=true;"
       "min_blob_size=256;"
       "blob_file_size=1000000;"
       "blob_compression_type=kBZip2Compression;"
+      "blob_compression_opts={window_bits=-14;level=1;strategy=0;max_dict_"
+      "bytes=0;"
+      "zstd_max_train_bytes=0;enabled=true;parallel_threads=1;"
+      "max_dict_buffer_bytes=0;use_zstd_dict_trainer=true;"
+      "max_compressed_bytes_per_kb=896;checksum=false};"
       "enable_blob_garbage_collection=true;"
       "blob_garbage_collection_age_cutoff=0.5;"
       "blob_garbage_collection_force_threshold=0.75;"
       "blob_compaction_readahead_size=262144;"
       "blob_file_starting_level=1;"
+      "blob_direct_write_partitions=3;"
       "prepopulate_blob_cache=kDisable;"
       "bottommost_temperature=kWarm;"
       "last_level_temperature=kWarm;"
@@ -677,7 +705,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "preserve_internal_time_seconds=86400;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=true;age_for_warm=0;file_temperature_age_thresholds={{"
-      "temperature=kCold;age=12345}};};"
+      "temperature=kCold;age=12345}};max_data_files_size=1073741824;"
+      "use_kv_ratio_compaction=false;};"
       "blob_cache=1M;"
       "memtable_protection_bytes_per_key=2;"
       "persist_user_defined_timestamps=true;"
@@ -689,8 +718,10 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "memtable_veirfy_per_key_checksum_on_seek=1;"
       "memtable_op_scan_flush_trigger=123;"
       "memtable_avg_op_scan_flush_trigger=12;"
+      "min_tombstones_for_range_conversion=8;"
       "cf_allow_ingest_behind=1;"
-      "verify_output_flags=2049;",
+      "memtable_batch_lookup_optimization=1;"
+      "verify_output_flags=2053;",
       new_options));
 
   ASSERT_NE(new_options->blob_cache.get(), nullptr);
@@ -701,6 +732,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
 
   // Custom verification since compaction_options_fifo was in
   // kColumnFamilyOptionsExcluded
+  ASSERT_TRUE(new_options->enable_blob_direct_write);
+  ASSERT_EQ(new_options->blob_direct_write_partitions, 3U);
   ASSERT_EQ(new_options->compaction_options_fifo.max_table_files_size, 3);
   ASSERT_EQ(new_options->compaction_options_fifo.allow_compaction, true);
   ASSERT_EQ(new_options->compaction_options_fifo.file_temperature_age_thresholds

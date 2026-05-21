@@ -25,7 +25,7 @@ DEFINE_bool(compact, false, "Compact the db after loading the dumped file");
 DEFINE_string(db_options, "",
               "Options string used to open the database that will be loaded");
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, true);
 
   if (FLAGS_db_path == "" || FLAGS_dump_location == "") {

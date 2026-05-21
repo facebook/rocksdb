@@ -76,7 +76,8 @@ class VersionBuilderTest : public testing::Test {
         oldest_blob_file_number, kUnknownOldestAncesterTime,
         kUnknownFileCreationTime, epoch_number, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0,
-        /* user_defined_timestamps_persisted */ true);
+        /* user_defined_timestamps_persisted */ true, /* min timestamp */ "",
+        /* max timestamp */ "");
     f->compensated_file_size = file_size;
     f->num_entries = num_entries;
     f->num_deletions = num_deletions;

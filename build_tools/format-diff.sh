@@ -7,13 +7,17 @@ print_usage () {
   echo "Usage:"
   echo "format-diff.sh [OPTIONS]"
   echo "-c: check only."
+  echo "-y: auto-apply formatting without prompts (non-interactive mode)."
   echo "-h: print this message."
 }
 
-while getopts ':ch' OPTION; do
+while getopts ':cyh' OPTION; do
   case "$OPTION" in
     c)
       CHECK_ONLY=1
+      ;;
+    y)
+      AUTO_APPLY=1
       ;;
     h)
       print_usage
@@ -240,11 +244,16 @@ echo "$diffs" |
   sed -e "s/\(^-.*$\)/`echo -e \"$COLOR_RED\1$COLOR_END\"`/" |
   sed -e "s/\(^+.*$\)/`echo -e \"$COLOR_GREEN\1$COLOR_END\"`/"
 
-echo -e "Would you like to fix the format automatically (y/n): \c"
+# Handle auto-apply mode (non-interactive)
+if [ "$AUTO_APPLY" ]; then
+  to_fix="y"
+else
+  echo -e "Would you like to fix the format automatically (y/n): \c"
 
-# Make sure under any mode, we can read user input.
-exec < /dev/tty
-read to_fix
+  # Make sure under any mode, we can read user input.
+  exec < /dev/tty
+  read to_fix
+fi
 
 if [ "$to_fix" != "y" ]
 then
@@ -261,7 +270,8 @@ fi
 echo "Files reformatted!"
 
 # Amend to last commit if user do the post-commit format check
-if [ -z "$uncommitted_code" ]; then
+# Skip amend prompt in auto-apply mode (user can amend manually if desired)
+if [ -z "$uncommitted_code" ] && [ -z "$AUTO_APPLY" ]; then
   echo -e "Would you like to amend the changes to last commit (`git log HEAD --oneline | head -1`)? (y/n): \c"
   read to_amend
 

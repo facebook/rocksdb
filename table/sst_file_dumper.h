@@ -65,7 +65,6 @@ class SstFileDumper {
                                       std::chrono::microseconds* read_time);
 
   Status SetTableOptionsByMagicNumber(uint64_t table_magic_number);
-  Status SetOldTableOptions();
 
   // Helper function to call the factory with settings specific to the
   // factory implementation

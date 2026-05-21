@@ -36,7 +36,7 @@
   PREF4X64L1(buffer, (PREF_OFFSET), 8) \
   PREF4X64L1(buffer, (PREF_OFFSET), 12)
 
-uint32_t crc32c_arm64(uint32_t crc, unsigned char const *data, size_t len);
+uint32_t crc32c_arm64(uint32_t crc, unsigned char const* data, size_t len);
 uint32_t crc32c_runtime_check(void);
 bool crc32c_pmull_runtime_check(void);
 

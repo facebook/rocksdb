@@ -82,36 +82,25 @@ class SstFileWriter {
   // hint that this file pages is not needed every time we write 1MB to the
   // file. To use the rate limiter an io_priority smaller than IO_TOTAL can be
   // passed.
-  // The `skip_filters` option is DEPRECATED and could be removed in the
-  // future. Use `BlockBasedTableOptions::filter_policy` to control filter
-  // generation.
   SstFileWriter(const EnvOptions& env_options, const Options& options,
                 ColumnFamilyHandle* column_family = nullptr,
                 bool invalidate_page_cache = true,
-                Env::IOPriority io_priority = Env::IOPriority::IO_TOTAL,
-                bool skip_filters = false)
+                Env::IOPriority io_priority = Env::IOPriority::IO_TOTAL)
       : SstFileWriter(env_options, options, options.comparator, column_family,
-                      invalidate_page_cache, io_priority, skip_filters) {}
+                      invalidate_page_cache, io_priority) {}
 
   // Deprecated API
   SstFileWriter(const EnvOptions& env_options, const Options& options,
                 const Comparator* user_comparator,
                 ColumnFamilyHandle* column_family = nullptr,
                 bool invalidate_page_cache = true,
-                Env::IOPriority io_priority = Env::IOPriority::IO_TOTAL,
-                bool skip_filters = false);
+                Env::IOPriority io_priority = Env::IOPriority::IO_TOTAL);
 
   ~SstFileWriter();
 
   // Prepare SstFileWriter to write into file located at "file_path".
   Status Open(const std::string& file_path,
               Temperature temp = Temperature::kUnknown);
-
-  // Add a Put key with value to currently opened file (deprecated)
-  // REQUIRES: user_key is after any previously added point (Put/Merge/Delete)
-  //           key according to the comparator.
-  // REQUIRES: comparator is *not* timestamp-aware.
-  [[deprecated]] Status Add(const Slice& user_key, const Slice& value);
 
   // Add a Put key with value to currently opened file
   // REQUIRES: user_key is after any previously added point (Put/Merge/Delete)

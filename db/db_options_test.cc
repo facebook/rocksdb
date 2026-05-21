@@ -102,6 +102,40 @@ TEST_F(DBOptionsTest, ImmutableTrackAndVerifyWalsInManifest) {
   ASSERT_FALSE(s.ok());
 }
 
+TEST_F(DBOptionsTest, ImmutableAsyncWalPrecreate) {
+  Options options;
+  options.env = env_;
+  options.async_wal_precreate = true;
+
+  ImmutableDBOptions db_options(options);
+  ASSERT_TRUE(db_options.async_wal_precreate);
+
+  Reopen(options);
+  ASSERT_TRUE(dbfull()->GetDBOptions().async_wal_precreate);
+
+  Status s = dbfull()->SetDBOptions({{"async_wal_precreate", "false"}});
+  ASSERT_FALSE(s.ok());
+}
+
+TEST_F(DBOptionsTest, SanitizeAsyncWalPrecreateWithWalRecycle) {
+  // This checks the option-level contract for the incompatible WAL paths:
+  // SanitizeOptions() preserves WAL recycling and disables only the
+  // opportunistic async precreation path, so the immutable options reflect
+  // effective behavior.
+  Options options;
+  options.env = env_;
+  options.async_wal_precreate = true;
+  options.recycle_log_file_num = 1;
+
+  Options sanitized_options = SanitizeOptions(dbname_, options);
+  ASSERT_FALSE(sanitized_options.async_wal_precreate);
+  ASSERT_EQ(1U, sanitized_options.recycle_log_file_num);
+
+  options.recycle_log_file_num = 0;
+  sanitized_options = SanitizeOptions(dbname_, options);
+  ASSERT_TRUE(sanitized_options.async_wal_precreate);
+}
+
 TEST_F(DBOptionsTest, ImmutableVerifySstUniqueIdInManifest) {
   Options options;
   options.env = env_;
@@ -1687,6 +1721,46 @@ TEST_F(DBOptionsTest, SetOptionsNoManifestWrite) {
   ASSERT_EQ(orig_manifest_file_size, new_manifest_file_size);
 
   ASSERT_EQ(Get("x"), "x");
+}
+
+TEST_F(DBOptionsTest, SetOptionsMultipleColumnFamilies) {
+  Options options;
+  options.create_if_missing = true;
+  options.env = CurrentOptions().env;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  // Create two additional column families
+  CreateColumnFamilies({"cf1", "cf2"}, options);
+  ReopenWithColumnFamilies({"default", "cf1", "cf2"}, options);
+
+  // Verify initial state - auto compaction should be disabled
+  ASSERT_TRUE(dbfull()->GetOptions(handles_[0]).disable_auto_compactions);
+  ASSERT_TRUE(dbfull()->GetOptions(handles_[1]).disable_auto_compactions);
+  ASSERT_TRUE(dbfull()->GetOptions(handles_[2]).disable_auto_compactions);
+
+  // Set options on multiple column families at once
+  ASSERT_OK(dbfull()->SetOptions({handles_[1], handles_[2]},
+                                 {{"disable_auto_compactions", "false"}}));
+
+  ASSERT_TRUE(
+      dbfull()->GetOptions(handles_[0]).disable_auto_compactions);  // unchanged
+  ASSERT_FALSE(
+      dbfull()->GetOptions(handles_[1]).disable_auto_compactions);  // changed
+  ASSERT_FALSE(
+      dbfull()->GetOptions(handles_[2]).disable_auto_compactions);  // changed
+
+  std::unordered_map<ColumnFamilyHandle*,
+                     std::unordered_map<std::string, std::string>>
+      options_map;
+  options_map[handles_[0]] = {{"disable_auto_compactions", "false"}};
+  options_map[handles_[1]] = {{"disable_auto_compactions", "true"}};
+  options_map[handles_[2]] = {{"disable_auto_compactions", "true"}};
+  ASSERT_OK(dbfull()->SetOptions(options_map));
+
+  ASSERT_FALSE(dbfull()->GetOptions(handles_[0]).disable_auto_compactions);
+  ASSERT_TRUE(dbfull()->GetOptions(handles_[1]).disable_auto_compactions);
+  ASSERT_TRUE(dbfull()->GetOptions(handles_[2]).disable_auto_compactions);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

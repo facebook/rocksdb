@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <functional>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -23,6 +24,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/ldb_cmd_execute_result.h"
+#include "rocksdb/utilities/transaction_db.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -42,6 +44,8 @@ class LDBCommand {
   static const std::string ARG_TTL;
   static const std::string ARG_TTL_START;
   static const std::string ARG_TTL_END;
+  static const std::string ARG_USE_TXN;
+  static const std::string ARG_TXN_WRITE_POLICY;
   static const std::string ARG_TIMESTAMP;
   static const std::string ARG_TRY_LOAD_OPTIONS;
   static const std::string ARG_IGNORE_UNKNOWN_OPTIONS;
@@ -53,6 +57,7 @@ class LDBCommand {
   static const std::string ARG_COMPRESSION_TYPE;
   static const std::string ARG_COMPRESSION_MAX_DICT_BYTES;
   static const std::string ARG_BLOCK_SIZE;
+  static const std::string ARG_UNIFORM_CV_THRESHOLD;
   static const std::string ARG_AUTO_COMPACTION;
   static const std::string ARG_DB_WRITE_BUFFER_SIZE;
   static const std::string ARG_WRITE_BUFFER_SIZE;
@@ -163,8 +168,9 @@ class LDBCommand {
   std::string secondary_path_;
   std::string leader_path_;
   std::string column_family_name_;
-  DB* db_;
+  std::unique_ptr<DB> db_;
   DBWithTTL* db_ttl_;
+  TransactionDB* db_txn_;
   std::map<std::string, ColumnFamilyHandle*> cf_handles_;
   std::map<uint32_t, const Comparator*> ucmps_;
 
@@ -182,6 +188,13 @@ class LDBCommand {
 
   /** If true, the value is treated as timestamp suffixed */
   bool is_db_ttl_;
+
+  /** If true, open the DB as TransactionDB */
+  bool is_db_txn_;
+
+  /** Transaction write policy (0=WRITE_COMMITTED, 1=WRITE_PREPARED,
+   * 2=WRITE_UNPREPARED) */
+  int txn_write_policy_;
 
   // If true, the kvs are output with their insert/modify timestamp in a ttl db
   bool timestamp_;

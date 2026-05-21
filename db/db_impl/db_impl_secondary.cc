@@ -6,8 +6,10 @@
 #include "db/db_impl/db_impl_secondary.h"
 
 #include <cinttypes>
+#include <optional>
 
 #include "db/arena_wrapped_db_iter.h"
+#include "db/blob/blob_fetcher.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
 #include "db/merge_context.h"
@@ -43,7 +45,6 @@ Status DBImplSecondary::Recover(
     RecoveryContext* /*recovery_ctx*/, bool* /*can_retry*/) {
   mutex_.AssertHeld();
 
-  JobContext job_context(0);
   Status s;
   s = static_cast<ReactiveVersionSet*>(versions_.get())
           ->Recover(column_families, &manifest_reader_, &manifest_reporter_,
@@ -61,24 +62,12 @@ Status DBImplSecondary::Recover(
     max_total_in_memory_state_ += mutable_cf_options.write_buffer_size *
                                   mutable_cf_options.max_write_buffer_number;
   }
-  if (s.ok()) {
-    default_cf_handle_ = new ColumnFamilyHandleImpl(
-        versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
-    default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
+  default_cf_handle_ = new ColumnFamilyHandleImpl(
+      versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
+  default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
 
-    std::unordered_set<ColumnFamilyData*> cfds_changed;
-    s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
-  }
-
-  if (s.IsPathNotFound()) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                   "Secondary tries to read WAL, but WAL file(s) have already "
-                   "been purged by primary.");
-    s = Status::OK();
-  }
   // TODO: update options_file_number_ needed?
 
-  job_context.Clean();
   return s;
 }
 
@@ -88,6 +77,7 @@ Status DBImplSecondary::FindAndRecoverLogFiles(
     JobContext* job_context) {
   assert(nullptr != cfds_changed);
   assert(nullptr != job_context);
+  TEST_SYNC_POINT("DBImplSecondary::FindAndRecoverLogFiles:Begin");
   Status s;
   std::vector<uint64_t> logs;
   s = FindNewLogNumbers(&logs);
@@ -375,13 +365,25 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
 
   const Comparator* ucmp = get_impl_options.column_family->GetComparator();
   assert(ucmp);
-  std::string* ts =
-      ucmp->timestamp_size() > 0 ? get_impl_options.timestamp : nullptr;
   SequenceNumber snapshot = versions_->LastSequence();
   GetWithTimestampReadCallback read_cb(snapshot);
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
       get_impl_options.column_family);
   auto cfd = cfh->cfd();
+  bool is_blob_index = false;
+  bool* is_blob_ptr = get_impl_options.is_blob_index;
+  std::string timestamp_storage;
+  std::string* ts = nullptr;
+  if (ucmp->timestamp_size() > 0) {
+    ts = get_impl_options.timestamp != nullptr
+             ? get_impl_options.timestamp
+             : (get_impl_options.get_value ? &timestamp_storage : nullptr);
+  }
+  if (!is_blob_ptr && get_impl_options.get_value) {
+    is_blob_ptr = &is_blob_index;
+  }
+  const bool resolve_blob_backed_memtable_value =
+      get_impl_options.get_value && (is_blob_ptr == &is_blob_index);
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
@@ -407,6 +409,18 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
   bool done = false;
+  std::optional<BlobFetcher> memtable_blob_fetcher;
+  if (cfd->ioptions().enable_blob_direct_write ||
+      cfd->GetLatestMutableCFOptions().enable_blob_files) {
+    // Catch-up can rebuild older blob references into memtables after mutable
+    // blob-file settings change, so keep blob resolution available whenever
+    // either blob knob indicates it may be needed.
+    memtable_blob_fetcher.emplace(super_version->current, read_options,
+                                  cfd->blob_file_cache(),
+                                  /*allow_write_path_fallback=*/true);
+  }
+  const BlobFetcher* memtable_blob_fetcher_ptr =
+      memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
 
   // Look up starts here
   if (get_impl_options.get_value) {
@@ -416,12 +430,14 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                                    : nullptr,
             get_impl_options.columns, ts, &s, &merge_context,
             &max_covering_tombstone_seq, read_options,
-            false /* immutable_memtable */, &read_cb,
-            /*is_blob_index=*/nullptr, /*do_merge=*/true)) {
+            false /* immutable_memtable */, &read_cb, is_blob_ptr,
+            /*do_merge=*/true, memtable_blob_fetcher_ptr)) {
       done = true;
-      if (get_impl_options.value) {
-        get_impl_options.value->PinSelf();
-      }
+      DBImpl::PostprocessMemtableValueRead(
+          key, ts, resolve_blob_backed_memtable_value,
+          memtable_blob_fetcher_ptr, get_impl_options.value,
+          get_impl_options.columns, &s, &is_blob_index,
+          get_impl_options.value_found);
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
                super_version->imm->Get(
@@ -429,11 +445,14 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                    get_impl_options.value ? get_impl_options.value->GetSelf()
                                           : nullptr,
                    get_impl_options.columns, ts, &s, &merge_context,
-                   &max_covering_tombstone_seq, read_options, &read_cb)) {
+                   &max_covering_tombstone_seq, read_options, &read_cb,
+                   is_blob_ptr, memtable_blob_fetcher_ptr)) {
       done = true;
-      if (get_impl_options.value) {
-        get_impl_options.value->PinSelf();
-      }
+      DBImpl::PostprocessMemtableValueRead(
+          key, ts, resolve_blob_backed_memtable_value,
+          memtable_blob_fetcher_ptr, get_impl_options.value,
+          get_impl_options.columns, &s, &is_blob_index,
+          get_impl_options.value_found);
       RecordTick(stats_, MEMTABLE_HIT);
     }
   } else {
@@ -445,13 +464,14 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
             get_impl_options.columns, ts, &s, &merge_context,
             &max_covering_tombstone_seq, read_options,
             false /* immutable_memtable */, &read_cb,
-            /*is_blob_index=*/nullptr, /*do_merge=*/false)) {
+            /*is_blob_index=*/nullptr, /*do_merge=*/false,
+            memtable_blob_fetcher_ptr)) {
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
-               super_version->imm->GetMergeOperands(lkey, &s, &merge_context,
-                                                    &max_covering_tombstone_seq,
-                                                    read_options)) {
+               super_version->imm->GetMergeOperands(
+                   lkey, &s, &merge_context, &max_covering_tombstone_seq,
+                   read_options, memtable_blob_fetcher_ptr)) {
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
     }
@@ -469,7 +489,7 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
         ts, &s, &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
         /*value_found*/ nullptr,
         /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb, /*is_blob*/ nullptr,
-        /*do_merge*/ true);
+        /*do_merge=*/get_impl_options.get_value);
     RecordTick(stats_, MEMTABLE_MISS);
   }
   {
@@ -508,10 +528,6 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& _read_options,
   ReadOptions read_options(_read_options);
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kDBIterator;
-  }
-  if (read_options.managed) {
-    return NewErrorIterator(
-        Status::NotSupported("Managed iterator is not supported anymore."));
   }
   if (read_options.read_tier == kPersistedTier) {
     return NewErrorIterator(Status::NotSupported(
@@ -587,9 +603,6 @@ Status DBImplSecondary::NewIterators(
   ReadOptions read_options(_read_options);
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kDBIterator;
-  }
-  if (read_options.managed) {
-    return Status::NotSupported("Managed iterator is not supported anymore.");
   }
   if (read_options.read_tier == kPersistedTier) {
     return Status::NotSupported(
@@ -747,6 +760,17 @@ Status DB::OpenAsSecondary(
     const std::string& secondary_path,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr) {
+  return DBImplSecondary::OpenAsSecondaryImpl(
+      db_options, dbname, secondary_path, column_families, handles, dbptr,
+      /*recover_wal=*/true);
+}
+
+Status DBImplSecondary::OpenAsSecondaryImpl(
+    const DBOptions& db_options, const std::string& dbname,
+    const std::string& secondary_path,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
+    bool recover_wal) {
   *dbptr = nullptr;
 
   DBOptions tmp_opts(db_options);
@@ -785,13 +809,28 @@ Status DB::OpenAsSecondary(
   impl->versions_.reset(new ReactiveVersionSet(
       dbname, &impl->immutable_db_options_, impl->mutable_db_options_,
       impl->file_options_, impl->table_cache_.get(),
-      impl->write_buffer_manager_, &impl->write_controller_, impl->io_tracer_));
+      impl->write_buffer_manager_, &impl->write_controller_, impl->io_tracer_,
+      impl->db_id_, impl->db_session_id_));
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
   impl->wal_in_db_path_ = impl->immutable_db_options_.IsWalDirSameAsDBPath();
 
   impl->mutex_.Lock();
+  JobContext job_context(0);
   s = impl->Recover(column_families, true, false, false);
+  // WAL recovery is optional: DB::OpenAsSecondary() needs it to replay
+  // memtable data, while DB::OpenAndCompact() skips it since remote
+  // compaction only needs LSM state from MANIFEST.
+  if (s.ok() && recover_wal) {
+    std::unordered_set<ColumnFamilyData*> cfds_changed;
+    s = impl->FindAndRecoverLogFiles(&cfds_changed, &job_context);
+    if (s.IsPathNotFound()) {
+      ROCKS_LOG_INFO(impl->immutable_db_options_.info_log,
+                     "Secondary tries to read WAL, but WAL file(s) have "
+                     "already been purged by primary.");
+      s = Status::OK();
+    }
+  }
   if (s.ok()) {
     for (const auto& cf : column_families) {
       auto cfd =
@@ -809,9 +848,11 @@ Status DB::OpenAsSecondary(
       sv_context.NewSuperVersion();
       cfd->InstallSuperVersion(&sv_context, &impl->mutex_);
     }
+    impl->MarkAsyncFileOpenNotNeeded();
   }
   impl->mutex_.Unlock();
   sv_context.Clean();
+  job_context.Clean();
   if (s.ok()) {
     dbptr->reset(impl);
     for (auto h : *handles) {
@@ -987,11 +1028,8 @@ Status DBImplSecondary::ParseCompactionProgressFile(
   Slice slice;
   std::string record;
 
-  while (compaction_progress_reader.ReadRecord(&slice, &record)) {
-    if (!reader_status.ok()) {
-      return reader_status;
-    }
-
+  while (compaction_progress_reader.ReadRecord(&slice, &record) &&
+         reader_status.ok()) {
     VersionEdit edit;
     s = edit.DecodeFrom(slice);
     if (!s.ok()) {
@@ -1002,6 +1040,10 @@ Status DBImplSecondary::ParseCompactionProgressFile(
     if (!res) {
       break;
     }
+  }
+
+  if (!reader_status.ok()) {
+    return reader_status;
   }
 
   if (!s.ok()) {
@@ -1544,18 +1586,20 @@ Status DB::OpenAndCompact(
     }
   }
 
-  // 5. Open db As Secondary
-  DB* db;
+  // 5. Open db As Secondary (skip WAL recovery -- remote compaction only
+  //    needs LSM state from MANIFEST, not memtable data from WAL replay)
+  std::unique_ptr<DB> db;
   std::vector<ColumnFamilyHandle*> handles;
-  s = DB::OpenAsSecondary(db_options, name, output_directory, column_families,
-                          &handles, &db);
+  s = DBImplSecondary::OpenAsSecondaryImpl(db_options, name, output_directory,
+                                           column_families, &handles, &db,
+                                           /*recover_wal=*/false);
   if (!s.ok()) {
     return s;
   }
   assert(db);
 
   TEST_SYNC_POINT_CALLBACK(
-      "DBImplSecondary::OpenAndCompact::AfterOpenAsSecondary:0", db);
+      "DBImplSecondary::OpenAndCompact::AfterOpenAsSecondary:0", db.get());
 
   // 6. Find the handle of the Column Family that this will compact
   ColumnFamilyHandle* cfh = nullptr;
@@ -1570,7 +1614,8 @@ Status DB::OpenAndCompact(
   // 7. Run the compaction without installation.
   // Output will be stored in the directory specified by output_directory
   CompactionServiceResult compaction_result;
-  DBImplSecondary* db_secondary = static_cast_with_check<DBImplSecondary>(db);
+  DBImplSecondary* db_secondary =
+      static_cast_with_check<DBImplSecondary>(db.get());
   s = db_secondary->CompactWithoutInstallation(options, cfh, compaction_input,
                                                &compaction_result);
 
@@ -1581,7 +1626,7 @@ Status DB::OpenAndCompact(
   for (auto& handle : handles) {
     delete handle;
   }
-  delete db;
+  db.reset();
   if (s.ok()) {
     return serialization_status;
   } else {

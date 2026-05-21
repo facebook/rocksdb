@@ -36,6 +36,9 @@ bool LevelCompactionPicker::NeedsCompaction(
   if (!vstorage->FilesMarkedForForcedBlobGC().empty()) {
     return true;
   }
+  if (!vstorage->ReadTriggeredCompactionFiles().empty()) {
+    return true;
+  }
   for (int i = 0; i <= vstorage->MaxInputLevel(); i++) {
     if (vstorage->CompactionScore(i) >= 1) {
       return true;
@@ -61,14 +64,16 @@ class LevelCompactionBuilder {
                          LogBuffer* log_buffer,
                          const MutableCFOptions& mutable_cf_options,
                          const ImmutableOptions& ioptions,
-                         const MutableDBOptions& mutable_db_options)
+                         const MutableDBOptions& mutable_db_options,
+                         const std::string& full_history_ts_low)
       : cf_name_(cf_name),
         vstorage_(vstorage),
         compaction_picker_(compaction_picker),
         log_buffer_(log_buffer),
         mutable_cf_options_(mutable_cf_options),
         ioptions_(ioptions),
-        mutable_db_options_(mutable_db_options) {}
+        mutable_db_options_(mutable_db_options),
+        full_history_ts_low_(full_history_ts_low) {}
 
   // Pick and return a compaction.
   Compaction* PickCompaction();
@@ -155,6 +160,7 @@ class LevelCompactionBuilder {
   const MutableCFOptions& mutable_cf_options_;
   const ImmutableOptions& ioptions_;
   const MutableDBOptions& mutable_db_options_;
+  const std::string& full_history_ts_low_;
   // Pick a path ID to place a newly generated file, with its level
   static uint32_t GetPathId(const ImmutableCFOptions& ioptions,
                             const MutableCFOptions& mutable_cf_options,
@@ -322,6 +328,14 @@ void LevelCompactionBuilder::SetupInitialFiles() {
     compaction_reason_ = CompactionReason::kForcedBlobGC;
     return;
   }
+
+  // Read-triggered compaction
+  PickFileToCompact(vstorage_->ReadTriggeredCompactionFiles(),
+                    CompactToNextLevel::kYes);
+  if (!start_level_inputs_.empty()) {
+    compaction_reason_ = CompactionReason::kReadTriggered;
+    return;
+  }
 }
 
 bool LevelCompactionBuilder::SetupOtherL0FilesIfNeeded() {
@@ -401,7 +415,15 @@ void LevelCompactionBuilder::SetupOtherFilesWithRoundRobinExpansion() {
   tmp_start_level_inputs = start_level_inputs_;
   // TODO (zichen): Future parallel round-robin may also need to update this
   // Constraint 1b (only expand till the end)
-  for (size_t i = start_index + 1; i < level_files.size(); i++) {
+  size_t next_index = start_index + 1;
+  const FileMetaData* last_file = start_level_inputs_.files.back();
+  for (size_t j = next_index; j < level_files.size(); j++) {
+    if (level_files[j] == last_file) {
+      next_index = j + 1;
+      break;
+    }
+  }
+  for (size_t i = next_index; i < level_files.size(); i++) {
     auto* f = level_files[i];
     if (f->being_compacted) {
       // Constraint 1a
@@ -571,7 +593,8 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
   // takes running compactions into account (by skipping files that are already
   // being compacted). Since we just changed compaction score, we recalculate it
   // here
-  vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_,
+                                    full_history_ts_low_);
   return c;
 }
 
@@ -910,10 +933,10 @@ bool LevelCompactionBuilder::PickIntraL0Compaction() {
     // resort to L0->L0 compaction yet.
     return false;
   }
-  return FindIntraL0Compaction(level_files, kMinFilesForIntraL0Compaction,
-                               std::numeric_limits<uint64_t>::max(),
-                               mutable_cf_options_.max_compaction_bytes,
-                               &start_level_inputs_);
+  return PickCostBasedIntraL0Compaction(
+      level_files, kMinFilesForIntraL0Compaction,
+      std::numeric_limits<uint64_t>::max(),
+      mutable_cf_options_.max_compaction_bytes, &start_level_inputs_);
 }
 
 bool LevelCompactionBuilder::PickSizeBasedIntraL0Compaction() {
@@ -976,10 +999,11 @@ Compaction* LevelCompactionPicker::PickCompaction(
     const MutableDBOptions& mutable_db_options,
     const std::vector<SequenceNumber>& /*existing_snapshots */,
     const SnapshotChecker* /*snapshot_checker*/, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer, bool /* require_max_output_level*/) {
+    LogBuffer* log_buffer, const std::string& full_history_ts_low,
+    bool /* require_max_output_level*/) {
   LevelCompactionBuilder builder(cf_name, vstorage, this, log_buffer,
                                  mutable_cf_options, ioptions_,
-                                 mutable_db_options);
+                                 mutable_db_options, full_history_ts_low);
   return builder.PickCompaction();
 }
 }  // namespace ROCKSDB_NAMESPACE

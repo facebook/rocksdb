@@ -22,7 +22,12 @@ namespace ROCKSDB_NAMESPACE {
 // The unknown file checksum.
 constexpr char kUnknownFileChecksum[] = "";
 // The unknown sst file checksum function name.
+// Indicates that the file metadata says that no checksum factory was configured
+// when the file was written.
 constexpr char kUnknownFileChecksumFuncName[] = "Unknown";
+// Used when opening a file and there is no file checksum metadata to propagate
+// at all.
+constexpr char kNoFileChecksumFuncName[] = "Unavailable";
 // The standard DB file checksum function name.
 // This is the name of the checksum function returned by
 // GetFileChecksumGenCrc32cFactory();

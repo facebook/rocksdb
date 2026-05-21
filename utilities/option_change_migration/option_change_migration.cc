@@ -221,12 +221,9 @@ Status OpenDBWithCFs(const DBOptions& db_opts, const std::string& dbname,
                      std::unique_ptr<DB>* db,
                      std::vector<ColumnFamilyHandle*>* handles) {
   handles->clear();
-  DB* tmpdb;
-  Status s = DB::Open(db_opts, dbname, cf_descs, handles, &tmpdb);
+  Status s = DB::Open(db_opts, dbname, cf_descs, handles, db);
 
-  if (s.ok()) {
-    db->reset(tmpdb);
-  } else {
+  if (!s.ok()) {
     for (auto* handle : *handles) {
       delete handle;
     }

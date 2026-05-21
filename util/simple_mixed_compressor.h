@@ -10,22 +10,21 @@
 #include <memory>
 #include <vector>
 
-#include "compression.h"
 #include "rocksdb/advanced_compression.h"
+#include "util/atomic.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class MultiCompressorWrapper : public Compressor {
  public:
-  explicit MultiCompressorWrapper(const CompressionOptions& opts,
-                                  CompressionDict&& dict = {});
+  explicit MultiCompressorWrapper(const CompressionOptions& opts);
 
-  size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const override;
+  DictConfig GetDictGuidance(CacheEntryRole block_type) const override;
   Slice GetSerializedDict() const override;
   CompressionType GetPreferredCompressionType() const override;
   ManagedWorkingArea ObtainWorkingArea() override;
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
-      CacheEntryRole block_type, DictSampleArgs&& dict_samples) const override;
+      CacheEntryRole block_type, DictConfigArgs&& dict_config) const override;
 
  protected:
   const CompressionOptions opts_;

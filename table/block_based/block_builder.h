@@ -18,20 +18,22 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class Statistics;
+
 class BlockBuilder {
  public:
   BlockBuilder(const BlockBuilder&) = delete;
   void operator=(const BlockBuilder&) = delete;
 
-  explicit BlockBuilder(int block_restart_interval,
-                        bool use_delta_encoding = true,
-                        bool use_value_delta_encoding = false,
-                        BlockBasedTableOptions::DataBlockIndexType index_type =
-                            BlockBasedTableOptions::kDataBlockBinarySearch,
-                        double data_block_hash_table_util_ratio = 0.75,
-                        size_t ts_sz = 0,
-                        bool persist_user_defined_timestamps = true,
-                        bool is_user_key = false);
+  explicit BlockBuilder(
+      int block_restart_interval, bool use_delta_encoding = true,
+      bool use_value_delta_encoding = false,
+      BlockBasedTableOptions::DataBlockIndexType index_type =
+          BlockBasedTableOptions::kDataBlockBinarySearch,
+      double data_block_hash_table_util_ratio = 0.75, size_t ts_sz = 0,
+      bool persist_user_defined_timestamps = true, bool is_user_key = false,
+      bool use_separated_kv_storage = false, Statistics* statistics = nullptr,
+      double uniform_cv_threshold = -1.0);
 
   // Reset the contents as if the BlockBuilder was just constructed.
   void Reset();
@@ -45,6 +47,10 @@ class BlockBuilder {
   // DO NOT mix with AddWithLastKey() between Resets. For efficiency, use
   // AddWithLastKey() in contexts where previous added key is already known
   // and delta encoding might be used.
+  // For efficiency, the implementation assumes the sizes of the input slices
+  // are each < 4GB, and only uses the bottom 32 bits of each size. (Using a
+  // dedicated Slice32 type would likely incur data movement overheads for this
+  // inner-loop code.)
   void Add(const Slice& key, const Slice& value,
            const Slice* const delta_value = nullptr,
            bool skip_delta_encoding = false);
@@ -58,6 +64,8 @@ class BlockBuilder {
   // is the key from most recent AddWithLastKey. (For convenience, last_key
   // is ignored on first call after creation or Reset().)
   // DO NOT mix with Add() between Resets.
+  // For efficiency, the implementation assumes the sizes of the input slices
+  // are each < 4GB, and only uses the bottom 32 bits of each size.
   void AddWithLastKey(const Slice& key, const Slice& value,
                       const Slice& last_key,
                       const Slice* const delta_value = nullptr,
@@ -84,12 +92,23 @@ class BlockBuilder {
 
   std::string& MutableBuffer() { return buffer_; }
 
+  // Returns true if the most recently Finish()'d block was marked uniform.
+  // REQUIRES: Finish() has been called.
+  bool IsUniform() const { return is_uniform_; }
+
  private:
   inline void AddWithLastKeyImpl(const Slice& key, const Slice& value,
                                  const Slice& last_key,
                                  const Slice* const delta_value,
                                  bool skip_delta_encoding, size_t buffer_size);
 
+  bool ScanForUniformity() const;
+
+  Slice GetRestartKey(uint32_t index, const char* limit) const;
+
+  // Returns key with timestamp stripped if applicable.
+  // For efficiency and internal consistency, only uses the bottom 32 bits of
+  // the key size (see API comments on Add()).
   inline const Slice MaybeStripTimestampFromKey(std::string* key_buf,
                                                 const Slice& key);
 
@@ -120,10 +139,21 @@ class BlockBuilder {
   std::string buffer_;              // Destination buffer
   std::vector<uint32_t> restarts_;  // Restart points
   size_t estimate_;
-  int counter_;    // Number of entries emitted since restart
-  bool finished_;  // Has Finish() been called?
+  int counter_;      // Number of entries emitted since restart
+  bool finished_;    // Has Finish() been called?
+  bool is_uniform_;  // Was the last Finish()'d block uniform?
   std::string last_key_;
   DataBlockHashIndexBuilder data_block_hash_index_builder_;
+  const double uniform_cv_threshold_;
+  Statistics* statistics_;
+
+  const bool use_separated_kv_storage_;  // When enabled, keys are stored first,
+                                         // followed by values in a separate
+                                         // section. Value offset is stored as
+                                         // varint only at restart points; for
+                                         // other entries, offset is computed
+                                         // as prev_offset + prev_length.
+  std::string values_buffer_;
 #ifndef NDEBUG
   bool add_with_last_key_called_ = false;
 #endif

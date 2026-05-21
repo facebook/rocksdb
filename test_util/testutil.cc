@@ -29,6 +29,7 @@
 #include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
+#include "util/string_util.h"
 
 #ifndef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
@@ -44,7 +45,7 @@ const std::set<uint32_t> kFooterFormatVersionsToTest{
     6U,
     // In case any interesting future changes
     kDefaultFormatVersion,
-    kLatestFormatVersion,
+    kLatestBbtFormatVersion,
 };
 const ReadOptionsNoIo kReadOptionsNoIo;
 
@@ -314,6 +315,7 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->use_adaptive_mutex = rnd->Uniform(2);
   db_opt->use_fsync = rnd->Uniform(2);
   db_opt->recycle_log_file_num = rnd->Uniform(2);
+  db_opt->async_wal_precreate = rnd->Uniform(2);
   db_opt->avoid_flush_during_recovery = rnd->Uniform(2);
   db_opt->avoid_flush_during_shutdown = rnd->Uniform(2);
   db_opt->enforce_single_del_contracts = rnd->Uniform(2);

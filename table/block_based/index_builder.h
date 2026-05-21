@@ -20,6 +20,7 @@
 #include "table/block_based/block_builder.h"
 #include "table/block_based/flush_block_policy_impl.h"
 #include "table/format.h"
+#include "util/atomic.h"
 
 namespace ROCKSDB_NAMESPACE {
 // The interface for building index.
@@ -39,7 +40,8 @@ class IndexBuilder {
       const InternalKeyComparator* comparator,
       const InternalKeySliceTransform* int_key_slice_transform,
       bool use_value_delta_encoding, const BlockBasedTableOptions& table_opt,
-      size_t ts_sz, bool persist_user_defined_timestamps);
+      size_t ts_sz, bool persist_user_defined_timestamps,
+      Statistics* statistics = nullptr);
 
   // Index builder will construct a set of blocks which contain:
   //  1. One primary index block.
@@ -158,6 +160,9 @@ class IndexBuilder {
   // Get the size for index block. Must be called after ::Finish.
   virtual size_t IndexSize() const = 0;
 
+  // Get the number of uniform index blocks. Must be called after ::Finish.
+  virtual uint64_t NumUniformIndexBlocks() const { return 0; }
+
   // Returns an estimate of the current index size based on the builder's state.
   // Implementations should cache the estimate and update it via
   // UpdateIndexSizeEstimate() to avoid recalculating on every key add,
@@ -226,20 +231,25 @@ class ShortenedIndexBuilder : public IndexBuilder {
       const bool use_value_delta_encoding,
       BlockBasedTableOptions::IndexShorteningMode shortening_mode,
       bool include_first_key, size_t ts_sz,
-      const bool persist_user_defined_timestamps)
+      const bool persist_user_defined_timestamps, Statistics* statistics,
+      double uniform_cv_threshold)
       : IndexBuilder(comparator, ts_sz, persist_user_defined_timestamps),
         index_block_builder_(
             index_block_restart_interval, true /*use_delta_encoding*/,
             use_value_delta_encoding,
             BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
             0.75 /* data_block_hash_table_util_ratio */, ts_sz,
-            persist_user_defined_timestamps, false /* is_user_key */),
+            persist_user_defined_timestamps, false /* is_user_key */,
+            false /* use_separated_kv_storage */, statistics,
+            uniform_cv_threshold),
         index_block_builder_without_seq_(
             index_block_restart_interval, true /*use_delta_encoding*/,
             use_value_delta_encoding,
             BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
             0.75 /* data_block_hash_table_util_ratio */, ts_sz,
-            persist_user_defined_timestamps, true /* is_user_key */),
+            persist_user_defined_timestamps, true /* is_user_key */,
+            false /* use_separated_kv_storage */, statistics,
+            uniform_cv_threshold),
         use_value_delta_encoding_(use_value_delta_encoding),
         include_first_key_(include_first_key),
         shortening_mode_(shortening_mode) {
@@ -334,6 +344,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
     // away the UDT from key in index block as data block does the same thing.
     // What are the implications if a "FindShortInternalKeySuccessor"
     // optimization is provided.
+    // NOTE: WriteBatch guarantees keys < 4GB; handle values are also small
     index_block_builder_.Add(separator_with_seq, encoded_entry,
                              &delta_encoded_entry_slice, skip_delta_encoding);
     if (!must_use_separator_with_seq) {
@@ -427,15 +438,21 @@ class ShortenedIndexBuilder : public IndexBuilder {
                 const BlockHandle& /*last_partition_block_handle*/) override {
     if (must_use_separator_with_seq_.LoadRelaxed()) {
       index_blocks->index_block_contents = index_block_builder_.Finish();
+      is_uniform_ = index_block_builder_.IsUniform();
     } else {
       index_blocks->index_block_contents =
           index_block_builder_without_seq_.Finish();
+      is_uniform_ = index_block_builder_without_seq_.IsUniform();
     }
     index_size_ = index_blocks->index_block_contents.size();
     return Status::OK();
   }
 
   size_t IndexSize() const override { return index_size_; }
+
+  uint64_t NumUniformIndexBlocks() const override {
+    return is_uniform_ ? 1 : 0;
+  }
 
   uint64_t CurrentIndexSizeEstimate() const override {
     return estimated_index_size_.LoadRelaxed();
@@ -473,6 +490,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
   const bool include_first_key_;
   BlockBasedTableOptions::IndexShorteningMode shortening_mode_;
   BlockHandle last_encoded_handle_ = BlockHandle::NullBlockHandle();
+  bool is_uniform_ = false;
   std::string current_block_first_internal_key_;
   uint64_t num_index_entries_ = 0;
   // Cache for index size estimate to avoid recalculating in hot path
@@ -513,12 +531,14 @@ class HashIndexBuilder : public IndexBuilder {
                    int index_block_restart_interval, int format_version,
                    bool use_value_delta_encoding,
                    BlockBasedTableOptions::IndexShorteningMode shortening_mode,
-                   size_t ts_sz, const bool persist_user_defined_timestamps)
+                   size_t ts_sz, const bool persist_user_defined_timestamps,
+                   double uniform_cv_threshold)
       : IndexBuilder(comparator, ts_sz, persist_user_defined_timestamps),
         primary_index_builder_(comparator, index_block_restart_interval,
                                format_version, use_value_delta_encoding,
                                shortening_mode, /* include_first_key */ false,
-                               ts_sz, persist_user_defined_timestamps),
+                               ts_sz, persist_user_defined_timestamps,
+                               nullptr /* statistics */, uniform_cv_threshold),
         hash_key_extractor_(hash_key_extractor) {}
 
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
@@ -598,6 +618,10 @@ class HashIndexBuilder : public IndexBuilder {
            prefix_meta_block_.size();
   }
 
+  uint64_t NumUniformIndexBlocks() const override {
+    return primary_index_builder_.NumUniformIndexBlocks();
+  }
+
   uint64_t CurrentIndexSizeEstimate() const override { return 0; }
 
   bool separator_is_key_plus_seq() override {
@@ -608,10 +632,9 @@ class HashIndexBuilder : public IndexBuilder {
   void FlushPendingPrefix() {
     prefix_block_.append(pending_entry_prefix_.data(),
                          pending_entry_prefix_.size());
-    PutVarint32Varint32Varint32(
-        &prefix_meta_block_,
-        static_cast<uint32_t>(pending_entry_prefix_.size()),
-        pending_entry_index_, pending_block_num_);
+    PutVarint32(&prefix_meta_block_,
+                static_cast<uint32_t>(pending_entry_prefix_.size()),
+                pending_entry_index_, pending_block_num_);
   }
 
   ShortenedIndexBuilder primary_index_builder_;
@@ -647,12 +670,13 @@ class PartitionedIndexBuilder : public IndexBuilder {
   static PartitionedIndexBuilder* CreateIndexBuilder(
       const InternalKeyComparator* comparator, bool use_value_delta_encoding,
       const BlockBasedTableOptions& table_opt, size_t ts_sz,
-      bool persist_user_defined_timestamps);
+      bool persist_user_defined_timestamps, Statistics* statistics = nullptr);
 
   PartitionedIndexBuilder(const InternalKeyComparator* comparator,
                           const BlockBasedTableOptions& table_opt,
                           bool use_value_delta_encoding, size_t ts_sz,
-                          bool persist_user_defined_timestamps);
+                          bool persist_user_defined_timestamps,
+                          Statistics* statistics = nullptr);
 
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
                       const Slice* first_key_in_next_block,
@@ -675,6 +699,10 @@ class PartitionedIndexBuilder : public IndexBuilder {
   size_t IndexSize() const override { return index_size_; }
   size_t TopLevelIndexSize(uint64_t) const { return top_level_index_size_; }
   size_t NumPartitions() const;
+
+  uint64_t NumUniformIndexBlocks() const override {
+    return num_uniform_index_blocks_;
+  }
 
   // Returns a cached estimate of the current index size. This
   // estimate is updated when data blocks are added.
@@ -715,6 +743,8 @@ class PartitionedIndexBuilder : public IndexBuilder {
   size_t top_level_index_size_ = 0;
   // Set after ::Finish is called
   size_t partition_cnt_ = 0;
+  // Accumulated across all Finish() calls
+  uint64_t num_uniform_index_blocks_ = 0;
 
   void MakeNewSubIndexBuilder();
   void UpdateIndexSizeEstimate() override;
@@ -745,6 +775,7 @@ class PartitionedIndexBuilder : public IndexBuilder {
   // true if it should cut the next filter partition block
   bool cut_filter_block = false;
   BlockHandle last_encoded_handle_;
+  Statistics* statistics_;
   // Cached estimate of current index size, updated when data blocks are added
   RelaxedAtomic<uint64_t> estimated_index_size_{0};
   // Running estimate of completed partitions total size

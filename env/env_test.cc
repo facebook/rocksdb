@@ -26,10 +26,16 @@
 #ifdef OS_LINUX
 #include <fcntl.h>
 #include <linux/fs.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/statfs.h>
 #include <unistd.h>
 
 #include <cstdlib>
+#endif
+
+#if !defined(BTRFS_SUPER_MAGIC)
+#define BTRFS_SUPER_MAGIC 0x9123683E
 #endif
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
@@ -41,6 +47,9 @@
 #include "env/env_chroot.h"
 #include "env/env_encryption_ctr.h"
 #include "env/fs_readonly.h"
+#ifdef OS_LINUX
+#include "env/io_posix.h"
+#endif
 #include "env/mock_env.h"
 #include "env/unique_id_gen.h"
 #include "logging/log_buffer.h"
@@ -106,6 +115,137 @@ std::unique_ptr<char, Deleter> NewAligned(const size_t size, const char ch) {
   memset(uptr.get(), ch, size);
   return uptr;
 }
+
+#ifdef OS_LINUX
+// The deterministic TSAN regressions pass the exact address/size of a mapping
+// from the producer thread (which creates and tears down the original mapping)
+// to the consumer thread (which immediately remaps the same virtual address).
+struct MappingReuseInfo {
+  void* addr;
+  size_t size;
+};
+
+// Move MappingReuseInfo through a pipe. Even for this tiny struct we need to
+// handle EINTR and short reads/writes so the test setup is deterministic.
+bool ReadFdExactly(int fd, void* data, size_t size, std::string* error) {
+  auto* bytes = static_cast<char*>(data);
+  size_t offset = 0;
+  while (offset < size) {
+    ssize_t ret = read(fd, bytes + offset, size - offset);
+    if (ret < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      *error = "read failed: " + errnoStr(errno);
+      return false;
+    }
+    if (ret == 0) {
+      *error = "unexpected EOF while reading mapping info";
+      return false;
+    }
+    offset += static_cast<size_t>(ret);
+  }
+  return true;
+}
+
+bool WriteFdExactly(int fd, const void* data, size_t size, std::string* error) {
+  const auto* bytes = static_cast<const char*>(data);
+  size_t offset = 0;
+  while (offset < size) {
+    ssize_t ret = write(fd, bytes + offset, size - offset);
+    if (ret < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      *error = "write failed: " + errnoStr(errno);
+      return false;
+    }
+    if (ret == 0) {
+      *error = "short write while sending mapping info";
+      return false;
+    }
+    offset += static_cast<size_t>(ret);
+  }
+  return true;
+}
+
+template <typename ProduceMappingFn>
+std::string RunDeterministicMappingReuseScenario(
+    ProduceMappingFn&& produce_mapping) {
+  int pipe_fds[2];
+  if (pipe(pipe_fds) != 0) {
+    return "pipe failed: " + errnoStr(errno);
+  }
+
+  std::mutex error_mu;
+  std::string error;
+  auto set_error = [&](const std::string& msg) {
+    std::lock_guard<std::mutex> lock(error_mu);
+    if (error.empty()) {
+      error = msg;
+    }
+  };
+
+  // Use a pipe rendezvous instead of mutex/condvar-style synchronization. The
+  // test needs deterministic ordering (the original mapping must be gone
+  // before the replacement mapping appears) without adding a TSAN-visible
+  // happens-before relation that could mask the stale-shadow-memory issue.
+  std::thread producer([&]() {
+    MappingReuseInfo info{nullptr, 0};
+    std::string local_error;
+    if (!produce_mapping(&info, &local_error) && !local_error.empty()) {
+      set_error(local_error);
+    }
+    std::string write_error;
+    if (!WriteFdExactly(pipe_fds[1], &info, sizeof(info), &write_error)) {
+      set_error(write_error);
+    }
+  });
+
+  std::thread consumer([&]() {
+    MappingReuseInfo info{nullptr, 0};
+    std::string read_error;
+    if (!ReadFdExactly(pipe_fds[0], &info, sizeof(info), &read_error)) {
+      set_error(read_error);
+      return;
+    }
+    if (info.addr == nullptr || info.size == 0) {
+      return;
+    }
+
+    // Reuse the exact virtual address from the producer's unmapped region.
+    // Without the production annotation, TSAN can still attribute accesses
+    // here to the old mapping that used to occupy this address range.
+    void* addr = mmap(info.addr, info.size, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+    if (addr == MAP_FAILED) {
+      set_error("mmap reuse failed: " + errnoStr(errno));
+      return;
+    }
+    if (addr != info.addr) {
+      set_error("mmap reused an unexpected address");
+      munmap(addr, info.size);
+      return;
+    }
+
+    // Clear the fresh mapping's own shadow state so the test isolates whether
+    // the original mapping left stale TSAN metadata behind.
+    TsanAnnotateMappedMemory(addr, info.size);
+    auto* bytes = static_cast<volatile char*>(addr);
+    bytes[0] = 1;
+    bytes[info.size - 1] = 2;
+    if (munmap(addr, info.size) != 0) {
+      set_error("munmap reuse failed: " + errnoStr(errno));
+    }
+  });
+
+  producer.join();
+  consumer.join();
+  close(pipe_fds[0]);
+  close(pipe_fds[1]);
+  return error;
+}
+#endif  // OS_LINUX
 
 class EnvPosixTest : public testing::Test {
  private:
@@ -1244,24 +1384,41 @@ TEST_P(EnvPosixTestWithParam, AllocateTest) {
     struct stat f_stat;
     ASSERT_EQ(stat(fname.c_str(), &f_stat), 0);
     ASSERT_EQ((unsigned int)kDataSize, f_stat.st_size);
-    // verify that blocks are preallocated
-    // Note here that we don't check the exact number of blocks preallocated --
-    // we only require that number of allocated blocks is at least what we
-    // expect.
-    // It looks like some FS give us more blocks that we asked for. That's fine.
-    // It might be worth investigating further.
-    ASSERT_LE((unsigned int)(kPreallocateSize / kBlockSize), f_stat.st_blocks);
+    // btrfs accepts fallocate but uses copy-on-write, so preallocated extents
+    // are not reflected in st_blocks. Skip block-count verification there.
+    bool skip_block_checks = false;
+#ifdef OS_LINUX
+    struct statfs fs_stat;
+    if (statfs(fname.c_str(), &fs_stat) == 0 &&
+        fs_stat.f_type ==
+            static_cast<decltype(fs_stat.f_type)>(BTRFS_SUPER_MAGIC)) {
+      fprintf(stderr, "Skipping preallocation block count checks on btrfs\n");
+      skip_block_checks = true;
+    }
+#endif
+    if (!skip_block_checks) {
+      // verify that blocks are preallocated
+      // Note here that we don't check the exact number of blocks preallocated
+      // -- we only require that number of allocated blocks is at least what we
+      // expect.
+      // It looks like some FS give us more blocks that we asked for. That's
+      // fine. It might be worth investigating further.
+      ASSERT_LE((unsigned int)(kPreallocateSize / kBlockSize),
+                f_stat.st_blocks);
+    }
 
     // close the file, should deallocate the blocks
     wfile.reset();
 
     stat(fname.c_str(), &f_stat);
     ASSERT_EQ((unsigned int)kDataSize, f_stat.st_size);
-    // verify that preallocated blocks were deallocated on file close
-    // Because the FS might give us more blocks, we add a full page to the size
-    // and expect the number of blocks to be less or equal to that.
-    ASSERT_GE((f_stat.st_size + kPageSize + kBlockSize - 1) / kBlockSize,
-              (unsigned int)f_stat.st_blocks);
+    if (!skip_block_checks) {
+      // verify that preallocated blocks were deallocated on file close
+      // Because the FS might give us more blocks, we add a full page to the
+      // size and expect the number of blocks to be less or equal to that.
+      ASSERT_GE((f_stat.st_size + kPageSize + kBlockSize - 1) / kBlockSize,
+                (unsigned int)f_stat.st_blocks);
+    }
   }
 }
 #endif  // ROCKSDB_FALLOCATE_PRESENT
@@ -1697,7 +1854,181 @@ TEST_F(EnvPosixTest, MultiReadIOUringError2) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
+TEST_F(EnvPosixTest, SupportedOpsNoAsyncIOOnIOUringInitFailure) {
+  // Verify that SupportedOps does not advertise kAsyncIO when CreateIOUring
+  // fails on the calling thread.
+  auto fs = FileSystem::Default();
+  int64_t supported_ops = 0;
+
+  // Check baseline on the current thread.
+  fs->SupportedOps(supported_ops);
+  bool baseline_has_async =
+      (supported_ops & (1 << FSSupportedOps::kAsyncIO)) != 0;
+
+  if (!baseline_has_async) {
+    // Platform doesn't support io_uring at all, nothing to test.
+    return;
+  }
+
+  // Simulate CreateIOUring failure by nullifying the returned pointer.
+  // Count how many times CreateIOUring is invoked to verify caching.
+  int create_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "PosixFileSystem::SupportedOps:CreateIOUring", [&](void* arg) {
+        ++create_count;
+        auto* iu_ptr = static_cast<struct io_uring**>(arg);
+        if (*iu_ptr != nullptr) {
+          DeleteIOUring(*iu_ptr);
+          *iu_ptr = nullptr;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Run SupportedOps on a new thread so the thread-local io_uring is
+  // uninitialized and CreateIOUring (+ our sync point) will be invoked.
+  // Call it twice on the same thread: the second call must NOT retry
+  // CreateIOUring (the failure should be cached).
+  int64_t thread_supported_ops = 0;
+  int64_t thread_supported_ops2 = 0;
+  std::thread t([&]() {
+    fs->SupportedOps(thread_supported_ops);
+    // Second call on the same thread -- cached failure, no retry.
+    fs->SupportedOps(thread_supported_ops2);
+  });
+  t.join();
+
+  ASSERT_EQ(thread_supported_ops & (1 << FSSupportedOps::kAsyncIO), 0);
+  // kFSPrefetch should still be set.
+  ASSERT_NE(thread_supported_ops & (1 << FSSupportedOps::kFSPrefetch), 0);
+  // Second call should also lack kAsyncIO.
+  ASSERT_EQ(thread_supported_ops2 & (1 << FSSupportedOps::kAsyncIO), 0);
+  ASSERT_NE(thread_supported_ops2 & (1 << FSSupportedOps::kFSPrefetch), 0);
+  // CreateIOUring must have been called exactly once -- not retried.
+  ASSERT_EQ(create_count, 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+#ifdef OS_LINUX
+TEST_F(EnvPosixTest, IOUringAddressReuseNoTsanFalsePositive) {
+  struct io_uring* probe = CreateIOUring();
+  if (probe == nullptr) {
+    return;
+  }
+  DeleteIOUring(probe);
+
+  std::atomic<int> annotate_calls{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "TsanAnnotateMappedMemory", [&](void* arg) {
+        auto* info = static_cast<TsanMappedMemoryInfo*>(arg);
+        if (info->addr != nullptr && info->size != 0) {
+          annotate_calls.fetch_add(1, std::memory_order_relaxed);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Force deterministic virtual-address reuse with MAP_FIXED. The pipe orders
+  // the operations without introducing a TSAN happens-before edge, so without
+  // TsanAnnotateMappedMemory() the reused address reliably triggers a report.
+  std::string error = RunDeterministicMappingReuseScenario(
+      [&](MappingReuseInfo* info, std::string* local_error) {
+        struct io_uring* iu = CreateIOUring();
+        if (iu == nullptr) {
+          *local_error = "CreateIOUring failed on the producer thread";
+          return false;
+        }
+        info->addr = iu->sq.ring_ptr;
+        info->size = iu->sq.ring_sz;
+        DeleteIOUring(iu);
+        return true;
+      });
+
+  ASSERT_TRUE(error.empty()) << error;
+  ASSERT_GT(annotate_calls.load(std::memory_order_relaxed), 0);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+#endif  // OS_LINUX
 #endif  // ROCKSDB_IOURING_PRESENT
+
+#ifdef OS_LINUX
+TEST_F(EnvPosixTest, MmapReadAddressReuseNoTsanFalsePositive) {
+  std::string fname = test::PerThreadDBPath(env_, "mmap_reuse");
+  {
+    std::unique_ptr<WritableFile> wfile;
+    ASSERT_OK(env_->NewWritableFile(fname, &wfile, EnvOptions()));
+    std::string data(kPageSize, 'm');
+    ASSERT_OK(wfile->Append(data));
+    ASSERT_OK(wfile->Close());
+  }
+
+  std::mutex capture_mu;
+  MappingReuseInfo captured{nullptr, 0};
+  // The sync-point callback sees every TsanAnnotateMappedMemory() call,
+  // including the consumer thread's MAP_FIXED remap. Gate capture so we keep
+  // only the mapping created by NewRandomAccessFile(use_mmap_reads=true).
+  std::atomic<bool> capture_enabled{false};
+  std::atomic<int> annotate_calls{0};
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "TsanAnnotateMappedMemory", [&](void* arg) {
+        auto* info = static_cast<TsanMappedMemoryInfo*>(arg);
+        if (info->addr == nullptr || info->size == 0) {
+          return;
+        }
+        annotate_calls.fetch_add(1, std::memory_order_relaxed);
+        if (!capture_enabled.load(std::memory_order_relaxed)) {
+          return;
+        }
+        std::lock_guard<std::mutex> lock(capture_mu);
+        if (captured.addr == nullptr) {
+          captured.addr = const_cast<void*>(info->addr);
+          captured.size = info->size;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::string error = RunDeterministicMappingReuseScenario(
+      [&](MappingReuseInfo* info, std::string* local_error) {
+        {
+          std::lock_guard<std::mutex> lock(capture_mu);
+          captured = {nullptr, 0};
+        }
+        capture_enabled.store(true, std::memory_order_relaxed);
+
+        EnvOptions opts;
+        opts.use_mmap_reads = true;
+        opts.use_direct_reads = false;
+        std::unique_ptr<RandomAccessFile> file;
+        Status s = env_->NewRandomAccessFile(fname, &file, opts);
+        capture_enabled.store(false, std::memory_order_relaxed);
+        if (!s.ok()) {
+          *local_error = "NewRandomAccessFile(use_mmap_reads=true) failed: " +
+                         s.ToString();
+          return false;
+        }
+        file.reset();
+
+        {
+          std::lock_guard<std::mutex> lock(capture_mu);
+          *info = captured;
+        }
+        if (info->addr == nullptr || info->size == 0) {
+          *local_error = "did not capture the mmap-read mapping";
+          return false;
+        }
+        return true;
+      });
+
+  ASSERT_TRUE(error.empty()) << error;
+  ASSERT_GT(annotate_calls.load(std::memory_order_relaxed), 0);
+  ASSERT_OK(env_->DeleteFile(fname));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+#endif  // OS_LINUX
 
 // Only works in linux platforms
 #ifdef OS_WIN
@@ -2505,7 +2836,7 @@ TEST_P(EnvFSTestWithParam, OptionsTest) {
     }
   }
   for (int i = 0; i < 2; ++i) {
-    DB* db;
+    std::unique_ptr<DB> db;
     Status s = DB::Open(opts, dbname, &db);
     ASSERT_OK(s);
 
@@ -2523,7 +2854,7 @@ TEST_P(EnvFSTestWithParam, OptionsTest) {
     ASSERT_EQ("b", val);
 
     ASSERT_OK(db->Close());
-    delete db;
+    db.reset();
     ASSERT_OK(DestroyDB(dbname, opts));
 
     dbname = dbname2_;
@@ -3725,6 +4056,431 @@ TEST_F(TestAsyncRead, InterleavingIOUringOperations) {
 #endif
 }
 
+// Test that ReadAsync returns IOStatus::Busy when io_uring_get_sqe returns
+// null (submission queue full), rather than crashing on a null SQE dereference.
+// Uses SyncPoint injection to simulate the null SQE since io_uring_submit is
+// called per-request, making it difficult to naturally saturate the SQ.
+TEST_F(TestAsyncRead, ReadAsyncQueueFull) {
+#if defined(ROCKSDB_IOURING_PRESENT)
+  std::shared_ptr<FileSystem> fs = env_->GetFileSystem();
+  std::string fname = test::PerThreadDBPath(env_, "testfile_queuefull");
+
+  constexpr size_t kSectorSize = 4096;
+
+  // 1. Create a test file.
+  {
+    std::unique_ptr<FSWritableFile> wfile;
+    ASSERT_OK(
+        fs->NewWritableFile(fname, FileOptions(), &wfile, nullptr /*dbg*/));
+    auto data = NewAligned(kSectorSize * 8, 'x');
+    Slice slice(data.get(), kSectorSize);
+    ASSERT_OK(wfile->Append(slice, IOOptions(), nullptr));
+    ASSERT_OK(wfile->Close(IOOptions(), nullptr));
+  }
+
+  // 2. Open the file and verify ReadAsync handles null SQE gracefully.
+  {
+    std::unique_ptr<FSRandomAccessFile> file;
+    ASSERT_OK(fs->NewRandomAccessFile(fname, FileOptions(), &file, nullptr));
+
+    // Force io_uring_get_sqe to appear to return null via SyncPoint.
+    SyncPoint::GetInstance()->SetCallBack(
+        "PosixRandomAccessFile::ReadAsync:io_uring_get_sqe",
+        [](void* arg) { *static_cast<io_uring_sqe**>(arg) = nullptr; });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    IOOptions opts;
+    auto scratch = NewAligned(kSectorSize, 0);
+    FSReadRequest req;
+    req.offset = 0;
+    req.len = kSectorSize;
+    req.scratch = scratch.get();
+
+    void* io_handle = nullptr;
+    IOHandleDeleter del_fn = nullptr;
+    std::function<void(FSReadRequest&, void*)> callback =
+        [](FSReadRequest& /*req*/, void* /*cb_arg*/) {};
+
+    IOStatus s = file->ReadAsync(req, opts, callback, nullptr, &io_handle,
+                                 &del_fn, nullptr);
+
+    if (s.IsNotSupported()) {
+      fprintf(stderr, "Skipping test - io_uring not supported: %s\n",
+              s.ToString().c_str());
+    } else {
+      ASSERT_TRUE(s.IsBusy()) << s.ToString();
+      ASSERT_EQ(io_handle, nullptr);
+      ASSERT_EQ(del_fn, nullptr);
+    }
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
+#else
+  fprintf(stderr, "Skipping test - ROCKSDB_IOURING_PRESENT not defined\n");
+#endif
+}
+
+// Helper function to run AbortIO test with parameterized read requests.
+// Each request is specified as {offset, length}.
+// use_direct_io: if true, opens the file with O_DIRECT to bypass page cache.
+// iterations: number of times to repeat the test (useful for race conditions).
+void TestAbortIOWithRequests(
+    Env* env, size_t file_size,
+    const std::vector<std::pair<uint64_t, size_t>>& read_specs,
+    bool use_direct_io = false, int iterations = 1) {
+#if defined(ROCKSDB_IOURING_PRESENT)
+  fprintf(stderr,
+          "TestAbortIOWithRequests: file_size=%zu, num_reads=%zu, "
+          "direct_io=%d, iterations=%d\n",
+          file_size, read_specs.size(), use_direct_io, iterations);
+  std::shared_ptr<FileSystem> fs = env->GetFileSystem();
+  std::string fname = test::PerThreadDBPath(env, "testfile_abortio");
+
+  // 1. Create test file once (content doesn't change between iterations)
+  {
+    std::unique_ptr<FSWritableFile> wfile;
+    FileOptions file_opts;
+    file_opts.use_direct_writes = true;
+    ASSERT_OK(fs->NewWritableFile(fname, file_opts, &wfile, nullptr));
+
+    // Query the file's required buffer alignment (logical block size)
+    // instead of hardcoding 4096, to support devices with different
+    // sector sizes.
+    size_t sector_size = wfile->GetRequiredBufferAlignment();
+
+    // Round up to full sectors for direct IO writes
+    size_t num_sectors = (file_size + sector_size - 1) / sector_size;
+    for (size_t i = 0; i < num_sectors; ++i) {
+      auto data = NewAligned(sector_size, static_cast<char>(i + 1));
+      Slice slice(data.get(), sector_size);
+      ASSERT_OK(wfile->Append(slice, IOOptions(), nullptr));
+    }
+
+    // Truncate to exact file size if not aligned to sector boundary
+    if (file_size % sector_size != 0) {
+      ASSERT_OK(wfile->Truncate(file_size, IOOptions(), nullptr));
+    }
+
+    ASSERT_OK(wfile->Close(IOOptions(), nullptr));
+  }
+
+  for (int iter = 0; iter < iterations; iter++) {
+    // 2. Submit ReadAsync requests and immediately abort
+    {
+      FileOptions file_opts;
+      file_opts.use_direct_reads = use_direct_io;
+      std::unique_ptr<FSRandomAccessFile> file;
+      ASSERT_OK(fs->NewRandomAccessFile(fname, file_opts, &file, nullptr));
+
+      const size_t num_reads = read_specs.size();
+      IOOptions opts;
+      std::vector<void*> io_handles(num_reads);
+      std::vector<FSReadRequest> reqs(num_reads);
+      std::vector<std::unique_ptr<char, Deleter>> data;
+      std::vector<size_t> vals;
+      IOHandleDeleter del_fn;
+      std::atomic<int> callbacks_invoked{0};
+
+      // Initialize read requests from specs
+      for (size_t i = 0; i < num_reads; i++) {
+        reqs[i].offset = read_specs[i].first;
+        reqs[i].len = read_specs[i].second;
+        data.emplace_back(NewAligned(reqs[i].len, 0));
+        reqs[i].scratch = data.back().get();
+        vals.push_back(i);
+      }
+
+      // Callback
+      std::function<void(FSReadRequest&, void*)> callback =
+          [&](FSReadRequest& req, void* cb_arg) {
+            size_t i = *(reinterpret_cast<size_t*>(cb_arg));
+            reqs[i].status = req.status;
+            callbacks_invoked++;
+          };
+
+      // Submit all ReadAsync requests
+      for (size_t i = 0; i < num_reads; i++) {
+        void* cb_arg = static_cast<void*>(&(vals[i]));
+        IOStatus s = file->ReadAsync(reqs[i], opts, callback, cb_arg,
+                                     &(io_handles[i]), &del_fn, nullptr);
+        if (s.IsNotSupported()) {
+          // io_uring not supported, clean up and skip
+          fprintf(stderr,
+                  "WARNING: io_uring not supported, skipping test: %s\n",
+                  s.ToString().c_str());
+          for (size_t j = 0; j < i; j++) {
+            if (io_handles[j]) {
+              del_fn(io_handles[j]);
+            }
+          }
+          ASSERT_OK(fs->DeleteFile(fname, IOOptions(), nullptr));
+          return;
+        }
+        ASSERT_OK(s);
+      }
+
+      // Immediately call AbortIO - this should NOT hang
+      ASSERT_OK(fs->AbortIO(io_handles));
+
+      // Verify all handles are finished and all callbacks were invoked.
+      // Since all handles are passed to AbortIO, every handle is guaranteed
+      // to be finalized (either completed or cancelled).
+      for (size_t i = 0; i < num_reads; i++) {
+        Posix_IOHandle* h = static_cast<Posix_IOHandle*>(io_handles[i]);
+        ASSERT_TRUE(h->is_finished);
+      }
+      ASSERT_EQ(callbacks_invoked.load(), static_cast<int>(num_reads));
+
+      // Clean up handles
+      for (size_t i = 0; i < num_reads; i++) {
+        if (io_handles[i]) {
+          del_fn(io_handles[i]);
+        }
+      }
+    }
+  }
+
+  ASSERT_OK(fs->DeleteFile(fname, IOOptions(), nullptr));
+
+  fprintf(stderr, "TestAbortIOWithRequests: completed %d iterations\n",
+          iterations);
+#else
+  fprintf(stderr,
+          "TestAbortIOWithRequests: SKIPPED (ROCKSDB_IOURING_PRESENT not "
+          "defined)\n");
+  (void)env;
+  (void)file_size;
+  (void)read_specs;
+  (void)use_direct_io;
+  (void)iterations;
+#endif
+}
+
+// Test overlapping reads at aligned offsets (multiples of 4KB)
+TEST_F(TestAsyncRead, AbortIOOverlappingAligned) {
+  // 4 reads of 16KB each, overlapping by 8KB, all at 4KB-aligned offsets
+  // Read 0: [0, 16KB), Read 1: [8KB, 24KB), Read 2: [16KB, 32KB), Read 3:
+  // [24KB, 40KB)
+  std::vector<std::pair<uint64_t, size_t>> specs = {
+      {0, 16384},
+      {8192, 16384},
+      {16384, 16384},
+      {24576, 16384},
+  };
+  TestAbortIOWithRequests(env_, 64 * 1024, specs);
+}
+
+// Test reads at unaligned offsets (not multiples of 4KB)
+TEST_F(TestAsyncRead, AbortIOUnalignedOffsets) {
+  // Reads starting at non-4KB-aligned offsets
+  std::vector<std::pair<uint64_t, size_t>> specs = {
+      {1000, 8192},    // starts at 1000 (unaligned)
+      {5000, 12288},   // starts at 5000 (unaligned), spans multiple sectors
+      {15000, 8192},   // starts at 15000 (unaligned)
+      {25500, 16384},  // starts at 25500 (unaligned)
+  };
+  TestAbortIOWithRequests(env_, 64 * 1024, specs);
+}
+
+// Test mix of aligned and unaligned, various sizes
+TEST_F(TestAsyncRead, AbortIOMixedOffsets) {
+  std::vector<std::pair<uint64_t, size_t>> specs = {
+      {0, 4096},       // aligned, 1 sector
+      {1500, 8192},    // unaligned, 2 sectors
+      {4096, 20480},   // aligned, 5 sectors
+      {7000, 4096},    // unaligned, spans 2 sectors
+      {16384, 32768},  // aligned, 8 sectors
+      {50000, 8192},   // unaligned
+  };
+  TestAbortIOWithRequests(env_, 128 * 1024, specs);
+}
+
+// Stress test with many concurrent handles
+TEST_F(TestAsyncRead, AbortIOStress) {
+  std::vector<std::pair<uint64_t, size_t>> specs;
+  // 16 overlapping reads with mixed alignment
+  for (int i = 0; i < 16; i++) {
+    uint64_t offset = i * 4000;          // Not aligned to 4KB
+    size_t len = 8192 + (i % 4) * 4096;  // 8KB to 20KB
+    specs.emplace_back(offset, len);
+  }
+  TestAbortIOWithRequests(env_, 256 * 1024, specs);
+}
+
+// Regression test for a fixed bug in AbortIO where out-of-order io_uring
+// completions could cause an infinite hang. The bug occurred when completions
+// for a different handle arrived while waiting for the current handle - the
+// code would consume those completions but not mark the handle as finished,
+// causing a hang when later iterating to that handle.
+//
+// Uses a large read (1MB) followed by a small read (4KB) with Direct I/O to
+// maximize the chance of out-of-order completions. Runs 100 iterations to
+// increase the likelihood of triggering the race condition.
+TEST_F(TestAsyncRead, AbortIOReversedHandles) {
+  // Request 0: LARGE (1MB) at offset 0
+  // Request 1: SMALL (4KB) at offset 1MB
+  std::vector<std::pair<uint64_t, size_t>> specs = {
+      {0, 1024 * 1024},     // 1MB read
+      {1024 * 1024, 4096},  // 4KB read at 1MB offset
+  };
+  // 2MB file, Direct I/O enabled, 100 iterations
+  TestAbortIOWithRequests(env_, 2 * 1024 * 1024, specs,
+                          /*use_direct_io=*/true, /*iterations=*/100);
+}
+
+// Test for bug fix: AbortIO with partial handles should correctly handle
+// completions for non-aborted handles.
+//
+// Previously, AbortIO would consume completions for non-aborted handles but
+// not set is_finished (since it expected req_count==2 for all handles).
+// This caused subsequent Poll calls to hang forever.
+//
+// The fix correctly detects handles not in the abort set and finalizes them
+// immediately when their completion arrives (at req_count==1).
+TEST_F(TestAsyncRead, AbortIOPartialHandlesBug) {
+#if defined(ROCKSDB_IOURING_PRESENT)
+  std::shared_ptr<FileSystem> fs = env_->GetFileSystem();
+  std::string fname = test::PerThreadDBPath(env_, "testfile_abortio_partial");
+
+  constexpr size_t kSectorSize = 4096;
+  constexpr size_t kFileSize = 2 * 1024 * 1024;  // 2MB
+
+  // 1. Create test file with direct I/O
+  {
+    std::unique_ptr<FSWritableFile> wfile;
+    FileOptions file_opts;
+    file_opts.use_direct_writes = true;
+    ASSERT_OK(fs->NewWritableFile(fname, file_opts, &wfile, nullptr));
+
+    size_t num_sectors = kFileSize / kSectorSize;
+    for (size_t i = 0; i < num_sectors; ++i) {
+      auto data = NewAligned(kSectorSize, static_cast<char>(i + 1));
+      Slice slice(data.get(), kSectorSize);
+      ASSERT_OK(wfile->Append(slice, IOOptions(), nullptr));
+    }
+    ASSERT_OK(wfile->Close(IOOptions(), nullptr));
+  }
+
+  // 2. Submit 3 ReadAsync requests, abort only the first one, then Poll the
+  // rest
+  {
+    FileOptions file_opts;
+    file_opts.use_direct_reads = true;
+    std::unique_ptr<FSRandomAccessFile> file;
+    ASSERT_OK(fs->NewRandomAccessFile(fname, file_opts, &file, nullptr));
+
+    IOOptions opts;
+    constexpr size_t kNumReads = 3;
+    std::vector<void*> io_handles(kNumReads);
+    std::vector<FSReadRequest> reqs(kNumReads);
+    std::vector<std::unique_ptr<char, Deleter>> data;
+    std::vector<size_t> vals;
+    IOHandleDeleter del_fn;
+    std::atomic<int> callbacks_invoked{0};
+
+    // H0: 1MB read, H1: 4KB read, H2: 4KB read
+    std::vector<std::pair<uint64_t, size_t>> read_specs = {
+        {0, 1024 * 1024},            // H0: 1MB at offset 0
+        {1024 * 1024, 4096},         // H1: 4KB at offset 1MB
+        {1024 * 1024 + 4096, 4096},  // H2: 4KB at offset 1MB+4KB
+    };
+
+    for (size_t i = 0; i < kNumReads; i++) {
+      reqs[i].offset = read_specs[i].first;
+      reqs[i].len = read_specs[i].second;
+      data.emplace_back(NewAligned(reqs[i].len, 0));
+      reqs[i].scratch = data.back().get();
+      vals.push_back(i);
+    }
+
+    std::function<void(FSReadRequest&, void*)> callback =
+        [&](FSReadRequest& req, void* cb_arg) {
+          size_t i = *(reinterpret_cast<size_t*>(cb_arg));
+          reqs[i].status = req.status;
+          callbacks_invoked++;
+        };
+
+    // Submit all ReadAsync requests
+    for (size_t i = 0; i < kNumReads; i++) {
+      void* cb_arg = static_cast<void*>(&(vals[i]));
+      IOStatus s = file->ReadAsync(reqs[i], opts, callback, cb_arg,
+                                   &(io_handles[i]), &del_fn, nullptr);
+      if (s.IsNotSupported()) {
+        // io_uring not supported, clean up and skip
+        for (size_t j = 0; j < i; j++) {
+          if (io_handles[j]) {
+            del_fn(io_handles[j]);
+          }
+        }
+        ASSERT_OK(fs->DeleteFile(fname, IOOptions(), nullptr));
+        return;
+      }
+      ASSERT_OK(s);
+    }
+
+    // Wait for reads to complete in io_uring (completions in queue but not
+    // consumed). 5 seconds should be plenty for direct I/O reads to complete.
+    std::this_thread::sleep_for(std::chrono::seconds(5));
+
+    // Abort ONLY H0 - this will consume all completions but should correctly
+    // finalize H1 and H2 (since they're not in the abort set).
+    std::vector<void*> abort_handles = {io_handles[0]};
+    ASSERT_OK(fs->AbortIO(abort_handles));
+
+    // Verify H0 is finished (aborted)
+    Posix_IOHandle* h0 = static_cast<Posix_IOHandle*>(io_handles[0]);
+    ASSERT_TRUE(h0->is_finished);
+    ASSERT_EQ(h0->req_count, 2u);  // original + cancel
+
+    // Note: H1 and H2 may or may not be finished at this point. AbortIO
+    // finalizes non-aborted handles whose CQEs arrive while waiting for
+    // aborted handles, but CQE ordering is non-deterministic. If H0's
+    // completions arrived first, H1/H2's CQEs are still in the queue.
+    // Poll handles either case correctly.
+
+    // Poll on H1, H2 - completes them if not already finalized by AbortIO
+    std::vector<void*> poll_handles = {io_handles[1], io_handles[2]};
+
+    // Use a watchdog to detect hang (regression test for the original bug
+    // where AbortIO consumed non-aborted CQEs without finalizing them)
+    std::atomic<bool> poll_completed{false};
+    std::thread watchdog([&]() {
+      for (int i = 0; i < 500; i++) {  // 5 seconds timeout
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        if (poll_completed) return;
+      }
+      // Bug regression: Poll hung
+      _exit(1);
+    });
+
+    fs->Poll(poll_handles, poll_handles.size());
+    poll_completed = true;
+    watchdog.join();
+
+    // After Poll, H1 and H2 must be finished
+    Posix_IOHandle* h1 = static_cast<Posix_IOHandle*>(io_handles[1]);
+    Posix_IOHandle* h2 = static_cast<Posix_IOHandle*>(io_handles[2]);
+    ASSERT_TRUE(h1->is_finished);
+    ASSERT_TRUE(h2->is_finished);
+
+    // Verify all callbacks were invoked
+    ASSERT_EQ(callbacks_invoked.load(), 3);
+
+    // Clean up handles
+    for (size_t i = 0; i < kNumReads; i++) {
+      if (io_handles[i]) {
+        del_fn(io_handles[i]);
+      }
+    }
+  }
+
+  ASSERT_OK(fs->DeleteFile(fname, IOOptions(), nullptr));
+#else
+  (void)env_;  // Suppress unused variable warning
+#endif
+}
+
 struct StaticDestructionTester {
   bool activated = false;
   ~StaticDestructionTester() {
@@ -3793,6 +4549,70 @@ TEST_F(TestIOActivity, IOActivityToString) {
             "CustomIOActivityFE");
 
   ASSERT_EQ(Env::IOActivityToString(Env::IOActivity::kUnknown), "Unknown");
+}
+
+TEST_F(EnvTest, WriteStringToFileClosesFile) {
+  auto counted_fs = std::make_shared<CountedFileSystem>(FileSystem::Default());
+  std::string fname = test::PerThreadDBPath("write_string_close_test");
+
+  // Write a file using WriteStringToFile
+  ASSERT_OK(WriteStringToFile(counted_fs.get(), "hello world", fname,
+                              /*should_sync=*/false));
+
+  // Verify Close() was called (closes counter should be > 0)
+  ASSERT_GT(counted_fs->counters()->closes.load(), 0);
+
+  // Verify the content was written correctly
+  std::string result;
+  ASSERT_OK(ReadFileToString(counted_fs.get(), fname, &result));
+  ASSERT_EQ(result, "hello world");
+
+  // Clean up
+  ASSERT_OK(counted_fs->DeleteFile(fname, IOOptions(), nullptr));
+}
+
+// Writable file wrapper that injects a Close() failure.
+// Uses FSWritableFileOwnerWrapper to properly take ownership of the wrapped
+// file.
+class CloseFailWritableFile : public FSWritableFileOwnerWrapper {
+ public:
+  explicit CloseFailWritableFile(std::unique_ptr<FSWritableFile>&& target)
+      : FSWritableFileOwnerWrapper(std::move(target)) {}
+  IOStatus Close(const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    return IOStatus::IOError("injected close failure");
+  }
+};
+
+// FileSystem wrapper that wraps writable files with CloseFailWritableFile.
+class CloseFailFS : public FileSystemWrapper {
+ public:
+  explicit CloseFailFS(const std::shared_ptr<FileSystem>& base)
+      : FileSystemWrapper(base) {}
+  const char* Name() const override { return "CloseFailFS"; }
+  IOStatus NewWritableFile(const std::string& fname,
+                           const FileOptions& file_opts,
+                           std::unique_ptr<FSWritableFile>* result,
+                           IODebugContext* dbg) override {
+    IOStatus s = target()->NewWritableFile(fname, file_opts, result, dbg);
+    if (s.ok()) {
+      result->reset(new CloseFailWritableFile(std::move(*result)));
+    }
+    return s;
+  }
+};
+
+TEST_F(EnvTest, WriteStringToFileCloseFailureDeletesFile) {
+  auto close_fail_fs = std::make_shared<CloseFailFS>(FileSystem::Default());
+  std::string fname = test::PerThreadDBPath("write_string_close_fail_test");
+
+  auto s = WriteStringToFile(close_fail_fs.get(), "hello world", fname,
+                             /*should_sync=*/false);
+  ASSERT_NOK(s);
+
+  // The file should have been deleted on failure
+  auto exists = FileSystem::Default()->FileExists(fname, IOOptions(), nullptr);
+  ASSERT_TRUE(exists.IsNotFound()) << exists.ToString();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

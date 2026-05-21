@@ -21,7 +21,7 @@ class ReduceLevelTest : public testing::Test {
   ReduceLevelTest() {
     dbname_ = test::PerThreadDBPath("db_reduce_levels_test");
     EXPECT_OK(DestroyDB(dbname_, Options()));
-    db_ = nullptr;
+    db_.reset();
   }
 
   Status OpenDB(bool create_if_missing, int levels);
@@ -46,12 +46,12 @@ class ReduceLevelTest : public testing::Test {
     if (db_ == nullptr) {
       return Status::InvalidArgument("DB not opened.");
     }
-    DBImpl* db_impl = static_cast_with_check<DBImpl>(db_);
+    DBImpl* db_impl = static_cast_with_check<DBImpl>(db_.get());
     return db_impl->TEST_FlushMemTable();
   }
 
   void MoveL0FileToLevel(int level) {
-    DBImpl* db_impl = static_cast_with_check<DBImpl>(db_);
+    DBImpl* db_impl = static_cast_with_check<DBImpl>(db_.get());
     for (int i = 0; i < level; ++i) {
       ASSERT_OK(db_impl->TEST_CompactRange(i, nullptr, nullptr));
     }
@@ -59,8 +59,7 @@ class ReduceLevelTest : public testing::Test {
 
   void CloseDB() {
     if (db_ != nullptr) {
-      delete db_;
-      db_ = nullptr;
+      db_.reset();
     }
   }
 
@@ -75,7 +74,7 @@ class ReduceLevelTest : public testing::Test {
 
  private:
   std::string dbname_;
-  DB* db_;
+  std::unique_ptr<DB> db_;
 };
 
 Status ReduceLevelTest::OpenDB(bool create_if_missing, int num_levels) {

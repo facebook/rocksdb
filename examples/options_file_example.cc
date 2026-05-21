@@ -7,6 +7,7 @@
 // rocksdb/utilities/options_util.h to open a rocksdb database without
 // remembering all the rocksdb options.
 #include <cstdio>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -74,7 +75,7 @@ int main() {
   cf_descs[1].options.table_factory.reset(NewBlockBasedTableFactory(bbt_opts));
 
   // destroy and open DB
-  DB* db;
+  std::unique_ptr<DB> db;
   Status s = ROCKSDB_NAMESPACE::DestroyDB(kDBPath,
                                           Options(db_opt, cf_descs[0].options));
   assert(s.ok());
@@ -88,7 +89,7 @@ int main() {
 
   // close DB
   delete cf;
-  delete db;
+  db.reset();
 
   // In the following code, we will reopen the rocksdb instance using
   // the options file stored in the db directory.
@@ -128,5 +129,5 @@ int main() {
   for (auto* handle : handles) {
     delete handle;
   }
-  delete db;
+  db.reset();
 }

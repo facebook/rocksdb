@@ -6,6 +6,6 @@ runs:
     run: |
       make checkout_folly
     shell: bash
-  - name: Install patchelf
-    run: apt-get update -y && apt-get install -y patchelf
+  - name: Install patchelf and libaio
+    run: apt-get update -y && apt-get install -y patchelf libaio-dev
     shell: bash

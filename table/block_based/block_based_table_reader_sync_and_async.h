@@ -117,6 +117,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
 
     PERF_COUNTER_ADD(block_read_count, 1);
     PERF_COUNTER_ADD(block_read_byte, BlockSizeWithTrailer(handle));
+    PERF_COUNTER_ADD(data_block_read_byte, BlockSizeWithTrailer(handle));
   }
   // Handle the last block and process the pending last request
   if (prev_len != 0) {
@@ -220,7 +221,8 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
         // in each read request. Checksum is stored in the block trailer,
         // beyond the payload size.
         s = VerifyBlockChecksum(footer, data, handle.size(),
-                                rep_->file->file_name(), handle.offset());
+                                rep_->file->file_name(), handle.offset(),
+                                BlockType::kData);
         RecordTick(ioptions.stats, BLOCK_CHECKSUM_COMPUTE_COUNT);
         if (!s.ok()) {
           RecordTick(ioptions.stats, BLOCK_CHECKSUM_MISMATCH_COUNT);
@@ -248,7 +250,8 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
             assert(result.data() == data);
             assert(result.size() == BlockSizeWithTrailer(handle));
             s = VerifyBlockChecksum(footer, data, handle.size(),
-                                    rep_->file->file_name(), handle.offset());
+                                    rep_->file->file_name(), handle.offset(),
+                                    BlockType::kData);
             if (s.ok()) {
               RecordTick(ioptions.stats,
                          FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT);

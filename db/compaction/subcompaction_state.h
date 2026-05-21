@@ -81,6 +81,15 @@ class SubcompactionState {
   // it returns both the last level outputs and proximal level outputs.
   OutputIterator GetOutputs() const;
 
+  // Get mutable access to outputs for post-processing (e.g., retrieving
+  // file open metadata).
+  std::vector<CompactionOutputs::Output>& GetMutableCompactionOutputs() {
+    return compaction_outputs_.GetMutableOutputs();
+  }
+  std::vector<CompactionOutputs::Output>& GetMutableProximalOutputs() {
+    return proximal_level_outputs_.GetMutableOutputs();
+  }
+
   // Assign range dels aggregator. The various tombstones will potentially
   // be filtered to different outputs.
   void AssignRangeDelAggregator(
@@ -93,6 +102,14 @@ class SubcompactionState {
   void RemoveLastEmptyOutput() {
     compaction_outputs_.RemoveLastEmptyOutput();
     proximal_level_outputs_.RemoveLastEmptyOutput();
+  }
+
+  // Cleanup output builders for abandoning in-progress files.
+  void CleanupOutputs() {
+    compaction_outputs_.Cleanup();
+    if (compaction->SupportsPerKeyPlacement()) {
+      proximal_level_outputs_.Cleanup();
+    }
   }
 
   void BuildSubcompactionJobInfo(
@@ -162,7 +179,7 @@ class SubcompactionState {
     }
   }
 
-  void Cleanup(Cache* cache);
+  void Cleanup(Cache* cache, const Status& overall_status);
 
   void AggregateCompactionOutputStats(
       InternalStats::CompactionStatsFull& internal_stats) const;

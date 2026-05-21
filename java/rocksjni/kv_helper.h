@@ -81,7 +81,7 @@ class KVException : public std::exception {
     }
   }
 
-  KVException(jint code) : kCode_(code){};
+  KVException(jint code) : kCode_(code) {};
 
   virtual const char* what() const noexcept {
     return "Exception raised by JNI. There may be a Java exception in the "
@@ -176,13 +176,13 @@ class JByteArrayPinnableSlice {
       : env_(env),
         jbuffer_(jbuffer),
         jbuffer_off_(jbuffer_off),
-        jbuffer_len_(jbuffer_len){};
+        jbuffer_len_(jbuffer_len) {};
 
   /**
    * @brief Construct an empty new JByteArrayPinnableSlice object
    *
    */
-  JByteArrayPinnableSlice(JNIEnv* env) : env_(env){};
+  JByteArrayPinnableSlice(JNIEnv* env) : env_(env) {};
 
   PinnableSlice& pinnable_slice() { return pinnable_slice_; }
 

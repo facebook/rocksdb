@@ -35,7 +35,6 @@ class WritableFile;
 struct BlockBasedTableOptions;
 
 extern const uint64_t kBlockBasedTableMagicNumber;
-extern const uint64_t kLegacyBlockBasedTableMagicNumber;
 
 class BlockBasedTableBuilder : public TableBuilder {
  public:
@@ -117,6 +116,11 @@ class BlockBasedTableBuilder : public TableBuilder {
                                    uint64_t oldest_ancestor_time) override;
 
   uint64_t GetWorkerCPUMicros() const override;
+
+#ifndef NDEBUG
+  // Test-only: inject an IOError into the builder's status.
+  void TEST_InjectIOError();
+#endif  // !NDEBUG
 
  private:
   bool ok() const;

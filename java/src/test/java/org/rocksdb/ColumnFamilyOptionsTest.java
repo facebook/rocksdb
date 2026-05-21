@@ -706,4 +706,14 @@ public class ColumnFamilyOptionsTest {
       assertThat(options.memtableMaxRangeDeletions()).isEqualTo(val);
     }
   }
+
+  @Test
+  public void minTombstonesForRangeConversion() {
+    try (final ColumnFamilyOptions options = new ColumnFamilyOptions()) {
+      assertThat(options.minTombstonesForRangeConversion()).isEqualTo(0);
+      final int val = 100;
+      assertThat(options.setMinTombstonesForRangeConversion(val)).isEqualTo(options);
+      assertThat(options.minTombstonesForRangeConversion()).isEqualTo(val);
+    }
+  }
 }

@@ -17,9 +17,9 @@
  * Signature: (JJD)J
  */
 jlong Java_org_rocksdb_TablePropertiesCollectorFactory_newCompactOnDeletionCollectorFactory(
-    JNIEnv *, jclass, jlong sliding_window_size, jlong deletion_trigger,
+    JNIEnv*, jclass, jlong sliding_window_size, jlong deletion_trigger,
     jdouble deletion_ratio) {
-  auto *wrapper = new TablePropertiesCollectorFactoriesJniWrapper();
+  auto* wrapper = new TablePropertiesCollectorFactoriesJniWrapper();
   wrapper->table_properties_collector_factories =
       ROCKSDB_NAMESPACE::NewCompactOnDeletionCollectorFactory(
           sliding_window_size, deletion_trigger, deletion_ratio);
@@ -32,8 +32,8 @@ jlong Java_org_rocksdb_TablePropertiesCollectorFactory_newCompactOnDeletionColle
  * Signature: (J)J
  */
 void Java_org_rocksdb_TablePropertiesCollectorFactory_deleteCompactOnDeletionCollectorFactory(
-    JNIEnv *, jclass, jlong jhandle) {
+    JNIEnv*, jclass, jlong jhandle) {
   auto instance =
-      reinterpret_cast<TablePropertiesCollectorFactoriesJniWrapper *>(jhandle);
+      reinterpret_cast<TablePropertiesCollectorFactoriesJniWrapper*>(jhandle);
   delete instance;
 }

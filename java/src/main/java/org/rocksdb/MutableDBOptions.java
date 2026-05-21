@@ -77,6 +77,7 @@ public class MutableDBOptions extends AbstractMutableOptions {
     wal_bytes_per_sync(ValueType.LONG),
     strict_bytes_per_sync(ValueType.BOOLEAN),
     compaction_readahead_size(ValueType.LONG),
+    max_compaction_trigger_wakeup_seconds(ValueType.LONG),
 
     daily_offpeak_time_utc(ValueType.STRING);
 
@@ -213,6 +214,18 @@ public class MutableDBOptions extends AbstractMutableOptions {
     @Override
     public int statsDumpPeriodSec() {
       return getInt(DBOption.stats_dump_period_sec);
+    }
+
+    @Override
+    public MutableDBOptionsBuilder setMaxCompactionTriggerWakeupSeconds(
+        final long maxCompactionTriggerWakeupSeconds) {
+      return setLong(
+          DBOption.max_compaction_trigger_wakeup_seconds, maxCompactionTriggerWakeupSeconds);
+    }
+
+    @Override
+    public long maxCompactionTriggerWakeupSeconds() {
+      return getLong(DBOption.max_compaction_trigger_wakeup_seconds);
     }
 
     @Override

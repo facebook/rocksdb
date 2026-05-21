@@ -9,14 +9,15 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+template <typename DBPtr>
 Status MemoryUtil::GetApproximateMemoryUsageByType(
-    const std::vector<DB*>& dbs,
+    const std::vector<DBPtr>& dbs,
     const std::unordered_set<const Cache*> cache_set,
     std::map<MemoryUtil::UsageType, uint64_t>* usage_by_type) {
   usage_by_type->clear();
 
   // MemTable
-  for (auto* db : dbs) {
+  for (auto& db : dbs) {
     uint64_t usage = 0;
     if (db->GetAggregatedIntProperty(DB::Properties::kSizeAllMemTables,
                                      &usage)) {
@@ -29,7 +30,7 @@ Status MemoryUtil::GetApproximateMemoryUsageByType(
   }
 
   // Table Readers
-  for (auto* db : dbs) {
+  for (auto& db : dbs) {
     uint64_t usage = 0;
     if (db->GetAggregatedIntProperty(DB::Properties::kEstimateTableReadersMem,
                                      &usage)) {
@@ -46,4 +47,16 @@ Status MemoryUtil::GetApproximateMemoryUsageByType(
 
   return Status::OK();
 }
+
+template Status MemoryUtil::GetApproximateMemoryUsageByType<DB*>(
+    const std::vector<DB*>& dbs,
+    const std::unordered_set<const Cache*> cache_set,
+    std::map<MemoryUtil::UsageType, uint64_t>* usage_by_type);
+
+template Status
+MemoryUtil::GetApproximateMemoryUsageByType<std::unique_ptr<DB>>(
+    const std::vector<std::unique_ptr<DB>>& dbs,
+    const std::unordered_set<const Cache*> cache_set,
+    std::map<MemoryUtil::UsageType, uint64_t>* usage_by_type);
+
 }  // namespace ROCKSDB_NAMESPACE

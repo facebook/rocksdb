@@ -15,7 +15,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
-bool MatchesInteger(const std::string &target, size_t start, size_t pos) {
+bool MatchesInteger(const std::string& target, size_t start, size_t pos) {
   // If it is numeric, everything up to the match must be a number
   int digits = 0;
   if (target[start] == '-') {
@@ -31,7 +31,7 @@ bool MatchesInteger(const std::string &target, size_t start, size_t pos) {
   return (digits > 0);
 }
 
-bool MatchesDecimal(const std::string &target, size_t start, size_t pos) {
+bool MatchesDecimal(const std::string& target, size_t start, size_t pos) {
   int digits = 0;
   if (target[start] == '-') {
     start++;  // Allow negative numbers
@@ -54,8 +54,8 @@ bool MatchesDecimal(const std::string &target, size_t start, size_t pos) {
 }  // namespace
 
 size_t ObjectLibrary::PatternEntry::MatchSeparatorAt(
-    size_t start, Quantifier mode, const std::string &target, size_t tlen,
-    const std::string &separator) const {
+    size_t start, Quantifier mode, const std::string& target, size_t tlen,
+    const std::string& separator) const {
   size_t slen = separator.size();
   // See if there is enough space.  If so, find the separator
   if (tlen < start + slen) {
@@ -87,9 +87,9 @@ size_t ObjectLibrary::PatternEntry::MatchSeparatorAt(
   }
 }
 
-bool ObjectLibrary::PatternEntry::MatchesTarget(const std::string &name,
+bool ObjectLibrary::PatternEntry::MatchesTarget(const std::string& name,
                                                 size_t nlen,
-                                                const std::string &target,
+                                                const std::string& target,
                                                 size_t tlen) const {
   if (separators_.empty()) {
     assert(optional_);  // If there are no separators, it must be only a name
@@ -109,7 +109,7 @@ bool ObjectLibrary::PatternEntry::MatchesTarget(const std::string &name,
     size_t start = nlen;
     auto mode = kMatchExact;
     for (size_t idx = 0; idx < separators_.size(); ++idx) {
-      const auto &separator = separators_[idx];
+      const auto& separator = separators_[idx];
       start = MatchSeparatorAt(start, mode, target, tlen, separator.first);
       if (start == std::string::npos) {
         return false;
@@ -132,12 +132,12 @@ bool ObjectLibrary::PatternEntry::MatchesTarget(const std::string &name,
   return true;
 }
 
-bool ObjectLibrary::PatternEntry::Matches(const std::string &target) const {
+bool ObjectLibrary::PatternEntry::Matches(const std::string& target) const {
   auto tlen = target.size();
   if (MatchesTarget(name_, nlength_, target, tlen)) {
     return true;
   } else if (!names_.empty()) {
-    for (const auto &alt : names_) {
+    for (const auto& alt : names_) {
       if (MatchesTarget(alt, alt.size(), target, tlen)) {
         return true;
       }
@@ -146,17 +146,17 @@ bool ObjectLibrary::PatternEntry::Matches(const std::string &target) const {
   return false;
 }
 
-size_t ObjectLibrary::GetFactoryCount(size_t *types) const {
+size_t ObjectLibrary::GetFactoryCount(size_t* types) const {
   std::unique_lock<std::mutex> lock(mu_);
   *types = factories_.size();
   size_t factories = 0;
-  for (const auto &e : factories_) {
+  for (const auto& e : factories_) {
     factories += e.second.size();
   }
   return factories;
 }
 
-size_t ObjectLibrary::GetFactoryCount(const std::string &type) const {
+size_t ObjectLibrary::GetFactoryCount(const std::string& type) const {
   std::unique_lock<std::mutex> lock(mu_);
   auto iter = factories_.find(type);
   if (iter != factories_.end()) {
@@ -166,36 +166,36 @@ size_t ObjectLibrary::GetFactoryCount(const std::string &type) const {
   }
 }
 
-void ObjectLibrary::GetFactoryNames(const std::string &type,
-                                    std::vector<std::string> *names) const {
+void ObjectLibrary::GetFactoryNames(const std::string& type,
+                                    std::vector<std::string>* names) const {
   assert(names);
   std::unique_lock<std::mutex> lock(mu_);
   auto iter = factories_.find(type);
   if (iter != factories_.end()) {
-    for (const auto &f : iter->second) {
+    for (const auto& f : iter->second) {
       names->push_back(f->Name());
     }
   }
 }
 
 void ObjectLibrary::GetFactoryTypes(
-    std::unordered_set<std::string> *types) const {
+    std::unordered_set<std::string>* types) const {
   assert(types);
   std::unique_lock<std::mutex> lock(mu_);
-  for (const auto &iter : factories_) {
+  for (const auto& iter : factories_) {
     types->insert(iter.first);
   }
 }
 
-void ObjectLibrary::Dump(Logger *logger) const {
+void ObjectLibrary::Dump(Logger* logger) const {
   std::unique_lock<std::mutex> lock(mu_);
   if (logger != nullptr && !factories_.empty()) {
     ROCKS_LOG_HEADER(logger, "    Registered Library: %s\n", id_.c_str());
-    for (const auto &iter : factories_) {
+    for (const auto& iter : factories_) {
       ROCKS_LOG_HEADER(logger, "    Registered factories for type[%s] ",
                        iter.first.c_str());
       bool printed_one = false;
-      for (const auto &e : iter.second) {
+      for (const auto& e : iter.second) {
         ROCKS_LOG_HEADER(logger, "%c %s", (printed_one) ? ',' : ':', e->Name());
         printed_one = true;
       }
@@ -205,7 +205,7 @@ void ObjectLibrary::Dump(Logger *logger) const {
 
 // Returns the Default singleton instance of the ObjectLibrary
 // This instance will contain most of the "standard" registered objects
-std::shared_ptr<ObjectLibrary> &ObjectLibrary::Default() {
+std::shared_ptr<ObjectLibrary>& ObjectLibrary::Default() {
   // Use avoid destruction here so the default ObjectLibrary will not be
   // statically destroyed and long-lived.
   STATIC_AVOID_DESTRUCTION(std::shared_ptr<ObjectLibrary>, instance)
@@ -213,9 +213,9 @@ std::shared_ptr<ObjectLibrary> &ObjectLibrary::Default() {
   return instance;
 }
 
-ObjectRegistry::ObjectRegistry(const std::shared_ptr<ObjectLibrary> &library) {
+ObjectRegistry::ObjectRegistry(const std::shared_ptr<ObjectLibrary>& library) {
   libraries_.push_back(library);
-  for (const auto &b : builtins_) {
+  for (const auto& b : builtins_) {
     RegisterPlugin(b.first, b.second);
   }
 }
@@ -233,13 +233,13 @@ std::shared_ptr<ObjectRegistry> ObjectRegistry::NewInstance() {
 }
 
 std::shared_ptr<ObjectRegistry> ObjectRegistry::NewInstance(
-    const std::shared_ptr<ObjectRegistry> &parent) {
+    const std::shared_ptr<ObjectRegistry>& parent) {
   return std::make_shared<ObjectRegistry>(parent);
 }
 
 Status ObjectRegistry::SetManagedObject(
-    const std::string &type, const std::string &id,
-    const std::shared_ptr<Customizable> &object) {
+    const std::string& type, const std::string& id,
+    const std::shared_ptr<Customizable>& object) {
   std::string object_key = ToManagedObjectKey(type, id);
   std::shared_ptr<Customizable> curr;
   if (parent_ != nullptr) {
@@ -267,7 +267,7 @@ Status ObjectRegistry::SetManagedObject(
 }
 
 std::shared_ptr<Customizable> ObjectRegistry::GetManagedObject(
-    const std::string &type, const std::string &id) const {
+    const std::string& type, const std::string& id) const {
   {
     std::unique_lock<std::mutex> lock(objects_mutex_);
     auto iter = managed_objects_.find(ToManagedObjectKey(type, id));
@@ -283,8 +283,8 @@ std::shared_ptr<Customizable> ObjectRegistry::GetManagedObject(
 }
 
 Status ObjectRegistry::ListManagedObjects(
-    const std::string &type, const std::string &name,
-    std::vector<std::shared_ptr<Customizable>> *results) const {
+    const std::string& type, const std::string& name,
+    std::vector<std::shared_ptr<Customizable>>* results) const {
   {
     std::string key = ToManagedObjectKey(type, name);
     std::unique_lock<std::mutex> lock(objects_mutex_);
@@ -309,50 +309,50 @@ Status ObjectRegistry::ListManagedObjects(
 // Returns the number of registered types for this registry.
 // If specified (not-null), types is updated to include the names of the
 // registered types.
-size_t ObjectRegistry::GetFactoryCount(const std::string &type) const {
+size_t ObjectRegistry::GetFactoryCount(const std::string& type) const {
   size_t count = 0;
   if (parent_ != nullptr) {
     count = parent_->GetFactoryCount(type);
   }
   std::unique_lock<std::mutex> lock(library_mutex_);
-  for (const auto &library : libraries_) {
+  for (const auto& library : libraries_) {
     count += library->GetFactoryCount(type);
   }
   return count;
 }
 
-void ObjectRegistry::GetFactoryNames(const std::string &type,
-                                     std::vector<std::string> *names) const {
+void ObjectRegistry::GetFactoryNames(const std::string& type,
+                                     std::vector<std::string>* names) const {
   assert(names);
   names->clear();
   if (parent_ != nullptr) {
     parent_->GetFactoryNames(type, names);
   }
   std::unique_lock<std::mutex> lock(library_mutex_);
-  for (const auto &library : libraries_) {
+  for (const auto& library : libraries_) {
     library->GetFactoryNames(type, names);
   }
 }
 
 void ObjectRegistry::GetFactoryTypes(
-    std::unordered_set<std::string> *types) const {
+    std::unordered_set<std::string>* types) const {
   assert(types);
   if (parent_ != nullptr) {
     parent_->GetFactoryTypes(types);
   }
   std::unique_lock<std::mutex> lock(library_mutex_);
-  for (const auto &library : libraries_) {
+  for (const auto& library : libraries_) {
     library->GetFactoryTypes(types);
   }
 }
 
-void ObjectRegistry::Dump(Logger *logger) const {
+void ObjectRegistry::Dump(Logger* logger) const {
   if (logger != nullptr) {
     std::unique_lock<std::mutex> lock(library_mutex_);
     if (!plugins_.empty()) {
       ROCKS_LOG_HEADER(logger, "    Registered Plugins:");
       bool printed_one = false;
-      for (const auto &plugin : plugins_) {
+      for (const auto& plugin : plugins_) {
         ROCKS_LOG_HEADER(logger, "%s%s", (printed_one) ? ", " : " ",
                          plugin.c_str());
         printed_one = true;
@@ -368,8 +368,8 @@ void ObjectRegistry::Dump(Logger *logger) const {
   }
 }
 
-int ObjectRegistry::RegisterPlugin(const std::string &name,
-                                   const RegistrarFunc &func) {
+int ObjectRegistry::RegisterPlugin(const std::string& name,
+                                   const RegistrarFunc& func) {
   if (!name.empty() && func != nullptr) {
     plugins_.push_back(name);
     return AddLibrary(name)->Register(func, name);

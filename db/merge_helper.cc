@@ -12,6 +12,7 @@
 #include "db/blob/prefetch_buffer_collection.h"
 #include "db/compaction/compaction_iteration_stats.h"
 #include "db/dbformat.h"
+#include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
 #include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
@@ -162,10 +163,20 @@ Status MergeHelper::TimedFullMergeImpl(
         return Status::OK();
       }};
 
-  return TimedFullMergeCommonImpl(merge_operator, key,
-                                  std::move(existing_value), operands, logger,
-                                  statistics, clock, update_num_ops_stats,
-                                  op_failure_scope, std::move(visitor));
+  Status s = TimedFullMergeCommonImpl(
+      merge_operator, key, std::move(existing_value), operands, logger,
+      statistics, clock, update_num_ops_stats, op_failure_scope,
+      std::move(visitor));
+  if (s.ok()) {
+    // Check merge result fits in uint32_t (a BlockBuilder assumption)
+    size_t result_size = (result_operand && !result_operand->empty())
+                             ? result_operand->size()
+                             : result->size();
+    if (UNLIKELY(result_size > std::numeric_limits<uint32_t>::max())) {
+      return Status::Corruption("Merge result exceeds 4GB limit");
+    }
+  }
+  return s;
 }
 
 Status MergeHelper::TimedFullMergeImpl(
@@ -238,10 +249,19 @@ Status MergeHelper::TimedFullMergeImpl(
         return Status::OK();
       }};
 
-  return TimedFullMergeCommonImpl(merge_operator, key,
-                                  std::move(existing_value), operands, logger,
-                                  statistics, clock, update_num_ops_stats,
-                                  op_failure_scope, std::move(visitor));
+  Status s = TimedFullMergeCommonImpl(
+      merge_operator, key, std::move(existing_value), operands, logger,
+      statistics, clock, update_num_ops_stats, op_failure_scope,
+      std::move(visitor));
+  if (s.ok()) {
+    // Check merge result fits in uint32_t (a BlockBuilder assumption)
+    size_t result_size =
+        result_value ? result_value->size() : result_entity->serialized_size();
+    if (UNLIKELY(result_size > std::numeric_limits<uint32_t>::max())) {
+      return Status::Corruption("Merge result exceeds 4GB");
+    }
+  }
+  return s;
 }
 
 // PRE:  iter points to the first merge type entry
@@ -374,8 +394,9 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // TODO: if we're in compaction and it's a put, it would be nice to run
       // compaction filter on it.
       std::string merge_result;
-      ValueType merge_result_type;
-      MergeOperator::OpFailureScope op_failure_scope;
+      ValueType merge_result_type = kTypeValue;
+      MergeOperator::OpFailureScope op_failure_scope =
+          MergeOperator::OpFailureScope::kDefault;
 
       if (range_del_agg &&
           range_del_agg->ShouldDelete(
@@ -438,11 +459,20 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                            &op_failure_scope, &merge_result,
                            /* result_operand */ nullptr, &merge_result_type);
       } else if (ikey.type == kTypeWideColumnEntity) {
-        s = TimedFullMerge(user_merge_operator_, ikey.user_key, kWideBaseValue,
-                           iter->value(), merge_context_.GetOperands(), logger_,
-                           stats_, clock_, /* update_num_ops_stats */ false,
-                           &op_failure_scope, &merge_result,
-                           /* result_operand */ nullptr, &merge_result_type);
+        // Resolve V2 entity blob columns if present, since TimedFullMerge
+        // only supports V1 format.
+        std::string resolved_entity;
+        Slice effective_entity;
+        s = WideColumnSerialization::ResolveEntityForMerge(
+            iter->value(), ikey.user_key, blob_fetcher, prefetch_buffers,
+            resolved_entity, effective_entity);
+        if (s.ok()) {
+          s = TimedFullMerge(
+              user_merge_operator_, ikey.user_key, kWideBaseValue,
+              effective_entity, merge_context_.GetOperands(), logger_, stats_,
+              clock_, /* update_num_ops_stats */ false, &op_failure_scope,
+              &merge_result, /* result_operand */ nullptr, &merge_result_type);
+        }
       } else {
         s = TimedFullMerge(user_merge_operator_, ikey.user_key, kNoBaseValue,
                            merge_context_.GetOperands(), logger_, stats_,
@@ -587,8 +617,9 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     assert(merge_context_.GetNumOperands() >= 1);
     assert(merge_context_.GetNumOperands() == keys_.size());
     std::string merge_result;
-    ValueType merge_result_type;
-    MergeOperator::OpFailureScope op_failure_scope;
+    ValueType merge_result_type = kTypeValue;
+    MergeOperator::OpFailureScope op_failure_scope =
+        MergeOperator::OpFailureScope::kDefault;
     s = TimedFullMerge(user_merge_operator_, orig_ikey.user_key, kNoBaseValue,
                        merge_context_.GetOperands(), logger_, stats_, clock_,
                        /* update_num_ops_stats */ false, &op_failure_scope,
@@ -637,6 +668,11 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       if (merge_success) {
         // Merging of operands (associative merge) was successful.
         // Replace operands with the merge result
+        if (UNLIKELY(merge_result.size() >
+                     std::numeric_limits<uint32_t>::max())) {
+          s = Status::Corruption("PartialMerge result exceeds 4GB limit");
+          return s;
+        }
         merge_context_.Clear();
         merge_context_.PushOperand(merge_result);
         keys_.erase(keys_.begin(), keys_.end() - 1);
@@ -676,15 +712,16 @@ CompactionFilter::Decision MergeHelper::FilterMerge(const Slice& user_key,
   }
   compaction_filter_value_.clear();
   compaction_filter_skip_until_.Clear();
-  auto ret = compaction_filter_->FilterV3(
+  auto ret = compaction_filter_->FilterV4(
       level_, user_key, CompactionFilter::ValueType::kMergeOperand,
       &value_slice, /* existing_columns */ nullptr, &compaction_filter_value_,
-      /* new_columns */ nullptr, compaction_filter_skip_until_.rep());
+      /* new_columns */ nullptr, compaction_filter_skip_until_.rep(),
+      /* blob_resolver */ nullptr);
   if (ret == CompactionFilter::Decision::kRemoveAndSkipUntil) {
     if (user_comparator_->Compare(*compaction_filter_skip_until_.rep(),
                                   user_key) <= 0) {
       // Invalid skip_until returned from compaction filter.
-      // Keep the key as per FilterV2/FilterV3 documentation.
+      // Keep the key as per FilterV2/V3/V4 documentation.
       ret = CompactionFilter::Decision::kKeep;
     } else {
       compaction_filter_skip_until_.ConvertFromUserKey(kMaxSequenceNumber,

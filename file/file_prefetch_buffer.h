@@ -431,7 +431,7 @@ class FilePrefetchBuffer {
   void ClearOutdatedData(uint64_t offset, size_t len);
 
   // It calls Poll API to check for any pending asynchronous request.
-  void PollIfNeeded(uint64_t offset, size_t len);
+  Status PollIfNeeded(uint64_t offset, size_t len);
 
   Status PrefetchInternal(const IOOptions& opts, RandomAccessFileReader* reader,
                           uint64_t offset, size_t length, size_t readahead_size,

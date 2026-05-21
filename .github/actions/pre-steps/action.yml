@@ -2,6 +2,16 @@ name: pre-steps
 runs:
   using: composite
   steps:
+  - name: Dump ulimits for diagnostics
+    run: |
+      echo "=== ulimits (soft) ==="
+      ulimit -a -S || true
+      echo "=== ulimits (hard) ==="
+      ulimit -a -H || true
+    shell: bash
+  - name: Install lld linker for faster builds
+    run: apt-get update -y && apt-get install -y lld 2>/dev/null || true
+    shell: bash
   - name: Setup Environment Variables
     run: |-
       echo "GTEST_THROW_ON_FAILURE=0" >> "$GITHUB_ENV"

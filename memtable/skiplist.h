@@ -197,14 +197,14 @@ struct SkipList<Key, Comparator>::Node {
 
  private:
   // Array of length equal to the node height.  next_[0] is lowest level link.
-  AcqRelAtomic<Node*> next_[1];
+  Atomic<Node*> next_[1];
 };
 
 template <typename Key, class Comparator>
 typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::NewNode(
     const Key& key, int height) {
-  char* mem = allocator_->AllocateAligned(
-      sizeof(Node) + sizeof(AcqRelAtomic<Node*>) * (height - 1));
+  char* mem = allocator_->AllocateAligned(sizeof(Node) +
+                                          sizeof(Atomic<Node*>) * (height - 1));
   return new (mem) Node(key);
 }
 

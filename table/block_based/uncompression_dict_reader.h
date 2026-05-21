@@ -18,7 +18,6 @@ struct BlockCacheLookupContext;
 class FilePrefetchBuffer;
 class GetContext;
 struct ReadOptions;
-struct UncompressionDict;
 
 // Provides access to the uncompression dictionary regardless of whether
 // it is owned by the reader or stored in the cache, or whether it is pinned

@@ -24,12 +24,11 @@
  * Method:    newSstFileReader
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_SstFileReader_newSstFileReader(JNIEnv * /*env*/,
+jlong Java_org_rocksdb_SstFileReader_newSstFileReader(JNIEnv* /*env*/,
                                                       jclass /*jcls*/,
                                                       jlong joptions) {
-  auto *options =
-      reinterpret_cast<const ROCKSDB_NAMESPACE::Options *>(joptions);
-  ROCKSDB_NAMESPACE::SstFileReader *sst_file_reader =
+  auto* options = reinterpret_cast<const ROCKSDB_NAMESPACE::Options*>(joptions);
+  ROCKSDB_NAMESPACE::SstFileReader* sst_file_reader =
       new ROCKSDB_NAMESPACE::SstFileReader(*options);
   return GET_CPLUSPLUS_POINTER(sst_file_reader);
 }
@@ -39,15 +38,15 @@ jlong Java_org_rocksdb_SstFileReader_newSstFileReader(JNIEnv * /*env*/,
  * Method:    open
  * Signature: (JLjava/lang/String;)V
  */
-void Java_org_rocksdb_SstFileReader_open(JNIEnv *env, jclass /*jcls*/,
+void Java_org_rocksdb_SstFileReader_open(JNIEnv* env, jclass /*jcls*/,
                                          jlong jhandle, jstring jfile_path) {
-  const char *file_path = env->GetStringUTFChars(jfile_path, nullptr);
+  const char* file_path = env->GetStringUTFChars(jfile_path, nullptr);
   if (file_path == nullptr) {
     // exception thrown: OutOfMemoryError
     return;
   }
   ROCKSDB_NAMESPACE::Status s =
-      reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader *>(jhandle)->Open(
+      reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader*>(jhandle)->Open(
           file_path);
   env->ReleaseStringUTFChars(jfile_path, file_path);
 
@@ -61,13 +60,13 @@ void Java_org_rocksdb_SstFileReader_open(JNIEnv *env, jclass /*jcls*/,
  * Method:    newIterator
  * Signature: (JJ)J
  */
-jlong Java_org_rocksdb_SstFileReader_newIterator(JNIEnv * /*env*/,
+jlong Java_org_rocksdb_SstFileReader_newIterator(JNIEnv* /*env*/,
                                                  jclass /*jcls*/, jlong jhandle,
                                                  jlong jread_options_handle) {
-  auto *sst_file_reader =
-      reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader *>(jhandle);
-  auto *read_options =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions *>(jread_options_handle);
+  auto* sst_file_reader =
+      reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader*>(jhandle);
+  auto* read_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
   return GET_CPLUSPLUS_POINTER(sst_file_reader->NewIterator(*read_options));
 }
 
@@ -76,10 +75,10 @@ jlong Java_org_rocksdb_SstFileReader_newIterator(JNIEnv * /*env*/,
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_SstFileReader_disposeInternalJni(JNIEnv * /*env*/,
+void Java_org_rocksdb_SstFileReader_disposeInternalJni(JNIEnv* /*env*/,
                                                        jclass /*jcls*/,
                                                        jlong jhandle) {
-  delete reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader *>(jhandle);
+  delete reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader*>(jhandle);
 }
 
 /*
@@ -87,10 +86,10 @@ void Java_org_rocksdb_SstFileReader_disposeInternalJni(JNIEnv * /*env*/,
  * Method:    verifyChecksum
  * Signature: (J)V
  */
-void Java_org_rocksdb_SstFileReader_verifyChecksum(JNIEnv *env, jclass /*jcls*/,
+void Java_org_rocksdb_SstFileReader_verifyChecksum(JNIEnv* env, jclass /*jcls*/,
                                                    jlong jhandle) {
-  auto *sst_file_reader =
-      reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader *>(jhandle);
+  auto* sst_file_reader =
+      reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader*>(jhandle);
   auto s = sst_file_reader->VerifyChecksum();
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
@@ -102,11 +101,11 @@ void Java_org_rocksdb_SstFileReader_verifyChecksum(JNIEnv *env, jclass /*jcls*/,
  * Method:    getTableProperties
  * Signature: (J)J
  */
-jobject Java_org_rocksdb_SstFileReader_getTableProperties(JNIEnv *env,
+jobject Java_org_rocksdb_SstFileReader_getTableProperties(JNIEnv* env,
                                                           jclass /*jcls*/,
                                                           jlong jhandle) {
-  auto *sst_file_reader =
-      reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader *>(jhandle);
+  auto* sst_file_reader =
+      reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader*>(jhandle);
   std::shared_ptr<const ROCKSDB_NAMESPACE::TableProperties> tp =
       sst_file_reader->GetTableProperties();
   jobject jtable_properties =

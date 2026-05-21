@@ -10,6 +10,7 @@
 
 #include "db/blob/blob_read_request.h"
 #include "file/random_access_file_reader.h"
+#include "rocksdb/advanced_compression.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "util/autovector.h"
@@ -35,7 +36,20 @@ class BlobFileReader {
                        HistogramImpl* blob_file_read_hist,
                        uint64_t blob_file_number,
                        const std::shared_ptr<IOTracer>& io_tracer,
-                       std::unique_ptr<BlobFileReader>* reader);
+                       std::unique_ptr<BlobFileReader>* reader) {
+    return Create(immutable_options, read_options, file_options,
+                  column_family_id, blob_file_read_hist, blob_file_number,
+                  io_tracer, /*skip_footer_validation=*/false, reader);
+  }
+
+  // Allows opening in-flight direct-write blob files by optionally skipping
+  // footer validation.
+  static Status Create(
+      const ImmutableOptions& immutable_options,
+      const ReadOptions& read_options, const FileOptions& file_options,
+      uint32_t column_family_id, HistogramImpl* blob_file_read_hist,
+      uint64_t blob_file_number, const std::shared_ptr<IOTracer>& io_tracer,
+      bool skip_footer_validation, std::unique_ptr<BlobFileReader>* reader);
 
   BlobFileReader(const BlobFileReader&) = delete;
   BlobFileReader& operator=(const BlobFileReader&) = delete;
@@ -62,17 +76,22 @@ class BlobFileReader {
   uint64_t GetFileSize() const { return file_size_; }
 
  private:
+  // `has_footer` tracks whether offset validation should reserve footer space.
   BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
                  uint64_t file_size, CompressionType compression_type,
-                 SystemClock* clock, Statistics* statistics);
+                 std::shared_ptr<Decompressor> decompressor, SystemClock* clock,
+                 Statistics* statistics, bool has_footer);
 
+  // `skip_footer_size_check` is used for direct-write files that are still
+  // missing their footer at open time.
   static Status OpenFile(const ImmutableOptions& immutable_options,
                          const FileOptions& file_opts,
                          HistogramImpl* blob_file_read_hist,
                          uint64_t blob_file_number,
                          const std::shared_ptr<IOTracer>& io_tracer,
                          uint64_t* file_size,
-                         std::unique_ptr<RandomAccessFileReader>* file_reader);
+                         std::unique_ptr<RandomAccessFileReader>* file_reader,
+                         bool skip_footer_size_check);
 
   static Status ReadHeader(const RandomAccessFileReader* file_reader,
                            const ReadOptions& read_options,
@@ -96,6 +115,7 @@ class BlobFileReader {
 
   static Status UncompressBlobIfNeeded(const Slice& value_slice,
                                        CompressionType compression_type,
+                                       Decompressor* decompressor,
                                        MemoryAllocator* allocator,
                                        SystemClock* clock,
                                        Statistics* statistics,
@@ -104,8 +124,11 @@ class BlobFileReader {
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   uint64_t file_size_;
   CompressionType compression_type_;
+  std::shared_ptr<Decompressor> decompressor_;
   SystemClock* clock_;
   Statistics* statistics_;
+  // False when the reader was opened before the blob file footer was written.
+  bool has_footer_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

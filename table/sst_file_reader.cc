@@ -8,10 +8,13 @@
 #include "db/arena_wrapped_db_iter.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
+#include "db/lookup_key.h"
 #include "file/random_access_file_reader.h"
 #include "options/cf_options.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/utilities/types_util.h"
 #include "table/get_context.h"
 #include "table/table_builder.h"
 #include "table/table_iterator.h"
@@ -51,6 +54,7 @@ Status SstFileReader::Open(const std::string& file_path) {
   std::unique_ptr<FSRandomAccessFile> file;
   std::unique_ptr<RandomAccessFileReader> file_reader;
   FileOptions fopts(r->soptions);
+  fopts.file_checksum_func_name = kNoFileChecksumFuncName;
   const auto& fs = r->options.env->GetFileSystem();
 
   s = fs->GetFileSize(file_path, fopts.io_options, &file_size, nullptr);
@@ -81,16 +85,20 @@ Status SstFileReader::Open(const std::string& file_path) {
   return s;
 }
 
-std::vector<Status> SstFileReader::MultiGet(const ReadOptions& roptions,
-                                            const std::vector<Slice>& keys,
-                                            std::vector<std::string>* values) {
+std::vector<Status> SstFileReader::MultiGet(
+    const ReadOptions& roptions, const std::vector<Slice>& keys,
+    std::vector<PinnableSlice>* values) {
   const auto num_keys = keys.size();
   std::vector<Status> statuses(num_keys, Status::OK());
-  std::vector<PinnableSlice> pin_values(num_keys);
+  values->resize(num_keys);
+  for (size_t i = 0; i < num_keys; ++i) {
+    (*values)[i].Reset();
+  }
 
   auto r = rep_.get();
   const Comparator* user_comparator =
       r->ioptions.internal_comparator.user_comparator();
+  Statistics* statistics = r->ioptions.stats;
 
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
@@ -98,16 +106,16 @@ std::vector<Status> SstFileReader::MultiGet(const ReadOptions& roptions,
   autovector<MergeContext, MultiGetContext::MAX_BATCH_SIZE> merge_ctx;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    PinnableSlice* val = &pin_values[i];
-    val->Reset();
+    PinnableSlice* val = &(*values)[i];
     merge_ctx.emplace_back();
     key_context.emplace_back(nullptr, keys[i], val, nullptr,
                              nullptr /* timestamp */, &statuses[i]);
-    get_ctx.emplace_back(user_comparator, r->ioptions.merge_operator.get(),
-                         nullptr, nullptr, GetContext::kNotFound,
-                         *key_context[i].key, val, nullptr, nullptr, nullptr,
-                         &merge_ctx[i], true,
-                         &key_context[i].max_covering_tombstone_seq, nullptr);
+    get_ctx.emplace_back(
+        user_comparator, r->ioptions.merge_operator.get(), nullptr /* logger */,
+        statistics, GetContext::kNotFound, *key_context[i].key, val,
+        nullptr /* columns */, nullptr /* timestamp */,
+        nullptr /* value_found */, &merge_ctx[i], true,
+        &key_context[i].max_covering_tombstone_seq, r->ioptions.clock);
     key_context[i].get_context = &get_ctx[i];
   }
   for (size_t i = 0; i < num_keys; ++i) {
@@ -135,12 +143,12 @@ std::vector<Status> SstFileReader::MultiGet(const ReadOptions& roptions,
                             r->moptions.prefix_extractor.get(),
                             false /* skip filters */);
 
-  values->resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
+    get_ctx[i].ReportCounters();
+
     if (statuses[i].ok()) {
       switch (get_ctx[i].State()) {
         case GetContext::kFound:
-          (*values)[i].assign(pin_values[i].data(), pin_values[i].size());
           break;
         case GetContext::kNotFound:
         case GetContext::kDeleted:
@@ -150,6 +158,8 @@ std::vector<Status> SstFileReader::MultiGet(const ReadOptions& roptions,
           statuses[i] = Status::MergeInProgress();
           break;
         case GetContext::kCorrupt:
+          statuses[i] = Status::Corruption();
+          break;
         case GetContext::kUnexpectedBlobIndex:
         case GetContext::kMergeOperatorFailed:
           statuses[i] = Status::Corruption();
@@ -158,6 +168,78 @@ std::vector<Status> SstFileReader::MultiGet(const ReadOptions& roptions,
     }
   }
   return statuses;
+}
+
+std::vector<Status> SstFileReader::MultiGet(const ReadOptions& roptions,
+                                            const std::vector<Slice>& keys,
+                                            std::vector<std::string>* values) {
+  std::vector<PinnableSlice> pin_values;
+  std::vector<Status> statuses = MultiGet(roptions, keys, &pin_values);
+  values->resize(keys.size());
+  for (size_t i = 0; i < keys.size(); ++i) {
+    if (statuses[i].ok()) {
+      (*values)[i].assign(pin_values[i].data(), pin_values[i].size());
+    }
+  }
+  return statuses;
+}
+
+Status SstFileReader::Get(const ReadOptions& roptions, const Slice& key,
+                          PinnableSlice* value) {
+  auto r = rep_.get();
+  value->Reset();
+
+  const Comparator* user_comparator =
+      r->ioptions.internal_comparator.user_comparator();
+  Statistics* statistics = r->ioptions.stats;
+
+  Status status;
+  MergeContext merge_context;
+  SequenceNumber max_covering_tombstone_seq = 0;
+  GetContext get_ctx(user_comparator, r->ioptions.merge_operator.get(),
+                     nullptr /* logger */, statistics, GetContext::kNotFound,
+                     key, value, nullptr /* columns */, nullptr /* timestamp */,
+                     nullptr /* value_found */, &merge_context, true,
+                     &max_covering_tombstone_seq, r->ioptions.clock);
+
+  LookupKey lkey(key, kMaxSequenceNumber);
+  status = r->table_reader->Get(roptions, lkey.internal_key(), &get_ctx,
+                                r->moptions.prefix_extractor.get(),
+                                false /* skip_filters */);
+
+  get_ctx.ReportCounters();
+
+  if (status.ok()) {
+    switch (get_ctx.State()) {
+      case GetContext::kFound:
+        break;
+      case GetContext::kNotFound:
+      case GetContext::kDeleted:
+        status = Status::NotFound();
+        break;
+      case GetContext::kMerge:
+        status = Status::MergeInProgress();
+        break;
+      case GetContext::kCorrupt:
+        status = Status::Corruption();
+        break;
+      case GetContext::kUnexpectedBlobIndex:
+      case GetContext::kMergeOperatorFailed:
+        status = Status::Corruption();
+        break;
+    }
+  }
+  return status;
+}
+
+Status SstFileReader::Get(const ReadOptions& roptions, const Slice& key,
+                          std::string* value) {
+  PinnableSlice pin_value;
+  Status s = Get(roptions, key, &pin_value);
+  if (s.ok()) {
+    value->assign(pin_value.data(), pin_value.size());
+  }
+  return s;
 }
 
 Iterator* SstFileReader::NewIterator(const ReadOptions& roptions) {
@@ -193,6 +275,11 @@ std::unique_ptr<Iterator> SstFileReader::NewTableIterator() {
     return nullptr;
   }
   return std::make_unique<TableIterator>(internal_iter);
+}
+
+Status SstFileReader::ParseTableIteratorKey(const Slice& raw_table_key,
+                                            ParsedEntryInfo* parsed_key) const {
+  return ParseEntry(raw_table_key, rep_->options.comparator, parsed_key);
 }
 
 std::shared_ptr<const TableProperties> SstFileReader::GetTableProperties()

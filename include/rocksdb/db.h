@@ -131,24 +131,13 @@ using TablePropertiesCollection =
 class DB {
  public:
   // Open the database with the specified "name" for reads and writes.
-  // Stores a pointer to a heap-allocated database in *dbptr and returns
-  // OK on success.
-  // Stores nullptr in *dbptr and returns a non-OK status on error, including
+  // On success, stores the database in *dbptr and returns OK.
+  // On error, resets *dbptr and returns a non-OK status, including
   // if the DB is already open (read-write) by another DB object. (This
   // guarantee depends on options.env->LockFile(), which might not provide
   // this guarantee in a custom Env implementation.)
-  //
-  // Caller must delete *dbptr when it is no longer needed.
   static Status Open(const Options& options, const std::string& name,
                      std::unique_ptr<DB>* dbptr);
-  // DEPRECATED: raw pointer variant
-  static Status Open(const Options& options, const std::string& name,
-                     DB** dbptr) {
-    std::unique_ptr<DB> smart_ptr;
-    Status s = Open(options, name, &smart_ptr);
-    *dbptr = smart_ptr.release();
-    return s;
-  }
 
   // Open DB with column families.
   // db_options specify database specific options
@@ -162,21 +151,12 @@ class DB {
   // If everything is OK, handles will on return be the same size
   // as column_families --- handles[i] will be a handle that you
   // will use to operate on column family column_family[i].
-  // Before delete DB, you have to close All column families by calling
+  // Before destroying the DB, you have to close all column families by calling
   // DestroyColumnFamilyHandle() with all the handles.
   static Status Open(const DBOptions& db_options, const std::string& name,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles,
                      std::unique_ptr<DB>* dbptr);
-  // DEPRECATED: raw pointer variant
-  static Status Open(const DBOptions& db_options, const std::string& name,
-                     const std::vector<ColumnFamilyDescriptor>& column_families,
-                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
-    std::unique_ptr<DB> smart_ptr;
-    Status s = Open(db_options, name, column_families, handles, &smart_ptr);
-    *dbptr = smart_ptr.release();
-    return s;
-  }
 
   // OpenForReadOnly() creates a Read-only instance that supports reads alone.
   //
@@ -192,19 +172,13 @@ class DB {
 
   // Open the database for read only.
   //
+  // If error_if_wal_file_exists is true, returns an error when a non-empty
+  // WAL file exists. Empty WAL files can be left behind by features such as
+  // async WAL precreation and are tolerated.
+  //
   static Status OpenForReadOnly(const Options& options, const std::string& name,
                                 std::unique_ptr<DB>* dbptr,
                                 bool error_if_wal_file_exists = false);
-  // DEPRECATED: raw pointer variant
-  static Status OpenForReadOnly(const Options& options, const std::string& name,
-                                DB** dbptr,
-                                bool error_if_wal_file_exists = false) {
-    std::unique_ptr<DB> smart_ptr;
-    Status s =
-        OpenForReadOnly(options, name, &smart_ptr, error_if_wal_file_exists);
-    *dbptr = smart_ptr.release();
-    return s;
-  }
 
   // Open the database for read only with column families.
   //
@@ -213,23 +187,15 @@ class DB {
   // to specify default column family. The default column family name is
   // 'default' and it's stored in ROCKSDB_NAMESPACE::kDefaultColumnFamilyName
   //
+  // If error_if_wal_file_exists is true, returns an error when a non-empty
+  // WAL file exists. Empty WAL files can be left behind by features such as
+  // async WAL precreation and are tolerated.
+  //
   static Status OpenForReadOnly(
       const DBOptions& db_options, const std::string& name,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
       bool error_if_wal_file_exists = false);
-  // DEPRECATED: raw pointer variant
-  static Status OpenForReadOnly(
-      const DBOptions& db_options, const std::string& name,
-      const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-      bool error_if_wal_file_exists = false) {
-    std::unique_ptr<DB> smart_ptr;
-    Status s = OpenForReadOnly(db_options, name, column_families, handles,
-                               &smart_ptr, error_if_wal_file_exists);
-    *dbptr = smart_ptr.release();
-    return s;
-  }
 
   // OpenAsSecondary() creates a secondary instance that supports read-only
   // operations and supports dynamic catch up with the primary (through a
@@ -251,8 +217,6 @@ class DB {
   // The secondary_path argument points to a directory where the secondary
   // instance stores its info log.
   // The dbptr is an out-arg corresponding to the opened secondary instance.
-  // The pointer points to a heap-allocated database, and the caller should
-  // delete it after use.
   //
   // Return OK on success, non-OK on failures.
   //
@@ -265,14 +229,6 @@ class DB {
   static Status OpenAsSecondary(const Options& options, const std::string& name,
                                 const std::string& secondary_path,
                                 std::unique_ptr<DB>* dbptr);
-  // DEPRECATED: raw pointer variant
-  static Status OpenAsSecondary(const Options& options, const std::string& name,
-                                const std::string& secondary_path, DB** dbptr) {
-    std::unique_ptr<DB> smart_ptr;
-    Status s = OpenAsSecondary(options, name, secondary_path, &smart_ptr);
-    *dbptr = smart_ptr.release();
-    return s;
-  }
 
   // Open DB as secondary instance with specified column families
   //
@@ -301,9 +257,8 @@ class DB {
   // The handles is an out-arg corresponding to the opened database column
   // family handles.
   // The dbptr is an out-arg corresponding to the opened secondary instance.
-  // The pointer points to a heap-allocated database, and the caller should
-  // delete it after use. Before deleting the dbptr, the user should also
-  // delete the pointers stored in handles vector.
+  // Before destroying the DB, the user should call
+  // DestroyColumnFamilyHandle() on all the handles.
   //
   // Return OK on success, non-OK on failures.
   static Status OpenAsSecondary(
@@ -311,18 +266,6 @@ class DB {
       const std::string& secondary_path,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr);
-  // DEPRECATED: raw pointer variant
-  static Status OpenAsSecondary(
-      const DBOptions& db_options, const std::string& name,
-      const std::string& secondary_path,
-      const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
-    std::unique_ptr<DB> smart_ptr;
-    Status s = OpenAsSecondary(db_options, name, secondary_path,
-                               column_families, handles, &smart_ptr);
-    *dbptr = smart_ptr.release();
-    return s;
-  }
 
   // EXPERIMENTAL
 
@@ -389,18 +332,6 @@ class DB {
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
       std::string trim_ts);
-  // DEPRECATED: raw pointer variant
-  static Status OpenAndTrimHistory(
-      const DBOptions& db_options, const std::string& dbname,
-      const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-      std::string trim_ts) {
-    std::unique_ptr<DB> smart_ptr;
-    Status s = OpenAndTrimHistory(db_options, dbname, column_families, handles,
-                                  &smart_ptr, trim_ts);
-    *dbptr = smart_ptr.release();
-    return s;
-  }
 
   // Manually, synchronously attempt to resume DB writes after a write failure
   // to the underlying filesystem. See
@@ -1063,7 +994,7 @@ class DB {
   // call one of the Seek methods on the iterator before using it).
   //
   // Caller should delete the iterator when it is no longer needed.
-  // The returned iterator should be deleted before this db is deleted.
+  // The returned iterator should be deleted before this db is destroyed.
   virtual Iterator* NewIterator(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family) = 0;
   virtual Iterator* NewIterator(const ReadOptions& options) {
@@ -1071,7 +1002,7 @@ class DB {
   }
   // Returns iterators from a consistent database state across multiple
   // column families. Iterators are heap allocated and need to be deleted
-  // before the db is deleted
+  // before the db is destroyed
   virtual Status NewIterators(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
@@ -1252,6 +1183,10 @@ class DB {
     //  "rocksdb.num-running-compaction-sorted-runs" - returns the number of
     //  sorted runs being processed by currently running compactions.
     static const std::string kNumRunningCompactionSortedRuns;
+
+    //  "rocksdb.compaction-abort-count" - returns the current value of the
+    //      compaction abort counter.
+    static const std::string kCompactionAbortCount;
 
     //  "rocksdb.background-errors" - returns accumulated number of background
     //      errors.
@@ -1532,7 +1467,8 @@ class DB {
   enum class SizeApproximationFlags : uint8_t {
     NONE = 0,
     INCLUDE_MEMTABLES = 1 << 0,
-    INCLUDE_FILES = 1 << 1
+    INCLUDE_FILES = 1 << 1,
+    INCLUDE_BLOB_FILES = 1 << 2
   };
 
   // For each i in [0,n-1], store in "sizes[i]", the approximate
@@ -1628,14 +1564,38 @@ class DB {
   //  s = db->SetOptions(cfh, {{"block_based_table_factory",
   //                            "{prepopulate_block_cache=kDisable;}"}});
   virtual Status SetOptions(
-      ColumnFamilyHandle* /*column_family*/,
-      const std::unordered_map<std::string, std::string>& /*opts_map*/) {
-    return Status::NotSupported("Not implemented");
+      ColumnFamilyHandle* column_family,
+      const std::unordered_map<std::string, std::string>& opts_map) {
+    return SetOptions(std::vector<ColumnFamilyHandle*>{column_family},
+                      opts_map);
   }
   // Shortcut for SetOptions on the default column family handle.
   virtual Status SetOptions(
       const std::unordered_map<std::string, std::string>& new_options) {
     return SetOptions(DefaultColumnFamily(), new_options);
+  }
+  // Shortcut where you want to apply the same options to multiple column
+  // families. Beneficial for avoiding reserialization of OPTIONS file.
+  virtual Status SetOptions(
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const std::unordered_map<std::string, std::string>& opts_map) {
+    std::unordered_map<ColumnFamilyHandle*,
+                       std::unordered_map<std::string, std::string>>
+        column_families_opts_map;
+    column_families_opts_map.reserve(column_families.size());
+    for (auto* cf : column_families) {
+      column_families_opts_map[cf] = opts_map;
+    }
+    return SetOptions(column_families_opts_map);
+  }
+  // SetOptions with potentially different options per column family. It is
+  // typically better to batch all option changes together as the OPTIONS file
+  // is written to once per SetOptions call.
+  virtual Status SetOptions(
+      const std::unordered_map<ColumnFamilyHandle*,
+                               std::unordered_map<std::string, std::string>>&
+      /*column_families_opts_map*/) {
+    return Status::NotSupported("Not implemented");
   }
 
   // Like SetOptions but for DBOptions, including the same caveats for
@@ -1707,6 +1667,46 @@ class DB {
   // DisableManualCompaction() has been called.
   virtual void EnableManualCompaction() = 0;
 
+  // Abort all compaction work/jobs. This function will signal all
+  // running compactions (both automatic and manual, background and foreground)
+  // to abort and will wait for them to finish or abort before returning. After
+  // this function returns, new compaction work will be aborted immediately
+  // until ResumeAllCompactions() is called.
+  //
+  // The compaction abort is checked periodically (every 1000 keys processed),
+  // so ongoing compactions should abort as well within a reasonable time.
+  // This function blocks until all compactions have completed or aborted.
+  //
+  // Any output files from aborted compactions are automatically cleaned up,
+  // ensuring no partial compaction results are installed, except for resumable
+  // compaction.
+  //
+  // This function supports concurrent abort requests from multiple callers
+  // without coordination between them. The call count is tracked, and
+  // compactions only resume after the number of ResumeAllCompactions() calls
+  // matches number of AbortAllCompactions() calls.
+  //
+  // Differences with other compaction control APIs:
+  // - DisableManualCompaction(): Only pauses manual compactions, waits for
+  //   them to finish naturally. AbortAllCompactions() actively cancels both
+  //   automatic and manual compactions.
+  // - PauseBackgroundWork(): Pauses all background work (flush + compaction),
+  //   waits for work to finish naturally. AbortAllCompactions() only affects
+  //   compactions and actively cancels them.
+  //
+  // Note: Compaction service (remote compaction) is not currently supported.
+  // Aborted compactions return Status::Incomplete with subcode
+  // kCompactionAborted.
+  virtual void AbortAllCompactions() = 0;
+
+  // Resume all compactions that were aborted by AbortAllCompactions().
+  // This function must be called as many times as AbortAllCompactions()
+  // has been called in order to resume compactions. This reference-counting
+  // behavior ensures that if multiple callers independently request an
+  // abort, compactions will not resume until all of them have called
+  // ResumeAllCompactions().
+  virtual void ResumeAllCompactions() = 0;
+
   // Wait for all flush and compactions jobs to finish. Jobs to wait include the
   // unscheduled (queued, but not scheduled yet). If the db is shutting down,
   // Status::ShutdownInProgress will be returned.
@@ -1722,16 +1722,6 @@ class DB {
   // Number of levels used for this DB.
   virtual int NumberLevels(ColumnFamilyHandle* column_family) = 0;
   virtual int NumberLevels() { return NumberLevels(DefaultColumnFamily()); }
-
-  // DEPRECATED:
-  // Maximum level to which a new compacted memtable is pushed if it
-  // does not create overlap.
-  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* /*column_family*/) {
-    return 0;
-  }
-  virtual int MaxMemCompactionLevel() {
-    return MaxMemCompactionLevel(DefaultColumnFamily());
-  }
 
   // Number of files in level-0 that would stop writes.
   virtual int Level0StopWriteTrigger(ColumnFamilyHandle* column_family) = 0;
@@ -1886,6 +1876,13 @@ class DB {
   // and may not have file_creation_time property. In both the cases
   // file_creation_time is considered 0 which means this API will return
   // creation_time = 0 as there wouldn't be a timestamp lower than 0.
+  //
+  // NOTE: When the DB was opened with open_files_async = true, this API may
+  // block to wait for background SST file loading to complete, but only when
+  // necessary (i.e., when a file's manifest does not carry file_creation_time
+  // and the value must come from the SST reader). Modern DBs return the real
+  // value immediately. It is possible to have an incomplete result if the DB
+  // is closed while files are still being opened in the background.
   virtual Status GetCreationTimeOfOldestFile(uint64_t* creation_time) = 0;
 
   // Note: this API is not yet consistent with WritePrepared transactions.
@@ -2279,6 +2276,7 @@ inline Status DB::GetApproximateSizes(ColumnFamilyHandle* column_family,
   using enum SizeApproximationFlags;  // Require C++20 support
   options.include_memtables = ((include_flags & INCLUDE_MEMTABLES) != NONE);
   options.include_files = ((include_flags & INCLUDE_FILES) != NONE);
+  options.include_blob_files = ((include_flags & INCLUDE_BLOB_FILES) != NONE);
   return GetApproximateSizes(options, column_family, ranges, n, sizes);
 }
 

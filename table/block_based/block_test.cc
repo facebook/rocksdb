@@ -25,6 +25,7 @@
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
+#include "table/block_based/data_block_footer.h"
 #include "table/format.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -33,10 +34,10 @@
 namespace ROCKSDB_NAMESPACE {
 
 std::string GenerateInternalKey(int primary_key, int secondary_key,
-                                int padding_size, Random *rnd,
+                                int padding_size, Random* rnd,
                                 size_t ts_sz = 0) {
   char buf[50];
-  char *p = &buf[0];
+  char* p = &buf[0];
   snprintf(buf, sizeof(buf), "%6d%4d", primary_key, secondary_key);
   std::string k(p);
   if (padding_size) {
@@ -55,8 +56,8 @@ std::string GenerateInternalKey(int primary_key, int secondary_key,
 // Generate random key value pairs.
 // The generated key will be sorted. You can tune the parameters to generated
 // different kinds of test key/value pairs for different scenario.
-void GenerateRandomKVs(std::vector<std::string> *keys,
-                       std::vector<std::string> *values, const int from,
+void GenerateRandomKVs(std::vector<std::string>* keys,
+                       std::vector<std::string>* values, const int from,
                        const int len, const int step = 1,
                        const int padding_size = 0,
                        const int keys_share_prefix = 1, size_t ts_sz = 0) {
@@ -75,13 +76,16 @@ void GenerateRandomKVs(std::vector<std::string> *keys,
   }
 }
 
-// Test Param 1): key use delta encoding.
-// Test Param 2): user-defined timestamp test mode.
-// Test Param 3): data block index type.
-class BlockTest : public testing::Test,
-                  public testing::WithParamInterface<
-                      std::tuple<bool, test::UserDefinedTimestampTestMode,
-                                 BlockBasedTableOptions::DataBlockIndexType>> {
+// Test Param 0): key use delta encoding.
+// Test Param 1): user-defined timestamp test mode.
+// Test Param 2): data block index type.
+// Test Param 3): restart interval.
+// Test Param 4): use separated KV storage.
+class BlockTest
+    : public testing::Test,
+      public testing::WithParamInterface<std::tuple<
+          bool, test::UserDefinedTimestampTestMode,
+          BlockBasedTableOptions::DataBlockIndexType, uint32_t, bool>> {
  public:
   bool keyUseDeltaEncoding() const { return std::get<0>(GetParam()); }
   bool isUDTEnabled() const {
@@ -94,6 +98,10 @@ class BlockTest : public testing::Test,
   BlockBasedTableOptions::DataBlockIndexType dataBlockIndexType() const {
     return std::get<2>(GetParam());
   }
+
+  uint32_t getRestartInterval() const { return std::get<3>(GetParam()); }
+
+  bool useSeparatedKVStorage() const { return std::get<4>(GetParam()); }
 };
 
 // block test
@@ -110,11 +118,12 @@ TEST_P(BlockTest, SimpleTest) {
   BlockBasedTableOptions::DataBlockIndexType index_type =
       isUDTEnabled() ? BlockBasedTableOptions::kDataBlockBinarySearch
                      : dataBlockIndexType();
-  BlockBuilder builder(16, keyUseDeltaEncoding(),
-                       false /* use_value_delta_encoding */, index_type,
-                       0.75 /* data_block_hash_table_util_ratio */, ts_sz,
-                       shouldPersistUDT(), false /* is_user_key */);
-  int num_records = 100000;
+  BlockBuilder builder(
+      static_cast<int>(getRestartInterval()), keyUseDeltaEncoding(),
+      false /* use_value_delta_encoding */, index_type,
+      0.75 /* data_block_hash_table_util_ratio */, ts_sz, shouldPersistUDT(),
+      false /* is_user_key */, useSeparatedKVStorage());
+  int num_records = 20;
 
   GenerateRandomKVs(&keys, &values, 0, num_records, 1 /* step */,
                     0 /* padding_size */, 1 /* keys_share_prefix */, ts_sz);
@@ -129,11 +138,12 @@ TEST_P(BlockTest, SimpleTest) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents));
+  Block reader(std::move(contents), 0 /* read_amp_bytes_per_bit */,
+               nullptr /* statistics */, getRestartInterval());
 
   // read contents of block sequentially
   int count = 0;
-  InternalIterator *iter = reader.NewDataIterator(
+  InternalIterator* iter = reader.NewDataIterator(
       options.comparator, kDisableGlobalSequenceNumber, nullptr /* iter */,
       nullptr /* stats */, false /* block_contents_pinned */,
       shouldPersistUDT());
@@ -169,17 +179,18 @@ TEST_P(BlockTest, SimpleTest) {
 
 // return the block contents
 BlockContents GetBlockContents(
-    std::unique_ptr<BlockBuilder> *builder,
-    const std::vector<std::string> &keys,
-    const std::vector<std::string> &values, bool key_use_delta_encoding,
+    std::unique_ptr<BlockBuilder>* builder,
+    const std::vector<std::string>& keys,
+    const std::vector<std::string>& values, bool key_use_delta_encoding,
     size_t ts_sz, bool should_persist_udt, const int /*prefix_group_size*/ = 1,
     BlockBasedTableOptions::DataBlockIndexType dblock_index_type =
-        BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch) {
-  builder->reset(
-      new BlockBuilder(1 /* restart interval */, key_use_delta_encoding,
-                       false /* use_value_delta_encoding */, dblock_index_type,
-                       0.75 /* data_block_hash_table_util_ratio */, ts_sz,
-                       should_persist_udt, false /* is_user_key */));
+        BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch,
+    bool use_separated_kv_storage = false, uint32_t restart_interval = 1) {
+  builder->reset(new BlockBuilder(
+      static_cast<int>(restart_interval), key_use_delta_encoding,
+      false /* use_value_delta_encoding */, dblock_index_type,
+      0.75 /* data_block_hash_table_util_ratio */, ts_sz, should_persist_udt,
+      false /* is_user_key */, use_separated_kv_storage));
 
   // Add only half of the keys
   for (size_t i = 0; i < keys.size(); ++i) {
@@ -194,14 +205,17 @@ BlockContents GetBlockContents(
 }
 
 void CheckBlockContents(BlockContents contents, const int max_key,
-                        const std::vector<std::string> &keys,
-                        const std::vector<std::string> &values,
-                        bool is_udt_enabled, bool should_persist_udt) {
+                        const std::vector<std::string>& keys,
+                        const std::vector<std::string>& values,
+                        bool is_udt_enabled, bool should_persist_udt,
+                        uint32_t restart_interval) {
   const size_t prefix_size = 6;
   // create block reader
   BlockContents contents_ref(contents.data);
-  Block reader1(std::move(contents));
-  Block reader2(std::move(contents_ref));
+  Block reader1(std::move(contents), 0 /* read_amp_bytes_per_bit */,
+                nullptr /* statistics */, restart_interval);
+  Block reader2(std::move(contents_ref), 0 /* read_amp_bytes_per_bit */,
+                nullptr /* statistics */, restart_interval);
 
   std::unique_ptr<const SliceTransform> prefix_extractor(
       NewFixedPrefixTransform(prefix_size));
@@ -253,10 +267,11 @@ TEST_P(BlockTest, SimpleIndexHash) {
       1 /* prefix_group_size */,
       isUDTEnabled()
           ? BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch
-          : dataBlockIndexType());
+          : dataBlockIndexType(),
+      useSeparatedKVStorage(), getRestartInterval());
 
   CheckBlockContents(std::move(contents), kMaxKey, keys, values, isUDTEnabled(),
-                     shouldPersistUDT());
+                     shouldPersistUDT(), getRestartInterval());
 }
 
 TEST_P(BlockTest, IndexHashWithSharedPrefix) {
@@ -276,14 +291,15 @@ TEST_P(BlockTest, IndexHashWithSharedPrefix) {
   std::unique_ptr<BlockBuilder> builder;
 
   auto contents = GetBlockContents(
-      &builder, keys, values, keyUseDeltaEncoding(), isUDTEnabled(),
-      shouldPersistUDT(), kPrefixGroup,
+      &builder, keys, values, keyUseDeltaEncoding(), ts_sz, shouldPersistUDT(),
+      kPrefixGroup,
       isUDTEnabled()
           ? BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch
-          : dataBlockIndexType());
+          : dataBlockIndexType(),
+      useSeparatedKVStorage(), getRestartInterval());
 
   CheckBlockContents(std::move(contents), kMaxKey, keys, values, isUDTEnabled(),
-                     shouldPersistUDT());
+                     shouldPersistUDT(), getRestartInterval());
 }
 
 // Param 0: key use delta encoding
@@ -292,6 +308,8 @@ TEST_P(BlockTest, IndexHashWithSharedPrefix) {
 // compatible with `kDataBlockBinaryAndHash` data block index type because the
 // user comparator doesn't provide a `CanKeysWithDifferentByteContentsBeEqual`
 // override. This combination is disabled.
+// Param 3: restart interval
+// Param 4: use separated KV storage
 INSTANTIATE_TEST_CASE_P(
     P, BlockTest,
     ::testing::Combine(
@@ -299,7 +317,8 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(
             BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch,
             BlockBasedTableOptions::DataBlockIndexType::
-                kDataBlockBinaryAndHash)));
+                kDataBlockBinaryAndHash),
+        ::testing::Values(1, 8, 16), ::testing::Bool()));
 
 // A slow and accurate version of BlockReadAmpBitmap that simply store
 // all the marked ranges in a set.
@@ -356,8 +375,8 @@ class BlockReadAmpBitmapSlowAndAccurate {
 TEST_F(BlockTest, BlockReadAmpBitmap) {
   uint32_t pin_offset = 0;
   SyncPoint::GetInstance()->SetCallBack(
-      "BlockReadAmpBitmap:rnd", [&pin_offset](void *arg) {
-        pin_offset = *(static_cast<uint32_t *>(arg));
+      "BlockReadAmpBitmap:rnd", [&pin_offset](void* arg) {
+        pin_offset = *(static_cast<uint32_t*>(arg));
       });
   SyncPoint::GetInstance()->EnableProcessing();
   std::vector<size_t> block_sizes = {
@@ -414,7 +433,7 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
 
     for (size_t i = 0; i < random_entries.size(); i++) {
       read_amp_slow_and_accurate.ResetCheckSequence();
-      auto &current_entry = random_entries[rnd.Next() % random_entries.size()];
+      auto& current_entry = random_entries[rnd.Next() % random_entries.size()];
 
       read_amp_bitmap.Mark(static_cast<uint32_t>(current_entry.first),
                            static_cast<uint32_t>(current_entry.second));
@@ -465,7 +484,7 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
 
     // read contents of block sequentially
     size_t read_bytes = 0;
-    DataBlockIter *iter = reader.NewDataIterator(
+    DataBlockIter* iter = reader.NewDataIterator(
         options.comparator, kDisableGlobalSequenceNumber, nullptr, stats.get());
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       iter->value();
@@ -496,7 +515,7 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
     Block reader(std::move(contents), kBytesPerBit, stats.get());
 
     size_t read_bytes = 0;
-    DataBlockIter *iter = reader.NewDataIterator(
+    DataBlockIter* iter = reader.NewDataIterator(
         options.comparator, kDisableGlobalSequenceNumber, nullptr, stats.get());
     for (int i = 0; i < num_records; i++) {
       Slice k(keys[i]);
@@ -530,7 +549,7 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
     Block reader(std::move(contents), kBytesPerBit, stats.get());
 
     size_t read_bytes = 0;
-    DataBlockIter *iter = reader.NewDataIterator(
+    DataBlockIter* iter = reader.NewDataIterator(
         options.comparator, kDisableGlobalSequenceNumber, nullptr, stats.get());
     std::unordered_set<int> read_keys;
     for (int i = 0; i < num_records; i++) {
@@ -576,41 +595,103 @@ TEST_F(BlockTest, ReadAmpBitmapPow2) {
   ASSERT_EQ(BlockReadAmpBitmap(100, 35, stats.get()).GetBytesPerBit(), 32u);
 }
 
+void AddIndexBlockEntry(BlockBuilder& builder, const Slice& key,
+                        const BlockHandle& bh, const BlockHandle* prev,
+                        bool include_first_key,
+                        const Slice& first_internal_key = Slice()) {
+  IndexValue entry(bh, first_internal_key);
+  std::string encoded_entry;
+  entry.EncodeTo(&encoded_entry, include_first_key, nullptr);
+  std::string delta_encoded_entry;
+  if (prev) {
+    entry.EncodeTo(&delta_encoded_entry, include_first_key, prev);
+  }
+  const Slice delta_slice(delta_encoded_entry);
+  builder.Add(key, encoded_entry, &delta_slice);
+}
+
+enum class KeyDistribution { kUniform, kNonUniform };
+
 class IndexBlockTest
     : public testing::Test,
       public testing::WithParamInterface<
-          std::tuple<bool, bool, bool, test::UserDefinedTimestampTestMode>> {
+          std::tuple<bool, bool, bool, bool, test::UserDefinedTimestampTestMode,
+                     BlockBasedTableOptions::BlockSearchType, int, int, int,
+                     std::pair<int, KeyDistribution>>> {
  public:
   IndexBlockTest() = default;
 
   bool keyIncludesSeq() const { return std::get<0>(GetParam()); }
   bool useValueDeltaEncoding() const { return std::get<1>(GetParam()); }
   bool includeFirstKey() const { return std::get<2>(GetParam()); }
+  bool useSeparatedKVStorage() const { return std::get<3>(GetParam()); }
   bool isUDTEnabled() const {
-    return test::IsUDTEnabled(std::get<3>(GetParam()));
+    return test::IsUDTEnabled(std::get<4>(GetParam()));
   }
   bool shouldPersistUDT() const {
-    return test::ShouldPersistUDT(std::get<3>(GetParam()));
+    return test::ShouldPersistUDT(std::get<4>(GetParam()));
+  }
+  BlockBasedTableOptions::BlockSearchType indexSearchType() const {
+    return isUDTEnabled() ? BlockBasedTableOptions::kBinary
+                          : std::get<5>(GetParam());
+  }
+  int numRecords() const {
+    return std::min(1 << keyLength(), std::get<6>(GetParam()));
+  }
+  int indexBlockRestartInterval() const { return std::get<7>(GetParam()); }
+  int keyLength() const { return std::get<8>(GetParam()); }
+  // prefix_length and key_distribution are bundled into a std::pair to stay
+  // within gtest 1.8.1's 10-parameter Combine limit.
+  int prefixLength() const { return std::get<9>(GetParam()).first; }
+  KeyDistribution keyDistribution() const {
+    return std::get<9>(GetParam()).second;
   }
 };
 
-// Similar to GenerateRandomKVs but for index block contents.
-void GenerateRandomIndexEntries(std::vector<std::string> *separators,
-                                std::vector<BlockHandle> *block_handles,
-                                std::vector<std::string> *first_keys,
-                                const int len, size_t ts_sz = 0,
-                                bool zero_seqno = false) {
+// Similar to GenerateRandomKVs but for index block contents. Keys always
+// contain a 0-sequence number, callers may extract the user key if needed.
+void GenerateRandomIndexEntries(
+    std::vector<std::string>* separators,
+    std::vector<BlockHandle>* block_handles,
+    std::vector<std::string>* first_keys, const int len, size_t ts_sz = 0,
+    int key_length = 12, int prefix_length = 0,
+    KeyDistribution distribution = KeyDistribution::kUniform) {
   Random rnd(42);
+  std::string prefix(prefix_length, 'x');
 
   // For each of `len` blocks, we need to generate a first and last key.
-  // Let's generate n*2 random keys, sort them, group into consecutive pairs.
+  // Generate n*2 random keys, sort them, group into consecutive pairs.
   std::set<std::string> keys;
+
+  // Two clusters with shared prefixes of effective_key_length - 2. This
+  // stresses interpolation search's uniform distribution assumption.
+  int cluster_prefix_len = std::max(0, key_length - 5);
+  std::string cluster1_prefix = prefix + rnd.RandomString(cluster_prefix_len);
+  std::string cluster2_prefix = prefix + rnd.RandomString(cluster_prefix_len);
+
   while ((int)keys.size() < len * 2) {
-    // Keys need to be at least 8 bytes long to look like internal keys.
-    std::string new_key = test::RandomKey(&rnd, 12);
-    if (zero_seqno) {
-      AppendInternalKeyFooter(&new_key, 0 /* seqno */, kTypeValue);
+    std::string new_key;
+    if (distribution == KeyDistribution::kNonUniform) {
+      int remaining = key_length - cluster_prefix_len;
+      const std::string& cp =
+          (keys.size() % 2 == 0) ? cluster1_prefix : cluster2_prefix;
+      new_key = cp + rnd.RandomString(std::max(1, remaining));
+    } else {
+      // Generate evenly-spaced keys to ensure numeric uniformity.
+      // Encode the key index as big-endian with jitter to avoid
+      // perfectly equal gaps while maintaining uniformity.
+      uint64_t base =
+          static_cast<uint64_t>(keys.size()) * 1000 + rnd.Uniform(100);
+      std::string key_bytes(key_length, '\0');
+      // Write big-endian uint64 into the last 8 bytes (or fewer if shorter)
+      for (int j = key_length - 1; j >= 0 && base > 0; j--) {
+        key_bytes[j] = static_cast<char>(base & 0xFF);
+        base >>= 8;
+      }
+      new_key = prefix + key_bytes;
     }
+
+    AppendInternalKeyFooter(&new_key, 0 /* seqno */, kTypeValue);
     if (ts_sz > 0) {
       std::string key;
       PadInternalKeyWithMinTimestamp(&key, new_key, ts_sz);
@@ -643,15 +724,18 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
   std::vector<BlockHandle> block_handles;
   std::vector<std::string> first_keys;
   const bool kUseDeltaEncoding = true;
-  BlockBuilder builder(16, kUseDeltaEncoding, useValueDeltaEncoding(),
-                       BlockBasedTableOptions::kDataBlockBinarySearch,
-                       0.75 /* data_block_hash_table_util_ratio */, ts_sz,
-                       shouldPersistUDT(), !keyIncludesSeq());
+  BlockBuilder builder(
+      indexBlockRestartInterval(), kUseDeltaEncoding, useValueDeltaEncoding(),
+      BlockBasedTableOptions::kDataBlockBinarySearch,
+      0.75 /* data_block_hash_table_util_ratio */, ts_sz, shouldPersistUDT(),
+      !keyIncludesSeq(), useSeparatedKVStorage(), nullptr /* statistics */,
+      0.2 /* uniform_cv_threshold */);
 
-  int num_records = 100;
+  int num_records = numRecords();
 
   GenerateRandomIndexEntries(&separators, &block_handles, &first_keys,
-                             num_records, ts_sz, false /* zero_seqno */);
+                             num_records, ts_sz, keyLength(), prefixLength(),
+                             keyDistribution());
   BlockHandle last_encoded_handle;
   for (int i = 0; i < num_records; i++) {
     std::string first_key_to_persist_buf;
@@ -661,23 +745,13 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
                                     ts_sz);
       first_internal_key = first_key_to_persist_buf;
     }
-    IndexValue entry(block_handles[i], first_internal_key);
-    std::string encoded_entry;
-    std::string delta_encoded_entry;
-    entry.EncodeTo(&encoded_entry, includeFirstKey(), nullptr);
-    if (useValueDeltaEncoding() && i > 0) {
-      entry.EncodeTo(&delta_encoded_entry, includeFirstKey(),
-                     &last_encoded_handle);
-    }
-    last_encoded_handle = entry.handle;
-    const Slice delta_encoded_entry_slice(delta_encoded_entry);
-
-    if (keyIncludesSeq()) {
-      builder.Add(separators[i], encoded_entry, &delta_encoded_entry_slice);
-    } else {
-      const Slice user_key = ExtractUserKey(separators[i]);
-      builder.Add(user_key, encoded_entry, &delta_encoded_entry_slice);
-    }
+    const BlockHandle* prev =
+        (useValueDeltaEncoding() && i > 0) ? &last_encoded_handle : nullptr;
+    Slice add_key =
+        keyIncludesSeq() ? Slice(separators[i]) : ExtractUserKey(separators[i]);
+    AddIndexBlockEntry(builder, add_key, block_handles[i], prev,
+                       includeFirstKey(), first_internal_key);
+    last_encoded_handle = block_handles[i];
   }
 
   // read serialized contents of the block
@@ -686,17 +760,19 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents));
+  Block reader(std::move(contents), 0 /* read_amp_bytes_per_bit */,
+               nullptr /* statistics */,
+               static_cast<uint32_t>(indexBlockRestartInterval()));
 
   const bool kTotalOrderSeek = true;
-  IndexBlockIter *kNullIter = nullptr;
-  Statistics *kNullStats = nullptr;
+  IndexBlockIter* kNullIter = nullptr;
+  Statistics* kNullStats = nullptr;
   // read contents of block sequentially
-  InternalIteratorBase<IndexValue> *iter = reader.NewIndexIterator(
+  InternalIteratorBase<IndexValue>* iter = reader.NewIndexIterator(
       options.comparator, kDisableGlobalSequenceNumber, kNullIter, kNullStats,
       kTotalOrderSeek, includeFirstKey(), keyIncludesSeq(),
       !useValueDeltaEncoding(), false /* block_contents_pinned */,
-      shouldPersistUDT());
+      shouldPersistUDT(), nullptr /* prefix_index */, indexSearchType());
   iter->SeekToFirst();
   for (int index = 0; index < num_records; ++index) {
     ASSERT_TRUE(iter->Valid());
@@ -719,12 +795,23 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
   }
   delete iter;
 
+  // ScanForUniformity requires at least 3 restart points to determine
+  // uniformity. With fewer restarts, is_uniform is always false.
+  // When UDT is enabled, min-timestamps alter the key byte distribution,
+  // so skip the uniformity check.
+  if (!isUDTEnabled()) {
+    bool expect_uniform = reader.NumRestarts() >= 3 &&
+                          keyDistribution() == KeyDistribution::kUniform;
+    EXPECT_EQ(reader.IsUniform(), expect_uniform);
+    EXPECT_EQ(builder.IsUniform(), expect_uniform);
+  }
+
   // read block contents randomly
   iter = reader.NewIndexIterator(
       options.comparator, kDisableGlobalSequenceNumber, kNullIter, kNullStats,
       kTotalOrderSeek, includeFirstKey(), keyIncludesSeq(),
       !useValueDeltaEncoding(), false /* block_contents_pinned */,
-      shouldPersistUDT());
+      shouldPersistUDT(), nullptr /* prefix_index */, indexSearchType());
   for (int i = 0; i < num_records * 2; i++) {
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
@@ -752,11 +839,208 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
 // key as key entry in index block).
 // Param 1: use value delta encoding
 // Param 2: include first key
-// Param 3: user-defined timestamp test mode
+// Param 3: use separated KV storage
+// Param 4: user-defined timestamp test mode
+// Param 5: index search type (binary search or interpolation search)
+// Param 6: number of records
+// Param 7: index block restart interval
+// Param 8: key length
+// Param 9: (prefix_length, key_distribution) pair
 INSTANTIATE_TEST_CASE_P(
     P, IndexBlockTest,
-    ::testing::Combine(::testing::Bool(), ::testing::Bool(), ::testing::Bool(),
-                       ::testing::ValuesIn(test::GetUDTTestModes())));
+    ::testing::Combine(
+        ::testing::Bool(), ::testing::Bool(), ::testing::Bool(),
+        ::testing::Bool(), ::testing::ValuesIn(test::GetUDTTestModes()),
+        ::testing::Values(
+            BlockBasedTableOptions::BlockSearchType::kBinary,
+            BlockBasedTableOptions::BlockSearchType::kInterpolation,
+            BlockBasedTableOptions::BlockSearchType::kAuto),
+        ::testing::Values(1, 100),    // num_records
+        ::testing::Values(1, 16),     // index_block_restart_interval
+        ::testing::Values(1, 8, 12),  // key_length
+        ::testing::Values(std::make_pair(0, KeyDistribution::kUniform),
+                          std::make_pair(0, KeyDistribution::kNonUniform),
+                          std::make_pair(50, KeyDistribution::kUniform),
+                          std::make_pair(50, KeyDistribution::kNonUniform))));
+
+TEST(IndexBlockTest, InterpolationSearchPrefixBoundary) {
+  const bool kIncludeFirstKey = false;
+  const bool kUseValueDeltaEncoding = true;
+  const uint64_t kBlockSize = 50;
+
+  // 20 user keys sharing prefix "ABCDEFGHIJ" with evenly spaced suffixes.
+  const std::string kPrefix = "ABCDEFGHIJ";
+  const int kNumKeys = 20;
+  std::vector<std::string> keys;
+  keys.reserve(kNumKeys);
+  for (int i = 0; i < kNumKeys; i++) {
+    std::string suffix = std::to_string(i);
+    char formatted_suffix[4];
+    snprintf(formatted_suffix, sizeof(formatted_suffix), "%03d", i);
+    keys.push_back(kPrefix + formatted_suffix);
+  }
+
+  std::vector<BlockHandle> handles;
+  handles.reserve(kNumKeys);
+  for (int i = 0; i < kNumKeys; i++) {
+    handles.emplace_back(i * (kBlockSize + BlockBasedTable::kBlockTrailerSize),
+                         kBlockSize);
+  }
+
+  BlockBuilder builder(
+      1 /* restart_interval */, true /* use_delta_encoding */,
+      kUseValueDeltaEncoding, BlockBasedTableOptions::kDataBlockBinarySearch,
+      0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
+      false /* persist_udt */, true /* is_user_key */);
+
+  for (int i = 0; i < kNumKeys; i++) {
+    BlockHandle* prev = i > 0 ? &handles[i - 1] : nullptr;
+    AddIndexBlockEntry(builder, keys[i], handles[i], prev, kIncludeFirstKey);
+  }
+
+  Slice rawblock = builder.Finish();
+  BlockContents contents;
+  contents.data = rawblock;
+  Block reader(std::move(contents));
+
+  // Seek targets must be internal keys since SeekImpl calls ExtractUserKey().
+  auto make_target = [](const std::string& user_key) {
+    std::string target = user_key;
+    AppendInternalKeyFooter(&target, kMaxSequenceNumber, kValueTypeForSeek);
+    return target;
+  };
+
+  std::unique_ptr<InternalIteratorBase<IndexValue>> iter(
+      reader.NewIndexIterator(
+          BytewiseComparator(), kDisableGlobalSequenceNumber,
+          nullptr /* iter */, nullptr /* stats */, true /* total_order_seek */,
+          kIncludeFirstKey, false /* key_includes_seq */,
+          !kUseValueDeltaEncoding /* value_is_full */,
+          false /* block_contents_pinned */,
+          true /* user_defined_timestamps_persisted */,
+          nullptr /* prefix_index */,
+          BlockBasedTableOptions::BlockSearchType::kInterpolation));
+
+  // Case 1: target prefix < shared prefix
+  iter->Seek(make_target("AAAAAA"));
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(iter->key(), keys[0]);
+
+  iter->Seek(make_target(""));
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(iter->key(), keys[0]);
+
+  // Case 2: target prefix > shared prefix
+  iter->Seek(make_target("ABCDEFGHZZ"));
+  ASSERT_FALSE(iter->Valid());
+
+  // Case 3: target is the prefix
+  iter->Seek(make_target("ABCDEFGHIJ"));
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(iter->key(), keys[0]);
+
+  // Case 4: target a subset of the prefix
+  iter->Seek(make_target("ABCDEFG"));
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(iter->key(), keys[0]);
+}
+
+// Like the above test, but extend the shared prefix into internal bytes
+TEST(IndexBlockTest, InterpolationSearchPrefixBoundary2) {
+  const bool kIncludeFirstKey = false;
+  const bool kUseValueDeltaEncoding = true;
+  const uint64_t kBlockSize = 50;
+
+  // 20 internal keys with the same user key but decreasing sequence numbers
+  // (which is ascending InternalKeyComparator order).
+  const std::string kUserKey = "ABCDEFGHIJ";
+  const int kNumKeys = 20;
+  std::vector<std::string> keys;
+  keys.reserve(kNumKeys);
+  for (int i = 0; i < kNumKeys; i++) {
+    std::string ikey = kUserKey;
+    SequenceNumber seq = static_cast<SequenceNumber>(kNumKeys - i);
+    AppendInternalKeyFooter(&ikey, seq, kTypeValue);
+    keys.push_back(ikey);
+  }
+
+  std::vector<BlockHandle> handles;
+  handles.reserve(kNumKeys);
+  for (int i = 0; i < kNumKeys; i++) {
+    handles.emplace_back(i * (kBlockSize + BlockBasedTable::kBlockTrailerSize),
+                         kBlockSize);
+  }
+
+  BlockBuilder builder(
+      1 /* restart_interval */, true /* use_delta_encoding */,
+      kUseValueDeltaEncoding, BlockBasedTableOptions::kDataBlockBinarySearch,
+      0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
+      false /* persist_udt */, false /* is_user_key */);
+
+  for (int i = 0; i < kNumKeys; i++) {
+    BlockHandle* prev = i > 0 ? &handles[i - 1] : nullptr;
+    AddIndexBlockEntry(builder, keys[i], handles[i], prev, kIncludeFirstKey);
+  }
+
+  Slice rawblock = builder.Finish();
+  BlockContents contents;
+  contents.data = rawblock;
+  Block reader(std::move(contents));
+
+  auto make_target = [&](const std::string& user_key,
+                         SequenceNumber seq = kMaxSequenceNumber) {
+    std::string target = user_key;
+    AppendInternalKeyFooter(&target, seq, kTypeValue);
+    return target;
+  };
+
+  std::unique_ptr<InternalIteratorBase<IndexValue>> iter(
+      reader.NewIndexIterator(
+          BytewiseComparator(), kDisableGlobalSequenceNumber,
+          nullptr /* iter */, nullptr /* stats */, true /* total_order_seek */,
+          kIncludeFirstKey, true /* key_includes_seq */,
+          !kUseValueDeltaEncoding /* value_is_full */,
+          false /* block_contents_pinned */,
+          true /* user_defined_timestamps_persisted */,
+          nullptr /* prefix_index */,
+          BlockBasedTableOptions::BlockSearchType::kInterpolation));
+
+  // Seek to each existing sequence number
+  for (int i = 0; i < kNumKeys; i++) {
+    SequenceNumber seq = static_cast<SequenceNumber>(kNumKeys - i);
+    iter->Seek(make_target(kUserKey, seq));
+    ASSERT_TRUE(iter->Valid());
+    EXPECT_EQ(iter->key(), keys[i]);
+  }
+
+  // Case 1: target prefix < shared prefix
+  iter->Seek(make_target("AAAAAA"));
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(iter->key(), keys[0]);
+
+  iter->Seek(make_target(""));
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(iter->key(), keys[0]);
+
+  // Case 2: target prefix > shared prefix
+  iter->Seek(make_target("ABCDEFGHZZ"));
+  ASSERT_FALSE(iter->Valid());
+
+  // Case 3: target has the same user key with kMaxSequenceNumber
+  iter->Seek(make_target("ABCDEFGHIJ"));
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(iter->key(), keys[0]);
+
+  // Case 4: target a subset of the prefix
+  iter->Seek(make_target("ABCDEFG"));
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(iter->key(), keys[0]);
+
+  // Case 5: target key is a prefix that also extends into the internal bytes
+  // footer
+  iter->Seek(make_target("ABCDEFGHIJ" + std::string(1, kTypeValue)));
+  ASSERT_FALSE(iter->Valid());
+}
 
 class BlockPerKVChecksumTest : public DBTestBase {
  public:
@@ -764,8 +1048,8 @@ class BlockPerKVChecksumTest : public DBTestBase {
       : DBTestBase("block_per_kv_checksum", /*env_do_fsync=*/false) {}
 
   template <typename TBlockIter>
-  void TestIterateForward(std::unique_ptr<TBlockIter> &biter,
-                          size_t &verification_count) {
+  void TestIterateForward(std::unique_ptr<TBlockIter>& biter,
+                          size_t& verification_count) {
     while (biter->Valid()) {
       verification_count = 0;
       biter->Next();
@@ -776,8 +1060,8 @@ class BlockPerKVChecksumTest : public DBTestBase {
   }
 
   template <typename TBlockIter>
-  void TestIterateBackward(std::unique_ptr<TBlockIter> &biter,
-                           size_t &verification_count) {
+  void TestIterateBackward(std::unique_ptr<TBlockIter>& biter,
+                           size_t& verification_count) {
     while (biter->Valid()) {
       verification_count = 0;
       biter->Prev();
@@ -788,8 +1072,8 @@ class BlockPerKVChecksumTest : public DBTestBase {
   }
 
   template <typename TBlockIter>
-  void TestSeekToFirst(std::unique_ptr<TBlockIter> &biter,
-                       size_t &verification_count) {
+  void TestSeekToFirst(std::unique_ptr<TBlockIter>& biter,
+                       size_t& verification_count) {
     verification_count = 0;
     biter->SeekToFirst();
     ASSERT_GE(verification_count, 1);
@@ -797,8 +1081,8 @@ class BlockPerKVChecksumTest : public DBTestBase {
   }
 
   template <typename TBlockIter>
-  void TestSeekToLast(std::unique_ptr<TBlockIter> &biter,
-                      size_t &verification_count) {
+  void TestSeekToLast(std::unique_ptr<TBlockIter>& biter,
+                      size_t& verification_count) {
     verification_count = 0;
     biter->SeekToLast();
     ASSERT_GE(verification_count, 1);
@@ -806,8 +1090,8 @@ class BlockPerKVChecksumTest : public DBTestBase {
   }
 
   template <typename TBlockIter>
-  void TestSeekForPrev(std::unique_ptr<TBlockIter> &biter,
-                       size_t &verification_count, std::string k) {
+  void TestSeekForPrev(std::unique_ptr<TBlockIter>& biter,
+                       size_t& verification_count, const std::string& k) {
     verification_count = 0;
     biter->SeekForPrev(k);
     ASSERT_GE(verification_count, 1);
@@ -815,16 +1099,16 @@ class BlockPerKVChecksumTest : public DBTestBase {
   }
 
   template <typename TBlockIter>
-  void TestSeek(std::unique_ptr<TBlockIter> &biter, size_t &verification_count,
-                std::string k) {
+  void TestSeek(std::unique_ptr<TBlockIter>& biter, size_t& verification_count,
+                const std::string& k) {
     verification_count = 0;
     biter->Seek(k);
     ASSERT_GE(verification_count, 1);
     TestIterateForward(biter, verification_count);
   }
 
-  bool VerifyChecksum(uint32_t checksum_len, const char *checksum_ptr,
-                      const Slice &key, const Slice &val) {
+  bool VerifyChecksum(uint32_t checksum_len, const char* checksum_ptr,
+                      const Slice& key, const Slice& val) {
     if (!checksum_len) {
       return checksum_ptr == nullptr;
     }
@@ -834,13 +1118,12 @@ class BlockPerKVChecksumTest : public DBTestBase {
 };
 
 namespace {
-const BlockBasedTableOptions *kTableOptions() {
+const BlockBasedTableOptions* kTableOptions() {
   static BlockBasedTableOptions opts{};
   return &opts;
 }
-Decompressor *kDecompressor() {
-  static auto mgr = GetBuiltinCompressionManager(
-      GetCompressFormatForVersion(kTableOptions()->format_version));
+Decompressor* kDecompressor() {
+  static auto mgr = GetBuiltinV2CompressionManager();
   static auto decomp = mgr->GetDecompressor();
   return decomp.get();
 }
@@ -1057,7 +1340,7 @@ class DataBlockKVChecksumTest
   bool GetUseDeltaEncoding() const { return std::get<3>(GetParam()); }
 
   std::unique_ptr<Block_kData> GenerateDataBlock(
-      std::vector<std::string> &keys, std::vector<std::string> &values,
+      std::vector<std::string>& keys, std::vector<std::string>& values,
       int num_record) {
     BlockCreateContext create_context{
         kTableOptions(), nullptr /* statistics */, nullptr /* ioptions */,
@@ -1090,9 +1373,9 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(0, 1, 2, 4, 8) /* protection_bytes_per_key */,
         ::testing::Values(1, 2, 3, 8, 16) /* restart_interval */,
         ::testing::Values(false, true)) /* delta_encoding */,
-    [](const testing::TestParamInfo<std::tuple<
-           BlockBasedTableOptions::DataBlockIndexType, uint8_t, uint32_t, bool>>
-           &args) {
+    [](const testing::TestParamInfo<
+        std::tuple<BlockBasedTableOptions::DataBlockIndexType, uint8_t,
+                   uint32_t, bool>>& args) {
       std::ostringstream oss;
       oss << GetDataBlockIndexTypeStr(std::get<0>(args.param))
           << "ProtectionPerKey" << std::to_string(std::get<1>(args.param))
@@ -1115,7 +1398,7 @@ TEST_P(DataBlockKVChecksumTest, ChecksumConstructionAndVerification) {
     std::unique_ptr<Block_kData> data_block =
         GenerateDataBlock(keys, values, kNumRecords);
 
-    const char *checksum_ptr = data_block->TEST_GetKVChecksum();
+    const char* checksum_ptr = data_block->TEST_GetKVChecksum();
     // Check checksum of correct length is generated
     for (int i = 0; i < kNumRecords; i++) {
       ASSERT_TRUE(VerifyChecksum(protection_bytes_per_key,
@@ -1133,8 +1416,8 @@ TEST_P(DataBlockKVChecksumTest, ChecksumConstructionAndVerification) {
     // that case (see Block::VerifyChecksum()).
     SyncPoint::GetInstance()->SetCallBack(
         "Block::VerifyChecksum::checksum_len",
-        [&verification_count, protection_bytes_per_key](void *checksum_len) {
-          ASSERT_EQ((*static_cast<uint8_t *>(checksum_len)),
+        [&verification_count, protection_bytes_per_key](void* checksum_len) {
+          ASSERT_EQ((*static_cast<uint8_t*>(checksum_len)),
                     protection_bytes_per_key);
           ++verification_count;
         });
@@ -1178,9 +1461,9 @@ class IndexBlockKVChecksumTest
   bool IncludeFirstKey() const { return std::get<4>(GetParam()); }
 
   std::unique_ptr<Block_kIndex> GenerateIndexBlock(
-      std::vector<std::string> &separators,
-      std::vector<BlockHandle> &block_handles,
-      std::vector<std::string> &first_keys, int num_record) {
+      std::vector<std::string>& separators,
+      std::vector<BlockHandle>& block_handles,
+      std::vector<std::string>& first_keys, int num_record) {
     Options options = Options();
     uint8_t protection_bytes_per_key = GetChecksumLen();
     BlockCreateContext create_context{
@@ -1236,7 +1519,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(true, false), ::testing::Values(true, false)),
     [](const testing::TestParamInfo<
         std::tuple<BlockBasedTableOptions::DataBlockIndexType, uint8_t,
-                   uint32_t, bool, bool>> &args) {
+                   uint32_t, bool, bool>>& args) {
       std::ostringstream oss;
       oss << GetDataBlockIndexTypeStr(std::get<0>(args.param)) << "ProtBytes"
           << std::to_string(std::get<1>(args.param)) << "RestartInterval"
@@ -1260,13 +1543,12 @@ TEST_P(IndexBlockKVChecksumTest, ChecksumConstructionAndVerification) {
       std::vector<BlockHandle> block_handles;
       std::vector<std::string> first_keys;
       GenerateRandomIndexEntries(&separators, &block_handles, &first_keys,
-                                 kNumRecords, 0 /* ts_sz */,
-                                 seqno != kDisableGlobalSequenceNumber);
+                                 kNumRecords, 0 /* ts_sz */);
       SyncPoint::GetInstance()->DisableProcessing();
       std::unique_ptr<Block_kIndex> index_block = GenerateIndexBlock(
           separators, block_handles, first_keys, kNumRecords);
-      IndexBlockIter *kNullIter = nullptr;
-      Statistics *kNullStats = nullptr;
+      IndexBlockIter* kNullIter = nullptr;
+      Statistics* kNullStats = nullptr;
       // read contents of block sequentially
       std::unique_ptr<IndexBlockIter> biter{index_block->NewIndexIterator(
           options.comparator, seqno, kNullIter, kNullStats,
@@ -1277,7 +1559,7 @@ TEST_P(IndexBlockKVChecksumTest, ChecksumConstructionAndVerification) {
           true /* user_defined_timestamps_persisted */,
           nullptr /* prefix_index */)};
       biter->SeekToFirst();
-      const char *checksum_ptr = index_block->TEST_GetKVChecksum();
+      const char* checksum_ptr = index_block->TEST_GetKVChecksum();
       // Check checksum of correct length is generated
       for (int i = 0; i < kNumRecords; i++) {
         // Obtaining the actual content written as value to index block is not
@@ -1297,8 +1579,8 @@ TEST_P(IndexBlockKVChecksumTest, ChecksumConstructionAndVerification) {
       // assert checking on checksum_len here.
       SyncPoint::GetInstance()->SetCallBack(
           "Block::VerifyChecksum::checksum_len",
-          [&verification_count, protection_bytes_per_key](void *checksum_len) {
-            ASSERT_EQ((*static_cast<uint8_t *>(checksum_len)),
+          [&verification_count, protection_bytes_per_key](void* checksum_len) {
+            ASSERT_EQ((*static_cast<uint8_t*>(checksum_len)),
                       protection_bytes_per_key);
             ++verification_count;
           });
@@ -1321,7 +1603,7 @@ class MetaIndexBlockKVChecksumTest
   uint32_t GetRestartInterval() const { return 1; }
 
   std::unique_ptr<Block_kMetaIndex> GenerateMetaIndexBlock(
-      std::vector<std::string> &keys, std::vector<std::string> &values,
+      std::vector<std::string>& keys, std::vector<std::string>& values,
       int num_record) {
     Options options = Options();
     uint8_t protection_bytes_per_key = GetChecksumLen();
@@ -1347,7 +1629,7 @@ class MetaIndexBlockKVChecksumTest
 
 INSTANTIATE_TEST_CASE_P(P, MetaIndexBlockKVChecksumTest,
                         ::testing::Values(0, 1, 2, 4, 8),
-                        [](const testing::TestParamInfo<uint8_t> &args) {
+                        [](const testing::TestParamInfo<uint8_t>& args) {
                           std::ostringstream oss;
                           oss << "ProtBytes" << std::to_string(args.param);
                           return oss.str();
@@ -1369,7 +1651,7 @@ TEST_P(MetaIndexBlockKVChecksumTest, ChecksumConstructionAndVerification) {
     SyncPoint::GetInstance()->DisableProcessing();
     std::unique_ptr<Block_kMetaIndex> meta_block =
         GenerateMetaIndexBlock(keys, values, kNumRecords);
-    const char *checksum_ptr = meta_block->TEST_GetKVChecksum();
+    const char* checksum_ptr = meta_block->TEST_GetKVChecksum();
     // Check checksum of correct length is generated
     for (int i = 0; i < kNumRecords; i++) {
       ASSERT_TRUE(VerifyChecksum(protection_bytes_per_key,
@@ -1384,8 +1666,8 @@ TEST_P(MetaIndexBlockKVChecksumTest, ChecksumConstructionAndVerification) {
     // checking on checksum_len here.
     SyncPoint::GetInstance()->SetCallBack(
         "Block::VerifyChecksum::checksum_len",
-        [&verification_count, protection_bytes_per_key](void *checksum_len) {
-          ASSERT_EQ((*static_cast<uint8_t *>(checksum_len)),
+        [&verification_count, protection_bytes_per_key](void* checksum_len) {
+          ASSERT_EQ((*static_cast<uint8_t*>(checksum_len)),
                     protection_bytes_per_key);
           ++verification_count;
         });
@@ -1405,7 +1687,7 @@ class DataBlockKVChecksumCorruptionTest : public DataBlockKVChecksumTest {
   DataBlockKVChecksumCorruptionTest() = default;
 
   std::unique_ptr<DataBlockIter> GenerateDataBlockIter(
-      std::vector<std::string> &keys, std::vector<std::string> &values,
+      std::vector<std::string>& keys, std::vector<std::string>& values,
       int num_record) {
     // During Block construction, we may create block iter to initialize per kv
     // checksum. Disable syncpoint that may be created for block iter methods.
@@ -1431,15 +1713,15 @@ TEST_P(DataBlockKVChecksumCorruptionTest, CorruptEntry) {
     GenerateRandomKVs(&keys, &values, 0, kNumRecords + 1, 1 /* step */,
                       24 /* padding_size */);
     SyncPoint::GetInstance()->SetCallBack(
-        "BlockIter::UpdateKey::value", [](void *arg) {
-          char *value = static_cast<char *>(arg);
+        "BlockIter::UpdateKey::value", [](void* arg) {
+          char* value = static_cast<char*>(arg);
           // values generated by GenerateRandomKVs are of length 100
           ++value[10];
         });
 
     // Purely for reducing the number of lines of code.
     typedef std::unique_ptr<DataBlockIter> IterPtr;
-    typedef void(IterAPI)(IterPtr & iter, std::string &);
+    typedef void(IterAPI)(IterPtr & iter, std::string&);
 
     std::string seek_key = keys[kNumRecords / 2];
     auto test_seek = [&](IterAPI iter_api) {
@@ -1450,14 +1732,14 @@ TEST_P(DataBlockKVChecksumCorruptionTest, CorruptEntry) {
       ASSERT_TRUE(biter->status().IsCorruption());
     };
 
-    test_seek([](IterPtr &iter, std::string &) { iter->SeekToFirst(); });
-    test_seek([](IterPtr &iter, std::string &) { iter->SeekToLast(); });
-    test_seek([](IterPtr &iter, std::string &k) { iter->Seek(k); });
-    test_seek([](IterPtr &iter, std::string &k) { iter->SeekForPrev(k); });
-    test_seek([](IterPtr &iter, std::string &k) { iter->SeekForGet(k); });
+    test_seek([](IterPtr& iter, std::string&) { iter->SeekToFirst(); });
+    test_seek([](IterPtr& iter, std::string&) { iter->SeekToLast(); });
+    test_seek([](IterPtr& iter, std::string& k) { iter->Seek(k); });
+    test_seek([](IterPtr& iter, std::string& k) { iter->SeekForPrev(k); });
+    test_seek([](IterPtr& iter, std::string& k) { iter->SeekForGet(k); });
 
     typedef void (DataBlockIter::*IterStepAPI)();
-    auto test_step = [&](IterStepAPI iter_api, std::string &k) {
+    auto test_step = [&](IterStepAPI iter_api, std::string& k) {
       IterPtr biter = GenerateDataBlockIter(keys, values, kNumRecords);
       SyncPoint::GetInstance()->DisableProcessing();
       biter->Seek(k);
@@ -1486,9 +1768,9 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(4, 8) /* block_protection_bytes_per_key */,
         ::testing::Values(1, 3, 8, 16) /* restart_interval */,
         ::testing::Values(false, true)),
-    [](const testing::TestParamInfo<std::tuple<
-           BlockBasedTableOptions::DataBlockIndexType, uint8_t, uint32_t, bool>>
-           &args) {
+    [](const testing::TestParamInfo<
+        std::tuple<BlockBasedTableOptions::DataBlockIndexType, uint8_t,
+                   uint32_t, bool>>& args) {
       std::ostringstream oss;
       oss << GetDataBlockIndexTypeStr(std::get<0>(args.param)) << "ProtBytes"
           << std::to_string(std::get<1>(args.param)) << "RestartInterval"
@@ -1502,9 +1784,9 @@ class IndexBlockKVChecksumCorruptionTest : public IndexBlockKVChecksumTest {
   IndexBlockKVChecksumCorruptionTest() = default;
 
   std::unique_ptr<IndexBlockIter> GenerateIndexBlockIter(
-      std::vector<std::string> &separators,
-      std::vector<BlockHandle> &block_handles,
-      std::vector<std::string> &first_keys, int num_record,
+      std::vector<std::string>& separators,
+      std::vector<BlockHandle>& block_handles,
+      std::vector<std::string>& first_keys, int num_record,
       SequenceNumber seqno) {
     SyncPoint::GetInstance()->DisableProcessing();
     block_ =
@@ -1537,7 +1819,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(true, false), ::testing::Values(true, false)),
     [](const testing::TestParamInfo<
         std::tuple<BlockBasedTableOptions::DataBlockIndexType, uint8_t,
-                   uint32_t, bool, bool>> &args) {
+                   uint32_t, bool, bool>>& args) {
       std::ostringstream oss;
       oss << GetDataBlockIndexTypeStr(std::get<0>(args.param)) << "ProtBytes"
           << std::to_string(std::get<1>(args.param)) << "RestartInterval"
@@ -1559,18 +1841,17 @@ TEST_P(IndexBlockKVChecksumCorruptionTest, CorruptEntry) {
       std::vector<BlockHandle> block_handles;
       std::vector<std::string> first_keys;
       GenerateRandomIndexEntries(&separators, &block_handles, &first_keys,
-                                 kNumRecords, 0 /* ts_sz */,
-                                 seqno != kDisableGlobalSequenceNumber);
+                                 kNumRecords, 0 /* ts_sz */);
       SyncPoint::GetInstance()->SetCallBack(
-          "BlockIter::UpdateKey::value", [](void *arg) {
-            char *value = static_cast<char *>(arg);
+          "BlockIter::UpdateKey::value", [](void* arg) {
+            char* value = static_cast<char*>(arg);
             // value can be delta-encoded with different lengths, so we corrupt
             // first bytes here to be safe
             ++value[0];
           });
 
       typedef std::unique_ptr<IndexBlockIter> IterPtr;
-      typedef void(IterAPI)(IterPtr & iter, std::string &);
+      typedef void(IterAPI)(IterPtr & iter, std::string&);
       std::string seek_key = first_keys[kNumRecords / 2];
       auto test_seek = [&](IterAPI iter_api) {
         std::unique_ptr<IndexBlockIter> biter = GenerateIndexBlockIter(
@@ -1580,12 +1861,12 @@ TEST_P(IndexBlockKVChecksumCorruptionTest, CorruptEntry) {
         ASSERT_FALSE(biter->Valid());
         ASSERT_TRUE(biter->status().IsCorruption());
       };
-      test_seek([](IterPtr &iter, std::string &) { iter->SeekToFirst(); });
-      test_seek([](IterPtr &iter, std::string &) { iter->SeekToLast(); });
-      test_seek([](IterPtr &iter, std::string &k) { iter->Seek(k); });
+      test_seek([](IterPtr& iter, std::string&) { iter->SeekToFirst(); });
+      test_seek([](IterPtr& iter, std::string&) { iter->SeekToLast(); });
+      test_seek([](IterPtr& iter, std::string& k) { iter->Seek(k); });
 
       typedef void (IndexBlockIter::*IterStepAPI)();
-      auto test_step = [&](IterStepAPI iter_api, std::string &k) {
+      auto test_step = [&](IterStepAPI iter_api, std::string& k) {
         std::unique_ptr<IndexBlockIter> biter = GenerateIndexBlockIter(
             separators, block_handles, first_keys, kNumRecords, seqno);
         SyncPoint::GetInstance()->DisableProcessing();
@@ -1611,7 +1892,7 @@ class MetaIndexBlockKVChecksumCorruptionTest
   MetaIndexBlockKVChecksumCorruptionTest() = default;
 
   std::unique_ptr<MetaBlockIter> GenerateMetaIndexBlockIter(
-      std::vector<std::string> &keys, std::vector<std::string> &values,
+      std::vector<std::string>& keys, std::vector<std::string>& values,
       int num_record) {
     SyncPoint::GetInstance()->DisableProcessing();
     block_ = GenerateMetaIndexBlock(keys, values, num_record);
@@ -1628,7 +1909,7 @@ class MetaIndexBlockKVChecksumCorruptionTest
 INSTANTIATE_TEST_CASE_P(
     P, MetaIndexBlockKVChecksumCorruptionTest,
     ::testing::Values(4, 8) /* block_protection_bytes_per_key */,
-    [](const testing::TestParamInfo<uint8_t> &args) {
+    [](const testing::TestParamInfo<uint8_t>& args) {
       std::ostringstream oss;
       oss << "ProtBytes" << std::to_string(args.param);
       return oss.str();
@@ -1645,14 +1926,14 @@ TEST_P(MetaIndexBlockKVChecksumCorruptionTest, CorruptEntry) {
     GenerateRandomKVs(&keys, &values, 0, kNumRecords + 1, 1 /* step */,
                       24 /* padding_size */);
     SyncPoint::GetInstance()->SetCallBack(
-        "BlockIter::UpdateKey::value", [](void *arg) {
-          char *value = static_cast<char *>(arg);
+        "BlockIter::UpdateKey::value", [](void* arg) {
+          char* value = static_cast<char*>(arg);
           // values generated by GenerateRandomKVs are of length 100
           ++value[10];
         });
 
     typedef std::unique_ptr<MetaBlockIter> IterPtr;
-    typedef void(IterAPI)(IterPtr & iter, std::string &);
+    typedef void(IterAPI)(IterPtr & iter, std::string&);
     typedef void (MetaBlockIter::*IterStepAPI)();
     std::string seek_key = keys[kNumRecords / 2];
     auto test_seek = [&](IterAPI iter_api) {
@@ -1663,12 +1944,12 @@ TEST_P(MetaIndexBlockKVChecksumCorruptionTest, CorruptEntry) {
       ASSERT_TRUE(biter->status().IsCorruption());
     };
 
-    test_seek([](IterPtr &iter, std::string &) { iter->SeekToFirst(); });
-    test_seek([](IterPtr &iter, std::string &) { iter->SeekToLast(); });
-    test_seek([](IterPtr &iter, std::string &k) { iter->Seek(k); });
-    test_seek([](IterPtr &iter, std::string &k) { iter->SeekForPrev(k); });
+    test_seek([](IterPtr& iter, std::string&) { iter->SeekToFirst(); });
+    test_seek([](IterPtr& iter, std::string&) { iter->SeekToLast(); });
+    test_seek([](IterPtr& iter, std::string& k) { iter->Seek(k); });
+    test_seek([](IterPtr& iter, std::string& k) { iter->SeekForPrev(k); });
 
-    auto test_step = [&](IterStepAPI iter_api, const std::string &k) {
+    auto test_step = [&](IterStepAPI iter_api, const std::string& k) {
       IterPtr biter = GenerateMetaIndexBlockIter(keys, values, kNumRecords);
       SyncPoint::GetInstance()->DisableProcessing();
       biter->Seek(k);
@@ -1686,9 +1967,108 @@ TEST_P(MetaIndexBlockKVChecksumCorruptionTest, CorruptEntry) {
     }
   }
 }
+
+class MetaBlockEntryCorruptionTest : public testing::TestWithParam<bool> {
+ public:
+  bool useSeparatedKVStorage() const { return GetParam(); }
+
+  std::string BuildBlock() {
+    BlockBuilder builder(1 /* restart_interval */,
+                         true /* use_delta_encoding */,
+                         false /* use_value_delta_encoding */,
+                         BlockBasedTableOptions::kDataBlockBinarySearch,
+                         0 /* data_block_hash_table_util_ratio */,
+                         0 /* ts_sz */, false /* persist_udt */,
+                         true /* is_user_key */, useSeparatedKVStorage());
+    builder.Add("key001", "val01");
+    builder.Add("key002", "val02");
+    builder.Add("key003", "val03");
+    builder.Add("key004", "val04");
+    Slice raw = builder.Finish();
+    return std::string(raw.data(), raw.size());
+  }
+
+  // Get the restart offset for a given restart index from the raw block data.
+  uint32_t GetRestartOffset(const std::string& block_data, int restart_idx) {
+    size_t footer_size = useSeparatedKVStorage() ? 8 : 4;
+    uint32_t packed = DecodeFixed32(block_data.data() + block_data.size() - 4);
+    uint32_t num_restarts = packed & DataBlockFooter::kMaxNumRestarts;
+    size_t restarts_start =
+        block_data.size() - footer_size - num_restarts * sizeof(uint32_t);
+    return DecodeFixed32(block_data.data() + restarts_start +
+                         restart_idx * sizeof(uint32_t));
+  }
+
+  uint32_t GetKeyEnd(const std::string& block_data) {
+    size_t footer_size = useSeparatedKVStorage() ? 8 : 4;
+    uint32_t packed = DecodeFixed32(block_data.data() + block_data.size() - 4);
+    uint32_t num_restarts = packed & DataBlockFooter::kMaxNumRestarts;
+    uint32_t restarts_start = static_cast<uint32_t>(
+        block_data.size() - footer_size - num_restarts * sizeof(uint32_t));
+    if (useSeparatedKVStorage()) {
+      // values_section_offset is stored as the 4 bytes before the packed word.
+      return DecodeFixed32(block_data.data() + block_data.size() - 8);
+    }
+    return restarts_start;
+  }
+
+  uint32_t GetValueEnd(const std::string& block_data) {
+    size_t footer_size = useSeparatedKVStorage() ? 8 : 4;
+    uint32_t packed = DecodeFixed32(block_data.data() + block_data.size() - 4);
+    uint32_t num_restarts = packed & DataBlockFooter::kMaxNumRestarts;
+    return static_cast<uint32_t>(block_data.size() - footer_size -
+                                 num_restarts * sizeof(uint32_t));
+  }
+};
+
+INSTANTIATE_TEST_CASE_P(P, MetaBlockEntryCorruptionTest, ::testing::Bool(),
+                        [](const testing::TestParamInfo<bool>& args) {
+                          return args.param ? "SeparatedKV" : "InlineKV";
+                        });
+
+TEST_P(MetaBlockEntryCorruptionTest, CorruptedKeyLengthPastKeyEnd) {
+  std::string block_data = BuildBlock();
+  uint32_t key_end = GetKeyEnd(block_data);
+
+  // Corrupt the key length of the first entry so that
+  // the key data would extend past the keys-end boundary.
+  uint32_t first_entry_offset = GetRestartOffset(block_data, 0);
+  block_data[first_entry_offset + 1] = static_cast<char>(key_end);
+
+  BlockContents contents;
+  contents.data = Slice(block_data);
+  Block block(std::move(contents), 0, nullptr, 1 /* restart_interval */);
+  std::unique_ptr<MetaBlockIter> iter(block.NewMetaIterator());
+
+  // SeekToFirst should hit the corrupted first entry immediately.
+  iter->SeekToFirst();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+}
+
+TEST_P(MetaBlockEntryCorruptionTest, CorruptedValueLengthPastValueEnd) {
+  std::string block_data = BuildBlock();
+  uint32_t value_end = GetValueEnd(block_data);
+
+  // Corrupt the first entry so that its value would extend past the
+  // values-end boundary (start of the restart array).
+  uint32_t first_entry_offset = GetRestartOffset(block_data, 0);
+  block_data[first_entry_offset + 2] = static_cast<char>(value_end);
+
+  BlockContents contents;
+  contents.data = Slice(block_data);
+  Block block(std::move(contents), 0, nullptr, 1 /* restart_interval */);
+  std::unique_ptr<MetaBlockIter> iter(block.NewMetaIterator());
+
+  // SeekToFirst should hit the corrupted first entry immediately.
+  iter->SeekToFirst();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

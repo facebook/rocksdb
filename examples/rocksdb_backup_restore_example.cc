@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <cstdio>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -29,7 +30,7 @@ std::string kDBPath = "/tmp/rocksdb_example";
 #endif
 
 int main() {
-  DB* db;
+  std::unique_ptr<DB> db;
   Options options;
   // Optimize RocksDB. This is the easiest way to get RocksDB to perform well
   options.IncreaseParallelism();
@@ -52,7 +53,7 @@ int main() {
                          &backup_engine);
   assert(s.ok());
 
-  backup_engine->CreateNewBackup(db);
+  backup_engine->CreateNewBackup(db.get());
   assert(s.ok());
 
   std::vector<BackupInfo> backup_info;
@@ -65,9 +66,7 @@ int main() {
   db->Put(WriteOptions(), "key2", "value2");
   assert(s.ok());
 
-  db->Close();
-  delete db;
-  db = nullptr;
+  db.reset();
 
   // restore db to backup 1
   BackupEngineReadOnly* backup_engine_ro;
@@ -93,7 +92,7 @@ int main() {
 
   delete backup_engine;
   delete backup_engine_ro;
-  delete db;
+  db.reset();
 
   return 0;
 }

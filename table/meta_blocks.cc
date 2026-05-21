@@ -29,8 +29,6 @@ namespace ROCKSDB_NAMESPACE {
 const std::string kPropertiesBlockName = "rocksdb.properties";
 // NB: only used with format_version >= 6
 const std::string kIndexBlockName = "rocksdb.index";
-// Old property block name for backward compatibility
-const std::string kPropertiesBlockOldName = "rocksdb.stats";
 const std::string kCompressionDictBlockName = "rocksdb.compression_dict";
 const std::string kRangeDelBlockName = "rocksdb.range_del";
 
@@ -45,6 +43,7 @@ void MetaIndexBuilder::Add(const std::string& key, const BlockHandle& handle) {
 
 Slice MetaIndexBuilder::Finish() {
   for (const auto& metablock : meta_block_handles_) {
+    // NOTE: meta index keys and block handles are guaranteed < 4GB
     meta_index_block_->Add(metablock.first, metablock.second);
   }
   return meta_index_block_->Finish();
@@ -93,12 +92,24 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   Add(TablePropertiesNames::kIndexKeyIsUserKey, props.index_key_is_user_key);
   Add(TablePropertiesNames::kIndexValueIsDeltaEncoded,
       props.index_value_is_delta_encoded);
+  if (props.udi_is_primary_index != 0) {
+    Add(TablePropertiesNames::kUDIIsPrimaryIndex, props.udi_is_primary_index);
+  }
   Add(TablePropertiesNames::kNumEntries, props.num_entries);
   Add(TablePropertiesNames::kNumFilterEntries, props.num_filter_entries);
   Add(TablePropertiesNames::kDeletedKeys, props.num_deletions);
   Add(TablePropertiesNames::kMergeOperands, props.num_merge_operands);
   Add(TablePropertiesNames::kNumRangeDeletions, props.num_range_deletions);
   Add(TablePropertiesNames::kNumDataBlocks, props.num_data_blocks);
+  if (props.num_data_blocks_compression_rejected > 0) {
+    Add(TablePropertiesNames::kNumDataBlocksCompressionRejected,
+        props.num_data_blocks_compression_rejected);
+  }
+  if (props.num_data_blocks_compression_bypassed > 0) {
+    Add(TablePropertiesNames::kNumDataBlocksCompressionBypassed,
+        props.num_data_blocks_compression_bypassed);
+  }
+  Add(TablePropertiesNames::kNumUniformBlocks, props.num_uniform_blocks);
   Add(TablePropertiesNames::kFilterSize, props.filter_size);
   Add(TablePropertiesNames::kFormatVersion, props.format_version);
   Add(TablePropertiesNames::kFixedKeyLen, props.fixed_key_len);
@@ -170,13 +181,29 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   if (props.key_smallest_seqno != UINT64_MAX) {
     Add(TablePropertiesNames::kKeySmallestSeqno, props.key_smallest_seqno);
   }
+  if (props.data_block_restart_interval > 0) {
+    Add(TablePropertiesNames::kDataBlockRestartInterval,
+        props.data_block_restart_interval);
+  }
+  if (props.index_block_restart_interval > 0) {
+    Add(TablePropertiesNames::kIndexBlockRestartInterval,
+        props.index_block_restart_interval);
+  }
+  if (props.separate_key_value_in_data_block > 0) {
+    Add(TablePropertiesNames::kSeparateKeyValueInDataBlock,
+        props.separate_key_value_in_data_block);
+  }
 }
 
 Slice PropertyBlockBuilder::Finish() {
   for (const auto& prop : props_) {
     assert(last_prop_added_to_block_.empty() ||
            comparator_->Compare(prop.first, last_prop_added_to_block_) > 0);
-    properties_block_->Add(prop.first, prop.second);
+    // Use first 4GB of key and value strings to avoid overflow, e.g. from
+    // user property collector (see BlockBuilder::Add API comments)
+    Slice key(prop.first.data(), static_cast<uint32_t>(prop.first.size()));
+    Slice value(prop.second.data(), static_cast<uint32_t>(prop.second.size()));
+    properties_block_->Add(key, value);
 #ifndef NDEBUG
     last_prop_added_to_block_ = prop.first;
 #endif /* !NDEBUG */
@@ -275,12 +302,20 @@ Status ParsePropertiesBlock(
        &new_table_properties->index_key_is_user_key},
       {TablePropertiesNames::kIndexValueIsDeltaEncoded,
        &new_table_properties->index_value_is_delta_encoded},
+      {TablePropertiesNames::kUDIIsPrimaryIndex,
+       &new_table_properties->udi_is_primary_index},
       {TablePropertiesNames::kFilterSize, &new_table_properties->filter_size},
       {TablePropertiesNames::kRawKeySize, &new_table_properties->raw_key_size},
       {TablePropertiesNames::kRawValueSize,
        &new_table_properties->raw_value_size},
       {TablePropertiesNames::kNumDataBlocks,
        &new_table_properties->num_data_blocks},
+      {TablePropertiesNames::kNumDataBlocksCompressionRejected,
+       &new_table_properties->num_data_blocks_compression_rejected},
+      {TablePropertiesNames::kNumDataBlocksCompressionBypassed,
+       &new_table_properties->num_data_blocks_compression_bypassed},
+      {TablePropertiesNames::kNumUniformBlocks,
+       &new_table_properties->num_uniform_blocks},
       {TablePropertiesNames::kNumEntries, &new_table_properties->num_entries},
       {TablePropertiesNames::kNumFilterEntries,
        &new_table_properties->num_filter_entries},
@@ -316,6 +351,12 @@ Status ParsePropertiesBlock(
        &new_table_properties->key_largest_seqno},
       {TablePropertiesNames::kKeySmallestSeqno,
        &new_table_properties->key_smallest_seqno},
+      {TablePropertiesNames::kDataBlockRestartInterval,
+       &new_table_properties->data_block_restart_interval},
+      {TablePropertiesNames::kIndexBlockRestartInterval,
+       &new_table_properties->index_block_restart_interval},
+      {TablePropertiesNames::kSeparateKeyValueInDataBlock,
+       &new_table_properties->separate_key_value_in_data_block},
   };
 
   Status s;
@@ -476,7 +517,8 @@ Status ReadTablePropertiesHelper(
     // (See write_global_seqno comment above)
     if (s.ok() && footer.GetBlockTrailerSize() > 0) {
       s = VerifyBlockChecksum(footer, properties_block.data(), block_size,
-                              file->file_name(), handle.offset());
+                              file->file_name(), handle.offset(),
+                              BlockType::kProperties);
       if (s.IsCorruption()) {
         if (new_table_properties->external_sst_file_global_seqno_offset != 0) {
           std::string tmp_buf(properties_block.data(), len);
@@ -485,7 +527,8 @@ Status ReadTablePropertiesHelper(
               handle.offset();
           EncodeFixed64(&tmp_buf[static_cast<size_t>(global_seqno_offset)], 0);
           s = VerifyBlockChecksum(footer, tmp_buf.data(), block_size,
-                                  file->file_name(), handle.offset());
+                                  file->file_name(), handle.offset(),
+                                  BlockType::kProperties);
         }
       }
     }
@@ -543,14 +586,6 @@ Status FindOptionalMetaBlock(InternalIterator* meta_index_iter,
     if (meta_index_iter->Valid() && meta_index_iter->key() == meta_block_name) {
       Slice v = meta_index_iter->value();
       return block_handle->DecodeFrom(&v);
-    } else if (meta_block_name == kPropertiesBlockName) {
-      // Have to try old name for compatibility
-      meta_index_iter->Seek(kPropertiesBlockOldName);
-      if (meta_index_iter->status().ok() && meta_index_iter->Valid() &&
-          meta_index_iter->key() == kPropertiesBlockOldName) {
-        Slice v = meta_index_iter->value();
-        return block_handle->DecodeFrom(&v);
-      }
     }
   }
   // else

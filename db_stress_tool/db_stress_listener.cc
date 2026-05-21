@@ -7,6 +7,7 @@
 
 #include <cstdint>
 
+#include "db_stress_tool/db_stress_test_base.h"
 #include "file/file_util.h"
 #include "rocksdb/file_system.h"
 #include "util/coding_lean.h"
@@ -15,10 +16,21 @@ namespace ROCKSDB_NAMESPACE {
 
 #ifdef GFLAGS
 
-// TODO: consider using expected_values_dir instead, but this is more
-// convenient for now.
-UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name, Env* env)
-    : path_(db_name + "/.unique_ids") {
+DbStressListener::DbStressListener(
+    const std::string& db_name, const std::vector<DbPath>& db_paths,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    SharedState* shared)
+    : db_name_(db_name),
+      db_paths_(db_paths),
+      column_families_(column_families),
+      num_pending_file_creations_(0),
+      unique_ids_(shared->GetStressTest()->GetExpectedValuesDir().empty()
+                      ? db_name
+                      : shared->GetStressTest()->GetExpectedValuesDir()),
+      shared_(shared) {}
+
+UniqueIdVerifier::UniqueIdVerifier(const std::string& dir)
+    : path_(dir + "/.unique_ids") {
   // We expect such a small number of files generated during this test
   // (thousands?), checking full 192-bit IDs for uniqueness is a very
   // weak check. For a stronger check, we pick a specific 64-bit
@@ -27,12 +39,15 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name, Env* env)
   // very good probability for the quantities in this test.
   offset_ = Random::GetTLSInstance()->Uniform(17);  // 0 to 16
 
-  const std::shared_ptr<FileSystem> fs = env->GetFileSystem();
+  // Always use local (default) filesystem for this bookkeeping file,
+  // even when DB is on a remote/warm filesystem, to avoid issues with
+  // weaker durability guarantees on remote filesystems.
+  const std::shared_ptr<FileSystem> fs = Env::Default()->GetFileSystem();
   IOOptions opts;
 
-  Status st = fs->CreateDirIfMissing(db_name, opts, nullptr);
+  Status st = fs->CreateDirIfMissing(dir, opts, nullptr);
   if (!st.ok()) {
-    fprintf(stderr, "Failed to create directory %s: %s\n", db_name.c_str(),
+    fprintf(stderr, "Failed to create directory %s: %s\n", dir.c_str(),
             st.ToString().c_str());
     exit(1);
   }

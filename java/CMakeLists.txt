@@ -182,6 +182,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/HyperClockCache.java
   src/main/java/org/rocksdb/ImportColumnFamilyOptions.java
   src/main/java/org/rocksdb/IndexShorteningMode.java
+  src/main/java/org/rocksdb/IndexSearchType.java
   src/main/java/org/rocksdb/IndexType.java
   src/main/java/org/rocksdb/InfoLogLevel.java
   src/main/java/org/rocksdb/IngestExternalFileOptions.java

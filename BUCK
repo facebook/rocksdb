@@ -32,12 +32,14 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/blob/blob_file_cache.cc",
         "db/blob/blob_file_garbage.cc",
         "db/blob/blob_file_meta.cc",
+        "db/blob/blob_file_partition_manager.cc",
         "db/blob/blob_file_reader.cc",
         "db/blob/blob_garbage_meter.cc",
         "db/blob/blob_log_format.cc",
         "db/blob/blob_log_sequential_reader.cc",
         "db/blob/blob_log_writer.cc",
         "db/blob/blob_source.cc",
+        "db/blob/blob_write_batch_transformer.cc",
         "db/blob/prefetch_buffer_collection.cc",
         "db/builder.cc",
         "db/c.cc",
@@ -106,8 +108,10 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/version_edit.cc",
         "db/version_edit_handler.cc",
         "db/version_set.cc",
+        "db/version_util.cc",
         "db/wal_edit.cc",
         "db/wal_manager.cc",
+        "db/wide/read_path_blob_resolver.cc",
         "db/wide/wide_column_serialization.cc",
         "db/wide/wide_columns.cc",
         "db/wide/wide_columns_helper.cc",
@@ -207,6 +211,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "table/block_based/hash_index_reader.cc",
         "table/block_based/index_builder.cc",
         "table/block_based/index_reader_common.cc",
+        "table/block_based/multi_scan_index_iterator.cc",
         "table/block_based/parsed_full_filter_block.cc",
         "table/block_based/partitioned_filter_block.cc",
         "table/block_based/partitioned_index_iterator.cc",
@@ -268,6 +273,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "util/dynamic_bloom.cc",
         "util/file_checksum_helper.cc",
         "util/hash.cc",
+        "util/io_dispatcher_imp.cc",
         "util/murmurhash.cc",
         "util/random.cc",
         "util/rate_limiter.cc",
@@ -328,6 +334,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/secondary_index/simple_secondary_index.cc",
         "utilities/simulator_cache/cache_simulator.cc",
         "utilities/simulator_cache/sim_cache.cc",
+        "utilities/sorted_run_builder/sorted_run_builder.cc",
         "utilities/table_properties_collectors/compact_for_tiering_collector.cc",
         "utilities/table_properties_collectors/compact_on_deletion_collector.cc",
         "utilities/trace/file_trace_reader_writer.cc",
@@ -361,6 +368,9 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/transactions/write_prepared_txn_db.cc",
         "utilities/transactions/write_unprepared_txn.cc",
         "utilities/transactions/write_unprepared_txn_db.cc",
+        "utilities/trie_index/bitvector.cc",
+        "utilities/trie_index/louds_trie.cc",
+        "utilities/trie_index/trie_index_factory.cc",
         "utilities/ttl/db_ttl_impl.cc",
         "utilities/types_util.cc",
         "utilities/wal_filter.cc",
@@ -368,10 +378,10 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/write_batch_with_index/write_batch_with_index_internal.cc",
     ], deps=[
         "//folly/container:f14_hash",
-        "//folly/experimental/coro:blocking_wait",
-        "//folly/experimental/coro:collect",
-        "//folly/experimental/coro:coroutine",
-        "//folly/experimental/coro:task",
+        "//folly/coro:blocking_wait",
+        "//folly/coro:collect",
+        "//folly/coro:coroutine",
+        "//folly/coro:task",
         "//folly/synchronization:distributed_mutex",
     ], headers=glob(["**/*.h"]), link_whole=False, extra_test_libs=False)
 
@@ -4798,6 +4808,12 @@ cpp_unittest_wrapper(name="db_blob_corruption_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="db_blob_direct_write_test",
+            srcs=["db/blob/db_blob_direct_write_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="db_blob_index_test",
             srcs=["db/blob/db_blob_index_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -4818,6 +4834,12 @@ cpp_unittest_wrapper(name="db_bloom_filter_test",
 
 cpp_unittest_wrapper(name="db_clip_test",
             srcs=["db/db_clip_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_compaction_abort_test",
+            srcs=["db/db_compaction_abort_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
@@ -4936,6 +4958,12 @@ cpp_unittest_wrapper(name="db_merge_operator_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="db_open_with_config_test",
+            srcs=["db/db_open_with_config_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="db_options_test",
             srcs=["db/db_options_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5016,6 +5044,12 @@ cpp_unittest_wrapper(name="db_wal_test",
 
 cpp_unittest_wrapper(name="db_wide_basic_test",
             srcs=["db/wide/db_wide_basic_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_wide_blob_direct_write_test",
+            srcs=["db/wide/db_wide_blob_direct_write_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
@@ -5130,6 +5164,12 @@ cpp_unittest_wrapper(name="faiss_ivf_index_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="fault_injection_fs_test",
+            srcs=["utilities/fault_injection_fs_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="fault_injection_test",
             srcs=["db/fault_injection_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5210,6 +5250,12 @@ cpp_unittest_wrapper(name="inlineskiplist_test",
 
 cpp_unittest_wrapper(name="interval_test",
             srcs=["util/interval_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="io_dispatcher_test",
+            srcs=["util/io_dispatcher_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
@@ -5508,6 +5554,12 @@ cpp_unittest_wrapper(name="slice_transform_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="sorted_run_builder_test",
+            srcs=["utilities/sorted_run_builder/sorted_run_builder_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="sst_dump_test",
             srcs=["tools/sst_dump_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5610,6 +5662,18 @@ cpp_unittest_wrapper(name="transaction_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="trie_index_db_test",
+            srcs=["utilities/trie_index/trie_index_db_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="trie_index_test",
+            srcs=["utilities/trie_index/trie_index_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="ttl_test",
             srcs=["utilities/ttl/ttl_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5708,6 +5772,12 @@ cpp_unittest_wrapper(name="write_committed_transaction_ts_test",
 
 cpp_unittest_wrapper(name="write_controller_test",
             srcs=["db/write_controller_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="write_prepared_transaction_seqno_test",
+            srcs=["utilities/transactions/write_prepared_transaction_seqno_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

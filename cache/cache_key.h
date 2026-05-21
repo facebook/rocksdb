@@ -44,13 +44,13 @@ class CacheKey {
   inline Slice AsSlice() const {
     static_assert(sizeof(*this) == 16, "Standardized on 16-byte cache key");
     assert(!IsEmpty());
-    return Slice(reinterpret_cast<const char *>(this), sizeof(*this));
+    return Slice(reinterpret_cast<const char*>(this), sizeof(*this));
   }
 
   // Create a CacheKey that is unique among others associated with this Cache
   // instance. Depends on Cache::NewId. This is useful for block cache
   // "reservations".
-  static CacheKey CreateUniqueForCacheLifetime(Cache *cache);
+  static CacheKey CreateUniqueForCacheLifetime(Cache* cache);
 
   // Create a CacheKey that is unique among others for the lifetime of this
   // process. This is useful for saving in a static data member so that
@@ -87,7 +87,7 @@ class OffsetableCacheKey : private CacheKey {
 
   // Constructs an OffsetableCacheKey with the given information about a file.
   // This constructor never generates an "empty" base key.
-  OffsetableCacheKey(const std::string &db_id, const std::string &db_session_id,
+  OffsetableCacheKey(const std::string& db_id, const std::string& db_session_id,
                      uint64_t file_number);
 
   // Creates an OffsetableCacheKey from an SST unique ID, so that cache keys
@@ -134,9 +134,9 @@ class OffsetableCacheKey : private CacheKey {
     static_assert(sizeof(file_num_etc64_) == kCommonPrefixSize,
                   "8 byte common prefix expected");
     assert(!IsEmpty());
-    assert(&this->file_num_etc64_ == static_cast<const void *>(this));
+    assert(&this->file_num_etc64_ == static_cast<const void*>(this));
 
-    return Slice(reinterpret_cast<const char *>(this), kCommonPrefixSize);
+    return Slice(reinterpret_cast<const char*>(this), kCommonPrefixSize);
   }
 };
 

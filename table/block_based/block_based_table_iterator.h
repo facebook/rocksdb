@@ -10,9 +10,11 @@
 #include <deque>
 
 #include "db/seqno_to_time_mapping.h"
+#include "rocksdb/io_dispatcher.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_based_table_reader_impl.h"
 #include "table/block_based/block_prefetcher.h"
+#include "table/block_based/multi_scan_index_iterator.h"
 #include "table/block_based/reader_common.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -71,7 +73,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   Slice key() const override {
     assert(Valid());
     if (is_at_first_key_from_index_) {
-      assert(!multi_scan_);
+      assert(!multi_scan_read_set_);
       return index_iter_->value().first_internal_key;
     } else {
       return block_iter_.key();
@@ -147,16 +149,13 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     // Prefix index set status to NotFound when the prefix does not exist.
     if (IsIndexAtCurr() && !index_iter_->status().ok() &&
         !index_iter_->status().IsNotFound()) {
-      assert(!multi_scan_);
       return index_iter_->status();
     } else if (block_iter_points_to_real_block_) {
       // This is the common case.
       return block_iter_.status();
     } else if (async_read_in_progress_) {
-      assert(!multi_scan_);
+      assert(!multi_scan_read_set_);
       return Status::TryAgain("Async read in progress");
-    } else if (multi_scan_) {
-      return multi_scan_status_;
     } else {
       return Status::OK();
     }
@@ -168,8 +167,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     } else if (block_upper_bound_check_ ==
                BlockUpperBound::kUpperBoundBeyondCurBlock) {
       assert(!is_out_of_bound_);
-      // MultiScan does not do block level upper bound check yet.
-      assert(!multi_scan_);
       return IterBoundCheck::kInbound;
     } else {
       return IterBoundCheck::kUnknown;
@@ -244,13 +241,10 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter_;
 
   bool TEST_IsBlockPinnedByMultiScan(size_t block_idx) {
-    if (!multi_scan_) {
+    if (!multi_scan_read_set_) {
       return false;
     }
-    if (block_idx >= multi_scan_->pinned_data_blocks.size()) {
-      return false;
-    }
-    return !multi_scan_->pinned_data_blocks[block_idx].IsEmpty();
+    return multi_scan_read_set_->IsBlockAvailable(block_idx);
   }
 
  private:
@@ -382,26 +376,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // See InternalIteratorBase::IsOutOfBound().
   bool is_out_of_bound_ = false;
 
-  // Mark prepared ranges as exhausted for multiscan.
-  void MarkPreparedRangeExhausted() {
-    assert(multi_scan_ != nullptr);
-    if (multi_scan_->next_scan_idx <
-        multi_scan_->block_index_ranges_per_scan.size()) {
-      // If there are more prepared ranges, we don't ResetDataIter() here,
-      // because next scan might be reading from the same block. ResetDataIter()
-      // will free the underlying block cache handle and we don't want the
-      // block to be unpinned.
-      // Set out of bound to mark the current prepared range as exhausted.
-      is_out_of_bound_ = true;
-    } else {
-      // This is the last prepared range of this file, there might be more
-      // data on next file. Reset data iterator to indicate the iterator is
-      // no longer valid on this file. Let LevelIter advance to the next file
-      // instead of ending the scan.
-      ResetDataIter();
-    }
-  }
-
   // During cache lookup to find readahead size, index_iter_ is iterated and it
   // can point to a different block.
   // If Prepare() is called, index_iter_ is used to prefetch data blocks for the
@@ -412,109 +386,31 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // *** END States used by both regular scan and multiscan
 
   // *** BEGIN MultiScan related states ***
-  struct AsyncReadState {
-    std::unique_ptr<char[]> buf{nullptr};
-    // Indices into pinned_data_blocks that this request reads.
-    std::vector<size_t> block_indices;
-    // BlockHandle for each block in block_indices.
-    std::vector<BlockHandle> blocks;
-    void* io_handle{nullptr};
-    IOHandleDeleter del_fn{nullptr};
-    // offset for this async read request.
-    uint64_t offset{0};
-
-    // These two states are populated from the FSReadRequest
-    // by ReadAsync callback
-    Status status;
-    Slice result;
-
-    // For direct I/O support
-    AlignedBuf aligned_buf{nullptr};
-
-    bool finished{false};
-
-    AsyncReadState() = default;
-    DECLARE_DEFAULT_MOVES(AsyncReadState);
-    // Delete copy operations
-    AsyncReadState(const AsyncReadState&) = delete;
-    AsyncReadState& operator=(const AsyncReadState&) = delete;
-
-    void CleanUpIOHandle() {
-      if (io_handle != nullptr) {
-        assert(del_fn);
-        del_fn(io_handle);
-        io_handle = nullptr;
-      }
-      finished = true;
-    }
-
-    ~AsyncReadState() {
-      // Should be cleaned up before destruction.
-      assert(io_handle == nullptr);
-    }
-  };
-
-  struct MultiScanState {
-    // For Aborting async I/Os in destructor.
-    const std::shared_ptr<FileSystem> fs;
-    const MultiScanArgs* scan_opts;
-    std::vector<CachableEntry<Block>> pinned_data_blocks;
-    // The separator of each data block in above pinned_data_blocks vector.
-    // Its size is same as pinned_data_blocks.
-    // The value of separator is larger than or equal to the last key in the
-    // corresponding data block.
-    std::vector<std::string> data_block_separators;
-    // Track previously seeked key in multi-scan.
-    // This is used to ensure that the seek key is keep moving forward, as
-    // blocks that are smaller than the seek key are unpinned from memory.
-    std::string prev_seek_key_;
-
-    // Indicies into pinned_data_blocks for data blocks for each scan range.
-    // inclusive start, exclusive end
-    std::vector<std::tuple<size_t, size_t>> block_index_ranges_per_scan;
-    size_t next_scan_idx;
-    size_t cur_data_block_idx;
-
-    // States for async reads.
-    //
-    // Each async state correspond to an async read request.
-    // Each async read request may read content for multiple blocks
-    // (potentially coalesced). In PollForBlock(idx), we will poll for the
-    // completion of the async read request responsible for
-    // pinned_data_blocks[idx], and populate `pinned_data_blocks` with all the
-    // blocks read. To find out the async read request responsible for
-    // pinned_data_blocks[idx], we store the mapping in
-    // block_idx_to_readreq_idx. Index i is in block_idx_to_readreq_idx and
-    // block_idx_to_readreq_idx[i] = j iff pinned_data_blocks[i] is read by
-    // async_states[j].
-    std::vector<AsyncReadState> async_states;
-    UnorderedMap<size_t, size_t> block_idx_to_readreq_idx;
-    size_t prefetch_max_idx;
-
-    MultiScanState(
-        const std::shared_ptr<FileSystem>& _fs, const MultiScanArgs* _scan_opts,
-        std::vector<CachableEntry<Block>>&& _pinned_data_blocks,
-        std::vector<std::string>&& _data_block_separators,
-        std::vector<std::tuple<size_t, size_t>>&& _block_index_ranges_per_scan,
-        UnorderedMap<size_t, size_t>&& _block_idx_to_readreq_idx,
-        std::vector<AsyncReadState>&& _async_states, size_t _prefetch_max_idx)
-        : fs(_fs),
-          scan_opts(_scan_opts),
-          pinned_data_blocks(std::move(_pinned_data_blocks)),
-          data_block_separators(std::move(_data_block_separators)),
-          block_index_ranges_per_scan(std::move(_block_index_ranges_per_scan)),
-          next_scan_idx(0),
-          cur_data_block_idx(0),
-          async_states(std::move(_async_states)),
-          block_idx_to_readreq_idx(std::move(_block_idx_to_readreq_idx)),
-          prefetch_max_idx(_prefetch_max_idx) {}
-
-    ~MultiScanState();
-  };
-
   Status multi_scan_status_;
-  std::unique_ptr<MultiScanState> multi_scan_;
-  // *** END MultiScan related APIs and states ***
+  // ReadSet from IODispatcher, set during Prepare(). When non-null, MultiScan
+  // is active and index_iter_ points to a MultiScanIndexIterator.
+  std::shared_ptr<ReadSet> multi_scan_read_set_;
+  // Raw pointer into index_iter_ when it's a MultiScanIndexIterator.
+  MultiScanIndexIterator* multi_scan_index_iter_ = nullptr;
+  // Original index iterator saved during Prepare(), restored on backward ops.
+  std::unique_ptr<InternalIteratorBase<IndexValue>> original_index_iter_;
+  // Maximum prefetchable block index.
+  size_t prefetch_max_idx_ = 0;
+  // *** END MultiScan related states ***
+
+  // Reset MultiScan state and restore the original index iterator.
+  void ResetMultiScan() {
+    multi_scan_read_set_.reset();
+    multi_scan_index_iter_ = nullptr;
+    prefetch_max_idx_ = 0;
+    // Discard any MultiScan error (e.g. PrefetchLimitReached) since we're
+    // falling back to regular iteration.
+    multi_scan_status_.PermitUncheckedError();
+    multi_scan_status_ = Status::OK();
+    if (original_index_iter_) {
+      index_iter_ = std::move(original_index_iter_);
+    }
+  }
 
   void SeekSecondPass(const Slice* target);
 
@@ -572,6 +468,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   }
 
   bool IsNextBlockOutOfReadaheadBound() {
+    assert(index_iter_->Valid());
     const Slice& index_iter_user_key = index_iter_->user_key();
     // If curr block's index key >= iterate_upper_bound, it means all the keys
     // in next block or above are out of bound.
@@ -633,110 +530,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   // *** BEGIN APIs relevant to multiscan ***
 
-  void SeekMultiScan(const Slice* target);
-
-  void FindBlockForwardInMultiScan();
-
-  void PrepareReadAsyncCallBack(FSReadRequest& req, void* cb_arg) {
-    // Record status, result and sanity check offset from `req`.
-    AsyncReadState* async_state = static_cast<AsyncReadState*>(cb_arg);
-
-    async_state->status = req.status;
-    async_state->result = req.result;
-
-    if (async_state->status.ok()) {
-      assert(async_state->offset == req.offset);
-      if (async_state->offset != req.offset) {
-        async_state->status = Status::InvalidArgument(
-            "offset mismatch between async read request " +
-            std::to_string(async_state->offset) + " and async callback " +
-            std::to_string(req.offset));
-      }
-    }
-  }
-
-  void MultiScanSeekTargetFromBlock(const Slice* seek_target, size_t block_idx);
-  void MultiScanUnexpectedSeekTarget(const Slice* seek_target,
-                                     const Slice* user_seek_target);
-
-  // Return true, if there is an error, or end of file
-  bool MultiScanLoadDataBlock(size_t idx) {
-    if (idx >= multi_scan_->prefetch_max_idx) {
-      // TODO: Fix the max_prefetch_size support for multiple files.
-      // The goal is to limit the memory usage, prefetch could be done
-      // incrementally.
-      if (multi_scan_->scan_opts->max_prefetch_size == 0) {
-        // If max_prefetch_size is not set, treat this as end of file.
-        ResetDataIter();
-        assert(!is_out_of_bound_);
-        assert(!Valid());
-      } else {
-        // If max_prefetch_size is set, treat this as error.
-        multi_scan_status_ = Status::PrefetchLimitReached();
-      }
-      return true;
-    }
-
-    if (!multi_scan_->async_states.empty()) {
-      multi_scan_status_ = PollForBlock(idx);
-      if (!multi_scan_status_.ok()) {
-        return true;
-      }
-    }
-    // This block should have been initialized
-    assert(multi_scan_->pinned_data_blocks[idx].GetValue());
-    // Note that the block_iter_ takes ownership of the pinned data block
-    // TODO: we can delegate the clean up like with pinned_iters_mgr_ if
-    // need to pin blocks longer.
-    table_->NewDataBlockIterator<DataBlockIter>(
-        read_options_, multi_scan_->pinned_data_blocks[idx], &block_iter_,
-        Status::OK());
-    return false;
-  }
-
-  // After PollForBlock(idx), the async request that contains
-  // pinned_data_blocks[idx] should be done, and all blocks contained in this
-  // read request will be initialzed in pinned_data_blocks and pinned in block
-  // cache.
-  Status PollForBlock(size_t idx);
-
-  // Helper function to create and pin a block in cache from buffer data
-  // Handles decompressor setup with dictionary loading and block
-  // creation/pinning. The buffer_start_offset is the file offset where
-  // buffer_data starts.
-  Status CreateAndPinBlockFromBuffer(const BlockHandle& block,
-                                     uint64_t buffer_start_offset,
-                                     const Slice& buffer_data,
-                                     CachableEntry<Block>& pinned_block_entry);
-
   Status CollectBlockHandles(
       const std::vector<ScanOptions>& scan_opts,
       std::vector<BlockHandle>* scan_block_handles,
       std::vector<std::tuple<size_t, size_t>>* block_index_ranges_per_scan,
       std::vector<std::string>* data_block_boundary_keys);
-
-  Status FilterAndPinCachedBlocks(
-      const std::vector<BlockHandle>& scan_block_handles,
-      const MultiScanArgs* multiscan_opts,
-      std::vector<size_t>* block_indices_to_read,
-      std::vector<CachableEntry<Block>>* pinned_data_blocks_guard,
-      size_t* prefetched_max_idx);
-
-  void PrepareIORequests(
-      const std::vector<size_t>& block_indices_to_read,
-      const std::vector<BlockHandle>& scan_block_handles,
-      const MultiScanArgs* multiscan_opts,
-      std::vector<FSReadRequest>* read_reqs,
-      UnorderedMap<size_t, size_t>* block_idx_to_readreq_idx,
-      std::vector<std::vector<size_t>>* coalesced_block_indices);
-
-  Status ExecuteIO(
-      const std::vector<BlockHandle>& scan_block_handles,
-      const MultiScanArgs* multiscan_opts,
-      const std::vector<std::vector<size_t>>& coalesced_block_indices,
-      std::vector<FSReadRequest>* read_reqs,
-      std::vector<AsyncReadState>* async_states,
-      std::vector<CachableEntry<Block>>* pinned_data_blocks_guard);
 
   // *** END APIs relevant to multiscan ***
 };

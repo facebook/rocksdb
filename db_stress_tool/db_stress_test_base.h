@@ -14,6 +14,7 @@
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "rocksdb/experimental.h"
+#include "rocksdb/user_defined_index.h"
 #include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -33,9 +34,19 @@ class StressTest {
            !status_to_io_status(Status(error_s)).GetDataLoss();
   }
 
+  // Returns true if the status is an expected transactional error, including
+  // lock conflicts (deadlock or timeout) from MaybeAddKeyToTxnForRYW writing
+  // to the same key space without the stress-test-level mutex, and TryAgain
+  // from optimistic transactions when conflict detection retries are exhausted.
+  static bool IsExpectedTxnError(const Status& s);
+
   StressTest();
 
   virtual ~StressTest() {}
+
+  const std::string& GetDbPath() const;
+  const std::string& GetExpectedValuesDir() const;
+  const std::string& GetSecondariesBase() const;
 
   std::shared_ptr<Cache> NewCache(size_t capacity, int32_t num_shard_bits);
 
@@ -63,6 +74,9 @@ class StressTest {
   }
   Options GetOptions(int cf_id);
   void CleanUp();
+
+ private:
+  void NotifyListenerShuttingDown();
 
  protected:
   static int GetMinInjectedErrorCount(int error_count_1, int error_count_2) {
@@ -296,6 +310,35 @@ class StressTest {
     kLastOpSeekToLast
   };
 
+  // Enum used to track MANIFEST verification mode during DB reopen
+  enum ManifestVerifyMode {
+    MANIFEST_VERIFY_NONE,
+    // MANIFEST file should be reused (same file number), CURRENT should not
+    // change. Used when reuse_manifest_on_open=1. Warnings are logged on
+    // failure but test continues.
+    MANIFEST_VERIFY_REUSE,
+    // MANIFEST file should be reused AND no recovery writes should occur.
+    // Used when both reuse_manifest_on_open=1 and
+    // optimize_manifest_for_recovery=1. Warnings are logged on failure but test
+    // continues.
+    MANIFEST_VERIFY_NO_WRITE,
+    // Strict verification: MANIFEST file must be reused with ZERO writes
+    // (complete avoidance). Used when ALL conditions for complete avoidance
+    // are met. Failures are FATAL and will terminate the test.
+    // Conditions for STRICT mode:
+    // - Both reuse_manifest_on_open=1 and optimize_manifest_for_recovery=1
+    // - Not in best_efforts_recovery mode
+    // - avoid_flush_during_recovery=true (no flush during recovery)
+    // - write_dbid_to_manifest=0 (no DB_ID write on open)
+    // - metadata_write_fault_one_in=0 (no fault injection)
+    // - open_metadata_write_fault_one_in=0 (no fault injection)
+    // - MANIFEST not corrupted, not at size limit
+    // Note: avoid_flush_during_shutdown is NOT required. If it leaves data
+    // in WAL but avoid_flush_during_recovery=true prevents flushing it,
+    // MANIFEST still won't be written.
+    MANIFEST_VERIFY_STRICT
+  };
+
   // Compare the two iterator, iter and cmp_iter are in the same position,
   // unless iter might be made invalidate or undefined because of
   // upper or lower bounds, or prefix extractor.
@@ -307,8 +350,13 @@ class StressTest {
   void VerifyIterator(ThreadState* thread, ColumnFamilyHandle* cmp_cfh,
                       const ReadOptions& ro, IterType* iter, Iterator* cmp_iter,
                       LastIterateOp op, const Slice& seek_key,
+                      const std::vector<int>& rand_column_families,
                       const std::string& op_logs, VerifyFuncType verifyFunc,
                       bool* diverged);
+
+  void DumpIteratorDivergenceDiagnostics(
+      ColumnFamilyHandle* cmp_cfh, const ReadOptions& ro, const Slice& seek_key,
+      const std::vector<int>& rand_column_families) const;
 
   virtual Status TestBackupRestore(ThreadState* thread,
                                    const std::vector<int>& rand_column_families,
@@ -331,6 +379,8 @@ class StressTest {
   Status TestDisableFileDeletions(ThreadState* thread);
 
   Status TestDisableManualCompaction(ThreadState* thread);
+
+  Status TestAbortAndResumeCompactions(ThreadState* thread);
 
   void TestAcquireSnapshot(ThreadState* thread, int rand_column_family,
                            const std::string& keystr, uint64_t i);
@@ -399,9 +449,13 @@ class StressTest {
 
   void CleanUpColumnFamilies();
 
+  void RecordManifestStateBeforeReopen();
+  void VerifyManifestNotRewritten();
+
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
+  std::unique_ptr<DB> db_owner_;
   DB* db_;
   TransactionDB* txn_db_;
   OptimisticTransactionDB* optimistic_txn_db_;
@@ -419,10 +473,17 @@ class StressTest {
   std::vector<std::string> options_index_;
   std::atomic<bool> db_preload_finished_;
   std::shared_ptr<SstQueryFilterConfigsManager::Factory> sqfc_factory_;
+  std::shared_ptr<UserDefinedIndexFactory> udi_factory_;
 
-  DB* secondary_db_;
+  std::unique_ptr<DB> secondary_db_;
   std::vector<ColumnFamilyHandle*> secondary_cfhs_;
   bool is_db_stopped_;
+
+  // MANIFEST verification state for reopen
+  ManifestVerifyMode manifest_verify_mode_;
+  uint64_t manifest_file_number_before_reopen_;
+  uint64_t manifest_file_size_before_reopen_;
+  std::string current_file_content_before_reopen_;
 };
 
 // Load options from OPTIONS file and populate `options`.
@@ -434,7 +495,9 @@ bool InitializeOptionsFromFile(Options& options);
 // input arguments.
 void InitializeOptionsFromFlags(
     const std::shared_ptr<Cache>& cache,
-    const std::shared_ptr<const FilterPolicy>& filter_policy, Options& options);
+    const std::shared_ptr<const FilterPolicy>& filter_policy,
+    const std::shared_ptr<UserDefinedIndexFactory>& udi_factory,
+    Options& options);
 
 // Initialize `options` on which `InitializeOptionsFromFile()` and
 // `InitializeOptionsFromFlags()` have both been called already.

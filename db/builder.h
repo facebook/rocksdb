@@ -31,6 +31,7 @@ struct FileMetaData;
 
 class VersionSet;
 class BlobFileAddition;
+class BlobFileGarbage;
 class SnapshotChecker;
 class TableCache;
 class TableBuilder;
@@ -40,6 +41,13 @@ class BlobFileCompletionCallback;
 // Convenience function for NewTableBuilder on the embedded table_factory.
 TableBuilder* NewTableBuilder(const TableBuilderOptions& tboptions,
                               WritableFileWriter* file);
+
+// Extract min/max timestamps from table properties and populate FileMetaData.
+// This is used by both flush (BuildTable) and compaction (CompactionOutputs)
+// to populate timestamp range in FileMetaData from the TimestampTableProperties
+// collector output.
+void ExtractTimestampFromTableProperties(const TableProperties& tp,
+                                         FileMetaData* meta);
 
 // Build a Table file from the contents of *iter.  The generated file
 // will be named according to number specified in meta. On success, the rest of
@@ -72,6 +80,8 @@ Status BuildTable(
     BlobFileCompletionCallback* blob_callback = nullptr,
     Version* version = nullptr, uint64_t* memtable_payload_bytes = nullptr,
     uint64_t* memtable_garbage_bytes = nullptr,
-    InternalStats::CompactionStats* flush_stats = nullptr);
+    InternalStats::CompactionStats* flush_stats = nullptr,
+    std::vector<BlobFileGarbage>* blob_file_garbages = nullptr,
+    bool fast_sst_open = false);
 
 }  // namespace ROCKSDB_NAMESPACE

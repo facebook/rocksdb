@@ -47,13 +47,13 @@ ifneq ($(strip $(FOLLY_PATH)),)
 	# Add -ldl at the end as gcc resolves a symbol in a library by searching only in libraries specified later
 	# in the command line
 
-	PLATFORM_LDFLAGS += $(FOLLY_PATH)/lib/libfolly.a $(BOOST_PATH)/lib/libboost_context.a $(BOOST_PATH)/lib/libboost_filesystem.a $(BOOST_PATH)/lib/libboost_atomic.a $(BOOST_PATH)/lib/libboost_program_options.a $(BOOST_PATH)/lib/libboost_regex.a $(BOOST_PATH)/lib/libboost_system.a $(BOOST_PATH)/lib/libboost_thread.a $(DBL_CONV_PATH)/lib/libdouble-conversion.a $(LIBEVENT_PATH)/lib/libevent-2.1.so $(LIBSODIUM_PATH)/lib/libsodium.a -ldl
+	PLATFORM_LDFLAGS += $(FOLLY_PATH)/lib/libfolly.a $(BOOST_PATH)/lib/libboost_context.a $(BOOST_PATH)/lib/libboost_filesystem.a $(BOOST_PATH)/lib/libboost_atomic.a $(BOOST_PATH)/lib/libboost_program_options.a $(BOOST_PATH)/lib/libboost_regex.a $(BOOST_PATH)/lib/libboost_system.a $(BOOST_PATH)/lib/libboost_thread.a $(DBL_CONV_PATH)/lib/libdouble-conversion.a $(LIBEVENT_PATH)/lib/libevent.a $(LIBSODIUM_PATH)/lib/libsodium.a -ldl
 ifneq ($(DEBUG_LEVEL),0)
 	PLATFORM_LDFLAGS += $(FMT_LIB_PATH)/libfmtd.a $(GLOG_LIB_PATH)/libglogd.so $(GFLAGS_PATH)/lib/libgflags_debug.so.2.2
 else
 	PLATFORM_LDFLAGS += $(FMT_LIB_PATH)/libfmt.a $(GLOG_LIB_PATH)/libglog.so $(GFLAGS_PATH)/lib/libgflags.so.2.2
 endif
-	PLATFORM_LDFLAGS += -Wl,-rpath=$(LIBEVENT_PATH)/lib -Wl,-rpath=$(GLOG_LIB_PATH) -Wl,-rpath=$(GFLAGS_PATH)/lib
+	PLATFORM_LDFLAGS += -Wl,-rpath=$(GLOG_LIB_PATH) -Wl,-rpath=$(GFLAGS_PATH)/lib
 endif
 	PLATFORM_CCFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
 	PLATFORM_CXXFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
@@ -98,7 +98,7 @@ endif  # FMT_SOURCE_PATH
 	PLATFORM_LDFLAGS += -lglog
 endif
 
-FOLLY_COMMIT_HASH = 94a8e82cf16a0e229fc4fc89140219434ba78fa2
+FOLLY_COMMIT_HASH = 548b16da0b3cc887d69cdb6ae06496ad8a2a9276
 
 # For public CI runs, checkout folly in a way that can build with RocksDB.
 # This is mostly intended as a test-only simulation of Meta-internal folly
@@ -116,10 +116,27 @@ checkout_folly:
 	perl -pi -e 's/(#include <atomic>)/$$1\n#include <cstring>/' third-party/folly/folly/lang/Exception.h
 	@# const mismatch
 	perl -pi -e 's/: environ/: (const char**)(environ)/' third-party/folly/folly/Subprocess.cpp
-	@# Use gnu.org mirrors to improve download speed (ftp.gnu.org is often super slow)
-	cd third-party/folly && perl -pi -e 's/ftp.gnu.org/ftpmirror.gnu.org/' `git grep -l ftp.gnu.org` README.md
+	@# Restore cached downloads and handle unreliable mirrors with fallback
+	@cd third-party/folly && \
+		DOWNLOAD_DIR=`$(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir | sed 's|/installed/.*|/downloads|'` && \
+		mkdir -p "$$DOWNLOAD_DIR" && \
+		CACHE_DIR="/tmp/rocksdb-getdeps-cache" && \
+		mkdir -p "$$CACHE_DIR" && \
+		echo "Restoring cached downloads..." && \
+		if ls "$$CACHE_DIR"/*.tar.gz "$$CACHE_DIR"/*.tar.xz "$$CACHE_DIR"/*.zip >/dev/null 2>&1; then \
+			cp -n "$$CACHE_DIR"/*.tar.gz "$$CACHE_DIR"/*.tar.xz "$$CACHE_DIR"/*.zip "$$DOWNLOAD_DIR/" 2>/dev/null || true; \
+		fi && \
+		echo "Handling known unreliable downloads with fallback mirrors..." && \
+		$(PYTHON) ../../build_tools/getdeps_fallback_mirror.py "$$DOWNLOAD_DIR" "$$CACHE_DIR" build/fbcode_builder/manifests
 	@# NOTE: boost and fmt source will be needed for any build including `USE_FOLLY_LITE` builds as those depend on those headers
 	cd third-party/folly && GETDEPS_USE_WGET=1 $(PYTHON) build/fbcode_builder/getdeps.py fetch boost && GETDEPS_USE_WGET=1 $(PYTHON) build/fbcode_builder/getdeps.py fetch fmt
+	@# Update cache with any new downloads
+	@cd third-party/folly && \
+		DOWNLOAD_DIR=`$(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir | sed 's|/installed/.*|/downloads|'` && \
+		CACHE_DIR="/tmp/rocksdb-getdeps-cache" && \
+		if ls "$$DOWNLOAD_DIR"/*.tar.gz "$$DOWNLOAD_DIR"/*.tar.xz "$$DOWNLOAD_DIR"/*.zip >/dev/null 2>&1; then \
+			cp -n "$$DOWNLOAD_DIR"/*.tar.gz "$$DOWNLOAD_DIR"/*.tar.xz "$$DOWNLOAD_DIR"/*.zip "$$CACHE_DIR/" 2>/dev/null || true; \
+		fi
 
 CXX_M_FLAGS = $(filter -m%, $(CXXFLAGS))
 

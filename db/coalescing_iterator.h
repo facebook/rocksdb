@@ -5,6 +5,10 @@
 
 #pragma once
 
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "db/multi_cf_iterator_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -45,6 +49,7 @@ class CoalescingIterator : public Iterator {
   void Reset() {
     value_.clear();
     wide_columns_.clear();
+    owned_columns_.clear();
   }
 
   bool PrepareValue() override { return impl_.PrepareValue(); }
@@ -79,6 +84,7 @@ class CoalescingIterator : public Iterator {
   MultiCfIteratorImpl<ResetFunc, PopulateFunc> impl_;
   Slice value_;
   WideColumns wide_columns_;
+  std::vector<std::pair<std::string, std::string>> owned_columns_;
 
   struct WideColumnWithOrder {
     const WideColumn* column;

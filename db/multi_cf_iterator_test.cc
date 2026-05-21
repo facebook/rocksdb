@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/db_test_util.h"
+#include "db/wide/wide_column_test_util.h"
 #include "rocksdb/attribute_groups.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -921,6 +922,99 @@ TEST_F(CoalescingIteratorTest, AllowUnpreparedValue_Corruption) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_F(CoalescingIteratorTest,
+       SingleColumnFamilyAllowUnpreparedValueMatchesDirectIterator) {
+  Options options = GetDefaultOptions();
+  CreateAndReopenWithCF({"cf_1"}, options);
+
+  ASSERT_OK(Put(0, "key_1", "value_1"));
+  ASSERT_OK(Put(0, "key_2", "value_2"));
+
+  ReadOptions read_options;
+  read_options.allow_unprepared_value = true;
+
+  std::unique_ptr<Iterator> coalescing =
+      db_->NewCoalescingIterator(read_options, {handles_[0]});
+  std::unique_ptr<Iterator> direct(db_->NewIterator(read_options, handles_[0]));
+
+  auto verify_same_entry = [&](const Slice& target) {
+    coalescing->Seek(target);
+    direct->Seek(target);
+
+    ASSERT_EQ(direct->Valid(), coalescing->Valid());
+    ASSERT_EQ(direct->status(), coalescing->status());
+    ASSERT_TRUE(coalescing->Valid());
+    ASSERT_EQ(direct->key(), coalescing->key());
+    ASSERT_EQ(direct->value(), coalescing->value());
+    ASSERT_EQ(direct->columns(), coalescing->columns());
+  };
+
+  verify_same_entry("key_1");
+  verify_same_entry("key_2");
+}
+
+TEST_F(CoalescingIteratorTest, AllowUnpreparedValueWithSnapshotAutoRefresh) {
+  constexpr int kNumKeys = 32;
+
+  auto make_value = [](int cf, const char* phase, int key) {
+    return "cf" + std::to_string(cf) + "_" + phase + "_" + std::to_string(key) +
+           std::string(32, static_cast<char>('a' + cf));
+  };
+
+  Options options = GetDefaultOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 16;
+
+  CreateAndReopenWithCF({"cf_1"}, options);
+
+  for (int key = 0; key < kNumKeys; ++key) {
+    ASSERT_OK(Put(0, Key(key), make_value(0, "base", key)));
+    ASSERT_OK(Put(1, Key(key), make_value(1, "base", key)));
+  }
+  ASSERT_OK(Flush({0, 1}));
+  MoveFilesToLevel(1, 0);
+  MoveFilesToLevel(1, 1);
+
+  for (int key = 0; key < kNumKeys; ++key) {
+    ASSERT_OK(Put(0, Key(key), make_value(0, "visible", key)));
+    ASSERT_OK(Put(1, Key(key), make_value(1, "visible", key)));
+  }
+
+  ReadOptions read_options;
+  read_options.allow_unprepared_value = true;
+  read_options.auto_refresh_iterator_with_snapshot = true;
+  const Snapshot* snapshot = db_->GetSnapshot();
+  read_options.snapshot = snapshot;
+
+  std::vector<ColumnFamilyHandle*> cfhs_order_1_0 = {handles_[1], handles_[0]};
+  std::unique_ptr<Iterator> iter =
+      db_->NewCoalescingIterator(read_options, cfhs_order_1_0);
+
+  int seen = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_EQ(Key(seen), iter->key());
+    ASSERT_TRUE(iter->value().empty());
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(make_value(0, "visible", seen), iter->value().ToString());
+
+    if (seen == kNumKeys / 2) {
+      ASSERT_OK(Flush({0, 1}));
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[0], nullptr,
+                                  nullptr));
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                                  nullptr));
+    }
+    ++seen;
+  }
+
+  ASSERT_EQ(kNumKeys, seen);
+  ASSERT_OK(iter->status());
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
 class AttributeGroupIteratorTest : public DBTestBase {
  public:
   AttributeGroupIteratorTest()
@@ -1162,6 +1256,89 @@ TEST_F(AttributeGroupIteratorTest, AllowUnpreparedValue) {
       cfhs_order_0_1_2_3, expected_keys, expected_attribute_groups,
       /* lower_bound */ nullptr, /* upper_bound */ nullptr,
       /* allow_unprepared_value */ true);
+}
+
+TEST_F(AttributeGroupIteratorTest, BlobBackedWideColumns) {
+  Options options =
+      wide_column_test_util::GetDirectWriteOptions(GetDefaultOptions());
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"cf_1", "cf_2"}, options);
+
+  constexpr char key_1[] = "key_1";
+  const std::string key_1_default_blob =
+      wide_column_test_util::GenerateLargeValue(96, 'a');
+  const std::string key_1_cf_2_blob =
+      wide_column_test_util::GenerateLargeValue(128, 'b');
+  WideColumns key_1_default_columns{
+      {kDefaultWideColumnName, key_1_default_blob}, {"meta", "default_meta_1"}};
+  WideColumns key_1_cf_2_columns{{"blob", key_1_cf_2_blob},
+                                 {"tag", "cf_2_tag_1"}};
+
+  constexpr char key_2[] = "key_2";
+  const std::string key_2_cf_1_blob =
+      wide_column_test_util::GenerateLargeValue(112, 'c');
+  const std::string key_2_cf_2_blob =
+      wide_column_test_util::GenerateLargeValue(144, 'd');
+  WideColumns key_2_cf_1_columns{{kDefaultWideColumnName, key_2_cf_1_blob},
+                                 {"meta", "cf_1_meta_2"}};
+  WideColumns key_2_cf_2_columns{{"blob", key_2_cf_2_blob},
+                                 {"tag", "cf_2_tag_2"}};
+
+  AttributeGroups key_1_attribute_groups{
+      AttributeGroup(handles_[0], key_1_default_columns),
+      AttributeGroup(handles_[2], key_1_cf_2_columns)};
+  AttributeGroups key_2_attribute_groups{
+      AttributeGroup(handles_[1], key_2_cf_1_columns),
+      AttributeGroup(handles_[2], key_2_cf_2_columns)};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), key_1, key_1_attribute_groups));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), key_2, key_2_attribute_groups));
+  auto count_blob_files = [&]() -> size_t {
+    std::vector<std::string> files;
+    Status s = env_->GetChildren(dbname_, &files);
+    EXPECT_OK(s);
+    if (!s.ok()) {
+      return 0;
+    }
+
+    size_t blob_files = 0;
+    for (const auto& file : files) {
+      if (file.size() > 5 && file.substr(file.size() - 5) == ".blob") {
+        ++blob_files;
+      }
+    }
+    return blob_files;
+  };
+  ASSERT_GT(count_blob_files(), 0U);
+
+  IteratorAttributeGroups key_1_expected_attribute_groups{
+      IteratorAttributeGroup(key_1_attribute_groups[0]),
+      IteratorAttributeGroup(key_1_attribute_groups[1])};
+  IteratorAttributeGroups key_2_expected_attribute_groups{
+      IteratorAttributeGroup(key_2_attribute_groups[0]),
+      IteratorAttributeGroup(key_2_attribute_groups[1])};
+
+  const std::vector<ColumnFamilyHandle*> cfhs_order_0_1_2 = {
+      handles_[0], handles_[1], handles_[2]};
+  const std::vector<Slice> expected_keys = {key_1, key_2};
+  const std::vector<IteratorAttributeGroups> expected_attribute_groups{
+      key_1_expected_attribute_groups, key_2_expected_attribute_groups};
+
+  auto verify = [&](bool allow_unprepared_value) {
+    VerifyAttributeGroupIterator(
+        cfhs_order_0_1_2, expected_keys, expected_attribute_groups,
+        /* lower_bound */ nullptr, /* upper_bound */ nullptr,
+        allow_unprepared_value);
+  };
+
+  verify(/* allow_unprepared_value */ false);
+  verify(/* allow_unprepared_value */ true);
+
+  ASSERT_OK(Flush({0, 1, 2}));
+  ASSERT_GT(count_blob_files(), 0U);
+
+  verify(/* allow_unprepared_value */ false);
+  verify(/* allow_unprepared_value */ true);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

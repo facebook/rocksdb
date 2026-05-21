@@ -555,6 +555,10 @@ class BlockBasedTable : public TableReader {
   void DumpKeyValue(const Slice& key, const Slice& value,
                     std::ostream& out_stream,
                     bool show_sequence_number_type = false);
+  void DumpBlockChecksumInfo(const BlockHandle& block_handle,
+                             const ReadOptions& read_options,
+                             const char* block_name,
+                             std::ostream& out_stream) const;
 
   // Returns false if prefix_extractor exists and is compatible with that used
   // in building the table file, otherwise true.
@@ -575,6 +579,8 @@ class BlockBasedTable : public TableReader {
   friend class PartitionedFilterBlockReader;
   friend class PartitionedFilterBlockTest;
   friend class DBBasicTest_MultiGetIOBufferOverrun_Test;
+  friend class ReadSet;
+  friend class IODispatcherTest;
 };
 
 // Maintaining state of a two-level iteration on a partitioned index structure.
@@ -687,6 +693,13 @@ struct BlockBasedTable::Rep {
   bool index_has_first_key = false;
   bool index_key_includes_seq = true;
   bool index_value_is_full = true;
+
+  // Restart intervals read from table properties (0 if not available)
+  uint32_t data_block_restart_interval = 0;
+  uint32_t index_block_restart_interval = 0;
+
+  // If true, then data blocks have keys and values separated.
+  bool separate_key_value_in_data_block = false;
 
   // Whether block checksums in metadata blocks were verified on open.
   // This is only to mostly maintain current dubious behavior of VerifyChecksum

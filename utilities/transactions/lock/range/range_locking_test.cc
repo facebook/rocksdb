@@ -15,6 +15,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "test_util/testutil.h"
 #include "utilities/transactions/lock/point/any_lock_manager_test.h"
 #include "utilities/transactions/transaction_db_mutex_impl.h"
 
@@ -97,6 +98,46 @@ TEST_F(RangeLockingTest, BasicRangeLocking) {
   ASSERT_OK(txn0->Commit());
   txn1->Rollback();
 
+  delete txn0;
+  delete txn1;
+}
+
+// CompareDbtEndpoints must use CompareWithoutTimestamp for range lock
+// endpoints, which never contain user-defined timestamps.
+TEST_F(RangeLockingTest, RangeLockWithTimestampComparator) {
+  // Close the DB opened by the fixture (uses default comparator).
+  delete db;
+  db = nullptr;
+  ASSERT_OK(DestroyDB(dbname, options));
+
+  // Reopen with a timestamp-aware comparator.
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  range_lock_mgr.reset(NewRangeLockManager(nullptr));
+  txn_db_options.lock_mgr_handle = range_lock_mgr;
+
+  ASSERT_OK(TransactionDB::Open(options, txn_db_options, dbname, &db));
+
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+  txn_options.lock_timeout = 50;
+  auto cf = db->DefaultColumnFamily();
+
+  Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+
+  // Acquire a range lock [a, c]. This calls CompareDbtEndpoints internally.
+  // With the bug, debug builds abort here.
+  ASSERT_OK(txn0->GetRangeLock(cf, Endpoint("a"), Endpoint("c")));
+
+  // Overlapping range [b, z] should time out.
+  auto s = txn1->GetRangeLock(cf, Endpoint("b"), Endpoint("z"));
+  ASSERT_TRUE(s.IsTimedOut());
+
+  // Non-overlapping range [d, f] should succeed.
+  ASSERT_OK(txn1->GetRangeLock(cf, Endpoint("d"), Endpoint("f")));
+
+  txn0->Rollback();
+  txn1->Rollback();
   delete txn0;
   delete txn1;
 }

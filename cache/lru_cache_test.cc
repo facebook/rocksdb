@@ -2179,7 +2179,7 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
                             &cache_dumper);
   ASSERT_OK(s);
   std::vector<DB*> db_list;
-  db_list.push_back(db_);
+  db_list.push_back(db_.get());
   s = cache_dumper->SetDumpFilter(db_list);
   ASSERT_OK(s);
   s = cache_dumper->DumpCacheEntriesToWriter();
@@ -2263,11 +2263,11 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   options.env = fault_env_.get();
   std::string dbname1 = test::PerThreadDBPath("db_1");
   ASSERT_OK(DestroyDB(dbname1, options));
-  DB* db1 = nullptr;
+  std::unique_ptr<DB> db1;
   ASSERT_OK(DB::Open(options, dbname1, &db1));
   std::string dbname2 = test::PerThreadDBPath("db_2");
   ASSERT_OK(DestroyDB(dbname2, options));
-  DB* db2 = nullptr;
+  std::unique_ptr<DB> db2;
   ASSERT_OK(DB::Open(options, dbname2, &db2));
   fault_fs_->SetFailGetUniqueId(true);
 
@@ -2335,7 +2335,7 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
                             &cache_dumper);
   ASSERT_OK(s);
   std::vector<DB*> db_list;
-  db_list.push_back(db1);
+  db_list.push_back(db1.get());
   s = cache_dumper->SetDumpFilter(db_list);
   ASSERT_OK(s);
   s = cache_dumper->DumpCacheEntriesToWriter();
@@ -2377,7 +2377,7 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   ASSERT_OK(s);
 
   ASSERT_OK(db1->Close());
-  delete db1;
+  db1.reset();
   ASSERT_OK(DB::Open(options, dbname1, &db1));
 
   // After load, we do the Get again. To validate the cache, we do not allow any
@@ -2406,8 +2406,8 @@ TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   ASSERT_EQ(256, static_cast<int>(block_lookup));
   fault_fs_->SetFailGetUniqueId(false);
   fault_fs_->SetFilesystemActive(true);
-  delete db1;
-  delete db2;
+  db1.reset();
+  db2.reset();
   ASSERT_OK(DestroyDB(dbname1, options));
   ASSERT_OK(DestroyDB(dbname2, options));
 }
@@ -2619,11 +2619,11 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
   options.paranoid_file_checks = true;
   std::string dbname1 = test::PerThreadDBPath("db_t_1");
   ASSERT_OK(DestroyDB(dbname1, options));
-  DB* db1 = nullptr;
+  std::unique_ptr<DB> db1;
   ASSERT_OK(DB::Open(options, dbname1, &db1));
   std::string dbname2 = test::PerThreadDBPath("db_t_2");
   ASSERT_OK(DestroyDB(dbname2, options));
-  DB* db2 = nullptr;
+  std::unique_ptr<DB> db2;
   Options options2 = options;
   options2.lowest_used_cache_tier = CacheTier::kVolatileTier;
   ASSERT_OK(DB::Open(options2, dbname2, &db2));
@@ -2700,8 +2700,8 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
 
   fault_fs_->SetFailGetUniqueId(false);
   fault_fs_->SetFilesystemActive(true);
-  delete db1;
-  delete db2;
+  db1.reset();
+  db2.reset();
   ASSERT_OK(DestroyDB(dbname1, options));
   ASSERT_OK(DestroyDB(dbname2, options));
 }

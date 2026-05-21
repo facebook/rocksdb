@@ -350,7 +350,7 @@ INSTANTIATE_TEST_CASE_P(
     FormatVersions, PartitionedFilterBlockTest,
     testing::Combine(
         testing::ValuesIn(std::set<uint32_t>{
-            2, 3, 4, 5, test::kDefaultFormatVersion, kLatestFormatVersion}),
+            2, 3, 4, 5, test::kDefaultFormatVersion, kLatestBbtFormatVersion}),
         testing::ValuesIn(test::GetUDTTestModes()), testing::Bool()));
 
 TEST_P(PartitionedFilterBlockTest, EmptyBuilder) {

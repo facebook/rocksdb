@@ -80,7 +80,13 @@ struct SyncPoint::Data {
   void ClearCallBack(const std::string& point);
   void ClearAllCallBacks();
   void EnableProcessing() { enabled_ = true; }
-  void DisableProcessing() { enabled_ = false; }
+  void DisableProcessing() {
+    enabled_ = false;
+    // Wake up any threads blocked in Process() so they can recheck enabled_
+    // and return early instead of waiting forever for predecessors that will
+    // never fire.
+    cv_.notify_all();
+  }
   void ClearTrace() {
     std::lock_guard<std::mutex> lock(mutex_);
     cleared_points_.clear();

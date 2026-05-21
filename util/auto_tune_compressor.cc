@@ -64,9 +64,9 @@ std::unique_ptr<Compressor> AutoSkipCompressorWrapper::Clone() const {
 }
 
 std::unique_ptr<Compressor> AutoSkipCompressorWrapper::MaybeCloneSpecialized(
-    CacheEntryRole block_type, DictSampleArgs&& dict_samples) const {
+    CacheEntryRole block_type, DictConfigArgs&& dict_config) const {
   auto clone =
-      wrapped_->CloneMaybeSpecialized(block_type, std::move(dict_samples));
+      wrapped_->CloneMaybeSpecialized(block_type, std::move(dict_config));
   return std::make_unique<AutoSkipCompressorWrapper>(std::move(clone), opts_);
 }
 
@@ -189,11 +189,10 @@ const char* CostAwareCompressor::Name() const { return "CostAwareCompressor"; }
 std::unique_ptr<Compressor> CostAwareCompressor::Clone() const {
   return std::make_unique<CostAwareCompressor>(opts_);
 }
-size_t CostAwareCompressor::GetMaxSampleSizeIfWantDict(
+Compressor::DictConfig CostAwareCompressor::GetDictGuidance(
     CacheEntryRole block_type) const {
   auto idx = allcompressors_index_.back();
-  return allcompressors_[idx.first][idx.second]->GetMaxSampleSizeIfWantDict(
-      block_type);
+  return allcompressors_[idx.first][idx.second]->GetDictGuidance(block_type);
 }
 
 Slice CostAwareCompressor::GetSerializedDict() const {
@@ -205,12 +204,12 @@ CompressionType CostAwareCompressor::GetPreferredCompressionType() const {
   return kZSTD;
 }
 std::unique_ptr<Compressor> CostAwareCompressor::MaybeCloneSpecialized(
-    CacheEntryRole block_type, DictSampleArgs&& dict_samples) const {
+    CacheEntryRole block_type, DictConfigArgs&& dict_config) const {
   // TODO: full dictionary compression support. Currently this just falls
   // back on a non-multi compressor when asked to use a dictionary.
   auto idx = allcompressors_index_.back();
   return allcompressors_[idx.first][idx.second]->MaybeCloneSpecialized(
-      block_type, std::move(dict_samples));
+      block_type, std::move(dict_config));
 }
 Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
                                           char* compressed_output,

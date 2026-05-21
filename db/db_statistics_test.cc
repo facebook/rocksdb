@@ -321,7 +321,7 @@ TEST_F(DBStatisticsTest, BytesWrittenStats) {
     options.enable_pipelined_write = enable_pipelined_write;
     ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
     ASSERT_NE(txn_db, nullptr);
-    db_ = txn_db->GetBaseDB();
+    db_.reset(txn_db);
 
     WriteOptions wopts;
     TransactionOptions txn_opts;
@@ -351,8 +351,7 @@ TEST_F(DBStatisticsTest, BytesWrittenStats) {
                   WriteBatchInternal::kHeader);
 
     // Cleanup
-    db_ = nullptr;
-    delete txn_db;
+    db_.reset();
   }
 }
 

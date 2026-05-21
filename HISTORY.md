@@ -1,6 +1,105 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.3.0 (05/15/2026)
+### New Features
+* Add experimental DB option `async_wal_precreate` to precreate the next WAL file in a background thread and reduce foreground WAL rotation latency. The option is sanitized to false when WAL recycling is enabled.
+* Added a new `EventListener::OnCompactionPreCommit` callback that fires after a compaction job finishes but before its input files are released (i.e. while `FileMetaData::being_compacted` is still true). Listeners that maintain bookkeeping of which files are currently being compacted can clean up such state in this new callback to avoid races with concurrent compaction picking, where another thread might pick up the same files for a new compaction immediately after `being_compacted` is flipped back to false but before `OnCompactionCompleted` fires. The default implementation is a no-op so this is not a breaking change.
+* Add mutable DBOption `optimize_manifest_for_recovery` (default false). When enabled, RocksDB can reduce recovery work after a clean shutdown, which may lower DB::Open latency on warm reopens.
+* Added public utility APIs `ParseCompressionNameForDisplay()` to convert `TableProperties::compression_name` into a human-readable compression name for both legacy and format_version 7+ SST metadata, including custom `CompressionManager`-provided display names for custom compression types.
+* Add `reuse_manifest_on_open` DBOption (default false). When enabled, DB::Open reuses the existing MANIFEST file for append instead of creating a fresh one, avoiding the cost of serializing the entire database state into a new MANIFEST on the first post-open write. To prevent this feature from interfering with manifest file size auto-tuning, an extra forward-compatible field is now always added to the MANIFEST (to track the last "compacted" size).
+
+### Behavior Changes
+* Read-only open with `error_if_wal_file_exists=true` now tolerates empty WAL files so empty precreated WALs do not prevent inspection.
+* WriteCommitted TransactionDB now matches WritePrepared and WriteUnprepared compaction filtering in both single- and two-write-queue modes: a compaction filter's FilterMergeOperand will not be invoked on merge operands at or below the latest published sequence number.
+
+### Bug Fixes
+* Fixed blob-backed wide-column merge reads to preserve correct status
+propagation and resolution across memtable, read-only, and secondary DB
+paths.
+* Fixed a bug where `DB::GetCreationTimeOfOldestFile()` could return inaccurate results instead of the real creation time when called shortly after opening a legacy DB (one whose manifest lacks `file_creation_time`) with `open_files_async = true`. The API now waits for background SST file loading to complete only when needed; modern DBs are unaffected.
+* Fixed merge reads against wide-column/blob-backed base values to preserve precise failure statuses, including `GetMergeOperands()` and direct-write memtable reads.
+* Fix bug in range tombstone synthesis that covers live keys added during an IngestExternalFile
+* Reject the empty string as a column family name in `DB::CreateColumnFamily` / `DB::CreateColumnFamilies`. Previously such calls returned OK and a usable handle, but the column family was not persisted in the manifest, so any data written to it was silently lost on DB reopen.
+* Fixed a bug where a WriteCommitted TransactionDB using commit-bypass WBWI ingestion could drop an entry that is still visible at the published sequence boundary.
+
+## 11.2.0 (04/18/2026)
+### New Features
+* Added experimental `DBOptions::fast_sst_open` option. When enabled, RocksDB retrieves opaque file system metadata for SST files after flush, compaction, and external file ingestion, persists it in the MANIFEST, and passes it back to the file system on subsequent file opens to accelerate DB open time.
+* Added new option `min_tombstones_for_range_conversion` in `AdvancedColumnFamilyOptions`. When set to a non-zero value N, forward or reverse iteration will convert N or more contiguous point tombstones into a range tombstone in the mutable memtable. Future read operations will then be able to benefit from range tombstone optimizations. There are some limitations when it comes to table_filters, prefix_filters, and UDTs. See header comments for more details.
+* Added read-triggered compaction: a new column family option `read_triggered_compaction_threshold` (default 0, disabled) that marks SST files for compaction when their read frequency (`num_collapsible_entry_reads_sampled / file_size`) exceeds the threshold. This helps reduce read amplification for frequently-read ("hot") keys. A new DB option `max_compaction_trigger_wakeup_seconds` (default 43200s / 12 hours) controls the maximum interval for periodic compaction score re-evaluation, which is necessary for this feature to work on quiet (no-write) databases.
+
+### Public API Changes
+* Added new `WideColumnBlobResolver` interface and `CompactionFilter::FilterV4()` method, including `ResolveColumn()` / `ResolveColumns()` helpers for lazy loading blob column values in wide-column entities during compaction. This allows compaction filters to resolve blob values on-demand, avoiding unnecessary I/O for blob columns they don't need to access.
+* Changed experimental feature `ExternalTableReader::Get` and `ExternalTableReader::MultiGet` to use `PinnableSlice` instead of `std::string` for output values, enabling zero-copy pinning. This will break existing implementations.
+* Added `SstFileReader::Get` and `SstFileReader::MultiGet` overloads that accept `PinnableSlice`/`std::vector<PinnableSlice>*`, enabling zero-copy reads when the underlying `TableReader` supports pinning.
+
+### Behavior Changes
+* Prefix filter changes - when seeking to a key that is out of domain, and total_order_seek is false, total_order_seek is treated as if it were true. When prefix_same_as_start = true, now iterating past a key that is out of domain invalidates the iterator. The existing behavior does not check for InDomain in the DBIter, so Transform() can produce undefined behavior (e.g. key of size 3 on FixedPrefixTransform(4)).
+* Wide-column entities with blob-backed columns now use a new V2 on-disk encoding; older RocksDB versions that do not support wide-column blob separation will reject DBs or SSTs containing those entities.
+
+### Bug Fixes
+* Fix blob garbage accounting for blob direct-write flushes so flush-time filtering and overwrite elision correctly register obsolete blob bytes in blob metadata.
+* Fix a memory accounting leak in IODispatcher where ReadIndex() moved block values out of ReadSet without releasing the associated prefetch memory, causing subsequent prefetches to be blocked when max_prefetch_memory_bytes was set.
+* Fix MultiScan to fall back to synchronous coalesced reads when async I/O is unsupported at runtime.
+
+
+## 11.1.0 (03/23/2026)
+### New Features
+* Add a new option `open_files_async`. The existing behavior is on DB open, we open all sst files and do basic validations. For very large DBs on remote filesystems with many ssts, this may take very long. This option performs these validations instead in the background. Open errors found by this async background task are surfaced as a new background error kAsyncFileOpen.
+* Added `BlockBasedTableOptions::kAuto` index block search type that automatically selects between binary and interpolation search on a per-index-block basis. During SST construction, each index block's key distribution uniformity is analyzed using the coefficient of variation of key gaps, and index blocks with uniform keys use interpolation search while others fall back to binary search. The uniformity threshold is configurable via `BlockBasedTableOptions::uniform_cv_threshold` (default: 0.2).
+* Introduced enforce_write_buffer_manager_during_recovery option to allow WriteBufferManager to be enforced during WAL recovery. (Default: true)
+* Add `memtable_batch_lookup_optimization` option to use batch lookup optimization for memtable MultiGet. For skip list memtables, after each key lookup, the search path is cached and reused for the next key, reducing per-key cost from O(log N) to O(log d) where d is the distance between consecutive keys. Benchmarks show ~7% improvement in memtable-resident MultiGet throughput.
+* Added `BlockBasedTableOptions::PrepopulateBlockCache::kFlushAndCompaction` to prepopulate the block cache during both flush and compaction. Compaction-warmed blocks are inserted at `BOTTOM` priority (vs `LOW` for flush) so they are evicted first under cache pressure. Recommended only for use cases where most or all of the database is expected to reside in cache (e.g., tiered or remote storage where the working set fits in cache).
+* Added new mutable DB option `verify_manifest_content_on_close` (default: false). When enabled, on DB close the MANIFEST file is read back and all records are validated (CRC checksums and logical content). If corruption is detected, a fresh MANIFEST is written from in-memory state.
+
+### Behavior Changes
+* num_reads_sampled now factors in re-seeks and next/prev() on file iterators for files in L1+. next/prev() is discounted by 64x compared to seek due to being a much cheaper call.
+* Remote compaction workers now skip WAL recovery when opening the secondary DB instance, since only the LSM state from MANIFEST is needed for compaction. This reduces I/O and speeds up remote compaction startup.
+
+### Bug Fixes
+* Fix a bug in round-robin compaction that missed selecting input files that are needed to guarantee data correctness and cause crashing in debug builds or silent data corruption in release builds for Get().
+
+## 11.0.0 (02/23/2026)
+### New Features
+* Added support for storing wide-column entity column values in blob files. When `min_blob_size` is configured, large column values in wide-column entities will be stored in blob files, reducing SST file size and improving read performance.
+* Added `CompactionOptionsFIFO::max_data_files_size` to support FIFO compaction trimming based on combined SST and blob file sizes. Added `CompactionOptionsFIFO::use_kv_ratio_compaction` to enable a capacity-derived intra-L0 compaction strategy optimized for BlobDB workloads, producing uniform-sized compacted files for predictable FIFO trimming.
+* Include interpolation search as an alternative to binary search, which typically performs better when keys are uniformly distributed. This is exposed as a new table option `index_block_search_type`. The default is `binary_search`.
+
+### Public API Changes
+* Added new virtual methods `AbortAllCompactions()` and `ResumeAllCompactions()` to the `DB` class. Added new `Status::SubCode::kCompactionAborted` to indicate a compaction was aborted. Added `Status::IsCompactionAborted()` helper method to check if a status represents an aborted compaction.
+* Drop support for reading (and writing) SST files using `BlockBasedTableOptions.format_version` < 2, which hasn't been the default format for about 10 years. An upgrade path is still possible with full compaction using a RocksDB version >= 4.6.0 and < 11.0.0 and then using the newer version.
+* Remove deprecated raw `DB*` variants of `DB::Open` and related functions. Some other minor public APIs were updated as a result
+* Remove deprecated `DB::MaxMemCompactionLevel()`
+* Remove useless option `CompressedSecondaryCacheOptions::compress_format_version`
+* Remove deprecated DB option `skip_checking_sst_file_sizes_on_db_open`. The option was deprecated in 10.5.0 and has been a no-op since then. File size validation is now always performed in parallel during DB open.
+* Remove deprecated `SliceTransform::InRange()` virtual method and the `in_range` callback parameter from `rocksdb_slicetransform_create()` in the C API. `InRange()` was never called by RocksDB and existed only for backward compatibility.
+* Remove deprecated, unused APIs and options: `ReadOptions::managed` and `ColumnFamilyOptions::snap_refresh_nanos`. Corresponding C and Java APIs are also removed.
+* Remove deprecated `SstFileWriter::Add()` method (use `Put()` instead) and the deprecated `skip_filters` parameter from `SstFileWriter` constructors (use `BlockBasedTableOptions::filter_policy` set to `nullptr` to skip filter generation instead).
+
+### Behavior Changes
+* Change the default value of `CompactionOptionsUniversal::reduce_file_locking` from `false` to `true` to improve write stall and reduce read regression
+
+### Bug Fixes
+* Fix longstanding failures that can arise from reading and/or compacting old DB dirs with range deletions (likely from version < 5.19.0) in many newer versions.
+* Fix a bug where WritePrepared/WriteUnprepared TransactionDB with two_write_queues=true could experience "sequence number going backwards" corruption during recovery from a background error, due to allocated-but-not-published sequence numbers not being synced before creating new WAL files.
+
+### Performance Improvements
+* Add a new table option `separate_key_value_in_data_block`. When set to true keys and values will be stored separately in the data block, which can result in higher cpu cache hit rate and better compression. Works best with data blocks with sufficient restart intervals and large values. Previous versions of RocksDB will reject files written using this option.
+
+## 10.11.0 (01/23/2026)
+### Public API Changes
+* New SetOptions API that allows setting options for multiple CFs, avoiding the need to reserialize OPTIONS file for each CF
+* Remove remaining pieces of Lua integration
+
+### Behavior Changes
+* The new default for `BlockBasedTableOptions::format_version` is 7, which has been supported since RocksDB 10.4.0 and is required in order to use CompressionManagers supporting custom compression types.
+
+### Bug Fixes
+* Fixed a small performance bug with `format_version=7` when decompressing formats other than Snappy and ZSTD.
+* Fixed an infinite compaction loop bug with User-Defined Timestamps (UDT) where bottommost files were repeatedly marked for compaction even though their timestamp could not be collapsed.
+* Bugfix for persisted UDT record sequence number zeroing logic.
+
 ## 10.10.0 (12/16/2025)
 ### Bug Fixes
 * Fixed a bug in best-efforts recovery that causes use-after-free crashes when accessing SST files that were cached during the recovery.

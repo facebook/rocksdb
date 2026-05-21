@@ -7,10 +7,12 @@
 #include <string>
 
 #include "db/read_callback.h"
+#include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 class BlobFetcher;
+class Cleanable;
 class Comparator;
 class Logger;
 class MergeContext;
@@ -119,6 +121,10 @@ class GetContext {
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
              uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr);
+  // emplace-only; default construction and move assignment are intentionally
+  // disabled.
+  GetContext(GetContext&&) noexcept = default;
+  GetContext& operator=(GetContext&&) noexcept = delete;
 
   GetContext() = delete;
 
@@ -139,8 +145,13 @@ class GetContext {
                  Cleanable* value_pinner = nullptr);
 
   // Simplified version of the previous function. Should only be used when we
-  // know that the operation is a Put.
-  void SaveValue(const Slice& value, SequenceNumber seq);
+  // know that the operation is a Put and the column family has no
+  // user-defined timestamps.
+  //
+  // value_pinner: if non-null, ownership of the underlying buffer is
+  // transferred via PinSlice (no copy). If null, value is copied via PinSelf.
+  void SaveValue(const Slice& value, SequenceNumber seq,
+                 Cleanable* value_pinner = nullptr);
 
   GetState State() const { return state_; }
 
@@ -194,15 +205,25 @@ class GetContext {
   void push_operand(const Slice& value, Cleanable* value_pinner);
 
  private:
+  Status SaveWideColumnEntityToPinnable(const Slice& user_key,
+                                        const Slice& entity,
+                                        Cleanable* value_pinner);
+  Status SaveWideColumnEntityToColumns(const Slice& user_key,
+                                       const Slice& entity,
+                                       Cleanable* value_pinner);
+  Status PushWideColumnEntityDefaultOperand(const Slice& user_key,
+                                            const Slice& entity,
+                                            Cleanable* value_pinner);
+
   // Helper method that postprocesses the results of merge operations, e.g. it
   // sets the state correctly upon merge errors.
-  void PostprocessMerge(const Status& merge_status);
+  Status PostprocessMerge(const Status& merge_status);
 
   // The following methods perform the actual merge operation for the
   // no base value/plain base value/wide-column base value cases.
-  void MergeWithNoBaseValue();
-  void MergeWithPlainBaseValue(const Slice& value);
-  void MergeWithWideColumnBaseValue(const Slice& entity);
+  Status MergeWithNoBaseValue();
+  Status MergeWithPlainBaseValue(const Slice& value);
+  Status MergeWithWideColumnBaseValue(const Slice& entity);
 
   bool GetBlobValue(const Slice& user_key, const Slice& blob_index,
                     PinnableSlice* blob_value, Status* read_status);

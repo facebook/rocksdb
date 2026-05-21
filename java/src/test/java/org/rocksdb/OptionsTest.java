@@ -1404,21 +1404,22 @@ public class OptionsTest {
   }
 
   @Test
-  public void skipCheckingSstFileSizesOnDbOpen() {
-    try (final Options options = new Options()) {
-      assertThat(options.skipCheckingSstFileSizesOnDbOpen()).isEqualTo(false);
-      assertThat(options.setSkipCheckingSstFileSizesOnDbOpen(true)).isEqualTo(options);
-      assertThat(options.skipCheckingSstFileSizesOnDbOpen()).isEqualTo(true);
-    }
-  }
-
-  @Test
   public void memtableMaxRangeDeletions() {
     try (final Options options = new Options()) {
       assertThat(options.memtableMaxRangeDeletions()).isEqualTo(0);
       final int val = 32;
       assertThat(options.setMemtableMaxRangeDeletions(val)).isEqualTo(options);
       assertThat(options.memtableMaxRangeDeletions()).isEqualTo(val);
+    }
+  }
+
+  @Test
+  public void minTombstonesForRangeConversion() {
+    try (final Options options = new Options()) {
+      assertThat(options.minTombstonesForRangeConversion()).isEqualTo(0);
+      final int val = 100;
+      assertThat(options.setMinTombstonesForRangeConversion(val)).isEqualTo(options);
+      assertThat(options.minTombstonesForRangeConversion()).isEqualTo(val);
     }
   }
 
