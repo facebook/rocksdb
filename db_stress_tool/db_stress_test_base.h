@@ -44,6 +44,10 @@ class StressTest {
 
   virtual ~StressTest() {}
 
+  const std::string& GetDbPath() const;
+  const std::string& GetExpectedValuesDir() const;
+  const std::string& GetSecondariesBase() const;
+
   std::shared_ptr<Cache> NewCache(size_t capacity, int32_t num_shard_bits);
 
   static std::vector<std::string> GetBlobCompressionTags();
@@ -73,6 +77,9 @@ class StressTest {
 
  private:
   void NotifyListenerShuttingDown();
+  void InitializeListenersForOpen(
+      SharedState* shared,
+      const std::vector<ColumnFamilyDescriptor>& cf_descriptors);
 
  protected:
   static int GetMinInjectedErrorCount(int error_count_1, int error_count_2) {
@@ -306,6 +313,35 @@ class StressTest {
     kLastOpSeekToLast
   };
 
+  // Enum used to track MANIFEST verification mode during DB reopen
+  enum ManifestVerifyMode {
+    MANIFEST_VERIFY_NONE,
+    // MANIFEST file should be reused (same file number), CURRENT should not
+    // change. Used when reuse_manifest_on_open=1. Warnings are logged on
+    // failure but test continues.
+    MANIFEST_VERIFY_REUSE,
+    // MANIFEST file should be reused AND no recovery writes should occur.
+    // Used when both reuse_manifest_on_open=1 and
+    // optimize_manifest_for_recovery=1. Warnings are logged on failure but test
+    // continues.
+    MANIFEST_VERIFY_NO_WRITE,
+    // Strict verification: MANIFEST file must be reused with ZERO writes
+    // (complete avoidance). Used when ALL conditions for complete avoidance
+    // are met. Failures are FATAL and will terminate the test.
+    // Conditions for STRICT mode:
+    // - Both reuse_manifest_on_open=1 and optimize_manifest_for_recovery=1
+    // - Not in best_efforts_recovery mode
+    // - avoid_flush_during_recovery=true (no flush during recovery)
+    // - write_dbid_to_manifest=0 (no DB_ID write on open)
+    // - metadata_write_fault_one_in=0 (no fault injection)
+    // - open_metadata_write_fault_one_in=0 (no fault injection)
+    // - MANIFEST not corrupted, not at size limit
+    // Note: avoid_flush_during_shutdown is NOT required. If it leaves data
+    // in WAL but avoid_flush_during_recovery=true prevents flushing it,
+    // MANIFEST still won't be written.
+    MANIFEST_VERIFY_STRICT
+  };
+
   // Compare the two iterator, iter and cmp_iter are in the same position,
   // unless iter might be made invalidate or undefined because of
   // upper or lower bounds, or prefix extractor.
@@ -416,6 +452,9 @@ class StressTest {
 
   void CleanUpColumnFamilies();
 
+  void RecordManifestStateBeforeReopen();
+  void VerifyManifestNotRewritten();
+
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
@@ -442,6 +481,12 @@ class StressTest {
   std::unique_ptr<DB> secondary_db_;
   std::vector<ColumnFamilyHandle*> secondary_cfhs_;
   bool is_db_stopped_;
+
+  // MANIFEST verification state for reopen
+  ManifestVerifyMode manifest_verify_mode_;
+  uint64_t manifest_file_number_before_reopen_;
+  uint64_t manifest_file_size_before_reopen_;
+  std::string current_file_content_before_reopen_;
 };
 
 // Load options from OPTIONS file and populate `options`.
