@@ -594,21 +594,16 @@ Status BlogFileFooterProperties::DecodeFrom(const Slice& input) {
 BlogPadding::BlogPadding(uint8_t last_meaningful_byte, size_t current_offset) {
   count = BitwiseAnd(size_t{0} - current_offset, uint32_t{3});
 
-  uint8_t pad_byte;
   if (last_meaningful_byte == 0x00) {
-    pad_byte = 0xFF;
     if (count == 0) {
       count = 4;
     }
+    memset(bytes, 0xFF, count);
   } else if (last_meaningful_byte == 0xFF) {
-    pad_byte = 0x00;
     if (count == 0) {
       count = 4;
     }
-  } else {
-    pad_byte = 0x00;
   }
-  memset(bytes, pad_byte, count);
 }
 
 // --- Checksum ---

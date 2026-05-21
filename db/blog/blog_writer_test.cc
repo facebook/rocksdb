@@ -19,15 +19,15 @@ namespace ROCKSDB_NAMESPACE {
 
 class BlogWriterTest : public testing::Test {
  protected:
-  // Shared contents buffer: StringSink writes here, StringSource reads from it.
-  Slice reader_contents_;
-  test::StringSink* sink_;
-
-  BlogWriterTest() : sink_(new test::StringSink(&reader_contents_)) {}
+  // Backing storage for the in-memory file. It must outlive the sink so tests
+  // can still read the bytes after writer->Close() destroys the sink object.
+  std::string contents_;
 
   // Create a writer with the given header.
   std::unique_ptr<BlogFileWriter> MakeWriter(const BlogFileHeader& header) {
-    std::unique_ptr<FSWritableFile> sink_holder(sink_);
+    contents_.clear();
+    std::unique_ptr<FSWritableFile> sink_holder(
+        new test::StringFS::StringSink(&contents_));
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
         std::move(sink_holder), "" /* file name */, FileOptions()));
     return std::make_unique<BlogFileWriter>(std::move(file_writer), header);
@@ -45,12 +45,13 @@ class BlogWriterTest : public testing::Test {
 
   std::unique_ptr<BlogFileReader> MakeReaderImpl(
       BlogFileReader::Reporter* reporter) {
-    // Create an FSSequentialFile that reads from reader_contents_
+    // Create an FSSequentialFile that reads from contents_
     class MemSequentialFile : public FSSequentialFile {
      public:
-      Slice& contents_;
+      const std::string& contents_;
       size_t pos_ = 0;
-      explicit MemSequentialFile(Slice& contents) : contents_(contents) {}
+      explicit MemSequentialFile(const std::string& contents)
+          : contents_(contents) {}
       IOStatus Read(size_t n, const IOOptions& /*opts*/, Slice* result,
                     char* scratch, IODebugContext* /*dbg*/) override {
         size_t avail = contents_.size() - pos_;
@@ -70,7 +71,7 @@ class BlogWriterTest : public testing::Test {
       }
     };
 
-    auto* source = new MemSequentialFile(reader_contents_);
+    auto* source = new MemSequentialFile(contents_);
     std::unique_ptr<FSSequentialFile> source_holder(source);
     std::unique_ptr<SequentialFileReader> file_reader(
         new SequentialFileReader(std::move(source_holder), "" /* file name */));
@@ -353,7 +354,7 @@ TEST_F(BlogWriterTest, ChecksumCorruptionDetected) {
                                   blob_data.size()));
 
   // Corrupt one byte in the blob payload
-  std::string& contents = sink_->contents_;
+  std::string& contents = contents_;
   ASSERT_GT(contents.size(), blob_offset + 10);
   contents[blob_offset + 10] ^= 0xFF;
 

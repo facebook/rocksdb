@@ -340,7 +340,7 @@ struct BlogFileFooterProperties {
 // Computes and holds padding to reach the next 4-byte-aligned offset.
 // The pad byte value is chosen to differ from last_meaningful_byte.
 struct BlogPadding {
-  char bytes[4];
+  char bytes[4] = {};
   uint32_t count;
 
   BlogPadding(uint8_t last_meaningful_byte, size_t current_offset);

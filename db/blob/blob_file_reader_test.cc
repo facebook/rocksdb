@@ -1383,7 +1383,7 @@ TEST_F(BlobFileReaderTest, BlogFormatChecksumCorruption) {
     ASSERT_OK(mock_env_->GetFileSystem()->NewRandomRWFile(
         blob_file_path, FileOptions(), &rw_file, nullptr));
     // Corrupt a byte in the payload
-    char bad = 0xFF;
+    char bad = '\xFF';
     ASSERT_OK(rw_file->Write(blob_offsets[0] + 2, Slice(&bad, 1), IOOptions(),
                              nullptr));
     ASSERT_OK(rw_file->Close(IOOptions(), nullptr));
