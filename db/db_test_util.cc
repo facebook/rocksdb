@@ -13,6 +13,7 @@
 #include "db/forward_iterator.h"
 #include "env/fs_readonly.h"
 #include "env/mock_env.h"
+#include "file/file_util.h"
 #include "port/lang.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
@@ -90,6 +91,8 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
   dbname_ = test::PerThreadDBPath(env_, path);
   alternative_wal_dir_ = dbname_ + "/wal";
   alternative_db_log_dir_ = dbname_ + "/db_log_dir";
+  EXPECT_OK(DestroyDir(env_, alternative_wal_dir_));
+  EXPECT_OK(DestroyDir(env_, alternative_db_log_dir_));
   auto options = CurrentOptions();
   options.env = env_;
   auto delete_options = options;
@@ -117,6 +120,8 @@ DBTestBase::~DBTestBase() {
   if (getenv("KEEP_DB")) {
     printf("DB is still at %s\n", dbname_.c_str());
   } else {
+    EXPECT_OK(DestroyDir(env_, alternative_wal_dir_));
+    EXPECT_OK(DestroyDir(env_, alternative_db_log_dir_));
     EXPECT_OK(DestroyDB(dbname_, options));
   }
   // Ensure SstFileManager (and its DeleteScheduler background thread) is
