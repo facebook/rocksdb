@@ -2477,6 +2477,10 @@ extern ROCKSDB_LIBRARY_API int rocksdb_compactoptions_get_max_subcompactions(
     rocksdb_compactoptions_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_full_history_ts_low(
     rocksdb_compactoptions_t*, char* ts, size_t tslen);
+extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_blob_garbage_collection_age_cutoff(
+    rocksdb_compactoptions_t*, double);
+extern ROCKSDB_LIBRARY_API double rocksdb_compactoptions_get_blob_garbage_collection_age_cutoff(
+    rocksdb_compactoptions_t*);
 
 /* Flush options */
 

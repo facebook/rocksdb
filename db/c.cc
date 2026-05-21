@@ -6426,6 +6426,16 @@ void rocksdb_compactoptions_set_full_history_ts_low(
   }
 }
 
+void rocksdb_compactoptions_set_blob_garbage_collection_age_cutoff(
+    rocksdb_compactoptions_t* opt, double n) {
+  opt->rep.blob_garbage_collection_age_cutoff = n;
+}
+
+double rocksdb_compactoptions_get_blob_garbage_collection_age_cutoff(
+    rocksdb_compactoptions_t* opt) {
+  return opt->rep.blob_garbage_collection_age_cutoff;
+}
+
 rocksdb_flushoptions_t* rocksdb_flushoptions_create() {
   return new rocksdb_flushoptions_t;
 }

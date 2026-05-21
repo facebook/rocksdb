@@ -3491,6 +3491,9 @@ int main(int argc, char** argv) {
     rocksdb_compactoptions_set_max_subcompactions(co, 1);
     CheckCondition(1 == rocksdb_compactoptions_get_max_subcompactions(co));
 
+    rocksdb_compactoptions_set_blob_garbage_collection_age_cutoff(co, 1.0);
+    CheckCondition(1.0 == rocksdb_compactoptions_get_blob_garbage_collection_age_cutoff(co));
+
     rocksdb_compactoptions_destroy(co);
   }
 
