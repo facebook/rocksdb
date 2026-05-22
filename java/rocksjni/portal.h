@@ -4709,6 +4709,8 @@ class CompressionTypeJni {
         return 0x6;
       case ROCKSDB_NAMESPACE::CompressionType::kZSTD:
         return 0x7;
+      case ROCKSDB_NAMESPACE::CompressionType::kZXC:
+        return 0x8;
       case ROCKSDB_NAMESPACE::CompressionType::kDisableCompressionOption:
       default:
         return 0x7F;
@@ -4736,6 +4738,8 @@ class CompressionTypeJni {
         return ROCKSDB_NAMESPACE::CompressionType::kXpressCompression;
       case 0x7:
         return ROCKSDB_NAMESPACE::CompressionType::kZSTD;
+      case 0x8:
+        return ROCKSDB_NAMESPACE::CompressionType::kZXC;
       case 0x7F:
       default:
         return ROCKSDB_NAMESPACE::CompressionType::kDisableCompressionOption;

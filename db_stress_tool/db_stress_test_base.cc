@@ -410,6 +410,9 @@ std::vector<std::string> StressTest::GetBlobCompressionTags() {
   if (ZSTD_Supported()) {
     compression_tags.emplace_back("kZSTD");
   }
+  if (ZXC_Supported()) {
+    compression_tags.emplace_back("kZXC");
+  }
 
   return compression_tags;
 }

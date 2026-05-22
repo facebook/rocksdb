@@ -415,6 +415,7 @@ std::unordered_map<std::string, CompressionType>
         {"kLZ4HCCompression", kLZ4HCCompression},
         {"kXpressCompression", kXpressCompression},
         {"kZSTD", kZSTD},
+        {"kZXC", kZXC},
         {"kCustomCompression80", kCustomCompression80},
         {"kCustomCompression81", kCustomCompression81},
         {"kCustomCompression82", kCustomCompression82},

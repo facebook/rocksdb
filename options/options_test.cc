@@ -82,7 +82,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
        "kLZ4Compression:"
        "kLZ4HCCompression:"
        "kXpressCompression:"
-       "kZSTD"},
+       "kZSTD:"
+       "kZXC"},
       {"bottommost_compression", "kLZ4Compression"},
       {"bottommost_compression_opts", "5:6:7:8:10:true"},
       {"compression_opts", "4:5:6:7:8:2:true:100:false"},
@@ -206,7 +207,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.min_write_buffer_number_to_merge, 3);
   ASSERT_EQ(new_cf_opt.max_write_buffer_size_to_maintain, -99999);
   ASSERT_EQ(new_cf_opt.compression, kSnappyCompression);
-  ASSERT_EQ(new_cf_opt.compression_per_level.size(), 8U);
+  ASSERT_EQ(new_cf_opt.compression_per_level.size(), 9U);
   ASSERT_EQ(new_cf_opt.compression_per_level[0], kNoCompression);
   ASSERT_EQ(new_cf_opt.compression_per_level[1], kSnappyCompression);
   ASSERT_EQ(new_cf_opt.compression_per_level[2], kZlibCompression);
@@ -215,6 +216,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.compression_per_level[5], kLZ4HCCompression);
   ASSERT_EQ(new_cf_opt.compression_per_level[6], kXpressCompression);
   ASSERT_EQ(new_cf_opt.compression_per_level[7], kZSTD);
+  ASSERT_EQ(new_cf_opt.compression_per_level[8], kZXC);
   ASSERT_EQ(new_cf_opt.compression_opts.window_bits, 4);
   ASSERT_EQ(new_cf_opt.compression_opts.level, 5);
   ASSERT_EQ(new_cf_opt.compression_opts.strategy, 6);
@@ -2422,7 +2424,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
        "kLZ4Compression:"
        "kLZ4HCCompression:"
        "kXpressCompression:"
-       "kZSTD"},
+       "kZSTD:"
+       "kZXC"},
       {"bottommost_compression", "kLZ4Compression"},
       {"bottommost_compression_opts", "5:6:7:8:9:true"},
       {"compression_opts", "4:5:6:7:8:9:true:10:false"},
@@ -2545,7 +2548,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.min_write_buffer_number_to_merge, 3);
   ASSERT_EQ(new_cf_opt.max_write_buffer_size_to_maintain, -99999);
   ASSERT_EQ(new_cf_opt.compression, kSnappyCompression);
-  ASSERT_EQ(new_cf_opt.compression_per_level.size(), 8U);
+  ASSERT_EQ(new_cf_opt.compression_per_level.size(), 9U);
   ASSERT_EQ(new_cf_opt.compression_per_level[0], kNoCompression);
   ASSERT_EQ(new_cf_opt.compression_per_level[1], kSnappyCompression);
   ASSERT_EQ(new_cf_opt.compression_per_level[2], kZlibCompression);
@@ -2554,6 +2557,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.compression_per_level[5], kLZ4HCCompression);
   ASSERT_EQ(new_cf_opt.compression_per_level[6], kXpressCompression);
   ASSERT_EQ(new_cf_opt.compression_per_level[7], kZSTD);
+  ASSERT_EQ(new_cf_opt.compression_per_level[8], kZXC);
   ASSERT_EQ(new_cf_opt.compression_opts.window_bits, 4);
   ASSERT_EQ(new_cf_opt.compression_opts.level, 5);
   ASSERT_EQ(new_cf_opt.compression_opts.strategy, 6);

@@ -71,7 +71,7 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   ret.append("  --" + LDBCommand::ARG_BLOOM_BITS + "=<int,e.g.:14>\n");
   ret.append("  --" + LDBCommand::ARG_FIX_PREFIX_LEN + "=<int,e.g.:14>\n");
   ret.append("  --" + LDBCommand::ARG_COMPRESSION_TYPE +
-             "=<no|snappy|zlib|bzip2|lz4|lz4hc|xpress|zstd>\n");
+             "=<no|snappy|zlib|bzip2|lz4|lz4hc|xpress|zstd|zxc>\n");
   ret.append("  --" + LDBCommand::ARG_COMPRESSION_MAX_DICT_BYTES +
              "=<int,e.g.:16384>\n");
   ret.append("  --" + LDBCommand::ARG_BLOCK_SIZE + "=<block_size_in_bytes>\n");
@@ -88,7 +88,7 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   ret.append("  --" + LDBCommand::ARG_MIN_BLOB_SIZE + "=<int,e.g.:2097152>\n");
   ret.append("  --" + LDBCommand::ARG_BLOB_FILE_SIZE + "=<int,e.g.:2097152>\n");
   ret.append("  --" + LDBCommand::ARG_BLOB_COMPRESSION_TYPE +
-             "=<no|snappy|zlib|bzip2|lz4|lz4hc|xpress|zstd>\n");
+             "=<no|snappy|zlib|bzip2|lz4|lz4hc|xpress|zstd|zxc>\n");
   ret.append("  --" + LDBCommand::ARG_ENABLE_BLOB_GARBAGE_COLLECTION +
              " : Enable blob garbage collection\n");
   ret.append("  --" + LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_AGE_CUTOFF +

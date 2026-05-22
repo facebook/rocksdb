@@ -439,6 +439,14 @@ inline bool ZSTD_Supported() {
 #endif
 }
 
+inline bool ZXC_Supported() {
+#ifdef ZXC
+  return true;
+#else
+  return false;
+#endif
+}
+
 inline bool ZSTD_Streaming_Supported() {
 #if defined(ZSTD)
   return true;
@@ -477,6 +485,8 @@ inline bool CompressionTypeSupported(CompressionType compression_type) {
       return XPRESS_Supported();
     case kZSTD:
       return ZSTD_Supported();
+    case kZXC:
+      return ZXC_Supported();
     default:  // Including custom compression types
       return false;
   }
@@ -505,6 +515,8 @@ inline bool DictCompressionTypeSupported(CompressionType compression_type) {
       // NB: dictionary supported since 0.5.0. See ZSTD_VERSION_NUMBER check
       // above.
       return ZSTD_Supported();
+    case kZXC:
+      return false;
     default:  // Including custom compression types
       return false;
   }

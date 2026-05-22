@@ -1395,6 +1395,8 @@ static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     return ROCKSDB_NAMESPACE::kXpressCompression;
   } else if (!strcasecmp(ctype, "zstd")) {
     return ROCKSDB_NAMESPACE::kZSTD;
+  } else if (!strcasecmp(ctype, "zxc")) {
+    return ROCKSDB_NAMESPACE::kZXC;
   } else {
     fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
     db_bench_exit(1);

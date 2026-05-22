@@ -22,6 +22,7 @@ public enum CompressionType {
   LZ4HC_COMPRESSION((byte) 0x5, "lz4hc", "kLZ4HCCompression"),
   XPRESS_COMPRESSION((byte) 0x6, "xpress", "kXpressCompression"),
   ZSTD_COMPRESSION((byte) 0x7, "zstd", "kZSTD"),
+  ZXC_COMPRESSION((byte) 0x8, "zxc", "kZXC"),
   DISABLE_COMPRESSION_OPTION((byte) 0x7F, null, "kDisableCompressionOption");
 
   /**

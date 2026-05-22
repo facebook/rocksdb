@@ -26,6 +26,7 @@
 #       -DSNAPPY                    if the Snappy library is present
 #       -DLZ4                       if the LZ4 library is present
 #       -DZSTD                      if the ZSTD library is present
+#       -DZXC                       if the ZXC library is present
 #       -DNUMA                      if the NUMA library is present
 #       -DTBB                       if the TBB library is present
 #       -DMEMKIND                   if the memkind library is present
@@ -407,6 +408,19 @@ EOF
             COMMON_FLAGS="$COMMON_FLAGS -DZSTD"
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lzstd"
             JAVA_LDFLAGS="$JAVA_LDFLAGS -lzstd"
+        fi
+    fi
+
+    if ! test $ROCKSDB_DISABLE_ZXC; then
+        # Test whether zxc library is installed
+        $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null -lzxc 2>/dev/null  <<EOF
+          #include <zxc.h>
+          int main() {}
+EOF
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DZXC"
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lzxc"
+            JAVA_LDFLAGS="$JAVA_LDFLAGS -lzxc"
         fi
     fi
 

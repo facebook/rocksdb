@@ -9,6 +9,7 @@
 #include <bzlib.h>
 #endif  // BZIP2
 
+#include <cstring>
 #include <limits>
 
 #ifdef LZ4
@@ -28,12 +29,24 @@
 #include <zlib.h>
 #endif  // ZLIB
 
+#ifdef ZXC
+#include <zxc.h>
+#if !defined(ZXC_VERSION_MAJOR) || !defined(ZXC_VERSION_MINOR) || \
+    !defined(ZXC_VERSION_PATCH)
+#error "ZXC support requires version >= 0.11.0"
+#elif (ZXC_VERSION_MAJOR * 1000000 + ZXC_VERSION_MINOR * 1000 + \
+       ZXC_VERSION_PATCH) < 11000
+#error "ZXC support requires version >= 0.11.0"
+#endif
+#endif  // ZXC
+
 #include "options/options_helper.h"
 #include "port/likely.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
+#include "util/math.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -57,6 +70,8 @@ std::string CompressionTypeToString(CompressionType compression_type) {
       return "Xpress";
     case kZSTD:
       return "ZSTD";
+    case kZXC:
+      return "ZXC";
     case kDisableCompressionOption:
       return "DisableOption";
     default: {
@@ -86,6 +101,9 @@ CompressionType CompressionTypeFromString(std::string compression_type_str) {
       case 'Z':
         if (compression_type_str == "ZSTD") {
           return kZSTD;
+        }
+        if (compression_type_str == "ZXC") {
+          return kZXC;
         }
         if (compression_type_str == "Zlib") {
           return kZlibCompression;
@@ -748,6 +766,182 @@ class BuiltinBZip2CompressorV2 final : public CompressorWithSimpleDictBase {
   }
 };
 
+#ifdef ZXC
+size_t ZXCBlockSizeForDecompressedSize(size_t size) {
+  assert(size > 0);
+  assert(size <= ZXC_BLOCK_SIZE_MAX);
+  // Rounds up to power of two, with a minimum (that also avoids hitting
+  // FloorLog2(0))
+  return size <= ZXC_BLOCK_SIZE_MIN ? ZXC_BLOCK_SIZE_MIN
+                                    : size_t{1} << (FloorLog2(size - 1) + 1);
+}
+
+zxc_compress_opts_t GetZXCCompressOptions(const CompressionOptions& opts,
+                                          size_t block_size) {
+  zxc_compress_opts_t zxc_opts{};
+  if (opts.level != CompressionOptions::kDefaultCompressionLevel) {
+    zxc_opts.level = opts.level;
+  }
+  zxc_opts.block_size = block_size;
+  // zxc block data can carry a checksum, but does not self-describe whether
+  // one is present. Avoid adding RocksDB metadata to every kZXC block for a
+  // rarely needed feature. A distinct CompressionType can opt into that format
+  // if checksum support is ever needed.
+  zxc_opts.checksum_enabled = 0;
+  return zxc_opts;
+}
+
+struct ZXCDctxDeleter {
+  void operator()(zxc_dctx* dctx) const { zxc_free_dctx(dctx); }
+};
+
+struct ZXCCompressionWorkingArea : public Compressor::WorkingArea {
+  ZXCCompressionWorkingArea() : cctx(zxc_create_cctx(nullptr)) {}
+  ~ZXCCompressionWorkingArea() { zxc_free_cctx(cctx); }
+
+  // zxc 0.11.0's block API says dst_capacity should be sized with
+  // zxc_compress_block_bound(), while its error model also includes
+  // ZXC_ERROR_DST_TOO_SMALL. RocksDB passes a smaller ratio-capped buffer in
+  // some cases, and ASAN showed zxc can write past that buffer instead of
+  // returning an error. Keep bound-sized scratch here so RocksDB can enforce
+  // its cap after zxc compression without risking caller-buffer corruption.
+  // The extra memcpy is considered tolerable because zxc is not chosen for
+  // compression-time efficiency.
+  zxc_cctx* cctx = nullptr;
+  GrowableBuffer scratch;
+};
+#endif  // ZXC
+
+class BuiltinZXCCompressorV2 final : public CompressorBase {
+ public:
+  using CompressorBase::CompressorBase;
+
+  const char* Name() const override { return "BuiltinZXCCompressorV2"; }
+
+  CompressionType GetPreferredCompressionType() const override { return kZXC; }
+
+  std::unique_ptr<Compressor> Clone() const override {
+    return std::make_unique<BuiltinZXCCompressorV2>(opts_);
+  }
+
+  ManagedWorkingArea ObtainWorkingArea() override {
+#ifdef ZXC
+    return {new ZXCCompressionWorkingArea(), this};
+#else
+    return {};
+#endif
+  }
+
+  void ReleaseWorkingArea(WorkingArea* wa) override {
+    if (wa) {
+#ifdef ZXC
+      delete static_cast_with_check<ZXCCompressionWorkingArea>(wa);
+#endif
+    }
+  }
+
+  Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                       size_t* compressed_output_size,
+                       CompressionType* out_compression_type,
+                       ManagedWorkingArea* wa) override {
+#ifdef ZXC
+    if (uncompressed_data.empty()) {
+      *compressed_output_size = 0;
+      *out_compression_type = kNoCompression;
+      return Status::OK();
+    }
+
+    if (uncompressed_data.size() > ZXC_BLOCK_SIZE_MAX) {
+      *compressed_output_size = 0;
+      *out_compression_type = kNoCompression;
+      return Status::OK();
+    }
+
+    zxc_compress_opts_t zxc_opts = GetZXCCompressOptions(
+        opts_, ZXCBlockSizeForDecompressedSize(uncompressed_data.size()));
+
+    auto [alg_output, alg_max_output_size] = StartCompressBlockV2(
+        uncompressed_data, compressed_output, *compressed_output_size);
+    if (alg_max_output_size == 0) {
+      *compressed_output_size = 0;
+      *out_compression_type = kNoCompression;
+      return Status::OK();
+    }
+
+    ManagedWorkingArea tmp_wa;
+    if (wa == nullptr || wa->owner() != this) {
+      tmp_wa = ObtainWorkingArea();
+      wa = &tmp_wa;
+    }
+    auto* zxc_wa = static_cast_with_check<ZXCCompressionWorkingArea>(wa->get());
+    if (zxc_wa == nullptr || zxc_wa->cctx == nullptr) {
+      return Status::MemoryLimit(
+          "Failed to allocate zxc compression working area");
+    }
+
+    uint64_t zxc_bound64 = zxc_compress_block_bound(uncompressed_data.size());
+    if (zxc_bound64 == 0 ||
+        zxc_bound64 >
+            static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
+      *compressed_output_size = 0;
+      *out_compression_type = kNoCompression;
+      return Status::OK();
+    }
+    size_t zxc_bound = static_cast<size_t>(zxc_bound64);
+    char* zxc_output = alg_output;
+    size_t zxc_output_size = alg_max_output_size;
+    bool use_scratch = false;
+    if (zxc_bound > alg_max_output_size) {
+      // Use bound-sized scratch; see ZXCCompressionWorkingArea.
+      zxc_wa->scratch.ResetForSize(zxc_bound);
+      zxc_output = zxc_wa->scratch.data();
+      zxc_output_size = zxc_wa->scratch.size();
+      use_scratch = true;
+    }
+
+    int64_t outlen = zxc_compress_block(zxc_wa->cctx, uncompressed_data.data(),
+                                        uncompressed_data.size(), zxc_output,
+                                        zxc_output_size, &zxc_opts);
+    if (outlen > 0) {
+      size_t output_size =
+          static_cast<size_t>(outlen) + (alg_output - compressed_output);
+      if (output_size <= *compressed_output_size) {
+        if (use_scratch) {
+          std::memcpy(alg_output, zxc_output, static_cast<size_t>(outlen));
+        }
+        *compressed_output_size = output_size;
+        *out_compression_type = kZXC;
+      } else {
+        *compressed_output_size = 1;
+        *out_compression_type = kNoCompression;
+      }
+      return Status::OK();
+    }
+    if (outlen == ZXC_ERROR_DST_TOO_SMALL) {
+      *compressed_output_size = 1;
+      *out_compression_type = kNoCompression;
+      return Status::OK();
+    }
+    if (outlen == ZXC_ERROR_MEMORY) {
+      return Status::MemoryLimit(
+          std::string("zxc compression failed: ") +
+          std::string(zxc_error_name(static_cast<int>(outlen))));
+    }
+    return Status::Corruption(
+        std::string("zxc compression failed: ") +
+        std::string(zxc_error_name(static_cast<int>(outlen))));
+#else
+    (void)uncompressed_data;
+    (void)compressed_output;
+    (void)wa;
+    // Compression bypassed (not supported)
+    *compressed_output_size = 0;
+    *out_compression_type = kNoCompression;
+    return Status::OK();
+#endif
+  }
+};
+
 class BuiltinLZ4CompressorV2WithDict : public CompressorWithSimpleDictBase {
  public:
   using CompressorWithSimpleDictBase::CompressorWithSimpleDictBase;
@@ -1399,6 +1593,40 @@ Status XPRESS_DecompressBlock(const Decompressor::Args& args,
 #endif
 }
 
+class BuiltinUncompressionContext final : public Decompressor::WorkingArea {
+ public:
+  explicit BuiltinUncompressionContext(CompressionType type)
+      : zstd_ctx_(type == kZSTD ? kZSTD : kNoCompression) {
+#ifdef ZXC
+    if (type == kZXC) {
+      zxc_dctx_ = zxc_create_dctx();
+    }
+#else
+    (void)type;
+#endif
+  }
+
+  ~BuiltinUncompressionContext() {
+#ifdef ZXC
+    zxc_free_dctx(zxc_dctx_);
+#endif
+  }
+
+  ZSTDUncompressCachedData::ZSTDNativeContext GetZSTDContext() const {
+    return zstd_ctx_.GetZSTDContext();
+  }
+
+#ifdef ZXC
+  zxc_dctx* GetZXCDctx() const { return zxc_dctx_; }
+#endif
+
+ private:
+  UncompressionContext zstd_ctx_;
+#ifdef ZXC
+  zxc_dctx* zxc_dctx_ = nullptr;
+#endif
+};
+
 template <bool kIsDigestedDict = false>
 Status ZSTD_DecompressBlockWithContext(
     const Decompressor::Args& args,
@@ -1451,7 +1679,8 @@ Status ZSTD_DecompressBlock(
     std::conditional_t<kIsDigestedDict, void*, Slice> dict,
     const Decompressor* decompressor, char* uncompressed_output) {
   if (args.working_area && args.working_area->owner() == decompressor) {
-    auto ctx = static_cast<UncompressionContext*>(args.working_area->get());
+    auto ctx = static_cast_with_check<BuiltinUncompressionContext>(
+        args.working_area->get());
     assert(ctx != nullptr);
     if (ctx->GetZSTDContext() != nullptr) {
       return ZSTD_DecompressBlockWithContext<kIsDigestedDict>(
@@ -1461,6 +1690,61 @@ Status ZSTD_DecompressBlock(
   UncompressionContext tmp_ctx{kZSTD};
   return ZSTD_DecompressBlockWithContext<kIsDigestedDict>(
       args, dict, tmp_ctx.GetZSTDContext(), uncompressed_output);
+}
+
+#ifdef ZXC
+Status ZXC_DecompressBlockWithDctx(const Decompressor::Args& args,
+                                   zxc_dctx* dctx, char* uncompressed_output) {
+  assert(dctx != nullptr);
+  int64_t uncompressed_size = zxc_decompress_block_safe(
+      dctx, args.compressed_data.data(), args.compressed_data.size(),
+      uncompressed_output, args.uncompressed_size, nullptr);
+  if (uncompressed_size < 0) {
+    if (uncompressed_size == ZXC_ERROR_MEMORY) {
+      return Status::MemoryLimit(
+          std::string("zxc decompression failed: ") +
+          std::string(zxc_error_name(static_cast<int>(uncompressed_size))));
+    }
+    return Status::Corruption(
+        std::string("zxc decompression failed: ") +
+        std::string(zxc_error_name(static_cast<int>(uncompressed_size))));
+  }
+  if (static_cast<uint64_t>(uncompressed_size) != args.uncompressed_size) {
+    return Status::Corruption("zxc decompression size mismatch");
+  }
+  return Status::OK();
+}
+#endif  // ZXC
+
+Status ZXC_DecompressBlock(const Decompressor::Args& args,
+                           const Decompressor* decompressor,
+                           char* uncompressed_output) {
+#ifdef ZXC
+  if (args.working_area && args.working_area->owner() == decompressor) {
+    auto ctx = static_cast_with_check<BuiltinUncompressionContext>(
+        args.working_area->get());
+    assert(ctx != nullptr);
+    if (ctx->GetZXCDctx() != nullptr) {
+      return ZXC_DecompressBlockWithDctx(args, ctx->GetZXCDctx(),
+                                         uncompressed_output);
+    }
+  }
+#ifdef ROCKSDB_ZXC_THREAD_LOCAL_DCTX
+  thread_local
+#endif
+      std::unique_ptr<zxc_dctx, ZXCDctxDeleter>
+          tmp_dctx{zxc_create_dctx()};
+  if (tmp_dctx == nullptr) {
+    return Status::MemoryLimit(
+        "Failed to allocate zxc decompression working area");
+  }
+  return ZXC_DecompressBlockWithDctx(args, tmp_dctx.get(), uncompressed_output);
+#else
+  (void)args;
+  (void)decompressor;
+  (void)uncompressed_output;
+  return Status::NotSupported("ZXC not supported in this build");
+#endif
 }
 
 class BuiltinDecompressorV2 : public Decompressor {
@@ -1520,6 +1804,8 @@ class BuiltinDecompressorV2 : public Decompressor {
       case kZSTD:
         return ZSTD_DecompressBlock(args, /*dict=*/Slice{}, this,
                                     uncompressed_output);
+      case kZXC:
+        return ZXC_DecompressBlock(args, this, uncompressed_output);
       default:
         return Status::NotSupported(
             "Compression type not supported or not built-in: " +
@@ -1587,6 +1873,9 @@ class BuiltinDecompressorV2WithDict final : public BuiltinDecompressorV2 {
         return XPRESS_DecompressBlock(args, uncompressed_output);
       case kZSTD:
         return ZSTD_DecompressBlock(args, dict_, this, uncompressed_output);
+      case kZXC:
+        // NOTE: quietly ignores the dictionary.
+        return ZXC_DecompressBlock(args, this, uncompressed_output);
       default:
         return Status::NotSupported(
             "Compression type not supported or not built-in: " +
@@ -1633,20 +1922,28 @@ class BuiltinDecompressorV2OptimizeZstd : public BuiltinDecompressorV2 {
     if (preferred == kZSTD) {
       // TODO: evaluate whether it makes sense to use core local cache here.
       // (Perhaps not, because explicit WorkingArea could be long-running.)
-      return ManagedWorkingArea(new UncompressionContext(kZSTD), this);
+      return ManagedWorkingArea(new BuiltinUncompressionContext(kZSTD), this);
+    } else if (preferred == kZXC) {
+#ifdef ZXC
+      return ManagedWorkingArea(new BuiltinUncompressionContext(kZXC), this);
+#else
+      return {};
+#endif
     } else {
       return {};
     }
   }
 
   void ReleaseWorkingArea(WorkingArea* wa) override {
-    delete static_cast<UncompressionContext*>(wa);
+    delete static_cast_with_check<BuiltinUncompressionContext>(wa);
   }
 
   Status DecompressBlock(const Args& args, char* uncompressed_output) override {
     if (LIKELY(args.compression_type == kZSTD)) {
       return ZSTD_DecompressBlock(args, /*dict=*/Slice{}, this,
                                   uncompressed_output);
+    } else if (LIKELY(args.compression_type == kZXC)) {
+      return ZXC_DecompressBlock(args, this, uncompressed_output);
     } else {
       return BuiltinDecompressorV2::DecompressBlock(args, uncompressed_output);
     }
@@ -1758,6 +2055,8 @@ class BuiltinCompressionManagerV2 final : public CompressionManager {
         return std::make_unique<BuiltinXpressCompressorV2>(opts);
       case kZSTD:
         return std::make_unique<BuiltinZSTDCompressorV2>(opts);
+      case kZXC:
+        return std::make_unique<BuiltinZXCCompressorV2>(opts);
     }
   }
 
@@ -1767,7 +2066,7 @@ class BuiltinCompressionManagerV2 final : public CompressionManager {
 
   std::shared_ptr<Decompressor> GetDecompressorOptimizeFor(
       CompressionType optimize_for_type) override {
-    if (optimize_for_type == kZSTD) {
+    if (optimize_for_type == kZSTD || optimize_for_type == kZXC) {
       return GetZstdDecompressor();
     } else {
       return GetGeneralDecompressor();
@@ -1783,8 +2082,9 @@ class BuiltinCompressionManagerV2 final : public CompressionManager {
                *types_begin == kSnappyCompression) {
       // Exclusively Snappy
       return GetSnappyDecompressor();
-    } else if (std::find(types_begin, types_end, kZSTD) != types_end) {
-      // Includes ZSTD
+    } else if (std::find(types_begin, types_end, kZSTD) != types_end ||
+               std::find(types_begin, types_end, kZXC) != types_end) {
+      // Includes a compression type with reusable decompression context
       return GetZstdDecompressor();
     } else {
       // Everything else
@@ -1920,8 +2220,8 @@ Status LegacyForceBuiltinCompression(
   size_t n = from.size();
   size_t upper_bound = ((19 * n) >> 4) + 604;
   // The upper bound has only been established considering built-in compression
-  // types through kZSTD. (Might need updating if this fails.)
-  assert(builtin_compressor.GetPreferredCompressionType() <= kZSTD);
+  // types through kZXC. (Might need updating if this fails.)
+  assert(builtin_compressor.GetPreferredCompressionType() <= kZXC);
 
   to->ResetForSize(upper_bound);
   CompressionType actual_type = kNoCompression;

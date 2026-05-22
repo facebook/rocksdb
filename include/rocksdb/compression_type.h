@@ -26,7 +26,8 @@ enum CompressionType : unsigned char {
   kLZ4HCCompression = 0x05,
   kXpressCompression = 0x06,
   kZSTD = 0x07,
-  kLastBuiltinCompression = kZSTD,
+  kZXC = 0x08,
+  kLastBuiltinCompression = kZXC,
 
   // Reserved for future use: up to 0x7F
 
@@ -182,8 +183,8 @@ struct CompressionOptions {
   // zlib only: windowBits parameter. See https://www.zlib.net/manual.html
   int window_bits = -14;
 
-  // Compression "level" applicable to zstd, zlib, LZ4, and LZ4HC. Except for
-  // kDefaultCompressionLevel (see above), the meaning of each value depends
+  // Compression "level" applicable to zstd, zxc, zlib, LZ4, and LZ4HC. Except
+  // for kDefaultCompressionLevel (see above), the meaning of each value depends
   // on the compression algorithm. Decreasing across non-
   // `kDefaultCompressionLevel` values will either favor speed over
   // compression ratio or have no effect.

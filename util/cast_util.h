@@ -20,7 +20,9 @@ template <class DestClass, class SrcClass>
 inline DestClass* static_cast_with_check(SrcClass* x) {
   DestClass* ret = static_cast<DestClass*>(x);
 #ifdef ROCKSDB_USE_RTTI
-  assert(ret == dynamic_cast<DestClass*>(x));
+  if constexpr (std::is_polymorphic_v<SrcClass>) {
+    assert(ret == dynamic_cast<DestClass*>(x));
+  }
 #endif
   return ret;
 }

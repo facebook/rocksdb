@@ -914,6 +914,14 @@ bool LDBCommand::ParseCompressionTypeOption(
         value = kZSTD;
         return true;
       }
+    } else if (comp == "zxc") {
+      if (!ZXC_Supported()) {
+        exec_state = LDBCommandExecuteResult::Failed(
+            "zxc compression is not supported in this build.");
+      } else {
+        value = kZXC;
+        return true;
+      }
 #ifndef NDEBUG
     } else if (comp == "mixed" && option == ARG_COMPRESSION_TYPE) {
       if (GetSupportedCompressions().empty()) {

@@ -538,6 +538,8 @@ inline enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     ret_compression_type = ROCKSDB_NAMESPACE::kXpressCompression;
   } else if (!strcasecmp(ctype, "zstd")) {
     ret_compression_type = ROCKSDB_NAMESPACE::kZSTD;
+  } else if (!strcasecmp(ctype, "zxc")) {
+    ret_compression_type = ROCKSDB_NAMESPACE::kZXC;
   } else {
     fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
     ret_compression_type =

@@ -152,12 +152,14 @@ default_params = {
     "charge_file_metadata": lambda: random.choice([0, 1]),
     "checkpoint_one_in": lambda: random.choice([0, 0, 10000, 1000000]),
     "compression_type": lambda: random.choice(
-        ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
+        ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd", "zxc"]
     ),
     "bottommost_compression_type": lambda: (
         "disable"
         if random.randint(0, 1) == 0
-        else random.choice(["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"])
+        else random.choice(
+            ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd", "zxc"]
+        )
     ),
     "checksum_type": lambda: random.choice(
         ["kNoChecksum", "kCRC32c", "kxxHash", "kxxHash64", "kXXH3"]
@@ -753,7 +755,9 @@ blob_params = {
     "enable_blob_files": lambda: random.choice([0] + [1] * 3),
     "min_blob_size": lambda: random.choice([0, 8, 16]),
     "blob_file_size": lambda: random.choice([1048576, 16777216, 268435456, 1073741824]),
-    "blob_compression_type": lambda: random.choice(["none", "snappy", "lz4", "zstd"]),
+    "blob_compression_type": lambda: random.choice(
+        ["none", "snappy", "lz4", "zstd", "zxc"]
+    ),
     "enable_blob_garbage_collection": lambda: random.choice([0] + [1] * 3),
     "blob_garbage_collection_age_cutoff": lambda: random.choice(
         [0.0, 0.25, 0.5, 0.75, 1.0]
@@ -781,7 +785,9 @@ blob_direct_write_params = {
     "inplace_update_support": 0,
     "min_blob_size": lambda: random.choice([8, 16, 64]),
     "blob_file_size": lambda: random.choice([1048576, 16777216, 268435456]),
-    "blob_compression_type": lambda: random.choice(["none", "snappy", "lz4", "zstd"]),
+    "blob_compression_type": lambda: random.choice(
+        ["none", "snappy", "lz4", "zstd", "zxc"]
+    ),
     "enable_blob_garbage_collection": 0,
     "blob_garbage_collection_age_cutoff": 0.0,
     "blob_garbage_collection_force_threshold": 1.0,
@@ -1465,11 +1471,11 @@ def finalize_and_sanitize(src_params):
         # ensuring the compression is being used
         if dest_params.get("compression_type") == "none":
             dest_params["compression_type"] = random.choice(
-                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
+                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd", "zxc"]
             )
         if dest_params.get("bottommost_compression_type") == "none":
             dest_params["bottommost_compression_type"] = random.choice(
-                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
+                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd", "zxc"]
             )
         dest_params["block_align"] = 0
     else:

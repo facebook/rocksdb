@@ -1917,9 +1917,9 @@ TEST_P(DBCompressionTestMaybeParallel, CompressionManagerCustomCompression) {
 }
 
 TEST_F(DBCompressionTest, FailWhenCompressionNotSupportedTest) {
-  CompressionType compressions[] = {kZlibCompression, kBZip2Compression,
-                                    kLZ4Compression, kLZ4HCCompression,
-                                    kXpressCompression};
+  CompressionType compressions[] = {kZlibCompression,   kBZip2Compression,
+                                    kLZ4Compression,    kLZ4HCCompression,
+                                    kXpressCompression, kZXC};
   for (auto comp : compressions) {
     if (!CompressionTypeSupported(comp)) {
       // not supported, we should fail the Open()
@@ -2489,7 +2489,7 @@ TEST_F(DBCompressionTest, GetRecommendedParallelThreads) {
   // Default parallel_threads is 1
   opts.parallel_threads = 1;
   for (auto type : {kSnappyCompression, kZlibCompression, kLZ4Compression,
-                    kLZ4HCCompression, kZSTD}) {
+                    kLZ4HCCompression, kZSTD, kZXC}) {
     if (!mgr->SupportsCompressionType(type)) {
       continue;
     }
@@ -2501,13 +2501,106 @@ TEST_F(DBCompressionTest, GetRecommendedParallelThreads) {
   // Custom parallel_threads value is returned
   opts.parallel_threads = 8;
   for (auto type : {kSnappyCompression, kZlibCompression, kLZ4Compression,
-                    kLZ4HCCompression, kZSTD}) {
+                    kLZ4HCCompression, kZSTD, kZXC}) {
     if (!mgr->SupportsCompressionType(type)) {
       continue;
     }
     auto compressor = mgr->GetCompressor(opts, type);
     ASSERT_NE(compressor, nullptr);
     ASSERT_EQ(compressor->GetRecommendedParallelThreads(), 8U);
+  }
+}
+
+TEST_F(DBCompressionTest, ZXCUsesRocksDBEncodedSize) {
+  if (!ZXC_Supported()) {
+    return;
+  }
+
+  const auto& mgr = GetBuiltinV2CompressionManager();
+  std::shared_ptr<Decompressor> decompressor =
+      mgr->GetDecompressorOptimizeFor(kZXC);
+  Decompressor::ManagedWorkingArea decompress_wa =
+      decompressor->ObtainWorkingArea(kZXC);
+
+  // ZXC ignores CompressionOptions::checksum in this CompressionType; verify
+  // the block format remains just the RocksDB size prefix plus zxc block data.
+  for (bool checksum : {false, true}) {
+    SCOPED_TRACE(std::string("checksum=") + (checksum ? "true" : "false"));
+    CompressionOptions opts;
+    opts.checksum = checksum;
+    std::unique_ptr<Compressor> compressor = mgr->GetCompressor(opts, kZXC);
+    ASSERT_NE(compressor, nullptr);
+    Compressor::ManagedWorkingArea compress_wa =
+        compressor->ObtainWorkingArea();
+
+    for (size_t value_size : {size_t{1}, size_t{512}, size_t{20000}}) {
+      SCOPED_TRACE("value_size=" + std::to_string(value_size));
+      Random rnd(static_cast<uint32_t>(301 + value_size));
+      std::string uncompressed;
+      test::CompressibleString(&rnd, 0.1, static_cast<int>(value_size),
+                               &uncompressed);
+
+      std::string compressed(uncompressed.size() + 4096, '\0');
+      size_t compressed_size = compressed.size();
+      CompressionType compression_type = kNoCompression;
+      ASSERT_OK(compressor->CompressBlock(uncompressed, compressed.data(),
+                                          &compressed_size, &compression_type,
+                                          &compress_wa));
+      ASSERT_EQ(compression_type, kZXC);
+      compressed.resize(compressed_size);
+
+      Decompressor::Args args;
+      args.compression_type = kZXC;
+      args.compressed_data = compressed;
+      const char* full_compressed_data = args.compressed_data.data();
+      size_t full_compressed_size = args.compressed_data.size();
+
+      ASSERT_OK(decompressor->ExtractUncompressedSize(args));
+      ASSERT_EQ(args.uncompressed_size, uncompressed.size());
+      ASSERT_GT(args.compressed_data.data(), full_compressed_data);
+      ASSERT_LT(args.compressed_data.size(), full_compressed_size);
+      ASSERT_EQ(static_cast<size_t>(args.compressed_data.data() -
+                                    full_compressed_data),
+                VarintLength(uncompressed.size()));
+
+      std::string output(args.uncompressed_size, '\0');
+      args.working_area = &decompress_wa;
+      ASSERT_OK(decompressor->DecompressBlock(args, output.data()));
+      ASSERT_EQ(output, uncompressed);
+
+      if (value_size == 20000) {
+        // Exercise RocksDB's max-output/ratio-cap path. For this input, the
+        // actual compressed size fits in this exact-size buffer, but zxc's
+        // block bound is larger, so the compressor must use its scratch buffer
+        // and copy back without depending on zxc to reject a small destination.
+        std::string capped_compressed(compressed_size, '\0');
+        size_t capped_compressed_size = capped_compressed.size();
+        CompressionType capped_compression_type = kNoCompression;
+        ASSERT_OK(compressor->CompressBlock(
+            uncompressed, capped_compressed.data(), &capped_compressed_size,
+            &capped_compression_type, &compress_wa));
+        ASSERT_EQ(capped_compression_type, kZXC);
+        capped_compressed.resize(capped_compressed_size);
+
+        args.compressed_data = capped_compressed;
+        ASSERT_OK(decompressor->ExtractUncompressedSize(args));
+        output.assign(args.uncompressed_size, '\0');
+        ASSERT_OK(decompressor->DecompressBlock(args, output.data()));
+        ASSERT_EQ(output, uncompressed);
+
+        // A cap below the actual compressed size should be reported as an
+        // attempted/rejected compression, not a write past the caller's buffer.
+        std::string too_small_compressed(64, '\0');
+        size_t too_small_compressed_size = too_small_compressed.size();
+        CompressionType too_small_compression_type = kNoCompression;
+        ASSERT_OK(compressor->CompressBlock(
+            uncompressed, too_small_compressed.data(),
+            &too_small_compressed_size, &too_small_compression_type,
+            &compress_wa));
+        ASSERT_EQ(too_small_compression_type, kNoCompression);
+        ASSERT_GT(too_small_compressed_size, 0);
+      }
+    }
   }
 }
 

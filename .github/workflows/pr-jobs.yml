@@ -97,7 +97,7 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: build-linux
-    - run: make V=1 J=32 -j32 check
+    - run: make WITH_ZXC=1 V=1 J=32 -j32 check
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
@@ -192,7 +192,9 @@ jobs:
     - uses: "./.github/actions/build-folly"
       with:
         cache-hit: ${{ steps.cache-folly.outputs.cache-hit }}
-    - run: "(mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 -DPORTABLE=ON .. && make VERBOSE=1 -j64 && ctest -j64)"
+    # Makefile jobs can use WITH_ZXC=1 directly; CMake needs an installed zxc package.
+    - uses: "./.github/actions/build-and-install-zxc"
+    - run: "(mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DWITH_ZXC=ON -DCMAKE_PREFIX_PATH=$PWD/../zxc-install -DROCKSDB_BUILD_SHARED=0 -DPORTABLE=ON .. && make VERBOSE=1 -j64 && ctest -j64)"
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
@@ -369,8 +371,10 @@ jobs:
         include:
         - crash_test_target: blackbox_crash_test_with_atomic_flush
           crash_duration: 480
+          zxc_make_arg: ""
         - crash_test_target: blackbox_crash_test
           crash_duration: 240
+          zxc_make_arg: "WITH_ZXC=1"
     container:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
       options: --shm-size=16gb --ulimit nofile=1048576:1048576
@@ -383,7 +387,7 @@ jobs:
     - run: |
         ulimit -S -n $(ulimit -Hn) # Raise open files soft limit to hard limit
         echo "Updated ulimit -Hn: $(ulimit -Hn) -Sn: $(ulimit -Sn)"
-        make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=${{ matrix.crash_duration }} --max_key=2500000' ${{ matrix.crash_test_target }}
+        make V=1 -j8 ${{ matrix.zxc_make_arg }} CRASH_TEST_EXT_ARGS='--duration=${{ matrix.crash_duration }} --max_key=2500000' ${{ matrix.crash_test_target }}
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
@@ -458,7 +462,7 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: static-alt-namespace
-    - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=static OPT="-DROCKSDB_USE_STD_SEMAPHORES -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j24 check
+    - run: make WITH_ZXC=1 ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=static OPT="-DROCKSDB_USE_STD_SEMAPHORES -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" V=1 -j24 check
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"

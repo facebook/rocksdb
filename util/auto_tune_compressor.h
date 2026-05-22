@@ -167,8 +167,8 @@ class CostAwareCompressor : public Compressor {
   void ReleaseWorkingArea(WorkingArea* wa) override;
 
  private:
-  Status CompressBlockAndRecord(size_t choosen_compression_type,
-                                size_t compresion_level_ptr,
+  Status CompressBlockAndRecord(size_t chosen_type_index,
+                                size_t chosen_level_index,
                                 Slice uncompressed_data,
                                 char* compressed_output,
                                 size_t* compressed_output_size,

@@ -40,6 +40,10 @@ if(@WITH_ZSTD@)
   find_dependency(zstd)
 endif()
 
+if(@WITH_ZXC@)
+  find_dependency(zxc 0.11.0 CONFIG)
+endif()
+
 if(@WITH_NUMA@)
   find_dependency(NUMA)
 endif()

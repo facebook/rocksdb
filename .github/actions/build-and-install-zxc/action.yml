@@ -1,0 +1,33 @@
+name: build-and-install-zxc
+description: Build and install zxc 0.11.0 for CMake jobs. Makefile jobs can use WITH_ZXC=1 instead.
+inputs:
+  install-prefix:
+    description: Directory, relative to the repository root, where zxc will be installed.
+    required: false
+    default: zxc-install
+  jobs:
+    description: Parallel build jobs for zxc.
+    required: false
+    default: "8"
+  cmake-build-type:
+    description: CMake build type for zxc.
+    required: false
+    default: Release
+runs:
+  using: composite
+  steps:
+  - name: Build and install zxc
+    run: |-
+      make zxc-0.11.0.tar.gz
+      tar xzf zxc-0.11.0.tar.gz
+      cmake -S zxc-0.11.0 -B zxc-0.11.0/build \
+        -DCMAKE_BUILD_TYPE=${{ inputs.cmake-build-type }} \
+        -DCMAKE_INSTALL_PREFIX="$PWD/${{ inputs.install-prefix }}" \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DZXC_BUILD_CLI=OFF \
+        -DZXC_BUILD_TESTS=OFF \
+        -DZXC_NATIVE_ARCH=OFF \
+        -DZXC_ENABLE_LTO=OFF
+      cmake --build zxc-0.11.0/build --target install --parallel ${{ inputs.jobs }}
+    shell: bash

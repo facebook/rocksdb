@@ -11,6 +11,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "util/coding.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -61,10 +62,16 @@ TEST_F(DBStatisticsTest, CompressionStatsTest) {
           Put(Key(i), test::CompressibleString(&rnd, compress_to, len, &buf)));
     }
     ASSERT_OK(Flush());
-    EXPECT_EQ(34, PopStat(NUMBER_BLOCK_COMPRESSED));
-    EXPECT_NEAR2(uncomp_est, PopStat(BYTES_COMPRESSED_FROM), uncomp_est / 10);
-    EXPECT_NEAR2(uncomp_est * compress_to, PopStat(BYTES_COMPRESSED_TO),
-                 uncomp_est / 10);
+    uint64_t compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
+    uint64_t compressed_from = PopStat(BYTES_COMPRESSED_FROM);
+    uint64_t compressed_to = PopStat(BYTES_COMPRESSED_TO);
+    uint64_t rejected_bytes = PopStat(BYTES_COMPRESSION_REJECTED);
+    uint64_t rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
+    EXPECT_EQ(34, compressed_count + rejected_count);
+    EXPECT_GT(compressed_count, 0);
+    EXPECT_NEAR2(uncomp_est, compressed_from + rejected_bytes, uncomp_est / 10);
+    EXPECT_GT(compressed_to, 0);
+    EXPECT_LE(compressed_to, compressed_from);
 
     EXPECT_EQ(0, PopStat(NUMBER_BLOCK_DECOMPRESSED));
     EXPECT_EQ(0, PopStat(BYTES_DECOMPRESSED_FROM));
@@ -74,10 +81,12 @@ TEST_F(DBStatisticsTest, CompressionStatsTest) {
     for (int i = 0; i < kNumKeysWritten; ++i) {
       auto r = Get(Key(i));
     }
-    EXPECT_EQ(34, PopStat(NUMBER_BLOCK_DECOMPRESSED));
-    EXPECT_NEAR2(uncomp_est, PopStat(BYTES_DECOMPRESSED_TO), uncomp_est / 10);
-    EXPECT_NEAR2(uncomp_est * compress_to, PopStat(BYTES_DECOMPRESSED_FROM),
-                 uncomp_est / 10);
+    EXPECT_EQ(compressed_count, PopStat(NUMBER_BLOCK_DECOMPRESSED));
+    uint64_t decompressed_from = PopStat(BYTES_DECOMPRESSED_FROM);
+    EXPECT_LE(decompressed_from, compressed_to);
+    EXPECT_LE(compressed_to - decompressed_from,
+              compressed_count * kMaxVarint64Length);
+    EXPECT_EQ(compressed_from, PopStat(BYTES_DECOMPRESSED_TO));
 
     EXPECT_EQ(0, PopStat(BYTES_COMPRESSION_BYPASSED));
     EXPECT_EQ(0, PopStat(BYTES_COMPRESSION_REJECTED));

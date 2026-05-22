@@ -2050,7 +2050,8 @@ enum {
   rocksdb_lz4_compression = 4,
   rocksdb_lz4hc_compression = 5,
   rocksdb_xpress_compression = 6,
-  rocksdb_zstd_compression = 7
+  rocksdb_zstd_compression = 7,
+  rocksdb_zxc_compression = 8
 };
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compression(
     rocksdb_options_t*, int);
