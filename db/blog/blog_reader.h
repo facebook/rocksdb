@@ -25,6 +25,9 @@ class BlogFileReader {
   class Reporter {
    public:
     virtual ~Reporter() = default;
+    // `bytes` is the approximate number of bytes logically dropped because the
+    // reader could not continue past the corruption, matching
+    // log::Reader::Reporter semantics.
     virtual void Corruption(size_t bytes, const Status& status) = 0;
   };
 
@@ -69,7 +72,7 @@ class BlogFileReader {
   // Skip arbitrarily long padding (0x00 or 0xFF bytes) after a record or
   // header. Aligns to 4-byte boundary first, then scans 4-byte chunks
   // until finding one whose first byte is not 0x00/0xFF. Stashes that
-  // chunk in pending_escape_prefix_ for the next ReadRecord call.
+  // chunk in pending_input_ for the next ReadRecord call.
   // Returns OK on success, NotFound on clean EOF (no more records),
   // or an error Status on I/O failure.
   Status SkipPadding();
@@ -80,7 +83,19 @@ class BlogFileReader {
   // Read a prefix varint64 from the sequential stream.
   Status ReadPrefixVarint64(uint64_t* value, std::string* scratch);
 
-  // Report corruption and return a Corruption status.
+  // Read the payload/trailer/padding of a full-format unspecified-size record
+  // by scanning forward for aligned candidate escape sequences. For each
+  // candidate, derive the only possible padding length (the exact trailing run
+  // of 0x00/0xFF immediately before it) and validate the trailer checksum.
+  // After the first checksum mismatch, only a small fixed number of later
+  // escape-sequence candidates are considered before reporting corruption.
+  Status ReadUnspecifiedSizeRecord(Slice* payload, std::string* scratch,
+                                   uint64_t record_offset,
+                                   CompressionType* record_compression_type);
+
+  // Report corruption and return a Corruption status. `bytes` is the
+  // approximate number of bytes logically dropped because parsing cannot
+  // continue past the corruption.
   Status ReportCorruption(size_t bytes, const std::string& msg);
 
   std::unique_ptr<SequentialFileReader> seq_file_;
@@ -93,9 +108,8 @@ class BlogFileReader {
   uint64_t offset_ = 0;
   uint64_t last_record_offset_ = 0;
 
-  // First 4 bytes of escape sequence consumed during header padding skip.
-  // ReadRecord uses these as the beginning of the first escape sequence.
-  std::string pending_escape_prefix_;
+  // Bytes already read from seq_file_ but not yet logically consumed.
+  std::string pending_input_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

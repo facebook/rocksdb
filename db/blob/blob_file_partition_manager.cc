@@ -559,18 +559,18 @@ Status BlobFilePartitionManager::WriteBlob(
       return s;
     };
 
-    // record_size feeds total_blob_bytes in SharedBlobFileMetaData. Both
-    // formats include estimated per-record overhead so that total_blob_bytes
-    // approximates the record-data portion of the file.
-    const uint64_t record_size =
+    const uint64_t future_write_growth =
         use_blog_format_
-            ? ComputeBlogRecordSize(write_value.size(),
-                                    /*compact_eligible=*/true)
+            ? partition->blog_writer == nullptr
+                  ? ComputeBlogRecordSize(write_value.size(),
+                                          /*compact_eligible=*/true)
+                  : partition->blog_writer->EstimateNextBlobWritePhysicalGrowth(
+                        write_value, compression)
             : BlobLogRecord::kHeaderSize + key.size() + write_value.size();
     const uint64_t estimated_overhead =
         use_blog_format_ ? kBlogEstimatedFooterSize : BlobLogFooter::kSize;
     const uint64_t future_file_size =
-        partition->file_size + record_size + estimated_overhead;
+        partition->file_size + future_write_growth + estimated_overhead;
 
     if (partition->is_open() &&
         (partition->column_family_id != column_family_id ||
@@ -606,7 +606,9 @@ Status BlobFilePartitionManager::WriteBlob(
 
     partition->sync_required = true;
     partition->blob_count += 1;
-    partition->total_blob_bytes += record_size;
+    partition->total_blob_bytes +=
+        partition->blog_writer ? partition->blog_writer->last_blob_record_size()
+                               : future_write_growth;
     if (partition->blog_writer) {
       partition->file_size = partition->blog_writer->current_offset();
     } else {

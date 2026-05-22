@@ -14,6 +14,7 @@
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_sequential_reader.h"
+#include "db/blog/blog_writer.h"
 #include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
@@ -212,6 +213,50 @@ TEST_F(DBBlobBasicTest, CompressedBlogBlobPointReadsMatchMultiGet) {
   db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), key_slices.size(),
                 key_slices.data(), results.data(), statuses.data());
 
+  for (size_t i = 0; i < key_slices.size(); ++i) {
+    ASSERT_OK(statuses[i]);
+    ASSERT_EQ(results[i], values[i]);
+  }
+}
+
+TEST_F(DBBlobBasicTest, NoncanonicalBlogBlobFeatures) {
+  TEST_BlogNoncanonicalConfig config;
+  config.enabled = true;
+  config.seed = 41;
+  config.force_full_record_one_in = 1;
+  config.overlong_full_varint_one_in = 1;
+  config.unspecified_size_record_one_in = 1;
+  config.inject_auxiliary_record_one_in = 1;
+  config.max_auxiliary_payload_bytes = 8;
+  config.extra_padding_512b_one_in = 1;
+  config.extra_padding_4k_one_in = 0;
+  config.prefer_padding_with_0xff_one_in = 1;
+  TEST_BlogNoncanonicalConfigScope config_scope(config);
+
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.use_blog_format_for_blobs = true;
+
+  Reopen(options);
+
+  const std::array<std::string, 2> keys{"key0", "key1"};
+  const std::array<std::string, 2> values{std::string(2048, 'x'),
+                                          std::string(3072, 'y')};
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_OK(Put(keys[i], values[i]));
+  }
+  ASSERT_OK(Flush());
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_EQ(Get(keys[i]), values[i]);
+  }
+
+  const std::array<Slice, 2> key_slices{Slice(keys[0]), Slice(keys[1])};
+  std::array<PinnableSlice, 2> results;
+  std::array<Status, 2> statuses;
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), key_slices.size(),
+                key_slices.data(), results.data(), statuses.data());
   for (size_t i = 0; i < key_slices.size(); ++i) {
     ASSERT_OK(statuses[i]);
     ASSERT_EQ(results[i], values[i]);

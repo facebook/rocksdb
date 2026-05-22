@@ -392,6 +392,7 @@ default_params = {
     "blog_checksum": lambda: random.choice(
         ["kNoChecksum", "kCRC32c", "kxxHash", "kxxHash64", "kXXH3"]
     ),
+    "test_noncanonical_blog": lambda: random.choice([0, 1]),
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
     "fast_sst_open": lambda: random.choice([0, 1]),
     "secondary_cache_uri": lambda: random.choice(

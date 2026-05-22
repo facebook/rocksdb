@@ -29,6 +29,8 @@ Status GetBlobReferenceBytes(uint64_t blob_file_number, uint8_t schema_version,
                BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size);
       return Status::OK();
     case kBlogCurrentSchemaVersion:
+      // BlobIndex does not persist test-only noncanonical framing choices, so
+      // mixed-size blog references fall back to canonical sizing here.
       *bytes = ComputeBlogRecordSize(blob_index.size(),
                                      /*compact_eligible=*/true);
       return Status::OK();

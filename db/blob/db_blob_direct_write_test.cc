@@ -24,6 +24,7 @@
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_sequential_reader.h"
 #include "db/blog/blog_format.h"
+#include "db/blog/blog_writer.h"
 #include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
@@ -971,6 +972,47 @@ TEST_F(DBBlobDirectWriteTest, DirectWriteBlogManifestMetadata) {
   ASSERT_EQ(reader->GetBlogSchemaVersion(), blob_meta->GetSchemaVersion());
   ASSERT_EQ(reader->GetBlogFileIdentity().ToString(),
             blob_meta->GetFileIdentity());
+}
+
+TEST_F(DBBlobDirectWriteTest, DirectWriteNoncanonicalBlogFeatures) {
+  TEST_BlogNoncanonicalConfig config;
+  config.enabled = true;
+  config.seed = 43;
+  config.force_full_record_one_in = 1;
+  config.overlong_full_varint_one_in = 1;
+  config.unspecified_size_record_one_in = 1;
+  config.inject_auxiliary_record_one_in = 1;
+  config.max_auxiliary_payload_bytes = 8;
+  config.extra_padding_512b_one_in = 1;
+  config.extra_padding_4k_one_in = 0;
+  config.prefer_padding_with_0xff_one_in = 1;
+  TEST_BlogNoncanonicalConfigScope config_scope(config);
+
+  Options options = GetDirectWriteOptions();
+  options.blob_direct_write_partitions = 1;
+  options.blob_file_size = 1 << 20;
+  options.use_blog_format_for_blobs = true;
+
+  Reopen(options);
+
+  const std::array<std::string, 2> keys{"nk0", "nk1"};
+  const std::array<std::string, 2> values{std::string(256, 'a'),
+                                          std::string(384, 'b')};
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_OK(Put(keys[i], values[i]));
+    ASSERT_EQ(Get(keys[i]), values[i]);
+  }
+  ASSERT_OK(Flush());
+
+  const std::array<Slice, 2> key_slices{Slice(keys[0]), Slice(keys[1])};
+  std::array<PinnableSlice, 2> results;
+  std::array<Status, 2> statuses;
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), key_slices.size(),
+                key_slices.data(), results.data(), statuses.data());
+  for (size_t i = 0; i < key_slices.size(); ++i) {
+    ASSERT_OK(statuses[i]);
+    ASSERT_EQ(results[i], values[i]);
+  }
 }
 
 TEST_F(DBBlobDirectWriteTest, DirectWriteRefreshesReaderWhileFileIsGrowing) {

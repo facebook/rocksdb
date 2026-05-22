@@ -189,7 +189,7 @@
   [padding: 0+ B]</div>
 <p>The <code>prefix_checksum</code> covers (prefix_varint + type + compression_type), with a context checksum modifier for defense-in-depth. Validates the length before attempting a potentially large read. The pre-payload <code>compression_type</code> enables streaming decompression without seeking to the trailer.</p>
 
-<p>Records that don't match the compact_record_type (e.g. footer records) always use full format by encoding the prefix varint with &ge; 3 bytes (irregular encoding).</p>
+<p>Records that don't match the compact_record_type (e.g. footer records) always use full format by encoding the prefix varint with &ge; 3 bytes (irregular encoding), but length 0 is disallowed and must use the trivial record format.</p>
 
 <p>All checksums in blog files (fixed header, property section trailer, record prefix, record trailer) use context checksum modifiers incorporating the incarnation ID, providing defense-in-depth for misplaced data detection even with <code>kNoChecksum</code>.</p>
 
@@ -219,10 +219,10 @@ Currently only ZSTD is supported for streaming compression. The <code>WriteBatch
 <tr><th>Last meaningful byte</th><th>Pad with</th><th>Mandatory?</th></tr>
 <tr><td><code>0x00</code></td><td><code>0xFF</code></td><td>Yes -- at least 1 byte required</td></tr>
 <tr><td><code>0xFF</code></td><td><code>0x00</code></td><td>Yes -- at least 1 byte required</td></tr>
-<tr><td>Anything else</td><td><code>0x00</code> (writer's choice)</td><td>Only if needed for alignment</td></tr>
+<tr><td>Anything else</td><td><code>0x00</code> preferred; <code>0xFF</code> also legal</td><td>Only if needed for alignment</td></tr>
 </table>
 
-<p>Padding may be arbitrarily long for stronger alignment requirements (e.g. flush/sync boundaries) or for recycling a file of all zeros. The reader skips padding by scanning forward over 0x00/0xFF bytes in 4-byte-aligned chunks until finding a byte that is neither, which is the first byte of the next escape sequence (guaranteed to be neither 0x00 nor 0xFF).</p>
+<p>Padding may be arbitrarily long for stronger alignment requirements (for example, rounding up to 512-byte or 4 KiB flush/sync-friendly boundaries) or for recycling a file of all zeros. The reader skips padding by scanning forward over 0x00/0xFF bytes in 4-byte-aligned chunks until finding a byte that is neither, which is the first byte of the next escape sequence (guaranteed to be neither 0x00 nor 0xFF).</p>
 
 <!-- ======================================================================= -->
 <h2 id="s6">Context Checksums</h2>

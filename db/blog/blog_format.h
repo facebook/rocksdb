@@ -95,10 +95,16 @@ static constexpr size_t kBlogCompactVarintMaxBytes = 2;
 // Block trailer size: 1 byte compression_type + 4 bytes checksum.
 static constexpr size_t kBlogBlockTrailerSize = 5;
 
-// Compute the total on-disk size of a blog record (framing + payload +
-// trailer + padding) given the payload size and whether compact format is
-// available. Used for total_blob_bytes accounting so that it includes
-// record overhead, analogous to legacy format's header + key + value.
+// Writers always keep record starts 4-byte aligned. They may optionally pad
+// farther to stronger alignments for flush/sync friendliness.
+static constexpr uint32_t kBlogMinRecordAlignment = 4;
+static constexpr uint32_t kBlogFlushFriendlyAlignment = 512;
+static constexpr uint32_t kBlogPageFriendlyAlignment = 4096;
+
+// Compute the canonical on-disk size of a blog record (framing + payload +
+// trailer + 4-byte-alignment padding) given the payload size and whether
+// compact format is available. Test-only noncanonical encodings can be larger;
+// exact write-time accounting for those comes from BlogFileWriter.
 inline uint64_t ComputeBlogRecordSize(uint64_t payload_size,
                                       bool compact_eligible) {
   uint64_t size_before_padding;
@@ -340,14 +346,33 @@ struct BlogFileFooterProperties {
 // Computes and holds padding to reach the next 4-byte-aligned offset.
 // The pad byte value is chosen to differ from last_meaningful_byte.
 struct BlogPadding {
-  char bytes[4] = {};
-  uint32_t count;
+  char byte = 0;
+  uint32_t count = 0;
 
-  BlogPadding(uint8_t last_meaningful_byte, size_t current_offset);
+  BlogPadding(uint8_t last_meaningful_byte, size_t current_offset,
+              uint32_t alignment = kBlogMinRecordAlignment,
+              bool prefer_0xff_when_legal = false);
 
   // Append padding to a string (convenience for non-hot paths).
-  void AppendTo(std::string* dst) const { dst->append(bytes, count); }
+  void AppendTo(std::string* dst) const { dst->append(count, byte); }
 };
+
+// Compute the number of padding bytes needed after a record or header section
+// ending at `current_offset`, rounded up to `alignment`.
+uint32_t ComputeBlogPaddingLength(uint8_t last_meaningful_byte,
+                                  uint64_t current_offset, uint32_t alignment);
+
+// Returns the pad byte to use. For trailing 0x00/0xFF bytes the opposite value
+// is required; otherwise either 0x00 or 0xFF is legal, with 0x00 preferred by
+// default.
+uint8_t ChooseBlogPaddingByte(uint8_t last_meaningful_byte,
+                              bool prefer_0xff_when_legal);
+
+// Returns whether the provided padding is legal for a record or header ending
+// at `current_offset`. Test-mode readers accept the standard 4-byte alignment
+// as well as the stronger alignments currently used by test-mode writers.
+bool IsValidBlogPadding(uint8_t last_meaningful_byte, uint64_t current_offset,
+                        uint32_t count, uint8_t pad_byte);
 
 // --- Checksum helpers ---
 

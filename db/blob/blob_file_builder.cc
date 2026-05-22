@@ -389,11 +389,7 @@ Status BlobFileBuilder::WriteBlobToFile(
 
   ++blob_count_;
   if (blog_writer_) {
-    // Estimated full record size including framing, analogous to legacy's
-    // header + key + value. Compact format is available when the record
-    // type matches compact_record_type (blob records do for blob files).
-    blob_bytes_ += ComputeBlogRecordSize(*blob_on_disk_size,
-                                         /*compact_eligible=*/true);
+    blob_bytes_ += blog_writer_->last_blob_record_size();
   } else {
     // Legacy format: blob is already compressed by the caller, so blob.size()
     // is the on-disk size. Add legacy record header and key overhead.

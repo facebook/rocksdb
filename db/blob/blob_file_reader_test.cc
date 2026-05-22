@@ -1354,6 +1354,66 @@ TEST_F(BlobFileReaderTest, BlogFormatGetBlob) {
   }
 }
 
+TEST_F(BlobFileReaderTest, BlogFormatGetBlobWithNoncanonicalWriterFeatures) {
+  Options options;
+  options.env = mock_env_.get();
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(mock_env_.get(),
+                            "BlogFormatGetBlobWithNoncanonicalWriterFeatures"),
+      0);
+  options.enable_blob_files = true;
+  options.use_blog_format_for_blobs = true;
+
+  ImmutableOptions immutable_options(options);
+
+  TEST_BlogNoncanonicalConfig config;
+  config.enabled = true;
+  config.seed = 37;
+  config.force_full_record_one_in = 1;
+  config.overlong_full_varint_one_in = 1;
+  config.unspecified_size_record_one_in = 1;
+  config.inject_auxiliary_record_one_in = 1;
+  config.max_auxiliary_payload_bytes = 8;
+  config.extra_padding_512b_one_in = 1;
+  config.extra_padding_4k_one_in = 0;
+  config.prefer_padding_with_0xff_one_in = 1;
+  TEST_BlogNoncanonicalConfigScope config_scope(config);
+
+  constexpr uint64_t blob_file_number = 1;
+  const std::vector<std::string> blob_strs = {std::string(200, 'a'),
+                                              std::string(300, 'b')};
+  const std::vector<Slice> blobs = {blob_strs[0], blob_strs[1]};
+
+  std::vector<uint64_t> blob_offsets(blobs.size());
+  std::vector<uint64_t> blob_sizes(blobs.size());
+
+  WriteBlogBlobFile(immutable_options, blob_file_number, blobs, kNoCompression,
+                    blob_offsets, blob_sizes);
+
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+  constexpr uint32_t column_family_id = 1;
+  std::unique_ptr<BlobFileReader> reader;
+
+  ReadOptions read_options;
+  read_options.verify_checksums = true;
+  ASSERT_OK(BlobFileReader::Create(
+      immutable_options, read_options, FileOptions(), column_family_id,
+      blob_file_read_hist, blob_file_number, nullptr, &reader));
+
+  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+  constexpr MemoryAllocator* allocator = nullptr;
+
+  for (size_t i = 0; i < blobs.size(); ++i) {
+    std::unique_ptr<BlobContents> value;
+    uint64_t bytes_read = 0;
+    ASSERT_OK(reader->GetBlob(read_options, Slice("key"), blob_offsets[i],
+                              blob_sizes[i], kNoCompression, prefetch_buffer,
+                              allocator, &value, &bytes_read));
+    ASSERT_NE(value, nullptr);
+    ASSERT_EQ(value->data(), blobs[i]);
+  }
+}
+
 TEST_F(BlobFileReaderTest, BlogFormatChecksumCorruption) {
   Options options;
   options.env = mock_env_.get();

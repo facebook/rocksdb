@@ -17,6 +17,41 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+struct TEST_BlogNoncanonicalConfig {
+  bool enabled = false;
+  uint64_t seed = 0;
+  uint32_t force_full_record_one_in = 8;
+  uint32_t overlong_full_varint_one_in = 8;
+  uint32_t unspecified_size_record_one_in = 16;
+  uint32_t shuffle_properties_one_in = 4;
+  uint32_t split_ignorable_properties_one_in = 4;
+  uint32_t inject_auxiliary_record_one_in = 16;
+  uint32_t extra_padding_512b_one_in = 16;
+  uint32_t extra_padding_4k_one_in = 64;
+  uint32_t prefer_padding_with_0xff_one_in = 8;
+  uint32_t max_auxiliary_payload_bytes = 32;
+};
+
+// Test-only global configuration for writing accepted-but-noncanonical blog
+// encodings. Callers must set or reset it before concurrent file creation.
+void TEST_SetBlogNoncanonicalConfig(const TEST_BlogNoncanonicalConfig& config);
+const TEST_BlogNoncanonicalConfig& TEST_GetBlogNoncanonicalConfig();
+
+class TEST_BlogNoncanonicalConfigScope {
+ public:
+  explicit TEST_BlogNoncanonicalConfigScope(
+      const TEST_BlogNoncanonicalConfig& config);
+  ~TEST_BlogNoncanonicalConfigScope();
+
+  TEST_BlogNoncanonicalConfigScope(const TEST_BlogNoncanonicalConfigScope&) =
+      delete;
+  TEST_BlogNoncanonicalConfigScope& operator=(
+      const TEST_BlogNoncanonicalConfigScope&) = delete;
+
+ private:
+  TEST_BlogNoncanonicalConfig prev_;
+};
+
 // Writes blog-format files (WAL or blob). The caller constructs a
 // BlogFileHeader, calls WriteHeader(), then adds records via
 // AddBlobRecord/AddWriteBatchRecord, and optionally appends footer records
@@ -74,8 +109,16 @@ class BlogFileWriter {
   uint64_t current_offset() const { return offset_; }
   WritableFileWriter* file() { return dest_.get(); }
   const BlogFileHeader& header() const { return header_; }
+  uint64_t last_blob_record_size() const { return last_blob_record_size_; }
+  uint64_t last_auxiliary_record_size() const {
+    return last_auxiliary_record_size_;
+  }
 
-  // Accumulated blob record stats for footer properties.
+  // Exact physical growth the next AddBlobRecord() call would cause,
+  // including any injected test-only auxiliary record.
+  uint64_t EstimateNextBlobWritePhysicalGrowth(const Slice& payload,
+                                               CompressionType comp_type) const;
+
   // Accumulated blob record stats for footer properties.
   struct BlobStats {
     uint64_t count = 0;
@@ -99,32 +142,60 @@ class BlogFileWriter {
   }
 
  private:
+  struct RecordPlan {
+    bool use_compact = false;
+    bool use_unspecified_size = false;
+    uint32_t full_varint_min_bytes = uint32_t{kBlogCompactVarintMaxBytes} + 1;
+    uint32_t padding_alignment = kBlogMinRecordAlignment;
+    bool prefer_padding_with_0xff = false;
+  };
+
   // Write a record. Chooses compact format when varint fits in <= 3 bytes
   // and type matches compact_record_type, unless force_full is true.
-  IOStatus AddRecord(const WriteOptions& wo, BlogRecordType type,
-                     const Slice& payload, CompressionType comp_type,
-                     uint64_t* payload_offset, bool force_full = false);
+  IOStatus AddRecordInternal(const WriteOptions& wo, BlogRecordType type,
+                             const Slice& payload, CompressionType comp_type,
+                             uint64_t* payload_offset, bool force_full,
+                             bool allow_unspecified_size,
+                             uint64_t* record_size);
+
+  IOStatus EmitRecordWithPlan(const WriteOptions& wo, BlogRecordType type,
+                              const Slice& payload, CompressionType comp_type,
+                              const RecordPlan& plan, uint64_t* payload_offset);
 
   // Emit a trivial-format record (length=0, no payload).
-  IOStatus EmitTrivialRecord(const WriteOptions& wo, BlogRecordType type);
+  IOStatus EmitTrivialRecord(const WriteOptions& wo, BlogRecordType type,
+                             const RecordPlan& plan);
 
   // Emit a compact-format record.
   IOStatus EmitCompactRecord(const WriteOptions& wo, const Slice& payload,
-                             CompressionType comp_type,
+                             CompressionType comp_type, const RecordPlan& plan,
                              uint64_t* payload_offset);
 
   // Emit a full-format record.
   IOStatus EmitFullRecord(const WriteOptions& wo, BlogRecordType type,
                           const Slice& payload, CompressionType comp_type,
-                          uint64_t* payload_offset);
+                          const RecordPlan& plan, uint64_t* payload_offset);
 
   // Emit payload, 5-byte trailer (compression_type + checksum), and padding.
   // If skip_padding is true, no padding is emitted (used for the last record).
-  IOStatus EmitPayloadTrailerPadding(const WriteOptions& wo,
-                                     const Slice& payload,
-                                     CompressionType comp_type,
-                                     uint64_t* payload_offset,
-                                     bool skip_padding);
+  IOStatus EmitPayloadTrailerPadding(
+      const WriteOptions& wo, const Slice& payload, CompressionType comp_type,
+      const RecordPlan& plan, uint64_t* payload_offset, bool skip_padding);
+
+  IOStatus EmitPadding(const WriteOptions& wo, const BlogPadding& pad);
+  IOStatus MaybeFlush(const WriteOptions& wo);
+  IOStatus MaybeEmitAuxiliaryRecord(const WriteOptions& wo);
+
+  RecordPlan PlanRecord(BlogRecordType type, const Slice& payload,
+                        bool force_full, bool allow_unspecified_size,
+                        uint64_t record_ordinal) const;
+  uint64_t EstimateRecordSize(const Slice& payload, CompressionType comp_type,
+                              BlogRecordType type, const RecordPlan& plan,
+                              uint64_t record_offset, bool skip_padding) const;
+  bool IsBlobRoleFile() const;
+  bool ShouldEmitAuxiliaryRecord(uint64_t record_ordinal) const;
+  bool ShouldSplitIgnorableProperties() const;
+  std::string BuildAuxiliaryPayload(uint64_t record_ordinal) const;
 
   // Append raw bytes to the file and advance offset_.
   IOStatus EmitBytes(const WriteOptions& wo, const Slice& data);
@@ -135,8 +206,11 @@ class BlogFileWriter {
   uint64_t offset_ = 0;
   bool manual_flush_;
   bool header_written_ = false;
+  uint64_t record_ordinal_ = 0;
   BlobStats blob_stats_;
   CompressionTypeSet compression_type_set_;
+  uint64_t last_blob_record_size_ = 0;
+  uint64_t last_auxiliary_record_size_ = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

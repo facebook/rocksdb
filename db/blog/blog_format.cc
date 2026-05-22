@@ -5,6 +5,7 @@
 
 #include "db/blog/blog_format.h"
 
+#include <array>
 #include <cassert>
 #include <cstring>
 
@@ -12,6 +13,7 @@
 #include "rocksdb/version.h"
 #include "table/format.h"
 #include "table/unique_id_impl.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/fastrange.h"
 #include "util/prefix_varint.h"
@@ -591,18 +593,69 @@ Status BlogFileFooterProperties::DecodeFrom(const Slice& input) {
 
 // --- Padding ---
 
-BlogPadding::BlogPadding(uint8_t last_meaningful_byte, size_t current_offset) {
-  count = BitwiseAnd(size_t{0} - current_offset, uint32_t{3});
+uint32_t ComputeBlogPaddingLength(uint8_t last_meaningful_byte,
+                                  uint64_t current_offset, uint32_t alignment) {
+  assert(alignment >= kBlogMinRecordAlignment);
+  assert((alignment & (alignment - 1)) == 0);
 
+  const uint64_t count64 =
+      BitwiseAnd(uint64_t{0} - current_offset, uint64_t{alignment - 1});
+  assert(count64 < alignment);
+  uint32_t count = static_cast<uint32_t>(count64);
+  if (count == 0 &&
+      (last_meaningful_byte == 0x00 || last_meaningful_byte == 0xFF)) {
+    count = alignment;
+  }
+  return count;
+}
+
+uint8_t ChooseBlogPaddingByte(uint8_t last_meaningful_byte,
+                              bool prefer_0xff_when_legal) {
   if (last_meaningful_byte == 0x00) {
-    if (count == 0) {
-      count = 4;
+    return 0xFF;
+  }
+  if (last_meaningful_byte == 0xFF) {
+    return 0x00;
+  }
+  return prefer_0xff_when_legal ? 0xFF : 0x00;
+}
+
+bool IsValidBlogPadding(uint8_t last_meaningful_byte, uint64_t current_offset,
+                        uint32_t count, uint8_t pad_byte) {
+  if (count == 0) {
+    return true;
+  }
+
+  if (pad_byte != 0x00 && pad_byte != 0xFF) {
+    return false;
+  }
+
+  if (last_meaningful_byte == 0x00 && pad_byte != 0xFF) {
+    return false;
+  }
+  if (last_meaningful_byte == 0xFF && pad_byte != 0x00) {
+    return false;
+  }
+
+  static constexpr std::array<uint32_t, 3> kAllowedAlignments{
+      kBlogMinRecordAlignment, kBlogFlushFriendlyAlignment,
+      kBlogPageFriendlyAlignment};
+  for (uint32_t alignment : kAllowedAlignments) {
+    if (count == ComputeBlogPaddingLength(last_meaningful_byte, current_offset,
+                                          alignment)) {
+      return true;
     }
-    memset(bytes, 0xFF, count);
-  } else if (last_meaningful_byte == 0xFF) {
-    if (count == 0) {
-      count = 4;
-    }
+  }
+  return false;
+}
+
+BlogPadding::BlogPadding(uint8_t last_meaningful_byte, size_t current_offset,
+                         uint32_t alignment, bool prefer_0xff_when_legal) {
+  count = ComputeBlogPaddingLength(last_meaningful_byte,
+                                   uint64_t{current_offset}, alignment);
+  if (count > 0) {
+    byte = lossless_cast<char>(
+        ChooseBlogPaddingByte(last_meaningful_byte, prefer_0xff_when_legal));
   }
 }
 

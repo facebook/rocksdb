@@ -1338,6 +1338,10 @@ DEFINE_bool(use_blog_format_for_blobs, false,
 
 DEFINE_string(blog_checksum, "kXXH3", "Checksum type for blog format files.");
 
+DEFINE_bool(test_noncanonical_blog, false,
+            "Enable testing-only noncanonical blog writer features for the "
+            "entire invocation.");
+
 DEFINE_bool(
     verify_sst_unique_id_in_manifest, false,
     "Enable DB options `verify_sst_unique_id_in_manifest`, if true, during "

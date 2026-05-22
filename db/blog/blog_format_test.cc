@@ -11,6 +11,7 @@
 
 #include "table/format.h"
 #include "test_util/testharness.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/prefix_varint.h"
 
@@ -404,9 +405,7 @@ TEST_F(BlogFormatTest, PaddingLastByteZero) {
   // When last byte is 0x00, must pad with 0xFF, at least 1 byte
   BlogPadding pad(0x00, 0);
   ASSERT_GE(pad.count, 1u);
-  for (size_t i = 0; i < pad.count; ++i) {
-    ASSERT_EQ(static_cast<uint8_t>(pad.bytes[i]), 0xFFu);
-  }
+  ASSERT_EQ(lossless_cast<uint8_t>(pad.byte), 0xFFu);
   ASSERT_EQ(pad.count % 4, 0u);
 }
 
@@ -414,9 +413,7 @@ TEST_F(BlogFormatTest, PaddingLastByteFF) {
   // When last byte is 0xFF, must pad with 0x00, at least 1 byte
   BlogPadding pad(0xFF, 0);
   ASSERT_GE(pad.count, 1u);
-  for (size_t i = 0; i < pad.count; ++i) {
-    ASSERT_EQ(static_cast<uint8_t>(pad.bytes[i]), 0x00u);
-  }
+  ASSERT_EQ(lossless_cast<uint8_t>(pad.byte), 0x00u);
   ASSERT_EQ(pad.count % 4, 0u);
 }
 
@@ -427,9 +424,7 @@ TEST_F(BlogFormatTest, PaddingLastByteOther) {
 
   BlogPadding pad2(0x42, 1);
   ASSERT_EQ(pad2.count, 3u);
-  for (size_t i = 0; i < pad2.count; ++i) {
-    ASSERT_EQ(static_cast<uint8_t>(pad2.bytes[i]), 0x00u);
-  }
+  ASSERT_EQ(lossless_cast<uint8_t>(pad2.byte), 0x00u);
 }
 
 TEST_F(BlogFormatTest, PaddingAlignment) {
@@ -448,6 +443,35 @@ TEST_F(BlogFormatTest, PaddingAppendTo) {
   for (size_t i = 0; i < pad.count; ++i) {
     ASSERT_EQ(static_cast<uint8_t>(dst[i]), 0xFFu);
   }
+}
+
+TEST_F(BlogFormatTest, PaddingAllowsStrongerAlignment) {
+  BlogPadding pad(0x42, 100, kBlogFlushFriendlyAlignment,
+                  /*prefer_0xff_when_legal=*/true);
+  ASSERT_EQ((100u + pad.count) % kBlogFlushFriendlyAlignment, 0u);
+  ASSERT_EQ(lossless_cast<uint8_t>(pad.byte), 0xFFu);
+}
+
+TEST_F(BlogFormatTest, IsValidPaddingAcceptsSupportedAlignments) {
+  const uint8_t last_meaningful_byte = 0x42;
+  const uint64_t current_offset = 100;
+
+  const uint32_t min_pad = ComputeBlogPaddingLength(
+      last_meaningful_byte, current_offset, kBlogMinRecordAlignment);
+  ASSERT_TRUE(IsValidBlogPadding(last_meaningful_byte, current_offset, min_pad,
+                                 /*pad_byte=*/0x00));
+
+  const uint32_t flush_pad = ComputeBlogPaddingLength(
+      last_meaningful_byte, current_offset, kBlogFlushFriendlyAlignment);
+  ASSERT_TRUE(IsValidBlogPadding(last_meaningful_byte, current_offset,
+                                 flush_pad, /*pad_byte=*/0xFF));
+
+  const uint32_t page_pad = ComputeBlogPaddingLength(
+      last_meaningful_byte, current_offset, kBlogPageFriendlyAlignment);
+  ASSERT_TRUE(IsValidBlogPadding(last_meaningful_byte, current_offset, page_pad,
+                                 /*pad_byte=*/0x00));
+  ASSERT_FALSE(IsValidBlogPadding(last_meaningful_byte, current_offset,
+                                  /*count=*/5, /*pad_byte=*/0x00));
 }
 
 // --- Improper (non-minimal) prefix varint ---
