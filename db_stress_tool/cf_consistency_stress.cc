@@ -227,10 +227,10 @@ class CfConsistencyStressTest : public StressTest {
                    key, &value0);
 
       // Temporarily disable error injection for verification
-      if (fault_fs_guard) {
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+      if (db_fault_injection_fs_) {
+        db_fault_injection_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kRead);
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+        db_fault_injection_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
 
@@ -279,10 +279,10 @@ class CfConsistencyStressTest : public StressTest {
       }
 
       //  Enable back error injection disabled for verification
-      if (fault_fs_guard) {
-        fault_fs_guard->EnableThreadLocalErrorInjection(
+      if (db_fault_injection_fs_) {
+        db_fault_injection_fs_->EnableThreadLocalErrorInjection(
             FaultInjectionIOType::kRead);
-        fault_fs_guard->EnableThreadLocalErrorInjection(
+        db_fault_injection_fs_->EnableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
       db_->ReleaseSnapshot(snapshot);
@@ -397,10 +397,10 @@ class CfConsistencyStressTest : public StressTest {
                          &cmp_result);
 
       //  Temporarily disable error injection for verification
-      if (fault_fs_guard) {
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+      if (db_fault_injection_fs_) {
+        db_fault_injection_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kRead);
-        fault_fs_guard->DisableThreadLocalErrorInjection(
+        db_fault_injection_fs_->DisableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
 
@@ -559,10 +559,10 @@ class CfConsistencyStressTest : public StressTest {
       }
 
       //  Enable back error injection disabled for verification
-      if (fault_fs_guard) {
-        fault_fs_guard->EnableThreadLocalErrorInjection(
+      if (db_fault_injection_fs_) {
+        db_fault_injection_fs_->EnableThreadLocalErrorInjection(
             FaultInjectionIOType::kRead);
-        fault_fs_guard->EnableThreadLocalErrorInjection(
+        db_fault_injection_fs_->EnableThreadLocalErrorInjection(
             FaultInjectionIOType::kMetadataRead);
       }
     }
