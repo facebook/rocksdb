@@ -63,7 +63,74 @@ std::shared_ptr<const FilterPolicy> CreateFilterPolicy() {
   return std::shared_ptr<const FilterPolicy>(new_policy);
 }
 
-static bool NeedsFaultInjection() {
+struct OpenFaultInjectionConfig {
+  bool sync_fault = false;
+  int metadata_read_one_in = 0;
+  int metadata_write_one_in = 0;
+  int read_one_in = 0;
+  int write_one_in = 0;
+
+  bool Enabled() const {
+    return sync_fault || metadata_read_one_in > 0 ||
+           metadata_write_one_in > 0 || read_one_in > 0 || write_one_in > 0;
+  }
+
+  void Disable() {
+    sync_fault = false;
+    metadata_read_one_in = 0;
+    metadata_write_one_in = 0;
+    read_one_in = 0;
+    write_one_in = 0;
+  }
+};
+
+void EnableThreadLocalOpenFault(
+    const std::shared_ptr<FaultInjectionTestFS>& fault_injection_fs,
+    FaultInjectionIOType io_type, int one_in) {
+  assert(fault_injection_fs);
+  fault_injection_fs->SetThreadLocalErrorContext(
+      io_type, static_cast<uint32_t>(FLAGS_seed), one_in, false /* retryable */,
+      false /* has_data_loss */);
+  fault_injection_fs->EnableThreadLocalErrorInjection(io_type);
+}
+
+bool MaybeEnableOpenFaultInjection(
+    const std::shared_ptr<FaultInjectionTestFS>& fault_injection_fs,
+    const std::string& db_path,
+    const OpenFaultInjectionConfig& open_fault_injection) {
+  // Returns whether open-fault handling is active for this attempt. The caller
+  // uses this to run post-open cleanup/retry handling even if CURRENT did not
+  // exist and no fault was actually enabled.
+  if (!open_fault_injection.Enabled()) {
+    return false;
+  }
+  assert(fault_injection_fs);
+  if (!fault_injection_fs
+           ->FileExists(db_path + "/CURRENT", IOOptions(), nullptr)
+           .ok()) {
+    return true;
+  }
+
+  if (open_fault_injection.sync_fault ||
+      open_fault_injection.write_one_in > 0) {
+    fault_injection_fs->SetFilesystemDirectWritable(false);
+    fault_injection_fs->SetInjectUnsyncedDataLoss(
+        open_fault_injection.sync_fault);
+  }
+  EnableThreadLocalOpenFault(fault_injection_fs,
+                             FaultInjectionIOType::kMetadataRead,
+                             open_fault_injection.metadata_read_one_in);
+  EnableThreadLocalOpenFault(fault_injection_fs,
+                             FaultInjectionIOType::kMetadataWrite,
+                             open_fault_injection.metadata_write_one_in);
+  EnableThreadLocalOpenFault(fault_injection_fs, FaultInjectionIOType::kRead,
+                             open_fault_injection.read_one_in);
+  EnableThreadLocalOpenFault(fault_injection_fs, FaultInjectionIOType::kWrite,
+                             open_fault_injection.write_one_in);
+  return true;
+}
+
+bool NeedsFaultInjection() {
   return FLAGS_open_metadata_read_fault_one_in ||
          FLAGS_open_metadata_write_fault_one_in ||
          FLAGS_open_read_fault_one_in || FLAGS_open_write_fault_one_in ||
@@ -157,9 +224,6 @@ StressTest::StressTest()
 }
 
 void StressTest::CleanUp() {
-  // Notify listener before DB close so it can tolerate stale tracking
-  // from skipped notifications during shutdown.
-  NotifyListenerShuttingDown();
   CleanUpColumnFamilies();
   if (db_) {
     db_->Close();
@@ -168,15 +232,6 @@ void StressTest::CleanUp() {
   db_ = nullptr;
 
   secondary_db_.reset();
-}
-
-void StressTest::NotifyListenerShuttingDown() {
-  for (auto& listener : options_.listeners) {
-    if (strcmp(listener->Name(), DbStressListener::kClassName()) == 0) {
-      static_cast_with_check<DbStressListener>(listener.get())
-          ->NotifyShuttingDown();
-    }
-  }
 }
 
 void StressTest::InitializeListenersForOpen(
@@ -4074,8 +4129,6 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       column_family_names_.push_back(name);
     }
 
-    InitializeListenersForOpen(shared, cf_descriptors);
-
     // If this is for DB reopen,  error injection may have been enabled.
     // Disable it here in case there is no open fault injection.
     if (db_fault_injection_fs_) {
@@ -4083,54 +4136,20 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     }
     // TODO; test transaction DB Open with fault injection
     if (!FLAGS_use_txn) {
-      bool inject_sync_fault = FLAGS_sync_fault_injection;
-      bool inject_open_meta_read_error =
-          FLAGS_open_metadata_read_fault_one_in > 0;
-      bool inject_open_meta_write_error =
-          FLAGS_open_metadata_write_fault_one_in > 0;
-      bool inject_open_read_error = FLAGS_open_read_fault_one_in > 0;
-      bool inject_open_write_error = FLAGS_open_write_fault_one_in > 0;
-      if ((inject_sync_fault || inject_open_meta_read_error ||
-           inject_open_meta_write_error || inject_open_read_error ||
-           inject_open_write_error) &&
-          db_fault_injection_fs_
-              ->FileExists(db_path + "/CURRENT", IOOptions(), nullptr)
-              .ok()) {
-        if (inject_sync_fault || inject_open_write_error) {
-          db_fault_injection_fs_->SetFilesystemDirectWritable(false);
-          db_fault_injection_fs_->SetInjectUnsyncedDataLoss(inject_sync_fault);
-        }
-        db_fault_injection_fs_->SetThreadLocalErrorContext(
-            FaultInjectionIOType::kMetadataRead,
-            static_cast<uint32_t>(FLAGS_seed),
-            FLAGS_open_metadata_read_fault_one_in, false /* retryable */,
-            false /* has_data_loss */);
-        db_fault_injection_fs_->EnableThreadLocalErrorInjection(
-            FaultInjectionIOType::kMetadataRead);
-
-        db_fault_injection_fs_->SetThreadLocalErrorContext(
-            FaultInjectionIOType::kMetadataWrite,
-            static_cast<uint32_t>(FLAGS_seed),
-            FLAGS_open_metadata_write_fault_one_in, false /* retryable */,
-            false /* has_data_loss */);
-        db_fault_injection_fs_->EnableThreadLocalErrorInjection(
-            FaultInjectionIOType::kMetadataWrite);
-
-        db_fault_injection_fs_->SetThreadLocalErrorContext(
-            FaultInjectionIOType::kRead, static_cast<uint32_t>(FLAGS_seed),
-            FLAGS_open_read_fault_one_in, false /* retryable */,
-            false /* has_data_loss */);
-        db_fault_injection_fs_->EnableThreadLocalErrorInjection(
-            FaultInjectionIOType::kRead);
-
-        db_fault_injection_fs_->SetThreadLocalErrorContext(
-            FaultInjectionIOType::kWrite, static_cast<uint32_t>(FLAGS_seed),
-            FLAGS_open_write_fault_one_in, false /* retryable */,
-            false /* has_data_loss */);
-        db_fault_injection_fs_->EnableThreadLocalErrorInjection(
-            FaultInjectionIOType::kWrite);
-      }
+      OpenFaultInjectionConfig open_fault_injection;
+      open_fault_injection.sync_fault = FLAGS_sync_fault_injection;
+      open_fault_injection.metadata_read_one_in =
+          FLAGS_open_metadata_read_fault_one_in;
+      open_fault_injection.metadata_write_one_in =
+          FLAGS_open_metadata_write_fault_one_in;
+      open_fault_injection.read_one_in = FLAGS_open_read_fault_one_in;
+      open_fault_injection.write_one_in = FLAGS_open_write_fault_one_in;
       while (true) {
+        InitializeListenersForOpen(shared, cf_descriptors);
+
+        const bool open_fault_injection_enabled = MaybeEnableOpenFaultInjection(
+            db_fault_injection_fs_, db_path, open_fault_injection);
+
         // StackableDB-based BlobDB
         if (FLAGS_use_blob_db) {
           blob_db::BlobDBOptions blob_db_options;
@@ -4159,9 +4178,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
           }
         }
 
-        if (inject_sync_fault || inject_open_meta_read_error ||
-            inject_open_meta_write_error || inject_open_read_error ||
-            inject_open_write_error) {
+        if (open_fault_injection_enabled) {
           db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
 
           if (s.ok()) {
@@ -4180,11 +4197,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
             // After failure to opening a DB due to IO error or unsynced data
             // loss, retry should successfully open the DB with correct data if
             // no IO error shows up.
-            inject_sync_fault = false;
-            inject_open_meta_read_error = false;
-            inject_open_meta_write_error = false;
-            inject_open_read_error = false;
-            inject_open_write_error = false;
+            open_fault_injection.Disable();
 
             // TODO: Unsynced data loss during DB reopen is not supported yet in
             //  stress test. Will need to recreate expected state if we decide
@@ -4201,16 +4214,14 @@ void StressTest::Open(SharedState* shared, bool reopen) {
                 db_fault_injection_fs_->DropRandomUnsyncedFileData(&rand);
               }
             }
-            // DB::Open() can fail after scheduling background compaction. Use
-            // fresh listeners on retry so per-DBImpl listener state is not
-            // carried across failed open attempts.
-            InitializeListenersForOpen(shared, cf_descriptors);
             continue;
           }
         }
         break;
       }
     } else {
+      InitializeListenersForOpen(shared, cf_descriptors);
+
       if (FLAGS_use_optimistic_txn) {
         OptimisticTransactionDBOptions optimistic_txn_db_options;
         optimistic_txn_db_options.validate_policy =
@@ -4589,10 +4600,6 @@ void StressTest::VerifyManifestNotRewritten() {
 }
 
 void StressTest::Reopen(ThreadState* thread) {
-  // Notify listener before DB close so it can tolerate stale tracking
-  // from skipped notifications during shutdown.
-  NotifyListenerShuttingDown();
-
   // BG jobs in WritePrepared must be canceled first because i) they can
   // access the db via a callbac ii) they hold on to a snapshot and the
   // upcoming

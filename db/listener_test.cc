@@ -31,6 +31,7 @@
 #include "util/mutexlock.h"
 #include "util/rate_limiter_impl.h"
 #include "util/string_util.h"
+#include "utilities/fault_injection_fs.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -314,6 +315,79 @@ TEST_F(EventListenerTest, OnCompactionPreCommitOrdering) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+class TestDBShutdownBeginListener : public EventListener {
+ public:
+  void OnDBShutdownBegin(DB* db) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ++shutdown_count_;
+    last_db_ = db;
+  }
+
+  int ShutdownCount() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return shutdown_count_;
+  }
+
+  DB* LastDB() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return last_db_;
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  int shutdown_count_ = 0;
+  DB* last_db_ = nullptr;
+};
+
+TEST_F(EventListenerTest, OnDBShutdownBeginOnceForCancelAndClose) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  auto listener = std::make_shared<TestDBShutdownBeginListener>();
+  options.listeners.emplace_back(listener);
+  DestroyAndReopen(options);
+
+  DB* db = db_.get();
+  dbfull()->CancelAllBackgroundWork(false);
+  EXPECT_EQ(1, listener->ShutdownCount());
+  EXPECT_EQ(db, listener->LastDB());
+
+  Close();
+  EXPECT_EQ(1, listener->ShutdownCount());
+}
+
+TEST_F(EventListenerTest, OnDBShutdownBeginOnFailedOpen) {
+  Close();
+
+  std::shared_ptr<FaultInjectionTestFS> fs(
+      new FaultInjectionTestFS(env_->GetFileSystem()));
+  std::unique_ptr<Env> env(NewCompositeEnv(fs));
+
+  Options options = CurrentOptions();
+  options.env = env.get();
+  options.create_if_missing = true;
+  auto listener = std::make_shared<TestDBShutdownBeginListener>();
+  options.listeners.emplace_back(listener);
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "PersistRocksDBOptions:create",
+      [&](void* /*arg*/) { fs->SetFilesystemActive(false); });
+  SyncPoint::GetInstance()->SetCallBack(
+      "PersistRocksDBOptions:written",
+      [&](void* /*arg*/) { fs->SetFilesystemActive(true); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::unique_ptr<DB> db;
+  Status s = DB::Open(options, dbname_, &db);
+  ASSERT_TRUE(s.IsIOError()) << s.ToString();
+  EXPECT_EQ(1, listener->ShutdownCount());
+  EXPECT_NE(nullptr, listener->LastDB());
+  EXPECT_EQ(nullptr, db.get());
+
+  fs->SetFilesystemActive(true);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 // This simple Listener can only handle one flush at a time.

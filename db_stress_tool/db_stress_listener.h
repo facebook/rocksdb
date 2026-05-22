@@ -63,12 +63,8 @@ class DbStressListener : public EventListener {
 
   ~DbStressListener() override { assert(num_pending_file_creations_ == 0); }
 
-  // Signal that the DB is about to shut down. Must be called before DB::Close()
-  // or CancelAllBackgroundWork(). Why? Listener notifications, especially for
-  // compaction, have different (mostly relaxed) contracts during shutdown, and
-  // not all callbacks take a DB object. Ideally, public API improvements would
-  // make this unnecessary in the future.
-  void NotifyShuttingDown() { shutting_down_.Store(true); }
+  void OnDBShutdownBegin(DB* /*db*/) override { shutting_down_.Store(true); }
+
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     assert(IsValidColumnFamilyName(info.cf_name));
     VerifyFilePath(info.file_path);
@@ -486,7 +482,8 @@ class DbStressListener : public EventListener {
   // callback. Protected by compacting_files_mu_.
   std::mutex compacting_files_mu_;
   std::unordered_set<uint64_t> compacting_files_;
-  // Set before DB close to suppress false positives from stale tracking.
+  // Set when DBImpl begins shutdown to suppress false positives from stale
+  // tracking when compaction callbacks are skipped during shutdown.
   Atomic<bool> shutting_down_{false};
   // Jobs that have passed OnCompactionPreCommit but not yet
   // OnCompactionCompleted. Maps job_id -> input file numbers.
