@@ -15,7 +15,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 void ThreadBody(void* v) {
-  ThreadStatusUtil::RegisterThread(db_stress_env, ThreadStatus::USER);
+  ThreadStatusUtil::RegisterThread(raw_env, ThreadStatus::USER);
   ThreadState* thread = static_cast<ThreadState*>(v);
   SharedState* shared = thread->shared;
 
@@ -64,7 +64,7 @@ void ThreadBody(void* v) {
   ThreadStatusUtil::UnregisterThread();
 }
 bool RunStressTestImpl(SharedState* shared) {
-  SystemClock* clock = db_stress_env->GetSystemClock().get();
+  SystemClock* clock = raw_env->GetSystemClock().get();
   StressTest* stress = shared->GetStressTest();
 
   if (shared->ShouldVerifyAtBeginning() && FLAGS_preserve_unverified_changes) {
@@ -115,25 +115,24 @@ bool RunStressTestImpl(SharedState* shared) {
   std::vector<ThreadState*> threads(n);
   for (uint32_t i = 0; i < n; i++) {
     threads[i] = new ThreadState(i, shared);
-    db_stress_env->StartThread(ThreadBody, threads[i]);
+    raw_env->StartThread(ThreadBody, threads[i]);
   }
 
   ThreadState bg_thread(0, shared);
   if (FLAGS_compaction_thread_pool_adjust_interval > 0) {
-    db_stress_env->StartThread(PoolSizeChangeThread, &bg_thread);
+    raw_env->StartThread(PoolSizeChangeThread, &bg_thread);
   }
 
   ThreadState continuous_verification_thread(0, shared);
   if (FLAGS_continuous_verification_interval > 0) {
-    db_stress_env->StartThread(DbVerificationThread,
-                               &continuous_verification_thread);
+    raw_env->StartThread(DbVerificationThread, &continuous_verification_thread);
   }
 
   ThreadState compressed_cache_set_capacity_thread(0, shared);
   if (FLAGS_compressed_secondary_cache_size > 0 ||
       FLAGS_compressed_secondary_cache_ratio > 0.0) {
-    db_stress_env->StartThread(CompressedCacheSetCapacityThread,
-                               &compressed_cache_set_capacity_thread);
+    raw_env->StartThread(CompressedCacheSetCapacityThread,
+                         &compressed_cache_set_capacity_thread);
   }
 
   std::vector<ThreadState*> remote_compaction_worker_threads;
@@ -143,7 +142,7 @@ bool RunStressTestImpl(SharedState* shared) {
     for (uint32_t i = 0; i < remote_compaction_worker_thread_count; i++) {
       ThreadState* ts = new ThreadState(i, shared);
       remote_compaction_worker_threads.push_back(ts);
-      db_stress_env->StartThread(RemoteCompactionWorkerThread, ts);
+      raw_env->StartThread(RemoteCompactionWorkerThread, ts);
     }
   }
 
@@ -182,10 +181,11 @@ bool RunStressTestImpl(SharedState* shared) {
       }
 
       if (FLAGS_sync_fault_injection || FLAGS_write_fault_one_in > 0) {
-        fault_fs_guard->SetFilesystemDirectWritable(false);
-        fault_fs_guard->SetInjectUnsyncedDataLoss(FLAGS_sync_fault_injection);
+        auto fault_fs = stress->GetDbFaultInjectionFs();
+        fault_fs->SetFilesystemDirectWritable(false);
+        fault_fs->SetInjectUnsyncedDataLoss(FLAGS_sync_fault_injection);
         if (FLAGS_exclude_wal_from_write_fault_injection) {
-          fault_fs_guard->SetFileTypesExcludedFromWriteFaultInjection(
+          fault_fs->SetFileTypesExcludedFromWriteFaultInjection(
               {FileType::kWalFile});
         }
       }
@@ -280,7 +280,7 @@ bool RunStressTestImpl(SharedState* shared) {
   return true;
 }
 bool RunStressTest(SharedState* shared) {
-  ThreadStatusUtil::RegisterThread(db_stress_env, ThreadStatus::USER);
+  ThreadStatusUtil::RegisterThread(raw_env, ThreadStatus::USER);
   bool result = RunStressTestImpl(shared);
   ThreadStatusUtil::UnregisterThread();
   return result;
