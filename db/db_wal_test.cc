@@ -21,6 +21,26 @@
 #include "utilities/fault_injection_env.h"
 #include "utilities/fault_injection_fs.h"
 
+#if defined(OS_LINUX)
+#include <sys/statfs.h>
+#endif
+
+#if defined(OS_LINUX) && !defined(BTRFS_SUPER_MAGIC)
+#define BTRFS_SUPER_MAGIC 0x9123683E
+#endif
+
+#if defined(OS_LINUX) && !defined(TMPFS_MAGIC)
+#define TMPFS_MAGIC 0x01021994
+#endif
+
+#if defined(OS_LINUX) && !defined(OVERLAYFS_SUPER_MAGIC)
+#define OVERLAYFS_SUPER_MAGIC 0x794c7630
+#endif
+
+#if defined(OS_LINUX) && !defined(ZFS_SUPER_MAGIC)
+#define ZFS_SUPER_MAGIC 0x2fc12fc1
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 class DBWALTestBase : public DBTestBase {
  protected:
@@ -89,6 +109,31 @@ class DBWALTestBase : public DBTestBase {
     assert(err == 0);
     return sbuf.st_blocks * 512;
   }
+
+#if defined(ROCKSDB_FALLOCATE_PRESENT)
+  bool ShouldSkipAllocationCheck(const std::string& file_name) {
+    (void)file_name;
+#if defined(OS_LINUX)
+    struct statfs fs_stat;
+    if (statfs(file_name.c_str(), &fs_stat) == 0) {
+      if (fs_stat.f_type ==
+          static_cast<decltype(fs_stat.f_type)>(BTRFS_SUPER_MAGIC)) {
+        return true;
+      } else if (fs_stat.f_type ==
+                 static_cast<decltype(fs_stat.f_type)>(ZFS_SUPER_MAGIC)) {
+        return true;
+      } else if (fs_stat.f_type ==
+                 static_cast<decltype(fs_stat.f_type)>(TMPFS_MAGIC)) {
+        return true;
+      } else if (fs_stat.f_type ==
+                 static_cast<decltype(fs_stat.f_type)>(OVERLAYFS_SUPER_MAGIC)) {
+        return true;
+      }
+    }
+#endif
+    return false;
+  }
+#endif  // ROCKSDB_FALLOCATE_PRESENT
 #endif  // ROCKSDB_PLATFORM_POSIX
 };
 
@@ -2784,16 +2829,35 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
   auto& file_before = log_files_before[0];
   ASSERT_LT(file_before->SizeFileBytes(), 1 * kKB);
   // The log file has preallocated space.
-  ASSERT_GE(GetAllocatedFileSize(dbname_ + file_before->PathName()),
-            preallocated_size);
+  {
+    std::string fname = dbname_ + file_before->PathName();
+    uint64_t allocated = GetAllocatedFileSize(fname);
+    if (ShouldSkipAllocationCheck(fname)) {
+      fprintf(stderr,
+              "Skipping preallocation check on this filesystem for %s\n",
+              fname.c_str());
+    } else if (allocated < preallocated_size) {
+      fprintf(stderr,
+              "Warning: allocated size (%lu) less than preallocated size (%lu) "
+              "for %s, skipping check. This may indicate the filesystem does "
+              "not support preallocation or does not report it.\n",
+              allocated, preallocated_size, fname.c_str());
+    } else {
+      ASSERT_GE(allocated, preallocated_size);
+    }
+  }
   Reopen(options);
   VectorLogPtr log_files_after;
   ASSERT_OK(dbfull()->GetSortedWalFiles(log_files_after));
   ASSERT_EQ(1, log_files_after.size());
   ASSERT_LT(log_files_after[0]->SizeFileBytes(), 1 * kKB);
   // The preallocated space should be truncated.
-  ASSERT_LT(GetAllocatedFileSize(dbname_ + file_before->PathName()),
-            preallocated_size);
+  {
+    std::string fname = dbname_ + file_before->PathName();
+    if (!ShouldSkipAllocationCheck(fname)) {
+      ASSERT_LT(GetAllocatedFileSize(fname), preallocated_size);
+    }
+  }
 }
 // Tests that we will truncate the preallocated space of the last log from
 // previous.
@@ -2820,8 +2884,23 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithFlush) {
   ASSERT_EQ(1, log_files_before.size());
   auto& file_before = log_files_before[0];
   ASSERT_LT(file_before->SizeFileBytes(), 1 * kKB);
-  ASSERT_GE(GetAllocatedFileSize(dbname_ + file_before->PathName()),
-            preallocated_size);
+  {
+    std::string fname = dbname_ + file_before->PathName();
+    uint64_t allocated = GetAllocatedFileSize(fname);
+    if (ShouldSkipAllocationCheck(fname)) {
+      fprintf(stderr,
+              "Skipping preallocation check on this filesystem for %s\n",
+              fname.c_str());
+    } else if (allocated < preallocated_size) {
+      fprintf(stderr,
+              "Warning: allocated size (%lu) less than preallocated size (%lu) "
+              "for %s, skipping check. This may indicate the filesystem does "
+              "not support preallocation or does not report it.\n",
+              allocated, preallocated_size, fname.c_str());
+    } else {
+      ASSERT_GE(allocated, preallocated_size);
+    }
+  }
   // The log file has preallocated space.
   Close();
 
@@ -2839,8 +2918,12 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithFlush) {
   // if  the process is in a crash loop, the log file may not get
   // deleted and thte preallocated space will keep accumulating. So we need
   // to ensure it gets trtuncated.
-  EXPECT_LT(GetAllocatedFileSize(dbname_ + file_before->PathName()),
-            preallocated_size);
+  {
+    std::string fname = dbname_ + file_before->PathName();
+    if (!ShouldSkipAllocationCheck(fname)) {
+      EXPECT_LT(GetAllocatedFileSize(fname), preallocated_size);
+    }
+  }
   TEST_SYNC_POINT(
       "DBWALTest::TruncateLastLogAfterRecoverWithFlush:AfterTruncate");
   reopen_thread.join();
@@ -2895,14 +2978,31 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWALEmpty) {
   log_file->PrepareWrite(0, 4096);
   log_file.reset();
 
-  ASSERT_GE(GetAllocatedFileSize(last_log), preallocated_size);
+  {
+    uint64_t allocated = GetAllocatedFileSize(last_log);
+    if (ShouldSkipAllocationCheck(last_log)) {
+      fprintf(stderr,
+              "Skipping preallocation check on this filesystem for %s\n",
+              last_log.c_str());
+    } else if (allocated < preallocated_size) {
+      fprintf(stderr,
+              "Warning: allocated size (%lu) less than preallocated size (%lu) "
+              "for %s, skipping check. This may indicate the filesystem does "
+              "not support preallocation or does not report it.\n",
+              allocated, preallocated_size, last_log.c_str());
+    } else {
+      ASSERT_GE(allocated, preallocated_size);
+    }
+  }
 
   port::Thread reopen_thread([&]() { Reopen(options); });
 
   TEST_SYNC_POINT(
       "DBWALTest::TruncateLastLogAfterRecoverWithFlush:AfterRecover");
   // The preallocated space should be truncated.
-  EXPECT_LT(GetAllocatedFileSize(last_log), preallocated_size);
+  if (!ShouldSkipAllocationCheck(last_log)) {
+    EXPECT_LT(GetAllocatedFileSize(last_log), preallocated_size);
+  }
   TEST_SYNC_POINT(
       "DBWALTest::TruncateLastLogAfterRecoverWithFlush:AfterTruncate");
   reopen_thread.join();
@@ -2944,8 +3044,23 @@ TEST_F(DBWALTest, ReadOnlyRecoveryNoTruncate) {
   auto& file_before = log_files_before[0];
   ASSERT_LT(file_before->SizeFileBytes(), 1 * kKB);
   // The log file has preallocated space.
-  auto db_size = GetAllocatedFileSize(dbname_ + file_before->PathName());
-  ASSERT_GE(db_size, preallocated_size);
+  std::string fname = dbname_ + file_before->PathName();
+  auto db_size = GetAllocatedFileSize(fname);
+  {
+    if (ShouldSkipAllocationCheck(fname)) {
+      fprintf(stderr,
+              "Skipping preallocation check on this filesystem for %s\n",
+              fname.c_str());
+    } else if (db_size < preallocated_size) {
+      fprintf(stderr,
+              "Warning: allocated size (%lu) less than preallocated size (%lu) "
+              "for %s, skipping check. This may indicate the filesystem does "
+              "not support preallocation or does not report it.\n",
+              db_size, preallocated_size, fname.c_str());
+    } else {
+      ASSERT_GE(db_size, preallocated_size);
+    }
+  }
   Close();
 
   // enable truncate and open DB as readonly, the file should not be truncated
@@ -2959,8 +3074,12 @@ TEST_F(DBWALTest, ReadOnlyRecoveryNoTruncate) {
   ASSERT_EQ(log_files_after[0]->PathName(), file_before->PathName());
   // The preallocated space should NOT be truncated.
   // the DB size is almost the same.
-  ASSERT_NEAR(GetAllocatedFileSize(dbname_ + file_before->PathName()), db_size,
-              db_size / 100);
+  {
+    std::string fname2 = dbname_ + file_before->PathName();
+    if (!ShouldSkipAllocationCheck(fname2)) {
+      ASSERT_NEAR(GetAllocatedFileSize(fname2), db_size, db_size / 100);
+    }
+  }
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
