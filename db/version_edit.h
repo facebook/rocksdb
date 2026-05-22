@@ -74,6 +74,7 @@ enum Tag : uint32_t {
   kWalDeletion2,
   kPersistUserDefinedTimestamps,
   kSubcompactionProgress,
+  kLastCompactedManifestFileSize,
 };
 
 enum SubcompactionProgressPerLevelCustomTag : uint32_t {
@@ -1016,6 +1017,17 @@ class VersionEdit {
     subcompaction_progress_.Clear();
   }
 
+  void SetLastCompactedManifestFileSize(uint64_t size) {
+    has_last_compacted_manifest_file_size_ = true;
+    last_compacted_manifest_file_size_ = size;
+  }
+  bool HasLastCompactedManifestFileSize() const {
+    return has_last_compacted_manifest_file_size_;
+  }
+  uint64_t GetLastCompactedManifestFileSize() const {
+    return last_compacted_manifest_file_size_;
+  }
+
   // Recovery-time per-column-family edits only need to be written when they
   // advance the CF's log number or carry some other manifest state.
   bool ShouldEmitPerColumnFamilyRecoveryEdit(uint64_t current_log_number) const;
@@ -1110,6 +1122,9 @@ class VersionEdit {
 
   bool has_subcompaction_progress_ = false;
   SubcompactionProgress subcompaction_progress_;
+
+  bool has_last_compacted_manifest_file_size_ = false;
+  uint64_t last_compacted_manifest_file_size_ = 0;
 
   // Newly created table files and blob files are eligible for deletion if they
   // are not registered as live files after the background jobs creating them

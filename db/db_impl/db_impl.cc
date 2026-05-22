@@ -495,6 +495,21 @@ void DBImpl::WaitForAsyncFileOpen() {
   }
 }
 
+void DBImpl::NotifyOnDBShutdownBegin() {
+  mutex_.AssertHeld();
+  if (shutdown_notification_sent_ || immutable_db_options_.listeners.empty()) {
+    return;
+  }
+  shutdown_notification_sent_ = true;
+
+  // release lock while notifying events
+  mutex_.Unlock();
+  for (const auto& listener : immutable_db_options_.listeners) {
+    listener->OnDBShutdownBegin(this);
+  }
+  mutex_.Lock();
+}
+
 // Will lock the mutex_,  will wait for completion if wait is true
 void DBImpl::CancelAllBackgroundWork(bool wait) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -541,6 +556,9 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
     immutable_db_options_.compaction_service->CancelAwaitingJobs();
   }
 
+  if (!already_shutting_down) {
+    NotifyOnDBShutdownBegin();
+  }
   shutting_down_.store(true, std::memory_order_release);
   bg_cv_.SignalAll();
   if (!wait) {
@@ -789,10 +807,25 @@ Status DBImpl::CloseHelper() {
          bg_flush_scheduled_ || bg_purge_scheduled_ ||
          bg_pressure_callback_in_progress_ ||
          bg_async_file_open_state_ == AsyncFileOpenState::kScheduled ||
+         async_wal_precreate_state_ == AsyncWALPrecreateState::kScheduled ||
          pending_purge_obsolete_files_ ||
          error_handler_.IsRecoveryInProgress()) {
     TEST_SYNC_POINT("DBImpl::~DBImpl:WaitJob");
     bg_cv_.Wait();
+  }
+
+  // Release any opened-but-unpublished WAL writer after the in-flight worker
+  // has published its result. Clear the DB-owned async slot while holding
+  // mutex_, but destroy the detached writer after dropping mutex_ because
+  // log::Writer / WritableFileWriter destruction can flush and close the file.
+  // The file itself can be left behind as an empty future WAL; recovery already
+  // tolerates it and marks its file number used if observed.
+  UnpublishedWAL unused_async_wal = std::move(async_wal_precreate_wal_);
+  async_wal_precreate_state_ = AsyncWALPrecreateState::kNotScheduled;
+  if (unused_async_wal.writer) {
+    mutex_.Unlock();
+    unused_async_wal.Reset();
+    mutex_.Lock();
   }
 
   // Ensure subclasses don't forget to schedule async file opening

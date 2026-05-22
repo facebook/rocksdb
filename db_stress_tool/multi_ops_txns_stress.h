@@ -9,6 +9,7 @@
 
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
+#include "util/atomic.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -423,11 +424,16 @@ class MultiOpsTxnsStressListener : public EventListener {
 
   ~MultiOpsTxnsStressListener() override {}
 
+  void OnDBShutdownBegin(DB* /*db*/) override { shutting_down_.Store(true); }
+
   void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
     assert(db);
 #ifdef NDEBUG
     (void)db;
 #endif
+    if (shutting_down_.Load()) {
+      return;
+    }
     assert(info.cf_id == 0);
     const ReadOptions read_options(Env::IOActivity::kFlush);
     stress_test_->VerifyPkSkFast(read_options, info.job_id);
@@ -438,6 +444,9 @@ class MultiOpsTxnsStressListener : public EventListener {
 #ifdef NDEBUG
     (void)db;
 #endif
+    if (shutting_down_.Load()) {
+      return;
+    }
     assert(info.cf_id == 0);
     const ReadOptions read_options(Env::IOActivity::kCompaction);
     stress_test_->VerifyPkSkFast(read_options, info.job_id);
@@ -445,6 +454,7 @@ class MultiOpsTxnsStressListener : public EventListener {
 
  private:
   MultiOpsTxnsStressTest* const stress_test_ = nullptr;
+  Atomic<bool> shutting_down_{false};
 };
 
 }  // namespace ROCKSDB_NAMESPACE

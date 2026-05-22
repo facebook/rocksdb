@@ -15,6 +15,8 @@
 #include <limits>
 #include <list>
 #include <map>
+#include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -1453,6 +1455,13 @@ class DBImpl : public DB {
   std::atomic<int> next_job_id_ = 1;
 
   std::atomic<bool> shutting_down_ = false;
+  // Protected by mutex_. This is separate from shutting_down_ because
+  // OnDBShutdownBegin must fire before shutting_down_ is published, and the
+  // notification releases mutex_ while invoking listeners. Marking that the
+  // notification has started prevents a concurrent or reentrant
+  // CancelAllBackgroundWork() call from firing it again during that unlocked
+  // callback window.
+  bool shutdown_notification_sent_ = false;
 
   // No new background jobs can be queued if true. This is used to prevent new
   // background jobs from being queued after WaitForCompact() completes waiting
@@ -1527,6 +1536,16 @@ class DBImpl : public DB {
                                    const Status& st,
                                    const CompactionJobStats& job_stats,
                                    int job_id);
+  // Fires the OnCompactionPreCommit listener callback. Mirrors
+  // NotifyOnCompactionCompleted but is invoked before ReleaseCompactionFiles()
+  // (i.e. while input files still have being_compacted == true). Idempotent:
+  // safe to call from multiple potential release sites; only fires once per
+  // compaction, and only if NotifyOnCompactionBegin previously fired.
+  void NotifyOnCompactionPreCommit(ColumnFamilyData* cfd, Compaction* c,
+                                   const Status& st,
+                                   const CompactionJobStats& job_stats,
+                                   int job_id);
+  void NotifyOnDBShutdownBegin();
   void NotifyOnMemTableSealed(ColumnFamilyData* cfd,
                               const MemTableInfo& mem_table_info);
 
@@ -2574,10 +2593,15 @@ class DBImpl : public DB {
   // Helper function to perform trivial move by updating manifest metadata
   // without rewriting data files. This is called when IsTrivialMove() is true.
   // REQUIRES: mutex held
-  // Returns: Status of the trivial move operation
-  Status PerformTrivialMove(Compaction& c, LogBuffer* log_buffer,
-                            bool& compaction_released, size_t& moved_files,
-                            size_t& moved_bytes);
+  // Populates the Compaction's edit with DeleteFile/AddFile entries for
+  // a trivial move (no data rewriting). Does not commit the edit.
+  void PrepareTrivialMoveEdit(Compaction& c, LogBuffer* log_buffer,
+                              size_t& moved_files, size_t& moved_bytes);
+
+  // REQUIRES: mutex held, PrepareTrivialMoveEdit already called
+  // Commits the trivial move by calling LogAndApply on the prepared edit.
+  // Returns: Status of the manifest write
+  Status CommitTrivialMove(Compaction& c, bool& compaction_released);
 
   // REQUIRES: mutex unlocked
   void TrackOrUntrackFiles(const std::vector<std::string>& existing_data_files,
@@ -2810,7 +2834,68 @@ class DBImpl : public DB {
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   Env::WriteLifeTimeHint CalculateWALWriteHint() { return Env::WLTH_SHORT; }
 
-  IOStatus CreateWAL(const WriteOptions& write_options, uint64_t log_file_num,
+  // Returns true when async WAL precreation is enabled and compatible with the
+  // active WAL strategy. WAL recycling already avoids file creation latency, so
+  // precreation is disabled when recycle_log_file_num is non-zero.
+  bool AsyncWALPrecreateEnabled() const;
+
+  // A WAL file that has a reserved file number and may have an opened writer,
+  // but has not been added to DBImpl's in-memory logical WAL tracking lists
+  // (logs_ and alive_wal_files_).
+  struct UnpublishedWAL {
+    uint64_t log_number = 0;
+    std::unique_ptr<log::Writer> writer;
+
+    UnpublishedWAL() = default;
+    UnpublishedWAL(const UnpublishedWAL&) = delete;
+    UnpublishedWAL& operator=(const UnpublishedWAL&) = delete;
+
+    UnpublishedWAL(UnpublishedWAL&& other) noexcept {
+      *this = std::move(other);
+    }
+    UnpublishedWAL& operator=(UnpublishedWAL&& other) noexcept {
+      if (this != &other) {
+        log_number = other.log_number;
+        writer = std::move(other.writer);
+        other.Reset();
+      }
+      return *this;
+    }
+
+    void Reset() {
+      log_number = 0;
+      writer.reset();
+    }
+  };
+
+  // Reserves the next WAL file number and schedules a HIGH-priority background
+  // task to precreate that WAL file. A precreated WAL is not a logical WAL
+  // until a foreground WAL rotation consumes it.
+  void MaybeScheduleAsyncWALPrecreate(size_t preallocate_block_size);
+
+  // Background task for opening the reserved future WAL and publishing the
+  // result under mutex_.
+  static void BGWorkAsyncWALPrecreate(void* arg);
+
+  // Waits for an in-flight async WAL precreation and returns a prepared WAL if
+  // one is available. If precreation failed, returns an empty WAL and lets the
+  // foreground rotation create the WAL synchronously. Caller must hold mutex_.
+  UnpublishedWAL WaitForAsyncWALPrecreate();
+
+  // Opens and preallocates a WAL writer without writing logical WAL records.
+  // Used by async WAL precreation and by synchronous WAL creation.
+  IOStatus CreateWALWriter(const DBOptions& db_options, uint64_t log_file_num,
+                           uint64_t recycle_log_number,
+                           size_t preallocate_block_size,
+                           UnpublishedWAL* new_wal);
+
+  // Starts an opened WAL file by writing the initial records required before it
+  // can be installed as the current WAL for foreground writes.
+  IOStatus StartWALFile(const WriteOptions& write_options,
+                        const PredecessorWALInfo& predecessor_wal_info,
+                        log::Writer* new_log);
+  IOStatus CreateWAL(const DBOptions& db_options,
+                     const WriteOptions& write_options, uint64_t log_file_num,
                      uint64_t recycle_log_number, size_t preallocate_block_size,
                      const PredecessorWALInfo& predecessor_wal_info,
                      log::Writer** new_log);
@@ -3305,6 +3390,28 @@ class DBImpl : public DB {
   // Tracks whether background async file opening has been scheduled/completed.
   AsyncFileOpenState bg_async_file_open_state_ =
       AsyncFileOpenState::kNotScheduled;
+
+  // State machine for the single async WAL precreation slot protected by
+  // mutex_. Background precreation failure returns to kNotScheduled; foreground
+  // rotation handles it the same as no prepared WAL and creates one
+  // synchronously. kScheduled owns a reserved file number; kReady owns an
+  // opened writer that has not been started or added to logical WAL tracking.
+  enum class AsyncWALPrecreateState : uint8_t {
+    kNotScheduled = 0,  // No WAL precreate work is in-flight or ready.
+    kScheduled,         // Background task owns creation of the reserved WAL.
+    kReady,             // Reserved WAL writer is open but not logically live.
+  };
+
+  // Protected by mutex_. Tracks at most one background precreated WAL. A
+  // precreated WAL is only reserved empty storage until SwitchMemtable()
+  // consumes it and installs it in DBImpl's in-memory logical WAL tracking
+  // lists (logs_ and alive_wal_files_).
+  AsyncWALPrecreateState async_wal_precreate_state_ =
+      AsyncWALPrecreateState::kNotScheduled;
+
+  // Reserved in-flight/ready precreated WAL. The writer is populated only while
+  // state is kReady.
+  UnpublishedWAL async_wal_precreate_wal_;
 
   std::deque<ManualCompactionState*> manual_compaction_dequeue_;
 

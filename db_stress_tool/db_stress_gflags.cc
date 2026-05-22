@@ -206,6 +206,10 @@ DEFINE_int32(open_files, ROCKSDB_NAMESPACE::Options().max_open_files,
 DEFINE_bool(open_files_async, ROCKSDB_NAMESPACE::Options().open_files_async,
             "Options.open_files_async");
 
+DEFINE_bool(async_wal_precreate,
+            ROCKSDB_NAMESPACE::Options().async_wal_precreate,
+            "Options.async_wal_precreate");
+
 DEFINE_uint64(compressed_secondary_cache_size, 0,
               "Number of bytes to use as a cache of compressed data."
               " 0 means use default settings.");
@@ -1663,6 +1667,10 @@ DEFINE_double(compaction_on_deletion_ratio, 0.5,
 DEFINE_double(read_triggered_compaction_threshold,
               ROCKSDB_NAMESPACE::Options().read_triggered_compaction_threshold,
               "Sets CF option read_triggered_compaction_threshold.");
+
+DEFINE_string(listener_uri, "",
+              "URI for an additional EventListener to attach (e.g. "
+              "auto_tuner://). Empty means none.");
 
 DEFINE_bool(
     auto_refresh_iterator_with_snapshot,

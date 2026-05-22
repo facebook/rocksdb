@@ -114,6 +114,7 @@ DECLARE_double(memtable_prefix_bloom_size_ratio);
 DECLARE_bool(memtable_whole_key_filtering);
 DECLARE_int32(open_files);
 DECLARE_bool(open_files_async);
+DECLARE_bool(async_wal_precreate);
 DECLARE_uint64(compressed_secondary_cache_size);
 DECLARE_int32(compressed_secondary_cache_numshardbits);
 DECLARE_int32(secondary_cache_update_interval);
@@ -472,15 +473,18 @@ DECLARE_int32(compaction_on_deletion_window_size);
 DECLARE_double(compaction_on_deletion_ratio);
 DECLARE_double(read_triggered_compaction_threshold);
 
+DECLARE_string(listener_uri);
+
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
 constexpr int kValueMaxLen = 100;
 constexpr uint32_t kLargePrimeForCommonFactorSkew = 1872439133;
 
-// wrapped posix environment
-extern ROCKSDB_NAMESPACE::Env* db_stress_env;
-extern ROCKSDB_NAMESPACE::Env* db_stress_listener_env;
-extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
+// Base env from --env_uri/--fs_uri. No wrappers (no DbStressFSWrapper, no
+// fault injection). Could be PosixEnv or remote. Used for infrastructure ops
+// (threads, time, dirs, cleanup). Per-StressTest env adds fault injection +
+// DbStressFSWrapper on top for DB I/O.
+extern ROCKSDB_NAMESPACE::Env* raw_env;
 extern std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache>
     compressed_secondary_cache;
 extern std::shared_ptr<ROCKSDB_NAMESPACE::Cache> block_cache;

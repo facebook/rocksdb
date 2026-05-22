@@ -1581,9 +1581,8 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
   return s;
 }
 
-Status DBImpl::PerformTrivialMove(Compaction& c, LogBuffer* log_buffer,
-                                  bool& compaction_released,
-                                  size_t& moved_files, size_t& moved_bytes) {
+void DBImpl::PrepareTrivialMoveEdit(Compaction& c, LogBuffer* log_buffer,
+                                    size_t& moved_files, size_t& moved_bytes) {
   mutex_.AssertHeld();
 
   ROCKS_LOG_BUFFER(log_buffer, "[%s] Moving %d files to level-%d\n",
@@ -1616,6 +1615,10 @@ Status DBImpl::PerformTrivialMove(Compaction& c, LogBuffer* log_buffer,
     }
     moved_files += c.num_input_files(l);
   }
+}
+
+Status DBImpl::CommitTrivialMove(Compaction& c, bool& compaction_released) {
+  mutex_.AssertHeld();
 
   // Install the new version
   const ReadOptions read_options(Env::IOActivity::kCompaction);
@@ -1740,8 +1743,8 @@ Status DBImpl::CompactFilesImpl(
     bool compaction_released = false;
     size_t moved_files = 0;
     size_t moved_bytes = 0;
-    Status status = PerformTrivialMove(
-        *c.get(), log_buffer, compaction_released, moved_files, moved_bytes);
+    PrepareTrivialMoveEdit(*c.get(), log_buffer, moved_files, moved_bytes);
+    Status status = CommitTrivialMove(*c.get(), compaction_released);
 
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(
@@ -2007,6 +2010,46 @@ void DBImpl::NotifyOnCompactionCompleted(
   mutex_.Lock();
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
+}
+
+void DBImpl::NotifyOnCompactionPreCommit(
+    ColumnFamilyData* cfd, Compaction* c, const Status& st,
+    const CompactionJobStats& compaction_job_stats, const int job_id) {
+  if (immutable_db_options_.listeners.size() == 0U) {
+    return;
+  }
+  mutex_.AssertHeld();
+  if (shutting_down_.load(std::memory_order_acquire)) {
+    return;
+  }
+
+  // Only fire if OnCompactionBegin has fired for this compaction.
+  if (c->ShouldNotifyOnCompactionCompleted() == false) {
+    return;
+  }
+  // Idempotency: ensure listeners observe at most one
+  // OnCompactionPreCommit per compaction lifecycle, even though the
+  // notify helper is invoked at multiple potential ReleaseCompactionFiles()
+  // sites for safety.
+  if (c->WasNotifyOnCompactionPreCommitCalled()) {
+    return;
+  }
+  c->SetNotifyOnCompactionPreCommitCalled();
+
+  int num_l0_files = cfd->current()->storage_info()->NumLevelFiles(0);
+  // release lock while notifying events
+  mutex_.Unlock();
+  TEST_SYNC_POINT("DBImpl::NotifyOnCompactionPreCommit::UnlockMutex");
+  {
+    CompactionJobInfo info{};
+    info.num_l0_files = num_l0_files;
+    BuildCompactionJobInfo(cfd, c, st, compaction_job_stats, job_id, &info);
+    for (const auto& listener : immutable_db_options_.listeners) {
+      listener->OnCompactionPreCommit(this, info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  mutex_.Lock();
 }
 
 // REQUIREMENT: block all background work by calling PauseBackgroundWork()
@@ -4255,6 +4298,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     for (const auto& f : *c->inputs(0)) {
       c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
     }
+    NotifyOnCompactionPreCommit(c->column_family_data(), c.get(), status,
+                                compaction_job_stats, job_context->job_id);
     status = versions_->LogAndApply(
         c->column_family_data(), read_options, write_options, c->edit(),
         &mutex_, directories_.GetDbDir(),
@@ -4473,6 +4518,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         ++out_file_metadata_it;
       }
 
+      NotifyOnCompactionPreCommit(c->column_family_data(), c.get(), status,
+                                  compaction_job_stats, job_context->job_id);
       status = versions_->LogAndApply(
           c->column_family_data(), read_options, write_options, c->edit(),
           &mutex_, directories_.GetDbDir(),
@@ -4549,8 +4596,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     // Perform the trivial move
     size_t moved_files = 0;
     size_t moved_bytes = 0;
-    status = PerformTrivialMove(*c.get(), log_buffer, compaction_released,
-                                moved_files, moved_bytes);
+    // Populate the edit first so that CompactionJobInfo has output file
+    // info when OnCompactionPreCommit fires.
+    PrepareTrivialMoveEdit(*c.get(), log_buffer, moved_files, moved_bytes);
+    NotifyOnCompactionPreCommit(c->column_family_data(), c.get(), status,
+                                compaction_job_stats, job_context->job_id);
+    status = CommitTrivialMove(*c.get(), compaction_released);
     io_s = versions_->io_status();
     InstallSuperVersionAndScheduleWork(
         c->column_family_data(), job_context->superversion_contexts.data());
@@ -4673,6 +4724,10 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       ReleaseOptionsFileNumber(min_options_file_number_elem);
     }
 
+    // Fire OnCompactionPreCommit before compaction_job.Install runs
+    // ReleaseCompactionFiles in its manifest write callback.
+    NotifyOnCompactionPreCommit(c->column_family_data(), c.get(), status,
+                                compaction_job_stats, job_context->job_id);
     status = compaction_job.Install(&compaction_released);
     io_s = compaction_job.io_status();
     if (status.ok()) {
@@ -4692,6 +4747,14 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
   if (c != nullptr) {
     if (!compaction_released) {
+      // Safety net: if any of the paths above did not fire the
+      // OnCompactionPreCommit notification (e.g. status was not OK and
+      // an early-out skipped the LogAndApply / Install), still fire the
+      // notify here while files are about to be released. The notify is
+      // idempotent and is a no-op if it has already fired (or if Begin never
+      // fired).
+      NotifyOnCompactionPreCommit(c->column_family_data(), c.get(), status,
+                                  compaction_job_stats, job_context->job_id);
       c->ReleaseCompactionFiles(status);
     } else {
 #ifndef NDEBUG

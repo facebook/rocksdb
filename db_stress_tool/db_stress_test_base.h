@@ -13,6 +13,7 @@
 
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
+#include "env/composite_env_wrapper.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/user_defined_index.h"
 #include "utilities/fault_injection_fs.h"
@@ -22,6 +23,7 @@ class SystemClock;
 class Transaction;
 class TransactionDB;
 class OptimisticTransactionDB;
+class DbStressFSWrapper;
 struct TransactionDBOptions;
 using experimental::SstQueryFilterConfigsManager;
 
@@ -43,6 +45,18 @@ class StressTest {
   StressTest();
 
   virtual ~StressTest() {}
+
+  const std::string& GetDbPath() const;
+  const std::string& GetExpectedValuesDir() const;
+  const std::string& GetSecondariesBase() const;
+
+  // See db_fault_injection_fs_ member.
+  std::shared_ptr<FaultInjectionTestFS> GetDbFaultInjectionFs() const {
+    return db_fault_injection_fs_;
+  }
+
+  // See db_env_ member.
+  Env* GetDbEnv() const;
 
   std::shared_ptr<Cache> NewCache(size_t capacity, int32_t num_shard_bits);
 
@@ -71,6 +85,11 @@ class StressTest {
   Options GetOptions(int cf_id);
   void CleanUp();
 
+ private:
+  void InitializeListenersForOpen(
+      SharedState* shared,
+      const std::vector<ColumnFamilyDescriptor>& cf_descriptors);
+
  protected:
   static int GetMinInjectedErrorCount(int error_count_1, int error_count_2) {
     if (error_count_1 > 0 && error_count_2 > 0) {
@@ -84,39 +103,34 @@ class StressTest {
     }
   }
 
-  void UpdateIfInitialWriteFails(Env* db_stress_env, const Status& write_s,
+  void UpdateIfInitialWriteFails(Env* env, const Status& write_s,
                                  Status* initial_write_s,
                                  bool* initial_wal_write_may_succeed,
                                  uint64_t* wait_for_recover_start_time,
                                  bool commit_bypass_memtable = false) {
-    assert(db_stress_env && initial_write_s && initial_wal_write_may_succeed &&
+    assert(env && initial_write_s && initial_wal_write_may_succeed &&
            wait_for_recover_start_time);
-    // Only update `initial_write_s`, `initial_wal_write_may_succeed` when the
-    // first write fails
     if (!write_s.ok() && (*initial_write_s).ok()) {
       *initial_write_s = write_s;
-      // With commit_bypass_memtable, we create a new WAL after WAL write
-      // succeeds, that wal creation may fail due to injected error. So the
-      // initial wal write may succeed even if status is failed to write to wal
       *initial_wal_write_may_succeed =
           commit_bypass_memtable ||
           !FaultInjectionTestFS::IsFailedToWriteToWALError(*initial_write_s);
-      *wait_for_recover_start_time = db_stress_env->NowMicros();
+      *wait_for_recover_start_time = env->NowMicros();
     }
   }
 
-  void PrintWriteRecoveryWaitTimeIfNeeded(Env* db_stress_env,
+  void PrintWriteRecoveryWaitTimeIfNeeded(Env* env,
                                           const Status& initial_write_s,
                                           bool initial_wal_write_may_succeed,
                                           uint64_t wait_for_recover_start_time,
                                           const std::string& thread_name) {
-    assert(db_stress_env);
+    assert(env);
     bool waited_for_recovery = !initial_write_s.ok() &&
                                IsErrorInjectedAndRetryable(initial_write_s) &&
                                initial_wal_write_may_succeed;
     if (waited_for_recovery) {
       uint64_t elapsed_sec =
-          (db_stress_env->NowMicros() - wait_for_recover_start_time) / 1000000;
+          (env->NowMicros() - wait_for_recover_start_time) / 1000000;
       if (elapsed_sec > 10) {
         fprintf(stdout,
                 "%s thread slept to wait for write recovery for "
@@ -303,6 +317,35 @@ class StressTest {
     kLastOpSeekToLast
   };
 
+  // Enum used to track MANIFEST verification mode during DB reopen
+  enum ManifestVerifyMode {
+    MANIFEST_VERIFY_NONE,
+    // MANIFEST file should be reused (same file number), CURRENT should not
+    // change. Used when reuse_manifest_on_open=1. Warnings are logged on
+    // failure but test continues.
+    MANIFEST_VERIFY_REUSE,
+    // MANIFEST file should be reused AND no recovery writes should occur.
+    // Used when both reuse_manifest_on_open=1 and
+    // optimize_manifest_for_recovery=1. Warnings are logged on failure but test
+    // continues.
+    MANIFEST_VERIFY_NO_WRITE,
+    // Strict verification: MANIFEST file must be reused with ZERO writes
+    // (complete avoidance). Used when ALL conditions for complete avoidance
+    // are met. Failures are FATAL and will terminate the test.
+    // Conditions for STRICT mode:
+    // - Both reuse_manifest_on_open=1 and optimize_manifest_for_recovery=1
+    // - Not in best_efforts_recovery mode
+    // - avoid_flush_during_recovery=true (no flush during recovery)
+    // - write_dbid_to_manifest=0 (no DB_ID write on open)
+    // - metadata_write_fault_one_in=0 (no fault injection)
+    // - open_metadata_write_fault_one_in=0 (no fault injection)
+    // - MANIFEST not corrupted, not at size limit
+    // Note: avoid_flush_during_shutdown is NOT required. If it leaves data
+    // in WAL but avoid_flush_during_recovery=true prevents flushing it,
+    // MANIFEST still won't be written.
+    MANIFEST_VERIFY_STRICT
+  };
+
   // Compare the two iterator, iter and cmp_iter are in the same position,
   // unless iter might be made invalidate or undefined because of
   // upper or lower bounds, or prefix extractor.
@@ -413,6 +456,15 @@ class StressTest {
 
   void CleanUpColumnFamilies();
 
+  void RecordManifestStateBeforeReopen();
+  void VerifyManifestNotRewritten();
+
+  // Wraps raw_env->GetFileSystem(). See DbStressFSWrapper.
+  std::shared_ptr<DbStressFSWrapper> db_stress_fs_;
+  // Wraps db_stress_fs_ when NeedsFaultInjection(). Null otherwise.
+  std::shared_ptr<FaultInjectionTestFS> db_fault_injection_fs_;
+  // Wraps the outermost FS above. Set as options_.env for all DB I/O.
+  std::unique_ptr<CompositeEnvWrapper> db_env_;
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
@@ -439,6 +491,12 @@ class StressTest {
   std::unique_ptr<DB> secondary_db_;
   std::vector<ColumnFamilyHandle*> secondary_cfhs_;
   bool is_db_stopped_;
+
+  // MANIFEST verification state for reopen
+  ManifestVerifyMode manifest_verify_mode_;
+  uint64_t manifest_file_number_before_reopen_;
+  uint64_t manifest_file_size_before_reopen_;
+  std::string current_file_content_before_reopen_;
 };
 
 // Load options from OPTIONS file and populate `options`.

@@ -1631,7 +1631,8 @@ public class RocksDBTest {
       try (final RocksDB db = RocksDB.open(options, dbPath)) {
         final RocksDB.LiveFiles livefiles = db.getLiveFiles(true);
         assertThat(livefiles).isNotNull();
-        assertThat(livefiles.manifestFileSize).isEqualTo(116);
+        assertThat(livefiles.manifestFileSize).isGreaterThanOrEqualTo(100L);
+        assertThat(livefiles.manifestFileSize).isLessThanOrEqualTo(300L);
         assertThat(livefiles.files.size()).isEqualTo(3);
         assertThat(livefiles.files.get(0)).isEqualTo("/CURRENT");
         assertThat(livefiles.files.get(1)).isEqualTo("/MANIFEST-000005");
