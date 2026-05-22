@@ -5,7 +5,6 @@
 
 #include "utilities/fault_injection_fs.h"
 
-#include <atomic>
 #include <thread>
 #include <vector>
 
@@ -28,6 +27,22 @@ std::shared_ptr<FaultInjectionTestFS> NewFaultFsExcludingInfoLogs(
   fault_fs->EnableThreadLocalErrorInjection(type);
   return fault_fs;
 }
+
+class CloseCountingWritableFile : public FSWritableFileOwnerWrapper {
+ public:
+  CloseCountingWritableFile(std::unique_ptr<FSWritableFile>&& target,
+                            int* close_calls)
+      : FSWritableFileOwnerWrapper(std::move(target)),
+        close_calls_(close_calls) {}
+
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) override {
+    ++(*close_calls_);
+    return target()->Close(options, dbg);
+  }
+
+ private:
+  int* close_calls_;
+};
 
 }  // namespace
 
@@ -194,6 +209,48 @@ TEST_F(FaultInjectionTestFSTest, FaultInjectionExcludesInfoLogFiles) {
     ASSERT_EQ(1, fault_fs->GetAndResetInjectedThreadLocalErrorCount(
                      FaultInjectionIOType::kMetadataWrite));
   }
+}
+
+TEST_F(FaultInjectionTestFSTest,
+       InjectedMetadataCloseErrorDoesNotRetryInnerClose) {
+  Env* env = Env::Default();
+  const std::string dbname =
+      test::PerThreadDBPath("fault_injection_fs_test_close_retry");
+  ASSERT_OK(env->CreateDirIfMissing(dbname));
+
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(env->GetFileSystem());
+  fault_fs->SetThreadLocalErrorContext(
+      FaultInjectionIOType::kMetadataWrite, /*seed=*/0, /*one_in=*/1,
+      /*retryable=*/false, /*has_data_loss=*/false);
+  fault_fs->EnableThreadLocalErrorInjection(
+      FaultInjectionIOType::kMetadataWrite);
+
+  int inner_close_calls = 0;
+  std::unique_ptr<FSWritableFile> file;
+  ASSERT_OK(fault_fs->NewWritableFile(dbname + "/CURRENT.tmp", FileOptions(),
+                                      &file, nullptr /* dbg */));
+  file.reset(new TestFSWritableFile(dbname + "/CURRENT.tmp", FileOptions(),
+                                    std::make_unique<CloseCountingWritableFile>(
+                                        std::move(file), &inner_close_calls),
+                                    fault_fs.get()));
+
+  ASSERT_OK(file->Append("test", IOOptions(), nullptr));
+
+  IOStatus s = file->Close(IOOptions(), nullptr);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsIOError()) << s.ToString();
+  ASSERT_EQ(0, inner_close_calls);
+
+  // Mirror production layering: after Close() has already been attempted on
+  // this wrapper, later Close() calls are wrapper-level no-ops rather than a
+  // second raw Close() forwarded to the same owned file.
+  ASSERT_OK(file->Close(IOOptions(), nullptr));
+  ASSERT_EQ(0, inner_close_calls);
+
+  // Destruction may still release the owned file object, but it must not
+  // forward another raw Close().
+  file.reset();
+  ASSERT_EQ(0, inner_close_calls);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
