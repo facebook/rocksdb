@@ -6,6 +6,7 @@
 #include "rocksdb/c.h"
 
 #include <assert.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,8 +41,72 @@ static char dbcheckpointname[200];
 static char dbpathname[200];
 static char secondary_path[200];
 
+static const size_t kMaxStderrStringLength = 1024;
+
+static void PrintStderrString(const char* value) {
+  if (value == NULL) {
+    fputs("(null)", stderr);
+    return;
+  }
+
+  size_t length = 0;
+  while (length < kMaxStderrStringLength && value[length] != '\0') {
+    ++length;
+  }
+  fwrite(value, 1, length, stderr);
+}
+
+static void PrintStderrBytes(const char* value, size_t value_length) {
+  if (value == NULL) {
+    fputs("(null)", stderr);
+    return;
+  }
+
+  fwrite(value, 1,
+         value_length < kMaxStderrStringLength ? value_length
+                                               : kMaxStderrStringLength,
+         stderr);
+}
+
+static void PrintStderrUnsignedInt(unsigned int value) {
+  char digits[CHAR_BIT * sizeof(unsigned int)];
+  size_t length = 0;
+
+  do {
+    digits[length++] = (char)('0' + (value % 10));
+    value /= 10;
+  } while (value != 0);
+
+  while (length != 0) {
+    fputc(digits[--length], stderr);
+  }
+}
+
+static void PrintStderrInt(int value) {
+  if (value < 0) {
+    fputc('-', stderr);
+    PrintStderrUnsignedInt((unsigned int)(-(value + 1)) + 1);
+  } else {
+    PrintStderrUnsignedInt((unsigned int)value);
+  }
+}
+
+static void PrintFailureMessage(const char* file, int line,
+                                const char* phase_name, const char* detail) {
+  PrintStderrString(file);
+  fputc(':', stderr);
+  PrintStderrInt(line);
+  fputs(": ", stderr);
+  PrintStderrString(phase_name);
+  fputs(": ", stderr);
+  PrintStderrString(detail);
+  fputc('\n', stderr);
+}
+
 static void StartPhase(const char* name) {
-  fprintf(stderr, "=== Test %s\n", name);
+  fputs("=== Test ", stderr);
+  PrintStderrString(name);
+  fputc('\n', stderr);
   phase = name;
 }
 #ifdef _MSC_VER
@@ -63,16 +128,16 @@ static const char* GetTempDir(void) {
 #pragma warning(pop)
 #endif
 
-#define CheckNoError(err)                                                 \
-  if ((err) != NULL) {                                                    \
-    fprintf(stderr, "%s:%d: %s: %s\n", __FILE__, __LINE__, phase, (err)); \
-    abort();                                                              \
+#define CheckNoError(err)                                  \
+  if ((err) != NULL) {                                     \
+    PrintFailureMessage(__FILE__, __LINE__, phase, (err)); \
+    abort();                                               \
   }
 
-#define CheckCondition(cond)                                              \
-  if (!(cond)) {                                                          \
-    fprintf(stderr, "%s:%d: %s: %s\n", __FILE__, __LINE__, phase, #cond); \
-    abort();                                                              \
+#define CheckCondition(cond)                               \
+  if (!(cond)) {                                           \
+    PrintFailureMessage(__FILE__, __LINE__, phase, #cond); \
+    abort();                                               \
   }
 
 static void CheckEqual(const char* expected, const char* v, size_t n) {
@@ -83,8 +148,12 @@ static void CheckEqual(const char* expected, const char* v, size_t n) {
     // ok
     return;
   } else {
-    fprintf(stderr, "%s: expected '%s', got '%s'\n", phase,
-            (expected ? expected : "(null)"), (v ? v : "(null)"));
+    PrintStderrString(phase);
+    fputs(": expected '", stderr);
+    PrintStderrString(expected);
+    fputs("', got '", stderr);
+    PrintStderrBytes(v, n);
+    fputs("'\n", stderr);
     abort();
   }
 }
@@ -4977,6 +5046,6 @@ int main(int argc, char** argv) {
   rocksdb_dbpath_destroy(dbpath);
   rocksdb_env_destroy(env);
 
-  fprintf(stderr, "PASS\n");
+  fputs("PASS\n", stderr);
   return 0;
 }
