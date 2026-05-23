@@ -3432,6 +3432,12 @@ int main(int argc, char** argv) {
     rocksdb_readoptions_set_async_io(ro, 1);
     CheckCondition(1 == rocksdb_readoptions_get_async_io(ro));
 
+    // optimize_multiget_for_io defaults to true (1); flip to 0 to verify the
+    // setter is wired through to the underlying C++ ReadOptions field.
+    CheckCondition(1 == rocksdb_readoptions_get_optimize_multiget_for_io(ro));
+    rocksdb_readoptions_set_optimize_multiget_for_io(ro, 0);
+    CheckCondition(0 == rocksdb_readoptions_get_optimize_multiget_for_io(ro));
+
     rocksdb_readoptions_destroy(ro);
   }
 
