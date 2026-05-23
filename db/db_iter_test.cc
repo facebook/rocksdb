@@ -216,12 +216,26 @@ class TestIterator : public InternalIterator {
   bool IsKeyPinned() const override { return true; }
   bool IsValuePinned() const override { return true; }
 
+  void Prepare(const MultiScanArgs* scan_opts) override {
+    ++prepare_call_count_;
+    last_prepare_scan_ranges_are_sorted_ =
+        scan_opts != nullptr && scan_opts->ScanRangesAreSorted();
+  }
+
+  size_t prepare_call_count() const { return prepare_call_count_; }
+
+  bool last_prepare_scan_ranges_are_sorted() const {
+    return last_prepare_scan_ranges_are_sorted_;
+  }
+
  private:
   bool initialized_;
   bool valid_;
   size_t sequence_number_;
   size_t iter_;
   size_t steps_ = 0;
+  size_t prepare_call_count_ = 0;
+  bool last_prepare_scan_ranges_are_sorted_ = false;
 
   InternalKeyComparator cmp;
   std::vector<std::pair<std::string, std::string>> data_;
@@ -242,6 +256,56 @@ class DBIteratorTest : public testing::Test {
 
   DBIteratorTest() : env_(Env::Default()) {}
 };
+
+TEST_F(DBIteratorTest, PrepareMarksValidatedScanRangesSorted) {
+  Options options;
+  ImmutableOptions ioptions = ImmutableOptions(options);
+  MutableCFOptions mutable_cf_options = MutableCFOptions(options);
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddPut("a", "val_a");
+  internal_iter->AddPut("b", "val_b");
+  internal_iter->Finish();
+
+  ReadOptions ro;
+  std::unique_ptr<Iterator> db_iter(DBIter::NewIter(
+      env_, ro, ioptions, mutable_cf_options, BytewiseComparator(),
+      internal_iter, nullptr /* version */, 10 /* sequence */,
+      nullptr /* read_callback */, /*active_mem=*/nullptr));
+
+  MultiScanArgs scan_opts(BytewiseComparator());
+  scan_opts.insert("a", "c");
+  ASSERT_FALSE(scan_opts.ScanRangesAreSorted());
+
+  db_iter->Prepare(scan_opts);
+  ASSERT_OK(db_iter->status());
+  EXPECT_EQ(internal_iter->prepare_call_count(), 1);
+  EXPECT_TRUE(internal_iter->last_prepare_scan_ranges_are_sorted());
+  EXPECT_FALSE(scan_opts.ScanRangesAreSorted());
+}
+
+TEST_F(DBIteratorTest, PrepareDoesNotForwardInvalidScanRanges) {
+  Options options;
+  ImmutableOptions ioptions = ImmutableOptions(options);
+  MutableCFOptions mutable_cf_options = MutableCFOptions(options);
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddPut("a", "val_a");
+  internal_iter->AddPut("b", "val_b");
+  internal_iter->Finish();
+
+  ReadOptions ro;
+  std::unique_ptr<Iterator> db_iter(DBIter::NewIter(
+      env_, ro, ioptions, mutable_cf_options, BytewiseComparator(),
+      internal_iter, nullptr /* version */, 10 /* sequence */,
+      nullptr /* read_callback */, /*active_mem=*/nullptr));
+
+  MultiScanArgs scan_opts(BytewiseComparator());
+  scan_opts.insert("b", "d");
+  scan_opts.insert("a", "c");
+
+  db_iter->Prepare(scan_opts);
+  EXPECT_TRUE(db_iter->status().IsInvalidArgument());
+  EXPECT_EQ(internal_iter->prepare_call_count(), 0);
+}
 
 TEST_F(DBIteratorTest, DBIteratorPrevNext) {
   Options options;
