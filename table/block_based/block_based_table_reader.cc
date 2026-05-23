@@ -1715,7 +1715,11 @@ Status BlockBasedTable::LookupAndPinBlocksInCache(
   BlockCacheInterface<TBlocklike> block_cache{
       rep_->table_options.block_cache.get()};
 
-  assert(block_cache);
+  TEST_SYNC_POINT("BlockBasedTable::LookupAndPinBlocksInCache:Start");
+
+  if (!block_cache) {
+    return Status::OK();
+  }
 
   Status s;
   CachableEntry<DecompressorDict> cached_dict;

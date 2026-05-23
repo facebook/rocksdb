@@ -705,22 +705,31 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
 
   // Step 1: Check cache and pin cached blocks
   std::vector<size_t> block_indices_to_read;
+  block_indices_to_read.reserve(job->block_handles.size());
 
-  for (size_t i = 0; i < job->block_handles.size(); ++i) {
-    const auto& data_block_handle = job->block_handles[i];
-
-    // Lookup and pin block in cache
-    Status s = job->table->LookupAndPinBlocksInCache<Block_kData>(
-        job->job_options.read_options, data_block_handle,
-        &(rs->pinned_blocks_)[i].As<Block_kData>());
-
-    if (!s.ok()) {
-      continue;
-    }
-
-    if (!(rs->pinned_blocks_)[i].GetValue()) {
-      // Block not in cache - needs to be read from disk
+  const bool has_block_cache =
+      job->table->get_rep()->table_options.block_cache != nullptr;
+  if (!has_block_cache) {
+    for (size_t i = 0; i < job->block_handles.size(); ++i) {
       block_indices_to_read.emplace_back(i);
+    }
+  } else {
+    for (size_t i = 0; i < job->block_handles.size(); ++i) {
+      const auto& data_block_handle = job->block_handles[i];
+
+      // Lookup and pin block in cache
+      Status s = job->table->LookupAndPinBlocksInCache<Block_kData>(
+          job->job_options.read_options, data_block_handle,
+          &(rs->pinned_blocks_)[i].As<Block_kData>());
+
+      if (!s.ok()) {
+        continue;
+      }
+
+      if (!(rs->pinned_blocks_)[i].GetValue()) {
+        // Block not in cache - needs to be read from disk
+        block_indices_to_read.emplace_back(i);
+      }
     }
   }
 

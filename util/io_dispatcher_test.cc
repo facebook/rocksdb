@@ -24,6 +24,7 @@
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
+#include "table/block_based/block_cache.h"
 #include "test_util/sync_point.h"
 
 // Enable io_uring support for this test
@@ -281,15 +282,18 @@ class IODispatcherTest : public DBTestBase {
   // Following pattern from table_test.cc TableConstructor
   Status CreateAndOpenSST(int num_blocks,
                           std::unique_ptr<BlockBasedTable>* table,
-                          std::vector<BlockHandle>* block_handles_out) {
+                          std::vector<BlockHandle>* block_handles_out,
+                          bool no_block_cache = false) {
     // Create options - store in member variables to avoid use-after-scope
     // The BlockBasedTable will keep references to these options
     Options options{};
     options.statistics = nullptr;
     BlockBasedTableOptions table_options;
-    table_options.block_cache = NewLRUCache(8 * 1024 * 1024);
+    if (!no_block_cache) {
+      table_options.block_cache = NewLRUCache(8 * 1024 * 1024);
+    }
     table_options.block_size = 16 * 1024;
-    table_options.no_block_cache = false;
+    table_options.no_block_cache = no_block_cache;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     // Store these in member variables so they outlive the function
@@ -834,6 +838,148 @@ TEST_F(IODispatcherTest, VerifyCoalescing) {
         << "Expected each non-adjacent block to be a separate request with "
            "zero coalesce threshold";
   }
+}
+
+TEST_F(IODispatcherTest, LookupAndPinBlocksInCacheNoOpsWithoutBlockCache) {
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(
+      CreateAndOpenSST(5, &table, &block_handles, true /* no_block_cache */));
+  ASSERT_NE(table, nullptr);
+  ASSERT_FALSE(table->get_rep()->table_options.block_cache);
+  ASSERT_FALSE(block_handles.empty());
+
+  int lookup_calls = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::LookupAndPinBlocksInCache:Start",
+      [&](void*) { ++lookup_calls; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  CachableEntry<Block_kData> block;
+  ASSERT_OK(table->LookupAndPinBlocksInCache<Block_kData>(
+      ReadOptions(), block_handles.front(), &block));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  EXPECT_EQ(lookup_calls, 1);
+  EXPECT_EQ(block.GetValue(), nullptr);
+}
+
+TEST_F(IODispatcherTest, SubmitJobWithoutBlockCacheSkipsCacheLookup) {
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(
+      CreateAndOpenSST(10, &table, &block_handles, true /* no_block_cache */));
+  ASSERT_NE(table, nullptr);
+  ASSERT_FALSE(table->get_rep()->table_options.block_cache);
+  ASSERT_GE(block_handles.size(), 5);
+  block_handles.resize(5);
+
+  int lookup_calls = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::LookupAndPinBlocksInCache:Start",
+      [&](void*) { ++lookup_calls; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  tracking_fs_->ClearReadOps();
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = false;
+  job->job_options.io_coalesce_threshold = 1024 * 1024;
+
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  ASSERT_NE(read_set, nullptr);
+  EXPECT_EQ(read_set->GetNumCacheHits(), 0);
+  for (size_t i = 0; i < block_handles.size(); ++i) {
+    CachableEntry<Block> block;
+    ASSERT_OK(read_set->ReadIndex(i, &block));
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  EXPECT_EQ(lookup_calls, 0);
+  EXPECT_GT(tracking_fs_->GetMultiReadCount(), 0);
+}
+
+TEST_F(IODispatcherTest, FillCacheFalseStillLooksUpExistingCacheEntries) {
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(10, &table, &block_handles));
+  ASSERT_NE(table, nullptr);
+  ASSERT_TRUE(table->get_rep()->table_options.block_cache);
+  ASSERT_GE(block_handles.size(), 2);
+
+  auto warm_job = std::make_shared<IOJob>();
+  warm_job->block_handles = {block_handles[0]};
+  warm_job->table = table.get();
+  warm_job->job_options.read_options.async_io = false;
+
+  std::shared_ptr<ReadSet> warm_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(warm_job, &warm_read_set));
+  ASSERT_NE(warm_read_set, nullptr);
+  {
+    CachableEntry<Block> block;
+    ASSERT_OK(warm_read_set->ReadIndex(0, &block));
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+  warm_read_set.reset();
+
+  int lookup_calls = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::LookupAndPinBlocksInCache:Start",
+      [&](void*) { ++lookup_calls; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  tracking_fs_->ClearReadOps();
+  auto fill_cache_false_job = std::make_shared<IOJob>();
+  fill_cache_false_job->block_handles = {block_handles[0], block_handles[1]};
+  fill_cache_false_job->table = table.get();
+  fill_cache_false_job->job_options.read_options.fill_cache = false;
+  fill_cache_false_job->job_options.read_options.async_io = false;
+  fill_cache_false_job->job_options.io_coalesce_threshold = 1024 * 1024;
+
+  std::shared_ptr<ReadSet> fill_cache_false_read_set;
+  ASSERT_OK(
+      dispatcher->SubmitJob(fill_cache_false_job, &fill_cache_false_read_set));
+  ASSERT_NE(fill_cache_false_read_set, nullptr);
+  EXPECT_EQ(lookup_calls, 2);
+  EXPECT_EQ(fill_cache_false_read_set->GetNumCacheHits(), 1);
+  EXPECT_GT(tracking_fs_->GetMultiReadCount(), 0);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  for (size_t i = 0; i < fill_cache_false_job->block_handles.size(); ++i) {
+    CachableEntry<Block> block;
+    ASSERT_OK(fill_cache_false_read_set->ReadIndex(i, &block));
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+  fill_cache_false_read_set.reset();
+
+  tracking_fs_->ClearReadOps();
+  auto verify_miss_not_cached_job = std::make_shared<IOJob>();
+  verify_miss_not_cached_job->block_handles = {block_handles[1]};
+  verify_miss_not_cached_job->table = table.get();
+  verify_miss_not_cached_job->job_options.read_options.async_io = false;
+
+  std::shared_ptr<ReadSet> verify_miss_not_cached_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(verify_miss_not_cached_job,
+                                  &verify_miss_not_cached_read_set));
+  ASSERT_NE(verify_miss_not_cached_read_set, nullptr);
+  EXPECT_EQ(verify_miss_not_cached_read_set->GetNumCacheHits(), 0);
+  EXPECT_GT(tracking_fs_->GetMultiReadCount(), 0);
+  CachableEntry<Block> block;
+  ASSERT_OK(verify_miss_not_cached_read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
 }
 
 // Test that verifies the read request offsets and lengths match the
