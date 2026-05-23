@@ -761,6 +761,111 @@ TEST_F(DBBasicTest, ReuseManifestOnOpenFullStackComposition) {
   EXPECT_EQ("v", Get("k"));
 }
 
+// Regression test for WAL recovery while publishing a fresh MANIFEST. The test
+// stores SSTs in a separate DB path, injects failure after CURRENT points at
+// the new MANIFEST, and simulates crash cleanup; the recovered SST must survive
+// because the synced MANIFEST references it.
+TEST_F(DBBasicTest, RecoverySstDirSyncedBeforeFreshManifestPublish) {
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> fault_env(NewCompositeEnv(fault_fs));
+
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.env = fault_env.get();
+  options.reuse_manifest_on_open = false;
+  options.db_paths.emplace_back(dbname_ + "_2", 1ULL << 30);
+
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("base", "value"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("recovered", "value"));
+  ASSERT_OK(db_->FlushWAL(true));
+  Close();
+
+  fault_fs->ResetState();
+
+  std::atomic<bool> fail_after_current_publish{true};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:AfterSetCurrentFile", [&](void* arg) {
+        if (fail_after_current_publish.exchange(false)) {
+          ASSERT_NE(nullptr, arg);
+          IOStatus* io_s = static_cast<IOStatus*>(arg);
+          ASSERT_OK(*io_s);
+          *io_s = IOStatus::IOError("injected current publish aftermath");
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsIOError()) << s.ToString();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(fault_fs->DeleteFilesCreatedAfterLastDirSync(IOOptions(), nullptr));
+
+  s = TryReopen(options);
+  ASSERT_OK(s);
+  ASSERT_EQ("value", Get("base"));
+  ASSERT_EQ("value", Get("recovered"));
+  Close();
+}
+
+// Regression test for WAL recovery while appending to a reused MANIFEST. The
+// first reopen forces recovery to create an SST and then fail after MANIFEST
+// sync. The simulated crash cleanup deletes files without a prior directory
+// sync; the recovered SST must survive because the synced MANIFEST references
+// it.
+TEST_F(DBBasicTest,
+       ReuseManifestOnOpenSyncsRecoverySstDirBeforeManifestAppend) {
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> fault_env(NewCompositeEnv(fault_fs));
+
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.env = fault_env.get();
+  options.reuse_manifest_on_open = true;
+
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("base", "value"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("recovered", "value"));
+  ASSERT_OK(db_->FlushWAL(true));
+  Close();
+
+  fault_fs->ResetState();
+
+  std::atomic<bool> fail_after_manifest_sync{true};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:AfterSyncManifest", [&](void* arg) {
+        if (fail_after_manifest_sync.exchange(false)) {
+          ASSERT_NE(nullptr, arg);
+          IOStatus* io_s = static_cast<IOStatus*>(arg);
+          ASSERT_OK(*io_s);
+          *io_s = IOStatus::IOError("injected manifest sync aftermath");
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsIOError()) << s.ToString();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(fault_fs->DeleteFilesCreatedAfterLastDirSync(IOOptions(), nullptr));
+
+  s = TryReopen(options);
+  ASSERT_OK(s);
+  ASSERT_EQ("value", Get("base"));
+  ASSERT_EQ("value", Get("recovered"));
+  Close();
+}
+
 // Direct unit test for WritableFileWriter's initial_file_size parameter:
 // verifies the visible size accessors report the existing on-disk size
 // immediately, rather than the constructor's zero default.
