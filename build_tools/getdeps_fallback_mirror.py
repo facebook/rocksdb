@@ -179,10 +179,19 @@ def main():
         if not info or not info["url"]:
             continue
 
-        if get_fallback_mirrors(info["url"]):
-            checked += 1
+        if not get_fallback_mirrors(info["url"]):
+            print(
+                f"  {package}: WARNING - skipped fallback without known mirror "
+                f"for {info['url']}"
+            )
+            continue
+
+        checked += 1
+        try:
             if prepare_download(package, info, download_dir, cache_dir):
                 ready += 1
+        except Exception as ex:
+            print(f"  {package}: WARNING - fallback preparation failed: {ex}")
 
     print(f"  fallback mirror downloads ready: {ready}/{checked}")
 
