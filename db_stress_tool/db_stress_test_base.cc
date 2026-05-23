@@ -941,6 +941,7 @@ Status StressTest::CommitTxn(Transaction& txn, ThreadState* thread) {
   } else {
     assert(txn_db_);
     s = txn.Prepare();
+    const bool prepared = s.ok();
     std::shared_ptr<const Snapshot> timestamped_snapshot;
     if (s.ok()) {
       if (thread && FLAGS_create_timestamped_snapshot_one_in &&
@@ -966,6 +967,47 @@ Status StressTest::CommitTxn(Transaction& txn, ThreadState* thread) {
         }
       } else {
         s = txn.Commit();
+      }
+    }
+    if (prepared && !s.ok()) {
+      Status rollback_s = txn.Rollback();
+      int rollback_recovery_retries = 0;
+      int resume_busy_count = 0;
+      std::string last_resume_status;
+      if (!rollback_s.ok() && IsErrorInjectedAndRetryable(rollback_s) &&
+          db_ != nullptr) {
+        constexpr int kMaxRollbackAfterRecoveryRetries = 100;
+        constexpr int kRollbackAfterRecoveryRetryIntervalMicros = 10 * 1000;
+        for (; rollback_recovery_retries < kMaxRollbackAfterRecoveryRetries &&
+               !rollback_s.ok();
+             ++rollback_recovery_retries) {
+          const Status resume_s = db_->Resume();
+          if (resume_s.ok()) {
+            last_resume_status = resume_s.ToString();
+            rollback_s = txn.Rollback();
+            if (rollback_s.ok() || !IsErrorInjectedAndRetryable(rollback_s)) {
+              break;
+            }
+          } else if (!resume_s.IsBusy()) {
+            last_resume_status = resume_s.ToString();
+            break;
+          } else {
+            ++resume_busy_count;
+            last_resume_status = resume_s.ToString();
+          }
+          clock_->SleepForMicroseconds(
+              kRollbackAfterRecoveryRetryIntervalMicros);
+        }
+      }
+      if (!rollback_s.ok()) {
+        fprintf(stderr,
+                "Rollback after failed prepared transaction commit failed: "
+                "txn=%s, commit_status=%s, rollback_status=%s, "
+                "recovery_retries=%d, resume_busy_count=%d, "
+                "last_resume_status=%s\n",
+                txn.GetName().c_str(), s.ToString().c_str(),
+                rollback_s.ToString().c_str(), rollback_recovery_retries,
+                resume_busy_count, last_resume_status.c_str());
       }
     }
     if (thread && FLAGS_create_timestamped_snapshot_one_in > 0 &&
