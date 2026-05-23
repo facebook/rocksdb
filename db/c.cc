@@ -5398,6 +5398,16 @@ size_t rocksdb_options_get_memtable_huge_page_size(rocksdb_options_t* opt) {
   return opt->rep.memtable_huge_page_size;
 }
 
+void rocksdb_options_set_memtable_batch_lookup_optimization(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.memtable_batch_lookup_optimization = v;
+}
+
+unsigned char rocksdb_options_get_memtable_batch_lookup_optimization(
+    rocksdb_options_t* opt) {
+  return opt->rep.memtable_batch_lookup_optimization;
+}
+
 void rocksdb_options_set_hash_skip_list_rep(rocksdb_options_t* opt,
                                             size_t bucket_count,
                                             int32_t skiplist_height,
