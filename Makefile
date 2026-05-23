@@ -327,6 +327,9 @@ missing_make_config_paths := $(shell				\
 $(foreach path, $(missing_make_config_paths), \
 	$(warning Warning: $(path) does not exist))
 
+# This (the first rule) must depend on "all".
+default: all
+
 ifeq ($(PLATFORM), OS_AIX)
 # no debug info
 else ifneq ($(PLATFORM), IOS)
@@ -484,9 +487,6 @@ ifdef ROCKSDB_MODIFY_NPHASH
   PLATFORM_CCFLAGS += -DROCKSDB_MODIFY_NPHASH=1
   PLATFORM_CXXFLAGS += -DROCKSDB_MODIFY_NPHASH=1
 endif
-
-# This (the first rule) must depend on "all".
-default: all
 
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
   -Wunused-parameter
@@ -990,7 +990,7 @@ check_0:
 		        awk -v s=$(CI_SHARD_INDEX) -v n=$(CI_TOTAL_SHARDS) '(NR-1)%n==s'; \
 		      else cat; fi; \
 		fi; \
-		find t -name 'run-*' -print; \
+		$(FIND) t -name 'run-*' -print; \
 	} \
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
@@ -1012,7 +1012,7 @@ valgrind_check_0:
 	  '  run "make watch-log" in a separate window' '';		\
 	{								\
 	  printf './%s\n' $(filter-out $(PARALLEL_TEST) %skiplist_test options_settable_test, $(TESTS));		\
-	  find t -name 'run-*' -print; \
+	  $(FIND) t -name 'run-*' -print; \
 	}								\
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
@@ -1230,11 +1230,17 @@ clean-not-downloaded: clean-ext-libraries-bin clean-rocks clean-not-downloaded-r
 
 clean-rocks:
 # Not practical to exactly match all versions/variants in naming (e.g. debug or not)
-	rm -f ${LIBNAME}*.so* ${LIBNAME}*.a
-	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(MICROBENCHS)
-	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
-	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
-	$(FIND) . -type f \( -name "*.gcda" -o -name "*.gcno" \) -exec rm -f {} \;
+	@echo Removing link targets
+	@rm -f ${LIBNAME}*.so* ${LIBNAME}*.a $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(MICROBENCHS)
+	@echo Finding and cleaning other files
+	@rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
+	@if $(FIND) Makefile -regextype awk &> /dev/null; then \
+		$(FIND) . -regextype awk \
+			-regex '.*/([.].*|third-party)' -prune -o \
+			-type f -regex '.*[.]([oda]|gcda|gcno)' -exec rm -f {} \; ; \
+	else \
+		$(FIND) . -name "*.[oda]" -exec rm -f {} \; ; \
+	fi
 
 clean-rocksjava: clean-rocks
 	rm -rf jl jls
@@ -1247,7 +1253,7 @@ clean-ext-libraries-all:
 	rm -rf bzip2* snappy* zlib* lz4* zstd*
 
 clean-ext-libraries-bin:
-	find . -maxdepth 1 -type d \( -name bzip2\* -or -name snappy\* -or -name zlib\* -or -name lz4\* -or -name zstd\* \) -prune -exec rm -rf {} \;
+	$(FIND) . -maxdepth 1 -type d \( -name bzip2\* -or -name snappy\* -or -name zlib\* -or -name lz4\* -or -name zstd\* \) -prune -exec rm -rf {} \;
 
 tags:
 	ctags -R .
