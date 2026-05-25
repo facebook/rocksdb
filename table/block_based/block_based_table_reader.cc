@@ -1833,7 +1833,28 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     }
 
     // If the UDI block size is 0, that means there's effectively no user
-    // defined index. In that case, skip setting up the reader.
+    // defined index for this SST. In kStandardDefault the standard index
+    // is fully populated, so we silently skip wrapper installation (the
+    // standard index serves all reads). In kCustomDefault / kCustomOnly,
+    // the SST is supposed to be readable through the UDI -- a zero-size
+    // UDI block means the SST is broken (PropertyBlockBuilder never
+    // produces zero-size handles for non-empty data), so escalate to
+    // Corruption rather than silently leaving a stub reader in place
+    // (which would return zero rows in kCustomOnly).
+    if (s.ok() && udi_block_handle.size() == 0 &&
+        table_options.index_mode >=
+            BlockBasedTableOptions::IndexMode::kCustomDefault) {
+      RecordTick(rep_->ioptions.statistics.get(),
+                 SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT);
+      ROCKS_LOG_ERROR(rep_->ioptions.logger,
+                      "UDI block %s in file %s has size 0; cannot serve "
+                      "reads in index_mode kCustomDefault/kCustomOnly",
+                      udi_name.c_str(), rep_->file->file_name().c_str());
+      return Status::Corruption(
+          "UDI block " + udi_name + " has size 0 in " +
+          rep_->file->file_name() +
+          " -- cannot serve reads in kCustomDefault/kCustomOnly mode");
+    }
     if (udi_block_handle.size() > 0) {
       // Read the block, and allocate on heap or pin in cache. The UDI block is
       // not compressed. RetrieveBlock will verify the checksum.
@@ -1847,6 +1868,14 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
       }
       if (s.ok()) {
         assert(!rep_->udi_block.IsEmpty());
+        // Defensive: assert above doesn't run in release builds, and a
+        // null value here would crash at the .data access below. Surface
+        // as Corruption so an opaque SIGSEGV doesn't reach the user.
+        if (UNLIKELY(rep_->udi_block.GetValue() == nullptr)) {
+          return Status::Corruption("UDI block read returned null contents for "
+                                    + udi_name + " in " +
+                                    rep_->file->file_name());
+        }
 
         std::unique_ptr<IndexFactoryReader> udi_reader;
         IndexFactoryOptions udi_option;

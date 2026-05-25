@@ -961,18 +961,36 @@ struct BlockBasedTableBuilder::Rep {
     }
 
     // Parse once, forward user keys + context tags to every custom builder.
+    // last_internal_key was constructed by the builder itself from a real
+    // memtable key, so ParseInternalKey cannot fail on well-formed input.
+    // If it does, the SST is in an inconsistent state -- the built-in
+    // index already received this entry above via AddIndexEntryDirect, and
+    // a silent return would leave the custom indexes missing it, producing
+    // built-in vs custom index divergence. Abort the SST cleanly instead.
     ParsedInternalKey last_pkey;
     Status parse_s = ParseInternalKey(last_internal_key, &last_pkey, false);
     assert(parse_s.ok());
-    if (!parse_s.ok()) {
-      return;  // Defensive: should never happen
+    if (UNLIKELY(!parse_s.ok())) {
+      SetStatus(Status::Corruption(
+          "Failed to parse last_internal_key in ForwardAddIndexEntryToAll: " +
+          parse_s.ToString()));
+      return;
     }
     IndexFactoryBuilder::IndexEntryContext ctx;
     ctx.last_key_tag = PackSequenceAndType(last_pkey.sequence, last_pkey.type);
     ParsedInternalKey next_pkey;
     const Slice* next_user = nullptr;
-    if (first_internal_key_next != nullptr &&
-        ParseInternalKey(*first_internal_key_next, &next_pkey, false).ok()) {
+    if (first_internal_key_next != nullptr) {
+      Status next_parse_s =
+          ParseInternalKey(*first_internal_key_next, &next_pkey, false);
+      assert(next_parse_s.ok());
+      if (UNLIKELY(!next_parse_s.ok())) {
+        SetStatus(Status::Corruption(
+            "Failed to parse first_internal_key_next in "
+            "ForwardAddIndexEntryToAll: " +
+            next_parse_s.ToString()));
+        return;
+      }
       next_user = &next_pkey.user_key;
       ctx.first_key_tag =
           PackSequenceAndType(next_pkey.sequence, next_pkey.type);
@@ -2037,25 +2055,44 @@ void BlockBasedTableBuilder::EmitBlockForParallel(
   if (!r->custom_indexes.empty()) {
     // Test hook: setting *skip_custom_prepare=true simulates the
     // defensive ParseInternalKey-failure path so the stale-flag-reset
-    // above can be exercised.
+    // above can be exercised without forcing a malformed key down the
+    // parser. Production code never sets this -- well-formed builder
+    // input cannot fail to parse, so a real failure aborts the SST with
+    // Status::Corruption below to avoid built-in vs custom index
+    // divergence (the built-in entry was already staged unconditionally).
     bool skip_custom_prepare = false;
     TEST_SYNC_POINT_CALLBACK(
         "BlockBasedTableBuilder::EmitBlockForParallel:SkipCustomPrepare",
         &skip_custom_prepare);
-    ParsedInternalKey last_pkey;
-    if (!skip_custom_prepare &&
-        ParseInternalKey(last_key_in_current_block, &last_pkey,
-                         /*log_err_key=*/false)
-            .ok()) {
+    if (!skip_custom_prepare) {
+      ParsedInternalKey last_pkey;
+      Status parse_s = ParseInternalKey(last_key_in_current_block, &last_pkey,
+                                        /*log_err_key=*/false);
+      assert(parse_s.ok());
+      if (UNLIKELY(!parse_s.ok())) {
+        r->SetStatus(Status::Corruption(
+            "Failed to parse last_key_in_current_block in "
+            "EmitBlockForParallel: " +
+            parse_s.ToString()));
+        return;
+      }
       IndexFactoryBuilder::IndexEntryContext ctx;
       ctx.last_key_tag =
           PackSequenceAndType(last_pkey.sequence, last_pkey.type);
       const Slice* next_user = nullptr;
       ParsedInternalKey next_pkey;
-      if (first_key_in_next_block != nullptr &&
-          ParseInternalKey(*first_key_in_next_block, &next_pkey,
-                           /*log_err_key=*/false)
-              .ok()) {
+      if (first_key_in_next_block != nullptr) {
+        Status next_parse_s = ParseInternalKey(*first_key_in_next_block,
+                                               &next_pkey,
+                                               /*log_err_key=*/false);
+        assert(next_parse_s.ok());
+        if (UNLIKELY(!next_parse_s.ok())) {
+          r->SetStatus(Status::Corruption(
+              "Failed to parse first_key_in_next_block in "
+              "EmitBlockForParallel: " +
+              next_parse_s.ToString()));
+          return;
+        }
         next_user = &next_pkey.user_key;
         ctx.first_key_tag =
             PackSequenceAndType(next_pkey.sequence, next_pkey.type);
