@@ -973,10 +973,10 @@ struct BlockBasedTableBuilder::Rep {
           ParseInternalKey(*first_internal_key_next, &next_pkey, false);
       assert(next_parse_s.ok());
       if (UNLIKELY(!next_parse_s.ok())) {
-        SetStatus(Status::Corruption(
-            "Failed to parse first_internal_key_next in "
-            "ForwardAddIndexEntryToAll: " +
-            next_parse_s.ToString()));
+        SetStatus(
+            Status::Corruption("Failed to parse first_internal_key_next in "
+                               "ForwardAddIndexEntryToAll: " +
+                               next_parse_s.ToString()));
         return;
       }
       next_user = &next_pkey.user_key;
@@ -2000,10 +2000,10 @@ void BlockBasedTableBuilder::EmitBlockForParallel(
                                         /*log_err_key=*/false);
       assert(parse_s.ok());
       if (UNLIKELY(!parse_s.ok())) {
-        r->SetStatus(Status::Corruption(
-            "Failed to parse last_key_in_current_block in "
-            "EmitBlockForParallel: " +
-            parse_s.ToString()));
+        r->SetStatus(
+            Status::Corruption("Failed to parse last_key_in_current_block in "
+                               "EmitBlockForParallel: " +
+                               parse_s.ToString()));
         return;
       }
       IndexFactoryBuilder::IndexEntryContext ctx;
@@ -2012,15 +2012,15 @@ void BlockBasedTableBuilder::EmitBlockForParallel(
       const Slice* next_user = nullptr;
       ParsedInternalKey next_pkey;
       if (first_key_in_next_block != nullptr) {
-        Status next_parse_s = ParseInternalKey(*first_key_in_next_block,
-                                               &next_pkey,
-                                               /*log_err_key=*/false);
+        Status next_parse_s =
+            ParseInternalKey(*first_key_in_next_block, &next_pkey,
+                             /*log_err_key=*/false);
         assert(next_parse_s.ok());
         if (UNLIKELY(!next_parse_s.ok())) {
-          r->SetStatus(Status::Corruption(
-              "Failed to parse first_key_in_next_block in "
-              "EmitBlockForParallel: " +
-              next_parse_s.ToString()));
+          r->SetStatus(
+              Status::Corruption("Failed to parse first_key_in_next_block in "
+                                 "EmitBlockForParallel: " +
+                                 next_parse_s.ToString()));
           return;
         }
         next_user = &next_pkey.user_key;

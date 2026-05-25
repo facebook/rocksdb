@@ -472,12 +472,12 @@ static struct BlockBasedTableTypeInfo {
              OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever)
              .SetParseFunc([](const ConfigOptions& /*opts*/,
                               const std::string& /*name*/,
-                              const std::string& value,
-                              void* addr) -> Status {
+                              const std::string& value, void* addr) -> Status {
                auto* mode =
                    static_cast<BlockBasedTableOptions::IndexMode*>(addr);
                if (ParseBoolean("fail_if_no_udi_on_open", value) &&
-                   *mode < BlockBasedTableOptions::IndexMode::kStandardDefault) {
+                   *mode <
+                       BlockBasedTableOptions::IndexMode::kStandardDefault) {
                  *mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
                }
                return Status::OK();
@@ -489,8 +489,7 @@ static struct BlockBasedTableTypeInfo {
              OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever)
              .SetParseFunc([](const ConfigOptions& /*opts*/,
                               const std::string& /*name*/,
-                              const std::string& value,
-                              void* addr) -> Status {
+                              const std::string& value, void* addr) -> Status {
                auto* mode =
                    static_cast<BlockBasedTableOptions::IndexMode*>(addr);
                if (ParseBoolean("use_udi_as_primary_index", value) &&
@@ -506,8 +505,7 @@ static struct BlockBasedTableTypeInfo {
              OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever)
              .SetParseFunc([](const ConfigOptions& /*opts*/,
                               const std::string& /*name*/,
-                              const std::string& value,
-                              void* addr) -> Status {
+                              const std::string& value, void* addr) -> Status {
                auto* mode =
                    static_cast<BlockBasedTableOptions::IndexMode*>(addr);
                if (ParseBoolean("skip_standard_index", value) &&
