@@ -2972,12 +2972,14 @@ TEST_F(TrieIndexFactoryTest, OnKeyAddedNoOp) {
   // Call OnKeyAdded with all ValueType variants -- all should be no-ops.
   builder->OnKeyAdded(Slice("key1"), IndexFactoryBuilder::ValueType::kValue,
                       Slice("value1"));
-  builder->OnKeyAdded(Slice("key2"), IndexFactoryBuilder::ValueType::kDelete, Slice(""));
+  builder->OnKeyAdded(Slice("key2"), IndexFactoryBuilder::ValueType::kDelete,
+                      Slice(""));
   builder->OnKeyAdded(Slice("key3"), IndexFactoryBuilder::ValueType::kMerge,
                       Slice("merge_operand"));
   builder->OnKeyAdded(Slice("key4"), IndexFactoryBuilder::ValueType::kOther,
                       Slice("blob_ref"));
-  builder->OnKeyAdded(Slice(""), IndexFactoryBuilder::ValueType::kValue, Slice(""));
+  builder->OnKeyAdded(Slice(""), IndexFactoryBuilder::ValueType::kValue,
+                      Slice(""));
 
   // Building should still succeed (OnKeyAdded should not affect state).
   IndexFactoryBuilder::BlockHandle handle{0, 500};

@@ -8970,12 +8970,12 @@ TEST_P(UserDefinedIndexTest, OldFormatUdiSstReadableInAllModes) {
                     BlockBasedTableOptions::IndexMode::kCustomOnly}) {
     bool factory_needed =
         mode >= BlockBasedTableOptions::IndexMode::kStandardDefault;
-    for (auto probe : {ReadOptions::ReadIndex::kDefault,
-                       ReadOptions::ReadIndex::kBuiltin,
-                       ReadOptions::ReadIndex::kPreferCustom}) {
-      verify_full_scan(mode, factory_needed, sst_secondary, probe,
-                       "sst_secondary mode=" +
-                           std::to_string(static_cast<int>(mode)));
+    for (auto probe :
+         {ReadOptions::ReadIndex::kDefault, ReadOptions::ReadIndex::kBuiltin,
+          ReadOptions::ReadIndex::kPreferCustom}) {
+      verify_full_scan(
+          mode, factory_needed, sst_secondary, probe,
+          "sst_secondary mode=" + std::to_string(static_cast<int>(mode)));
     }
   }
 
@@ -9053,9 +9053,8 @@ TEST_P(UserDefinedIndexTest, DeprecatedUdiBooleansTranslateToIndexMode) {
   // Explicit new index_mode wins when it is at least as high as any
   // boolean asks for. The booleans use a monotonic "upgrade only" rule so
   // an explicit kCustomOnly cannot be downgraded by a less-strict bool.
-  translates_to(
-      "index_mode=kCustomOnly;fail_if_no_udi_on_open=true",
-      BlockBasedTableOptions::IndexMode::kCustomOnly);
+  translates_to("index_mode=kCustomOnly;fail_if_no_udi_on_open=true",
+                BlockBasedTableOptions::IndexMode::kCustomOnly);
 
   // End-to-end on-disk verification: simulate a pre-refactor OPTIONS file
   // that contains `use_udi_as_primary_index=true` together with a
@@ -9088,13 +9087,12 @@ TEST_P(UserDefinedIndexTest, DeprecatedUdiBooleansTranslateToIndexMode) {
   // Parse the legacy boolean (no index_mode= present) and confirm the
   // resulting table options route through the UDI.
   BlockBasedTableOptions parsed_opts;
-  ASSERT_OK(GetBlockBasedTableOptionsFromString(
-      cfg, BlockBasedTableOptions(),
-      "use_udi_as_primary_index=true", &parsed_opts));
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(cfg, BlockBasedTableOptions(),
+                                                "use_udi_as_primary_index=true",
+                                                &parsed_opts));
   ASSERT_EQ(parsed_opts.index_mode,
             BlockBasedTableOptions::IndexMode::kCustomDefault);
-  parsed_opts.user_defined_index_factory =
-      std::make_shared<TestIndexFactory>();
+  parsed_opts.user_defined_index_factory = std::make_shared<TestIndexFactory>();
 
   Options read_options = options_;
   read_options.table_factory.reset(NewBlockBasedTableFactory(parsed_opts));
