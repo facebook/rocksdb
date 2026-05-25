@@ -1872,9 +1872,9 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
         // null value here would crash at the .data access below. Surface
         // as Corruption so an opaque SIGSEGV doesn't reach the user.
         if (UNLIKELY(rep_->udi_block.GetValue() == nullptr)) {
-          return Status::Corruption("UDI block read returned null contents for "
-                                    + udi_name + " in " +
-                                    rep_->file->file_name());
+          return Status::Corruption(
+              "UDI block read returned null contents for " + udi_name + " in " +
+              rep_->file->file_name());
         }
 
         std::unique_ptr<IndexFactoryReader> udi_reader;
