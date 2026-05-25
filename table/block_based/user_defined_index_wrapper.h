@@ -55,18 +55,22 @@ class IndexFactoryIteratorWrapper : public InternalIteratorBase<IndexValue> {
   }
 
   void Seek(const Slice& target) override {
-    ParsedInternalKey pkey;
-    status_ = ParseInternalKey(target, &pkey, /*log_err_key=*/false);
-    if (status_.ok()) {
-      // Pass both user key AND sequence number to the UDI iterator via
-      // SeekContext. The sequence number is needed when the same user key
-      // spans multiple data blocks with different sequence numbers (e.g.,
-      // due to snapshots). Without it, the UDI cannot distinguish which
-      // block to return for a given (user_key, seqno) target.
-      IndexFactoryIterator::SeekContext ctx;
-      ctx.target_tag = PackSequenceAndType(pkey.sequence, pkey.type);
-      status_ = udi_iter_->SeekAndGetResult(pkey.user_key, &result_, ctx);
+    // Hot path. The target was built by RocksDB internals from a real
+    // memtable / SST key, so a full ParseInternalKey() validation pass
+    // is wasted work here -- the layout is guaranteed valid. Use the
+    // cheaper inline accessors (constant-time Slice arithmetic + one
+    // DecodeFixed64) instead. The seqno+type are already packed in the
+    // 8-byte footer, matching SeekContext::target_tag's encoding, so
+    // we skip an UnPack-then-Pack round trip.
+    if (UNLIKELY(target.size() < kNumInternalBytes)) {
+      status_ = Status::Corruption("Invalid internal key (too short)");
+      UpdateValidAndKey();
+      return;
     }
+    IndexFactoryIterator::SeekContext ctx;
+    ctx.target_tag = ExtractInternalKeyFooter(target);
+    status_ =
+        udi_iter_->SeekAndGetResult(ExtractUserKey(target), &result_, ctx);
     UpdateValidAndKey();
   }
 
