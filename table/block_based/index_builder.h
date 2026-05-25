@@ -712,7 +712,12 @@ class PartitionedIndexBuilder : public IndexBuilder,
     return estimated_index_size_.LoadRelaxed();
   }
 
-  inline bool ShouldCutFilterBlock() override {
+  // `final` lets the linker / LTO devirtualize the PartitionCoordinator
+  // virtual calls that PartitionedFilterBlockBuilder makes once per key
+  // (DecideCutAFilterBlock in the !decouple_partitioned_filters config).
+  // PartitionedIndexBuilder is the sole concrete PartitionCoordinator, so
+  // this is semantically free.
+  inline bool ShouldCutFilterBlock() final {
     // Current policy is to align the partitions of index and filters
     if (cut_filter_block) {
       cut_filter_block = false;
@@ -721,18 +726,18 @@ class PartitionedIndexBuilder : public IndexBuilder,
     return false;
   }
 
-  const std::string& GetPartitionKey() override {
+  const std::string& GetPartitionKey() final {
     static const std::string kEmptyKey;
     return entries_.empty() ? kEmptyKey : entries_.back().key;
   }
 
   // Called when an external entity (such as filter partition builder) request
   // cutting the next partition
-  void RequestPartitionCut() override;
+  void RequestPartitionCut() final;
 
   // This function must be thread safe because multiple worker threads might
   // update the index builder state during parallel compression.
-  bool separator_is_key_plus_seq() override {
+  bool separator_is_key_plus_seq() final {
     return must_use_separator_with_seq_.LoadRelaxed();
   }
 
