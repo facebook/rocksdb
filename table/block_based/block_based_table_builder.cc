@@ -899,18 +899,18 @@ struct BlockBasedTableBuilder::Rep {
     switch (pkey.type) {
       case kTypeValue:
       case kTypeValuePreferredSeqno:
-        vt = IndexFactoryBuilder::kValue;
+        vt = IndexFactoryBuilder::ValueType::kValue;
         break;
       case kTypeDeletion:
       case kTypeSingleDeletion:
       case kTypeDeletionWithTimestamp:
-        vt = IndexFactoryBuilder::kDelete;
+        vt = IndexFactoryBuilder::ValueType::kDelete;
         break;
       case kTypeMerge:
-        vt = IndexFactoryBuilder::kMerge;
+        vt = IndexFactoryBuilder::ValueType::kMerge;
         break;
       default:
-        vt = IndexFactoryBuilder::kOther;
+        vt = IndexFactoryBuilder::ValueType::kOther;
     }
     // kTypeValuePreferredSeqno stores the user value and a preferred
     // sequence number in a packed format. Extract just the user value

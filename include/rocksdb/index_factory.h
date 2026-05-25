@@ -41,8 +41,10 @@ inline constexpr const char* kIndexFactoryMetaPrefix =
 // IndexFactory: pluggable index for BlockBasedTable SST files.
 //
 // Lets custom index implementations (e.g., trie, learned index) coexist
-// with the built-in standard index. Per BlockBasedTableOptions::index_mode:
-//   - kStandardOnly: only the built-in index is built; any factory pointer
+// with the standard index (BinarySearch, HashSearch, or TwoLevelIndex
+// depending on BlockBasedTableOptions::index_type). Per
+// BlockBasedTableOptions::index_mode:
+//   - kStandardOnly: only the standard index is built; any factory pointer
 //     is ignored.
 //   - kStandardDefault / kCustomDefault: both indexes are built. Reads
 //     default to the standard index in kStandardDefault and to the custom
@@ -51,9 +53,21 @@ inline constexpr const char* kIndexFactoryMetaPrefix =
 //   - kCustomOnly: only the custom index is built. A minimal empty stub
 //     replaces the standard index block to satisfy the SST footer format.
 //
-// Design: mirrors FilterPolicy — the built-in standard index is analogous
-// to the default data block format, custom IndexFactory implementations to
-// custom FilterPolicy implementations.
+// Design: mirrors FilterPolicy -- the standard index is analogous to the
+// default data block format, custom IndexFactory implementations to custom
+// FilterPolicy implementations.
+//
+// NOTE: The IndexFactory API is intentionally asymmetric between build and
+// read. Both the standard and custom indexes are constructed through this
+// SPI on the write side (NewBuilder), but on the read side the standard
+// index continues to use the internal BlockBasedTable::IndexReader path.
+// That internal reader contract carries table-local behavior such as block
+// cache / prefetch / pinning policy and iterator reuse that is not part of
+// this public SPI. Custom IndexFactoryReader implementations are adapted
+// to the internal reader contract via IndexFactoryReaderWrapper (an
+// implementation detail of table/block_based/). Returning NotSupported
+// from a built-in factory's NewReader is therefore intentional, not an
+// incomplete refactor.
 // ============================================================================
 
 // ---------------------------------------------------------------------------
@@ -98,13 +112,19 @@ class IndexFactoryBuilder {
     uint64_t first_key_tag = 0;
   };
 
-  // Value type categories for OnKeyAdded.
-  enum ValueType : uint8_t {
+  // Value type categories for OnKeyAdded. Scoped enum so the names don't
+  // leak into the IndexFactoryBuilder member scope as ints, and to keep
+  // them distinct from the unrelated namespace-level
+  // ROCKSDB_NAMESPACE::ValueType in db/dbformat.h.
+  enum class ValueType : uint8_t {
     kValue = 0,
     kDelete = 1,
     kMerge = 2,
     kOther = 3,
-    kTypeMax,  // Sentinel — must be last. Value may change across releases.
+    // Sentinel -- must be last. Use only for `vt < kTypeMax` bounds checks
+    // or `static_cast<size_t>(kTypeMax)` array sizing. Do NOT serialize
+    // its numeric value; new categories may be added before kTypeMax.
+    kTypeMax,
   };
 
   virtual ~IndexFactoryBuilder() = default;
