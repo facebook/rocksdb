@@ -438,13 +438,84 @@ static struct BlockBasedTableTypeInfo {
         {"index_mode", OptionTypeInfo::Enum<BlockBasedTableOptions::IndexMode>(
                            offsetof(struct BlockBasedTableOptions, index_mode),
                            &block_base_table_index_mode_string_map)},
-        // Old boolean names are accepted as deprecated aliases.
+        // Backward-compat aliases for the pre-refactor UDI options. The
+        // original fields were `bool use_udi_as_primary_index`,
+        // `bool skip_standard_index`, `bool fail_if_no_udi_on_open`. They
+        // were removed in favor of the `index_mode` enum, but production
+        // DBs and serialized OPTIONS files written by older binaries still
+        // carry these names. A naive "deprecated, ignored" registration
+        // would silently lose the intended behavior on upgrade -- e.g. an
+        // OPTIONS file with `use_udi_as_primary_index=true` would leave
+        // index_mode at its kStandardOnly default, and the new code would
+        // route reads through the standard index. For an existing SST
+        // built with UDI-as-primary that means the standard index is a
+        // stub and reads return 0 rows: silent data loss.
+        //
+        // Instead, these parse hooks translate the legacy boolean values
+        // into the equivalent `index_mode` enum value at OPTIONS-load
+        // time. The translation is monotonically "upgrade only" so that
+        // an explicit `index_mode=` in the same OPTIONS file is not
+        // downgraded by a true legacy boolean parsed later.
+        //
+        // Mapping:
+        //   fail_if_no_udi_on_open=true   -> at least kStandardDefault
+        //   use_udi_as_primary_index=true -> at least kCustomDefault
+        //   skip_standard_index=true      -> kCustomOnly (max)
+        //
+        // The offset points at `index_mode` (not the original boolean
+        // field, which is gone) so the parse function can mutate the new
+        // field directly via the supplied addr.
         {"fail_if_no_udi_on_open",
-         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated}},
+         OptionTypeInfo(
+             offsetof(struct BlockBasedTableOptions, index_mode),
+             OptionType::kUnknown, OptionVerificationType::kNormal,
+             OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever)
+             .SetParseFunc([](const ConfigOptions& /*opts*/,
+                              const std::string& /*name*/,
+                              const std::string& value,
+                              void* addr) -> Status {
+               auto* mode =
+                   static_cast<BlockBasedTableOptions::IndexMode*>(addr);
+               if (ParseBoolean("fail_if_no_udi_on_open", value) &&
+                   *mode < BlockBasedTableOptions::IndexMode::kStandardDefault) {
+                 *mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+               }
+               return Status::OK();
+             })},
         {"use_udi_as_primary_index",
-         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated}},
+         OptionTypeInfo(
+             offsetof(struct BlockBasedTableOptions, index_mode),
+             OptionType::kUnknown, OptionVerificationType::kNormal,
+             OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever)
+             .SetParseFunc([](const ConfigOptions& /*opts*/,
+                              const std::string& /*name*/,
+                              const std::string& value,
+                              void* addr) -> Status {
+               auto* mode =
+                   static_cast<BlockBasedTableOptions::IndexMode*>(addr);
+               if (ParseBoolean("use_udi_as_primary_index", value) &&
+                   *mode < BlockBasedTableOptions::IndexMode::kCustomDefault) {
+                 *mode = BlockBasedTableOptions::IndexMode::kCustomDefault;
+               }
+               return Status::OK();
+             })},
         {"skip_standard_index",
-         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated}},
+         OptionTypeInfo(
+             offsetof(struct BlockBasedTableOptions, index_mode),
+             OptionType::kUnknown, OptionVerificationType::kNormal,
+             OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever)
+             .SetParseFunc([](const ConfigOptions& /*opts*/,
+                              const std::string& /*name*/,
+                              const std::string& value,
+                              void* addr) -> Status {
+               auto* mode =
+                   static_cast<BlockBasedTableOptions::IndexMode*>(addr);
+               if (ParseBoolean("skip_standard_index", value) &&
+                   *mode < BlockBasedTableOptions::IndexMode::kCustomOnly) {
+                 *mode = BlockBasedTableOptions::IndexMode::kCustomOnly;
+               }
+               return Status::OK();
+             })},
     };
   }
 } block_based_table_type_info;
