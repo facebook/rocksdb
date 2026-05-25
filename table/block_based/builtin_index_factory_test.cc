@@ -125,7 +125,8 @@ TEST_F(BinarySearchIndexFactoryTest, NewBuilderSucceeds) {
 
 TEST_F(BinarySearchIndexFactoryTest, NewBuilderRequiresComparator) {
   BinarySearchIndexFactory factory(/*with_first_key=*/false);
-  IndexFactoryOptions opts;  // comparator is nullptr
+  IndexFactoryOptions opts;
+  opts.comparator = nullptr;
   std::unique_ptr<IndexFactoryBuilder> builder;
   Status s = factory.NewBuilder(opts, builder);
   ASSERT_TRUE(s.IsInvalidArgument());
@@ -189,7 +190,8 @@ TEST_F(HashIndexFactoryTest, NewBuilderSucceeds) {
 
 TEST_F(HashIndexFactoryTest, NewBuilderRequiresComparator) {
   HashIndexFactory factory;
-  IndexFactoryOptions opts;  // comparator is nullptr
+  IndexFactoryOptions opts;
+  opts.comparator = nullptr;
   std::unique_ptr<IndexFactoryBuilder> builder;
   Status s = factory.NewBuilder(opts, builder);
   ASSERT_TRUE(s.IsInvalidArgument());
@@ -247,7 +249,8 @@ TEST_F(PartitionedIndexFactoryTest, NewBuilderSucceeds) {
 
 TEST_F(PartitionedIndexFactoryTest, NewBuilderRequiresComparator) {
   PartitionedIndexFactory factory;
-  IndexFactoryOptions opts;  // comparator is nullptr
+  IndexFactoryOptions opts;
+  opts.comparator = nullptr;
   std::unique_ptr<IndexFactoryBuilder> builder;
   Status s = factory.NewBuilder(opts, builder);
   ASSERT_TRUE(s.IsInvalidArgument());

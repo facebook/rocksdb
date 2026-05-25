@@ -18,6 +18,7 @@
 #include <string>
 
 #include "rocksdb/advanced_iterator.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/customizable.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
@@ -28,7 +29,6 @@
 namespace ROCKSDB_NAMESPACE {
 
 struct ReadOptions;
-class Comparator;
 class PartitionCoordinator;
 
 // On-disk meta block prefix for custom indexes. Treated as part of the
@@ -362,8 +362,10 @@ class IndexFactoryReader {
 // IndexFactoryOptions: configuration passed to NewBuilder / NewReader.
 // ---------------------------------------------------------------------------
 struct IndexFactoryOptions {
-  // The user comparator for this column family.
-  const Comparator* comparator = nullptr;
+  // The user comparator for this column family. Defaults to
+  // BytewiseComparator() so a default-constructed IndexFactoryOptions
+  // matches the behavior of the previous UserDefinedIndexOption.
+  const Comparator* comparator = BytewiseComparator();
 };
 
 // ---------------------------------------------------------------------------
