@@ -8107,12 +8107,9 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
           return Status::OK();
         }
 
-        // The base-class default SeekToFirstAndGetResult calls
-        // SeekAndGetResult with an empty Slice, which only works for the
-        // BytewiseComparator (where "" is the smallest key). For
-        // ReverseBytewiseComparator "" is the largest key and lower_bound("")
-        // returns end. Use the underlying map's begin() so the iteration
-        // starts at the comparator-smallest key regardless of comparator.
+        // Override so SeekToFirst works under any comparator. The base
+        // default seeks empty Slice, which lower_bound("") interprets as
+        // "past end" for ReverseBytewiseComparator. Use map::begin().
         Status SeekToFirstAndGetResult(IterateResult* result) override {
           iter_ = index_.begin();
           AdvanceToNextIndexEntry();
@@ -8236,7 +8233,7 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
   //
   // The factory's NewReader returns a stub reader so SST open succeeds.
   // Tests using this factory should set ReadOptions::read_index =
-  // kBuiltin so reads go through the standard index — the stub iterator
+  // kBuiltin so reads go through the standard index -- the stub iterator
   // has no usable behavior.
   class ParallelAwareTestFactory : public IndexFactory {
    public:
@@ -8636,7 +8633,7 @@ TEST_P(UserDefinedIndexTest, BasicTestWithoutPartitionedIndex) {
 // of those existing files.
 //
 // This test deliberately uses a hardcoded string literal rather than the
-// kIndexFactoryMetaPrefix / kUserDefinedIndexPrefix constants — that way an
+// kIndexFactoryMetaPrefix / kUserDefinedIndexPrefix constants -- that way an
 // accidental edit to the constant's value is caught here, not in production
 // after data is already lost.
 // Verifies that kStandardOnly truly ignores user_defined_index_factory:
@@ -8649,7 +8646,7 @@ TEST_P(UserDefinedIndexTest, StandardOnlyIgnoresUdiFactory) {
   std::string dbname = test::PerThreadDBPath("udi_standard_only_test");
   std::string ingest_file = dbname + "test.sst";
 
-  // Step 1: write an SST in kStandardOnly mode → no UDI block on disk.
+  // Step 1: write an SST in kStandardOnly mode -> no UDI block on disk.
   table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardOnly;
   options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -8664,7 +8661,7 @@ TEST_P(UserDefinedIndexTest, StandardOnlyIgnoresUdiFactory) {
   writer.reset();
 
   // Step 2: re-open the SST with kStandardOnly *and* a UDI factory
-  // configured. The factory is irrelevant — kStandardOnly should ignore it.
+  // configured. The factory is irrelevant -- kStandardOnly should ignore it.
   // Without this fix, the reader would probe the (absent) UDI block and
   // tick SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT.
   BlockBasedTableOptions read_table_options;
@@ -8725,7 +8722,7 @@ TEST_P(UserDefinedIndexTest, MetaBlockPrefixOnDiskBackwardCompat) {
   ASSERT_OK(fs->NewRandomAccessFile(ingest_file, eoptions, &file, nullptr));
   file_reader.reset(new RandomAccessFileReader(std::move(file), ingest_file));
 
-  // Hardcoded literal — do NOT replace with kIndexFactoryMetaPrefix.
+  // Hardcoded literal -- do NOT replace with kIndexFactoryMetaPrefix.
   const std::string legacy_meta_block_name =
       "rocksdb.user_defined_index.test_index";
   BlockHandle block_handle;
@@ -8744,30 +8741,14 @@ TEST_P(UserDefinedIndexTest, MetaBlockPrefixOnDiskBackwardCompat) {
   ASSERT_OK(iter->status());
 }
 
-// End-to-end backward-compat test for production DBs that already have UDI
-// SSTs on disk. The on-disk meta block prefix is the legacy literal
-// "rocksdb.user_defined_index." (pinned by the
-// MetaBlockPrefixOnDiskBackwardCompat test and by the constants in
-// include/rocksdb/index_factory.h and include/rocksdb/user_defined_index.h).
-// This test exercises the supported open-time read configurations against
-// SSTs produced by both UDI write modes -- the two shapes that a real
-// production DB can have on disk:
-//
-//   - sst_secondary  : full standard index + UDI side-by-side (the shape
-//                      pre-refactor SSTs had when UDI was a secondary
-//                      index, and the shape the new kStandardDefault /
-//                      kCustomDefault modes produce).
-//   - sst_primary    : empty stub standard index + UDI as sole index
-//                      (the shape pre-refactor SSTs had when
-//                      use_udi_as_primary_index=true, and the shape the
-//                      new kCustomOnly mode produces).
-//
-// For each shape we verify every read configuration that should be able
-// to serve the SST returns the full data. Failure of any sub-case means
-// a real production DB cannot survive a version upgrade of the UDI
-// refactor.
+// Verifies that the two on-disk SST shapes a DB can have are readable
+// under every supported open-time read configuration:
+//   - sst_secondary : full standard index + UDI (kStandardDefault /
+//                     kCustomDefault produce this shape).
+//   - sst_primary   : stub standard index + UDI only (kCustomOnly).
+// For each shape every (open_mode, read_index) combination that should
+// be able to serve the SST must return all 50 KVs.
 TEST_P(UserDefinedIndexTest, OldFormatUdiSstReadableInAllModes) {
-  // ---- Step 1: produce both on-disk shapes ----
   auto make_sst = [&](BlockBasedTableOptions::IndexMode write_mode,
                       const std::string& path) {
     BlockBasedTableOptions write_opts;
@@ -8796,8 +8777,7 @@ TEST_P(UserDefinedIndexTest, OldFormatUdiSstReadableInAllModes) {
   make_sst(BlockBasedTableOptions::IndexMode::kCustomOnly, sst_primary);
 
   // Confirm both SSTs have a UDI meta block at the legacy literal prefix.
-  // This is the bit that survives an upgrade -- the constant has been
-  // renamed in source but its on-disk value must not change.
+  // The on-disk constant must remain "rocksdb.user_defined_index.".
   auto assert_has_legacy_prefix = [&](const std::string& path) {
     ImmutableOptions ioptions(options_);
     EnvOptions eoptions(options_);
@@ -8818,30 +8798,10 @@ TEST_P(UserDefinedIndexTest, OldFormatUdiSstReadableInAllModes) {
   assert_has_legacy_prefix(sst_secondary);
   assert_has_legacy_prefix(sst_primary);
 
-  // ---- Step 2: open each (sst_shape, read_config, read_index) combo ----
-  //
-  // Contract being verified -- for each row, the iterator must return all
-  // 50 KVs. A row that asks for a route that doesn't exist (e.g. the
-  // standard index on a kCustomOnly SST, or the UDI on a kStandardOnly
-  // open) is omitted, because returning 0 there is the documented
-  // behaviour and is verified by other tests.
-  //
-  //                                    | sst_secondary | sst_primary |
-  // -----------------------------------+---------------+-------------+
-  // open kStandardOnly,    kDefault    |       ✓       |    (n/a)    |
-  // open kStandardOnly,    kBuiltin    |       ✓       |    (n/a)    |
-  // open kStandardDefault, kDefault    |       ✓       |   (skip*)   |
-  // open kStandardDefault, kBuiltin    |       ✓       |   (skip*)   |
-  // open kStandardDefault, kPreferCust |       ✓       |       ✓     |
-  // open kCustomDefault,   kDefault    |       ✓       |       ✓     |
-  // open kCustomDefault,   kBuiltin    |       ✓       |   (skip*)   |
-  // open kCustomDefault,   kPreferCust |       ✓       |       ✓     |
-  // open kCustomOnly,      kDefault    |       ✓       |       ✓     |
-  // open kCustomOnly,      kPreferCust |       ✓       |       ✓     |
-  //
-  // (*) kCustomOnly SSTs have only a stub standard index. Reading them
-  //     via the standard index route correctly returns 0 rows, so we
-  //     don't include those rows in this "must return all data" check.
+  // Each (open_mode, sst_shape, read_index) combination below must return
+  // all 50 KVs. Combinations that route through a non-existent index
+  // (e.g. standard-route to a kCustomOnly SST) are omitted; those
+  // correctly return 0 rows and are covered by other tests.
   auto verify_full_scan = [&](BlockBasedTableOptions::IndexMode open_mode,
                               bool factory_set, const std::string& path,
                               ReadOptions::ReadIndex rprobe,
@@ -8868,7 +8828,7 @@ TEST_P(UserDefinedIndexTest, OldFormatUdiSstReadableInAllModes) {
     ASSERT_EQ(count, 50);
   };
 
-  // 2a) sst_secondary is the easy case -- every (mode, probe) returns all data.
+  // sst_secondary has both indexes; every (mode, probe) returns all rows.
   for (auto mode : {BlockBasedTableOptions::IndexMode::kStandardOnly,
                     BlockBasedTableOptions::IndexMode::kStandardDefault,
                     BlockBasedTableOptions::IndexMode::kCustomDefault,
@@ -8884,21 +8844,17 @@ TEST_P(UserDefinedIndexTest, OldFormatUdiSstReadableInAllModes) {
     }
   }
 
-  // 2b) sst_primary requires routing through the UDI to read its data.
-  //     Only the rows marked ✓ in the table above are valid.
-  // kStandardDefault open + kPreferCustom probe: the factory is loaded,
-  // wrapper is installed (UDI block exists on disk), read routes to UDI.
+  // sst_primary's standard index is a stub; only UDI-routed reads return
+  // the data.
   verify_full_scan(BlockBasedTableOptions::IndexMode::kStandardDefault, true,
                    sst_primary, ReadOptions::ReadIndex::kPreferCustom,
                    "sst_primary kStandardDefault");
-  // kCustomDefault open: kDefault and kPreferCustom both route to UDI.
   verify_full_scan(BlockBasedTableOptions::IndexMode::kCustomDefault, true,
                    sst_primary, ReadOptions::ReadIndex::kDefault,
                    "sst_primary kCustomDefault");
   verify_full_scan(BlockBasedTableOptions::IndexMode::kCustomDefault, true,
                    sst_primary, ReadOptions::ReadIndex::kPreferCustom,
                    "sst_primary kCustomDefault");
-  // kCustomOnly open: kDefault and kPreferCustom both route to UDI.
   verify_full_scan(BlockBasedTableOptions::IndexMode::kCustomOnly, true,
                    sst_primary, ReadOptions::ReadIndex::kDefault,
                    "sst_primary kCustomOnly");
@@ -8907,17 +8863,11 @@ TEST_P(UserDefinedIndexTest, OldFormatUdiSstReadableInAllModes) {
                    "sst_primary kCustomOnly");
 }
 
-// Verifies the OPTIONS-file backward-compat path for the three deprecated
-// UDI booleans (use_udi_as_primary_index, skip_standard_index,
-// fail_if_no_udi_on_open). A pre-refactor DB has its serialized OPTIONS
-// file written with these boolean field names; the new binary must
-// translate them into the equivalent `index_mode` value so that an
-// upgrade doesn't silently switch the user to kStandardOnly (which would
-// cause 0-row reads on kCustomOnly-shape SSTs).
-//
-// We exercise the translation directly through GetBlockBasedTableOptions
-// FromString -- the same code path LoadLatestOptions takes when reading
-// the OPTIONS file on DB::Open.
+// Verifies that the deprecated UDI boolean aliases
+// (use_udi_as_primary_index, skip_standard_index, fail_if_no_udi_on_open)
+// translate into the equivalent `index_mode` at OPTIONS parse time, so
+// that an upgrade from a DB with these booleans in its OPTIONS file
+// produces the same SST shape and read routing as before.
 TEST_P(UserDefinedIndexTest, DeprecatedUdiBooleansTranslateToIndexMode) {
   ConfigOptions cfg;
   cfg.ignore_unknown_options = false;
@@ -8931,13 +8881,13 @@ TEST_P(UserDefinedIndexTest, DeprecatedUdiBooleansTranslateToIndexMode) {
     EXPECT_EQ(static_cast<int>(out.index_mode), static_cast<int>(expected));
   };
 
-  // Default with all booleans false -> kStandardOnly (no upgrade).
+  // All booleans false leaves the default kStandardOnly.
   translates_to(
       "fail_if_no_udi_on_open=false;use_udi_as_primary_index=false;skip_"
       "standard_index=false",
       BlockBasedTableOptions::IndexMode::kStandardOnly);
 
-  // Each individual true value upgrades to its mapped mode.
+  // Each boolean upgrades to its mapped mode.
   translates_to("fail_if_no_udi_on_open=true",
                 BlockBasedTableOptions::IndexMode::kStandardDefault);
   translates_to("use_udi_as_primary_index=true",
@@ -8945,7 +8895,7 @@ TEST_P(UserDefinedIndexTest, DeprecatedUdiBooleansTranslateToIndexMode) {
   translates_to("skip_standard_index=true",
                 BlockBasedTableOptions::IndexMode::kCustomOnly);
 
-  // Combinations: the highest-mode boolean wins, regardless of parse order.
+  // Monotonic upgrade: highest mode requested wins regardless of order.
   translates_to("use_udi_as_primary_index=true;skip_standard_index=true",
                 BlockBasedTableOptions::IndexMode::kCustomOnly);
   translates_to("skip_standard_index=true;use_udi_as_primary_index=true",
@@ -8955,22 +8905,16 @@ TEST_P(UserDefinedIndexTest, DeprecatedUdiBooleansTranslateToIndexMode) {
       "index=true",
       BlockBasedTableOptions::IndexMode::kCustomOnly);
 
-  // Explicit new index_mode wins when it is at least as high as any
-  // boolean asks for. The booleans use a monotonic "upgrade only" rule so
-  // an explicit kCustomOnly cannot be downgraded by a less-strict bool.
+  // A higher explicit index_mode is not downgraded by a lower boolean.
   translates_to("index_mode=kCustomOnly;fail_if_no_udi_on_open=true",
                 BlockBasedTableOptions::IndexMode::kCustomOnly);
 
-  // End-to-end on-disk verification: simulate a pre-refactor OPTIONS file
-  // that contains `use_udi_as_primary_index=true` together with a
-  // user_defined_index_factory. After parsing, the resulting
-  // BlockBasedTableOptions must be usable to open a kCustomOnly-shape SST
-  // and read all its data -- the smoking-gun "no silent data loss" check
-  // for upgraded DBs.
+  // End-to-end check: an OPTIONS string containing only
+  // `use_udi_as_primary_index=true` must produce a config that reads a
+  // kCustomOnly-shape SST in full.
   std::string dbname = test::PerThreadDBPath("udi_legacy_options_compat");
   std::string sst_path = dbname + "primary.sst";
   {
-    // Build a kCustomOnly SST with the test factory.
     BlockBasedTableOptions write_opts;
     write_opts.user_defined_index_factory =
         std::make_shared<TestIndexFactory>();
@@ -8989,8 +8933,6 @@ TEST_P(UserDefinedIndexTest, DeprecatedUdiBooleansTranslateToIndexMode) {
     ASSERT_OK(w->Finish());
   }
 
-  // Parse the legacy boolean (no index_mode= present) and confirm the
-  // resulting table options route through the UDI.
   BlockBasedTableOptions parsed_opts;
   ASSERT_OK(GetBlockBasedTableOptionsFromString(cfg, BlockBasedTableOptions(),
                                                 "use_udi_as_primary_index=true",
@@ -9053,7 +8995,7 @@ TEST_P(UserDefinedIndexTest, ParallelCompressionWithSupportingUdi) {
   ASSERT_OK(DB::Open(options_, dbname, &db));
 
   // Enough keys with the 3-per-block flush policy that we get many data
-  // blocks → many index entries through the parallel pipeline.
+  // blocks -> many index entries through the parallel pipeline.
   auto kvs = generateKVs(/*key_count=*/300);
   for (const auto& kv : kvs) {
     ASSERT_OK(db->Put(WriteOptions(), kv.first, kv.second));
@@ -9090,7 +9032,7 @@ TEST_P(UserDefinedIndexTest, ParallelCompressionWithSupportingUdi) {
 // every 3rd block emitted. Without the flag-reset fix in
 // EmitBlockForParallel, the BlockRep ring buffer's custom_entries_prepared
 // flag from a previous iteration would leak through, and BGWorker would
-// invoke FinishAddEntry against stale staged data — observable as
+// invoke FinishAddEntry against stale staged data -- observable as
 // finish_calls > prepare_calls. With the fix, the flags are reset at the
 // top of EmitBlockForParallel before any conditional staging runs, so
 // FinishAddEntry only fires for blocks whose Prepare actually ran.
@@ -9176,7 +9118,7 @@ TEST_P(UserDefinedIndexTest,
 // (IndexFactoryBuilder::SupportsParallelAddEntry). When the configured
 // custom factory's builder doesn't support the parallel protocol, the
 // table builder silently falls back to single-threaded compression instead
-// of erroring out — same convention as the partition_filters fallback.
+// of erroring out -- same convention as the partition_filters fallback.
 //
 // TestIndexFactoryBuilder leaves SupportsParallelAddEntry() at its default
 // (false), so this test exercises the fallback path: parallel_threads=10

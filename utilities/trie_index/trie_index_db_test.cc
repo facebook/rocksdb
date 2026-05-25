@@ -4606,7 +4606,7 @@ TEST_P(TrieIndexDBTest, PrimaryModeTableProperties) {
 TEST_P(TrieIndexDBTest, EstimatedSizeNonZero) {
   // Verifies that TrieIndexBuilder::EstimatedSize() returns non-zero after
   // adding entries, ensuring compaction file sizing works. In kCustomOnly
-  // mode, the standard index is a stub with zero size — the trie's size is
+  // mode, the standard index is a stub with zero size -- the trie's size is
   // tracked separately in the meta block, not in the index_size property.
   if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kCustomOnly) {
     ROCKSDB_GTEST_SKIP("index_size property tracks standard index only");
@@ -5010,11 +5010,11 @@ TEST_P(TrieIndexDBTest, ParallelCompressionWithTrieIndex) {
   }
   options_.compression = kZlibCompression;
   options_.compression_opts.parallel_threads = 4;
-  options_.write_buffer_size = 1 << 20;  // small buffer → multiple flushes
+  options_.write_buffer_size = 1 << 20;  // small buffer -> multiple flushes
 
   ASSERT_OK(OpenDB());
 
-  // Enough keys to produce many data blocks → many index entries flowing
+  // Enough keys to produce many data blocks -> many index entries flowing
   // through the parallel pipeline.
   constexpr int kNumKeys = 500;
   for (int i = 0; i < kNumKeys; i++) {
@@ -5026,7 +5026,7 @@ TEST_P(TrieIndexDBTest, ParallelCompressionWithTrieIndex) {
 
   // Standard index path: only meaningful when the standard index is
   // populated (kStandardDefault and kCustomDefault). In kCustomOnly the
-  // standard index is an empty stub by design — reads via kBuiltin would
+  // standard index is an empty stub by design -- reads via kBuiltin would
   // return zero keys, which is expected, not a regression.
   if (GetParam() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
     ReadOptions ro = StandardIndexReadOptions();
@@ -5096,7 +5096,7 @@ TEST_F(TrieIndexDBTest, ParallelCompressionWithHashStandardIndexAndTrieUdi) {
 
   ASSERT_OK(DB::Open(options_, dbname_, &db_));
 
-  // Enough keys to fill multiple blocks → multiple iterations through
+  // Enough keys to fill multiple blocks -> multiple iterations through
   // the parallel ring buffer for both the hash builder and the trie
   // builder.
   constexpr int kNumKeys = 500;

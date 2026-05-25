@@ -321,7 +321,7 @@ void TrieIndexBuilder::FinishAddEntry(const BlockHandle& block_handle,
     // Last block: real tag covers any post-seek correction by seqno.
     be.tag = p->last_key_tag;
   } else {
-    // Distinct-user-key separator: 0 sentinel — no seqno correction
+    // Distinct-user-key separator: 0 sentinel -- no seqno correction
     // needed because the separator already disambiguates blocks.
     be.tag = 0;
   }

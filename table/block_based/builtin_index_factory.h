@@ -19,33 +19,14 @@ class InternalKeyComparator;
 class InternalKeySliceTransform;
 class Statistics;
 
-// ============================================================================
-// Built-in index factories.
-//
-// These wrap RocksDB's internal index builder/reader infrastructure behind
-// the public IndexFactory interface. They are proper IndexFactory subclasses
-// — at the same abstraction level as any custom IndexFactory implementation.
-//
-// The internal IndexBuilder/IndexReader classes remain as implementation
-// details. The built-in factories delegate to them, translating between
-// the public interface (user keys, simple BlockHandles) and the internal
-// interface (internal keys, IndexValue with first_internal_key).
-//
-// Unlike custom IndexFactory implementations, these built-in factories store
-// internal construction parameters (comparator, prefix transform, table
-// options, etc.) that are set at factory creation time and used by
-// NewBuilder(). This allows the table builder to create the built-in index
-// through the same factory interface used for custom indexes.
-// ============================================================================
+// Built-in index factories wrap the internal IndexBuilder / IndexReader
+// behind the public IndexFactory interface. They translate between the
+// public form (user keys, simple BlockHandles) and the internal form
+// (internal keys, IndexValue with first_internal_key).
 
-// ---------------------------------------------------------------------------
-// Internal construction parameters for built-in index factories.
-//
-// These are set at factory creation time (per-SST in the Rep constructor)
-// and used by NewBuilder() to construct the internal IndexBuilder with
-// the correct configuration. Custom IndexFactory implementations do NOT
-// need these — they use only IndexFactoryOptions::comparator.
-// ---------------------------------------------------------------------------
+// Construction parameters used by the built-in factories' NewBuilder()
+// to configure the internal IndexBuilder. Custom factories use only
+// IndexFactoryOptions::comparator and do not need this.
 struct BuiltinIndexFactoryConfig {
   const InternalKeyComparator* internal_comparator = nullptr;
   const InternalKeySliceTransform* internal_prefix_transform = nullptr;
@@ -58,17 +39,9 @@ struct BuiltinIndexFactoryConfig {
   Statistics* stats = nullptr;
 };
 
-// ---------------------------------------------------------------------------
-// BinarySearchIndexFactory: the default index for BlockBasedTable.
-//
-// Wraps ShortenedIndexBuilder (for building) and BinarySearchIndexReader
-// (for reading). Supports kBinarySearch and kBinarySearchWithFirstKey
-// index types.
-//
-// This factory is implicitly used when no custom IndexFactory is configured.
-// It can also be explicitly set as a secondary index alongside a custom
-// primary index.
-// ---------------------------------------------------------------------------
+// BinarySearchIndexFactory: the default BlockBasedTable index. Wraps
+// ShortenedIndexBuilder and BinarySearchIndexReader. Handles both
+// kBinarySearch and kBinarySearchWithFirstKey.
 class BinarySearchIndexFactory : public IndexFactory {
  public:
   // Lightweight constructor for standalone / test usage.
@@ -102,12 +75,8 @@ class BinarySearchIndexFactory : public IndexFactory {
   BuiltinIndexFactoryConfig config_;
 };
 
-// ---------------------------------------------------------------------------
-// HashIndexFactory: hash-based prefix index for BlockBasedTable.
-//
-// Wraps HashIndexBuilder (for building) and HashIndexReader (for reading).
-// Requires a prefix_extractor to be configured.
-// ---------------------------------------------------------------------------
+// HashIndexFactory: prefix-hash index. Wraps HashIndexBuilder and
+// HashIndexReader. Requires a configured prefix_extractor.
 class HashIndexFactory : public IndexFactory {
  public:
   // Lightweight constructor for standalone / test usage.
@@ -133,15 +102,10 @@ class HashIndexFactory : public IndexFactory {
   BuiltinIndexFactoryConfig config_;
 };
 
-// ---------------------------------------------------------------------------
-// PartitionedIndexFactory: two-level partitioned index for BlockBasedTable.
-//
-// Wraps PartitionedIndexBuilder (for building) and PartitionIndexReader
-// (for reading). Supports partitioned filters via the PartitionCoordinator
-// interface. The builder implements the full FinishAndWrite protocol for
-// multi-partition writes and exposes GetPartitionCoordinator() for
-// filter↔index partition alignment.
-// ---------------------------------------------------------------------------
+// PartitionedIndexFactory: two-level partitioned index. Wraps
+// PartitionedIndexBuilder and PartitionIndexReader. Implements the
+// multi-block FinishAndWrite protocol and exposes a PartitionCoordinator
+// for filter <-> index partition alignment.
 class PartitionedIndexFactory : public IndexFactory {
  public:
   // Lightweight constructor for standalone / test usage.
@@ -167,22 +131,17 @@ class PartitionedIndexFactory : public IndexFactory {
   BuiltinIndexFactoryConfig config_;
 };
 
-// ---------------------------------------------------------------------------
-// Helper: dispatch on BlockBasedTableOptions::IndexType to construct the
-// matching built-in factory and call NewBuilder() on it. Co-locates the
-// dispatch with the factory definitions.
-// ---------------------------------------------------------------------------
+// Dispatch on BlockBasedTableOptions::IndexType and construct the
+// matching built-in factory's builder.
 Status NewBuiltinIndexFactoryBuilder(
     BlockBasedTableOptions::IndexType index_type,
     const BuiltinIndexFactoryConfig& config, const IndexFactoryOptions& options,
     std::unique_ptr<IndexFactoryBuilder>& out);
 
-// ---------------------------------------------------------------------------
-// BuiltinIndexFactoryBuilder: adapts the internal IndexBuilder behind the
-// public IndexFactoryBuilder interface. Declared here so the table builder
-// can access methods like OnKeyAddedInternal() and AddIndexEntryDirect()
-// for the fast path. Implementation is in builtin_index_factory.cc.
-// ---------------------------------------------------------------------------
+// BuiltinIndexFactoryBuilder: adapts the internal IndexBuilder to the
+// public IndexFactoryBuilder interface. The table builder uses the
+// *Direct methods to bypass the user-key parse-and-repack on the
+// per-block-boundary hot path.
 class BlockHandle;  // Internal BlockHandle from table/format.h
 
 class BuiltinIndexFactoryBuilder : public IndexFactoryBuilder {
@@ -196,12 +155,9 @@ class BuiltinIndexFactoryBuilder : public IndexFactoryBuilder {
   const InternalKeyComparator* GetComparator() const;
   const BlockBasedTableOptions& GetTableOptions() const;
 
-  // Forward OnKeyAdded to the internal builder with the full internal key.
-  // Called by the table builder which has the internal key available
-  // (needed for kBinarySearchWithFirstKey to track first_internal_key).
-  // Defined inline here -- this is on the per-key hot path in
-  // Rep::ForwardOnKeyAddedToAll. Cross-TU inlining without LTO would
-  // require this body to be visible at the call site anyway.
+  // Forward to the internal builder with the full internal key.
+  // Needed by kBinarySearchWithFirstKey to track first_internal_key.
+  // Inlined because this is called per key from the table builder.
   inline void OnKeyAddedInternal(const Slice& internal_key,
                                  const std::optional<Slice>& value) {
     internal_builder_->OnKeyAdded(internal_key, value);
