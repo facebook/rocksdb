@@ -105,10 +105,22 @@ Status DBImplSecondary::FindNewLogNumbers(std::vector<uint64_t>* logs) {
     return s;
   }
 
-  // if log_readers_ is non-empty, it means we have applied all logs with log
-  // numbers smaller than the smallest log in log_readers_, so there is no
-  // need to pass these logs to RecoverLogFiles
-  uint64_t log_number_min = 0;
+  // Drop readers only after MANIFEST replay says the WAL is obsolete. The
+  // primary can create a higher-number empty WAL before it stops appending to a
+  // lower-number current WAL, so seeing a higher-number WAL is not sufficient.
+  const uint64_t min_log_number_to_keep = versions_->min_log_number_to_keep();
+  for (auto iter = log_readers_.begin(); iter != log_readers_.end();) {
+    if (iter->first < min_log_number_to_keep) {
+      iter = log_readers_.erase(iter);
+    } else {
+      break;
+    }
+  }
+
+  // If log_readers_ is non-empty, it means we have applied all logs with log
+  // numbers smaller than the smallest retained log reader. Otherwise, manifest
+  // recovery tells us which older logs can be skipped.
+  uint64_t log_number_min = min_log_number_to_keep;
   if (!log_readers_.empty()) {
     log_number_min = log_readers_.begin()->first;
   }
@@ -320,12 +332,6 @@ Status DBImplSecondary::RecoverLogFiles(
       wal_read_status->PermitUncheckedError();
       return status;
     }
-  }
-  // remove logreaders from map after successfully recovering the WAL
-  if (log_readers_.size() > 1) {
-    auto erase_iter = log_readers_.begin();
-    std::advance(erase_iter, log_readers_.size() - 1);
-    log_readers_.erase(log_readers_.begin(), erase_iter);
   }
   return status;
 }

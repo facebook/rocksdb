@@ -13,6 +13,7 @@
 #include "db/db_with_timestamp_test_util.h"
 #include "db/wide/wide_column_test_util.h"
 #include "db/write_batch_internal.h"
+#include "file/filename.h"
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
@@ -920,6 +921,48 @@ TEST_F(DBSecondaryTest, OpenAsSecondaryWALTailing) {
   ASSERT_OK(Put("foo", "new_foo_value_1"));
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   verify_db_func("new_foo_value_1", "new_bar_value");
+}
+
+TEST_F(DBSecondaryTest, CatchUpTailsCurrentWalWhenFutureWalExists) {
+  // Goal: secondary catch-up must keep tailing the current WAL even when a
+  // higher-number empty WAL is present. This reproduces the async WAL
+  // precreation shape by creating a future WAL before opening the secondary,
+  // then appending another write to the current WAL and catching up again.
+  Options options;
+  options.env = env_;
+  Reopen(options);
+
+  ASSERT_OK(Put("foo", "value0"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo", "value1"));
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+
+  std::unique_ptr<WalFile> current_wal;
+  ASSERT_OK(db_->GetCurrentWalFile(&current_wal));
+  ASSERT_NE(nullptr, current_wal);
+
+  const uint64_t future_wal_number = current_wal->LogNumber() + 1000;
+  std::unique_ptr<WritableFile> future_wal_file;
+  ASSERT_OK(env_->NewWritableFile(LogFileName(dbname_, future_wal_number),
+                                  &future_wal_file, EnvOptions()));
+  ASSERT_OK(future_wal_file->Close());
+
+  Options secondary_options;
+  secondary_options.env = env_;
+  secondary_options.max_open_files = -1;
+  OpenSecondary(secondary_options);
+
+  ReadOptions read_options;
+  std::string value;
+  ASSERT_OK(db_secondary_->Get(read_options, "foo", &value));
+  ASSERT_EQ("value1", value);
+
+  ASSERT_OK(Put("foo", "value2"));
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_OK(db_secondary_->Get(read_options, "foo", &value));
+  ASSERT_EQ("value2", value);
 }
 
 TEST_F(DBSecondaryTest, SecondaryTailingBug_ISSUE_8467) {
