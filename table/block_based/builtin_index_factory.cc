@@ -111,10 +111,9 @@ void BuiltinIndexFactoryBuilder::OnKeyAdded(const Slice& /*key*/,
   // OnKeyAddedInternal() separately with the full internal key.
 }
 
-void BuiltinIndexFactoryBuilder::OnKeyAddedInternal(
-    const Slice& internal_key, const std::optional<Slice>& value) {
-  internal_builder_->OnKeyAdded(internal_key, value);
-}
+// OnKeyAddedInternal is defined inline in the header so the
+// per-key hot path (Rep::ForwardOnKeyAddedToAll) avoids a
+// cross-TU function-call frame on every key add.
 
 Status BuiltinIndexFactoryBuilder::Finish(Slice* index_contents) {
   IndexBuilder::IndexBlocks index_blocks;

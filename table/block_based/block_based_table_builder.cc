@@ -887,18 +887,27 @@ struct BlockBasedTableBuilder::Rep {
   // The built-in builder receives the full internal key via
   // OnKeyAddedInternal() (needed for kBinarySearchWithFirstKey).
   // Custom builders receive user keys via the public OnKeyAdded().
+  //
+  // This runs once per key in every SST build, so the dispatch shape
+  // matters. The branches are annotated for the common path:
+  //   index_builder != nullptr        : always true except kCustomOnly
+  //   custom_indexes.empty()          : always true unless UDI configured
+  // OnKeyAddedInternal is `inline` in builtin_index_factory.h so the
+  // call to it is fully inlined here -- there is no cross-TU call frame
+  // beyond the IndexBuilder vtable dispatch (matches the pre-refactor
+  // cost of `r->index_builder->OnKeyAdded(...)`).
   void ForwardOnKeyAddedToAll(const Slice& internal_key,
                               const std::optional<Slice>& value) {
     // Forward to the built-in builder with the full internal key
     // (needed for kBinarySearchWithFirstKey tracking).
     // When index_mode=kCustomOnly, index_builder is null — skip.
-    if (index_builder) {
+    if (LIKELY(index_builder != nullptr)) {
       static_cast<BuiltinIndexFactoryBuilder*>(index_builder.get())
           ->OnKeyAddedInternal(internal_key, value);
     }
 
     // Forward to custom builders with user keys.
-    if (custom_indexes.empty()) {
+    if (LIKELY(custom_indexes.empty())) {
       return;
     }
     ParsedInternalKey pkey;
@@ -948,7 +957,7 @@ struct BlockBasedTableBuilder::Rep {
                                  const BlockHandle& handle,
                                  bool skip_delta_encoding = false) {
     // Built-in: direct path. (index_builder is null only in kCustomOnly.)
-    if (index_builder) {
+    if (LIKELY(index_builder != nullptr)) {
       static_cast<BuiltinIndexFactoryBuilder*>(index_builder.get())
           ->AddIndexEntryDirect(last_internal_key, first_internal_key_next,
                                 handle, &index_separator_scratch,
@@ -956,7 +965,7 @@ struct BlockBasedTableBuilder::Rep {
     }
 
     // No custom indexes: skip the parse + loop below.
-    if (custom_indexes.empty()) {
+    if (LIKELY(custom_indexes.empty())) {
       return;
     }
 
