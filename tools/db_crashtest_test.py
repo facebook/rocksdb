@@ -190,6 +190,41 @@ class DBCrashTestTest(unittest.TestCase):
             filtered_stdout,
         )
 
+    def test_strip_expected_sigterm_stderr_suppresses_retryable_wait_cqe(self):
+        db_crashtest = self.load_db_crashtest()
+        stdout = "Received signal 15 (Terminated)\n"
+
+        # This models blackbox crash test SIGTERM interrupting wait_cqe before
+        # the C++ retry path can avoid stderr; only retryable codes are expected.
+        for caller in ("Poll", "AbortIO"):
+            for err in (-4, -11):
+                stderr = f"{caller}: io_uring_wait_cqe failed: {err}\n"
+                filtered_stdout, filtered_stderr = (
+                    db_crashtest.strip_expected_sigterm_stderr(stdout, stderr, True)
+                )
+
+                self.assertEqual("", filtered_stderr)
+                self.assertEqual(
+                    stdout
+                    + "Ignored expected post-SIGTERM stderr while handling timeout:\n"
+                    + stderr,
+                    filtered_stdout,
+                )
+
+    def test_strip_expected_sigterm_stderr_preserves_terminal_wait_cqe(self):
+        db_crashtest = self.load_db_crashtest()
+        stdout = "Received signal 15 (Terminated)\n"
+        stderr = "Poll: io_uring_wait_cqe failed: -5\n"
+
+        # This guards against hiding real io_uring failures: even after SIGTERM,
+        # non-retryable wait_cqe errors must remain visible on stderr.
+        filtered_stdout, filtered_stderr = db_crashtest.strip_expected_sigterm_stderr(
+            stdout, stderr, True
+        )
+
+        self.assertEqual(stderr, filtered_stderr)
+        self.assertEqual(stdout, filtered_stdout)
+
     def test_strip_expected_sigterm_stderr_preserves_other_stderr(self):
         db_crashtest = self.load_db_crashtest()
         stdout = "Received signal 15 (Terminated)\n"
