@@ -11,6 +11,7 @@
 
 #include "rocksdb/index_factory.h"
 #include "rocksdb/table.h"
+#include "table/block_based/index_builder.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -183,7 +184,6 @@ Status NewBuiltinIndexFactoryBuilder(
 // for the fast path. Implementation is in builtin_index_factory.cc.
 // ---------------------------------------------------------------------------
 class BlockHandle;  // Internal BlockHandle from table/format.h
-class IndexBuilder;
 
 class BuiltinIndexFactoryBuilder : public IndexFactoryBuilder {
  public:
@@ -197,10 +197,15 @@ class BuiltinIndexFactoryBuilder : public IndexFactoryBuilder {
   const BlockBasedTableOptions& GetTableOptions() const;
 
   // Forward OnKeyAdded to the internal builder with the full internal key.
-  // Called by the table builder which has the internal key available.
-  // Needed for kBinarySearchWithFirstKey to track first_internal_key.
-  void OnKeyAddedInternal(const Slice& internal_key,
-                          const std::optional<Slice>& value);
+  // Called by the table builder which has the internal key available
+  // (needed for kBinarySearchWithFirstKey to track first_internal_key).
+  // Defined inline here -- this is on the per-key hot path in
+  // Rep::ForwardOnKeyAddedToAll. Cross-TU inlining without LTO would
+  // require this body to be visible at the call site anyway.
+  inline void OnKeyAddedInternal(const Slice& internal_key,
+                                 const std::optional<Slice>& value) {
+    internal_builder_->OnKeyAdded(internal_key, value);
+  }
 
   // --- IndexFactoryBuilder overrides ---
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
