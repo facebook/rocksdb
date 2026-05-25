@@ -167,7 +167,33 @@ FileOptions FileSystem::OptimizeForCompactionTableRead(
     const FileOptions& file_options,
     const ImmutableDBOptions& db_options) const {
   FileOptions optimized_file_options(file_options);
-  optimized_file_options.use_direct_reads = db_options.use_direct_reads;
+  // Enable direct I/O for compaction reads if either:
+  //   - the global `use_direct_reads` flag is set (which already enables it
+  //     for both user reads and compaction reads), or
+  //   - the `use_direct_io_for_compaction_reads` flag is set, which scopes
+  //     direct I/O to compaction-input SST reads only and leaves user reads
+  //     buffered.
+  //
+  // FileSystem-implementor contract: if a subclass overrides this method
+  // AND wants `use_direct_io_for_compaction_reads` to take effect at the
+  // kernel level, the override MUST set `use_direct_reads = true` in the
+  // returned FileOptions whenever
+  // `db_options.use_direct_io_for_compaction_reads` is true. CompactionJob
+  // inspects the returned `use_direct_reads` to decide whether to open
+  // ephemeral O_DIRECT handles for compaction inputs (see
+  // db/compaction/compaction_job.cc). If a custom FileSystem strips the flag
+  // here, the option becomes a silent no-op for that FileSystem.
+  //
+  // NOTE: this hook is also called by the BackupEngine when copying SST
+  // files (see utilities/backup/backup_engine.cc). Enabling
+  // `use_direct_io_for_compaction_reads` therefore also routes BackupEngine
+  // SST reads through O_DIRECT. This is intentional -- backups exhibit the
+  // same sequential-scan / cache-pollution pattern as compaction inputs --
+  // but FileSystem implementors should be aware that the hook is not
+  // compaction-exclusive in practice.
+  optimized_file_options.use_direct_reads =
+      db_options.use_direct_reads ||
+      db_options.use_direct_io_for_compaction_reads;
   return optimized_file_options;
 }
 
@@ -175,6 +201,12 @@ FileOptions FileSystem::OptimizeForBlobFileRead(
     const FileOptions& file_options,
     const ImmutableDBOptions& db_options) const {
   FileOptions optimized_file_options(file_options);
+  // NOTE: `use_direct_io_for_compaction_reads` does NOT plumb through to
+  // blob-file reads. In practice, blob-file reads in production go through
+  // BlobFileCache (not this hook), which is not affected by the new flag.
+  // Blob compaction-time reads (e.g. blob GC) remain on the buffered path
+  // even when `use_direct_io_for_compaction_reads = true`. Extending the
+  // same ephemeral-reader bypass mechanism to BlobFileCache is a TODO.
   optimized_file_options.use_direct_reads = db_options.use_direct_reads;
   return optimized_file_options;
 }

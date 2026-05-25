@@ -203,6 +203,12 @@ CompactionJob::CompactionJob(
   assert(job_context);
   assert(job_context->snapshot_context_initialized);
 
+  // Expose the file options used for compaction reads so tests can confirm
+  // that `use_direct_io_for_compaction_reads` (and related flags) plumb all
+  // the way through to the read path.
+  TEST_SYNC_POINT_CALLBACK("CompactionJob::CompactionJob:FileOptionsForRead",
+                           &file_options_for_read_);
+
   const auto* cfd = compact_->compaction->column_family_data();
   ThreadStatusUtil::SetEnableTracking(db_options_.enable_thread_tracking);
   ThreadStatusUtil::SetColumnFamily(cfd);
@@ -1536,10 +1542,33 @@ InternalIterator* CompactionJob::CreateInputIterator(
 
   // Although the v2 aggregator is what the level iterator(s) know about,
   // the AddTombstones calls will be propagated down to the v1 aggregator.
+  //
+  // When `use_direct_io_for_compaction_reads` is set while the global
+  // `use_direct_reads` stays off, the shared TableCache is already holding
+  // buffered file handles for these SST files (opened that way for user
+  // reads). Reusing those handles would silently downgrade the compaction
+  // scan back to buffered I/O. Ask the iterator to open ephemeral
+  // O_DIRECT TableReaders instead so the kernel actually bypasses the page
+  // cache for the compaction reads.
+  //
+  // The third clause (`file_options_for_read_.use_direct_reads`) is
+  // defensive: it confirms that `OptimizeForCompactionTableRead` actually
+  // requested direct I/O on the read FileOptions we will hand to the
+  // iterator. The base FileSystem implementation always sets it when the
+  // flag combination above is true, but a custom FileSystem could override
+  // OptimizeForCompactionTableRead without honoring the new flag -- in
+  // which case opening ephemeral readers would give us buffered handles
+  // anyway, which is wasteful. Skip the ephemeral path in that case. See
+  // FileSystem::OptimizeForCompactionTableRead's doc comment in
+  // include/rocksdb/file_system.h for the FileSystem-implementor contract.
+  const bool open_ephemeral_table_reader =
+      db_options_.use_direct_io_for_compaction_reads &&
+      !db_options_.use_direct_reads && file_options_for_read_.use_direct_reads;
   iterators.raw_input =
       std::unique_ptr<InternalIterator>(versions_->MakeInputIterator(
           read_options, sub_compact->compaction, sub_compact->RangeDelAgg(),
-          file_options_for_read_, boundaries.start, boundaries.end));
+          file_options_for_read_, boundaries.start, boundaries.end,
+          open_ephemeral_table_reader));
   InternalIterator* input = iterators.raw_input.get();
 
   if (boundaries.start.has_value() || boundaries.end.has_value()) {

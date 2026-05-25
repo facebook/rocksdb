@@ -244,6 +244,18 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "then direct I/O reads (use_direct_reads) must be disabled. ");
   }
 
+  if (db_options.allow_mmap_reads &&
+      db_options.use_direct_io_for_compaction_reads) {
+    // Memory-mapped reads and direct I/O share the same EnvOptions field, so
+    // enabling both would route compaction reads through a code path that
+    // tries to do mmap and O_DIRECT at the same time. Reject this combination
+    // explicitly rather than relying on lower-level asserts.
+    return Status::NotSupported(
+        "If memory mapped reads (allow_mmap_reads) are enabled "
+        "then compaction-only direct I/O reads "
+        "(use_direct_io_for_compaction_reads) must be disabled. ");
+  }
+
   if (db_options.allow_mmap_writes &&
       db_options.use_direct_io_for_flush_and_compaction) {
     return Status::NotSupported(

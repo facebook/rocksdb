@@ -88,6 +88,20 @@ class TableCache {
   // @param level The level this table is at, -1 for "not set / don't know"
   // @param range_del_read_seqno If non-nullptr, will be used to create
   // *range_del_iter.
+  // @param open_ephemeral_table_reader When true, the iterator is built on
+  //                       a freshly opened TableReader that is *not* placed
+  //                       in the shared TableCache (and whose index/filter
+  //                       blocks are NOT inserted into the shared block
+  //                       cache). The returned iterator takes ownership of
+  //                       that reader and disposes of it when the iterator
+  //                       is destroyed. This is what compaction uses when
+  //                       `use_direct_io_for_compaction_reads` requests a
+  //                       different OS-level disk-access mode than the
+  //                       user-read handle cached for the same SST file.
+  //                       The caller must not also set
+  //                       `ReadOptions::read_tier = kBlockCacheTier`
+  //                       (no_io); opening an ephemeral reader inherently
+  //                       requires I/O.
   InternalIterator* NewIterator(
       const ReadOptions& options, const FileOptions& toptions,
       const InternalKeyComparator& internal_comparator,
@@ -103,7 +117,8 @@ class TableCache {
       bool maybe_pin_table_handle = false,
       // If non-null, and the table reader is newly opened (not cached),
       // retrieves file open metadata via GetFileOpenMetadata().
-      std::string* file_open_metadata = nullptr);
+      std::string* file_open_metadata = nullptr,
+      bool open_ephemeral_table_reader = false);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call get_context->SaveValue() repeatedly until
@@ -190,18 +205,28 @@ class TableCache {
   // @param pin_table_handle If true, pins the table reader on file_meta so
   //              future lookups bypass the cache. *handle is set to nullptr
   //              on return in this case.
-  Status FindTable(const ReadOptions& ro, const FileOptions& toptions,
-                   const InternalKeyComparator& internal_comparator,
-                   const FileMetaData& file_meta, TypedHandle**,
-                   const MutableCFOptions& mutable_cf_options,
-                   TableReader** table_reader, const bool no_io = false,
-                   HistogramImpl* file_read_hist = nullptr,
-                   bool skip_filters = false, int level = -1,
-                   bool prefetch_index_and_filter_in_cache = true,
-                   size_t max_file_size_for_l0_meta_pin = 0,
-                   Temperature file_temperature = Temperature::kUnknown,
-                   bool pin_table_handle = false,
-                   std::string* file_open_metadata = nullptr);
+  // @param fresh_table_reader_owner If non-null, FindTable always opens a new
+  //              TableReader (skipping the pinned-reader fast path and the
+  //              shared cache) and writes ownership into this unique_ptr.
+  //              `*handle` will be nullptr on return and `*table_reader` will
+  //              point to the freshly allocated reader. Callers that pass this
+  //              are responsible for keeping the unique_ptr alive for the
+  //              lifetime of any iterators built on top. This is the path
+  //              compaction takes when it wants to read input SSTables with a
+  //              different disk-access mode (e.g. O_DIRECT) than the
+  //              long-lived handles cached for user reads.
+  Status FindTable(
+      const ReadOptions& ro, const FileOptions& toptions,
+      const InternalKeyComparator& internal_comparator,
+      const FileMetaData& file_meta, TypedHandle**,
+      const MutableCFOptions& mutable_cf_options, TableReader** table_reader,
+      const bool no_io = false, HistogramImpl* file_read_hist = nullptr,
+      bool skip_filters = false, int level = -1,
+      bool prefetch_index_and_filter_in_cache = true,
+      size_t max_file_size_for_l0_meta_pin = 0,
+      Temperature file_temperature = Temperature::kUnknown,
+      bool pin_table_handle = false, std::string* file_open_metadata = nullptr,
+      std::unique_ptr<TableReader>* fresh_table_reader_owner = nullptr);
 
   // Get the table properties of a given table.
   // @no_io: indicates if we should load table to the cache if it is not present

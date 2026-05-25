@@ -1132,7 +1132,71 @@ struct DBOptions {
   // Default: false
   bool use_direct_reads = false;
 
-  // Use O_DIRECT for writes in background flush and compactions.
+  // Use O_DIRECT for compaction-input SST reads only, while leaving user
+  // reads in buffered mode. This is useful for workloads where compaction
+  // reads would otherwise pollute the OS page cache and evict pages that
+  // are hot for user reads. When set to true, compaction-input iteration
+  // (SST table reads) goes through ephemeral O_DIRECT handles in addition
+  // to whatever `use_direct_reads` selects for user reads.
+  //
+  // This is the read-side analogue of
+  // `use_direct_io_for_flush_and_compaction`, which controls *write*-side
+  // direct I/O for flush and compaction output. Flush has no read step, so
+  // this flag is compaction-input-read only.
+  //
+  // Scope and limits:
+  //   * Applies to all column families in the DB (DBOption scope, like its
+  //     siblings `use_direct_reads` and
+  //     `use_direct_io_for_flush_and_compaction`). Per-CF scoping is not
+  //     currently supported.
+  //   * Only affects SST table-input reads during compaction. Blob-file
+  //     reads (including blob GC compaction reads) currently remain on the
+  //     buffered path even when this flag is true; extending the bypass to
+  //     BlobFileCache is a TODO.
+  //   * The underlying hook
+  //     (`FileSystem::OptimizeForCompactionTableRead`) is also used by
+  //     `BackupEngine` when it copies SST files, so backup reads will also
+  //     switch to O_DIRECT when this flag is true. Backups exhibit the same
+  //     sequential-scan / cache-pollution pattern as compaction inputs, so
+  //     this is intentional.
+  //
+  // Linux's open(2) historically warned against mixing O_DIRECT and
+  // buffered I/O on the same file. When this option is enabled, an SST
+  // being compacted will be open through a long-lived buffered handle in
+  // the TableCache (for user reads) and an ephemeral O_DIRECT handle (for
+  // the compaction scan) at the same time, for the duration of the
+  // compaction (which can be minutes for a large L1->L2 run).
+  // Modern Linux kernels handle this correctly -- buffered reads serve the
+  // page cache, the direct read bypasses it -- but if you are on an older
+  // kernel or an exotic filesystem, this is the failure mode to look for.
+  //
+  // The benefit (avoiding page-cache eviction of hot user data by
+  // sequential compaction scans) outweighs the cost when there's a hot
+  // user-read working set and the DB doesn't fit in RAM. For workloads
+  // with uniform random reads, or DBs that fit in memory, this flag will
+  // be neutral or slightly negative; measure before enabling globally.
+  // For maximum benefit on write-heavy workloads, combine this with
+  // `use_direct_io_for_flush_and_compaction = true` so the *output* of
+  // each compaction is also written without page-cache pollution.
+  //
+  // This option has no effect if `use_direct_reads` is also true, since
+  // all reads (including compaction) will already use O_DIRECT.
+  //
+  // This option is incompatible with `allow_mmap_reads = true`; the
+  // combination is rejected at DB open with Status::NotSupported.
+  //
+  // On platforms or filesystems that do not support O_DIRECT (e.g. tmpfs,
+  // some macOS configurations), enabling this flag will cause Open() to
+  // fail when the first compaction attempts a direct-I/O open. Validate
+  // your environment before enabling globally.
+  //
+  // Default: false
+  bool use_direct_io_for_compaction_reads = false;
+
+  // Use O_DIRECT for writes in background flush and compactions. See also
+  // `use_direct_io_for_compaction_reads` for the read-side analogue; the
+  // two flags are often used together on write-heavy workloads to avoid
+  // page-cache pollution on both the input and output sides of compaction.
   // Default: false
   bool use_direct_io_for_flush_and_compaction = false;
 

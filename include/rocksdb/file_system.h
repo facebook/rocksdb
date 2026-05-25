@@ -719,7 +719,23 @@ class FileSystem : public Customizable {
 
   // OptimizeForCompactionTableRead will create a new FileOptions object that
   // is a copy of the FileOptions in the parameters, but is optimized for
-  // reading table files.
+  // reading table files (SST inputs to compaction).
+  //
+  // Implementor contract: the returned `FileOptions::use_direct_reads` is
+  // load-bearing for downstream code. CompactionJob uses it to decide
+  // whether to open ephemeral O_DIRECT TableReaders for compaction inputs
+  // (see db/compaction/compaction_job.cc). If you override this method AND
+  // want `DBOptions::use_direct_io_for_compaction_reads` to take effect at
+  // the kernel level, your override MUST set `use_direct_reads = true` in
+  // the returned FileOptions whenever
+  // `db_options.use_direct_io_for_compaction_reads` is true (in addition to
+  // the existing requirement when `db_options.use_direct_reads` is true).
+  // Stripping the flag here causes the compaction-only direct-I/O option
+  // to become a silent no-op for your FileSystem.
+  //
+  // This hook is also called by `BackupEngine` when copying SST files, so
+  // overrides that vary behavior by use case must not assume "compaction
+  // only".
   virtual FileOptions OptimizeForCompactionTableRead(
       const FileOptions& file_options,
       const ImmutableDBOptions& db_options) const;

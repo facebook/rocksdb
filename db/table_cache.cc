@@ -213,10 +213,60 @@ Status TableCache::FindTable(
     const bool no_io, HistogramImpl* file_read_hist, bool skip_filters,
     int level, bool prefetch_index_and_filter_in_cache,
     size_t max_file_size_for_l0_meta_pin, Temperature file_temperature,
-    bool pin_table_handle, std::string* file_open_metadata) {
+    bool pin_table_handle, std::string* file_open_metadata,
+    std::unique_ptr<TableReader>* fresh_table_reader_owner) {
   assert(out_table_reader != nullptr && *out_table_reader == nullptr);
   assert(handle != nullptr && *handle == nullptr);
   PERF_TIMER_GUARD_WITH_CLOCK(find_table_nanos, ioptions_.clock);
+
+  // Bypass path: when the caller is asking for an ephemeral, freshly-opened
+  // TableReader (currently only compaction with a different disk-access mode
+  // than the cached user-read handle), skip the pinned-reader fast path and
+  // the shared cache entirely. The caller takes ownership of the new reader
+  // via `fresh_table_reader_owner`.
+  //
+  // Caller contract: `no_io` MUST NOT be combined with
+  // `fresh_table_reader_owner != nullptr` -- a freshly opened reader
+  // inherently requires I/O. CompactionJob (the only current caller using
+  // this path) does not set `no_io`. If a future caller needs both, the
+  // bypass must learn a different fallback strategy.
+  if (fresh_table_reader_owner != nullptr) {
+    assert(!no_io);
+    if (no_io) {
+      // Defensive in release builds: the caller violated the contract.
+      return Status::Incomplete(
+          "fresh TableReader requested but no_io is set; cannot open file");
+    }
+    std::unique_ptr<TableReader> table_reader;
+    // NOTE: `prefetch_index_and_filter_in_cache` is forced false for the
+    // bypass path. The whole point of opening an ephemeral O_DIRECT
+    // TableReader for compaction is to avoid polluting the OS page cache
+    // with read-once data. Letting the ephemeral reader prefetch its
+    // index/filter blocks into the *shared block cache* would partially
+    // defeat that: those blocks are not needed after the compaction scan
+    // finishes, but their cache insertion would evict warmer user-read
+    // blocks. Compaction iterates the data linearly so the index/filter
+    // amortization the cache provides is also not useful here.
+    // `skip_filters` is similarly forced true -- compaction reads every
+    // key in the file, the filter cannot help.
+    Status s = GetTableReader(ro, file_options, internal_comparator, file_meta,
+                              false /* sequential mode */, file_read_hist,
+                              &table_reader, mutable_cf_options,
+                              /*skip_filters=*/true, level,
+                              /*prefetch_index_and_filter_in_cache=*/false,
+                              max_file_size_for_l0_meta_pin, file_temperature,
+                              file_open_metadata);
+    if (!s.ok()) {
+      assert(table_reader == nullptr);
+      RecordTick(ioptions_.stats, NO_FILE_ERRORS);
+      IGNORE_STATUS_IF_ERROR(s);
+      return s;
+    }
+    *out_table_reader = table_reader.get();
+    *fresh_table_reader_owner = std::move(table_reader);
+    *handle = nullptr;
+    return s;
+  }
 
   // Fast path: if table reader is already pinned, return it directly without a
   // cache lookup.
@@ -313,12 +363,18 @@ InternalIterator* TableCache::NewIterator(
     const InternalKey* largest_compaction_key, bool allow_unprepared_value,
     const SequenceNumber* read_seqno,
     std::unique_ptr<TruncatedRangeDelIterator>* range_del_iter,
-    bool maybe_pin_table_handle, std::string* file_open_metadata) {
+    bool maybe_pin_table_handle, std::string* file_open_metadata,
+    bool open_ephemeral_table_reader) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   Status s;
   TableReader* table_reader = nullptr;
   TypedHandle* handle = nullptr;
+  // Holds ownership of a freshly-opened TableReader when the caller asked us
+  // to bypass the shared cache (e.g. compaction reads with a different
+  // disk-access mode than the user-read handle). When non-empty, the
+  // iterator we hand back must arrange to free it on destruction.
+  std::unique_ptr<TableReader> ephemeral_reader;
   if (table_reader_ptr != nullptr) {
     *table_reader_ptr = nullptr;
   }
@@ -331,7 +387,8 @@ InternalIterator* TableCache::NewIterator(
       options.read_tier == kBlockCacheTier /* no_io */, file_read_hist,
       skip_filters, level, true /* prefetch_index_and_filter_in_cache */,
       max_file_size_for_l0_meta_pin, file_meta.temperature,
-      maybe_pin_table_handle && should_pin_table_handles_, file_open_metadata);
+      maybe_pin_table_handle && should_pin_table_handles_, file_open_metadata,
+      open_ephemeral_table_reader ? &ephemeral_reader : nullptr);
   InternalIterator* result = nullptr;
   if (s.ok()) {
     if (options.table_filter &&
@@ -347,6 +404,14 @@ InternalIterator* TableCache::NewIterator(
       cache_.RegisterReleaseAsCleanup(handle, *result);
       handle = nullptr;  // prevent from releasing below
     }
+    // Note: when `open_ephemeral_table_reader` is set and `ephemeral_reader`
+    // is held, we intentionally do NOT release/RegisterCleanup it yet. The
+    // range-del processing below can set `s` to a non-OK status (e.g.
+    // corrupt tombstone block), in which case `result` is discarded and
+    // replaced with NewErrorInternalIterator at function end. Releasing the
+    // reader into `result`'s cleanup chain before that point would leak the
+    // TableReader. Instead, we keep it owned by `ephemeral_reader` here and
+    // transfer ownership only after we know `s` will remain OK.
 
     if (for_compaction) {
       table_reader->SetupForCompaction();
@@ -398,8 +463,46 @@ InternalIterator* TableCache::NewIterator(
   if (handle != nullptr) {
     cache_.Release(handle);
   }
+  // Bypass path: now that range-del processing has finished and `s` is
+  // final, transfer ownership of the freshly-opened TableReader to the
+  // iterator we are returning. If `s` is non-OK we let `ephemeral_reader`'s
+  // destructor delete the TableReader instead.
+  //
+  // OOM safety: `RegisterCleanup` allocates a `Cleanable::Cleanup` node on
+  // any call after the first. We hand `RegisterCleanup` the raw pointer
+  // BEFORE releasing the unique_ptr, so if the internal `new` throws the
+  // pointer is still owned by `ephemeral_reader` and freed by its
+  // destructor on stack unwind. `RegisterCleanup` is itself idempotent on
+  // failure -- the cleanup is not registered, but it also did not take
+  // ownership of `raw`.
+  if (s.ok() && ephemeral_reader && result != nullptr) {
+    TableReader* raw = ephemeral_reader.get();
+    result->RegisterCleanup(
+        [](void* arg1, void* /*arg2*/) {
+          delete static_cast<TableReader*>(arg1);
+        },
+        raw, nullptr);
+    // Only transfer ownership AFTER RegisterCleanup returns (it does not
+    // throw in current implementations, but this ordering is correct for
+    // any future strong-exception-safety variant of the cleanup
+    // registration path).
+    (void)ephemeral_reader.release();
+  }
   if (!s.ok()) {
-    assert(result == nullptr);
+    // Range-del processing can set `s` to non-OK after `result` has already
+    // been assigned (above). In that case `result` is a live iterator that
+    // we need to dispose of before we overwrite the pointer with the error
+    // iterator -- otherwise we leak the iterator's heap (non-arena) or
+    // skip its destructor (arena). The TableReader itself is freed by
+    // `ephemeral_reader`'s destructor on the way out of this function.
+    if (result != nullptr) {
+      if (arena != nullptr) {
+        result->~InternalIterator();
+      } else {
+        delete result;
+      }
+      result = nullptr;
+    }
     result = NewErrorInternalIterator<Slice>(s, arena);
   }
   return result;
