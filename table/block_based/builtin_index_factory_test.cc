@@ -41,7 +41,7 @@ TEST(BackwardCompatTest, UserDefinedIndexAliasesCompile) {
 // written by previous RocksDB versions that use the UserDefinedIndex feature.
 //
 // Note that this test deliberately uses a hardcoded string literal rather
-// than the constants — that way an accidental change to either constant is
+// than the constants -- that way an accidental change to either constant is
 // caught here. If you find yourself updating this assertion, stop: you are
 // introducing a backward-incompatible on-disk change that requires a
 // deliberate format-version bump and a migration path.

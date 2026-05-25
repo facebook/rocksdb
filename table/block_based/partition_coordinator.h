@@ -29,7 +29,7 @@ class PartitionCoordinator {
 
   // Request that the index builder cut a partition at the next opportunity.
   // Called by the filter builder when it has accumulated enough keys.
-  // The actual cut happens asynchronously — the filter must poll
+  // The actual cut happens asynchronously -- the filter must poll
   // ShouldCutFilterBlock() to check.
   virtual void RequestPartitionCut() = 0;
 

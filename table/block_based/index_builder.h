@@ -712,11 +712,9 @@ class PartitionedIndexBuilder : public IndexBuilder,
     return estimated_index_size_.LoadRelaxed();
   }
 
-  // `final` lets the linker / LTO devirtualize the PartitionCoordinator
-  // virtual calls that PartitionedFilterBlockBuilder makes once per key
-  // (DecideCutAFilterBlock in the !decouple_partitioned_filters config).
-  // PartitionedIndexBuilder is the sole concrete PartitionCoordinator, so
-  // this is semantically free.
+  // PartitionedFilterBlockBuilder calls the PartitionCoordinator methods
+  // per key. `final` enables LTO devirtualization; this is the sole
+  // concrete PartitionCoordinator.
   inline bool ShouldCutFilterBlock() final {
     // Current policy is to align the partitions of index and filters
     if (cut_filter_block) {

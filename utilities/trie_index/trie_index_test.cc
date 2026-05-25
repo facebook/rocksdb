@@ -5760,7 +5760,7 @@ TEST_F(TrieIndexFactoryTest, ParallelMatchesSerialOutput) {
   // Drive identical inputs through AddIndexEntry (serial) and through
   // CreatePreparedAddEntry / PrepareAddEntry / FinishAddEntry (parallel).
   // The two paths must produce byte-identical serialized index blocks
-  // and identical iterator behavior — otherwise parallel compression
+  // and identical iterator behavior -- otherwise parallel compression
   // with a trie index produces silently divergent SSTs.
   IndexFactoryOptions option;
   option.comparator = BytewiseComparator();
@@ -5831,7 +5831,7 @@ TEST_F(TrieIndexFactoryTest, ParallelMatchesSerialOutput) {
 
   EXPECT_EQ(serial_contents.ToString(), parallel_contents.ToString());
 
-  // Verify the parallel output is also functionally correct — round-trip
+  // Verify the parallel output is also functionally correct -- round-trip
   // a few seeks through it.
   std::unique_ptr<IndexFactoryReader> reader;
   ASSERT_OK(factory_->NewReader(option, parallel_contents, reader));
@@ -5890,7 +5890,7 @@ TEST_F(TrieIndexFactoryTest, ParallelInvalidPreparedEntrySkipped) {
   std::unique_ptr<IndexFactoryBuilder> builder;
   ASSERT_OK(factory_->NewBuilder(option, builder));
 
-  // Prepared entry never populated by PrepareAddEntry — just default-
+  // Prepared entry never populated by PrepareAddEntry -- just default-
   // constructed via CreatePreparedAddEntry.
   auto unfilled = builder->CreatePreparedAddEntry();
   IndexFactoryBuilder::BlockHandle h{0, 100};

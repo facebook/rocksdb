@@ -295,11 +295,8 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
     std::unique_ptr<IndexFactoryBuilder::PreparedAddEntry> prepared_index_entry;
     bool index_entry_prepared = false;
 
-    // Per-custom-index staged entries (one per Rep::custom_indexes element,
-    // in matching order). Populated only when every custom builder reports
-    // SupportsParallelAddEntry() == true; empty otherwise. The post-builder
-    // parallel-support check in Rep::Rep guarantees that if this vector is
-    // non-empty here, the custom builders accept the parallel protocol.
+    // Staged entries, one per Rep::custom_indexes element in matching
+    // order. Empty unless every custom builder supports parallel.
     std::vector<std::unique_ptr<IndexFactoryBuilder::PreparedAddEntry>>
         custom_prepared_entries;
     bool custom_entries_prepared = false;
@@ -869,44 +866,28 @@ struct BlockBasedTableBuilder::Rep {
   std::unique_ptr<IndexFactoryBuilder> index_builder;
   std::string index_separator_scratch;
 
-  // Custom indexes built alongside the built-in index. The table builder
-  // manages each one directly; they are independent of index_builder.
+  // Custom indexes built alongside the built-in index.
   struct CustomIndex {
-    // Factory name (from IndexFactory::Name()), used as the suffix in the
-    // meta block key: kIndexFactoryMetaPrefix + name.
+    // Meta block key is kIndexFactoryMetaPrefix + name.
     std::string name;
     std::unique_ptr<IndexFactoryBuilder> builder;
-    // Per-builder scratch buffer for AddIndexEntry separator results.
-    // Each builder needs its own so that a Slice it returned (which may
-    // reference this buffer) is not invalidated by another builder's call.
+    // Owned by this CustomIndex so a Slice returned from
+    // AddIndexEntry that references this buffer isn't invalidated by
+    // another builder's call.
     std::string separator_scratch;
   };
   std::vector<CustomIndex> custom_indexes;
 
-  // Forwards OnKeyAdded to ALL index builders (built-in + custom).
-  // The built-in builder receives the full internal key via
-  // OnKeyAddedInternal() (needed for kBinarySearchWithFirstKey).
-  // Custom builders receive user keys via the public OnKeyAdded().
-  //
-  // This runs once per key in every SST build, so the dispatch shape
-  // matters. The branches are annotated for the common path:
-  //   index_builder != nullptr        : always true except kCustomOnly
-  //   custom_indexes.empty()          : always true unless UDI configured
-  // OnKeyAddedInternal is `inline` in builtin_index_factory.h so the
-  // call to it is fully inlined here -- there is no cross-TU call frame
-  // beyond the IndexBuilder vtable dispatch (matches the pre-refactor
-  // cost of `r->index_builder->OnKeyAdded(...)`).
+  // Forwards OnKeyAdded per key to the built-in builder (full internal
+  // key) and each custom builder (parsed user key + ValueType).
+  // index_builder is null only in kCustomOnly mode; custom_indexes is
+  // empty when no user_defined_index_factory is configured.
   void ForwardOnKeyAddedToAll(const Slice& internal_key,
                               const std::optional<Slice>& value) {
-    // Forward to the built-in builder with the full internal key
-    // (needed for kBinarySearchWithFirstKey tracking).
-    // When index_mode=kCustomOnly, index_builder is null — skip.
     if (LIKELY(index_builder != nullptr)) {
       static_cast<BuiltinIndexFactoryBuilder*>(index_builder.get())
           ->OnKeyAddedInternal(internal_key, value);
     }
-
-    // Forward to custom builders with user keys.
     if (LIKELY(custom_indexes.empty())) {
       return;
     }
@@ -914,7 +895,7 @@ struct BlockBasedTableBuilder::Rep {
     Status parse_s = ParseInternalKey(internal_key, &pkey, false);
     assert(parse_s.ok());
     if (!parse_s.ok()) {
-      return;  // Defensive: should never happen
+      return;
     }
     IndexFactoryBuilder::ValueType vt;
     switch (pkey.type) {
@@ -933,9 +914,8 @@ struct BlockBasedTableBuilder::Rep {
       default:
         vt = IndexFactoryBuilder::ValueType::kOther;
     }
-    // kTypeValuePreferredSeqno stores the user value and a preferred
-    // sequence number in a packed format. Extract just the user value
-    // portion — custom index builders should not see internal encoding.
+    // kTypeValuePreferredSeqno packs the user value with a preferred
+    // seqno; extract the user value portion before forwarding.
     Slice user_value;
     if (value.has_value()) {
       user_value = (pkey.type == kTypeValuePreferredSeqno)
@@ -947,35 +927,25 @@ struct BlockBasedTableBuilder::Rep {
     }
   }
 
-  // Forwards AddIndexEntry to all index builders.
-  //
-  // The built-in builder always takes the direct (no-parse) path. The
-  // internal-key parse runs only when at least one custom index needs
-  // the user-key form, so the no-UDI hot path stays parse-free.
+  // Forwards AddIndexEntry to all index builders. The built-in builder
+  // takes the direct (no-parse) path; the parse runs only when at least
+  // one custom index needs the user-key form.
   void ForwardAddIndexEntryToAll(const Slice& last_internal_key,
                                  const Slice* first_internal_key_next,
                                  const BlockHandle& handle,
                                  bool skip_delta_encoding = false) {
-    // Built-in: direct path. (index_builder is null only in kCustomOnly.)
     if (LIKELY(index_builder != nullptr)) {
       static_cast<BuiltinIndexFactoryBuilder*>(index_builder.get())
           ->AddIndexEntryDirect(last_internal_key, first_internal_key_next,
                                 handle, &index_separator_scratch,
                                 skip_delta_encoding);
     }
-
-    // No custom indexes: skip the parse + loop below.
     if (LIKELY(custom_indexes.empty())) {
       return;
     }
-
-    // Parse once, forward user keys + context tags to every custom builder.
-    // last_internal_key was constructed by the builder itself from a real
-    // memtable key, so ParseInternalKey cannot fail on well-formed input.
-    // If it does, the SST is in an inconsistent state -- the built-in
-    // index already received this entry above via AddIndexEntryDirect, and
-    // a silent return would leave the custom indexes missing it, producing
-    // built-in vs custom index divergence. Abort the SST cleanly instead.
+    // Parse failure on a builder-constructed internal key is unreachable;
+    // surface as Corruption if it ever happens to avoid built-in vs
+    // custom index divergence (the built-in entry was staged above).
     ParsedInternalKey last_pkey;
     Status parse_s = ParseInternalKey(last_internal_key, &last_pkey, false);
     assert(parse_s.ok());
@@ -1423,11 +1393,10 @@ struct BlockBasedTableBuilder::Rep {
         compression_parallel_threads = recommended;
       }
     }
-    // Hard structural constraints: partition_filters without decoupling and
-    // embedded-blob SSTs require single-threaded compression. The UDI
-    // parallel-support check is deferred until after builder construction
-    // (each IndexFactoryBuilder reports SupportsParallelAddEntry
-    // individually).
+    // partition_filters without decoupling and embedded-blob SSTs require
+    // single-threaded compression. The UDI parallel-support check happens after
+    // builder construction (each IndexFactoryBuilder votes via
+    // SupportsParallelAddEntry).
     if ((table_opt.partition_filters &&
          !table_opt.decouple_partitioned_filters) ||
         embedded_blob_options) {
@@ -1467,7 +1436,6 @@ struct BlockBasedTableBuilder::Rep {
       compression_dict_buffer_cache_res_mgr = nullptr;
     }
 
-    // --- Validate custom index options ---
     if (table_options.index_mode >=
             BlockBasedTableOptions::IndexMode::kStandardDefault &&
         table_options.user_defined_index_factory == nullptr) {
@@ -1494,10 +1462,8 @@ struct BlockBasedTableBuilder::Rep {
       }
     }
 
-    // --- Create the built-in index builder ---
-    // When index_mode=kCustomOnly, the built-in index is NOT created.
-    // The custom IndexFactory is the sole index. A minimal empty index
-    // block is still written to satisfy the SST footer format.
+    // kCustomOnly skips the built-in builder; a minimal empty index
+    // block is written by WriteIndexBlock to satisfy the SST footer.
     const bool build_standard_index =
         table_options.index_mode !=
         BlockBasedTableOptions::IndexMode::kCustomOnly;
@@ -1524,7 +1490,6 @@ struct BlockBasedTableBuilder::Rep {
       }
     }
 
-    // --- Create the custom index builder ---
     if (table_options.index_mode >=
             BlockBasedTableOptions::IndexMode::kStandardDefault &&
         table_options.user_defined_index_factory != nullptr) {
@@ -1541,12 +1506,9 @@ struct BlockBasedTableBuilder::Rep {
       }
     }
 
-    // --- Final compression_parallel_threads decision ---
-    //
-    // Each IndexFactoryBuilder decides per-implementation whether it
-    // supports parallel AddEntry. If any configured builder doesn't, fall
-    // back to single-threaded compression for the whole SST — same silent
-    // fallback as the partition_filters constraint above.
+    // Final compression_parallel_threads decision: silently fall back to
+    // single-threaded compression if any configured IndexFactoryBuilder
+    // doesn't support the parallel AddEntry protocol.
     if (compression_parallel_threads > 1) {
       bool all_support = true;
       if (index_builder && !index_builder->SupportsParallelAddEntry()) {
@@ -2039,17 +2001,14 @@ void BlockBasedTableBuilder::EmitBlockForParallel(
                                                  kBlockTrailerSize);
   std::swap(uncompressed, block_rep->uncompressed);
 
-  // Reset prepared-entry flags before any conditional staging below.
-  // BlockReps are reused via the ring buffer, so a `true` flag from an
-  // earlier use of this slot would survive if no path below set it for
-  // this block — BGWorker would then commit stale staged data. Resetting
-  // here ensures `true` only ever reflects this iteration's own staging.
+  // Reset before any conditional staging below: BlockReps are reused via
+  // the ring buffer, and a stale `true` flag would cause BGWorker to
+  // commit data from the slot's previous iteration.
   block_rep->index_entry_prepared = false;
   block_rep->custom_entries_prepared = false;
 
-  // Stage the built-in index entry (when not kCustomOnly). The direct
-  // form passes internal keys straight through to the underlying
-  // IndexBuilder — no ParseInternalKey + repack overhead.
+  // Stage the built-in index entry (skipped only in kCustomOnly).
+  // PrepareAddEntryDirect bypasses ParseInternalKey + repack.
   if (r->index_builder) {
     static_cast<BuiltinIndexFactoryBuilder*>(r->index_builder.get())
         ->PrepareAddEntryDirect(last_key_in_current_block,
@@ -2058,17 +2017,13 @@ void BlockBasedTableBuilder::EmitBlockForParallel(
     block_rep->index_entry_prepared = true;
   }
 
-  // Stage entries for custom indexes. Rep::Rep guarantees every custom
-  // builder here supports the parallel protocol, so no per-call capability
-  // check is needed in the hot path.
+  // Stage entries for custom indexes. Every builder reachable here
+  // supports the parallel protocol (verified at Rep construction).
   if (!r->custom_indexes.empty()) {
-    // Test hook: setting *skip_custom_prepare=true simulates the
-    // defensive ParseInternalKey-failure path so the stale-flag-reset
-    // above can be exercised without forcing a malformed key down the
-    // parser. Production code never sets this -- well-formed builder
-    // input cannot fail to parse, so a real failure aborts the SST with
-    // Status::Corruption below to avoid built-in vs custom index
-    // divergence (the built-in entry was already staged unconditionally).
+    // Test hook: skip_custom_prepare=true exercises the stale-flag-reset
+    // above by leaving custom_entries_prepared false. A real parse
+    // failure on a builder-constructed key is unreachable; if it ever
+    // happens we abort with Corruption below to avoid index divergence.
     bool skip_custom_prepare = false;
     TEST_SYNC_POINT_CALLBACK(
         "BlockBasedTableBuilder::EmitBlockForParallel:SkipCustomPrepare",
@@ -2619,19 +2574,15 @@ void BlockBasedTableBuilder::MaybeStartParallelCompression() {
   rep_->pc_rep = std::make_unique<ParallelCompressionRep>(
       rep_->compression_parallel_threads);
   auto& pc_rep = *rep_->pc_rep;
-  // index_builder is null only in kCustomOnly mode. Reaching this
-  // point (parallel pipeline active) with a null index_builder means
-  // the kCustomOnly custom factory opted into parallel — handled via
-  // custom_prepared_entries below.
+  // index_builder is null only in kCustomOnly mode.
   if (rep_->index_builder) {
     for (uint32_t i = 0; i <= pc_rep.ring_buffer_mask; i++) {
       pc_rep.ring_buffer[i].prepared_index_entry =
           rep_->index_builder->CreatePreparedAddEntry();
     }
   }
-  // Allocate per-custom-index prepared-entry slots. Reaching this code
-  // with non-empty custom_indexes implies every custom builder supports
-  // the parallel protocol (Rep::Rep enforces this).
+  // Every custom builder reachable here supports the parallel protocol
+  // (enforced at Rep construction).
   if (!rep_->custom_indexes.empty()) {
     for (uint32_t i = 0; i <= pc_rep.ring_buffer_mask; i++) {
       auto& slot = pc_rep.ring_buffer[i];
@@ -3013,13 +2964,9 @@ void BlockBasedTableBuilder::WriteIndexBlock(
     }
   } else {
     // index_mode=kCustomOnly: no built-in index builder.
-    // Write a minimal empty index block to satisfy the SST footer format.
-    // Only index_size is set here (it depends on the just-written handle).
-    // Remaining stub properties — index_key_is_user_key,
-    // index_value_is_delta_encoded, num_uniform_blocks, index_partitions,
-    // top_level_index_size, udi_is_primary_index — are owned by
-    // WritePropertiesBlock so there is a single source of truth per
-    // property.
+    // Write a minimal empty index block to satisfy the SST footer.
+    // Only index_size is set here (it needs the just-written handle); the
+    // other stub properties are written by WritePropertiesBlock.
     BlockBuilder empty_index_block(1 /* block_restart_interval */,
                                    false /* use_delta_encoding */,
                                    false /* use_value_delta_encoding */);
@@ -3027,8 +2974,7 @@ void BlockBasedTableBuilder::WriteIndexBlock(
     WriteMaybeCompressedBlock(empty_contents, kNoCompression,
                               index_block_handle, BlockType::kIndex);
     if (LIKELY(ok())) {
-      // The stub block is written uncompressed, so handle.size() is the
-      // exact on-disk data size; add the trailer for total bytes occupied.
+      // Stub block is uncompressed: handle.size() is the exact data size.
       rep_->props.index_size = index_block_handle->size() + kBlockTrailerSize;
     }
   }
@@ -3121,12 +3067,8 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
       rep_->props.index_value_is_delta_encoded =
           rep_->use_delta_encoding_for_index_values;
     } else {
-      // index_mode=kCustomOnly: no built-in index builder; the standard
-      // index block is an empty stub. Set the non-default stub properties
-      // here (index_size is owned by WriteIndexBlock — it requires the
-      // freshly written block handle). Other defaults (index_partitions,
-      // top_level_index_size, num_uniform_blocks) match TableProperties'
-      // zero-initialized values and need no explicit assignment.
+      // kCustomOnly stub properties; index_size is written by
+      // WriteIndexBlock (it needs the just-written block handle).
       rep_->props.index_key_is_user_key = 1;
       rep_->props.udi_is_primary_index = 1;
     }

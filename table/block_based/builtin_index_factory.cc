@@ -28,16 +28,6 @@ struct BuiltinPreparedAddEntry : public IndexFactoryBuilder::PreparedAddEntry {
       : internal_entry(std::move(e)) {}
 };
 
-// ============================================================================
-// BuiltinIndexFactoryBuilder method definitions.
-//
-// The class is declared in builtin_index_factory.h. This file provides
-// the implementations. The builder adapts internal IndexBuilder to the
-// public IndexFactoryBuilder interface, translating user keys (public
-// interface) → internal keys (IndexBuilder) on AddIndexEntry and
-// PrepareAddEntry.
-// ============================================================================
-
 BuiltinIndexFactoryBuilder::BuiltinIndexFactoryBuilder(
     std::unique_ptr<InternalKeyComparator> icmp,
     const BlockBasedTableOptions* table_opts)
@@ -104,16 +94,10 @@ Slice BuiltinIndexFactoryBuilder::AddIndexEntry(
 void BuiltinIndexFactoryBuilder::OnKeyAdded(const Slice& /*key*/,
                                             ValueType /*type*/,
                                             const Slice& /*value*/) {
-  // The public OnKeyAdded receives user keys. The internal
-  // ShortenedIndexBuilder::OnKeyAdded needs the full internal key
-  // (to record first_internal_key for kBinarySearchWithFirstKey).
-  // This no-op is intentional — the table builder calls
-  // OnKeyAddedInternal() separately with the full internal key.
+  // No-op: the internal builder needs the full internal key for
+  // kBinarySearchWithFirstKey, which the table builder supplies via
+  // OnKeyAddedInternal().
 }
-
-// OnKeyAddedInternal is defined inline in the header so the
-// per-key hot path (Rep::ForwardOnKeyAddedToAll) avoids a
-// cross-TU function-call frame on every key add.
 
 Status BuiltinIndexFactoryBuilder::Finish(Slice* index_contents) {
   IndexBuilder::IndexBlocks index_blocks;
@@ -121,7 +105,7 @@ Status BuiltinIndexFactoryBuilder::Finish(Slice* index_contents) {
   if (!s.ok()) {
     return s;
   }
-  // Store the contents — the internal builder's memory backs this Slice.
+  // Store the contents -- the internal builder's memory backs this Slice.
   *index_contents = index_blocks.index_block_contents;
   return Status::OK();
 }
@@ -329,16 +313,14 @@ Status BinarySearchIndexFactory::NewBuilder(
   }
 
   if (has_config_) {
-    // Full construction path: use stored internal params.
-    // The factory was created by the table builder with all internal
-    // configuration needed for proper index construction.
+    // Full construction path used by the table builder. config_ holds
+    // the per-SST configuration; the table_options pointer remains
+    // valid for the builder's lifetime (Rep owns it).
     auto icmp = std::make_unique<InternalKeyComparator>(
         config_.internal_comparator->user_comparator());
     auto index_type = with_first_key_
                           ? BlockBasedTableOptions::kBinarySearchWithFirstKey
                           : BlockBasedTableOptions::kBinarySearch;
-    // Pass the pointer to the Rep's table_options — the Rep outlives the
-    // builder, so the pointer remains valid.
     auto wrapper = std::make_unique<BuiltinIndexFactoryBuilder>(
         std::move(icmp), config_.table_options);
     std::unique_ptr<IndexBuilder> internal(IndexBuilder::CreateIndexBuilder(
@@ -350,26 +332,13 @@ Status BinarySearchIndexFactory::NewBuilder(
     return Status::OK();
   }
 
-  // Lightweight construction path: standalone / test usage with minimal
-  // default configuration. Uses only the comparator from options.
-  // This path still needs a locally-owned BlockBasedTableOptions because
-  // there is no Rep to borrow from. We allocate one on the heap and
-  // store it in a static thread_local or embed it. However, for test
-  // usage the simplest approach is to use a static default instance.
+  // Standalone / test path. Uses a static default BlockBasedTableOptions
+  // since there is no Rep to borrow from.
   auto icmp = std::make_unique<InternalKeyComparator>(options.comparator);
   auto index_type = with_first_key_
                         ? BlockBasedTableOptions::kBinarySearchWithFirstKey
                         : BlockBasedTableOptions::kBinarySearch;
-  static const BlockBasedTableOptions kDefaultBinarySearchOpts = []() {
-    BlockBasedTableOptions opts;
-    // index_type is set per-query below via CreateIndexBuilder, so the
-    // static default doesn't need it. The wrapper's GetTableOptions()
-    // returns this, and the only consumer that reads index_type from it
-    // is the internal IndexBuilder which receives it as a separate param.
-    return opts;
-  }();
-  // Create the wrapper first so that table_opts_ is stable.
-  // The internal builder references it by address.
+  static const BlockBasedTableOptions kDefaultBinarySearchOpts;
   auto wrapper = std::make_unique<BuiltinIndexFactoryBuilder>(
       std::move(icmp), &kDefaultBinarySearchOpts);
   std::unique_ptr<IndexBuilder> internal(IndexBuilder::CreateIndexBuilder(
@@ -385,10 +354,8 @@ Status BinarySearchIndexFactory::NewBuilder(
 Status BinarySearchIndexFactory::NewReader(
     const IndexFactoryOptions& /*options*/, Slice& /*index_contents*/,
     std::unique_ptr<IndexFactoryReader>& /*reader*/) const {
-  // The built-in reader is created through BlockBasedTable::CreateIndexReader
-  // which uses the internal BinarySearchIndexReader::Create() path directly.
-  // This method exists to satisfy the IndexFactory interface but is not
-  // called for built-in indexes — they use the internal reader path.
+  // Built-in reads go through BlockBasedTable::CreateIndexReader directly
+  // (see the asymmetric-API note in include/rocksdb/index_factory.h).
   return Status::NotSupported(
       "BinarySearchIndexFactory::NewReader is not used directly. "
       "The built-in reader is created through "
@@ -419,11 +386,8 @@ Status HashIndexFactory::NewBuilder(
   }
 
   if (has_config_) {
-    // Full construction path with internal params.
     auto icmp = std::make_unique<InternalKeyComparator>(
         config_.internal_comparator->user_comparator());
-    // Pass the pointer to the Rep's table_options — the Rep outlives the
-    // builder, so the pointer remains valid.
     auto wrapper = std::make_unique<BuiltinIndexFactoryBuilder>(
         std::move(icmp), config_.table_options);
     std::unique_ptr<IndexBuilder> internal(IndexBuilder::CreateIndexBuilder(
@@ -436,14 +400,9 @@ Status HashIndexFactory::NewBuilder(
     return Status::OK();
   }
 
-  // Lightweight construction path for standalone / test usage.
+  // Standalone / test path with a static default BlockBasedTableOptions.
   auto icmp = std::make_unique<InternalKeyComparator>(options.comparator);
-  static const BlockBasedTableOptions kDefaultHashOpts = []() {
-    BlockBasedTableOptions opts;
-    return opts;
-  }();
-  // Create the wrapper first so that table_opts_ is stable.
-  // The internal builder references it by address.
+  static const BlockBasedTableOptions kDefaultHashOpts;
   auto wrapper = std::make_unique<BuiltinIndexFactoryBuilder>(
       std::move(icmp), &kDefaultHashOpts);
   std::unique_ptr<IndexBuilder> internal(IndexBuilder::CreateIndexBuilder(
@@ -493,11 +452,8 @@ Status PartitionedIndexFactory::NewBuilder(
   }
 
   if (has_config_) {
-    // Full construction path with internal params.
     auto icmp = std::make_unique<InternalKeyComparator>(
         config_.internal_comparator->user_comparator());
-    // Pass the pointer to the Rep's table_options — the Rep outlives the
-    // builder, so the pointer remains valid.
     auto wrapper = std::make_unique<BuiltinIndexFactoryBuilder>(
         std::move(icmp), config_.table_options);
     std::unique_ptr<IndexBuilder> internal(
@@ -511,15 +467,10 @@ Status PartitionedIndexFactory::NewBuilder(
     return Status::OK();
   }
 
-  // Lightweight construction path for standalone / test usage.
+  // Standalone / test path. PartitionedIndexBuilder holds a const ref to
+  // table_opts_, so the wrapper must be constructed before the builder.
   auto icmp = std::make_unique<InternalKeyComparator>(options.comparator);
-  static const BlockBasedTableOptions kDefaultPartitionedOpts = []() {
-    BlockBasedTableOptions opts;
-    return opts;
-  }();
-  // Create the wrapper first so that table_opts_ is stable.
-  // PartitionedIndexBuilder stores a const reference to
-  // table_opts_, so the member must be constructed before the builder.
+  static const BlockBasedTableOptions kDefaultPartitionedOpts;
   auto wrapper = std::make_unique<BuiltinIndexFactoryBuilder>(
       std::move(icmp), &kDefaultPartitionedOpts);
   std::unique_ptr<IndexBuilder> internal(
