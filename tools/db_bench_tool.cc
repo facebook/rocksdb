@@ -265,6 +265,15 @@ DEFINE_string(
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 
+DEFINE_int64(bgwriter_num, 0,
+             "If > 0, the background-writer thread used by readwhilewriting / "
+             "readwhilemerging / multireadwhilewriting writes random keys over "
+             "[0, bgwriter_num) instead of [0, num). Lets the reader thread "
+             "group operate on a small hot subset (--num) while the writer "
+             "spreads its puts across a much larger keyspace, which is what "
+             "drives continuous flushes and compaction. Designed for "
+             "benchmarking compaction-time effects on user reads.");
+
 DEFINE_int64(numdistinct, 1000,
              "Number of distinct keys to use. Used in RandomWithVerify to "
              "read/write on fewer keys so that gets are more likely to find the"
@@ -7928,7 +7937,9 @@ class Benchmark {
         }
       }
 
-      GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      const int64_t bg_keyspace =
+          FLAGS_bgwriter_num > 0 ? FLAGS_bgwriter_num : FLAGS_num;
+      GenerateKeyFromInt(thread->rand.Next() % bg_keyspace, bg_keyspace, &key);
       Status s;
 
       Slice val = gen.Generate();
