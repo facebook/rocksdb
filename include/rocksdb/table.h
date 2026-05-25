@@ -601,16 +601,17 @@ struct BlockBasedTableOptions {
 
   // EXPERIMENTAL
   //
-  // Controls how the custom IndexFactory interacts with the built-in
-  // standard index. Requires user_defined_index_factory to be set
-  // for any mode other than kStandardOnly.
+  // Controls how the custom IndexFactory interacts with the standard
+  // index (the index selected by index_type -- binary search by default,
+  // hash search, or partitioned). Requires user_defined_index_factory to
+  // be set for any mode other than kStandardOnly.
   //
   //   kStandardOnly (default):
-  //     Only the built-in standard index is used.
+  //     Only the standard index is used.
   //     user_defined_index_factory is ignored if set.
   //
   //   kStandardDefault:
-  //     Both indexes are built. Reads use the built-in index by default.
+  //     Both indexes are built. Reads use the standard index by default.
   //     The custom index is accessible via ReadOptions::read_index
   //     for per-read override. When opening SSTs that lack the custom
   //     index block, falls back to the standard index with a warning
@@ -619,22 +620,25 @@ struct BlockBasedTableOptions {
   //   kCustomDefault:
   //     Both indexes are built. All reads (including internal operations
   //     like compaction and VerifyChecksum) route through the custom
-  //     index. The built-in index serves as a safety fallback for
+  //     index. The standard index serves as a safety fallback for
   //     backup/restore and rollback.
   //
   //   kCustomOnly:
-  //     Only the custom index is built. The built-in index is not
+  //     Only the custom index is built. The standard index is not
   //     populated (a minimal stub satisfies the SST footer format).
-  //     Maximum efficiency but no fallback — rollback requires
+  //     Maximum efficiency but no fallback -- rollback requires
   //     compacting with a mode that builds the standard index.
   //
-  // Recommended migration path:
-  //   kStandardOnly → kStandardDefault → kCustomDefault → kCustomOnly
+  // Recommended migration path (each step yields SSTs readable by the
+  // next): kStandardOnly -> kStandardDefault -> kCustomDefault -> kCustomOnly
   //
   // Rollback:
   //   From kCustomDefault: switch to kStandardDefault or kStandardOnly.
   //     The standard index is fully populated, so SSTs are immediately
-  //     readable.
+  //     readable. Switching to kStandardOnly additionally requires
+  //     clearing user_defined_index_factory in the new config (validation
+  //     of kStandardOnly + factory is intentionally permissive -- the
+  //     factory pointer is simply ignored -- but explicit is cleaner).
   //   From kCustomOnly: switch to kCustomDefault and compact to rewrite
   //     all SSTs with both indexes before downgrading further.
   //
@@ -646,6 +650,12 @@ struct BlockBasedTableOptions {
   // Incompatible with:
   //   - Partitioned index (kTwoLevelIndexSearch) in kCustomDefault/kCustomOnly
   //   - Partitioned filters in kCustomDefault/kCustomOnly
+  //
+  // Migration from pre-refactor UDI: the removed booleans
+  // (use_udi_as_primary_index, skip_standard_index, fail_if_no_udi_on_open)
+  // are still accepted in OPTIONS files. They translate monotonically into
+  // index_mode at parse time so existing on-disk OPTIONS files continue to
+  // produce the same SST and read behavior after upgrade.
   enum class IndexMode {
     kStandardOnly = 0,
     kStandardDefault = 1,

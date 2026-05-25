@@ -9465,19 +9465,19 @@ TEST_P(UserDefinedIndexTest, ValueTypeMappingViaDBFlush) {
 
   // Verify each mapping.
   ASSERT_EQ(type_map.count("key_01_put"), 1u);
-  EXPECT_EQ(type_map["key_01_put"], IndexFactoryBuilder::kValue);
+  EXPECT_EQ(type_map["key_01_put"], IndexFactoryBuilder::ValueType::kValue);
 
   ASSERT_EQ(type_map.count("key_02_merge"), 1u);
-  EXPECT_EQ(type_map["key_02_merge"], IndexFactoryBuilder::kMerge);
+  EXPECT_EQ(type_map["key_02_merge"], IndexFactoryBuilder::ValueType::kMerge);
 
   ASSERT_EQ(type_map.count("key_03_del"), 1u);
-  EXPECT_EQ(type_map["key_03_del"], IndexFactoryBuilder::kDelete);
+  EXPECT_EQ(type_map["key_03_del"], IndexFactoryBuilder::ValueType::kDelete);
 
   ASSERT_EQ(type_map.count("key_04_sdel"), 1u);
-  EXPECT_EQ(type_map["key_04_sdel"], IndexFactoryBuilder::kDelete);
+  EXPECT_EQ(type_map["key_04_sdel"], IndexFactoryBuilder::ValueType::kDelete);
 
   ASSERT_EQ(type_map.count("key_05_entity"), 1u);
-  EXPECT_EQ(type_map["key_05_entity"], IndexFactoryBuilder::kOther);
+  EXPECT_EQ(type_map["key_05_entity"], IndexFactoryBuilder::ValueType::kOther);
 
   ASSERT_OK(db->Close());
   ASSERT_OK(DestroyDB(dbname, options_));

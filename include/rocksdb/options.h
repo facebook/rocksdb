@@ -2424,25 +2424,27 @@ struct ReadOptions {
   // by BlockBasedTableOptions::index_mode.
   //
   //   kDefault: use whatever index_mode says.
-  //     kStandardOnly/kStandardDefault → built-in standard index.
-  //     kCustomDefault/kCustomOnly → custom IndexFactory index.
+  //     kStandardOnly/kStandardDefault -> standard index.
+  //     kCustomDefault/kCustomOnly     -> custom IndexFactory index.
   //
-  //   kBuiltin: force the built-in standard index for this read.
+  //   kBuiltin: force the standard index for this read.
   //     Useful for debugging, comparing results between indexes, or
-  //     temporary fallback. In kCustomOnly mode, the built-in index
-  //     is a minimal stub — reads will return no useful results.
+  //     temporary fallback. In kCustomOnly mode, the standard index
+  //     is a minimal stub -- reads will return no useful results.
   //
   //   kPreferCustom: select the custom IndexFactory index when the SST has
   //     one; fall back to the standard index for SSTs that don't (e.g.,
   //     pre-UDI files still on disk during migration). Once the custom
-  //     reader is loaded for an SST the per-read selection is strict —
+  //     reader is loaded for an SST the per-read selection is strict --
   //     iterator-creation failures surface as Status::Corruption rather
   //     than silently falling back.
   //
-  // ReadIndex is a two-way selector because each SST has exactly two
-  // potential read targets: the standard index (selected by
-  // BlockBasedTableOptions::index_type) and at most one custom index
-  // (from user_defined_index_factory).
+  // ReadIndex is a two-way selector because BlockBasedTable supports
+  // exactly two index read targets per SST: the standard index (selected
+  // by BlockBasedTableOptions::index_type -- BinarySearch by default,
+  // HashSearch, or TwoLevelIndex) and at most one custom index from
+  // user_defined_index_factory. A more general index-id/name scheme would
+  // be larger surface than the underlying mechanism needs.
   enum class ReadIndex : uint8_t {
     kDefault = 0,
     kBuiltin = 1,
