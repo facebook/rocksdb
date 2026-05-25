@@ -635,10 +635,8 @@ struct BlockBasedTableOptions {
   // Rollback:
   //   From kCustomDefault: switch to kStandardDefault or kStandardOnly.
   //     The standard index is fully populated, so SSTs are immediately
-  //     readable. Switching to kStandardOnly additionally requires
-  //     clearing user_defined_index_factory in the new config (validation
-  //     of kStandardOnly + factory is intentionally permissive -- the
-  //     factory pointer is simply ignored -- but explicit is cleaner).
+  //     readable. kStandardOnly silently ignores any factory pointer that
+  //     remains set in the config.
   //   From kCustomOnly: switch to kCustomDefault and compact to rewrite
   //     all SSTs with both indexes before downgrading further.
   //
@@ -651,11 +649,11 @@ struct BlockBasedTableOptions {
   //   - Partitioned index (kTwoLevelIndexSearch) in kCustomDefault/kCustomOnly
   //   - Partitioned filters in kCustomDefault/kCustomOnly
   //
-  // Migration from pre-refactor UDI: the removed booleans
-  // (use_udi_as_primary_index, skip_standard_index, fail_if_no_udi_on_open)
-  // are still accepted in OPTIONS files. They translate monotonically into
-  // index_mode at parse time so existing on-disk OPTIONS files continue to
-  // produce the same SST and read behavior after upgrade.
+  // OPTIONS file compatibility: the legacy boolean names
+  // use_udi_as_primary_index, skip_standard_index, and
+  // fail_if_no_udi_on_open are accepted as parse aliases. Each one
+  // monotonically upgrades index_mode to the equivalent enum value at
+  // parse time.
   enum class IndexMode {
     kStandardOnly = 0,
     kStandardDefault = 1,

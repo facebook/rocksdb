@@ -1817,15 +1817,10 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
       }
     }
 
-    // If the UDI block size is 0, that means there's effectively no user
-    // defined index for this SST. In kStandardDefault the standard index
-    // is fully populated, so we silently skip wrapper installation (the
-    // standard index serves all reads). In kCustomDefault / kCustomOnly,
-    // the SST is supposed to be readable through the UDI -- a zero-size
-    // UDI block means the SST is broken (PropertyBlockBuilder never
-    // produces zero-size handles for non-empty data), so escalate to
-    // Corruption rather than silently leaving a stub reader in place
-    // (which would return zero rows in kCustomOnly).
+    // A zero-size UDI block means no user-defined index for this SST.
+    // kStandardDefault tolerates it (the standard index serves reads).
+    // kCustomDefault/kCustomOnly require the UDI block to read data, so
+    // a zero-size handle is corruption.
     if (s.ok() && udi_block_handle.size() == 0 &&
         table_options.index_mode >=
             BlockBasedTableOptions::IndexMode::kCustomDefault) {
@@ -1853,9 +1848,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
       }
       if (s.ok()) {
         assert(!rep_->udi_block.IsEmpty());
-        // Defensive: assert above doesn't run in release builds, and a
-        // null value here would crash at the .data access below. Surface
-        // as Corruption so an opaque SIGSEGV doesn't reach the user.
+        // Release-build guard: a null value here would SIGSEGV on .data.
         if (UNLIKELY(rep_->udi_block.GetValue() == nullptr)) {
           return Status::Corruption(
               "UDI block read returned null contents for " + udi_name + " in " +

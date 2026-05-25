@@ -2441,10 +2441,8 @@ struct ReadOptions {
   //
   // ReadIndex is a two-way selector because BlockBasedTable supports
   // exactly two index read targets per SST: the standard index (selected
-  // by BlockBasedTableOptions::index_type -- BinarySearch by default,
-  // HashSearch, or TwoLevelIndex) and at most one custom index from
-  // user_defined_index_factory. A more general index-id/name scheme would
-  // be larger surface than the underlying mechanism needs.
+  // by BlockBasedTableOptions::index_type) and at most one custom index
+  // from user_defined_index_factory.
   enum class ReadIndex : uint8_t {
     kDefault = 0,
     kBuiltin = 1,

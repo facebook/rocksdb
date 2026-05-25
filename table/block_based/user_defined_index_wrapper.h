@@ -55,13 +55,9 @@ class IndexFactoryIteratorWrapper : public InternalIteratorBase<IndexValue> {
   }
 
   void Seek(const Slice& target) override {
-    // Hot path. The target was built by RocksDB internals from a real
-    // memtable / SST key, so a full ParseInternalKey() validation pass
-    // is wasted work here -- the layout is guaranteed valid. Use the
-    // cheaper inline accessors (constant-time Slice arithmetic + one
-    // DecodeFixed64) instead. The seqno+type are already packed in the
-    // 8-byte footer, matching SeekContext::target_tag's encoding, so
-    // we skip an UnPack-then-Pack round trip.
+    // Per-read hot path. The target is a well-formed internal key; skip
+    // ParseInternalKey validation and use the inline extractors. The
+    // 8-byte footer already matches SeekContext::target_tag's encoding.
     if (UNLIKELY(target.size() < kNumInternalBytes)) {
       status_ = Status::Corruption("Invalid internal key (too short)");
       UpdateValidAndKey();
@@ -93,10 +89,8 @@ class IndexFactoryIteratorWrapper : public InternalIteratorBase<IndexValue> {
   }
 
   void SeekForPrev(const Slice& /*target*/) override {
-    // BlockBasedTableIterator never calls SeekForPrev on the index
-    // iterator. It uses Seek + FindKeyBackward(Prev) instead. The standard
-    // index's IndexBlockIter::SeekForPrevImpl is also assert(false). Keep
-    // this as NotSupported for safety.
+    // BlockBasedTableIterator never calls SeekForPrev on an index
+    // iterator (it uses Seek + FindKeyBackward instead).
     valid_ = false;
     status_ = Status::NotSupported("SeekForPrev not supported");
   }
@@ -124,15 +118,11 @@ class IndexFactoryIteratorWrapper : public InternalIteratorBase<IndexValue> {
   }
 
  private:
-  // Common logic after every UDI positioning operation: check status,
-  // update valid_, and build the internal key + cache the IndexValue if
-  // valid.
+  // Refresh valid_, ikey_, and cached_value_ from result_ after every UDI
+  // positioning operation.
   void UpdateValidAndKey() {
     if (status_.ok()) {
-      // IndexFactoryIterator implementations must set
-      // bound_check_result=kInbound when they have a valid result.
-      // kUnknown and kOutOfBound both mean no valid position (the
-      // iterator is exhausted or the key is outside bounds).
+      // kUnknown and kOutOfBound both mean no valid position.
       valid_ = result_.bound_check_result == IterBoundCheck::kInbound;
       if (valid_) {
         SetInternalKeyFromUDIResult();
@@ -142,21 +132,17 @@ class IndexFactoryIteratorWrapper : public InternalIteratorBase<IndexValue> {
     }
   }
 
-  // Convert the UDI result's user key into an internal key for the index
-  // iterator contract. UDI separators are user keys, but
-  // InternalIteratorBase<IndexValue> must expose internal keys (user key +
-  // 8-byte tag). We use seq=0 / kTypeValue so that the resulting
-  // internal key compares as "greater than or equal to" any real data key
-  // with the same user key (lower seqno = later in internal key order),
-  // which is the correct upper-bound semantics for an index separator.
+  // Build the internal-key form of the current separator. UDI returns
+  // user keys; the index iterator contract requires internal keys.
+  // seq=0 / kTypeValue gives the correct upper-bound semantics for a
+  // separator: any data key with the same user key compares less.
   void SetInternalKeyFromUDIResult() {
     ikey_.Set(result_.key, 0, ValueType::kTypeValue);
     CacheCurrentValue();
   }
 
-  // Cache the IndexValue after each positioning operation so that repeated
-  // value() calls (5-10 per block in BlockBasedTableIterator) are a simple
-  // field return instead of a virtual dispatch through udi_iter_->value().
+  // Cache so repeated value() calls (multiple per block in
+  // BlockBasedTableIterator) avoid a virtual dispatch.
   void CacheCurrentValue() {
     auto handle = udi_iter_->value();
     cached_value_ =
@@ -189,18 +175,14 @@ class IndexFactoryReaderWrapper : public BlockBasedTable::IndexReader {
       const ReadOptions& read_options, bool disable_prefix_seek,
       IndexBlockIter* iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) override {
-    // Determine whether to use the UDI for this read:
-    //   kDefault       → udi_is_primary_ (kCustomDefault/kCustomOnly → custom,
-    //                    kStandardOnly/kStandardDefault → standard)
-    //   kBuiltin       → force standard index
-    //   kPreferCustom  → force custom index when this SST has one. The
-    //                    fallback that gives the option its name happens
-    //                    at SST-open time: SSTs without a UDI block don't
-    //                    get this wrapper installed, so a kPreferCustom
-    //                    request on those reaches the standard reader
-    //                    directly. Once the wrapper IS installed (this
-    //                    method is reachable), the selection is strict —
-    //                    iterator failures return Status::Corruption.
+    // kDefault       -> follow udi_is_primary_
+    // kBuiltin       -> standard index
+    // kPreferCustom  -> custom index. The "prefer" fallback runs at SST
+    //                   open: SSTs lacking a UDI block don't get this
+    //                   wrapper, so they reach the standard reader
+    //                   directly. Once the wrapper is installed, the
+    //                   selection is strict (failures surface as
+    //                   Status::Corruption).
     bool use_udi;
     switch (read_options.read_index) {
       case ReadOptions::ReadIndex::kBuiltin:

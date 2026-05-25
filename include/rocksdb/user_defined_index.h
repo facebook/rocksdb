@@ -7,38 +7,15 @@
 //  EXPERIMENTAL - subject to change while under development
 //  *****************************************************************
 //
-//  DEPRECATED: This header is a backward-compatibility shim for the
-//  experimental User-Defined Index API. New code should #include
-//  "rocksdb/index_factory.h" directly and use the IndexFactory /
-//  IndexFactoryBuilder / IndexFactoryReader / IndexFactoryIterator /
-//  IndexFactoryOptions names instead.
-//
-//  Source compatibility scope (a partial shim, not a full adapter):
-//
-//  - Code that holds a `std::shared_ptr<UserDefinedIndexFactory>`,
-//    references the type by name, or calls the option-taking virtuals
-//    (`NewBuilder(const UserDefinedIndexOption&, ...)` and the matching
-//    `NewReader`) continues to compile unchanged -- the names below are
-//    type aliases for the new classes.
-//
-//  - Code that SUBCLASSES UserDefinedIndexFactory and overrode the older
-//    no-arg `NewBuilder()` and/or single-Slice `NewReader(Slice&)` pure
-//    virtuals will NOT compile against the new header: those signatures
-//    are no longer pure virtuals on `IndexFactory`. Migrate by:
-//      virtual UserDefinedIndexBuilder* NewBuilder() const  // OLD
-//    -> Status NewBuilder(const IndexFactoryOptions& opt,
-//                         std::unique_ptr<IndexFactoryBuilder>& out) const
-//       override;                                            // NEW
-//      virtual std::unique_ptr<UserDefinedIndexReader>      // OLD
-//          NewReader(Slice& index_block) const;
-//    -> Status NewReader(const IndexFactoryOptions& opt,
-//                        Slice& index_block,
-//                        std::unique_ptr<IndexFactoryReader>& out) const
-//       override;                                            // NEW
-//
-//  On-disk format is unchanged. SSTs written by previous versions remain
-//  readable -- the meta block key prefix is still
-//  "rocksdb.user_defined_index." (kIndexFactoryMetaPrefix below).
+//  DEPRECATED: backward-compatibility shim. New code should
+//  #include "rocksdb/index_factory.h" directly. The type aliases below
+//  preserve source compatibility for code that holds the old type names
+//  by value or shared_ptr. Subclasses that overrode the previous
+//  no-arg NewBuilder() / single-Slice NewReader(Slice&) pure virtuals
+//  must migrate to the option-taking signatures on IndexFactory
+//  (see include/rocksdb/index_factory.h). On-disk format is unchanged:
+//  the meta block key prefix is "rocksdb.user_defined_index."
+//  (kIndexFactoryMetaPrefix).
 
 #pragma once
 

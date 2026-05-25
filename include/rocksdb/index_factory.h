@@ -57,17 +57,14 @@ inline constexpr const char* kIndexFactoryMetaPrefix =
 // default data block format, custom IndexFactory implementations to custom
 // FilterPolicy implementations.
 //
-// NOTE: The IndexFactory API is intentionally asymmetric between build and
-// read. Both the standard and custom indexes are constructed through this
-// SPI on the write side (NewBuilder), but on the read side the standard
-// index continues to use the internal BlockBasedTable::IndexReader path.
-// That internal reader contract carries table-local behavior such as block
-// cache / prefetch / pinning policy and iterator reuse that is not part of
-// this public SPI. Custom IndexFactoryReader implementations are adapted
-// to the internal reader contract via IndexFactoryReaderWrapper (an
-// implementation detail of table/block_based/). Returning NotSupported
-// from a built-in factory's NewReader is therefore intentional, not an
-// incomplete refactor.
+// NOTE: The IndexFactory API is intentionally asymmetric between build
+// and read. Both the standard and custom indexes share the factory
+// abstraction for SST construction, but standard-index reads continue to
+// use the internal BlockBasedTable::IndexReader path. That internal
+// reader contract carries table-local behavior (cache, prefetch, pinning,
+// iterator reuse) that is not part of this public SPI. Custom
+// IndexFactoryReader implementations are adapted to the internal contract
+// via IndexFactoryReaderWrapper.
 // ============================================================================
 
 // ---------------------------------------------------------------------------
@@ -112,18 +109,15 @@ class IndexFactoryBuilder {
     uint64_t first_key_tag = 0;
   };
 
-  // Value type categories for OnKeyAdded. Scoped enum so the names don't
-  // leak into the IndexFactoryBuilder member scope as ints, and to keep
-  // them distinct from the unrelated namespace-level
-  // ROCKSDB_NAMESPACE::ValueType in db/dbformat.h.
+  // Value type categories for OnKeyAdded. Scoped to keep these names
+  // distinct from ROCKSDB_NAMESPACE::ValueType in db/dbformat.h.
   enum class ValueType : uint8_t {
     kValue = 0,
     kDelete = 1,
     kMerge = 2,
     kOther = 3,
-    // Sentinel -- must be last. Use only for `vt < kTypeMax` bounds checks
-    // or `static_cast<size_t>(kTypeMax)` array sizing. Do NOT serialize
-    // its numeric value; new categories may be added before kTypeMax.
+    // Sentinel. Use for `vt < kTypeMax` bounds checks and
+    // `static_cast<size_t>(kTypeMax)` sizing only; do not serialize.
     kTypeMax,
   };
 
@@ -211,8 +205,8 @@ class IndexFactoryBuilder {
   //
   // Splits AddIndexEntry into two phases so the table builder can run
   // data block compression in parallel:
-  //   Phase 1 (emit thread): PrepareAddEntry — record separator keys.
-  //   Phase 2 (BG writer thread): FinishAddEntry — record the block handle.
+  //   Phase 1 (emit thread): PrepareAddEntry -- record separator keys.
+  //   Phase 2 (BG writer thread): FinishAddEntry -- record the block handle.
   //
   // An implementation that returns true from SupportsParallelAddEntry()
   // must also implement CreatePreparedAddEntry, PrepareAddEntry, and
@@ -222,7 +216,7 @@ class IndexFactoryBuilder {
   // The table builder turns parallel compression on for an SST only if
   // every configured builder (built-in plus any custom factory) returns
   // true. If any builder returns false the SST falls back to single-
-  // threaded compression — there is no per-builder mixing within an SST.
+  // threaded compression -- there is no per-builder mixing within an SST.
 
   struct PreparedAddEntry {
     virtual ~PreparedAddEntry() = default;
@@ -273,7 +267,7 @@ class IndexFactoryBuilder {
 
   // --- Filter coordination ---
   //
-  // Returns a PartitionCoordinator for filter↔index partition alignment.
+  // Returns a PartitionCoordinator for filter<->index partition alignment.
   // nullptr if this builder doesn't support partitioned coordination.
   // The returned pointer is valid for the lifetime of this builder.
   virtual PartitionCoordinator* GetPartitionCoordinator() { return nullptr; }
@@ -320,14 +314,14 @@ class IndexFactoryIterator {
     return SeekAndGetResult(Slice(), result, SeekContext{});
   }
 
-  // Position at the last entry. Optional — reverse iteration support.
+  // Position at the last entry. Optional -- reverse iteration support.
   // Default: returns NotSupported.
   virtual Status SeekToLastAndGetResult(IterateResult* result) {
     (void)result;
     return Status::NotSupported("SeekToLast not supported by this index");
   }
 
-  // Move to the previous entry. Optional — reverse iteration support.
+  // Move to the previous entry. Optional -- reverse iteration support.
   // Default: returns NotSupported.
   virtual Status PrevAndGetResult(IterateResult* result) {
     (void)result;
