@@ -891,10 +891,16 @@ struct BlockBasedTableBuilder::Rep {
     if (LIKELY(custom_indexes.empty())) {
       return;
     }
+    // Parse failure on a builder-constructed internal key is unreachable;
+    // surface as Corruption to avoid divergence (built-in builder above
+    // already received the key).
     ParsedInternalKey pkey;
     Status parse_s = ParseInternalKey(internal_key, &pkey, false);
     assert(parse_s.ok());
-    if (!parse_s.ok()) {
+    if (UNLIKELY(!parse_s.ok())) {
+      SetStatus(Status::Corruption(
+          "Failed to parse internal_key in ForwardOnKeyAddedToAll: " +
+          parse_s.ToString()));
       return;
     }
     IndexFactoryBuilder::ValueType vt;
@@ -2235,7 +2241,7 @@ void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
             rep_->custom_indexes[i].builder->FinishAddEntry(
                 pub_handle, block_rep->custom_prepared_entries[i].get(),
                 &rep_->custom_indexes[i].separator_scratch,
-                /*skip_delta_encoding=*/false);
+                skip_delta_encoding);
           }
         }
       }
