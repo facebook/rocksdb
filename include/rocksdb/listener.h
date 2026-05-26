@@ -964,6 +964,17 @@ class EventListener : public Customizable {
   virtual void OnBackgroundJobPressureChanged(
       DB* /*db*/, const BackgroundJobPressure& /*pressure*/) {}
 
+  // A callback function for RocksDB which will be called once when a DB begins
+  // shutting down, before background work cancellation publishes the DB's
+  // shutdown state. This callback can also fire during cleanup of a failed
+  // DB::Open() attempt, in which case the DB pointer refers to the DB instance
+  // that failed to open and was never returned to the application.
+  //
+  // Background work may still be running when this callback fires, and other
+  // listener callbacks may still run concurrently or afterward. Implementations
+  // should not call blocking DB APIs or run for an extended period of time.
+  virtual void OnDBShutdownBegin(DB* /*db*/) {}
+
   ~EventListener() override {}
 };
 

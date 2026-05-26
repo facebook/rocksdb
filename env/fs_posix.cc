@@ -1114,10 +1114,10 @@ class PosixFileSystem : public FileSystem {
         struct io_uring_cqe* cqe = nullptr;
         ssize_t ret = io_uring_wait_cqe(iu, &cqe);
         if (ret) {
-          fprintf(stderr, "Poll: io_uring_wait_cqe failed: %ld", (long)ret);
           if (ret == -EINTR || ret == -EAGAIN) {
             continue;  // Retry
           }
+          fprintf(stderr, "Poll: io_uring_wait_cqe failed: %ld\n", (long)ret);
           abort();
         }
 
@@ -1207,10 +1207,11 @@ class PosixFileSystem : public FileSystem {
         struct io_uring_cqe* cqe = nullptr;
         ssize_t ret = io_uring_wait_cqe(iu, &cqe);
         if (ret) {
-          fprintf(stderr, "AbortIO: io_uring_wait_cqe failed: %ld", (long)ret);
           if (ret == -EINTR || ret == -EAGAIN) {
             continue;  // Retry
           }
+          fprintf(stderr, "AbortIO: io_uring_wait_cqe failed: %ld\n",
+                  (long)ret);
           abort();
         }
         assert(cqe != nullptr);

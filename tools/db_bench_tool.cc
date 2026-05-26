@@ -2917,6 +2917,44 @@ class Benchmark {
   std::shared_ptr<const SliceTransform> prefix_extractor_;
   DBWithColumnFamilies db_;
   std::vector<DBWithColumnFamilies> multi_dbs_;
+  //
+  // === DB lifetime protocol ===
+  //
+  // Two RAII guards protect db_, multi_dbs_, and secondary_update_thread_:
+  //
+  //  - DbUseGuard:           held by any thread that reads or holds a raw
+  //                          DBWithColumnFamilies* derived from db_ /
+  //                          multi_dbs_, for the entire scope of use. Takes a
+  //                          read lock on db_lifecycle_rwlock_.
+  //                          STRICT enforcement at the SelectDBWithCfh entry
+  //                          point (assert on holds_db_use_guard_).
+  //                          Direct field accesses elsewhere (e.g.
+  //                          db_.db->NewIterator) are protected by the outer
+  //                          DbUseGuard that ThreadBody installs for workers,
+  //                          or by main-thread serialization -- but are not
+  //                          mechanically asserted per-site.
+  //
+  //  - DbStateMutationGuard: held by any thread that mutates db_, multi_dbs_,
+  //                          or secondary_update_thread_. Takes a write lock
+  //                          on db_lifecycle_rwlock_, then stops the secondary
+  //                          update thread before mutation may proceed.
+  //                          STRICT enforcement at DeleteDBs (assert on
+  //                          holds_db_state_mutation_guard_). Direct calls
+  //                          to DBWithColumnFamilies::DeleteDBs() and
+  //                          multi_dbs_.clear() in the fresh-DB reopen branch
+  //                          are protected by being inside the same guard
+  //                          scope, but not mechanically asserted.
+  //
+  // Three thread-locals, each with a single meaning:
+  //  - holds_db_use_guard_            : in DbUseGuard scope
+  //  - holds_db_state_mutation_guard_ : in DbStateMutationGuard scope
+  //  - is_secondary_update_thread_    : this thread is the secondary updater
+  //
+  // ErrorExit consults the first and third: a thread in *either* state
+  // cannot safely run the mutation cleanup path (self-wait or self-join
+  // respectively), so it takes std::_Exit(1) instead.
+  //
+  port::RWMutex db_lifecycle_rwlock_;
   int64_t num_;
   int key_size_;
   int user_timestamp_size_;
@@ -3507,6 +3545,11 @@ class Benchmark {
   }
 
   void DeleteDBs() {
+    // Caller MUST hold DbStateMutationGuard (proven by ownership flag).
+    // Note: direct calls to db_.DeleteDBs() / multi_dbs_[i].DeleteDBs() in
+    // the fresh-DB reopen branch bypass this wrapper; they're protected by
+    // being inside DbStateMutationGuard but are not mechanically asserted.
+    assert(holds_db_state_mutation_guard_);
     db_.DeleteDBs();
     for (auto& dbwcf : multi_dbs_) {
       dbwcf.DeleteDBs();
@@ -3514,7 +3557,10 @@ class Benchmark {
   }
 
   ~Benchmark() {
-    DeleteDBs();
+    {
+      DbStateMutationGuard mutation(this);
+      DeleteDBs();
+    }
     if (cache_.get() != nullptr) {
       // Clear cache reference first
       open_options_.write_buffer_manager.reset();
@@ -3648,7 +3694,19 @@ class Benchmark {
   }
 
   void ErrorExit() {
-    DeleteDBs();
+    if (holds_db_use_guard_ || is_secondary_update_thread_) {
+      // Neither kind of DB-user context can safely run the mutation cleanup
+      // path:
+      //   - DbUseGuard holder would self-wait on the write lock
+      //   - secondary update thread would self-join via
+      //     StopSecondaryUpdateThread()
+      // Terminate immediately and let the OS reclaim resources.
+      std::_Exit(1);
+    }
+    {
+      DbStateMutationGuard mutation(this);
+      DeleteDBs();
+    }
     db_bench_exit(1);
   }
 
@@ -4015,6 +4073,7 @@ class Benchmark {
       }
 
       if (fresh_db) {
+        DbStateMutationGuard mutation(this);
         if (FLAGS_use_existing_db) {
           fprintf(stdout, "%-12s : skipped (--use_existing_db is true)\n",
                   name.c_str());
@@ -4142,11 +4201,7 @@ class Benchmark {
       }
     }
 
-    if (secondary_update_thread_) {
-      secondary_update_stopped_.store(1, std::memory_order_relaxed);
-      secondary_update_thread_->join();
-      secondary_update_thread_.reset();
-    }
+    StopSecondaryUpdateThread();
 
     if (name != "replay" && FLAGS_trace_file != "") {
       Status s = db_.db->EndTrace();
@@ -4184,6 +4239,83 @@ class Benchmark {
   std::unique_ptr<port::Thread> secondary_update_thread_;
   std::atomic<int> secondary_update_stopped_{0};
   uint64_t secondary_db_updates_ = 0;
+  void StopSecondaryUpdateThread() {
+    if (secondary_update_thread_) {
+      secondary_update_stopped_.store(1, std::memory_order_relaxed);
+      secondary_update_thread_->join();
+      secondary_update_thread_.reset();
+      secondary_update_stopped_.store(0, std::memory_order_relaxed);
+    }
+  }
+
+  // True iff the current thread is inside a DbUseGuard scope.
+  // Set/cleared only by DbUseGuard. Strict guard ownership.
+  static thread_local bool holds_db_use_guard_;
+
+  // True iff the current thread is inside a DbStateMutationGuard scope.
+  // Set/cleared only by DbStateMutationGuard.
+  static thread_local bool holds_db_state_mutation_guard_;
+
+  // True iff the current thread is the secondary update thread.
+  // The secondary thread reads its captured DBWithColumnFamilies* without
+  // going through DbUseGuard or SelectDBWithCfh. This flag exists so
+  // ErrorExit can route it to _Exit(1) without self-joining via
+  // StopSecondaryUpdateThread.
+  static thread_local bool is_secondary_update_thread_;
+
+  class DbUseGuard {
+   public:
+    explicit DbUseGuard(Benchmark* bm)
+        : lock_(CheckDbUsePreconditionsAndGetLock(bm)) {
+      holds_db_use_guard_ = true;
+    }
+    ~DbUseGuard() {
+      assert(holds_db_use_guard_);
+      holds_db_use_guard_ = false;
+    }
+    DbUseGuard(const DbUseGuard&) = delete;
+    DbUseGuard& operator=(const DbUseGuard&) = delete;
+    DbUseGuard(DbUseGuard&&) = delete;
+    DbUseGuard& operator=(DbUseGuard&&) = delete;
+
+   private:
+    static port::RWMutex* CheckDbUsePreconditionsAndGetLock(Benchmark* bm) {
+      assert(!holds_db_use_guard_);
+      return &bm->db_lifecycle_rwlock_;
+    }
+
+    ReadLock lock_;
+  };
+
+  class DbStateMutationGuard {
+   public:
+    explicit DbStateMutationGuard(Benchmark* bm)
+        : bm_(bm), lock_(CheckDbMutationPreconditionsAndGetLock(bm)) {
+      bm_->StopSecondaryUpdateThread();
+      holds_db_state_mutation_guard_ = true;
+    }
+    ~DbStateMutationGuard() {
+      assert(holds_db_state_mutation_guard_);
+      holds_db_state_mutation_guard_ = false;
+    }
+    DbStateMutationGuard(const DbStateMutationGuard&) = delete;
+    DbStateMutationGuard& operator=(const DbStateMutationGuard&) = delete;
+    DbStateMutationGuard(DbStateMutationGuard&&) = delete;
+    DbStateMutationGuard& operator=(DbStateMutationGuard&&) = delete;
+
+   private:
+    static port::RWMutex* CheckDbMutationPreconditionsAndGetLock(
+        Benchmark* bm) {
+      assert(!holds_db_state_mutation_guard_);
+      assert(!holds_db_use_guard_);
+      assert(!is_secondary_update_thread_);
+      return &bm->db_lifecycle_rwlock_;
+    }
+
+    Benchmark* bm_;
+    WriteLock lock_;
+  };
+
   struct ThreadArg {
     Benchmark* bm;
     SharedState* shared;
@@ -4209,7 +4341,10 @@ class Benchmark {
     SetPerfLevel(static_cast<PerfLevel>(shared->perf_level));
     perf_context.EnablePerLevelPerfContext();
     thread->stats.Start(thread->tid);
-    (arg->bm->*(arg->method))(thread);
+    {
+      DbUseGuard db_guard(arg->bm);
+      (arg->bm->*(arg->method))(thread);
+    }
     if (FLAGS_perf_level > ROCKSDB_NAMESPACE::PerfLevel::kDisable) {
       thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
                                get_perf_context()->ToString());
@@ -5398,6 +5533,7 @@ class Benchmark {
       if (s.ok() && FLAGS_secondary_update_interval > 0) {
         secondary_update_thread_.reset(new port::Thread(
             [this](int interval, DBWithColumnFamilies* _db) {
+              is_secondary_update_thread_ = true;
               while (0 == secondary_update_stopped_.load(
                               std::memory_order_relaxed)) {
                 Status secondary_update_status =
@@ -5710,6 +5846,10 @@ class Benchmark {
   }
 
   DBWithColumnFamilies* SelectDBWithCfh(uint64_t rand_int) {
+    // Caller MUST hold DbUseGuard (proven by ownership flag). The secondary
+    // update thread does not call this function; it uses its captured
+    // DBWithColumnFamilies* directly.
+    assert(holds_db_use_guard_);
     if (db_.db != nullptr) {
       return &db_;
     } else {
@@ -9500,6 +9640,10 @@ class Benchmark {
     delete backup_engine;
   }
 };
+
+thread_local bool Benchmark::holds_db_use_guard_ = false;
+thread_local bool Benchmark::holds_db_state_mutation_guard_ = false;
+thread_local bool Benchmark::is_secondary_update_thread_ = false;
 
 int db_bench_tool(int argc, char** argv, ToolHooks& hooks) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

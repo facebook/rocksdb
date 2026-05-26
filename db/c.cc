@@ -3771,6 +3771,11 @@ void rocksdb_block_based_options_set_index_block_search_type(
       static_cast<BlockBasedTableOptions::BlockSearchType>(v);
 }
 
+void rocksdb_block_based_options_set_uniform_cv_threshold(
+    rocksdb_block_based_table_options_t* options, double v) {
+  options->rep.uniform_cv_threshold = v;
+}
+
 void rocksdb_block_based_options_set_data_block_hash_ratio(
     rocksdb_block_based_table_options_t* options, double v) {
   options->rep.data_block_hash_table_util_ratio = v;
@@ -5398,6 +5403,16 @@ size_t rocksdb_options_get_memtable_huge_page_size(rocksdb_options_t* opt) {
   return opt->rep.memtable_huge_page_size;
 }
 
+void rocksdb_options_set_memtable_batch_lookup_optimization(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.memtable_batch_lookup_optimization = v;
+}
+
+unsigned char rocksdb_options_get_memtable_batch_lookup_optimization(
+    rocksdb_options_t* opt) {
+  return opt->rep.memtable_batch_lookup_optimization;
+}
+
 void rocksdb_options_set_hash_skip_list_rep(rocksdb_options_t* opt,
                                             size_t bucket_count,
                                             int32_t skiplist_height,
@@ -6245,6 +6260,16 @@ void rocksdb_readoptions_set_async_io(rocksdb_readoptions_t* opt,
 
 unsigned char rocksdb_readoptions_get_async_io(rocksdb_readoptions_t* opt) {
   return opt->rep.async_io;
+}
+
+void rocksdb_readoptions_set_optimize_multiget_for_io(
+    rocksdb_readoptions_t* opt, unsigned char v) {
+  opt->rep.optimize_multiget_for_io = v;
+}
+
+unsigned char rocksdb_readoptions_get_optimize_multiget_for_io(
+    rocksdb_readoptions_t* opt) {
+  return opt->rep.optimize_multiget_for_io;
 }
 
 void rocksdb_readoptions_set_timestamp(rocksdb_readoptions_t* opt,
