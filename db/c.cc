@@ -3771,6 +3771,11 @@ void rocksdb_block_based_options_set_index_block_search_type(
       static_cast<BlockBasedTableOptions::BlockSearchType>(v);
 }
 
+void rocksdb_block_based_options_set_uniform_cv_threshold(
+    rocksdb_block_based_table_options_t* options, double v) {
+  options->rep.uniform_cv_threshold = v;
+}
+
 void rocksdb_block_based_options_set_data_block_hash_ratio(
     rocksdb_block_based_table_options_t* options, double v) {
   options->rep.data_block_hash_table_util_ratio = v;

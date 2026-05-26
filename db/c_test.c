@@ -888,6 +888,9 @@ int main(int argc, char** argv) {
   rocksdb_block_based_options_set_block_cache(table_options, cache);
   rocksdb_block_based_options_set_data_block_index_type(table_options, 1);
   rocksdb_block_based_options_set_data_block_hash_ratio(table_options, 0.75);
+  rocksdb_block_based_options_set_index_block_search_type(
+      table_options, rocksdb_block_based_table_index_block_search_type_auto);
+  rocksdb_block_based_options_set_uniform_cv_threshold(table_options, 0.2);
   rocksdb_block_based_options_set_top_level_index_pinning_tier(table_options,
                                                                1);
   rocksdb_block_based_options_set_partition_pinning_tier(table_options, 2);
