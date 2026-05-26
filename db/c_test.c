@@ -2815,6 +2815,15 @@ int main(int argc, char** argv) {
     rocksdb_options_set_memtable_huge_page_size(o, 25);
     CheckCondition(25 == rocksdb_options_get_memtable_huge_page_size(o));
 
+    // memtable_batch_lookup_optimization defaults to 0; flip to 1 to verify
+    // the setter is wired through to the underlying C++ ColumnFamilyOptions
+    // field.
+    CheckCondition(0 ==
+                   rocksdb_options_get_memtable_batch_lookup_optimization(o));
+    rocksdb_options_set_memtable_batch_lookup_optimization(o, 1);
+    CheckCondition(1 ==
+                   rocksdb_options_get_memtable_batch_lookup_optimization(o));
+
     rocksdb_options_set_max_successive_merges(o, 26);
     CheckCondition(26 == rocksdb_options_get_max_successive_merges(o));
 
@@ -3001,6 +3010,8 @@ int main(int argc, char** argv) {
                    rocksdb_options_get_memtable_prefix_bloom_size_ratio(copy));
     CheckCondition(24 == rocksdb_options_get_max_compaction_bytes(copy));
     CheckCondition(25 == rocksdb_options_get_memtable_huge_page_size(copy));
+    CheckCondition(
+        1 == rocksdb_options_get_memtable_batch_lookup_optimization(copy));
     CheckCondition(26 == rocksdb_options_get_max_successive_merges(copy));
     CheckCondition(27 == rocksdb_options_get_bloom_locality(copy));
     CheckCondition(1 == rocksdb_options_get_inplace_update_support(copy));

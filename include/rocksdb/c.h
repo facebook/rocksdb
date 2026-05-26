@@ -1994,6 +1994,12 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_memtable_huge_page_size(
 extern ROCKSDB_LIBRARY_API size_t
 rocksdb_options_get_memtable_huge_page_size(rocksdb_options_t*);
 
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_memtable_batch_lookup_optimization(rocksdb_options_t*,
+                                                       unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_memtable_batch_lookup_optimization(rocksdb_options_t*);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_successive_merges(
     rocksdb_options_t*, size_t);
 extern ROCKSDB_LIBRARY_API size_t
