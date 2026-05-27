@@ -141,20 +141,28 @@ bool NeedsFaultInjection() {
 
 }  // namespace
 
-const std::string& StressTest::GetDbPath() const { return FLAGS_db; }
+const std::string& StressTest::GetDbLabel() const { return db_label_; }
+
+const std::string& StressTest::GetDbPath() const { return db_path_; }
 
 const std::string& StressTest::GetExpectedValuesDir() const {
-  return FLAGS_expected_values_dir;
+  return expected_values_path_;
 }
 
 const std::string& StressTest::GetSecondariesBase() const {
-  return FLAGS_secondaries_base;
+  return secondaries_path_;
 }
 
 Env* StressTest::GetDbEnv() const { return db_env_.get(); }
 
-StressTest::StressTest()
-    : db_stress_fs_(
+StressTest::StressTest(int db_index, const std::string& db_path,
+                       const std::string& ev_path, const std::string& sec_path)
+    : db_index_(db_index),
+      db_label_("db_" + std::to_string(db_index)),
+      db_path_(db_path),
+      expected_values_path_(ev_path),
+      secondaries_path_(sec_path),
+      db_stress_fs_(
           std::make_shared<DbStressFSWrapper>(raw_env->GetFileSystem())),
       db_fault_injection_fs_(
           NeedsFaultInjection()
@@ -164,7 +172,6 @@ StressTest::StressTest()
           raw_env, db_fault_injection_fs_
                        ? std::shared_ptr<FileSystem>(db_fault_injection_fs_)
                        : std::shared_ptr<FileSystem>(db_stress_fs_))),
-      cache_(NewCache(FLAGS_cache_size, FLAGS_cache_numshardbits)),
       filter_policy_(CreateFilterPolicy()),
       db_(nullptr),
       txn_db_(nullptr),
@@ -202,7 +209,8 @@ StressTest::StressTest()
     }
     std::string log_path = log_dir + "/fault_injection_" +
                            std::to_string(getpid()) + "_" +
-                           std::to_string(Env::Default()->NowMicros()) + ".log";
+                           std::to_string(Env::Default()->NowMicros()) + "_" +
+                           GetDbLabel() + ".log";
     db_fault_injection_fs_->SetInjectedErrorLogPath(log_path);
   }
 
@@ -3988,14 +3996,15 @@ void StressTest::Open(SharedState* shared, bool reopen) {
   assert(db_ == nullptr);
   assert(txn_db_ == nullptr);
   assert(optimistic_txn_db_ == nullptr);
-  const auto& db_path = GetDbPath();
   if (FLAGS_use_trie_index) {
     udi_factory_ = std::make_shared<trie_index::TrieIndexFactory>();
   }
   if (!InitializeOptionsFromFile(options_)) {
-    InitializeOptionsFromFlags(cache_, filter_policy_, udi_factory_, options_);
+    InitializeOptionsFromFlags(block_cache, filter_policy_, udi_factory_,
+                               options_);
   }
-  InitializeOptionsGeneral(cache_, filter_policy_, sqfc_factory_, options_);
+  InitializeOptionsGeneral(block_cache, filter_policy_, sqfc_factory_,
+                           options_);
   // InitializeOptions* helpers set options_.env = raw_env (no fault injection).
   // Override with per-StressTest env that includes FaultInjectionTestFS +
   // DbStressFSWrapper for all DB I/O.
@@ -4118,13 +4127,13 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
   }
 
-  fprintf(stdout, "DB path: [%s]\n", db_path.c_str());
+  fprintf(stdout, "DB path: [%s]\n", GetDbPath().c_str());
 
   Status s;
 
   if (FLAGS_ttl == -1) {
     std::vector<std::string> existing_column_families;
-    s = DB::ListColumnFamilies(DBOptions(options_), db_path,
+    s = DB::ListColumnFamilies(DBOptions(options_), GetDbPath(),
                                &existing_column_families);  // ignore errors
     if (!s.ok()) {
       // DB doesn't exist
@@ -4190,8 +4199,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         InitializeListenersForOpen(shared, cf_descriptors);
 
         const bool open_fault_injection_enabled = MaybeEnableOpenFaultInjection(
-            db_fault_injection_fs_, db_path, open_fault_injection);
-
+            db_fault_injection_fs_, GetDbPath(), open_fault_injection);
         // StackableDB-based BlobDB
         if (FLAGS_use_blob_db) {
           blob_db::BlobDBOptions blob_db_options;
@@ -4199,7 +4207,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
           blob_db_options.enable_garbage_collection = FLAGS_blob_db_enable_gc;
 
           blob_db::BlobDB* blob_db = nullptr;
-          s = blob_db::BlobDB::Open(options_, blob_db_options, db_path,
+          s = blob_db::BlobDB::Open(options_, blob_db_options, GetDbPath(),
                                     cf_descriptors, &column_families_,
                                     &blob_db);
           if (s.ok()) {
@@ -4208,11 +4216,11 @@ void StressTest::Open(SharedState* shared, bool reopen) {
           }
         } else {
           if (db_preload_finished_.load() && FLAGS_read_only) {
-            s = DB::OpenForReadOnly(DBOptions(options_), db_path,
+            s = DB::OpenForReadOnly(DBOptions(options_), GetDbPath(),
                                     cf_descriptors, &column_families_,
                                     &db_owner_);
           } else {
-            s = DB::Open(DBOptions(options_), db_path, cf_descriptors,
+            s = DB::Open(DBOptions(options_), GetDbPath(), cf_descriptors,
                          &column_families_, &db_owner_);
           }
           if (s.ok()) {
@@ -4278,7 +4286,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
           optimistic_txn_db_options.shared_lock_buckets = nullptr;
         }
         s = OptimisticTransactionDB::Open(
-            options_, optimistic_txn_db_options, db_path, cf_descriptors,
+            options_, optimistic_txn_db_options, GetDbPath(), cf_descriptors,
             &column_families_, &optimistic_txn_db_);
         if (!s.ok()) {
           fprintf(stderr, "Error in opening the OptimisticTransactionDB [%s]\n",
@@ -4316,7 +4324,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         txn_db_options.use_per_key_point_lock_mgr =
             FLAGS_use_per_key_point_lock_mgr;
         PrepareTxnDbOptions(shared, txn_db_options);
-        s = TransactionDB::Open(options_, txn_db_options, db_path,
+        s = TransactionDB::Open(options_, txn_db_options, GetDbPath(),
                                 cf_descriptors, &column_families_, &txn_db_);
         if (!s.ok()) {
           fprintf(stderr, "Error in opening the TransactionDB [%s]\n",
@@ -4357,15 +4365,15 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       tmp_opts.max_open_files = -1;
       tmp_opts.env = GetDbEnv();
       const std::string& secondary_path = GetSecondariesBase();
-      s = DB::OpenAsSecondary(tmp_opts, db_path, secondary_path, cf_descriptors,
-                              &secondary_cfhs_, &secondary_db_);
+      s = DB::OpenAsSecondary(tmp_opts, GetDbPath(), secondary_path,
+                              cf_descriptors, &secondary_cfhs_, &secondary_db_);
       assert(s.ok());
       assert(secondary_cfhs_.size() ==
              static_cast<size_t>(FLAGS_column_families));
     }
   } else {
     DBWithTTL* db_with_ttl;
-    s = DBWithTTL::Open(options_, db_path, &db_with_ttl, FLAGS_ttl);
+    s = DBWithTTL::Open(options_, GetDbPath(), &db_with_ttl, FLAGS_ttl);
     db_owner_.reset(db_with_ttl);
     db_ = db_with_ttl;
   }
@@ -4457,7 +4465,8 @@ void StressTest::RecordManifestStateBeforeReopen() {
 
   // Record MANIFEST file info
   std::vector<std::string> files;
-  Status s = Env::Default()->GetChildren(FLAGS_db, &files);
+  const std::string& db_path = GetDbPath();
+  Status s = Env::Default()->GetChildren(db_path, &files);
   if (!s.ok()) {
     fprintf(
         stderr,
@@ -4477,7 +4486,8 @@ void StressTest::RecordManifestStateBeforeReopen() {
       FileType type;
       if (ParseFileName(f, &number, &type) && type == kDescriptorFile) {
         manifest_file_number_before_reopen_ = number;
-        std::string manifest_path = FLAGS_db + "/" + f;
+        std::string manifest_path = db_path;
+        manifest_path.append("/").append(f);
         Status file_s = Env::Default()->GetFileSize(
             manifest_path, &manifest_file_size_before_reopen_);
         if (!file_s.ok()) {
@@ -4494,7 +4504,8 @@ void StressTest::RecordManifestStateBeforeReopen() {
   // Record CURRENT file content for both REUSE_ONLY and REUSE_AND_CURRENT
   // modes. If the MANIFEST file is reused (same file number), CURRENT should
   // not be updated since it already points to the correct MANIFEST.
-  std::string current_path = FLAGS_db + "/CURRENT";
+  std::string current_path = db_path;
+  current_path.append("/CURRENT");
   s = ReadFileToString(Env::Default(), current_path,
                        &current_file_content_before_reopen_);
   if (!s.ok()) {
@@ -4513,8 +4524,9 @@ void StressTest::VerifyManifestNotRewritten() {
   const bool strict_mode = (manifest_verify_mode_ == MANIFEST_VERIFY_STRICT);
 
   // Get current MANIFEST file info
+  const std::string& db_path = GetDbPath();
   std::vector<std::string> files;
-  Status s = Env::Default()->GetChildren(FLAGS_db, &files);
+  Status s = Env::Default()->GetChildren(db_path, &files);
   if (!s.ok()) {
     fprintf(
         stderr,
@@ -4533,7 +4545,8 @@ void StressTest::VerifyManifestNotRewritten() {
       FileType type;
       if (ParseFileName(f, &number, &type) && type == kDescriptorFile) {
         current_manifest_number = number;
-        std::string manifest_path = FLAGS_db + "/" + f;
+        std::string manifest_path = db_path;
+        manifest_path.append("/").append(f);
         Env::Default()->GetFileSize(manifest_path, &current_manifest_size);
         break;
       }
@@ -4611,7 +4624,8 @@ void StressTest::VerifyManifestNotRewritten() {
   // If the MANIFEST file was reused (same file number), CURRENT should not
   // have been modified since it already points to the correct MANIFEST.
   if (!current_file_content_before_reopen_.empty()) {
-    std::string current_path = FLAGS_db + "/CURRENT";
+    std::string current_path = db_path;
+    current_path.append("/CURRENT");
     std::string current_content;
     s = ReadFileToString(Env::Default(), current_path, &current_content);
     if (s.ok()) {
@@ -4970,8 +4984,7 @@ void InitializeOptionsFromFlags(
   options.memtable_prefix_bloom_size_ratio =
       FLAGS_memtable_prefix_bloom_size_ratio;
   if (FLAGS_use_write_buffer_manager) {
-    options.write_buffer_manager.reset(
-        new WriteBufferManager(FLAGS_db_write_buffer_size, block_cache));
+    options.write_buffer_manager = wbm;
   }
   options.memtable_whole_key_filtering = FLAGS_memtable_whole_key_filtering;
   if (ShouldDisableAutoCompactionsBeforeVerifyDb()) {
@@ -5314,14 +5327,8 @@ void InitializeOptionsGeneral(
 
   // TODO: row_cache, thread-pool IO priority, CPU priority.
 
-  if (!options.rate_limiter) {
-    if (FLAGS_rate_limiter_bytes_per_sec > 0) {
-      options.rate_limiter.reset(NewGenericRateLimiter(
-          FLAGS_rate_limiter_bytes_per_sec, 1000 /* refill_period_us */,
-          10 /* fairness */,
-          FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
-                                    : RateLimiter::Mode::kWritesOnly));
-    }
+  if (!options.rate_limiter && rate_limiter) {
+    options.rate_limiter = rate_limiter;
   }
 
   if (!options.file_checksum_gen_factory) {
