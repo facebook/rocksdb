@@ -737,6 +737,8 @@ Status PessimisticTransaction::Commit() {
     if (!s.ok()) {
       ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
                      "Commit write failed");
+      // Keep the transaction rollbackable after the commit marker write fails.
+      txn_state_.store(PREPARED);
       return s;
     }
 
@@ -1003,6 +1005,10 @@ Status PessimisticTransaction::Rollback() {
           log_number_);
       Clear();
       txn_state_.store(ROLLEDBACK);
+    } else {
+      // Rollback writes can fail under retryable IO errors. Preserve the state
+      // so callers can retry after error recovery.
+      txn_state_.store(PREPARED);
     }
   } else if (txn_state_ == STARTED) {
     if (log_number_ > 0) {
