@@ -14,6 +14,8 @@ import sys
 import urllib.request
 
 DOWNLOAD_TIMEOUT_SECONDS = 120
+DOWNLOAD_CHUNK_BYTES = 64 * 1024
+MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
 
 MIRROR_FALLBACKS = {
     "ftpmirror.gnu.org/gnu/": [
@@ -28,6 +30,8 @@ MIRROR_FALLBACKS = {
     ],
 }
 
+# These packages must have URLs matching MIRROR_FALLBACKS; other packages are
+# left for getdeps.py's normal download path.
 PACKAGES_TO_CHECK = ("autoconf", "automake", "libtool", "libiberty")
 
 
@@ -45,6 +49,7 @@ def sha256_file(path):
 
 def parse_manifest(manifest_path):
     """Parse a getdeps manifest file to extract download info."""
+    # folly manifests can contain bare keys in sections unrelated to downloads.
     config = configparser.ConfigParser(allow_no_value=True, interpolation=None)
     try:
         with open(manifest_path, encoding="utf-8") as manifest_file:
@@ -59,6 +64,13 @@ def parse_manifest(manifest_path):
             "sha256": config["download"].get("sha256", ""),
         }
     return None
+
+
+def file_size(path):
+    try:
+        return os.path.getsize(path)
+    except Exception:
+        return None
 
 
 def get_fallback_mirrors(url):
@@ -85,7 +97,18 @@ def download_url(url, filepath):
         with urllib.request.urlopen(
             request, timeout=DOWNLOAD_TIMEOUT_SECONDS
         ) as response, open(tmp_filepath, "wb") as output:
-            shutil.copyfileobj(response, output)
+            copied = 0
+            while True:
+                chunk = response.read(DOWNLOAD_CHUNK_BYTES)
+                if not chunk:
+                    break
+
+                copied += len(chunk)
+                if copied > MAX_DOWNLOAD_BYTES:
+                    raise Exception(
+                        f"download exceeds {MAX_DOWNLOAD_BYTES} bytes"
+                    )
+                output.write(chunk)
         os.replace(tmp_filepath, filepath)
     finally:
         if os.path.exists(tmp_filepath):
@@ -120,7 +143,8 @@ def prepare_download(package, info, download_dir, cache_dir):
         )
         os.remove(filepath)
 
-    # Check cache.
+    # The cache is only an opportunistic single-build accelerator; callers
+    # should not share it across concurrent builds without external locking.
     actual_sha256 = sha256_file(cache_path) if os.path.exists(cache_path) else None
     if actual_sha256 == expected_sha256:
         print(f"  {filename}: OK (from cache)")
@@ -143,12 +167,13 @@ def prepare_download(package, info, download_dir, cache_dir):
             continue
 
         actual_sha256 = sha256_file(filepath)
-        size = os.path.getsize(filepath)
         if actual_sha256 == expected_sha256:
+            size = file_size(filepath)
             print(f"  {filename}: OK (downloaded, {size} bytes)")
             shutil.copy2(filepath, cache_path)
             return True
 
+        size = file_size(filepath)
         print(
             f"  {filename}: WARNING - sha256 mismatch from {mirror_url}: "
             f"expected={expected_sha256} actual={actual_sha256} size={size}"
@@ -177,6 +202,10 @@ def main():
 
         info = parse_manifest(manifest_path)
         if not info or not info["url"]:
+            continue
+
+        if not info["sha256"]:
+            print(f"  {package}: WARNING - skipped fallback without sha256")
             continue
 
         if not get_fallback_mirrors(info["url"]):
