@@ -234,6 +234,11 @@ class Transaction {
   // TransactionOptions.expiration. Status::TxnNotPrepared() may be returned if
   // TransactionOptions.skip_prepare is false and Prepare is not called on this
   // transaction before Commit.
+  //
+  // For TransactionDB transactions using 2PC, if Commit() returns non-OK after
+  // Prepare() succeeds, the transaction may still need to be resolved. Unless
+  // the application resolves it another way, call Rollback() before destroying
+  // the transaction or closing the DB.
   virtual Status Commit() = 0;
 
   // In addition to Commit(), also creates a snapshot of the db after all
@@ -259,7 +264,16 @@ class Transaction {
       std::shared_ptr<const Snapshot>* snapshot = nullptr);
 
   // Discard all batched writes in this transaction.
-  // FIXME: what happens if this isn't called before destruction?
+  //
+  // Transactions should normally be completed with Commit() or Rollback()
+  // before destruction and before closing the DB. Destroying a Transaction
+  // object releases its in-memory resources, but it is not a substitute for
+  // resolving a prepared transaction.
+  //
+  // Rollback() can return write errors when it needs to write rollback state,
+  // such as for prepared transactions. If it returns a retryable I/O error,
+  // recover the DB (for example by calling DB::Resume() when applicable) and
+  // retry Rollback() before closing the DB.
   virtual Status Rollback() = 0;
 
   // Records the state of the transaction for future calls to
