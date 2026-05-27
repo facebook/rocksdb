@@ -78,6 +78,7 @@ struct PerfContextByLevelInt {
   defCmd(multiget_read_bytes)                      \
   defCmd(iter_read_bytes)                          \
   defCmd(blob_cache_hit_count)                     \
+  defCmd(blob_cache_read_byte)                     \
   defCmd(blob_read_count)                          \
   defCmd(blob_read_byte)                           \
   defCmd(blob_read_time)                           \
