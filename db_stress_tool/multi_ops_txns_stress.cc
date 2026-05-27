@@ -1767,8 +1767,11 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
   }
 }
 
-StressTest* CreateMultiOpsTxnsStressTest() {
-  return new MultiOpsTxnsStressTest();
+StressTest* CreateMultiOpsTxnsStressTest(int db_index,
+                                         const std::string& db_path,
+                                         const std::string& ev_path,
+                                         const std::string& sec_path) {
+  return new MultiOpsTxnsStressTest(db_index, db_path, ev_path, sec_path);
 }
 
 void CheckAndSetOptionsForMultiOpsTxnStressTest() {

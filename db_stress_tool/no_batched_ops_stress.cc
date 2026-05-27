@@ -24,7 +24,10 @@
 namespace ROCKSDB_NAMESPACE {
 class NonBatchedOpsStressTest : public StressTest {
  public:
-  NonBatchedOpsStressTest() = default;
+  NonBatchedOpsStressTest(int db_index, const std::string& db_path,
+                          const std::string& ev_path,
+                          const std::string& sec_path)
+      : StressTest(db_index, db_path, ev_path, sec_path) {}
 
   virtual ~NonBatchedOpsStressTest() = default;
 
@@ -3485,8 +3488,11 @@ class NonBatchedOpsStressTest : public StressTest {
   }
 };
 
-StressTest* CreateNonBatchedOpsStressTest() {
-  return new NonBatchedOpsStressTest();
+StressTest* CreateNonBatchedOpsStressTest(int db_index,
+                                          const std::string& db_path,
+                                          const std::string& ev_path,
+                                          const std::string& sec_path) {
+  return new NonBatchedOpsStressTest(db_index, db_path, ev_path, sec_path);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

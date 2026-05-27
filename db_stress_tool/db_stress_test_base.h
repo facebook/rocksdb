@@ -42,10 +42,12 @@ class StressTest {
   // from optimistic transactions when conflict detection retries are exhausted.
   static bool IsExpectedTxnError(const Status& s);
 
-  StressTest();
+  StressTest(int db_index, const std::string& db_path,
+             const std::string& ev_path, const std::string& sec_path);
 
   virtual ~StressTest() {}
 
+  const std::string& GetDbLabel() const;
   const std::string& GetDbPath() const;
   const std::string& GetExpectedValuesDir() const;
   const std::string& GetSecondariesBase() const;
@@ -58,7 +60,8 @@ class StressTest {
   // See db_env_ member.
   Env* GetDbEnv() const;
 
-  std::shared_ptr<Cache> NewCache(size_t capacity, int32_t num_shard_bits);
+  static std::shared_ptr<Cache> NewCache(size_t capacity,
+                                         int32_t num_shard_bits);
 
   static std::vector<std::string> GetBlobCompressionTags();
 
@@ -459,13 +462,17 @@ class StressTest {
   void RecordManifestStateBeforeReopen();
   void VerifyManifestNotRewritten();
 
+  int db_index_;
+  std::string db_label_;
+  std::string db_path_;
+  std::string expected_values_path_;
+  std::string secondaries_path_;
   // Wraps raw_env->GetFileSystem(). See DbStressFSWrapper.
   std::shared_ptr<DbStressFSWrapper> db_stress_fs_;
   // Wraps db_stress_fs_ when NeedsFaultInjection(). Null otherwise.
   std::shared_ptr<FaultInjectionTestFS> db_fault_injection_fs_;
   // Wraps the outermost FS above. Set as options_.env for all DB I/O.
   std::unique_ptr<CompositeEnvWrapper> db_env_;
-  std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
   std::unique_ptr<DB> db_owner_;

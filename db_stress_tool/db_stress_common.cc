@@ -22,6 +22,8 @@
 ROCKSDB_NAMESPACE::Env* raw_env = nullptr;
 std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> compressed_secondary_cache;
 std::shared_ptr<ROCKSDB_NAMESPACE::Cache> block_cache;
+std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager> wbm;
+std::shared_ptr<ROCKSDB_NAMESPACE::RateLimiter> rate_limiter;
 enum ROCKSDB_NAMESPACE::CompressionType compression_type_e =
     ROCKSDB_NAMESPACE::kSnappyCompression;
 enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e =
@@ -884,8 +886,7 @@ Status DbStressDestroyDb(const std::string& db_path) {
   if (!s.ok()) {
     return s;
   }
-  // Remove everything else recursively, only reporting success if able to
-  // delete everything
+  // Remove everything else recursively (catches MANIFEST_renamed_ files)
   return DestroyDir(raw_env, db_path);
 }
 
