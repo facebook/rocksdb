@@ -2897,6 +2897,61 @@ TEST_P(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   Close();
 }
 
+TEST_F(PrecludeLastLevelTestBase,
+       RangeDelAtProximalSeqnoBoundaryStaysInLastLevel) {
+  constexpr int kNumLevels = 7;
+
+  Options options = CurrentOptions();
+  options.env = mock_env_.get();
+  options.num_levels = kNumLevels;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  Defer close_db([&] { Close(); });
+
+  ASSERT_OK(Put(Key(2), "old"));
+  ASSERT_OK(Put(Key(12), "old"));
+  ManagedSnapshot snapshot(db_.get());
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(2),
+                             Key(12)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+
+  const int l5_file_keys[][2] = {{0, 4}, {5, 9}};
+  for (const auto& l5_file : l5_file_keys) {
+    ASSERT_OK(Put(Key(l5_file[0]), "hot"));
+    ASSERT_OK(Put(Key(l5_file[1]), "hot"));
+    ASSERT_OK(Flush());
+    MoveFilesToLevel(5);
+  }
+  ASSERT_EQ("0,0,0,0,0,2,1", FilesPerLevel());
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::PrepareTimes():preclude_last_level_min_seqno",
+      [](void* arg) { *static_cast<SequenceNumber*>(arg) = 0; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db_->SetOptions({{"preclude_last_level_data_seconds", "10000"}}));
+
+  auto l5_files = GetLevelFileMetadatas(5);
+  auto l6_files = GetLevelFileMetadatas(6);
+  ASSERT_EQ(2, l5_files.size());
+  ASSERT_EQ(1, l6_files.size());
+
+  ASSERT_OK(db_->CompactFiles(CompactionOptions(),
+                              {MakeTableFileName(l5_files[1]->fd.GetNumber()),
+                               MakeTableFileName(l6_files[0]->fd.GetNumber())},
+                              6));
+
+  uint64_t l6_range_deletions = 0;
+  for (auto* f : GetLevelFileMetadatas(5)) {
+    ASSERT_EQ(0, f->num_range_deletions);
+  }
+  for (auto* f : GetLevelFileMetadatas(6)) {
+    l6_range_deletions += f->num_range_deletions;
+  }
+  ASSERT_GT(l6_range_deletions, 0);
+}
+
 // Tests DBIter::GetProperty("rocksdb.iterator.write-time") return a data's
 // approximate write unix time.
 class IteratorWriteTimeTest
