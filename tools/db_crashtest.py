@@ -519,8 +519,9 @@ default_params = {
     "use_multiscan": random.choice([1] + [0] * 3),
     # By default, `statistics` use kExceptDetailedTimers level
     "statistics": random.choice([0, 1]),
-    # TODO: re-enable after resolving "Req failed: Unknown error -14" errors
-    "multiscan_use_async_io": 0,  # random.randint(0, 1),
+    # Keep this low-probability so we exercise async MultiScan/IODispatcher
+    # paths without making every run depend on async FS support.
+    "multiscan_use_async_io": lambda: random.choice([0, 0, 1]),
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
@@ -930,6 +931,42 @@ multiops_txn_params = {
     "use_attribute_group": 0,
     "commit_bypass_memtable_one_in": random.choice([0] * 4 + [100]),
 }
+
+
+_OPERATION_PERCENT_KEYS = (
+    "readpercent",
+    "prefixpercent",
+    "writepercent",
+    "delpercent",
+    "delrangepercent",
+    "iterpercent",
+    "customopspercent",
+)
+
+
+def normalize_operation_percents(dest_params):
+    total = sum(int(dest_params.get(key, 0) or 0) for key in _OPERATION_PERCENT_KEYS)
+    if total == 100:
+        return
+
+    # Run this after all sanitization. Earlier folds can preserve the total
+    # locally, but later guards can still perturb it again.
+    # When callers also override the operation mix on the command line, the
+    # final total can drift away from db_stress's required 100%. Use reads as
+    # the residual bucket since it is always a valid fallback operation.
+    adjusted_readpercent = int(dest_params.get("readpercent", 0) or 0) + (100 - total)
+    if adjusted_readpercent < 0:
+        raise ValueError(
+            "Cannot normalize db_stress operation percents to 100: "
+            f"current total={total}, readpercent={dest_params.get('readpercent', 0)}"
+        )
+
+    print(
+        "Normalizing db_stress operation percents: "
+        f"total={total}, readpercent={dest_params.get('readpercent', 0)} "
+        f"-> {adjusted_readpercent}"
+    )
+    dest_params["readpercent"] = adjusted_readpercent
 
 
 def finalize_and_sanitize(src_params):
@@ -1530,6 +1567,7 @@ def finalize_and_sanitize(src_params):
         dest_params["async_io"] = 0
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
+        # MultiScan relies on full keyspace iteration (no prefix extractor).
         dest_params["prefix_size"] = -1
         dest_params["iterpercent"] += dest_params["prefixpercent"]
         dest_params["prefixpercent"] = 0
@@ -1547,6 +1585,9 @@ def finalize_and_sanitize(src_params):
         dest_params["multiscan_max_prefetch_memory_bytes"] = random.choice(
             [0, 0, 64 * 1024, 256 * 1024]
         )
+    else:
+        # Keep async-MultiScan knob meaningful only when MultiScan is active.
+        dest_params["multiscan_use_async_io"] = 0
 
     # open_files_async requires skip_stats_update_on_db_open to avoid
     # synchronous I/O in UpdateAccumulatedStats during DB open
@@ -1572,6 +1613,8 @@ def finalize_and_sanitize(src_params):
     # write presets that force disable_wal=1 earlier in sanitization.
     if dest_params.get("disable_wal", 0) == 1:
         dest_params["test_batches_snapshots"] = 0
+
+    normalize_operation_percents(dest_params)
 
     return dest_params
 

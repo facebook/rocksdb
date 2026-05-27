@@ -6,6 +6,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -31,9 +32,13 @@ struct PendingPrefetchRequest;
 
 // Options for configuring IODispatcher behavior
 struct IODispatcherOptions {
-  // Maximum memory (in bytes) for prefetching across all ReadSets.
-  // When this limit is reached, SubmitJob() blocks until memory is released.
-  // Set to 0 (default) for unlimited prefetch memory.
+  // Target memory budget (in bytes) for prefetched blocks across all ReadSets.
+  // SubmitJob() never blocks on this budget. When the dispatcher cannot grant
+  // more bytes immediately, remaining blocks stay pending for later dispatch
+  // and may fall back to synchronous reads on demand. Fairness reservations may
+  // allow outstanding prefetched bytes to temporarily exceed this value so
+  // active levels / L0 files can keep making progress under pressure. Set to 0
+  // (default) for unlimited prefetch memory.
   size_t max_prefetch_memory_bytes = 0;
 
   // Optional statistics for tracking memory limiter metrics
@@ -213,9 +218,15 @@ class ReadSet {
   bool IsBlockAvailable(size_t block_index) const;
 
   // Statistics accessors
-  uint64_t GetNumSyncReads() const { return num_sync_reads_; }
-  uint64_t GetNumAsyncReads() const { return num_async_reads_; }
-  uint64_t GetNumCacheHits() const { return num_cache_hits_; }
+  uint64_t GetNumSyncReads() const {
+    return num_sync_reads_.load(std::memory_order_relaxed);
+  }
+  uint64_t GetNumAsyncReads() const {
+    return num_async_reads_.load(std::memory_order_relaxed);
+  }
+  uint64_t GetNumCacheHits() const {
+    return num_cache_hits_.load(std::memory_order_relaxed);
+  }
 
  private:
   friend class IODispatcherImpl;
@@ -243,8 +254,16 @@ class ReadSet {
   // cycles)
   std::weak_ptr<IODispatcherImplData> dispatcher_data_;
 
-  // Size of each block (parallel to pinned_blocks_) for memory accounting
+  // Actual size of each block (parallel to pinned_blocks_) for pending
+  // prefetch bookkeeping.
   std::vector<size_t> block_sizes_;
+
+  // Bytes actually acquired from the dispatcher for each block. This can
+  // differ from block_sizes_ when blocks are pending or fall back to sync read.
+  std::vector<size_t> acquired_bytes_;
+
+  // Opaque token identifying the fairness group for this ReadSet's job.
+  void* fairness_group_token_ = nullptr;
 
   // Statistics counters
   std::atomic<uint64_t> num_sync_reads_ = 0;

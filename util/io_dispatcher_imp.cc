@@ -16,6 +16,7 @@
 
 #include <deque>
 #include <memory>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -36,12 +37,20 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+struct PendingPrefetchRequest;
+
+namespace {
+
+constexpr size_t kMinFairnessReservationBytes = 8 * 1024;
+
+}  // namespace
+
 // IODispatcherImplData is the base that provides ReleaseMemory interface
 // for ReadSets to call back when releasing blocks. Defined here so it's
 // visible to ReadSet methods.
 struct IODispatcherImplData {
   virtual ~IODispatcherImplData() = default;
-  virtual void ReleaseMemory(size_t bytes) = 0;
+  virtual void ReleaseMemory(size_t bytes, void* fairness_group_token) = 0;
 };
 
 // Helper function to create and pin a block from a buffer
@@ -111,14 +120,13 @@ struct AsyncIOState {
 // Must call AbortIO before deleting handles to avoid use-after-free when
 // io_uring completions arrive for deleted handles.
 ReadSet::~ReadSet() {
-  // Release memory for any blocks still pinned
-  // Note: block_sizes_[i] is only set for async IO reads where memory
-  // limiting applies. For sync reads, block_sizes_ remains 0, so this
-  // loop is effectively a no-op for sync reads.
+  // Release memory for any blocks that actually acquired prefetch budget.
   if (auto dispatcher_data = dispatcher_data_.lock()) {
-    for (size_t i = 0; i < block_sizes_.size(); ++i) {
-      if (block_sizes_[i] > 0 && pinned_blocks_[i].GetValue()) {
-        dispatcher_data->ReleaseMemory(block_sizes_[i]);
+    for (size_t i = 0; i < acquired_bytes_.size(); ++i) {
+      if (acquired_bytes_[i] > 0) {
+        dispatcher_data->ReleaseMemory(acquired_bytes_[i],
+                                       fairness_group_token_);
+        acquired_bytes_[i] = 0;
       }
     }
   }
@@ -171,11 +179,13 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
     // Release memory accounting for prefetched blocks. After moving the value
     // out, ReleaseBlock() and the destructor check pinned_blocks_.GetValue()
     // which will be null, so they won't release memory again.
-    if (block_index < block_sizes_.size() && block_sizes_[block_index] > 0) {
+    if (block_index < acquired_bytes_.size() &&
+        acquired_bytes_[block_index] > 0) {
       if (auto dispatcher_data = dispatcher_data_.lock()) {
-        dispatcher_data->ReleaseMemory(block_sizes_[block_index]);
+        dispatcher_data->ReleaseMemory(acquired_bytes_[block_index],
+                                       fairness_group_token_);
       }
-      block_sizes_[block_index] = 0;
+      acquired_bytes_[block_index] = 0;
     }
     // Note: Statistics for this block were already counted during SubmitJob
     // (either as cache hit or sync read)
@@ -194,18 +204,20 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
         return s;
       }
       // Count all blocks that were read in this async request
-      num_async_reads_ += num_blocks_in_request;
+      num_async_reads_.fetch_add(num_blocks_in_request,
+                                 std::memory_order_relaxed);
 
       // After polling, the block should be in pinned_blocks_
       if (pinned_blocks_[block_index].GetValue()) {
         *out = std::move(pinned_blocks_[block_index]);
         // Release memory accounting (same as case 1 above)
-        if (block_index < block_sizes_.size() &&
-            block_sizes_[block_index] > 0) {
+        if (block_index < acquired_bytes_.size() &&
+            acquired_bytes_[block_index] > 0) {
           if (auto dispatcher_data = dispatcher_data_.lock()) {
-            dispatcher_data->ReleaseMemory(block_sizes_[block_index]);
+            dispatcher_data->ReleaseMemory(acquired_bytes_[block_index],
+                                           fairness_group_token_);
           }
-          block_sizes_[block_index] = 0;
+          acquired_bytes_[block_index] = 0;
         }
         return Status::OK();
       }
@@ -225,7 +237,7 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
   Status s = SyncRead(block_index);
   if (s.ok()) {
     *out = std::move(pinned_blocks_[block_index]);
-    num_sync_reads_++;
+    num_sync_reads_.fetch_add(1, std::memory_order_relaxed);
   }
   return s;
 }
@@ -273,15 +285,14 @@ void ReadSet::ReleaseBlock(size_t block_index) {
   RemoveFromPending(block_index);
 
   // Release memory BEFORE unpinning
-  // Note: block_sizes_[idx] is only set for async IO reads where memory
-  // limiting applies. For sync reads, block_sizes_ remains 0, so this
-  // check implicitly skips ReleaseMemory for sync reads.
   if (pinned_blocks_[block_index].GetValue() &&
-      block_index < block_sizes_.size() && block_sizes_[block_index] > 0) {
+      block_index < acquired_bytes_.size() &&
+      acquired_bytes_[block_index] > 0) {
     if (auto dispatcher_data = dispatcher_data_.lock()) {
-      dispatcher_data->ReleaseMemory(block_sizes_[block_index]);
+      dispatcher_data->ReleaseMemory(acquired_bytes_[block_index],
+                                     fairness_group_token_);
     }
-    block_sizes_[block_index] = 0;  // Prevent double-release
+    acquired_bytes_[block_index] = 0;  // Prevent double-release
   }
 
   // Unpin the block from cache
@@ -398,7 +409,9 @@ struct PendingPrefetchRequest {
   // Individual block indices still pending (for RemoveFromPending lookup)
   std::unordered_set<size_t> block_indices_to_prefetch;
 
-  std::atomic<size_t> pending_bytes_{0};  // Track remaining bytes
+  // Protected by groups_mutex_ after publication into pending_requests under
+  // pending_mutex_.
+  size_t pending_bytes_ = 0;
   mutable port::Mutex groups_mutex_;  // Protects groups and set modifications
 };
 
@@ -409,7 +422,8 @@ void ReadSet::RemoveFromPending(size_t block_index) {
   }
 
   // Atomic exchange - returns true only if it was previously true
-  if (!pending_prefetch_flags_[block_index].exchange(false)) {
+  if (!pending_prefetch_flags_[block_index].exchange(
+          false, std::memory_order_relaxed)) {
     return;  // Already removed or never pending
   }
 
@@ -423,6 +437,72 @@ void ReadSet::RemoveFromPending(size_t block_index) {
 // IODispatcherImpl::Impl inherits from IODispatcherImplData
 struct IODispatcherImpl::Impl : public IODispatcherImplData,
                                 public std::enable_shared_from_this<Impl> {
+  // Fairness groups partition prefetch reservation by where data lives in the
+  // LSM:
+  // - L1+ files share one group per level.
+  // - L0 files each get their own group (overlapping L0 files are treated
+  //   independently).
+  // - Unknown level/file metadata falls back to the default group.
+  //
+  // Example: for an LSM with L0 files {F101, F102}, L1 files {F201...}, and L2
+  // files {F301...}, the dispatcher tracks four groups:
+  //   1) L0 file F101
+  //   2) L0 file F102
+  //   3) Level 1
+  //   4) Level 2
+  // This lets one hot level/file use its own reserved bytes without starving
+  // prefetch from other levels/files when the global budget is under pressure.
+  //
+  // Scheduling is intentionally two-stage:
+  // - SubmitJob() first tries to dispatch that job's coalesced groups in order.
+  // - Groups that cannot get memory become pending in a FIFO queue owned by
+  //   their fairness group.
+  // - TryDispatchPendingPrefetches() then walks the pending fairness groups
+  //   round-robin, giving each group at most one coalesced prefetch group per
+  //   pass before re-enqueueing it at the back if it still has work.
+  //
+  // In the example above, once prefetch starts queueing, F101, F102, L1, and
+  // L2 each get turns instead of one hot level/file keeping the whole pending
+  // queue in front of the others.
+  enum class FairnessScope {
+    kDefault,
+    kLevel,
+    kL0File,
+  };
+
+  struct FairnessGroupKey {
+    FairnessScope scope = FairnessScope::kDefault;
+    int level = -1;
+    uint64_t file_number = 0;
+
+    bool operator==(const FairnessGroupKey& other) const {
+      return scope == other.scope && level == other.level &&
+             file_number == other.file_number;
+    }
+  };
+
+  struct FairnessGroupKeyHash {
+    size_t operator()(const FairnessGroupKey& key) const {
+      size_t hash = std::hash<int>()(static_cast<int>(key.scope));
+      hash ^=
+          std::hash<int>()(key.level) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+      hash ^= std::hash<uint64_t>()(key.file_number) + 0x9e3779b9 +
+              (hash << 6) + (hash >> 2);
+      return hash;
+    }
+  };
+
+  struct FairnessGroupState {
+    explicit FairnessGroupState(uint64_t initial_debug_group_id = 0)
+        : debug_group_id(initial_debug_group_id) {}
+
+    std::atomic<size_t> reserved_bytes{0};
+    std::atomic<size_t> memory_used_{0};
+    std::deque<std::shared_ptr<PendingPrefetchRequest>> pending_requests;
+    bool in_dispatch_queue = false;
+    uint64_t debug_group_id = 0;
+  };
+
   explicit Impl(const IODispatcherOptions& options);
   ~Impl() override;
 
@@ -435,19 +515,36 @@ struct IODispatcherImpl::Impl : public IODispatcherImplData,
   Status SubmitJob(const std::shared_ptr<IOJob>& job,
                    std::shared_ptr<ReadSet>* read_set);
 
-  // Memory management methods - non-blocking
-  bool TryAcquireMemory(size_t bytes);
-  void ReleaseMemory(size_t bytes) override;
+  FairnessGroupState* GetOrCreateFairnessGroup(
+      const std::shared_ptr<IOJob>& job);
+  size_t GetReservedBytesForJob(const std::shared_ptr<IOJob>& job) const;
+
+  // Memory management methods.
+  bool TryAcquireMemory(size_t bytes, FairnessGroupState* fairness_group,
+                        bool* used_reserved_bytes = nullptr);
+  bool TryAcquireMemoryLocked(size_t bytes, FairnessGroupState* fairness_group,
+                              bool* used_reserved_bytes = nullptr);
+  void ReleaseMemory(size_t bytes, void* fairness_group_token) override;
 
   // Memory limiting state
   size_t max_prefetch_memory_bytes_ = 0;
   std::atomic<size_t> memory_used_{0};  // Atomic for lock-free accounting
   std::atomic<bool> has_pending_requests_{false};  // Fast-path check
-  port::Mutex memory_mutex_;  // Only for pending_prefetch_queue_ access
-  std::deque<std::shared_ptr<PendingPrefetchRequest>> pending_prefetch_queue_;
+  port::Mutex accounting_mutex_;
+  port::Mutex pending_mutex_;
+  std::unique_ptr<FairnessGroupState> default_fairness_group_;
+  std::unordered_map<FairnessGroupKey, std::unique_ptr<FairnessGroupState>,
+                     FairnessGroupKeyHash>
+      fairness_groups_;
+  std::deque<FairnessGroupState*> pending_fairness_groups_;
   Statistics* statistics_ = nullptr;
+  uint64_t next_fairness_group_id_ = 1;
 
  private:
+  void EnqueuePendingGroupLocked(FairnessGroupState* fairness_group);
+  std::shared_ptr<PendingPrefetchRequest> GetFrontPendingRequestLocked(
+      FairnessGroupState* fairness_group);
+
   void PrepareIORequests(
       const std::shared_ptr<IOJob>& job,
       const std::vector<size_t>& block_indices_to_read,
@@ -487,47 +584,181 @@ struct IODispatcherImpl::Impl : public IODispatcherImplData,
 
 IODispatcherImpl::Impl::Impl(const IODispatcherOptions& options)
     : max_prefetch_memory_bytes_(options.max_prefetch_memory_bytes),
+      default_fairness_group_(std::make_unique<FairnessGroupState>(0)),
       statistics_(options.statistics) {}
 
 IODispatcherImpl::Impl::~Impl() {}
 
-bool IODispatcherImpl::Impl::TryAcquireMemory(size_t bytes) {
+size_t IODispatcherImpl::Impl::GetReservedBytesForJob(
+    const std::shared_ptr<IOJob>& job) const {
+  auto* rep = job->table->get_rep();
+  // Match the normal iterator's readahead policy as closely as possible:
+  // reserve the steady-state max readahead when configured, otherwise fall
+  // back to the initial readahead hint, then to a small floor so each fairness
+  // group still gets some protected headroom.
+  size_t reserved_bytes = rep->table_options.max_auto_readahead_size;
+  if (reserved_bytes == 0) {
+    reserved_bytes = rep->table_options.initial_auto_readahead_size;
+  }
+  if (reserved_bytes == 0) {
+    reserved_bytes = kMinFairnessReservationBytes;
+  }
+  return reserved_bytes;
+}
+
+IODispatcherImpl::Impl::FairnessGroupState*
+IODispatcherImpl::Impl::GetOrCreateFairnessGroup(
+    const std::shared_ptr<IOJob>& job) {
+  auto* rep = job->table ? job->table->get_rep() : nullptr;
+  const int level = rep ? rep->level : -1;
+  const uint64_t file_number = rep ? rep->sst_number_for_tracing() : UINT64_MAX;
+  size_t reserved_bytes = 0;
+
+  FairnessGroupState* fairness_group = default_fairness_group_.get();
+  FairnessGroupKey key;
+  if (rep != nullptr) {
+    if (level == 0 && file_number != UINT64_MAX) {
+      key.scope = FairnessScope::kL0File;
+      key.level = level;
+      key.file_number = file_number;
+    } else if (level > 0) {
+      key.scope = FairnessScope::kLevel;
+      key.level = level;
+    }
+  }
+
+  if (key.scope != FairnessScope::kDefault) {
+    reserved_bytes = GetReservedBytesForJob(job);
+    MutexLock lock(&accounting_mutex_);
+    auto it = fairness_groups_.find(key);
+    if (it == fairness_groups_.end()) {
+      auto new_group =
+          std::make_unique<FairnessGroupState>(next_fairness_group_id_++);
+      new_group->reserved_bytes.store(reserved_bytes,
+                                      std::memory_order_relaxed);
+      fairness_group = new_group.get();
+      fairness_groups_.emplace(key, std::move(new_group));
+    } else {
+      fairness_group = it->second.get();
+      const size_t existing_reserved =
+          fairness_group->reserved_bytes.load(std::memory_order_relaxed);
+      fairness_group->reserved_bytes.store(
+          std::max(existing_reserved, reserved_bytes),
+          std::memory_order_relaxed);
+    }
+  }
+
+#ifndef NDEBUG
+  auto sync_point_info =
+      std::make_tuple(level, file_number, fairness_group->debug_group_id);
+  TEST_SYNC_POINT_CALLBACK("IODispatcherImpl::GetFairnessGroup",
+                           &sync_point_info);
+#endif
+
+  return fairness_group;
+}
+
+bool IODispatcherImpl::Impl::TryAcquireMemory(
+    size_t bytes, IODispatcherImpl::Impl::FairnessGroupState* fairness_group,
+    bool* used_reserved_bytes) {
   if (max_prefetch_memory_bytes_ == 0) {
+    if (used_reserved_bytes != nullptr) {
+      *used_reserved_bytes = false;
+    }
     return true;  // No limit configured
   }
 
-  // Lock-free memory acquisition using compare-exchange
-  size_t current = memory_used_.load(std::memory_order_relaxed);
-  while (true) {
-    if (current + bytes > max_prefetch_memory_bytes_) {
-      // Not enough memory - caller should queue for later
-      RecordTick(statistics_, PREFETCH_MEMORY_REQUESTS_BLOCKED);
-      return false;
-    }
-    if (memory_used_.compare_exchange_weak(current, current + bytes,
-                                           std::memory_order_release,
-                                           std::memory_order_relaxed)) {
-      RecordTick(statistics_, PREFETCH_MEMORY_BYTES_GRANTED, bytes);
-      return true;
-    }
-    // current is updated by compare_exchange_weak on failure, retry
-  }
+  MutexLock lock(&accounting_mutex_);
+  return TryAcquireMemoryLocked(bytes, fairness_group, used_reserved_bytes);
 }
 
-void IODispatcherImpl::Impl::ReleaseMemory(size_t bytes) {
+bool IODispatcherImpl::Impl::TryAcquireMemoryLocked(
+    size_t bytes, IODispatcherImpl::Impl::FairnessGroupState* fairness_group,
+    bool* used_reserved_bytes) {
   if (max_prefetch_memory_bytes_ == 0) {
+    if (used_reserved_bytes != nullptr) {
+      *used_reserved_bytes = false;
+    }
+    return true;
+  }
+
+  const size_t current = memory_used_.load(std::memory_order_relaxed);
+  const size_t group_current =
+      fairness_group != nullptr
+          ? fairness_group->memory_used_.load(std::memory_order_relaxed)
+          : 0;
+  const size_t group_reserved =
+      fairness_group != nullptr
+          ? fairness_group->reserved_bytes.load(std::memory_order_relaxed)
+          : 0;
+  const bool use_reserved = fairness_group != nullptr &&
+                            current + bytes > max_prefetch_memory_bytes_ &&
+                            group_current + bytes <= group_reserved;
+
+  if (!use_reserved && current + bytes > max_prefetch_memory_bytes_) {
+    RecordTick(statistics_, PREFETCH_MEMORY_REQUESTS_BLOCKED);
+    if (used_reserved_bytes != nullptr) {
+      *used_reserved_bytes = false;
+    }
+    return false;
+  }
+
+  memory_used_.fetch_add(bytes, std::memory_order_relaxed);
+  if (fairness_group != nullptr) {
+    fairness_group->memory_used_.fetch_add(bytes, std::memory_order_relaxed);
+  }
+  RecordTick(statistics_, PREFETCH_MEMORY_BYTES_GRANTED, bytes);
+
+  if (used_reserved_bytes != nullptr) {
+    *used_reserved_bytes = use_reserved;
+  }
+
+  if (fairness_group != nullptr) {
+#ifndef NDEBUG
+    auto sync_point_info =
+        std::make_tuple(fairness_group->debug_group_id, bytes, use_reserved);
+    TEST_SYNC_POINT_CALLBACK("IODispatcherImpl::TryAcquireMemory:Granted",
+                             &sync_point_info);
+#endif
+  }
+
+  return true;
+}
+
+void IODispatcherImpl::Impl::ReleaseMemory(size_t bytes,
+                                           void* fairness_group_token) {
+  if (max_prefetch_memory_bytes_ == 0 || bytes == 0) {
     return;  // No limit configured
   }
 
-  // Lock-free memory release using atomic fetch_sub
-  size_t old_val = memory_used_.fetch_sub(bytes, std::memory_order_release);
-  assert(old_val >= bytes);
-  (void)old_val;  // Suppress unused warning in release builds
+  auto* fairness_group =
+      static_cast<IODispatcherImpl::Impl::FairnessGroupState*>(
+          fairness_group_token);
+
+  auto release_bytes = [bytes](std::atomic<size_t>* counter) {
+    size_t current = counter->load(std::memory_order_relaxed);
+    while (true) {
+      const size_t next = current >= bytes ? current - bytes : 0;
+      if (counter->compare_exchange_weak(current, next,
+                                         std::memory_order_relaxed)) {
+        assert(current >= bytes);
+        return;
+      }
+    }
+  };
+
+  // Keep release lock-free, but saturate on unexpected underflow in release
+  // builds so accounting cannot wrap to SIZE_MAX.
+  release_bytes(&memory_used_);
+  if (fairness_group != nullptr) {
+    release_bytes(&fairness_group->memory_used_);
+  }
+
   RecordTick(statistics_, PREFETCH_MEMORY_BYTES_RELEASED, bytes);
 
   // Fast-path: skip dispatch attempt if no pending requests
   // This avoids mutex contention in the common single-threaded iterator case
-  if (!has_pending_requests_.load(std::memory_order_acquire)) {
+  if (!has_pending_requests_.load(std::memory_order_relaxed)) {
     return;
   }
 
@@ -535,102 +766,152 @@ void IODispatcherImpl::Impl::ReleaseMemory(size_t bytes) {
   TryDispatchPendingPrefetches();
 }
 
-void IODispatcherImpl::Impl::TryDispatchPendingPrefetches() {
-  // Process pending prefetch requests - dispatch entire coalesced groups
-  while (true) {
-    std::shared_ptr<PendingPrefetchRequest> pending;
+void IODispatcherImpl::Impl::EnqueuePendingGroupLocked(
+    IODispatcherImpl::Impl::FairnessGroupState* fairness_group) {
+  assert(fairness_group != nullptr);
+  if (fairness_group->in_dispatch_queue ||
+      fairness_group->pending_requests.empty()) {
+    return;
+  }
+  pending_fairness_groups_.push_back(fairness_group);
+  fairness_group->in_dispatch_queue = true;
+  has_pending_requests_.store(true, std::memory_order_relaxed);
+}
 
+std::shared_ptr<PendingPrefetchRequest>
+IODispatcherImpl::Impl::GetFrontPendingRequestLocked(
+    IODispatcherImpl::Impl::FairnessGroupState* fairness_group) {
+  assert(fairness_group != nullptr);
+  while (!fairness_group->pending_requests.empty()) {
+    const auto& pending = fairness_group->pending_requests.front();
+    if (pending != nullptr && !pending->read_set.expired()) {
+      return pending;
+    }
+    fairness_group->pending_requests.pop_front();
+  }
+  return nullptr;
+}
+
+void IODispatcherImpl::Impl::TryDispatchPendingPrefetches() {
+  while (true) {
+    size_t groups_to_process = 0;
     {
-      MutexLock lock(&memory_mutex_);
-      if (pending_prefetch_queue_.empty()) {
-        has_pending_requests_.store(false, std::memory_order_release);
+      MutexLock lock(&pending_mutex_);
+      groups_to_process = pending_fairness_groups_.size();
+      if (groups_to_process == 0) {
+        has_pending_requests_.store(false, std::memory_order_relaxed);
         return;
       }
-
-      // Get the next pending request
-      pending = std::move(pending_prefetch_queue_.front());
-      pending_prefetch_queue_.pop_front();
     }
 
-    // Check if the ReadSet is still alive
-    auto read_set = pending->read_set.lock();
-    if (!read_set) {
-      continue;  // ReadSet was destroyed, skip this request
-    }
-
-    // Try to acquire memory for coalesced groups (entire groups at a time)
-    std::vector<size_t> blocks_to_dispatch;
-    bool has_remaining_groups = false;
-
-    {
-      MutexLock lock(&pending->groups_mutex_);
-
-      while (!pending->coalesced_groups.empty()) {
-        auto& group = pending->coalesced_groups.front();
-
-        // Filter out blocks that were already read (not in pending set anymore)
-        std::vector<size_t> remaining_blocks;
-        size_t remaining_bytes = 0;
-        for (size_t idx : group.block_indices) {
-          if (pending->block_indices_to_prefetch.count(idx) > 0) {
-            remaining_blocks.push_back(idx);
-            remaining_bytes += read_set->block_sizes_[idx];
-          }
+    bool dispatched_in_round = false;
+    while (groups_to_process-- > 0) {
+      IODispatcherImpl::Impl::FairnessGroupState* fairness_group = nullptr;
+      std::shared_ptr<PendingPrefetchRequest> pending;
+      {
+        MutexLock lock(&pending_mutex_);
+        if (pending_fairness_groups_.empty()) {
+          has_pending_requests_.store(false, std::memory_order_relaxed);
+          return;
         }
-
-        // Skip empty groups (all blocks were already read)
-        if (remaining_blocks.empty()) {
-          pending->coalesced_groups.pop_front();
+        fairness_group = pending_fairness_groups_.front();
+        pending_fairness_groups_.pop_front();
+        fairness_group->in_dispatch_queue = false;
+        pending = GetFrontPendingRequestLocked(fairness_group);
+        if (pending == nullptr) {
           continue;
         }
+      }
 
-        // Try to acquire memory for remaining blocks only
-        if (TryAcquireMemory(remaining_bytes)) {
-          // Add all remaining blocks from this group to dispatch
-          for (size_t idx : remaining_blocks) {
-            blocks_to_dispatch.push_back(idx);
-            pending->block_indices_to_prefetch.erase(idx);
+      auto read_set = pending->read_set.lock();
+      if (!read_set) {
+        {
+          MutexLock lock(&pending_mutex_);
+          if (!fairness_group->pending_requests.empty() &&
+              fairness_group->pending_requests.front() == pending) {
+            fairness_group->pending_requests.pop_front();
           }
-          pending->pending_bytes_ -= remaining_bytes;
-          pending->coalesced_groups.pop_front();
-        } else {
-          // Not enough memory for this group - update with remaining blocks
-          group.block_indices = std::move(remaining_blocks);
-          group.total_bytes = remaining_bytes;
-          has_remaining_groups = true;
+          if (GetFrontPendingRequestLocked(fairness_group) != nullptr) {
+            EnqueuePendingGroupLocked(fairness_group);
+          } else if (pending_fairness_groups_.empty()) {
+            has_pending_requests_.store(false, std::memory_order_relaxed);
+          }
+        }
+        continue;
+      }
+
+      std::vector<size_t> blocks_to_dispatch;
+      bool request_complete = false;
+      {
+        MutexLock lock(&pending->groups_mutex_);
+
+        while (!pending->coalesced_groups.empty()) {
+          auto& coalesced_group = pending->coalesced_groups.front();
+
+          std::vector<size_t> remaining_blocks;
+          size_t remaining_bytes = 0;
+          for (size_t idx : coalesced_group.block_indices) {
+            if (pending->block_indices_to_prefetch.count(idx) > 0) {
+              remaining_blocks.push_back(idx);
+              remaining_bytes += read_set->block_sizes_[idx];
+            }
+          }
+
+          if (remaining_blocks.empty()) {
+            pending->coalesced_groups.pop_front();
+            continue;
+          }
+
+          coalesced_group.block_indices = remaining_blocks;
+          coalesced_group.total_bytes = remaining_bytes;
+
+          if (TryAcquireMemory(remaining_bytes, fairness_group)) {
+            blocks_to_dispatch = std::move(coalesced_group.block_indices);
+            for (size_t idx : blocks_to_dispatch) {
+              pending->block_indices_to_prefetch.erase(idx);
+            }
+            pending->pending_bytes_ -= remaining_bytes;
+            pending->coalesced_groups.pop_front();
+          }
           break;
         }
+
+        request_complete = pending->coalesced_groups.empty() ||
+                           pending->block_indices_to_prefetch.empty() ||
+                           pending->pending_bytes_ == 0;
       }
-    }
 
-    // Save job before potential move of pending
-    auto job = pending->job;
+      {
+        MutexLock lock(&pending_mutex_);
+        if (request_complete && !fairness_group->pending_requests.empty() &&
+            fairness_group->pending_requests.front() == pending) {
+          fairness_group->pending_requests.pop_front();
+          read_set->pending_request_.reset();
+        }
 
-    // Requeue if groups remain
-    if (has_remaining_groups) {
-      MutexLock lock(&memory_mutex_);
-      pending_prefetch_queue_.push_front(std::move(pending));
-    } else {
-      // All groups dispatched, clear pending state
-      read_set->pending_request_.reset();
-    }
-
-    // Clear pending flags for dispatched blocks
-    if (read_set->pending_prefetch_flags_) {
-      for (size_t idx : blocks_to_dispatch) {
-        if (idx < read_set->pending_prefetch_flags_size_) {
-          read_set->pending_prefetch_flags_[idx].store(false);
+        if (GetFrontPendingRequestLocked(fairness_group) != nullptr) {
+          EnqueuePendingGroupLocked(fairness_group);
+        } else if (pending_fairness_groups_.empty()) {
+          has_pending_requests_.store(false, std::memory_order_relaxed);
         }
       }
+
+      if (read_set->pending_prefetch_flags_) {
+        for (size_t idx : blocks_to_dispatch) {
+          if (idx < read_set->pending_prefetch_flags_size_) {
+            read_set->pending_prefetch_flags_[idx].store(
+                false, std::memory_order_relaxed);
+          }
+        }
+      }
+
+      if (!blocks_to_dispatch.empty()) {
+        DispatchPrefetch(read_set, pending->job, blocks_to_dispatch);
+        dispatched_in_round = true;
+      }
     }
 
-    // Dispatch acquired blocks
-    if (!blocks_to_dispatch.empty()) {
-      DispatchPrefetch(read_set, job, blocks_to_dispatch);
-    }
-
-    // If we dispatched nothing, stop (no memory available for any group)
-    if (blocks_to_dispatch.empty()) {
+    if (!dispatched_in_round) {
       return;
     }
   }
@@ -639,10 +920,32 @@ void IODispatcherImpl::Impl::TryDispatchPendingPrefetches() {
 void IODispatcherImpl::Impl::DispatchPrefetch(
     const std::shared_ptr<ReadSet>& read_set, const std::shared_ptr<IOJob>& job,
     const std::vector<size_t>& block_indices) {
+  for (size_t idx : block_indices) {
+    read_set->acquired_bytes_[idx] = read_set->block_sizes_[idx];
+  }
+
   // Sync point for testing partial prefetch - passes number of blocks being
   // dispatched
   TEST_SYNC_POINT_CALLBACK("IODispatcherImpl::DispatchPrefetch:BlockCount",
                            const_cast<std::vector<size_t>*>(&block_indices));
+
+  auto release_undelivered_memory = [&]() {
+    for (size_t idx : block_indices) {
+      if (idx >= read_set->acquired_bytes_.size() ||
+          read_set->acquired_bytes_[idx] == 0) {
+        continue;
+      }
+
+      const bool delivered =
+          read_set->pinned_blocks_[idx].GetValue() != nullptr ||
+          read_set->async_io_map_.find(idx) != read_set->async_io_map_.end();
+      if (!delivered) {
+        ReleaseMemory(read_set->acquired_bytes_[idx],
+                      read_set->fairness_group_token_);
+        read_set->acquired_bytes_[idx] = 0;
+      }
+    }
+  };
 
   // Prepare and execute IO for the given blocks
   std::vector<FSReadRequest> read_reqs;
@@ -665,15 +968,19 @@ void IODispatcherImpl::Impl::DispatchPrefetch(
       Status s =
           ExecuteSyncIO(job, read_set, sync_read_reqs, sync_coalesced_indices);
       s.PermitUncheckedError();
-      read_set->num_sync_reads_ += fallback_indices.size();
+      read_set->num_sync_reads_.fetch_add(fallback_indices.size(),
+                                          std::memory_order_relaxed);
     }
     // Async errors are also ignored - user will get the error when reading
     async_status.PermitUncheckedError();
+    release_undelivered_memory();
   } else {
     // Prefetch errors are ignored - user will get the error when reading
     Status s = ExecuteSyncIO(job, read_set, read_reqs, coalesced_block_indices);
     s.PermitUncheckedError();
-    read_set->num_sync_reads_ += block_indices.size();
+    read_set->num_sync_reads_.fetch_add(block_indices.size(),
+                                        std::memory_order_relaxed);
+    release_undelivered_memory();
   }
 }
 
@@ -690,6 +997,9 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
   rs->fs_ = job->table->get_rep()->ioptions.env->GetFileSystem();
   rs->pinned_blocks_.resize(job->block_handles.size());
   rs->block_sizes_.resize(job->block_handles.size(), 0);
+  rs->acquired_bytes_.resize(job->block_handles.size(), 0);
+  auto* fairness_group = GetOrCreateFairnessGroup(job);
+  rs->fairness_group_token_ = fairness_group;
 
   // Build sorted index for O(log n) ReadOffset lookups via binary search.
   // sorted_block_indices_[i] = original index of i-th smallest block by offset.
@@ -727,14 +1037,16 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
   // Step 2: Prepare IO requests for blocks not in cache
   if (block_indices_to_read.empty()) {
     // All blocks found in cache - count them as cache hits
-    rs->num_cache_hits_ = job->block_handles.size();
+    rs->num_cache_hits_.store(job->block_handles.size(),
+                              std::memory_order_relaxed);
     *read_set = std::move(rs);
     return Status::OK();
   }
 
   // Count cache hits (blocks that were found in cache during lookup above)
-  rs->num_cache_hits_ =
-      job->block_handles.size() - block_indices_to_read.size();
+  rs->num_cache_hits_.store(
+      job->block_handles.size() - block_indices_to_read.size(),
+      std::memory_order_relaxed);
 
   // Calculate block sizes for uncached blocks
   for (const auto& idx : block_indices_to_read) {
@@ -749,15 +1061,21 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
   // Pre-coalesce blocks into groups, respecting memory budget per group
   // This ensures we dispatch meaningful IO sizes, not tiny single-block IOs
   // Both memory-limited and non-memory-limited paths use the same coalescing
+  const size_t max_coalesced_group_bytes =
+      max_prefetch_memory_bytes_ == 0
+          ? 0
+          : std::max(
+                max_prefetch_memory_bytes_,
+                fairness_group->reserved_bytes.load(std::memory_order_relaxed));
   auto coalesced_groups = PreCoalesceBlocks(job, rs, block_indices_to_read,
-                                            max_prefetch_memory_bytes_);
+                                            max_coalesced_group_bytes);
 
   std::vector<size_t> blocks_to_dispatch;
   std::deque<CoalescedPrefetchGroup> groups_to_queue;
 
   // Try to acquire memory for entire coalesced groups
   for (auto& group : coalesced_groups) {
-    if (TryAcquireMemory(group.total_bytes)) {
+    if (TryAcquireMemory(group.total_bytes, fairness_group)) {
       // Add all blocks from this group to dispatch
       for (size_t idx : group.block_indices) {
         blocks_to_dispatch.push_back(idx);
@@ -778,7 +1096,6 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
     auto pending = std::make_shared<PendingPrefetchRequest>();
     pending->read_set = rs;
     pending->job = job;
-
     size_t pending_bytes = 0;
     for (const auto& group : groups_to_queue) {
       for (size_t idx : group.block_indices) {
@@ -795,14 +1112,14 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
         std::make_unique<std::atomic<bool>[]>(num_blocks);
     rs->pending_prefetch_flags_size_ = num_blocks;
     for (size_t idx : pending->block_indices_to_prefetch) {
-      rs->pending_prefetch_flags_[idx].store(true);
+      rs->pending_prefetch_flags_[idx].store(true, std::memory_order_relaxed);
     }
     rs->pending_request_ = pending;
 
     {
-      MutexLock lock(&memory_mutex_);
-      pending_prefetch_queue_.push_back(std::move(pending));
-      has_pending_requests_.store(true, std::memory_order_release);
+      MutexLock lock(&pending_mutex_);
+      fairness_group->pending_requests.push_back(std::move(pending));
+      EnqueuePendingGroupLocked(fairness_group);
     }
   }
 
