@@ -180,7 +180,10 @@ default_params = {
     "decouple_partitioned_filters": lambda: random.choice([0, 1, 1]),
     "delpercent": 4,
     "delrangepercent": 1,
+    "db": "",
     "destroy_db_initially": 0,
+    "expected_values_dir": "",
+    "num_dbs": 1,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
     "enable_compaction_on_deletion_trigger": lambda: random.choice([0, 0, 0, 1]),
@@ -196,7 +199,6 @@ default_params = {
     # causing stress test failures. Temporarily disabled until the
     # sanitization can account for cross-run incompatibility.
     "inplace_update_support": 0,
-    "expected_values_dir": lambda: setup_expected_values_dir(),
     "flush_one_in": lambda: random.choice([1000, 1000000]),
     "manual_wal_flush_one_in": lambda: random.choice([0, 1000]),
     "sync_wal_one_in": 0,
@@ -541,25 +543,23 @@ def is_release_mode():
     return os.environ.get(_DEBUG_LEVEL_ENV_VAR) == "0"
 
 
-def get_dbname(test_name):
+def get_db_parent_dir(test_name):
+    # Returns the --db path. C++ owns all DB dir creation (supports remote env).
     test_dir_name = "rocksdb_crashtest_" + test_name
     test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
     if test_tmpdir is None or test_tmpdir == "":
-        dbname = tempfile.mkdtemp(prefix=test_dir_name)
-    else:
-        dbname = test_tmpdir + "/" + test_dir_name
-        if not is_remote_db:
-            os.makedirs(dbname, exist_ok=True)
-    return dbname
+        return tempfile.mkdtemp(prefix=test_dir_name)
+    return test_tmpdir + "/" + test_dir_name
 
 
-expected_values_dir = None
+ev_parent_dir_global = None
 
 
-def setup_expected_values_dir():
-    global expected_values_dir
-    if expected_values_dir is not None:
-        return expected_values_dir
+def get_ev_parent_dir():
+    # Returns the --expected_values_dir path. Python owns all EV dir creation.
+    global ev_parent_dir_global
+    if ev_parent_dir_global is not None:
+        return ev_parent_dir_global
     expected_dir_prefix = "rocksdb_crashtest_expected_"
     test_exp_tmpdir = os.environ.get(_TEST_EXPECTED_DIR_ENV_VAR)
 
@@ -567,22 +567,11 @@ def setup_expected_values_dir():
         test_exp_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
 
     if test_exp_tmpdir is None or test_exp_tmpdir == "":
-        expected_values_dir = tempfile.mkdtemp(prefix=expected_dir_prefix)
+        ev_parent_dir_global = tempfile.mkdtemp(prefix=expected_dir_prefix)
     else:
-        # if tmpdir is specified, store the expected_values_dir under that dir
-        expected_values_dir = test_exp_tmpdir + "/rocksdb_crashtest_expected"
-        os.makedirs(expected_values_dir, exist_ok=True)
-    return expected_values_dir
-
-
-def prepare_expected_values_dir(expected_dir, destroy_db_initially):
-    if expected_dir is None or expected_dir == "":
-        return
-
-    if destroy_db_initially and os.path.exists(expected_dir):
-        shutil.rmtree(expected_dir, True)
-
-    os.makedirs(expected_dir, exist_ok=True)
+        ev_parent_dir_global = test_exp_tmpdir + "/rocksdb_crashtest_expected"
+        os.makedirs(ev_parent_dir_global, exist_ok=True)
+    return ev_parent_dir_global
 
 
 multiops_txn_key_spaces_file = None
@@ -1578,6 +1567,12 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("disable_wal", 0) == 1:
         dest_params["test_batches_snapshots"] = 0
 
+    if dest_params.get("num_dbs", 1) > 1:
+        # These features assume a single DB instance.
+        # See ValidateNumDbsFlags() in db_stress_tool.cc for C++ guards.
+        dest_params["clear_column_family_one_in"] = 0
+        dest_params["test_multi_ops_txns"] = 0
+
     return dest_params
 
 
@@ -1647,10 +1642,22 @@ def gen_cmd_params(args):
 
 def gen_cmd(params, unknown_params):
     finalzied_params = finalize_and_sanitize(params)
-    prepare_expected_values_dir(
-        finalzied_params.get("expected_values_dir"),
-        finalzied_params.get("destroy_db_initially", 0),
-    )
+    num_dbs = finalzied_params.get("num_dbs", 1)
+
+    # Python owns EV dir creation entirely (always local filesystem).
+    # For num_dbs=1: --expected_values_dir is the EV path used as-is.
+    # For num_dbs > 1: it is the parent dir; os.makedirs creates db_<i>
+    # subdirs (and the parent implicitly).
+    # C++ owns DB dir creation (see db_stress_tool.cc).
+    ev_val = finalzied_params.get("expected_values_dir", "")
+    if ev_val:
+        if finalzied_params.get("destroy_db_initially", 0) and os.path.exists(ev_val):
+            shutil.rmtree(ev_val, True)
+        if num_dbs == 1:
+            os.makedirs(ev_val, exist_ok=True)
+        else:
+            for i in range(num_dbs):
+                os.makedirs(os.path.join(ev_val, "db_" + str(i)), exist_ok=True)
     cmd = (
         [stress_cmd]
         + [
@@ -2024,9 +2031,16 @@ def strip_expected_sigterm_stderr(stdout, stderr, hit_timeout):
     return stdout, stderr
 
 
-def cleanup_after_success(dbname):
-    # Use db_stress --destroy_db_and_exit, which simplifies remote DB cleanup
-    cleanup_cmd_parts = [stress_cmd, "--destroy_db_and_exit=1", "--db=" + dbname]
+def cleanup_after_success(db_arg, num_dbs=1):
+    # Delegates to db_stress --destroy_db_and_exit so cleanup uses the same
+    # Env (local or remote) that created the DB.
+    # `db_arg` is the --db value (DB path for num_dbs=1, parent dir for num_dbs>1).
+    cleanup_cmd_parts = [
+        stress_cmd,
+        "--destroy_db_and_exit=1",
+        "--db=" + db_arg,
+        "--num_dbs=" + str(num_dbs),
+    ]
     # Pass through relevant arguments for remote DB access
     for arg in remain_args:
         parts = arg.split("=", 1)
@@ -2091,7 +2105,15 @@ def print_and_cleanup_fault_injection_log(pid):
 # in case of unsafe crashes in RocksDB.
 def blackbox_crash_main(args, unknown_args):
     cmd_params = gen_cmd_params(args)
-    dbname = get_dbname("blackbox")
+    db_parent_dir = get_db_parent_dir("blackbox")
+    ev_parent_dir = get_ev_parent_dir()
+    num_dbs = cmd_params.get("num_dbs", 1)
+
+    if not cmd_params.get("db"):
+        cmd_params["db"] = db_parent_dir
+    if not cmd_params.get("expected_values_dir"):
+        cmd_params["expected_values_dir"] = ev_parent_dir
+
     exit_time = time.time() + cmd_params["duration"]
 
     print(
@@ -2107,7 +2129,7 @@ def blackbox_crash_main(args, unknown_args):
     while time.time() < exit_time:
         apply_random_seed_per_iteration()
         cmd, finalized_params = gen_cmd(
-            dict(list(cmd_params.items()) + list({"db": dbname}.items())), unknown_args
+            dict(list(cmd_params.items())), unknown_args
         )
 
         hit_timeout, retcode, outs, errs, pid = execute_cmd(cmd, cmd_params["interval"])
@@ -2137,7 +2159,7 @@ def blackbox_crash_main(args, unknown_args):
     cmd_params.update({"skip_verifydb": 0})
 
     cmd, finalized_params = gen_cmd(
-        dict(list(cmd_params.items()) + list({"db": dbname}.items())), unknown_args
+        dict(list(cmd_params.items())), unknown_args
     )
     hit_timeout, retcode, outs, errs, pid = execute_cmd(
         cmd, cmd_params["verify_timeout"], True
@@ -2149,14 +2171,21 @@ def blackbox_crash_main(args, unknown_args):
     print_run_output_and_exit_on_error(args, finalized_params, outs, errs)
 
     # we need to clean up after ourselves -- only do this on test success
-    cleanup_after_success(dbname)
+    cleanup_after_success(cmd_params["db"], num_dbs)
 
 
 # This python script runs db_stress multiple times. Some runs with
 # kill_random_test that causes rocksdb to crash at various points in code.
 def whitebox_crash_main(args, unknown_args):
     cmd_params = gen_cmd_params(args)
-    dbname = get_dbname("whitebox")
+    db_parent_dir = get_db_parent_dir("whitebox")
+    ev_parent_dir = get_ev_parent_dir()
+    num_dbs = cmd_params.get("num_dbs", 1)
+
+    if not cmd_params.get("db"):
+        cmd_params["db"] = db_parent_dir
+    if not cmd_params.get("expected_values_dir"):
+        cmd_params["expected_values_dir"] = ev_parent_dir
 
     cur_time = time.time()
     exit_time = cur_time + cmd_params["duration"]
@@ -2270,7 +2299,6 @@ def whitebox_crash_main(args, unknown_args):
             dict(
                 list(cmd_params.items())
                 + list(additional_opts.items())
-                + list({"db": dbname}.items())
             ),
             unknown_args,
         )
@@ -2331,7 +2359,7 @@ def whitebox_crash_main(args, unknown_args):
     # If successfully finished or timed out (we currently treat timed out test as passing)
     # Clean up after ourselves
     if succeeded or hit_timeout:
-        cleanup_after_success(dbname)
+        cleanup_after_success(cmd_params["db"], num_dbs)
 
 
 def main():
@@ -2399,9 +2427,12 @@ def main():
         blackbox_crash_main(args, unknown_args)
     if args.test_type == "whitebox":
         whitebox_crash_main(args, unknown_args)
-    # Only delete the `expected_values_dir` if test passes
-    if expected_values_dir is not None:
-        shutil.rmtree(expected_values_dir)
+    # Delete the expected values base dir if test passes.
+    # Per-DB subdirectories (db_0, db_1, ...) live under the base,
+    # so rmtree of the parent cleans everything.
+    if ev_parent_dir_global is not None:
+        if os.path.exists(ev_parent_dir_global):
+            shutil.rmtree(ev_parent_dir_global)
     if multiops_txn_key_spaces_file is not None:
         os.remove(multiops_txn_key_spaces_file)
 

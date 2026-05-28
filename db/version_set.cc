@@ -6286,6 +6286,8 @@ Status VersionSet::ProcessManifestWrites(
       io_s = SetCurrentFile(
           write_options, fs_.get(), dbname_, pending_manifest_file_number_,
           file_options_.temperature, dir_contains_current_file);
+      TEST_SYNC_POINT_CALLBACK(
+          "VersionSet::ProcessManifestWrites:AfterSetCurrentFile", &io_s);
       if (!io_s.ok()) {
         s = io_s;
         // Quarantine old manifest file in case new manifest file's CURRENT

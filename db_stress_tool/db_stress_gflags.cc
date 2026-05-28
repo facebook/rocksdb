@@ -1720,4 +1720,17 @@ DEFINE_uint64(multiscan_max_prefetch_memory_bytes, 0,
               "used for prefetching data blocks across all concurrent "
               "MultiScan ReadSets.");
 
+DEFINE_int32(num_dbs, 1,
+             "Number of DB instances to run in parallel. "
+             "For num_dbs=1: --db is the DB path directly (default). "
+             "For num_dbs>1: --db is a parent directory; db_stress "
+             "auto-creates db_0/, db_1/, ... subdirs underneath "
+             "(same for --expected_values_dir and secondaries). "
+             "Per-DB flags: threads, max_key, ops_per_thread, reopen, "
+             "column_families, and all DB options. "
+             "Shared across all instances: background env threads "
+             "(compaction, flush pool), cache, write_buffer_manager, "
+             "compressed_secondary_cache, rate_limiter, and "
+             "compaction_thread_pool_adjust_interval.");
+
 #endif  // GFLAGS
