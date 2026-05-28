@@ -4067,6 +4067,13 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       status = Status::ShutdownInProgress();
     } else if (compaction_aborted_.load(std::memory_order_acquire) > 0) {
       status = Status::Incomplete(Status::SubCode::kCompactionAborted);
+      if (!is_prepicked) {
+        // This automatic compaction was scheduled from compaction_queue_, but
+        // abort happened before PickCompactionFromQueue() could remove the
+        // queued CF. Restore the unscheduled count so ResumeAllCompactions()
+        // can schedule the still-queued work.
+        unscheduled_compactions_++;
+      }
     } else if (is_manual &&
                manual_compaction->canceled.load(std::memory_order_acquire)) {
       status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
