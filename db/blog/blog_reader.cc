@@ -652,9 +652,9 @@ Status BlogFileReader::ReadUnspecifiedSizeRecord(
     // immediately before the next escape sequence. The 5-byte trailer must
     // sit immediately before that run.
     size_t pad_len = 0;
-    uint8_t pad_byte = 0;
     if (candidate_offset > 0) {
-      pad_byte = lossless_cast<uint8_t>((*scratch)[candidate_offset - 1]);
+      uint8_t pad_byte =
+          lossless_cast<uint8_t>((*scratch)[candidate_offset - 1]);
       if (pad_byte == 0x00 || pad_byte == 0xFF) {
         pad_len = 1;
         while (pad_len < candidate_offset &&
@@ -662,8 +662,6 @@ Status BlogFileReader::ReadUnspecifiedSizeRecord(
                    (*scratch)[candidate_offset - 1 - pad_len]) == pad_byte) {
           ++pad_len;
         }
-      } else {
-        pad_byte = 0;
       }
     }
 

@@ -47,6 +47,9 @@ class TEST_BlogNoncanonicalConfigScope {
       delete;
   TEST_BlogNoncanonicalConfigScope& operator=(
       const TEST_BlogNoncanonicalConfigScope&) = delete;
+  TEST_BlogNoncanonicalConfigScope(TEST_BlogNoncanonicalConfigScope&&) = delete;
+  TEST_BlogNoncanonicalConfigScope& operator=(
+      TEST_BlogNoncanonicalConfigScope&&) = delete;
 
  private:
   TEST_BlogNoncanonicalConfig prev_;

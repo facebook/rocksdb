@@ -379,6 +379,7 @@ Status BlobDumpTool::DumpBlogBlobFile(const std::string& filename,
   std::shared_ptr<Decompressor> decompressor;
   Status decompressor_status =
       ResolveBlogDumpDecompressor(header, &decompressor);
+  const bool has_decompressor = decompressor_status.ok();
 
   fprintf(stdout, "Blog blob file header:\n");
   fprintf(stdout, "  Schema Version     : %" PRIu32 "\n",
@@ -552,7 +553,7 @@ Status BlobDumpTool::DumpBlogBlobFile(const std::string& filename,
                  summary.uncompressed_blob_bytes != 0) {
         fprintf(stdout, "  total raw blob size: %" PRIu64 "\n",
                 summary.raw_blob_bytes + summary.uncompressed_blob_bytes);
-      } else if (!decompressor_status.ok()) {
+      } else if (!has_decompressor) {
         fprintf(stdout, "  total raw blob size: unavailable (%s)\n",
                 decompressor_status.ToString().c_str());
       }
