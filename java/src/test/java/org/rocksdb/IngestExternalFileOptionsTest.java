@@ -104,4 +104,14 @@ public class IngestExternalFileOptionsTest {
       assertThat(options.writeGlobalSeqno()).isTrue();
     }
   }
+
+  @Test
+  public void fillCache() {
+    try (final IngestExternalFileOptions options =
+             new IngestExternalFileOptions()) {
+      assertThat(options.fillCache()).isTrue();
+      options.setFillCache(false);
+      assertThat(options.fillCache()).isFalse();
+    }
+  }
 }

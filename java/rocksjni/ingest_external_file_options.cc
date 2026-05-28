@@ -187,6 +187,30 @@ Java_org_rocksdb_IngestExternalFileOptions_setWriteGlobalSeqno(
 
 /*
  * Class:     org_rocksdb_IngestExternalFileOptions
+ * Method:    fillCache
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_IngestExternalFileOptions_fillCache(JNIEnv*, jclass,
+                                                              jlong jhandle) {
+  auto* options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
+  return static_cast<jboolean>(options->fill_cache);
+}
+
+/*
+ * Class:     org_rocksdb_IngestExternalFileOptions
+ * Method:    setFillCache
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_IngestExternalFileOptions_setFillCache(
+    JNIEnv*, jclass, jlong jhandle, jboolean jfill_cache) {
+  auto* options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
+  options->fill_cache = static_cast<bool>(jfill_cache);
+}
+
+/*
+ * Class:     org_rocksdb_IngestExternalFileOptions
  * Method:    disposeInternal
  * Signature: (J)V
  */
