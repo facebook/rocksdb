@@ -2022,7 +2022,11 @@ TEST_F(DBBloomFilterTest, MutableFilterPolicy) {
   double expected_bpk = 10.0;
   // Other configs to try
   std::vector<std::pair<std::string, double>> configs = {
-      {"ribbonfilter:10:-1", 7.0}, {"bloomfilter:5", 5.0}, {"nullptr", 0.0}};
+      {"ribbonfilter:10:-1", 7.0},
+      {"bloomfilter:5", 5.0},
+      {"nullptr", 0.0},
+      // As serialized in OPTIONS file
+      {"{id=ribbonfilter:12:-1;bloom_before_level=-1;}", 8.4}};
 
   table_options.cache_index_and_filter_blocks = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
