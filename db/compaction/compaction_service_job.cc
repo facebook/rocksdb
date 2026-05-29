@@ -189,14 +189,24 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     return compaction_status;
   }
 
-  // CompactionServiceJobStatus::kSuccess was returned, but somehow we failed to
-  // read the result. Consider this as an installation failure
   if (!s.ok()) {
-    sub_compact->status = s;
+    // Wait() returned kSuccess, but the primary host could not deserialize the
+    // remote result before importing any output files into this DB. The remote
+    // output is still isolated in the service-managed staging directory, so it
+    // is safe to fall back to local compaction for the same job and notify the
+    // service via OnInstallation(kUseLocal).
+    assert(sub_compact->status.ok());
+    assert(sub_compact->GetMutableCompactionOutputs().empty());
+    assert(sub_compact->GetMutableProximalOutputs().empty());
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "[%s] [JOB %d] Failed to parse remote compaction result "
+                   "(%s), falling back to local compaction",
+                   compaction->column_family_data()->GetName().c_str(), job_id_,
+                   s.ToString().c_str());
     compaction_result.status.PermitUncheckedError();
     db_options_.compaction_service->OnInstallation(
-        response.scheduled_job_id, CompactionServiceJobStatus::kFailure);
-    return CompactionServiceJobStatus::kFailure;
+        response.scheduled_job_id, CompactionServiceJobStatus::kUseLocal);
+    return CompactionServiceJobStatus::kUseLocal;
   }
   sub_compact->status = compaction_result.status;
 
