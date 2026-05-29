@@ -1,0 +1,1 @@
+Fix a rare corruption bug for tiered compaction that incorrectly moved last level range tombstones into proximal level.
