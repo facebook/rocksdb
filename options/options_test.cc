@@ -2122,7 +2122,8 @@ TEST_F(OptionsTest, FullOptionsStringToMapRoundTripTest) {
   ASSERT_OK(StringToMap(cf_str, &cf_map));
   // Each entry must be embeddable as-is in a `key=value;` context.
   for (const auto& [k, v] : cf_map) {
-    std::string solo = k + "=" + v + ";";
+    std::string solo;
+    solo.append(k).append("=").append(v).append(";");
     std::unordered_map<std::string, std::string> solo_map;
     ASSERT_OK(StringToMap(solo, &solo_map))
         << "single-entry round-trip failed for " << k << ": " << v;
@@ -2148,7 +2149,8 @@ TEST_F(OptionsTest, FullOptionsStringToMapRoundTripTest) {
   std::unordered_map<std::string, std::string> db_map;
   ASSERT_OK(StringToMap(db_str, &db_map));
   for (const auto& [k, v] : db_map) {
-    std::string solo = k + "=" + v + ";";
+    std::string solo;
+    solo.append(k).append("=").append(v).append(";");
     std::unordered_map<std::string, std::string> solo_map;
     ASSERT_OK(StringToMap(solo, &solo_map))
         << "single-entry round-trip failed for " << k << ": " << v;
@@ -2162,6 +2164,10 @@ TEST_F(OptionsTest, FullOptionsStringToMapRoundTripTest) {
       GetDBOptionsFromString(config_options, DBOptions(), db_round, &db_back));
   ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(config_options, base_db_opt,
                                                   db_back));
+
+  // RandomInitCFOptions allocates a raw CompactionFilter*; the
+  // ColumnFamilyOptions destructor doesn't own it.
+  delete base_cf_opt.compaction_filter;
 }
 
 TEST_F(OptionsTest, StringToMapRandomTest) {
