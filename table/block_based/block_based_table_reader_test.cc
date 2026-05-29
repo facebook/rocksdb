@@ -1083,6 +1083,71 @@ class BlockBasedTableReaderMultiScanTest : public BlockBasedTableReaderTest {
   }
 };
 
+class BlockBasedTableReaderMultiScanFirstInternalKeyTest
+    : public BlockBasedTableReaderMultiScanTest {
+ public:
+  void SetUp() override {
+    BlockBasedTableReaderMultiScanTest::SetUp();
+    options_.persist_user_defined_timestamps = persist_udt_;
+  }
+
+ protected:
+  Slice ScanBoundary(const std::string& internal_key) const {
+    const size_t ts_sz = options_.comparator->timestamp_size();
+    if (ts_sz == 0) {
+      return ExtractUserKey(internal_key);
+    }
+    return ExtractUserKeyAndStripTimestamp(internal_key, ts_sz);
+  }
+
+  bool UsesFirstInternalKey() const {
+    return GetParam().index_type ==
+           BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey;
+  }
+
+  void SetMaxReadTimestamp(ReadOptions* read_opts, std::string* read_ts_storage,
+                           Slice* read_ts) const {
+    if (options_.comparator->timestamp_size() > 0) {
+      read_ts_storage->assign(options_.comparator->timestamp_size(), '\xff');
+      *read_ts = Slice(*read_ts_storage);
+      read_opts->timestamp = read_ts;
+    }
+  }
+
+  std::unique_ptr<InternalIterator> NewTableIterator(
+      BlockBasedTable* table, const ReadOptions& read_opts) const {
+    return std::unique_ptr<InternalIterator>(table->NewIterator(
+        read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+  }
+
+  bool UserKeyLess(const Slice& lhs, const Slice& rhs) const {
+    return options_.comparator->CompareWithoutTimestamp(
+               lhs, /*a_has_ts=*/false, rhs, /*b_has_ts=*/false) < 0;
+  }
+
+  void CreateAndOpenTable(
+      const std::string& table_name,
+      const std::vector<std::pair<std::string, std::string>>& kv,
+      std::unique_ptr<BlockBasedTable>* table) {
+    ioptions_ = std::make_unique<ImmutableOptions>(options_);
+    CreateTable(table_name, *ioptions_, compression_type_, kv,
+                compression_parallel_threads_, compression_dict_bytes_);
+
+    FileOptions foptions;
+    foptions.use_direct_reads = use_direct_reads_;
+    internal_comparator_ =
+        std::make_unique<InternalKeyComparator>(options_.comparator);
+    NewBlockBasedTableReader(foptions, *ioptions_, *internal_comparator_,
+                             table_name, table,
+                             true /* prefetch_index_and_filter_in_cache */,
+                             nullptr /* status */, persist_udt_);
+  }
+
+  std::unique_ptr<ImmutableOptions> ioptions_;
+  std::unique_ptr<InternalKeyComparator> internal_comparator_;
+};
+
 class BlockBasedTableReaderMultiScanAsyncIOTest
     : public BlockBasedTableReaderMultiScanTest {};
 
@@ -1623,6 +1688,262 @@ TEST_P(BlockBasedTableReaderMultiScanTest, MultiScanUnpinPreviousBlocks) {
   }
 }
 
+TEST_P(BlockBasedTableReaderMultiScanFirstInternalKeyTest,
+       MultiScanLimitAtBlockBoundarySkipsNextBlockWithFirstKey) {
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          4 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          comparator_->timestamp_size(), same_key_diff_ts_, comparator_);
+  std::string table_name =
+      "BlockBasedTableReaderTest_FirstInternalKeyBoundary" +
+      CompressionTypeToString(compression_type_) + "_" +
+      std::to_string(static_cast<int>(GetParam().index_type));
+
+  std::unique_ptr<BlockBasedTable> table;
+  CreateAndOpenTable(table_name, kv, &table);
+
+  ReadOptions read_opts;
+  std::string read_ts_storage;
+  Slice read_ts;
+  SetMaxReadTimestamp(&read_opts, &read_ts_storage, &read_ts);
+
+  std::unique_ptr<InternalIterator> iter =
+      NewTableIterator(table.get(), read_opts);
+
+  MultiScanArgs scan_options(options_.comparator);
+  scan_options.insert(ScanBoundary(kv[0].first),
+                      ScanBoundary(kv[kEntriesPerBlock].first));
+  iter->Prepare(&scan_options);
+  ASSERT_OK(iter->status());
+
+  auto* bbiter = dynamic_cast<BlockBasedTableIterator*>(iter.get());
+  ASSERT_TRUE(bbiter);
+  ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(0));
+  if (UsesFirstInternalKey()) {
+    ASSERT_FALSE(bbiter->TEST_IsBlockPinnedByMultiScan(1));
+  } else {
+    ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(1));
+  }
+}
+
+TEST_P(BlockBasedTableReaderMultiScanFirstInternalKeyTest,
+       MultiScanLimitInsideBlockKeepsContainingBlock) {
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          4 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          comparator_->timestamp_size(), same_key_diff_ts_, comparator_);
+  std::string table_name =
+      "BlockBasedTableReaderTest_FirstInternalKeyInsideBlock" +
+      CompressionTypeToString(compression_type_) + "_" +
+      std::to_string(static_cast<int>(GetParam().index_type));
+
+  std::unique_ptr<BlockBasedTable> table;
+  CreateAndOpenTable(table_name, kv, &table);
+
+  ReadOptions read_opts;
+  std::string read_ts_storage;
+  Slice read_ts;
+  SetMaxReadTimestamp(&read_opts, &read_ts_storage, &read_ts);
+
+  std::unique_ptr<InternalIterator> iter =
+      NewTableIterator(table.get(), read_opts);
+
+  MultiScanArgs scan_options(options_.comparator);
+  scan_options.insert(ScanBoundary(kv[0].first),
+                      ScanBoundary(kv[kEntriesPerBlock + 1].first));
+  iter->Prepare(&scan_options);
+  ASSERT_OK(iter->status());
+
+  auto* bbiter = dynamic_cast<BlockBasedTableIterator*>(iter.get());
+  ASSERT_TRUE(bbiter);
+  ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(0));
+  ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(1));
+  ASSERT_FALSE(bbiter->TEST_IsBlockPinnedByMultiScan(2));
+}
+
+TEST_P(BlockBasedTableReaderMultiScanFirstInternalKeyTest,
+       MultiScanUnboundedRangeIncludesAllCandidateBlocks) {
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          4 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          comparator_->timestamp_size(), same_key_diff_ts_, comparator_);
+  std::string table_name =
+      "BlockBasedTableReaderTest_FirstInternalKeyUnbounded" +
+      CompressionTypeToString(compression_type_) + "_" +
+      std::to_string(static_cast<int>(GetParam().index_type));
+
+  std::unique_ptr<BlockBasedTable> table;
+  CreateAndOpenTable(table_name, kv, &table);
+
+  ReadOptions read_opts;
+  std::string read_ts_storage;
+  Slice read_ts;
+  SetMaxReadTimestamp(&read_opts, &read_ts_storage, &read_ts);
+
+  std::unique_ptr<InternalIterator> iter =
+      NewTableIterator(table.get(), read_opts);
+
+  MultiScanArgs scan_options(options_.comparator);
+  scan_options.insert(ScanBoundary(kv[0].first));
+  iter->Prepare(&scan_options);
+  ASSERT_OK(iter->status());
+
+  auto* bbiter = dynamic_cast<BlockBasedTableIterator*>(iter.get());
+  ASSERT_TRUE(bbiter);
+  for (int block = 0; block < 4; ++block) {
+    ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(block)) << block;
+  }
+  ASSERT_FALSE(bbiter->TEST_IsBlockPinnedByMultiScan(4));
+}
+
+TEST_P(BlockBasedTableReaderMultiScanFirstInternalKeyTest,
+       MultiScanLimitBeyondLastBlockIncludesAllCandidateBlocks) {
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          4 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          comparator_->timestamp_size(), same_key_diff_ts_, comparator_);
+  std::string table_name =
+      "BlockBasedTableReaderTest_FirstInternalKeyBeyondLast" +
+      CompressionTypeToString(compression_type_) + "_" +
+      std::to_string(static_cast<int>(GetParam().index_type));
+
+  std::unique_ptr<BlockBasedTable> table;
+  CreateAndOpenTable(table_name, kv, &table);
+
+  ReadOptions read_opts;
+  std::string read_ts_storage;
+  Slice read_ts;
+  SetMaxReadTimestamp(&read_opts, &read_ts_storage, &read_ts);
+
+  std::unique_ptr<InternalIterator> iter =
+      NewTableIterator(table.get(), read_opts);
+
+  Slice last_key = ScanBoundary(kv.back().first);
+  std::string limit_after_last = last_key.ToString();
+  limit_after_last.push_back('\xff');
+  if (!UserKeyLess(last_key, limit_after_last)) {
+    limit_after_last.clear();
+  }
+  ASSERT_TRUE(UserKeyLess(last_key, limit_after_last));
+
+  MultiScanArgs scan_options(options_.comparator);
+  scan_options.insert(ScanBoundary(kv[0].first), limit_after_last);
+  iter->Prepare(&scan_options);
+  ASSERT_OK(iter->status());
+
+  auto* bbiter = dynamic_cast<BlockBasedTableIterator*>(iter.get());
+  ASSERT_TRUE(bbiter);
+  for (int block = 0; block < 4; ++block) {
+    ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(block)) << block;
+  }
+  ASSERT_FALSE(bbiter->TEST_IsBlockPinnedByMultiScan(4));
+}
+
+TEST_P(BlockBasedTableReaderMultiScanFirstInternalKeyTest,
+       MultiScanRangeBeforeFirstBlockPrunesAllBlocksWithFirstKey) {
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          4 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          comparator_->timestamp_size(), same_key_diff_ts_, comparator_);
+  std::string table_name =
+      "BlockBasedTableReaderTest_FirstInternalKeyBeforeFirst" +
+      CompressionTypeToString(compression_type_) + "_" +
+      std::to_string(static_cast<int>(GetParam().index_type));
+
+  std::unique_ptr<BlockBasedTable> table;
+  CreateAndOpenTable(table_name, kv, &table);
+
+  ReadOptions read_opts;
+  std::string read_ts_storage;
+  Slice read_ts;
+  SetMaxReadTimestamp(&read_opts, &read_ts_storage, &read_ts);
+
+  std::unique_ptr<InternalIterator> iter =
+      NewTableIterator(table.get(), read_opts);
+
+  Slice first_key = ScanBoundary(kv[0].first);
+  std::string start_before_first;
+  std::string limit_before_first(1, '\0');
+  if (!UserKeyLess(start_before_first, limit_before_first) ||
+      !UserKeyLess(limit_before_first, first_key)) {
+    start_before_first.assign(1, '\xff');
+    limit_before_first.assign(1, '\xfe');
+  }
+  ASSERT_TRUE(UserKeyLess(start_before_first, limit_before_first));
+  ASSERT_TRUE(UserKeyLess(limit_before_first, first_key));
+
+  MultiScanArgs scan_options(options_.comparator);
+  scan_options.insert(start_before_first, limit_before_first);
+  iter->Prepare(&scan_options);
+  ASSERT_OK(iter->status());
+
+  auto* bbiter = dynamic_cast<BlockBasedTableIterator*>(iter.get());
+  ASSERT_TRUE(bbiter);
+  if (UsesFirstInternalKey()) {
+    for (int block = 0; block < 4; ++block) {
+      ASSERT_FALSE(bbiter->TEST_IsBlockPinnedByMultiScan(block)) << block;
+    }
+  } else {
+    ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(0));
+    for (int block = 1; block < 4; ++block) {
+      ASSERT_FALSE(bbiter->TEST_IsBlockPinnedByMultiScan(block)) << block;
+    }
+  }
+}
+
+TEST_P(BlockBasedTableReaderMultiScanFirstInternalKeyTest,
+       MultiScanAdjacentRangeKeepsBlockNeededBySecondRange) {
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          4 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          comparator_->timestamp_size(), same_key_diff_ts_, comparator_);
+  std::string table_name =
+      "BlockBasedTableReaderTest_FirstInternalKeyAdjacent" +
+      CompressionTypeToString(compression_type_) + "_" +
+      std::to_string(static_cast<int>(GetParam().index_type));
+
+  std::unique_ptr<BlockBasedTable> table;
+  CreateAndOpenTable(table_name, kv, &table);
+
+  ReadOptions read_opts;
+  std::string read_ts_storage;
+  Slice read_ts;
+  SetMaxReadTimestamp(&read_opts, &read_ts_storage, &read_ts);
+
+  std::unique_ptr<InternalIterator> iter =
+      NewTableIterator(table.get(), read_opts);
+
+  MultiScanArgs scan_options(options_.comparator);
+  scan_options.insert(ScanBoundary(kv[0].first),
+                      ScanBoundary(kv[kEntriesPerBlock].first));
+  scan_options.insert(ScanBoundary(kv[kEntriesPerBlock].first),
+                      ScanBoundary(kv[2 * kEntriesPerBlock].first));
+  iter->Prepare(&scan_options);
+  ASSERT_OK(iter->status());
+
+  auto* bbiter = dynamic_cast<BlockBasedTableIterator*>(iter.get());
+  ASSERT_TRUE(bbiter);
+  ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(0));
+  ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(1));
+  if (UsesFirstInternalKey()) {
+    ASSERT_FALSE(bbiter->TEST_IsBlockPinnedByMultiScan(2));
+  } else {
+    ASSERT_TRUE(bbiter->TEST_IsBlockPinnedByMultiScan(2));
+  }
+
+  iter->Seek(kv[0].first);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(iter->key(), kv[0].first);
+  ASSERT_EQ(iter->value(), kv[0].second);
+
+  iter->Seek(kv[kEntriesPerBlock].first);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(iter->key(), kv[kEntriesPerBlock].first);
+  ASSERT_EQ(iter->value(), kv[kEntriesPerBlock].second);
+}
+
 // Regression test for assertion failure when re-seeking to an already-exhausted
 // scan range. This can happen when MergingIterator re-seeks a child iterator
 // after all scan ranges have been consumed (e.g., due to range tombstone
@@ -1984,6 +2305,42 @@ struct BlockBasedTableReaderTestParamBuilder {
   std::vector<size_t> super_block_alignment_space_overhead_ratios;
 };
 
+std::vector<BlockBasedTableReaderTestParam>
+GenerateFirstInternalKeyMultiScanParameters() {
+  std::vector<BlockBasedTableReaderTestParam> params;
+  auto add_param = [&params](BlockBasedTableOptions::IndexType index_type,
+                             test::UserDefinedTimestampTestMode udt_test_mode,
+                             const Comparator* comparator) {
+    params.emplace_back(
+        kNoCompression, false /* use_direct_reads */, index_type,
+        false /* no_block_cache */, udt_test_mode,
+        1 /* compression_parallel_threads */, 0 /* compression_dict_bytes */,
+        false /* same_key_diff_ts */, comparator, true /* fill_cache */,
+        false /* use_async_io */, false /* block_align */,
+        0 /* super_block_alignment_size */,
+        128 /* super_block_alignment_space_overhead_ratio */);
+  };
+  for (const auto index_type :
+       {BlockBasedTableOptions::IndexType::kBinarySearch,
+        BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey}) {
+    add_param(index_type, test::UserDefinedTimestampTestMode::kNone,
+              BytewiseComparator());
+    add_param(index_type, test::UserDefinedTimestampTestMode::kNone,
+              ReverseBytewiseComparator());
+    add_param(index_type,
+              test::UserDefinedTimestampTestMode::kStripUserDefinedTimestamp,
+              test::BytewiseComparatorWithU64TsWrapper());
+    add_param(index_type,
+              test::UserDefinedTimestampTestMode::kStripUserDefinedTimestamp,
+              test::ReverseBytewiseComparatorWithU64TsWrapper());
+    add_param(index_type, test::UserDefinedTimestampTestMode::kNormal,
+              test::BytewiseComparatorWithU64TsWrapper());
+    add_param(index_type, test::UserDefinedTimestampTestMode::kNormal,
+              test::ReverseBytewiseComparatorWithU64TsWrapper());
+  }
+  return params;
+}
+
 std::vector<bool> IOUringFlags() {
 #ifdef ROCKSDB_IOURING_PRESENT
   return {false, true};
@@ -2014,6 +2371,11 @@ INSTANTIATE_TEST_CASE_P(
                             .WithComparators({BytewiseComparator(),
                                               ReverseBytewiseComparator()})
                             .build()));
+
+INSTANTIATE_TEST_CASE_P(
+    BlockBasedTableReaderMultiScanFirstInternalKeyTest,
+    BlockBasedTableReaderMultiScanFirstInternalKeyTest,
+    ::testing::ValuesIn(GenerateFirstInternalKeyMultiScanParameters()));
 
 INSTANTIATE_TEST_CASE_P(
     BlockBasedTableReaderGetTest, BlockBasedTableReaderGetTest,

@@ -1171,14 +1171,24 @@ Status BlockBasedTableIterator::CollectBlockHandles(
 
     if (index_iter_->Valid()) {
       // Handle the last block when its separator is equal or larger than limit
-      if (check_overlap &&
-          scan_block_handles->back() == index_iter_->value().handle) {
-        // Skip adding the current block since it's already in the list
-      } else {
-        scan_block_handles->push_back(index_iter_->value().handle);
-        data_block_separators->push_back(index_iter_->user_key().ToString());
+      IndexValue index_value = index_iter_->value();
+      bool add_block = true;
+      if (scan_opt.range.limit.has_value() &&
+          !index_value.first_internal_key.empty()) {
+        Slice first_user_key = ExtractUserKey(index_value.first_internal_key);
+        add_block = user_comparator_.CompareWithoutTimestamp(
+                        first_user_key, /*a_has_ts=*/true,
+                        *scan_opt.range.limit, /*b_has_ts=*/false) < 0;
       }
-      ++num_blocks;
+      if (add_block) {
+        if (check_overlap && scan_block_handles->back() == index_value.handle) {
+          // Skip adding the current block since it's already in the list
+        } else {
+          scan_block_handles->push_back(index_value.handle);
+          data_block_separators->push_back(index_iter_->user_key().ToString());
+        }
+        ++num_blocks;
+      }
     }
     block_index_ranges_per_scan->emplace_back(
         scan_block_handles->size() - num_blocks, scan_block_handles->size());
