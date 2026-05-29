@@ -5844,6 +5844,8 @@ uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
       return rep->number_async_seek;
     case rocksdb_blob_cache_hit_count:
       return rep->blob_cache_hit_count;
+    case rocksdb_blob_cache_read_byte:
+      return rep->blob_cache_read_byte;
     case rocksdb_blob_read_count:
       return rep->blob_read_count;
     case rocksdb_blob_read_byte:
