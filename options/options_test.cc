@@ -2011,6 +2011,31 @@ TEST_F(OptionsTest, StringToMapTest) {
   ASSERT_NOK(StringToMap("k1=v1;k2={{dfdl}adfa}{}", &opts_map));
 }
 
+TEST_F(OptionsTest, EmptyBracedVectorAndBracedScalarTest) {
+  // An empty braced list value (`key={}`) must parse as an empty
+  // collection, not as a vector with one empty element. StringToMap
+  // preserves the braces, so the typed vector parser sees `{}`; its
+  // outer-brace strip needs to handle the size-2 case.
+  ColumnFamilyOptions cf_opts;
+  ConfigOptions cfg;
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      cfg, ColumnFamilyOptions(), "compression_per_level={};", &cf_opts));
+  EXPECT_TRUE(cf_opts.compression_per_level.empty());
+
+  // A scalar value wrapped in `{}` (e.g. hand-crafted `key={42}`) must
+  // still parse. StringToMap preserves the braces, so the scalar
+  // dispatch in OptionTypeInfo::Parse permissively strips one outer
+  // layer.
+  DBOptions db_opts;
+  ASSERT_OK(GetDBOptionsFromString(cfg, DBOptions(), "max_open_files={42};",
+                                   &db_opts));
+  EXPECT_EQ(db_opts.max_open_files, 42);
+
+  ASSERT_OK(GetDBOptionsFromString(cfg, DBOptions(),
+                                   "create_if_missing={true};", &db_opts));
+  EXPECT_TRUE(db_opts.create_if_missing);
+}
+
 TEST_F(OptionsTest, MapToStringTest) {
   using Map = std::unordered_map<std::string, std::string>;
   std::string s;

@@ -1114,7 +1114,7 @@ Status OptionTypeInfo::NextToken(const std::string& opts, char delimiter,
 }
 
 std::string OptionTypeInfo::StripOuterBraces(const std::string& value) {
-  if (value.size() <= 2 || value.front() != '{' || value.back() != '}') {
+  if (value.size() < 2 || value.front() != '{' || value.back() != '}') {
     return value;
   }
   // Verify the leading '{' actually pairs with the trailing '}'.
@@ -1157,7 +1157,13 @@ Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
       copy.invoke_prepare_options = false;
       void* opt_addr = GetOffset(opt_ptr);
       return parse_func_(copy, opt_name, opt_value, opt_addr);
-    } else if (ParseOptionHelper(GetOffset(opt_ptr), type_, opt_value)) {
+    } else if (ParseOptionHelper(GetOffset(opt_ptr), type_,
+                                 StripOuterBraces(opt_value))) {
+      // Scalar types (int, bool, enum, string, ...). StringToMap now
+      // preserves outer braces in nested values, so a hand-crafted
+      // `key={42}` (or `db_log_dir={/tmp}`) lands here with a wrap
+      // that scalar parsers don't expect; permissively strip one
+      // level so braced scalar input still parses as before.
       return Status::OK();
     } else if (IsConfigurable()) {
       // The option is <config>.<name>
