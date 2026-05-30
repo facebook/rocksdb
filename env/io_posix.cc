@@ -28,7 +28,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#if defined(OS_LINUX) || defined(OS_ANDROID)
+#if defined(OS_AIX) || defined(OS_LINUX) || defined(OS_ANDROID)
 #include <sys/statfs.h>
 #include <sys/sysmacros.h>
 #endif
