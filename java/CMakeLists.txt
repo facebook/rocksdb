@@ -845,12 +845,21 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8)
 endif()
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
-    set_target_properties(
-            ${ROCKSDBJNI_STATIC_LIB}
-            PROPERTIES
-            OUTPUT_NAME librocksdbjni-win${bitness}
-    )
-    set(ROCKSDB_JAR rocksdbjni-${CMAKE_PROJECT_VERSION}-win${bitness}.jar)
+    if(CMAKE_GENERATOR_PLATFORM MATCHES "ARM64")
+        set_target_properties(
+                ${ROCKSDBJNI_STATIC_LIB}
+                PROPERTIES
+                OUTPUT_NAME librocksdbjni-win-arm64
+        )
+        set(ROCKSDB_JAR rocksdbjni-${CMAKE_PROJECT_VERSION}-win-arm64.jar)
+    else()
+        set_target_properties(
+                ${ROCKSDBJNI_STATIC_LIB}
+                PROPERTIES
+                OUTPUT_NAME librocksdbjni-win${bitness}
+        )
+        set(ROCKSDB_JAR rocksdbjni-${CMAKE_PROJECT_VERSION}-win${bitness}.jar)
+    endif()
 elseif(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
     set_target_properties(
             ${ROCKSDBJNI_STATIC_LIB}
