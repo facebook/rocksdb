@@ -5516,6 +5516,7 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
 struct VersionSet::ManifestWriter {
   Status status;
   bool done;
+  bool first_in_group;
   InstrumentedCondVar cv;
   ColumnFamilyData* cfd;
   const autovector<VersionEdit*>& edit_list;
@@ -5526,6 +5527,7 @@ struct VersionSet::ManifestWriter {
       const autovector<VersionEdit*>& e,
       const std::function<void(const Status&)>& manifest_wcb)
       : done(false),
+        first_in_group(false),
         cv(mu),
         cfd(_cfd),
         edit_list(e),
@@ -6496,12 +6498,9 @@ Status VersionSet::ProcessManifestWrites(
   while (true) {
     ManifestWriter* ready = manifest_writers_.front();
     manifest_writers_.pop_front();
-    bool need_signal = true;
-    for (const auto& w : writers) {
-      if (&w == ready) {
-        need_signal = false;
-        break;
-      }
+    bool need_signal = false;
+    if (ready->first_in_group && ready != &writers[0]) {
+      need_signal = true;
     }
     ready->status = s;
     ready->done = true;
@@ -6516,6 +6515,7 @@ Status VersionSet::ProcessManifestWrites(
     }
   }
   if (!manifest_writers_.empty()) {
+    assert(manifest_writers_.front()->first_in_group);
     manifest_writers_.front()->cv.Signal();
   }
   return s;
@@ -6575,6 +6575,7 @@ Status VersionSet::LogAndApply(
   }
   assert(!writers.empty());
   ManifestWriter& first_writer = writers.front();
+  first_writer.first_in_group = true;
   TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:BeforeWriterWaiting",
                            nullptr);
   while (!first_writer.done && &first_writer != manifest_writers_.front()) {
@@ -6619,6 +6620,7 @@ Status VersionSet::LogAndApply(
     }
     // Notify new head of manifest write queue.
     if (!manifest_writers_.empty()) {
+      assert(manifest_writers_.front()->first_in_group);
       manifest_writers_.front()->cv.Signal();
     }
     return s;
