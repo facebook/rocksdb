@@ -699,7 +699,7 @@ struct BlockBasedTableOptions {
   //
   // NOTE: Currently only supports index blocks. May update to include data
   // blocks in the future.
-  double uniform_cv_threshold = -1;
+  double uniform_cv_threshold = 0.2;
 
   // Store index blocks on disk in compressed format. Changing this option to
   // false  will avoid the overhead of decompression if index blocks are evicted
