@@ -31,7 +31,9 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
+#include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch_base.h"
 
@@ -193,6 +195,100 @@ class WriteBatch : public WriteBatchBase {
   Status Merge(const SliceParts& key, const SliceParts& value) override {
     return Merge(nullptr, key, value);
   }
+
+  // ------------------------------------------------------------------
+  // Scatter-gather (zero-copy) append API.
+  //
+  // Unlike Put/Delete/SingleDelete/Merge, these variants do NOT copy the
+  // caller's key and value bytes into the WriteBatch. The WriteBatch
+  // records references to the caller's buffers; the caller MUST keep
+  // those buffers valid until the entries have been materialized into
+  // the serialized representation.
+  //
+  // Scope of the zero-copy optimization:
+  //   * Eliminates the key/value memcpy that the legacy Put/Merge path
+  //     performs into the WriteBatch's internal rep_ buffer, and the
+  //     amortized heap growth of rep_ that goes with it.
+  //   * At WAL write time, the bytes are handed to the log writer as a
+  //     vector<Slice> that still references the caller's buffers, so the
+  //     WAL payload is never materialized into a contiguous WriteBatch
+  //     buffer either. (See WriteBatchInternal::GatherForWAL.)
+  //   * It does NOT avoid the memtable copy. MemTable::Add always
+  //     allocates arena space for every entry and memcpies the key and
+  //     value into it; that copy is unchanged by this API.
+  //   * It also does not avoid the copy into the WritableFileWriter's
+  //     internal buffer on the WAL write path -- that buffer still owns
+  //     the bytes handed to the OS.
+  //
+  // Materialization is performed automatically and transparently the
+  // first time any method that reads the serialized representation is
+  // invoked (for example Data(), Iterate(), VerifyChecksum(),
+  // UpdateTimestamps(), SetSavePoint(), RollbackToSavePoint(),
+  // MarkWalTerminationPoint(), Release(), writing the batch to a DB,
+  // copy construction, or copy/move assignment). Callers may also force
+  // materialization by invoking MaterializeSG() directly -- this is
+  // useful when the caller wants to free the source buffers before
+  // handing the batch off.
+  //
+  // GetDataSize() and WriteBatchInternal::ByteSize() do NOT materialize:
+  // they return rep_.size() plus the exact bytes that pending SG entries
+  // would add on materialization. This preserves the zero-copy WAL path
+  // through group-commit batching decisions.
+  //
+  // Ordering invariant: SG entries and non-SG entries live in separate
+  // queues inside the batch (sg_entries_ vs rep_). At materialization
+  // time the non-SG entries in rep_ are emitted first, followed by the
+  // SG entries in their insertion order. Ordering is NOT preserved
+  // across the SG / non-SG boundary within a single batch: a sequence
+  // of Put(k1); PutSG(k2); Put(k3) will serialize as k1, k3, k2. Do
+  // not interleave SG and non-SG appends on the same batch if relative
+  // order between them matters.
+  //
+  // Thread-safety: like the rest of WriteBatch, the scatter-gather state
+  // is NOT safe for concurrent access from multiple threads. In
+  // particular, lazy materialization triggered by a const reader mutates
+  // rep_ and sg_entries_, so two threads calling Data() or Iterate()
+  // concurrently on the same batch race on that state.
+  //
+  // Restrictions (initial version):
+  //   * Not supported on column families that enable user-defined
+  //     timestamps.
+  //   * Not supported when the batch has per-key-value protection
+  //     information disabled/enabled mid-flight in unusual ways; the
+  //     usual construction-time protection option is honored and the
+  //     protection bytes are computed at materialization time.
+  //   * Not exposed through WriteBatchWithIndex.
+  //   * Under WAL compression, the WAL write path materializes the
+  //     batch up front so the compressor sees a single contiguous
+  //     buffer; in that mode the SG path incurs the same key/value
+  //     memcpy as the legacy Put path (no saving, no regression).
+  Status PutSG(ColumnFamilyHandle* column_family, const Slice& key,
+               const Slice& value);
+  Status PutSG(const Slice& key, const Slice& value) {
+    return PutSG(nullptr, key, value);
+  }
+  Status DeleteSG(ColumnFamilyHandle* column_family, const Slice& key);
+  Status DeleteSG(const Slice& key) { return DeleteSG(nullptr, key); }
+  Status SingleDeleteSG(ColumnFamilyHandle* column_family, const Slice& key);
+  Status SingleDeleteSG(const Slice& key) {
+    return SingleDeleteSG(nullptr, key);
+  }
+  Status MergeSG(ColumnFamilyHandle* column_family, const Slice& key,
+                 const Slice& value);
+  Status MergeSG(const Slice& key, const Slice& value) {
+    return MergeSG(nullptr, key, value);
+  }
+
+  // Returns true if any scatter-gather entries are still pending and
+  // have not yet been materialized into the serialized representation.
+  bool HasPendingSG() const { return !sg_entries_.empty(); }
+
+  // Force materialization of any pending scatter-gather entries into
+  // the serialized representation. After this returns the buffers
+  // passed to prior PutSG/DeleteSG/SingleDeleteSG/MergeSG calls may be
+  // freed. Safe to call at any time (including when no entries are
+  // pending).
+  void MaterializeSG();
 
   using WriteBatchBase::PutLogData;
   // Append a blob of arbitrary size to the records in this batch. The blob will
@@ -375,14 +471,23 @@ class WriteBatch : public WriteBatchBase {
   };
   Status Iterate(Handler* handler) const;
 
-  // Retrieve the serialized version of this batch.
-  const std::string& Data() const { return rep_; }
+  // Retrieve the serialized version of this batch. If any scatter-gather
+  // entries are pending, they are materialized into the serialized
+  // representation first.
+  const std::string& Data() const {
+    MaybeMaterializeSG();
+    return rep_;
+  }
 
   // Release the serialized data and clear this batch.
   std::string Release();
 
-  // Retrieve data size of the batch.
-  size_t GetDataSize() const { return rep_.size(); }
+  // Retrieve data size of the batch. If scatter-gather entries are
+  // pending, the returned value includes the exact bytes they will add
+  // to rep_ on materialization. Does NOT materialize: callers that only
+  // need the size (e.g. group-commit batching decisions) should not
+  // force a materialization that would defeat the zero-copy WAL path.
+  size_t GetDataSize() const { return rep_.size() + sg_bytes_pending_; }
 
   // Returns the number of updates in the batch
   uint32_t Count() const;
@@ -492,6 +597,55 @@ class WriteBatch : public WriteBatchBase {
   size_t GetProtectionBytesPerKey() const;
 
  private:
+  // One pending scatter-gather entry. `key` and `value` reference
+  // caller-owned buffers whose lifetime must extend until the entry is
+  // materialized (serialized) into rep_.
+  //
+  // `type_byte` is always one of the non-CF op types (kTypeValue,
+  // kTypeDeletion, kTypeSingleDeletion, kTypeMerge). The corresponding
+  // kTypeColumnFamily* variant is emitted at materialization time iff
+  // `cf_id != 0`.
+  struct SGEntry {
+    uint8_t type_byte;
+    uint32_t cf_id;
+    Slice key;
+    Slice value;  // empty for Delete / SingleDelete
+  };
+
+  // Pending scatter-gather entries. Cleared on materialization.
+  // `mutable` so that const read methods can trigger lazy
+  // materialization (mirrors the `content_flags_` pattern). Like the
+  // rest of WriteBatch, NOT safe for concurrent access across threads;
+  // two concurrent const readers that both trigger lazy materialization
+  // will race on sg_entries_ and rep_.
+  mutable std::vector<SGEntry> sg_entries_;
+
+  // Exact number of bytes that materializing `sg_entries_` will append
+  // to `rep_`. Kept in sync with sg_entries_ by AppendSGEntry and reset
+  // by MaterializeSG / Clear / SetContents. Used for:
+  //   * eager max_bytes enforcement in the SG append path, and
+  //   * serialized-size queries (WriteBatchInternal::ByteSize,
+  //     WriteBatch::GetDataSize) that deliberately avoid materializing
+  //     on the group-commit hot path.
+  mutable size_t sg_bytes_pending_ = 0;
+
+  // Lazy materialization entry point for const readers. Cheap fast-path
+  // when there are no pending entries. See the thread-safety note on
+  // sg_entries_ above.
+  void MaybeMaterializeSG() const {
+    if (!sg_entries_.empty()) {
+      const_cast<WriteBatch*>(this)->MaterializeSG();
+    }
+  }
+
+  // Serialized byte count that materializing `e` will add to rep_.
+  static size_t SGEntrySerializedSize(const SGEntry& e);
+
+  // Shared entry point for PutSG/DeleteSG/SingleDeleteSG/MergeSG.
+  static Status AppendSGEntry(WriteBatch* b, uint8_t type_byte,
+                              uint32_t cf_id, const Slice& key,
+                              const Slice& value, uint32_t content_flag);
+
   friend class WriteBatchInternal;
   friend class LocalSavePoint;
   // TODO(myabandeh): this is needed for a hack to collapse the write batch and
