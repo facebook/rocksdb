@@ -23,6 +23,7 @@
 #include <unordered_map>
 
 #include "rocksdb/cache.h"
+#include "rocksdb/cleanable.h"
 #include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
@@ -45,6 +46,53 @@ class WritableFileWriter;
 struct ConfigOptions;
 struct EnvOptions;
 class UserDefinedIndexFactory;
+
+// Hook for providing read-scoped storage for data blocks read from SST files.
+// This is configured through C++ options rather than OPTIONS files.
+//
+// Current support is limited to block-based table iterator scans and MultiScan
+// data-block reads.
+//
+// TODO: Extend support to point lookups (Get/MultiGet) once those paths can
+// preserve provider-backed block ownership.
+//
+// Requirements:
+// - If the same provider instance is shared by multiple concurrently active
+//   readers, `Allocate()` must be safe to call concurrently.
+// - `Lease::data` must point to at least `size` bytes of writable contiguous
+//   memory that remains valid until every copy of `Lease::cleanup` is reset.
+// - `Lease::data` must be aligned to `alignment` bytes, where `alignment` is a
+//   power of two and `1` means no special alignment requirement.
+// - When `alignment` is greater than 1, `Lease::size` must also be a multiple
+//   of `alignment` so it can be used as direct-I/O backing storage.
+// - `Lease::cleanup` must be non-null on success. Its cleanup may run on any
+//   thread that releases the last RocksDB reference. If the cleanup touches
+//   provider or other shared state, it must synchronize with Allocate() and
+//   other provider cleanup callbacks.
+class ReadScopedBlockBufferProvider {
+ public:
+  // A Lease hands one writable backing allocation from the provider to
+  // RocksDB. RocksDB may fill `data` with file bytes or decompressed block
+  // contents, then attach `cleanup` to the resulting Blocks and any slices
+  // pinned from them.
+  //
+  // The provider keeps ownership of the allocation. RocksDB keeps the data
+  // alive by copying `cleanup`; the provider must not reuse or release `data`
+  // until every copy of `cleanup` has been reset. `size` is the usable backing
+  // allocation size and may be larger than the requested allocation size. For
+  // direct-I/O reads, `size` must be a multiple of the requested alignment.
+  struct Lease {
+    // Writable contiguous memory for the loaded block.
+    char* data = nullptr;
+    size_t size = 0;
+    // Keeps `data` alive for all derived pinned key/value slices.
+    SharedCleanablePtr cleanup;
+  };
+
+  virtual ~ReadScopedBlockBufferProvider() = default;
+
+  virtual Status Allocate(size_t size, size_t alignment, Lease* out) = 0;
+};
 
 // Types of checksums to use for checking integrity of logical blocks within
 // files. All checksums currently use 32 bits of checking power (1 in 4B

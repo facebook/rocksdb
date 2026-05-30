@@ -152,6 +152,11 @@ class BlockBasedTable;
 struct JobOptions {
   uint64_t io_coalesce_threshold = 16 * 1024;
   ReadOptions read_options;
+
+  // Skip data-block cache lookup and insertion for this job. This is separate
+  // from ReadOptions::fill_cache=false, which still permits existing cache
+  // hits while avoiding insertion of newly read blocks.
+  bool bypass_block_cache = false;
 };
 
 class IOJob {
@@ -254,6 +259,17 @@ class ReadSet {
   // Poll and process a specific async IO request
   Status PollAndProcessAsyncIO(
       const std::shared_ptr<AsyncIOState>& async_state);
+
+  // Release memory budget acquired for a prefetched block.
+  void ReleasePrefetchMemory(size_t block_index);
+
+  // Stop tracking one block from an in-flight async IO request. If this was
+  // the last block using the request, abort and delete the IO handle before the
+  // async state is released.
+  void ReleaseAsyncIOForBlock(size_t block_index);
+
+  // Delete a completed or aborted async IO handle exactly once.
+  void DeleteAsyncIOHandle(const std::shared_ptr<AsyncIOState>& async_state);
 
   // Perform synchronous read for a specific block
   Status SyncRead(size_t block_index);

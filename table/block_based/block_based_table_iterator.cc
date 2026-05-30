@@ -1077,6 +1077,7 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
       multiscan_opts->io_coalesce_threshold;
   job->job_options.read_options = read_options_;
   job->job_options.read_options.async_io = multiscan_opts->use_async_io;
+  job->job_options.bypass_block_cache = multiscan_opts->bypass_block_cache;
 
   std::shared_ptr<ReadSet> read_set;
   // IODispatcher should be provided by DBIter::Prepare() to enable sharing

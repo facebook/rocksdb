@@ -24,6 +24,7 @@
 #include "table/block_based/reader_common.h"
 #include "table/format.h"
 #include "table/persistent_cache_helper.h"
+#include "util/aligned_buffer.h"
 #include "util/compression.h"
 #include "util/stop_watch.h"
 
@@ -151,8 +152,17 @@ inline bool BlockFetcher::TryGetSerializedBlockFromPersistentCache() {
 
 inline void BlockFetcher::PrepareBufferForBlockFromFile() {
   // cache miss read from device
-  if ((do_uncompress_ || ioptions_.allow_mmap_reads) &&
-      block_size_with_trailer_ < kDefaultStackBufferSize) {
+  if (block_buffer_provider_.has_value()) {
+    Status s = AllocateReadScopedBlockBuffer(block_buffer_provider_->get(),
+                                             block_size_with_trailer_, 1,
+                                             &read_scoped_buf_lease_);
+    if (!s.ok()) {
+      io_status_ = status_to_io_status(std::move(s));
+      return;
+    }
+    used_buf_ = read_scoped_buf_lease_.data;
+  } else if ((do_uncompress_ || ioptions_.allow_mmap_reads) &&
+             block_size_with_trailer_ < kDefaultStackBufferSize) {
     // If we've got a small enough chunk of data, read it in to the
     // trivially allocated stack buffer instead of needing a full malloc()
     //
@@ -231,7 +241,7 @@ inline void BlockFetcher::CopyBufferToCompressedBuf() {
 //    is not compressed
 // 3. heap_buf_ if the block is not compressed
 // 4. compressed_buf_ if the block is compressed
-// 5. direct_io_buf_ if direct IO is enabled or
+// 5. direct_io_buffer_ if direct IO is enabled or
 // 6. underlying file_system scratch is used (FSReadRequest.fs_scratch).
 //
 // After - After this method, if the block is compressed, it should be in
@@ -241,6 +251,11 @@ inline void BlockFetcher::GetBlockContents() {
   if (slice_.data() != used_buf_) {
     // the slice content is not the buffer provided
     *contents_ = BlockContents(Slice(slice_.data(), block_size_));
+  } else if (read_scoped_buf_lease_.cleanup.get() != nullptr &&
+             compression_type() == kNoCompression) {
+    contents_->data = Slice(slice_.data(), block_size_);
+    contents_->cleanup = std::move(read_scoped_buf_lease_.cleanup);
+    contents_->backing_size = read_scoped_buf_lease_.size;
   } else {
     // page can be either uncompressed or compressed, the buffer either stack
     // or heap provided. Refer to https://github.com/facebook/rocksdb/pull/4096
@@ -253,7 +268,7 @@ inline void BlockFetcher::GetBlockContents() {
       } else {
         heap_buf_ = std::move(compressed_buf_);
       }
-    } else if (direct_io_buf_.get() != nullptr || use_fs_scratch_) {
+    } else if (direct_io_buffer_.BufferStart() != nullptr || use_fs_scratch_) {
       if (compression_type() == kNoCompression) {
         CopyBufferToHeapBuf();
       } else {
@@ -281,13 +296,17 @@ void BlockFetcher::ReadBlock(bool retry) {
   // Actual file read
   if (io_status_.ok()) {
     if (file_->use_direct_io()) {
+      if (block_buffer_provider_.has_value()) {
+        direct_io_buffer_ = MakeReadScopedAlignedBuffer(
+            block_buffer_provider_, &read_scoped_buf_lease_);
+      }
       PERF_TIMER_GUARD(block_read_time);
       PERF_CPU_TIMER_GUARD(
           block_read_cpu_time,
           ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
       io_status_ =
           file_->Read(opts, handle_.offset(), block_size_with_trailer_, &slice_,
-                      /*scratch=*/nullptr, &direct_io_buf_, &dbg);
+                      /*scratch=*/nullptr, &direct_io_buffer_, &dbg);
       PERF_COUNTER_ADD(block_read_count, 1);
       used_buf_ = const_cast<char*>(slice_.data());
     } else if (use_fs_scratch_) {
@@ -298,8 +317,9 @@ void BlockFetcher::ReadBlock(bool retry) {
       read_req.offset = handle_.offset();
       read_req.len = block_size_with_trailer_;
       read_req.scratch = nullptr;
+      AlignedBuffer direct_io_buffer;
       io_status_ = file_->MultiRead(opts, &read_req, /*num_reqs=*/1,
-                                    /*AlignedBuf* =*/nullptr, &dbg);
+                                    direct_io_buffer, &dbg);
       PERF_COUNTER_ADD(block_read_count, 1);
 
       slice_ = Slice(read_req.result.data(), read_req.result.size());
@@ -307,6 +327,9 @@ void BlockFetcher::ReadBlock(bool retry) {
     } else {
       // It allocates/assign used_buf_
       PrepareBufferForBlockFromFile();
+      if (!io_status_.ok()) {
+        return;
+      }
 
       PERF_TIMER_GUARD(block_read_time);
       PERF_CPU_TIMER_GUARD(
@@ -316,7 +339,7 @@ void BlockFetcher::ReadBlock(bool retry) {
       io_status_ =
           file_->Read(opts, handle_.offset(), /*size*/ block_size_with_trailer_,
                       /*result*/ &slice_, /*scratch*/ used_buf_,
-                      /*aligned_buf=*/nullptr, &dbg);
+                      /*direct_io_buffer=*/nullptr, &dbg);
       PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG
       if (slice_.data() == &stack_buf_[0]) {
@@ -380,7 +403,7 @@ void BlockFetcher::ReadBlock(bool retry) {
     }
   } else {
     ReleaseFileSystemProvidedBuffer(&read_req);
-    direct_io_buf_.reset();
+    direct_io_buffer_.Release();
     compressed_buf_.reset();
     heap_buf_.reset();
     used_buf_ = nullptr;
@@ -423,7 +446,8 @@ IOStatus BlockFetcher::ReadBlockContents() {
     slice_.size_ = block_size_;
     decomp_args_.compressed_data = slice_;
     io_status_ = status_to_io_status(DecompressSerializedBlock(
-        decomp_args_, *decompressor_, contents_, ioptions_, memory_allocator_));
+        decomp_args_, *decompressor_, contents_, ioptions_, memory_allocator_,
+        block_buffer_provider_));
 #ifndef NDEBUG
     num_heap_buf_memcpy_++;
 #endif
@@ -477,9 +501,9 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
           // Process the compressed block without trailer
           slice_.size_ = block_size_;
           decomp_args_.compressed_data = slice_;
-          io_status_ = status_to_io_status(
-              DecompressSerializedBlock(decomp_args_, *decompressor_, contents_,
-                                        ioptions_, memory_allocator_));
+          io_status_ = status_to_io_status(DecompressSerializedBlock(
+              decomp_args_, *decompressor_, contents_, ioptions_,
+              memory_allocator_, block_buffer_provider_));
 #ifndef NDEBUG
           num_heap_buf_memcpy_++;
 #endif

@@ -87,6 +87,100 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
 }
 }  // namespace
 
+Status AllocateReadScopedBlockBuffer(
+    ReadScopedBlockBufferProvider& block_buffer_provider, size_t requested_size,
+    size_t requested_alignment, ReadScopedBlockBufferProvider::Lease* lease) {
+  assert(lease != nullptr);
+
+  Status s = block_buffer_provider.Allocate(requested_size, requested_alignment,
+                                            lease);
+  if (!s.ok()) {
+    return s;
+  }
+  if (lease->data == nullptr || lease->size < requested_size ||
+      lease->cleanup.get() == nullptr) {
+    return Status::InvalidArgument(
+        "ReadScopedBlockBufferProvider returned an invalid lease");
+  }
+  if (requested_alignment > 1 && (reinterpret_cast<uintptr_t>(lease->data) &
+                                  (requested_alignment - 1)) != 0) {
+    return Status::InvalidArgument(
+        "ReadScopedBlockBufferProvider returned a misaligned lease");
+  }
+  return Status::OK();
+}
+
+Status AllocateReadScopedAlignedBuffer(
+    ReadScopedBlockBufferProvider& block_buffer_provider, size_t size,
+    size_t alignment, ReadScopedBlockBufferProvider::Lease* lease,
+    AlignedBuffer::ExternalAllocation* out) {
+  if (out == nullptr) {
+    return Status::InvalidArgument(
+        "AlignedBuffer allocation output is nullptr");
+  }
+  Status s = AllocateReadScopedBlockBuffer(block_buffer_provider, size,
+                                           alignment, lease);
+  if (!s.ok()) {
+    return s;
+  }
+
+  SharedCleanablePtr owner_cleanup = lease->cleanup;
+  out->data = lease->data;
+  out->size = lease->size;
+  out->owner = FSAllocationPtr(
+      lease->data, [owner_cleanup = std::move(owner_cleanup)](void*) mutable {
+        owner_cleanup.Reset();
+      });
+  return Status::OK();
+}
+
+AlignedBuffer MakeReadScopedAlignedBuffer(
+    ReadScopedBlockBufferProviderRef block_buffer_provider,
+    ReadScopedBlockBufferProvider::Lease* lease) {
+  assert(block_buffer_provider.has_value());
+  assert(lease != nullptr);
+  return AlignedBuffer([block_buffer_provider, lease](
+                           size_t size, size_t alignment,
+                           AlignedBuffer::ExternalAllocation* out) -> Status {
+    assert(block_buffer_provider.has_value());
+    return AllocateReadScopedAlignedBuffer(block_buffer_provider->get(), size,
+                                           alignment, lease, out);
+  });
+}
+
+ReadScopedBlockBufferProviderRef GetReadScopedBlockBufferProvider(
+    const ReadOptions& ro) {
+  if (ro.read_scoped_block_buffer_provider == nullptr) {
+    return std::nullopt;
+  }
+  return std::ref(*ro.read_scoped_block_buffer_provider);
+}
+
+bool ShouldUseBlockCacheForIteratorDataBlocks(
+    const BlockBasedTableOptions& table_options, const ReadOptions& ro,
+    bool bypass_block_cache) {
+  if (bypass_block_cache) {
+    return false;
+  }
+  if (GetReadScopedBlockBufferProvider(ro).has_value()) {
+    return false;
+  }
+  return table_options.block_cache != nullptr;
+}
+
+Status CopyBufferToHeapBlockContents(Slice src, size_t data_size,
+                                     MemoryAllocator* allocator,
+                                     BlockContents* out_contents) {
+  assert(out_contents != nullptr);
+  assert(data_size <= src.size());
+
+  *out_contents = BlockContents(CopyBufferToHeap(allocator, src), data_size);
+#ifndef NDEBUG
+  out_contents->has_trailer = src.size() > data_size;
+#endif
+  return Status::OK();
+}
+
 // Explicitly instantiate templates for each "blocklike" type we use (and
 // before implicit specialization).
 // This makes it possible to keep the template definitions in the .cc file.
@@ -204,7 +298,8 @@ Status ReadAndParseBlockFromFile(
     BlockCreateContext& create_context, bool maybe_compressed,
     UnownedPtr<Decompressor> decomp,
     const PersistentCacheOptions& cache_options,
-    MemoryAllocator* memory_allocator, bool for_compaction, bool async_read) {
+    MemoryAllocator* memory_allocator, bool for_compaction, bool async_read,
+    ReadScopedBlockBufferProviderRef block_buffer_provider = std::nullopt) {
   assert(result);
 
   BlockContents contents;
@@ -212,7 +307,7 @@ Status ReadAndParseBlockFromFile(
       file, prefetch_buffer, footer, options, handle, &contents, ioptions,
       /*do_uncompress*/ maybe_compressed, maybe_compressed,
       TBlocklike::kBlockType, decomp, cache_options, memory_allocator, nullptr,
-      for_compaction);
+      for_compaction, block_buffer_provider);
   Status s;
   // If prefetch_buffer is not allocated, it will fallback to synchronous
   // reading of block contents.
@@ -1715,7 +1810,11 @@ Status BlockBasedTable::LookupAndPinBlocksInCache(
   BlockCacheInterface<TBlocklike> block_cache{
       rep_->table_options.block_cache.get()};
 
-  assert(block_cache);
+  TEST_SYNC_POINT("BlockBasedTable::LookupAndPinBlocksInCache:Start");
+
+  if (!block_cache) {
+    return Status::OK();
+  }
 
   Status s;
   CachableEntry<DecompressorDict> cached_dict;
@@ -2096,9 +2195,8 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::RetrieveBlock(
   assert(out_parsed_block);
   assert(out_parsed_block->IsEmpty());
 
-  Status s;
   if (use_cache) {
-    s = MaybeReadBlockAndLoadToCache(
+    Status s = MaybeReadBlockAndLoadToCache(
         prefetch_buffer, ro, handle, decomp, for_compaction, out_parsed_block,
         get_context, lookup_context,
         /*contents=*/nullptr, async_read, use_block_cache_for_lookup);
@@ -2124,16 +2222,21 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::RetrieveBlock(
   const bool maybe_compressed =
       BlockTypeMaybeCompressed(TBlocklike::kBlockType) && rep_->decompressor;
   std::unique_ptr<TBlocklike> block;
+  Status s;
 
   {
     Histograms histogram =
         for_compaction ? READ_BLOCK_COMPACTION_MICROS : READ_BLOCK_GET_MICROS;
     StopWatch sw(rep_->ioptions.clock, rep_->ioptions.stats, histogram);
+    ReadScopedBlockBufferProviderRef block_buffer_provider =
+        (!use_cache && TBlocklike::kBlockType == BlockType::kData)
+            ? GetReadScopedBlockBufferProvider(ro)
+            : std::nullopt;
     s = ReadAndParseBlockFromFile(
         rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle, &block,
         rep_->ioptions, rep_->create_context, maybe_compressed, decomp,
         rep_->persistent_cache_options, GetMemoryAllocator(rep_->table_options),
-        for_compaction, async_read);
+        for_compaction, async_read, block_buffer_provider);
 
     if (get_context) {
       switch (TBlocklike::kBlockType) {
@@ -3388,9 +3491,9 @@ void BlockBasedTable::DumpBlockChecksumInfo(const BlockHandle& block_handle,
   IODebugContext dbg;
   IOStatus io_s = rep_->file->PrepareIOOptions(read_options, opts, &dbg);
   if (io_s.ok()) {
-    io_s = rep_->file->Read(opts, block_handle.offset(),
-                            block_size_with_trailer, &raw_block_slice,
-                            raw_block.get(), /*aligned_buf=*/nullptr, &dbg);
+    io_s =
+        rep_->file->Read(opts, block_handle.offset(), block_size_with_trailer,
+                         &raw_block_slice, raw_block.get(), nullptr, &dbg);
   }
   if (io_s.ok() && raw_block_slice.size() == block_size_with_trailer) {
     const char* data = raw_block_slice.data();

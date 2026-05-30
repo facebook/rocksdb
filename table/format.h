@@ -11,6 +11,8 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
+#include <optional>
 #include <string>
 
 #include "file/file_prefetch_buffer.h"
@@ -19,6 +21,7 @@
 #include "options/cf_options.h"
 #include "port/malloc.h"
 #include "port/port.h"  // noexcept
+#include "rocksdb/cleanable.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -28,6 +31,9 @@ namespace ROCKSDB_NAMESPACE {
 
 class RandomAccessFile;
 struct ReadOptions;
+
+using ReadScopedBlockBufferProviderRef =
+    std::optional<std::reference_wrapper<ReadScopedBlockBufferProvider>>;
 
 bool ShouldReportDetailedTime(Env* env, Statistics* stats);
 
@@ -404,6 +410,11 @@ struct BlockContents {
   // Points to block payload (without trailer)
   Slice data;
   CacheAllocationPtr allocation;
+  // Optional shared lifetime token for block bytes not owned through
+  // `allocation`, such as bytes backed by a read-scoped provider.
+  SharedCleanablePtr cleanup;
+  // Usable byte size of the provider/external backing allocation.
+  size_t backing_size = 0;
 
 #ifndef NDEBUG
   // Whether there is a known trailer after what is pointed to by `data`.
@@ -427,7 +438,9 @@ struct BlockContents {
   }
 
   // Returns whether the object has ownership of the underlying data bytes.
-  bool own_bytes() const { return allocation.get() != nullptr; }
+  bool own_bytes() const {
+    return allocation.get() != nullptr || cleanup.get() != nullptr;
+  }
 
   // The additional memory space taken by the block data.
   size_t usable_size() const {
@@ -442,6 +455,8 @@ struct BlockContents {
 #else
       return data.size();
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
+    } else if (cleanup.get() != nullptr) {
+      return backing_size;
     } else {
       return 0;  // no extra memory is occupied by the data
     }
@@ -456,6 +471,8 @@ struct BlockContents {
   BlockContents& operator=(BlockContents&& other) {
     data = std::move(other.data);
     allocation = std::move(other.allocation);
+    cleanup = std::move(other.cleanup);
+    backing_size = other.backing_size;
 #ifndef NDEBUG
     has_trailer = other.has_trailer;
 #endif  // NDEBUG
@@ -467,18 +484,17 @@ struct BlockContents {
 // must be compressed and include a trailer beyond `size`. A new buffer is
 // allocated with the given allocator (or default) and the uncompressed
 // contents are returned in `out_contents`. Statistics updated.
-Status DecompressSerializedBlock(const char* data, size_t size,
-                                 CompressionType type,
-                                 Decompressor& decompressor,
-                                 BlockContents* out_contents,
-                                 const ImmutableOptions& ioptions,
-                                 MemoryAllocator* allocator = nullptr);
+Status DecompressSerializedBlock(
+    const char* data, size_t size, CompressionType type,
+    Decompressor& decompressor, BlockContents* out_contents,
+    const ImmutableOptions& ioptions, MemoryAllocator* allocator = nullptr,
+    ReadScopedBlockBufferProviderRef block_buffer_provider = std::nullopt);
 
-Status DecompressSerializedBlock(Decompressor::Args& args,
-                                 Decompressor& decompressor,
-                                 BlockContents* out_contents,
-                                 const ImmutableOptions& ioptions,
-                                 MemoryAllocator* allocator = nullptr);
+Status DecompressSerializedBlock(
+    Decompressor::Args& args, Decompressor& decompressor,
+    BlockContents* out_contents, const ImmutableOptions& ioptions,
+    MemoryAllocator* allocator = nullptr,
+    ReadScopedBlockBufferProviderRef block_buffer_provider = std::nullopt);
 
 // This is a variant of DecompressSerializedBlock that does not expect a
 // block trailer beyond `size`. (CompressionType is passed in.)

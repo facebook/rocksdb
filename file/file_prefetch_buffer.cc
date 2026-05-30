@@ -103,7 +103,7 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
   } else {
     to_buf = buf->buffer_.BufferStart() + aligned_useful_len;
     s = reader->Read(opts, start_offset + aligned_useful_len, read_len, &result,
-                     to_buf, /*aligned_buf=*/nullptr);
+                     to_buf);
   }
 
 #ifndef NDEBUG
@@ -165,7 +165,7 @@ Status FilePrefetchBuffer::ReadAsync(BufferInfo* buf, const IOOptions& opts,
     // Fall back to synchronous read so the buffer is populated inline
     // and callers proceed transparently.
     s = reader->Read(opts, start_offset, read_len, &result,
-                     buf->buffer_.BufferStart(), /*aligned_buf=*/nullptr);
+                     buf->buffer_.BufferStart());
     if (s.ok()) {
       buf->buffer_.Size(buf->CurrentSize() + result.size());
       if (usage_ == FilePrefetchBufferUsage::kUserScanPrefetch) {

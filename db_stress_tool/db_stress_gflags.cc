@@ -1705,6 +1705,14 @@ DEFINE_bool(use_multiscan, false,
 DEFINE_bool(multiscan_use_async_io, false,
             "If set, enable async_io for MultiScan operations.");
 
+DEFINE_bool(multiscan_bypass_block_cache, false,
+            "If set, randomly enable MultiScanArgs::bypass_block_cache for "
+            "MultiScan operations.");
+
+DEFINE_bool(read_scoped_block_buffer_provider, false,
+            "If set, configure ReadOptions::read_scoped_block_buffer_provider "
+            "with a stress-test provider for supported scan reads.");
+
 DEFINE_uint64(multiscan_max_prefetch_memory_bytes, 0,
               "If non-zero, sets the max_prefetch_memory_bytes on the "
               "IODispatcher used for MultiScan. This limits the total memory "

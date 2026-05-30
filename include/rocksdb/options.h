@@ -52,6 +52,7 @@ class MergeOperator;
 class Snapshot;
 class MemTableRepFactory;
 class RateLimiter;
+class ReadScopedBlockBufferProvider;
 class Slice;
 class Statistics;
 class InternalKeyComparator;
@@ -1952,12 +1953,14 @@ class MultiScanArgs {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
     use_async_io = other.use_async_io;
+    bypass_block_cache = other.bypass_block_cache;
     io_dispatcher = other.io_dispatcher;
   }
   MultiScanArgs(MultiScanArgs&& other) noexcept
       : io_coalesce_threshold(other.io_coalesce_threshold),
         max_prefetch_size(other.max_prefetch_size),
         use_async_io(other.use_async_io),
+        bypass_block_cache(other.bypass_block_cache),
         io_dispatcher(std::move(other.io_dispatcher)),
         comp_(other.comp_),
         original_ranges_(std::move(other.original_ranges_)) {}
@@ -1968,6 +1971,7 @@ class MultiScanArgs {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
     use_async_io = other.use_async_io;
+    bypass_block_cache = other.bypass_block_cache;
     io_dispatcher = other.io_dispatcher;
     return *this;
   }
@@ -1979,6 +1983,7 @@ class MultiScanArgs {
       io_coalesce_threshold = other.io_coalesce_threshold;
       max_prefetch_size = other.max_prefetch_size;
       use_async_io = other.use_async_io;
+      bypass_block_cache = other.bypass_block_cache;
       io_dispatcher = std::move(other.io_dispatcher);
     }
     return *this;
@@ -2027,6 +2032,7 @@ class MultiScanArgs {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
     use_async_io = other.use_async_io;
+    bypass_block_cache = other.bypass_block_cache;
     io_dispatcher = other.io_dispatcher;
   }
 
@@ -2048,6 +2054,11 @@ class MultiScanArgs {
   // When true, BlockBasedTableIterator will use ReadAsync() for reading blocks
   // When false, it will use synchronous MultiRead().
   bool use_async_io = false;
+
+  // When true, MultiScan data-block prefetch bypasses block cache lookup and
+  // insertion. This is useful for large scans where cache hits are unlikely and
+  // cache lookup overhead dominates. This does not affect index/filter blocks.
+  bool bypass_block_cache = false;
 
   // Optional IODispatcher for multi-scan operations.
   // If nullptr (default), a new IODispatcher is created internally.
@@ -2378,6 +2389,18 @@ struct ReadOptions {
   // the UDI is a secondary index and you want to explicitly select it for
   // reads.
   const UserDefinedIndexFactory* table_index_factory = nullptr;
+
+  // Optional provider for data-block storage pinned by scans using this
+  // ReadOptions. Current support is limited to block-based table iterators and
+  // MultiScan data-block reads. When set, supported scan reads bypass the block
+  // cache and use provider-backed block memory. When unset, scans use the
+  // normal RocksDB block backing for the table: use the configured block cache
+  // when present, otherwise use RocksDB-owned block memory.
+  //
+  // TODO: Extend support to point lookups (Get/MultiGet) once those paths can
+  // preserve provider-backed block ownership.
+  std::shared_ptr<ReadScopedBlockBufferProvider>
+      read_scoped_block_buffer_provider = nullptr;
 
   // *** END options only relevant to iterators or scans ***
 

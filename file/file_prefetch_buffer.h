@@ -527,7 +527,8 @@ class FilePrefetchBuffer {
     read_req.offset = offset;
     read_req.len = n;
     read_req.scratch = nullptr;
-    IOStatus s = reader->MultiRead(opts, &read_req, 1, nullptr);
+    AlignedBuffer direct_io_buffer;
+    IOStatus s = reader->MultiRead(opts, &read_req, 1, direct_io_buffer);
     if (!s.ok()) {
       return s;
     }

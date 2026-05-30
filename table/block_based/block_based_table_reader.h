@@ -33,6 +33,7 @@
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/aligned_buffer.h"
 #include "util/atomic.h"
 #include "util/cast_util.h"
 #include "util/coro_utils.h"
@@ -56,6 +57,46 @@ struct ReadOptions;
 class GetContext;
 
 using KVPairBlock = std::vector<std::pair<std::string, std::string>>;
+
+// Calls the provider and checks that a successful allocation returned a lease
+// satisfying RocksDB's size, alignment, data pointer, and cleanup contract.
+Status AllocateReadScopedBlockBuffer(
+    ReadScopedBlockBufferProvider& block_buffer_provider, size_t requested_size,
+    size_t requested_alignment, ReadScopedBlockBufferProvider::Lease* lease);
+
+// Allocates a read-scoped provider lease and exposes it as an AlignedBuffer
+// external allocation. The AlignedBuffer owner keeps a cleanup reference so the
+// provider allocation remains valid while direct I/O can write into it.
+Status AllocateReadScopedAlignedBuffer(
+    ReadScopedBlockBufferProvider& block_buffer_provider, size_t size,
+    size_t alignment, ReadScopedBlockBufferProvider::Lease* lease,
+    AlignedBuffer::ExternalAllocation* out);
+
+// Returns an AlignedBuffer whose direct-I/O allocations come from the
+// read-scoped provider. The caller must keep `lease` alive until the file
+// reader synchronously asks the AlignedBuffer to allocate.
+AlignedBuffer MakeReadScopedAlignedBuffer(
+    ReadScopedBlockBufferProviderRef block_buffer_provider,
+    ReadScopedBlockBufferProvider::Lease* lease);
+
+// Resolves the read-scoped provider configured for this read. Returns
+// std::nullopt when no provider is configured.
+ReadScopedBlockBufferProviderRef GetReadScopedBlockBufferProvider(
+    const ReadOptions& ro);
+
+// Centralizes the data-block backing decision for iterator and MultiScan paths.
+// `bypass_block_cache` skips lookup and insertion even when a block cache is
+// configured.
+bool ShouldUseBlockCacheForIteratorDataBlocks(
+    const BlockBasedTableOptions& table_options, const ReadOptions& ro,
+    bool bypass_block_cache = false);
+
+// Copies block bytes into RocksDB-owned heap storage and records that ownership
+// in BlockContents. `src` may include a block trailer while `data_size` is the
+// payload size.
+Status CopyBufferToHeapBlockContents(Slice src, size_t data_size,
+                                     MemoryAllocator* allocator,
+                                     BlockContents* out_contents);
 
 // Reader class for BlockBasedTable format.
 // For the format of BlockBasedTable refer to

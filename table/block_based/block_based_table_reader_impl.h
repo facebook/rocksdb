@@ -90,10 +90,13 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
                         lookup_context, for_compaction, /* use_cache */ true,
                         async_read, use_block_cache_for_lookup);
     } else {
-      s = RetrieveBlock(
-          prefetch_buffer, ro, handle, decomp, &block.As<IterBlocklike>(),
-          get_context, lookup_context, for_compaction,
-          /* use_cache */ true, async_read, use_block_cache_for_lookup);
+      const bool use_cache =
+          block_type != BlockType::kData ||
+          ShouldUseBlockCacheForIteratorDataBlocks(rep_->table_options, ro);
+      s = RetrieveBlock(prefetch_buffer, ro, handle, decomp,
+                        &block.As<IterBlocklike>(), get_context, lookup_context,
+                        for_compaction, use_cache, async_read,
+                        use_block_cache_for_lookup && use_cache);
     }
   }
 

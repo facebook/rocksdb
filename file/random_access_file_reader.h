@@ -9,6 +9,7 @@
 
 #pragma once
 #include <atomic>
+#include <functional>
 #include <sstream>
 #include <string>
 
@@ -97,6 +98,7 @@ class RandomAccessFileReader {
           start_time_(start_time),
           user_scratch_(nullptr),
           user_aligned_buf_(nullptr),
+          direct_io_buffer_(nullptr),
           user_offset_(0),
           user_len_(0),
           is_aligned_(false) {}
@@ -108,6 +110,7 @@ class RandomAccessFileReader {
     // Below fields stores the parameters passed by caller in case of direct_io.
     char* user_scratch_;
     AlignedBuf* user_aligned_buf_;
+    AlignedBuffer* direct_io_buffer_;
     uint64_t user_offset_;
     size_t user_len_;
     Slice user_result_;
@@ -157,23 +160,23 @@ class RandomAccessFileReader {
   // 1. if using mmap, result is stored in a buffer other than scratch;
   // 2. if not using mmap, result is stored in the buffer starting from scratch.
   //
-  // In direct IO mode, an aligned buffer is allocated internally.
-  // 1. If aligned_buf is null, then results are copied to the buffer
-  // starting from scratch;
-  // 2. Otherwise, scratch is not used and can be null, the aligned_buf owns
-  // the internally allocated buffer on return, and the result refers to a
-  // region in aligned_buf.
+  // In direct IO mode, if direct_io_buffer is provided then it allocates the
+  // aligned buffer and the result refers to a region in direct_io_buffer.
+  // Otherwise, results are returned in scratch; unaligned reads use an internal
+  // aligned buffer and copy the requested subrange to scratch.
   IOStatus Read(const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
-                char* scratch, AlignedBuf* aligned_buf,
+                char* scratch, AlignedBuffer* direct_io_buffer = nullptr,
                 IODebugContext* dbg = nullptr) const;
 
   // REQUIRES:
   // num_reqs > 0, reqs do not overlap, and offsets in reqs are increasing.
-  // In non-direct IO mode, aligned_buf should be null;
-  // In direct IO mode, aligned_buf stores the aligned buffer allocated inside
-  // MultiRead, the result Slices in reqs refer to aligned_buf.
+  // MultiRead uses direct_io_buffer to allocate the aligned buffer in direct
+  // IO mode. The result Slices in reqs refer to direct_io_buffer, so callers
+  // must keep it alive while those Slices are used. Callers should pass a
+  // default-constructed AlignedBuffer when default heap-backed allocation is
+  // sufficient. direct_io_buffer is ignored in non-direct IO mode.
   IOStatus MultiRead(const IOOptions& opts, FSReadRequest* reqs,
-                     size_t num_reqs, AlignedBuf* aligned_buf,
+                     size_t num_reqs, AlignedBuffer& direct_io_buffer,
                      IODebugContext* dbg = nullptr) const;
 
   IOStatus Prefetch(const IOOptions& opts, uint64_t offset, size_t n,
@@ -193,7 +196,8 @@ class RandomAccessFileReader {
   IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
                      std::function<void(FSReadRequest&, void*)> cb,
                      void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
-                     AlignedBuf* aligned_buf, IODebugContext* dbg = nullptr);
+                     AlignedBuf* aligned_buf, IODebugContext* dbg = nullptr,
+                     AlignedBuffer* direct_io_buffer = nullptr);
 
   void ReadAsyncCallback(FSReadRequest& req, void* cb_arg);
 };

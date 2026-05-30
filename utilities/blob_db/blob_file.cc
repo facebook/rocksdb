@@ -104,16 +104,16 @@ Status BlobFile::ReadFooter(BlobLogFooter* bf) {
 
   Slice result;
   std::string buf;
-  AlignedBuf aligned_buf;
+  AlignedBuffer direct_io_buffer;
   Status s;
   // TODO: rate limit reading footers from blob files.
   if (ra_file_reader_->use_direct_io()) {
     s = ra_file_reader_->Read(IOOptions(), footer_offset, BlobLogFooter::kSize,
-                              &result, nullptr, &aligned_buf);
+                              &result, nullptr, &direct_io_buffer);
   } else {
     buf.reserve(BlobLogFooter::kSize + 10);
     s = ra_file_reader_->Read(IOOptions(), footer_offset, BlobLogFooter::kSize,
-                              &result, buf.data(), nullptr);
+                              &result, buf.data());
   }
   if (!s.ok()) {
     return s;
@@ -228,16 +228,16 @@ Status BlobFile::ReadMetadata(const std::shared_ptr<FileSystem>& fs,
 
   // Read file header.
   std::string header_buf;
-  AlignedBuf aligned_buf;
+  AlignedBuffer direct_io_buffer;
   Slice header_slice;
   // TODO: rate limit reading headers from blob files.
   if (file_reader->use_direct_io()) {
     s = file_reader->Read(IOOptions(), 0, BlobLogHeader::kSize, &header_slice,
-                          nullptr, &aligned_buf);
+                          nullptr, &direct_io_buffer);
   } else {
     header_buf.reserve(BlobLogHeader::kSize);
     s = file_reader->Read(IOOptions(), 0, BlobLogHeader::kSize, &header_slice,
-                          header_buf.data(), nullptr);
+                          header_buf.data());
   }
   if (!s.ok()) {
     ROCKS_LOG_ERROR(
@@ -273,12 +273,12 @@ Status BlobFile::ReadMetadata(const std::shared_ptr<FileSystem>& fs,
   if (file_reader->use_direct_io()) {
     s = file_reader->Read(IOOptions(), file_size - BlobLogFooter::kSize,
                           BlobLogFooter::kSize, &footer_slice, nullptr,
-                          &aligned_buf);
+                          &direct_io_buffer);
   } else {
     footer_buf.reserve(BlobLogFooter::kSize);
     s = file_reader->Read(IOOptions(), file_size - BlobLogFooter::kSize,
                           BlobLogFooter::kSize, &footer_slice,
-                          footer_buf.data(), nullptr);
+                          footer_buf.data());
   }
   if (!s.ok()) {
     ROCKS_LOG_ERROR(

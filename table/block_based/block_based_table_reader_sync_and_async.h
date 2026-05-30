@@ -4,6 +4,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "util/aligned_buffer.h"
 #include "util/async_file_reader.h"
 #include "util/coro_utils.h"
 
@@ -134,7 +135,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
     read_reqs.emplace_back(std::move(req));
   }
 
-  AlignedBuf direct_io_buf;
+  AlignedBuffer direct_io_buffer;
   {
     IOOptions opts;
     IODebugContext dbg;
@@ -144,11 +145,11 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
       if (file->use_direct_io()) {
 #endif  // WITH_COROUTINES
         s = file->MultiRead(opts, &read_reqs[0], read_reqs.size(),
-                            &direct_io_buf, &dbg);
+                            direct_io_buffer, &dbg);
 #if defined(WITH_COROUTINES)
       } else {
         co_await batch->context()->reader().MultiReadAsync(
-            file, opts, &read_reqs[0], read_reqs.size(), &direct_io_buf, &dbg);
+            file, opts, &read_reqs[0], read_reqs.size(), &dbg);
       }
 #endif  // WITH_COROUTINES
     }

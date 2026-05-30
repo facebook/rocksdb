@@ -1390,7 +1390,7 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
 
   // Allocate the buffer. This is safe in C++11
   std::string buf;
-  AlignedBuf aligned_buf;
+  AlignedBuffer direct_io_buffer;
 
   // A partial blob record contain checksum, key and value.
   Slice blob_record;
@@ -1401,12 +1401,12 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
     if (reader->use_direct_io()) {
       s = reader->Read(IOOptions(), record_offset,
                        static_cast<size_t>(record_size), &blob_record, nullptr,
-                       &aligned_buf);
+                       &direct_io_buffer);
     } else {
       buf.reserve(static_cast<size_t>(record_size));
       s = reader->Read(IOOptions(), record_offset,
                        static_cast<size_t>(record_size), &blob_record,
-                       buf.data(), nullptr);
+                       buf.data());
     }
     RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, blob_record.size());
   }

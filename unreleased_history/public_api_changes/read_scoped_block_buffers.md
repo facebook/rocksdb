@@ -1,0 +1,1 @@
+Added experimental `ReadScopedBlockBufferProvider` and `ReadOptions::read_scoped_block_buffer_provider` APIs for block-based table iterator scans and MultiScan data-block reads to use caller-provided read-scoped storage. Get and MultiGet do not currently provide API guarantees for this provider.

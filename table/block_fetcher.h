@@ -39,19 +39,18 @@ namespace ROCKSDB_NAMESPACE {
 
 class BlockFetcher {
  public:
-  BlockFetcher(RandomAccessFileReader* file,
-               FilePrefetchBuffer* prefetch_buffer,
-               const Footer& footer /* ref retained */,
-               const ReadOptions& read_options,
-               const BlockHandle& handle /* ref retained */,
-               BlockContents* contents,
-               const ImmutableOptions& ioptions /* ref retained */,
-               bool do_uncompress, bool maybe_compressed, BlockType block_type,
-               UnownedPtr<Decompressor> decompressor,
-               const PersistentCacheOptions& cache_options /* ref retained */,
-               MemoryAllocator* memory_allocator = nullptr,
-               MemoryAllocator* memory_allocator_compressed = nullptr,
-               bool for_compaction = false)
+  BlockFetcher(
+      RandomAccessFileReader* file, FilePrefetchBuffer* prefetch_buffer,
+      const Footer& footer /* ref retained */, const ReadOptions& read_options,
+      const BlockHandle& handle /* ref retained */, BlockContents* contents,
+      const ImmutableOptions& ioptions /* ref retained */, bool do_uncompress,
+      bool maybe_compressed, BlockType block_type,
+      UnownedPtr<Decompressor> decompressor,
+      const PersistentCacheOptions& cache_options /* ref retained */,
+      MemoryAllocator* memory_allocator = nullptr,
+      MemoryAllocator* memory_allocator_compressed = nullptr,
+      bool for_compaction = false,
+      ReadScopedBlockBufferProviderRef block_buffer_provider = std::nullopt)
       : file_(file),
         prefetch_buffer_(prefetch_buffer),
         footer_(footer),
@@ -68,6 +67,7 @@ class BlockFetcher {
         cache_options_(cache_options),
         memory_allocator_(memory_allocator),
         memory_allocator_compressed_(memory_allocator_compressed),
+        block_buffer_provider_(block_buffer_provider),
         for_compaction_(for_compaction) {
     io_status_.PermitUncheckedError();  // TODO(AR) can we improve on this?
     if (CheckFSFeatureSupport(ioptions_.fs.get(), FSSupportedOps::kFSBuffer)) {
@@ -129,12 +129,18 @@ class BlockFetcher {
   const PersistentCacheOptions& cache_options_;
   MemoryAllocator* memory_allocator_;
   MemoryAllocator* memory_allocator_compressed_;
+  // Optional provider used when the fetched block should be backed by
+  // read-scoped storage instead of RocksDB heap memory.
+  ReadScopedBlockBufferProviderRef block_buffer_provider_;
   IOStatus io_status_;
   Slice slice_;
   char* used_buf_ = nullptr;
-  AlignedBuf direct_io_buf_;
+  AlignedBuffer direct_io_buffer_;
   CacheAllocationPtr heap_buf_;
   CacheAllocationPtr compressed_buf_;
+  // Provider lease backing `used_buf_`; moved into BlockContents once the block
+  // is parsed so the provider allocation lives as long as the block does.
+  ReadScopedBlockBufferProvider::Lease read_scoped_buf_lease_;
   char stack_buf_[kDefaultStackBufferSize];
   bool got_from_prefetch_buffer_ = false;
   bool for_compaction_ = false;
