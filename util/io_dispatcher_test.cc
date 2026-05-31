@@ -281,6 +281,7 @@ class IODispatcherTest : public DBTestBase {
   // The BlockBasedTable keeps references to these options
   std::vector<std::unique_ptr<ImmutableOptions>> all_ioptions_;
   std::vector<std::unique_ptr<EnvOptions>> all_env_options_;
+  std::vector<std::unique_ptr<InternalKeyComparator>> all_comparators_;
 
   class TestReadScopedBlockBufferProvider
       : public ReadScopedBlockBufferProvider {
@@ -461,10 +462,11 @@ class IODispatcherTest : public DBTestBase {
     }
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-    // Store these in member variables so they outlive the function
+    // These are stored in member variables after the table reader opens.
     auto ioptions = std::make_unique<ImmutableOptions>(options);
     auto moptions = MutableCFOptions{options};
-    InternalKeyComparator internal_comparator(options.comparator);
+    auto internal_comparator =
+        std::make_unique<InternalKeyComparator>(options.comparator);
 
     // Create in-memory file using StringSink (like table_test.cc)
     auto table_name = "test_table";
@@ -478,7 +480,7 @@ class IODispatcherTest : public DBTestBase {
     std::vector<std::unique_ptr<InternalTblPropCollFactory>>
         int_tbl_prop_coll_factories;
     TableBuilderOptions builder_options(
-        *ioptions, moptions, read_options, write_options, internal_comparator,
+        *ioptions, moptions, read_options, write_options, *internal_comparator,
         &int_tbl_prop_coll_factories, compression_type,
         options.compression_opts, 0 /* column_family_id */, column_family_name,
         -1 /* level */, kUnknownNewestKeyTime);
@@ -516,15 +518,13 @@ class IODispatcherTest : public DBTestBase {
 
     NewFileReader(table_name, foptions, &file, nullptr);
 
-    // Store EnvOptions and InternalKeyComparator to avoid use-after-scope
     auto soptions = std::make_unique<EnvOptions>();
     BlockCacheTracer block_cache_tracer;
     std::unique_ptr<TableReader> table_reader;
 
-    auto ikc = InternalKeyComparator(options.comparator);
     TableReaderOptions reader_options(*ioptions, moptions.prefix_extractor,
                                       moptions.compression_manager.get(),
-                                      *soptions, ikc,
+                                      *soptions, *internal_comparator,
                                       0 /* block_protection_bytes_per_key */);
 
     s = options.table_factory->NewTableReader(reader_options, std::move(file),
@@ -533,6 +533,11 @@ class IODispatcherTest : public DBTestBase {
     if (!s.ok()) {
       return s;
     }
+
+    // Keep table reader dependencies alive for the returned BlockBasedTable.
+    all_ioptions_.push_back(std::move(ioptions));
+    all_env_options_.push_back(std::move(soptions));
+    all_comparators_.push_back(std::move(internal_comparator));
 
     table->reset(static_cast<BlockBasedTable*>(table_reader.release()));
 
@@ -543,10 +548,6 @@ class IODispatcherTest : public DBTestBase {
     if (!s.ok()) {
       return s;
     }
-
-    // Store all options in member variables to keep them alive
-    all_ioptions_.push_back(std::move(ioptions));
-    all_env_options_.push_back(std::move(soptions));
 
     return Status::OK();
   }
