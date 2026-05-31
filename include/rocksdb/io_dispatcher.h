@@ -154,9 +154,9 @@ struct JobOptions {
   ReadOptions read_options;
 
   // Skip data-block cache lookup and insertion for this job. This is separate
-  // from ReadOptions::fill_cache=false, which still permits existing cache
-  // hits while avoiding insertion of newly read blocks.
-  bool bypass_block_cache = false;
+  // from ReadOptions::fill_cache=false, which still permits existing data-block
+  // cache hits while avoiding insertion of newly read data blocks.
+  bool bypass_data_block_cache = false;
 };
 
 class IOJob {

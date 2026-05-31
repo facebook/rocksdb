@@ -968,10 +968,10 @@ TEST_F(IODispatcherTest, FillCacheFalseStillLooksUpExistingCacheEntries) {
   ASSERT_NE(block.GetValue(), nullptr);
 }
 
-// Verifies bypass_block_cache skips both cache lookup and cache insertion. The
-// test warms one block, reads a warmed block plus a miss with bypass enabled,
-// and then confirms the missed block was still not cached.
-TEST_F(IODispatcherTest, BypassBlockCacheSkipsLookupAndInsert) {
+// Verifies bypass_data_block_cache skips both cache lookup and cache insertion.
+// The test warms one block, reads a warmed block plus a miss with bypass
+// enabled, and then confirms the missed block was still not cached.
+TEST_F(IODispatcherTest, BypassDataBlockCacheSkipsLookupAndInsert) {
   std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
 
   std::unique_ptr<BlockBasedTable> table;
@@ -1006,7 +1006,7 @@ TEST_F(IODispatcherTest, BypassBlockCacheSkipsLookupAndInsert) {
   auto bypass_job = std::make_shared<IOJob>();
   bypass_job->block_handles = {block_handles[0], block_handles[1]};
   bypass_job->table = table.get();
-  bypass_job->job_options.bypass_block_cache = true;
+  bypass_job->job_options.bypass_data_block_cache = true;
   bypass_job->job_options.read_options.async_io = false;
   bypass_job->job_options.io_coalesce_threshold = 1024 * 1024;
 
@@ -1043,10 +1043,10 @@ TEST_F(IODispatcherTest, BypassBlockCacheSkipsLookupAndInsert) {
   ASSERT_NE(block.GetValue(), nullptr);
 }
 
-// Verifies bypass_block_cache is also honored when prefetch cannot acquire
+// Verifies bypass_data_block_cache is also honored when prefetch cannot acquire
 // memory and ReadIndex() falls back to synchronous reading. The test forces the
 // fallback with a one-byte memory budget and checks no cache lookup occurred.
-TEST_F(IODispatcherTest, BypassBlockCacheSkipsLookupForSyncReadFallback) {
+TEST_F(IODispatcherTest, BypassDataBlockCacheSkipsLookupForSyncReadFallback) {
   IODispatcherOptions opts;
   opts.max_prefetch_memory_bytes = 1;
   std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(opts));
@@ -1067,7 +1067,7 @@ TEST_F(IODispatcherTest, BypassBlockCacheSkipsLookupForSyncReadFallback) {
   auto bypass_job = std::make_shared<IOJob>();
   bypass_job->block_handles = {block_handles[0]};
   bypass_job->table = table.get();
-  bypass_job->job_options.bypass_block_cache = true;
+  bypass_job->job_options.bypass_data_block_cache = true;
   bypass_job->job_options.read_options.async_io = false;
 
   std::shared_ptr<ReadSet> bypass_read_set;
@@ -1085,10 +1085,10 @@ TEST_F(IODispatcherTest, BypassBlockCacheSkipsLookupForSyncReadFallback) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-// Verifies MultiScan passes bypass_block_cache through to IODispatcher. The
-// test prepares a MultiScan iterator, counts cache lookup attempts, and expects
-// a coalesced disk read with zero lookup calls.
-TEST_F(IODispatcherTest, MultiScanBypassBlockCacheSkipsLookup) {
+// Verifies MultiScan passes bypass_data_block_cache through to IODispatcher.
+// The test prepares a MultiScan iterator, counts cache lookup attempts, and
+// expects a coalesced disk read with zero lookup calls.
+TEST_F(IODispatcherTest, MultiScanBypassDataBlockCacheSkipsLookup) {
   std::unique_ptr<BlockBasedTable> table;
   std::vector<BlockHandle> block_handles;
   ASSERT_OK(CreateAndOpenSST(10, &table, &block_handles));
@@ -1110,7 +1110,7 @@ TEST_F(IODispatcherTest, MultiScanBypassBlockCacheSkipsLookup) {
   std::string start = Key(0);
   std::string limit = Key(64);
   MultiScanArgs scan_options(BytewiseComparator());
-  scan_options.bypass_block_cache = true;
+  scan_options.bypass_data_block_cache = true;
   scan_options.insert(Slice(start), Slice(limit));
 
   iter->Prepare(&scan_options);
@@ -1123,30 +1123,30 @@ TEST_F(IODispatcherTest, MultiScanBypassBlockCacheSkipsLookup) {
   EXPECT_GT(tracking_fs_->GetMultiReadCount(), 0);
 }
 
-// Verifies MultiScanArgs preserves bypass_block_cache through copy, move, and
-// CopyConfigFrom paths. This protects the option when scan args are propagated
-// through iterator setup.
-TEST_F(IODispatcherTest, MultiScanArgsCopiesBypassBlockCacheConfig) {
+// Verifies MultiScanArgs preserves bypass_data_block_cache through copy, move,
+// and CopyConfigFrom paths. This protects the option when scan args are
+// propagated through iterator setup.
+TEST_F(IODispatcherTest, MultiScanArgsCopiesBypassDataBlockCacheConfig) {
   MultiScanArgs source(BytewiseComparator());
-  source.bypass_block_cache = true;
+  source.bypass_data_block_cache = true;
 
   MultiScanArgs copied(source);
-  EXPECT_TRUE(copied.bypass_block_cache);
+  EXPECT_TRUE(copied.bypass_data_block_cache);
 
   MultiScanArgs copy_assigned(BytewiseComparator());
   copy_assigned = source;
-  EXPECT_TRUE(copy_assigned.bypass_block_cache);
+  EXPECT_TRUE(copy_assigned.bypass_data_block_cache);
 
   MultiScanArgs moved(std::move(copied));
-  EXPECT_TRUE(moved.bypass_block_cache);
+  EXPECT_TRUE(moved.bypass_data_block_cache);
 
   MultiScanArgs move_assigned(BytewiseComparator());
   move_assigned = std::move(copy_assigned);
-  EXPECT_TRUE(move_assigned.bypass_block_cache);
+  EXPECT_TRUE(move_assigned.bypass_data_block_cache);
 
   MultiScanArgs config_copy(BytewiseComparator());
   config_copy.CopyConfigFrom(source);
-  EXPECT_TRUE(config_copy.bypass_block_cache);
+  EXPECT_TRUE(config_copy.bypass_data_block_cache);
 }
 
 // Verifies direct I/O MultiRead uses one aligned provider allocation as the

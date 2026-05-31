@@ -1940,10 +1940,10 @@ DEFINE_bool(
     "Sets MultiScanArgs::use_async_io");
 
 DEFINE_bool(
-    multiscan_bypass_block_cache,
+    multiscan_bypass_data_block_cache,
     ROCKSDB_NAMESPACE::MultiScanArgs(ROCKSDB_NAMESPACE::BytewiseComparator())
-        .bypass_block_cache,
-    "Sets MultiScanArgs::bypass_block_cache");
+        .bypass_data_block_cache,
+    "Sets MultiScanArgs::bypass_data_block_cache for data blocks.");
 
 DEFINE_uint64(io_dispatcher_max_prefetch_memory_bytes, 0,
               "Maximum memory (in bytes) for IODispatcher prefetching across "
@@ -3887,8 +3887,8 @@ class Benchmark {
                 FLAGS_io_dispatcher_max_prefetch_memory_bytes);
         fprintf(stderr, "multiscan_max_prefetch_size = %" PRIu64 "\n",
                 FLAGS_multiscan_max_prefetch_size);
-        fprintf(stderr, "multiscan_bypass_block_cache = %s\n",
-                FLAGS_multiscan_bypass_block_cache ? "true" : "false");
+        fprintf(stderr, "multiscan_bypass_data_block_cache = %s\n",
+                FLAGS_multiscan_bypass_data_block_cache ? "true" : "false");
         method = &Benchmark::MultiScan;
       } else if (name == "multiscanrandom") {
         int64_t max_range_keys = std::max<int64_t>(
@@ -3904,8 +3904,8 @@ class Benchmark {
                 FLAGS_multiscan_max_prefetch_size);
         fprintf(stderr, "multiscan_use_async_io = %s\n",
                 FLAGS_multiscan_use_async_io ? "true" : "false");
-        fprintf(stderr, "multiscan_bypass_block_cache = %s\n",
-                FLAGS_multiscan_bypass_block_cache ? "true" : "false");
+        fprintf(stderr, "multiscan_bypass_data_block_cache = %s\n",
+                FLAGS_multiscan_bypass_data_block_cache ? "true" : "false");
         fprintf(stderr, "use_multiscan = %s\n",
                 FLAGS_use_multiscan ? "true" : "false");
         method = &Benchmark::MultiScanRandom;
@@ -7065,7 +7065,7 @@ class Benchmark {
       opts.io_coalesce_threshold = FLAGS_multiscan_coalesce_threshold;
       opts.use_async_io = FLAGS_multiscan_use_async_io;
       opts.max_prefetch_size = FLAGS_multiscan_max_prefetch_size;
-      opts.bypass_block_cache = FLAGS_multiscan_bypass_block_cache;
+      opts.bypass_data_block_cache = FLAGS_multiscan_bypass_data_block_cache;
       if (io_dispatcher) {
         opts.io_dispatcher = io_dispatcher;
       }
@@ -7200,7 +7200,7 @@ class Benchmark {
         opts.io_coalesce_threshold = FLAGS_multiscan_coalesce_threshold;
         opts.use_async_io = FLAGS_multiscan_use_async_io;
         opts.max_prefetch_size = FLAGS_multiscan_max_prefetch_size;
-        opts.bypass_block_cache = FLAGS_multiscan_bypass_block_cache;
+        opts.bypass_data_block_cache = FLAGS_multiscan_bypass_data_block_cache;
         if (io_dispatcher) {
           opts.io_dispatcher = io_dispatcher;
         }

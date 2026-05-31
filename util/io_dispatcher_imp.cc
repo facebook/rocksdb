@@ -59,7 +59,7 @@ static Status CreateAndPinBlockFromBuffer(
   const bool use_block_cache_for_data_blocks =
       ShouldUseBlockCacheForIteratorDataBlocks(
           rep->table_options, job->job_options.read_options,
-          job->job_options.bypass_block_cache);
+          job->job_options.bypass_data_block_cache);
 
   // Get decompressor
   UnownedPtr<Decompressor> decompressor = rep->decompressor.get();
@@ -163,9 +163,9 @@ static ReadScopedIOConfig GetReadScopedIOConfig(
     bool direct_io) {
   ReadScopedIOConfig config;
   config.use_block_cache_for_data_blocks =
-      ShouldUseBlockCacheForIteratorDataBlocks(table_options,
-                                               job_options.read_options,
-                                               job_options.bypass_block_cache);
+      ShouldUseBlockCacheForIteratorDataBlocks(
+          table_options, job_options.read_options,
+          job_options.bypass_data_block_cache);
   config.block_buffer_provider =
       GetReadScopedBlockBufferProvider(job_options.read_options);
 
@@ -480,7 +480,7 @@ Status ReadSet::SyncRead(size_t block_index) {
   const bool use_block_cache_for_data_blocks =
       ShouldUseBlockCacheForIteratorDataBlocks(
           rep->table_options, job_->job_options.read_options,
-          job_->job_options.bypass_block_cache);
+          job_->job_options.bypass_data_block_cache);
 
   // Get dictionary-aware decompressor if available
   UnownedPtr<Decompressor> decompressor = rep->decompressor.get();
@@ -834,7 +834,7 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
   const bool use_block_cache_for_data_blocks =
       ShouldUseBlockCacheForIteratorDataBlocks(
           job->table->get_rep()->table_options, job->job_options.read_options,
-          job->job_options.bypass_block_cache);
+          job->job_options.bypass_data_block_cache);
 
   if (!use_block_cache_for_data_blocks) {
     block_indices_to_read.resize(job->block_handles.size());

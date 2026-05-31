@@ -466,7 +466,7 @@ DECLARE_uint32(ingest_wbwi_one_in);
 DECLARE_bool(universal_reduce_file_locking);
 DECLARE_bool(use_multiscan);
 DECLARE_bool(multiscan_use_async_io);
-DECLARE_bool(multiscan_bypass_block_cache);
+DECLARE_bool(multiscan_bypass_data_block_cache);
 DECLARE_bool(read_scoped_block_buffer_provider);
 DECLARE_uint64(multiscan_max_prefetch_memory_bytes);
 

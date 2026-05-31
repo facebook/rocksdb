@@ -85,11 +85,11 @@ ReadScopedBlockBufferProviderRef GetReadScopedBlockBufferProvider(
     const ReadOptions& ro);
 
 // Centralizes the data-block backing decision for iterator and MultiScan paths.
-// `bypass_block_cache` skips lookup and insertion even when a block cache is
-// configured.
+// `bypass_data_block_cache` skips data-block cache lookup and insertion even
+// when a block cache is configured.
 bool ShouldUseBlockCacheForIteratorDataBlocks(
     const BlockBasedTableOptions& table_options, const ReadOptions& ro,
-    bool bypass_block_cache = false);
+    bool bypass_data_block_cache = false);
 
 // Copies block bytes into RocksDB-owned heap storage and records that ownership
 // in BlockContents. `src` may include a block trailer while `data_size` is the

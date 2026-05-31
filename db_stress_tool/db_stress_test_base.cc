@@ -2038,8 +2038,8 @@ Status StressTest::TestMultiScan(ThreadState* thread,
       FLAGS_multiscan_use_async_io &&
       CheckFSFeatureSupport(options_.env->GetFileSystem().get(),
                             FSSupportedOps::kAsyncIO);
-  scan_opts.bypass_block_cache =
-      FLAGS_multiscan_bypass_block_cache && thread->rand.OneIn(2);
+  scan_opts.bypass_data_block_cache =
+      FLAGS_multiscan_bypass_data_block_cache && thread->rand.OneIn(2);
   std::shared_ptr<IODispatcher> io_dispatcher;
   if (FLAGS_multiscan_max_prefetch_memory_bytes > 0) {
     IODispatcherOptions io_opts;
