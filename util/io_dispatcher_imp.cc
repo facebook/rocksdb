@@ -107,13 +107,15 @@ static Status CreateAndPinBlockFromBuffer(
     // Provider-backed uncompressed blocks should already be in the
     // provider-owned read buffer allocated before I/O. Attach that cleanup to
     // BlockContents so the block points at the read buffer without copying.
-    const SharedCleanablePtr* effective_read_buffer_cleanup =
-        &read_buffer_cleanup;
 #ifndef NDEBUG
     SharedCleanablePtr test_read_buffer_cleanup = read_buffer_cleanup;
     TEST_SYNC_POINT_CALLBACK("CreateAndPinBlockFromBuffer:ReadBufferCleanup",
                              &test_read_buffer_cleanup);
-    effective_read_buffer_cleanup = &test_read_buffer_cleanup;
+    const SharedCleanablePtr* effective_read_buffer_cleanup =
+        &test_read_buffer_cleanup;
+#else
+    const SharedCleanablePtr* effective_read_buffer_cleanup =
+        &read_buffer_cleanup;
 #endif
     if (effective_read_buffer_cleanup->get() != nullptr) {
       tmp_contents.data = Slice(block_data, block.size());

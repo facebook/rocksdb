@@ -56,6 +56,14 @@ class StressReadScopedBlockBufferProvider
     : public ReadScopedBlockBufferProvider {
  public:
   StressReadScopedBlockBufferProvider() : state_(std::make_shared<State>()) {}
+  StressReadScopedBlockBufferProvider(
+      const StressReadScopedBlockBufferProvider&) = delete;
+  StressReadScopedBlockBufferProvider& operator=(
+      const StressReadScopedBlockBufferProvider&) = delete;
+  StressReadScopedBlockBufferProvider(StressReadScopedBlockBufferProvider&&) =
+      delete;
+  StressReadScopedBlockBufferProvider& operator=(
+      StressReadScopedBlockBufferProvider&&) = delete;
 
   ~StressReadScopedBlockBufferProvider() override {
     state_->ValidateNoLiveAllocations();
