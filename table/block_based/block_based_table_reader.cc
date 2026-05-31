@@ -156,7 +156,7 @@ ReadScopedBlockBufferProviderRef GetReadScopedBlockBufferProvider(
   return std::ref(*ro.read_scoped_block_buffer_provider);
 }
 
-bool ShouldUseBlockCacheForIteratorDataBlocks(
+bool ShouldUseDataBlockCacheForIterator(
     const BlockBasedTableOptions& table_options, const ReadOptions& ro,
     bool bypass_data_block_cache) {
   if (bypass_data_block_cache) {

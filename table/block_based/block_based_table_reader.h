@@ -84,10 +84,10 @@ AlignedBuffer MakeReadScopedAlignedBuffer(
 ReadScopedBlockBufferProviderRef GetReadScopedBlockBufferProvider(
     const ReadOptions& ro);
 
-// Centralizes the data-block backing decision for iterator and MultiScan paths.
+// Centralizes the data-block cache decision for iterator and MultiScan paths.
 // `bypass_data_block_cache` skips data-block cache lookup and insertion even
 // when a block cache is configured.
-bool ShouldUseBlockCacheForIteratorDataBlocks(
+bool ShouldUseDataBlockCacheForIterator(
     const BlockBasedTableOptions& table_options, const ReadOptions& ro,
     bool bypass_data_block_cache = false);
 

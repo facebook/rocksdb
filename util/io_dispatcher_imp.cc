@@ -56,10 +56,9 @@ static Status CreateAndPinBlockFromBuffer(
     const SharedCleanablePtr& read_buffer_cleanup,
     CachableEntry<Block>& pinned_block_entry) {
   auto* rep = job->table->get_rep();
-  const bool use_block_cache_for_data_blocks =
-      ShouldUseBlockCacheForIteratorDataBlocks(
-          rep->table_options, job->job_options.read_options,
-          job->job_options.bypass_data_block_cache);
+  const bool use_data_block_cache = ShouldUseDataBlockCacheForIterator(
+      rep->table_options, job->job_options.read_options,
+      job->job_options.bypass_data_block_cache);
 
   // Get decompressor
   UnownedPtr<Decompressor> decompressor = rep->decompressor.get();
@@ -82,7 +81,7 @@ static Status CreateAndPinBlockFromBuffer(
   const auto block_offset_in_buffer = block.offset() - buffer_start_offset;
   const char* block_data = buffer_data.data() + block_offset_in_buffer;
 
-  if (use_block_cache_for_data_blocks) {
+  if (use_data_block_cache) {
     CacheAllocationPtr data = AllocateBlock(
         block_size_with_trailer, GetMemoryAllocator(rep->table_options));
     memcpy(data.get(), block_data, block_size_with_trailer);
@@ -152,7 +151,7 @@ static Status CreateAndPinBlockFromBuffer(
 }
 
 struct ReadScopedIOConfig {
-  bool use_block_cache_for_data_blocks = true;
+  bool use_data_block_cache = true;
   ReadScopedBlockBufferProviderRef block_buffer_provider;
   bool use_read_scoped_direct_io = false;
   bool use_read_scoped_scratch = false;
@@ -162,15 +161,14 @@ static ReadScopedIOConfig GetReadScopedIOConfig(
     const BlockBasedTableOptions& table_options, const JobOptions& job_options,
     bool direct_io) {
   ReadScopedIOConfig config;
-  config.use_block_cache_for_data_blocks =
-      ShouldUseBlockCacheForIteratorDataBlocks(
-          table_options, job_options.read_options,
-          job_options.bypass_data_block_cache);
+  config.use_data_block_cache = ShouldUseDataBlockCacheForIterator(
+      table_options, job_options.read_options,
+      job_options.bypass_data_block_cache);
   config.block_buffer_provider =
       GetReadScopedBlockBufferProvider(job_options.read_options);
 
-  const bool use_read_scoped_buffer = !config.use_block_cache_for_data_blocks &&
-                                      config.block_buffer_provider.has_value();
+  const bool use_read_scoped_buffer =
+      !config.use_data_block_cache && config.block_buffer_provider.has_value();
   config.use_read_scoped_direct_io = direct_io && use_read_scoped_buffer;
   config.use_read_scoped_scratch = !direct_io && use_read_scoped_buffer;
   return config;
@@ -477,10 +475,9 @@ Status ReadSet::PollAndProcessAsyncIO(
 Status ReadSet::SyncRead(size_t block_index) {
   const auto& block_handle = job_->block_handles[block_index];
   auto* rep = job_->table->get_rep();
-  const bool use_block_cache_for_data_blocks =
-      ShouldUseBlockCacheForIteratorDataBlocks(
-          rep->table_options, job_->job_options.read_options,
-          job_->job_options.bypass_data_block_cache);
+  const bool use_data_block_cache = ShouldUseDataBlockCacheForIterator(
+      rep->table_options, job_->job_options.read_options,
+      job_->job_options.bypass_data_block_cache);
 
   // Get dictionary-aware decompressor if available
   UnownedPtr<Decompressor> decompressor = rep->decompressor.get();
@@ -501,8 +498,8 @@ Status ReadSet::SyncRead(size_t block_index) {
       /*prefetch_buffer=*/nullptr, job_->job_options.read_options, block_handle,
       decompressor, &pinned_blocks_[block_index].As<Block_kData>(),
       /*get_context=*/nullptr, /*lookup_context=*/nullptr,
-      /*for_compaction=*/false, use_block_cache_for_data_blocks,
-      /*async_read=*/false, use_block_cache_for_data_blocks);
+      /*for_compaction=*/false, use_data_block_cache,
+      /*async_read=*/false, use_data_block_cache);
 }
 
 // A pre-coalesced group of blocks for prefetching
@@ -831,12 +828,11 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
   // Step 1: Check cache and pin cached blocks
   std::vector<size_t> block_indices_to_read;
   block_indices_to_read.reserve(job->block_handles.size());
-  const bool use_block_cache_for_data_blocks =
-      ShouldUseBlockCacheForIteratorDataBlocks(
-          job->table->get_rep()->table_options, job->job_options.read_options,
-          job->job_options.bypass_data_block_cache);
+  const bool use_data_block_cache = ShouldUseDataBlockCacheForIterator(
+      job->table->get_rep()->table_options, job->job_options.read_options,
+      job->job_options.bypass_data_block_cache);
 
-  if (!use_block_cache_for_data_blocks) {
+  if (!use_data_block_cache) {
     block_indices_to_read.resize(job->block_handles.size());
     std::iota(block_indices_to_read.begin(), block_indices_to_read.end(), 0);
   } else {

@@ -968,9 +968,10 @@ TEST_F(IODispatcherTest, FillCacheFalseStillLooksUpExistingCacheEntries) {
   ASSERT_NE(block.GetValue(), nullptr);
 }
 
-// Verifies bypass_data_block_cache skips both cache lookup and cache insertion.
-// The test warms one block, reads a warmed block plus a miss with bypass
-// enabled, and then confirms the missed block was still not cached.
+// Verifies bypass_data_block_cache skips both data-block cache lookup and
+// data-block cache insertion. The test warms one block, reads a warmed block
+// plus a miss with bypass enabled, and then confirms the missed block was still
+// not cached.
 TEST_F(IODispatcherTest, BypassDataBlockCacheSkipsLookupAndInsert) {
   std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
 
@@ -1045,7 +1046,8 @@ TEST_F(IODispatcherTest, BypassDataBlockCacheSkipsLookupAndInsert) {
 
 // Verifies bypass_data_block_cache is also honored when prefetch cannot acquire
 // memory and ReadIndex() falls back to synchronous reading. The test forces the
-// fallback with a one-byte memory budget and checks no cache lookup occurred.
+// fallback with a one-byte memory budget and checks no data-block cache lookup
+// occurred.
 TEST_F(IODispatcherTest, BypassDataBlockCacheSkipsLookupForSyncReadFallback) {
   IODispatcherOptions opts;
   opts.max_prefetch_memory_bytes = 1;
@@ -1086,8 +1088,8 @@ TEST_F(IODispatcherTest, BypassDataBlockCacheSkipsLookupForSyncReadFallback) {
 }
 
 // Verifies MultiScan passes bypass_data_block_cache through to IODispatcher.
-// The test prepares a MultiScan iterator, counts cache lookup attempts, and
-// expects a coalesced disk read with zero lookup calls.
+// The test prepares a MultiScan iterator, counts data-block cache lookup
+// attempts, and expects a coalesced disk read with zero lookup calls.
 TEST_F(IODispatcherTest, MultiScanBypassDataBlockCacheSkipsLookup) {
   std::unique_ptr<BlockBasedTable> table;
   std::vector<BlockHandle> block_handles;

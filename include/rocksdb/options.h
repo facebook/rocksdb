@@ -2057,8 +2057,8 @@ class MultiScanArgs {
 
   // When true, MultiScan data-block prefetch bypasses data-block cache lookup
   // and insertion. This is useful for large scans where data-block cache hits
-  // are unlikely and cache lookup overhead dominates. This does not affect
-  // index/filter blocks.
+  // are unlikely and data-block cache lookup overhead dominates. This does not
+  // affect index/filter blocks.
   bool bypass_data_block_cache = false;
 
   // Optional IODispatcher for multi-scan operations.
