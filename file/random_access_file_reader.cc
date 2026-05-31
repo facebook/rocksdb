@@ -223,6 +223,9 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
         }
 
         current_size += tmp.size();
+        if (direct_io_buffer == nullptr) {
+          buf.Size(current_size);
+        }
         if (!io_s.ok() || tmp.size() < allowed) {
           break;
         }

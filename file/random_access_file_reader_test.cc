@@ -91,6 +91,29 @@ TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
   }
 }
 
+TEST_F(RandomAccessFileReaderTest, ReadDirectIOCopiesToScratch) {
+  std::string fname = "read-direct-io-copies-to-scratch";
+  Random rand(0);
+  std::string content = rand.RandomString(kDefaultPageSize);
+  Write(fname, content);
+
+  FileOptions opts;
+  opts.use_direct_reads = true;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+  ASSERT_TRUE(r->use_direct_io());
+
+  const size_t page_size = r->file()->GetRequiredBufferAlignment();
+  size_t offset = page_size / 2;
+  size_t len = page_size / 3;
+  std::string scratch(len, '\0');
+  Slice result;
+  ASSERT_OK(r->Read(IOOptions(), offset, len, &result, scratch.data(),
+                    /*direct_io_buffer=*/nullptr, /*dbg=*/nullptr));
+  ASSERT_EQ(result.data(), scratch.data());
+  ASSERT_EQ(result.ToString(), content.substr(offset, len));
+}
+
 TEST_F(RandomAccessFileReaderTest, ReadDirectIOUsesExternalBuffer) {
   std::string fname = "read-direct-io-external-buffer";
   Random rand(0);
