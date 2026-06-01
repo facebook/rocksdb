@@ -1015,6 +1015,12 @@ int main(int argc, char** argv) {
     Free(&before_db_id);
     Free(&after_db_id);
 
+    rocksdb_backup_engine_stop_backup(be);
+    rocksdb_backup_engine_create_new_backup(be, db, &err);
+    CheckCondition(err != NULL);
+    free(err);
+    err = NULL;
+
     rocksdb_backup_engine_close(be);
   }
 
@@ -3703,6 +3709,20 @@ int main(int argc, char** argv) {
       CheckNoError(err);
       rocksdb_backup_engine_create_new_backup(rate_be, db, &err);
       CheckNoError(err);
+      {
+        char rate_restore_path[200];
+        snprintf(rate_restore_path, sizeof(rate_restore_path),
+                 "%s.rate_restore", dbname);
+        rocksdb_restore_options_t* rate_restore_opts =
+            rocksdb_restore_options_create();
+        rocksdb_backup_engine_restore_db_from_latest_backup(
+            rate_be, rate_restore_path, rate_restore_path, rate_restore_opts,
+            &err);
+        CheckNoError(err);
+        rocksdb_restore_options_destroy(rate_restore_opts);
+        rocksdb_destroy_db(options, rate_restore_path, &err);
+        err = NULL;
+      }
       rocksdb_backup_engine_close(rate_be);
     }
 
