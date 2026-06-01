@@ -27,6 +27,31 @@ TEST(StringUtilTest, NumberToHumanString) {
   ASSERT_EQ("-10G", NumberToHumanString(-10000000000));
 }
 
+TEST(StringUtilTest, Trim) {
+  // Empty input.
+  EXPECT_EQ("", trim(""));
+  // No whitespace to strip.
+  EXPECT_EQ("a", trim("a"));
+  EXPECT_EQ("abc", trim("abc"));
+  // Leading whitespace only.
+  EXPECT_EQ("a", trim(" a"));
+  EXPECT_EQ("abc", trim("   abc"));
+  // Trailing whitespace only.
+  EXPECT_EQ("a", trim("a "));
+  EXPECT_EQ("abc", trim("abc   "));
+  // Both ends.
+  EXPECT_EQ("a", trim(" a "));
+  EXPECT_EQ("abc", trim("   abc   "));
+  EXPECT_EQ("a b c", trim("  a b c  "));  // interior whitespace preserved
+  // All-whitespace inputs of various lengths must trim to empty.
+  EXPECT_EQ("", trim(" "));
+  EXPECT_EQ("", trim("  "));
+  EXPECT_EQ("", trim("   "));
+  EXPECT_EQ("", trim("\t"));
+  EXPECT_EQ("", trim("\n"));
+  EXPECT_EQ("", trim(" \t\n\r"));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

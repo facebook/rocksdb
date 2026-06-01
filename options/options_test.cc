@@ -2190,6 +2190,15 @@ TEST_F(OptionsTest, StringToMapRandomTest) {
         str[pos] = ' ';
         Status s = StringToMap(str, &opts_map);
         ASSERT_TRUE(s.ok() || s.IsInvalidArgument());
+        if (s.ok()) {
+          // Round-trip: StringToMap entries are self-contained, so
+          // MapToString of them must parse back to the same map.
+          std::string regen;
+          ASSERT_OK(MapToString(opts_map, &regen));
+          std::unordered_map<std::string, std::string> reparsed;
+          ASSERT_OK(StringToMap(regen, &reparsed));
+          ASSERT_EQ(reparsed, opts_map) << "regen=" << regen;
+        }
         opts_map.clear();
       }
     }
@@ -2209,8 +2218,22 @@ TEST_F(OptionsTest, StringToMapRandomTest) {
     }
     Status s = StringToMap(str, &opts_map);
     ASSERT_TRUE(s.ok() || s.IsInvalidArgument());
+    if (s.ok()) {
+      std::string regen;
+      ASSERT_OK(MapToString(opts_map, &regen));
+      std::unordered_map<std::string, std::string> reparsed;
+      ASSERT_OK(StringToMap(regen, &reparsed));
+      ASSERT_EQ(reparsed, opts_map) << "regen=" << regen;
+    }
     s = StringToMap("name=" + str, &opts_map);
     ASSERT_TRUE(s.ok() || s.IsInvalidArgument());
+    if (s.ok()) {
+      std::string regen;
+      ASSERT_OK(MapToString(opts_map, &regen));
+      std::unordered_map<std::string, std::string> reparsed;
+      ASSERT_OK(StringToMap(regen, &reparsed));
+      ASSERT_EQ(reparsed, opts_map) << "regen=" << regen;
+    }
     opts_map.clear();
   }
 }
