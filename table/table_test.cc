@@ -8225,6 +8225,86 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
     };
   };
 
+  class FinishAndWriteTestFactory : public IndexFactory {
+   public:
+    mutable std::atomic<int> finish_calls{0};
+    mutable std::atomic<int> finish_and_write_calls{0};
+
+    static constexpr size_t kTopLevelContentsSize = 15;
+    static constexpr size_t kAuxiliaryContentsSize = 15;
+
+    const char* Name() const override { return "finish_and_write_test_index"; }
+
+    Status NewBuilder(
+        const IndexFactoryOptions& /*opts*/,
+        std::unique_ptr<IndexFactoryBuilder>& builder) const override {
+      builder = std::make_unique<Builder>(this);
+      return Status::OK();
+    }
+
+    Status NewReader(
+        const IndexFactoryOptions&, Slice&,
+        std::unique_ptr<IndexFactoryReader>& reader) const override {
+      reader = std::make_unique<StubReader>();
+      return Status::OK();
+    }
+
+   private:
+    class StubReader : public IndexFactoryReader {
+     public:
+      std::unique_ptr<IndexFactoryIterator> NewIterator(
+          const ReadOptions&) override {
+        return nullptr;
+      }
+      size_t ApproximateMemoryUsage() const override { return 0; }
+    };
+
+    class Builder : public IndexFactoryBuilder {
+     public:
+      explicit Builder(const FinishAndWriteTestFactory* factory)
+          : factory_(factory) {}
+
+      Slice AddIndexEntry(const Slice& last_key, const Slice* /*next_key*/,
+                          const BlockHandle& /*handle*/,
+                          std::string* /*scratch*/,
+                          const IndexEntryContext& /*ctx*/) override {
+        return last_key;
+      }
+
+      void OnKeyAdded(const Slice&, ValueType, const Slice&) override {}
+
+      Status Finish(Slice* out) override {
+        factory_->finish_calls.fetch_add(1, std::memory_order_relaxed);
+        *out = Slice("finish_fallback");
+        return Status::OK();
+      }
+
+      Status FinishAndWrite(IndexBlockWriter* writer, BlockHandle* final_handle,
+                            bool compress) override {
+        EXPECT_FALSE(compress);
+        factory_->finish_and_write_calls.fetch_add(1,
+                                                   std::memory_order_relaxed);
+
+        BlockHandle aux_handle{0, 0};
+        Status s = writer->WriteBlock(Slice("auxiliary_index"), &aux_handle,
+                                      /*compress=*/true);
+        if (!s.ok()) {
+          return s;
+        }
+        writer->AddMetaBlock(
+            std::string(kIndexFactoryMetaPrefix) + factory_->Name() + ".aux",
+            aux_handle);
+        return writer->WriteBlock(Slice("top_level_index"), final_handle,
+                                  /*compress=*/true);
+      }
+
+      uint64_t EstimatedSize() const override { return 0; }
+
+     private:
+      const FinishAndWriteTestFactory* factory_;
+    };
+  };
+
   // Minimal IndexFactory whose builder opts into the parallel-compression
   // protocol (SupportsParallelAddEntry == true). Used to verify that the
   // table builder's parallel pipeline correctly invokes PrepareAddEntry +
@@ -8624,6 +8704,59 @@ TEST_P(UserDefinedIndexTest, BasicTestWithPartitionedIndex) {
 
 TEST_P(UserDefinedIndexTest, BasicTestWithoutPartitionedIndex) {
   BasicTest(/*use_partitioned_index=*/false);
+}
+
+TEST_P(UserDefinedIndexTest, CustomIndexFinishAndWriteWritesAuxMetaBlocks) {
+  BlockBasedTableOptions table_options;
+  auto factory = std::make_shared<FinishAndWriteTestFactory>();
+  table_options.user_defined_index_factory = factory;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
+
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::string dbname = test::PerThreadDBPath("udi_finish_and_write_test");
+  std::string ingest_file = dbname + ".sst";
+  {
+    SstFileWriter writer(EnvOptions(), options_);
+    ASSERT_OK(writer.Open(ingest_file));
+    auto kvs = generateKVs(/*key_count=*/30);
+    for (const auto& kv : kvs) {
+      ASSERT_OK(writer.Put(kv.first, kv.second));
+    }
+    ASSERT_OK(writer.Finish());
+  }
+
+  EXPECT_EQ(factory->finish_and_write_calls.load(), 1);
+  EXPECT_EQ(factory->finish_calls.load(), 0);
+
+  ImmutableOptions ioptions(options_);
+  EnvOptions eoptions(options_);
+  std::string top_level_meta_block =
+      std::string(kIndexFactoryMetaPrefix) + factory->Name();
+  std::string auxiliary_meta_block =
+      std::string(kIndexFactoryMetaPrefix) + factory->Name() + ".aux";
+  uint64_t file_size = 0;
+  std::unique_ptr<FSRandomAccessFile> file;
+  std::unique_ptr<RandomAccessFileReader> file_reader;
+  const auto& fs = options_.env->GetFileSystem();
+  ASSERT_OK(fs->GetFileSize(ingest_file, IOOptions(), &file_size, nullptr));
+  ASSERT_OK(fs->NewRandomAccessFile(ingest_file, eoptions, &file, nullptr));
+  file_reader.reset(new RandomAccessFileReader(std::move(file), ingest_file));
+
+  BlockHandle top_level_handle;
+  ASSERT_OK(FindMetaBlockInFile(
+      file_reader.get(), file_size, kBlockBasedTableMagicNumber, ioptions,
+      ReadOptions(), top_level_meta_block, &top_level_handle));
+  EXPECT_EQ(top_level_handle.size(),
+            FinishAndWriteTestFactory::kTopLevelContentsSize);
+
+  BlockHandle auxiliary_handle;
+  ASSERT_OK(FindMetaBlockInFile(
+      file_reader.get(), file_size, kBlockBasedTableMagicNumber, ioptions,
+      ReadOptions(), auxiliary_meta_block, &auxiliary_handle));
+  EXPECT_EQ(auxiliary_handle.size(),
+            FinishAndWriteTestFactory::kAuxiliaryContentsSize);
 }
 
 // On-disk format regression test: the meta block written for a user-defined

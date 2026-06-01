@@ -2686,8 +2686,12 @@ class BlockBasedTableBuilder::IndexBlockWriterImpl
     : public IndexFactoryBuilder::IndexBlockWriter {
  public:
   IndexBlockWriterImpl(BlockBasedTableBuilder* builder,
-                       MetaIndexBuilder* meta_builder, bool compress)
-      : builder_(builder), meta_builder_(meta_builder), compress_(compress) {}
+                       MetaIndexBuilder* meta_builder, bool compress,
+                       BlockType block_type)
+      : builder_(builder),
+        meta_builder_(meta_builder),
+        compress_(compress),
+        block_type_(block_type) {}
 
   Status WriteBlock(const Slice& contents,
                     IndexFactoryBuilder::BlockHandle* handle,
@@ -2696,12 +2700,14 @@ class BlockBasedTableBuilder::IndexBlockWriterImpl
     // Two-level compression control: compress_ is the SST-level setting
     // (enable_index_compression), while compress_this is per-block
     // (callers may request uncompressed writes for auxiliary blocks).
+    // The compressed WriteBlock path currently supports only built-in index
+    // blocks; UDI blocks keep their existing uncompressed encoding.
     bool should_compress = compress_ && compress_this;
-    if (should_compress) {
-      builder_->WriteBlock(contents, &internal_handle, BlockType::kIndex);
+    if (should_compress && block_type_ == BlockType::kIndex) {
+      builder_->WriteBlock(contents, &internal_handle, block_type_);
     } else {
       builder_->WriteMaybeCompressedBlock(contents, kNoCompression,
-                                          &internal_handle, BlockType::kIndex);
+                                          &internal_handle, block_type_);
     }
     if (!builder_->ok()) {
       return builder_->status();
@@ -2723,6 +2729,7 @@ class BlockBasedTableBuilder::IndexBlockWriterImpl
   BlockBasedTableBuilder* builder_;
   MetaIndexBuilder* meta_builder_;
   bool compress_;
+  BlockType block_type_;
 };
 
 void BlockBasedTableBuilder::WriteIndexBlock(
@@ -2741,7 +2748,8 @@ void BlockBasedTableBuilder::WriteIndexBlock(
 
   if (rep_->index_builder) {
     // Normal path: built-in index is present.
-    IndexBlockWriterImpl writer(this, meta_index_builder, compress);
+    IndexBlockWriterImpl writer(this, meta_index_builder, compress,
+                                BlockType::kIndex);
     IndexFactoryBuilder::BlockHandle final_handle{0, 0};
     Status s =
         rep_->index_builder->FinishAndWrite(&writer, &final_handle, compress);
@@ -2784,27 +2792,25 @@ void BlockBasedTableBuilder::WriteIndexBlock(
     meta_index_builder->Add(kIndexBlockName, *index_block_handle);
   }
 
-  // Finish and write custom index blocks (e.g., trie index).
-  // Each custom builder produces a serialized block that's stored as a
-  // meta block alongside the built-in index. The meta block key is
-  // kIndexFactoryMetaPrefix + factory_name.
+  // Finish and write custom index blocks (e.g., trie index). Drive the full
+  // FinishAndWrite protocol so custom builders can emit auxiliary meta blocks.
+  // The top-level handle is registered as kIndexFactoryMetaPrefix + name.
   for (auto& ci : rep_->custom_indexes) {
     if (UNLIKELY(!ok())) {
       break;
     }
-    Slice custom_contents;
-    Status cs = ci.builder->Finish(&custom_contents);
+    IndexBlockWriterImpl writer(this, meta_index_builder, /*compress=*/false,
+                                BlockType::kUserDefinedIndex);
+    IndexFactoryBuilder::BlockHandle final_handle{0, 0};
+    Status cs = ci.builder->FinishAndWrite(&writer, &final_handle,
+                                           /*compress=*/false);
     if (!cs.ok()) {
       rep_->SetStatus(cs);
       break;
     }
-    // Custom index blocks are written uncompressed. The custom IndexFactory
-    // controls its own serialization format and may not benefit from (or
-    // be incompatible with) RocksDB's block compression. The factory can
-    // apply its own compression internally if desired.
     BlockHandle custom_handle;
-    WriteMaybeCompressedBlock(custom_contents, kNoCompression, &custom_handle,
-                              BlockType::kUserDefinedIndex);
+    custom_handle.set_offset(final_handle.offset);
+    custom_handle.set_size(final_handle.size);
     if (LIKELY(ok())) {
       meta_index_builder->Add(std::string(kIndexFactoryMetaPrefix) + ci.name,
                               custom_handle);
