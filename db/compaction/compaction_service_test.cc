@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <memory>
+
 #include "db/db_test_util.h"
 #include "file/file_util.h"
 #include "port/stack_trace.h"
@@ -11,6 +13,49 @@
 #include "utilities/merge_operators/string_append/stringappend.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+// Append ":extra_value" to every "counts=...;" field in a serialized
+// CompactionServiceResult string to simulate a worker with more
+// CompactionReason enums than the reader. Loops because the serialized
+// result contains multiple CompactionStats structs (output_level_stats,
+// proximal_level_stats), each with its own "counts=" field.
+void AppendToCountsFields(std::string* s, const std::string& extra_value) {
+  const std::string prefix = "counts=";
+  size_t pos = s->find(prefix);
+  while (pos != std::string::npos) {
+    // Find the semicolon that terminates this field's value.
+    size_t semi = s->find(';', pos + prefix.size());
+    assert(semi != std::string::npos);
+    // Insert ":extra_value" just before the semicolon.
+    s->insert(semi, ":" + extra_value);
+    // Advance past the inserted text to find the next occurrence.
+    pos = s->find(prefix, semi + extra_value.size() + 2);
+  }
+}
+
+// Remove the last colon-separated element from every "counts=...;" field
+// to simulate a worker with fewer CompactionReason enums than the reader.
+// Loops for the same reason as AppendToCountsFields (multiple counts fields).
+void RemoveLastFromCountsFields(std::string* s) {
+  const std::string prefix = "counts=";
+  size_t pos = s->find(prefix);
+  while (pos != std::string::npos) {
+    size_t val_begin = pos + prefix.size();
+    size_t semi = s->find(';', val_begin);
+    assert(semi != std::string::npos);
+    // Find the last ':' separator within the value.
+    size_t last_sep = s->rfind(':', semi - 1);
+    assert(last_sep != std::string::npos && last_sep >= val_begin);
+    // Erase from the last ':' up to (not including) the ';'.
+    // e.g. "counts=0:3:5;" -> erase ":5" -> "counts=0:3;"
+    s->erase(last_sep, semi - last_sep);
+    pos = s->find(prefix, last_sep);
+  }
+}
+
+}  // namespace
 
 class MyTestCompactionService : public CompactionService {
  public:
@@ -1477,6 +1522,58 @@ TEST_F(CompactionServiceTest, InvalidResultFallsBackToLocal) {
   ASSERT_EQ(1, my_cs->GetOnInstallationCount());
   ASSERT_EQ(CompactionServiceJobStatus::kUseLocal,
             my_cs->GetFinalCompactionServiceJobStatus());
+}
+
+TEST_F(CompactionServiceTest, CompatCheckCountsWidthTolerance) {
+  const auto last_valid_index =
+      static_cast<size_t>(CompactionReason::kNumOfReasons) - 1;
+
+  CompactionServiceResult result;
+  result.status = Status::OK();
+  result.output_level = 2;
+  result.output_path = "/tmp/output";
+  result.internal_stats.output_level_stats.counts[0] = 3;
+  result.internal_stats.output_level_stats.counts[last_valid_index] = 5;
+  std::string serialized;
+  ASSERT_OK(result.Write(&serialized));
+
+  // Wider input: extra element appended simulates a worker with more
+  // CompactionReason enums. The parsed array is fixed at kNumOfReasons
+  // elements -- the extra element beyond that must be silently ignored.
+  {
+    std::string wider = serialized;
+    AppendToCountsFields(&wider, "7");
+    CompactionServiceResult parsed;
+    ASSERT_OK(CompactionServiceResult::Read(wider, &parsed));
+    ASSERT_OK(parsed.status);
+    auto& c = parsed.internal_stats.output_level_stats.counts;
+    // Array still has exactly kNumOfReasons slots (compile-time size).
+    ASSERT_EQ(sizeof(c) / sizeof(c[0]),
+              static_cast<size_t>(CompactionReason::kNumOfReasons));
+    // Original values preserved; appended "7" was ignored (not placed
+    // in any slot).
+    ASSERT_EQ(c[0], 3);
+    ASSERT_EQ(c[last_valid_index], 5);
+  }
+
+  // Narrower input: last element removed simulates a worker with fewer
+  // CompactionReason enums. The parsed array is still kNumOfReasons
+  // elements -- the missing last slot must be zero-filled.
+  {
+    std::string narrower = serialized;
+    RemoveLastFromCountsFields(&narrower);
+    CompactionServiceResult parsed;
+    ASSERT_OK(CompactionServiceResult::Read(narrower, &parsed));
+    ASSERT_OK(parsed.status);
+    auto& c = parsed.internal_stats.output_level_stats.counts;
+    ASSERT_EQ(sizeof(c) / sizeof(c[0]),
+              static_cast<size_t>(CompactionReason::kNumOfReasons));
+    // First element preserved from the narrower input.
+    ASSERT_EQ(c[0], 3);
+    // Last slot was not in the narrower input (removed), so it must be
+    // zero-filled. It was 5 in the original serialization.
+    ASSERT_EQ(c[last_valid_index], 0);
+  }
 }
 
 TEST_F(CompactionServiceTest, SubCompaction) {
