@@ -1966,7 +1966,6 @@ void DBIter::Prepare(const MultiScanArgs& scan_opts) {
   }
   std::optional<MultiScanArgs> new_scan_opts;
   new_scan_opts.emplace(scan_opts);
-  new_scan_opts->MarkScanRangesAsSorted();
   scan_opts_.swap(new_scan_opts);
   scan_index_ = 0;
 

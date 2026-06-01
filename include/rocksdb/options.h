@@ -1952,7 +1952,6 @@ class MultiScanArgs {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
     use_async_io = other.use_async_io;
-    scan_ranges_are_sorted_ = other.scan_ranges_are_sorted_;
     io_dispatcher = other.io_dispatcher;
   }
   MultiScanArgs(MultiScanArgs&& other) noexcept
@@ -1961,8 +1960,7 @@ class MultiScanArgs {
         use_async_io(other.use_async_io),
         io_dispatcher(std::move(other.io_dispatcher)),
         comp_(other.comp_),
-        original_ranges_(std::move(other.original_ranges_)),
-        scan_ranges_are_sorted_(other.scan_ranges_are_sorted_) {}
+        original_ranges_(std::move(other.original_ranges_)) {}
 
   MultiScanArgs& operator=(const MultiScanArgs& other) {
     comp_ = other.comp_;
@@ -1970,7 +1968,6 @@ class MultiScanArgs {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
     use_async_io = other.use_async_io;
-    scan_ranges_are_sorted_ = other.scan_ranges_are_sorted_;
     io_dispatcher = other.io_dispatcher;
     return *this;
   }
@@ -1982,7 +1979,6 @@ class MultiScanArgs {
       io_coalesce_threshold = other.io_coalesce_threshold;
       max_prefetch_size = other.max_prefetch_size;
       use_async_io = other.use_async_io;
-      scan_ranges_are_sorted_ = other.scan_ranges_are_sorted_;
       io_dispatcher = std::move(other.io_dispatcher);
     }
     return *this;
@@ -2025,15 +2021,12 @@ class MultiScanArgs {
 
   const Comparator* GetComparator() const { return comp_; }
 
-  bool ScanRangesAreSorted() const { return scan_ranges_are_sorted_; }
-
   // Copies the configurations (excluding actual scan ranges) from another
   // MultiScanArgs.
   void CopyConfigFrom(const MultiScanArgs& other) {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
     use_async_io = other.use_async_io;
-    scan_ranges_are_sorted_ = other.scan_ranges_are_sorted_;
     io_dispatcher = other.io_dispatcher;
   }
 
@@ -2063,19 +2056,9 @@ class MultiScanArgs {
   std::shared_ptr<IODispatcher> io_dispatcher = nullptr;
 
  private:
-  friend class DBIter;
-
-  void MarkScanRangesAsSorted() { scan_ranges_are_sorted_ = true; }
-
   // The comparator used for ordering ranges
   const Comparator* comp_;
   std::vector<ScanOptions> original_ranges_;
-
-  // True when scan ranges have already been validated to be sorted by start key
-  // and non-overlapping at the public Iterator::Prepare API boundary.
-  // Internal iterators use this to preserve sorted block handle order and avoid
-  // repeated dispatcher-side sorting.
-  bool scan_ranges_are_sorted_ = false;
 };
 
 // Options that control read operations

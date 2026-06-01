@@ -4418,13 +4418,6 @@ TEST_P(DBMultiScanIteratorTest, SortedRangesSkipIODispatcherSort) {
   ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
   ASSERT_EQ(2, NumTableFilesAtLevel(49));
 
-  struct SyncPointGuard {
-    ~SyncPointGuard() {
-      SyncPoint::GetInstance()->DisableProcessing();
-      SyncPoint::GetInstance()->ClearAllCallBacks();
-    }
-  } sync_point_guard;
-
   int sort_count = 0;
   SyncPoint::GetInstance()->SetCallBack(
       "IODispatcherImpl::SubmitJob:SortBlockHandles",

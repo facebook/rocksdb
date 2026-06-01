@@ -216,17 +216,11 @@ class TestIterator : public InternalIterator {
   bool IsKeyPinned() const override { return true; }
   bool IsValuePinned() const override { return true; }
 
-  void Prepare(const MultiScanArgs* scan_opts) override {
+  void Prepare(const MultiScanArgs* /*scan_opts*/) override {
     ++prepare_call_count_;
-    last_prepare_scan_ranges_are_sorted_ =
-        scan_opts != nullptr && scan_opts->ScanRangesAreSorted();
   }
 
   size_t prepare_call_count() const { return prepare_call_count_; }
-
-  bool last_prepare_scan_ranges_are_sorted() const {
-    return last_prepare_scan_ranges_are_sorted_;
-  }
 
  private:
   bool initialized_;
@@ -235,7 +229,6 @@ class TestIterator : public InternalIterator {
   size_t iter_;
   size_t steps_ = 0;
   size_t prepare_call_count_ = 0;
-  bool last_prepare_scan_ranges_are_sorted_ = false;
 
   InternalKeyComparator cmp;
   std::vector<std::pair<std::string, std::string>> data_;
@@ -257,7 +250,7 @@ class DBIteratorTest : public testing::Test {
   DBIteratorTest() : env_(Env::Default()) {}
 };
 
-TEST_F(DBIteratorTest, PrepareMarksValidatedScanRangesSorted) {
+TEST_F(DBIteratorTest, PrepareForwardsValidatedScanRanges) {
   Options options;
   ImmutableOptions ioptions = ImmutableOptions(options);
   MutableCFOptions mutable_cf_options = MutableCFOptions(options);
@@ -274,13 +267,10 @@ TEST_F(DBIteratorTest, PrepareMarksValidatedScanRangesSorted) {
 
   MultiScanArgs scan_opts(BytewiseComparator());
   scan_opts.insert("a", "c");
-  ASSERT_FALSE(scan_opts.ScanRangesAreSorted());
 
   db_iter->Prepare(scan_opts);
   ASSERT_OK(db_iter->status());
   EXPECT_EQ(internal_iter->prepare_call_count(), 1);
-  EXPECT_TRUE(internal_iter->last_prepare_scan_ranges_are_sorted());
-  EXPECT_FALSE(scan_opts.ScanRangesAreSorted());
 }
 
 TEST_F(DBIteratorTest, PrepareDoesNotForwardInvalidScanRanges) {
