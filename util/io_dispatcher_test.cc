@@ -605,7 +605,7 @@ TEST_F(IODispatcherTest, BasicSSTRead) {
 // IODispatcher and checks there are no cache hits and the returned block memory
 // belongs to the provider.
 TEST_F(IODispatcherTest, ReadScopedProviderBypassesBlockCache) {
-  auto provider = std::make_shared<TestReadScopedBlockBufferProvider>();
+  TestReadScopedBlockBufferProvider provider;
   BlockBasedTableOptions table_options;
   table_options.block_cache = NewLRUCache(8 * 1024 * 1024);
   table_options.block_size = 16 * 1024;
@@ -619,31 +619,31 @@ TEST_F(IODispatcherTest, ReadScopedProviderBypassesBlockCache) {
   auto job = std::make_shared<IOJob>();
   job->block_handles = block_handles;
   job->table = table.get();
-  job->job_options.read_options.read_scoped_block_buffer_provider = provider;
+  job->job_options.read_options.read_scoped_block_buffer_provider = &provider;
 
   std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
   std::shared_ptr<ReadSet> read_set;
   ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
   ASSERT_NE(read_set, nullptr);
-  EXPECT_GT(provider->allocations(), 0);
+  EXPECT_GT(provider.allocations(), 0);
   EXPECT_EQ(read_set->GetNumCacheHits(), 0);
 
   CachableEntry<Block> block;
   ASSERT_OK(read_set->ReadIndex(0, &block));
   ASSERT_NE(block.GetValue(), nullptr);
-  EXPECT_TRUE(provider->OwnsLiveAddressRange(block.GetValue()->data(),
-                                             block.GetValue()->size()));
+  EXPECT_TRUE(provider.OwnsLiveAddressRange(block.GetValue()->data(),
+                                            block.GetValue()->size()));
 
   block.Reset();
   read_set.reset();
-  EXPECT_EQ(provider->bytes_outstanding(), 0);
+  EXPECT_EQ(provider.bytes_outstanding(), 0);
 }
 
 // Verifies the provider path also works for tables configured without a block
 // cache. The test reads a block and asserts the BlockContents points into the
 // provider allocation and that releasing the block releases the provider lease.
 TEST_F(IODispatcherTest, ReadScopedProviderWorksWithoutBlockCache) {
-  auto provider = std::make_shared<TestReadScopedBlockBufferProvider>();
+  TestReadScopedBlockBufferProvider provider;
   BlockBasedTableOptions table_options;
   table_options.block_cache = nullptr;
   table_options.block_size = 16 * 1024;
@@ -657,23 +657,23 @@ TEST_F(IODispatcherTest, ReadScopedProviderWorksWithoutBlockCache) {
   auto job = std::make_shared<IOJob>();
   job->block_handles = block_handles;
   job->table = table.get();
-  job->job_options.read_options.read_scoped_block_buffer_provider = provider;
+  job->job_options.read_options.read_scoped_block_buffer_provider = &provider;
 
   std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
   std::shared_ptr<ReadSet> read_set;
   ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
   ASSERT_NE(read_set, nullptr);
-  EXPECT_GT(provider->allocations(), 0);
+  EXPECT_GT(provider.allocations(), 0);
 
   CachableEntry<Block> block;
   ASSERT_OK(read_set->ReadIndex(0, &block));
   ASSERT_NE(block.GetValue(), nullptr);
-  EXPECT_TRUE(provider->OwnsLiveAddressRange(block.GetValue()->data(),
-                                             block.GetValue()->size()));
+  EXPECT_TRUE(provider.OwnsLiveAddressRange(block.GetValue()->data(),
+                                            block.GetValue()->size()));
 
   block.Reset();
   read_set.reset();
-  EXPECT_EQ(provider->bytes_outstanding(), 0);
+  EXPECT_EQ(provider.bytes_outstanding(), 0);
 }
 
 // Verifies compressed blocks are decompressed directly into provider-backed
@@ -693,7 +693,7 @@ TEST_F(IODispatcherTest, ReadScopedBuffersOwnDecompressedBlocks) {
     return;
   }
 
-  auto provider = std::make_shared<TestReadScopedBlockBufferProvider>();
+  TestReadScopedBlockBufferProvider provider;
   BlockBasedTableOptions table_options;
   table_options.block_cache = nullptr;
   table_options.block_size = 16 * 1024;
@@ -708,30 +708,30 @@ TEST_F(IODispatcherTest, ReadScopedBuffersOwnDecompressedBlocks) {
   auto job = std::make_shared<IOJob>();
   job->block_handles = block_handles;
   job->table = table.get();
-  job->job_options.read_options.read_scoped_block_buffer_provider = provider;
+  job->job_options.read_options.read_scoped_block_buffer_provider = &provider;
 
   std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
   std::shared_ptr<ReadSet> read_set;
   ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
   ASSERT_NE(read_set, nullptr);
-  EXPECT_GT(provider->allocations(), 0);
+  EXPECT_GT(provider.allocations(), 0);
 
   CachableEntry<Block> block;
   ASSERT_OK(read_set->ReadIndex(0, &block));
   ASSERT_NE(block.GetValue(), nullptr);
-  EXPECT_TRUE(provider->OwnsLiveAddressRange(block.GetValue()->data(),
-                                             block.GetValue()->size()));
+  EXPECT_TRUE(provider.OwnsLiveAddressRange(block.GetValue()->data(),
+                                            block.GetValue()->size()));
 
   block.Reset();
   read_set.reset();
-  EXPECT_EQ(provider->bytes_outstanding(), 0);
+  EXPECT_EQ(provider.bytes_outstanding(), 0);
 }
 
 // Verifies RocksDB rejects invalid provider leases instead of pinning unsafe
 // memory. The test uses a provider that omits cleanup and expects ReadIndex()
 // to fail with InvalidArgument.
 TEST_F(IODispatcherTest, InvalidReadScopedLeaseFailsRead) {
-  auto provider = std::make_shared<InvalidReadScopedBlockBufferProvider>(
+  InvalidReadScopedBlockBufferProvider provider(
       InvalidReadScopedBlockBufferProvider::Mode::kMissingCleanup);
   BlockBasedTableOptions table_options;
   table_options.block_cache = nullptr;
@@ -746,7 +746,7 @@ TEST_F(IODispatcherTest, InvalidReadScopedLeaseFailsRead) {
   auto job = std::make_shared<IOJob>();
   job->block_handles = block_handles;
   job->table = table.get();
-  job->job_options.read_options.read_scoped_block_buffer_provider = provider;
+  job->job_options.read_options.read_scoped_block_buffer_provider = &provider;
 
   std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
   std::shared_ptr<ReadSet> read_set;
@@ -763,7 +763,7 @@ TEST_F(IODispatcherTest, InvalidReadScopedLeaseFailsRead) {
 // sync point and checks the block is not made available.
 TEST_F(IODispatcherTest,
        ReadScopedProviderRequiresReadBufferCleanupForUncompressedBlock) {
-  auto provider = std::make_shared<TestReadScopedBlockBufferProvider>();
+  TestReadScopedBlockBufferProvider provider;
   BlockBasedTableOptions table_options;
   table_options.block_cache = nullptr;
   table_options.block_size = 16 * 1024;
@@ -778,7 +778,7 @@ TEST_F(IODispatcherTest,
   job->block_handles = block_handles;
   job->table = table.get();
   job->job_options.read_options.async_io = false;
-  job->job_options.read_options.read_scoped_block_buffer_provider = provider;
+  job->job_options.read_options.read_scoped_block_buffer_provider = &provider;
 
   auto* sync_point = SyncPoint::GetInstance();
   struct SyncPointGuard {
@@ -807,7 +807,7 @@ TEST_F(IODispatcherTest,
   ASSERT_NE(read_set, nullptr);
   EXPECT_GT(cleanup_callbacks, 0);
   EXPECT_FALSE(read_set->IsBlockAvailable(0));
-  EXPECT_EQ(provider->bytes_outstanding(), 0);
+  EXPECT_EQ(provider.bytes_outstanding(), 0);
 }
 
 // Verifies cache lookup is a no-op when the table has no block cache. The test
@@ -1155,7 +1155,7 @@ TEST_F(IODispatcherTest, MultiScanArgsCopiesBypassDataBlockCacheConfig) {
 // scratch buffer. The test opens the table with direct reads and checks the
 // provider saw one aligned allocation and owns the returned block memory.
 TEST_F(IODispatcherTest, ReadScopedDirectIOUsesAlignedProviderScratch) {
-  auto provider = std::make_shared<TestReadScopedBlockBufferProvider>();
+  TestReadScopedBlockBufferProvider provider;
   BlockBasedTableOptions table_options;
   table_options.block_cache = nullptr;
   table_options.block_size = 16 * 1024;
@@ -1172,25 +1172,25 @@ TEST_F(IODispatcherTest, ReadScopedDirectIOUsesAlignedProviderScratch) {
   auto job = std::make_shared<IOJob>();
   job->block_handles = block_handles;
   job->table = table.get();
-  job->job_options.read_options.read_scoped_block_buffer_provider = provider;
+  job->job_options.read_options.read_scoped_block_buffer_provider = &provider;
 
   std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
   std::shared_ptr<ReadSet> read_set;
   ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
   ASSERT_NE(read_set, nullptr);
   EXPECT_EQ(tracking_fs_->GetMultiReadCount(), 1);
-  EXPECT_EQ(provider->allocations(), 1);
-  EXPECT_GT(provider->max_requested_alignment(), 1);
+  EXPECT_EQ(provider.allocations(), 1);
+  EXPECT_GT(provider.max_requested_alignment(), 1);
 
   CachableEntry<Block> block;
   ASSERT_OK(read_set->ReadIndex(0, &block));
   ASSERT_NE(block.GetValue(), nullptr);
-  EXPECT_TRUE(provider->OwnsLiveAddressRange(block.GetValue()->data(),
-                                             block.GetValue()->size()));
+  EXPECT_TRUE(provider.OwnsLiveAddressRange(block.GetValue()->data(),
+                                            block.GetValue()->size()));
 
   block.Reset();
   read_set.reset();
-  EXPECT_EQ(provider->bytes_outstanding(), 0);
+  EXPECT_EQ(provider.bytes_outstanding(), 0);
 }
 
 // Verifies the regular block-based table iterator path, outside MultiScan,
@@ -1213,7 +1213,7 @@ TEST_F(IODispatcherTest, RegularIteratorUsesReadScopedProvider) {
                    " compression_type=" +
                    std::to_string(static_cast<int>(compression_type)));
 
-      auto provider = std::make_shared<TestReadScopedBlockBufferProvider>();
+      TestReadScopedBlockBufferProvider provider;
       BlockBasedTableOptions table_options;
       table_options.block_cache = NewLRUCache(8 * 1024 * 1024);
       table_options.block_size = 16 * 1024;
@@ -1226,7 +1226,7 @@ TEST_F(IODispatcherTest, RegularIteratorUsesReadScopedProvider) {
       ASSERT_GT(block_handles.size(), 0);
 
       ReadOptions read_options;
-      read_options.read_scoped_block_buffer_provider = provider;
+      read_options.read_scoped_block_buffer_provider = &provider;
       std::unique_ptr<InternalIterator> iter(table->NewIterator(
           read_options, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
           /*skip_filters=*/false, TableReaderCaller::kUncategorized));
@@ -1234,15 +1234,15 @@ TEST_F(IODispatcherTest, RegularIteratorUsesReadScopedProvider) {
       iter->SeekToFirst();
       ASSERT_OK(iter->status());
       ASSERT_TRUE(iter->Valid());
-      ASSERT_GT(provider->allocations(), 0);
-      EXPECT_TRUE(provider->OwnsLiveAddressRange(iter->value().data(),
-                                                 iter->value().size()));
+      ASSERT_GT(provider.allocations(), 0);
+      EXPECT_TRUE(provider.OwnsLiveAddressRange(iter->value().data(),
+                                                iter->value().size()));
       if (use_direct_reads) {
-        EXPECT_GT(provider->max_requested_alignment(), 1);
+        EXPECT_GT(provider.max_requested_alignment(), 1);
       }
 
       iter.reset();
-      EXPECT_EQ(provider->bytes_outstanding(), 0);
+      EXPECT_EQ(provider.bytes_outstanding(), 0);
     }
   }
 }

@@ -2391,17 +2391,24 @@ struct ReadOptions {
   // reads.
   const UserDefinedIndexFactory* table_index_factory = nullptr;
 
-  // Optional provider for data-block storage pinned by scans using this
-  // ReadOptions. Current support is limited to block-based table iterators and
-  // MultiScan data-block reads. When set, supported scan reads bypass the block
-  // cache and use provider-backed block memory. When unset, scans use the
-  // normal RocksDB block backing for the table: use the configured block cache
-  // when present, otherwise use RocksDB-owned block memory.
+  // Optional non-owning provider for data-block storage pinned by scans using
+  // this ReadOptions. This is an advanced option: applications that set it are
+  // responsible for ensuring the provider outlives the iterator/read scope and
+  // any provider-backed data that can remain pinned by that scope.
+  //
+  // This is a raw pointer rather than a shared_ptr because ReadOptions is
+  // copied through stack frames and iterator internals; those copies should not
+  // imply ownership of the read scope or extend provider lifetime implicitly.
+  //
+  // Current support is limited to block-based table iterators and MultiScan
+  // data-block reads. When set, supported scan reads bypass the data-block
+  // cache and use provider-backed data-block memory. When unset, scans use the
+  // normal RocksDB data-block backing for the table: use the configured block
+  // cache when present, otherwise use RocksDB-owned block memory.
   //
   // TODO: Extend support to point lookups (Get/MultiGet) once those paths can
   // preserve provider-backed block ownership.
-  std::shared_ptr<ReadScopedBlockBufferProvider>
-      read_scoped_block_buffer_provider = nullptr;
+  ReadScopedBlockBufferProvider* read_scoped_block_buffer_provider = nullptr;
 
   // *** END options only relevant to iterators or scans ***
 

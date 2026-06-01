@@ -1325,9 +1325,13 @@ void StressTest::OperateDb(ThreadState* thread) {
   if (FLAGS_use_trie_index && !FLAGS_use_udi_as_primary_index && udi_factory_) {
     read_opts.table_index_factory = udi_factory_.get();
   }
+  std::unique_ptr<StressReadScopedBlockBufferProvider>
+      read_scoped_block_buffer_provider;
   if (FLAGS_read_scoped_block_buffer_provider) {
+    read_scoped_block_buffer_provider =
+        std::make_unique<StressReadScopedBlockBufferProvider>();
     read_opts.read_scoped_block_buffer_provider =
-        std::make_shared<StressReadScopedBlockBufferProvider>();
+        read_scoped_block_buffer_provider.get();
   }
   WriteOptions write_opts;
   if (FLAGS_rate_limit_auto_wal_flush) {
