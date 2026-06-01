@@ -1151,6 +1151,14 @@ def finalize_and_sanitize(src_params):
         # incompatible with mmap_read.
         dest_params["mmap_read"] = 0
         index_mode = dest_params.get("index_mode", 0)
+        if index_mode >= 1:
+            # These reopen paths lose the user_defined_index_factory
+            # shared_ptr while preserving index_mode in serialized OPTIONS.
+            # Validation requires the factory for every mode
+            # >= kStandardDefault.
+            dest_params["backup_one_in"] = 0
+            dest_params["test_secondary"] = 0
+            dest_params["remote_compaction_worker_threads"] = 0
         if index_mode >= 2:
             # kCustomDefault/kCustomOnly: the standard index is still fully
             # populated (except kCustomOnly), but partitioned index
@@ -1158,21 +1166,6 @@ def finalize_and_sanitize(src_params):
             # compatible with the UDI wrapper layout.
             dest_params["index_type"] = random.choice([0, 0, 3])
             dest_params["partition_filters"] = 0
-            # Backup/restore serializes Options to strings, losing the
-            # user_defined_index_factory (shared_ptr). The restored DB
-            # opens without UDI support and cannot route reads through
-            # the trie in primary mode.
-            dest_params["backup_one_in"] = 0
-            # Secondary DB opens SSTs with default Options (not a copy of
-            # the primary's), losing the UDI factory. Without the factory,
-            # reads cannot be routed through the trie.
-            dest_params["test_secondary"] = 0
-            # Remote compaction worker threads simulate a separate process
-            # by re-opening the DB through OpenAndCompact, which deserializes
-            # OPTIONS and loses the user_defined_index_factory shared_ptr.
-            # That triggers the validation: index_mode >= kStandardDefault
-            # requires user_defined_index_factory to be set.
-            dest_params["remote_compaction_worker_threads"] = 0
             # cf_consistency requires bit-identical CRCs across column
             # families. In primary UDI modes (kCustomDefault/kCustomOnly),
             # write-fault injection on the UDI meta block can corrupt
