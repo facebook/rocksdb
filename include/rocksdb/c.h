@@ -2225,7 +2225,8 @@ enum {
   rocksdb_filter_block_read_byte,
   rocksdb_compression_dict_block_read_byte,
   rocksdb_metadata_block_read_byte,
-  rocksdb_total_metric_count = 85
+  rocksdb_blob_cache_read_byte,
+  rocksdb_total_metric_count = 86
 };
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_perf_level(int);

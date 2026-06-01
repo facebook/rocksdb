@@ -127,6 +127,7 @@ class MyTestCompactionService : public CompactionService {
 
   void OnInstallation(const std::string& /*scheduled_job_id*/,
                       CompactionServiceJobStatus status) override {
+    installation_callback_count_.fetch_add(1);
     final_updated_status_ = status;
   }
 
@@ -167,6 +168,8 @@ class MyTestCompactionService : public CompactionService {
     return final_updated_status_.load();
   }
 
+  int GetOnInstallationCount() { return installation_callback_count_.load(); }
+
  protected:
   InstrumentedMutex mutex_;
   const std::string db_path_;
@@ -195,6 +198,7 @@ class MyTestCompactionService : public CompactionService {
   std::vector<std::shared_ptr<EventListener>> listeners_;
   std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
       table_properties_collector_factories_;
+  std::atomic_int installation_callback_count_{0};
   std::atomic<CompactionServiceJobStatus> final_updated_status_{
       CompactionServiceJobStatus::kUseLocal};
 
@@ -1448,7 +1452,7 @@ TEST_F(CompactionServiceTest, FailedToStart) {
   ASSERT_TRUE(s.IsIncomplete());
 }
 
-TEST_F(CompactionServiceTest, InvalidResult) {
+TEST_F(CompactionServiceTest, InvalidResultFallsBackToLocal) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   ReopenWithCompactionService(&options);
@@ -1456,15 +1460,22 @@ TEST_F(CompactionServiceTest, InvalidResult) {
   GenerateTestData();
 
   auto my_cs = GetCompactionService();
+  ASSERT_EQ(0, my_cs->GetOnInstallationCount());
   my_cs->OverrideWaitResult("Invalid Str");
+  int compaction_num_before = my_cs->GetCompactionNum();
 
   std::string start_str = Key(15);
   std::string end_str = Key(45);
   Slice start(start_str);
   Slice end(end_str);
+  // The remote result is malformed before any installation starts, so the
+  // primary should recover by rerunning the compaction locally for this job.
   Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
-  ASSERT_FALSE(s.ok());
-  ASSERT_EQ(CompactionServiceJobStatus::kFailure,
+  ASSERT_OK(s);
+  ASSERT_GE(my_cs->GetCompactionNum(), compaction_num_before + 1);
+  VerifyTestData();
+  ASSERT_EQ(1, my_cs->GetOnInstallationCount());
+  ASSERT_EQ(CompactionServiceJobStatus::kUseLocal,
             my_cs->GetFinalCompactionServiceJobStatus());
 }
 

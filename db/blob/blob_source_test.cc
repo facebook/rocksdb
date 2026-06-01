@@ -229,6 +229,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
     // Retrieved the blob cache num_blobs * 3 times via TEST_BlobInCache,
     // GetBlob, and TEST_BlobInCache.
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, 0);
+    ASSERT_EQ((int)get_perf_context()->blob_cache_read_byte, 0);
     ASSERT_EQ((int)get_perf_context()->blob_read_count, num_blobs);
     ASSERT_EQ((int)get_perf_context()->blob_read_byte, total_bytes);
     ASSERT_GE((int)get_perf_context()->blob_checksum_time, 0);
@@ -262,6 +263,8 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
       blob_bytes += blob_sizes[i];
       total_bytes += bytes_read;
       ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, i);
+      ASSERT_EQ((int)get_perf_context()->blob_cache_read_byte,
+                blob_bytes - blob_sizes[i]);
       ASSERT_EQ((int)get_perf_context()->blob_read_count, i + 1);
       ASSERT_EQ((int)get_perf_context()->blob_read_byte, total_bytes);
 
@@ -269,11 +272,13 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                                blob_offsets[i]));
 
       ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, i + 1);
+      ASSERT_EQ((int)get_perf_context()->blob_cache_read_byte, blob_bytes);
       ASSERT_EQ((int)get_perf_context()->blob_read_count, i + 1);
       ASSERT_EQ((int)get_perf_context()->blob_read_byte, total_bytes);
     }
 
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, num_blobs);
+    ASSERT_EQ((int)get_perf_context()->blob_cache_read_byte, blob_bytes);
     ASSERT_EQ((int)get_perf_context()->blob_read_count, num_blobs);
     ASSERT_EQ((int)get_perf_context()->blob_read_byte, total_bytes);
 
@@ -312,6 +317,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
     // Retrieved the blob cache num_blobs * 3 times via TEST_BlobInCache,
     // GetBlob, and TEST_BlobInCache.
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, num_blobs * 3);
+    ASSERT_EQ((int)get_perf_context()->blob_cache_read_byte, blob_bytes * 3);
     ASSERT_EQ((int)get_perf_context()->blob_read_count, 0);  // without i/o
     ASSERT_EQ((int)get_perf_context()->blob_read_byte, 0);   // without i/o
 
@@ -690,6 +696,8 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromMultiFiles) {
     // TEST_BlobInCache.
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count,
               num_blobs * blob_files);
+    ASSERT_EQ((int)get_perf_context()->blob_cache_read_byte,
+              blob_value_bytes * blob_files);
     ASSERT_EQ((int)get_perf_context()->blob_read_count,
               num_blobs * blob_files);  // blocking i/o
     ASSERT_EQ((int)get_perf_context()->blob_read_byte,
@@ -750,6 +758,8 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromMultiFiles) {
     // via MultiGetBlob and TEST_BlobInCache.
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count,
               num_blobs * blob_files * 2);
+    ASSERT_EQ((int)get_perf_context()->blob_cache_read_byte,
+              blob_value_bytes * blob_files * 2);
     ASSERT_EQ((int)get_perf_context()->blob_read_count,
               0);  // blocking i/o
     ASSERT_EQ((int)get_perf_context()->blob_read_byte,
