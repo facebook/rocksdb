@@ -427,6 +427,38 @@ TEST_F(DBCompactionAbortTest, AbortAutomaticCompaction) {
   }
 }
 
+TEST_F(DBCompactionAbortTest, AbortScheduledAutomaticCompactionBeforePick) {
+  // The goal is to cover an automatic compaction that has been scheduled, but
+  // aborts before the worker picks and removes a column family from the
+  // compaction queue. This pins the scheduler bookkeeping invariant that
+  // ResumeAllCompactions() must be able to schedule that still-queued work.
+  constexpr int kCompactionTrigger = 4;
+  constexpr int kNumL0Files = kCompactionTrigger + 1;
+  Options options = GetOptionsWithStats();
+  options.level0_file_num_compaction_trigger = kCompactionTrigger;
+  options.max_background_compactions = 1;
+  options.max_subcompactions = 1;
+  options.disable_auto_compactions = false;
+  Reopen(options);
+
+  SyncPointAbortHelper helper("BackgroundCallCompaction:0");
+  helper.Setup(dbfull());
+
+  PopulateData(/*num_files=*/kNumL0Files, /*keys_per_file=*/100,
+               /*value_size=*/1000);
+  helper.CleanupAndWait();
+
+  const uint64_t compact_write_bytes_before_resume =
+      stats_->getTickerCount(COMPACT_WRITE_BYTES);
+  dbfull()->ResumeAllCompactions();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ASSERT_GT(stats_->getTickerCount(COMPACT_WRITE_BYTES),
+            compact_write_bytes_before_resume);
+  ASSERT_LT(NumTableFilesAtLevel(0), kNumL0Files);
+  VerifyDataIntegrity(/*num_keys=*/100);
+}
+
 TEST_F(DBCompactionAbortTest, AbortAndVerifyNoOutputFiles) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 4;
