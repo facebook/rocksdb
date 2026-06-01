@@ -56,6 +56,7 @@ export SNAPPY_LDFLAGS=-lsnappy
 
 cleanup() {
   echo "== Cleaning up"
+  rm -rf "/tmp/rocksdb_cs_compat_${USER:-$$}" || true
   git reset --hard || true
   git checkout "$orig_branch" || true
   git branch -D $tmp_branch || true
@@ -88,6 +89,11 @@ mkdir -p $db_test_dir
 # For backup/restore test (uses DB test)
 bak_test_dir=$test_dir"/bak"
 mkdir -p $bak_test_dir
+# For remote compaction test - use /tmp instead of test_dir because the saved
+# ldb binary must be executable, and TEST_TMPDIR (/dev/shm) may be noexec.
+cs_test_dir="/tmp/rocksdb_cs_compat_${USER:-$$}"
+rm -rf $cs_test_dir
+mkdir -p $cs_test_dir
 
 python_bin=$(which python3 || which python || echo python3)
 
@@ -320,6 +326,33 @@ member_of_array()
   return 1
 }
 
+# Run one cross-version remote compaction compatibility test.
+# Launches worker in background (polls for input.bin, runs OpenAndCompact,
+# writes result.bin) and primary in foreground (creates DB, CompactRange
+# which writes input.bin via Schedule then polls for result.bin via Wait).
+# Uses "|| exit=$?" to capture exit codes without triggering set -e.
+run_cs_compat_test()
+{
+  local test_label="$1"
+  local primary_ldb="$2"
+  local worker_ldb="$3"
+  local test_dir="$4"
+
+  echo "== $test_label"
+  rm -rf "$test_dir" && mkdir -p "$test_dir"
+  $worker_ldb remote_compaction_worker --db="$test_dir/db" --job_dir="$test_dir" &
+  local worker_pid=$!
+  local primary_exit=0
+  $primary_ldb remote_compaction_primary --db="$test_dir/db" --job_dir="$test_dir" || primary_exit=$?
+  local worker_exit=0
+  wait $worker_pid || worker_exit=$?
+  if [ $primary_exit -ne 0 ] || [ $worker_exit -ne 0 ]; then
+    echo "==== FAILED: $test_label (primary=$primary_exit worker=$worker_exit) ===="
+    kill $worker_pid 2>/dev/null || true
+    exit 1
+  fi
+}
+
 force_no_fbcode()
 {
   # Not all branches recognize ROCKSDB_NO_FBCODE and we should not need
@@ -350,6 +383,24 @@ git checkout -B $tmp_branch $current_checkout_hash
 force_no_fbcode
 invoke_make clean
 DISABLE_WARNING_AS_ERROR=1 invoke_make ldb -j$J
+
+# Save current ldb for cross-version remote compaction tests (run in the
+# old-ref loop below via run_cs_compat_test).  The old-ref checkout will
+# overwrite ./ldb, so we stash the current binary now.
+cs_current_ldb=$cs_test_dir/current_ldb
+echo "== Saving current ldb for remote compaction cross-version tests"
+if [ ! "$SANITY_CHECK" ]; then
+  mkdir -p $(dirname $cs_current_ldb)
+  cp -f ./ldb $cs_current_ldb
+  # ldb may be dynamically linked depending on build config; copy shared libs
+  # so the saved binary can run from cs_test_dir via LD_LIBRARY_PATH.
+  # Static builds have no .so files - cp fails harmlessly (2>/dev/null || true).
+  cp -f ./librocksdb*.so* $cs_test_dir/ 2>/dev/null || true
+  if ! env LD_LIBRARY_PATH=$cs_test_dir $cs_current_ldb --version > /dev/null 2>&1; then
+    echo "WARNING: saved current ldb cannot run (missing shared libs?), skipping remote compaction compat tests"
+    cs_current_ldb=""
+  fi
+fi
 
 echo "== Using $current_checkout_name, generate DB with extern SST and ingest"
 current_ext_test_dir=$ext_test_dir"/current"
@@ -429,6 +480,31 @@ do
     restore_db $current_bak_test_dir $db_test_dir/$checkout_ref
     compare_db $db_test_dir/$checkout_ref $current_db_test_dir forward_${checkout_ref}_dump.txt 0
   fi
+
+  # Remote compaction format compatibility: test that primary and worker from
+  # different versions can exchange CompactionServiceInput/Result.
+  # db_forward_with_options_refs: CompactionService requires options-loading
+  # support (10.4.fb+).  Older releases lack CompactionService entirely.
+  # Skipped in SANITY_CHECK mode (no ldb binary to test).
+  if [ ! "$SANITY_CHECK" ] &&
+    [ -n "$cs_current_ldb" ] &&
+    member_of_array "$checkout_ref" "${db_forward_with_options_refs[@]}"
+  then
+    # grep -q returns 0 (found) or 1 (not found).
+    if ./ldb --help 2>&1 | grep -q remote_compaction_primary; then
+      OLD_LDB="./ldb"
+      CURRENT_LDB="env LD_LIBRARY_PATH=$cs_test_dir $cs_current_ldb"
+      ref_dir=$cs_test_dir/$checkout_ref
+      run_cs_compat_test \
+        "Remote compaction compat: current primary + $checkout_ref worker" \
+        "$CURRENT_LDB" "$OLD_LDB" "$ref_dir/test1"
+      run_cs_compat_test \
+        "Remote compaction compat: $checkout_ref primary + current worker" \
+        "$OLD_LDB" "$CURRENT_LDB" "$ref_dir/test2"
+    else
+      echo "   remote_compaction commands not available at $checkout_ref, skipping"
+    fi
+  fi
 done
 
 echo "== Building $current_checkout_name debug (again, final)"
@@ -466,6 +542,7 @@ do
     restore_db $bak_test_dir/$checkout_ref $db_test_dir/$checkout_ref
     compare_db $db_test_dir/$checkout_ref $current_db_test_dir db_dump.txt 1 0
   fi
+
 done
 
 if [ "$SANITY_CHECK" ]; then
