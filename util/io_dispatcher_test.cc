@@ -10,6 +10,7 @@
 
 #include "rocksdb/io_dispatcher.h"
 
+#include <algorithm>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -834,6 +835,85 @@ TEST_F(IODispatcherTest, VerifyCoalescing) {
         << "Expected each non-adjacent block to be a separate request with "
            "zero coalesce threshold";
   }
+}
+
+TEST_F(IODispatcherTest, SortedBlockHandlesSkipDispatcherSorts) {
+  struct SortCounters {
+    int submit_job = 0;
+  };
+
+  auto install_callbacks = [](SortCounters* counters) {
+    SyncPoint::GetInstance()->SetCallBack(
+        "IODispatcherImpl::SubmitJob:SortBlockHandles",
+        [counters](void*) { ++counters->submit_job; });
+    SyncPoint::GetInstance()->EnableProcessing();
+  };
+
+  auto submit_job = [](IODispatcher* dispatcher, BlockBasedTable* table,
+                       const std::vector<BlockHandle>& block_handles,
+                       bool sorted) {
+    auto job = std::make_shared<IOJob>();
+    job->block_handles = block_handles;
+    job->table = table;
+    job->job_options.block_handles_are_sorted = sorted;
+    job->job_options.read_options.async_io = false;
+    job->job_options.io_coalesce_threshold = 1024 * 1024;
+
+    std::shared_ptr<ReadSet> read_set;
+    ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+    ASSERT_NE(read_set, nullptr);
+    for (size_t i = 0; i < block_handles.size(); ++i) {
+      CachableEntry<Block> block;
+      ASSERT_OK(read_set->ReadIndex(i, &block));
+      ASSERT_NE(block.GetValue(), nullptr);
+      ASSERT_GT(block.GetValue()->size(), 0);
+
+      InternalKeyComparator internal_comparator(BytewiseComparator());
+      std::unique_ptr<DataBlockIter> iter(block.GetValue()->NewDataIterator(
+          internal_comparator.user_comparator(), kDisableGlobalSequenceNumber));
+      iter->SeekToFirst();
+      ASSERT_TRUE(iter->Valid());
+
+      ParsedInternalKey parsed_key;
+      ASSERT_OK(
+          ParseInternalKey(iter->key(), &parsed_key, true /* log_err_key */));
+      ASSERT_TRUE(parsed_key.user_key.starts_with("key"));
+      ASSERT_OK(iter->status());
+    }
+  };
+
+  std::unique_ptr<BlockBasedTable> sorted_table;
+  std::vector<BlockHandle> sorted_handles;
+  ASSERT_OK(CreateAndOpenSST(10, &sorted_table, &sorted_handles));
+  ASSERT_GE(sorted_handles.size(), 5);
+  sorted_handles.resize(5);
+
+  SortCounters sorted_counters;
+  install_callbacks(&sorted_counters);
+  std::unique_ptr<IODispatcher> sorted_dispatcher(NewIODispatcher());
+  submit_job(sorted_dispatcher.get(), sorted_table.get(), sorted_handles,
+             true /* sorted */);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  EXPECT_EQ(sorted_counters.submit_job, 0);
+
+  std::unique_ptr<BlockBasedTable> unsorted_table;
+  std::vector<BlockHandle> unsorted_handles;
+  ASSERT_OK(CreateAndOpenSST(10, &unsorted_table, &unsorted_handles));
+  ASSERT_GE(unsorted_handles.size(), 5);
+  unsorted_handles.resize(5);
+  std::reverse(unsorted_handles.begin(), unsorted_handles.end());
+
+  SortCounters unsorted_counters;
+  install_callbacks(&unsorted_counters);
+  std::unique_ptr<IODispatcher> unsorted_dispatcher(NewIODispatcher());
+  submit_job(unsorted_dispatcher.get(), unsorted_table.get(), unsorted_handles,
+             false /* sorted */);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  EXPECT_EQ(unsorted_counters.submit_job, 1);
 }
 
 // Test that verifies the read request offsets and lengths match the
