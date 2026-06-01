@@ -168,6 +168,8 @@ typedef struct rocksdb_subcompactionjobinfo_t rocksdb_subcompactionjobinfo_t;
 typedef struct rocksdb_externalfileingestioninfo_t
     rocksdb_externalfileingestioninfo_t;
 typedef struct rocksdb_eventlistener_t rocksdb_eventlistener_t;
+typedef struct rocksdb_backgrounderrorrecoveryinfo_t
+    rocksdb_backgrounderrorrecoveryinfo_t;
 typedef struct rocksdb_writestallinfo_t rocksdb_writestallinfo_t;
 typedef struct rocksdb_writestallcondition_t rocksdb_writestallcondition_t;
 typedef struct rocksdb_memtableinfo_t rocksdb_memtableinfo_t;
@@ -1290,6 +1292,27 @@ extern ROCKSDB_LIBRARY_API uint32_t
 rocksdb_flushjobinfo_flush_reason(const rocksdb_flushjobinfo_t* info);
 extern ROCKSDB_LIBRARY_API void rocksdb_status_ptr_get_error(
     rocksdb_status_ptr_t* status, char** errptr);
+enum {
+  rocksdb_status_severity_no_error = 0,
+  rocksdb_status_severity_soft_error = 1,
+  rocksdb_status_severity_hard_error = 2,
+  rocksdb_status_severity_fatal_error = 3,
+  rocksdb_status_severity_unrecoverable_error = 4,
+};
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_status_ptr_get_severity(
+    rocksdb_status_ptr_t* status);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_backgrounderrorrecoveryinfo_old_bg_error(
+    const rocksdb_backgrounderrorrecoveryinfo_t* info, char** errptr);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_backgrounderrorrecoveryinfo_old_bg_error_severity(
+    const rocksdb_backgrounderrorrecoveryinfo_t* info);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_backgrounderrorrecoveryinfo_new_bg_error(
+    const rocksdb_backgrounderrorrecoveryinfo_t* info, char** errptr);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_backgrounderrorrecoveryinfo_new_bg_error_severity(
+    const rocksdb_backgrounderrorrecoveryinfo_t* info);
 
 /* Compaction job info */
 extern ROCKSDB_LIBRARY_API void rocksdb_compactionjobinfo_status(
@@ -1386,7 +1409,13 @@ typedef void (*on_subcompaction_completed_cb)(
     void*, const rocksdb_subcompactionjobinfo_t*);
 typedef void (*on_external_file_ingested_cb)(
     void*, rocksdb_t*, const rocksdb_externalfileingestioninfo_t*);
-typedef void (*on_background_error_cb)(void*, uint32_t, rocksdb_status_ptr_t*);
+typedef void (*on_background_error_cb)(void* state, uint32_t reason,
+                                       rocksdb_status_ptr_t* status);
+typedef void (*on_error_recovery_begin_cb)(void* state, uint32_t reason,
+                                           rocksdb_status_ptr_t* bg_error,
+                                           unsigned char* auto_recovery);
+typedef void (*on_error_recovery_end_cb)(
+    void* state, const rocksdb_backgrounderrorrecoveryinfo_t* info);
 typedef void (*on_stall_conditions_changed_cb)(void*,
                                                const rocksdb_writestallinfo_t*);
 typedef void (*rocksdb_logger_logv_cb)(void*, uint32_t log_level, const char*);
@@ -1401,6 +1430,20 @@ rocksdb_eventlistener_create(
     on_subcompaction_completed_cb on_subcompaction_completed,
     on_external_file_ingested_cb on_external_file_ingested,
     on_background_error_cb on_background_error,
+    on_stall_conditions_changed_cb on_stall_conditions_changed,
+    on_memtable_sealed_cb on_memtable_sealed);
+extern ROCKSDB_LIBRARY_API rocksdb_eventlistener_t*
+rocksdb_eventlistener_create_with_error_recovery(
+    void* state_, void (*destructor_)(void*), on_flush_begin_cb on_flush_begin,
+    on_flush_completed_cb on_flush_completed,
+    on_compaction_begin_cb on_compaction_begin,
+    on_compaction_completed_cb on_compaction_completed,
+    on_subcompaction_begin_cb on_subcompaction_begin,
+    on_subcompaction_completed_cb on_subcompaction_completed,
+    on_external_file_ingested_cb on_external_file_ingested,
+    on_background_error_cb on_background_error,
+    on_error_recovery_begin_cb on_error_recovery_begin,
+    on_error_recovery_end_cb on_error_recovery_end,
     on_stall_conditions_changed_cb on_stall_conditions_changed,
     on_memtable_sealed_cb on_memtable_sealed);
 extern ROCKSDB_LIBRARY_API void rocksdb_eventlistener_destroy(

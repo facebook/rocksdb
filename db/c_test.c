@@ -96,6 +96,78 @@ static void Free(char** ptr) {
   }
 }
 
+static void CTestOnFlushBegin(void* state, rocksdb_t* db,
+                              const rocksdb_flushjobinfo_t* info) {
+  (void)state;
+  (void)db;
+  (void)info;
+}
+
+static void CTestOnFlushCompleted(void* state, rocksdb_t* db,
+                                  const rocksdb_flushjobinfo_t* info) {
+  (void)state;
+  (void)db;
+  (void)info;
+}
+
+static void CTestOnCompactionBegin(void* state, rocksdb_t* db,
+                                   const rocksdb_compactionjobinfo_t* info) {
+  (void)state;
+  (void)db;
+  (void)info;
+}
+
+static void CTestOnCompactionCompleted(
+    void* state, rocksdb_t* db, const rocksdb_compactionjobinfo_t* info) {
+  (void)state;
+  (void)db;
+  (void)info;
+}
+
+static void CTestOnSubcompactionBegin(
+    void* state, const rocksdb_subcompactionjobinfo_t* info) {
+  (void)state;
+  (void)info;
+}
+
+static void CTestOnSubcompactionCompleted(
+    void* state, const rocksdb_subcompactionjobinfo_t* info) {
+  (void)state;
+  (void)info;
+}
+
+static void CTestOnExternalFileIngested(
+    void* state, rocksdb_t* db,
+    const rocksdb_externalfileingestioninfo_t* info) {
+  (void)state;
+  (void)db;
+  (void)info;
+}
+
+static void CTestOnBackgroundError(void* state, uint32_t reason,
+                                   rocksdb_status_ptr_t* status) {
+  (void)state;
+  (void)reason;
+  (void)status;
+}
+
+static void CTestSetInt(void* state) {
+  int* value = (int*)state;
+  *value = 1;
+}
+
+static void CTestOnStallConditionsChanged(
+    void* state, const rocksdb_writestallinfo_t* info) {
+  (void)state;
+  (void)info;
+}
+
+static void CTestOnMemTableSealed(void* state,
+                                  const rocksdb_memtableinfo_t* info) {
+  (void)state;
+  (void)info;
+}
+
 static void CheckValue(char* err, const char* expected, char** actual,
                        size_t actual_length) {
   CheckNoError(err);
@@ -4965,6 +5037,40 @@ int main(int argc, char** argv) {
                                sst_file_manager));
 
     rocksdb_sst_file_manager_destroy(sst_file_manager);
+  }
+
+  StartPhase("eventlistener_error_recovery_api");
+  {
+    int destroyed;
+    rocksdb_options_t* recovery_options;
+    rocksdb_eventlistener_t* listener;
+
+    destroyed = 0;
+
+    recovery_options = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(recovery_options, 1);
+    rocksdb_options_set_error_if_exists(recovery_options, 0);
+    rocksdb_options_set_env(recovery_options, env);
+    rocksdb_options_set_info_log(recovery_options, NULL);
+    rocksdb_options_set_compression(recovery_options, rocksdb_no_compression);
+
+    listener = rocksdb_eventlistener_create_with_error_recovery(
+        &destroyed, CTestSetInt, CTestOnFlushBegin, CTestOnFlushCompleted,
+        CTestOnCompactionBegin, CTestOnCompactionCompleted,
+        CTestOnSubcompactionBegin, CTestOnSubcompactionCompleted,
+        CTestOnExternalFileIngested, CTestOnBackgroundError, NULL, NULL,
+        CTestOnStallConditionsChanged, CTestOnMemTableSealed);
+    CheckCondition(listener != NULL);
+    rocksdb_options_add_eventlistener(recovery_options, listener);
+
+    CheckCondition(rocksdb_status_severity_no_error == 0);
+    CheckCondition(rocksdb_status_severity_soft_error == 1);
+    CheckCondition(rocksdb_status_severity_hard_error == 2);
+    CheckCondition(rocksdb_status_severity_fatal_error == 3);
+    CheckCondition(rocksdb_status_severity_unrecoverable_error == 4);
+
+    rocksdb_options_destroy(recovery_options);
+    CheckCondition(destroyed == 1);
   }
 
   StartPhase("create_column_family_error_returns_null");

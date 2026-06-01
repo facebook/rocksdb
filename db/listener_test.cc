@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <cstdlib>
+#include <cstring>
 #include <memory>
 
 #include "db/blob/blob_index.h"
@@ -13,6 +15,7 @@
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
 #include "monitoring/statistics_impl.h"
+#include "rocksdb/c.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
@@ -50,6 +53,187 @@ class EventListenerTest : public DBTestBase {
 
   const size_t k110KB = 110 << 10;
 };
+
+struct CApiErrorRecoveryState {
+  bool destroyed = false;
+  int begin_called = 0;
+  int end_called = 0;
+  uint32_t begin_reason = 0;
+  unsigned char begin_status_severity = 0;
+  unsigned char begin_auto_recovery_in = 0;
+  unsigned char old_bg_error_severity = 0;
+  unsigned char new_bg_error_severity = 0;
+  bool old_bg_error_seen = false;
+  bool new_bg_error_seen = false;
+};
+
+void CApiErrorRecoveryDestructor(void* state) {
+  static_cast<CApiErrorRecoveryState*>(state)->destroyed = true;
+}
+
+void CApiErrorRecoveryBegin(void* state, uint32_t reason,
+                            rocksdb_status_ptr_t* status,
+                            unsigned char* auto_recovery) {
+  auto* recovery_state = static_cast<CApiErrorRecoveryState*>(state);
+  char* err = nullptr;
+  recovery_state->begin_called++;
+  recovery_state->begin_reason = reason;
+  recovery_state->begin_status_severity =
+      rocksdb_status_ptr_get_severity(status);
+  rocksdb_status_ptr_get_error(status, &err);
+  ASSERT_NE(err, nullptr);
+  ASSERT_NE(std::strstr(err, "Max allowed space was reached"), nullptr);
+  std::free(err);
+  ASSERT_NE(auto_recovery, nullptr);
+  recovery_state->begin_auto_recovery_in = *auto_recovery;
+  *auto_recovery = 0;
+}
+
+void CApiErrorRecoveryEnd(void* state,
+                          const rocksdb_backgrounderrorrecoveryinfo_t* info) {
+  auto* recovery_state = static_cast<CApiErrorRecoveryState*>(state);
+  char* old_bg_error = nullptr;
+  char* new_bg_error = nullptr;
+  recovery_state->end_called++;
+  recovery_state->old_bg_error_severity =
+      rocksdb_backgrounderrorrecoveryinfo_old_bg_error_severity(info);
+  recovery_state->new_bg_error_severity =
+      rocksdb_backgrounderrorrecoveryinfo_new_bg_error_severity(info);
+  rocksdb_backgrounderrorrecoveryinfo_old_bg_error(info, &old_bg_error);
+  rocksdb_backgrounderrorrecoveryinfo_new_bg_error(info, &new_bg_error);
+  recovery_state->old_bg_error_seen = old_bg_error != nullptr;
+  recovery_state->new_bg_error_seen = new_bg_error != nullptr;
+  ASSERT_NE(old_bg_error, nullptr);
+  ASSERT_NE(std::strstr(old_bg_error, "Max allowed space was reached"),
+            nullptr);
+  ASSERT_EQ(new_bg_error, nullptr);
+  std::free(old_bg_error);
+  std::free(new_bg_error);
+}
+
+TEST_F(EventListenerTest, CApiErrorRecoveryCallbacks) {
+  CApiErrorRecoveryState recovery_state;
+  rocksdb_eventlistener_t* listener =
+      rocksdb_eventlistener_create_with_error_recovery(
+          &recovery_state, CApiErrorRecoveryDestructor, nullptr, nullptr,
+          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+          CApiErrorRecoveryBegin, CApiErrorRecoveryEnd, nullptr, nullptr);
+  ASSERT_NE(listener, nullptr);
+
+  Status bg_error(Status::SpaceLimit("Max allowed space was reached"),
+                  Status::Severity::kHardError);
+  bool auto_recovery = true;
+  reinterpret_cast<EventListener*>(listener)->OnErrorRecoveryBegin(
+      BackgroundErrorReason::kFlush, bg_error, &auto_recovery);
+  ASSERT_EQ(recovery_state.begin_called, 1);
+  ASSERT_EQ(recovery_state.begin_reason,
+            static_cast<uint32_t>(BackgroundErrorReason::kFlush));
+  ASSERT_EQ(recovery_state.begin_status_severity,
+            rocksdb_status_severity_hard_error);
+  ASSERT_EQ(recovery_state.begin_auto_recovery_in, 1);
+  ASSERT_FALSE(auto_recovery);
+  bg_error.PermitUncheckedError();
+
+  BackgroundErrorRecoveryInfo info;
+  info.old_bg_error =
+      Status(Status::SpaceLimit("Max allowed space was reached"),
+             Status::Severity::kHardError);
+  info.new_bg_error = Status::OK();
+  reinterpret_cast<EventListener*>(listener)->OnErrorRecoveryEnd(info);
+  ASSERT_EQ(recovery_state.end_called, 1);
+  ASSERT_EQ(recovery_state.old_bg_error_severity,
+            rocksdb_status_severity_hard_error);
+  ASSERT_EQ(recovery_state.new_bg_error_severity,
+            rocksdb_status_severity_no_error);
+  ASSERT_TRUE(recovery_state.old_bg_error_seen);
+  ASSERT_FALSE(recovery_state.new_bg_error_seen);
+
+  rocksdb_eventlistener_destroy(listener);
+  ASSERT_TRUE(recovery_state.destroyed);
+}
+
+TEST_F(EventListenerTest, CApiListenerNullCallbacks) {
+  rocksdb_eventlistener_t* listener =
+      rocksdb_eventlistener_create_with_error_recovery(
+          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+  ASSERT_NE(listener, nullptr);
+  auto* event_listener = reinterpret_cast<EventListener*>(listener);
+
+  FlushJobInfo flush_info;
+  event_listener->OnFlushBegin(nullptr, flush_info);
+  event_listener->OnFlushCompleted(nullptr, flush_info);
+
+  CompactionJobInfo compaction_info;
+  event_listener->OnCompactionBegin(nullptr, compaction_info);
+  event_listener->OnCompactionCompleted(nullptr, compaction_info);
+
+  SubcompactionJobInfo subcompaction_info;
+  event_listener->OnSubcompactionBegin(subcompaction_info);
+  event_listener->OnSubcompactionCompleted(subcompaction_info);
+
+  ExternalFileIngestionInfo ingestion_info;
+  event_listener->OnExternalFileIngested(nullptr, ingestion_info);
+
+  Status background_error = Status::IOError("background error");
+  event_listener->OnBackgroundError(BackgroundErrorReason::kFlush,
+                                    &background_error);
+  background_error.PermitUncheckedError();
+
+  Status recovery_error(Status::SpaceLimit("Max allowed space was reached"),
+                        Status::Severity::kHardError);
+  bool auto_recovery = true;
+  event_listener->OnErrorRecoveryBegin(BackgroundErrorReason::kFlush,
+                                       recovery_error, &auto_recovery);
+  ASSERT_TRUE(auto_recovery);
+  recovery_error.PermitUncheckedError();
+
+  BackgroundErrorRecoveryInfo recovery_info;
+  recovery_info.old_bg_error =
+      Status(Status::SpaceLimit("Max allowed space was reached"),
+             Status::Severity::kHardError);
+  recovery_info.new_bg_error = Status::OK();
+  event_listener->OnErrorRecoveryEnd(recovery_info);
+
+  WriteStallInfo stall_info;
+  event_listener->OnStallConditionsChanged(stall_info);
+
+  MemTableInfo memtable_info;
+  event_listener->OnMemTableSealed(memtable_info);
+
+  rocksdb_eventlistener_destroy(listener);
+}
+
+TEST_F(EventListenerTest, CApiLegacyListenerSkipsRecoveryCallbacks) {
+  rocksdb_eventlistener_t* listener = rocksdb_eventlistener_create(
+      nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+      nullptr, nullptr, nullptr, nullptr);
+  ASSERT_NE(listener, nullptr);
+  auto* event_listener = reinterpret_cast<EventListener*>(listener);
+
+  Status recovery_error(Status::SpaceLimit("Max allowed space was reached"),
+                        Status::Severity::kHardError);
+  bool auto_recovery = true;
+  event_listener->OnErrorRecoveryBegin(BackgroundErrorReason::kFlush,
+                                       recovery_error, &auto_recovery);
+  ASSERT_TRUE(auto_recovery);
+  recovery_error.PermitUncheckedError();
+
+  BackgroundErrorRecoveryInfo recovery_info;
+  recovery_info.old_bg_error =
+      Status(Status::SpaceLimit("Max allowed space was reached"),
+             Status::Severity::kHardError);
+  recovery_info.new_bg_error = Status::OK();
+  event_listener->OnErrorRecoveryEnd(recovery_info);
+
+  WriteStallInfo stall_info;
+  event_listener->OnStallConditionsChanged(stall_info);
+
+  MemTableInfo memtable_info;
+  event_listener->OnMemTableSealed(memtable_info);
+
+  rocksdb_eventlistener_destroy(listener);
+}
 
 struct TestPropertiesCollector
     : public ROCKSDB_NAMESPACE::TablePropertiesCollector {
