@@ -92,6 +92,19 @@ TEST_F(PinnableSliceTest, Move) {
   ASSERT_EQ(2, res);
 
   {
+    // Test that a move-constructed pinned slice can be reset and reused.
+    res = 1;
+    PinnableSlice v1;
+    v1.PinSlice(slice1, Multiplier, &res, &n2);
+    PinnableSlice v2(std::move(v1));
+    v2.Reset();
+    ASSERT_EQ(2, res);
+    v2.PinSelf(slice2);
+
+    AssertSameData(const_str2, v2);
+  }
+
+  {
     // Test move constructor on an unpinned slice.
     PinnableSlice v1;
     v1.PinSelf(slice1);

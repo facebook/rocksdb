@@ -20,6 +20,28 @@ namespace ROCKSDB_NAMESPACE {
 
 class PinnedIteratorsManager;
 
+struct PinnedIterKeyValue {
+  Slice key;
+  Slice user_key;
+  Slice value;
+  SharedCleanablePtr cleanup;
+  const void* cleanup_dedupe_token = nullptr;
+  bool key_pinned = false;
+  bool value_pinned = false;
+  size_t pinned_block_cache_usage = 0;
+
+  void Reset() {
+    key.clear();
+    user_key.clear();
+    value.clear();
+    cleanup.Reset();
+    cleanup_dedupe_token = nullptr;
+    key_pinned = false;
+    value_pinned = false;
+    pinned_block_cache_usage = 0;
+  }
+};
+
 template <class TValue>
 class InternalIteratorBase : public Cleanable {
  public:
@@ -176,6 +198,13 @@ class InternalIteratorBase : public Cleanable {
   // Iterator is not deleted.
   // REQUIRES: Same as for value().
   virtual bool IsValuePinned() const { return false; }
+
+  virtual Status PinCurrentKeyValue(PinnedIterKeyValue* out) {
+    if (out != nullptr) {
+      out->Reset();
+    }
+    return Status::NotSupported("PinCurrentKeyValue is not supported");
+  }
 
   virtual Status GetProperty(std::string /*prop_name*/, std::string* /*prop*/) {
     return Status::NotSupported("");

@@ -36,6 +36,125 @@ namespace ROCKSDB_NAMESPACE {
 class DBTest2 : public DBTestBase {
  public:
   DBTest2() : DBTestBase("db_test2", /*env_do_fsync=*/true) {}
+
+ protected:
+  struct PinnedKVBatchSnapshot {
+    std::vector<std::string> keys;
+    std::vector<std::string> values;
+    std::vector<bool> key_pinned;
+    std::vector<bool> value_pinned;
+    size_t pinned_block_cache_usage = 0;
+    size_t copied_bytes = 0;
+  };
+
+  static std::string PinnedKVTestKey(int index) {
+    return "prefix" + std::to_string(100000 + index);
+  }
+
+  Options CurrentPinnedKVOptions(size_t block_size, bool use_block_cache,
+                                 std::shared_ptr<Cache>* block_cache,
+                                 bool use_delta_encoding = true) const {
+    Options options = CurrentOptions();
+    options.compression = kNoCompression;
+    BlockBasedTableOptions bbto;
+    if (use_block_cache) {
+      bbto.block_cache = NewLRUCache(1 << 20);
+      if (block_cache != nullptr) {
+        *block_cache = bbto.block_cache;
+      }
+    } else {
+      bbto.no_block_cache = true;
+    }
+    bbto.block_size = block_size;
+    bbto.block_restart_interval = 16;
+    bbto.use_delta_encoding = use_delta_encoding;
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    return options;
+  }
+
+  void PutPinnedKVRows(int count, size_t value_size,
+                       std::vector<std::string>* values) {
+    assert(values != nullptr);
+    values->clear();
+    values->reserve(count);
+    for (int i = 0; i < count; ++i) {
+      values->emplace_back(value_size, static_cast<char>('a' + (i % 26)));
+      ASSERT_OK(Put(PinnedKVTestKey(i), values->back()));
+    }
+  }
+
+  void AssertPinnedBatchEntry(const PinnableKeyValueBatch& batch, size_t index,
+                              const std::string& expected_key,
+                              const std::string& expected_value,
+                              bool expect_key_pinned,
+                              bool expect_value_pinned) {
+    ASSERT_LT(index, batch.size());
+    ASSERT_EQ(expected_key, batch.key(index).ToString());
+    ASSERT_EQ(expected_value, batch.value(index).ToString());
+    ASSERT_EQ(expect_key_pinned, batch.IsKeyPinned(index));
+    ASSERT_EQ(expect_value_pinned, batch.IsValuePinned(index));
+  }
+
+  void AssertEmptyPinnedKeyValue(const PinnableKeyValue& pinned_kv) {
+    ASSERT_TRUE(pinned_kv.key().empty());
+    ASSERT_TRUE(pinned_kv.value().empty());
+    ASSERT_FALSE(pinned_kv.IsKeyPinned());
+    ASSERT_FALSE(pinned_kv.IsValuePinned());
+    ASSERT_EQ(0U, pinned_kv.GetPinnedBlockCacheUsage());
+    ASSERT_EQ(0U, pinned_kv.GetCopiedBytes());
+  }
+
+  void AssertEmptyPinnedKeyValueBatch(const PinnableKeyValueBatch& batch) {
+    ASSERT_TRUE(batch.empty());
+    ASSERT_EQ(0U, batch.GetPinnedBlockCacheUsage());
+    ASSERT_EQ(0U, batch.GetCopiedBytes());
+  }
+
+  void AssertPinAPIsNotSupportedForCurrentRow(Iterator* iter) {
+    assert(iter != nullptr);
+    assert(iter->Valid());
+
+    PinnableKeyValue pinned_kv;
+    PinnableKeyValueBatch batch;
+
+    Status pin_status = iter->PinCurrent(&pinned_kv);
+    ASSERT_TRUE(pin_status.IsNotSupported());
+    AssertEmptyPinnedKeyValue(pinned_kv);
+
+    Status append_status = iter->AppendPinnedCurrent(&batch);
+    ASSERT_TRUE(append_status.IsNotSupported());
+    AssertEmptyPinnedKeyValueBatch(batch);
+  }
+
+  PinnedKVBatchSnapshot CaptureBatchSnapshot(
+      const PinnableKeyValueBatch& batch) {
+    PinnedKVBatchSnapshot snapshot;
+    snapshot.pinned_block_cache_usage = batch.GetPinnedBlockCacheUsage();
+    snapshot.copied_bytes = batch.GetCopiedBytes();
+    snapshot.keys.reserve(batch.size());
+    snapshot.values.reserve(batch.size());
+    snapshot.key_pinned.reserve(batch.size());
+    snapshot.value_pinned.reserve(batch.size());
+    for (size_t i = 0; i < batch.size(); ++i) {
+      snapshot.keys.push_back(batch.key(i).ToString());
+      snapshot.values.push_back(batch.value(i).ToString());
+      snapshot.key_pinned.push_back(batch.IsKeyPinned(i));
+      snapshot.value_pinned.push_back(batch.IsValuePinned(i));
+    }
+    return snapshot;
+  }
+
+  void AssertBatchMatchesSnapshot(const PinnableKeyValueBatch& batch,
+                                  const PinnedKVBatchSnapshot& snapshot) {
+    ASSERT_EQ(snapshot.keys.size(), batch.size());
+    ASSERT_EQ(snapshot.pinned_block_cache_usage,
+              batch.GetPinnedBlockCacheUsage());
+    ASSERT_EQ(snapshot.copied_bytes, batch.GetCopiedBytes());
+    for (size_t i = 0; i < snapshot.keys.size(); ++i) {
+      AssertPinnedBatchEntry(batch, i, snapshot.keys[i], snapshot.values[i],
+                             snapshot.key_pinned[i], snapshot.value_pinned[i]);
+    }
+  }
 };
 
 TEST_F(DBTest2, OpenForReadOnly) {
@@ -4542,6 +4661,435 @@ TEST_F(DBTest2, PinnableSliceAndMmapReads) {
   ASSERT_EQ(Get("foo", &pinned_value), Status::OK());
   ASSERT_TRUE(pinned_value.IsPinned());
   ASSERT_EQ(pinned_value.ToString(), "bar");
+}
+
+TEST_F(DBTest2, IteratorPinCurrentDeltaEncodedKeyAndPinnedValue) {
+  std::shared_ptr<Cache> block_cache;
+  Options options = CurrentPinnedKVOptions(
+      160 /* block_size */, true /* use_block_cache */, &block_cache);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(20, 48, &values);
+  ASSERT_OK(Flush());
+  const size_t baseline_pinned_usage = block_cache->GetPinnedUsage();
+
+  PinnableKeyValue pinned_kv;
+  {
+    ReadOptions read_options;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    iter->Seek(PinnedKVTestKey(1));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->PinCurrent(&pinned_kv));
+    ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+    ASSERT_EQ(values[1], pinned_kv.value().ToString());
+    ASSERT_FALSE(pinned_kv.IsKeyPinned());
+    ASSERT_TRUE(pinned_kv.IsValuePinned());
+    ASSERT_EQ(pinned_kv.GetCopiedBytes(), pinned_kv.key().size());
+    ASSERT_GT(pinned_kv.GetPinnedBlockCacheUsage(), 0);
+    ASSERT_GE(block_cache->GetPinnedUsage(),
+              pinned_kv.GetPinnedBlockCacheUsage());
+
+    iter->Seek(PinnedKVTestKey(10));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+    ASSERT_EQ(values[1], pinned_kv.value().ToString());
+  }
+
+  ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+  ASSERT_EQ(values[1], pinned_kv.value().ToString());
+  const size_t row_pinned_usage = pinned_kv.GetPinnedBlockCacheUsage();
+  const size_t pinned_usage_before_reset = block_cache->GetPinnedUsage();
+  ASSERT_GE(pinned_usage_before_reset,
+            baseline_pinned_usage + row_pinned_usage);
+
+  pinned_kv.Reset();
+  ASSERT_EQ(baseline_pinned_usage, block_cache->GetPinnedUsage());
+}
+
+TEST_F(DBTest2, IteratorPinAPIsPinNonDeltaEncodedKeyAndValue) {
+  std::shared_ptr<Cache> block_cache;
+  Options options =
+      CurrentPinnedKVOptions(160 /* block_size */, true /* use_block_cache */,
+                             &block_cache, false /* use_delta_encoding */);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(3, 48, &values);
+  ASSERT_OK(Flush());
+
+  PinnableKeyValue pinned_kv;
+  PinnableKeyValueBatch batch;
+  const size_t baseline_pinned_usage = block_cache->GetPinnedUsage();
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(PinnedKVTestKey(1));
+    ASSERT_TRUE(iter->Valid());
+
+    ASSERT_OK(iter->PinCurrent(&pinned_kv));
+    ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+    ASSERT_EQ(values[1], pinned_kv.value().ToString());
+    ASSERT_TRUE(pinned_kv.IsKeyPinned());
+    ASSERT_TRUE(pinned_kv.IsValuePinned());
+    ASSERT_EQ(0U, pinned_kv.GetCopiedBytes());
+    ASSERT_GT(pinned_kv.GetPinnedBlockCacheUsage(), 0);
+
+    ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+    ASSERT_EQ(1U, batch.size());
+    AssertPinnedBatchEntry(batch, 0, PinnedKVTestKey(1), values[1],
+                           true /* expect_key_pinned */,
+                           true /* expect_value_pinned */);
+    ASSERT_EQ(0U, batch.GetCopiedBytes());
+
+    iter->Seek(PinnedKVTestKey(2));
+    ASSERT_TRUE(iter->Valid());
+  }
+
+  ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+  ASSERT_EQ(values[1], pinned_kv.value().ToString());
+  AssertPinnedBatchEntry(batch, 0, PinnedKVTestKey(1), values[1],
+                         true /* expect_key_pinned */,
+                         true /* expect_value_pinned */);
+
+  pinned_kv.Reset();
+  batch.Reset();
+  ASSERT_EQ(baseline_pinned_usage, block_cache->GetPinnedUsage());
+}
+
+TEST_F(DBTest2, IteratorPinCurrentFallsBackToCopyWithoutBlockCache) {
+  Options options =
+      CurrentPinnedKVOptions(160 /* block_size */, false /* use_block_cache */,
+                             nullptr /* block_cache */);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(3, 48, &values);
+  ASSERT_OK(Flush());
+
+  PinnableKeyValue pinned_kv;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(PinnedKVTestKey(1));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->PinCurrent(&pinned_kv));
+    ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+    ASSERT_EQ(values[1], pinned_kv.value().ToString());
+    ASSERT_FALSE(pinned_kv.IsKeyPinned());
+    ASSERT_FALSE(pinned_kv.IsValuePinned());
+    ASSERT_EQ(pinned_kv.GetCopiedBytes(),
+              pinned_kv.key().size() + pinned_kv.value().size());
+    ASSERT_EQ(0, pinned_kv.GetPinnedBlockCacheUsage());
+  }
+
+  ASSERT_EQ(PinnedKVTestKey(1), pinned_kv.key().ToString());
+  ASSERT_EQ(values[1], pinned_kv.value().ToString());
+}
+
+TEST_F(DBTest2, IteratorAppendPinnedCurrentDedupesSameBlockLease) {
+  std::shared_ptr<Cache> block_cache;
+  Options options = CurrentPinnedKVOptions(
+      4096 /* block_size */, true /* use_block_cache */, &block_cache);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(3, 32, &values);
+  ASSERT_OK(Flush());
+  const size_t baseline_pinned_usage = block_cache->GetPinnedUsage();
+
+  PinnableKeyValueBatch batch;
+  size_t first_row_pinned_usage = 0;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(PinnedKVTestKey(1));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+    first_row_pinned_usage = batch.GetPinnedBlockCacheUsage();
+    ASSERT_GT(first_row_pinned_usage, 0);
+    AssertPinnedBatchEntry(batch, 0, PinnedKVTestKey(1), values[1],
+                           false /* expect_key_pinned */,
+                           true /* expect_value_pinned */);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+    ASSERT_EQ(2U, batch.size());
+    AssertPinnedBatchEntry(batch, 1, PinnedKVTestKey(2), values[2],
+                           false /* expect_key_pinned */,
+                           true /* expect_value_pinned */);
+    ASSERT_EQ(first_row_pinned_usage, batch.GetPinnedBlockCacheUsage());
+    ASSERT_EQ(batch.key(0).size() + batch.key(1).size(),
+              batch.GetCopiedBytes());
+
+    iter->Seek(PinnedKVTestKey(0));
+    ASSERT_TRUE(iter->Valid());
+  }
+
+  AssertPinnedBatchEntry(batch, 0, PinnedKVTestKey(1), values[1],
+                         false /* expect_key_pinned */,
+                         true /* expect_value_pinned */);
+  AssertPinnedBatchEntry(batch, 1, PinnedKVTestKey(2), values[2],
+                         false /* expect_key_pinned */,
+                         true /* expect_value_pinned */);
+  const size_t batch_pinned_usage = batch.GetPinnedBlockCacheUsage();
+  const size_t pinned_usage_before_reset = block_cache->GetPinnedUsage();
+  ASSERT_GE(pinned_usage_before_reset,
+            baseline_pinned_usage + batch_pinned_usage);
+
+  batch.Reset();
+  ASSERT_EQ(baseline_pinned_usage, block_cache->GetPinnedUsage());
+}
+
+TEST_F(DBTest2, IteratorAppendPinnedCurrentTracksDistinctBlockUsage) {
+  std::shared_ptr<Cache> block_cache;
+  Options options = CurrentPinnedKVOptions(
+      160 /* block_size */, true /* use_block_cache */, &block_cache);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(20, 48, &values);
+  ASSERT_OK(Flush());
+  const size_t baseline_pinned_usage = block_cache->GetPinnedUsage();
+
+  PinnableKeyValueBatch batch;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(PinnedKVTestKey(1));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+    const size_t first_block_usage = batch.GetPinnedBlockCacheUsage();
+    ASSERT_GT(first_block_usage, 0);
+
+    iter->Seek(PinnedKVTestKey(10));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+    ASSERT_EQ(2U, batch.size());
+    ASSERT_GT(batch.GetPinnedBlockCacheUsage(), first_block_usage);
+  }
+
+  ASSERT_EQ(PinnedKVTestKey(1), batch.key(0).ToString());
+  ASSERT_EQ(values[1], batch.value(0).ToString());
+  ASSERT_TRUE(batch.IsValuePinned(0));
+  ASSERT_EQ(PinnedKVTestKey(10), batch.key(1).ToString());
+  ASSERT_EQ(values[10], batch.value(1).ToString());
+  ASSERT_TRUE(batch.IsValuePinned(1));
+  const size_t batch_pinned_usage = batch.GetPinnedBlockCacheUsage();
+  const size_t pinned_usage_before_reset = block_cache->GetPinnedUsage();
+  ASSERT_GE(pinned_usage_before_reset,
+            baseline_pinned_usage + batch_pinned_usage);
+
+  batch.Reset();
+  ASSERT_EQ(baseline_pinned_usage, block_cache->GetPinnedUsage());
+}
+
+TEST_F(DBTest2, IteratorAppendPinnedCurrentFallsBackToCopyWithoutBlockCache) {
+  Options options =
+      CurrentPinnedKVOptions(160 /* block_size */, false /* use_block_cache */,
+                             nullptr /* block_cache */);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(3, 48, &values);
+  ASSERT_OK(Flush());
+
+  PinnableKeyValueBatch batch;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(PinnedKVTestKey(0));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+  }
+
+  ASSERT_EQ(2U, batch.size());
+  AssertPinnedBatchEntry(batch, 0, PinnedKVTestKey(0), values[0],
+                         false /* expect_key_pinned */,
+                         false /* expect_value_pinned */);
+  AssertPinnedBatchEntry(batch, 1, PinnedKVTestKey(1), values[1],
+                         false /* expect_key_pinned */,
+                         false /* expect_value_pinned */);
+  ASSERT_EQ(batch.key(0).size() + batch.value(0).size() + batch.key(1).size() +
+                batch.value(1).size(),
+            batch.GetCopiedBytes());
+  ASSERT_EQ(0, batch.GetPinnedBlockCacheUsage());
+}
+
+TEST_F(DBTest2, IteratorPinCurrentClearsOutputOnReverseIterationNotSupported) {
+  Options options =
+      CurrentPinnedKVOptions(160 /* block_size */, true /* use_block_cache */,
+                             nullptr /* block_cache */);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(3, 48, &values);
+  ASSERT_OK(Flush());
+
+  PinnableKeyValue pinned_kv;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->Seek(PinnedKVTestKey(0));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->PinCurrent(&pinned_kv));
+  ASSERT_EQ(PinnedKVTestKey(0), pinned_kv.key().ToString());
+  ASSERT_EQ(values[0], pinned_kv.value().ToString());
+
+  iter->SeekToLast();
+  ASSERT_TRUE(iter->Valid());
+  Status status = iter->PinCurrent(&pinned_kv);
+  ASSERT_TRUE(status.IsNotSupported());
+  AssertEmptyPinnedKeyValue(pinned_kv);
+}
+
+TEST_F(DBTest2, IteratorPinAPIsHandleReverseIterationSafely) {
+  Options options =
+      CurrentPinnedKVOptions(160 /* block_size */, true /* use_block_cache */,
+                             nullptr /* block_cache */);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(3, 48, &values);
+  ASSERT_OK(Flush());
+
+  PinnableKeyValue pinned_kv;
+  PinnableKeyValueBatch batch;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+
+  iter->Seek(PinnedKVTestKey(0));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->PinCurrent(&pinned_kv));
+  ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+  const PinnedKVBatchSnapshot snapshot = CaptureBatchSnapshot(batch);
+
+  iter->SeekToLast();
+  ASSERT_TRUE(iter->Valid());
+  Status pin_status = iter->PinCurrent(&pinned_kv);
+  ASSERT_TRUE(pin_status.IsNotSupported());
+  AssertEmptyPinnedKeyValue(pinned_kv);
+
+  Status append_status = iter->AppendPinnedCurrent(&batch);
+  ASSERT_TRUE(append_status.IsNotSupported());
+  AssertBatchMatchesSnapshot(batch, snapshot);
+}
+
+TEST_F(DBTest2, IteratorAppendPinnedCurrentResetReleasesAndReusesBatch) {
+  std::shared_ptr<Cache> block_cache;
+  Options options = CurrentPinnedKVOptions(
+      160 /* block_size */, true /* use_block_cache */, &block_cache);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(20, 48, &values);
+  ASSERT_OK(Flush());
+  const size_t baseline_pinned_usage = block_cache->GetPinnedUsage();
+
+  PinnableKeyValueBatch batch;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->Seek(PinnedKVTestKey(1));
+  ASSERT_TRUE(iter->Valid());
+  const size_t pinned_usage_before_first_append = block_cache->GetPinnedUsage();
+  ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+  const size_t first_batch_pinned_usage = batch.GetPinnedBlockCacheUsage();
+  ASSERT_GT(first_batch_pinned_usage, 0);
+
+  batch.Reset();
+  ASSERT_TRUE(batch.empty());
+  ASSERT_EQ(0U, batch.GetPinnedBlockCacheUsage());
+  ASSERT_EQ(0U, batch.GetCopiedBytes());
+  ASSERT_EQ(pinned_usage_before_first_append, block_cache->GetPinnedUsage());
+
+  iter->Seek(PinnedKVTestKey(10));
+  ASSERT_TRUE(iter->Valid());
+  const size_t pinned_usage_before_second_append =
+      block_cache->GetPinnedUsage();
+  ASSERT_OK(iter->AppendPinnedCurrent(&batch));
+  ASSERT_EQ(1U, batch.size());
+  AssertPinnedBatchEntry(batch, 0, PinnedKVTestKey(10), values[10],
+                         false /* expect_key_pinned */,
+                         true /* expect_value_pinned */);
+  ASSERT_GT(batch.GetPinnedBlockCacheUsage(), 0);
+  ASSERT_EQ(batch.key(0).size(), batch.GetCopiedBytes());
+
+  const size_t second_batch_pinned_usage = batch.GetPinnedBlockCacheUsage();
+  batch.Reset();
+  ASSERT_GT(second_batch_pinned_usage, 0);
+  ASSERT_EQ(pinned_usage_before_second_append, block_cache->GetPinnedUsage());
+
+  iter.reset();
+  ASSERT_EQ(baseline_pinned_usage, block_cache->GetPinnedUsage());
+}
+
+TEST_F(DBTest2, IteratorPinAPIsRejectNullOutputPointers) {
+  Options options =
+      CurrentPinnedKVOptions(160 /* block_size */, true /* use_block_cache */,
+                             nullptr /* block_cache */);
+  Reopen(options);
+
+  std::vector<std::string> values;
+  PutPinnedKVRows(1, 48, &values);
+  ASSERT_OK(Flush());
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->Seek(PinnedKVTestKey(0));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(iter->PinCurrent(nullptr).IsInvalidArgument());
+  ASSERT_TRUE(iter->AppendPinnedCurrent(nullptr).IsInvalidArgument());
+}
+
+TEST_F(DBTest2, IteratorPinAPIsRejectBlobRowsAfterPrepareValue) {
+  Options options = CurrentOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  DestroyAndReopen(options);
+
+  const std::string blob_value(128, 'b');
+  ASSERT_OK(Put("blob-key", blob_value));
+  ASSERT_OK(Flush());
+
+  ReadOptions read_options;
+  read_options.allow_unprepared_value = true;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  iter->Seek("blob-key");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(iter->PrepareValue());
+  ASSERT_EQ(blob_value, iter->value().ToString());
+  AssertPinAPIsNotSupportedForCurrentRow(iter.get());
+}
+
+TEST_F(DBTest2, IteratorPinAPIsRejectWideColumnEntityRows) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+
+  const WideColumns columns{{kDefaultWideColumnName, "default"},
+                            {"attr", "value"}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           "wide-key", columns));
+  ASSERT_OK(Flush());
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->Seek("wide-key");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("default", iter->value().ToString());
+  AssertPinAPIsNotSupportedForCurrentRow(iter.get());
+}
+
+TEST_F(DBTest2, IteratorPinAPIsRejectUserDefinedTimestampRows) {
+  Options options = CurrentOptions();
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  DestroyAndReopen(options);
+
+  std::string ts;
+  PutFixed64(&ts, 7);
+  ASSERT_OK(db_->Put(WriteOptions(), "ts-key", ts, "value"));
+  ASSERT_OK(Flush());
+
+  const Slice read_ts_slice(ts);
+  ReadOptions read_options;
+  read_options.timestamp = &read_ts_slice;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  iter->Seek("ts-key");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("value", iter->value().ToString());
+  AssertPinAPIsNotSupportedForCurrentRow(iter.get());
 }
 
 TEST_F(DBTest2, DISABLED_IteratorPinnedMemory) {

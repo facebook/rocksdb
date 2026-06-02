@@ -82,6 +82,10 @@ class HistoryTrimmingIterator : public InternalIterator {
 
   bool IsValuePinned() const override { return input_->IsValuePinned(); }
 
+  Status PinCurrentKeyValue(PinnedIterKeyValue* out) override {
+    return input_->PinCurrentKeyValue(out);
+  }
+
   bool IsDeleteRangeSentinelKey() const override {
     return input_->IsDeleteRangeSentinelKey();
   }

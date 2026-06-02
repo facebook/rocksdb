@@ -184,6 +184,11 @@ class ClippingIterator : public InternalIterator {
     return iter_->IsValuePinned();
   }
 
+  Status PinCurrentKeyValue(PinnedIterKeyValue* out) override {
+    assert(valid_);
+    return iter_->PinCurrentKeyValue(out);
+  }
+
   Status GetProperty(std::string prop_name, std::string* prop) override {
     return iter_->GetProperty(prop_name, prop);
   }

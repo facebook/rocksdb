@@ -1478,6 +1478,45 @@ TEST_F(DBIteratorTest, DBIteratorTimedPutBasic) {
   ASSERT_OK(db_iter->status());
 }
 
+// Verifies the new row-pinning APIs explicitly reject
+// kTypeValuePreferredSeqno rows. This injects a TimedPut directly into the
+// internal iterator so DBIter sees the unsupported value type without relying
+// on flush or compaction setup, then checks both PinCurrent() and
+// AppendPinnedCurrent() leave caller-owned outputs empty on failure.
+TEST_F(DBIteratorTest, DBIteratorPinAPIsRejectTimedPutRows) {
+  ReadOptions ro;
+  Options options;
+
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddTimedPut("a", "value", /*write_unix_time=*/0);
+  internal_iter->Finish();
+
+  std::unique_ptr<Iterator> db_iter(DBIter::NewIter(
+      env_, ro, ImmutableOptions(options), MutableCFOptions(options),
+      BytewiseComparator(), internal_iter, nullptr /* version */,
+      7 /* sequence */, nullptr /* read_callback */, /*active_mem=*/nullptr));
+  db_iter->SeekToFirst();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ("a", db_iter->key().ToString());
+  ASSERT_EQ("value", db_iter->value().ToString());
+
+  PinnableKeyValue pinned_kv;
+  PinnableKeyValueBatch batch;
+
+  Status pin_status = db_iter->PinCurrent(&pinned_kv);
+  ASSERT_TRUE(pin_status.IsNotSupported());
+  ASSERT_TRUE(pinned_kv.key().empty());
+  ASSERT_TRUE(pinned_kv.value().empty());
+  ASSERT_EQ(0U, pinned_kv.GetCopiedBytes());
+  ASSERT_EQ(0U, pinned_kv.GetPinnedBlockCacheUsage());
+
+  Status append_status = db_iter->AppendPinnedCurrent(&batch);
+  ASSERT_TRUE(append_status.IsNotSupported());
+  ASSERT_EQ(0U, batch.size());
+  ASSERT_EQ(0U, batch.GetCopiedBytes());
+  ASSERT_EQ(0U, batch.GetPinnedBlockCacheUsage());
+}
+
 TEST_F(DBIteratorTest, DBIterator1) {
   ReadOptions ro;
   Options options;
