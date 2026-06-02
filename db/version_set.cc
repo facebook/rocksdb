@@ -6124,9 +6124,16 @@ Status VersionSet::ProcessManifestWrites(
   // to reduce the likelihood of a user operation blocking on MANIFEST rotation.
   // Background-only batches (flush/compaction) still rotate at the normal
   // threshold.
+  // TODO/future: for workloads like atomic-replace ingestion-only, with zero
+  // or few flushes and compactions, it might be nice to trigger background
+  // manifest rotation if we are beyond the soft limit. But the vast majority
+  // of workloads should have plenty of background manifest ops to avoid
+  // foreground rotation.
   uint64_t enforced_limit = tuned_max_manifest_file_size_;
-  if (has_foreground_operation && enforced_limit < (uint64_t{1} << 60)) {
-    enforced_limit += enforced_limit / 4;
+  if (has_foreground_operation) {
+    uint64_t new_limit = enforced_limit + enforced_limit / 4;
+    // don't keep in case of overflow
+    enforced_limit = std::max(enforced_limit, new_limit);
   }
   if (!skip_manifest_write &&
       (!descriptor_log_ || prev_manifest_file_size >= enforced_limit)) {
