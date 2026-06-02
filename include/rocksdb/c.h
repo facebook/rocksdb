@@ -3446,6 +3446,14 @@ extern ROCKSDB_LIBRARY_API void
 rocksdb_transactiondb_options_set_default_lock_timeout(
     rocksdb_transactiondb_options_t* opt, int64_t default_lock_timeout);
 
+enum {
+  rocksdb_txndb_write_policy_write_committed = 0,
+  rocksdb_txndb_write_policy_write_prepared = 1,
+  rocksdb_txndb_write_policy_write_unprepared = 2
+};
+extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_options_set_write_policy(
+    rocksdb_transactiondb_options_t* opt, int write_policy);
+
 extern ROCKSDB_LIBRARY_API rocksdb_transaction_options_t*
 rocksdb_transaction_options_create(void);
 

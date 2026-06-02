@@ -3808,6 +3808,31 @@ int main(int argc, char** argv) {
     }
   }
 
+  StartPhase("transactiondb_set_write_policy_prepared");
+  {
+    char wp_dbname[200];
+    rocksdb_transactiondb_t* wp_txn_db;
+    rocksdb_transactiondb_options_t* wp_txn_opts;
+    snprintf(wp_dbname, sizeof(wp_dbname), "%s/rocksdb_c_test-txnwp-%d",
+             GetTempDir(), (int)geteuid());
+    rocksdb_destroy_db(options, wp_dbname, &err);
+    Free(&err);
+    wp_txn_opts = rocksdb_transactiondb_options_create();
+    rocksdb_transactiondb_options_set_write_policy(
+        wp_txn_opts, rocksdb_txndb_write_policy_write_prepared);
+    rocksdb_options_set_create_if_missing(options, 1);
+    wp_txn_db =
+        rocksdb_transactiondb_open(options, wp_txn_opts, wp_dbname, &err);
+    CheckNoError(err);
+    rocksdb_transactiondb_put(wp_txn_db, woptions, "k", 1, "v", 1, &err);
+    CheckNoError(err);
+    CheckTxnDBGet(wp_txn_db, roptions, "k", "v");
+    rocksdb_transactiondb_close(wp_txn_db);
+    rocksdb_transactiondb_options_destroy(wp_txn_opts);
+    rocksdb_destroy_db(options, wp_dbname, &err);
+    CheckNoError(err);
+  }
+
   StartPhase("transactions");
   {
     rocksdb_close(db);

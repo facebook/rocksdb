@@ -146,6 +146,7 @@ using ROCKSDB_NAMESPACE::TablePropertiesCollectorFactory;
 using ROCKSDB_NAMESPACE::Transaction;
 using ROCKSDB_NAMESPACE::TransactionDB;
 using ROCKSDB_NAMESPACE::TransactionDBOptions;
+using ROCKSDB_NAMESPACE::TxnDBWritePolicy;
 using ROCKSDB_NAMESPACE::TransactionLogIterator;
 using ROCKSDB_NAMESPACE::TransactionOptions;
 using ROCKSDB_NAMESPACE::WaitForCompactOptions;
@@ -7525,6 +7526,11 @@ void rocksdb_transactiondb_options_set_transaction_lock_timeout(
 void rocksdb_transactiondb_options_set_default_lock_timeout(
     rocksdb_transactiondb_options_t* opt, int64_t default_lock_timeout) {
   opt->rep.default_lock_timeout = default_lock_timeout;
+}
+
+void rocksdb_transactiondb_options_set_write_policy(
+    rocksdb_transactiondb_options_t* opt, int write_policy) {
+  opt->rep.write_policy = static_cast<TxnDBWritePolicy>(write_policy);
 }
 
 void rocksdb_transactiondb_options_set_use_per_key_point_lock_mgr(
