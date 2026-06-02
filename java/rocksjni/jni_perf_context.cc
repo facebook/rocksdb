@@ -350,6 +350,18 @@ jlong Java_org_rocksdb_PerfContext_getBlobCacheHitCount(JNIEnv*, jobject,
 
 /*
  * Class:     org_rocksdb_PerfContext
+ * Method:    getBlobCacheReadByte
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_PerfContext_getBlobCacheReadByte(JNIEnv*, jobject,
+                                                        jlong jpc_handle) {
+  ROCKSDB_NAMESPACE::PerfContext* perf_context =
+      reinterpret_cast<ROCKSDB_NAMESPACE::PerfContext*>(jpc_handle);
+  return perf_context->blob_cache_read_byte;
+}
+
+/*
+ * Class:     org_rocksdb_PerfContext
  * Method:    getBlobReadCount
  * Signature: (J)J
  */

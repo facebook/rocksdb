@@ -152,6 +152,11 @@ class BlockBasedTable;
 struct JobOptions {
   uint64_t io_coalesce_threshold = 16 * 1024;
   ReadOptions read_options;
+
+  // True when IOJob::block_handles is already sorted by file offset. Callers
+  // that can guarantee sorted order may set this to let IODispatcher skip
+  // defensive sorting before cache lookup and coalescing.
+  bool block_handles_are_sorted = false;
 };
 
 class IOJob {

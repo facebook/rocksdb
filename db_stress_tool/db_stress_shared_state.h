@@ -24,7 +24,6 @@ DECLARE_uint64(log2_keys_per_lock);
 DECLARE_int32(threads);
 DECLARE_int32(column_families);
 DECLARE_int32(nooverwritepercent);
-DECLARE_string(expected_values_dir);
 DECLARE_int32(clear_column_family_one_in);
 DECLARE_bool(test_batches_snapshots);
 DECLARE_int32(compaction_thread_pool_adjust_interval);

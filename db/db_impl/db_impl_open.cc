@@ -2235,6 +2235,16 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   constexpr int level = 0;
 
   if (s.ok() && has_output) {
+    // Before publishing any recovery edit, make the new SST's directory entry
+    // durable. Reused MANIFESTs have no CURRENT update, and fresh MANIFEST
+    // publication should not be relied on to order the recovered SST entry.
+    s = GetDataDir(cfd, meta.fd.GetPathId())
+            ->FsyncWithDirOptions(
+                IOOptions(), nullptr,
+                DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
+  }
+
+  if (s.ok() && has_output) {
     edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
                   meta.fd.GetFileSize(), meta.smallest, meta.largest,
                   meta.fd.smallest_seqno, meta.fd.largest_seqno,
