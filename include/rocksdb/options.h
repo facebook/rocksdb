@@ -1003,6 +1003,13 @@ struct DBOptions {
   //
   // This option is mutable with SetDBOptions(), taking effect on the next
   // manifest write (e.g. completed DB compaction or flush).
+  //
+  // For MANIFEST write batches containing foreground operations like external
+  // file ingestion/import, DeleteFilesInRange, CreateColumnFamily, and
+  // DropColumnFamily, the effective limit is relaxed by 25% to reduce the
+  // likelihood of user operations blocking on MANIFEST rotation.
+  // Background-only batches (flush and compaction) use the configured or
+  // auto-tuned limit directly.
   uint64_t max_manifest_file_size = 1024 * 1024 * 1024;
 
   // If true, on DB close, read back the entire MANIFEST file and validate

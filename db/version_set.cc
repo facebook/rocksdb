@@ -6111,9 +6111,32 @@ Status VersionSet::ProcessManifestWrites(
 
   uint64_t prev_manifest_file_size = manifest_file_size_;
   assert(pending_manifest_file_number_ == 0);
+  bool has_foreground_operation = false;
+  for (const VersionEdit* e : batch_edits) {
+    if (e->IsForegroundOperation()) {
+      has_foreground_operation = true;
+      break;
+    }
+  }
+  // For MANIFEST write batches with any foreground operation (external file
+  // ingestion/import, DeleteFilesInRange(s), and column family manipulations
+  // like CreateColumnFamily and DropColumnFamily), relax the size limit by 25%
+  // to reduce the likelihood of a user operation blocking on MANIFEST rotation.
+  // Background-only batches (flush/compaction) still rotate at the normal
+  // threshold.
+  // TODO/future: for workloads like atomic-replace ingestion-only, with zero
+  // or few flushes and compactions, it might be nice to trigger background
+  // manifest rotation if we are beyond the soft limit. But the vast majority
+  // of workloads should have plenty of background manifest ops to avoid
+  // foreground rotation.
+  uint64_t enforced_limit = tuned_max_manifest_file_size_;
+  if (has_foreground_operation) {
+    uint64_t new_limit = enforced_limit + enforced_limit / 4;
+    // don't keep in case of overflow
+    enforced_limit = std::max(enforced_limit, new_limit);
+  }
   if (!skip_manifest_write &&
-      (!descriptor_log_ ||
-       prev_manifest_file_size >= tuned_max_manifest_file_size_)) {
+      (!descriptor_log_ || prev_manifest_file_size >= enforced_limit)) {
     TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:BeforeNewManifest");
     new_descriptor_log = true;
   } else {

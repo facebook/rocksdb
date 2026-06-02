@@ -5853,6 +5853,7 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
   }
 
   VersionEdit edit;
+  edit.MarkForegroundOperation();
   std::set<FileMetaData*> deleted_files;
   JobContext job_context(next_job_id_.fetch_add(1), true);
   {
@@ -6963,7 +6964,9 @@ Status DBImpl::IngestExternalFiles(
         assert(!cfd->IsDropped());
         cfds_to_commit.push_back(cfd);
         autovector<VersionEdit*> edit_list;
-        edit_list.push_back(ingestion_jobs[i].edit());
+        auto* edit = ingestion_jobs[i].edit();
+        edit->MarkForegroundOperation();
+        edit_list.push_back(edit);
         edit_lists.push_back(edit_list);
         ++num_entries;
       }
@@ -6978,7 +6981,6 @@ Status DBImpl::IngestExternalFiles(
       }
       status =
           versions_->LogAndApply(cfds_to_commit, read_options, write_options,
-
                                  edit_lists, &mutex_, directories_.GetDbDir());
       // It is safe to update VersionSet last seqno here after LogAndApply since
       // LogAndApply persists last sequence number from VersionEdits,
@@ -7111,6 +7113,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
 
   SuperVersionContext dummy_sv_ctx(/* create_superversion */ true);
   VersionEdit dummy_edit;
+  dummy_edit.MarkForegroundOperation();
   uint64_t next_file_number = 0;
   std::unique_ptr<std::list<uint64_t>::iterator> pending_output_elem;
   {
@@ -7168,9 +7171,10 @@ Status DBImpl::CreateColumnFamilyWithImport(
 
       // Install job edit [Mutex will be unlocked here]
       if (status.ok()) {
-        status = versions_->LogAndApply(cfd, read_options, write_options,
-                                        import_job.edit(), &mutex_,
-                                        directories_.GetDbDir());
+        auto* edit = import_job.edit();
+        edit->MarkForegroundOperation();
+        status = versions_->LogAndApply(cfd, read_options, write_options, edit,
+                                        &mutex_, directories_.GetDbDir());
         if (status.ok()) {
           InstallSuperVersionForConfigChange(cfd, &sv_context);
         }
@@ -7601,6 +7605,7 @@ Status DBImpl::ReserveFileNumbersBeforeIngestion(
   // reuse the file number that has already assigned to the internal file,
   // and this will overwrite the external file. To protect the external
   // file, we have to make sure the file number will never being reused.
+  dummy_edit.MarkForegroundOperation();
   s = versions_->LogAndApply(cfd, read_options, write_options, &dummy_edit,
                              &mutex_, directories_.GetDbDir());
   if (s.ok()) {
