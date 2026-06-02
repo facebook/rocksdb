@@ -1095,7 +1095,9 @@ class Version {
   // Prerequisite for this API is max_open_files = -1
   void GetCreationTimeOfOldestFile(uint64_t* creation_time);
 
-  const MutableCFOptions& GetMutableCFOptions() { return mutable_cf_options_; }
+  const MutableCFOptions& GetMutableCFOptions() const {
+    return mutable_cf_options_;
+  }
 
   InternalIterator* TEST_GetLevelIterator(
       const ReadOptions& read_options, MergeIteratorBuilder* merge_iter_builder,

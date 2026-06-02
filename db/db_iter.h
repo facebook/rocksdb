@@ -268,14 +268,16 @@ class DBIter final : public Iterator {
     BlobReader(const Version* version, ReadTier read_tier,
                bool verify_checksums, bool fill_cache,
                Env::IOActivity io_activity, BlobFileCache* blob_file_cache,
-               bool allow_write_path_fallback)
+               bool allow_write_path_fallback,
+               CompressionManager* configured_compression_manager)
         : version_(version),
           read_tier_(read_tier),
           verify_checksums_(verify_checksums),
           fill_cache_(fill_cache),
           io_activity_(io_activity),
           blob_file_cache_(blob_file_cache),
-          allow_write_path_fallback_(allow_write_path_fallback) {}
+          allow_write_path_fallback_(allow_write_path_fallback),
+          configured_compression_manager_(configured_compression_manager) {}
 
     const Slice& GetBlobValue() const { return blob_value_; }
     Status RetrieveAndSetBlobValue(const Slice& user_key,
@@ -296,6 +298,7 @@ class DBIter final : public Iterator {
     // files that are not yet reachable through Version.
     BlobFileCache* blob_file_cache_;
     bool allow_write_path_fallback_;
+    CompressionManager* configured_compression_manager_;
   };
   struct BlobState {
     BlobReader reader;

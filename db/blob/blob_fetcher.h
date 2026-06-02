@@ -24,11 +24,13 @@ class BlobFetcher {
  public:
   BlobFetcher(const Version* version, const ReadOptions& read_options,
               BlobFileCache* blob_file_cache = nullptr,
-              bool allow_write_path_fallback = false)
+              bool allow_write_path_fallback = false,
+              CompressionManager* configured_compression_manager = nullptr)
       : version_(version),
         read_options_(read_options),
         blob_file_cache_(blob_file_cache),
-        allow_write_path_fallback_(allow_write_path_fallback) {}
+        allow_write_path_fallback_(allow_write_path_fallback),
+        configured_compression_manager_(configured_compression_manager) {}
 
   Status FetchBlob(const Slice& user_key, const Slice& blob_index_slice,
                    FilePrefetchBuffer* prefetch_buffer,
@@ -43,5 +45,6 @@ class BlobFetcher {
   ReadOptions read_options_;
   BlobFileCache* blob_file_cache_;
   bool allow_write_path_fallback_;
+  CompressionManager* configured_compression_manager_;
 };
 }  // namespace ROCKSDB_NAMESPACE

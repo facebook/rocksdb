@@ -48,8 +48,7 @@ void WriteBlobFile(uint32_t column_family_id,
   constexpr bool do_flush = false;
 
   BlobLogWriter blob_log_writer(std::move(file_writer), immutable_options.clock,
-                                statistics, blob_file_number, use_fsync,
-                                do_flush);
+                                statistics, use_fsync, do_flush);
 
   constexpr bool has_ttl = false;
   constexpr ExpirationRange expiration_range;
@@ -77,8 +76,8 @@ void WriteBlobFile(uint32_t column_family_id,
   std::string checksum_method;
   std::string checksum_value;
 
-  ASSERT_OK(blob_log_writer.AppendFooter(WriteOptions(), footer,
-                                         &checksum_method, &checksum_value));
+  ASSERT_OK(blob_log_writer.LegacyAppendFooterAndClose(
+      WriteOptions(), footer, &checksum_method, &checksum_value));
 }
 
 }  // anonymous namespace
@@ -121,6 +120,7 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader) {
 
   const ReadOptions read_options;
   ASSERT_OK(blob_file_cache.GetBlobFileReader(read_options, blob_file_number,
+                                              options.compression_manager.get(),
                                               &first));
   ASSERT_NE(first.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
@@ -130,6 +130,7 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader) {
   CacheHandleGuard<BlobFileReader> second;
 
   ASSERT_OK(blob_file_cache.GetBlobFileReader(read_options, blob_file_number,
+                                              options.compression_manager.get(),
                                               &second));
   ASSERT_NE(second.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
@@ -172,8 +173,9 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
       "BlobFileCache::GetBlobFileReader:DoubleCheck", [&](void* /* arg */) {
         // Disabling sync points to prevent infinite recursion
         SyncPoint::GetInstance()->DisableProcessing();
-        ASSERT_OK(blob_file_cache.GetBlobFileReader(read_options,
-                                                    blob_file_number, &second));
+        ASSERT_OK(blob_file_cache.GetBlobFileReader(
+            read_options, blob_file_number, options.compression_manager.get(),
+            &second));
         ASSERT_NE(second.GetValue(), nullptr);
         ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
         ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
@@ -181,6 +183,7 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(blob_file_cache.GetBlobFileReader(read_options, blob_file_number,
+                                              options.compression_manager.get(),
                                               &first));
   ASSERT_NE(first.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
@@ -222,8 +225,7 @@ TEST_F(BlobFileCacheTest, RefreshBlobFileReaderPrefersLargestObservedFileSize) {
   constexpr bool use_fsync = false;
   constexpr bool do_flush = false;
   BlobLogWriter blob_log_writer(std::move(file_writer), immutable_options.clock,
-                                statistics, blob_file_number, use_fsync,
-                                do_flush);
+                                statistics, use_fsync, do_flush);
 
   constexpr bool has_ttl = false;
   constexpr ExpirationRange expiration_range;
@@ -249,12 +251,14 @@ TEST_F(BlobFileCacheTest, RefreshBlobFileReaderPrefersLargestObservedFileSize) {
   const ReadOptions read_options;
   std::unique_ptr<BlobFileReader> stale_reader;
   ASSERT_OK(blob_file_cache.OpenBlobFileReaderUncached(
-      read_options, blob_file_number, &stale_reader,
+      read_options, blob_file_number, options.compression_manager.get(),
+      &stale_reader,
       /*allow_footer_skip_retry=*/true));
 
   std::unique_ptr<BlobFileReader> initial_cached_reader;
   ASSERT_OK(blob_file_cache.OpenBlobFileReaderUncached(
-      read_options, blob_file_number, &initial_cached_reader,
+      read_options, blob_file_number, options.compression_manager.get(),
+      &initial_cached_reader,
       /*allow_footer_skip_retry=*/true));
 
   CacheHandleGuard<BlobFileReader> cached_reader;
@@ -269,7 +273,8 @@ TEST_F(BlobFileCacheTest, RefreshBlobFileReaderPrefersLargestObservedFileSize) {
 
   std::unique_ptr<BlobFileReader> fresh_reader;
   ASSERT_OK(blob_file_cache.OpenBlobFileReaderUncached(
-      read_options, blob_file_number, &fresh_reader,
+      read_options, blob_file_number, options.compression_manager.get(),
+      &fresh_reader,
       /*allow_footer_skip_retry=*/true));
   ASSERT_GT(fresh_reader->GetFileSize(), initial_file_size);
 
@@ -316,9 +321,10 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_IOError) {
   CacheHandleGuard<BlobFileReader> reader;
 
   const ReadOptions read_options;
-  ASSERT_TRUE(
-      blob_file_cache.GetBlobFileReader(read_options, blob_file_number, &reader)
-          .IsIOError());
+  ASSERT_TRUE(blob_file_cache
+                  .GetBlobFileReader(read_options, blob_file_number,
+                                     options.compression_manager.get(), &reader)
+                  .IsIOError());
   ASSERT_EQ(reader.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 1);
@@ -358,9 +364,10 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_CacheFull) {
   CacheHandleGuard<BlobFileReader> reader;
 
   const ReadOptions read_options;
-  ASSERT_TRUE(
-      blob_file_cache.GetBlobFileReader(read_options, blob_file_number, &reader)
-          .IsMemoryLimit());
+  ASSERT_TRUE(blob_file_cache
+                  .GetBlobFileReader(read_options, blob_file_number,
+                                     options.compression_manager.get(), &reader)
+                  .IsMemoryLimit());
   ASSERT_EQ(reader.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 1);

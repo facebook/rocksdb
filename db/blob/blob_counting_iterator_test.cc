@@ -69,7 +69,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
   assert(keys.size() == values.size());
 
   VectorIterator input(keys, values);
-  BlobGarbageMeter blob_garbage_meter;
+  BlobGarbageMeter blob_garbage_meter(/*use_blog_format=*/false);
 
   BlobCountingIterator blob_counter(&input, &blob_garbage_meter);
 
@@ -309,7 +309,7 @@ TEST(BlobCountingIteratorTest, CorruptBlobIndex) {
   assert(keys.size() == values.size());
 
   VectorIterator input(keys, values);
-  BlobGarbageMeter blob_garbage_meter;
+  BlobGarbageMeter blob_garbage_meter(/*use_blog_format=*/false);
 
   BlobCountingIterator blob_counter(&input, &blob_garbage_meter);
 

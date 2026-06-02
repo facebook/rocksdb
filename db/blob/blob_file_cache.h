@@ -37,12 +37,14 @@ class BlobFileCache {
   // retries once without requiring a footer.
   Status GetBlobFileReader(const ReadOptions& read_options,
                            uint64_t blob_file_number,
+                           CompressionManager* configured_compression_manager,
                            CacheHandleGuard<BlobFileReader>* blob_file_reader,
                            bool allow_footer_skip_retry = false);
 
   // Opens a blob file reader without inserting it into the cache.
   Status OpenBlobFileReaderUncached(
       const ReadOptions& read_options, uint64_t blob_file_number,
+      CompressionManager* configured_compression_manager,
       std::unique_ptr<BlobFileReader>* blob_file_reader,
       bool allow_footer_skip_retry = false);
 

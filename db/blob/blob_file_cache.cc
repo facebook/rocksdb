@@ -39,6 +39,7 @@ BlobFileCache::BlobFileCache(Cache* cache,
 
 Status BlobFileCache::GetBlobFileReader(
     const ReadOptions& read_options, uint64_t blob_file_number,
+    CompressionManager* configured_compression_manager,
     CacheHandleGuard<BlobFileReader>* blob_file_reader,
     bool allow_footer_skip_retry) {
   assert(blob_file_reader);
@@ -78,13 +79,15 @@ Status BlobFileCache::GetBlobFileReader(
     Status s = BlobFileReader::Create(
         *immutable_options_, read_options, *file_options_, column_family_id_,
         blob_file_read_hist_, blob_file_number, io_tracer_,
+        configured_compression_manager,
         /*skip_footer_validation=*/false, &reader);
     if (!s.ok() && s.IsCorruption() && allow_footer_skip_retry) {
       reader.reset();
-      s = BlobFileReader::Create(
-          *immutable_options_, read_options, *file_options_, column_family_id_,
-          blob_file_read_hist_, blob_file_number, io_tracer_,
-          /*skip_footer_validation=*/true, &reader);
+      s = BlobFileReader::Create(*immutable_options_, read_options,
+                                 *file_options_, column_family_id_,
+                                 blob_file_read_hist_, blob_file_number,
+                                 io_tracer_, configured_compression_manager,
+                                 /*skip_footer_validation=*/true, &reader);
     }
     if (!s.ok()) {
       ROCKS_LOG_WARN(immutable_options_->logger,
@@ -115,6 +118,7 @@ Status BlobFileCache::GetBlobFileReader(
 
 Status BlobFileCache::OpenBlobFileReaderUncached(
     const ReadOptions& read_options, uint64_t blob_file_number,
+    CompressionManager* configured_compression_manager,
     std::unique_ptr<BlobFileReader>* blob_file_reader,
     bool allow_footer_skip_retry) {
   assert(blob_file_reader);
@@ -126,12 +130,14 @@ Status BlobFileCache::OpenBlobFileReaderUncached(
   Status s = BlobFileReader::Create(
       *immutable_options_, read_options, *file_options_, column_family_id_,
       blob_file_read_hist_, blob_file_number, io_tracer_,
+      configured_compression_manager,
       /*skip_footer_validation=*/false, blob_file_reader);
   if (!s.ok() && s.IsCorruption() && allow_footer_skip_retry) {
     blob_file_reader->reset();
     s = BlobFileReader::Create(
         *immutable_options_, read_options, *file_options_, column_family_id_,
         blob_file_read_hist_, blob_file_number, io_tracer_,
+        configured_compression_manager,
         /*skip_footer_validation=*/true, blob_file_reader);
   }
   if (!s.ok()) {

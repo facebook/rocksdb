@@ -17,6 +17,7 @@
 #include "db/version_edit.h"
 #include "logging/logging.h"
 #include "monitoring/persistent_stats_history.h"
+#include "rocksdb/slice.h"
 #include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -946,13 +947,50 @@ Status VersionEditHandlerPointInTime::VerifyBlobFile(
   assert(blob_source);
   CacheHandleGuard<BlobFileReader> blob_file_reader;
 
-  Status s = blob_source->GetBlobFileReader(read_options_, blob_file_num,
-                                            &blob_file_reader);
+  Status s = blob_source->GetBlobFileReader(
+      read_options_, blob_file_num,
+      cfd->GetLatestMutableCFOptions().compression_manager.get(),
+      &blob_file_reader);
   if (!s.ok()) {
     return s;
   }
-  // TODO: verify checksum
-  (void)blob_addition;
+
+  const BlobFileReader* reader = blob_file_reader.GetValue();
+  assert(reader != nullptr);
+
+  if (blob_addition.GetPhysicalBlobFileSize() != 0 &&
+      reader->GetFileSize() != blob_addition.GetPhysicalBlobFileSize()) {
+    return Status::Corruption(
+        "BlobFileAddition",
+        "Blob file physical size does not match manifest metadata");
+  }
+
+  if (blob_addition.GetSchemaVersion() == kLegacyBlobFileSchemaVersion) {
+    if (reader->IsBlogFormat()) {
+      return Status::Corruption(
+          "BlobFileAddition",
+          "Blob file format does not match legacy manifest metadata");
+    }
+    return s;
+  }
+
+  if (!reader->IsBlogFormat()) {
+    return Status::Corruption("BlobFileAddition",
+                              "Blob file format does not match blog manifest "
+                              "metadata");
+  }
+  if (reader->GetBlogSchemaVersion() != blob_addition.GetSchemaVersion()) {
+    return Status::Corruption(
+        "BlobFileAddition",
+        "Blob file schema version does not match manifest metadata");
+  }
+  if (reader->GetBlogFileIdentity().compare(
+          Slice(blob_addition.GetFileIdentity())) != 0) {
+    return Status::Corruption(
+        "BlobFileAddition",
+        "Blob file identity does not match manifest metadata");
+  }
+
   return s;
 }
 

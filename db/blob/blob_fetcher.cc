@@ -39,7 +39,7 @@ Status BlobFetcher::FetchBlob(const Slice& user_key,
 
   return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
       read_options_, user_key, blob_index, version_, blob_file_cache_,
-      prefetch_buffer, blob_value, bytes_read);
+      configured_compression_manager_, prefetch_buffer, blob_value, bytes_read);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
