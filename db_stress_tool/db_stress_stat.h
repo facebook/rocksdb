@@ -15,6 +15,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/system_clock.h"
 #include "util/gflags_compat.h"
+#include "util/mutexlock.h"
 #include "util/random.h"
 
 DECLARE_bool(histogram);
@@ -181,6 +182,9 @@ class Stats {
     double rate = bytes_mb / elapsed;
     double throughput = (double)done_ / elapsed;
 
+    // Lock stdout so multi-DB reports don't interleave.
+    static port::Mutex report_mutex;
+    MutexLock l(&report_mutex);
     fprintf(stdout, "%-12s: ", name);
     fprintf(stdout, "%.3f micros/op %ld ops/sec\n", seconds_ * 1e6 / done_,
             (long)throughput);

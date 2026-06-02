@@ -185,6 +185,13 @@ public class PerfContext extends RocksObject {
   }
 
   /**
+   * @return total number of bytes read from blob cache
+   */
+  public long getBlobCacheReadByte() {
+    return getBlobCacheReadByte(nativeHandle_);
+  }
+
+  /**
    * @return total number of blob reads (with IO)
    */
   public long getBlobReadCount() {
@@ -693,6 +700,7 @@ public class PerfContext extends RocksObject {
   private native long getMultigetReadBytes(final long handle);
   private native long getIterReadBytes(final long handle);
   private native long getBlobCacheHitCount(final long handle);
+  private native long getBlobCacheReadByte(final long handle);
   private native long getBlobReadCount(final long handle);
   private native long getBlobReadByte(final long handle);
   private native long getBlobReadTime(final long handle);

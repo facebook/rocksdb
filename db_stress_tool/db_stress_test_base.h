@@ -13,6 +13,7 @@
 
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
+#include "env/composite_env_wrapper.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/user_defined_index.h"
 #include "utilities/fault_injection_fs.h"
@@ -22,6 +23,7 @@ class SystemClock;
 class Transaction;
 class TransactionDB;
 class OptimisticTransactionDB;
+class DbStressFSWrapper;
 struct TransactionDBOptions;
 using experimental::SstQueryFilterConfigsManager;
 
@@ -40,15 +42,26 @@ class StressTest {
   // from optimistic transactions when conflict detection retries are exhausted.
   static bool IsExpectedTxnError(const Status& s);
 
-  StressTest();
+  StressTest(int db_index, const std::string& db_path,
+             const std::string& ev_path, const std::string& sec_path);
 
   virtual ~StressTest() {}
 
+  const std::string& GetDbLabel() const;
   const std::string& GetDbPath() const;
   const std::string& GetExpectedValuesDir() const;
   const std::string& GetSecondariesBase() const;
 
-  std::shared_ptr<Cache> NewCache(size_t capacity, int32_t num_shard_bits);
+  // See db_fault_injection_fs_ member.
+  std::shared_ptr<FaultInjectionTestFS> GetDbFaultInjectionFs() const {
+    return db_fault_injection_fs_;
+  }
+
+  // See db_env_ member.
+  Env* GetDbEnv() const;
+
+  static std::shared_ptr<Cache> NewCache(size_t capacity,
+                                         int32_t num_shard_bits);
 
   static std::vector<std::string> GetBlobCompressionTags();
 
@@ -76,7 +89,9 @@ class StressTest {
   void CleanUp();
 
  private:
-  void NotifyListenerShuttingDown();
+  void InitializeListenersForOpen(
+      SharedState* shared,
+      const std::vector<ColumnFamilyDescriptor>& cf_descriptors);
 
  protected:
   static int GetMinInjectedErrorCount(int error_count_1, int error_count_2) {
@@ -91,39 +106,34 @@ class StressTest {
     }
   }
 
-  void UpdateIfInitialWriteFails(Env* db_stress_env, const Status& write_s,
+  void UpdateIfInitialWriteFails(Env* env, const Status& write_s,
                                  Status* initial_write_s,
                                  bool* initial_wal_write_may_succeed,
                                  uint64_t* wait_for_recover_start_time,
                                  bool commit_bypass_memtable = false) {
-    assert(db_stress_env && initial_write_s && initial_wal_write_may_succeed &&
+    assert(env && initial_write_s && initial_wal_write_may_succeed &&
            wait_for_recover_start_time);
-    // Only update `initial_write_s`, `initial_wal_write_may_succeed` when the
-    // first write fails
     if (!write_s.ok() && (*initial_write_s).ok()) {
       *initial_write_s = write_s;
-      // With commit_bypass_memtable, we create a new WAL after WAL write
-      // succeeds, that wal creation may fail due to injected error. So the
-      // initial wal write may succeed even if status is failed to write to wal
       *initial_wal_write_may_succeed =
           commit_bypass_memtable ||
           !FaultInjectionTestFS::IsFailedToWriteToWALError(*initial_write_s);
-      *wait_for_recover_start_time = db_stress_env->NowMicros();
+      *wait_for_recover_start_time = env->NowMicros();
     }
   }
 
-  void PrintWriteRecoveryWaitTimeIfNeeded(Env* db_stress_env,
+  void PrintWriteRecoveryWaitTimeIfNeeded(Env* env,
                                           const Status& initial_write_s,
                                           bool initial_wal_write_may_succeed,
                                           uint64_t wait_for_recover_start_time,
                                           const std::string& thread_name) {
-    assert(db_stress_env);
+    assert(env);
     bool waited_for_recovery = !initial_write_s.ok() &&
                                IsErrorInjectedAndRetryable(initial_write_s) &&
                                initial_wal_write_may_succeed;
     if (waited_for_recovery) {
       uint64_t elapsed_sec =
-          (db_stress_env->NowMicros() - wait_for_recover_start_time) / 1000000;
+          (env->NowMicros() - wait_for_recover_start_time) / 1000000;
       if (elapsed_sec > 10) {
         fprintf(stdout,
                 "%s thread slept to wait for write recovery for "
@@ -452,7 +462,17 @@ class StressTest {
   void RecordManifestStateBeforeReopen();
   void VerifyManifestNotRewritten();
 
-  std::shared_ptr<Cache> cache_;
+  int db_index_;
+  std::string db_label_;
+  std::string db_path_;
+  std::string expected_values_path_;
+  std::string secondaries_path_;
+  // Wraps raw_env->GetFileSystem(). See DbStressFSWrapper.
+  std::shared_ptr<DbStressFSWrapper> db_stress_fs_;
+  // Wraps db_stress_fs_ when NeedsFaultInjection(). Null otherwise.
+  std::shared_ptr<FaultInjectionTestFS> db_fault_injection_fs_;
+  // Wraps the outermost FS above. Set as options_.env for all DB I/O.
+  std::unique_ptr<CompositeEnvWrapper> db_env_;
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
   std::unique_ptr<DB> db_owner_;

@@ -332,10 +332,7 @@ endif
 clean: clean-not-downloaded clean-downloaded
 
 clean-not-downloaded:
-	$(AM_V_at)rm -rf $(NATIVE_INCLUDE)
-	$(AM_V_at)rm -rf $(OUTPUT)
-	$(AM_V_at)rm -rf $(BENCHMARK_OUTPUT)
-	$(AM_V_at)rm -rf $(SAMPLES_OUTPUT)
+	$(AM_V_at)rm -rf $(NATIVE_INCLUDE) $(OUTPUT) $(BENCHMARK_OUTPUT) $(SAMPLES_OUTPUT)
 
 clean-downloaded:
 	$(AM_V_at)rm -rf $(JAVA_TEST_LIBDIR)

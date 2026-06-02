@@ -209,12 +209,11 @@ The following patterns emerged as frequent sources of review feedback:
 ## Important tips
 
 ### Build system
-* There are 3 build system. Make, CMake, BUCK(meta internal).
+* There are 3 build system. Make for git clones, BUCK (meta internal) for hg
+  clones, and CMake for some special cases.
 * When a new .cc file is added, update Makefile, CMakeLists.txt, src.mk, BUCK.
 * Don't manually edit BUCK file, after updating src.mk, run
     /usr/local/bin/python3 buckifier/buckify_rocksdb.py to update it
-* Use make to build and run the test. CMake and BUCK are not used locally.
-* Use `make dbg` command to build all of the unit test in debug mode.
 * For -j in make command, use the number of CPU cores to decide it.
 
 ### When to run `make clean` (avoid mixing build modes)

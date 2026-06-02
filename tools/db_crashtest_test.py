@@ -95,7 +95,7 @@ class DBCrashTestTest(unittest.TestCase):
 
         self.assertEqual("halt_on_error=1", env[_TSAN_OPTIONS_ENV_VAR])
 
-    def test_setup_expected_values_dir_preserves_existing_contents(self):
+    def test_get_ev_parent_dir_preserves_existing_contents(self):
         os.makedirs(self.expected_dir)
         marker = os.path.join(self.expected_dir, "marker")
         with open(marker, "w") as f:
@@ -103,23 +103,10 @@ class DBCrashTestTest(unittest.TestCase):
 
         db_crashtest = self.load_db_crashtest()
 
-        expected_dir = db_crashtest.setup_expected_values_dir()
+        expected_dir = db_crashtest.get_ev_parent_dir()
 
         self.assertEqual(self.expected_dir, expected_dir)
         self.assertTrue(os.path.exists(marker))
-
-    def test_prepare_expected_values_dir_resets_for_fresh_db(self):
-        os.makedirs(self.expected_dir)
-        marker = os.path.join(self.expected_dir, "marker")
-        with open(marker, "w") as f:
-            f.write("remove")
-
-        db_crashtest = self.load_db_crashtest()
-
-        db_crashtest.prepare_expected_values_dir(self.expected_dir, True)
-
-        self.assertTrue(os.path.isdir(self.expected_dir))
-        self.assertFalse(os.path.exists(marker))
 
     def test_finalize_disables_test_batches_snapshots_when_disable_wal(self):
         db_crashtest = self.load_db_crashtest()
@@ -189,6 +176,41 @@ class DBCrashTestTest(unittest.TestCase):
             + stderr,
             filtered_stdout,
         )
+
+    def test_strip_expected_sigterm_stderr_suppresses_retryable_wait_cqe(self):
+        db_crashtest = self.load_db_crashtest()
+        stdout = "Received signal 15 (Terminated)\n"
+
+        # This models blackbox crash test SIGTERM interrupting wait_cqe before
+        # the C++ retry path can avoid stderr; only retryable codes are expected.
+        for caller in ("Poll", "AbortIO"):
+            for err in (-4, -11):
+                stderr = f"{caller}: io_uring_wait_cqe failed: {err}\n"
+                filtered_stdout, filtered_stderr = (
+                    db_crashtest.strip_expected_sigterm_stderr(stdout, stderr, True)
+                )
+
+                self.assertEqual("", filtered_stderr)
+                self.assertEqual(
+                    stdout
+                    + "Ignored expected post-SIGTERM stderr while handling timeout:\n"
+                    + stderr,
+                    filtered_stdout,
+                )
+
+    def test_strip_expected_sigterm_stderr_preserves_terminal_wait_cqe(self):
+        db_crashtest = self.load_db_crashtest()
+        stdout = "Received signal 15 (Terminated)\n"
+        stderr = "Poll: io_uring_wait_cqe failed: -5\n"
+
+        # This guards against hiding real io_uring failures: even after SIGTERM,
+        # non-retryable wait_cqe errors must remain visible on stderr.
+        filtered_stdout, filtered_stderr = db_crashtest.strip_expected_sigterm_stderr(
+            stdout, stderr, True
+        )
+
+        self.assertEqual(stderr, filtered_stderr)
+        self.assertEqual(stdout, filtered_stdout)
 
     def test_strip_expected_sigterm_stderr_preserves_other_stderr(self):
         db_crashtest = self.load_db_crashtest()
@@ -263,6 +285,36 @@ class DBCrashTestTest(unittest.TestCase):
         self.assertEqual(".sst", db_crashtest.file_type_suffix("tmp_output/019471.sst"))
         self.assertEqual(".old.1", db_crashtest.file_type_suffix("/tmp/LOG.old.1"))
         self.assertEqual("<no_ext>", db_crashtest.file_type_suffix("/tmp/CURRENT"))
+
+    def test_finalize_sanitizes_incompatible_flags_for_multi_db(self):
+        db_crashtest = self.load_db_crashtest()
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "num_dbs": 3,
+                "clear_column_family_one_in": 10,
+                "test_multi_ops_txns": 1,
+            },
+        )
+
+        finalized = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(0, finalized["clear_column_family_one_in"])
+        self.assertEqual(0, finalized["test_multi_ops_txns"])
+
+    def test_finalize_preserves_flags_for_single_db(self):
+        db_crashtest = self.load_db_crashtest()
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "num_dbs": 1,
+                "clear_column_family_one_in": 10,
+            },
+        )
+
+        finalized = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(10, finalized["clear_column_family_one_in"])
 
     def test_build_out_of_space_diagnostics_summarizes_directory_suffixes(self):
         db_crashtest = self.load_db_crashtest()

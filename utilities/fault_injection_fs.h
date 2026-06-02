@@ -305,8 +305,9 @@ struct FSFileState {
   IOStatus DropRandomUnsyncedData(Random* rand);
 };
 
-// A wrapper around WritableFileWriter* file
-// is written to or sync'ed.
+// A per-file fault-injection wrapper around FSWritableFile. It injects
+// write/metadata faults while reporting path-level state transitions back to
+// FaultInjectionTestFS.
 class TestFSWritableFile : public FSWritableFile {
  public:
   explicit TestFSWritableFile(const std::string& fname,
@@ -345,17 +346,23 @@ class TestFSWritableFile : public FSWritableFile {
   }
 
  private:
+  IOStatus CloseImpl(const IOOptions& options, IODebugContext* dbg);
+
   FSFileState state_;  // Need protection by mutex_
   FileOptions file_opts_;
   std::unique_ptr<FSWritableFile> target_;
-  bool writable_file_opened_;
+  // Whether this wrapper may still forward Close() to target_. The
+  // FSWritableFile contract treats the file as closed after the first Close()
+  // attempt regardless of returned status, so later Close() calls are
+  // wrapper-level no-ops here.
+  bool should_forward_close_;
   FaultInjectionTestFS* fs_;
   port::Mutex mutex_;
   const bool unsync_data_loss_;
 };
 
-// A wrapper around FSRandomRWFile* file
-// is read from/write to or sync'ed.
+// A per-file fault-injection wrapper around FSRandomRWFile that reports
+// path-level close transitions back to FaultInjectionTestFS.
 class TestFSRandomRWFile : public FSRandomRWFile {
  public:
   explicit TestFSRandomRWFile(const std::string& fname,
@@ -415,6 +422,9 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
   const bool is_sst_;
 };
 
+// A per-file fault-injection wrapper around FSSequentialFile that can surface
+// injected read faults and simulated unsynced data through
+// FaultInjectionTestFS.
 class TestFSSequentialFile : public FSSequentialFileOwnerWrapper {
  public:
   explicit TestFSSequentialFile(std::unique_ptr<FSSequentialFile>&& f,
@@ -435,6 +445,8 @@ class TestFSSequentialFile : public FSSequentialFileOwnerWrapper {
   uint64_t target_read_pos_ = 0;
 };
 
+// A fault-injection wrapper around FSDirectory that surfaces metadata faults
+// through FaultInjectionTestFS.
 class TestFSDirectory : public FSDirectory {
  public:
   explicit TestFSDirectory(FaultInjectionTestFS* fs, std::string dirname,

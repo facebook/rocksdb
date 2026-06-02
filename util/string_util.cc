@@ -251,21 +251,22 @@ std::string UnescapeOptionString(const std::string& escaped_string) {
 }
 
 std::string trim(const std::string& str) {
-  if (str.empty()) {
-    return std::string();
-  }
   size_t start = 0;
-  size_t end = str.size() - 1;
-  while (isspace(str[start]) != 0 && start < end) {
+  size_t end = str.size();
+  for (;;) {
+    if (start >= end) {
+      return {};  // all whitespace
+    }
+    if (!isspace(str[start])) {
+      break;  // first non-whitespace found
+    }
     ++start;
   }
-  while (isspace(str[end]) != 0 && start < end) {
+  while (isspace(str[end - 1]) != 0) {
     --end;
+    assert(end > start);
   }
-  if (start <= end) {
-    return str.substr(start, end - start + 1);
-  }
-  return std::string();
+  return str.substr(start, end - start);
 }
 
 bool EndsWith(const std::string& string, const std::string& pattern) {

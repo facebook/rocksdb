@@ -44,6 +44,25 @@ struct IODispatcherImplData {
   virtual void ReleaseMemory(size_t bytes) = 0;
 };
 
+#ifndef NDEBUG
+static bool BlockIndicesAreSortedByOffset(
+    const std::vector<BlockHandle>& block_handles,
+    const std::vector<size_t>& block_indices) {
+  uint64_t prev_offset = 0;
+  for (size_t i = 0; i < block_indices.size(); ++i) {
+    if (block_indices[i] >= block_handles.size()) {
+      return false;
+    }
+    const uint64_t current_offset = block_handles[block_indices[i]].offset();
+    if (i > 0 && current_offset < prev_offset) {
+      return false;
+    }
+    prev_offset = current_offset;
+  }
+  return true;
+}
+#endif  // NDEBUG
+
 // Helper function to create and pin a block from a buffer
 // Used by both ReadSet::PollAndProcessAsyncIO and IODispatcherImpl::Impl
 static Status CreateAndPinBlockFromBuffer(
@@ -479,7 +498,8 @@ struct IODispatcherImpl::Impl : public IODispatcherImplData,
                         const std::vector<size_t>& block_indices);
 
   // Pre-coalesce blocks into groups, respecting max_group_bytes size limit.
-  // Returns groups ordered by first block index (earlier blocks first).
+  // block_indices must be sorted by block offset.
+  // Returns groups ordered by block offset.
   std::vector<CoalescedPrefetchGroup> PreCoalesceBlocks(
       const std::shared_ptr<IOJob>& job, const std::shared_ptr<ReadSet>& rs,
       const std::vector<size_t>& block_indices, size_t max_group_bytes);
@@ -697,16 +717,22 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
   for (size_t i = 0; i < job->block_handles.size(); ++i) {
     rs->sorted_block_indices_[i] = i;
   }
-  std::sort(rs->sorted_block_indices_.begin(), rs->sorted_block_indices_.end(),
-            [&job](size_t a, size_t b) {
-              return job->block_handles[a].offset() <
-                     job->block_handles[b].offset();
-            });
+  if (!job->job_options.block_handles_are_sorted) {
+    TEST_SYNC_POINT("IODispatcherImpl::SubmitJob:SortBlockHandles");
+    std::sort(rs->sorted_block_indices_.begin(),
+              rs->sorted_block_indices_.end(), [&job](size_t a, size_t b) {
+                return job->block_handles[a].offset() <
+                       job->block_handles[b].offset();
+              });
+  }
 
-  // Step 1: Check cache and pin cached blocks
+  // Step 1: Check cache and pin cached blocks. Iterate in offset order so all
+  // downstream private helpers can assume block index vectors are already
+  // sorted.
   std::vector<size_t> block_indices_to_read;
+  block_indices_to_read.reserve(job->block_handles.size());
 
-  for (size_t i = 0; i < job->block_handles.size(); ++i) {
+  for (size_t i : rs->sorted_block_indices_) {
     const auto& data_block_handle = job->block_handles[i];
 
     // Lookup and pin block in cache
@@ -816,17 +842,11 @@ void IODispatcherImpl::Impl::PrepareIORequests(
     const std::vector<BlockHandle>& block_handles,
     std::vector<FSReadRequest>* read_reqs,
     std::vector<std::vector<size_t>>* coalesced_block_indices) {
-  // This is necessary because block handles may not be in sorted order
-  std::vector<size_t> sorted_block_indices = block_indices_to_read;
-  std::sort(sorted_block_indices.begin(), sorted_block_indices.end(),
-            [&block_handles](size_t a, size_t b) {
-              return block_handles[a].offset() < block_handles[b].offset();
-            });
-
+  assert(BlockIndicesAreSortedByOffset(block_handles, block_indices_to_read));
   assert(coalesced_block_indices->empty());
   coalesced_block_indices->resize(1);
 
-  for (const auto& block_idx : sorted_block_indices) {
+  for (const auto& block_idx : block_indices_to_read) {
     if (!coalesced_block_indices->back().empty()) {
       // Check if we can coalesce with previous block
       const auto& last_block_handle =
@@ -883,17 +903,12 @@ std::vector<CoalescedPrefetchGroup> IODispatcherImpl::Impl::PreCoalesceBlocks(
   const auto& block_handles = job->block_handles;
   const uint64_t coalesce_threshold = job->job_options.io_coalesce_threshold;
 
-  // Sort block indices by offset for coalescing
-  std::vector<size_t> sorted_indices = block_indices;
-  std::sort(sorted_indices.begin(), sorted_indices.end(),
-            [&block_handles](size_t a, size_t b) {
-              return block_handles[a].offset() < block_handles[b].offset();
-            });
+  assert(BlockIndicesAreSortedByOffset(block_handles, block_indices));
 
   // Build coalesced groups respecting max_group_bytes
   groups.emplace_back();
 
-  for (size_t idx : sorted_indices) {
+  for (size_t idx : block_indices) {
     size_t block_size = rs->block_sizes_[idx];
 
     // Skip blocks that are individually larger than the memory budget

@@ -4067,6 +4067,13 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       status = Status::ShutdownInProgress();
     } else if (compaction_aborted_.load(std::memory_order_acquire) > 0) {
       status = Status::Incomplete(Status::SubCode::kCompactionAborted);
+      if (!is_prepicked) {
+        // This automatic compaction was scheduled from compaction_queue_, but
+        // abort happened before PickCompactionFromQueue() could remove the
+        // queued CF. Restore the unscheduled count so ResumeAllCompactions()
+        // can schedule the still-queued work.
+        unscheduled_compactions_++;
+      }
     } else if (is_manual &&
                manual_compaction->canceled.load(std::memory_order_acquire)) {
       status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
@@ -4074,10 +4081,14 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   } else {
     status = error_handler_.GetBGError();
     // If we get here, it means a hard error happened after this compaction
-    // was scheduled by MaybeScheduleFlushOrCompaction(), but before it got
-    // a chance to execute. Since we didn't pop a cfd from the compaction
-    // queue, increment unscheduled_compactions_
-    unscheduled_compactions_++;
+    // was scheduled by MaybeScheduleFlushOrCompaction(), but before it got a
+    // chance to execute. Since non-prepicked work consumed an unscheduled
+    // compaction credit without popping a cfd from the compaction queue,
+    // restore the credit here. Prepicked work was scheduled directly and did
+    // not consume unscheduled_compactions_.
+    if (!is_prepicked) {
+      unscheduled_compactions_++;
+    }
   }
 
   if (!status.ok()) {

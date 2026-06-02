@@ -2065,10 +2065,18 @@ Status CompactionJob::FinishCompactionOutputFile(
     std::pair<SequenceNumber, SequenceNumber> keep_seqno_range{
         0, kMaxSequenceNumber};
     if (sub_compact->compaction->SupportsPerKeyPlacement()) {
+      // Point entries are routed to proximal output only when their seqno is
+      // strictly greater than `proximal_after_seqno_`. Range tombstones use a
+      // [lower, upper) filter, so split them at the next seqno to preserve the
+      // same boundary.
+      SequenceNumber range_del_split_seqno = proximal_after_seqno_;
+      if (range_del_split_seqno < kMaxSequenceNumber) {
+        range_del_split_seqno++;
+      }
       if (outputs.IsProximalLevel()) {
-        keep_seqno_range.first = proximal_after_seqno_;
+        keep_seqno_range.first = range_del_split_seqno;
       } else {
-        keep_seqno_range.second = proximal_after_seqno_;
+        keep_seqno_range.second = range_del_split_seqno;
       }
     }
     CompactionIterationStats range_del_out_stats;

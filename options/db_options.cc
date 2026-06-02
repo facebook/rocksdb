@@ -557,11 +557,13 @@ static std::unordered_map<std::string, OptionTypeInfo>
             embedded.ignore_unsupported_options = true;
             std::vector<std::shared_ptr<EventListener>> listeners;
             Status s;
+            // Permit `{item1:item2}` or bare `item1:item2`.
+            std::string stripped = OptionTypeInfo::StripOuterBraces(value);
             for (size_t start = 0, end = 0;
-                 s.ok() && start < value.size() && end != std::string::npos;
+                 s.ok() && start < stripped.size() && end != std::string::npos;
                  start = end + 1) {
               std::string token;
-              s = OptionTypeInfo::NextToken(value, ':', start, &end, &token);
+              s = OptionTypeInfo::NextToken(stripped, ':', start, &end, &token);
               if (s.ok() && !token.empty()) {
                 std::shared_ptr<EventListener> listener;
                 s = EventListener::CreateFromString(embedded, token, &listener);
