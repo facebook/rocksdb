@@ -537,7 +537,7 @@ jobs:
           suite_run: db_test
           run_java: "false"
         - test_shard: other
-          suite_run: arena_test,db_basic_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test
+          suite_run: arena_test,db_basic_test,db_etc2_test,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test
           run_java: "false"
         - test_shard: java
           suite_run: ""
