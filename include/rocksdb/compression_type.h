@@ -22,6 +22,8 @@ enum CompressionType : unsigned char {
   kSnappyCompression = 0x01,
   kZlibCompression = 0x02,
   kBZip2Compression = 0x03,
+  // NOTE: LZ4 and LZ4HC should be considered variants of the same compression
+  // type. See CompressionOptions::level
   kLZ4Compression = 0x04,
   kLZ4HCCompression = 0x05,
   kXpressCompression = 0x06,
@@ -188,10 +190,24 @@ struct CompressionOptions {
   // `kDefaultCompressionLevel` values will either favor speed over
   // compression ratio or have no effect.
   //
-  // In LZ4 specifically, the absolute value of a negative `level` internally
-  // configures the `acceleration` parameter. For example, set `level=-10` for
-  // `acceleration=10`. This negation is necessary to ensure decreasing `level`
-  // values favor speed over compression ratio.
+  // LZ4 and LZ4HC share one on-disk format, so they expose a single monotonic
+  // `level` axis: `level < 0` selects LZ4 fast with `acceleration = -level`
+  // (e.g. -10 means acceleration 10), and `level >= 1` selects LZ4HC at that
+  // level (1..12). The configured type (kLZ4Compression vs kLZ4HCCompression)
+  // only sets the default `level` and the compression type byte recorded per
+  // block. Defaults are acceleration 1 (level -1) for LZ4 and level 9 for
+  // LZ4HC. Out-of-range levels are clamped to the nearest effective value:
+  // below -65537 acts like -65537 (max acceleration) and above 12 like 12.
+  //
+  // For ZSTD (the other generally recommended compression alongside LZ4),
+  // `level` follows zstd's own scale, where higher values trade more CPU for a
+  // better compression ratio. The standard range is 1 (fastest) through 19,
+  // with 20..22 being "ultra" levels that require substantially more memory to
+  // compress (and decompress). zstd also supports negative levels (-1 and
+  // below) that favor speed over ratio, analogous to LZ4 acceleration.
+  // RocksDB's default (kDefaultCompressionLevel) maps to zstd's default of 3.
+  // (zstd itself treats a `level` of 0 as "use the default", but prefer
+  // kDefaultCompressionLevel to request that.)
   int level = kDefaultCompressionLevel;
 
   // zlib only: strategy parameter. See https://www.zlib.net/manual.html

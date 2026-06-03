@@ -813,7 +813,7 @@ class BuiltinLZ4CompressorV2WithDict : public CompressorWithSimpleDictBase {
     }
     int acceleration;
     if (opts_.level < 0) {
-      acceleration = -opts_.level;
+      acceleration = LZ4AccelerationFromLevel(opts_.level);
     } else {
       acceleration = 1;
     }
@@ -841,6 +841,21 @@ class BuiltinLZ4CompressorV2WithDict : public CompressorWithSimpleDictBase {
 #endif
     *out_compression_type = kNoCompression;
     return Status::OK();
+  }
+
+ protected:
+  // Translates a negative `level` to an LZ4 "acceleration" value (= -level),
+  // clamped to the maximum effective acceleration. The clamp avoids signed
+  // overflow when negating INT_MIN and reflects that lz4 internally caps
+  // acceleration at LZ4_ACCELERATION_MAX (currently 65537; not exposed by
+  // lz4.h).
+  [[maybe_unused]] static int LZ4AccelerationFromLevel(int level) {
+    assert(level < 0);
+    constexpr int kLZ4MaxAcceleration = 65537;  // == LZ4_ACCELERATION_MAX
+    if (level <= -kLZ4MaxAcceleration) {
+      return kLZ4MaxAcceleration;
+    }
+    return -level;
   }
 };
 
@@ -884,7 +899,7 @@ class BuiltinLZ4CompressorV2NoDict final
     }
     int acceleration;
     if (opts_.level < 0) {
-      acceleration = -opts_.level;
+      acceleration = LZ4AccelerationFromLevel(opts_.level);
     } else {
       acceleration = 1;
     }
@@ -963,6 +978,10 @@ class BuiltinLZ4HCCompressorV2 final : public CompressorWithSimpleDictBase {
     int level = opts_.level;
     if (level == CompressionOptions::kDefaultCompressionLevel) {
       level = 0;  // lz4hc.h says any value < 1 will be sanitized to default
+    } else if (level > LZ4HC_CLEVEL_MAX) {
+      // Map large positive levels to the maximum effective level. lz4hc clamps
+      // internally too, but make it explicit for clarity/determinism.
+      level = LZ4HC_CLEVEL_MAX;
     }
 
     ManagedWorkingArea tmp_wa;
@@ -1751,9 +1770,31 @@ class BuiltinCompressionManagerV2 final : public CompressionManager {
       case kBZip2Compression:
         return std::make_unique<BuiltinBZip2CompressorV2>(opts);
       case kLZ4Compression:
-        return std::make_unique<BuiltinLZ4CompressorV2NoDict>(opts);
-      case kLZ4HCCompression:
-        return std::make_unique<BuiltinLZ4HCCompressorV2>(opts);
+      case kLZ4HCCompression: {
+        // LZ4 and LZ4HC share the same wire format and decompressor. It is a
+        // historical oddity that they are distinct CompressionTypes. To blend
+        // them together more naturally, we now allow either configured
+        // compression type to access the same spectrum of compression levels
+        // supported by LZ4 and LZ4HC compressors. The appropriate compressor
+        // for the specified level is chosen regardless of which of the two
+        // types is configured, except that the default levels vary:
+        //   level <= 0    -> LZ4 fast (acceleration = max(1, -level))
+        //   level >= 1    -> LZ4HC (that level, 1..12)
+        //   default level ->
+        //     LZ4 -> LZ4 fast, acceleration 1 (equivalent to level -1)
+        //     LZ4HC -> LZ4HC level 9
+        bool use_hc;
+        if (opts.level == CompressionOptions::kDefaultCompressionLevel) {
+          use_hc = (type == kLZ4HCCompression);
+        } else {
+          use_hc = (opts.level >= 1);
+        }
+        if (use_hc) {
+          return std::make_unique<BuiltinLZ4HCCompressorV2>(opts);
+        } else {
+          return std::make_unique<BuiltinLZ4CompressorV2NoDict>(opts);
+        }
+      }
       case kXpressCompression:
         return std::make_unique<BuiltinXpressCompressorV2>(opts);
       case kZSTD:

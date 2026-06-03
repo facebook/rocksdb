@@ -1123,6 +1123,16 @@ struct BlockBasedTableBuilder::Rep {
     props.compression_options =
         CompressionOptionsToString(tbo.compression_opts);
 
+    // Record the configured compression type as an extra pseudo-option for
+    // debugging/tracking. The per-block compression type actually recorded can
+    // differ from this (e.g. LZ4 vs LZ4HC is selected by compression level;
+    // compression manager can override), so this preserves the originally
+    // configured choice. Underscore prefix indicates a special pseudo-option.
+    props.compression_options.append("_type=");
+    props.compression_options.append(
+        std::to_string(static_cast<int>(tbo.compression_type)));
+    props.compression_options.append("; ");
+
     auto* mgr = tbo.moptions.compression_manager.get();
     if (mgr == nullptr) {
       uses_explicit_compression_manager = false;

@@ -2586,6 +2586,144 @@ TEST_F(DBCompressionTest, CompressionManagerOverridesParallelThreads) {
   }
 }
 
+TEST_F(DBCompressionTest, UnifiedLZ4LZ4HCLevels) {
+  // LZ4 and LZ4HC share the same wire format and decompressor, so the
+  // compression level alone selects which algorithm runs. A given non-default
+  // level therefore produces identical output regardless of which of the two
+  // types is configured, and the recorded compression type follows the
+  // compressor actually used (LZ4 fast -> kLZ4Compression, LZ4HC ->
+  // kLZ4HCCompression).
+  auto mgr = GetBuiltinV2CompressionManager();
+  if (!mgr->SupportsCompressionType(kLZ4Compression)) {
+    ROCKSDB_GTEST_SKIP("LZ4 not supported");
+    return;
+  }
+  auto decompressor = mgr->GetDecompressor();
+
+  // Highly compressible input so compression is accepted.
+  std::string input;
+  for (int i = 0; i < 256; i++) {
+    input.append("abcdefgh");
+  }
+
+  auto compress_one = [&](CompressionType configured_type, int level,
+                          std::string* out, CompressionType* actual) {
+    CompressionOptions opts;
+    opts.level = level;
+    auto compressor = mgr->GetCompressor(opts, configured_type);
+    ASSERT_NE(compressor, nullptr);
+    out->resize(input.size() * 2 + 1024);
+    size_t out_size = out->size();
+    CompressionType type_out = kNoCompression;
+    ASSERT_OK(compressor->CompressBlock(input, out->data(), &out_size,
+                                        &type_out, nullptr));
+    ASSERT_NE(type_out, kNoCompression);
+    out->resize(out_size);
+    *actual = type_out;
+  };
+
+  auto round_trip = [&](const std::string& compressed, CompressionType type) {
+    Decompressor::Args args;
+    args.compression_type = type;
+    args.compressed_data = Slice(compressed);
+    ASSERT_OK(decompressor->ExtractUncompressedSize(args));
+    std::string uncompressed;
+    uncompressed.resize(args.uncompressed_size);
+    ASSERT_OK(decompressor->DecompressBlock(args, uncompressed.data()));
+    ASSERT_EQ(uncompressed, input);
+  };
+
+  // Non-default levels: the configured type does not matter (kLZ4Compression
+  // and kLZ4HCCompression produce identical output and the same recorded type,
+  // which the level itself selects). Levels that map to the same effective
+  // algorithm parameter after clamping compress identically: LZ4 fast uses
+  // acceleration 1 for level 0 or -1 and caps acceleration at 65537
+  // (level <= -65537); LZ4HC caps the level at 12.
+  std::string accel1;     // LZ4 fast, acceleration 1
+  std::string accel_max;  // LZ4 fast, acceleration clamped to 65537
+  std::string hc_max;     // LZ4HC, level clamped to 12
+  for (int level : {-1, 0, -3, -65537, -65538, -1000000, -2000000000, 1, 4, 9,
+                    12, 13, 100, 1000, 2000000000}) {
+    SCOPED_TRACE("level=" + std::to_string(level));
+    std::string out_lz4;
+    std::string out_lz4hc;
+    CompressionType actual_lz4;
+    CompressionType actual_lz4hc;
+    compress_one(kLZ4Compression, level, &out_lz4, &actual_lz4);
+    compress_one(kLZ4HCCompression, level, &out_lz4hc, &actual_lz4hc);
+
+    // The configured type does not affect the result for a given level.
+    ASSERT_EQ(actual_lz4, actual_lz4hc);
+    ASSERT_EQ(out_lz4, out_lz4hc);
+
+    // The level sign selects the algorithm (and the recorded type).
+    ASSERT_EQ(actual_lz4, level >= 1 ? kLZ4HCCompression : kLZ4Compression);
+
+    round_trip(out_lz4, actual_lz4);
+
+    // Levels that clamp to the same effective parameter compress identically.
+    if (level == -1) {
+      accel1 = out_lz4;
+    } else if (level == 0) {
+      ASSERT_EQ(out_lz4, accel1);
+    } else if (level == -65537) {
+      accel_max = out_lz4;
+    } else if (level < -65537) {
+      ASSERT_EQ(out_lz4, accel_max);
+    } else if (level == 12) {
+      hc_max = out_lz4;
+    } else if (level > 12) {
+      ASSERT_EQ(out_lz4, hc_max);
+    }
+  }
+
+  // Default level: the configured type selects fast (LZ4) vs HC (LZ4HC).
+  {
+    std::string out;
+    CompressionType actual;
+    compress_one(kLZ4Compression, CompressionOptions::kDefaultCompressionLevel,
+                 &out, &actual);
+    ASSERT_EQ(actual, kLZ4Compression);
+    round_trip(out, actual);
+
+    compress_one(kLZ4HCCompression,
+                 CompressionOptions::kDefaultCompressionLevel, &out, &actual);
+    ASSERT_EQ(actual, kLZ4HCCompression);
+    round_trip(out, actual);
+  }
+}
+
+TEST_F(DBCompressionTest, ConfiguredCompressionTypeRecordedInProperties) {
+  // The configured compression type is recorded as a `_type=<decimal>`
+  // pseudo-option in the SST `rocksdb.compression_options` table property, so
+  // it can be recovered for debugging even when the per-block recorded type
+  // differs from the configured type.
+  if (!CompressionTypeSupported(kLZ4Compression)) {
+    ROCKSDB_GTEST_SKIP("LZ4 not supported");
+    return;
+  }
+  for (auto type : {kLZ4Compression, kLZ4HCCompression}) {
+    Options options = CurrentOptions();
+    options.compression = type;
+    DestroyAndReopen(options);
+    Random rnd(301);
+    for (int i = 0; i < 100; i++) {
+      ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+    }
+    ASSERT_OK(Flush());
+
+    TablePropertiesCollection props;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+    ASSERT_FALSE(props.empty());
+    std::string expected = "_type=" + std::to_string(static_cast<int>(type));
+    for (const auto& kv : props) {
+      ASSERT_NE(kv.second->compression_options.find(expected),
+                std::string::npos)
+          << "compression_options=" << kv.second->compression_options;
+    }
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
