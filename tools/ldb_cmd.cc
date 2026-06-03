@@ -7,6 +7,7 @@
 #include "rocksdb/utilities/ldb_cmd.h"
 
 #include <cstddef>
+#include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <fstream>
@@ -16,6 +17,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 #include "db/blob/blob_index.h"
 #include "db/db_impl/db_impl.h"
@@ -432,6 +434,14 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
                                      parsed_params.flags);
   } else if (parsed_params.cmd == CompactionProgressDumpCommand::Name()) {
     return new CompactionProgressDumpCommand(parsed_params.cmd_params,
+                                             parsed_params.option_map,
+                                             parsed_params.flags);
+  } else if (parsed_params.cmd == RemoteCompactionPrimaryCommand::Name()) {
+    return new RemoteCompactionPrimaryCommand(parsed_params.cmd_params,
+                                              parsed_params.option_map,
+                                              parsed_params.flags);
+  } else if (parsed_params.cmd == RemoteCompactionWorkerCommand::Name()) {
+    return new RemoteCompactionWorkerCommand(parsed_params.cmd_params,
                                              parsed_params.option_map,
                                              parsed_params.flags);
   }
@@ -5452,6 +5462,193 @@ void CompactionProgressDumpCommand::Help(std::string& ret) {
 
 void CompactionProgressDumpCommand::DoCommand() {
   DumpCompactionProgressFile(path_);
+}
+
+namespace {
+
+const std::string kInputFile = "input.bin";
+const std::string kResultFile = "result.bin";
+constexpr int kPollIntervalMs = 100;
+constexpr int kPollTimeoutMs = 120000;
+constexpr int kPollMaxAttempts = kPollTimeoutMs / kPollIntervalMs;
+
+// Atomic write via tmp+rename so the polling reader never sees partial data.
+bool AtomicWriteStringToFile(const std::string& path, const std::string& data) {
+  std::string tmp_path = path + ".tmp";
+  std::ofstream ofs(tmp_path, std::ios::binary);
+  if (!ofs) {
+    return false;
+  }
+  ofs.write(data.data(), data.size());
+  if (!ofs.good()) {
+    return false;
+  }
+  ofs.close();
+  return std::rename(tmp_path.c_str(), path.c_str()) == 0;
+}
+
+bool PollForFile(Env* env, const std::string& path, std::string* data) {
+  for (int i = 0; i < kPollMaxAttempts; i++) {
+    Status s = ROCKSDB_NAMESPACE::ReadFileToString(env, path, data);
+    if (s.ok() && !data->empty()) {
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(kPollIntervalMs));
+  }
+  return false;
+}
+
+class LocalFileCompactionService : public CompactionService {
+ public:
+  explicit LocalFileCompactionService(const std::string& job_dir)
+      : job_dir_(job_dir) {}
+
+  const char* Name() const override { return "LocalFileCompactionService"; }
+
+  CompactionServiceScheduleResponse Schedule(
+      const CompactionServiceJobInfo& /*info*/,
+      const std::string& compaction_service_input) override {
+    assert(!scheduled_);
+    scheduled_ = true;
+    if (!AtomicWriteStringToFile(job_dir_ + "/" + kInputFile,
+                                 compaction_service_input)) {
+      return CompactionServiceScheduleResponse(
+          CompactionServiceJobStatus::kFailure);
+    }
+    return CompactionServiceScheduleResponse(
+        "job_0001", CompactionServiceJobStatus::kSuccess);
+  }
+
+  CompactionServiceJobStatus Wait(const std::string& /*scheduled_job_id*/,
+                                  std::string* result) override {
+    if (!PollForFile(Env::Default(), job_dir_ + "/" + kResultFile, result)) {
+      return CompactionServiceJobStatus::kFailure;
+    }
+    return CompactionServiceJobStatus::kSuccess;
+  }
+
+ private:
+  std::string job_dir_;
+  bool scheduled_ = false;
+};
+
+}  // namespace
+
+const std::string RemoteCompactionPrimaryCommand::ARG_JOB_DIR =
+    "job_dir";  // NOLINT(cert-err58-cpp)
+
+RemoteCompactionPrimaryCommand::RemoteCompactionPrimaryCommand(
+    const std::vector<std::string>& /*params*/,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, false, BuildCmdLineOptions({ARG_JOB_DIR})) {
+  auto it = options.find(ARG_JOB_DIR);
+  if (it != options.end()) {
+    job_dir_ = it->second;
+  } else {
+    exec_state_ = LDBCommandExecuteResult::Failed("--job_dir is required");
+  }
+}
+
+void RemoteCompactionPrimaryCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(Name());
+  ret.append(" --db=<db_path> --job_dir=<dir>");
+  ret.append("\n    Open an existing DB and run CompactRange() through ");
+  ret.append("LocalFileCompactionService.\n");
+  ret.append("    Schedule() writes job_dir/input.bin (once). ");
+  ret.append("Wait() polls for job_dir/result.bin.\n");
+  ret.append("    Must run with remote_compaction_worker in background on ");
+  ret.append("the same --db and --job_dir,\n");
+  ret.append("    otherwise Wait() will hang until timeout.\n");
+}
+
+void RemoteCompactionPrimaryCommand::DoCommand() {
+  auto cs = std::make_shared<LocalFileCompactionService>(job_dir_);
+
+  Options options;
+  options.compaction_service = cs;
+  options.disable_auto_compactions = true;
+
+  std::unique_ptr<DB> db;
+  Status s = DB::Open(options, db_path_, &db);
+  if (!s.ok()) {
+    exec_state_ = LDBCommandExecuteResult::Failed("Open: " + s.ToString());
+    return;
+  }
+
+  s = db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  if (!s.ok()) {
+    exec_state_ =
+        LDBCommandExecuteResult::Failed("CompactRange: " + s.ToString());
+    return;
+  }
+
+  fprintf(stdout, "remote_compaction_primary: OK\n");
+}
+
+const std::string RemoteCompactionWorkerCommand::ARG_JOB_DIR =
+    "job_dir";  // NOLINT(cert-err58-cpp)
+
+RemoteCompactionWorkerCommand::RemoteCompactionWorkerCommand(
+    const std::vector<std::string>& /*params*/,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, false, BuildCmdLineOptions({ARG_JOB_DIR})) {
+  auto it = options.find(ARG_JOB_DIR);
+  if (it != options.end()) {
+    job_dir_ = it->second;
+  } else {
+    exec_state_ = LDBCommandExecuteResult::Failed("--job_dir is required");
+  }
+}
+
+void RemoteCompactionWorkerCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(Name());
+  ret.append(" --db=<db_path> --job_dir=<dir>");
+  ret.append("\n    Read job_dir/input.bin, run DB::OpenAndCompact(), ");
+  ret.append("write job_dir/result.bin.\n");
+}
+
+void RemoteCompactionWorkerCommand::DoCommand() {
+  std::string input_path = job_dir_ + "/" + kInputFile;
+  std::string input;
+  if (!PollForFile(Env::Default(), input_path, &input)) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "Timed out (" + std::to_string(kPollTimeoutMs / 1000) +
+        "s) waiting for " + input_path);
+    return;
+  }
+
+  std::string output_dir = job_dir_ + "/output";
+  Status dir_s = Env::Default()->CreateDirIfMissing(output_dir);
+  if (!dir_s.ok()) {
+    exec_state_ = LDBCommandExecuteResult::Failed("CreateDirIfMissing: " +
+                                                  dir_s.ToString());
+    return;
+  }
+
+  std::string result;
+  CompactionServiceOptionsOverride override_options;
+  override_options.table_factory.reset(NewBlockBasedTableFactory());
+  Status s = DB::OpenAndCompact(OpenAndCompactOptions(), db_path_, output_dir,
+                                input, &result, override_options);
+  if (!s.ok()) {
+    exec_state_ =
+        LDBCommandExecuteResult::Failed("OpenAndCompact: " + s.ToString());
+    return;
+  }
+
+  std::string result_path = job_dir_ + "/" + kResultFile;
+  if (!AtomicWriteStringToFile(result_path, result)) {
+    exec_state_ =
+        LDBCommandExecuteResult::Failed("Failed to write " + result_path);
+    return;
+  }
+
+  fprintf(stdout, "remote_compaction_worker: OK (%zu bytes result)\n",
+          result.size());
 }
 
 }  // namespace ROCKSDB_NAMESPACE
