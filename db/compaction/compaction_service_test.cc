@@ -1316,6 +1316,11 @@ TEST_F(CompactionServiceTest, TruncatedOutput) {
 
 TEST_F(CompactionServiceTest, CustomFileChecksum) {
   Options options = CurrentOptions();
+  // This test relies on the manual CompactRange below scheduling a remote
+  // compaction. Pin the compression so the auto-compacted LSM shape (and thus
+  // whether CompactRange has work to do) doesn't depend on the default
+  // compression type.
+  options.compression = kSnappyCompression;
   options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
   ReopenWithCompactionService(&options);
   GenerateTestData();

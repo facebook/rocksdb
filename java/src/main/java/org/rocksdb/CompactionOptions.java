@@ -33,7 +33,7 @@ public class CompactionOptions extends RocksObject {
   /**
    * Set the compaction output compression type.
    *
-   * Default: snappy
+   * Default: lz4 if available, otherwise snappy if available, otherwise none
    *
    * If set to {@link CompressionType#DISABLE_COMPRESSION_OPTION},
    * RocksDB will choose compression type according to the

@@ -2277,6 +2277,10 @@ TEST_P(DBIteratorTest, ReadAhead) {
   options.env = env_;
   options.disable_auto_compactions = true;
   options.write_buffer_size = 4 << 20;
+  // This test's readahead byte thresholds were calibrated for Snappy-sized
+  // SST files. Pin the compression so it doesn't depend on the default
+  // compression type.
+  options.compression = kSnappyCompression;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   BlockBasedTableOptions table_options;
   table_options.block_size = 1024;

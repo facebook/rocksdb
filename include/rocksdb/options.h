@@ -191,18 +191,22 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
 
   // Compress blocks using the specified compression algorithm.
   //
-  // Default: kSnappyCompression, if it's supported. If snappy is not linked
-  // with the library, the default is kNoCompression.
+  // Default: kLZ4Compression if support is compiled in, else kSnappyCompression
+  // if support is compiled in, else kNoCompression
   //
-  // Typical speeds of kSnappyCompression on an Intel(R) Core(TM)2 2.4GHz:
-  //    ~200-500MB/s compression
-  //    ~400-800MB/s decompression
+  // Typical single-core speed of kLZ4Compression on an AMD EPYC-Genoa
+  //     ~800 -  1200 MB/s compression
+  //    ~8000 - 16000 MB/s decompression
+  // and with a 160 threads to saturate the cores:
+  //      ~60 -    90 GB/s compression
+  //     ~900 -  1000 GB/s decompression
+  // using db_bench compress/uncompress benchmarks.
   //
   // Note that these speeds are significantly faster than most
   // persistent storage speeds, and therefore it is typically never
   // worth switching to kNoCompression.  Even if the input data is
-  // incompressible, the kSnappyCompression implementation will
-  // efficiently detect that and will switch to uncompressed mode.
+  // incompressible, the compression implementation will
+  // efficiently detect that and fall back on no compression.
   //
   // If you do not set `compression_opts.level`, or set it to
   // `CompressionOptions::kDefaultCompressionLevel`, we will attempt to pick the
