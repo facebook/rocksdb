@@ -765,6 +765,11 @@ enum Histograms : uint32_t {
   // blocks for uniform key distribution tracking.
   BLOCK_KEY_DISTRIBUTION_CV,
 
+  // Time (microseconds) spent in a single DB::IngestExternalFile(s) call,
+  // measured end to end. One sample is recorded per call, not per column
+  // family. Requires stats level > kExceptTimers.
+  INGEST_EXTERNAL_FILE_TIME,
+
   HISTOGRAM_ENUM_MAX
 };
 
