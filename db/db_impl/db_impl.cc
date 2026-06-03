@@ -6675,6 +6675,11 @@ Status DBImpl::IngestExternalFile(
 Status DBImpl::IngestExternalFiles(
     const std::vector<IngestExternalFileArg>& args) {
   PERF_TIMER_GUARD(file_ingestion_nanos);
+  // Aggregate end-to-end ingestion latency, one sample per call (not per CF).
+  // StopWatch records on every return path; it is null-safe and self-gating on
+  // stats level, so there is no cost when statistics are disabled.
+  StopWatch ingest_external_file_sw(immutable_db_options_.clock, stats_,
+                                    INGEST_EXTERNAL_FILE_TIME);
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const WriteOptions write_options;
 
