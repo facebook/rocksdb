@@ -68,7 +68,7 @@ struct ImmutableMemTableOptions {
   uint32_t protection_bytes_per_key;
   bool allow_data_in_errors;
   bool paranoid_memory_checks;
-  bool memtable_veirfy_per_key_checksum_on_seek;
+  bool memtable_verify_per_key_checksum_on_seek;
   bool memtable_batch_lookup_optimization;
 };
 

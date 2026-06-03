@@ -159,8 +159,8 @@ ImmutableMemTableOptions::ImmutableMemTableOptions(
           mutable_cf_options.memtable_protection_bytes_per_key),
       allow_data_in_errors(ioptions.allow_data_in_errors),
       paranoid_memory_checks(mutable_cf_options.paranoid_memory_checks),
-      memtable_veirfy_per_key_checksum_on_seek(
-          mutable_cf_options.memtable_veirfy_per_key_checksum_on_seek),
+      memtable_verify_per_key_checksum_on_seek(
+          mutable_cf_options.memtable_verify_per_key_checksum_on_seek),
       memtable_batch_lookup_optimization(
           ioptions.memtable_batch_lookup_optimization) {}
 
@@ -256,7 +256,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
           mutable_cf_options.memtable_max_range_deletions),
       key_validation_callback_(
           (moptions_.protection_bytes_per_key != 0 &&
-           moptions_.memtable_veirfy_per_key_checksum_on_seek)
+           moptions_.memtable_verify_per_key_checksum_on_seek)
               ? std::bind(&MemTable::ValidateKey, this, std::placeholders::_1,
                           std::placeholders::_2)
               : std::function<Status(const char*, bool)>(nullptr)) {
@@ -528,7 +528,7 @@ class MemTableIterator : public InternalIterator {
         paranoid_memory_checks_(mem.moptions_.paranoid_memory_checks),
         validate_on_seek_(
             mem.moptions_.paranoid_memory_checks ||
-            mem.moptions_.memtable_veirfy_per_key_checksum_on_seek),
+            mem.moptions_.memtable_verify_per_key_checksum_on_seek),
         allow_data_in_error_(mem.moptions_.allow_data_in_errors),
         key_validation_callback_(mem.key_validation_callback_) {
     if (kind == kRangeDelEntries) {
@@ -1682,7 +1682,7 @@ void MemTable::GetFromTable(const LookupKey& key,
   saver.protection_bytes_per_key = moptions_.protection_bytes_per_key;
 
   if (!moptions_.paranoid_memory_checks &&
-      !moptions_.memtable_veirfy_per_key_checksum_on_seek) {
+      !moptions_.memtable_verify_per_key_checksum_on_seek) {
     table_->Get(key, &saver, SaveValue);
   } else {
     Status check_s = table_->GetAndValidate(
@@ -1750,7 +1750,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   // Use batch lookup optimization when enabled
   bool use_batch_optimization = moptions_.memtable_batch_lookup_optimization;
   bool validate = moptions_.paranoid_memory_checks ||
-                  moptions_.memtable_veirfy_per_key_checksum_on_seek;
+                  moptions_.memtable_verify_per_key_checksum_on_seek;
 
   if (use_batch_optimization) {
     // Phase 1: Handle range tombstones and set up Savers for batched lookup

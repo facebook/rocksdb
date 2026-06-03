@@ -494,7 +494,7 @@ default_params = {
     # local, 0xC07 = all types + local + remote, 0xFFFFFFFF = all.
     "verify_output_flags": lambda: random.choice([0] * 3 + [0x407, 0xC07, 0xFFFFFFFF]),
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
-    "memtable_veirfy_per_key_checksum_on_seek": lambda: random.choice([0] * 7 + [1]),
+    "memtable_verify_per_key_checksum_on_seek": lambda: random.choice([0] * 7 + [1]),
     "memtable_batch_lookup_optimization": lambda: random.randint(0, 1),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
     # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
@@ -1066,7 +1066,7 @@ def finalize_and_sanitize(src_params):
     # only skip list memtable representation supports paranoid memory checks
     if dest_params.get("memtablerep") != "skip_list":
         dest_params["paranoid_memory_checks"] = 0
-        dest_params["memtable_veirfy_per_key_checksum_on_seek"] = 0
+        dest_params["memtable_verify_per_key_checksum_on_seek"] = 0
 
     if dest_params["test_batches_snapshots"] == 1:
         dest_params["enable_compaction_filter"] = 0
@@ -1543,9 +1543,9 @@ def finalize_and_sanitize(src_params):
         dest_params["open_files_async"] = 0
 
     # inplace update and key checksum verification during seek would cause race condition
-    # Therefore, when inplace_update_support is enabled, disable memtable_veirfy_per_key_checksum_on_seek
+    # Therefore, when inplace_update_support is enabled, disable memtable_verify_per_key_checksum_on_seek
     if dest_params["inplace_update_support"] == 1:
-        dest_params["memtable_veirfy_per_key_checksum_on_seek"] = 0
+        dest_params["memtable_verify_per_key_checksum_on_seek"] = 0
 
     # allow_resumption requires remote compaction
     if dest_params.get("remote_compaction_worker_threads", 0) == 0:

@@ -303,7 +303,7 @@ DECLARE_string(default_write_temperature);
 DECLARE_string(default_temperature);
 DECLARE_uint32(verify_output_flags);
 DECLARE_bool(paranoid_memory_checks);
-DECLARE_bool(memtable_veirfy_per_key_checksum_on_seek);
+DECLARE_bool(memtable_verify_per_key_checksum_on_seek);
 DECLARE_bool(memtable_batch_lookup_optimization);
 
 // Options for transaction dbs.
