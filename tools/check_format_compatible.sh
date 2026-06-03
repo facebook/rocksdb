@@ -67,6 +67,8 @@ scriptpath=`dirname ${BASH_SOURCE[0]}`
 
 test_dir=${TEST_TMPDIR:-"/tmp"}"/rocksdb_format_compatible_$USER"
 rm -rf ${test_dir:?}
+# Also clean the noexec fallback dir from any prior run (see cs_test_dir below).
+rm -rf "$PWD/tmp/cs"
 
 # Prevent 'make clean' etc. from wiping out test_dir
 export TEST_TMPDIR=$test_dir"/misc"
@@ -88,6 +90,17 @@ mkdir -p $db_test_dir
 # For backup/restore test (uses DB test)
 bak_test_dir=$test_dir"/bak"
 mkdir -p $bak_test_dir
+# For remote compaction test.  The saved ldb binary must be executable.
+# Detect noexec early and fall back to $PWD/tmp/cs (git-ignored).
+cs_test_dir=$test_dir"/cs"
+mkdir -p $cs_test_dir
+if cp /bin/true $cs_test_dir/_exec_test 2>/dev/null && \
+   ! $cs_test_dir/_exec_test 2>/dev/null; then
+  echo "   $cs_test_dir is noexec, using $PWD/tmp/cs instead"
+  cs_test_dir="$PWD/tmp/cs"
+  mkdir -p $cs_test_dir
+fi
+rm -f $cs_test_dir/_exec_test
 
 python_bin=$(which python3 || which python || echo python3)
 
@@ -148,7 +161,7 @@ EOF
 
 # To check for DB forward compatibility with loading options (old version
 # reading data from new), as well as backward compatibility
-declare -a db_forward_with_options_refs=("10.4.fb" "10.5.fb" "10.6.fb" "10.7.fb" "10.8.fb" "10.9.fb" "10.10.fb" "10.11.fb" "11.0.fb" "11.1.fb" "11.2.fb" "11.3.fb")
+declare -a db_forward_with_options_refs=()
 # To check for DB forward compatibility without loading options (in addition
 # to the "with loading options" set), as well as backward compatibility
 declare -a db_forward_no_options_refs=() # N/A at the moment
@@ -156,14 +169,14 @@ declare -a db_forward_no_options_refs=() # N/A at the moment
 # To check for SST ingestion backward compatibility (new version reading
 # data from old) (ldb ingest_extern_sst added in 5.16.x, back-ported to
 # 5.14.x, 5.15.x)
-declare -a ext_backward_only_refs=("5.14.fb" "5.15.fb" "5.16.fb" "5.17.fb" "5.18.fb" "6.0.fb" "6.1.fb" "6.2.fb" "6.3.fb" "6.4.fb" "6.5.fb" "6.6.fb" "6.7.fb" "6.8.fb" "6.9.fb" "6.10.fb" "6.11.fb" "6.12.fb" "6.13.fb" "6.14.fb" "6.15.fb" "6.16.fb" "6.17.fb" "6.18.fb" "6.19.fb" "6.20.fb" "6.21.fb" "6.22.fb" "6.23.fb" "6.24.fb" "6.25.fb" "6.26.fb" "6.27.fb" "6.28.fb" "6.29.fb" "7.0.fb" "7.1.fb" "7.2.fb" "7.3.fb" "7.4.fb" "7.5.fb" "7.6.fb" "7.7.fb" "7.8.fb" "7.9.fb" "7.10.fb" "8.0.fb" "8.1.fb" "8.2.fb" "8.3.fb" "8.4.fb" "8.5.fb" "8.6.fb" "8.7.fb" "8.8.fb" "8.9.fb" "8.10.fb" "8.11.fb" "9.0.fb" "9.1.fb" "9.2.fb" "9.3.fb" "9.4.fb" "9.5.fb" "9.6.fb" "9.7.fb" "9.8.fb" "9.9.fb" "9.10.fb" "9.11.fb" "10.0.fb" "10.1.fb" "10.2.fb" "10.3.fb")
+declare -a ext_backward_only_refs=()
 # To check for SST ingestion forward compatibility (old version reading
 # data from new) as well as backward compatibility
 declare -a ext_forward_refs=("${db_forward_no_options_refs[@]}" "${db_forward_with_options_refs[@]}")
 
 # To check for backup backward compatibility (new version reading data
 # from old) (ldb backup/restore added in 4.11.x)
-declare -a bak_backward_only_refs=("4.11.fb" "4.12.fb" "4.13.fb" "5.0.fb" "5.1.fb" "5.2.fb" "5.3.fb" "5.4.fb" "5.5.fb" "5.6.fb" "5.7.fb" "5.8.fb" "5.9.fb" "5.10.fb" "5.11.fb" "5.12.fb" "5.13.fb" "${ext_backward_only_refs[@]}")
+declare -a bak_backward_only_refs=()
 # To check for backup forward compatibility (old version reading data
 # from new) as well as backward compatibility
 declare -a bak_forward_refs=("${db_forward_no_options_refs[@]}" "${db_forward_with_options_refs[@]}")
@@ -172,7 +185,7 @@ declare -a bak_forward_refs=("${db_forward_no_options_refs[@]}" "${db_forward_wi
 # reading data from old) (in addition to the "forward compatible" list)
 # NOTE: format_version < 2 support was removed, so we only test back to 4.6.fb
 # (when format_version=2 became the default)
-declare -a db_backward_only_refs=("4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "${bak_backward_only_refs[@]}")
+declare -a db_backward_only_refs=()
 
 validate_release_refs()
 {
@@ -195,6 +208,9 @@ validate_release_refs "ext_backward_only_refs" "${ext_backward_only_refs[@]}"
 validate_release_refs "ext_forward_refs" "${ext_forward_refs[@]}"
 validate_release_refs "bak_backward_only_refs" "${bak_backward_only_refs[@]}"
 validate_release_refs "bak_forward_refs" "${bak_forward_refs[@]}"
+
+# [DO NOT LAND] Add custom ref after validation for break-compat rehearsal
+db_forward_with_options_refs+=("11.1.fb-no-rtc-with-rc-ldb")
 
 if [ "$SHORT_TEST" ]; then
   # Use only the first (if exists) of each list
@@ -238,7 +254,7 @@ invoke_make()
 generate_db()
 {
     set +e
-    [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/generate_random_db.sh "$1" "$2"
+    [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/generate_random_db.sh "$1" "$2" "$3"
     if [ $? -ne 0 ]; then
         echo ==== Error loading data from $2 to $1 ====
         exit 1
@@ -320,6 +336,40 @@ member_of_array()
   return 1
 }
 
+# Run one cross-version remote compaction compatibility test.
+# Generates a DB using the primary's ldb (so its OPTIONS file matches the
+# primary's version), then runs primary and worker from potentially
+# different versions. They coordinate via files in test_dir (see
+# remote_compaction_primary/worker ldb commands for protocol details).
+# Tests the wire format of CompactionServiceInput/Result between versions.
+run_cs_compat_test()
+{
+  local test_label="$1"
+  local primary_ldb="$2"
+  local worker_ldb="$3"
+  local cs_run_dir="$4"
+
+  echo "== $test_label"
+  rm -rf "$cs_run_dir" && mkdir -p "$cs_run_dir"
+  generate_db $input_data_path "$cs_run_dir/db" "$primary_ldb"
+  # Write keys spanning the full key range to create an L0 file that
+  # overlaps with existing L0 files, ensuring CompactRange triggers a
+  # real compaction (not a trivial move).
+  printf "a ==> overlap_start\nzzzzzzz ==> overlap_end\n" | \
+    $primary_ldb load --db="$cs_run_dir/db" --auto_compaction=false
+  $worker_ldb remote_compaction_worker --db="$cs_run_dir/db" --job_dir="$cs_run_dir" &
+  local worker_pid=$!
+  local primary_exit=0
+  $primary_ldb remote_compaction_primary --db="$cs_run_dir/db" --job_dir="$cs_run_dir" || primary_exit=$?
+  local worker_exit=0
+  wait $worker_pid || worker_exit=$?
+  if [ $primary_exit -ne 0 ] || [ $worker_exit -ne 0 ]; then
+    echo "==== Error running remote compaction: $test_label (primary=$primary_exit worker=$worker_exit) ===="
+    kill $worker_pid 2>/dev/null || true
+    exit 1
+  fi
+}
+
 force_no_fbcode()
 {
   # Not all branches recognize ROCKSDB_NO_FBCODE and we should not need
@@ -339,8 +389,10 @@ force_no_fbcode()
 # * (Again) check out, build, and do (other) stuff with the "current"
 #    branch, potentially using data from older branches.
 #
-# This way, we only do at most n+1 checkout+build steps, without the
-# need to stash away executables.
+# This way, we only do at most n+1 checkout+build steps.  The one
+# exception is the remote compaction test, which saves a copy of the
+# current ldb binary before old-ref checkouts overwrite ./ldb, so both
+# versions can run simultaneously as primary and worker.
 
 # Decorate name
 current_checkout_name="$current_checkout_name ($current_checkout_hash)"
@@ -350,6 +402,33 @@ git checkout -B $tmp_branch $current_checkout_hash
 force_no_fbcode
 invoke_make clean
 DISABLE_WARNING_AS_ERROR=1 invoke_make ldb -j$J
+
+# Save current ldb for cross-version remote compaction tests.  The old-ref
+# checkout will overwrite ./ldb, so we save a copy now.
+save_cs_current_ldb()
+{
+  cs_current_ldb=$cs_test_dir/current_ldb
+  cp -f ./ldb $cs_current_ldb
+  # Copy shared libs next to the binary for LD_LIBRARY_PATH.
+  # Static builds have no .so files - cp fails harmlessly.
+  cp -f ./librocksdb*.so* $cs_test_dir/ 2>/dev/null || true
+  cs_current_ldb_cmd="env LD_LIBRARY_PATH=$cs_test_dir $cs_current_ldb"
+  cs_ldb_output=$($cs_current_ldb_cmd --version 2>&1)
+  cs_ldb_exit=$?
+  return $cs_ldb_exit
+}
+echo "== Saving current ldb for remote compaction cross-version tests"
+cs_current_ldb_cmd=""
+if [ ! "$SANITY_CHECK" ]; then
+  if ! save_cs_current_ldb; then
+    echo "==== Error: saved current ldb cannot run from $cs_test_dir (exit=$cs_ldb_exit): $cs_ldb_output ===="
+    exit 1
+  fi
+  # Smoke test before cross-version tests to catch integration failures early.
+  run_cs_compat_test \
+    "Remote compaction smoke test: current primary + current worker" \
+    "$cs_current_ldb_cmd" "$cs_current_ldb_cmd" "$cs_test_dir/smoke"
+fi
 
 echo "== Using $current_checkout_name, generate DB with extern SST and ingest"
 current_ext_test_dir=$ext_test_dir"/current"
@@ -429,6 +508,30 @@ do
     restore_db $current_bak_test_dir $db_test_dir/$checkout_ref
     compare_db $db_test_dir/$checkout_ref $current_db_test_dir forward_${checkout_ref}_dump.txt 0
   fi
+
+  # Remote compaction format compatibility: test that primary and worker from
+  # different versions can exchange CompactionServiceInput/Result.
+  # Requires db_forward_with_options_refs (the old worker must be able to
+  # read OPTIONS written by the current primary) and the remote compaction
+  # related ldb commands.
+  # Skipped in SANITY_CHECK mode (no ldb binary to test).
+  if [ ! "$SANITY_CHECK" ] &&
+    [ -n "$cs_current_ldb_cmd" ] &&
+    member_of_array "$checkout_ref" "${db_forward_with_options_refs[@]}"
+  then
+    if ./ldb --help 2>&1 | grep -q remote_compaction_primary; then
+      cs_old_ldb_cmd="./ldb"
+      ref_dir=$cs_test_dir/$checkout_ref
+      run_cs_compat_test \
+        "Remote compaction compatibility: current primary + $checkout_ref worker" \
+        "$cs_current_ldb_cmd" "$cs_old_ldb_cmd" "$ref_dir/test1"
+      run_cs_compat_test \
+        "Remote compaction compatibility: $checkout_ref primary + current worker" \
+        "$cs_old_ldb_cmd" "$cs_current_ldb_cmd" "$ref_dir/test2"
+    else
+      echo "   remote_compaction commands not available at $checkout_ref, skipping"
+    fi
+  fi
 done
 
 echo "== Building $current_checkout_name debug (again, final)"
@@ -466,6 +569,7 @@ do
     restore_db $bak_test_dir/$checkout_ref $db_test_dir/$checkout_ref
     compare_db $db_test_dir/$checkout_ref $current_db_test_dir db_dump.txt 1 0
   fi
+
 done
 
 if [ "$SANITY_CHECK" ]; then
