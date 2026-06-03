@@ -769,6 +769,40 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
 };
 
+namespace {
+
+// Like OptionTypeInfo::Array<T, kSize> but deserialization tolerates
+// size mismatches: extra elements beyond kSize are silently ignored,
+// missing elements are zero-filled. Serialization and comparison are
+// inherited from Array<T, kSize> unchanged; only the parse
+// (deserialize) callback is overridden.
+template <typename T, size_t kSize>
+OptionTypeInfo SizeTolerantDeserializeArray(int offset,
+                                            OptionVerificationType verification,
+                                            OptionTypeFlags flags,
+                                            const OptionTypeInfo& elem_info,
+                                            char separator = ':') {
+  return OptionTypeInfo::Array<T, kSize>(offset, verification, flags, elem_info,
+                                         separator)
+      .SetParseFunc([elem_info, separator](
+                        const ConfigOptions& opts, const std::string& name,
+                        const std::string& value, void* addr) {
+        std::vector<T> parsed;
+        Status s =
+            ParseVector<T>(opts, elem_info, separator, name, value, &parsed);
+        if (!s.ok()) {
+          return s;
+        }
+        auto* arr = static_cast<std::array<T, kSize>*>(addr);
+        for (size_t i = 0; i < kSize; ++i) {
+          (*arr)[i] = (i < parsed.size()) ? parsed[i] : T{};
+        }
+        return Status::OK();
+      });
+}
+
+}  // namespace
+
 static std::unordered_map<std::string, OptionTypeInfo>
     compaction_stats_type_info = {
         {"micros",
@@ -860,16 +894,16 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct InternalStats::CompactionStats, count),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-        {"counts",
-         OptionTypeInfo::Array<
-             /* In release 11.2, a new compaction reason was added. This broken
-              * the reader and writer. To unblock release 11.1, we temporarily
-              * reduce the count array size to the old one. TODO add a proper
-              * serialization and deserialization method. */
-             int, static_cast<int>(CompactionReason::kNumOfReasons) - 1>(
-             offsetof(struct InternalStats::CompactionStats, counts),
-             OptionVerificationType::kNormal, OptionTypeFlags::kNone,
-             {0, OptionType::kInt})},
+        // The remote worker may have a different number of
+        // CompactionReason enums than the primary that deserializes the
+        // result. SizeTolerantDeserializeArray tolerates the size mismatch
+        // on deserialization: extra elements are ignored, missing elements
+        // are zero-filled.
+        {"counts", SizeTolerantDeserializeArray<
+                       int, static_cast<int>(CompactionReason::kNumOfReasons)>(
+                       offsetof(struct InternalStats::CompactionStats, counts),
+                       OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+                       {0, OptionType::kInt})},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
