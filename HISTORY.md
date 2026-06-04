@@ -1,6 +1,9 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.3.1 (06/04/2026)
+* Don't call `EventListener::OnCompactionPreCommit` during DB shutdown, like other compaction callbacks
+
 ## 11.3.0 (05/15/2026)
 ### New Features
 * Add experimental DB option `async_wal_precreate` to precreate the next WAL file in a background thread and reduce foreground WAL rotation latency. The option is sanitized to false when WAL recycling is enabled.
