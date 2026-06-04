@@ -163,6 +163,9 @@ class FaultInjectionTestEnv : public EnvWrapper {
                             std::unique_ptr<WritableFile>* result,
                             const EnvOptions& soptions) override;
 
+  Status SyncFile(const std::string& fname, const EnvOptions& options,
+                  bool use_fsync) override;
+
   Status NewRandomRWFile(const std::string& fname,
                          std::unique_ptr<RandomRWFile>* result,
                          const EnvOptions& soptions) override;
