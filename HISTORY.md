@@ -1,6 +1,27 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.4.0 (06/02/2026)
+### Public API Changes
+* Added `rocksdb_options_set_memtable_batch_lookup_optimization()` and `rocksdb_options_get_memtable_batch_lookup_optimization()` to the C API, exposing the existing `AdvancedColumnFamilyOptions::memtable_batch_lookup_optimization` field. This allows C API users (and downstream language bindings) to enable the skip-list memtable's batch-lookup optimization for `MultiGet`, which caches the search path between consecutive keys and reduces per-key cost from O(log N) to O(log d) where d is the distance between consecutive keys.
+* Added `rocksdb_readoptions_set_optimize_multiget_for_io()` and `rocksdb_readoptions_get_optimize_multiget_for_io()` to the C API, exposing the existing `ReadOptions::optimize_multiget_for_io` field. This allows C API users (and downstream language bindings) to opt out of the multi-level parallel MultiGet path, which only takes effect when the library is built with `USE_COROUTINES`.
+* Added `rocksdb_block_based_table_index_block_search_type_auto` enum constant and the `rocksdb_block_based_options_set_uniform_cv_threshold()` setter to the C API. The constant exposes `BlockSearchType::kAuto`, and the setter exposes `BlockBasedTableOptions::uniform_cv_threshold`. Both are required for `kAuto` index-block search to take effect from the C API: without setting `uniform_cv_threshold >= 0`, the per-block `is_uniform` footer bit is never written, and `kAuto` falls back to binary search at read time.
+* Added `EventListener::OnDBShutdownBegin`, a callback that fires once when a DB begins shutdown, including when RocksDB cleans up a failed `DB::Open()` attempt.
+* Added a new PerfContext counter `blob_cache_read_byte` for blob cache bytes read.
+
+### Behavior Changes
+* Remote compaction now falls back to local compaction when the primary cannot deserialize a successful `CompactionServiceResult` before installing any remote output files.
+* StringToMap (rocksdb/convenience.h) now preserves the outer braces of nested values so each map entry is in self-contained form and can be embedded directly into another `key=value;` string (e.g. SetOptions) without losing inner ';' delimiters. A new symmetric MapToString utility is provided.
+
+### Bug Fixes
+* Fixed a bug where `AbortAllCompactions()` could leave automatic compaction work unscheduled when aborting before the background worker picked it, causing compaction and write stalls until DB restart.
+* Fix a bug where db had a false positive compaction corruption error due to remote compaction service result with `has_accurate_num_input_records=false` not being serialized.
+* Fixed WritePrepared TransactionDB cleanup after retryable commit or rollback write failures so prepared transactions remain rollbackable instead of leaving unresolved prepared state.
+* Fix a rare corruption bug for tiered compaction that incorrectly moved last level range tombstones into proximal level. This corruption error is surfaced when force_consistency_checks is enabled.
+
+### Performance Improvements
+* Reduce the likelihood of user-facing metadata operations blocking on MANIFEST rotation when file creation is slow, such as on remote storage. MANIFEST write batches containing foreground edits from `CreateColumnFamily()`, `DropColumnFamily()`, `CreateColumnFamilyWithImport()`, `IngestExternalFile()`, and `DeleteFilesInRanges()` now get a relaxed file size threshold for triggering MANIFEST rotation; background-only MANIFEST write batches, such as compaction and flush, continue to use the normal threshold. This change should make auto-tuning manifest file size more attractive (see `max_manifest_file_size` and `max_manifest_space_amp_pct` options).
+
 ## 11.3.0 (05/15/2026)
 ### New Features
 * Add experimental DB option `async_wal_precreate` to precreate the next WAL file in a background thread and reduce foreground WAL rotation latency. The option is sanitized to false when WAL recycling is enabled.
