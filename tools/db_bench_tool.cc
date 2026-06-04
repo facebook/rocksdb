@@ -219,6 +219,10 @@ DEFINE_string(
     "\txxhash        -- repeated xxHash of <block size> data\n"
     "\txxhash64      -- repeated xxHash64 of <block size> data\n"
     "\txxh3          -- repeated XXH3 of <block size> data\n"
+    "\tcompressreject -- repeated compression of <block size> data forced to "
+    "be rejected (output buffer ~10% of input smaller than the predicted "
+    "compressed size), to measure the cost of attempting then declining "
+    "compression\n"
     "\tacquireload   -- load N*1000 times\n"
     "\tfillseekseq   -- write N values in sequential key, then read "
     "them by seeking to each key\n"
@@ -3994,6 +3998,8 @@ class Benchmark {
         method = &Benchmark::AcquireLoad;
       } else if (name == "compress") {
         method = &Benchmark::Compress;
+      } else if (name == "compressreject") {
+        method = &Benchmark::CompressReject;
       } else if (name == "uncompress") {
         method = &Benchmark::Uncompress;
       } else if (name == "randomtransaction") {
@@ -4506,8 +4512,8 @@ class Benchmark {
     auto working_area = compressor->ObtainWorkingArea();
 
     GrowableBuffer compressed;
-    // Compress 1G
-    while (bytes < int64_t(1) << 30) {
+    // Compress 3G
+    while (bytes < int64_t(3) << 30) {
       compressed.ResetForSize(input.size());
       CompressionType actual_type = kNoCompression;
       s = compressor->CompressBlock(input, compressed.data(),
@@ -4531,6 +4537,68 @@ class Benchmark {
       char buf[340];
       snprintf(buf, sizeof(buf), "(output: %.1f%%)",
                (produced * 100.0) / bytes);
+      thread->stats.AddMessage(buf);
+      thread->stats.AddBytes(bytes);
+    }
+  }
+
+  // Like Compress, but forces every block's compression to be rejected by
+  // giving the compressor an output buffer slightly smaller than the data is
+  // expected to compress to. This exercises (and measures the speed of) the
+  // path that attempts compression but falls back to storing data uncompressed,
+  // as happens for incompressible data.
+  void CompressReject(ThreadState* thread) {
+    RandomGenerator gen;
+    Slice input = gen.Generate(FLAGS_block_size);
+    int64_t bytes = 0;
+    Status s;
+
+    auto compressor = GetCompressor();
+    if (!compressor) {
+      thread->stats.AddMessage("(compression type not supported)");
+      return;
+    }
+    auto working_area = compressor->ObtainWorkingArea();
+
+    // RandomGenerator produces data that compresses to about
+    // FLAGS_compression_ratio of its original size (see CompressibleString),
+    // which should be an accurate/optimistic predictor of the compressed size.
+    // Make the output buffer 10% of the uncompressed size smaller than that
+    // predicted compressed size, so the real output won't fit and compression
+    // is rejected on every call. Clamp to at least 1 byte, which should always
+    // reject.
+    double reject_fraction = std::max(0.0, FLAGS_compression_ratio - 0.10);
+    size_t reject_size = std::max<size_t>(
+        1, static_cast<size_t>(reject_fraction * input.size()));
+
+    GrowableBuffer compressed;
+
+    // Compress 3G
+    while (bytes < int64_t(3) << 30) {
+      compressed.ResetForSize(reject_size);
+      CompressionType actual_type = kNoCompression;
+      s = compressor->CompressBlock(input, compressed.data(),
+                                    &compressed.MutableSize(), &actual_type,
+                                    &working_area);
+      if (UNLIKELY(!s.ok())) {
+        break;
+      }
+      if (UNLIKELY(actual_type != kNoCompression)) {
+        s = Status::Aborted(
+            "Compression unexpectedly not rejected; try a smaller "
+            "compression_ratio");
+        break;
+      }
+      bytes += input.size();
+      thread->stats.FinishedOps(nullptr, nullptr, 1, kCompress);
+    }
+
+    if (!s.ok()) {
+      thread->stats.AddMessage("(compression failure: " + s.ToString() + ")");
+    } else {
+      char buf[340];
+      snprintf(buf, sizeof(buf), "(rejected; output buffer %.1f%% of input)",
+               (reject_size * 100.0) / input.size());
       thread->stats.AddMessage(buf);
       thread->stats.AddBytes(bytes);
     }
@@ -4568,8 +4636,9 @@ class Benchmark {
             actual_type);
     auto decomp_working_area = decompressor->ObtainWorkingArea(actual_type);
 
-    int64_t bytes = 0;
-    while (bytes < 1024 * 1048576) {
+    uint64_t bytes = 0;
+    // Decompress 20GB
+    while (bytes < uint64_t{20} * 1024U * 1048576U) {
       Decompressor::Args args;
       args.compression_type = actual_type;
       args.compressed_data = compressed.AsSlice();

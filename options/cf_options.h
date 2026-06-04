@@ -253,7 +253,7 @@ struct MutableCFOptions {
         max_sequential_skip_in_iterations(0),
         paranoid_file_checks(false),
         report_bg_io_stats(false),
-        compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
+        compression(GetDefaultCompressionType()),
         bottommost_compression(kDisableCompressionOption),
         last_level_temperature(Temperature::kUnknown),
         default_write_temperature(Temperature::kUnknown),
