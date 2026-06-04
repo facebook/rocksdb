@@ -2392,13 +2392,15 @@ struct ReadOptions {
   const UserDefinedIndexFactory* table_index_factory = nullptr;
 
   // Optional non-owning provider for data-block storage pinned by scans using
-  // this ReadOptions. This is an advanced option: applications that set it are
-  // responsible for ensuring the provider outlives the iterator/read scope and
-  // any provider-backed data that can remain pinned by that scope.
+  // this ReadOptions. Applications that set it are attempting advanced
+  // performance optimizations and are responsible for ensuring the provider
+  // outlives the iterator/read scope and any provider-backed data that can
+  // remain pinned by that scope.
   //
   // This is a raw pointer rather than a shared_ptr because ReadOptions is
-  // copied through stack frames and iterator internals; those copies should not
-  // imply ownership of the read scope or extend provider lifetime implicitly.
+  // copied through stack frames and iterator internals; a shared_ptr would add
+  // refcount overhead to those copies. An internal shadow ReadOptions that
+  // strips ownership would add maintenance overhead for this advanced option.
   //
   // Current support is limited to block-based table iterators and MultiScan
   // data-block reads. When set, supported scan reads bypass the data-block

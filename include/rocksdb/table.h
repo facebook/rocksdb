@@ -53,6 +53,10 @@ class UserDefinedIndexFactory;
 // Current support is limited to block-based table iterator scans and MultiScan
 // data-block reads.
 //
+// This is separate from MemoryAllocator because each allocation needs a
+// per-lease cleanup handle that RocksDB can attach to pinned blocks/slices, and
+// direct-I/O reads need the requested alignment to be passed to the provider.
+//
 // TODO: Extend support to point lookups (Get/MultiGet) once those paths can
 // preserve provider-backed block ownership.
 //
@@ -76,16 +80,16 @@ class ReadScopedBlockBufferProvider {
   // contents, then attach `cleanup` to the resulting Blocks and any slices
   // pinned from them.
   //
-  // The provider keeps ownership of the allocation. RocksDB keeps the data
-  // alive by copying `cleanup`; the provider must not reuse or release `data`
-  // until every copy of `cleanup` has been reset. `size` is the usable backing
+  // The provider controls allocation reclamation. RocksDB keeps the data valid
+  // by copying `cleanup`; the provider must not reuse or release `data` until
+  // every copy of `cleanup` has been reset. `size` is the usable backing
   // allocation size and may be larger than the requested allocation size. For
   // direct-I/O reads, `size` must be a multiple of the requested alignment.
   struct Lease {
     // Writable contiguous memory for the loaded block.
     char* data = nullptr;
     size_t size = 0;
-    // Keeps `data` alive for all derived pinned key/value slices.
+    // Reclaims `data` after all derived pinned key/value slices are released.
     SharedCleanablePtr cleanup;
   };
 
