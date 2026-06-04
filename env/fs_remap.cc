@@ -309,6 +309,18 @@ IOStatus RemapFileSystem::LinkFile(const std::string& src,
                                      dbg);
 }
 
+IOStatus RemapFileSystem::SyncFile(const std::string& fname,
+                                   const FileOptions& file_opts,
+                                   const IOOptions& io_opts, bool use_fsync,
+                                   IODebugContext* dbg) {
+  auto status_and_enc_path = EncodePathWithNewBasename(fname);
+  if (!status_and_enc_path.first.ok()) {
+    return status_and_enc_path.first;
+  }
+  return FileSystemWrapper::SyncFile(status_and_enc_path.second, file_opts,
+                                     io_opts, use_fsync, dbg);
+}
+
 IOStatus RemapFileSystem::LockFile(const std::string& fname,
                                    const IOOptions& options, FileLock** lock,
                                    IODebugContext* dbg) {

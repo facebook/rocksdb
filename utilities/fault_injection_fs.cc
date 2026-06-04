@@ -1020,6 +1020,16 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
   return io_s;
 }
 
+IOStatus FaultInjectionTestFS::SyncFile(const std::string& fname,
+                                        const FileOptions& file_opts,
+                                        const IOOptions& io_opts,
+                                        bool use_fsync, IODebugContext* dbg) {
+  // Call FileSystem's default implementation instead of FileSystemWrapper
+  // forwarding so SyncFile exercises this wrapper's ReopenWritableFile hook and
+  // the wrapped file's Sync, Fsync, and Close hooks.
+  return FileSystem::SyncFile(fname, file_opts, io_opts, use_fsync, dbg);
+}
+
 IOStatus FaultInjectionTestFS::ReuseWritableFile(
     const std::string& fname, const std::string& old_fname,
     const FileOptions& file_opts, std::unique_ptr<FSWritableFile>* result,
