@@ -702,6 +702,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, paranoid_memory_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        // Keep parsing the old misspelled name for existing OPTIONS files.
+        {"memtable_veirfy_per_key_checksum_on_seek",
+         {offsetof(struct MutableCFOptions,
+                   memtable_verify_per_key_checksum_on_seek),
+          OptionType::kBoolean, OptionVerificationType::kAlias,
+          OptionTypeFlags::kMutable}},
         {"memtable_verify_per_key_checksum_on_seek",
          {offsetof(struct MutableCFOptions,
                    memtable_verify_per_key_checksum_on_seek),
