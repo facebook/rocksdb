@@ -174,16 +174,25 @@ IOStatus TestFSDirectory::FsyncWithDirOptions(
 TestFSWritableFile::TestFSWritableFile(const std::string& fname,
                                        const FileOptions& file_opts,
                                        std::unique_ptr<FSWritableFile>&& f,
-                                       FaultInjectionTestFS* fs)
+                                       FaultInjectionTestFS* fs,
+                                       bool reopened_for_write)
     : state_(fname),
       file_opts_(file_opts),
       target_(std::move(f)),
       should_forward_close_(true),
       fs_(fs),
-      unsync_data_loss_(fs_->InjectUnsyncedDataLoss()) {
+      unsync_data_loss_(fs_->InjectUnsyncedDataLoss()),
+      reopened_for_write_(reopened_for_write) {
   assert(target_ != nullptr);
   assert(state_.pos_at_last_append_ == 0);
   assert(state_.pos_at_last_sync_ == 0);
+}
+
+IOStatus TestFSWritableFile::ValidateWrite(const char* op_name) {
+  if (!reopened_for_write_) {
+    return IOStatus::OK();
+  }
+  return fs_->ValidateReopenedWrite(state_.filename_, op_name);
 }
 
 TestFSWritableFile::~TestFSWritableFile() {
@@ -205,8 +214,12 @@ IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions& options,
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
+  IOStatus s = ValidateWrite("Append");
+  if (!s.ok()) {
+    return s;
+  }
 
-  IOStatus s = fs_->MaybeInjectThreadLocalError(
+  s = fs_->MaybeInjectThreadLocalError(
       FaultInjectionIOType::kWrite, options, "Append", state_.filename_,
       fault_injection_detail::SizeAndHead(data),
       FaultInjectionTestFS::ErrorOperation::kAppend);
@@ -243,7 +256,12 @@ IOStatus TestFSWritableFile::Append(
     return IOStatus::Corruption("Data is corrupted!");
   }
 
-  IOStatus s = fs_->MaybeInjectThreadLocalError(
+  IOStatus s = ValidateWrite("Append");
+  if (!s.ok()) {
+    return s;
+  }
+
+  s = fs_->MaybeInjectThreadLocalError(
       FaultInjectionIOType::kWrite, options, "Append", state_.filename_,
       fault_injection_detail::SizeAndHead(data),
       FaultInjectionTestFS::ErrorOperation::kAppend);
@@ -284,9 +302,13 @@ IOStatus TestFSWritableFile::Truncate(uint64_t size, const IOOptions& options,
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
-  IOStatus s = fs_->MaybeInjectThreadLocalError(
-      FaultInjectionIOType::kWrite, options, "Truncate", state_.filename_,
-      fault_injection_detail::Size(size));
+  IOStatus s = ValidateWrite("Truncate");
+  if (!s.ok()) {
+    return s;
+  }
+  s = fs_->MaybeInjectThreadLocalError(FaultInjectionIOType::kWrite, options,
+                                       "Truncate", state_.filename_,
+                                       fault_injection_detail::Size(size));
   if (!s.ok()) {
     return s;
   }
@@ -309,7 +331,11 @@ IOStatus TestFSWritableFile::PositionedAppend(const Slice& data,
   if (fs_->ShouldDataCorruptionBeforeWrite()) {
     return IOStatus::Corruption("Data is corrupted!");
   }
-  IOStatus s = fs_->MaybeInjectThreadLocalError(
+  IOStatus s = ValidateWrite("PositionedAppend");
+  if (!s.ok()) {
+    return s;
+  }
+  s = fs_->MaybeInjectThreadLocalError(
       FaultInjectionIOType::kWrite, options, "PositionedAppend",
       state_.filename_, fault_injection_detail::OffsetSizeAndHead(offset, data),
       FaultInjectionTestFS::ErrorOperation::kPositionedAppend);
@@ -337,7 +363,11 @@ IOStatus TestFSWritableFile::PositionedAppend(
   if (fs_->ShouldDataCorruptionBeforeWrite()) {
     return IOStatus::Corruption("Data is corrupted!");
   }
-  IOStatus s = fs_->MaybeInjectThreadLocalError(
+  IOStatus s = ValidateWrite("PositionedAppend");
+  if (!s.ok()) {
+    return s;
+  }
+  s = fs_->MaybeInjectThreadLocalError(
       FaultInjectionIOType::kWrite, options, "PositionedAppend",
       state_.filename_, fault_injection_detail::OffsetSizeAndHead(offset, data),
       FaultInjectionTestFS::ErrorOperation::kPositionedAppend);
@@ -915,6 +945,50 @@ IOStatus FaultInjectionTestFS::GetChildrenFileAttributes(
   return io_s;
 }
 
+void FaultInjectionTestFS::WritableFileOpened(const std::string& fname,
+                                              FileOpenContract open_contract) {
+  MutexLock l(&mutex_);
+  open_managed_files_[fname] = open_contract;
+  file_open_contracts_[fname] = open_contract;
+}
+
+IOStatus FaultInjectionTestFS::ValidateReadOpen(const std::string& fname,
+                                                const char* op_name) {
+  MutexLock l(&mutex_);
+  auto it = open_managed_files_.find(fname);
+  if (it != open_managed_files_.end() &&
+      HasFileOpenContract(it->second,
+                          FileOpenContract::kNoReadersWhileOpenForWrite)) {
+    return IOStatus::NotSupported(
+        std::string(op_name) +
+        " violates no-readers-while-open-for-write contract: " + fname);
+  }
+  return IOStatus::OK();
+}
+
+IOStatus FaultInjectionTestFS::ValidateWriteOpen(const std::string& fname,
+                                                 const char* op_name) {
+  return ValidateNoReopenForWrite(fname, op_name);
+}
+
+IOStatus FaultInjectionTestFS::ValidateReopenedWrite(const std::string& fname,
+                                                     const char* op_name) {
+  return ValidateNoReopenForWrite(fname, op_name);
+}
+
+IOStatus FaultInjectionTestFS::ValidateNoReopenForWrite(
+    const std::string& fname, const char* op_name) {
+  MutexLock l(&mutex_);
+  auto it = file_open_contracts_.find(fname);
+  if (it != file_open_contracts_.end() &&
+      HasFileOpenContract(it->second, FileOpenContract::kNoReopenForWrite)) {
+    return IOStatus::NotSupported(
+        std::string(op_name) +
+        " violates no-reopen-for-write contract: " + fname);
+  }
+  return IOStatus::OK();
+}
+
 IOStatus FaultInjectionTestFS::NewWritableFile(
     const std::string& fname, const FileOptions& file_opts,
     std::unique_ptr<FSWritableFile>* result, IODebugContext* dbg) {
@@ -933,6 +1007,11 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
     return io_s;
   }
 
+  io_s = ValidateWriteOpen(fname, "NewWritableFile");
+  if (!io_s.ok()) {
+    return io_s;
+  }
+
   io_s = target()->NewWritableFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
     result->reset(
@@ -940,9 +1019,9 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
     // WritableFileWriter* file is opened
     // again then it will be truncated - so forget our saved state.
     UntrackFile(fname);
+    WritableFileOpened(fname, file_opts.open_contract);
     {
       MutexLock l(&mutex_);
-      open_managed_files_.insert(fname);
       auto dir_and_name = TestFSGetDirAndName(fname);
       auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
       // The new file could overwrite an old one. Here we simplify
@@ -986,6 +1065,8 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
     return io_s;
   }
 
+  // Reopen is allowed so SyncFile can use the reopened handle. Reopened handles
+  // carrying kNoReopenForWrite are rejected only if they mutate file data.
   io_s = target()->ReopenWritableFile(fname, file_opts, result, dbg);
 
   // Only track files we created. Files created outside of this
@@ -1004,7 +1085,8 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
       } else if (!exists) {
         // It was created by this `FileSystem` just now.
         should_track = true;
-        open_managed_files_.insert(fname);
+        open_managed_files_[fname] = file_opts.open_contract;
+        file_open_contracts_[fname] = file_opts.open_contract;
         auto dir_and_name = TestFSGetDirAndName(fname);
         auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
         list[dir_and_name.second] = kNewFileNoOverwrite;
@@ -1013,8 +1095,9 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
       }
     }
     if (should_track) {
-      result->reset(
-          new TestFSWritableFile(fname, file_opts, std::move(*result), this));
+      result->reset(new TestFSWritableFile(fname, file_opts, std::move(*result),
+                                           this,
+                                           /*reopened_for_write=*/exists));
     }
   }
   return io_s;
@@ -1034,6 +1117,10 @@ IOStatus FaultInjectionTestFS::ReuseWritableFile(
     const std::string& fname, const std::string& old_fname,
     const FileOptions& file_opts, std::unique_ptr<FSWritableFile>* result,
     IODebugContext* dbg) {
+  IOStatus contract_s = ValidateWriteOpen(old_fname, "ReuseWritableFile");
+  if (!contract_s.ok()) {
+    return contract_s;
+  }
   IOStatus s = RenameFile(old_fname, fname, file_opts.io_options, dbg);
   if (!s.ok()) {
     return s;
@@ -1057,6 +1144,11 @@ IOStatus FaultInjectionTestFS::NewRandomRWFile(
     return io_s;
   }
 
+  io_s = ValidateWriteOpen(fname, "NewRandomRWFile");
+  if (!io_s.ok()) {
+    return io_s;
+  }
+
   io_s = target()->NewRandomRWFile(fname, file_opts, result, dbg);
 
   if (io_s.ok()) {
@@ -1064,9 +1156,9 @@ IOStatus FaultInjectionTestFS::NewRandomRWFile(
     // WritableFileWriter* file is opened
     // again then it will be truncated - so forget our saved state.
     UntrackFile(fname);
+    WritableFileOpened(fname, file_opts.open_contract);
     {
       MutexLock l(&mutex_);
-      open_managed_files_.insert(fname);
       auto dir_and_name = TestFSGetDirAndName(fname);
       auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
       // It could be overwriting an old file, but we simplify the
@@ -1092,6 +1184,11 @@ IOStatus FaultInjectionTestFS::NewRandomAccessFile(
     return io_s;
   }
 
+  io_s = ValidateReadOpen(fname, "NewRandomAccessFile");
+  if (!io_s.ok()) {
+    return io_s;
+  }
+
   io_s = target()->NewRandomAccessFile(fname, file_opts, result, dbg);
 
   if (io_s.ok()) {
@@ -1111,6 +1208,11 @@ IOStatus FaultInjectionTestFS::NewSequentialFile(
       fname, {}, ErrorOperation::kOpen, nullptr /* result */,
       false /* direct_io */, nullptr /* scratch */,
       true /*need_count_increase*/, nullptr /*fault_injected*/);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+
+  io_s = ValidateReadOpen(fname, "NewSequentialFile");
   if (!io_s.ok()) {
     return io_s;
   }
@@ -1228,6 +1330,16 @@ IOStatus FaultInjectionTestFS::RenameFile(const std::string& s,
         db_file_state_[t] = db_file_state_[s];
         db_file_state_.erase(s);
       }
+      auto open_contract_it = open_managed_files_.find(s);
+      if (open_contract_it != open_managed_files_.end()) {
+        open_managed_files_[t] = open_contract_it->second;
+        open_managed_files_.erase(open_contract_it);
+      }
+      auto contract_it = file_open_contracts_.find(s);
+      if (contract_it != file_open_contracts_.end()) {
+        file_open_contracts_[t] = contract_it->second;
+        file_open_contracts_.erase(contract_it);
+      }
 
       auto sdn = TestFSGetDirAndName(s);
       auto tdn = TestFSGetDirAndName(t);
@@ -1271,6 +1383,10 @@ IOStatus FaultInjectionTestFS::LinkFile(const std::string& s,
       }
       if (db_file_state_.find(s) != db_file_state_.end()) {
         db_file_state_[t] = db_file_state_[s];
+      }
+      auto contract_it = file_open_contracts_.find(s);
+      if (contract_it != file_open_contracts_.end()) {
+        file_open_contracts_[t] = contract_it->second;
       }
 
       auto sdn = TestFSGetDirAndName(s);
@@ -1461,6 +1577,8 @@ IOStatus FaultInjectionTestFS::DeleteFilesCreatedAfterLastDirSync(
 void FaultInjectionTestFS::ResetState() {
   MutexLock l(&mutex_);
   db_file_state_.clear();
+  open_managed_files_.clear();
+  file_open_contracts_.clear();
   dir_to_new_files_since_last_sync_.clear();
   SetFilesystemActiveNoLock(true);
 }
@@ -1472,6 +1590,7 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
       dir_and_name.second);
   db_file_state_.erase(f);
   open_managed_files_.erase(f);
+  file_open_contracts_.erase(f);
 }
 
 IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(

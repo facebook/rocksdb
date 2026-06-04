@@ -22,6 +22,7 @@
 #include "logging/logging.h"
 #include "options/cf_options.h"
 #include "options/options_helper.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "test_util/sync_point.h"
@@ -200,6 +201,8 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   {
     assert(file_options_);
     fo_copy = *file_options_;
+    fo_copy.open_contract = FileOpenContract::kNoReopenForWrite |
+                            FileOpenContract::kNoReadersWhileOpenForWrite;
     fo_copy.write_hint = write_hint_;
     Status s = NewWritableFile(fs_, blob_file_path, &file, fo_copy);
 

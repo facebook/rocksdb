@@ -12,9 +12,11 @@
 #include <cinttypes>
 #include <cstdint>
 #include <string>
+#include <utility>
 
 #include "block_fetcher.h"
 #include "file/random_access_file_reader.h"
+#include "file/read_write_util.h"
 #include "memory/memory_allocator_impl.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics_impl.h"
@@ -498,16 +500,11 @@ static Status ReadFooterFromFileInternal(
     FilePrefetchBuffer* prefetch_buffer, uint64_t expected_file_size,
     Footer* footer, uint64_t enforce_table_magic_number) {
   uint64_t file_size_from_file_system = 0;
-  Status s;
-  // Prefer the more efficient FSRandomAccessFile::GetFileSize when available
-  s = file->file()->GetFileSize(&file_size_from_file_system);
+  Status s = GetFileSizeFromOpenFileOrPath(file->file(), &fs, file->file_name(),
+                                           &file_size_from_file_system, nullptr,
+                                           FileSizeFallback::kAnyOpenFileError);
   if (!s.ok()) {
-    // Fall back on FileSystem::GetFileSize on failure
-    s = fs.GetFileSize(file->file_name(), IOOptions(),
-                       &file_size_from_file_system, nullptr);
-    if (!s.ok()) {
-      return s;
-    }
+    return s;
   }
 
   if (expected_file_size != file_size_from_file_system) {
