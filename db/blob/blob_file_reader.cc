@@ -12,6 +12,7 @@
 #include "db/blob/blob_log_format.h"
 #include "file/file_prefetch_buffer.h"
 #include "file/filename.h"
+#include "file/read_write_util.h"
 #include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
 #include "rocksdb/file_system.h"
@@ -105,24 +106,6 @@ Status BlobFileReader::OpenFile(
 
   constexpr IODebugContext* dbg = nullptr;
 
-  {
-    TEST_SYNC_POINT("BlobFileReader::OpenFile:GetFileSize");
-
-    const Status s =
-        fs->GetFileSize(blob_file_path, IOOptions(), file_size, dbg);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-
-  if (!skip_footer_size_check &&
-      *file_size < BlobLogHeader::kSize + BlobLogFooter::kSize) {
-    return Status::Corruption("Malformed blob file");
-  }
-  if (skip_footer_size_check && *file_size < BlobLogHeader::kSize) {
-    return Status::Corruption("Malformed blob file");
-  }
-
   std::unique_ptr<FSRandomAccessFile> file;
   FileOptions reader_file_opts = file_opts;
 
@@ -141,6 +124,24 @@ Status BlobFileReader::OpenFile(
   }
 
   assert(file);
+
+  {
+    Status s = GetFileSizeFromOpenFileOrPath(
+        file.get(), fs, blob_file_path, file_size, dbg,
+        FileSizeFallback::kNotSupportedOnly,
+        []() { TEST_SYNC_POINT("BlobFileReader::OpenFile:GetFileSize"); });
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  if (!skip_footer_size_check &&
+      *file_size < BlobLogHeader::kSize + BlobLogFooter::kSize) {
+    return Status::Corruption("Malformed blob file");
+  }
+  if (skip_footer_size_check && *file_size < BlobLogHeader::kSize) {
+    return Status::Corruption("Malformed blob file");
+  }
 
   if (immutable_options.advise_random_on_open) {
     file->Hint(FSRandomAccessFile::kRandom);
