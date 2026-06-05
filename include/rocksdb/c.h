@@ -2359,6 +2359,9 @@ extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_read_tier(
     rocksdb_readoptions_t*, int);
 extern ROCKSDB_LIBRARY_API int rocksdb_readoptions_get_read_tier(
     rocksdb_readoptions_t*);
+// Sets whether iterators are tailing. Tailing iterators can read newly added
+// data after a seek refresh, but Next() is not guaranteed to observe keys
+// inserted after the most recent seek that sort before the next visible key.
 extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_tailing(
     rocksdb_readoptions_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_readoptions_get_tailing(
