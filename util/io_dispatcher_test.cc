@@ -604,10 +604,9 @@ TEST_F(IODispatcherTest, BasicSSTRead) {
   ASSERT_EQ(total_reads, block_handles.size());
 }
 
-// Verifies that setting a read-scoped provider forces MultiScan data blocks to
-// bypass the block cache even when one exists. The test reads through
-// IODispatcher and checks there are no cache hits and the returned block memory
-// belongs to the provider.
+// Verifies that setting a read-scoped provider makes IODispatcher data-block
+// reads bypass the block cache even when one exists. The test checks there are
+// no cache hits and the returned block memory belongs to the provider.
 TEST_F(IODispatcherTest, ReadScopedProviderBypassesBlockCache) {
   TestReadScopedBlockBufferProvider provider;
   BlockBasedTableOptions table_options;
@@ -1050,26 +1049,26 @@ TEST_F(IODispatcherTest, ReadScopedProviderSkipsCacheLookupAndInsert) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   tracking_fs_->ClearReadOps();
-  auto bypass_job = std::make_shared<IOJob>();
-  bypass_job->block_handles = {block_handles[0], block_handles[1]};
-  bypass_job->table = table.get();
-  bypass_job->job_options.read_options.async_io = false;
-  bypass_job->job_options.read_options.read_scoped_block_buffer_provider =
+  auto provider_job = std::make_shared<IOJob>();
+  provider_job->block_handles = {block_handles[0], block_handles[1]};
+  provider_job->table = table.get();
+  provider_job->job_options.read_options.async_io = false;
+  provider_job->job_options.read_options.read_scoped_block_buffer_provider =
       &provider;
-  bypass_job->job_options.io_coalesce_threshold = 1024 * 1024;
+  provider_job->job_options.io_coalesce_threshold = 1024 * 1024;
 
-  std::shared_ptr<ReadSet> bypass_read_set;
-  ASSERT_OK(dispatcher->SubmitJob(bypass_job, &bypass_read_set));
-  ASSERT_NE(bypass_read_set, nullptr);
-  EXPECT_EQ(bypass_read_set->GetNumCacheHits(), 0);
+  std::shared_ptr<ReadSet> provider_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(provider_job, &provider_read_set));
+  ASSERT_NE(provider_read_set, nullptr);
+  EXPECT_EQ(provider_read_set->GetNumCacheHits(), 0);
   EXPECT_GT(tracking_fs_->GetMultiReadCount(), 0);
-  for (size_t i = 0; i < bypass_job->block_handles.size(); ++i) {
+  for (size_t i = 0; i < provider_job->block_handles.size(); ++i) {
     CachableEntry<Block> block;
-    ASSERT_OK(bypass_read_set->ReadIndex(i, &block));
+    ASSERT_OK(provider_read_set->ReadIndex(i, &block));
     ASSERT_NE(block.GetValue(), nullptr);
   }
   EXPECT_EQ(lookup_calls, 0);
-  bypass_read_set.reset();
+  provider_read_set.reset();
   EXPECT_EQ(provider.bytes_outstanding(), 0);
 
   SyncPoint::GetInstance()->DisableProcessing();
@@ -1116,25 +1115,25 @@ TEST_F(IODispatcherTest,
       [&](void*) { ++lookup_calls; });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  auto bypass_job = std::make_shared<IOJob>();
-  bypass_job->block_handles = {block_handles[0]};
-  bypass_job->table = table.get();
-  bypass_job->job_options.read_options.async_io = false;
-  bypass_job->job_options.read_options.read_scoped_block_buffer_provider =
+  auto provider_job = std::make_shared<IOJob>();
+  provider_job->block_handles = {block_handles[0]};
+  provider_job->table = table.get();
+  provider_job->job_options.read_options.async_io = false;
+  provider_job->job_options.read_options.read_scoped_block_buffer_provider =
       &provider;
 
-  std::shared_ptr<ReadSet> bypass_read_set;
-  ASSERT_OK(dispatcher->SubmitJob(bypass_job, &bypass_read_set));
-  ASSERT_NE(bypass_read_set, nullptr);
-  EXPECT_EQ(bypass_read_set->GetNumCacheHits(), 0);
+  std::shared_ptr<ReadSet> provider_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(provider_job, &provider_read_set));
+  ASSERT_NE(provider_read_set, nullptr);
+  EXPECT_EQ(provider_read_set->GetNumCacheHits(), 0);
 
   CachableEntry<Block> block;
-  ASSERT_OK(bypass_read_set->ReadIndex(0, &block));
+  ASSERT_OK(provider_read_set->ReadIndex(0, &block));
   ASSERT_NE(block.GetValue(), nullptr);
-  EXPECT_EQ(bypass_read_set->GetNumSyncReads(), 1);
+  EXPECT_EQ(provider_read_set->GetNumSyncReads(), 1);
   EXPECT_EQ(lookup_calls, 0);
   block.Reset();
-  bypass_read_set.reset();
+  provider_read_set.reset();
   EXPECT_EQ(provider.bytes_outstanding(), 0);
 
   SyncPoint::GetInstance()->DisableProcessing();

@@ -152,7 +152,6 @@ class BlockBasedTable;
 struct JobOptions {
   uint64_t io_coalesce_threshold = 16 * 1024;
   ReadOptions read_options;
-
 };
 
 class IOJob {
