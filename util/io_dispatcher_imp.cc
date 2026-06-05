@@ -1284,7 +1284,7 @@ Status IODispatcherImpl::Impl::ExecuteSyncIO(
   // Execute MultiRead
   if (Status s =
           rep->file->MultiRead(io_opts, read_reqs.data(), read_reqs.size(),
-                               direct_io_buffer, /*dbg=*/nullptr);
+                               &direct_io_buffer, /*dbg=*/nullptr);
       !s.ok()) {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
     permit_unchecked_read_req_statuses();

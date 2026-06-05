@@ -349,9 +349,10 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
 IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
                                            FSReadRequest* read_reqs,
                                            size_t num_reqs,
-                                           AlignedBuffer& direct_io_buffer,
+                                           AlignedBuffer* direct_io_buffer,
                                            IODebugContext* dbg) const {
   assert(num_reqs > 0);
+  assert(direct_io_buffer != nullptr);
 
 #ifndef NDEBUG
   for (size_t i = 0; i < num_reqs - 1; ++i) {
@@ -413,14 +414,14 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
       for (const auto& r : aligned_reqs) {
         total_len += r.len;
       }
-      direct_io_buffer.Alignment(alignment);
+      direct_io_buffer->Alignment(alignment);
       Status allocate_status =
-          direct_io_buffer.AllocateNewBufferUsingAllocator(total_len);
+          direct_io_buffer->AllocateNewBufferUsingAllocator(total_len);
       if (!allocate_status.ok()) {
         io_s = status_to_io_status(std::move(allocate_status));
       }
       if (io_s.ok()) {
-        char* scratch = direct_io_buffer.BufferStart();
+        char* scratch = direct_io_buffer->BufferStart();
         for (auto& r : aligned_reqs) {
           r.scratch = scratch;
           scratch += r.len;

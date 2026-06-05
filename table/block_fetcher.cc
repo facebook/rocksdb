@@ -328,7 +328,7 @@ void BlockFetcher::ReadBlock(bool retry) {
       read_req.scratch = nullptr;
       AlignedBuffer direct_io_buffer;
       io_status_ = file_->MultiRead(opts, &read_req, /*num_reqs=*/1,
-                                    direct_io_buffer, &dbg);
+                                    &direct_io_buffer, &dbg);
       PERF_COUNTER_ADD(block_read_count, 1);
 
       slice_ = Slice(read_req.result.data(), read_req.result.size());

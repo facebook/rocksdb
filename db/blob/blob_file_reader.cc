@@ -502,7 +502,7 @@ void BlobFileReader::MultiGetBlob(
   s = file_reader_->PrepareIOOptions(read_options, opts, &dbg);
   if (s.ok()) {
     s = file_reader_->MultiRead(opts, read_reqs.data(), read_reqs.size(),
-                                direct_io_buffer, &dbg);
+                                &direct_io_buffer, &dbg);
   }
   if (!s.ok()) {
     for (auto& req : read_reqs) {

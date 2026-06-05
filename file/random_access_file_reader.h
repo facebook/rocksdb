@@ -172,11 +172,12 @@ class RandomAccessFileReader {
   // num_reqs > 0, reqs do not overlap, and offsets in reqs are increasing.
   // MultiRead uses direct_io_buffer to allocate the aligned buffer in direct
   // IO mode. The result Slices in reqs refer to direct_io_buffer, so callers
-  // must keep it alive while those Slices are used. Callers should pass a
-  // default-constructed AlignedBuffer when default heap-backed allocation is
-  // sufficient. direct_io_buffer is ignored in non-direct IO mode.
+  // must pass a non-null pointer and keep it alive while those Slices are used.
+  // Callers should pass a default-constructed AlignedBuffer when default
+  // heap-backed allocation is sufficient. direct_io_buffer is ignored in
+  // non-direct IO mode.
   IOStatus MultiRead(const IOOptions& opts, FSReadRequest* reqs,
-                     size_t num_reqs, AlignedBuffer& direct_io_buffer,
+                     size_t num_reqs, AlignedBuffer* direct_io_buffer,
                      IODebugContext* dbg = nullptr) const;
 
   IOStatus Prefetch(const IOOptions& opts, uint64_t offset, size_t n,
