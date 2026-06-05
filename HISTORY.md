@@ -1,6 +1,9 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.4.1 (06/05/2026)
+* No-op patch used to sync with internal fb version.
+
 ## 11.4.0 (06/02/2026)
 ### Public API Changes
 * Added `rocksdb_options_set_memtable_batch_lookup_optimization()` and `rocksdb_options_get_memtable_batch_lookup_optimization()` to the C API, exposing the existing `AdvancedColumnFamilyOptions::memtable_batch_lookup_optimization` field. This allows C API users (and downstream language bindings) to enable the skip-list memtable's batch-lookup optimization for `MultiGet`, which caches the search path between consecutive keys and reduces per-key cost from O(log N) to O(log d) where d is the distance between consecutive keys.
