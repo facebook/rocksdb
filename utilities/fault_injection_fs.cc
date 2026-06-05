@@ -968,20 +968,44 @@ IOStatus FaultInjectionTestFS::ValidateReadOpen(const std::string& fname,
 
 IOStatus FaultInjectionTestFS::ValidateWriteOpen(const std::string& fname,
                                                  const char* op_name) {
-  return ValidateNoReopenForWrite(fname, op_name);
+  return ValidateNoReopenForWrite(fname, op_name,
+                                  true /* allow_missing_file */);
 }
 
 IOStatus FaultInjectionTestFS::ValidateReopenedWrite(const std::string& fname,
                                                      const char* op_name) {
-  return ValidateNoReopenForWrite(fname, op_name);
+  return ValidateNoReopenForWrite(fname, op_name,
+                                  false /* allow_missing_file */);
 }
 
 IOStatus FaultInjectionTestFS::ValidateNoReopenForWrite(
-    const std::string& fname, const char* op_name) {
-  MutexLock l(&mutex_);
-  auto it = file_open_contracts_.find(fname);
-  if (it != file_open_contracts_.end() &&
-      HasFileOpenContract(it->second, FileOpenContract::kNoReopenForWrite)) {
+    const std::string& fname, const char* op_name, bool allow_missing_file) {
+  FileOpenContract open_contract = FileOpenContract::kDefault;
+  {
+    MutexLock l(&mutex_);
+    auto it = file_open_contracts_.find(fname);
+    if (it != file_open_contracts_.end()) {
+      open_contract = it->second;
+    }
+  }
+  if (HasFileOpenContract(open_contract, FileOpenContract::kNoReopenForWrite)) {
+    if (allow_missing_file) {
+      // Some crash-simulation paths can make the target file disappear without
+      // going through DeleteFile, so clear stale contracts lazily at open time.
+      IOStatus exists_s =
+          target()->FileExists(fname, IOOptions(), nullptr /* dbg */);
+      if (exists_s.IsNotFound()) {
+        MutexLock l(&mutex_);
+        auto it = file_open_contracts_.find(fname);
+        if (it != file_open_contracts_.end() && it->second == open_contract) {
+          file_open_contracts_.erase(it);
+        }
+        return IOStatus::OK();
+      }
+      if (!exists_s.ok()) {
+        return exists_s;
+      }
+    }
     return IOStatus::NotSupported(
         std::string(op_name) +
         " violates no-reopen-for-write contract: " + fname);

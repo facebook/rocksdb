@@ -694,6 +694,30 @@ TEST(FaultInjectionFSTest,
   ASSERT_TRUE(s.IsNotSupported());
   ASSERT_OK(reopened_writer->Close(IOOptions(), nullptr));
 }
+
+TEST(FaultInjectionFSTest, FileOpenContractAllowsCreateAfterDelete) {
+  std::shared_ptr<FaultInjectionTestFS> fault_fs =
+      std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
+  const std::string fname =
+      test::PerThreadDBPath("file_open_contract_recreate_after_delete");
+
+  FileOptions writer_options;
+  writer_options.open_contract = FileOpenContract::kNoReopenForWrite;
+
+  std::unique_ptr<FSWritableFile> writer;
+  ASSERT_OK(fault_fs->NewWritableFile(fname, writer_options, &writer, nullptr));
+  ASSERT_OK(writer->Append("abc", IOOptions(), nullptr));
+  ASSERT_OK(writer->Close(IOOptions(), nullptr));
+
+  ASSERT_OK(FileSystem::Default()->DeleteFile(fname, IOOptions(), nullptr));
+
+  std::unique_ptr<FSWritableFile> recreated_writer;
+  ASSERT_OK(fault_fs->NewWritableFile(fname, writer_options, &recreated_writer,
+                                      nullptr));
+  ASSERT_OK(recreated_writer->Append("def", IOOptions(), nullptr));
+  ASSERT_OK(recreated_writer->Close(IOOptions(), nullptr));
+  ASSERT_OK(fault_fs->DeleteFile(fname, IOOptions(), nullptr));
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
