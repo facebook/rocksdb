@@ -149,6 +149,26 @@ Cache management is critical for RocksDB's performance.
 
 When reviewing RocksDB code (or preparing code for review), use this checklist:
 
+### Contract Boundaries
+- [ ] Is each behavior owned by the right layer? High-level policy (for example,
+  "compaction wants this I/O mode") should live at the caller/policy layer, while
+  lower layers should expose generic mechanisms (for example, "open a fresh
+  reader", "skip shared cache insertion", or "use these FileOptions").
+- [ ] Do comments and names describe local contracts rather than leaking a
+  specific caller's rationale into reusable APIs? Generic code should not need to
+  know about one current use case unless the API itself is intentionally
+  use-case-specific.
+- [ ] Does each flag or parameter control one coherent behavior? If one boolean
+  starts implying ownership, cache policy, I/O mode, prefetching, and caller
+  identity, split it into explicit flags or an options struct.
+- [ ] Could a future caller use this lower-level API without accidentally
+  inheriting assumptions from compaction, backup, user reads, or a particular
+  table format? If not, tighten the contract with assertions, clearer names, or
+  a narrower API.
+- [ ] Are implementation details not being used as policy signals? Prefer an
+  explicit contract over inferring behavior from incidental fields such as file
+  options, cache handles, or current table-reader state.
+
 ### Correctness
 - [ ] Does the change preserve database semantics (e.g., snapshot isolation, key ordering)?
 - [ ] Are all error cases handled appropriately?
@@ -203,6 +223,14 @@ The following patterns emerged as frequent sources of review feedback:
 9. **Refactoring:** Reviewers appreciate refactoring that improves code readability and maintainability. Look for opportunities to deduplicate code and simplify complex logic.
 
 10. **Platform Compatibility:** Ensure changes work correctly on all supported platforms (Linux, Windows, macOS) and with all supported compilers (GCC, Clang, MSVC).
+
+11. **Contract Boundary Leaks:** When a change plumbs a new option or use-case
+specific behavior through multiple subsystems, review the call chain for
+contract leaks. Caller-specific rationale belongs at the call site or public API
+documentation; reusable layers should expose precise, layer-local capabilities.
+Watch especially for comments mentioning one caller in generic code, booleans
+that silently bundle several behaviors, and downstream code inferring policy
+from an implementation detail instead of an explicit option.
 
 ---
 
