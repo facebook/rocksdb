@@ -69,7 +69,7 @@ void FilePrefetchBuffer::PrepareBufferForRead(
   // than 0).
   if (buf->buffer_.Capacity() < roundup_len) {
     buf->buffer_.Alignment(alignment);
-    buf->buffer_.AllocateNewBuffer(
+    buf->buffer_.ReallocateHeapBuffer(
         static_cast<size_t>(roundup_len), copy_data_to_new_buffer,
         aligned_useful_offset_in_buf, static_cast<size_t>(aligned_useful_len));
   } else if (aligned_useful_len > 0 && refit_tail) {
@@ -84,7 +84,7 @@ void FilePrefetchBuffer::PrepareBufferForRead(
     // this as it's not refitting.
     // TODO: Use refit_tail for async prefetching too.
     buf->buffer_.Alignment(alignment);
-    buf->buffer_.AllocateNewBuffer(
+    buf->buffer_.ReallocateHeapBuffer(
         static_cast<size_t>(roundup_len), copy_data_to_new_buffer,
         aligned_useful_offset_in_buf, static_cast<size_t>(aligned_useful_len));
   }
@@ -502,7 +502,7 @@ void FilePrefetchBuffer::HandleOverlappingSyncData(uint64_t offset,
     use_overlap_buffer = true;
     overlap_buf_->ClearBuffer();
     overlap_buf_->buffer_.Alignment(1);
-    overlap_buf_->buffer_.AllocateNewBuffer(length);
+    overlap_buf_->buffer_.ReallocateHeapBuffer(length);
     overlap_buf_->offset_ = offset;
     CopyDataToOverlapBuffer(buf, tmp_offset, tmp_length);
     UpdateStats(/*found_in_buffer=*/false, overlap_buf_->CurrentSize());
@@ -557,7 +557,7 @@ Status FilePrefetchBuffer::HandleOverlappingAsyncData(
     // Allocate new buffer to overlap_buf_.
     overlap_buf_->ClearBuffer();
     overlap_buf_->buffer_.Alignment(alignment);
-    overlap_buf_->buffer_.AllocateNewBuffer(length);
+    overlap_buf_->buffer_.ReallocateHeapBuffer(length);
     overlap_buf_->offset_ = offset;
     copy_to_overlap_buffer = true;
 

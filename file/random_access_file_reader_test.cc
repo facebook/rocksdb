@@ -141,7 +141,7 @@ TEST_F(RandomAccessFileReaderTest, ReadDirectIOUsesExternalBuffer) {
         requested_size = size;
         requested_alignment = alignment;
         external_storage.Alignment(alignment);
-        external_storage.AllocateNewBuffer(size);
+        external_storage.ReallocateHeapBuffer(size);
         out->data = external_storage.BufferStart();
         out->size = external_storage.Capacity();
         out->owner =
@@ -409,7 +409,7 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIOUsesExternalBuffer) {
         requested_size = size;
         requested_alignment = alignment;
         external_storage.Alignment(alignment);
-        external_storage.AllocateNewBuffer(size);
+        external_storage.ReallocateHeapBuffer(size);
         out->data = external_storage.BufferStart();
         out->size = external_storage.Capacity();
         out->owner =

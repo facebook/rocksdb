@@ -311,7 +311,7 @@ class IODispatcherTest : public DBTestBase {
       allocation->size = size;
       allocation->alignment = alignment;
       allocation->storage.Alignment(alignment);
-      allocation->storage.AllocateNewBuffer(size);
+      allocation->storage.ReallocateHeapBuffer(size);
       allocation->data = allocation->storage.BufferStart();
       bytes_outstanding_.fetch_add(size, std::memory_order_relaxed);
       allocations_.fetch_add(1, std::memory_order_relaxed);

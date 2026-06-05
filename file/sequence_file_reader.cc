@@ -58,7 +58,7 @@ IOStatus SequentialFileReader::Read(size_t n, Slice* result, char* scratch,
     size_t r = 0;
     AlignedBuffer buf;
     buf.Alignment(alignment);
-    buf.AllocateNewBuffer(size);
+    buf.ReallocateHeapBuffer(size);
 
     while (buf.CurrentSize() < size) {
       size_t allowed;
@@ -165,7 +165,7 @@ class ReadaheadSequentialFile : public FSSequentialFile {
         buffer_offset_(0),
         read_offset_(0) {
     buffer_.Alignment(alignment_);
-    buffer_.AllocateNewBuffer(readahead_size_);
+    buffer_.ReallocateHeapBuffer(readahead_size_);
   }
 
   ReadaheadSequentialFile(const ReadaheadSequentialFile&) = delete;

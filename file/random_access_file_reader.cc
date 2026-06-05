@@ -176,7 +176,7 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
           direct_io_buffer != nullptr ? direct_io_buffer : &buf;
       aligned_read_buffer->Alignment(alignment);
       Status allocate_status =
-          aligned_read_buffer->AllocateNewBufferWithStatus(read_size);
+          aligned_read_buffer->AllocateNewBufferUsingAllocator(read_size);
       if (!allocate_status.ok()) {
         io_s = status_to_io_status(std::move(allocate_status));
       }
@@ -415,7 +415,7 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
       }
       direct_io_buffer.Alignment(alignment);
       Status allocate_status =
-          direct_io_buffer.AllocateNewBufferWithStatus(total_len);
+          direct_io_buffer.AllocateNewBufferUsingAllocator(total_len);
       if (!allocate_status.ok()) {
         io_s = status_to_io_status(std::move(allocate_status));
       }
@@ -576,7 +576,7 @@ IOStatus RandomAccessFileReader::ReadAsync(
         direct_io_buffer != nullptr ? direct_io_buffer : &read_async_info->buf_;
     aligned_read_buffer->Alignment(alignment);
     Status allocate_status =
-        aligned_read_buffer->AllocateNewBufferWithStatus(aligned_req.len);
+        aligned_read_buffer->AllocateNewBufferUsingAllocator(aligned_req.len);
     if (!allocate_status.ok()) {
       delete read_async_info;
       return status_to_io_status(std::move(allocate_status));

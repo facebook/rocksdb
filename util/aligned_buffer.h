@@ -54,10 +54,10 @@ inline size_t Rounddown(size_t x, size_t y) { return (x / y) * y; }
 // Example:
 //   AlignedBuffer buf;
 //   buf.Alignment(alignment);
-//   buf.AllocateNewBuffer(user_requested_buf_size);
+//   buf.ReallocateHeapBuffer(user_requested_buf_size);
 //   ...
-//   buf.AllocateNewBuffer(2*user_requested_buf_size, /*copy_data*/ true,
-//                         copy_offset, copy_len);
+//   buf.ReallocateHeapBuffer(2*user_requested_buf_size, /*copy_data*/ true,
+//                            copy_offset, copy_len);
 class AlignedBuffer {
  public:
   struct ExternalAllocation {
@@ -149,8 +149,9 @@ class AlignedBuffer {
     bufstart_ = const_cast<char*>(result.data());
   }
 
-  // Allocates a new buffer and sets the start position to the first aligned
-  // byte.
+  // Reallocates this buffer using RocksDB heap memory and sets the start
+  // position to the first aligned byte. External allocators are intentionally
+  // not used here because this helper can preserve old buffer contents.
   //
   // requested_capacity: requested new buffer capacity. This capacity will be
   //     rounded up based on alignment.
@@ -164,8 +165,9 @@ class AlignedBuffer {
   // The function does nothing if the new requested_capacity is smaller than
   // the current buffer capacity and copy_data is true i.e. the old buffer is
   // retained as is.
-  void AllocateNewBuffer(size_t requested_capacity, bool copy_data = false,
-                         uint64_t copy_offset = 0, size_t copy_len = 0) {
+  void ReallocateHeapBuffer(size_t requested_capacity, bool copy_data = false,
+                            uint64_t copy_offset = 0, size_t copy_len = 0) {
+    assert(!allocator_);
     assert(alignment_ > 0);
     assert((alignment_ & (alignment_ - 1)) == 0);
 
@@ -199,9 +201,11 @@ class AlignedBuffer {
         [](void* p) { delete[] static_cast<char*>(p); });
   }
 
-  Status AllocateNewBufferWithStatus(size_t requested_capacity) {
+  // Allocates a fresh buffer, using the external allocator when configured and
+  // RocksDB heap memory otherwise. This helper does not preserve old contents.
+  Status AllocateNewBufferUsingAllocator(size_t requested_capacity) {
     if (!allocator_) {
-      AllocateNewBuffer(requested_capacity);
+      ReallocateHeapBuffer(requested_capacity);
       return Status::OK();
     }
 

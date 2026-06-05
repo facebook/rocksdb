@@ -81,7 +81,7 @@ class StressReadScopedBlockBufferProvider
     allocation->requested_size = size;
     allocation->requested_alignment = alignment;
     allocation->storage.Alignment(alignment);
-    allocation->storage.AllocateNewBuffer(size);
+    allocation->storage.ReallocateHeapBuffer(size);
     allocation->data = allocation->storage.BufferStart();
     allocation->size = allocation->storage.Capacity();
 
