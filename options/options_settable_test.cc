@@ -715,7 +715,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "bottommost_file_compaction_delay=7200;"
       "uncache_aggressiveness=1234;"
       "paranoid_memory_checks=1;"
-      "memtable_veirfy_per_key_checksum_on_seek=1;"
+      "memtable_verify_per_key_checksum_on_seek=1;"
       "memtable_op_scan_flush_trigger=123;"
       "memtable_avg_op_scan_flush_trigger=12;"
       "min_tombstones_for_range_conversion=8;"

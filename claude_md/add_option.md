@@ -46,7 +46,7 @@ This document provides guidance on how to add new options to RocksDB's public AP
 
 ## Pattern 1: Adding a Standard Column Family Option
 
-Example reference: commit `94e65a2e0b4f817aa4bfa4c96cdf867e7980d7bc` (memtable_veirfy_per_key_checksum_on_seek)
+Example reference: commit `94e65a2e0b4f817aa4bfa4c96cdf867e7980d7bc` (memtable_verify_per_key_checksum_on_seek)
 
 ### Step 1: Define the Option in Public Header
 
@@ -63,7 +63,7 @@ Add the option with documentation in `AdvancedColumnFamilyOptions` struct:
 // operation.
 // This option depends on memtable_protection_bytes_per_key to be non zero.
 // If memtable_protection_bytes_per_key is zero, no validation is performed.
-bool memtable_veirfy_per_key_checksum_on_seek = false;
+bool memtable_verify_per_key_checksum_on_seek = false;
 ```
 
 ### Step 2: Add to Internal Options Structs
@@ -74,14 +74,14 @@ Add to `MutableCFOptions` struct (or `ImmutableCFOptions` for immutable options)
 
 ```cpp
 // In MutableCFOptions constructor from Options:
-memtable_veirfy_per_key_checksum_on_seek(
-    options.memtable_veirfy_per_key_checksum_on_seek),
+memtable_verify_per_key_checksum_on_seek(
+    options.memtable_verify_per_key_checksum_on_seek),
 
 // In MutableCFOptions default constructor:
-memtable_veirfy_per_key_checksum_on_seek(false),
+memtable_verify_per_key_checksum_on_seek(false),
 
 // In MutableCFOptions struct member declarations:
-bool memtable_veirfy_per_key_checksum_on_seek;
+bool memtable_verify_per_key_checksum_on_seek;
 ```
 
 ### Step 3: Register for Serialization/Deserialization
@@ -91,9 +91,9 @@ bool memtable_veirfy_per_key_checksum_on_seek;
 Add to the options type info map for serialization:
 
 ```cpp
-{"memtable_veirfy_per_key_checksum_on_seek",
+{"memtable_verify_per_key_checksum_on_seek",
  {offsetof(struct MutableCFOptions,
-           memtable_veirfy_per_key_checksum_on_seek),
+           memtable_verify_per_key_checksum_on_seek),
   OptionType::kBoolean, OptionVerificationType::kNormal,
   OptionTypeFlags::kMutable}},
 ```
@@ -101,8 +101,8 @@ Add to the options type info map for serialization:
 Add logging in `MutableCFOptions::Dump()`:
 
 ```cpp
-ROCKS_LOG_INFO(log, "memtable_veirfy_per_key_checksum_on_seek: %d",
-               memtable_veirfy_per_key_checksum_on_seek);
+ROCKS_LOG_INFO(log, "memtable_verify_per_key_checksum_on_seek: %d",
+               memtable_verify_per_key_checksum_on_seek);
 ```
 
 ### Step 4: Update Options Helper
@@ -112,8 +112,8 @@ ROCKS_LOG_INFO(log, "memtable_veirfy_per_key_checksum_on_seek: %d",
 Add to `UpdateColumnFamilyOptions()`:
 
 ```cpp
-cf_opts->memtable_veirfy_per_key_checksum_on_seek =
-    moptions.memtable_veirfy_per_key_checksum_on_seek;
+cf_opts->memtable_verify_per_key_checksum_on_seek =
+    moptions.memtable_verify_per_key_checksum_on_seek;
 ```
 
 ### Step 5: Add to Options Settable Test
@@ -123,7 +123,7 @@ cf_opts->memtable_veirfy_per_key_checksum_on_seek =
 Add to the test string in `ColumnFamilyOptionsAllFieldsSettable`:
 
 ```cpp
-"memtable_veirfy_per_key_checksum_on_seek=1;"
+"memtable_verify_per_key_checksum_on_seek=1;"
 ```
 
 ### Step 6: Add db_stress Support
@@ -131,23 +131,23 @@ Add to the test string in `ColumnFamilyOptionsAllFieldsSettable`:
 **File: `db_stress_tool/db_stress_common.h`**
 
 ```cpp
-DECLARE_bool(memtable_veirfy_per_key_checksum_on_seek);
+DECLARE_bool(memtable_verify_per_key_checksum_on_seek);
 ```
 
 **File: `db_stress_tool/db_stress_gflags.cc`**
 
 ```cpp
 DEFINE_bool(
-    memtable_veirfy_per_key_checksum_on_seek,
-    ROCKSDB_NAMESPACE::Options().memtable_veirfy_per_key_checksum_on_seek,
-    "Sets CF option memtable_veirfy_per_key_checksum_on_seek.");
+    memtable_verify_per_key_checksum_on_seek,
+    ROCKSDB_NAMESPACE::Options().memtable_verify_per_key_checksum_on_seek,
+    "Sets CF option memtable_verify_per_key_checksum_on_seek.");
 ```
 
 **File: `db_stress_tool/db_stress_test_base.cc`**
 
 ```cpp
-options.memtable_veirfy_per_key_checksum_on_seek =
-    FLAGS_memtable_veirfy_per_key_checksum_on_seek;
+options.memtable_verify_per_key_checksum_on_seek =
+    FLAGS_memtable_verify_per_key_checksum_on_seek;
 ```
 
 ### Step 7: Add db_bench Support
@@ -156,12 +156,12 @@ options.memtable_veirfy_per_key_checksum_on_seek =
 
 ```cpp
 // Flag definition (near related flags):
-DEFINE_bool(memtable_veirfy_per_key_checksum_on_seek, false,
-            "Sets CF option memtable_veirfy_per_key_checksum_on_seek");
+DEFINE_bool(memtable_verify_per_key_checksum_on_seek, false,
+            "Sets CF option memtable_verify_per_key_checksum_on_seek");
 
 // Apply flag to options (in InitializeOptionsFromFlags or similar):
-options.memtable_veirfy_per_key_checksum_on_seek =
-    FLAGS_memtable_veirfy_per_key_checksum_on_seek;
+options.memtable_verify_per_key_checksum_on_seek =
+    FLAGS_memtable_verify_per_key_checksum_on_seek;
 ```
 
 ### Step 8: Add Crash Test Support
@@ -169,7 +169,7 @@ options.memtable_veirfy_per_key_checksum_on_seek =
 **File: `tools/db_crashtest.py`**
 
 ```python
-"memtable_veirfy_per_key_checksum_on_seek": lambda: random.choice([0] * 7 + [1]),
+"memtable_verify_per_key_checksum_on_seek": lambda: random.choice([0] * 7 + [1]),
 ```
 
 Also add constraint handling in `finalize_and_sanitize()` if needed:
@@ -177,7 +177,7 @@ Also add constraint handling in `finalize_and_sanitize()` if needed:
 ```python
 # only skip list memtable representation supports paranoid memory checks
 if dest_params.get("memtablerep") != "skip_list":
-    dest_params["memtable_veirfy_per_key_checksum_on_seek"] = 0
+    dest_params["memtable_verify_per_key_checksum_on_seek"] = 0
 ```
 
 ### Step 9: Add Release Note
@@ -185,7 +185,7 @@ if dest_params.get("memtablerep") != "skip_list":
 **File: `unreleased_history/new_features/<descriptive_name>.md`**
 
 ```markdown
-A new flag memtable_veirfy_per_key_checksum_on_seek is added to AdvancedColumnFamilyOptions. When it is enabled, it will validate key checksum along the binary search path on skiplist based memtable during seek operation.
+A new flag memtable_verify_per_key_checksum_on_seek is added to AdvancedColumnFamilyOptions. When it is enabled, it will validate key checksum along the binary search path on skiplist based memtable during seek operation.
 ```
 
 ---

@@ -151,8 +151,8 @@ TEST_F(DBOpenWithConfigTest, OpenWithComprehensiveConfig) {
   // memtable_op_scan_flush_trigger=0
   options.memtable_op_scan_flush_trigger = 0;
 
-  // memtable_veirfy_per_key_checksum_on_seek=false
-  options.memtable_veirfy_per_key_checksum_on_seek = false;
+  // memtable_verify_per_key_checksum_on_seek=false
+  options.memtable_verify_per_key_checksum_on_seek = false;
 
   // Level and compaction settings
   // num_levels=50
