@@ -159,6 +159,11 @@ static Status CreateAndPinBlockFromBuffer(
 struct ReadScopedIOConfig {
   bool use_data_block_cache = true;
   ReadScopedBlockBufferProviderRef block_buffer_provider;
+  // True only when provider-backed file-read scratch is required because the
+  // block is known to be uncompressed. If this is true, the read buffer cleanup
+  // must be attached directly to BlockContents; otherwise maybe-compressed
+  // reads may use ordinary scratch and copy/decompress into provider-backed
+  // final contents after the compression type is known.
   bool read_buffer_requires_cleanup = false;
   bool use_read_scoped_direct_io = false;
   bool use_read_scoped_scratch = false;
@@ -199,6 +204,8 @@ struct AsyncIOState {
   void* io_handle = nullptr;
   IOHandleDeleter del_fn;
   uint64_t offset;
+  // Captures ReadScopedIOConfig::read_buffer_requires_cleanup until async I/O
+  // completion processing can attach the read buffer cleanup to BlockContents.
   bool read_buffer_requires_cleanup = false;
   std::vector<size_t> block_indices;
   std::vector<BlockHandle> blocks;
