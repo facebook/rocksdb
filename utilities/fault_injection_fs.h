@@ -595,8 +595,13 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   IOStatus GetFreeSpace(const std::string& path, const IOOptions& options,
                         uint64_t* disk_free, IODebugContext* dbg) override {
     IOStatus io_s;
-    if (!IsFilesystemActive() &&
-        fs_error_.subcode() == IOStatus::SubCode::kNoSpace) {
+    bool inactive_no_space = false;
+    {
+      MutexLock l(&mutex_);
+      inactive_no_space = !filesystem_active_ &&
+                          fs_error_.subcode() == IOStatus::SubCode::kNoSpace;
+    }
+    if (inactive_no_space) {
       *disk_free = 0;
     } else {
       io_s = MaybeInjectThreadLocalError(FaultInjectionIOType::kMetadataRead,
@@ -728,7 +733,10 @@ class FaultInjectionTestFS : public FileSystemWrapper {
 
   void AssertNoOpenFile() { assert(open_managed_files_.empty()); }
 
-  IOStatus GetError() { return fs_error_; }
+  IOStatus GetError() {
+    MutexLock l(&mutex_);
+    return fs_error_;
+  }
 
   void SetFileSystemIOError(IOStatus io_error) {
     MutexLock l(&mutex_);
@@ -916,7 +924,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
       "failed to write to WAL";
 
   IOStatus ValidateNoReopenForWrite(const std::string& fname,
-                                    const char* op_name);
+                                    const char* op_name,
+                                    bool allow_missing_file);
 
   port::Mutex mutex_;
   std::map<std::string, FSFileState> db_file_state_;
