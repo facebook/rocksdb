@@ -2057,8 +2057,10 @@ class MultiScanArgs {
 
   // When true, MultiScan data-block prefetch bypasses data-block cache lookup
   // and insertion. This is useful for large scans where data-block cache hits
-  // are unlikely and data-block cache lookup overhead dominates. This does not
-  // affect index/filter blocks.
+  // are unlikely and data-block cache lookup overhead dominates. This is
+  // separate from ReadOptions::fill_cache=false, which still permits existing
+  // data-block cache hits while avoiding insertion of newly read data blocks.
+  // This does not affect index/filter blocks.
   bool bypass_data_block_cache = false;
 
   // Optional IODispatcher for multi-scan operations.
@@ -2405,9 +2407,11 @@ struct ReadOptions {
   // Current support is limited to block-based table iterators and MultiScan
   // data-block reads, and is ignored when mmap reads are enabled. When set,
   // supported scan reads bypass the data-block cache and use provider-backed
-  // data-block memory. When unset, scans use the normal RocksDB data-block
-  // backing for the table: use the configured block cache when present,
-  // otherwise use RocksDB-owned block memory.
+  // final data-block memory. RocksDB may still use ordinary temporary scratch
+  // for serialized block bytes, such as when a block may be compressed. When
+  // unset, scans use the normal RocksDB data-block backing for the table: use
+  // the configured block cache when present, otherwise use RocksDB-owned block
+  // memory. Index/filter blocks keep their normal block-cache behavior.
   //
   // TODO: Extend support to point lookups (Get/MultiGet) once those paths can
   // preserve provider-backed block ownership.

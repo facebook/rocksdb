@@ -51,11 +51,18 @@ class UserDefinedIndexFactory;
 // This is configured through C++ options rather than OPTIONS files.
 //
 // Current support is limited to block-based table iterator scans and MultiScan
-// data-block reads.
+// data-block reads. Reads using mmap ignore this provider and use normal
+// RocksDB block backing.
+//
+// The provider backs final data-block contents pinned by the scan. RocksDB may
+// still use ordinary temporary scratch for serialized block bytes, such as when
+// reading a block that may be compressed before decompressing or copying the
+// final data block into provider-backed storage.
 //
 // This is separate from MemoryAllocator because each allocation needs a
 // per-lease cleanup handle that RocksDB can attach to pinned blocks/slices, and
-// direct-I/O reads need the requested alignment to be passed to the provider.
+// direct-I/O reads that use provider-backed read buffers need the requested
+// alignment to be passed to the provider.
 //
 // TODO: Extend support to point lookups (Get/MultiGet) once those paths can
 // preserve provider-backed block ownership.
@@ -78,9 +85,9 @@ class UserDefinedIndexFactory;
 class ReadScopedBlockBufferProvider {
  public:
   // A Lease hands one writable backing allocation from the provider to
-  // RocksDB. RocksDB may fill `data` with file bytes or decompressed block
-  // contents, then attach `cleanup` to the resulting Blocks and any slices
-  // pinned from them.
+  // RocksDB. RocksDB may fill `data` with file bytes, decompressed block
+  // contents, or copied block bytes, then attach `cleanup` to the resulting
+  // Blocks and any slices pinned from them.
   //
   // The provider controls allocation reclamation. RocksDB keeps the data valid
   // by copying `cleanup`; the provider must not reuse or release `data` until
