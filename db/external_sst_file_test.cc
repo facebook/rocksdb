@@ -298,6 +298,34 @@ class ExternalSSTFileTest
   int last_file_id_ = 0;
 };
 
+TEST_F(ExternalSSTFileTest, IngestionTimingHistogram) {
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);  // enable timers
+  DestroyAndReopen(options);
+
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, {{"k1", "v1"}, {"k2", "v2"}, {"k3", "v3"}}, /*file_id=*/-1,
+      /*allow_global_seqno=*/true, /*write_global_seqno=*/false,
+      /*verify_checksums_before_ingest=*/true, /*ingest_behind=*/false,
+      /*sort_data=*/true));
+
+  HistogramData hd;
+  options.statistics->histogramData(INGEST_EXTERNAL_FILE_TIME, &hd);
+  ASSERT_EQ(1, hd.count);
+  ASSERT_GT(hd.max, 0.0);
+
+  // A second call adds exactly one more sample: timing is recorded per
+  // IngestExternalFile(s) call, not per column family.
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, {{"k4", "v4"}, {"k5", "v5"}}, /*file_id=*/-1,
+      /*allow_global_seqno=*/true, /*write_global_seqno=*/false,
+      /*verify_checksums_before_ingest=*/true, /*ingest_behind=*/false,
+      /*sort_data=*/true));
+  options.statistics->histogramData(INGEST_EXTERNAL_FILE_TIME, &hd);
+  ASSERT_EQ(2, hd.count);
+}
+
 TEST_F(ExternalSSTFileTest, ComparatorMismatch) {
   Options options = CurrentOptions();
   Options options_diff_ucmp = options;

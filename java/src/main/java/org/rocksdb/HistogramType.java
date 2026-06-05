@@ -231,6 +231,12 @@ public enum HistogramType {
    */
   BLOCK_KEY_DISTRIBUTION_CV((byte) 0x42),
 
+  /**
+   * Time (microseconds) spent in a single IngestExternalFile(s) call,
+   * measured end to end.
+   */
+  INGEST_EXTERNAL_FILE_TIME((byte) 0x43),
+
   // 0x3E is reserved for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x3E);
 
