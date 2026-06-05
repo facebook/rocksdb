@@ -625,6 +625,22 @@ class FileSystem : public Customizable {
         "LinkFile is not supported for this FileSystem");
   }
 
+  // Syncs file data and, when requested, file metadata for `fname`.
+  //
+  // The default implementation reopens the file as writable, calls Sync() or
+  // Fsync(), then closes it. Filesystems that already make file contents
+  // durable on file flush/close can override this as a no-op to avoid the
+  // reopen overhead.
+  //
+  // RocksDB code that needs to sync a named file should use this API instead of
+  // hand-rolling ReopenWritableFile()+Sync()/Fsync(). This lets filesystems
+  // reject ReopenWritableFile() for post-close data writes while still
+  // providing a cleaner path-level sync implementation.
+  virtual IOStatus SyncFile(const std::string& fname,
+                            const FileOptions& file_opts,
+                            const IOOptions& io_opts, bool use_fsync,
+                            IODebugContext* dbg);
+
   virtual IOStatus NumFileLinks(const std::string& /*fname*/,
                                 const IOOptions& /*options*/,
                                 uint64_t* /*count*/, IODebugContext* /*dbg*/) {
@@ -1640,6 +1656,12 @@ class FileSystemWrapper : public FileSystem {
   IOStatus LinkFile(const std::string& s, const std::string& t,
                     const IOOptions& options, IODebugContext* dbg) override {
     return target_->LinkFile(s, t, options, dbg);
+  }
+
+  IOStatus SyncFile(const std::string& fname, const FileOptions& file_opts,
+                    const IOOptions& io_opts, bool use_fsync,
+                    IODebugContext* dbg) override {
+    return target_->SyncFile(fname, file_opts, io_opts, use_fsync, dbg);
   }
 
   IOStatus NumFileLinks(const std::string& fname, const IOOptions& options,

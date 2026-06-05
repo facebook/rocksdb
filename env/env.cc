@@ -26,6 +26,7 @@
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
+#include "test_util/sync_point.h"
 #include "util/autovector.h"
 #include "util/string_util.h"
 
@@ -530,6 +531,13 @@ class LegacyFileSystemWrapper : public FileSystem {
     return status_to_io_status(target_->LinkFile(s, t));
   }
 
+  IOStatus SyncFile(const std::string& fname, const FileOptions& file_options,
+                    const IOOptions& /*io_options*/, bool use_fsync,
+                    IODebugContext* /*dbg*/) override {
+    return status_to_io_status(
+        target_->SyncFile(fname, file_options, use_fsync));
+  }
+
   IOStatus NumFileLinks(const std::string& fname, const IOOptions& /*options*/,
                         uint64_t* count, IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->NumFileLinks(fname, count));
@@ -794,6 +802,23 @@ Status Env::ReuseWritableFile(const std::string& fname,
     return s;
   }
   return NewWritableFile(fname, result, options);
+}
+
+Status Env::SyncFile(const std::string& fname, const EnvOptions& options,
+                     bool use_fsync) {
+  std::unique_ptr<WritableFile> file_to_sync;
+  Status status = ReopenWritableFile(fname, &file_to_sync, options);
+  TEST_SYNC_POINT_CALLBACK("Env::SyncFile:Open", &status);
+  if (status.ok()) {
+    status = use_fsync ? file_to_sync->Fsync() : file_to_sync->Sync();
+    Status close_status = file_to_sync->Close();
+    if (status.ok()) {
+      status = close_status;
+    } else {
+      close_status.PermitUncheckedError();
+    }
+  }
+  return status;
 }
 
 Status Env::GetChildrenFileAttributes(const std::string& dir,
