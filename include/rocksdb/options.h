@@ -1953,14 +1953,12 @@ class MultiScanArgs {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
     use_async_io = other.use_async_io;
-    bypass_data_block_cache = other.bypass_data_block_cache;
     io_dispatcher = other.io_dispatcher;
   }
   MultiScanArgs(MultiScanArgs&& other) noexcept
       : io_coalesce_threshold(other.io_coalesce_threshold),
         max_prefetch_size(other.max_prefetch_size),
         use_async_io(other.use_async_io),
-        bypass_data_block_cache(other.bypass_data_block_cache),
         io_dispatcher(std::move(other.io_dispatcher)),
         comp_(other.comp_),
         original_ranges_(std::move(other.original_ranges_)) {}
@@ -1971,7 +1969,6 @@ class MultiScanArgs {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
     use_async_io = other.use_async_io;
-    bypass_data_block_cache = other.bypass_data_block_cache;
     io_dispatcher = other.io_dispatcher;
     return *this;
   }
@@ -1983,7 +1980,6 @@ class MultiScanArgs {
       io_coalesce_threshold = other.io_coalesce_threshold;
       max_prefetch_size = other.max_prefetch_size;
       use_async_io = other.use_async_io;
-      bypass_data_block_cache = other.bypass_data_block_cache;
       io_dispatcher = std::move(other.io_dispatcher);
     }
     return *this;
@@ -2032,7 +2028,6 @@ class MultiScanArgs {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
     use_async_io = other.use_async_io;
-    bypass_data_block_cache = other.bypass_data_block_cache;
     io_dispatcher = other.io_dispatcher;
   }
 
@@ -2054,14 +2049,6 @@ class MultiScanArgs {
   // When true, BlockBasedTableIterator will use ReadAsync() for reading blocks
   // When false, it will use synchronous MultiRead().
   bool use_async_io = false;
-
-  // When true, MultiScan data-block prefetch bypasses data-block cache lookup
-  // and insertion. This is useful for large scans where data-block cache hits
-  // are unlikely and data-block cache lookup overhead dominates. This is
-  // separate from ReadOptions::fill_cache=false, which still permits existing
-  // data-block cache hits while avoiding insertion of newly read data blocks.
-  // This does not affect index/filter blocks.
-  bool bypass_data_block_cache = false;
 
   // Optional IODispatcher for multi-scan operations.
   // If nullptr (default), a new IODispatcher is created internally.

@@ -59,7 +59,7 @@ static Status CreateAndPinBlockFromBuffer(
   auto* rep = job->table->get_rep();
   const bool use_data_block_cache = ShouldUseDataBlockCacheForIterator(
       rep->table_options, job->job_options.read_options,
-      rep->ioptions.allow_mmap_reads, job->job_options.bypass_data_block_cache);
+      rep->ioptions.allow_mmap_reads);
 
   // Get decompressor
   UnownedPtr<Decompressor> decompressor = rep->decompressor.get();
@@ -169,8 +169,7 @@ static ReadScopedIOConfig GetReadScopedIOConfig(
     bool allow_mmap_reads, bool data_blocks_maybe_compressed, bool direct_io) {
   ReadScopedIOConfig config;
   config.use_data_block_cache = ShouldUseDataBlockCacheForIterator(
-      table_options, job_options.read_options, allow_mmap_reads,
-      job_options.bypass_data_block_cache);
+      table_options, job_options.read_options, allow_mmap_reads);
   config.block_buffer_provider = GetReadScopedBlockBufferProvider(
       job_options.read_options, allow_mmap_reads);
 
@@ -488,8 +487,7 @@ Status ReadSet::SyncRead(size_t block_index) {
   auto* rep = job_->table->get_rep();
   const bool use_data_block_cache = ShouldUseDataBlockCacheForIterator(
       rep->table_options, job_->job_options.read_options,
-      rep->ioptions.allow_mmap_reads,
-      job_->job_options.bypass_data_block_cache);
+      rep->ioptions.allow_mmap_reads);
 
   // Get dictionary-aware decompressor if available
   UnownedPtr<Decompressor> decompressor = rep->decompressor.get();
@@ -842,8 +840,7 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
   block_indices_to_read.reserve(job->block_handles.size());
   const bool use_data_block_cache = ShouldUseDataBlockCacheForIterator(
       job->table->get_rep()->table_options, job->job_options.read_options,
-      job->table->get_rep()->ioptions.allow_mmap_reads,
-      job->job_options.bypass_data_block_cache);
+      job->table->get_rep()->ioptions.allow_mmap_reads);
 
   if (!use_data_block_cache) {
     block_indices_to_read.resize(job->block_handles.size());

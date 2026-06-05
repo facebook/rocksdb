@@ -158,10 +158,7 @@ ReadScopedBlockBufferProviderRef GetReadScopedBlockBufferProvider(
 
 bool ShouldUseDataBlockCacheForIterator(
     const BlockBasedTableOptions& table_options, const ReadOptions& ro,
-    bool allow_mmap_reads, bool bypass_data_block_cache) {
-  if (bypass_data_block_cache) {
-    return false;
-  }
+    bool allow_mmap_reads) {
   if (GetReadScopedBlockBufferProvider(ro, allow_mmap_reads).has_value()) {
     return false;
   }
