@@ -149,8 +149,8 @@ AlignedBuffer MakeReadScopedAlignedBuffer(
 }
 
 ReadScopedBlockBufferProviderRef GetReadScopedBlockBufferProvider(
-    const ReadOptions& ro) {
-  if (ro.read_scoped_block_buffer_provider == nullptr) {
+    const ReadOptions& ro, bool allow_mmap_reads) {
+  if (allow_mmap_reads || ro.read_scoped_block_buffer_provider == nullptr) {
     return std::nullopt;
   }
   return std::ref(*ro.read_scoped_block_buffer_provider);
@@ -158,11 +158,11 @@ ReadScopedBlockBufferProviderRef GetReadScopedBlockBufferProvider(
 
 bool ShouldUseDataBlockCacheForIterator(
     const BlockBasedTableOptions& table_options, const ReadOptions& ro,
-    bool bypass_data_block_cache) {
+    bool allow_mmap_reads, bool bypass_data_block_cache) {
   if (bypass_data_block_cache) {
     return false;
   }
-  if (GetReadScopedBlockBufferProvider(ro).has_value()) {
+  if (GetReadScopedBlockBufferProvider(ro, allow_mmap_reads).has_value()) {
     return false;
   }
   return table_options.block_cache != nullptr;
@@ -175,6 +175,30 @@ Status CopyBufferToHeapBlockContents(Slice src, size_t data_size,
   assert(data_size <= src.size());
 
   *out_contents = BlockContents(CopyBufferToHeap(allocator, src), data_size);
+#ifndef NDEBUG
+  out_contents->has_trailer = src.size() > data_size;
+#endif
+  return Status::OK();
+}
+
+Status CopyBufferToReadScopedBlockContents(
+    Slice src, size_t data_size,
+    ReadScopedBlockBufferProvider& block_buffer_provider,
+    BlockContents* out_contents) {
+  assert(out_contents != nullptr);
+  assert(data_size <= src.size());
+
+  ReadScopedBlockBufferProvider::Lease read_scoped_lease;
+  Status s = AllocateReadScopedBlockBuffer(block_buffer_provider, src.size(), 1,
+                                           &read_scoped_lease);
+  if (!s.ok()) {
+    return s;
+  }
+
+  memcpy(read_scoped_lease.data, src.data(), src.size());
+  out_contents->data = Slice(read_scoped_lease.data, data_size);
+  out_contents->cleanup = std::move(read_scoped_lease.cleanup);
+  out_contents->backing_size = read_scoped_lease.size;
 #ifndef NDEBUG
   out_contents->has_trailer = src.size() > data_size;
 #endif
@@ -2230,7 +2254,8 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::RetrieveBlock(
     StopWatch sw(rep_->ioptions.clock, rep_->ioptions.stats, histogram);
     ReadScopedBlockBufferProviderRef block_buffer_provider =
         (!use_cache && TBlocklike::kBlockType == BlockType::kData)
-            ? GetReadScopedBlockBufferProvider(ro)
+            ? GetReadScopedBlockBufferProvider(ro,
+                                               rep_->ioptions.allow_mmap_reads)
             : std::nullopt;
     s = ReadAndParseBlockFromFile(
         rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle, &block,

@@ -73,6 +73,8 @@ class UserDefinedIndexFactory;
 //   thread that releases the last RocksDB reference. If the cleanup touches
 //   provider or other shared state, it must synchronize with Allocate() and
 //   other provider cleanup callbacks.
+// - After `Allocate()` succeeds, RocksDB releases `Lease::cleanup` on all
+//   paths, including later I/O or decompression failure.
 class ReadScopedBlockBufferProvider {
  public:
   // A Lease hands one writable backing allocation from the provider to

@@ -152,7 +152,7 @@ inline bool BlockFetcher::TryGetSerializedBlockFromPersistentCache() {
 
 inline void BlockFetcher::PrepareBufferForBlockFromFile() {
   // cache miss read from device
-  if (block_buffer_provider_.has_value()) {
+  if (block_buffer_provider_.has_value() && !maybe_compressed_) {
     Status s = AllocateReadScopedBlockBuffer(block_buffer_provider_->get(),
                                              block_size_with_trailer_, 1,
                                              &read_scoped_buf_lease_);
@@ -248,14 +248,23 @@ inline void BlockFetcher::CopyBufferToCompressedBuf() {
 // compressed_buf_ and heap_buf_ points to compressed_buf_, otherwise should be
 // in heap_buf_.
 inline void BlockFetcher::GetBlockContents() {
-  if (slice_.data() != used_buf_) {
-    // the slice content is not the buffer provided
-    *contents_ = BlockContents(Slice(slice_.data(), block_size_));
-  } else if (read_scoped_buf_lease_.cleanup.get() != nullptr &&
-             compression_type() == kNoCompression) {
+  if (read_scoped_buf_lease_.cleanup.get() != nullptr &&
+      compression_type() == kNoCompression) {
     contents_->data = Slice(slice_.data(), block_size_);
     contents_->cleanup = std::move(read_scoped_buf_lease_.cleanup);
     contents_->backing_size = read_scoped_buf_lease_.size;
+  } else if (block_buffer_provider_.has_value() &&
+             compression_type() == kNoCompression) {
+    Status s = CopyBufferToReadScopedBlockContents(
+        Slice(slice_.data(), block_size_with_trailer_), block_size_,
+        block_buffer_provider_->get(), contents_);
+    if (!s.ok()) {
+      io_status_ = status_to_io_status(std::move(s));
+      return;
+    }
+  } else if (slice_.data() != used_buf_) {
+    // the slice content is not the buffer provided
+    *contents_ = BlockContents(Slice(slice_.data(), block_size_));
   } else {
     // page can be either uncompressed or compressed, the buffer either stack
     // or heap provided. Refer to https://github.com/facebook/rocksdb/pull/4096
@@ -296,7 +305,7 @@ void BlockFetcher::ReadBlock(bool retry) {
   // Actual file read
   if (io_status_.ok()) {
     if (file_->use_direct_io()) {
-      if (block_buffer_provider_.has_value()) {
+      if (block_buffer_provider_.has_value() && !maybe_compressed_) {
         direct_io_buffer_ = MakeReadScopedAlignedBuffer(
             block_buffer_provider_, &read_scoped_buf_lease_);
       }

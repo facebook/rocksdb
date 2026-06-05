@@ -92,7 +92,8 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     } else {
       const bool use_cache =
           block_type != BlockType::kData ||
-          ShouldUseDataBlockCacheForIterator(rep_->table_options, ro);
+          ShouldUseDataBlockCacheForIterator(rep_->table_options, ro,
+                                             rep_->ioptions.allow_mmap_reads);
       s = RetrieveBlock(prefetch_buffer, ro, handle, decomp,
                         &block.As<IterBlocklike>(), get_context, lookup_context,
                         for_compaction, use_cache, async_read,

@@ -54,11 +54,12 @@ static Status CreateAndPinBlockFromBuffer(
     const std::shared_ptr<IOJob>& job, const BlockHandle& block,
     uint64_t buffer_start_offset, const Slice& buffer_data,
     const SharedCleanablePtr& read_buffer_cleanup,
+    bool read_buffer_requires_cleanup,
     CachableEntry<Block>& pinned_block_entry) {
   auto* rep = job->table->get_rep();
   const bool use_data_block_cache = ShouldUseDataBlockCacheForIterator(
       rep->table_options, job->job_options.read_options,
-      job->job_options.bypass_data_block_cache);
+      rep->ioptions.allow_mmap_reads, job->job_options.bypass_data_block_cache);
 
   // Get decompressor
   UnownedPtr<Decompressor> decompressor = rep->decompressor.get();
@@ -100,7 +101,8 @@ static Status CreateAndPinBlockFromBuffer(
   const CompressionType compression_type =
       BlockBasedTable::GetBlockCompressionType(block_data, block.size());
   ReadScopedBlockBufferProviderRef block_buffer_provider =
-      GetReadScopedBlockBufferProvider(job->job_options.read_options);
+      GetReadScopedBlockBufferProvider(job->job_options.read_options,
+                                       rep->ioptions.allow_mmap_reads);
   Status s;
   if (compression_type == kNoCompression) {
     // Provider-backed uncompressed blocks should already be in the
@@ -123,9 +125,13 @@ static Status CreateAndPinBlockFromBuffer(
 #ifndef NDEBUG
       tmp_contents.has_trailer = rep->footer.GetBlockTrailerSize() > 0;
 #endif
-    } else if (block_buffer_provider.has_value()) {
+    } else if (read_buffer_requires_cleanup) {
       s = Status::InvalidArgument(
           "read-scoped block buffer provider requires read buffer cleanup");
+    } else if (block_buffer_provider.has_value()) {
+      s = CopyBufferToReadScopedBlockContents(
+          Slice(block_data, block_size_with_trailer), block.size(),
+          block_buffer_provider->get(), &tmp_contents);
     } else {
       s = CopyBufferToHeapBlockContents(
           Slice(block_data, block_size_with_trailer), block.size(),
@@ -153,22 +159,25 @@ static Status CreateAndPinBlockFromBuffer(
 struct ReadScopedIOConfig {
   bool use_data_block_cache = true;
   ReadScopedBlockBufferProviderRef block_buffer_provider;
+  bool read_buffer_requires_cleanup = false;
   bool use_read_scoped_direct_io = false;
   bool use_read_scoped_scratch = false;
 };
 
 static ReadScopedIOConfig GetReadScopedIOConfig(
     const BlockBasedTableOptions& table_options, const JobOptions& job_options,
-    bool direct_io) {
+    bool allow_mmap_reads, bool data_blocks_maybe_compressed, bool direct_io) {
   ReadScopedIOConfig config;
   config.use_data_block_cache = ShouldUseDataBlockCacheForIterator(
-      table_options, job_options.read_options,
+      table_options, job_options.read_options, allow_mmap_reads,
       job_options.bypass_data_block_cache);
-  config.block_buffer_provider =
-      GetReadScopedBlockBufferProvider(job_options.read_options);
+  config.block_buffer_provider = GetReadScopedBlockBufferProvider(
+      job_options.read_options, allow_mmap_reads);
 
   const bool use_read_scoped_buffer =
-      !config.use_data_block_cache && config.block_buffer_provider.has_value();
+      !config.use_data_block_cache &&
+      config.block_buffer_provider.has_value() && !data_blocks_maybe_compressed;
+  config.read_buffer_requires_cleanup = use_read_scoped_buffer;
   config.use_read_scoped_direct_io = direct_io && use_read_scoped_buffer;
   config.use_read_scoped_scratch = !direct_io && use_read_scoped_buffer;
   return config;
@@ -191,6 +200,7 @@ struct AsyncIOState {
   void* io_handle = nullptr;
   IOHandleDeleter del_fn;
   uint64_t offset;
+  bool read_buffer_requires_cleanup = false;
   std::vector<size_t> block_indices;
   std::vector<BlockHandle> blocks;
   FSReadRequest read_req;
@@ -450,7 +460,8 @@ Status ReadSet::PollAndProcessAsyncIO(
 
     Status s = CreateAndPinBlockFromBuffer(
         job_, block_handle, async_state->offset, buffer_data,
-        read_buffer_cleanup, pinned_blocks_[idx]);
+        read_buffer_cleanup, async_state->read_buffer_requires_cleanup,
+        pinned_blocks_[idx]);
     if (!s.ok()) {
       return s;
     }
@@ -477,6 +488,7 @@ Status ReadSet::SyncRead(size_t block_index) {
   auto* rep = job_->table->get_rep();
   const bool use_data_block_cache = ShouldUseDataBlockCacheForIterator(
       rep->table_options, job_->job_options.read_options,
+      rep->ioptions.allow_mmap_reads,
       job_->job_options.bypass_data_block_cache);
 
   // Get dictionary-aware decompressor if available
@@ -830,6 +842,7 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
   block_indices_to_read.reserve(job->block_handles.size());
   const bool use_data_block_cache = ShouldUseDataBlockCacheForIterator(
       job->table->get_rep()->table_options, job->job_options.read_options,
+      job->table->get_rep()->ioptions.allow_mmap_reads,
       job->job_options.bypass_data_block_cache);
 
   if (!use_data_block_cache) {
@@ -1082,14 +1095,17 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
   }
 
   const bool direct_io = rep->file->use_direct_io();
-  const ReadScopedIOConfig read_scoped_io =
-      GetReadScopedIOConfig(rep->table_options, job->job_options, direct_io);
+  const ReadScopedIOConfig read_scoped_io = GetReadScopedIOConfig(
+      rep->table_options, job->job_options, rep->ioptions.allow_mmap_reads,
+      rep->decompressor != nullptr, direct_io);
 
   // Submit async read requests and store them in the ReadSet
   for (size_t i = 0; i < read_reqs.size(); ++i) {
     auto async_state = std::make_shared<AsyncIOState>();
 
     async_state->offset = read_reqs[i].offset;
+    async_state->read_buffer_requires_cleanup =
+        read_scoped_io.read_buffer_requires_cleanup;
     async_state->block_indices = coalesced_block_indices[i];
     async_state->read_req = std::move(read_reqs[i]);
 
@@ -1209,8 +1225,9 @@ Status IODispatcherImpl::Impl::ExecuteSyncIO(
   }
 
   const bool direct_io = rep->file->use_direct_io();
-  const ReadScopedIOConfig read_scoped_io =
-      GetReadScopedIOConfig(rep->table_options, job->job_options, direct_io);
+  const ReadScopedIOConfig read_scoped_io = GetReadScopedIOConfig(
+      rep->table_options, job->job_options, rep->ioptions.allow_mmap_reads,
+      rep->decompressor != nullptr, direct_io);
 
   // Setup scratch buffers for MultiRead
   std::unique_ptr<char[]> buf;
@@ -1304,6 +1321,7 @@ Status IODispatcherImpl::Impl::ExecuteSyncIO(
           job, block_handle, read_req.offset, read_req.result,
           i < read_req_cleanups.size() ? read_req_cleanups[i]
                                        : SharedCleanablePtr(),
+          read_scoped_io.read_buffer_requires_cleanup,
           read_set->pinned_blocks_[block_idx]);
       if (!create_status.ok()) {
         return create_status;

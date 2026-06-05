@@ -67,7 +67,8 @@ class BlockFetcher {
         cache_options_(cache_options),
         memory_allocator_(memory_allocator),
         memory_allocator_compressed_(memory_allocator_compressed),
-        block_buffer_provider_(block_buffer_provider),
+        block_buffer_provider_(
+            ioptions.allow_mmap_reads ? std::nullopt : block_buffer_provider),
         for_compaction_(for_compaction) {
     io_status_.PermitUncheckedError();  // TODO(AR) can we improve on this?
     if (CheckFSFeatureSupport(ioptions_.fs.get(), FSSupportedOps::kFSBuffer)) {

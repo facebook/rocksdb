@@ -80,16 +80,17 @@ AlignedBuffer MakeReadScopedAlignedBuffer(
     ReadScopedBlockBufferProvider::Lease* lease);
 
 // Resolves the read-scoped provider configured for this read. Returns
-// std::nullopt when no provider is configured.
+// std::nullopt when no provider is configured, or when mmap reads are enabled
+// because mmap file reads can ignore RocksDB-provided scratch buffers.
 ReadScopedBlockBufferProviderRef GetReadScopedBlockBufferProvider(
-    const ReadOptions& ro);
+    const ReadOptions& ro, bool allow_mmap_reads);
 
 // Centralizes the data-block cache decision for iterator and MultiScan paths.
 // `bypass_data_block_cache` skips data-block cache lookup and insertion even
 // when a block cache is configured.
 bool ShouldUseDataBlockCacheForIterator(
     const BlockBasedTableOptions& table_options, const ReadOptions& ro,
-    bool bypass_data_block_cache = false);
+    bool allow_mmap_reads, bool bypass_data_block_cache = false);
 
 // Copies block bytes into RocksDB-owned heap storage and records that ownership
 // in BlockContents. `src` may include a block trailer while `data_size` is the
@@ -97,6 +98,14 @@ bool ShouldUseDataBlockCacheForIterator(
 Status CopyBufferToHeapBlockContents(Slice src, size_t data_size,
                                      MemoryAllocator* allocator,
                                      BlockContents* out_contents);
+
+// Copies block bytes into read-scoped provider storage and records that
+// cleanup in BlockContents. `src` may include a block trailer while
+// `data_size` is the payload size.
+Status CopyBufferToReadScopedBlockContents(
+    Slice src, size_t data_size,
+    ReadScopedBlockBufferProvider& block_buffer_provider,
+    BlockContents* out_contents);
 
 // Reader class for BlockBasedTable format.
 // For the format of BlockBasedTable refer to

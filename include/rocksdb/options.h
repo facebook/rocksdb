@@ -2403,10 +2403,11 @@ struct ReadOptions {
   // strips ownership would add maintenance overhead for this advanced option.
   //
   // Current support is limited to block-based table iterators and MultiScan
-  // data-block reads. When set, supported scan reads bypass the data-block
-  // cache and use provider-backed data-block memory. When unset, scans use the
-  // normal RocksDB data-block backing for the table: use the configured block
-  // cache when present, otherwise use RocksDB-owned block memory.
+  // data-block reads, and is ignored when mmap reads are enabled. When set,
+  // supported scan reads bypass the data-block cache and use provider-backed
+  // data-block memory. When unset, scans use the normal RocksDB data-block
+  // backing for the table: use the configured block cache when present,
+  // otherwise use RocksDB-owned block memory.
   //
   // TODO: Extend support to point lookups (Get/MultiGet) once those paths can
   // preserve provider-backed block ownership.

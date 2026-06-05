@@ -447,11 +447,13 @@ class IODispatcherTest : public DBTestBase {
       std::vector<BlockHandle>* block_handles_out,
       const BlockBasedTableOptions* table_options_override = nullptr,
       bool use_direct_reads = false,
-      CompressionType compression_type = kNoCompression) {
+      CompressionType compression_type = kNoCompression,
+      bool allow_mmap_reads = false) {
     // Create options - store in member variables to avoid use-after-scope
     // The BlockBasedTable will keep references to these options
     Options options{};
     options.statistics = nullptr;
+    options.allow_mmap_reads = allow_mmap_reads;
     BlockBasedTableOptions table_options;
     if (table_options_override != nullptr) {
       table_options = *table_options_override;
@@ -515,10 +517,12 @@ class IODispatcherTest : public DBTestBase {
     std::unique_ptr<RandomAccessFileReader> file;
     FileOptions foptions;
     foptions.use_direct_reads = use_direct_reads;
+    foptions.use_mmap_reads = allow_mmap_reads;
 
     NewFileReader(table_name, foptions, &file, nullptr);
 
     auto soptions = std::make_unique<EnvOptions>();
+    soptions->use_mmap_reads = allow_mmap_reads;
     BlockCacheTracer block_cache_tracer;
     std::unique_ptr<TableReader> table_reader;
 
@@ -676,10 +680,47 @@ TEST_F(IODispatcherTest, ReadScopedProviderWorksWithoutBlockCache) {
   EXPECT_EQ(provider.bytes_outstanding(), 0);
 }
 
+// Verifies mmap reads disable the read-scoped provider path. The provider is
+// ignored because mmap file reads can return pointers into the mapped file
+// instead of writing into RocksDB-provided scratch buffers.
+TEST_F(IODispatcherTest, ReadScopedProviderIgnoredWithMmapReads) {
+  TestReadScopedBlockBufferProvider provider;
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = nullptr;
+  table_options.block_size = 16 * 1024;
+  table_options.no_block_cache = true;
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(8, &table, &block_handles, &table_options,
+                             false /* use_direct_reads */, kNoCompression,
+                             true /* allow_mmap_reads */));
+  ASSERT_GT(block_handles.size(), 0);
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.read_scoped_block_buffer_provider = &provider;
+
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  ASSERT_NE(read_set, nullptr);
+
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  EXPECT_EQ(provider.allocations(), 0);
+
+  block.Reset();
+  read_set.reset();
+  EXPECT_EQ(provider.bytes_outstanding(), 0);
+}
+
 // Verifies compressed blocks are decompressed directly into provider-backed
 // storage. The test builds a compressed table, reads a block through
 // IODispatcher, and checks the final uncompressed block bytes are provider
-// owned.
+// owned without using provider-backed serialized read scratch.
 TEST_F(IODispatcherTest, ReadScopedBuffersOwnDecompressedBlocks) {
   CompressionType compression_type = kNoCompression;
   for (CompressionType supported : GetSupportedCompressions()) {
@@ -693,38 +734,42 @@ TEST_F(IODispatcherTest, ReadScopedBuffersOwnDecompressedBlocks) {
     return;
   }
 
-  TestReadScopedBlockBufferProvider provider;
-  BlockBasedTableOptions table_options;
-  table_options.block_cache = nullptr;
-  table_options.block_size = 16 * 1024;
-  table_options.no_block_cache = true;
+  for (bool use_direct_reads : {false, true}) {
+    SCOPED_TRACE("use_direct_reads=" + std::to_string(use_direct_reads));
+    TestReadScopedBlockBufferProvider provider;
+    BlockBasedTableOptions table_options;
+    table_options.block_cache = nullptr;
+    table_options.block_size = 16 * 1024;
+    table_options.no_block_cache = true;
 
-  std::unique_ptr<BlockBasedTable> table;
-  std::vector<BlockHandle> block_handles;
-  ASSERT_OK(CreateAndOpenSST(8, &table, &block_handles, &table_options,
-                             false /* use_direct_reads */, compression_type));
-  ASSERT_GT(block_handles.size(), 0);
+    std::unique_ptr<BlockBasedTable> table;
+    std::vector<BlockHandle> block_handles;
+    ASSERT_OK(CreateAndOpenSST(8, &table, &block_handles, &table_options,
+                               use_direct_reads, compression_type));
+    ASSERT_GT(block_handles.size(), 0);
 
-  auto job = std::make_shared<IOJob>();
-  job->block_handles = block_handles;
-  job->table = table.get();
-  job->job_options.read_options.read_scoped_block_buffer_provider = &provider;
+    auto job = std::make_shared<IOJob>();
+    job->block_handles = block_handles;
+    job->table = table.get();
+    job->job_options.read_options.read_scoped_block_buffer_provider = &provider;
 
-  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
-  std::shared_ptr<ReadSet> read_set;
-  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
-  ASSERT_NE(read_set, nullptr);
-  EXPECT_GT(provider.allocations(), 0);
+    std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+    std::shared_ptr<ReadSet> read_set;
+    ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+    ASSERT_NE(read_set, nullptr);
+    EXPECT_EQ(provider.allocations(), block_handles.size());
+    EXPECT_EQ(provider.max_requested_alignment(), 1);
 
-  CachableEntry<Block> block;
-  ASSERT_OK(read_set->ReadIndex(0, &block));
-  ASSERT_NE(block.GetValue(), nullptr);
-  EXPECT_TRUE(provider.OwnsLiveAddressRange(block.GetValue()->data(),
-                                            block.GetValue()->size()));
+    CachableEntry<Block> block;
+    ASSERT_OK(read_set->ReadIndex(0, &block));
+    ASSERT_NE(block.GetValue(), nullptr);
+    EXPECT_TRUE(provider.OwnsLiveAddressRange(block.GetValue()->data(),
+                                              block.GetValue()->size()));
 
-  block.Reset();
-  read_set.reset();
-  EXPECT_EQ(provider.bytes_outstanding(), 0);
+    block.Reset();
+    read_set.reset();
+    EXPECT_EQ(provider.bytes_outstanding(), 0);
+  }
 }
 
 // Verifies RocksDB rejects invalid provider leases instead of pinning unsafe
@@ -1237,8 +1282,10 @@ TEST_F(IODispatcherTest, RegularIteratorUsesReadScopedProvider) {
       ASSERT_GT(provider.allocations(), 0);
       EXPECT_TRUE(provider.OwnsLiveAddressRange(iter->value().data(),
                                                 iter->value().size()));
-      if (use_direct_reads) {
+      if (use_direct_reads && compression_type == kNoCompression) {
         EXPECT_GT(provider.max_requested_alignment(), 1);
+      } else {
+        EXPECT_EQ(provider.max_requested_alignment(), 1);
       }
 
       iter.reset();
@@ -2919,6 +2966,36 @@ TEST_F(IODispatcherTest, AsyncNotSupportedFallsBackToSync) {
     ASSERT_NE(block.GetValue(), nullptr)
         << "Block " << i << " should be readable after sync fallback";
   }
+}
+
+TEST_F(IODispatcherTest,
+       RegularIteratorIgnoresReadScopedProviderWithMmapReads) {
+  TestReadScopedBlockBufferProvider provider;
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = nullptr;
+  table_options.block_size = 16 * 1024;
+  table_options.no_block_cache = true;
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(8, &table, &block_handles, &table_options,
+                             false /* use_direct_reads */, kNoCompression,
+                             true /* allow_mmap_reads */));
+  ASSERT_GT(block_handles.size(), 0);
+
+  ReadOptions read_options;
+  read_options.read_scoped_block_buffer_provider = &provider;
+  std::unique_ptr<InternalIterator> iter(table->NewIterator(
+      read_options, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(provider.allocations(), 0);
+
+  iter.reset();
+  EXPECT_EQ(provider.bytes_outstanding(), 0);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
