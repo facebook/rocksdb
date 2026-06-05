@@ -85,9 +85,10 @@ class UserDefinedIndexFactory;
 class ReadScopedBlockBufferProvider {
  public:
   // A Lease hands one writable backing allocation from the provider to
-  // RocksDB. RocksDB may fill `data` with file bytes, decompressed block
-  // contents, or copied block bytes, then attach `cleanup` to the resulting
-  // Blocks and any slices pinned from them.
+  // RocksDB. For a provider-backed block, the final BlockContents data points
+  // into this allocation and RocksDB attaches `cleanup` to the resulting Blocks
+  // and any slices pinned from them. File-read scratch, copying, and
+  // decompression choices are implementation details outside this contract.
   //
   // The provider controls allocation reclamation. RocksDB keeps the data valid
   // by copying `cleanup`; the provider must not reuse or release `data` until
