@@ -294,6 +294,25 @@ phantom bug.
     COERCE_CONTEXT_SWITCH=1 make {test_binary}
     ./{test_binary} --gtest_filter="*YourTestName*" --gtest_repeat=5
     ```
+* For flakes that only reproduce when CI shards or other test processes make
+    the host CPU busy, use `tools/gtest_parallel_repro.py`. It runs many fresh
+    gtest processes concurrently, gives each process its own `TEST_TMPDIR`, can
+    pin them to a small CPU set, and can build the binary with
+    `COERCE_CONTEXT_SWITCH=1` before running. This complements
+    `COERCE_CONTEXT_SWITCH`: coerce mode injects sleeps/yields at selected
+    RocksDB code points, but it does not fully simulate OS-level CPU starvation
+    and arbitrary worker-thread scheduling delays.
+    ```bash
+    python3 tools/gtest_parallel_repro.py \
+      --binary ./env_test \
+      --gtest_filter="*YourTestName*" \
+      --jobs 100 \
+      --batches 100 \
+      --cpu-count 8 \
+      --build \
+      --clean \
+      --coerce-context-switch
+    ```
 
 ### Unit test dedup guidelines
 * Extract helper functions for repeated patterns such as object
