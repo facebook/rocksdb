@@ -390,6 +390,8 @@ class StressTest {
 
   Status TestDisableManualCompaction(ThreadState* thread);
 
+  bool ShouldAbortAndResumeCompactions() const;
+
   Status TestAbortAndResumeCompactions(ThreadState* thread);
 
   void TestAcquireSnapshot(ThreadState* thread, int rand_column_family,

@@ -10,6 +10,11 @@
 #ifdef GFLAGS
 #pragma once
 
+#include <array>
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+
 #include "db_stress_tool/db_stress_stat.h"
 #include "db_stress_tool/expected_state.h"
 // SyncPoint is not supported in Released Windows Mode.
@@ -30,6 +35,8 @@ DECLARE_int32(compaction_thread_pool_adjust_interval);
 DECLARE_int32(continuous_verification_interval);
 DECLARE_bool(error_recovery_with_no_fault_injection);
 DECLARE_bool(sync_fault_injection);
+DECLARE_uint64(liveness_check_interval_sec);
+DECLARE_uint64(liveness_no_progress_timeout_sec);
 DECLARE_int32(range_deletion_width);
 DECLARE_bool(disable_wal);
 DECLARE_int32(manual_wal_flush_one_in);
@@ -49,6 +56,137 @@ DECLARE_bool(enable_compaction_filter);
 
 namespace ROCKSDB_NAMESPACE {
 class StressTest;
+
+enum class StressOperationType : uint32_t {
+  kNone = 0,
+  kPrepare,
+  kReopen,
+  kSetOptions,
+  kVerifyDb,
+  kManualWalFlush,
+  kLockWal,
+  kSyncWal,
+  kCompactFiles,
+  kCompactRange,
+  kFlush,
+  kGetLiveFiles,
+  kMetadata,
+  kPauseBackground,
+  kDisableFileDeletions,
+  kDisableManualCompaction,
+  kAbortResumeCompactions,
+  kVerifyChecksum,
+  kVerifyFileChecksums,
+  kGetProperty,
+  kTableProperties,
+  kIngestExternalFile,
+  kBackup,
+  kCheckpoint,
+  kApproximateSize,
+  kSnapshot,
+  kKeyMayExist,
+  kRead,
+  kPrefixScan,
+  kWrite,
+  kDelete,
+  kDeleteRange,
+  kIterate,
+  kCustom,
+  kCount,
+};
+
+static constexpr size_t kStressOperationTypeCount =
+    static_cast<size_t>(StressOperationType::kCount);
+
+inline const char* StressOperationTypeName(StressOperationType type) {
+  switch (type) {
+    case StressOperationType::kNone:
+      return "none";
+    case StressOperationType::kPrepare:
+      return "prepare";
+    case StressOperationType::kReopen:
+      return "reopen";
+    case StressOperationType::kSetOptions:
+      return "set_options";
+    case StressOperationType::kVerifyDb:
+      return "verify_db";
+    case StressOperationType::kManualWalFlush:
+      return "manual_wal_flush";
+    case StressOperationType::kLockWal:
+      return "lock_wal";
+    case StressOperationType::kSyncWal:
+      return "sync_wal";
+    case StressOperationType::kCompactFiles:
+      return "compact_files";
+    case StressOperationType::kCompactRange:
+      return "compact_range";
+    case StressOperationType::kFlush:
+      return "flush";
+    case StressOperationType::kGetLiveFiles:
+      return "get_live_files";
+    case StressOperationType::kMetadata:
+      return "metadata";
+    case StressOperationType::kPauseBackground:
+      return "pause_background";
+    case StressOperationType::kDisableFileDeletions:
+      return "disable_file_deletions";
+    case StressOperationType::kDisableManualCompaction:
+      return "disable_manual_compaction";
+    case StressOperationType::kAbortResumeCompactions:
+      return "abort_resume_compactions";
+    case StressOperationType::kVerifyChecksum:
+      return "verify_checksum";
+    case StressOperationType::kVerifyFileChecksums:
+      return "verify_file_checksums";
+    case StressOperationType::kGetProperty:
+      return "get_property";
+    case StressOperationType::kTableProperties:
+      return "table_properties";
+    case StressOperationType::kIngestExternalFile:
+      return "ingest_external_file";
+    case StressOperationType::kBackup:
+      return "backup";
+    case StressOperationType::kCheckpoint:
+      return "checkpoint";
+    case StressOperationType::kApproximateSize:
+      return "approximate_size";
+    case StressOperationType::kSnapshot:
+      return "snapshot";
+    case StressOperationType::kKeyMayExist:
+      return "key_may_exist";
+    case StressOperationType::kRead:
+      return "read";
+    case StressOperationType::kPrefixScan:
+      return "prefix_scan";
+    case StressOperationType::kWrite:
+      return "write";
+    case StressOperationType::kDelete:
+      return "delete";
+    case StressOperationType::kDeleteRange:
+      return "delete_range";
+    case StressOperationType::kIterate:
+      return "iterate";
+    case StressOperationType::kCustom:
+      return "custom";
+    case StressOperationType::kCount:
+      break;
+  }
+  return "unknown";
+}
+
+struct ThreadOperationSnapshot {
+  StressOperationType type;
+  uint64_t started_micros;
+};
+
+struct ThreadOperationState {
+  ThreadOperationState()
+      : active_type(static_cast<uint32_t>(StressOperationType::kNone)),
+        started_micros(0) {}
+
+  std::atomic<uint32_t> active_type;
+  std::atomic<uint64_t> started_micros;
+};
 
 struct RemoteCompactionQueueItem {
   std::string job_id;
@@ -99,11 +237,19 @@ class SharedState {
 
   uint32_t GetNumThreads() const { return num_threads_; }
 
-  void SetThreads(int num_threads) { num_threads_ = num_threads; }
+  void SetThreads(int num_threads) {
+    num_threads_ = num_threads;
+    thread_operation_states_.reset(new ThreadOperationState[num_threads]);
+  }
 
   void IncInitialized() { num_initialized_++; }
 
-  void IncOperated() { num_populated_++; }
+  void IncOperated() {
+    num_populated_++;
+    if (num_populated_ >= num_threads_) {
+      operation_finished_.store(true, std::memory_order_release);
+    }
+  }
 
   void IncDone() { num_done_++; }
 
@@ -117,7 +263,10 @@ class SharedState {
 
   bool AllVotedReopen() { return (vote_reopen_ == 0); }
 
-  void SetStart() { start_ = true; }
+  void SetStart() {
+    start_ = true;
+    operation_started_.store(true, std::memory_order_release);
+  }
 
   void SetStartVerify() { start_verify_ = true; }
 
@@ -125,9 +274,99 @@ class SharedState {
 
   bool VerifyStarted() const { return start_verify_; }
 
+  bool OperationStarted() const {
+    return operation_started_.load(std::memory_order_acquire);
+  }
+
+  bool OperationFinished() const {
+    return operation_finished_.load(std::memory_order_acquire);
+  }
+
   void SetVerificationFailure() { verification_failure_.store(true); }
 
   bool HasVerificationFailedYet() const { return verification_failure_.load(); }
+
+  void IncFinishedOps() {
+    finished_ops_.fetch_add(1, std::memory_order_relaxed);
+  }
+
+  uint64_t GetFinishedOps() const {
+    return finished_ops_.load(std::memory_order_relaxed);
+  }
+
+  void IncCompletedOpForDiagnostics(StressOperationType type) {
+    const size_t index = static_cast<size_t>(type);
+    if (index == static_cast<size_t>(StressOperationType::kNone) ||
+        index == static_cast<size_t>(StressOperationType::kPrepare) ||
+        index >= kStressOperationTypeCount) {
+      return;
+    }
+    completed_ops_by_type_[index].fetch_add(1, std::memory_order_relaxed);
+  }
+
+  uint64_t GetCompletedOpsForDiagnostics(StressOperationType type) const {
+    const size_t index = static_cast<size_t>(type);
+    if (index >= kStressOperationTypeCount) {
+      return 0;
+    }
+    return completed_ops_by_type_[index].load(std::memory_order_relaxed);
+  }
+
+  void IncSuccessfulCompactions() {
+    successful_compactions_.fetch_add(1, std::memory_order_relaxed);
+  }
+
+  uint64_t GetSuccessfulCompactions() const {
+    return successful_compactions_.load(std::memory_order_relaxed);
+  }
+
+  bool TryBeginAbortAndResumeCompactions(uint64_t* successful_compactions) {
+    bool expected = false;
+    if (!abort_resume_compactions_running_.compare_exchange_strong(
+            expected, true, std::memory_order_acq_rel,
+            std::memory_order_relaxed)) {
+      return false;
+    }
+
+    *successful_compactions = GetSuccessfulCompactions();
+    if (*successful_compactions <=
+        successful_compactions_at_last_compaction_abort_.load(
+            std::memory_order_relaxed)) {
+      EndAbortAndResumeCompactions();
+      return false;
+    }
+    return true;
+  }
+
+  void MarkAbortAndResumeCompactions(uint64_t successful_compactions) {
+    successful_compactions_at_last_compaction_abort_.store(
+        successful_compactions, std::memory_order_relaxed);
+  }
+
+  void EndAbortAndResumeCompactions() {
+    abort_resume_compactions_running_.store(false, std::memory_order_release);
+  }
+
+  void StartOperation(uint32_t tid, StressOperationType type);
+
+  void ClearOperation(uint32_t tid) {
+    assert(tid < static_cast<uint32_t>(num_threads_));
+    ThreadOperationState& state = thread_operation_states_[tid];
+    state.active_type.store(static_cast<uint32_t>(StressOperationType::kNone),
+                            std::memory_order_release);
+    state.started_micros.store(0, std::memory_order_relaxed);
+  }
+
+  ThreadOperationSnapshot GetThreadOperationSnapshot(uint32_t tid) const {
+    assert(tid < static_cast<uint32_t>(num_threads_));
+    const ThreadOperationState& state = thread_operation_states_[tid];
+    // This is a diagnostic snapshot, not one atomic value. A concurrent
+    // start/clear can produce a torn pair; timeout checks must treat `kNone`
+    // and `started_micros == 0` as no active operation.
+    const auto type = static_cast<StressOperationType>(
+        state.active_type.load(std::memory_order_acquire));
+    return {type, state.started_micros.load(std::memory_order_relaxed)};
+  }
 
   void SetShouldStopTest() { should_stop_test_.store(true); }
 
@@ -353,8 +592,14 @@ class SharedState {
 
   void SafeTerminate() {
     // Grab mutex so that we don't call terminate while another thread is
-    // attempting to print a stack trace due to the first one
+    // attempting to print a stack trace due to the first one.
     MutexLock l(&mu_);
+    std::terminate();
+  }
+
+  void TerminateWithoutMutex() {
+    // The liveness watchdog must still terminate when the no-progress failure
+    // mode itself is holding the shared harness mutex.
     std::terminate();
   }
 
@@ -393,6 +638,7 @@ class SharedState {
 
   port::Mutex mu_;
   port::CondVar cv_;
+  Env* env_;
   port::Mutex persist_seqno_mu_;
   const uint32_t seed_;
   const int64_t max_key_;
@@ -404,12 +650,21 @@ class SharedState {
   long num_done_;
   bool start_;
   bool start_verify_;
+  std::atomic<bool> operation_started_;
+  std::atomic<bool> operation_finished_;
   int num_bg_threads_;
   bool should_stop_bg_thread_;
   int bg_thread_finished_;
   StressTest* stress_test_;
+  std::atomic<uint64_t> finished_ops_;
+  std::array<std::atomic<uint64_t>, kStressOperationTypeCount>
+      completed_ops_by_type_;
+  std::atomic<uint64_t> successful_compactions_;
+  std::atomic<uint64_t> successful_compactions_at_last_compaction_abort_;
+  std::atomic<bool> abort_resume_compactions_running_;
   std::atomic<bool> verification_failure_;
   std::atomic<bool> should_stop_test_;
+  std::unique_ptr<ThreadOperationState[]> thread_operation_states_;
 
   // Queue for the remote compaction.
   port::Mutex remote_compaction_queue_mu_;
@@ -458,6 +713,37 @@ struct ThreadState {
 
   ThreadState(uint32_t index, SharedState* _shared)
       : tid(index), rand(1000 + index + _shared->GetSeed()), shared(_shared) {}
+
+  bool LivenessTrackingEnabled() const {
+    return FLAGS_liveness_check_interval_sec > 0 &&
+           FLAGS_liveness_no_progress_timeout_sec > 0;
+  }
+
+  void StartOperation(StressOperationType type) {
+    if (LivenessTrackingEnabled()) {
+      shared->StartOperation(tid, type);
+    }
+  }
+
+  void ClearOperation() {
+    if (LivenessTrackingEnabled()) {
+      shared->ClearOperation(tid);
+    }
+  }
+
+  void CompletedOpForDiagnostics(StressOperationType type) {
+    if (LivenessTrackingEnabled()) {
+      shared->IncCompletedOpForDiagnostics(type);
+    }
+  }
+
+  void FinishedSingleOp() {
+    stats.FinishedSingleOp();
+    if (LivenessTrackingEnabled()) {
+      ClearOperation();
+      shared->IncFinishedOps();
+    }
+  }
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS
