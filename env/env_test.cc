@@ -4125,10 +4125,12 @@ TEST_F(TestAsyncRead, ReadAsyncQueueFull) {
     std::unique_ptr<FSRandomAccessFile> file;
     ASSERT_OK(fs->NewRandomAccessFile(fname, FileOptions(), &file, nullptr));
 
-    // Force io_uring_get_sqe to appear to return null via SyncPoint.
+    // Force the queue-full path without consuming an SQ slot. Overwriting the
+    // SQE pointer after io_uring_get_sqe() would leave a stale submission in
+    // the ring and pollute later tests using the same thread-local io_uring.
     SyncPoint::GetInstance()->SetCallBack(
-        "PosixRandomAccessFile::ReadAsync:io_uring_get_sqe",
-        [](void* arg) { *static_cast<io_uring_sqe**>(arg) = nullptr; });
+        "PosixRandomAccessFile::ReadAsync:skip_io_uring_get_sqe",
+        [](void* arg) { *static_cast<bool*>(arg) = true; });
     SyncPoint::GetInstance()->EnableProcessing();
 
     IOOptions opts;

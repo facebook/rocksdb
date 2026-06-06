@@ -6,6 +6,7 @@
 #include "rocksdb/c.h"
 
 #include <assert.h>
+#include <inttypes.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,7 +15,6 @@
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
-#include <inttypes.h>
 
 // Can not use port/port.h macros as this is a c file
 #ifdef OS_WIN
@@ -31,6 +31,14 @@ int geteuid() {
 }
 
 #endif
+
+static uint64_t GetTestId(void) {
+#ifdef OS_WIN
+  return (uint64_t)geteuid();
+#else
+  return ((uint64_t)geteuid() << 32) ^ (uint64_t)getpid();
+#endif
+}
 
 const char* phase = "";
 static char dbname[200];
@@ -848,20 +856,21 @@ int main(int argc, char** argv) {
   char* err = NULL;
   int run = -1;
 
-  snprintf(dbname, sizeof(dbname), "%s/rocksdb_c_test-%d", GetTempDir(),
-           ((int)geteuid()));
+  snprintf(dbname, sizeof(dbname), "%s/rocksdb_c_test-%" PRIu64, GetTempDir(),
+           GetTestId());
 
-  snprintf(dbbackupname, sizeof(dbbackupname), "%s/rocksdb_c_test-%d-backup",
-           GetTempDir(), ((int)geteuid()));
+  snprintf(dbbackupname, sizeof(dbbackupname),
+           "%s/rocksdb_c_test-%" PRIu64 "-backup", GetTempDir(), GetTestId());
 
   snprintf(dbcheckpointname, sizeof(dbcheckpointname),
-           "%s/rocksdb_c_test-%d-checkpoint", GetTempDir(), ((int)geteuid()));
+           "%s/rocksdb_c_test-%" PRIu64 "-checkpoint", GetTempDir(),
+           GetTestId());
 
-  snprintf(sstfilename, sizeof(sstfilename), "%s/rocksdb_c_test-%d-sst",
-           GetTempDir(), ((int)geteuid()));
+  snprintf(sstfilename, sizeof(sstfilename),
+           "%s/rocksdb_c_test-%" PRIu64 "-sst", GetTempDir(), GetTestId());
 
-  snprintf(dbpathname, sizeof(dbpathname), "%s/rocksdb_c_test-%d-dbpath",
-           GetTempDir(), ((int)geteuid()));
+  snprintf(dbpathname, sizeof(dbpathname),
+           "%s/rocksdb_c_test-%" PRIu64 "-dbpath", GetTempDir(), GetTestId());
 
   StartPhase("create_objects");
   cmp = rocksdb_comparator_create(NULL, CmpDestroy, CmpCompare, CmpName);
@@ -1147,9 +1156,11 @@ int main(int argc, char** argv) {
     static char cf_export_path[200];
     static char db_import_path[200];
     snprintf(cf_export_path, sizeof(cf_export_path),
-             "%s/rocksdb_c_test-%d-cf_export", GetTempDir(), ((int)geteuid()));
+             "%s/rocksdb_c_test-%" PRIu64 "-cf_export", GetTempDir(),
+             GetTestId());
     snprintf(db_import_path, sizeof(db_import_path),
-             "%s/rocksdb_c_test-%d-db_import", GetTempDir(), ((int)geteuid()));
+             "%s/rocksdb_c_test-%" PRIu64 "-db_import", GetTempDir(),
+             GetTestId());
 
     rocksdb_options_t* db_options = rocksdb_options_create();
     rocksdb_column_family_handle_t* cf_export =
@@ -2058,8 +2069,9 @@ int main(int argc, char** argv) {
     // use dbpathname2 as the cf_path for "cf1"
     rocksdb_dbpath_t* dbpath2;
     char dbpathname2[200];
-    snprintf(dbpathname2, sizeof(dbpathname2), "%s/rocksdb_c_test-%d-dbpath2",
-             GetTempDir(), ((int)geteuid()));
+    snprintf(dbpathname2, sizeof(dbpathname2),
+             "%s/rocksdb_c_test-%" PRIu64 "-dbpath2", GetTempDir(),
+             GetTestId());
     dbpath2 = rocksdb_dbpath_create(dbpathname2, 1024 * 1024);
     const rocksdb_dbpath_t* cf_paths[1] = {dbpath2};
     rocksdb_options_set_cf_paths(cf_options_2, cf_paths, 1);
@@ -3813,8 +3825,8 @@ int main(int argc, char** argv) {
     char wp_dbname[200];
     rocksdb_transactiondb_t* wp_txn_db;
     rocksdb_transactiondb_options_t* wp_txn_opts;
-    snprintf(wp_dbname, sizeof(wp_dbname), "%s/rocksdb_c_test-txnwp-%d",
-             GetTempDir(), (int)geteuid());
+    snprintf(wp_dbname, sizeof(wp_dbname), "%s/rocksdb_c_test-txnwp-%" PRIu64,
+             GetTempDir(), GetTestId());
     rocksdb_destroy_db(options, wp_dbname, &err);
     Free(&err);
     wp_txn_opts = rocksdb_transactiondb_options_create();
@@ -4482,7 +4494,7 @@ int main(int argc, char** argv) {
     rocksdb_options_set_max_open_files(opts, -1);
     rocksdb_options_set_create_if_missing(opts, 1);
     snprintf(secondary_path, sizeof(secondary_path),
-             "%s/rocksdb_c_test_secondary-%d", GetTempDir(), ((int)geteuid()));
+             "%s/rocksdb_c_test_secondary-%" PRIu64, GetTempDir(), GetTestId());
     db1 = rocksdb_open_as_secondary(opts, dbname, secondary_path, &err);
     CheckNoError(err);
 
@@ -4941,7 +4953,10 @@ int main(int argc, char** argv) {
     rocksdb_options_set_create_if_missing(null_opts, 1);
     rocksdb_options_set_compaction_service(null_opts, null_service);
 
-    const char* null_db = "rocksdb_c_test_null_service";
+    char null_db[200];
+    snprintf(null_db, sizeof(null_db),
+             "%s/rocksdb_c_test_null_service-%" PRIu64, GetTempDir(),
+             GetTestId());
 
     rocksdb_t* null_db_handle = rocksdb_open(null_opts, null_db, &err);
     CheckNoError(err);
