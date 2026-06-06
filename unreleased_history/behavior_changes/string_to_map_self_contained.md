@@ -1,1 +1,0 @@
-StringToMap (rocksdb/convenience.h) now preserves the outer braces of nested values so each map entry is in self-contained form and can be embedded directly into another `key=value;` string (e.g. SetOptions) without losing inner ';' delimiters. A new symmetric MapToString utility is provided.
