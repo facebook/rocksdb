@@ -1,1 +1,0 @@
-Fix a rare corruption bug for tiered compaction that incorrectly moved last level range tombstones into proximal level. This corruption error is surfaced when force_consistency_checks is enabled.
