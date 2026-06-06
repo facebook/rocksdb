@@ -8,11 +8,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <tuple>
+#include <utility>
 
 #include "compaction/compaction_picker_universal.h"
 #include "db/blob/blob_index.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
+#include "db/table_cache.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
 #include "port/port.h"
@@ -6676,7 +6678,7 @@ TEST_F(DBCompactionTest, UseDirectIoForCompactionReadsOffStaysBuffered) {
   std::atomic<int> observed_callbacks{0};
   std::atomic<int> observed_odirect_opens{0};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "CompactionJob::CompactionJob:FileOptionsForRead", [&](void* arg) {
+      "CompactionJob::CreateInputIterator:InputFileOptions", [&](void* arg) {
         const auto* fo = static_cast<const FileOptions*>(arg);
         observed_callbacks.fetch_add(1, std::memory_order_relaxed);
         if (fo->use_direct_reads) {
@@ -6708,6 +6710,97 @@ TEST_F(DBCompactionTest, UseDirectIoForCompactionReadsOffStaysBuffered) {
   ASSERT_GT(observed_callbacks.load(), 0);
   ASSERT_FALSE(observed_direct_compaction_read.load());
   ASSERT_EQ(0, observed_odirect_opens.load());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  Destroy(options);
+}
+
+TEST_F(DBCompactionTest,
+       UseDirectIoForCompactionReadsUsesBoundedEphemeralReaders) {
+  auto fs = std::make_shared<MockFileSystem>(Env::Default()->GetSystemClock(),
+                                             /*supports_direct_io=*/true);
+  std::unique_ptr<Env> mock_env = NewCompositeEnv(fs);
+
+  Options options = CurrentOptions();
+  options.env = mock_env.get();
+  Destroy(options);
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.use_direct_reads = false;
+  options.use_direct_io_for_compaction_reads = true;
+  options.use_direct_io_for_flush_and_compaction = false;
+  options.max_subcompactions = 3;
+  options.statistics = CreateDBStatistics();
+
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewLRUCache(64 << 20);
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.pin_l0_filter_and_index_blocks_in_cache = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::atomic<int> fresh_reader_opens{0};
+  std::atomic<int> malformed_fresh_reader_options{0};
+  std::atomic<int> avoid_shared_metadata_cache_opens{0};
+  std::atomic<int> shared_metadata_cache_uses{0};
+  std::atomic<size_t> input_iterator_file_bound{0};
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "TableCache::FindTable:FreshTableReader", [&](void* arg) {
+        const auto* open_options = static_cast<TableCacheOpenOptions*>(arg);
+        fresh_reader_opens.fetch_add(1, std::memory_order_relaxed);
+        if (!open_options->open_ephemeral_table_reader ||
+            !open_options->avoid_shared_metadata_cache ||
+            !open_options->skip_filters) {
+          malformed_fresh_reader_options.fetch_add(1,
+                                                   std::memory_order_relaxed);
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::PrefetchIndexAndFilterBlocks:SharedMetadataCache",
+      [&](void* arg) {
+        const auto* context = static_cast<std::pair<bool, bool>*>(arg);
+        const bool avoid_shared_metadata_cache = context->first;
+        const bool use_cache = context->second;
+        if (avoid_shared_metadata_cache) {
+          avoid_shared_metadata_cache_opens.fetch_add(
+              1, std::memory_order_relaxed);
+          if (use_cache) {
+            shared_metadata_cache_uses.fetch_add(1, std::memory_order_relaxed);
+          }
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::MakeInputIterator:NewCompactionMergingIterator",
+      [&](void* arg) {
+        input_iterator_file_bound.fetch_add(*static_cast<size_t*>(arg),
+                                            std::memory_order_relaxed);
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(TryReopen(options));
+
+  const std::string value(4096, 'v');
+  for (int i = 0; i < 64; ++i) {
+    ASSERT_OK(Put(Key(i), value));
+  }
+  ASSERT_OK(Flush());
+  for (int i = 0; i < 64; ++i) {
+    ASSERT_OK(Put(Key(i), value));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ASSERT_GT(fresh_reader_opens.load(), 0);
+  EXPECT_EQ(0, malformed_fresh_reader_options.load());
+  ASSERT_GT(avoid_shared_metadata_cache_opens.load(), 0);
+  EXPECT_EQ(0, shared_metadata_cache_uses.load());
+  ASSERT_GT(input_iterator_file_bound.load(), 0);
+  EXPECT_LE(static_cast<size_t>(fresh_reader_opens.load()),
+            input_iterator_file_bound.load());
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -6753,10 +6846,10 @@ TEST_F(DBCompactionTest, UseDirectIoForCompactionReadsEndToEnd) {
   std::atomic<bool> observed_direct_compaction_read{false};
   std::atomic<int> observed_callbacks{0};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({});
-  // Plumbing-level probe: the compaction-read FileOptions should carry
+  // Plumbing-level probe: the compaction-input FileOptions should carry
   // use_direct_reads = true when the new flag is enabled.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "CompactionJob::CompactionJob:FileOptionsForRead", [&](void* arg) {
+      "CompactionJob::CreateInputIterator:InputFileOptions", [&](void* arg) {
         const auto* fo = static_cast<const FileOptions*>(arg);
         observed_callbacks.fetch_add(1, std::memory_order_relaxed);
         if (fo != nullptr && fo->use_direct_reads) {

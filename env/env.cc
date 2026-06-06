@@ -1181,17 +1181,7 @@ EnvOptions Env::OptimizeForCompactionTableWrite(
 EnvOptions Env::OptimizeForCompactionTableRead(
     const EnvOptions& env_options, const ImmutableDBOptions& db_options) const {
   EnvOptions optimized_env_options(env_options);
-  // See FileSystem::OptimizeForCompactionTableRead for rationale and for the
-  // FileSystem-implementor contract: either the global `use_direct_reads`
-  // flag or the compaction-only `use_direct_io_for_compaction_reads` flag
-  // should enable direct I/O for the returned FileOptions.
-  //
-  // NOTE: this Env-side helper is retained for backward compatibility with
-  // legacy custom Env implementations. New code should override the
-  // FileSystem-side hook (see env/file_system.cc).
-  optimized_env_options.use_direct_reads =
-      db_options.use_direct_reads ||
-      db_options.use_direct_io_for_compaction_reads;
+  optimized_env_options.use_direct_reads = db_options.use_direct_reads;
   return optimized_env_options;
 }
 EnvOptions Env::OptimizeForBlobFileRead(

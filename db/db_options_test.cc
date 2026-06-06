@@ -13,6 +13,7 @@
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
+#include "env/mock_env.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
@@ -1782,20 +1783,65 @@ TEST_F(DBOptionsTest, UseDirectIoForCompactionReadsLiveReopen) {
   Close();
 }
 
+TEST_F(DBOptionsTest, UseDirectIoForCompactionReadsUnsupportedFileSystem) {
+  auto fs = std::make_shared<MockFileSystem>(Env::Default()->GetSystemClock(),
+                                             /*supports_direct_io=*/false);
+  std::unique_ptr<Env> mock_env = NewCompositeEnv(fs);
+
+  Options options = CurrentOptions();
+  options.env = mock_env.get();
+  options.create_if_missing = true;
+  options.use_direct_reads = false;
+  options.use_direct_io_for_flush_and_compaction = false;
+  options.use_direct_io_for_compaction_reads = true;
+
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_NE(s.ToString().find("Direct I/O is not supported"), std::string::npos)
+      << s.ToString();
+}
+
+TEST_F(
+    DBOptionsTest,
+    UseDirectIoForCompactionReadsSetDBOptionsKeepsVerificationReadsBuffered) {
+  auto fs = std::make_shared<MockFileSystem>(Env::Default()->GetSystemClock(),
+                                             /*supports_direct_io=*/true);
+  std::unique_ptr<Env> mock_env = NewCompositeEnv(fs);
+
+  Options options = CurrentOptions();
+  options.env = mock_env.get();
+  options.create_if_missing = true;
+  options.use_direct_reads = false;
+  options.use_direct_io_for_flush_and_compaction = false;
+  options.use_direct_io_for_compaction_reads = true;
+
+  ASSERT_OK(TryReopen(options));
+
+  bool observed = false;
+  FileOptions observed_file_options;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SetDBOptions:FileOptionsForCompaction", [&](void* arg) {
+        observed = true;
+        observed_file_options = *static_cast<FileOptions*>(arg);
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(dbfull()->SetDBOptions({{"bytes_per_sync", "1024"}}));
+  ASSERT_TRUE(observed);
+  ASSERT_FALSE(observed_file_options.use_direct_reads);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
+}
+
 // Exercises the FileSystem::OptimizeForCompactionTableRead and
-// OptimizeForBlobFileRead helpers directly, asserting that the new
-// compaction-only flag flips use_direct_reads on for SST compaction-input
-// reads, leaves blob-file reads alone, and stays compatible with the global
-// use_direct_reads flag. Pure FileOptions plumbing -- no DB open needed.
-TEST_F(DBOptionsTest, OptimizeForCompactionTableReadHonorsCompactionOnlyFlag) {
+// OptimizeForBlobFileRead helpers directly, asserting that the compaction-only
+// flag does not affect shared FileSystem hooks.
+TEST_F(DBOptionsTest, OptimizeForCompactionTableReadUsesGlobalDirectReadsOnly) {
   FileOptions in_opts;
   in_opts.use_direct_reads = false;
 
-  // Case 1: only the new flag is set. OptimizeForCompactionTableRead should
-  // turn on use_direct_reads in the returned options without touching the
-  // write side. OptimizeForBlobFileRead intentionally still tracks
-  // `use_direct_reads` only; the new flag does not (yet) plumb through to
-  // blob-file reads.
   {
     Options check_options;
     check_options.use_direct_reads = false;
@@ -1807,13 +1853,11 @@ TEST_F(DBOptionsTest, OptimizeForCompactionTableReadHonorsCompactionOnlyFlag) {
                                                               immutable);
     FileOptions blob_read =
         env_->GetFileSystem()->OptimizeForBlobFileRead(in_opts, immutable);
-    EXPECT_TRUE(sst_read.use_direct_reads);
+    EXPECT_FALSE(sst_read.use_direct_reads);
     EXPECT_FALSE(blob_read.use_direct_reads);
     EXPECT_FALSE(sst_read.use_direct_writes);
   }
 
-  // Case 2: both flags off. Behavior is exactly as before this option
-  // existed.
   {
     Options off_options;
     off_options.use_direct_reads = false;
@@ -1826,8 +1870,6 @@ TEST_F(DBOptionsTest, OptimizeForCompactionTableReadHonorsCompactionOnlyFlag) {
     EXPECT_FALSE(sst_read_off.use_direct_reads);
   }
 
-  // Case 3: only the global use_direct_reads is on. The new flag is
-  // irrelevant; the returned FileOptions must still request direct I/O.
   {
     Options global_on_options;
     global_on_options.use_direct_reads = true;
@@ -1840,8 +1882,6 @@ TEST_F(DBOptionsTest, OptimizeForCompactionTableReadHonorsCompactionOnlyFlag) {
     EXPECT_TRUE(sst_read_global.use_direct_reads);
   }
 
-  // Case 4: both flags on. Redundant but legal; the returned FileOptions
-  // must still request direct I/O.
   {
     Options both_on;
     both_on.use_direct_reads = true;

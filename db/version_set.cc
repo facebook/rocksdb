@@ -966,6 +966,15 @@ bool SomeFileOverlapsRange(const InternalKeyComparator& icmp,
 
 namespace {
 
+TableCacheOpenOptions GetCompactionTableCacheOpenOptions(
+    bool open_ephemeral_table_reader) {
+  TableCacheOpenOptions options;
+  options.open_ephemeral_table_reader = open_ephemeral_table_reader;
+  options.avoid_shared_metadata_cache = open_ephemeral_table_reader;
+  options.skip_filters = open_ephemeral_table_reader;
+  return options;
+}
+
 class LevelIterator final : public InternalIterator {
  public:
   // NOTE: many of the const& parameters are saved in this object (so
@@ -1009,7 +1018,8 @@ class LevelIterator final : public InternalIterator {
         scan_opts_(nullptr),
         db_statistics_(db_statistics),
         clock_(clock),
-        open_ephemeral_table_reader_(open_ephemeral_table_reader) {
+        table_cache_open_options_(
+            GetCompactionTableCacheOpenOptions(open_ephemeral_table_reader)) {
     // Empty level is not supported.
     assert(flevel_ != nullptr && flevel_->num_files > 0);
     if (range_tombstone_iter_ptr_) {
@@ -1316,8 +1326,9 @@ class LevelIterator final : public InternalIterator {
         /*max_file_size_for_l0_meta_pin=*/0, smallest_compaction_key,
         largest_compaction_key, allow_unprepared_value_, &read_seq_,
         range_tombstone_iter_,
-        /*maybe_pin_table_handle=*/!open_ephemeral_table_reader_,
-        /*file_open_metadata=*/nullptr, open_ephemeral_table_reader_);
+        /*maybe_pin_table_handle=*/
+        !table_cache_open_options_.open_ephemeral_table_reader,
+        /*file_open_metadata=*/nullptr, table_cache_open_options_);
   }
 
   // Check if current file being fully within iterate_lower_bound.
@@ -1394,12 +1405,7 @@ class LevelIterator final : public InternalIterator {
 
   Statistics* db_statistics_ = nullptr;
   SystemClock* clock_ = nullptr;
-  // True when this LevelIterator was created on behalf of a compaction that
-  // asked us to open ephemeral TableReaders for each file (bypassing the
-  // shared TableCache) so it can read inputs with a different OS-level
-  // disk-access mode (e.g. O_DIRECT vs the cached buffered handle used by
-  // user reads).
-  bool open_ephemeral_table_reader_ = false;
+  TableCacheOpenOptions table_cache_open_options_;
 
   // Our stored scan_opts for each prefix
   std::unique_ptr<ScanOptionsMap> file_to_scan_opts_ = nullptr;
@@ -7862,6 +7868,8 @@ InternalIterator* VersionSet::MakeInputIterator(
       range_tombstones;
   size_t num = 0;
   [[maybe_unused]] size_t num_input_files = 0;
+  const TableCacheOpenOptions table_cache_open_options =
+      GetCompactionTableCacheOpenOptions(open_ephemeral_table_reader);
   for (size_t which = 0; which < c->num_input_levels(); which++) {
     const LevelFilesBrief* flevel = c->input_levels(which);
     num_input_files += flevel->num_files;
@@ -7900,8 +7908,7 @@ InternalIterator* VersionSet::MakeInputIterator(
               /*range_del_read_seqno=*/nullptr,
               /*range_del_iter=*/&range_tombstone_iter,
               /*maybe_pin_table_handle=*/false,
-              /*file_open_metadata=*/nullptr,
-              /*open_ephemeral_table_reader=*/open_ephemeral_table_reader);
+              /*file_open_metadata=*/nullptr, table_cache_open_options);
           range_tombstones.emplace_back(std::move(range_tombstone_iter),
                                         nullptr);
         }

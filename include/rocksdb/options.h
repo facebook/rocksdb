@@ -1135,9 +1135,9 @@ struct DBOptions {
   // Use O_DIRECT for compaction-input SST reads only, while leaving user
   // reads in buffered mode. This is useful for workloads where compaction
   // reads would otherwise pollute the OS page cache and evict pages that
-  // are hot for user reads. When set to true, compaction-input iteration
-  // (SST table reads) goes through ephemeral O_DIRECT handles in addition
-  // to whatever `use_direct_reads` selects for user reads.
+  // are hot for user reads. When set to true and `use_direct_reads` is false,
+  // compaction-input iteration opens ephemeral O_DIRECT table readers instead
+  // of reusing the buffered table readers cached for user reads.
   //
   // This is the read-side analogue of
   // `use_direct_io_for_flush_and_compaction`, which controls *write*-side
@@ -1151,14 +1151,11 @@ struct DBOptions {
   //     currently supported.
   //   * Only affects SST table-input reads during compaction. Blob-file
   //     reads (including blob GC compaction reads) currently remain on the
-  //     buffered path even when this flag is true; extending the bypass to
-  //     BlobFileCache is a TODO.
-  //   * The underlying hook
-  //     (`FileSystem::OptimizeForCompactionTableRead`) is also used by
-  //     `BackupEngine` when it copies SST files, so backup reads will also
-  //     switch to O_DIRECT when this flag is true. Backups exhibit the same
-  //     sequential-scan / cache-pollution pattern as compaction inputs, so
-  //     this is intentional.
+  //     buffered path even when this flag is true.
+  //   * Ephemeral compaction-input table readers bypass the shared TableCache
+  //     and are not counted against `max_open_files`. Peak extra reader/file
+  //     handles are bounded by the number of input files simultaneously read
+  //     by active subcompactions.
   //
   // Linux's open(2) historically warned against mixing O_DIRECT and
   // buffered I/O on the same file. When this option is enabled, an SST
@@ -1186,9 +1183,8 @@ struct DBOptions {
   // combination is rejected at DB open with Status::NotSupported.
   //
   // On platforms or filesystems that do not support O_DIRECT (e.g. tmpfs,
-  // some macOS configurations), enabling this flag will cause Open() to
-  // fail when the first compaction attempts a direct-I/O open. Validate
-  // your environment before enabling globally.
+  // some macOS configurations), enabling this flag will cause DB::Open() to
+  // fail.
   //
   // Default: false
   bool use_direct_io_for_compaction_reads = false;

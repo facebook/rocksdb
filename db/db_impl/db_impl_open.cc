@@ -507,7 +507,8 @@ Status DBImpl::Recover(
       std::unique_ptr<FSRandomAccessFile> idfile;
       FileOptions customized_fs(file_options_);
       customized_fs.use_direct_reads |=
-          immutable_db_options_.use_direct_io_for_flush_and_compaction;
+          immutable_db_options_.use_direct_io_for_flush_and_compaction ||
+          immutable_db_options_.use_direct_io_for_compaction_reads;
       const std::string& fname =
           manifest_path.empty() ? current_fname : manifest_path;
       s = fs_->NewRandomAccessFile(fname, customized_fs, &idfile, nullptr);

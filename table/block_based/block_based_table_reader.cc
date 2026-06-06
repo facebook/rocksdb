@@ -748,7 +748,8 @@ Status BlockBasedTable::Open(
     BlockCacheTracer* const block_cache_tracer,
     size_t max_file_size_for_l0_meta_pin, const std::string& cur_db_session_id,
     uint64_t cur_file_num, UniqueId64x2 expected_unique_id,
-    const bool user_defined_timestamps_persisted) {
+    const bool user_defined_timestamps_persisted,
+    const bool avoid_shared_metadata_cache) {
   table_reader->reset();
 
   Status s;
@@ -767,8 +768,10 @@ Status BlockBasedTable::Open(
   ro.io_activity = read_options.io_activity;
   ro.fill_cache = read_options.fill_cache;
 
-  // prefetch both index and filters, down to all partitions
-  const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
+  // Prefetch both index and filters, down to all partitions. The L0 fast path
+  // is skipped when open-time reads must avoid the shared metadata cache.
+  const bool prefetch_all = prefetch_index_and_filter_in_cache ||
+                            (level == 0 && !avoid_shared_metadata_cache);
   const bool preload_all = !table_options.cache_index_and_filter_blocks;
 
   if (!ioptions.allow_mmap_reads && !env_options.use_mmap_reads) {
@@ -961,7 +964,8 @@ Status BlockBasedTable::Open(
   s = new_table->PrefetchIndexAndFilterBlocks(
       ro, prefetch_buffer.get(), metaindex_iter.get(), new_table.get(),
       prefetch_all, table_options, level, file_size,
-      max_file_size_for_l0_meta_pin, &lookup_context);
+      max_file_size_for_l0_meta_pin, avoid_shared_metadata_cache,
+      &lookup_context);
 
   if (s.ok()) {
     // Update tail prefetch stats
@@ -1215,7 +1219,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     InternalIterator* meta_iter, BlockBasedTable* new_table, bool prefetch_all,
     const BlockBasedTableOptions& table_options, const int level,
     size_t file_size, size_t max_file_size_for_l0_meta_pin,
-    BlockCacheLookupContext* lookup_context) {
+    bool avoid_shared_metadata_cache, BlockCacheLookupContext* lookup_context) {
   // Find filter handle and filter type
   if (rep_->filter_policy) {
     auto name = rep_->filter_policy->CompatibilityName();
@@ -1253,10 +1257,16 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
 
   BlockBasedTableOptions::IndexType index_type = rep_->index_type;
 
-  const bool use_cache = table_options.cache_index_and_filter_blocks;
+  const bool use_cache = table_options.cache_index_and_filter_blocks &&
+                         !avoid_shared_metadata_cache;
+  [[maybe_unused]] std::pair<bool, bool> shared_metadata_cache_context = {
+      avoid_shared_metadata_cache, use_cache};
+  TEST_SYNC_POINT_CALLBACK(
+      "BlockBasedTable::PrefetchIndexAndFilterBlocks:SharedMetadataCache",
+      &shared_metadata_cache_context);
 
-  const bool maybe_flushed =
-      level == 0 && file_size <= max_file_size_for_l0_meta_pin;
+  const bool maybe_flushed = !avoid_shared_metadata_cache && level == 0 &&
+                             file_size <= max_file_size_for_l0_meta_pin;
   std::function<bool(PinningTier, PinningTier)> is_pinned =
       [maybe_flushed, &is_pinned](PinningTier pinning_tier,
                                   PinningTier fallback_pinning_tier) {
@@ -1280,16 +1290,20 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
         assert(false);
         return false;
       };
-  const bool pin_top_level_index = is_pinned(
-      table_options.metadata_cache_options.top_level_index_pinning,
-      table_options.pin_top_level_index_and_filter ? PinningTier::kAll
-                                                   : PinningTier::kNone);
+  const bool pin_top_level_index =
+      !avoid_shared_metadata_cache &&
+      is_pinned(table_options.metadata_cache_options.top_level_index_pinning,
+                table_options.pin_top_level_index_and_filter
+                    ? PinningTier::kAll
+                    : PinningTier::kNone);
   const bool pin_partition =
+      !avoid_shared_metadata_cache &&
       is_pinned(table_options.metadata_cache_options.partition_pinning,
                 table_options.pin_l0_filter_and_index_blocks_in_cache
                     ? PinningTier::kFlushedAndSimilar
                     : PinningTier::kNone);
   const bool pin_unpartitioned =
+      !avoid_shared_metadata_cache &&
       is_pinned(table_options.metadata_cache_options.unpartitioned_pinning,
                 table_options.pin_l0_filter_and_index_blocks_in_cache
                     ? PinningTier::kFlushedAndSimilar
@@ -1390,7 +1404,8 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   // The partitions of partitioned index are always stored in cache. They
   // are hence follow the configuration for pin and prefetch regardless of
   // the value of cache_index_and_filter_blocks
-  if (s.ok() && (prefetch_all || pin_partition)) {
+  if (s.ok() && !avoid_shared_metadata_cache &&
+      (prefetch_all || pin_partition)) {
     s = rep_->index_reader->CacheDependencies(ro, pin_partition,
                                               prefetch_buffer);
   }
@@ -1415,7 +1430,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
 
     if (filter) {
       // Refer to the comment above about paritioned indexes always being cached
-      if (prefetch_all || pin_partition) {
+      if (!avoid_shared_metadata_cache && (prefetch_all || pin_partition)) {
         s = filter->CacheDependencies(ro, pin_partition, prefetch_buffer);
         if (!s.ok()) {
           return s;

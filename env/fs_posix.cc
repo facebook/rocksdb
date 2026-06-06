@@ -950,18 +950,10 @@ class PosixFileSystem : public FileSystem {
   FileOptions OptimizeForCompactionTableRead(
       const FileOptions& file_options,
       const ImmutableDBOptions& db_options) const override {
-    // Run the base implementation first so that `use_direct_reads` reflects
-    // both `use_direct_reads` and `use_direct_io_for_compaction_reads`. This
-    // override is otherwise focused on a Linux-specific compaction readahead
-    // adjustment (see https://github.com/facebook/rocksdb/issues/12038), and
-    // must not silently drop the direct-I/O selection done by the parent.
     FileOptions fo =
         FileSystem::OptimizeForCompactionTableRead(file_options, db_options);
 #ifdef OS_LINUX
     // To fix https://github.com/facebook/rocksdb/issues/12038
-    // Use the post-base value of `use_direct_reads` so that callers enabling
-    // direct I/O only for compaction reads still skip this buffered-read
-    // readahead clamping.
     if (!fo.use_direct_reads && fo.compaction_readahead_size > 0) {
       size_t system_limit =
           GetCompactionReadaheadSizeSystemLimit(db_options.db_paths);

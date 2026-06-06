@@ -98,7 +98,7 @@ Status TableCache::GetTableReader(
     const MutableCFOptions& mutable_cf_options, bool skip_filters, int level,
     bool prefetch_index_and_filter_in_cache,
     size_t max_file_size_for_l0_meta_pin, Temperature file_temperature,
-    std::string* file_open_metadata) {
+    std::string* file_open_metadata, bool avoid_shared_metadata_cache) {
   std::string fname = TableFileName(
       ioptions_.cf_paths, file_meta.fd.GetNumber(), file_meta.fd.GetPathId());
   std::unique_ptr<FSRandomAccessFile> file;
@@ -190,7 +190,8 @@ Status TableCache::GetTableReader(
             block_cache_tracer_, max_file_size_for_l0_meta_pin, db_session_id_,
             file_meta.fd.GetNumber(), expected_unique_id,
             file_meta.fd.largest_seqno, file_meta.tail_size,
-            file_meta.user_defined_timestamps_persisted),
+            file_meta.user_defined_timestamps_persisted,
+            avoid_shared_metadata_cache),
         std::move(file_reader), file_meta.fd.GetFileSize(), table_reader,
         prefetch_index_and_filter_in_cache);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");
@@ -214,22 +215,24 @@ Status TableCache::FindTable(
     int level, bool prefetch_index_and_filter_in_cache,
     size_t max_file_size_for_l0_meta_pin, Temperature file_temperature,
     bool pin_table_handle, std::string* file_open_metadata,
-    std::unique_ptr<TableReader>* fresh_table_reader_owner) {
+    std::unique_ptr<TableReader>* fresh_table_reader_owner,
+    const TableCacheOpenOptions& open_options) {
   assert(out_table_reader != nullptr && *out_table_reader == nullptr);
   assert(handle != nullptr && *handle == nullptr);
+  // `open_ephemeral_table_reader` is the policy bit; `fresh_table_reader_owner`
+  // is the ownership channel for that reader.
+  assert(open_options.open_ephemeral_table_reader ==
+         (fresh_table_reader_owner != nullptr));
   PERF_TIMER_GUARD_WITH_CLOCK(find_table_nanos, ioptions_.clock);
 
-  // Bypass path: when the caller is asking for an ephemeral, freshly-opened
-  // TableReader (currently only compaction with a different disk-access mode
-  // than the cached user-read handle), skip the pinned-reader fast path and
-  // the shared cache entirely. The caller takes ownership of the new reader
-  // via `fresh_table_reader_owner`.
+  // Bypass path: when the caller is asking for a freshly-opened TableReader,
+  // skip the pinned-reader fast path and the shared cache entirely. The caller
+  // takes ownership of the new reader via `fresh_table_reader_owner`.
   //
   // Caller contract: `no_io` MUST NOT be combined with
   // `fresh_table_reader_owner != nullptr` -- a freshly opened reader
-  // inherently requires I/O. CompactionJob (the only current caller using
-  // this path) does not set `no_io`. If a future caller needs both, the
-  // bypass must learn a different fallback strategy.
+  // inherently requires I/O. If a future caller needs both, the bypass must
+  // learn a different fallback strategy.
   if (fresh_table_reader_owner != nullptr) {
     assert(!no_io);
     if (no_io) {
@@ -238,24 +241,18 @@ Status TableCache::FindTable(
           "fresh TableReader requested but no_io is set; cannot open file");
     }
     std::unique_ptr<TableReader> table_reader;
-    // NOTE: `prefetch_index_and_filter_in_cache` is forced false for the
-    // bypass path. The whole point of opening an ephemeral O_DIRECT
-    // TableReader for compaction is to avoid polluting the OS page cache
-    // with read-once data. Letting the ephemeral reader prefetch its
-    // index/filter blocks into the *shared block cache* would partially
-    // defeat that: those blocks are not needed after the compaction scan
-    // finishes, but their cache insertion would evict warmer user-read
-    // blocks. Compaction iterates the data linearly so the index/filter
-    // amortization the cache provides is also not useful here.
-    // `skip_filters` is similarly forced true -- compaction reads every
-    // key in the file, the filter cannot help.
-    Status s = GetTableReader(ro, file_options, internal_comparator, file_meta,
-                              false /* sequential mode */, file_read_hist,
-                              &table_reader, mutable_cf_options,
-                              /*skip_filters=*/true, level,
-                              /*prefetch_index_and_filter_in_cache=*/false,
-                              max_file_size_for_l0_meta_pin, file_temperature,
-                              file_open_metadata);
+    const bool effective_skip_filters =
+        skip_filters || open_options.skip_filters;
+    TEST_SYNC_POINT_CALLBACK("TableCache::FindTable:FreshTableReader",
+                             const_cast<TableCacheOpenOptions*>(&open_options));
+    Status s = GetTableReader(
+        ro, file_options, internal_comparator, file_meta,
+        false /* sequential mode */, file_read_hist, &table_reader,
+        mutable_cf_options, effective_skip_filters, level,
+        prefetch_index_and_filter_in_cache &&
+            !open_options.avoid_shared_metadata_cache,
+        max_file_size_for_l0_meta_pin, file_temperature, file_open_metadata,
+        open_options.avoid_shared_metadata_cache);
     if (!s.ok()) {
       assert(table_reader == nullptr);
       RecordTick(ioptions_.stats, NO_FILE_ERRORS);
@@ -364,20 +361,22 @@ InternalIterator* TableCache::NewIterator(
     const SequenceNumber* read_seqno,
     std::unique_ptr<TruncatedRangeDelIterator>* range_del_iter,
     bool maybe_pin_table_handle, std::string* file_open_metadata,
-    bool open_ephemeral_table_reader) {
+    const TableCacheOpenOptions& open_options) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   Status s;
   TableReader* table_reader = nullptr;
   TypedHandle* handle = nullptr;
+  assert(!open_options.open_ephemeral_table_reader ||
+         table_reader_ptr == nullptr);
   // Holds ownership of a freshly-opened TableReader when the caller asked us
-  // to bypass the shared cache (e.g. compaction reads with a different
-  // disk-access mode than the user-read handle). When non-empty, the
-  // iterator we hand back must arrange to free it on destruction.
+  // to bypass the shared cache. When non-empty, the iterator we hand back must
+  // arrange to free it on destruction.
   std::unique_ptr<TableReader> ephemeral_reader;
   if (table_reader_ptr != nullptr) {
     *table_reader_ptr = nullptr;
   }
+  const bool effective_skip_filters = skip_filters || open_options.skip_filters;
   bool for_compaction = caller == TableReaderCaller::kCompaction;
   TEST_SYNC_POINT_CALLBACK("TableCache::NewIterator::BeforeFindTable",
                            const_cast<FileDescriptor*>(&file_meta.fd));
@@ -385,10 +384,13 @@ InternalIterator* TableCache::NewIterator(
       options, file_options, icomparator, file_meta, &handle,
       mutable_cf_options, &table_reader,
       options.read_tier == kBlockCacheTier /* no_io */, file_read_hist,
-      skip_filters, level, true /* prefetch_index_and_filter_in_cache */,
-      max_file_size_for_l0_meta_pin, file_meta.temperature,
+      effective_skip_filters, level,
+      /*prefetch_index_and_filter_in_cache=*/
+      !open_options.avoid_shared_metadata_cache, max_file_size_for_l0_meta_pin,
+      file_meta.temperature,
       maybe_pin_table_handle && should_pin_table_handles_, file_open_metadata,
-      open_ephemeral_table_reader ? &ephemeral_reader : nullptr);
+      open_options.open_ephemeral_table_reader ? &ephemeral_reader : nullptr,
+      open_options);
   InternalIterator* result = nullptr;
   if (s.ok()) {
     if (options.table_filter &&
@@ -397,21 +399,21 @@ InternalIterator* TableCache::NewIterator(
     } else {
       result = table_reader->NewIterator(
           options, mutable_cf_options.prefix_extractor.get(), arena,
-          skip_filters, caller, file_options.compaction_readahead_size,
-          allow_unprepared_value);
+          effective_skip_filters, caller,
+          file_options.compaction_readahead_size, allow_unprepared_value);
     }
     if (handle != nullptr) {
       cache_.RegisterReleaseAsCleanup(handle, *result);
       handle = nullptr;  // prevent from releasing below
     }
-    // Note: when `open_ephemeral_table_reader` is set and `ephemeral_reader`
-    // is held, we intentionally do NOT release/RegisterCleanup it yet. The
-    // range-del processing below can set `s` to a non-OK status (e.g.
-    // corrupt tombstone block), in which case `result` is discarded and
-    // replaced with NewErrorInternalIterator at function end. Releasing the
-    // reader into `result`'s cleanup chain before that point would leak the
-    // TableReader. Instead, we keep it owned by `ephemeral_reader` here and
-    // transfer ownership only after we know `s` will remain OK.
+    // Note: when `ephemeral_reader` is held, we intentionally do NOT
+    // release/RegisterCleanup it yet. The range-del processing below can set
+    // `s` to a non-OK status (e.g. corrupt tombstone block), in which case
+    // `result` is discarded and replaced with NewErrorInternalIterator at
+    // function end. Releasing the reader into `result`'s cleanup chain before
+    // that point would leak the TableReader. Instead, we keep it owned by
+    // `ephemeral_reader` here and transfer ownership only after we know `s`
+    // will remain OK.
 
     if (for_compaction) {
       table_reader->SetupForCompaction();

@@ -1560,10 +1560,7 @@ class VersionSet {
   // @param start, end indicates compaction range
   // @param open_ephemeral_table_reader When true, the per-file iterators
   //              bypass the shared TableCache and open fresh TableReaders
-  //              using `file_options_compactions`. This is how compaction
-  //              reads honor `use_direct_io_for_compaction_reads` even when
-  //              the long-lived cached handle for the same SST was opened
-  //              in buffered mode for user reads.
+  //              using `file_options_compactions`.
   InternalIterator* MakeInputIterator(
       const ReadOptions& read_options, const Compaction* c,
       RangeDelAggregator* range_del_agg,

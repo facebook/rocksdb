@@ -7946,7 +7946,9 @@ class Benchmark {
 
       const int64_t bg_keyspace =
           FLAGS_bgwriter_num > 0 ? FLAGS_bgwriter_num : FLAGS_num;
-      GenerateKeyFromInt(thread->rand.Next() % bg_keyspace, bg_keyspace, &key);
+      const int64_t num_keys =
+          FLAGS_use_existing_keys ? FLAGS_num : bg_keyspace;
+      GenerateKeyFromInt(thread->rand.Next() % bg_keyspace, num_keys, &key);
       Status s;
 
       Slice val = gen.Generate();
@@ -9607,6 +9609,12 @@ int db_bench_tool(int argc, char** argv, ToolHooks& hooks) {
     fprintf(stderr,
             "`-use_existing_db` must be true for `-use_existing_keys` to be "
             "settable\n");
+    db_bench_exit(1);
+  }
+  if (FLAGS_use_existing_keys && FLAGS_bgwriter_num > FLAGS_num) {
+    fprintf(stderr,
+            "`-bgwriter_num` must be less than or equal to `-num` when "
+            "`-use_existing_keys` is set\n");
     db_bench_exit(1);
   }
 
