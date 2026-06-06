@@ -136,6 +136,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
   }
 
   AlignedBuffer direct_io_buffer;
+  AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
   {
     IOOptions opts;
     IODebugContext dbg;
@@ -145,7 +146,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
       if (file->use_direct_io()) {
 #endif  // WITH_COROUTINES
         s = file->MultiRead(opts, &read_reqs[0], read_reqs.size(),
-                            &direct_io_buffer, &dbg);
+                            &direct_io_context, &dbg);
 #if defined(WITH_COROUTINES)
       } else {
         co_await batch->context()->reader().MultiReadAsync(

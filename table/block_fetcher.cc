@@ -175,9 +175,11 @@ inline void BlockFetcher::PrepareBufferForBlockFromFile() {
     // stack buffer, the cost of guessing incorrectly here is one extra memcpy.
     //
     // When `do_uncompress_` is true, we expect the uncompression step will
-    // allocate heap memory for the final result. However this expectation will
-    // be wrong if the block turns out to already be uncompressed, which we
-    // won't know for sure until after reading it.
+    // allocate memory for the final result, using the read-scoped provider if
+    // one is configured. However this expectation will be wrong if the block
+    // turns out to already be uncompressed, which we won't know for sure until
+    // after reading it. In that case provider-backed reads copy the block into
+    // provider storage in `GetBlockContents()`.
     //
     // When `ioptions_.allow_mmap_reads` is true, we do not expect the file
     // reader to use the scratch buffer at all, but instead return a pointer
@@ -244,15 +246,16 @@ inline void BlockFetcher::CopyBufferToCompressedBuf() {
 // 5. direct_io_buffer_ if direct IO is enabled or
 // 6. underlying file_system scratch is used (FSReadRequest.fs_scratch).
 //
-// After - After this method, if the block is compressed, it should be in
-// compressed_buf_ and heap_buf_ points to compressed_buf_, otherwise should be
-// in heap_buf_.
+// After - After this method, compressed blocks should be in compressed_buf_ and
+// heap_buf_ points to compressed_buf_. Uncompressed blocks should be recorded
+// in *contents_ with either heap ownership or read-scoped cleanup ownership.
 inline void BlockFetcher::GetBlockContents() {
   if (read_scoped_buf_lease_.cleanup.get() != nullptr &&
       compression_type() == kNoCompression) {
     contents_->data = Slice(slice_.data(), block_size_);
     contents_->cleanup = std::move(read_scoped_buf_lease_.cleanup);
     contents_->backing_size = read_scoped_buf_lease_.size;
+    contents_->AssertSingleOwner();
   } else if (block_buffer_provider_.has_value() &&
              compression_type() == kNoCompression) {
     Status s = CopyBufferToReadScopedBlockContents(
@@ -305,17 +308,21 @@ void BlockFetcher::ReadBlock(bool retry) {
   // Actual file read
   if (io_status_.ok()) {
     if (file_->use_direct_io()) {
+      AlignedBuffer::Allocator direct_io_allocator;
       if (block_buffer_provider_.has_value() && !maybe_compressed_) {
-        direct_io_buffer_ = MakeReadScopedAlignedBuffer(
+        direct_io_allocator = MakeReadScopedAlignedBufferAllocator(
             block_buffer_provider_, &read_scoped_buf_lease_);
       }
+      AlignedBufferAllocationContext direct_io_context{
+          &direct_io_buffer_,
+          direct_io_allocator ? &direct_io_allocator : nullptr};
       PERF_TIMER_GUARD(block_read_time);
       PERF_CPU_TIMER_GUARD(
           block_read_cpu_time,
           ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
       io_status_ =
           file_->Read(opts, handle_.offset(), block_size_with_trailer_, &slice_,
-                      /*scratch=*/nullptr, &direct_io_buffer_, &dbg);
+                      /*scratch=*/nullptr, &direct_io_context, &dbg);
       PERF_COUNTER_ADD(block_read_count, 1);
       used_buf_ = const_cast<char*>(slice_.data());
     } else if (use_fs_scratch_) {
@@ -327,8 +334,9 @@ void BlockFetcher::ReadBlock(bool retry) {
       read_req.len = block_size_with_trailer_;
       read_req.scratch = nullptr;
       AlignedBuffer direct_io_buffer;
+      AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
       io_status_ = file_->MultiRead(opts, &read_req, /*num_reqs=*/1,
-                                    &direct_io_buffer, &dbg);
+                                    &direct_io_context, &dbg);
       PERF_COUNTER_ADD(block_read_count, 1);
 
       slice_ = Slice(read_req.result.data(), read_req.result.size());

@@ -140,6 +140,7 @@ static Status CreateAndPinBlockFromBuffer(
       tmp_contents.data = Slice(block_data, block.size());
       tmp_contents.cleanup = *effective_read_buffer_cleanup;
       tmp_contents.backing_size = block_size_with_trailer;
+      tmp_contents.AssertSingleOwner();
 #ifndef NDEBUG
       tmp_contents.has_trailer = rep->footer.GetBlockTrailerSize() > 0;
 #endif
@@ -1129,6 +1130,10 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
       async_state->blocks.emplace_back(job->block_handles[idx]);
     }
 
+    AlignedBuffer::Allocator direct_io_allocator;
+    AlignedBufferAllocationContext direct_io_context{
+        &async_state->direct_io_buffer};
+    AlignedBufferAllocationContext* direct_io_context_arg = nullptr;
     if (read_scoped_io.use_read_scoped_direct_io) {
       assert(read_scoped_io.block_buffer_provider.has_value());
       // This allocator borrows the AsyncIOState lease member and is invoked
@@ -1136,9 +1141,11 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
       // The resulting AlignedBuffer owner keeps the read-scoped cleanup alive
       // until the async read is processed or abandoned. Uncompressed blocks
       // later attach this cleanup directly to BlockContents.
-      async_state->direct_io_buffer =
-          MakeReadScopedAlignedBuffer(read_scoped_io.block_buffer_provider,
-                                      &async_state->read_scoped_buf_lease);
+      direct_io_allocator = MakeReadScopedAlignedBufferAllocator(
+          read_scoped_io.block_buffer_provider,
+          &async_state->read_scoped_buf_lease);
+      direct_io_context.allocator = &direct_io_allocator;
+      direct_io_context_arg = &direct_io_context;
     }
 
     if (direct_io) {
@@ -1175,10 +1182,7 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
         read_scoped_io.use_read_scoped_direct_io
             ? nullptr
             : (direct_io ? &async_state->aligned_buf : nullptr),
-        /*dbg=*/nullptr,
-        read_scoped_io.use_read_scoped_direct_io
-            ? &async_state->direct_io_buffer
-            : nullptr);
+        /*dbg=*/nullptr, direct_io_context_arg);
 
     if (s.IsNotSupported()) {
       // Async IO may be compiled in but unavailable at runtime. Fall back to
@@ -1252,14 +1256,17 @@ Status IODispatcherImpl::Impl::ExecuteSyncIO(
 
   ReadScopedBlockBufferProvider::Lease read_scoped_direct_io_lease;
   AlignedBuffer direct_io_buffer;
+  AlignedBuffer::Allocator direct_io_allocator;
+  AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
   if (read_scoped_io.use_read_scoped_direct_io) {
     assert(read_scoped_io.block_buffer_provider.has_value());
-    // This buffer borrows stack-local lease state from the synchronous
+    // This allocator borrows stack-local lease state from the synchronous
     // ExecuteSyncIO call. RandomAccessFileReader::MultiRead asks it to allocate
     // before returning, and uncompressed blocks later attach the lease cleanup
     // directly to BlockContents.
-    direct_io_buffer = MakeReadScopedAlignedBuffer(
+    direct_io_allocator = MakeReadScopedAlignedBufferAllocator(
         read_scoped_io.block_buffer_provider, &read_scoped_direct_io_lease);
+    direct_io_context.allocator = &direct_io_allocator;
   }
 
   if (direct_io) {
@@ -1300,7 +1307,7 @@ Status IODispatcherImpl::Impl::ExecuteSyncIO(
   // Execute MultiRead
   if (Status s =
           rep->file->MultiRead(io_opts, read_reqs.data(), read_reqs.size(),
-                               &direct_io_buffer, /*dbg=*/nullptr);
+                               &direct_io_context, /*dbg=*/nullptr);
       !s.ok()) {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
     permit_unchecked_read_req_statuses();

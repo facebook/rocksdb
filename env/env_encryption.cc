@@ -144,7 +144,7 @@ IOStatus EncryptedWritableFile::Append(const Slice& data,
     auto offset = file_->GetFileSize(options, dbg);  // size including prefix
     // Encrypt in cloned buffer
     buf.Alignment(GetRequiredBufferAlignment());
-    buf.ReallocateHeapBuffer(data.size());
+    buf.AllocateNewBuffer(data.size());
     // TODO (sagar0): Modify AlignedBuffer.Append to allow doing a memmove
     // so that the next two lines can be replaced with buf.Append().
     memmove(buf.BufferStart(), data.data(), data.size());
@@ -173,7 +173,7 @@ IOStatus EncryptedWritableFile::PositionedAppend(const Slice& data,
   if (data.size() > 0) {
     // Encrypt in cloned buffer
     buf.Alignment(GetRequiredBufferAlignment());
-    buf.ReallocateHeapBuffer(data.size());
+    buf.AllocateNewBuffer(data.size());
     memmove(buf.BufferStart(), data.data(), data.size());
     buf.Size(data.size());
     IOStatus io_s;
@@ -278,7 +278,7 @@ IOStatus EncryptedRandomRWFile::Write(uint64_t offset, const Slice& data,
   if (data.size() > 0) {
     // Encrypt in cloned buffer
     buf.Alignment(GetRequiredBufferAlignment());
-    buf.ReallocateHeapBuffer(data.size());
+    buf.AllocateNewBuffer(data.size());
     memmove(buf.BufferStart(), data.data(), data.size());
     buf.Size(data.size());
     IOStatus io_s;
@@ -402,7 +402,7 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
       if (*prefix_length > 0) {
         // Initialize prefix
         buffer.Alignment(underlying->GetRequiredBufferAlignment());
-        buffer.ReallocateHeapBuffer(*prefix_length);
+        buffer.AllocateNewBuffer(*prefix_length);
         status = status_to_io_status(provider->CreateNewPrefix(
             fname, buffer.BufferStart(), *prefix_length));
         if (status.ok()) {
@@ -473,7 +473,7 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
       if (*prefix_length > 0) {
         // Initialize prefix
         buffer.Alignment(underlying->GetRequiredBufferAlignment());
-        buffer.ReallocateHeapBuffer(*prefix_length);
+        buffer.AllocateNewBuffer(*prefix_length);
         io_s = status_to_io_status(provider->CreateNewPrefix(
             fname, buffer.BufferStart(), *prefix_length));
         if (io_s.ok()) {
@@ -516,7 +516,7 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
     if (*prefix_length > 0) {
       // Read prefix
       buffer.Alignment(underlying->GetRequiredBufferAlignment());
-      buffer.ReallocateHeapBuffer(*prefix_length);
+      buffer.AllocateNewBuffer(*prefix_length);
       IOStatus status = underlying->Read(*prefix_length, options.io_options,
                                          &prefix, buffer.BufferStart(), dbg);
       if (!status.ok()) {
@@ -551,7 +551,7 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
     if (*prefix_length > 0) {
       // Read prefix
       buffer.Alignment(underlying->GetRequiredBufferAlignment());
-      buffer.ReallocateHeapBuffer(*prefix_length);
+      buffer.AllocateNewBuffer(*prefix_length);
       IOStatus status = underlying->Read(0, *prefix_length, options.io_options,
                                          &prefix, buffer.BufferStart(), dbg);
       if (!status.ok()) {

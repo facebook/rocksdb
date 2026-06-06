@@ -98,7 +98,7 @@ IOStatus WritableFileWriter::Append(const IOOptions& opts, const Slice& data,
       size_t desired_capacity = std::min(cap * 2, max_buffer_size_);
       if (desired_capacity - buf_.CurrentSize() >= left ||
           (use_direct_io() && desired_capacity == max_buffer_size_)) {
-        buf_.ReallocateHeapBuffer(desired_capacity, true);
+        buf_.AllocateNewBuffer(desired_capacity, true);
         break;
       }
     }

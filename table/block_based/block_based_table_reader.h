@@ -72,10 +72,10 @@ Status AllocateReadScopedAlignedBuffer(
     size_t alignment, ReadScopedBlockBufferProvider::Lease* lease,
     AlignedBuffer::ExternalAllocation* out);
 
-// Returns an AlignedBuffer whose direct-I/O allocations come from the
-// read-scoped provider. The caller must keep `lease` alive until the file
-// reader synchronously asks the AlignedBuffer to allocate.
-AlignedBuffer MakeReadScopedAlignedBuffer(
+// Returns an allocator whose direct-I/O allocation comes from the read-scoped
+// provider. The caller must keep `lease` alive until the file reader
+// synchronously invokes the allocator.
+AlignedBuffer::Allocator MakeReadScopedAlignedBufferAllocator(
     ReadScopedBlockBufferProviderRef block_buffer_provider,
     ReadScopedBlockBufferProvider::Lease* lease);
 

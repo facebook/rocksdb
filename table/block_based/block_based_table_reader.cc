@@ -134,18 +134,18 @@ Status AllocateReadScopedAlignedBuffer(
   return Status::OK();
 }
 
-AlignedBuffer MakeReadScopedAlignedBuffer(
+AlignedBuffer::Allocator MakeReadScopedAlignedBufferAllocator(
     ReadScopedBlockBufferProviderRef block_buffer_provider,
     ReadScopedBlockBufferProvider::Lease* lease) {
   assert(block_buffer_provider.has_value());
   assert(lease != nullptr);
-  return AlignedBuffer([block_buffer_provider, lease](
-                           size_t size, size_t alignment,
-                           AlignedBuffer::ExternalAllocation* out) -> Status {
+  return [block_buffer_provider, lease](
+             size_t size, size_t alignment,
+             AlignedBuffer::ExternalAllocation* out) -> Status {
     assert(block_buffer_provider.has_value());
     return AllocateReadScopedAlignedBuffer(block_buffer_provider->get(), size,
                                            alignment, lease, out);
-  });
+  };
 }
 
 ReadScopedBlockBufferProviderRef GetReadScopedBlockBufferProvider(
@@ -160,6 +160,9 @@ bool ShouldUseDataBlockCacheForIterator(
     const BlockBasedTableOptions& table_options, const ReadOptions& ro,
     bool allow_mmap_reads) {
   if (GetReadScopedBlockBufferProvider(ro, allow_mmap_reads).has_value()) {
+    // Provider-backed scan reads use caller-owned read-scope storage as the
+    // data-block backing, so they intentionally skip both lookup and insertion
+    // in the shared data-block cache.
     return false;
   }
   return table_options.block_cache != nullptr;
@@ -196,6 +199,7 @@ Status CopyBufferToReadScopedBlockContents(
   out_contents->data = Slice(read_scoped_lease.data, data_size);
   out_contents->cleanup = std::move(read_scoped_lease.cleanup);
   out_contents->backing_size = read_scoped_lease.size;
+  out_contents->AssertSingleOwner();
 #ifndef NDEBUG
   out_contents->has_trailer = src.size() > data_size;
 #endif
@@ -1834,6 +1838,9 @@ Status BlockBasedTable::LookupAndPinBlocksInCache(
   TEST_SYNC_POINT("BlockBasedTable::LookupAndPinBlocksInCache:Start");
 
   if (!block_cache) {
+    // Callers can reach here after data-block cache use has been disabled by
+    // options such as read-scoped provider-backed scans. Treat the lookup as a
+    // cache miss rather than requiring every caller to special-case null cache.
     return Status::OK();
   }
 

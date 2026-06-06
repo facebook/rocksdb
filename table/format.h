@@ -10,6 +10,7 @@
 #pragma once
 
 #include <array>
+#include <cassert>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -422,6 +423,10 @@ struct BlockContents {
   bool has_trailer = false;
 #endif  // NDEBUG
 
+  void AssertSingleOwner() const {
+    assert(allocation.get() == nullptr || cleanup.get() == nullptr);
+  }
+
   BlockContents() {}
 
   // Does not take ownership of the underlying data bytes.
@@ -439,11 +444,13 @@ struct BlockContents {
 
   // Returns whether the object has ownership of the underlying data bytes.
   bool own_bytes() const {
+    AssertSingleOwner();
     return allocation.get() != nullptr || cleanup.get() != nullptr;
   }
 
   // The additional memory space taken by the block data.
   size_t usable_size() const {
+    AssertSingleOwner();
     // FIXME: doesn't account for possible block trailer
     if (allocation.get() != nullptr) {
       auto allocator = allocation.get_deleter().allocator;
@@ -463,6 +470,7 @@ struct BlockContents {
   }
 
   size_t ApproximateMemoryUsage() const {
+    AssertSingleOwner();
     return usable_size() + sizeof(*this);
   }
 
@@ -476,6 +484,7 @@ struct BlockContents {
 #ifndef NDEBUG
     has_trailer = other.has_trailer;
 #endif  // NDEBUG
+    AssertSingleOwner();
     return *this;
   }
 };

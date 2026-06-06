@@ -280,9 +280,10 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
 
   if (file_reader->use_direct_io()) {
     constexpr char* scratch = nullptr;
+    AlignedBufferAllocationContext direct_io_context{direct_io_buffer};
 
     s = file_reader->Read(io_options, read_offset, read_size, slice, scratch,
-                          direct_io_buffer, &dbg);
+                          &direct_io_context, &dbg);
   } else {
     buf->reset(new char[read_size]);
 
@@ -502,8 +503,9 @@ void BlobFileReader::MultiGetBlob(
   IODebugContext dbg;
   s = file_reader_->PrepareIOOptions(read_options, opts, &dbg);
   if (s.ok()) {
+    AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
     s = file_reader_->MultiRead(opts, read_reqs.data(), read_reqs.size(),
-                                &direct_io_buffer, &dbg);
+                                &direct_io_context, &dbg);
   }
   if (!s.ok()) {
     for (auto& req : read_reqs) {

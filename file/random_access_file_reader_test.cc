@@ -85,7 +85,9 @@ TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
     IOOptions io_opts;
     io_opts.rate_limiter_priority = rate_limiter_priority;
     AlignedBuffer direct_io_buffer;
-    ASSERT_OK(r->Read(io_opts, offset, len, &result, nullptr, &direct_io_buffer,
+    AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
+    ASSERT_OK(r->Read(io_opts, offset, len, &result, nullptr,
+                      &direct_io_context,
                       /*dbg=*/nullptr));
     ASSERT_EQ(result.ToString(), content.substr(offset, len));
   }
@@ -141,7 +143,7 @@ TEST_F(RandomAccessFileReaderTest, ReadDirectIOUsesExternalBuffer) {
         requested_size = size;
         requested_alignment = alignment;
         external_storage.Alignment(alignment);
-        external_storage.ReallocateHeapBuffer(size);
+        external_storage.AllocateNewBuffer(size);
         out->data = external_storage.BufferStart();
         out->size = external_storage.Capacity();
         out->owner =
@@ -149,10 +151,12 @@ TEST_F(RandomAccessFileReaderTest, ReadDirectIOUsesExternalBuffer) {
         return Status::OK();
       };
 
-  AlignedBuffer direct_io_buffer(std::move(allocator));
+  AlignedBuffer direct_io_buffer;
+  AlignedBufferAllocationContext direct_io_context{&direct_io_buffer,
+                                                   &allocator};
   Slice result;
   ASSERT_OK(r->Read(IOOptions(), offset, len, &result, /*scratch=*/nullptr,
-                    &direct_io_buffer, /*dbg=*/nullptr));
+                    &direct_io_context, /*dbg=*/nullptr));
   ASSERT_EQ(result.ToString(), content.substr(offset, len));
 
   ASSERT_EQ(allocations, 1);
@@ -219,9 +223,10 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
     AlignedBuffer direct_io_buffer;
+    AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
     IODebugContext dbg;
     ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(),
-                           &direct_io_buffer, &dbg));
+                           &direct_io_context, &dbg));
 
     AssertResult(content, reqs);
 
@@ -265,9 +270,10 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r1));
     reqs.push_back(std::move(r2));
     AlignedBuffer direct_io_buffer;
+    AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
     IODebugContext dbg;
     ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(),
-                           &direct_io_buffer, &dbg));
+                           &direct_io_context, &dbg));
 
     AssertResult(content, reqs);
 
@@ -311,9 +317,10 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r1));
     reqs.push_back(std::move(r2));
     AlignedBuffer direct_io_buffer;
+    AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
     IODebugContext dbg;
     ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(),
-                           &direct_io_buffer, &dbg));
+                           &direct_io_context, &dbg));
 
     AssertResult(content, reqs);
 
@@ -349,9 +356,10 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
     AlignedBuffer direct_io_buffer;
+    AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
     IODebugContext dbg;
     ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(),
-                           &direct_io_buffer, &dbg));
+                           &direct_io_context, &dbg));
 
     AssertResult(content, reqs);
 
@@ -409,7 +417,7 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIOUsesExternalBuffer) {
         requested_size = size;
         requested_alignment = alignment;
         external_storage.Alignment(alignment);
-        external_storage.ReallocateHeapBuffer(size);
+        external_storage.AllocateNewBuffer(size);
         out->data = external_storage.BufferStart();
         out->size = external_storage.Capacity();
         out->owner =
@@ -417,9 +425,11 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIOUsesExternalBuffer) {
         return Status::OK();
       };
 
-  AlignedBuffer direct_io_buffer(std::move(allocator));
+  AlignedBuffer direct_io_buffer;
+  AlignedBufferAllocationContext direct_io_context{&direct_io_buffer,
+                                                   &allocator};
   ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(),
-                         &direct_io_buffer, /*dbg=*/nullptr));
+                         &direct_io_context, /*dbg=*/nullptr));
   AssertResult(content, reqs);
 
   ASSERT_EQ(allocations, 1);

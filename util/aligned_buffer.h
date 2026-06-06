@@ -54,10 +54,10 @@ inline size_t Rounddown(size_t x, size_t y) { return (x / y) * y; }
 // Example:
 //   AlignedBuffer buf;
 //   buf.Alignment(alignment);
-//   buf.ReallocateHeapBuffer(user_requested_buf_size);
+//   buf.AllocateNewBuffer(user_requested_buf_size);
 //   ...
-//   buf.ReallocateHeapBuffer(2*user_requested_buf_size, /*copy_data*/ true,
-//                            copy_offset, copy_len);
+//   buf.AllocateNewBuffer(2*user_requested_buf_size, /*copy_data*/ true,
+//                         copy_offset, copy_len);
 class AlignedBuffer {
  public:
   struct ExternalAllocation {
@@ -75,15 +75,10 @@ class AlignedBuffer {
   size_t capacity_;
   size_t cursize_;
   char* bufstart_;
-  Allocator allocator_;
 
  public:
   AlignedBuffer()
       : alignment_(), capacity_(0), cursize_(0), bufstart_(nullptr) {}
-
-  explicit AlignedBuffer(Allocator allocator) : AlignedBuffer() {
-    allocator_ = std::move(allocator);
-  }
 
   AlignedBuffer(AlignedBuffer&& o) noexcept { *this = std::move(o); }
 
@@ -93,7 +88,6 @@ class AlignedBuffer {
     capacity_ = std::move(o.capacity_);
     cursize_ = std::move(o.cursize_);
     bufstart_ = std::move(o.bufstart_);
-    allocator_ = std::move(o.allocator_);
     return *this;
   }
 
@@ -149,9 +143,8 @@ class AlignedBuffer {
     bufstart_ = const_cast<char*>(result.data());
   }
 
-  // Reallocates this buffer using RocksDB heap memory and sets the start
-  // position to the first aligned byte. External allocators are intentionally
-  // not used here because this helper can preserve old buffer contents.
+  // Allocates a new buffer and sets the start position to the first aligned
+  // byte.
   //
   // requested_capacity: requested new buffer capacity. This capacity will be
   //     rounded up based on alignment.
@@ -165,9 +158,8 @@ class AlignedBuffer {
   // The function does nothing if the new requested_capacity is smaller than
   // the current buffer capacity and copy_data is true i.e. the old buffer is
   // retained as is.
-  void ReallocateHeapBuffer(size_t requested_capacity, bool copy_data = false,
-                            uint64_t copy_offset = 0, size_t copy_len = 0) {
-    assert(!allocator_);
+  void AllocateNewBuffer(size_t requested_capacity, bool copy_data = false,
+                         uint64_t copy_offset = 0, size_t copy_len = 0) {
     assert(alignment_ > 0);
     assert((alignment_ & (alignment_ - 1)) == 0);
 
@@ -201,11 +193,15 @@ class AlignedBuffer {
         [](void* p) { delete[] static_cast<char*>(p); });
   }
 
-  // Allocates a fresh buffer, using the external allocator when configured and
-  // RocksDB heap memory otherwise. This helper does not preserve old contents.
-  Status AllocateNewBufferUsingAllocator(size_t requested_capacity) {
-    if (!allocator_) {
-      ReallocateHeapBuffer(requested_capacity);
+  // Allocates a fresh buffer, using the external allocator when provided and
+  // RocksDB heap memory otherwise. This overload does not preserve old
+  // contents, and callers must check its returned Status. Heap-only callers
+  // should use the void overload above so CHECK_STATUS builds do not create an
+  // ignored Status.
+  Status AllocateNewBuffer(size_t requested_capacity,
+                           const Allocator* allocator) {
+    if (allocator == nullptr) {
+      AllocateNewBuffer(requested_capacity);
       return Status::OK();
     }
 
@@ -214,7 +210,7 @@ class AlignedBuffer {
 
     const size_t new_capacity = Roundup(requested_capacity, alignment_);
     ExternalAllocation allocation;
-    Status s = allocator_(new_capacity, alignment_, &allocation);
+    Status s = (*allocator)(new_capacity, alignment_, &allocation);
     if (!s.ok()) {
       return s;
     }

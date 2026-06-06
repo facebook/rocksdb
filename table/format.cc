@@ -542,8 +542,9 @@ static Status ReadFooterFromFileInternal(
                                          Footer::kMaxEncodedLength,
                                          &footer_input, nullptr)) {
     if (file->use_direct_io()) {
+      AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
       s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
-                     &footer_input, nullptr, &direct_io_buffer);
+                     &footer_input, nullptr, &direct_io_context);
     } else {
       s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
                      &footer_input, footer_buf.data());

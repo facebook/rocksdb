@@ -28,6 +28,15 @@ class SystemClock;
 
 using AlignedBuf = FSAllocationPtr;
 
+struct AlignedBufferAllocationContext {
+  // `allocator` is intentionally not owned. RandomAccessFileReader invokes it
+  // only while allocating `buffer`, before Read/ReadAsync/MultiRead returns.
+  // For ReadAsync, `buffer` is still referenced by the completion callback and
+  // must outlive the async operation.
+  AlignedBuffer* buffer = nullptr;
+  const AlignedBuffer::Allocator* allocator = nullptr;
+};
+
 // Align the request r according to alignment and return the aligned result.
 FSReadRequest Align(const FSReadRequest& r, size_t alignment);
 
@@ -110,6 +119,9 @@ class RandomAccessFileReader {
     // Below fields stores the parameters passed by caller in case of direct_io.
     char* user_scratch_;
     AlignedBuf* user_aligned_buf_;
+    // Raw pointer to caller-owned direct-I/O storage used when forming the
+    // user-visible result in ReadAsyncCallback. The caller must keep it alive
+    // until the async operation completes or is cancelled.
     AlignedBuffer* direct_io_buffer_;
     uint64_t user_offset_;
     size_t user_len_;
@@ -160,24 +172,28 @@ class RandomAccessFileReader {
   // 1. if using mmap, result is stored in a buffer other than scratch;
   // 2. if not using mmap, result is stored in the buffer starting from scratch.
   //
-  // In direct IO mode, if direct_io_buffer is provided then it allocates the
-  // aligned buffer and the result refers to a region in direct_io_buffer.
-  // Otherwise, results are returned in scratch; unaligned reads use an internal
-  // aligned buffer and copy the requested subrange to scratch.
-  IOStatus Read(const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
-                char* scratch, AlignedBuffer* direct_io_buffer = nullptr,
-                IODebugContext* dbg = nullptr) const;
+  // In direct IO mode, if direct_io_buffer_context is provided then it
+  // allocates the aligned buffer and the result refers to a region in
+  // direct_io_buffer_context->buffer. Otherwise, results are returned in
+  // scratch; unaligned reads use an internal aligned buffer and copy the
+  // requested subrange to scratch.
+  IOStatus Read(
+      const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
+      char* scratch,
+      AlignedBufferAllocationContext* direct_io_buffer_context = nullptr,
+      IODebugContext* dbg = nullptr) const;
 
   // REQUIRES:
   // num_reqs > 0, reqs do not overlap, and offsets in reqs are increasing.
-  // MultiRead uses direct_io_buffer to allocate the aligned buffer in direct
-  // IO mode. The result Slices in reqs refer to direct_io_buffer, so callers
-  // must pass a non-null pointer and keep it alive while those Slices are used.
-  // Callers should pass a default-constructed AlignedBuffer when default
-  // heap-backed allocation is sufficient. direct_io_buffer is ignored in
-  // non-direct IO mode.
+  // MultiRead uses direct_io_buffer_context to allocate the aligned buffer in
+  // direct IO mode. The result Slices in reqs refer to
+  // direct_io_buffer_context->buffer, so callers must keep it alive while those
+  // Slices are used. Callers should pass a default-constructed AlignedBuffer
+  // when default heap-backed allocation is sufficient. direct_io_buffer_context
+  // is ignored in non-direct IO mode.
   IOStatus MultiRead(const IOOptions& opts, FSReadRequest* reqs,
-                     size_t num_reqs, AlignedBuffer* direct_io_buffer,
+                     size_t num_reqs,
+                     AlignedBufferAllocationContext* direct_io_buffer_context,
                      IODebugContext* dbg = nullptr) const;
 
   IOStatus Prefetch(const IOOptions& opts, uint64_t offset, size_t n,
@@ -194,11 +210,12 @@ class RandomAccessFileReader {
   IOStatus PrepareIOOptions(const ReadOptions& ro, IOOptions& opts,
                             IODebugContext* dbg = nullptr) const;
 
-  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
-                     std::function<void(FSReadRequest&, void*)> cb,
-                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
-                     AlignedBuf* aligned_buf, IODebugContext* dbg = nullptr,
-                     AlignedBuffer* direct_io_buffer = nullptr);
+  IOStatus ReadAsync(
+      FSReadRequest& req, const IOOptions& opts,
+      std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
+      void** io_handle, IOHandleDeleter* del_fn, AlignedBuf* aligned_buf,
+      IODebugContext* dbg = nullptr,
+      AlignedBufferAllocationContext* direct_io_buffer_context = nullptr);
 
   void ReadAsyncCallback(FSReadRequest& req, void* cb_arg);
 };

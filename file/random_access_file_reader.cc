@@ -129,10 +129,17 @@ IOStatus RandomAccessFileReader::Create(
   return io_s;
 }
 
-IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
-                                      size_t n, Slice* result, char* scratch,
-                                      AlignedBuffer* direct_io_buffer,
-                                      IODebugContext* dbg) const {
+IOStatus RandomAccessFileReader::Read(
+    const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
+    char* scratch, AlignedBufferAllocationContext* direct_io_buffer_context,
+    IODebugContext* dbg) const {
+  AlignedBuffer* direct_io_buffer = direct_io_buffer_context != nullptr
+                                        ? direct_io_buffer_context->buffer
+                                        : nullptr;
+  const AlignedBuffer::Allocator* direct_io_allocator =
+      direct_io_buffer_context != nullptr ? direct_io_buffer_context->allocator
+                                          : nullptr;
+  assert(direct_io_buffer_context == nullptr || direct_io_buffer != nullptr);
   const Env::IOPriority rate_limiter_priority = opts.rate_limiter_priority;
 
   TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read", nullptr);
@@ -175,8 +182,8 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
       AlignedBuffer* aligned_read_buffer =
           direct_io_buffer != nullptr ? direct_io_buffer : &buf;
       aligned_read_buffer->Alignment(alignment);
-      Status allocate_status =
-          aligned_read_buffer->AllocateNewBufferUsingAllocator(read_size);
+      Status allocate_status = aligned_read_buffer->AllocateNewBuffer(
+          read_size, direct_io_allocator);
       if (!allocate_status.ok()) {
         io_s = status_to_io_status(std::move(allocate_status));
       }
@@ -346,12 +353,17 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
   return true;
 }
 
-IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
-                                           FSReadRequest* read_reqs,
-                                           size_t num_reqs,
-                                           AlignedBuffer* direct_io_buffer,
-                                           IODebugContext* dbg) const {
+IOStatus RandomAccessFileReader::MultiRead(
+    const IOOptions& opts, FSReadRequest* read_reqs, size_t num_reqs,
+    AlignedBufferAllocationContext* direct_io_buffer_context,
+    IODebugContext* dbg) const {
   assert(num_reqs > 0);
+  AlignedBuffer* direct_io_buffer = direct_io_buffer_context != nullptr
+                                        ? direct_io_buffer_context->buffer
+                                        : nullptr;
+  const AlignedBuffer::Allocator* direct_io_allocator =
+      direct_io_buffer_context != nullptr ? direct_io_buffer_context->allocator
+                                          : nullptr;
   assert(direct_io_buffer != nullptr);
 
 #ifndef NDEBUG
@@ -416,7 +428,7 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
       }
       direct_io_buffer->Alignment(alignment);
       Status allocate_status =
-          direct_io_buffer->AllocateNewBufferUsingAllocator(total_len);
+          direct_io_buffer->AllocateNewBuffer(total_len, direct_io_allocator);
       if (!allocate_status.ok()) {
         io_s = status_to_io_status(std::move(allocate_status));
       }
@@ -533,16 +545,26 @@ IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
 
 // Notes for when direct_io is enabled:
 // Unless req.offset, req.len, req.scratch are all already aligned,
-// RandomAccessFileReader will creats aligned requests and aligned buffer for
-// the request. User should only provide either req.scratch or aligned_buf. If
-// only req.scratch is provided, result will be copied from allocated aligned
-// buffer to req.scratch. If only alignd_buf is provided, it will be set to
-// the ailgned buf allocated by RandomAccessFileReader and saves a copy.
+// RandomAccessFileReader creates an aligned request and aligned buffer for the
+// request. If direct_io_buffer_context is provided, its buffer owns the aligned
+// backing storage and its optional allocator is used only for this allocation.
+// Otherwise, callers should provide either req.scratch or aligned_buf. If only
+// req.scratch is provided, the result is copied from the allocated aligned
+// buffer to req.scratch. If only aligned_buf is provided, it is set to the
+// aligned buffer allocated by RandomAccessFileReader and saves a copy.
 IOStatus RandomAccessFileReader::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
     std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, AlignedBuf* aligned_buf,
-    IODebugContext* dbg, AlignedBuffer* direct_io_buffer) {
+    IODebugContext* dbg,
+    AlignedBufferAllocationContext* direct_io_buffer_context) {
+  AlignedBuffer* direct_io_buffer = direct_io_buffer_context != nullptr
+                                        ? direct_io_buffer_context->buffer
+                                        : nullptr;
+  const AlignedBuffer::Allocator* direct_io_allocator =
+      direct_io_buffer_context != nullptr ? direct_io_buffer_context->allocator
+                                          : nullptr;
+  assert(direct_io_buffer_context == nullptr || direct_io_buffer != nullptr);
   IOStatus s;
   TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::ReadAsync:InjectStatus",
                            &s);
@@ -576,8 +598,8 @@ IOStatus RandomAccessFileReader::ReadAsync(
     AlignedBuffer* aligned_read_buffer =
         direct_io_buffer != nullptr ? direct_io_buffer : &read_async_info->buf_;
     aligned_read_buffer->Alignment(alignment);
-    Status allocate_status =
-        aligned_read_buffer->AllocateNewBufferUsingAllocator(aligned_req.len);
+    Status allocate_status = aligned_read_buffer->AllocateNewBuffer(
+        aligned_req.len, direct_io_allocator);
     if (!allocate_status.ok()) {
       delete read_async_info;
       return status_to_io_status(std::move(allocate_status));

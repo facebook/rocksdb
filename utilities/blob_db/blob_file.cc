@@ -108,8 +108,9 @@ Status BlobFile::ReadFooter(BlobLogFooter* bf) {
   Status s;
   // TODO: rate limit reading footers from blob files.
   if (ra_file_reader_->use_direct_io()) {
+    AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
     s = ra_file_reader_->Read(IOOptions(), footer_offset, BlobLogFooter::kSize,
-                              &result, nullptr, &direct_io_buffer);
+                              &result, nullptr, &direct_io_context);
   } else {
     buf.reserve(BlobLogFooter::kSize + 10);
     s = ra_file_reader_->Read(IOOptions(), footer_offset, BlobLogFooter::kSize,
@@ -232,8 +233,9 @@ Status BlobFile::ReadMetadata(const std::shared_ptr<FileSystem>& fs,
   Slice header_slice;
   // TODO: rate limit reading headers from blob files.
   if (file_reader->use_direct_io()) {
+    AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
     s = file_reader->Read(IOOptions(), 0, BlobLogHeader::kSize, &header_slice,
-                          nullptr, &direct_io_buffer);
+                          nullptr, &direct_io_context);
   } else {
     header_buf.reserve(BlobLogHeader::kSize);
     s = file_reader->Read(IOOptions(), 0, BlobLogHeader::kSize, &header_slice,
@@ -271,9 +273,10 @@ Status BlobFile::ReadMetadata(const std::shared_ptr<FileSystem>& fs,
   Slice footer_slice;
   // TODO: rate limit reading footers from blob files.
   if (file_reader->use_direct_io()) {
+    AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
     s = file_reader->Read(IOOptions(), file_size - BlobLogFooter::kSize,
                           BlobLogFooter::kSize, &footer_slice, nullptr,
-                          &direct_io_buffer);
+                          &direct_io_context);
   } else {
     footer_buf.reserve(BlobLogFooter::kSize);
     s = file_reader->Read(IOOptions(), file_size - BlobLogFooter::kSize,

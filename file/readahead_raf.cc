@@ -29,7 +29,7 @@ class ReadaheadRandomAccessFile : public FSRandomAccessFile {
         buffer_(),
         buffer_offset_(0) {
     buffer_.Alignment(alignment_);
-    buffer_.ReallocateHeapBuffer(readahead_size_);
+    buffer_.AllocateNewBuffer(readahead_size_);
   }
 
   ReadaheadRandomAccessFile(const ReadaheadRandomAccessFile&) = delete;
