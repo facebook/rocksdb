@@ -7074,7 +7074,9 @@ TEST_F(DBCompactionTest,
         const int width = r.end - r.begin;
         const int del_lo = r.begin + width / 4;
         const int del_hi = r.begin + 3 * width / 4;
-        if (k >= del_lo && k < del_hi) return Expectation::kAbsent;
+        if (k >= del_lo && k < del_hi) {
+          return Expectation::kAbsent;
+        }
         return Expectation::kWave2Value;
       }
     }
@@ -7083,11 +7085,15 @@ TEST_F(DBCompactionTest,
     const int batch_begin = kWave1Begin + batch * kWave1BatchSize;
     const int del_lo = batch_begin + kWave1BatchSize / 4;
     const int del_hi = batch_begin + 3 * kWave1BatchSize / 4;
-    if (k >= del_lo && k < del_hi) return Expectation::kAbsent;
+    if (k >= del_lo && k < del_hi) {
+      return Expectation::kAbsent;
+    }
     return Expectation::kWave1Value;
   };
 
-  int present_w1 = 0, present_w2 = 0, absent = 0;
+  int present_w1 = 0;
+  int present_w2 = 0;
+  int absent = 0;
   std::string actual;
   for (int k = kWave1Begin; k < kWave1End; ++k) {
     const Status get_s = db_->Get(ReadOptions(), Key(k), &actual);

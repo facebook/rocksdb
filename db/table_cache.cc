@@ -487,8 +487,10 @@ InternalIterator* TableCache::NewIterator(
     // Only transfer ownership AFTER RegisterCleanup returns (it does not
     // throw in current implementations, but this ordering is correct for
     // any future strong-exception-safety variant of the cleanup
-    // registration path).
-    (void)ephemeral_reader.release();
+    // registration path). release() hands back `raw`, which the cleanup
+    // already owns; we drop the unique_ptr's ownership to avoid a double free.
+    [[maybe_unused]] TableReader* released = ephemeral_reader.release();
+    assert(released == raw);
   }
   if (!s.ok()) {
     // Range-del processing can set `s` to non-OK after `result` has already
