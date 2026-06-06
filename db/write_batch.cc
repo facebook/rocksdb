@@ -2893,6 +2893,37 @@ class MemTableInserter : public WriteBatch::Handler {
           // Failed to merge!
           // Store the delta in memtable
           perform_merge = false;
+        } else if (new_value_type == kTypeDeletion) {
+          // Merge operator signaled deletion (FullMergeV3 returned
+          // std::monostate). Add a deletion entry to the memtable instead
+          // of a value.
+          //
+          // The top-level invariant at the head of this function ensures
+          // concurrent_memtable_writes_ is false whenever max_successive_
+          // merges > 0 (which is required to reach this branch), so the
+          // assertion below is documentation, not a runtime check.
+          //
+          // Crash-recovery contract: the WAL still records the original
+          // kTypeMerge entry, not the synthesized kTypeDeletion. On WAL
+          // replay, `recovering_log_number_ != 0` short-circuits the
+          // merge-on-write path above, so the Merge becomes a kTypeMerge
+          // entry in the memtable. Reads then resolve the merge chain at
+          // read-time, producing an identical end state IF the merge
+          // operator is deterministic (a pre-existing requirement).
+          // Non-deterministic merge operators are unsafe with or without
+          // this feature.
+          assert(!concurrent_memtable_writes_);
+          if (kv_prot_info != nullptr) {
+            auto merged_kv_prot_info =
+                kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
+            merged_kv_prot_info.UpdateV(value, Slice());
+            merged_kv_prot_info.UpdateO(kTypeMerge, kTypeDeletion);
+            ret_status = mem->Add(sequence_, kTypeDeletion, key, Slice(),
+                                  &merged_kv_prot_info);
+          } else {
+            ret_status = mem->Add(sequence_, kTypeDeletion, key, Slice(),
+                                  nullptr /* kv_prot_info */);
+          }
         } else {
           // 3) Add value to memtable
           assert(!concurrent_memtable_writes_);

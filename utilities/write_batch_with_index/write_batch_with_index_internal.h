@@ -86,7 +86,17 @@ class BaseDeltaIterator : public Iterator {
   // Requires calling delta_iterator_->FindLatestUpdate() before this call.
   // Will update value_ and column_ accordingly and assumes that delta iterator
   // is visible.
-  void SetValueAndColumnsFromDelta();
+  //
+  // Returns true if the delta entry is visible (a normal Put / merge result).
+  // Returns false if the merge operator resolved this entry to a deletion
+  // (FullMergeV3 returned std::monostate, or the merge propagated a deletion
+  // via Status subcode `kMergeOperatorDeletion`). When false is returned,
+  // the caller is responsible for advancing past this key in the appropriate
+  // direction.
+  //
+  // On unrecoverable error, `status_` is set and false is returned (the
+  // caller should also stop, as `Valid()` will report false).
+  bool SetValueAndColumnsFromDelta();
   // Determine the current key and value for the iterator from base and delta
   // iterators. Advance base or delta iters if needed.
   void UpdateCurrent();

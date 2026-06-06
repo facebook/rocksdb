@@ -252,6 +252,20 @@ int db_stress_tool(int argc, char** argv) {
         "Error: nooverwritepercent must not be 100 when using merge operands");
     exit(1);
   }
+  if (FLAGS_use_merge_deletion_one_in > 0) {
+    if (!FLAGS_use_merge) {
+      fprintf(stderr,
+              "Error: use_merge_deletion_one_in > 0 requires --use_merge\n");
+      exit(1);
+    }
+    if (FLAGS_use_full_merge_v1) {
+      fprintf(stderr,
+              "Error: use_merge_deletion_one_in > 0 requires "
+              "--use_full_merge_v1=false (the deletion path is "
+              "FullMergeV3-only)\n");
+      exit(1);
+    }
+  }
   if (FLAGS_enable_blob_direct_write) {
     // Blob direct write is intentionally validated as a reduced-scope stress
     // feature. We allow the WAL-disabled crash-test profile, including

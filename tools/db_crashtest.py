@@ -281,6 +281,7 @@ default_params = {
     "uncache_aggressiveness": lambda: int(math.pow(10, 4.0 * random.random()) - 1.0),
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
+    "use_merge_deletion_one_in": lambda: random.choice([0] * 15 + [5, 10, 20]),
     # use_trie_index must be the same across invocations so that all SSTs
     # in a DB are opened with matching table options.
     "use_trie_index": random.choice([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
@@ -1006,6 +1007,7 @@ def finalize_and_sanitize(src_params):
         dest_params["blob_file_starting_level"] = 0
         dest_params["use_merge"] = 0
         dest_params["use_full_merge_v1"] = 0
+        dest_params["use_merge_deletion_one_in"] = 0
         dest_params["use_timed_put_one_in"] = 0
         # Wide-column PutEntity/GetEntity/MultiGetEntity are now compatible
         # with this profile. AttributeGroup exercises a different path that
@@ -1329,6 +1331,12 @@ def finalize_and_sanitize(src_params):
     # Wide column stress tests require FullMergeV3
     if dest_params["use_put_entity_one_in"] != 0:
         dest_params["use_full_merge_v1"] = 0
+    if dest_params.get("use_merge_deletion_one_in", 0) > 0:
+        if dest_params.get("user_timestamp_size", 0) > 0:
+            dest_params["use_merge_deletion_one_in"] = 0
+        else:
+            dest_params["use_merge"] = 1
+            dest_params["use_full_merge_v1"] = 0
     if dest_params["file_checksum_impl"] == "none":
         dest_params["verify_file_checksums_one_in"] = 0
     if dest_params["write_fault_one_in"] > 0:
