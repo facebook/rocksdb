@@ -1138,6 +1138,48 @@ TEST_P(CompressionLogTest, Fragmentation) {
   ASSERT_EQ("EOF", Read());
 }
 
+TEST_P(CompressionLogTest, PreparedReadWrite) {
+  CompressionType compression_type = std::get<2>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
+  ASSERT_OK(SetupTestEnv());
+  Random rnd(301);
+  const std::vector<std::string> wal_entries = {
+      "small",
+      "",
+      rnd.RandomBinaryString(3 * kBlockSize / 2),
+      rnd.RandomBinaryString(3 * kBlockSize),
+  };
+  for (const std::string& wal_entry : wal_entries) {
+    std::vector<std::string> prepared_chunks(3);
+    std::vector<Slice> prepared_slices;
+    prepared_slices.reserve(prepared_chunks.size());
+    size_t offset = 0;
+    size_t remaining = wal_entry.size();
+    for (size_t i = 0; i < prepared_chunks.size(); ++i) {
+      const size_t chunks_left = prepared_chunks.size() - i;
+      const size_t chunk_size =
+          remaining == 0 ? 0 : (remaining + chunks_left - 1) / chunks_left;
+      ASSERT_OK(writer_->PrepareRecord(
+          Slice(wal_entry.data() + offset, chunk_size), &prepared_chunks[i]));
+      prepared_slices.emplace_back(prepared_chunks[i]);
+      offset += chunk_size;
+      remaining -= chunk_size;
+    }
+    ASSERT_EQ(wal_entry.size(), offset);
+    ASSERT_OK(writer_->AddPreparedRecord(
+        WriteOptions(), SliceParts(prepared_slices.data(),
+                                   static_cast<int>(prepared_slices.size()))));
+  }
+
+  for (const std::string& wal_entry : wal_entries) {
+    ASSERT_EQ(wal_entry, Read());
+  }
+  ASSERT_EQ("EOF", Read());
+}
+
 TEST_P(CompressionLogTest, AlignedFragmentation) {
   CompressionType compression_type = std::get<2>(GetParam());
   if (!StreamingCompressionTypeSupported(compression_type)) {

@@ -105,8 +105,8 @@ struct PerfContextBase {
   // bytes for vals after compression in secondary cache
   uint64_t compressed_sec_cache_compressed_bytes;
 
-  uint64_t block_checksum_time;    // total nanos spent on block checksum
-  uint64_t block_decompress_time;  // total nanos spent on block decompression
+  uint64_t block_checksum_time;     // total nanos spent on block checksum
+  uint64_t block_decompress_time;   // total nanos spent on block decompression
   uint64_t block_decompress_count;  // total number of block decompressions
 
   uint64_t get_read_bytes;       // bytes for vals returned by Get
@@ -196,6 +196,14 @@ struct PerfContextBase {
   //
   // total nanos spent on writing to WAL
   uint64_t write_wal_time;
+  // total nanos spent preparing WAL records before WAL write
+  uint64_t write_wal_precompress_time;
+  // total uncompressed WAL bytes prepared before WAL write
+  uint64_t write_wal_precompress_bytes;
+  // number of WAL records prepared before WAL write
+  uint64_t write_wal_precompress_records;
+  // sum of write group sizes using parallel WAL precompression
+  uint64_t write_wal_precompress_group_size;
   // total nanos spent on writing to mem tables
   // This metric gets collected starting from PerfLevel::kEnableWait
   uint64_t write_memtable_time;

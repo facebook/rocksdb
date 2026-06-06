@@ -5011,6 +5011,10 @@ class TickerTypeJni {
         return 0x53;
       case ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES:
         return 0x54;
+      case ROCKSDB_NAMESPACE::Tickers::WAL_PRECOMPRESS_BYTES:
+        return -0x71;
+      case ROCKSDB_NAMESPACE::Tickers::WAL_PRECOMPRESS_RECORDS:
+        return -0x72;
       case ROCKSDB_NAMESPACE::Tickers::WAL_PRECREATE_HIT:
         return -0x6C;
       case ROCKSDB_NAMESPACE::Tickers::WAL_PRECREATE_MISS:
@@ -5519,6 +5523,10 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::WAL_FILE_SYNCED;
       case 0x54:
         return ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES;
+      case -0x71:
+        return ROCKSDB_NAMESPACE::Tickers::WAL_PRECOMPRESS_BYTES;
+      case -0x72:
+        return ROCKSDB_NAMESPACE::Tickers::WAL_PRECOMPRESS_RECORDS;
       case -0x6C:
         return ROCKSDB_NAMESPACE::Tickers::WAL_PRECREATE_HIT;
       case -0x6D:
@@ -5998,6 +6006,10 @@ class HistogramTypeJni {
         return 0x41;
       case ROCKSDB_NAMESPACE::Histograms::BLOCK_KEY_DISTRIBUTION_CV:
         return 0x42;
+      case ROCKSDB_NAMESPACE::Histograms::WAL_PRECOMPRESS_MICROS:
+        return 0x43;
+      case ROCKSDB_NAMESPACE::Histograms::WAL_PRECOMPRESS_GROUP_SIZE:
+        return 0x44;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x3E is reserved for backwards compatibility on current minor
         // version.
@@ -6151,6 +6163,10 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::MULTISCAN_BLOCKS_PER_PREPARE;
       case 0x42:
         return ROCKSDB_NAMESPACE::Histograms::BLOCK_KEY_DISTRIBUTION_CV;
+      case 0x43:
+        return ROCKSDB_NAMESPACE::Histograms::WAL_PRECOMPRESS_MICROS;
+      case 0x44:
+        return ROCKSDB_NAMESPACE::Histograms::WAL_PRECOMPRESS_GROUP_SIZE;
       case 0x3E:
         // 0x3E is reserved for backwards compatibility on current minor
         // version.

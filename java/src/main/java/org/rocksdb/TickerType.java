@@ -395,6 +395,16 @@ public enum TickerType {
     WAL_FILE_BYTES((byte) 0x54),
 
     /**
+     * Number of uncompressed bytes prepared by parallel WAL precompression.
+     */
+    WAL_PRECOMPRESS_BYTES((byte) -0x71),
+
+    /**
+     * Number of WAL logical records prepared by parallel WAL precompression.
+     */
+    WAL_PRECOMPRESS_RECORDS((byte) -0x72),
+
+    /**
      * Number of WAL rotations that consumed an async precreated WAL.
      */
     WAL_PRECREATE_HIT((byte) -0x6C),

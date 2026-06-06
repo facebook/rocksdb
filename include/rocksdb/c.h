@@ -2226,7 +2226,11 @@ enum {
   rocksdb_compression_dict_block_read_byte,
   rocksdb_metadata_block_read_byte,
   rocksdb_blob_cache_read_byte,
-  rocksdb_total_metric_count = 86
+  rocksdb_write_wal_precompress_time,
+  rocksdb_write_wal_precompress_bytes,
+  rocksdb_write_wal_precompress_records,
+  rocksdb_write_wal_precompress_group_size,
+  rocksdb_total_metric_count = 90
 };
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_perf_level(int);
