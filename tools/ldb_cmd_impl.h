@@ -835,4 +835,36 @@ class CompactionProgressDumpCommand : public LDBCommand {
   static const std::string ARG_PATH;
 };
 
+class RemoteCompactionPrimaryCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "remote_compaction_primary"; }
+  RemoteCompactionPrimaryCommand(
+      const std::vector<std::string>& params,
+      const std::map<std::string, std::string>& options,
+      const std::vector<std::string>& flags);
+  void DoCommand() override;
+  bool NoDBOpen() override { return true; }
+  static void Help(std::string& ret);
+
+ private:
+  std::string job_dir_;
+  static const std::string ARG_JOB_DIR;
+};
+
+class RemoteCompactionWorkerCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "remote_compaction_worker"; }
+  RemoteCompactionWorkerCommand(
+      const std::vector<std::string>& params,
+      const std::map<std::string, std::string>& options,
+      const std::vector<std::string>& flags);
+  void DoCommand() override;
+  bool NoDBOpen() override { return true; }
+  static void Help(std::string& ret);
+
+ private:
+  std::string job_dir_;
+  static const std::string ARG_JOB_DIR;
+};
+
 }  // namespace ROCKSDB_NAMESPACE

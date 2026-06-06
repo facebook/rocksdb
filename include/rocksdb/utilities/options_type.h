@@ -453,11 +453,13 @@ class OptionTypeInfo {
                                        const std::string& value, void* addr) {
           std::map<std::string, std::string> map;
           Status s;
+          // Permit `{k1=v1;k2=v2}` (as serialized) or bare `k1=v1;k2=v2`.
+          std::string stripped = OptionTypeInfo::StripOuterBraces(value);
           for (size_t start = 0, end = 0;
-               s.ok() && start < value.size() && end != std::string::npos;
+               s.ok() && start < stripped.size() && end != std::string::npos;
                start = end + 1) {
             std::string token;
-            s = OptionTypeInfo::NextToken(value, item_separator, start, &end,
+            s = OptionTypeInfo::NextToken(stripped, item_separator, start, &end,
                                           &token);
             if (s.ok() && !token.empty()) {
               size_t pos = token.find(kv_separator);
@@ -947,6 +949,14 @@ class OptionTypeInfo {
   static Status NextToken(const std::string& opts, char delimiter, size_t start,
                           size_t* end, std::string* token);
 
+  // Strips a single layer of outer "{" / "}" wrapping iff the leading '{'
+  // pairs with the trailing '}'. This permissively unwraps values that
+  // could legitimately be either braced or bare (e.g. `{a:b:c}` and
+  // `a:b:c` are accepted equivalently by list-style parsers). The check
+  // is done at brace depth: `{a}:{b}` is left as-is because the leading
+  // '{' closes before the end of the string.
+  static std::string StripOuterBraces(const std::string& value);
+
   constexpr static const char* kIdPropName() { return "id"; }
   constexpr static const char* kIdPropSuffix() { return ".id"; }
 
@@ -995,12 +1005,16 @@ Status ParseArray(const ConfigOptions& config_options,
 
   ConfigOptions copy = config_options;
   copy.ignore_unsupported_options = false;
+  // Permit the caller to pass either bare `item1:item2` or wrapped
+  // `{item1:item2}`. Either form parses identically.
+  std::string stripped = OptionTypeInfo::StripOuterBraces(value);
   size_t i = 0, start = 0, end = 0;
-  for (; status.ok() && i < kSize && start < value.size() &&
+  for (; status.ok() && i < kSize && start < stripped.size() &&
          end != std::string::npos;
        i++, start = end + 1) {
     std::string token;
-    status = OptionTypeInfo::NextToken(value, separator, start, &end, &token);
+    status =
+        OptionTypeInfo::NextToken(stripped, separator, start, &end, &token);
     if (status.ok()) {
       status = elem_info.Parse(copy, name, token, &((*result)[i]));
       if (config_options.ignore_unsupported_options &&
@@ -1137,11 +1151,15 @@ Status ParseVector(const ConfigOptions& config_options,
   // object is valid or not.
   ConfigOptions copy = config_options;
   copy.ignore_unsupported_options = false;
+  // Permit the caller to pass either bare `item1:item2` or wrapped
+  // `{item1:item2}`. Either form parses identically.
+  std::string stripped = OptionTypeInfo::StripOuterBraces(value);
   for (size_t start = 0, end = 0;
-       status.ok() && start < value.size() && end != std::string::npos;
+       status.ok() && start < stripped.size() && end != std::string::npos;
        start = end + 1) {
     std::string token;
-    status = OptionTypeInfo::NextToken(value, separator, start, &end, &token);
+    status =
+        OptionTypeInfo::NextToken(stripped, separator, start, &end, &token);
     if (status.ok()) {
       T elem;
       status = elem_info.Parse(copy, name, token, &elem);

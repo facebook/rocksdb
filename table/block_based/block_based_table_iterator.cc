@@ -1077,6 +1077,9 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
       multiscan_opts->io_coalesce_threshold;
   job->job_options.read_options = read_options_;
   job->job_options.read_options.async_io = multiscan_opts->use_async_io;
+  // CollectBlockHandles walks sorted scan ranges through the table index, whose
+  // key order matches data block offset order.
+  job->job_options.block_handles_are_sorted = true;
 
   std::shared_ptr<ReadSet> read_set;
   // IODispatcher should be provided by DBIter::Prepare() to enable sharing

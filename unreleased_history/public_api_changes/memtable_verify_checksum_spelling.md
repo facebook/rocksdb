@@ -1,0 +1,1 @@
+Corrected the public C++ option spelling from `memtable_veirfy_per_key_checksum_on_seek` to `memtable_verify_per_key_checksum_on_seek`. RocksDB continues to accept the old misspelled OPTIONS-file key for compatibility, while newly serialized OPTIONS files use the corrected key.

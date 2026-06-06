@@ -4613,6 +4613,344 @@ TEST_F(EnvTest, WriteStringToFileClosesFile) {
   ASSERT_OK(counted_fs->DeleteFile(fname, IOOptions(), nullptr));
 }
 
+enum class SyncFileTestResult {
+  kOk,
+  kNotSupported,
+  kSyncError,
+  kFsyncError,
+  kCloseError,
+};
+
+Status MakeSyncFileTestStatus(SyncFileTestResult result) {
+  switch (result) {
+    case SyncFileTestResult::kOk:
+      return Status::OK();
+    case SyncFileTestResult::kNotSupported:
+      return Status::NotSupported("injected reopen failure");
+    case SyncFileTestResult::kSyncError:
+      return Status::IOError("injected sync failure");
+    case SyncFileTestResult::kFsyncError:
+      return Status::IOError("injected fsync failure");
+    case SyncFileTestResult::kCloseError:
+      return Status::IOError("injected close failure");
+  }
+  assert(false);
+  return Status::Corruption("unexpected sync file test result");
+}
+
+IOStatus MakeSyncFileTestIOStatus(SyncFileTestResult result) {
+  switch (result) {
+    case SyncFileTestResult::kOk:
+      return IOStatus::OK();
+    case SyncFileTestResult::kNotSupported:
+      return IOStatus::NotSupported("injected reopen failure");
+    case SyncFileTestResult::kSyncError:
+      return IOStatus::IOError("injected sync failure");
+    case SyncFileTestResult::kFsyncError:
+      return IOStatus::IOError("injected fsync failure");
+    case SyncFileTestResult::kCloseError:
+      return IOStatus::IOError("injected close failure");
+  }
+  assert(false);
+  return IOStatus::Corruption("unexpected sync file test result");
+}
+
+struct SyncFileTestState {
+  SyncFileTestResult reopen_result = SyncFileTestResult::kOk;
+  SyncFileTestResult sync_result = SyncFileTestResult::kOk;
+  SyncFileTestResult fsync_result = SyncFileTestResult::kOk;
+  SyncFileTestResult close_result = SyncFileTestResult::kOk;
+  int reopen_count = 0;
+  int sync_count = 0;
+  int fsync_count = 0;
+  int close_count = 0;
+};
+
+class SyncFileTestWritableFile : public WritableFileWrapper {
+ public:
+  SyncFileTestWritableFile(std::unique_ptr<WritableFile>&& target,
+                           SyncFileTestState* state)
+      : WritableFileWrapper(target.get()),
+        target_guard_(std::move(target)),
+        state_(state) {}
+
+  Status Sync() override {
+    ++state_->sync_count;
+    return MakeSyncFileTestStatus(state_->sync_result);
+  }
+
+  Status Fsync() override {
+    ++state_->fsync_count;
+    return MakeSyncFileTestStatus(state_->fsync_result);
+  }
+
+  Status Close() override {
+    ++state_->close_count;
+    if (state_->close_result == SyncFileTestResult::kOk) {
+      return WritableFileWrapper::Close();
+    }
+    Status status = WritableFileWrapper::Close();
+    status.PermitUncheckedError();
+    return MakeSyncFileTestStatus(state_->close_result);
+  }
+
+ private:
+  std::unique_ptr<WritableFile> target_guard_;
+  SyncFileTestState* state_;
+};
+
+class SyncFileTestEnv : public EnvWrapper {
+ public:
+  SyncFileTestEnv(Env* target, SyncFileTestState* state)
+      : EnvWrapper(target), state_(state) {}
+
+  Status ReopenWritableFile(const std::string& fname,
+                            std::unique_ptr<WritableFile>* result,
+                            const EnvOptions& options) override {
+    ++state_->reopen_count;
+    Status status = MakeSyncFileTestStatus(state_->reopen_result);
+    if (!status.ok()) {
+      return status;
+    }
+    status = target()->ReopenWritableFile(fname, result, options);
+    if (status.ok()) {
+      result->reset(new SyncFileTestWritableFile(std::move(*result), state_));
+    }
+    return status;
+  }
+
+  Status SyncFile(const std::string& fname, const EnvOptions& options,
+                  bool use_fsync) override {
+    return Env::SyncFile(fname, options, use_fsync);
+  }
+
+ private:
+  SyncFileTestState* state_;
+};
+
+class SyncFileTestFSWritableFile : public FSWritableFileOwnerWrapper {
+ public:
+  SyncFileTestFSWritableFile(std::unique_ptr<FSWritableFile>&& target,
+                             SyncFileTestState* state)
+      : FSWritableFileOwnerWrapper(std::move(target)), state_(state) {}
+
+  IOStatus Sync(const IOOptions& /*options*/,
+                IODebugContext* /*dbg*/) override {
+    ++state_->sync_count;
+    return MakeSyncFileTestIOStatus(state_->sync_result);
+  }
+
+  IOStatus Fsync(const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    ++state_->fsync_count;
+    return MakeSyncFileTestIOStatus(state_->fsync_result);
+  }
+
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) override {
+    ++state_->close_count;
+    if (state_->close_result == SyncFileTestResult::kOk) {
+      return FSWritableFileOwnerWrapper::Close(options, dbg);
+    }
+    IOStatus status = FSWritableFileOwnerWrapper::Close(options, dbg);
+    status.PermitUncheckedError();
+    return MakeSyncFileTestIOStatus(state_->close_result);
+  }
+
+ private:
+  SyncFileTestState* state_;
+};
+
+class SyncFileTestFileSystem : public FileSystemWrapper {
+ public:
+  SyncFileTestFileSystem(const std::shared_ptr<FileSystem>& target,
+                         SyncFileTestState* state)
+      : FileSystemWrapper(target), state_(state) {}
+
+  const char* Name() const override { return "SyncFileTestFileSystem"; }
+
+  IOStatus ReopenWritableFile(const std::string& fname,
+                              const FileOptions& file_opts,
+                              std::unique_ptr<FSWritableFile>* result,
+                              IODebugContext* dbg) override {
+    ++state_->reopen_count;
+    IOStatus status = MakeSyncFileTestIOStatus(state_->reopen_result);
+    if (!status.ok()) {
+      return status;
+    }
+    status = target()->ReopenWritableFile(fname, file_opts, result, dbg);
+    if (status.ok()) {
+      result->reset(new SyncFileTestFSWritableFile(std::move(*result), state_));
+    }
+    return status;
+  }
+
+  IOStatus SyncFile(const std::string& fname, const FileOptions& file_opts,
+                    const IOOptions& io_opts, bool use_fsync,
+                    IODebugContext* dbg) override {
+    return FileSystem::SyncFile(fname, file_opts, io_opts, use_fsync, dbg);
+  }
+
+ private:
+  SyncFileTestState* state_;
+};
+
+TEST_F(EnvTest, EnvSyncFileDefaultUsesSyncAndFsync) {
+  const std::string fname = test::PerThreadDBPath("env_sync_file_default");
+  ASSERT_OK(WriteStringToFile(Env::Default(), "sync-file-test", fname));
+
+  SyncFileTestState state;
+  SyncFileTestEnv env(Env::Default(), &state);
+
+  ASSERT_OK(env.SyncFile(fname, EnvOptions(), /*use_fsync=*/false));
+  ASSERT_EQ(state.reopen_count, 1);
+  ASSERT_EQ(state.sync_count, 1);
+  ASSERT_EQ(state.fsync_count, 0);
+  ASSERT_EQ(state.close_count, 1);
+
+  ASSERT_OK(env.SyncFile(fname, EnvOptions(), /*use_fsync=*/true));
+  ASSERT_EQ(state.reopen_count, 2);
+  ASSERT_EQ(state.sync_count, 1);
+  ASSERT_EQ(state.fsync_count, 1);
+  ASSERT_EQ(state.close_count, 2);
+
+  ASSERT_OK(Env::Default()->DeleteFile(fname));
+}
+
+TEST_F(EnvTest, EnvSyncFileDefaultReturnsReopenError) {
+  SyncFileTestState state;
+  state.reopen_result = SyncFileTestResult::kNotSupported;
+  SyncFileTestEnv env(Env::Default(), &state);
+
+  const Status status =
+      env.SyncFile("unused", EnvOptions(), /*use_fsync=*/false);
+  ASSERT_TRUE(status.IsNotSupported()) << status.ToString();
+  ASSERT_EQ(state.reopen_count, 1);
+  ASSERT_EQ(state.sync_count, 0);
+  ASSERT_EQ(state.fsync_count, 0);
+  ASSERT_EQ(state.close_count, 0);
+}
+
+TEST_F(EnvTest, EnvSyncFileDefaultReturnsCloseErrorAfterSuccessfulSync) {
+  const std::string fname = test::PerThreadDBPath("env_sync_file_close_error");
+  ASSERT_OK(WriteStringToFile(Env::Default(), "sync-file-test", fname));
+
+  SyncFileTestState state;
+  state.close_result = SyncFileTestResult::kCloseError;
+  SyncFileTestEnv env(Env::Default(), &state);
+
+  const Status status = env.SyncFile(fname, EnvOptions(), /*use_fsync=*/false);
+  ASSERT_TRUE(status.IsIOError()) << status.ToString();
+  ASSERT_NE(status.ToString().find("close failure"), std::string::npos)
+      << status.ToString();
+  ASSERT_EQ(state.reopen_count, 1);
+  ASSERT_EQ(state.sync_count, 1);
+  ASSERT_EQ(state.close_count, 1);
+
+  ASSERT_OK(Env::Default()->DeleteFile(fname));
+}
+
+TEST_F(EnvTest, EnvSyncFileDefaultReturnsSyncErrorBeforeCloseError) {
+  const std::string fname = test::PerThreadDBPath("env_sync_file_sync_error");
+  ASSERT_OK(WriteStringToFile(Env::Default(), "sync-file-test", fname));
+
+  SyncFileTestState state;
+  state.sync_result = SyncFileTestResult::kSyncError;
+  state.close_result = SyncFileTestResult::kCloseError;
+  SyncFileTestEnv env(Env::Default(), &state);
+
+  const Status status = env.SyncFile(fname, EnvOptions(), /*use_fsync=*/false);
+  ASSERT_TRUE(status.IsIOError()) << status.ToString();
+  ASSERT_NE(status.ToString().find("sync failure"), std::string::npos)
+      << status.ToString();
+  ASSERT_EQ(state.reopen_count, 1);
+  ASSERT_EQ(state.sync_count, 1);
+  ASSERT_EQ(state.close_count, 1);
+
+  ASSERT_OK(Env::Default()->DeleteFile(fname));
+}
+
+TEST_F(EnvTest, FileSystemSyncFileDefaultUsesSyncAndFsync) {
+  const std::string fname = test::PerThreadDBPath("fs_sync_file_default");
+  ASSERT_OK(
+      WriteStringToFile(FileSystem::Default().get(), "sync-file-test", fname));
+
+  SyncFileTestState state;
+  SyncFileTestFileSystem fs(FileSystem::Default(), &state);
+
+  ASSERT_OK(fs.SyncFile(fname, FileOptions(), IOOptions(), /*use_fsync=*/false,
+                        nullptr));
+  ASSERT_EQ(state.reopen_count, 1);
+  ASSERT_EQ(state.sync_count, 1);
+  ASSERT_EQ(state.fsync_count, 0);
+  ASSERT_EQ(state.close_count, 1);
+
+  ASSERT_OK(fs.SyncFile(fname, FileOptions(), IOOptions(), /*use_fsync=*/true,
+                        nullptr));
+  ASSERT_EQ(state.reopen_count, 2);
+  ASSERT_EQ(state.sync_count, 1);
+  ASSERT_EQ(state.fsync_count, 1);
+  ASSERT_EQ(state.close_count, 2);
+
+  ASSERT_OK(FileSystem::Default()->DeleteFile(fname, IOOptions(), nullptr));
+}
+
+TEST_F(EnvTest, FileSystemSyncFileDefaultReturnsReopenError) {
+  SyncFileTestState state;
+  state.reopen_result = SyncFileTestResult::kNotSupported;
+  SyncFileTestFileSystem fs(FileSystem::Default(), &state);
+
+  const IOStatus status = fs.SyncFile("unused", FileOptions(), IOOptions(),
+                                      /*use_fsync=*/false, nullptr);
+  ASSERT_TRUE(status.IsNotSupported()) << status.ToString();
+  ASSERT_EQ(state.reopen_count, 1);
+  ASSERT_EQ(state.sync_count, 0);
+  ASSERT_EQ(state.fsync_count, 0);
+  ASSERT_EQ(state.close_count, 0);
+}
+
+TEST_F(EnvTest, FileSystemSyncFileDefaultReturnsCloseErrorAfterSuccessfulSync) {
+  const std::string fname = test::PerThreadDBPath("fs_sync_file_close_error");
+  ASSERT_OK(
+      WriteStringToFile(FileSystem::Default().get(), "sync-file-test", fname));
+
+  SyncFileTestState state;
+  state.close_result = SyncFileTestResult::kCloseError;
+  SyncFileTestFileSystem fs(FileSystem::Default(), &state);
+
+  const IOStatus status = fs.SyncFile(fname, FileOptions(), IOOptions(),
+                                      /*use_fsync=*/false, nullptr);
+  ASSERT_TRUE(status.IsIOError()) << status.ToString();
+  ASSERT_NE(status.ToString().find("close failure"), std::string::npos)
+      << status.ToString();
+  ASSERT_EQ(state.reopen_count, 1);
+  ASSERT_EQ(state.sync_count, 1);
+  ASSERT_EQ(state.close_count, 1);
+
+  ASSERT_OK(FileSystem::Default()->DeleteFile(fname, IOOptions(), nullptr));
+}
+
+TEST_F(EnvTest, FileSystemSyncFileDefaultReturnsSyncErrorBeforeCloseError) {
+  const std::string fname = test::PerThreadDBPath("fs_sync_file_sync_error");
+  ASSERT_OK(
+      WriteStringToFile(FileSystem::Default().get(), "sync-file-test", fname));
+
+  SyncFileTestState state;
+  state.sync_result = SyncFileTestResult::kSyncError;
+  state.close_result = SyncFileTestResult::kCloseError;
+  SyncFileTestFileSystem fs(FileSystem::Default(), &state);
+
+  const IOStatus status = fs.SyncFile(fname, FileOptions(), IOOptions(),
+                                      /*use_fsync=*/false, nullptr);
+  ASSERT_TRUE(status.IsIOError()) << status.ToString();
+  ASSERT_NE(status.ToString().find("sync failure"), std::string::npos)
+      << status.ToString();
+  ASSERT_EQ(state.reopen_count, 1);
+  ASSERT_EQ(state.sync_count, 1);
+  ASSERT_EQ(state.close_count, 1);
+
+  ASSERT_OK(FileSystem::Default()->DeleteFile(fname, IOOptions(), nullptr));
+}
+
 // Writable file wrapper that injects a Close() failure.
 // Uses FSWritableFileOwnerWrapper to properly take ownership of the wrapped
 // file.

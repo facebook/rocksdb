@@ -943,6 +943,37 @@ TEST_F(CompactionServiceTest, VerifyInputRecordCount) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_F(CompactionServiceTest, InaccurateInputRecordCount) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+
+  auto my_cs = GetCompactionService();
+
+  std::string start_str = Key(15);
+  std::string end_str = Key(45);
+  Slice start(start_str);
+  Slice end(end_str);
+  uint64_t comp_num = my_cs->GetCompactionNum();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceCompactionJob::Run:0", [&](void* arg) {
+        CompactionServiceResult* compaction_result =
+            *(static_cast<CompactionServiceResult**>(arg));
+        ASSERT_TRUE(compaction_result != nullptr);
+        compaction_result->stats.has_accurate_num_input_records = false;
+        compaction_result->stats.num_input_records = 0;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
+  ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_F(CompactionServiceTest, EmptyResult) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -1285,6 +1316,10 @@ TEST_F(CompactionServiceTest, TruncatedOutput) {
 
 TEST_F(CompactionServiceTest, CustomFileChecksum) {
   Options options = CurrentOptions();
+  // Pin compression so the auto-compacted LSM shape (and thus whether the
+  // manual CompactRange below schedules a remote compaction) doesn't depend on
+  // the default compression type. kNoCompression is always available.
+  options.compression = kNoCompression;
   options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
   ReopenWithCompactionService(&options);
   GenerateTestData();

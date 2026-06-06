@@ -192,18 +192,22 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
 
   // Compress blocks using the specified compression algorithm.
   //
-  // Default: kSnappyCompression, if it's supported. If snappy is not linked
-  // with the library, the default is kNoCompression.
+  // Default: kLZ4Compression if support is compiled in, else kSnappyCompression
+  // if support is compiled in, else kNoCompression
   //
-  // Typical speeds of kSnappyCompression on an Intel(R) Core(TM)2 2.4GHz:
-  //    ~200-500MB/s compression
-  //    ~400-800MB/s decompression
+  // Typical single-core speed of kLZ4Compression on an AMD EPYC-Genoa
+  //     ~800 -  1200 MB/s compression
+  //    ~8000 - 16000 MB/s decompression
+  // and with a 160 threads to saturate the cores:
+  //      ~60 -    90 GB/s compression
+  //     ~900 -  1000 GB/s decompression
+  // using db_bench compress/uncompress benchmarks.
   //
   // Note that these speeds are significantly faster than most
   // persistent storage speeds, and therefore it is typically never
   // worth switching to kNoCompression.  Even if the input data is
-  // incompressible, the kSnappyCompression implementation will
-  // efficiently detect that and will switch to uncompressed mode.
+  // incompressible, the compression implementation will
+  // efficiently detect that and fall back on no compression.
   //
   // If you do not set `compression_opts.level`, or set it to
   // `CompressionOptions::kDefaultCompressionLevel`, we will attempt to pick the
@@ -622,7 +626,7 @@ struct DBOptions {
   // checking for corruption, including
   // * paranoid_file_checks
   // * paranoid_memory_checks
-  // * memtable_veirfy_per_key_checksum_on_seek
+  // * memtable_verify_per_key_checksum_on_seek
   // * DB::VerifyChecksum()
   //
   // Default: true
@@ -1004,6 +1008,13 @@ struct DBOptions {
   //
   // This option is mutable with SetDBOptions(), taking effect on the next
   // manifest write (e.g. completed DB compaction or flush).
+  //
+  // For MANIFEST write batches containing foreground operations like external
+  // file ingestion/import, DeleteFilesInRange, CreateColumnFamily, and
+  // DropColumnFamily, the effective limit is relaxed by 25% to reduce the
+  // likelihood of user operations blocking on MANIFEST rotation.
+  // Background-only batches (flush and compaction) use the configured or
+  // auto-tuned limit directly.
   uint64_t max_manifest_file_size = 1024 * 1024 * 1024;
 
   // If true, on DB close, read back the entire MANIFEST file and validate

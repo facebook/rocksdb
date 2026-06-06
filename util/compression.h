@@ -421,6 +421,12 @@ inline bool LZ4_Supported() {
 #endif
 }
 
+inline CompressionType GetDefaultCompressionType() {
+  return LZ4_Supported()
+             ? kLZ4Compression
+             : (Snappy_Supported() ? kSnappyCompression : kNoCompression);
+}
+
 inline bool XPRESS_Supported() {
 #ifdef XPRESS
   return true;

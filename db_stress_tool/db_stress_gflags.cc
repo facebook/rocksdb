@@ -1630,9 +1630,9 @@ DEFINE_bool(paranoid_memory_checks,
             "Sets CF option paranoid_memory_checks.");
 
 DEFINE_bool(
-    memtable_veirfy_per_key_checksum_on_seek,
-    ROCKSDB_NAMESPACE::Options().memtable_veirfy_per_key_checksum_on_seek,
-    "Sets CF option memtable_veirfy_per_key_checksum_on_seek.");
+    memtable_verify_per_key_checksum_on_seek,
+    ROCKSDB_NAMESPACE::Options().memtable_verify_per_key_checksum_on_seek,
+    "Sets CF option memtable_verify_per_key_checksum_on_seek.");
 
 DEFINE_bool(memtable_batch_lookup_optimization,
             ROCKSDB_NAMESPACE::Options().memtable_batch_lookup_optimization,

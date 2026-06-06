@@ -313,7 +313,8 @@ class TestFSWritableFile : public FSWritableFile {
   explicit TestFSWritableFile(const std::string& fname,
                               const FileOptions& file_opts,
                               std::unique_ptr<FSWritableFile>&& f,
-                              FaultInjectionTestFS* fs);
+                              FaultInjectionTestFS* fs,
+                              bool reopened_for_write = false);
   virtual ~TestFSWritableFile();
   IOStatus Append(const Slice& data, const IOOptions&,
                   IODebugContext*) override;
@@ -347,6 +348,7 @@ class TestFSWritableFile : public FSWritableFile {
 
  private:
   IOStatus CloseImpl(const IOOptions& options, IODebugContext* dbg);
+  IOStatus ValidateWrite(const char* op_name);
 
   FSFileState state_;  // Need protection by mutex_
   FileOptions file_opts_;
@@ -359,6 +361,7 @@ class TestFSWritableFile : public FSWritableFile {
   FaultInjectionTestFS* fs_;
   port::Mutex mutex_;
   const bool unsync_data_loss_;
+  const bool reopened_for_write_;
 };
 
 // A per-file fault-injection wrapper around FSRandomRWFile that reports
@@ -573,6 +576,10 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   IOStatus LinkFile(const std::string& src, const std::string& target,
                     const IOOptions& options, IODebugContext* dbg) override;
 
+  IOStatus SyncFile(const std::string& fname, const FileOptions& file_opts,
+                    const IOOptions& io_opts, bool use_fsync,
+                    IODebugContext* dbg) override;
+
   IOStatus NumFileLinks(const std::string& fname, const IOOptions& options,
                         uint64_t* count, IODebugContext* dbg) override;
 
@@ -588,8 +595,13 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   IOStatus GetFreeSpace(const std::string& path, const IOOptions& options,
                         uint64_t* disk_free, IODebugContext* dbg) override {
     IOStatus io_s;
-    if (!IsFilesystemActive() &&
-        fs_error_.subcode() == IOStatus::SubCode::kNoSpace) {
+    bool inactive_no_space = false;
+    {
+      MutexLock l(&mutex_);
+      inactive_no_space = !filesystem_active_ &&
+                          fs_error_.subcode() == IOStatus::SubCode::kNoSpace;
+    }
+    if (inactive_no_space) {
       *disk_free = 0;
     } else {
       io_s = MaybeInjectThreadLocalError(FaultInjectionIOType::kMetadataRead,
@@ -616,6 +628,15 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   void WritableFileAppended(const FSFileState& state);
 
   void RandomRWFileClosed(const std::string& fname);
+
+  void WritableFileOpened(const std::string& fname,
+                          FileOpenContract open_contract);
+
+  IOStatus ValidateReadOpen(const std::string& fname, const char* op_name);
+
+  IOStatus ValidateWriteOpen(const std::string& fname, const char* op_name);
+
+  IOStatus ValidateReopenedWrite(const std::string& fname, const char* op_name);
 
   IOStatus DropUnsyncedFileData();
 
@@ -712,7 +733,10 @@ class FaultInjectionTestFS : public FileSystemWrapper {
 
   void AssertNoOpenFile() { assert(open_managed_files_.empty()); }
 
-  IOStatus GetError() { return fs_error_; }
+  IOStatus GetError() {
+    MutexLock l(&mutex_);
+    return fs_error_;
+  }
 
   void SetFileSystemIOError(IOStatus io_error) {
     MutexLock l(&mutex_);
@@ -898,9 +922,15 @@ class FaultInjectionTestFS : public FileSystemWrapper {
  private:
   inline static const std::string kFailedToWriteToWAL =
       "failed to write to WAL";
+
+  IOStatus ValidateNoReopenForWrite(const std::string& fname,
+                                    const char* op_name,
+                                    bool allow_missing_file);
+
   port::Mutex mutex_;
   std::map<std::string, FSFileState> db_file_state_;
-  std::set<std::string> open_managed_files_;
+  std::map<std::string, FileOpenContract> open_managed_files_;
+  std::map<std::string, FileOpenContract> file_open_contracts_;
   // directory -> (file name -> file contents to recover)
   // When data is recovered from unsyned parent directory, the files with
   // empty file contents to recover is deleted. Those with non-empty ones

@@ -5253,8 +5253,8 @@ void InitializeOptionsFromFlags(
   options.verify_output_flags =
       static_cast<VerifyOutputFlags>(FLAGS_verify_output_flags);
   options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
-  options.memtable_veirfy_per_key_checksum_on_seek =
-      FLAGS_memtable_veirfy_per_key_checksum_on_seek;
+  options.memtable_verify_per_key_checksum_on_seek =
+      FLAGS_memtable_verify_per_key_checksum_on_seek;
   options.memtable_batch_lookup_optimization =
       FLAGS_memtable_batch_lookup_optimization;
 

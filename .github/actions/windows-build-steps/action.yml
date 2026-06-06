@@ -3,7 +3,7 @@ inputs:
   suite-run:
     description: Comma-separated list of test suites to run (empty to skip C++ tests)
     required: false
-    default: arena_test,db_basic_test,db_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test
+    default: arena_test,db_basic_test,db_test,db_etc2_test,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test
   run-java:
     description: Whether to run Java tests
     required: false

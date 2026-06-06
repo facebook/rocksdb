@@ -1,0 +1,1 @@
+Fix a bug where db had a false positive compaction corruption error due to remote compaction service result with `has_accurate_num_input_records=false` not being serialized.

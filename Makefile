@@ -967,8 +967,6 @@ gen_parallel_tests:
 #      total time across many shards (need early queueing for fan-out).
 # Each alternative is wrapped in `^.*NAME.*$$` so the *whole input line* is
 # captured into $$1; then `s,(...),100 $$1,` prepends "100 " to the line.
-# Use a trailing dash on prefix-of-other-name binaries (e.g. `db_test-` to
-# avoid matching `db_test2-...`).
 #
 # Tiers below are based on observed timings (see suggest-slow-tests).
 # Tier 1: max single-shard time >= 30s (critical-path bottlenecks).
@@ -976,7 +974,7 @@ gen_parallel_tests:
 # Tier 3: huge total time across many tiny shards; front-loading them keeps
 #         the tail of the run busy while big shards finish.
 slow_test_regexp = \
-	^.*point_lock_manager_stress_test.*$$|^.*db_test-.*$$|^.*external_sst_file_test.*$$|^.*compaction_service_test.*$$|^.*corruption_test.*$$|^.*comparator_db_test.*$$|^.*external_sst_file_basic_test.*$$|^.*rate_limiter_test.*$$|^.*db_compaction_test.*$$|^.*write_prepared_transaction_test.*$$|^.*db_merge_operator_test.*$$|\
+	^.*point_lock_manager_stress_test.*$$|^.*db_test.*$$|^.*external_sst_file_test.*$$|^.*compaction_service_test.*$$|^.*corruption_test.*$$|^.*comparator_db_test.*$$|^.*external_sst_file_basic_test.*$$|^.*rate_limiter_test.*$$|^.*db_compaction_test.*$$|^.*write_prepared_transaction_test.*$$|^.*db_merge_operator_test.*$$|\
 	^.*db_dynamic_level_test.*$$|^.*db_bloom_filter_test.*$$|^.*error_handler_fs_test.*$$|^.*merge_helper_test.*$$|^.*transaction_test.*$$|^.*db_kv_checksum_test.*$$|^.*inlineskiplist_test.*$$|\
 	^.*db_with_timestamp_basic_test.*$$|^.*table_test.*$$|^.*db_wal_test.*$$|^.*block_based_table_reader_test.*$$|^.*block_test.*$$
 prioritize_long_running_tests =						\
@@ -1586,7 +1584,7 @@ db_open_with_config_test: $(OBJ_DIR)/db/db_open_with_config_test.o $(TEST_LIBRAR
 db_test: $(OBJ_DIR)/db/db_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-db_test2: $(OBJ_DIR)/db/db_test2.o $(TEST_LIBRARY) $(LIBRARY)
+db_etc2_test: $(OBJ_DIR)/db/db_etc2_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 db_etc3_test: $(OBJ_DIR)/db/db_etc3_test.o $(TEST_LIBRARY) $(LIBRARY)

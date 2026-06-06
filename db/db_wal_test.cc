@@ -860,6 +860,8 @@ TEST_F(DBWALTest, WALWithChecksumHandoff) {
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
       new FaultInjectionTestFS(FileSystem::Default()));
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  // Close the DB before the local Env is destroyed if an ASSERT exits early.
+  Defer close_db_on_exit([this]() { Close(); });
   do {
     Options options = CurrentOptions();
 

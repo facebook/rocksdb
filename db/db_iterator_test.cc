@@ -2277,6 +2277,10 @@ TEST_P(DBIteratorTest, ReadAhead) {
   options.env = env_;
   options.disable_auto_compactions = true;
   options.write_buffer_size = 4 << 20;
+  // Pin compression so the readahead byte thresholds below don't depend on the
+  // default compression type. kNoCompression keeps the SST files large enough
+  // to exercise readahead and is always available.
+  options.compression = kNoCompression;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   BlockBasedTableOptions table_options;
   table_options.block_size = 1024;
@@ -4392,6 +4396,71 @@ TEST_P(DBMultiScanIteratorTest, RangeAcrossFiles) {
     std::cerr << "Iterator returned logic error " << ex.what();
     abort();
   }
+  iter.reset();
+}
+
+TEST_P(DBMultiScanIteratorTest, SortedRangesSkipIODispatcherSort) {
+  auto options = CurrentOptions();
+  options.target_file_size_base = 100 << 10;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 50;
+  options.compression = kNoCompression;
+  DestroyAndReopen(options);
+
+  auto key = [](int i) {
+    std::stringstream ss;
+    ss << "k" << std::setw(5) << std::setfill('0') << i;
+    return ss.str();
+  };
+
+  auto rnd = Random::GetTLSInstance();
+  for (int i = 0; i < 100; ++i) {
+    ASSERT_OK(Put(key(i), rnd->RandomString(2 << 10)));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+  ASSERT_EQ(2, NumTableFilesAtLevel(49));
+
+  int sort_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "IODispatcherImpl::SubmitJob:SortBlockHandles",
+      [&](void* /*arg*/) { ++sort_count; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  auto tracking_dispatcher = std::make_shared<TrackingIODispatcher>();
+  std::vector<std::string> key_ranges({key(10), key(90)});
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.io_dispatcher = tracking_dispatcher;
+  scan_options.use_async_io = false;
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+
+  ReadOptions ro;
+  ro.fill_cache = GetParam();
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+
+  try {
+    int i = 10;
+    for (auto range : *iter) {
+      for (auto it : range) {
+        ASSERT_EQ(it.first.ToString(), key(i));
+        ++i;
+      }
+    }
+    ASSERT_EQ(i, 90);
+  } catch (MultiScanException& ex) {
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+
+  ASSERT_GT(tracking_dispatcher->GetReadSets().size(), 0);
+  EXPECT_EQ(sort_count, 0);
   iter.reset();
 }
 

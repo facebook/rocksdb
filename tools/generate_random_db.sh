@@ -1,28 +1,29 @@
 #!/usr/bin/env bash
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 #
-# A shell script to load some pre generated data file to a DB using ldb tool
-# ./ldb needs to be avaible to be executed.
+# A shell script to load some pre generated data file to a DB using ldb tool.
+# <ldb_command> must be available to execute (defaults to ./ldb).
 #
-# Usage: <SCRIPT> <input_data_path> <DB Path>
+# Usage: <SCRIPT> <input_data_path> <DB Path> [<ldb_command>]
 
 if [ "$#" -lt 2 ]; then
-  echo "usage: $BASH_SOURCE <input_data_path> <DB Path>"
+  echo "usage: $BASH_SOURCE <input_data_path> <DB Path> [<ldb_command>]"
   exit 1
 fi
 
 input_data_dir=$1
 db_dir=$2
+ldb_cmd=${3:-./ldb}
 rm -rf $db_dir
 
 second_gen_compression_support=
 mixed_compression_support=
 # Support for `ldb --version` is a crude under-approximation for versions
 # supporting dictionary compression and algorithms including zstd and lz4
-if ./ldb --version 2>/dev/null >/dev/null; then
+if $ldb_cmd --version 2>/dev/null >/dev/null; then
   second_gen_compression_support=1
 
-  if ./ldb load --db=$db_dir --compression_type=mixed --create_if_missing \
+  if $ldb_cmd load --db=$db_dir --compression_type=mixed --create_if_missing \
       < /dev/null 2>/dev/null >/dev/null; then
     mixed_compression_support=1
   fi
@@ -31,7 +32,7 @@ fi
 
 # Check if deleterange command is supported by grepping ldb --help
 deleterange_support=
-if ./ldb --help 2>&1 | grep -q deleterange; then
+if $ldb_cmd --help 2>&1 | grep -q deleterange; then
   deleterange_support=1
 fi
 
@@ -69,7 +70,7 @@ do
   else
     d_arg=""
   fi
-  ./ldb load --db=$db_dir --compression_type=$c $d_arg --bloom_bits=10 \
+  $ldb_cmd load --db=$db_dir --compression_type=$c $d_arg --bloom_bits=10 \
     --auto_compaction=false --create_if_missing < $input_data_dir/$f
 
   # Use md5sum of file to deterministically decide whether to add a range
@@ -89,11 +90,11 @@ do
         end_key="${key}0"
         if [ "$deleterange_support" == "1" ]; then
           echo "== Deleting range [$key, $end_key) from $f"
-          ./ldb deleterange --db=$db_dir "$key" "$end_key"
+          $ldb_cmd deleterange --db=$db_dir "$key" "$end_key"
         else
           # Fall back to point delete for equivalent logical contents
           echo "== Deleting key $key from $f"
-          ./ldb delete --db=$db_dir "$key"
+          $ldb_cmd delete --db=$db_dir "$key"
         fi
       fi
     fi

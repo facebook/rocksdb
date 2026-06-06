@@ -814,6 +814,16 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
     return status;
   }
 
+  IOStatus SyncFile(const std::string& fname, const FileOptions& file_opts,
+                    const IOOptions& io_opts, bool use_fsync,
+                    IODebugContext* dbg) override {
+    // SyncFile does not read or write file contents, so it can delegate
+    // directly to the underlying filesystem without constructing an encrypted
+    // writable wrapper.
+    return FileSystemWrapper::SyncFile(fname, file_opts, io_opts, use_fsync,
+                                       dbg);
+  }
+
  private:
   std::shared_ptr<EncryptionProvider> provider_;
 };

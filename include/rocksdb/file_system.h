@@ -119,7 +119,8 @@ struct IOOptions {
   // custom contract between a FileSystem user and the provider. This is only
   // useful in cases where a RocksDB user directly uses the FileSystem or file
   // object for their own purposes, and wants to pass extra options to APIs
-  // such as NewRandomAccessFile and NewWritableFile.
+  // such as NewRandomAccessFile and NewWritableFile. Prefer typed fields on
+  // IOOptions/FileOptions when a standardized semantic exists.
   std::unordered_map<std::string, std::string> property_bag;
 
   // Force directory fsync, some file systems like btrfs may skip directory
@@ -176,9 +177,37 @@ struct DirFsyncOptions {
   explicit DirFsyncOptions(FsyncReason fsync_reason);
 };
 
-// File scope options that control how a file is opened/created and accessed
-// while its open. We may add more options here in the future such as
-// redundancy level, media to use etc.
+// File-scope contracts that describe how RocksDB will open/create and access a
+// file. A FileSystem that detects a contract violation must return a non-OK
+// status or preserve its normal valid semantics; it must not expose undefined
+// or corrupt data.
+enum class FileOpenContract : uint8_t {
+  kDefault = 0,
+  // RocksDB will not call ReopenWritableFile for this file to overwrite,
+  // append, or truncate data. SyncFile is a separate durability API.
+  kNoReopenForWrite = 1 << 0,
+  // RocksDB will not open readers while this file is open for write.
+  kNoReadersWhileOpenForWrite = 1 << 1,
+};
+
+constexpr FileOpenContract operator|(FileOpenContract lhs,
+                                     FileOpenContract rhs) {
+  return static_cast<FileOpenContract>(static_cast<uint8_t>(lhs) |
+                                       static_cast<uint8_t>(rhs));
+}
+
+inline FileOpenContract& operator|=(FileOpenContract& lhs,
+                                    FileOpenContract rhs) {
+  lhs = lhs | rhs;
+  return lhs;
+}
+
+constexpr bool HasFileOpenContract(FileOpenContract contracts,
+                                   FileOpenContract contract) {
+  return (static_cast<uint8_t>(contracts) & static_cast<uint8_t>(contract)) ==
+         static_cast<uint8_t>(contract);
+}
+
 struct FileOptions : EnvOptions {
   // Embedded IOOptions to control the parameters for any IOs that need
   // to be issued for the file open/creation
@@ -190,6 +219,9 @@ struct FileOptions : EnvOptions {
   // underlying file systems can put it with appropriate storage media and/or
   // coding.
   Temperature temperature = Temperature::kUnknown;
+
+  // File-open contract. kDefault uses the provider's standard semantics.
+  FileOpenContract open_contract = FileOpenContract::kDefault;
 
   // The checksum type that is used to calculate the checksum value for
   // handoff during file writes.
@@ -236,6 +268,7 @@ struct FileOptions : EnvOptions {
       : EnvOptions(opts),
         io_options(opts.io_options),
         temperature(opts.temperature),
+        open_contract(opts.open_contract),
         handoff_checksum_type(opts.handoff_checksum_type),
         write_hint(opts.write_hint),
         file_checksum(opts.file_checksum),
@@ -624,6 +657,22 @@ class FileSystem : public Customizable {
     return IOStatus::NotSupported(
         "LinkFile is not supported for this FileSystem");
   }
+
+  // Syncs file data and, when requested, file metadata for `fname`.
+  //
+  // The default implementation reopens the file as writable, calls Sync() or
+  // Fsync(), then closes it. Filesystems that already make file contents
+  // durable on file flush/close can override this as a no-op to avoid the
+  // reopen overhead.
+  //
+  // RocksDB code that needs to sync a named file should use this API instead of
+  // hand-rolling ReopenWritableFile()+Sync()/Fsync(). This lets filesystems
+  // reject ReopenWritableFile() for post-close data writes while still
+  // providing a cleaner path-level sync implementation.
+  virtual IOStatus SyncFile(const std::string& fname,
+                            const FileOptions& file_opts,
+                            const IOOptions& io_opts, bool use_fsync,
+                            IODebugContext* dbg);
 
   virtual IOStatus NumFileLinks(const std::string& /*fname*/,
                                 const IOOptions& /*options*/,
@@ -1640,6 +1689,12 @@ class FileSystemWrapper : public FileSystem {
   IOStatus LinkFile(const std::string& s, const std::string& t,
                     const IOOptions& options, IODebugContext* dbg) override {
     return target_->LinkFile(s, t, options, dbg);
+  }
+
+  IOStatus SyncFile(const std::string& fname, const FileOptions& file_opts,
+                    const IOOptions& io_opts, bool use_fsync,
+                    IODebugContext* dbg) override {
+    return target_->SyncFile(fname, file_opts, io_opts, use_fsync, dbg);
   }
 
   IOStatus NumFileLinks(const std::string& fname, const IOOptions& options,

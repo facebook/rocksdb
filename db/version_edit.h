@@ -978,6 +978,11 @@ class VersionEdit {
 
   bool IsColumnFamilyDrop() const { return is_column_family_drop_; }
 
+  void MarkForegroundOperation() { is_foreground_operation_ = true; }
+  bool IsForegroundOperation() const {
+    return is_foreground_operation_ || IsColumnFamilyManipulation();
+  }
+
   void MarkNoManifestWriteDummy() { is_no_manifest_write_dummy_ = true; }
   bool IsNoManifestWriteDummy() const { return is_no_manifest_write_dummy_; }
 
@@ -1111,6 +1116,7 @@ class VersionEdit {
   // it also includes column family name.
   bool is_column_family_drop_ = false;
   bool is_column_family_add_ = false;
+  bool is_foreground_operation_ = false;
   std::string column_family_name_;
 
   uint32_t remaining_entries_ = 0;
