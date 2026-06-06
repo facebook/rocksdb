@@ -431,7 +431,8 @@ void WriteThread::JoinBatchGroup(Writer* w) {
     AwaitState(w,
                STATE_GROUP_LEADER | STATE_MEMTABLE_WRITER_LEADER |
                    STATE_PARALLEL_MEMTABLE_CALLER |
-                   STATE_PARALLEL_MEMTABLE_WRITER | STATE_COMPLETED,
+                   STATE_PARALLEL_MEMTABLE_WRITER |
+                   STATE_PARALLEL_WAL_PRECOMPRESSOR | STATE_COMPLETED,
                &jbg_ctx);
     TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:DoneWaiting", w);
   }
@@ -712,6 +713,56 @@ void WriteThread::LaunchParallelMemTableWriters(WriteGroup* write_group) {
   // does the job as STATE_PARALLEL_MEMTABLE_CALLER.
   w = w->link_newer;
   SetMemWritersEachStride(w);
+}
+
+void WriteThread::LaunchParallelWalPrecompressors(WriteGroup* write_group,
+                                                  log::Writer* log_writer) {
+  assert(write_group != nullptr);
+  assert(write_group->leader != nullptr);
+  write_group->leader->CreateMutex();
+  write_group->status = Status::OK();
+  write_group->wal_precompress_log_writer = log_writer;
+  write_group->running.store(write_group->size);
+  write_group->leader->state.store(STATE_PARALLEL_WAL_PRECOMPRESSOR,
+                                   std::memory_order_release);
+  TEST_SYNC_POINT_CALLBACK("WriteThread::LaunchParallelWalPrecompressors",
+                           write_group);
+  for (auto* w : *write_group) {
+    if (w != write_group->leader) {
+      SetState(w, STATE_PARALLEL_WAL_PRECOMPRESSOR);
+    }
+  }
+}
+
+static WriteThread::AdaptationContext cpwp_ctx(
+    "CompleteParallelWalPrecompressor");
+
+bool WriteThread::CompleteParallelWalPrecompressor(Writer* w) {
+  auto* write_group = w->write_group;
+  if (!w->status.ok()) {
+    std::lock_guard<std::mutex> guard(write_group->leader->StateMutex());
+    write_group->status = w->status;
+  }
+
+  const bool last = write_group->running-- == 1;
+  if (last) {
+    SetState(write_group->leader, STATE_GROUP_LEADER);
+  }
+
+  if (w == write_group->leader) {
+    if (!last) {
+      AwaitState(w, STATE_GROUP_LEADER, &cpwp_ctx);
+    }
+    w->status = write_group->status;
+    write_group->status.PermitUncheckedError();
+    return true;
+  }
+
+  AwaitState(w,
+             STATE_PARALLEL_MEMTABLE_CALLER | STATE_PARALLEL_MEMTABLE_WRITER |
+                 STATE_COMPLETED,
+             &cpwp_ctx);
+  return false;
 }
 
 static WriteThread::AdaptationContext cpmtw_ctx(

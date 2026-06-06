@@ -16,6 +16,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "test_util/sync_point.h"
+#include "util/compression.h"
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/fault_injection_env.h"
@@ -883,6 +884,79 @@ TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
   // written WAL size should less than 100KB (even included HEADER & FOOTER
   // overhead)
   ASSERT_LE(bytes_num, 1024 * 100);
+}
+
+TEST_P(DBWriteTest, ParallelCompressedWALPrecompression) {
+  if (!StreamingCompressionTypeSupported(kZSTD)) {
+    ROCKSDB_GTEST_SKIP("Test requires zstd streaming compression support");
+    return;
+  }
+
+  constexpr int kNumThreads = 4;
+  Options options = GetOptions();
+  options.enable_pipelined_write = false;
+  options.two_write_queues = false;
+  options.unordered_write = false;
+  options.manual_wal_flush = false;
+  options.wal_compression = kZSTD;
+  options.statistics = CreateDBStatistics();
+  options.write_buffer_size = 128 * 1024 * 1024;
+  Reopen(options);
+
+  std::atomic<int> ready_count{0};
+  std::atomic<int> leader_count{0};
+  std::atomic<int> precompress_count{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteThread::JoinBatchGroup:Wait", [&](void* arg) {
+        ready_count++;
+        auto* writer = reinterpret_cast<WriteThread::Writer*>(arg);
+        if (writer->state == WriteThread::STATE_GROUP_LEADER) {
+          leader_count++;
+          while (ready_count < kNumThreads) {
+          }
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteThread::LaunchParallelWalPrecompressors", [&](void* arg) {
+        auto* write_group = reinterpret_cast<WriteThread::WriteGroup*>(arg);
+        ASSERT_GT(write_group->size, 1);
+        precompress_count++;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<port::Thread> threads;
+  for (int t = 0; t < kNumThreads; ++t) {
+    threads.emplace_back([&, t] {
+      ASSERT_OK(
+          Put("key_" + std::to_string(t), std::string(100 * 1024, 'a' + t)));
+    });
+  }
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(1, leader_count);
+  ASSERT_GT(precompress_count, 0);
+  ASSERT_GT(options.statistics->getTickerCount(WAL_PRECOMPRESS_BYTES), 0);
+  ASSERT_GT(options.statistics->getTickerCount(WAL_PRECOMPRESS_RECORDS), 0);
+  HistogramData precompress_micros;
+  options.statistics->histogramData(WAL_PRECOMPRESS_MICROS,
+                                    &precompress_micros);
+  ASSERT_GT(precompress_micros.count, 0);
+  HistogramData precompress_group_size;
+  options.statistics->histogramData(WAL_PRECOMPRESS_GROUP_SIZE,
+                                    &precompress_group_size);
+  ASSERT_GT(precompress_group_size.count, 0);
+  ASSERT_GE(precompress_group_size.max, 2);
+
+  Reopen(options);
+  for (int t = 0; t < kNumThreads; ++t) {
+    ASSERT_EQ(std::string(100 * 1024, 'a' + t),
+              Get("key_" + std::to_string(t)));
+  }
 }
 
 void CorruptLogFile(Env* env, Options& options, std::string log_path,

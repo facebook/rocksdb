@@ -10,8 +10,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <unordered_map>
-#include <vector>
 
 #include "db/dbformat.h"
 #include "db/log_format.h"
@@ -97,6 +97,15 @@ class Writer {
 
   IOStatus AddRecord(const WriteOptions& write_options, const Slice& slice,
                      const SequenceNumber& seqno = 0);
+  IOStatus PrepareRecord(const Slice& slice, std::string* prepared);
+  IOStatus AddPreparedRecord(const WriteOptions& write_options,
+                             const Slice& slice,
+                             const SequenceNumber& seqno = 0,
+                             bool flush = true);
+  IOStatus AddPreparedRecord(const WriteOptions& write_options,
+                             const SliceParts& slices,
+                             const SequenceNumber& seqno = 0,
+                             bool flush = true);
   IOStatus AddCompressionTypeRecord(const WriteOptions& write_options);
   IOStatus MaybeAddPredecessorWALInfo(const WriteOptions& write_options,
                                       const PredecessorWALInfo& info);
@@ -114,6 +123,8 @@ class Writer {
   const WritableFileWriter* file() const { return dest_.get(); }
 
   uint64_t get_log_number() const { return log_number_; }
+
+  bool IsCompressionEnabled() const { return compress_ != nullptr; }
 
   IOStatus WriteBuffer(const WriteOptions& write_options);
 
@@ -144,6 +155,14 @@ class Writer {
 
   IOStatus EmitPhysicalRecord(const WriteOptions& write_options,
                               RecordType type, const char* ptr, size_t length);
+  IOStatus EmitLogicalRecord(const WriteOptions& write_options,
+                             const Slice& slice,
+                             const SequenceNumber& seqno = 0,
+                             bool flush = true);
+  IOStatus EmitLogicalRecord(const WriteOptions& write_options,
+                             const SliceParts& slices,
+                             const SequenceNumber& seqno = 0,
+                             bool flush = true);
 
   IOStatus MaybeHandleSeenFileWriterError();
 

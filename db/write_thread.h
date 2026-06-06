@@ -11,8 +11,8 @@
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
+#include <string>
 #include <type_traits>
-#include <vector>
 
 #include "db/dbformat.h"
 #include "db/post_memtable_callback.h"
@@ -20,6 +20,7 @@
 #include "db/write_callback.h"
 #include "monitoring/instrumented_mutex.h"
 #include "rocksdb/options.h"
+#include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 #include "rocksdb/user_write_callback.h"
@@ -28,6 +29,10 @@
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace log {
+class Writer;
+}  // namespace log
 
 class WriteThread {
  public:
@@ -79,6 +84,10 @@ class WriteThread {
     // by calling SetMemWritersEachStride. After doing
     // this, it will also write to memtable.
     STATE_PARALLEL_MEMTABLE_CALLER = 64,
+
+    // The state used to inform a waiting writer that it should prepare its WAL
+    // record payload outside the single WAL writer path.
+    STATE_PARALLEL_WAL_PRECOMPRESSOR = 128,
   };
 
   struct Writer;
@@ -91,6 +100,11 @@ class WriteThread {
     Status status;
     std::atomic<size_t> running;
     size_t size = 0;
+    log::Writer* wal_precompress_log_writer = nullptr;
+    uint64_t wal_precompress_log_size = 0;
+    size_t wal_precompress_write_with_wal = 0;
+    WriteBatch* wal_precompress_merged_batch = nullptr;
+    WriteBatch* wal_precompress_recoverable_state = nullptr;
 
     struct Iterator {
       Writer* writer;
@@ -146,6 +160,8 @@ class WriteThread {
     SequenceNumber sequence;  // the sequence number to use for the first key
     Status status;
     Status callback_status;  // status returned by callback->Callback()
+    Slice wal_precompress_input;
+    std::string prepared_wal_fragment;
 
     aligned_storage<std::mutex>::type state_mutex_bytes;
     aligned_storage<std::condition_variable>::type state_cv_bytes;
@@ -174,6 +190,8 @@ class WriteThread {
           state(STATE_INIT),
           write_group(nullptr),
           sequence(kMaxSequenceNumber),
+          wal_precompress_input(),
+          prepared_wal_fragment(),
           link_older(nullptr),
           link_newer(nullptr) {}
 
@@ -204,6 +222,8 @@ class WriteThread {
           state(STATE_INIT),
           write_group(nullptr),
           sequence(kMaxSequenceNumber),
+          wal_precompress_input(),
+          prepared_wal_fragment(),
           link_older(nullptr),
           link_newer(nullptr),
           ingest_wbwi(_ingest_wbwi) {}
@@ -375,6 +395,11 @@ class WriteThread {
   // the sequence number and then call EarlyExitParallelGroup, false if
   // someone else has already taken responsibility for that.
   bool CompleteParallelMemTableWriter(Writer* w);
+
+  void LaunchParallelWalPrecompressors(WriteGroup* write_group,
+                                       log::Writer* log_writer);
+
+  bool CompleteParallelWalPrecompressor(Writer* w);
 
   // Waits for all preceding writers (unlocking mu while waiting), then
   // registers w as the currently proceeding writer.

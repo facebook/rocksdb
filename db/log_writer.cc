@@ -20,6 +20,53 @@
 
 namespace ROCKSDB_NAMESPACE::log {
 
+namespace {
+
+constexpr uint32_t kWALCompressionFormatVersion = 2;
+
+IOStatus UnexpectedCompressionError() {
+  IOStatus s = IOStatus::IOError("Unexpected WAL compression error");
+  s.SetDataLoss(true);
+  return s;
+}
+
+class PreparedRecordCompressionScratch {
+ public:
+  IOStatus Prepare(CompressionType compression_type, int header_size) {
+    const size_t max_output_buffer_len = kBlockSize - header_size;
+    if (compressor_ == nullptr || compression_type_ != compression_type ||
+        max_output_buffer_len_ != max_output_buffer_len) {
+      CompressionOptions opts;
+      std::unique_ptr<StreamingCompress> compressor(StreamingCompress::Create(
+          compression_type, opts, kWALCompressionFormatVersion,
+          max_output_buffer_len));
+      if (!compressor) {
+        return UnexpectedCompressionError();
+      }
+      compressor_ = std::move(compressor);
+      compressed_buffer_.reset(new char[max_output_buffer_len]);
+      compression_type_ = compression_type;
+      max_output_buffer_len_ = max_output_buffer_len;
+    }
+    compressor_->Reset();
+    return IOStatus::OK();
+  }
+
+  StreamingCompress* compressor() { return compressor_.get(); }
+  char* compressed_buffer() { return compressed_buffer_.get(); }
+
+ private:
+  CompressionType compression_type_ = kNoCompression;
+  size_t max_output_buffer_len_ = 0;
+  std::unique_ptr<StreamingCompress> compressor_;
+  std::unique_ptr<char[]> compressed_buffer_;
+};
+
+thread_local PreparedRecordCompressionScratch
+    prepared_record_compression_scratch;
+
+}  // namespace
+
 Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
                bool recycle_log_files, bool manual_flush,
                CompressionType compression_type, bool track_and_verify_wals,
@@ -90,6 +137,10 @@ IOStatus Writer::AddRecord(const WriteOptions& write_options,
   if (!s.ok()) {
     return s;
   }
+  if (!compress_) {
+    return EmitLogicalRecord(write_options, slice, seqno);
+  }
+
   const char* ptr = slice.data();
   size_t left = slice.size();
 
@@ -188,6 +239,63 @@ IOStatus Writer::AddRecord(const WriteOptions& write_options,
   return s;
 }
 
+IOStatus Writer::PrepareRecord(const Slice& slice, std::string* prepared) {
+  assert(prepared != nullptr);
+  prepared->clear();
+  if (!compress_) {
+    prepared->assign(slice.data(), slice.size());
+    return IOStatus::OK();
+  }
+
+  if (slice.empty()) {
+    return IOStatus::OK();
+  }
+
+  IOStatus s = prepared_record_compression_scratch.Prepare(compression_type_,
+                                                           header_size_);
+  if (!s.ok()) {
+    return s;
+  }
+  StreamingCompress* compressor =
+      prepared_record_compression_scratch.compressor();
+  char* compressed_buffer =
+      prepared_record_compression_scratch.compressed_buffer();
+
+  int compress_remaining = 0;
+  do {
+    size_t compressed_size = 0;
+    compress_remaining = compressor->Compress(
+        slice.data(), slice.size(), compressed_buffer, &compressed_size);
+    if (compress_remaining < 0) {
+      return UnexpectedCompressionError();
+    }
+    if (compressed_size > 0) {
+      prepared->append(compressed_buffer, compressed_size);
+    } else if (compress_remaining > 0) {
+      return UnexpectedCompressionError();
+    }
+  } while (compress_remaining > 0);
+
+  return IOStatus::OK();
+}
+
+IOStatus Writer::AddPreparedRecord(const WriteOptions& write_options,
+                                   const Slice& slice,
+                                   const SequenceNumber& seqno, bool flush) {
+  SliceParts slices(&slice, 1);
+  return AddPreparedRecord(write_options, slices, seqno, flush);
+}
+
+IOStatus Writer::AddPreparedRecord(const WriteOptions& write_options,
+                                   const SliceParts& slices,
+                                   const SequenceNumber& seqno, bool flush) {
+  IOStatus s = MaybeHandleSeenFileWriterError();
+  if (!s.ok()) {
+    return s;
+  }
+  return EmitLogicalRecord(write_options, slices, seqno, flush);
+}
+
 IOStatus Writer::AddCompressionTypeRecord(const WriteOptions& write_options) {
   // Should be the first record
   assert(block_offset_ == 0);
@@ -218,9 +326,8 @@ IOStatus Writer::AddCompressionTypeRecord(const WriteOptions& write_options) {
     // Initialize fields required for compression
     const size_t max_output_buffer_len = kBlockSize - header_size_;
     CompressionOptions opts;
-    constexpr uint32_t compression_format_version = 2;
     compress_ = StreamingCompress::Create(compression_type_, opts,
-                                          compression_format_version,
+                                          kWALCompressionFormatVersion,
                                           max_output_buffer_len);
     assert(compress_ != nullptr);
     compressed_buffer_ =
@@ -305,6 +412,102 @@ IOStatus Writer::MaybeAddUserDefinedTimestampSizeRecord(
 }
 
 bool Writer::BufferIsEmpty() { return dest_->BufferIsEmpty(); }
+
+IOStatus Writer::EmitLogicalRecord(const WriteOptions& write_options,
+                                   const Slice& slice,
+                                   const SequenceNumber& seqno, bool flush) {
+  SliceParts slices(&slice, 1);
+  return EmitLogicalRecord(write_options, slices, seqno, flush);
+}
+
+IOStatus Writer::EmitLogicalRecord(const WriteOptions& write_options,
+                                   const SliceParts& slices,
+                                   const SequenceNumber& seqno, bool flush) {
+  size_t left = 0;
+  for (int i = 0; i < slices.num_parts; ++i) {
+    left += slices.parts[i].size();
+  }
+  int slice_index = 0;
+  size_t slice_offset = 0;
+
+  // Fragment the record if necessary and emit it. If `slice` is empty, emit a
+  // single zero-length logical record.
+  bool begin = true;
+  IOStatus s;
+  do {
+    const int64_t leftover = kBlockSize - block_offset_;
+    assert(leftover >= 0);
+    if (leftover < header_size_) {
+      if (leftover > 0) {
+        assert(header_size_ <= 11);
+        IOOptions opts;
+        s = WritableFileWriter::PrepareIOOptions(write_options, opts);
+        if (s.ok()) {
+          s = dest_->Append(opts,
+                            Slice("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+                                  static_cast<size_t>(leftover)),
+                            0 /* crc32c_checksum */);
+        }
+        if (!s.ok()) {
+          break;
+        }
+      }
+      block_offset_ = 0;
+    }
+
+    assert(static_cast<int64_t>(kBlockSize - block_offset_) >= header_size_);
+
+    const size_t avail = kBlockSize - block_offset_ - header_size_;
+    const char* ptr = "";
+    size_t fragment_length = 0;
+    if (left > 0) {
+      while (slice_index < slices.num_parts &&
+             slice_offset == slices.parts[slice_index].size()) {
+        ++slice_index;
+        slice_offset = 0;
+      }
+      assert(slice_index < slices.num_parts);
+      const Slice& current = slices.parts[slice_index];
+      ptr = current.data() + slice_offset;
+      const size_t slice_left = current.size() - slice_offset;
+      fragment_length = (left < avail) ? left : avail;
+      fragment_length =
+          (fragment_length < slice_left) ? fragment_length : slice_left;
+    }
+
+    RecordType type;
+    const bool end = left == fragment_length;
+    if (begin && end) {
+      type = recycle_log_files_ ? kRecyclableFullType : kFullType;
+    } else if (begin) {
+      type = recycle_log_files_ ? kRecyclableFirstType : kFirstType;
+    } else if (end) {
+      type = recycle_log_files_ ? kRecyclableLastType : kLastType;
+    } else {
+      type = recycle_log_files_ ? kRecyclableMiddleType : kMiddleType;
+    }
+
+    s = EmitPhysicalRecord(write_options, type, ptr, fragment_length);
+    if (left > 0) {
+      slice_offset += fragment_length;
+      left -= fragment_length;
+    }
+    begin = false;
+  } while (s.ok() && left > 0);
+
+  if (s.ok() && flush && !manual_flush_) {
+    IOOptions opts;
+    s = WritableFileWriter::PrepareIOOptions(write_options, opts);
+    if (s.ok()) {
+      s = dest_->Flush(opts);
+    }
+  }
+
+  if (s.ok()) {
+    last_seqno_recorded_ = std::max(last_seqno_recorded_, seqno);
+  }
+  return s;
+}
 
 IOStatus Writer::EmitPhysicalRecord(const WriteOptions& write_options,
                                     RecordType t, const char* ptr, size_t n) {

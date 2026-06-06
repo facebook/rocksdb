@@ -231,6 +231,16 @@ public enum HistogramType {
    */
   BLOCK_KEY_DISTRIBUTION_CV((byte) 0x42),
 
+  /**
+   * Time spent preparing WAL records before WAL write.
+   */
+  WAL_PRECOMPRESS_MICROS((byte) 0x43),
+
+  /**
+   * Write group size when using parallel WAL precompression.
+   */
+  WAL_PRECOMPRESS_GROUP_SIZE((byte) 0x44),
+
   // 0x3E is reserved for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x3E);
 

@@ -9,6 +9,7 @@
 #include <cinttypes>
 #include <optional>
 #include <unordered_map>
+#include <vector>
 
 #include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_write_batch_transformer.h"
@@ -28,6 +29,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+
+constexpr size_t kMinParallelWalPrecompressionBytes = 32 * 1024;
 
 class BlobWriteRollbackGuard {
  public:
@@ -1097,6 +1100,11 @@ Status DBImpl::WriteImpl(
   StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
   write_thread_.JoinBatchGroup(&w);
+  if (w.state == WriteThread::STATE_PARALLEL_WAL_PRECOMPRESSOR) {
+    w.status = PrecompressWALRecordSegment(
+        &w, w.write_group->wal_precompress_log_writer);
+    write_thread_.CompleteParallelWalPrecompressor(&w);
+  }
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_CALLER) {
     write_thread_.SetMemWritersEachStride(&w);
   }
@@ -1363,11 +1371,43 @@ Status DBImpl::WriteImpl(
       if (status.ok() && !write_options.disableWAL) {
         assert(wal_context.wal_file_number_size);
         wal_context.prev_size = wal_context.writer->file()->GetFileSize();
+        bool wal_record_precompressed = false;
+        if (wal_context.writer->IsCompressionEnabled() &&
+            write_group.size > 1 && ShouldPrecompressWALRecords(write_group)) {
+          io_s = PrepareWALPrecompressionInput(write_group, last_sequence + 1);
+          status = io_s;
+          if (io_s.ok()) {
+            PERF_COUNTER_ADD(write_wal_precompress_group_size,
+                             write_group.size);
+            RecordInHistogram(stats_, WAL_PRECOMPRESS_GROUP_SIZE,
+                              write_group.size);
+            write_thread_.LaunchParallelWalPrecompressors(&write_group,
+                                                          wal_context.writer);
+            w.status = PrecompressWALRecordSegment(&w, wal_context.writer);
+            write_thread_.CompleteParallelWalPrecompressor(&w);
+            wal_record_precompressed = w.status.ok();
+            status = w.status;
+            w.status = Status::OK();
+          }
+          if (!status.ok()) {
+            if (write_group.wal_precompress_merged_batch == &tmp_batch_) {
+              tmp_batch_.Clear();
+            }
+            io_s = status_to_io_status(Status(status));
+          }
+        }
         PERF_TIMER_GUARD(write_wal_time);
-        io_s = WriteGroupToWAL(write_group, wal_context.writer, wal_used,
-                               wal_context.need_wal_sync,
-                               wal_context.need_wal_dir_sync, last_sequence + 1,
-                               *wal_context.wal_file_number_size);
+        if (wal_record_precompressed) {
+          io_s = WritePrecompressedWALRecord(
+              write_group, wal_context.writer, wal_used,
+              wal_context.need_wal_sync, wal_context.need_wal_dir_sync,
+              *wal_context.wal_file_number_size);
+        } else if (status.ok()) {
+          io_s = WriteGroupToWAL(
+              write_group, wal_context.writer, wal_used,
+              wal_context.need_wal_sync, wal_context.need_wal_dir_sync,
+              last_sequence + 1, *wal_context.wal_file_number_size);
+        }
       }
     } else {
       if (status.ok() && !write_options.disableWAL) {
@@ -2257,6 +2297,109 @@ Status DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
   return Status::OK();
 }
 
+bool DBImpl::ShouldPrecompressWALRecords(
+    const WriteThread::WriteGroup& write_group) const {
+  if (seq_per_batch_) {
+    return false;
+  }
+
+  size_t write_with_wal = 0;
+  size_t total_log_size = 0;
+  for (auto* writer : write_group) {
+    assert(writer != nullptr);
+    if (writer->CallbackFailed() || !writer->ShouldWriteToWAL()) {
+      continue;
+    }
+    if (!writer->ShouldWriteToMemtable() || writer->batch == nullptr ||
+        !writer->batch->GetWalTerminationPoint().is_cleared()) {
+      return false;
+    }
+    ++write_with_wal;
+    total_log_size = WriteBatchInternal::AppendedByteSize(
+        total_log_size, WriteBatchInternal::ByteSize(writer->batch));
+  }
+  return write_with_wal > 1 &&
+         total_log_size >= kMinParallelWalPrecompressionBytes;
+}
+
+IOStatus DBImpl::PrepareWALPrecompressionInput(
+    WriteThread::WriteGroup& write_group, SequenceNumber sequence) {
+  write_group.wal_precompress_log_size = 0;
+  write_group.wal_precompress_write_with_wal = 0;
+  write_group.wal_precompress_merged_batch = nullptr;
+  write_group.wal_precompress_recoverable_state = nullptr;
+  for (auto* writer : write_group) {
+    writer->wal_precompress_input.clear();
+    writer->prepared_wal_fragment.clear();
+  }
+
+  WriteBatch* to_be_cached_state = nullptr;
+  WriteBatch* merged_batch = nullptr;
+  IOStatus io_s = status_to_io_status(MergeBatch(
+      write_group, &tmp_batch_, &merged_batch,
+      &write_group.wal_precompress_write_with_wal, &to_be_cached_state));
+  if (!io_s.ok()) {
+    return io_s;
+  }
+  assert(merged_batch != nullptr);
+
+  WriteBatchInternal::SetSequence(merged_batch, sequence);
+  Status s = merged_batch->VerifyChecksum();
+  if (!s.ok()) {
+    if (merged_batch == &tmp_batch_) {
+      tmp_batch_.Clear();
+    }
+    return status_to_io_status(std::move(s));
+  }
+
+  Slice log_entry = WriteBatchInternal::Contents(merged_batch);
+  TEST_SYNC_POINT_CALLBACK("DBImpl::WriteToWAL:log_entry", &log_entry);
+  write_group.wal_precompress_log_size = log_entry.size();
+  write_group.wal_precompress_merged_batch = merged_batch;
+  write_group.wal_precompress_recoverable_state = to_be_cached_state;
+
+  size_t remaining_bytes = log_entry.size();
+  size_t remaining_workers = write_group.size;
+  size_t offset = 0;
+  for (auto* writer : write_group) {
+    assert(remaining_workers > 0);
+    const size_t segment_size =
+        remaining_bytes == 0
+            ? 0
+            : (remaining_bytes + remaining_workers - 1) / remaining_workers;
+    writer->wal_precompress_input =
+        Slice(log_entry.data() + offset, segment_size);
+    offset += segment_size;
+    remaining_bytes -= segment_size;
+    --remaining_workers;
+  }
+  assert(offset == log_entry.size());
+  return IOStatus::OK();
+}
+
+IOStatus DBImpl::PrecompressWALRecordSegment(WriteThread::Writer* writer,
+                                             log::Writer* log_writer) {
+  assert(writer != nullptr);
+  assert(log_writer != nullptr);
+  writer->prepared_wal_fragment.clear();
+
+  uint64_t precompress_micros = 0;
+  StopWatch precompress_sw(immutable_db_options_.clock, stats_,
+                           WAL_PRECOMPRESS_MICROS,
+                           Histograms::HISTOGRAM_ENUM_MAX, &precompress_micros);
+  PERF_TIMER_GUARD(write_wal_precompress_time);
+  IOStatus io_s = log_writer->PrepareRecord(writer->wal_precompress_input,
+                                            &writer->prepared_wal_fragment);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+  PERF_COUNTER_ADD(write_wal_precompress_bytes,
+                   writer->wal_precompress_input.size());
+  RecordTick(stats_, WAL_PRECOMPRESS_BYTES,
+             writer->wal_precompress_input.size());
+  return IOStatus::OK();
+}
+
 // When two_write_queues_ is disabled, this function is called from the only
 // write thread. Otherwise this must be called holding wal_write_mutex_.
 IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
@@ -2414,6 +2557,127 @@ IOStatus DBImpl::WriteGroupToWAL(const WriteThread::WriteGroup& write_group,
     RecordTick(stats_, WAL_FILE_BYTES, log_size);
     stats->AddDBStats(InternalStats::kIntStatsWriteWithWal, write_with_wal);
     RecordTick(stats_, WRITE_WITH_WAL, write_with_wal);
+    for (auto* writer : write_group) {
+      if (!writer->CallbackFailed()) {
+        writer->CheckPostWalWriteCallback();
+      }
+    }
+  }
+  return io_s;
+}
+
+IOStatus DBImpl::WritePrecompressedWALRecord(
+    const WriteThread::WriteGroup& write_group, log::Writer* log_writer,
+    uint64_t* wal_used, bool need_wal_sync, bool need_wal_dir_sync,
+    WalFileNumberSize& wal_file_number_size) {
+  IOStatus io_s;
+  assert(!two_write_queues_);
+  assert(!write_group.leader->disable_wal);
+
+  std::vector<Slice> prepared_fragments;
+  prepared_fragments.reserve(write_group.size);
+  for (auto* writer : write_group) {
+    if (!writer->prepared_wal_fragment.empty()) {
+      prepared_fragments.emplace_back(writer->prepared_wal_fragment);
+    }
+  }
+  assert(!prepared_fragments.empty());
+
+  const bool needs_locking = manual_wal_flush_ && !two_write_queues_;
+  if (UNLIKELY(needs_locking)) {
+    wal_write_mutex_.Lock();
+  }
+
+  WriteOptions wal_write_options;
+  wal_write_options.rate_limiter_priority =
+      write_group.leader->rate_limiter_priority;
+  for (auto* writer : write_group) {
+    writer->wal_used = cur_wal_number_;
+  }
+  bool wal_record_attempted = false;
+  io_s = log_writer->MaybeAddUserDefinedTimestampSizeRecord(
+      wal_write_options, versions_->GetColumnFamiliesTimestampSizeForRecord());
+  if (io_s.ok()) {
+    const SliceParts prepared_record(
+        prepared_fragments.data(), static_cast<int>(prepared_fragments.size()));
+    wal_record_attempted = true;
+    io_s = log_writer->AddPreparedRecord(
+        wal_write_options, prepared_record,
+        WriteBatchInternal::Sequence(write_group.wal_precompress_merged_batch));
+  }
+  if (write_group.wal_precompress_recoverable_state != nullptr) {
+    cached_recoverable_state_ = *write_group.wal_precompress_recoverable_state;
+    cached_recoverable_state_empty_ = false;
+  }
+
+  if (UNLIKELY(needs_locking)) {
+    wal_write_mutex_.Unlock();
+  }
+
+  if (wal_record_attempted) {
+    if (wal_used != nullptr) {
+      *wal_used = cur_wal_number_;
+      assert(*wal_used == wal_file_number_size.number);
+    }
+    wals_total_size_.FetchAddRelaxed(write_group.wal_precompress_log_size);
+    wal_file_number_size.AddSize(write_group.wal_precompress_log_size);
+    wal_empty_ = false;
+  }
+
+  if (io_s.ok()) {
+    PERF_COUNTER_ADD(write_wal_precompress_records, 1);
+    RecordTick(stats_, WAL_PRECOMPRESS_RECORDS, 1);
+  }
+
+  if (io_s.ok() && need_wal_sync) {
+    StopWatch sw(immutable_db_options_.clock, stats_, WAL_FILE_SYNC_MICROS);
+
+    if (UNLIKELY(needs_locking)) {
+      wal_write_mutex_.Lock();
+    }
+
+    for (auto& log : logs_) {
+      IOOptions opts;
+      io_s = WritableFileWriter::PrepareIOOptions(wal_write_options, opts);
+      if (!io_s.ok()) {
+        break;
+      }
+      if (auto* f = log.writer->file()) {
+        io_s = f->Sync(opts, immutable_db_options_.use_fsync);
+        if (!io_s.ok()) {
+          break;
+        }
+      }
+    }
+
+    if (UNLIKELY(needs_locking)) {
+      wal_write_mutex_.Unlock();
+    }
+
+    if (io_s.ok() && need_wal_dir_sync) {
+      io_s = directories_.GetWalDir()->FsyncWithDirOptions(
+          IOOptions(), nullptr,
+          DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
+    }
+  }
+
+  if (write_group.wal_precompress_merged_batch == &tmp_batch_) {
+    tmp_batch_.Clear();
+  }
+
+  if (io_s.ok()) {
+    auto stats = default_cf_internal_stats_;
+    if (need_wal_sync) {
+      stats->AddDBStats(InternalStats::kIntStatsWalFileSynced, 1);
+      RecordTick(stats_, WAL_FILE_SYNCED);
+    }
+    stats->AddDBStats(InternalStats::kIntStatsWalFileBytes,
+                      write_group.wal_precompress_log_size);
+    RecordTick(stats_, WAL_FILE_BYTES, write_group.wal_precompress_log_size);
+    stats->AddDBStats(InternalStats::kIntStatsWriteWithWal,
+                      write_group.wal_precompress_write_with_wal);
+    RecordTick(stats_, WRITE_WITH_WAL,
+               write_group.wal_precompress_write_with_wal);
     for (auto* writer : write_group) {
       if (!writer->CallbackFailed()) {
         writer->CheckPostWalWriteCallback();

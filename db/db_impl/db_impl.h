@@ -2563,6 +2563,20 @@ class DBImpl : public DB {
                            SequenceNumber sequence,
                            WalFileNumberSize& wal_file_number_size);
 
+  bool ShouldPrecompressWALRecords(
+      const WriteThread::WriteGroup& write_group) const;
+
+  IOStatus PrepareWALPrecompressionInput(WriteThread::WriteGroup& write_group,
+                                         SequenceNumber sequence);
+
+  IOStatus PrecompressWALRecordSegment(WriteThread::Writer* writer,
+                                       log::Writer* log_writer);
+
+  IOStatus WritePrecompressedWALRecord(
+      const WriteThread::WriteGroup& write_group, log::Writer* log_writer,
+      uint64_t* wal_used, bool need_wal_sync, bool need_wal_dir_sync,
+      WalFileNumberSize& wal_file_number_size);
+
   IOStatus ConcurrentWriteGroupToWAL(const WriteThread::WriteGroup& write_group,
                                      uint64_t* wal_used,
                                      SequenceNumber* last_sequence,

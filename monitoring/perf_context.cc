@@ -106,6 +106,10 @@ struct PerfContextByLevelInt {
   defCmd(seek_internal_seek_time)                  \
   defCmd(find_next_user_entry_time)                \
   defCmd(write_wal_time)                           \
+  defCmd(write_wal_precompress_time)               \
+  defCmd(write_wal_precompress_bytes)              \
+  defCmd(write_wal_precompress_records)            \
+  defCmd(write_wal_precompress_group_size)         \
   defCmd(write_memtable_time)                      \
   defCmd(write_delay_time)                         \
   defCmd(write_scheduling_flushes_compactions_time)\
