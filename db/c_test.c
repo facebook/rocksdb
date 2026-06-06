@@ -3710,7 +3710,7 @@ int main(int argc, char** argv) {
       rocksdb_backup_engine_create_new_backup(rate_be, db, &err);
       CheckNoError(err);
       {
-        char rate_restore_path[200];
+        char rate_restore_path[220];
         snprintf(rate_restore_path, sizeof(rate_restore_path),
                  "%s.rate_restore", dbname);
         rocksdb_restore_options_t* rate_restore_opts =
