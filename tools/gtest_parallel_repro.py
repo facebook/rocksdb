@@ -24,7 +24,7 @@ import signal
 import subprocess
 import sys
 import time
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 
 FAILURE_LINE_RE = re.compile(r"^(.+?:\d+): Failure$")
@@ -118,7 +118,27 @@ def terminate_process(proc: subprocess.Popen) -> None:
             os.killpg(proc.pid, signal.SIGKILL)
         except Exception:
             proc.kill()
-        proc.wait()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            print(
+                f"WARNING: process {proc.pid} did not exit after SIGKILL",
+                file=sys.stderr,
+            )
+
+
+def close_log_handles(processes: List[Dict[str, Any]]) -> None:
+    for info in processes:
+        log_fh = info.get("log_fh")
+        if hasattr(log_fh, "close") and not getattr(log_fh, "closed", False):
+            log_fh.close()
+
+
+def terminate_processes(processes: List[Dict[str, Any]]) -> None:
+    for info in processes:
+        proc = info.get("proc")
+        if isinstance(proc, subprocess.Popen) and proc.poll() is None:
+            terminate_process(proc)
 
 
 def extract_failure_keys(log_path: Path) -> List[str]:
@@ -155,54 +175,65 @@ def run_batch(
     cmd: List[str],
     base_env: Dict[str, str],
 ) -> Tuple[List[Dict[str, object]], Dict[str, int]]:
-    processes = []
+    processes: List[Dict[str, Any]] = []
     batch_dir = out_dir / f"batch_{batch:04d}"
     batch_dir.mkdir(parents=True, exist_ok=True)
 
-    for proc_index in range(1, args.jobs + 1):
-        run_dir = batch_dir / f"proc_{proc_index:04d}"
-        tmp_dir = run_dir / "tmp"
-        run_dir.mkdir(parents=True, exist_ok=True)
-        tmp_dir.mkdir(parents=True, exist_ok=True)
-        log_path = run_dir / "log.txt"
-        env = base_env.copy()
-        env["TEST_TMPDIR"] = str(tmp_dir)
-        log_fh = log_path.open("w")
-        proc = subprocess.Popen(
-            cmd,
-            stdout=log_fh,
-            stderr=subprocess.STDOUT,
-            env=env,
-            start_new_session=True,
-        )
-        processes.append(
-            {
-                "proc": proc,
-                "proc_index": proc_index,
-                "run_dir": run_dir,
-                "log_path": log_path,
-                "log_fh": log_fh,
-                "start": time.monotonic(),
-                "timed_out": False,
-            }
-        )
+    try:
+        for proc_index in range(1, args.jobs + 1):
+            run_dir = batch_dir / f"proc_{proc_index:04d}"
+            tmp_dir = run_dir / "tmp"
+            run_dir.mkdir(parents=True, exist_ok=True)
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            log_path = run_dir / "log.txt"
+            env = base_env.copy()
+            env["TEST_TMPDIR"] = str(tmp_dir)
+            log_fh = log_path.open("w")
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=log_fh,
+                    stderr=subprocess.STDOUT,
+                    env=env,
+                    start_new_session=True,
+                )
+            except BaseException:
+                log_fh.close()
+                raise
+            processes.append(
+                {
+                    "proc": proc,
+                    "proc_index": proc_index,
+                    "run_dir": run_dir,
+                    "log_path": log_path,
+                    "log_fh": log_fh,
+                    "start": time.monotonic(),
+                    "timed_out": False,
+                }
+            )
 
-    remaining = set(range(len(processes)))
-    while remaining:
-        now = time.monotonic()
-        for index in list(remaining):
-            proc = processes[index]["proc"]
-            assert isinstance(proc, subprocess.Popen)
-            if proc.poll() is not None:
-                remaining.remove(index)
-                continue
-            elapsed = now - float(processes[index]["start"])
-            if elapsed > args.timeout:
-                processes[index]["timed_out"] = True
-                terminate_process(proc)
-                remaining.remove(index)
-        if remaining:
-            time.sleep(0.05)
+        remaining = set(range(len(processes)))
+        while remaining:
+            now = time.monotonic()
+            for index in list(remaining):
+                proc = processes[index]["proc"]
+                assert isinstance(proc, subprocess.Popen)
+                if proc.poll() is not None:
+                    processes[index]["end"] = time.monotonic()
+                    remaining.remove(index)
+                    continue
+                elapsed = now - float(processes[index]["start"])
+                if elapsed > args.timeout:
+                    processes[index]["timed_out"] = True
+                    terminate_process(proc)
+                    processes[index]["end"] = time.monotonic()
+                    remaining.remove(index)
+            if remaining:
+                time.sleep(0.05)
+    except BaseException:
+        terminate_processes(processes)
+        close_log_handles(processes)
+        raise
 
     failures: List[Dict[str, object]] = []
     histogram: Dict[str, int] = {}
@@ -216,7 +247,7 @@ def run_batch(
         timed_out = bool(info["timed_out"])
         log_path = Path(info["log_path"])
         run_dir = Path(info["run_dir"])
-        elapsed = time.monotonic() - float(info["start"])
+        elapsed = float(info.get("end", time.monotonic())) - float(info["start"])
         if timed_out or rc != 0:
             keys = extract_failure_keys(log_path)
             for key in keys:
@@ -350,8 +381,6 @@ def main() -> int:
 
     base_env = os.environ.copy()
     base_env.update(env_overrides)
-    if args.coerce_context_switch:
-        base_env["COERCE_CONTEXT_SWITCH"] = "1"
 
     metadata = {
         "cmd": cmd,
@@ -371,23 +400,33 @@ def main() -> int:
 
     all_failures: List[Dict[str, object]] = []
     total_histogram: Dict[str, int] = {}
-    for batch in range(1, args.batches + 1):
-        failures, histogram = run_batch(args, batch, out_dir, cmd, base_env)
-        all_failures.extend(failures)
-        for key, count in histogram.items():
-            total_histogram[key] = total_histogram.get(key, 0) + count
-        if failures:
-            print(
-                f"batch {batch}: failures={len(failures)} "
-                f"total_failures={len(all_failures)}",
-                flush=True,
-            )
-            if args.stop_on_failure:
-                break
+    total_runs = 0
+    interrupted = False
+    try:
+        for batch in range(1, args.batches + 1):
+            failures, histogram = run_batch(args, batch, out_dir, cmd, base_env)
+            total_runs += args.jobs
+            all_failures.extend(failures)
+            for key, count in histogram.items():
+                total_histogram[key] = total_histogram.get(key, 0) + count
+            if failures:
+                print(
+                    f"batch {batch}: failures={len(failures)} "
+                    f"total_failures={len(all_failures)}",
+                    flush=True,
+                )
+                if args.stop_on_failure:
+                    break
+    except KeyboardInterrupt:
+        interrupted = True
+        print(
+            "\nInterrupted; active child process groups were terminated.",
+            file=sys.stderr,
+        )
 
     write_jsonl(out_dir / "failures.jsonl", all_failures)
 
-    print(f"TOTAL_RUNS={args.jobs * (batch if 'batch' in locals() else 0)}")
+    print(f"TOTAL_RUNS={total_runs}")
     print(f"TOTAL_FAILURES={len(all_failures)}")
     print(f"FAILURES_FILE={out_dir / 'failures.jsonl'}")
     if total_histogram:
@@ -397,6 +436,8 @@ def main() -> int:
         )[:20]:
             print(f"  {count} {key}")
 
+    if interrupted:
+        return 130
     return 1 if all_failures else 0
 
 
