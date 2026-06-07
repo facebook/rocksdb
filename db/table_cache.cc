@@ -219,8 +219,8 @@ Status TableCache::FindTable(
     const TableCacheOpenOptions& open_options) {
   assert(out_table_reader != nullptr && *out_table_reader == nullptr);
   assert(handle != nullptr && *handle == nullptr);
-  // open_ephemeral_table_reader requests a fresh reader; fresh_table_reader_owner
-  // is where we return it. The two must agree.
+  // open_ephemeral_table_reader requests a fresh reader;
+  // fresh_table_reader_owner is where we return it. The two must agree.
   assert(open_options.open_ephemeral_table_reader ==
          (fresh_table_reader_owner != nullptr));
   PERF_TIMER_GUARD_WITH_CLOCK(find_table_nanos, ioptions_.clock);
