@@ -219,20 +219,16 @@ Status TableCache::FindTable(
     const TableCacheOpenOptions& open_options) {
   assert(out_table_reader != nullptr && *out_table_reader == nullptr);
   assert(handle != nullptr && *handle == nullptr);
-  // `open_ephemeral_table_reader` is the policy bit; `fresh_table_reader_owner`
-  // is the ownership channel for that reader.
+  // open_ephemeral_table_reader requests a fresh reader; fresh_table_reader_owner
+  // is where we return it. The two must agree.
   assert(open_options.open_ephemeral_table_reader ==
          (fresh_table_reader_owner != nullptr));
   PERF_TIMER_GUARD_WITH_CLOCK(find_table_nanos, ioptions_.clock);
 
-  // Bypass path: when the caller is asking for a freshly-opened TableReader,
-  // skip the pinned-reader fast path and the shared cache entirely. The caller
-  // takes ownership of the new reader via `fresh_table_reader_owner`.
-  //
-  // Caller contract: `no_io` MUST NOT be combined with
-  // `fresh_table_reader_owner != nullptr` -- a freshly opened reader
-  // inherently requires I/O. If a future caller needs both, the bypass must
-  // learn a different fallback strategy.
+  // Bypass path: open a fresh TableReader, skipping the pinned-reader fast path
+  // and the shared cache. The caller takes ownership via
+  // fresh_table_reader_owner. no_io is not allowed here since opening a new
+  // reader always needs I/O.
   if (fresh_table_reader_owner != nullptr) {
     assert(!no_io);
     if (no_io) {
@@ -406,14 +402,10 @@ InternalIterator* TableCache::NewIterator(
       cache_.RegisterReleaseAsCleanup(handle, *result);
       handle = nullptr;  // prevent from releasing below
     }
-    // Note: when `ephemeral_reader` is held, we intentionally do NOT
-    // release/RegisterCleanup it yet. The range-del processing below can set
-    // `s` to a non-OK status (e.g. corrupt tombstone block), in which case
-    // `result` is discarded and replaced with NewErrorInternalIterator at
-    // function end. Releasing the reader into `result`'s cleanup chain before
-    // that point would leak the TableReader. Instead, we keep it owned by
-    // `ephemeral_reader` here and transfer ownership only after we know `s`
-    // will remain OK.
+    // Don't hand ephemeral_reader to result's cleanup yet: range-del
+    // processing below can set s to non-OK, in which case result is replaced
+    // by an error iterator at function end. Transfer ownership only once we
+    // know s stays OK; otherwise ephemeral_reader's destructor frees it.
 
     if (for_compaction) {
       table_reader->SetupForCompaction();
@@ -465,18 +457,11 @@ InternalIterator* TableCache::NewIterator(
   if (handle != nullptr) {
     cache_.Release(handle);
   }
-  // Bypass path: now that range-del processing has finished and `s` is
-  // final, transfer ownership of the freshly-opened TableReader to the
-  // iterator we are returning. If `s` is non-OK we let `ephemeral_reader`'s
-  // destructor delete the TableReader instead.
-  //
-  // OOM safety: `RegisterCleanup` allocates a `Cleanable::Cleanup` node on
-  // any call after the first. We hand `RegisterCleanup` the raw pointer
-  // BEFORE releasing the unique_ptr, so if the internal `new` throws the
-  // pointer is still owned by `ephemeral_reader` and freed by its
-  // destructor on stack unwind. `RegisterCleanup` is itself idempotent on
-  // failure -- the cleanup is not registered, but it also did not take
-  // ownership of `raw`.
+  // Range-del processing is done and s is final. Hand the ephemeral reader's
+  // lifetime to the returned iterator; if s is non-OK, leave it for
+  // ephemeral_reader's destructor. RegisterCleanup gets the raw pointer before
+  // release(), so if its allocation throws the reader is still owned by
+  // ephemeral_reader and freed on unwind.
   if (s.ok() && ephemeral_reader && result != nullptr) {
     TableReader* raw = ephemeral_reader.get();
     result->RegisterCleanup(
@@ -484,23 +469,16 @@ InternalIterator* TableCache::NewIterator(
           delete static_cast<TableReader*>(arg1);
         },
         raw, nullptr);
-    // Only transfer ownership AFTER RegisterCleanup returns (it does not
-    // throw in current implementations, but this ordering is correct for
-    // any future strong-exception-safety variant of the cleanup
-    // registration path). release() hands back `raw`, which the cleanup
-    // already owns; we drop the unique_ptr's ownership to avoid a double free.
+    // release() returns raw, which the cleanup now owns; drop the unique_ptr's
+    // ownership so the reader isn't freed twice.
     [[maybe_unused]] TableReader* released = ephemeral_reader.release();
     assert(released == raw);
   }
   if (!s.ok()) {
-    // Defensive cleanup. `result` is only assigned when `s` was OK, and the
-    // only subsequent mutation of `s` is `new_range_del_iter->status()`, which
-    // a FragmentedRangeTombstoneIterator always reports as OK -- so today this
-    // block is not reached with a non-null `result`. We assert that invariant
-    // in debug, and in release we still dispose of any stray `result` (rather
-    // than leak its heap allocation or skip its arena destructor) before
-    // replacing it with the error iterator. The TableReader itself is freed by
-    // `ephemeral_reader`'s destructor on the way out of this function.
+    // Today result is always null here: it is only set when s was OK, and the
+    // only later change to s, new_range_del_iter->status(), is always OK for a
+    // FragmentedRangeTombstoneIterator. The assert documents that; the cleanup
+    // still disposes of any stray result before the error iterator replaces it.
     assert(result == nullptr);
     if (result != nullptr) {
       if (arena != nullptr) {

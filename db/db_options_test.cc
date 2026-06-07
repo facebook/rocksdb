@@ -1731,7 +1731,7 @@ TEST_F(DBOptionsTest, SetOptionsMultipleColumnFamilies) {
 }
 
 // Confirms the default value and serialization/parse round-trip of the new
-// option. No DB open required -- exercises only the options-metadata layer.
+// option. No DB open required; exercises only the options-metadata layer.
 TEST_F(DBOptionsTest, UseDirectIoForCompactionReadsRoundTrip) {
   // Default value must remain false to preserve existing semantics.
   ASSERT_FALSE(DBOptions().use_direct_io_for_compaction_reads);

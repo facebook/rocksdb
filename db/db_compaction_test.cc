@@ -6653,18 +6653,11 @@ TEST_P(DBCompactionDirectIOTest, DirectIO) {
 INSTANTIATE_TEST_CASE_P(DBCompactionDirectIOTest, DBCompactionDirectIOTest,
                         testing::Bool());
 
-// Confirms that when use_direct_io_for_compaction_reads is OFF, compaction
-// reads stay on the buffered path: neither the compaction-read FileOptions
-// nor the kernel-level O_DIRECT open should ever be triggered. Pairs with
-// `UseDirectIoForCompactionReadsEndToEnd` to cover both halves of the on/off
-// switch.
-//
-// The assertions here are platform-independent (the sync points either fire
-// or they don't), so this test runs on every platform. On platforms where
-// the `NewRandomAccessFile:O_DIRECT` sync point is never reachable in code
-// (non-POSIX, or POSIX without O_DIRECT support), the `==0` assertion holds
-// trivially -- which is still useful coverage that the option-off path
-// doesn't accidentally flip the FileOptions or hit the bypass plumbing.
+// With use_direct_io_for_compaction_reads OFF, compaction reads must stay
+// buffered: neither the compaction-input FileOptions nor a kernel O_DIRECT
+// open should fire. Runs on every platform (the sync points just don't fire
+// where O_DIRECT isn't reachable). Pairs with
+// UseDirectIoForCompactionReadsEndToEnd for the on case.
 TEST_F(DBCompactionTest, UseDirectIoForCompactionReadsOffStaysBuffered) {
   Options options = CurrentOptions();
   Destroy(options);
@@ -6807,18 +6800,11 @@ TEST_F(DBCompactionTest,
   Destroy(options);
 }
 
-// End-to-end check that `use_direct_io_for_compaction_reads` actually causes
-// compaction-input SST files to be opened with O_DIRECT, even though
-// `use_direct_reads` (the global flag) is left off so user reads stay
-// buffered. The assertion exercises the kernel-level path, not just the
-// FileOptions plumbing: the existing `NewRandomAccessFile:O_DIRECT` sync
-// point in env/fs_posix.cc fires once per fresh open that includes the
-// O_DIRECT flag.
-//
-// This test only runs on platforms that go through the O_DIRECT path
-// (Linux / non-BSD POSIX), since that is the configuration RocksDB users
-// actually deploy with the direct-I/O knobs. On other platforms it is
-// silently bypassed.
+// End-to-end check that use_direct_io_for_compaction_reads opens compaction
+// inputs with O_DIRECT while use_direct_reads stays off (user reads buffered).
+// The NewRandomAccessFile:O_DIRECT sync point in env/fs_posix.cc fires once
+// per fresh open with the O_DIRECT flag, so this proves the kernel path, not
+// just the FileOptions. Only runs on platforms that take the O_DIRECT path.
 #if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS) && \
     !defined(OS_WIN)
 TEST_F(DBCompactionTest, UseDirectIoForCompactionReadsEndToEnd) {
@@ -6837,10 +6823,8 @@ TEST_F(DBCompactionTest, UseDirectIoForCompactionReadsEndToEnd) {
   // Isolate the read-side change; leave the compaction write path buffered.
   options.use_direct_io_for_flush_and_compaction = false;
 
-  // Sync-point callbacks fire on compaction threads while assertions read
-  // these counters on the test thread. Use atomics to avoid a data race
-  // even when (as in this test) the workload is structured so the threads
-  // synchronize on TEST_WaitForCompact before reading.
+  // Sync-point callbacks fire on compaction threads while the test thread
+  // reads these counters, so use atomics to avoid a data race.
   std::atomic<int> observed_run_starts{0};
   std::atomic<int> observed_odirect_opens{0};
   std::atomic<bool> observed_direct_compaction_read{false};
@@ -6861,10 +6845,8 @@ TEST_F(DBCompactionTest, UseDirectIoForCompactionReadsEndToEnd) {
       "CompactionJob::Run():Start", [&](void* /*arg*/) {
         observed_run_starts.fetch_add(1, std::memory_order_relaxed);
       });
-  // Kernel-level probe: this sync point fires only when the OS open() call
-  // is being issued with O_DIRECT in its flags. Hitting it proves we are
-  // actually changing the cache-mode for compaction reads, not just the
-  // in-memory FileOptions struct.
+  // Kernel-level probe: this fires only when open() is issued with O_DIRECT,
+  // proving we change the actual cache mode, not just the FileOptions struct.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "NewRandomAccessFile:O_DIRECT", [&](void* /*arg*/) {
         observed_odirect_opens.fetch_add(1, std::memory_order_relaxed);
@@ -6906,18 +6888,16 @@ TEST_F(DBCompactionTest, UseDirectIoForCompactionReadsEndToEnd) {
   // Wait for compaction to complete and CompactionJob to be constructed.
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  // Diagnostic: confirm that the compaction actually ran. If it didn't, the
-  // missing FileOptions sync-point hits would be a test-infrastructure issue,
-  // not a regression in the new option.
+  // Confirm the compaction actually ran; otherwise the missing sync-point hits
+  // would be a test-setup problem, not an option regression.
   ASSERT_GT(observed_run_starts.load(), 0)
       << "CompactionJob::Run():Start never fired; CompactRange did not "
          "schedule a compaction.";
   ASSERT_GT(observed_callbacks.load(), 0);
   ASSERT_TRUE(observed_direct_compaction_read.load());
-  // The headline assertion: at least one compaction-input file open went
-  // through the O_DIRECT path. Without the TableCache bypass plumbing this
-  // would be zero because compaction would silently reuse the buffered
-  // handles already cached for user reads.
+  // At least one compaction-input open went through O_DIRECT. Without the
+  // TableCache bypass this would be zero, since compaction would reuse the
+  // buffered handles cached for user reads.
   EXPECT_GT(observed_odirect_opens.load(), 0)
       << "no compaction-input opens went through O_DIRECT; "
          "observed_odirect_opens="
@@ -6936,23 +6916,15 @@ TEST_F(DBCompactionTest, UseDirectIoForCompactionReadsEndToEnd) {
 }
 
 // Exercise the LevelIterator bypass path (L1+ compactions) with range
-// tombstones present, which is where the ephemeral TableReader's lifetime
-// is non-trivially coupled to the range_tombstone_iter the file iterator
-// hands back. The end-to-end test above only constructs two L0 files,
-// which compact via the direct NewIterator path in MakeInputIterator and
-// never go through LevelIterator. This test populates data in L1 and L2,
-// adds range tombstones at each level, then triggers an L1->L2
-// compaction so LevelIterator::NewFileIterator is the one driving the
-// O_DIRECT bypass. If the TableReader lifetime were tied incorrectly to
-// the file iterator, the range-tombstone iterator created from the same
-// reader would either crash or be flagged by sanitizers when LevelIterator
-// transitions between files.
-//
-// Correctness is verified by computing the exact expected state for every
-// key in the test's keyspace and asserting Get() returns that state. The
-// computed model: keys overwritten by wave 2 win over wave 1; range
-// tombstones from the most-recent wave to touch a key shadow any older
-// puts within the tombstone range.
+// tombstones, where the ephemeral TableReader's lifetime is coupled to the
+// range_tombstone_iter the file iterator returns. The end-to-end test above
+// only makes two L0 files, which take the direct NewIterator path and never
+// hit LevelIterator. Here we build L1/L2 with tombstones and compact L1->L2 so
+// LevelIterator::NewFileIterator drives the bypass; a wrong reader/iterator
+// lifetime would crash or trip sanitizers as LevelIterator switches files.
+// Correctness is checked by computing the expected state of every key and
+// asserting Get() matches: wave-2 puts beat wave-1, and each key's most-recent
+// covering tombstone shadows older puts.
 TEST_F(DBCompactionTest,
        UseDirectIoForCompactionReadsLevelIteratorWithTombstones) {
   if (!IsDirectIOSupported()) {
@@ -7047,10 +7019,9 @@ TEST_F(DBCompactionTest,
   const int run_starts_before = observed_run_starts.load();
   const int odirect_before = observed_odirect_opens.load();
 
-  // The big one: compact everything together. This forces a LevelIterator
-  // over the existing lower-level files with the bypass path. If the
-  // ephemeral TableReader / range-tombstone iter lifetimes are wrong,
-  // sanitizers should catch it here.
+  // Compact everything together, forcing a LevelIterator over the lower-level
+  // files on the bypass path. Wrong ephemeral reader / tombstone-iter
+  // lifetimes should trip sanitizers here.
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
@@ -7120,11 +7091,9 @@ TEST_F(DBCompactionTest,
         break;
     }
   }
-  // Cross-check: the classifier should partition the keyspace into all
-  // three buckets (none empty), so the test is actually exercising both
-  // tombstone paths and the wave-2-overrides-wave-1 path. If any of these
-  // is zero, the test setup drifted from the assertions and they should
-  // be updated, not relaxed.
+  // All three buckets should be non-empty, so the test really exercises both
+  // tombstone paths and the wave-2-wins path. A zero here means the setup
+  // drifted and the setup (not these checks) should be fixed.
   EXPECT_GT(present_w1, 0);
   EXPECT_GT(present_w2, 0);
   EXPECT_GT(absent, 0);
@@ -7134,16 +7103,13 @@ TEST_F(DBCompactionTest,
   Destroy(options);
 }
 
-// Concurrent-stress check (CC-7): with the new option enabled, run multiple
-// reader threads against the live DB while manual compactions execute in the
-// background. Because the option opens an ephemeral O_DIRECT handle for
-// each compaction-input file while the SHARED TableCache still serves user
-// reads through its buffered handle, the same SST is open in two cache
-// modes simultaneously for the duration of the compaction. This test
-// stresses that coexistence: it does not assert anything about timing (the
-// goal is to give TSAN/ASAN/UBSAN something to chew on) but does assert
-// that reads see consistent values throughout and that final values match
-// the most recent writes.
+// With the option enabled, run reader threads against the live DB while manual
+// compactions run in the background. Each compaction-input file is open through
+// an ephemeral O_DIRECT handle while the shared TableCache still serves user
+// reads through a buffered handle, so the same SST is open in two cache modes
+// at once. This stresses that coexistence under TSAN/ASAN/UBSAN; it asserts
+// reads stay consistent and final values match the last writes, not anything
+// about timing.
 TEST_F(DBCompactionTest, UseDirectIoForCompactionReadsConcurrentReadStress) {
   if (!IsDirectIOSupported()) {
     ROCKSDB_GTEST_BYPASS("Direct IO not supported");
@@ -7187,11 +7153,9 @@ TEST_F(DBCompactionTest, UseDirectIoForCompactionReadsConcurrentReadStress) {
   std::atomic<int64_t> reads_observed{0};
   std::atomic<int64_t> read_errors{0};
 
-  // Spawn reader threads. They loop over the keyspace until stop is set,
-  // asserting each key is either NotFound or has one of the two values we
-  // ever write (base_value or any of the per-iteration values). The
-  // important property is no Corruption / IOError / use-after-free; we
-  // record any unexpected status so the main thread can fail the test.
+  // Reader threads loop until stop is set, recording any status that isn't OK
+  // or NotFound. The point is to surface Corruption/IOError/use-after-free, so
+  // the main thread can fail the test.
   constexpr int kNumReaders = 4;
   std::vector<port::Thread> readers;
   readers.reserve(kNumReaders);
@@ -7237,10 +7201,9 @@ TEST_F(DBCompactionTest, UseDirectIoForCompactionReadsConcurrentReadStress) {
     reader.join();
   }
 
-  // After the dust settles, every key must hold the final round's value.
-  // This catches any wholesale corruption that the readers might have
-  // missed (they only sample), and it confirms compaction completed
-  // successfully under the bypass path.
+  // Every key must now hold the final round's value. Catches wholesale
+  // corruption the sampling readers might miss, and confirms compaction
+  // finished under the bypass path.
   std::string value;
   for (int i = 0; i < kNumKeys; ++i) {
     ASSERT_OK(db_->Get(ReadOptions(), Key(i), &value));

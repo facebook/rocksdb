@@ -1132,83 +1132,46 @@ struct DBOptions {
   // Default: false
   bool use_direct_reads = false;
 
-  // Use O_DIRECT for compaction-input SST reads only, while leaving user
-  // reads in buffered mode. This is useful for workloads where compaction
-  // reads would otherwise pollute the OS page cache and evict pages that
-  // are hot for user reads. When set to true and `use_direct_reads` is false,
-  // compaction-input iteration opens ephemeral O_DIRECT table readers instead
-  // of reusing the buffered table readers cached for user reads.
-  //
-  // This is the read-side analogue of
-  // `use_direct_io_for_flush_and_compaction`, which controls *write*-side
-  // direct I/O for flush and compaction output. Flush has no read step, so
-  // this flag is compaction-input-read only.
+  // Use O_DIRECT for compaction-input SST reads only, leaving user reads
+  // buffered. Useful when sequential compaction reads would otherwise evict
+  // the hot user-read working set from the OS page cache. When this is true
+  // and use_direct_reads is false, compaction opens short-lived O_DIRECT
+  // readers for its input files instead of reusing the buffered readers cached
+  // for user reads. This is the read-side analogue of
+  // use_direct_io_for_flush_and_compaction, and the two are often paired on
+  // write-heavy workloads.
   //
   // Scope and limits:
-  //   * Applies to all column families in the DB (DBOption scope, like its
-  //     siblings `use_direct_reads` and
-  //     `use_direct_io_for_flush_and_compaction`). Per-CF scoping is not
-  //     currently supported.
-  //   * Only affects SST table-input reads during compaction. Blob-file
-  //     reads (including blob GC compaction reads) currently remain on the
-  //     buffered path even when this flag is true. Compaction *output*
-  //     verification (e.g. when `paranoid_file_checks` is set) also reads the
-  //     just-written output files through the normal buffered TableCache, so
-  //     it is not covered by this flag -- only compaction *inputs* are.
-  //   * Ephemeral compaction-input table readers bypass the shared TableCache
-  //     and are NOT counted against `max_open_files`. For non-L0 input levels,
-  //     each subcompaction holds only one open reader at a time (files are
-  //     opened lazily as iteration advances); for L0, all input files
-  //     overlapping a subcompaction's key range are opened simultaneously.
-  //     Peak extra open files is therefore roughly the sum over active
-  //     subcompactions of (overlapping L0 input files + number of non-L0 input
-  //     levels). With heavy L0 fan-in and a high `max_subcompactions`, account
-  //     for this against the process `RLIMIT_NOFILE`.
-  //   * Each ephemeral open re-reads the file's footer/index and is counted in
-  //     the `NO_FILE_OPENS` and `TABLE_OPEN_IO_MICROS` statistics. Expect those
-  //     tickers to rise during compaction when this flag is enabled; they no
-  //     longer reflect only shared-TableCache churn.
+  //   * DBOption scope (applies to all column families); no per-CF setting.
+  //   * Covers compaction inputs only. Blob-file reads and compaction-output
+  //     verification (paranoid_file_checks) still use the buffered path.
+  //   * The ephemeral readers bypass the TableCache and are not counted against
+  //     max_open_files. Non-L0 levels keep one reader open at a time; L0 opens
+  //     all of a subcompaction's overlapping inputs at once, so with large L0
+  //     fan-in and many subcompactions, watch RLIMIT_NOFILE.
+  //   * Every input file is reopened per compaction, so NO_FILE_OPENS and
+  //     TABLE_OPEN_IO_MICROS rise while this is enabled.
   //
-  // Linux's open(2) historically warned against mixing O_DIRECT and
-  // buffered I/O on the same file. When this option is enabled, an SST
-  // being compacted will be open through a long-lived buffered handle in
-  // the TableCache (for user reads) and an ephemeral O_DIRECT handle (for
-  // the compaction scan) at the same time, for the duration of the
-  // compaction (which can be minutes for a large L1->L2 run).
-  // Modern Linux kernels handle this correctly -- buffered reads serve the
-  // page cache, the direct read bypasses it -- but if you are on an older
-  // kernel or an exotic filesystem, this is the failure mode to look for.
+  // The same SST can be open through both a buffered handle (user reads) and an
+  // O_DIRECT handle (the compaction scan) at once; modern Linux handles this
+  // fine. The flag is neutral or slightly negative for in-memory DBs or
+  // uniform random reads, so measure before enabling.
   //
-  // The benefit (avoiding page-cache eviction of hot user data by
-  // sequential compaction scans) outweighs the cost when there's a hot
-  // user-read working set and the DB doesn't fit in RAM. For workloads
-  // with uniform random reads, or DBs that fit in memory, this flag will
-  // be neutral or slightly negative; measure before enabling globally.
-  // For maximum benefit on write-heavy workloads, combine this with
-  // `use_direct_io_for_flush_and_compaction = true` so the *output* of
-  // each compaction is also written without page-cache pollution.
+  // Has no effect when use_direct_reads is true (all reads are already
+  // O_DIRECT). Rejected at DB::Open when allow_mmap_reads is set.
   //
-  // This option has no effect if `use_direct_reads` is also true, since
-  // all reads (including compaction) will already use O_DIRECT.
-  //
-  // This option is incompatible with `allow_mmap_reads = true`; the
-  // combination is rejected at DB open with Status::NotSupported.
-  //
-  // On platforms or filesystems that do not support O_DIRECT (e.g. tmpfs,
-  // some macOS configurations), enabling this flag will cause DB::Open() to
-  // fail fast: Open probes O_DIRECT support by opening the DB's MANIFEST with
-  // O_DIRECT. Note the probe only checks the filesystem hosting the DB
-  // directory; if SST files live on a different filesystem (via
-  // `db_paths`/`cf_paths`) that lacks O_DIRECT, Open can still succeed and the
-  // first compaction will fail instead.
+  // On a filesystem without O_DIRECT support (e.g. tmpfs), DB::Open fails: it
+  // probes by opening the MANIFEST with O_DIRECT. The probe only checks the
+  // filesystem holding the DB directory, so if SST files live elsewhere (via
+  // db_paths/cf_paths) without O_DIRECT, Open succeeds and the first compaction
+  // fails instead.
   //
   // Default: false
   bool use_direct_io_for_compaction_reads = false;
 
   // Use O_DIRECT for writes in background flush and compactions. See also
-  // `use_direct_io_for_compaction_reads` for the read-side analogue; the
-  // two flags are often used together on write-heavy workloads to avoid
-  // page-cache pollution on both the input and output sides of compaction.
+  // use_direct_io_for_compaction_reads, the read-side analogue often paired
+  // with this on write-heavy workloads.
   // Default: false
   bool use_direct_io_for_flush_and_compaction = false;
 
