@@ -199,7 +199,10 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
 
   RangeTombstone Tombstone() const {
     assert(Valid());
-    if (icmp_->user_comparator()->timestamp_size()) {
+    // Use ucmp_ (the user comparator, owned by the immutable options and thus
+    // long-lived) rather than icmp_->user_comparator(): see the note on icmp_
+    // below. ucmp_ == icmp_->user_comparator() for all constructors.
+    if (ucmp_->timestamp_size()) {
       return RangeTombstone(start_key(), end_key(), seq(), timestamp());
     }
     return RangeTombstone(start_key(), end_key(), seq());
@@ -316,6 +319,13 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
 
   const RangeTombstoneStackStartComparator tombstone_start_cmp_;
   const RangeTombstoneStackEndComparator tombstone_end_cmp_;
+  // icmp_ is a borrowed pointer whose referent is not guaranteed to outlive
+  // this iterator: it may be constructed from a comparator with a shorter
+  // lifetime than an iterator that some owner continues to hold. Only
+  // dereference icmp_ during construction-time operations (e.g.
+  // SplitBySnapshot), when the referent is known to be alive. Post-construction
+  // navigation must use ucmp_ (the long-lived user comparator) and tombstones_
+  // instead -- do NOT add new icmp_ dereferences in Next()/Seek()/Tombstone().
   const InternalKeyComparator* icmp_;
   const Comparator* ucmp_;
   std::shared_ptr<FragmentedRangeTombstoneList> tombstones_ref_;

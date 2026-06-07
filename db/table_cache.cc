@@ -493,12 +493,15 @@ InternalIterator* TableCache::NewIterator(
     assert(released == raw);
   }
   if (!s.ok()) {
-    // Range-del processing can set `s` to non-OK after `result` has already
-    // been assigned (above). In that case `result` is a live iterator that
-    // we need to dispose of before we overwrite the pointer with the error
-    // iterator -- otherwise we leak the iterator's heap (non-arena) or
-    // skip its destructor (arena). The TableReader itself is freed by
+    // Defensive cleanup. `result` is only assigned when `s` was OK, and the
+    // only subsequent mutation of `s` is `new_range_del_iter->status()`, which
+    // a FragmentedRangeTombstoneIterator always reports as OK -- so today this
+    // block is not reached with a non-null `result`. We assert that invariant
+    // in debug, and in release we still dispose of any stray `result` (rather
+    // than leak its heap allocation or skip its arena destructor) before
+    // replacing it with the error iterator. The TableReader itself is freed by
     // `ephemeral_reader`'s destructor on the way out of this function.
+    assert(result == nullptr);
     if (result != nullptr) {
       if (arena != nullptr) {
         result->~InternalIterator();

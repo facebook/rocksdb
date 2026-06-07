@@ -1151,11 +1151,23 @@ struct DBOptions {
   //     currently supported.
   //   * Only affects SST table-input reads during compaction. Blob-file
   //     reads (including blob GC compaction reads) currently remain on the
-  //     buffered path even when this flag is true.
+  //     buffered path even when this flag is true. Compaction *output*
+  //     verification (e.g. when `paranoid_file_checks` is set) also reads the
+  //     just-written output files through the normal buffered TableCache, so
+  //     it is not covered by this flag -- only compaction *inputs* are.
   //   * Ephemeral compaction-input table readers bypass the shared TableCache
-  //     and are not counted against `max_open_files`. Peak extra reader/file
-  //     handles are bounded by the number of input files simultaneously read
-  //     by active subcompactions.
+  //     and are NOT counted against `max_open_files`. For non-L0 input levels,
+  //     each subcompaction holds only one open reader at a time (files are
+  //     opened lazily as iteration advances); for L0, all input files
+  //     overlapping a subcompaction's key range are opened simultaneously.
+  //     Peak extra open files is therefore roughly the sum over active
+  //     subcompactions of (overlapping L0 input files + number of non-L0 input
+  //     levels). With heavy L0 fan-in and a high `max_subcompactions`, account
+  //     for this against the process `RLIMIT_NOFILE`.
+  //   * Each ephemeral open re-reads the file's footer/index and is counted in
+  //     the `NO_FILE_OPENS` and `TABLE_OPEN_IO_MICROS` statistics. Expect those
+  //     tickers to rise during compaction when this flag is enabled; they no
+  //     longer reflect only shared-TableCache churn.
   //
   // Linux's open(2) historically warned against mixing O_DIRECT and
   // buffered I/O on the same file. When this option is enabled, an SST
@@ -1184,7 +1196,11 @@ struct DBOptions {
   //
   // On platforms or filesystems that do not support O_DIRECT (e.g. tmpfs,
   // some macOS configurations), enabling this flag will cause DB::Open() to
-  // fail.
+  // fail fast: Open probes O_DIRECT support by opening the DB's MANIFEST with
+  // O_DIRECT. Note the probe only checks the filesystem hosting the DB
+  // directory; if SST files live on a different filesystem (via
+  // `db_paths`/`cf_paths`) that lacks O_DIRECT, Open can still succeed and the
+  // first compaction will fail instead.
   //
   // Default: false
   bool use_direct_io_for_compaction_reads = false;
