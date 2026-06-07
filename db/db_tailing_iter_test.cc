@@ -55,6 +55,40 @@ TEST_P(DBTestTailingIterator, TailingIteratorSingle) {
   ASSERT_OK(iter->status());
 }
 
+TEST_P(DBTestTailingIterator, TailingIteratorNextDoesNotRefreshMutableMemtable) {
+  ReadOptions read_options;
+  read_options.tailing = true;
+  if (GetParam()) {
+    read_options.async_io = true;
+  }
+
+  ASSERT_OK(db_->Put(WriteOptions(), "A", "va"));
+  ASSERT_OK(db_->Put(WriteOptions(), "C", "vc"));
+  ASSERT_OK(Flush());
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  ASSERT_OK(iter->status());
+
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("A", iter->key().ToString());
+
+  ASSERT_OK(db_->Put(WriteOptions(), "B", "vb"));
+
+  // Next() advances the child iterators positioned by SeekToFirst(). It does
+  // not refresh the mutable memtable iterator to discover keys inserted behind
+  // the current cursor after that seek.
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("C", iter->key().ToString());
+  ASSERT_OK(iter->status());
+
+  iter->Seek("B");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("B", iter->key().ToString());
+  ASSERT_OK(iter->status());
+}
+
 TEST_P(DBTestTailingIterator, TailingIteratorKeepAdding) {
   if (mem_env_ || encrypted_env_) {
     ROCKSDB_GTEST_BYPASS("Test requires non-mem or non-encrypted environment");

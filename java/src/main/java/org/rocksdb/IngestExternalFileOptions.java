@@ -201,6 +201,30 @@ public class IngestExternalFileOptions extends RocksObject {
     return this;
   }
 
+  /**
+   * Returns true if data and metadata blocks read during file ingestion will
+   * be added to the block cache.
+   *
+   * @return true if blocks read during file ingestion will be cached.
+   */
+  public boolean fillCache() {
+    return fillCache(nativeHandle_);
+  }
+
+  /**
+   * Controls whether data and metadata blocks read during file ingestion will
+   * be added to the block cache.
+   *
+   * @param fillCache true if blocks read during file ingestion should be
+   *     cached.
+   *
+   * @return the reference to the current IngestExternalFileOptions.
+   */
+  public IngestExternalFileOptions setFillCache(final boolean fillCache) {
+    setFillCache(nativeHandle_, fillCache);
+    return this;
+  }
+
   private static native long newIngestExternalFileOptions();
   private static native long newIngestExternalFileOptions(final boolean moveFiles,
       final boolean snapshotConsistency, final boolean allowGlobalSeqNo,
@@ -226,4 +250,6 @@ public class IngestExternalFileOptions extends RocksObject {
   private static native void setIngestBehind(final long handle, final boolean ingestBehind);
   private static native boolean writeGlobalSeqno(final long handle);
   private static native void setWriteGlobalSeqno(final long handle, final boolean writeGlobalSeqNo);
+  private static native boolean fillCache(final long handle);
+  private static native void setFillCache(final long handle, final boolean fillCache);
 }
