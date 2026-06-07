@@ -1429,6 +1429,9 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
     BackupID* new_backup_id_ptr) {
   assert(initialized_);
   assert(!read_only_);
+  if (ShouldStopBackup()) {
+    return status_to_io_status(Status::Incomplete("Backup stopped"));
+  }
   if (app_metadata.size() > kMaxAppMetaSize) {
     return IOStatus::InvalidArgument("App metadata too large");
   }
