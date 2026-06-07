@@ -5,6 +5,7 @@
 
 #include <table/block_based/block_based_table_factory.h>
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <sstream>
@@ -1767,6 +1768,110 @@ TEST_F(ExternalSSTFileTest, SstFileWriterNonSharedKeys) {
 
   ASSERT_OK(sst_file_writer.Finish());
   ASSERT_OK(DeprecatedAddFile({file_path}));
+}
+
+TEST_F(ExternalSSTFileTest, IngestFlushRequestNotLostBehindQueuedFlush) {
+  Options options = CurrentOptions();
+  options.atomic_flush = false;
+  options.disable_auto_compactions = true;
+  options.write_buffer_size = 1024;
+  options.max_write_buffer_number = 8;
+  options.min_write_buffer_number_to_merge = 2;
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  Reopen(options);
+
+  std::string external_file_path;
+  std::vector<std::pair<std::string, std::string>> external_file_data = {
+      {"ingest_key", "ingested_value"}};
+  ASSERT_OK(GenerateOneExternalFile(options, nullptr, external_file_data, -1,
+                                    true /* sort_data */, &external_file_path,
+                                    nullptr /* true_data */));
+
+  auto sleeping_task = std::make_shared<test::SleepingBackgroundTask>();
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 sleeping_task.get(), Env::Priority::HIGH);
+  sleeping_task->WaitUntilSleeping();
+
+  std::atomic<int> atomic_flush_scheduled{0};
+  std::atomic<bool> ingest_waiting_for_flush{false};
+  std::atomic<bool> ingest_done{false};
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AtomicFlushMemTables:AfterScheduleFlush", [&](void*) {
+        atomic_flush_scheduled.fetch_add(1, std::memory_order_acq_rel);
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushMemTable:BeforeWaitForBgFlush", [&](void*) {
+        ingest_waiting_for_flush.store(true, std::memory_order_release);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("atomic_flush_key", "value"));
+
+  Status get_live_files_status[2];
+  std::vector<LiveFileStorageInfo> live_files[2];
+  port::Thread get_live_files_thread_1([&] {
+    LiveFilesStorageInfoOptions lfsi_opts;
+    lfsi_opts.wal_size_for_flush = 0;
+    lfsi_opts.atomic_flush = true;
+    get_live_files_status[0] =
+        db_->GetLiveFilesStorageInfo(lfsi_opts, &live_files[0]);
+  });
+  port::Thread get_live_files_thread_2([&] {
+    LiveFilesStorageInfoOptions lfsi_opts;
+    lfsi_opts.wal_size_for_flush = 0;
+    lfsi_opts.atomic_flush = true;
+    get_live_files_status[1] =
+        db_->GetLiveFilesStorageInfo(lfsi_opts, &live_files[1]);
+  });
+
+  while (atomic_flush_scheduled.load(std::memory_order_acquire) < 2) {
+    env_->SleepForMicroseconds(1000);
+  }
+
+  ASSERT_OK(Put("ingest_key", "memtable_value"));
+
+  Status ingest_status;
+  port::Thread ingest_thread([&] {
+    IngestExternalFileOptions ifo;
+    ingest_status = db_->IngestExternalFile({external_file_path}, ifo);
+    ingest_done.store(true, std::memory_order_release);
+  });
+
+  while (!ingest_waiting_for_flush.load(std::memory_order_acquire) &&
+         !ingest_done.load(std::memory_order_acquire)) {
+    env_->SleepForMicroseconds(1000);
+  }
+  ASSERT_FALSE(ingest_done.load(std::memory_order_acquire));
+
+  sleeping_task->WakeUp();
+  sleeping_task->WaitUntilDone();
+  get_live_files_thread_1.join();
+  get_live_files_thread_2.join();
+  ASSERT_OK(get_live_files_status[0]);
+  ASSERT_OK(get_live_files_status[1]);
+
+  for (int i = 0; i < 500 && !ingest_done.load(std::memory_order_acquire);
+       ++i) {
+    env_->SleepForMicroseconds(10000);
+  }
+
+  if (!ingest_done.load(std::memory_order_acquire)) {
+    dbfull()->CancelAllBackgroundWork(false /* wait */);
+    ingest_thread.join();
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    FAIL() << "IngestExternalFile remained blocked waiting for a flush that "
+              "was deduped behind an older queued flush request";
+  }
+
+  ingest_thread.join();
+  ASSERT_OK(ingest_status);
+  ASSERT_EQ("ingested_value", Get("ingest_key"));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(ExternalSSTFileTest, WithUnorderedWrite) {

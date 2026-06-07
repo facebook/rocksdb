@@ -416,7 +416,6 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_PICK_MEMTABLES_TO_FLUSH);
   const auto& memlist = current_->memlist_;
-  bool atomic_flush = false;
 
   // Note: every time MemTableList::Add(mem) is called, it adds the new mem
   // at the FRONT of the memlist (memlist.push_front(mem)). Therefore, by
@@ -427,9 +426,6 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
   auto it = memlist.rbegin();
   for (; it != memlist.rend(); ++it) {
     ReadOnlyMemTable* m = *it;
-    if (!atomic_flush && m->atomic_flush_seqno_ != kMaxSequenceNumber) {
-      atomic_flush = true;
-    }
     if (m->GetID() > max_memtable_id) {
       break;
     }
@@ -460,7 +456,12 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
     // since they map to the same WAL and have the same NextLogNumber().
     assert(strcmp((*it)->Name(), "WBWIMemTable") != 0);
   }
-  if (!atomic_flush || num_flush_not_started_ == 0) {
+  // The flush request is complete only after every unstarted immutable
+  // memtable has been picked. A request can be older than a newer immutable
+  // memtable; clearing flush_requested_ after a partial or empty pick would
+  // make the queued newer request look unnecessary and leave that memtable
+  // unflushed.
+  if (num_flush_not_started_ == 0) {
     flush_requested_ = false;  // start-flush request is complete
   }
 }
