@@ -2326,6 +2326,12 @@ class NonBatchedOpsStressTest : public StressTest {
     // deletion file's compaction input optimization.
     bool test_standalone_range_deletion = thread->rand.OneInOpt(
         FLAGS_test_ingest_standalone_range_deletion_one_in);
+    // When true, reuse the writer's metadata via IngestExternalFileArg's
+    // file_infos so ingestion skips re-opening and scanning the file. Not
+    // combined with the standalone range deletion mode (a range-del-only file).
+    bool use_file_info =
+        !test_standalone_range_deletion &&
+        thread->rand.OneInOpt(FLAGS_ingest_external_file_use_file_info_one_in);
     std::vector<std::string> external_files;
     const std::string sst_filename =
         GetDbPath() + "/." + std::to_string(thread->tid) + ".sst";
@@ -2369,6 +2375,7 @@ class NonBatchedOpsStressTest : public StressTest {
     SstFileWriter sst_file_writer(EnvOptions(options_), options_);
     SstFileWriter standalone_rangedel_sst_file_writer(EnvOptions(options_),
                                                       options_);
+    std::shared_ptr<const PreparedFileInfo> sst_file_info;
     if (s.ok()) {
       s = sst_file_writer.Open(sst_filename);
     }
@@ -2462,7 +2469,7 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
     if (s.ok() && !keys.empty()) {
-      s = sst_file_writer.Finish();
+      s = sst_file_writer.Finish(/*file_info=*/nullptr, &sst_file_info);
     }
 
     if (s.ok() && total_keys != 0 && test_standalone_range_deletion) {
@@ -2494,9 +2501,19 @@ class NonBatchedOpsStressTest : public StressTest {
                          << ingest_options.verify_checksums_readahead_size
                          << ", fill_cache: " << ingest_options.fill_cache
                          << ", test_standalone_range_deletion: "
-                         << test_standalone_range_deletion;
-      s = db_->IngestExternalFile(column_families_[column_family],
-                                  external_files, ingest_options);
+                         << test_standalone_range_deletion
+                         << ", use_file_info: " << use_file_info;
+      if (use_file_info && sst_file_info) {
+        IngestExternalFileArg arg;
+        arg.column_family = column_families_[column_family];
+        arg.external_files = external_files;
+        arg.file_infos = {sst_file_info.get()};
+        arg.options = ingest_options;
+        s = db_->IngestExternalFiles({arg});
+      } else {
+        s = db_->IngestExternalFile(column_families_[column_family],
+                                    external_files, ingest_options);
+      }
     }
     if (!s.ok()) {
       for (PendingExpectedValue& pending_expected_value :

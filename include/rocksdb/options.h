@@ -2871,6 +2871,14 @@ struct IngestExternalFileOptions {
   bool fill_cache = true;
 };
 
+// PreparedFileInfo is an opaque description of an SST file produced by
+// SstFileWriter::Finish(). A borrowed pointer to one can be placed in
+// IngestExternalFileArg::file_infos to let IngestExternalFiles() skip
+// re-opening and scanning the file when computing its metadata, reducing
+// ingestion I/O. Its contents are an internal implementation detail; the public
+// API only ever refers to it through this forward declaration.
+struct PreparedFileInfo;
+
 // It is valid that files_checksums and files_checksum_func_names are both
 // empty (no checksum information is provided for ingestion). Otherwise,
 // their sizes should be the same as external_files. The file order should
@@ -2907,6 +2915,15 @@ struct IngestExternalFileArg {
   // exclusive, so it is best not to depend on one or the other until it is
   // sorted out.
   std::optional<RangeOpt> atomic_replace_range;
+
+  // Optional per-file opaque metadata, parallel to `external_files` (same size
+  // and order). Each entry is a borrowed pointer to a PreparedFileInfo produced
+  // by SstFileWriter::Finish; the owning handle must stay alive until ingestion
+  // completes. When provided, ingestion reuses this metadata instead of
+  // re-opening and scanning each file to recompute it, avoiding that extra I/O.
+  // Not compatible with options.write_global_seqno (the file is not opened, so
+  // a global seqno cannot be written back into it).
+  std::vector<const PreparedFileInfo*> file_infos;
 };
 
 enum TraceFilterType : uint64_t {
