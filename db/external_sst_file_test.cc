@@ -298,6 +298,48 @@ class ExternalSSTFileTest
   int last_file_id_ = 0;
 };
 
+TEST_F(ExternalSSTFileTest, IngestionTimingHistogram) {
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);  // enable timers
+  DestroyAndReopen(options);
+
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, {{"k1", "v1"}, {"k2", "v2"}, {"k3", "v3"}}, /*file_id=*/-1,
+      /*allow_global_seqno=*/true, /*write_global_seqno=*/false,
+      /*verify_checksums_before_ingest=*/true, /*ingest_behind=*/false,
+      /*sort_data=*/true));
+
+  auto hist = [&](Histograms h) {
+    HistogramData hd;
+    options.statistics->histogramData(h, &hd);
+    return hd;
+  };
+
+  // One sample per call (not per CF) in each phase histogram.
+  HistogramData prepare_hd = hist(INGEST_EXTERNAL_FILE_PREPARE_TIME);
+  HistogramData run_hd = hist(INGEST_EXTERNAL_FILE_RUN_TIME);
+  ASSERT_EQ(1, prepare_hd.count);
+  ASSERT_EQ(1, run_hd.count);
+  ASSERT_GT(prepare_hd.max, 0.0);
+  ASSERT_GT(run_hd.max, 0.0);
+
+  // A second call adds exactly one more sample to each histogram.
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, {{"k4", "v4"}, {"k5", "v5"}}, /*file_id=*/-1,
+      /*allow_global_seqno=*/true, /*write_global_seqno=*/false,
+      /*verify_checksums_before_ingest=*/true, /*ingest_behind=*/false,
+      /*sort_data=*/true));
+  ASSERT_EQ(2, hist(INGEST_EXTERNAL_FILE_PREPARE_TIME).count);
+  ASSERT_EQ(2, hist(INGEST_EXTERNAL_FILE_RUN_TIME).count);
+
+  // A failed ingestion records nothing (latency is logged only on success).
+  ASSERT_NOK(db_->IngestExternalFile({"/path/does/not/exist.sst"},
+                                     IngestExternalFileOptions()));
+  ASSERT_EQ(2, hist(INGEST_EXTERNAL_FILE_PREPARE_TIME).count);
+  ASSERT_EQ(2, hist(INGEST_EXTERNAL_FILE_RUN_TIME).count);
+}
+
 TEST_F(ExternalSSTFileTest, ComparatorMismatch) {
   Options options = CurrentOptions();
   Options options_diff_ucmp = options;
