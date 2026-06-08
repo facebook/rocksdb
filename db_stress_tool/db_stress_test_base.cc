@@ -53,26 +53,28 @@ constexpr int kMaxAbortResumeCompactionsSleepMicros = 3 * 1000 * 1000;
 
 class ScopedThreadOperation {
  public:
-  enum class FinishAction { kRestorePrepare, kKeepActive, kClear };
+  enum class FinishAction { kPop, kFinishSingleOp };
 
-  ScopedThreadOperation(
-      ThreadState* thread, StressOperationType type,
-      FinishAction finish_action = FinishAction::kRestorePrepare)
-      : thread_(thread), type_(type), finish_action_(finish_action) {
-    thread_->StartOperation(type);
+  ScopedThreadOperation(ThreadState* thread, StressOperationType type,
+                        FinishAction finish_action = FinishAction::kPop)
+      : thread_(thread),
+        type_(type),
+        finish_action_(finish_action),
+        pushed_(false) {
+    pushed_ = thread_->PushOperation(type);
   }
 
   ~ScopedThreadOperation() {
     thread_->CompletedOpForDiagnostics(type_);
     switch (finish_action_) {
-      case FinishAction::kRestorePrepare:
-        thread_->StartOperation(StressOperationType::kPrepare);
+      case FinishAction::kPop:
         break;
-      case FinishAction::kClear:
-        thread_->ClearOperation();
+      case FinishAction::kFinishSingleOp:
+        thread_->FinishSingleOpWhileOperationActive();
         break;
-      case FinishAction::kKeepActive:
-        break;
+    }
+    if (pushed_) {
+      thread_->PopOperation(type_);
     }
   }
 
@@ -80,6 +82,7 @@ class ScopedThreadOperation {
   ThreadState* thread_;
   StressOperationType type_;
   FinishAction finish_action_;
+  bool pushed_;
 };
 
 std::shared_ptr<const FilterPolicy> CreateFilterPolicy() {
@@ -1275,7 +1278,7 @@ void StressTest::OperateDb(ThreadState* thread) {
     if (open_cnt != 0) {
       ScopedThreadOperation op(
           thread, StressOperationType::kReopen,
-          ScopedThreadOperation::FinishAction::kKeepActive);
+          ScopedThreadOperation::FinishAction::kFinishSingleOp);
       MutexLock l(thread->shared->GetMutex());
       while (!thread->snapshot_queue.empty()) {
         db_->ReleaseSnapshot(thread->snapshot_queue.front().second.snapshot);
@@ -1294,7 +1297,6 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (FLAGS_use_trie_index && udi_factory_) {
         read_opts.table_index_factory = udi_factory_.get();
       }
-      thread->FinishedSingleOp();
     }
 
 #ifndef NDEBUG
@@ -1337,9 +1339,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (thread->shared->HasVerificationFailedYet()) {
         break;
       }
-      ScopedThreadOperation iteration_op(
-          thread, StressOperationType::kPrepare,
-          ScopedThreadOperation::FinishAction::kClear);
+      ScopedThreadOperation iteration_op(thread, StressOperationType::kPrepare);
 
       // Change Options
       if (thread->rand.OneInOpt(FLAGS_set_options_one_in)) {
@@ -1680,7 +1680,7 @@ void StressTest::OperateDb(ThreadState* thread) {
         // OPERATION read
         ScopedThreadOperation op(
             thread, StressOperationType::kRead,
-            ScopedThreadOperation::FinishAction::kKeepActive);
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
         if (FLAGS_use_multi_get_entity) {
           constexpr uint64_t max_batch_size = 64;
@@ -1726,7 +1726,7 @@ void StressTest::OperateDb(ThreadState* thread) {
         // OPERATION prefix scan
         ScopedThreadOperation op(
             thread, StressOperationType::kPrefixScan,
-            ScopedThreadOperation::FinishAction::kKeepActive);
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         // keys are 8 bytes long, prefix size is FLAGS_prefix_size. There are
         // (8 - FLAGS_prefix_size) bytes besides the prefix. So there will
         // be 2 ^ ((8 - FLAGS_prefix_size) * 8) possible keys with the same
@@ -1737,7 +1737,7 @@ void StressTest::OperateDb(ThreadState* thread) {
         // OPERATION write
         ScopedThreadOperation op(
             thread, StressOperationType::kWrite,
-            ScopedThreadOperation::FinishAction::kKeepActive);
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         if (disable_fault_injection_during_user_write) {
           db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
         }
@@ -1751,7 +1751,7 @@ void StressTest::OperateDb(ThreadState* thread) {
         // OPERATION delete
         ScopedThreadOperation op(
             thread, StressOperationType::kDelete,
-            ScopedThreadOperation::FinishAction::kKeepActive);
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         if (disable_fault_injection_during_user_write) {
           db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
         }
@@ -1764,7 +1764,7 @@ void StressTest::OperateDb(ThreadState* thread) {
         // OPERATION delete range
         ScopedThreadOperation op(
             thread, StressOperationType::kDeleteRange,
-            ScopedThreadOperation::FinishAction::kKeepActive);
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         if (disable_fault_injection_during_user_write) {
           db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
         }
@@ -1777,7 +1777,7 @@ void StressTest::OperateDb(ThreadState* thread) {
         // OPERATION iterate
         ScopedThreadOperation op(
             thread, StressOperationType::kIterate,
-            ScopedThreadOperation::FinishAction::kKeepActive);
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         if (FLAGS_use_multiscan) {
           int num_seeks = static_cast<int>(
               std::min(static_cast<uint64_t>(thread->rand.Uniform(64)),
@@ -1827,10 +1827,9 @@ void StressTest::OperateDb(ThreadState* thread) {
         assert(iterate_bound <= prob_op);
         ScopedThreadOperation op(
             thread, StressOperationType::kCustom,
-            ScopedThreadOperation::FinishAction::kKeepActive);
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         TestCustomOperations(thread, rand_column_families);
       }
-      thread->FinishedSingleOp();
     }
 
 #ifndef NDEBUG
