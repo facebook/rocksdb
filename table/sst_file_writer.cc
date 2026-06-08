@@ -124,8 +124,17 @@ struct SstFileWriter::Rep {
     builder->Add(ikey.Encode(), value);
 
     // update file info
+    Slice encoded_ikey = ikey.Encode();
+    if (file_info.num_entries == 0) {
+      file_info.smallest_internal_key.assign(encoded_ikey.data(),
+                                             encoded_ikey.size());
+    }
     file_info.num_entries++;
     file_info.largest_key.assign(user_key.data(), user_key.size());
+    // Keys are added in strictly increasing order, so the last point key is the
+    // largest.
+    file_info.largest_internal_key.assign(encoded_ikey.data(),
+                                          encoded_ikey.size());
     file_info.file_size = builder->FileSize();
 
     InvalidatePageCache(false /* closing */).PermitUncheckedError();
@@ -505,6 +514,7 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
     r->file_info.file_checksum = r->file_writer->GetFileChecksum();
     r->file_info.file_checksum_func_name =
         r->file_writer->GetFileChecksumFuncName();
+    r->file_info.table_properties = r->builder->GetTableProperties();
   }
   if (!s.ok()) {
     Status status = r->ioptions.env->DeleteFile(r->file_info.file_path);
@@ -529,6 +539,16 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
         assert(largest_key.size() >= r->ts_sz);
         file_info->smallest_key.resize(smallest_key.size() - r->ts_sz);
         file_info->largest_key.resize(largest_key.size() - r->ts_sz);
+        // Strip the timestamp (located just before the 8-byte internal-key
+        // footer) from the internal-key boundaries as well.
+        file_info->smallest_internal_key.erase(
+            file_info->smallest_internal_key.size() - kNumInternalBytes -
+                r->ts_sz,
+            r->ts_sz);
+        file_info->largest_internal_key.erase(
+            file_info->largest_internal_key.size() - kNumInternalBytes -
+                r->ts_sz,
+            r->ts_sz);
       }
       if (!smallest_range_del_key.empty()) {
         assert(smallest_range_del_key.size() >= r->ts_sz);

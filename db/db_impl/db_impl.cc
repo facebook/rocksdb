@@ -6708,6 +6708,19 @@ Status DBImpl::IngestExternalFiles(
           "external_files[" + std::to_string(i) + "] is empty";
       return Status::InvalidArgument(err_msg);
     }
+    if (!args[i].file_infos.empty()) {
+      if (args[i].file_infos.size() != args[i].external_files.size()) {
+        return Status::InvalidArgument("file_infos[" + std::to_string(i) +
+                                       "] size must match external_files[" +
+                                       std::to_string(i) + "] size");
+      }
+      // file_infos avoids opening the file, so it cannot write a global seqno
+      // back into it. (write_global_seqno is deprecated and defaults to false.)
+      if (args[i].options.write_global_seqno) {
+        return Status::InvalidArgument(
+            "write_global_seqno is not supported when file_infos is set");
+      }
+    }
     if (i && args[i].options.fill_cache != args[i - 1].options.fill_cache) {
       return Status::InvalidArgument(
           "fill_cache should be the same across ingestion options.");
@@ -6801,8 +6814,9 @@ Status DBImpl::IngestExternalFiles(
             this);
     Status es = ingestion_jobs[i].Prepare(
         args[i].external_files, args[i].files_checksums,
-        args[i].files_checksum_func_names, args[i].atomic_replace_range,
-        args[i].file_temperature, start_file_number, super_version);
+        args[i].files_checksum_func_names, args[i].file_infos,
+        args[i].atomic_replace_range, args[i].file_temperature,
+        start_file_number, super_version);
     // capture first error only
     if (!es.ok() && status.ok()) {
       status = es;
@@ -6817,8 +6831,9 @@ Status DBImpl::IngestExternalFiles(
             this);
     Status es = ingestion_jobs[0].Prepare(
         args[0].external_files, args[0].files_checksums,
-        args[0].files_checksum_func_names, args[0].atomic_replace_range,
-        args[0].file_temperature, next_file_number, super_version);
+        args[0].files_checksum_func_names, args[0].file_infos,
+        args[0].atomic_replace_range, args[0].file_temperature,
+        next_file_number, super_version);
     if (!es.ok()) {
       status = es;
     }

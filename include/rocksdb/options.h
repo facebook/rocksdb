@@ -27,6 +27,7 @@
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/sst_partitioner.h"
+#include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/version.h"
@@ -2871,6 +2872,69 @@ struct IngestExternalFileOptions {
   bool fill_cache = true;
 };
 
+// ExternalSstFileInfo includes information about an SST file. It is produced by
+// SstFileWriter. When ExternalSstFileInfo is included in IngestExternalFileArg,
+// it can significantly improve ingestion performance by avoiding additional IO
+// on the file.
+//
+// TODO: This should be opaque to the user, consider removing the internal
+// details in next major release.
+struct ExternalSstFileInfo {
+  ExternalSstFileInfo()
+      : file_path(""),
+        smallest_key(""),
+        largest_key(""),
+        smallest_range_del_key(""),
+        largest_range_del_key(""),
+        file_checksum(""),
+        file_checksum_func_name(""),
+        sequence_number(0),
+        file_size(0),
+        num_entries(0),
+        num_range_del_entries(0),
+        version(0) {}
+
+  ExternalSstFileInfo(const std::string& _file_path,
+                      const std::string& _smallest_key,
+                      const std::string& _largest_key,
+                      SequenceNumber _sequence_number, uint64_t _file_size,
+                      uint64_t _num_entries, int32_t _version)
+      : file_path(_file_path),
+        smallest_key(_smallest_key),
+        largest_key(_largest_key),
+        smallest_range_del_key(""),
+        largest_range_del_key(""),
+        file_checksum(""),
+        file_checksum_func_name(""),
+        sequence_number(_sequence_number),
+        file_size(_file_size),
+        num_entries(_num_entries),
+        num_range_del_entries(0),
+        version(_version) {}
+
+  std::string file_path;     // external sst file path
+  std::string smallest_key;  // smallest user key in file, TODO: remove in favor
+                             // of smallest_internal_key
+  std::string largest_key;   // largest user key in file, TODO: remove in favor
+                             // of largest_internal_key
+  std::string
+      smallest_range_del_key;  // smallest range deletion user key in file
+  std::string largest_range_del_key;  // largest range deletion user key in file
+  std::string file_checksum;          // sst file checksum;
+  std::string file_checksum_func_name;  // The name of file checksum function
+  SequenceNumber
+      sequence_number;   // smallest sequence number of all keys in file
+  uint64_t file_size;    // file size in bytes
+  uint64_t num_entries;  // number of entries in file
+  uint64_t num_range_del_entries;  // number of range deletion entries in file
+  int32_t version;                 // file version
+
+  std::string smallest_internal_key;  // smallest internal key in file
+  std::string largest_internal_key;   // largest internal key in file
+
+  TableProperties table_properties;  // other additional table metadata
+};
+
 // It is valid that files_checksums and files_checksum_func_names are both
 // empty (no checksum information is provided for ingestion). Otherwise,
 // their sizes should be the same as external_files. The file order should
@@ -2907,6 +2971,14 @@ struct IngestExternalFileArg {
   // exclusive, so it is best not to depend on one or the other until it is
   // sorted out.
   std::optional<RangeOpt> atomic_replace_range;
+
+  // Optional per-file metadata, parallel to `external_files` (same size and
+  // order). When provided (e.g. the ExternalSstFileInfo returned by
+  // SstFileWriter::Finish), ingestion reuses this metadata instead of
+  // re-opening and scanning each file to recompute it, avoiding that extra I/O.
+  // Not compatible with options.write_global_seqno (the file is not opened, so
+  // a global seqno cannot be written back into it).
+  std::vector<ExternalSstFileInfo> file_infos;
 };
 
 enum TraceFilterType : uint64_t {

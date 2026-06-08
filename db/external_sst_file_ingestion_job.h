@@ -248,6 +248,7 @@ class ExternalSstFileIngestionJob {
   Status Prepare(const std::vector<std::string>& external_files_paths,
                  const std::vector<std::string>& files_checksums,
                  const std::vector<std::string>& files_checksum_func_names,
+                 const std::vector<ExternalSstFileInfo>& file_infos,
                  const std::optional<RangeOpt>& atomic_replace_range,
                  const Temperature& file_temperature, uint64_t next_file_number,
                  SuperVersion* sv);
@@ -315,16 +316,33 @@ class ExternalSstFileIngestionJob {
   // different options. For example: when external file does not contain
   // timestamps while column family enables UDT in Memtables only feature.
   Status SanityCheckTableProperties(const std::string& external_file,
-                                    uint64_t new_file_number, SuperVersion* sv,
-                                    IngestedFileInfo* file_to_ingest,
-                                    std::unique_ptr<TableReader>* table_reader);
+                                    const TableProperties& props,
+                                    IngestedFileInfo* file_to_ingest);
 
   // Open the external file and populate `file_to_ingest` with all the
   // external information we need to ingest this file.
   Status GetIngestedFileInfo(const std::string& external_file,
                              uint64_t new_file_number,
+                             const ExternalSstFileInfo* file_info,
                              IngestedFileInfo* file_to_ingest,
                              SuperVersion* sv);
+
+  // Acquire the per-file metadata from caller-supplied `file_info` instead
+  // of opening the file (e.g. the ExternalSstFileInfo produced by
+  // SstFileWriter::Finish).
+  Status GetIngestedFileInfoFromFileInfo(const std::string& external_file,
+                                         const ExternalSstFileInfo* file_info,
+                                         IngestedFileInfo* file_to_ingest);
+
+  // Acquire the per-file metadata by opening the external file and scanning it
+  // (table properties, sequence number bounds, and boundary keys including any
+  // range-tombstone extensions). Used when no file_info is available. The
+  // opened `TableReader` is returned via `*table_reader` so the caller can
+  // reuse it (e.g. to verify the file checksum) without re-opening the file.
+  Status GetIngestedFileInfoFromFile(
+      const std::string& external_file, uint64_t new_file_number,
+      IngestedFileInfo* file_to_ingest, SuperVersion* sv,
+      std::unique_ptr<TableReader>* out_table_reader);
 
   // If the input files' key range overlaps themselves, this function divides
   // them in the user specified order into multiple batches. Where the files

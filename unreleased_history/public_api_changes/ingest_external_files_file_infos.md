@@ -1,0 +1,1 @@
+`IngestExternalFileArg` gained a `file_infos` field, a vector of `ExternalSstFileInfo` parallel to `external_files`. When set, `IngestExternalFiles()` reuses the supplied per-file metadata (boundary keys, sequence-number bounds, and table properties) instead of re-opening and scanning each file to recompute it, avoiding that extra I/O.
