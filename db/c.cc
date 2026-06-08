@@ -1385,6 +1385,10 @@ void rocksdb_backup_engine_info_destroy(
   delete info;
 }
 
+void rocksdb_backup_engine_stop_backup(rocksdb_backup_engine_t* be) {
+  be->rep->StopBackup();
+}
+
 void rocksdb_backup_engine_close(rocksdb_backup_engine_t* be) {
   delete be->rep;
   delete be;
@@ -1464,6 +1468,20 @@ void rocksdb_backup_engine_options_set_restore_rate_limit(
 uint64_t rocksdb_backup_engine_options_get_restore_rate_limit(
     rocksdb_backup_engine_options_t* options) {
   return options->rep.restore_rate_limit;
+}
+
+void rocksdb_backup_engine_options_set_backup_rate_limiter(
+    rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter) {
+  if (limiter) {
+    options->rep.backup_rate_limiter = limiter->rep;
+  }
+}
+
+void rocksdb_backup_engine_options_set_restore_rate_limiter(
+    rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter) {
+  if (limiter) {
+    options->rep.restore_rate_limiter = limiter->rep;
+  }
 }
 
 void rocksdb_backup_engine_options_set_max_background_operations(

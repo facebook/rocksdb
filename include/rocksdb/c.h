@@ -273,6 +273,12 @@ extern ROCKSDB_LIBRARY_API uint32_t rocksdb_backup_engine_info_number_files(
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_info_destroy(
     const rocksdb_backup_engine_info_t* info);
 
+/* Cancels any in-progress backup. This is a one-way operation: once called,
+   all future CreateNewBackup requests on this engine will fail with
+   Status::Incomplete. Open a new BackupEngine instance to resume backups. */
+extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_stop_backup(
+    rocksdb_backup_engine_t* be);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_close(
     rocksdb_backup_engine_t* be);
 
@@ -378,6 +384,18 @@ rocksdb_backup_engine_options_set_restore_rate_limit(
 extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_backup_engine_options_get_restore_rate_limit(
     rocksdb_backup_engine_options_t* options);
+
+/* Sets a RateLimiter for backup transfers. When non-null, overrides the
+   uint64_t backup_rate_limit value. */
+extern ROCKSDB_LIBRARY_API void
+rocksdb_backup_engine_options_set_backup_rate_limiter(
+    rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter);
+
+/* Sets a RateLimiter for restore transfers. When non-null, overrides the
+   uint64_t restore_rate_limit value. */
+extern ROCKSDB_LIBRARY_API void
+rocksdb_backup_engine_options_set_restore_rate_limiter(
+    rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter);
 
 extern ROCKSDB_LIBRARY_API void
 rocksdb_backup_engine_options_set_max_background_operations(
