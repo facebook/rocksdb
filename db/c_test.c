@@ -844,6 +844,7 @@ int main(int argc, char** argv) {
   rocksdb_transaction_t* txn;
   rocksdb_transaction_options_t* txn_options;
   rocksdb_optimistictransactiondb_t* otxn_db;
+  rocksdb_optimistictransactiondb_options_t* otxn_db_options;
   rocksdb_optimistictransaction_options_t* otxn_options;
   char* err = NULL;
   int run = -1;
@@ -4379,7 +4380,27 @@ int main(int argc, char** argv) {
     rocksdb_options_t* db_options = rocksdb_options_create();
     rocksdb_options_set_create_if_missing(db_options, 1);
     rocksdb_options_set_allow_concurrent_memtable_write(db_options, 1);
-    otxn_db = rocksdb_optimistictransactiondb_open(db_options, dbname, &err);
+    otxn_db_options = rocksdb_optimistictransactiondb_options_create();
+    CheckCondition(
+        rocksdb_optimistictransactiondb_options_get_occ_lock_buckets(
+            otxn_db_options) == (1 << 20));
+    rocksdb_optimistictransactiondb_options_set_occ_lock_buckets(
+        otxn_db_options, 128);
+    CheckCondition(
+        rocksdb_optimistictransactiondb_options_get_occ_lock_buckets(
+            otxn_db_options) == 128);
+    rocksdb_optimistictransactiondb_options_set_validate_policy(
+        otxn_db_options,
+        rocksdb_optimistictransactiondb_validate_policy_serial);
+    CheckCondition(
+        rocksdb_optimistictransactiondb_options_get_validate_policy(
+            otxn_db_options) ==
+        rocksdb_optimistictransactiondb_validate_policy_serial);
+    rocksdb_optimistictransactiondb_options_set_validate_policy(
+        otxn_db_options,
+        rocksdb_optimistictransactiondb_validate_policy_parallel);
+    otxn_db = rocksdb_optimistictransactiondb_open_with_options(
+        db_options, otxn_db_options, dbname, &err);
     otxn_options = rocksdb_optimistictransaction_options_create();
     rocksdb_transaction_t* txn1 = rocksdb_optimistictransaction_begin(
         otxn_db, woptions, otxn_options, NULL);
@@ -4497,6 +4518,7 @@ int main(int argc, char** argv) {
     rocksdb_optimistictransactiondb_close(otxn_db);
     rocksdb_destroy_db(db_options, dbname, &err);
     rocksdb_options_destroy(db_options);
+    rocksdb_optimistictransactiondb_options_destroy(otxn_db_options);
     rocksdb_optimistictransaction_options_destroy(otxn_options);
     CheckNoError(err);
   }

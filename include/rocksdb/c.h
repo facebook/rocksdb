@@ -140,6 +140,8 @@ typedef struct rocksdb_pinnableslice_t rocksdb_pinnableslice_t;
 typedef struct rocksdb_transactiondb_options_t rocksdb_transactiondb_options_t;
 typedef struct rocksdb_transactiondb_t rocksdb_transactiondb_t;
 typedef struct rocksdb_transaction_options_t rocksdb_transaction_options_t;
+typedef struct rocksdb_optimistictransactiondb_options_t
+    rocksdb_optimistictransactiondb_options_t;
 typedef struct rocksdb_optimistictransactiondb_t
     rocksdb_optimistictransactiondb_t;
 typedef struct rocksdb_optimistictransaction_options_t
@@ -3410,6 +3412,12 @@ rocksdb_optimistictransactiondb_open(const rocksdb_options_t* options,
                                      const char* name, char** errptr);
 
 extern ROCKSDB_LIBRARY_API rocksdb_optimistictransactiondb_t*
+rocksdb_optimistictransactiondb_open_with_options(
+    const rocksdb_options_t* options,
+    const rocksdb_optimistictransactiondb_options_t* otxn_db_options,
+    const char* name, char** errptr);
+
+extern ROCKSDB_LIBRARY_API rocksdb_optimistictransactiondb_t*
 rocksdb_optimistictransactiondb_open_column_families(
     const rocksdb_options_t* options, const char* name, int num_column_families,
     const char* const* column_family_names,
@@ -3449,6 +3457,33 @@ rocksdb_transactiondb_options_create(void);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_options_destroy(
     rocksdb_transactiondb_options_t* opt);
+
+enum {
+  rocksdb_optimistictransactiondb_validate_policy_serial = 0,
+  rocksdb_optimistictransactiondb_validate_policy_parallel = 1
+};
+
+extern ROCKSDB_LIBRARY_API rocksdb_optimistictransactiondb_options_t*
+rocksdb_optimistictransactiondb_options_create(void);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_optimistictransactiondb_options_destroy(
+    rocksdb_optimistictransactiondb_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_optimistictransactiondb_options_set_occ_lock_buckets(
+    rocksdb_optimistictransactiondb_options_t* opt, uint32_t occ_lock_buckets);
+
+extern ROCKSDB_LIBRARY_API uint32_t
+rocksdb_optimistictransactiondb_options_get_occ_lock_buckets(
+    rocksdb_optimistictransactiondb_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_optimistictransactiondb_options_set_validate_policy(
+    rocksdb_optimistictransactiondb_options_t* opt, int validate_policy);
+
+extern ROCKSDB_LIBRARY_API int
+rocksdb_optimistictransactiondb_options_get_validate_policy(
+    rocksdb_optimistictransactiondb_options_t* opt);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_options_set_max_num_locks(
     rocksdb_transactiondb_options_t* opt, int64_t max_num_locks);
