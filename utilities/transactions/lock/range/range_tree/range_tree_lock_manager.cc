@@ -214,32 +214,23 @@ int RangeTreeLockManager::CompareDbtEndpoints(void* arg, const DBT* a_key,
   // Compare the values. The first byte encodes the endpoint type, its value
   // is either SUFFIX_INFIMUM or SUFFIX_SUPREMUM.
   Comparator* cmp = (Comparator*)arg;
+  bool is_reverse = cmp == ReverseBytewiseComparator() ||
+                    cmp == ReverseBytewiseComparatorWithU64Ts();
   int res = cmp->CompareWithoutTimestamp(
       Slice(a + 1, min_len - 1), /*a_has_ts=*/false, Slice(b + 1, min_len - 1),
       /*b_has_ts=*/false);
   if (!res) {
     if (b_len > min_len) {
-      // a is shorter;
-      if (a[0] == SUFFIX_INFIMUM) {
-        return -1;  //"a is smaller"
-      } else {
-        // a is considered padded with 0xFF:FF:FF:FF...
-        return 1;  // "a" is bigger
-      }
+      int r = a[0] == SUFFIX_INFIMUM ? -1 : 1;
+      return is_reverse ? -r : r;
     } else if (a_len > min_len) {
-      // the opposite of the above: b is shorter.
-      if (b[0] == SUFFIX_INFIMUM) {
-        return 1;  //"b is smaller"
-      } else {
-        // b is considered padded with 0xFF:FF:FF:FF...
-        return -1;  // "b" is bigger
-      }
+      int r = b[0] == SUFFIX_INFIMUM ? 1 : -1;
+      return is_reverse ? -r : r;
     } else {
-      // the lengths are equal (and the key values, too)
       if (a[0] < b[0]) {
-        return -1;
+        return is_reverse ? 1 : -1;
       } else if (a[0] > b[0]) {
-        return 1;
+        return is_reverse ? -1 : 1;
       } else {
         return 0;
       }
