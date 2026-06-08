@@ -1116,6 +1116,13 @@ check: all
 	rm -rf $(TEST_TMPDIR)
 ifneq ($(PLATFORM), OS_AIX)
 	$(PYTHON) tools/check_all_python.py
+ifeq ($(PLATFORM), OS_LINUX)
+ifneq ($(GITHUB_ACTIONS),true)
+	$(PYTHON) tools/test_db_crashtest.py
+else ifeq ($(RUN_DB_CRASHTEST_COMPATIBILITY_TESTS),1)
+	$(PYTHON) tools/test_db_crashtest.py
+endif
+endif
 ifndef ASSERT_STATUS_CHECKED # not yet working with these tests
 	$(PYTHON) tools/ldb_test.py
 	$(PYTHON) tools/db_crashtest_test.py

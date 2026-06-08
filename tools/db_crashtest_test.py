@@ -112,10 +112,21 @@ class DBCrashTestTest(unittest.TestCase):
         db_crashtest = self.load_db_crashtest()
         params = self.build_params(
             db_crashtest.default_params,
-            {"disable_wal": 1, "test_batches_snapshots": 1},
+            {
+                "disable_wal": 1,
+                "test_batches_snapshots": 1,
+                # Keep unrelated fixed-across-run defaults from legitimately
+                # re-enabling WAL; this test is only about the disable_wal
+                # consequence on test_batches_snapshots.
+                "inplace_update_support": 0,
+            },
         )
 
-        finalized = db_crashtest.finalize_and_sanitize(params)
+        # Pin disable_wal as the winning root so this test verifies the
+        # disable_wal consequence rather than random-priority conflict choice.
+        finalized = db_crashtest.finalize_and_sanitize(
+            params, explicit_keys={"disable_wal"}
+        )
 
         self.assertEqual(1, finalized["disable_wal"])
         self.assertEqual(0, finalized["test_batches_snapshots"])
