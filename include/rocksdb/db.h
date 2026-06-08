@@ -827,7 +827,7 @@ class DB {
   // implementation
   //       doesn't support returning timestamps, and the timestamps paramater is
   //       non-null, it should return Status::NotSupported() for all the keys.
-  virtual void MultiGet(const ReadOptions& options, const size_t num_keys,
+  virtual void MultiGet(const ReadOptions& optionsz, const size_t num_keys,
                         ColumnFamilyHandle** column_families, const Slice* keys,
                         PinnableSlice* values, std::string* timestamps,
                         Status* statuses, const bool sorted_input = false) = 0;
