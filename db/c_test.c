@@ -4954,9 +4954,13 @@ int main(int argc, char** argv) {
     rocksdb_options_set_compaction_service(null_opts, null_service);
 
     char null_db[200];
-    snprintf(null_db, sizeof(null_db),
-             "%s/rocksdb_c_test_null_service-%" PRIu64, GetTempDir(),
-             GetTestId());
+    // c_test.c constructs fixed-size test paths with snprintf; verify this
+    // path is not truncated.
+    // NOLINTNEXTLINE
+    int null_db_len = snprintf(null_db, sizeof(null_db),
+                               "%s/rocksdb_c_test_null_service-%" PRIu64,
+                               GetTempDir(), GetTestId());
+    CheckCondition(null_db_len > 0 && (size_t)null_db_len < sizeof(null_db));
 
     rocksdb_t* null_db_handle = rocksdb_open(null_opts, null_db, &err);
     CheckNoError(err);

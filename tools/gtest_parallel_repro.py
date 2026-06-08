@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Run a gtest binary repeatedly under process-level scheduler pressure.
 
-This tool is for flakes that do not reproduce with a single-process
+Synopsis:
+  python3 tools/gtest_parallel_repro.py --binary ./env_test \\
+      --gtest_filter='*ReserveThreads*' --jobs 100 --batches 100
+
+This tool is for flaky tests that do not reproduce with a single-process
 `--gtest_repeat` loop. Some RocksDB tests only fail when their process competes
 with many other CPU-heavy test processes, because OS scheduling can delay
 arbitrary worker threads and expose timing assumptions.
@@ -30,6 +34,28 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 FAILURE_LINE_RE = re.compile(r"^(.+?:\d+): Failure$")
 SANITIZER_RE = re.compile(r"^==\d+==ERROR: ([^:]+): (.+)$")
 ASSERT_RE = re.compile(r"Assertion `([^`]+)' failed\.")
+HELP_EPILOG = """\
+Examples:
+  python3 tools/gtest_parallel_repro.py --binary ./env_test \\
+      --gtest_filter='*ReserveThreads*' --jobs 100 --batches 100 --cpu-count 8
+
+  python3 tools/gtest_parallel_repro.py --binary ./env_test \\
+      --gtest_filter='*ReserveThreads*' --jobs 32 --batches 50 --build \\
+      --coerce-context-switch --make-arg=-j40
+
+What this adds over gtest-parallel -r:
+  - It starts fresh OS processes for each run instead of repeating tests inside
+    one long-lived process.
+  - Each process gets an isolated TEST_TMPDIR, which avoids accidental DB path
+    sharing while preserving process-level contention.
+  - The whole batch can be pinned to a small CPU set to create scheduler
+    pressure similar to a busy CI host.
+  - The output keeps one log per process plus a failure histogram, so repeated
+    failures can be grouped quickly.
+  - With --build --coerce-context-switch, the same entry point can rebuild with
+    RocksDB's compile-time COERCE_CONTEXT_SWITCH hooks before running the
+    process-level repro loop.
+"""
 
 
 def positive_int(value: str) -> int:
@@ -109,14 +135,16 @@ def terminate_process(proc: subprocess.Popen) -> None:
         os.killpg(proc.pid, signal.SIGTERM)
     except ProcessLookupError:
         return
-    except Exception:
+    except OSError:
         proc.terminate()
     try:
         proc.wait(timeout=2)
     except subprocess.TimeoutExpired:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
-        except Exception:
+        except ProcessLookupError:
+            pass
+        except OSError:
             proc.kill()
         try:
             proc.wait(timeout=10)
@@ -271,9 +299,11 @@ def run_batch(
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Run many fresh gtest processes concurrently to reproduce flakes "
-            "that depend on CPU contention or process-level scheduling."
-        )
+            "Run many fresh gtest processes concurrently to reproduce flaky "
+            "tests that depend on CPU contention or process-level scheduling."
+        ),
+        epilog=HELP_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--binary", required=True, help="Path to gtest binary")
     parser.add_argument(
@@ -307,12 +337,18 @@ def main() -> int:
     parser.add_argument(
         "--keep-success-artifacts",
         action="store_true",
-        help="Keep logs and TEST_TMPDIR for successful runs",
+        help=(
+            "Keep each successful process run directory, including log.txt and "
+            "TEST_TMPDIR. By default successful run directories are deleted."
+        ),
     )
     parser.add_argument(
         "--stop-on-failure",
         action="store_true",
-        help="Stop launching new batches after the first failed batch",
+        help=(
+            "Stop after the first batch with any failed process. The current "
+            "batch always finishes and cleans up first."
+        ),
     )
     cpu_group = parser.add_mutually_exclusive_group()
     cpu_group.add_argument(
