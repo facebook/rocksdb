@@ -52,6 +52,7 @@ class MergeOperator;
 class Snapshot;
 class MemTableRepFactory;
 class RateLimiter;
+class ReadScopedBlockBufferProvider;
 class Slice;
 class Statistics;
 class InternalKeyComparator;
@@ -2385,6 +2386,30 @@ struct ReadOptions {
   // the UDI is a secondary index and you want to explicitly select it for
   // reads.
   const UserDefinedIndexFactory* table_index_factory = nullptr;
+
+  // EXPERIMENTAL: Optional non-owning provider for data-block storage pinned by
+  // scans using this ReadOptions. Applications that set it are attempting
+  // advanced performance optimizations and are responsible for ensuring the
+  // provider outlives the iterator/read scope and any provider-backed data that
+  // can remain pinned by that scope.
+  //
+  // This is a raw pointer rather than a shared_ptr because ReadOptions is
+  // copied through stack frames and iterator internals; a shared_ptr would add
+  // refcount overhead to those copies. An internal shadow ReadOptions that
+  // strips ownership would add maintenance overhead for this advanced option.
+  //
+  // Current support is limited to block-based table iterators and MultiScan
+  // data-block reads, and is ignored when mmap reads are enabled. When set,
+  // supported scan reads bypass the data-block cache and use provider-backed
+  // final data-block memory. RocksDB may still use ordinary temporary scratch
+  // for serialized block bytes, such as when a block may be compressed. When
+  // unset, scans use the normal RocksDB data-block backing for the table: use
+  // the configured block cache when present, otherwise use RocksDB-owned block
+  // memory. Index/filter blocks keep their normal block-cache behavior.
+  //
+  // TODO: Extend support to point lookups (Get/MultiGet) once those paths can
+  // preserve provider-backed block ownership.
+  ReadScopedBlockBufferProvider* read_scoped_block_buffer_provider = nullptr;
 
   // *** END options only relevant to iterators or scans ***
 

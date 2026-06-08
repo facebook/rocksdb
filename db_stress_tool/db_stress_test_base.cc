@@ -9,7 +9,10 @@
 //
 
 #include <ios>
+#include <memory>
+#include <mutex>
 #include <thread>
+#include <unordered_set>
 
 #include "db_stress_tool/db_stress_compression_manager.h"
 #include "db_stress_tool/db_stress_listener.h"
@@ -32,11 +35,13 @@
 #include "rocksdb/io_dispatcher.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "test_util/testutil.h"
+#include "util/aligned_buffer.h"
 #include "util/cast_util.h"
 #include "util/simple_mixed_compressor.h"
 #include "utilities/backup/backup_engine_impl.h"
@@ -47,6 +52,120 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+
+class StressReadScopedBlockBufferProvider
+    : public ReadScopedBlockBufferProvider {
+ public:
+  StressReadScopedBlockBufferProvider() : state_(std::make_shared<State>()) {}
+  StressReadScopedBlockBufferProvider(
+      const StressReadScopedBlockBufferProvider&) = delete;
+  StressReadScopedBlockBufferProvider& operator=(
+      const StressReadScopedBlockBufferProvider&) = delete;
+  StressReadScopedBlockBufferProvider(StressReadScopedBlockBufferProvider&&) =
+      delete;
+  StressReadScopedBlockBufferProvider& operator=(
+      StressReadScopedBlockBufferProvider&&) = delete;
+
+  ~StressReadScopedBlockBufferProvider() override {
+    state_->ValidateNoLiveAllocations();
+  }
+
+  Status Allocate(size_t size, size_t alignment, Lease* out) override {
+    Check(out != nullptr, "lease output is nullptr");
+    Check(size > 0, "allocation size is zero");
+    Check(alignment > 0 && (alignment & (alignment - 1)) == 0,
+          "alignment must be a power of two");
+
+    auto* allocation = new Allocation();
+    allocation->state = state_;
+    allocation->requested_size = size;
+    allocation->requested_alignment = alignment;
+    allocation->storage.Alignment(alignment);
+    allocation->storage.AllocateNewBuffer(size);
+    allocation->data = allocation->storage.BufferStart();
+    allocation->size = allocation->storage.Capacity();
+
+    Check(allocation->data != nullptr, "provider returned null data");
+    Check(allocation->size >= size, "provider returned short allocation");
+    Check(AlignedBuffer::isAligned(allocation->data, alignment),
+          "provider returned misaligned data");
+    Check(
+        alignment == 1 || AlignedBuffer::isAligned(allocation->size, alignment),
+        "provider returned misaligned direct-I/O size");
+
+    {
+      std::lock_guard<std::mutex> lock(state_->mutex);
+      Check(state_->live_allocations.insert(allocation).second,
+            "duplicate allocation registration");
+      state_->live_bytes += allocation->size;
+      ++state_->total_allocations;
+    }
+
+    out->data = allocation->data;
+    out->size = allocation->size;
+    out->cleanup.Allocate();
+    out->cleanup->RegisterCleanup(&ReleaseAllocation, allocation, nullptr);
+    return Status::OK();
+  }
+
+ private:
+  struct Allocation;
+
+  struct State {
+    std::mutex mutex;
+    std::unordered_set<Allocation*> live_allocations;
+    size_t live_bytes = 0;
+    uint64_t total_allocations = 0;
+
+    void ValidateNoLiveAllocations() {
+      std::lock_guard<std::mutex> lock(mutex);
+      Check(live_allocations.empty(),
+            "provider destroyed with live allocations");
+      Check(live_bytes == 0, "provider destroyed with live bytes");
+    }
+  };
+
+  struct Allocation {
+    std::shared_ptr<State> state;
+    size_t requested_size = 0;
+    size_t requested_alignment = 1;
+    char* data = nullptr;
+    size_t size = 0;
+    AlignedBuffer storage;
+  };
+
+  static void Check(bool condition, const char* message) {
+    if (!condition) {
+      fprintf(stderr, "ReadScopedBlockBufferProvider invariant failed: %s\n",
+              message);
+      std::abort();
+    }
+  }
+
+  static void ReleaseAllocation(void* arg1, void* /*arg2*/) {
+    auto* allocation = static_cast<Allocation*>(arg1);
+    Check(allocation != nullptr, "cleanup received null allocation");
+    Check(allocation->state != nullptr, "cleanup received null state");
+    Check(allocation->data != nullptr, "cleanup received null data");
+    Check(allocation->size >= allocation->requested_size,
+          "cleanup received short allocation");
+    Check(AlignedBuffer::isAligned(allocation->data,
+                                   allocation->requested_alignment),
+          "cleanup received misaligned data");
+
+    {
+      std::lock_guard<std::mutex> lock(allocation->state->mutex);
+      Check(allocation->state->live_allocations.erase(allocation) == 1,
+            "cleanup for unknown or duplicate allocation");
+      Check(allocation->state->live_bytes >= allocation->size,
+            "cleanup underflowed live bytes");
+      allocation->state->live_bytes -= allocation->size;
+    }
+    delete allocation;
+  }
+
+  std::shared_ptr<State> state_;
+};
 
 std::shared_ptr<const FilterPolicy> CreateFilterPolicy() {
   if (FLAGS_bloom_bits < 0) {
@@ -1206,6 +1325,14 @@ void StressTest::OperateDb(ThreadState* thread) {
       FLAGS_auto_refresh_iterator_with_snapshot;
   if (FLAGS_use_trie_index && !FLAGS_use_udi_as_primary_index && udi_factory_) {
     read_opts.table_index_factory = udi_factory_.get();
+  }
+  std::unique_ptr<StressReadScopedBlockBufferProvider>
+      read_scoped_block_buffer_provider;
+  if (FLAGS_read_scoped_block_buffer_provider) {
+    read_scoped_block_buffer_provider =
+        std::make_unique<StressReadScopedBlockBufferProvider>();
+    read_opts.read_scoped_block_buffer_provider =
+        read_scoped_block_buffer_provider.get();
   }
   WriteOptions write_opts;
   if (FLAGS_rate_limit_auto_wal_flush) {
