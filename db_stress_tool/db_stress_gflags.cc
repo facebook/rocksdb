@@ -148,6 +148,16 @@ DEFINE_bool(verbose, false, "Verbose");
 DEFINE_bool(progress_reports, true,
             "If true, db_stress will report number of finished operations");
 
+DEFINE_uint64(
+    liveness_check_interval_sec, 0,
+    "If non-zero, check periodically whether db_stress operations are making "
+    "progress. Requires --liveness_no_progress_timeout_sec to be non-zero.");
+
+DEFINE_uint64(
+    liveness_no_progress_timeout_sec, 0,
+    "If non-zero with --liveness_check_interval_sec, terminate db_stress when "
+    "no operation completes for this many seconds during the operation phase.");
+
 DEFINE_uint64(db_write_buffer_size,
               ROCKSDB_NAMESPACE::Options().db_write_buffer_size,
               "Number of bytes to buffer in all memtables before compacting");

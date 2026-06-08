@@ -231,6 +231,10 @@ class DbStressListener : public EventListener {
       precommitted_jobs_.erase(it);
     }
 
+    if (ci.status.ok() && !ci.aborted) {
+      shared_->IncSuccessfulCompactions();
+    }
+
     // pretending doing some work here
     RandomSleep();
   }

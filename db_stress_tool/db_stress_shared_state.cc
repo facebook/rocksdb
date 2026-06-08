@@ -12,12 +12,14 @@
 #include "db_stress_tool/db_stress_shared_state.h"
 
 #include "db_stress_tool/db_stress_test_base.h"
+#include "rocksdb/env.h"
 
 namespace ROCKSDB_NAMESPACE {
 thread_local bool SharedState::ignore_read_error;
 
-SharedState::SharedState(Env* /*env*/, StressTest* stress_test)
+SharedState::SharedState(Env* env, StressTest* stress_test)
     : cv_(&mu_),
+      env_(env != nullptr ? env : Env::Default()),
       seed_(static_cast<uint32_t>(FLAGS_seed)),
       max_key_(FLAGS_max_key),
       log2_keys_per_lock_(static_cast<uint32_t>(FLAGS_log2_keys_per_lock)),
@@ -28,16 +30,26 @@ SharedState::SharedState(Env* /*env*/, StressTest* stress_test)
       num_done_(0),
       start_(false),
       start_verify_(false),
+      operation_started_(false),
+      operation_finished_(false),
       num_bg_threads_(0),
       should_stop_bg_thread_(false),
       bg_thread_finished_(0),
       stress_test_(stress_test),
+      finished_ops_(0),
+      successful_compactions_(0),
+      successful_compactions_at_last_compaction_abort_(0),
+      abort_resume_compactions_running_(false),
       verification_failure_(false),
       should_stop_test_(false),
       no_overwrite_ids_(GenerateNoOverwriteIds()),
       expected_state_manager_(nullptr),
       printing_verification_results_(false),
-      start_timestamp_(Env::Default()->NowNanos()) {
+      start_timestamp_(env_->NowNanos()) {
+  for (auto& completed_ops : completed_ops_by_type_) {
+    completed_ops.store(0, std::memory_order_relaxed);
+  }
+
   Status status;
   // TODO: We should introduce a way to explicitly disable verification
   // during shutdown. When that is disabled and FLAGS_expected_values_dir
@@ -109,6 +121,22 @@ SharedState::SharedState(Env* /*env*/, StressTest* stress_test)
     SyncPoint::GetInstance()->EnableProcessing();
 #endif        // NDEBUG
   }
+}
+
+bool SharedState::PushOperation(uint32_t tid, StressOperationType type) {
+  assert(tid < static_cast<uint32_t>(num_threads_));
+  ThreadOperationState& state = thread_operation_states_[tid];
+  const uint32_t depth = state.depth.load(std::memory_order_relaxed);
+  assert(depth < kMaxThreadOperationStackDepth);
+  if (depth >= kMaxThreadOperationStackDepth) {
+    return false;
+  }
+  ThreadOperationFrame& frame = state.frames[depth];
+  frame.started_micros.store(env_->NowMicros(), std::memory_order_relaxed);
+  frame.active_type.store(static_cast<uint32_t>(type),
+                          std::memory_order_release);
+  state.depth.store(depth + 1, std::memory_order_release);
+  return true;
 }
 
 bool SharedState::ShouldVerifyAtBeginning() const {
