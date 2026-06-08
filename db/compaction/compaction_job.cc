@@ -1542,7 +1542,6 @@ InternalIterator* CompactionJob::CreateInputIterator(
 
   // Although the v2 aggregator is what the level iterator(s) know about,
   // the AddTombstones calls will be propagated down to the v1 aggregator.
-  //
   const bool open_ephemeral_table_reader =
       db_options_.use_direct_io_for_compaction_reads &&
       !db_options_.use_direct_reads;
