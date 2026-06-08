@@ -6676,6 +6676,13 @@ Status DBImpl::IngestExternalFile(
 Status DBImpl::IngestExternalFiles(
     const std::vector<IngestExternalFileArg>& args) {
   PERF_TIMER_GUARD(file_ingestion_nanos);
+  // Prepare/run ingestion latency, recorded only on success (below).
+  const bool record_ingest_micros =
+      stats_ != nullptr &&
+      stats_->get_stats_level() > StatsLevel::kExceptTimers;
+  const uint64_t ingest_start_micros =
+      record_ingest_micros ? immutable_db_options_.clock->NowMicros() : 0;
+  uint64_t prepare_micros = 0;
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const WriteOptions write_options;
 
@@ -6825,6 +6832,13 @@ Status DBImpl::IngestExternalFiles(
     InstrumentedMutexLock l(&mutex_);
     ReleaseFileNumberFromPendingOutputs(pending_output_elem);
     return status;
+  }
+
+  // End of prepare phase; run phase starts here.
+  uint64_t run_start_micros = 0;
+  if (record_ingest_micros) {
+    run_start_micros = immutable_db_options_.clock->NowMicros();
+    prepare_micros = run_start_micros - ingest_start_micros;
   }
 
   std::vector<SuperVersionContext> sv_ctxs;
@@ -7068,6 +7082,14 @@ Status DBImpl::IngestExternalFiles(
         NotifyOnExternalFileIngested(cfd, ingestion_jobs[i]);
       }
     }
+  }
+  // Record latency only for successful ingestions.
+  if (record_ingest_micros && status.ok()) {
+    RecordTimeToHistogram(stats_, INGEST_EXTERNAL_FILE_PREPARE_TIME,
+                          prepare_micros);
+    RecordTimeToHistogram(
+        stats_, INGEST_EXTERNAL_FILE_RUN_TIME,
+        immutable_db_options_.clock->NowMicros() - run_start_micros);
   }
   return status;
 }

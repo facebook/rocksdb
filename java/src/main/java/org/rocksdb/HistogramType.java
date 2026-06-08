@@ -231,6 +231,16 @@ public enum HistogramType {
    */
   BLOCK_KEY_DISTRIBUTION_CV((byte) 0x42),
 
+  /**
+   * Time (us) in the prepare phase of an IngestExternalFile(s) call.
+   */
+  INGEST_EXTERNAL_FILE_PREPARE_TIME((byte) 0x43),
+
+  /**
+   * Time (us) in the run phase of an IngestExternalFile(s) call.
+   */
+  INGEST_EXTERNAL_FILE_RUN_TIME((byte) 0x44),
+
   // 0x3E is reserved for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x3E);
 
