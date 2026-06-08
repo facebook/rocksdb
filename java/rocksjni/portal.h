@@ -5998,6 +5998,10 @@ class HistogramTypeJni {
         return 0x41;
       case ROCKSDB_NAMESPACE::Histograms::BLOCK_KEY_DISTRIBUTION_CV:
         return 0x42;
+      case ROCKSDB_NAMESPACE::Histograms::INGEST_EXTERNAL_FILE_PREPARE_TIME:
+        return 0x43;
+      case ROCKSDB_NAMESPACE::Histograms::INGEST_EXTERNAL_FILE_RUN_TIME:
+        return 0x44;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x3E is reserved for backwards compatibility on current minor
         // version.
@@ -6151,6 +6155,10 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::MULTISCAN_BLOCKS_PER_PREPARE;
       case 0x42:
         return ROCKSDB_NAMESPACE::Histograms::BLOCK_KEY_DISTRIBUTION_CV;
+      case 0x43:
+        return ROCKSDB_NAMESPACE::Histograms::INGEST_EXTERNAL_FILE_PREPARE_TIME;
+      case 0x44:
+        return ROCKSDB_NAMESPACE::Histograms::INGEST_EXTERNAL_FILE_RUN_TIME;
       case 0x3E:
         // 0x3E is reserved for backwards compatibility on current minor
         // version.
