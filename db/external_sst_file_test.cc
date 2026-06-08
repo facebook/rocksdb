@@ -319,20 +319,34 @@ TEST_F(ExternalSSTFileTest, IngestionTimingHistogram) {
       /*verify_checksums_before_ingest=*/true, /*ingest_behind=*/false,
       /*sort_data=*/true));
 
-  HistogramData hd;
-  options.statistics->histogramData(INGEST_EXTERNAL_FILE_TIME, &hd);
-  ASSERT_EQ(1, hd.count);
-  ASSERT_GT(hd.max, 0.0);
+  auto hist = [&](Histograms h) {
+    HistogramData hd;
+    options.statistics->histogramData(h, &hd);
+    return hd;
+  };
 
-  // A second call adds exactly one more sample: timing is recorded per
-  // IngestExternalFile(s) call, not per column family.
+  // One sample per call (not per CF) in each phase histogram.
+  HistogramData prepare_hd = hist(INGEST_EXTERNAL_FILE_PREPARE_TIME);
+  HistogramData run_hd = hist(INGEST_EXTERNAL_FILE_RUN_TIME);
+  ASSERT_EQ(1, prepare_hd.count);
+  ASSERT_EQ(1, run_hd.count);
+  ASSERT_GT(prepare_hd.max, 0.0);
+  ASSERT_GT(run_hd.max, 0.0);
+
+  // A second call adds exactly one more sample to each histogram.
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {{"k4", "v4"}, {"k5", "v5"}}, /*file_id=*/-1,
       /*allow_global_seqno=*/true, /*write_global_seqno=*/false,
       /*verify_checksums_before_ingest=*/true, /*ingest_behind=*/false,
       /*sort_data=*/true));
-  options.statistics->histogramData(INGEST_EXTERNAL_FILE_TIME, &hd);
-  ASSERT_EQ(2, hd.count);
+  ASSERT_EQ(2, hist(INGEST_EXTERNAL_FILE_PREPARE_TIME).count);
+  ASSERT_EQ(2, hist(INGEST_EXTERNAL_FILE_RUN_TIME).count);
+
+  // A failed ingestion records nothing (latency is logged only on success).
+  ASSERT_NOK(db_->IngestExternalFile({"/path/does/not/exist.sst"},
+                                     IngestExternalFileOptions()));
+  ASSERT_EQ(2, hist(INGEST_EXTERNAL_FILE_PREPARE_TIME).count);
+  ASSERT_EQ(2, hist(INGEST_EXTERNAL_FILE_RUN_TIME).count);
 }
 
 // Ingestion that reuses the SstFileWriter's metadata via
