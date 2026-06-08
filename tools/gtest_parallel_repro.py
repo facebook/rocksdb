@@ -11,11 +11,11 @@ with many other CPU-heavy test processes, because OS scheduling can delay
 arbitrary worker threads and expose timing assumptions.
 
 `COERCE_CONTEXT_SWITCH=1` is still useful and this runner can build with it, but
-it is not enough for this class of flakes by itself. COERCE_CONTEXT_SWITCH adds
-voluntary sleeps/yields at selected RocksDB hooks, while busy CI shards cause
-involuntary preemption and CPU starvation across the whole process. Running many
-fresh test processes in parallel, optionally pinned to a small CPU set, more
-closely matches that failure mode.
+it is not enough for this class of flaky test by itself.
+COERCE_CONTEXT_SWITCH adds voluntary sleeps/yields at selected RocksDB hooks,
+while busy CI shards cause involuntary preemption and CPU starvation across the
+whole process. Running many fresh test processes in parallel, optionally pinned
+to a small CPU set, more closely matches that failure mode.
 """
 
 import argparse
