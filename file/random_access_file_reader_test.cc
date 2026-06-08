@@ -81,13 +81,89 @@ TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
   size_t offset = page_size / 2;
   size_t len = page_size / 3;
   Slice result;
-  AlignedBuf buf;
   for (Env::IOPriority rate_limiter_priority : {Env::IO_LOW, Env::IO_TOTAL}) {
     IOOptions io_opts;
     io_opts.rate_limiter_priority = rate_limiter_priority;
-    ASSERT_OK(r->Read(io_opts, offset, len, &result, nullptr, &buf));
+    AlignedBuffer direct_io_buffer;
+    AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
+    ASSERT_OK(r->Read(io_opts, offset, len, &result, nullptr,
+                      &direct_io_context,
+                      /*dbg=*/nullptr));
     ASSERT_EQ(result.ToString(), content.substr(offset, len));
   }
+}
+
+TEST_F(RandomAccessFileReaderTest, ReadDirectIOCopiesToScratch) {
+  std::string fname = "read-direct-io-copies-to-scratch";
+  Random rand(0);
+  std::string content = rand.RandomString(kDefaultPageSize);
+  Write(fname, content);
+
+  FileOptions opts;
+  opts.use_direct_reads = true;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+  ASSERT_TRUE(r->use_direct_io());
+
+  const size_t page_size = r->file()->GetRequiredBufferAlignment();
+  size_t offset = page_size / 2;
+  size_t len = page_size / 3;
+  std::string scratch(len, '\0');
+  Slice result;
+  ASSERT_OK(r->Read(IOOptions(), offset, len, &result, scratch.data(),
+                    /*direct_io_buffer=*/nullptr, /*dbg=*/nullptr));
+  ASSERT_EQ(result.data(), scratch.data());
+  ASSERT_EQ(result.ToString(), content.substr(offset, len));
+}
+
+TEST_F(RandomAccessFileReaderTest, ReadDirectIOUsesExternalBuffer) {
+  std::string fname = "read-direct-io-external-buffer";
+  Random rand(0);
+  std::string content = rand.RandomString(kDefaultPageSize);
+  Write(fname, content);
+
+  FileOptions opts;
+  opts.use_direct_reads = true;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+  ASSERT_TRUE(r->use_direct_io());
+
+  const size_t page_size = r->file()->GetRequiredBufferAlignment();
+  const size_t offset = page_size / 4;
+  const size_t len = page_size / 2;
+
+  AlignedBuffer external_storage;
+  int allocations = 0;
+  size_t requested_size = 0;
+  size_t requested_alignment = 0;
+  AlignedBuffer::Allocator allocator =
+      [&](size_t size, size_t alignment,
+          AlignedBuffer::ExternalAllocation* out) {
+        ++allocations;
+        requested_size = size;
+        requested_alignment = alignment;
+        external_storage.Alignment(alignment);
+        external_storage.AllocateNewBuffer(size);
+        out->data = external_storage.BufferStart();
+        out->size = external_storage.Capacity();
+        out->owner =
+            FSAllocationPtr(external_storage.BufferStart(), [](void*) {});
+        return Status::OK();
+      };
+
+  AlignedBuffer direct_io_buffer;
+  AlignedBufferAllocationContext direct_io_context{&direct_io_buffer,
+                                                   &allocator};
+  Slice result;
+  ASSERT_OK(r->Read(IOOptions(), offset, len, &result, /*scratch=*/nullptr,
+                    &direct_io_context, /*dbg=*/nullptr));
+  ASSERT_EQ(result.ToString(), content.substr(offset, len));
+
+  ASSERT_EQ(allocations, 1);
+  ASSERT_EQ(requested_alignment, page_size);
+  ASSERT_EQ(requested_size, page_size);
+  ASSERT_EQ(direct_io_buffer.BufferStart(), external_storage.BufferStart());
+  ASSERT_EQ(result.data(), external_storage.BufferStart() + offset);
 }
 
 TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
@@ -146,10 +222,11 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     std::vector<FSReadRequest> reqs;
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
-    AlignedBuf aligned_buf;
+    AlignedBuffer direct_io_buffer;
+    AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
     IODebugContext dbg;
-    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
-                           &dbg));
+    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(),
+                           &direct_io_context, &dbg));
 
     AssertResult(content, reqs);
 
@@ -192,10 +269,11 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
     reqs.push_back(std::move(r2));
-    AlignedBuf aligned_buf;
+    AlignedBuffer direct_io_buffer;
+    AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
     IODebugContext dbg;
-    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
-                           &dbg));
+    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(),
+                           &direct_io_context, &dbg));
 
     AssertResult(content, reqs);
 
@@ -238,10 +316,11 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
     reqs.push_back(std::move(r2));
-    AlignedBuf aligned_buf;
+    AlignedBuffer direct_io_buffer;
+    AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
     IODebugContext dbg;
-    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
-                           &dbg));
+    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(),
+                           &direct_io_context, &dbg));
 
     AssertResult(content, reqs);
 
@@ -276,10 +355,11 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     std::vector<FSReadRequest> reqs;
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
-    AlignedBuf aligned_buf;
+    AlignedBuffer direct_io_buffer;
+    AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
     IODebugContext dbg;
-    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
-                           &dbg));
+    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(),
+                           &direct_io_context, &dbg));
 
     AssertResult(content, reqs);
 
@@ -297,6 +377,71 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(RandomAccessFileReaderTest, MultiReadDirectIOUsesExternalBuffer) {
+  std::string fname = "multi-read-direct-io-external-buffer";
+  Random rand(0);
+  std::string content = rand.RandomString(3 * kDefaultPageSize);
+  Write(fname, content);
+
+  FileOptions opts;
+  opts.use_direct_reads = true;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+  ASSERT_TRUE(r->use_direct_io());
+
+  const size_t page_size = r->file()->GetRequiredBufferAlignment();
+  FSReadRequest r0;
+  r0.offset = page_size / 4;
+  r0.len = page_size / 2;
+  r0.scratch = nullptr;
+
+  FSReadRequest r1;
+  r1.offset = 2 * page_size + page_size / 4;
+  r1.len = page_size / 2;
+  r1.scratch = nullptr;
+
+  std::vector<FSReadRequest> reqs;
+  reqs.push_back(std::move(r0));
+  reqs.push_back(std::move(r1));
+
+  AlignedBuffer external_storage;
+  int allocations = 0;
+  size_t requested_size = 0;
+  size_t requested_alignment = 0;
+  AlignedBuffer::Allocator allocator =
+      [&](size_t size, size_t alignment,
+          AlignedBuffer::ExternalAllocation* out) {
+        ++allocations;
+        requested_size = size;
+        requested_alignment = alignment;
+        external_storage.Alignment(alignment);
+        external_storage.AllocateNewBuffer(size);
+        out->data = external_storage.BufferStart();
+        out->size = external_storage.Capacity();
+        out->owner =
+            FSAllocationPtr(external_storage.BufferStart(), [](void*) {});
+        return Status::OK();
+      };
+
+  AlignedBuffer direct_io_buffer;
+  AlignedBufferAllocationContext direct_io_context{&direct_io_buffer,
+                                                   &allocator};
+  ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(),
+                         &direct_io_context, /*dbg=*/nullptr));
+  AssertResult(content, reqs);
+
+  ASSERT_EQ(allocations, 1);
+  ASSERT_EQ(requested_alignment, page_size);
+  ASSERT_EQ(requested_size, 2 * page_size);
+  ASSERT_EQ(direct_io_buffer.BufferStart(), external_storage.BufferStart());
+  const char* storage_begin = external_storage.BufferStart();
+  const char* storage_end = storage_begin + external_storage.Capacity();
+  for (const auto& req : reqs) {
+    ASSERT_GE(req.result.data(), storage_begin);
+    ASSERT_LE(req.result.data() + req.result.size(), storage_end);
+  }
 }
 
 TEST(FSReadRequest, Align) {

@@ -33,6 +33,7 @@
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/aligned_buffer.h"
 #include "util/atomic.h"
 #include "util/cast_util.h"
 #include "util/coro_utils.h"
@@ -56,6 +57,55 @@ struct ReadOptions;
 class GetContext;
 
 using KVPairBlock = std::vector<std::pair<std::string, std::string>>;
+
+// Calls the provider and checks that a successful allocation returned a lease
+// satisfying RocksDB's size, alignment, data pointer, and cleanup contract.
+Status AllocateReadScopedBlockBuffer(
+    ReadScopedBlockBufferProvider& block_buffer_provider, size_t requested_size,
+    size_t requested_alignment, ReadScopedBlockBufferProvider::Lease* lease);
+
+// Allocates a read-scoped provider lease and exposes it as an AlignedBuffer
+// external allocation. The AlignedBuffer owner keeps a cleanup reference so the
+// provider allocation remains valid while direct I/O can write into it.
+Status AllocateReadScopedAlignedBuffer(
+    ReadScopedBlockBufferProvider& block_buffer_provider, size_t size,
+    size_t alignment, ReadScopedBlockBufferProvider::Lease* lease,
+    AlignedBuffer::ExternalAllocation* out);
+
+// Returns an allocator whose direct-I/O allocation comes from the read-scoped
+// provider. The caller must keep `lease` alive until the file reader
+// synchronously invokes the allocator.
+AlignedBuffer::Allocator MakeReadScopedAlignedBufferAllocator(
+    ReadScopedBlockBufferProviderRef block_buffer_provider,
+    ReadScopedBlockBufferProvider::Lease* lease);
+
+// Resolves the read-scoped provider configured for this read. Returns
+// std::nullopt when no provider is configured, or when mmap reads are enabled
+// because mmap file reads can ignore RocksDB-provided scratch buffers.
+ReadScopedBlockBufferProviderRef GetReadScopedBlockBufferProvider(
+    const ReadOptions& ro, bool allow_mmap_reads);
+
+// Centralizes the data-block cache decision for iterator and MultiScan paths.
+// A read-scoped provider skips data-block cache lookup and insertion because it
+// supplies alternate read-scope backing for supported data-block reads.
+bool ShouldUseDataBlockCacheForIterator(
+    const BlockBasedTableOptions& table_options, const ReadOptions& ro,
+    bool allow_mmap_reads);
+
+// Copies block bytes into RocksDB-owned heap storage and records that ownership
+// in BlockContents. `src` may include a block trailer while `data_size` is the
+// payload size.
+Status CopyBufferToHeapBlockContents(Slice src, size_t data_size,
+                                     MemoryAllocator* allocator,
+                                     BlockContents* out_contents);
+
+// Copies block bytes into read-scoped provider storage and records that
+// cleanup in BlockContents. `src` may include a block trailer while
+// `data_size` is the payload size.
+Status CopyBufferToReadScopedBlockContents(
+    Slice src, size_t data_size,
+    ReadScopedBlockBufferProvider& block_buffer_provider,
+    BlockContents* out_contents);
 
 // Reader class for BlockBasedTable format.
 // For the format of BlockBasedTable refer to
