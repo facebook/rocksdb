@@ -168,11 +168,20 @@ class SstFileWriter {
   Status DeleteRange(const Slice& begin_key, const Slice& end_key,
                      const Slice& timestamp);
 
-  // Finalize writing to sst file and close file.
+  // Finalize writing to sst file and close file. Calling Finish() with no
+  // argument simply finalizes the file.
   //
-  // An optional ExternalSstFileInfo pointer can be passed to the function
-  // which will be populated with information about the created sst file.
-  Status Finish(ExternalSstFileInfo* file_info = nullptr);
+  // If `file_info` is non-null, it is populated with human-readable information
+  // about the created sst file.
+  //
+  // If `prepared_file_info` is non-null, it receives an opaque owning handle
+  // describing the file. A borrowed pointer to it can be placed in
+  // IngestExternalFileArg::file_infos so ingestion reuses this metadata instead
+  // of re-opening and scanning the file; the handle must be kept alive until
+  // ingestion completes.
+  Status Finish(
+      ExternalSstFileInfo* file_info = nullptr,
+      std::shared_ptr<const PreparedFileInfo>* prepared_file_info = nullptr);
 
   // Return the current file size.
   uint64_t FileSize();

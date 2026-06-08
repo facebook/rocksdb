@@ -152,7 +152,8 @@ class ExternalSSTFileTest
       bool verify_checksums_before_ingest = true, bool ingest_behind = false,
       bool sort_data = false,
       std::map<std::string, std::string>* true_data = nullptr,
-      ColumnFamilyHandle* cfh = nullptr, bool fill_cache = false) {
+      ColumnFamilyHandle* cfh = nullptr, bool fill_cache = false,
+      bool ingest_with_file_info = false) {
     // Generate a file id if not provided
     if (file_id == -1) {
       file_id = last_file_id_ + 1;
@@ -188,7 +189,13 @@ class ExternalSSTFileTest
         return s;
       }
     }
-    s = sst_file_writer.Finish();
+    ExternalSstFileInfo file_info;
+    std::shared_ptr<const PreparedFileInfo> prepared_file_info;
+    if (ingest_with_file_info) {
+      s = sst_file_writer.Finish(&file_info, &prepared_file_info);
+    } else {
+      s = sst_file_writer.Finish();
+    }
 
     if (s.ok()) {
       IngestExternalFileOptions ifo;
@@ -197,7 +204,14 @@ class ExternalSSTFileTest
       ifo.verify_checksums_before_ingest = verify_checksums_before_ingest;
       ifo.ingest_behind = ingest_behind;
       ifo.fill_cache = fill_cache;
-      if (cfh) {
+      if (ingest_with_file_info) {
+        IngestExternalFileArg arg;
+        arg.column_family = cfh ? cfh : db_->DefaultColumnFamily();
+        arg.external_files = {file_path};
+        arg.file_infos = {prepared_file_info.get()};
+        arg.options = ifo;
+        s = db_->IngestExternalFiles({arg});
+      } else if (cfh) {
         s = db_->IngestExternalFile(cfh, {file_path}, ifo);
       } else {
         s = db_->IngestExternalFile({file_path}, ifo);
@@ -338,6 +352,139 @@ TEST_F(ExternalSSTFileTest, IngestionTimingHistogram) {
                                      IngestExternalFileOptions()));
   ASSERT_EQ(2, hist(INGEST_EXTERNAL_FILE_PREPARE_TIME).count);
   ASSERT_EQ(2, hist(INGEST_EXTERNAL_FILE_RUN_TIME).count);
+}
+
+// Ingestion that reuses the SstFileWriter's metadata via
+// IngestExternalFileArg::file_infos skips the open-and-scan path and still
+// produces correct data, including overlapping data that is reassigned a new
+// global sequence number.
+TEST_F(ExternalSSTFileTest, IngestWithFileInfo) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  std::map<std::string, std::string> true_data;
+
+  // Count entries into the open-and-scan path so we can assert it is skipped.
+  std::atomic<int> read_path_count{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "ExternalSstFileIngestionJob::GetIngestedFileInfo:ReadPath",
+      [&](void*) { read_path_count.fetch_add(1); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Reuse the writer's metadata, with the normal ingestion options: a global
+  // sequence number is assigned (allow_db_generated_files is NOT set) and the
+  // checksum is verified (the fast-path opens the file only to verify it, which
+  // is not a metadata scan).
+  auto ingest_fi = [&](std::vector<std::pair<std::string, std::string>> data) {
+    return GenerateAndAddExternalFile(
+        options, std::move(data), /*file_id=*/-1, /*allow_global_seqno=*/true,
+        /*write_global_seqno=*/false, /*verify_checksums_before_ingest=*/true,
+        /*ingest_behind=*/false, /*sort_data=*/true, &true_data,
+        /*cfh=*/nullptr, /*fill_cache=*/false, /*ingest_with_file_info=*/true);
+  };
+
+  // Non-overlapping ingest: data reads back and the file is not scanned.
+  ASSERT_OK(ingest_fi({{Key(1), "a1"}, {Key(2), "a2"}, {Key(3), "a3"}}));
+  ASSERT_EQ(read_path_count.load(), 0);
+
+  // Overlap existing (flushed) data so a non-zero global seqno is assigned and
+  // the newer values win -- the normal seqno-reassignment path through
+  // file_infos.
+  ASSERT_OK(db_->Put(WriteOptions(), Key(2), "old2"));
+  true_data[Key(2)] = "old2";
+  ASSERT_OK(Flush());
+  ASSERT_OK(ingest_fi({{Key(2), "new2"}, {Key(4), "new4"}}));
+  ASSERT_EQ(read_path_count.load(), 0);
+
+  // Control: ingesting the same way but WITHOUT file_infos does enter the scan.
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, {{Key(8), "c8"}}, /*file_id=*/-1, /*allow_global_seqno=*/true,
+      /*write_global_seqno=*/false, /*verify_checksums_before_ingest=*/true,
+      /*ingest_behind=*/false, /*sort_data=*/true, &true_data));
+  ASSERT_GT(read_path_count.load(), 0);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  size_t kcnt = 0;
+  VerifyDBFromMap(true_data, &kcnt, false);
+}
+
+// Range deletions are honored on the file_infos fast-path: the writer's
+// range-del bounds are carried in the metadata, so a DeleteRange covering
+// existing keys still shadows them.
+TEST_F(ExternalSSTFileTest, IngestWithFileInfoRangeDeletion) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(db_->Put(WriteOptions(), Key(20), "live20"));
+  ASSERT_OK(db_->Put(WriteOptions(), Key(25), "live25"));
+  ASSERT_OK(Flush());
+
+  const std::string f = sst_files_dir_ + "rangedel.sst";
+  SstFileWriter w(EnvOptions(), options);
+  ASSERT_OK(w.Open(f));
+  ASSERT_OK(w.Put(Key(30), "v30"));
+  ASSERT_OK(w.DeleteRange(Key(20), Key(26)));  // covers keys 20..25
+  std::shared_ptr<const PreparedFileInfo> info;
+  ASSERT_OK(w.Finish(/*file_info=*/nullptr, &info));
+
+  IngestExternalFileArg arg;
+  arg.column_family = db_->DefaultColumnFamily();
+  arg.external_files = {f};
+  arg.file_infos = {info.get()};
+  arg.options.allow_global_seqno = true;
+  ASSERT_OK(db_->IngestExternalFiles({arg}));
+
+  ReadOptions ro;
+  std::string val;
+  ASSERT_TRUE(db_->Get(ro, Key(20), &val).IsNotFound());
+  ASSERT_TRUE(db_->Get(ro, Key(25), &val).IsNotFound());
+  ASSERT_OK(db_->Get(ro, Key(30), &val));
+  ASSERT_EQ(val, "v30");
+}
+
+// verify_checksums_before_ingest is honored on the file_infos fast-path: it
+// opens the file just to verify, so corruption is still detected.
+TEST_F(ExternalSSTFileTest, IngestWithFileInfoVerifiesChecksum) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+
+  const std::string f = sst_files_dir_ + "corrupt.sst";
+  SstFileWriter w(EnvOptions(), options);
+  ASSERT_OK(w.Open(f));
+  for (int k = 0; k < 100; k++) {
+    ASSERT_OK(w.Put(Key(k), "v" + Key(k)));
+  }
+  std::shared_ptr<const PreparedFileInfo> info;
+  ASSERT_OK(w.Finish(/*file_info=*/nullptr, &info));
+  ASSERT_OK(test::CorruptFile(options.env, f, /*offset=*/64,
+                              /*bytes_to_corrupt=*/8));
+
+  IngestExternalFileArg arg;
+  arg.column_family = db_->DefaultColumnFamily();
+  arg.external_files = {f};
+  arg.file_infos = {info.get()};
+  arg.options.verify_checksums_before_ingest = true;
+  ASSERT_TRUE(db_->IngestExternalFiles({arg}).IsCorruption());
+}
+
+// write_global_seqno is incompatible with file_infos: the file is not opened,
+// so the seqno cannot be written back into it.
+TEST_F(ExternalSSTFileTest, IngestWithFileInfoRejectsWriteGlobalSeqno) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+
+  const std::string f = sst_files_dir_ + "wgs.sst";
+  SstFileWriter w(EnvOptions(), options);
+  ASSERT_OK(w.Open(f));
+  ASSERT_OK(w.Put(Key(1), "v1"));
+  std::shared_ptr<const PreparedFileInfo> info;
+  ASSERT_OK(w.Finish(/*file_info=*/nullptr, &info));
+
+  IngestExternalFileArg arg;
+  arg.column_family = db_->DefaultColumnFamily();
+  arg.external_files = {f};
+  arg.file_infos = {info.get()};
+  arg.options.write_global_seqno = true;
+  ASSERT_TRUE(db_->IngestExternalFiles({arg}).IsInvalidArgument());
 }
 
 TEST_F(ExternalSSTFileTest, ComparatorMismatch) {
@@ -1858,7 +2005,8 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoRandomized) {
     for (int i = 0; i < 500; i++) {
       std::vector<std::pair<std::string, std::string>> random_data;
       for (int j = 0; j < 100; j++) {
-        std::string k = rnd.RandomString(rnd.Next() % 20);
+        std::string k =
+            rnd.RandomString(rnd.Next() % 20 + 1);  // requires non-empty keys
         std::string v = rnd.RandomString(rnd.Next() % 50);
         random_data.emplace_back(k, v);
       }

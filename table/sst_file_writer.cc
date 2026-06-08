@@ -15,6 +15,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_builder.h"
+#include "table/prepared_file_info.h"
 #include "table/sst_file_writer_collectors.h"
 #include "test_util/sync_point.h"
 
@@ -57,6 +58,11 @@ struct SstFileWriter::Rep {
   WriteOptions write_options;
   InternalKeyComparator internal_comparator;
   ExternalSstFileInfo file_info;
+  // Encoded internal keys of the smallest/largest point key, tracked here (not
+  // on the public ExternalSstFileInfo) so a PreparedFileInfo can be built.
+  // Empty when the file has no point keys.
+  std::string smallest_internal_key;
+  std::string largest_internal_key;
   InternalKey ikey;
   std::string column_family_name;
   ColumnFamilyHandle* cfh;
@@ -124,8 +130,15 @@ struct SstFileWriter::Rep {
     builder->Add(ikey.Encode(), value);
 
     // update file info
+    Slice encoded_ikey = ikey.Encode();
+    if (file_info.num_entries == 0) {
+      smallest_internal_key.assign(encoded_ikey.data(), encoded_ikey.size());
+    }
     file_info.num_entries++;
     file_info.largest_key.assign(user_key.data(), user_key.size());
+    // Keys are added in strictly increasing order, so the last point key is the
+    // largest.
+    largest_internal_key.assign(encoded_ikey.data(), encoded_ikey.size());
     file_info.file_size = builder->FileSize();
 
     InvalidatePageCache(false /* closing */).PermitUncheckedError();
@@ -436,6 +449,8 @@ Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
   r->file_info = ExternalSstFileInfo();
   r->file_info.file_path = file_path;
   r->file_info.version = 2;
+  r->smallest_internal_key.clear();
+  r->largest_internal_key.clear();
   return s;
 }
 
@@ -476,7 +491,9 @@ Status SstFileWriter::DeleteRange(const Slice& begin_key, const Slice& end_key,
   return rep_->DeleteRange(begin_key, end_key, timestamp);
 }
 
-Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
+Status SstFileWriter::Finish(
+    ExternalSstFileInfo* file_info,
+    std::shared_ptr<const PreparedFileInfo>* prepared_file_info) {
   Rep* r = rep_.get();
   if (!r->builder) {
     return Status::InvalidArgument("File is not opened");
@@ -484,12 +501,15 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   if (r->file_info.num_entries == 0 &&
       r->file_info.num_range_del_entries == 0) {
     r->builder->status().PermitUncheckedError();
+    // Leave the builder intact; ~SstFileWriter will Abandon() it.
     return Status::InvalidArgument("Cannot create sst file with no entries");
   }
 
+  // Finalize the table builder and underlying file. The builder is reset only
+  // at the end of this function, so its table properties stay readable for
+  // prepared_file_info below.
   Status s = r->builder->Finish();
   r->file_info.file_size = r->builder->FileSize();
-
   IOOptions opts;
   if (s.ok()) {
     s = WritableFileWriter::PrepareIOOptions(r->write_options, opts);
@@ -539,6 +559,44 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
                                                 r->ts_sz);
       }
     }
+  }
+
+  if (s.ok() && prepared_file_info != nullptr) {
+    auto prepared = std::make_shared<PreparedFileInfo>();
+    prepared->file_size = r->file_info.file_size;
+    prepared->table_properties = r->builder->GetTableProperties();
+    prepared->smallest_internal_key = r->smallest_internal_key;
+    prepared->largest_internal_key = r->largest_internal_key;
+    prepared->smallest_range_del_key = r->file_info.smallest_range_del_key;
+    prepared->largest_range_del_key = r->file_info.largest_range_del_key;
+    // Strip user-defined timestamps when they should not be persisted, so the
+    // boundaries match the format the open-and-scan ingestion path produces.
+    if (r->strip_timestamp) {
+      if (!prepared->smallest_internal_key.empty()) {
+        assert(prepared->smallest_internal_key.size() >=
+               kNumInternalBytes + r->ts_sz);
+        assert(prepared->largest_internal_key.size() >=
+               kNumInternalBytes + r->ts_sz);
+        // The timestamp sits just before the 8-byte internal-key footer.
+        prepared->smallest_internal_key.erase(
+            prepared->smallest_internal_key.size() - kNumInternalBytes -
+                r->ts_sz,
+            r->ts_sz);
+        prepared->largest_internal_key.erase(
+            prepared->largest_internal_key.size() - kNumInternalBytes -
+                r->ts_sz,
+            r->ts_sz);
+      }
+      if (!prepared->smallest_range_del_key.empty()) {
+        assert(prepared->smallest_range_del_key.size() >= r->ts_sz);
+        assert(prepared->largest_range_del_key.size() >= r->ts_sz);
+        prepared->smallest_range_del_key.resize(
+            prepared->smallest_range_del_key.size() - r->ts_sz);
+        prepared->largest_range_del_key.resize(
+            prepared->largest_range_del_key.size() - r->ts_sz);
+      }
+    }
+    *prepared_file_info = std::move(prepared);
   }
 
   r->builder.reset();
