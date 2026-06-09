@@ -1427,8 +1427,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_set_options(rocksdb_t* db, int count,
                                                     char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_db_options(
-    rocksdb_t* db, int count, const char* const opt_keys[],
-    const char* const opt_values[], char** errptr);
+    rocksdb_t* db, int count, const char* const keys[],
+    const char* const values[], char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_options_cf(
     rocksdb_t* db, rocksdb_column_family_handle_t* handle, int count,
