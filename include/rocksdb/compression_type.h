@@ -191,13 +191,15 @@ struct CompressionOptions {
   // compression ratio or have no effect.
   //
   // LZ4 and LZ4HC share one on-disk format, so they expose a single monotonic
-  // `level` axis: `level < 0` selects LZ4 fast with `acceleration = -level`
-  // (e.g. -10 means acceleration 10), and `level >= 1` selects LZ4HC at that
-  // level (1..12). The configured type (kLZ4Compression vs kLZ4HCCompression)
-  // only sets the default `level` and the compression type byte recorded per
-  // block. Defaults are acceleration 1 (level -1) for LZ4 and level 9 for
-  // LZ4HC. Out-of-range levels are clamped to the nearest effective value:
-  // below -65537 acts like -65537 (max acceleration) and above 12 like 12.
+  // `level` axis: `level <= 0` selects LZ4 fast with `acceleration = -level`
+  // (e.g. -10 means acceleration 10, 0 is clamped to minimum acceleration 1),
+  // and `level >= 1` selects LZ4HC at that level (1..12). The configured type
+  // (kLZ4Compression vs kLZ4HCCompression) only sets the default `level` and
+  // the compression type byte recorded per block. Defaults are acceleration 1
+  // (level -1) for LZ4 and level 9 for LZ4HC. Levels outside the
+  // algorithm-recognized ranges are clamped to the nearest effective value:
+  // below -65537 acts like -65537 (max acceleration) and above 12 like 12 (max
+  // compression effort).
   //
   // For ZSTD (the other generally recommended compression alongside LZ4),
   // `level` follows zstd's own scale, where higher values trade more CPU for a

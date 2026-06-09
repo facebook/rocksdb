@@ -3045,7 +3045,8 @@ class Benchmark {
     auto compressor = GetBuiltinV2CompressionManager()->GetCompressor(
         opts, FLAGS_compression_type_e);
     if (compressor &&
-        compressor->GetPreferredCompressionType() != FLAGS_compression_type_e) {
+        CanonicalCompressionType(compressor->GetPreferredCompressionType()) !=
+            CanonicalCompressionType(FLAGS_compression_type_e)) {
       // For benchmarking, don't fall back on a different compression type
       compressor.reset();
     }

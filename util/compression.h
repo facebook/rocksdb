@@ -538,6 +538,18 @@ inline bool ZSTD_FinalizeDictionarySupported() {
 #endif
 }
 
+// Use to check whether compression types are related or unrelated
+inline CompressionType CanonicalCompressionType(CompressionType type) {
+  switch (type) {
+    // Configuring LZ4 or LZ4HC can result in using the other, depending on
+    // compression level.
+    case kLZ4HCCompression:
+      return kLZ4Compression;
+    default:
+      return type;
+  }
+}
+
 // The new compression APIs intentionally make it difficult to generate
 // compressed data larger than the original. (It is better to store the
 // uncompressed version in that case.) For legacy cases that must store

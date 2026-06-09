@@ -811,12 +811,7 @@ class BuiltinLZ4CompressorV2WithDict : public CompressorWithSimpleDictBase {
       LZ4_loadDict(stream, dict_data_.data(),
                    static_cast<int>(dict_data_.size()));
     }
-    int acceleration;
-    if (opts_.level < 0) {
-      acceleration = LZ4AccelerationFromLevel(opts_.level);
-    } else {
-      acceleration = 1;
-    }
+    int acceleration = LZ4AccelerationFromLevel(opts_.level);
     auto outlen = LZ4_compress_fast_continue(
         stream, uncompressed_data.data(), alg_output,
         static_cast<int>(uncompressed_data.size()),
@@ -844,16 +839,19 @@ class BuiltinLZ4CompressorV2WithDict : public CompressorWithSimpleDictBase {
   }
 
  protected:
-  // Translates a negative `level` to an LZ4 "acceleration" value (= -level),
-  // clamped to the maximum effective acceleration. The clamp avoids signed
-  // overflow when negating INT_MIN and reflects that lz4 internally caps
+  // Translates a non-positive `level` to an LZ4 "acceleration" value (=
+  // -level), clamped to the maximum effective acceleration. The clamp avoids
+  // signed overflow when negating INT_MIN and reflects that lz4 internally caps
   // acceleration at LZ4_ACCELERATION_MAX (currently 65537; not exposed by
   // lz4.h).
   [[maybe_unused]] static int LZ4AccelerationFromLevel(int level) {
-    assert(level < 0);
+    assert(level <= 0);
     constexpr int kLZ4MaxAcceleration = 65537;  // == LZ4_ACCELERATION_MAX
     if (level <= -kLZ4MaxAcceleration) {
       return kLZ4MaxAcceleration;
+    }
+    if (level >= 0) {
+      return 1;
     }
     return -level;
   }
@@ -897,12 +895,7 @@ class BuiltinLZ4CompressorV2NoDict final
       *out_compression_type = kNoCompression;
       return Status::OK();
     }
-    int acceleration;
-    if (opts_.level < 0) {
-      acceleration = LZ4AccelerationFromLevel(opts_.level);
-    } else {
-      acceleration = 1;
-    }
+    int acceleration = LZ4AccelerationFromLevel(opts_.level);
     auto outlen =
         LZ4_compress_fast(uncompressed_data.data(), alg_output,
                           static_cast<int>(uncompressed_data.size()),
