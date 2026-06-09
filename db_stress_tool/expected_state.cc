@@ -1112,8 +1112,13 @@ Status FileExpectedStateManager::Restore(DB* db) {
   }
 
   std::unique_ptr<TraceReader> trace_reader;
-  Status s = NewFileTraceReader(Env::Default(), EnvOptions(), trace_file_path,
-                                &trace_reader);
+  Status s = Status::OK();
+  // If the DB recovered exactly to `saved_seqno_`, skip opening/replaying the
+  // trace and reuse the normal state promotion and cleanup flow below.
+  if (replay_write_ops > 0) {
+    s = NewFileTraceReader(Env::Default(), EnvOptions(), trace_file_path,
+                           &trace_reader);
+  }
 
   std::string persisted_seqno_file_path = GetPathForFilename(
       kPersistedSeqnoBasename + kPersistedSeqnoFilenameSuffix);
@@ -1144,7 +1149,7 @@ Status FileExpectedStateManager::Restore(DB* db) {
                                         num_column_families_));
       s = state->Open(false /* create */);
     }
-    if (s.ok()) {
+    if (s.ok() && replay_write_ops > 0) {
       handler.reset(new ExpectedStateTraceRecordHandler(seqno - saved_seqno_,
                                                         state.get()));
       // TODO(ajkr): An API limitation requires we provide `handles` although
@@ -1154,10 +1159,10 @@ Status FileExpectedStateManager::Restore(DB* db) {
                                  std::move(trace_reader), &replayer);
     }
 
-    if (s.ok()) {
+    if (s.ok() && replay_write_ops > 0) {
       s = replayer->Prepare();
     }
-    for (; s.ok();) {
+    for (; s.ok() && replay_write_ops > 0;) {
       std::unique_ptr<TraceRecord> record;
       s = replayer->Next(&record);
       if (!s.ok()) {
@@ -1186,7 +1191,7 @@ Status FileExpectedStateManager::Restore(DB* db) {
       std::unique_ptr<TraceRecordResult> res;
       s = record->Accept(handler.get(), &res);
     }
-    if (s.ok() && !handler->IsDone()) {
+    if (s.ok() && replay_write_ops > 0 && !handler->IsDone()) {
       s = Status::Corruption(
           "Trace ended before replaying all expected write ops",
           std::to_string(handler->NumWriteOps()) + " < " +
