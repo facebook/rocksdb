@@ -4242,8 +4242,7 @@ void rocksdb_set_options(rocksdb_t* db, int count, const char* const keys[],
   SaveError(errptr, db->rep->SetOptions(options_map));
 }
 
-void rocksdb_set_db_options(rocksdb_t* db, int count,
-                            const char* const keys[],
+void rocksdb_set_db_options(rocksdb_t* db, int count, const char* const keys[],
                             const char* const values[], char** errptr) {
   std::unordered_map<std::string, std::string> options_map;
   for (int i = 0; i < count; i++) {
