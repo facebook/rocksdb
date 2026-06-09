@@ -2693,6 +2693,71 @@ TEST_F(DBCompressionTest, UnifiedLZ4LZ4HCLevels) {
   }
 }
 
+TEST_F(DBCompressionTest, ZSTDLevelZeroMapsToMinusOne) {
+  // ZSTD itself treats a requested compression level of 0 as "use the default
+  // level" (historically 3). That makes level 0 a discontinuity in the
+  // otherwise monotonic level spectrum: it would compress more strongly than
+  // levels -1, -2, etc. RocksDB instead maps level 0 to -1 so the spectrum is
+  // continuous, which is friendlier to auto-tuning. Verify that level 0
+  // compresses identically to level -1 and differently from level 3 (the ZSTD
+  // default).
+  auto mgr = GetBuiltinV2CompressionManager();
+  if (!mgr->SupportsCompressionType(kZSTD)) {
+    ROCKSDB_GTEST_SKIP("ZSTD not supported");
+    return;
+  }
+  auto decompressor = mgr->GetDecompressor();
+
+  // Semi-compressible input large enough that nearby ZSTD levels (-1 vs 3)
+  // produce different output.
+  Random rnd(301);
+  std::string input;
+  for (int i = 0; i < 2000; i++) {
+    input.append(rnd.RandomString(16));
+    input.append(8, 'x');
+  }
+
+  auto compress_one = [&](int level, std::string* out) {
+    CompressionOptions opts;
+    opts.level = level;
+    auto compressor = mgr->GetCompressor(opts, kZSTD);
+    ASSERT_NE(compressor, nullptr);
+    out->resize(input.size() * 2 + 1024);
+    size_t out_size = out->size();
+    CompressionType type_out = kNoCompression;
+    ASSERT_OK(compressor->CompressBlock(input, out->data(), &out_size,
+                                        &type_out, nullptr));
+    ASSERT_EQ(type_out, kZSTD);
+    out->resize(out_size);
+  };
+
+  auto round_trip = [&](const std::string& compressed) {
+    Decompressor::Args args;
+    args.compression_type = kZSTD;
+    args.compressed_data = Slice(compressed);
+    ASSERT_OK(decompressor->ExtractUncompressedSize(args));
+    std::string uncompressed;
+    uncompressed.resize(args.uncompressed_size);
+    ASSERT_OK(decompressor->DecompressBlock(args, uncompressed.data()));
+    ASSERT_EQ(uncompressed, input);
+  };
+
+  std::string out_level0;
+  std::string out_level_minus1;
+  std::string out_level3;
+  compress_one(0, &out_level0);
+  compress_one(-1, &out_level_minus1);
+  compress_one(3, &out_level3);
+
+  // Level 0 behaves like level -1, not like the ZSTD default (3).
+  ASSERT_EQ(out_level0, out_level_minus1);
+  ASSERT_NE(out_level0, out_level3);
+
+  round_trip(out_level0);
+  round_trip(out_level_minus1);
+  round_trip(out_level3);
+}
+
 TEST_F(DBCompressionTest, ConfiguredCompressionTypeRecordedInProperties) {
   // The configured compression type is recorded as a `_type=<decimal>`
   // pseudo-option in the SST `rocksdb.compression_options` table property, so

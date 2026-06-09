@@ -355,10 +355,7 @@ std::string ZSTD_FinalizeDictionary(const std::string& samples,
   if (samples.empty()) {
     return "";
   }
-  if (level == CompressionOptions::kDefaultCompressionLevel) {
-    // NB: ZSTD_CLEVEL_DEFAULT is historically == 3
-    level = ZSTD_CLEVEL_DEFAULT;
-  }
+  level = SanitizeZSTDCompressionLevel(level);
   std::string dict_data(max_dict_bytes, '\0');
   size_t dict_len = ZDICT_finalizeDictionary(
       dict_data.data(), max_dict_bytes, samples.data(),
@@ -845,7 +842,7 @@ class BuiltinLZ4CompressorV2WithDict : public CompressorWithSimpleDictBase {
   // acceleration at LZ4_ACCELERATION_MAX (currently 65537; not exposed by
   // lz4.h).
   [[maybe_unused]] static int LZ4AccelerationFromLevel(int level) {
-    assert(level <= 0);
+    assert(level <= 0 || level == CompressionOptions::kDefaultCompressionLevel);
     constexpr int kLZ4MaxAcceleration = 65537;  // == LZ4_ACCELERATION_MAX
     if (level <= -kLZ4MaxAcceleration) {
       return kLZ4MaxAcceleration;
@@ -1113,11 +1110,7 @@ class BuiltinZSTDCompressorV2 final : public CompressorBase {
 #else   // ROCKSDB_ZSTD_CUSTOM_MEM
         ZSTD_createCCtx();
 #endif  // ROCKSDB_ZSTD_CUSTOM_MEM
-    auto level = opts_.level;
-    if (level == CompressionOptions::kDefaultCompressionLevel) {
-      // NB: ZSTD_CLEVEL_DEFAULT is historically == 3
-      level = ZSTD_CLEVEL_DEFAULT;
-    }
+    int level = SanitizeZSTDCompressionLevel(opts_.level);
     size_t err = ZSTD_CCtx_setParameter(ctx, ZSTD_c_compressionLevel, level);
     if (ZSTD_isError(err)) {
       assert(false);
