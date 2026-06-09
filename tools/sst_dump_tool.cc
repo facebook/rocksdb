@@ -108,6 +108,10 @@ void print_help(bool to_stderr) {
       Used with --command=recompress to specify whether to compress index
       blocks (in addition to data blocks).
 
+    --verify_compression=<bool>
+      Used with --command=recompress to specify whether to verify that
+      decompressing the compressed block gives back the input.
+
     --parse_internal_key=<0xKEY>
       Convenience option to parse an internal key on the command line. Dumps the
       internal key in hex format {'key' @ SN: type}
@@ -131,6 +135,8 @@ void print_help(bool to_stderr) {
 
     --compression_parallel_threads=<uint32_t>
       Number of parallel threads to use with --command=recompress
+      NOTE: known *fast* compression configurations can quietly override this setting
+      to non-parallel, for efficiency
 
     --compression_use_zstd_finalize_dict
       Use zstd's finalizeDictionary() API instead of zstd's dictionary trainer to generate dictionary.
@@ -206,6 +212,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   std::shared_ptr<CompressionManager> compression_manager;
   bool enable_index_compression =
       BlockBasedTableOptions{}.enable_index_compression;
+  bool verify_compression = BlockBasedTableOptions{}.verify_compression;
   uint64_t total_num_files = 0;
   uint64_t total_num_data_blocks = 0;
   uint64_t total_data_block_size = 0;
@@ -315,6 +322,11 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       if (strlen(argv[i]) > 27) {
         enable_index_compression =
             argv[i][27] == '1' || argv[i][27] == 't' || argv[i][27] == 'T';
+      }
+    } else if (strncmp(argv[i], "--verify_compression=", 21) == 0) {
+      if (strlen(argv[i]) > 21) {
+        verify_compression =
+            argv[i][21] == '1' || argv[i][21] == 't' || argv[i][21] == 'T';
       }
     } else if (strncmp(argv[i], "--parse_internal_key=", 21) == 0) {
       std::string in_key(argv[i] + 21);
@@ -522,6 +534,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       }
       bbto.block_size = block_size;
       bbto.enable_index_compression = enable_index_compression;
+      bbto.verify_compression = verify_compression;
       // Maximize compression features available
       bbto.format_version = kLatestBbtFormatVersion;
       options.table_factory = std::make_shared<BlockBasedTableFactory>(bbto);

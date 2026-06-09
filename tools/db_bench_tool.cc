@@ -1464,7 +1464,9 @@ DEFINE_int32(min_level_to_compress, -1,
              "all levels.");
 
 DEFINE_int32(compression_parallel_threads, 1,
-             "Number of threads for parallel compression.");
+             "Number of threads for parallel compression. NOTE: known *fast* "
+             "compression configurations can quietly override this setting to "
+             "non-parallel, for efficiency");
 
 DEFINE_uint64(compression_max_dict_buffer_bytes,
               ROCKSDB_NAMESPACE::CompressionOptions().max_dict_buffer_bytes,
