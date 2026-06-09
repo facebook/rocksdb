@@ -3,7 +3,8 @@
 
 Synopsis:
   python3 tools/gtest_parallel_repro.py --binary ./env_test \\
-      --gtest_filter='*ReserveThreads*' --jobs 100 --batches 100
+      --gtest_filter='*ReserveThreads*' --processes-per-iteration 100 \\
+      --iteration-count 100
 
 This tool is for flaky tests that do not reproduce with a single-process
 `--gtest_repeat` loop. Some RocksDB tests only fail when their process competes
@@ -37,24 +38,12 @@ ASSERT_RE = re.compile(r"Assertion `([^`]+)' failed\.")
 HELP_EPILOG = """\
 Examples:
   python3 tools/gtest_parallel_repro.py --binary ./env_test \\
-      --gtest_filter='*ReserveThreads*' --jobs 100 --batches 100 --cpu-count 8
+      --gtest_filter='*ReserveThreads*' --processes-per-iteration 100 \\
+      --iteration-count 100 --cpu-count 8
 
   python3 tools/gtest_parallel_repro.py --binary ./env_test \\
-      --gtest_filter='*ReserveThreads*' --jobs 32 --batches 50 --build \\
-      --coerce-context-switch --make-arg=-j40
-
-What this adds over gtest-parallel -r:
-  - It starts fresh OS processes for each run instead of repeating tests inside
-    one long-lived process.
-  - Each process gets an isolated TEST_TMPDIR, which avoids accidental DB path
-    sharing while preserving process-level contention.
-  - The whole batch can be pinned to a small CPU set to create scheduler
-    pressure similar to a busy CI host.
-  - The output keeps one log per process plus a failure histogram, so repeated
-    failures can be grouped quickly.
-  - With --build --coerce-context-switch, the same entry point can rebuild with
-    RocksDB's compile-time COERCE_CONTEXT_SWITCH hooks before running the
-    process-level repro loop.
+      --gtest_filter='*ReserveThreads*' --processes-per-iteration 32 \\
+      --iteration-count 50 --build --coerce-context-switch --make-arg=-j40
 """
 
 
@@ -196,115 +185,163 @@ def write_jsonl(path: Path, records: Iterable[Dict[str, object]]) -> None:
             fh.write(json.dumps(record, sort_keys=True) + "\n")
 
 
-def run_batch(
+def launch_process(
+    cmd: List[str],
+    base_env: Dict[str, str],
+    run_dir: Path,
+    proc_index: int,
+) -> Dict[str, Any]:
+    tmp_dir = run_dir / "tmp"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    log_path = run_dir / "log.txt"
+    env = base_env.copy()
+    env["TEST_TMPDIR"] = str(tmp_dir)
+    log_fh = log_path.open("w")
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            env=env,
+            start_new_session=True,
+        )
+    except BaseException:
+        log_fh.close()
+        raise
+    return {
+        "proc": proc,
+        "proc_index": proc_index,
+        "run_dir": run_dir,
+        "log_path": log_path,
+        "log_fh": log_fh,
+        "start": time.monotonic(),
+        "timed_out": False,
+    }
+
+
+def launch_iteration_processes(
     args: argparse.Namespace,
-    batch: int,
+    iteration_dir: Path,
+    cmd: List[str],
+    base_env: Dict[str, str],
+) -> List[Dict[str, Any]]:
+    processes: List[Dict[str, Any]] = []
+    try:
+        for proc_index in range(1, args.processes_per_iteration + 1):
+            processes.append(
+                launch_process(
+                    cmd,
+                    base_env,
+                    iteration_dir / f"proc_{proc_index:04d}",
+                    proc_index,
+                )
+            )
+    except BaseException:
+        terminate_processes(processes)
+        close_log_handles(processes)
+        raise
+    return processes
+
+
+def monitor_processes(processes: List[Dict[str, Any]], timeout: int) -> None:
+    remaining = set(range(len(processes)))
+    while remaining:
+        now = time.monotonic()
+        for index in list(remaining):
+            proc = processes[index]["proc"]
+            assert isinstance(proc, subprocess.Popen)
+            if proc.poll() is not None:
+                processes[index]["end"] = time.monotonic()
+                remaining.remove(index)
+                continue
+            elapsed = now - float(processes[index]["start"])
+            if elapsed > timeout:
+                processes[index]["timed_out"] = True
+                terminate_process(proc)
+                processes[index]["end"] = time.monotonic()
+                remaining.remove(index)
+        if remaining:
+            time.sleep(0.05)
+
+
+def collect_process_result(
+    info: Dict[str, Any],
+    iteration: int,
+    keep_success_artifacts: bool,
+) -> Tuple[Optional[Dict[str, object]], Dict[str, int]]:
+    log_fh = info["log_fh"]
+    assert hasattr(log_fh, "close")
+    log_fh.close()
+    proc = info["proc"]
+    assert isinstance(proc, subprocess.Popen)
+    timed_out = bool(info["timed_out"])
+    log_path = Path(info["log_path"])
+    run_dir = Path(info["run_dir"])
+    elapsed = float(info.get("end", time.monotonic())) - float(info["start"])
+    if not timed_out and proc.returncode == 0:
+        if not keep_success_artifacts:
+            shutil.rmtree(run_dir)
+        return None, {}
+
+    keys = extract_failure_keys(log_path)
+    histogram = {key: keys.count(key) for key in set(keys)}
+    return (
+        {
+            "iteration": iteration,
+            "proc": info["proc_index"],
+            "returncode": "TIMEOUT" if timed_out else proc.returncode,
+            "elapsed_sec": round(elapsed, 3),
+            "log": str(log_path),
+            "failure_keys": keys,
+        },
+        histogram,
+    )
+
+
+def collect_iteration_results(
+    processes: List[Dict[str, Any]],
+    iteration: int,
+    keep_success_artifacts: bool,
+) -> Tuple[List[Dict[str, object]], Dict[str, int]]:
+    failures: List[Dict[str, object]] = []
+    histogram: Dict[str, int] = {}
+    for info in processes:
+        failure, process_histogram = collect_process_result(
+            info, iteration, keep_success_artifacts
+        )
+        if failure is not None:
+            failures.append(failure)
+        for key, count in process_histogram.items():
+            histogram[key] = histogram.get(key, 0) + count
+    return failures, histogram
+
+
+def run_iteration(
+    args: argparse.Namespace,
+    iteration: int,
     out_dir: Path,
     cmd: List[str],
     base_env: Dict[str, str],
 ) -> Tuple[List[Dict[str, object]], Dict[str, int]]:
     processes: List[Dict[str, Any]] = []
-    batch_dir = out_dir / f"batch_{batch:04d}"
-    batch_dir.mkdir(parents=True, exist_ok=True)
+    iteration_dir = out_dir / f"iteration_{iteration:04d}"
+    iteration_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        for proc_index in range(1, args.jobs + 1):
-            run_dir = batch_dir / f"proc_{proc_index:04d}"
-            tmp_dir = run_dir / "tmp"
-            run_dir.mkdir(parents=True, exist_ok=True)
-            tmp_dir.mkdir(parents=True, exist_ok=True)
-            log_path = run_dir / "log.txt"
-            env = base_env.copy()
-            env["TEST_TMPDIR"] = str(tmp_dir)
-            log_fh = log_path.open("w")
-            try:
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=log_fh,
-                    stderr=subprocess.STDOUT,
-                    env=env,
-                    start_new_session=True,
-                )
-            except BaseException:
-                log_fh.close()
-                raise
-            processes.append(
-                {
-                    "proc": proc,
-                    "proc_index": proc_index,
-                    "run_dir": run_dir,
-                    "log_path": log_path,
-                    "log_fh": log_fh,
-                    "start": time.monotonic(),
-                    "timed_out": False,
-                }
-            )
-
-        remaining = set(range(len(processes)))
-        while remaining:
-            now = time.monotonic()
-            for index in list(remaining):
-                proc = processes[index]["proc"]
-                assert isinstance(proc, subprocess.Popen)
-                if proc.poll() is not None:
-                    processes[index]["end"] = time.monotonic()
-                    remaining.remove(index)
-                    continue
-                elapsed = now - float(processes[index]["start"])
-                if elapsed > args.timeout:
-                    processes[index]["timed_out"] = True
-                    terminate_process(proc)
-                    processes[index]["end"] = time.monotonic()
-                    remaining.remove(index)
-            if remaining:
-                time.sleep(0.05)
+        processes = launch_iteration_processes(args, iteration_dir, cmd, base_env)
+        monitor_processes(processes, args.timeout)
     except BaseException:
         terminate_processes(processes)
         close_log_handles(processes)
         raise
 
-    failures: List[Dict[str, object]] = []
-    histogram: Dict[str, int] = {}
-    for info in processes:
-        log_fh = info["log_fh"]
-        assert hasattr(log_fh, "close")
-        log_fh.close()
-        proc = info["proc"]
-        assert isinstance(proc, subprocess.Popen)
-        rc = proc.returncode
-        timed_out = bool(info["timed_out"])
-        log_path = Path(info["log_path"])
-        run_dir = Path(info["run_dir"])
-        elapsed = float(info.get("end", time.monotonic())) - float(info["start"])
-        if timed_out or rc != 0:
-            keys = extract_failure_keys(log_path)
-            for key in keys:
-                histogram[key] = histogram.get(key, 0) + 1
-            failures.append(
-                {
-                    "batch": batch,
-                    "proc": info["proc_index"],
-                    "returncode": "TIMEOUT" if timed_out else rc,
-                    "elapsed_sec": round(elapsed, 3),
-                    "log": str(log_path),
-                    "failure_keys": keys,
-                }
-            )
-        elif not args.keep_success_artifacts:
-            shutil.rmtree(run_dir)
-
-    return failures, histogram
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Run many fresh gtest processes concurrently to reproduce flaky "
-            "tests that depend on CPU contention or process-level scheduling."
-        ),
-        epilog=HELP_EPILOG,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+    return collect_iteration_results(
+        processes, iteration, args.keep_success_artifacts
     )
+
+
+def add_gtest_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--binary", required=True, help="Path to gtest binary")
     parser.add_argument(
         "--gtest_filter",
@@ -320,9 +357,28 @@ def main() -> int:
         default=[],
         help="Additional gtest argument; repeat for multiple arguments",
     )
-    parser.add_argument("--jobs", type=positive_int, default=8)
-    parser.add_argument("--batches", type=positive_int, default=1)
+
+
+def add_run_control_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--processes-per-iteration",
+        type=positive_int,
+        default=8,
+        help="Number of gtest processes to run concurrently in each iteration",
+    )
+    parser.add_argument(
+        "--iteration-count",
+        type=positive_int,
+        default=1,
+        help=(
+            "Number of iterations to run; total invocations are iterations "
+            "times processes per iteration"
+        ),
+    )
     parser.add_argument("--timeout", type=positive_int, default=60)
+
+
+def add_output_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--out",
         default=None,
@@ -346,10 +402,13 @@ def main() -> int:
         "--stop-on-failure",
         action="store_true",
         help=(
-            "Stop after the first batch with any failed process. The current "
-            "batch always finishes and cleans up first."
+            "Stop after the first iteration with any failed process. The "
+            "current iteration always finishes and cleans up first."
         ),
     )
+
+
+def add_cpu_args(parser: argparse.ArgumentParser) -> None:
     cpu_group = parser.add_mutually_exclusive_group()
     cpu_group.add_argument(
         "--cpus",
@@ -360,6 +419,9 @@ def main() -> int:
         type=positive_int,
         help="Pin all test processes to the first N CPUs available to this process",
     )
+
+
+def add_build_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--build",
         action="store_true",
@@ -389,39 +451,64 @@ def main() -> int:
             "COERCE_CONTEXT_SWITCH alone does not simulate CPU starvation."
         ),
     )
-    args = parser.parse_args()
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run many fresh gtest processes concurrently to reproduce flaky "
+            "tests that depend on CPU contention or process-level scheduling."
+        ),
+        epilog=HELP_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    add_gtest_args(parser)
+    add_run_control_args(parser)
+    add_output_args(parser)
+    add_cpu_args(parser)
+    add_build_args(parser)
+    return parser
+
+
+def parse_env_or_error(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> Dict[str, str]:
+    try:
+        return parse_env(args.env)
+    except argparse.ArgumentTypeError as err:
+        parser.error(str(err))
+    raise AssertionError("unreachable")
+
+
+def validate_build_args(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> None:
     if args.clean and not args.build:
         parser.error("--clean requires --build")
-
     binary = Path(args.binary)
     if not binary.exists() and not args.build:
         parser.error(f"--binary does not exist: {args.binary}")
 
-    try:
-        env_overrides = parse_env(args.env)
-    except argparse.ArgumentTypeError as err:
-        parser.error(str(err))
-    build_if_requested(args, env_overrides)
-    if not binary.exists():
-        parser.error(f"--binary does not exist after build: {args.binary}")
 
-    try:
-        cpu_list = resolve_cpu_list(args.cpu_count, args.cpus)
-        cmd = make_run_command(args, cpu_list)
-    except (RuntimeError, ValueError) as err:
-        parser.error(str(err))
+def make_output_dir(parser: argparse.ArgumentParser, args: argparse.Namespace) -> Path:
     out_dir = Path(args.out or f"/tmp/gtest_parallel_repro_{int(time.time())}")
     if out_dir.exists() and any(out_dir.iterdir()):
         parser.error(f"--out exists and is not empty: {out_dir}")
     out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir
 
-    base_env = os.environ.copy()
-    base_env.update(env_overrides)
 
+def write_metadata(
+    out_dir: Path,
+    args: argparse.Namespace,
+    cmd: List[str],
+    cpu_list: Optional[str],
+    env_overrides: Dict[str, str],
+) -> None:
     metadata = {
         "cmd": cmd,
-        "jobs": args.jobs,
-        "batches": args.batches,
+        "processes_per_iteration": args.processes_per_iteration,
+        "iteration_count": args.iteration_count,
         "timeout": args.timeout,
         "cpu_list": cpu_list,
         "coerce_context_switch": args.coerce_context_switch,
@@ -430,27 +517,64 @@ def main() -> int:
     }
     (out_dir / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
 
-    print("Command:", " ".join(cmd))
-    print("Output:", out_dir)
-    print(f"Running {args.batches} batch(es) x {args.jobs} process(es)")
 
+def prepare_run(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> Tuple[Path, List[str], Dict[str, str]]:
+    validate_build_args(parser, args)
+    env_overrides = parse_env_or_error(parser, args)
+    build_if_requested(args, env_overrides)
+    if not Path(args.binary).exists():
+        parser.error(f"--binary does not exist after build: {args.binary}")
+
+    try:
+        cpu_list = resolve_cpu_list(args.cpu_count, args.cpus)
+        cmd = make_run_command(args, cpu_list)
+    except (RuntimeError, ValueError) as err:
+        parser.error(str(err))
+
+    out_dir = make_output_dir(parser, args)
+    base_env = os.environ.copy()
+    base_env.update(env_overrides)
+    write_metadata(out_dir, args, cmd, cpu_list, env_overrides)
+    return out_dir, cmd, base_env
+
+
+def merge_histogram(total: Dict[str, int], update: Dict[str, int]) -> None:
+    for key, count in update.items():
+        total[key] = total.get(key, 0) + count
+
+
+def print_failure_progress(
+    iteration: int, failures: int, total_failures: int
+) -> None:
+    print(
+        f"iteration {iteration}: failures={failures} "
+        f"total_failures={total_failures}",
+        flush=True,
+    )
+
+
+def run_iterations(
+    args: argparse.Namespace,
+    out_dir: Path,
+    cmd: List[str],
+    base_env: Dict[str, str],
+) -> Tuple[List[Dict[str, object]], Dict[str, int], int, bool]:
     all_failures: List[Dict[str, object]] = []
     total_histogram: Dict[str, int] = {}
     total_runs = 0
     interrupted = False
     try:
-        for batch in range(1, args.batches + 1):
-            failures, histogram = run_batch(args, batch, out_dir, cmd, base_env)
-            total_runs += args.jobs
+        for iteration in range(1, args.iteration_count + 1):
+            failures, histogram = run_iteration(
+                args, iteration, out_dir, cmd, base_env
+            )
+            total_runs += args.processes_per_iteration
             all_failures.extend(failures)
-            for key, count in histogram.items():
-                total_histogram[key] = total_histogram.get(key, 0) + count
+            merge_histogram(total_histogram, histogram)
             if failures:
-                print(
-                    f"batch {batch}: failures={len(failures)} "
-                    f"total_failures={len(all_failures)}",
-                    flush=True,
-                )
+                print_failure_progress(iteration, len(failures), len(all_failures))
                 if args.stop_on_failure:
                     break
     except KeyboardInterrupt:
@@ -459,9 +583,15 @@ def main() -> int:
             "\nInterrupted; active child process groups were terminated.",
             file=sys.stderr,
         )
+    return all_failures, total_histogram, total_runs, interrupted
 
-    write_jsonl(out_dir / "failures.jsonl", all_failures)
 
+def print_summary(
+    out_dir: Path,
+    all_failures: List[Dict[str, object]],
+    total_histogram: Dict[str, int],
+    total_runs: int,
+) -> None:
     print(f"TOTAL_RUNS={total_runs}")
     print(f"TOTAL_FAILURES={len(all_failures)}")
     print(f"FAILURES_FILE={out_dir / 'failures.jsonl'}")
@@ -472,6 +602,22 @@ def main() -> int:
         )[:20]:
             print(f"  {count} {key}")
 
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    out_dir, cmd, base_env = prepare_run(parser, args)
+    print("Command:", " ".join(cmd))
+    print("Output:", out_dir)
+    print(
+        f"Running {args.iteration_count} iteration(s) x "
+        f"{args.processes_per_iteration} process(es)"
+    )
+    all_failures, total_histogram, total_runs, interrupted = run_iterations(
+        args, out_dir, cmd, base_env
+    )
+    write_jsonl(out_dir / "failures.jsonl", all_failures)
+    print_summary(out_dir, all_failures, total_histogram, total_runs)
     if interrupted:
         return 130
     return 1 if all_failures else 0

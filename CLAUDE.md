@@ -294,12 +294,9 @@ phantom bug.
     COERCE_CONTEXT_SWITCH=1 make {test_binary}
     ./{test_binary} --gtest_filter="*YourTestName*" --gtest_repeat=5
     ```
-* For flaky tests that only reproduce when CI shards or other test processes
-    make the host CPU busy, see `tools/gtest_parallel_repro.py --help`. It runs
-    fresh gtest processes with isolated `TEST_TMPDIR` values, optional CPU
-    pinning, and optional `COERCE_CONTEXT_SWITCH=1` rebuilds. Use it when
-    `gtest_parallel.py`, `--gtest_repeat`, and normal coerce-mode runs do not
-    reproduce process-level scheduling failures.
+* For CI-style flaky tests that do not reproduce with `gtest_parallel.py`,
+    `--gtest_repeat`, or normal coerce-mode runs, inspect
+    `tools/gtest_parallel_repro.py --help`.
 
 ### Unit test dedup guidelines
 * Extract helper functions for repeated patterns such as object
