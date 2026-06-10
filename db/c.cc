@@ -4590,6 +4590,16 @@ int rocksdb_options_get_target_file_size_multiplier(rocksdb_options_t* opt) {
   return opt->rep.target_file_size_multiplier;
 }
 
+void rocksdb_options_set_target_file_size_is_upper_bound(rocksdb_options_t* opt,
+                                                         unsigned char v) {
+  opt->rep.target_file_size_is_upper_bound = v;
+}
+
+unsigned char rocksdb_options_get_target_file_size_is_upper_bound(
+    rocksdb_options_t* opt) {
+  return opt->rep.target_file_size_is_upper_bound;
+}
+
 void rocksdb_options_set_max_bytes_for_level_base(rocksdb_options_t* opt,
                                                   uint64_t n) {
   opt->rep.max_bytes_for_level_base = n;
@@ -5037,6 +5047,15 @@ uint64_t rocksdb_options_get_WAL_size_limit_MB(rocksdb_options_t* opt) {
 void rocksdb_options_set_manifest_preallocation_size(rocksdb_options_t* opt,
                                                      size_t v) {
   opt->rep.manifest_preallocation_size = v;
+}
+
+int rocksdb_options_get_max_manifest_space_amp_pct(rocksdb_options_t* opt) {
+  return opt->rep.max_manifest_space_amp_pct;
+}
+
+void rocksdb_options_set_max_manifest_space_amp_pct(rocksdb_options_t* opt,
+                                                    int v) {
+  opt->rep.max_manifest_space_amp_pct = v;
 }
 
 size_t rocksdb_options_get_manifest_preallocation_size(rocksdb_options_t* opt) {
