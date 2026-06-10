@@ -1026,7 +1026,8 @@ DEFINE_int32(iterpercent, 10,
 static const bool FLAGS_iterpercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_iterpercent, &ValidateInt32Percent);
 
-DEFINE_uint64(num_iterations, 10, "Number of iterations per MultiIterate run");
+DEFINE_uint64(num_iterations, 10,
+              "Number of iterations per iterator or MultiScan run");
 static const bool FLAGS_num_iterations_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
 
