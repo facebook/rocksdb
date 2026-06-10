@@ -1772,6 +1772,29 @@ int main(int argc, char** argv) {
     CheckPinGet(db, roptions, "notfound", NULL);
   }
 
+  StartPhase("SizeApproximationOptions");
+  {
+    rocksdb_sizeapproximationoptions_t* opts =
+        rocksdb_sizeapproximationoptions_create();
+
+    rocksdb_sizeapproximationoptions_set_include_memtables(opts, true);
+    CheckCondition(
+        rocksdb_sizeapproximationoptions_get_include_memtables(opts));
+
+    rocksdb_sizeapproximationoptions_set_include_files(opts, true);
+    CheckCondition(rocksdb_sizeapproximationoptions_get_include_files(opts));
+
+    rocksdb_sizeapproximationoptions_set_include_blob_files(opts, true);
+    CheckCondition(
+        rocksdb_sizeapproximationoptions_get_include_blob_files(opts));
+
+    rocksdb_sizeapproximationoptions_set_files_size_error_margin(opts, 0.1);
+    CheckCondition(rocksdb_sizeapproximationoptions_get_files_size_error_margin(
+                       opts) == 0.1);
+
+    rocksdb_sizeapproximationoptions_destroy(opts);
+  }
+
   StartPhase("approximate_sizes");
   {
     int i;
@@ -3528,6 +3551,9 @@ int main(int argc, char** argv) {
 
     rocksdb_compactoptions_set_max_subcompactions(co, 1);
     CheckCondition(1 == rocksdb_compactoptions_get_max_subcompactions(co));
+
+    rocksdb_compactoptions_set_blob_garbage_collection_age_cutoff(co, 1.0);
+    CheckCondition(1.0 == rocksdb_compactoptions_get_blob_garbage_collection_age_cutoff(co));
 
     rocksdb_compactoptions_destroy(co);
   }

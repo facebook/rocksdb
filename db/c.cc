@@ -130,6 +130,7 @@ using ROCKSDB_NAMESPACE::RateLimiter;
 using ROCKSDB_NAMESPACE::ReadOptions;
 using ROCKSDB_NAMESPACE::RestoreOptions;
 using ROCKSDB_NAMESPACE::SequentialFile;
+using ROCKSDB_NAMESPACE::SizeApproximationOptions;
 using ROCKSDB_NAMESPACE::Slice;
 using ROCKSDB_NAMESPACE::SliceParts;
 using ROCKSDB_NAMESPACE::SliceTransform;
@@ -338,6 +339,10 @@ struct rocksdb_optimistictransaction_options_t {
 };
 struct rocksdb_wait_for_compact_options_t {
   WaitForCompactOptions rep;
+};
+
+struct rocksdb_sizeapproximationoptions_t {
+  SizeApproximationOptions rep;
 };
 
 struct rocksdb_compactionfiltercontext_t {
@@ -2584,6 +2589,26 @@ void rocksdb_approximate_sizes_cf(
   delete[] ranges;
 }
 
+void rocksdb_approximate_sizes_cf_opt(
+    rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
+    int num_ranges, const char* const* range_start_key,
+    const size_t* range_start_key_len, const char* const* range_limit_key,
+    const size_t* range_limit_key_len,
+    const rocksdb_sizeapproximationoptions_t* options, uint64_t* sizes,
+    char** errptr) {
+  Range* ranges = new Range[num_ranges];
+  for (int i = 0; i < num_ranges; i++) {
+    ranges[i].start = Slice(range_start_key[i], range_start_key_len[i]);
+    ranges[i].limit = Slice(range_limit_key[i], range_limit_key_len[i]);
+  }
+  Status s = db->rep->GetApproximateSizes(options->rep, column_family->rep,
+                                          ranges, num_ranges, sizes);
+  if (!s.ok()) {
+    SaveError(errptr, s);
+  }
+  delete[] ranges;
+}
+
 extern ROCKSDB_LIBRARY_API void rocksdb_approximate_sizes_cf_with_flags(
     rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
     int num_ranges, const char* const* range_start_key,
@@ -2602,6 +2627,56 @@ extern ROCKSDB_LIBRARY_API void rocksdb_approximate_sizes_cf_with_flags(
     SaveError(errptr, s);
   }
   delete[] ranges;
+}
+
+rocksdb_sizeapproximationoptions_t* rocksdb_sizeapproximationoptions_create(
+    void) {
+  return new rocksdb_sizeapproximationoptions_t;
+}
+
+void rocksdb_sizeapproximationoptions_destroy(
+    rocksdb_sizeapproximationoptions_t* opts) {
+  delete opts;
+}
+
+void rocksdb_sizeapproximationoptions_set_include_memtables(
+    rocksdb_sizeapproximationoptions_t* opts, bool v) {
+  opts->rep.include_memtables = v;
+}
+
+bool rocksdb_sizeapproximationoptions_get_include_memtables(
+    const rocksdb_sizeapproximationoptions_t* opts) {
+  return opts->rep.include_memtables;
+}
+
+void rocksdb_sizeapproximationoptions_set_include_files(
+    rocksdb_sizeapproximationoptions_t* opts, bool v) {
+  opts->rep.include_files = v;
+}
+
+bool rocksdb_sizeapproximationoptions_get_include_files(
+    const rocksdb_sizeapproximationoptions_t* opts) {
+  return opts->rep.include_files;
+}
+
+void rocksdb_sizeapproximationoptions_set_include_blob_files(
+    rocksdb_sizeapproximationoptions_t* opts, bool v) {
+  opts->rep.include_blob_files = v;
+}
+
+bool rocksdb_sizeapproximationoptions_get_include_blob_files(
+    const rocksdb_sizeapproximationoptions_t* opts) {
+  return opts->rep.include_blob_files;
+}
+
+void rocksdb_sizeapproximationoptions_set_files_size_error_margin(
+    rocksdb_sizeapproximationoptions_t* opts, double v) {
+  opts->rep.files_size_error_margin = v;
+}
+
+double rocksdb_sizeapproximationoptions_get_files_size_error_margin(
+    const rocksdb_sizeapproximationoptions_t* opts) {
+  return opts->rep.files_size_error_margin;
 }
 
 const rocksdb_livefiles_t* rocksdb_livefiles(rocksdb_t* db) {
@@ -6480,6 +6555,16 @@ void rocksdb_compactoptions_set_full_history_ts_low(
     opt->full_history_ts_low = Slice(ts, tslen);
     opt->rep.full_history_ts_low = &opt->full_history_ts_low;
   }
+}
+
+void rocksdb_compactoptions_set_blob_garbage_collection_age_cutoff(
+    rocksdb_compactoptions_t* opt, double n) {
+  opt->rep.blob_garbage_collection_age_cutoff = n;
+}
+
+double rocksdb_compactoptions_get_blob_garbage_collection_age_cutoff(
+    rocksdb_compactoptions_t* opt) {
+  return opt->rep.blob_garbage_collection_age_cutoff;
 }
 
 rocksdb_flushoptions_t* rocksdb_flushoptions_create() {

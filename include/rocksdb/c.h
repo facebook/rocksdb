@@ -154,6 +154,8 @@ typedef struct rocksdb_statistics_histogram_data_t
     rocksdb_statistics_histogram_data_t;
 typedef struct rocksdb_wait_for_compact_options_t
     rocksdb_wait_for_compact_options_t;
+typedef struct rocksdb_sizeapproximationoptions_t
+    rocksdb_sizeapproximationoptions_t;
 
 /* rocksdb_slice_t: Optimized slice type for high-performance C API operations
  * This struct is ABI-compatible with rocksdb::Slice for zero-copy interop.
@@ -749,6 +751,14 @@ extern ROCKSDB_LIBRARY_API void rocksdb_approximate_sizes_cf(
     int num_ranges, const char* const* range_start_key,
     const size_t* range_start_key_len, const char* const* range_limit_key,
     const size_t* range_limit_key_len, uint64_t* sizes, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_approximate_sizes_cf_opt(
+    rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
+    int num_ranges, const char* const* range_start_key,
+    const size_t* range_start_key_len, const char* const* range_limit_key,
+    const size_t* range_limit_key_len,
+    const rocksdb_sizeapproximationoptions_t* options, uint64_t* sizes,
+    char** errptr);
 
 enum {
   rocksdb_size_approximation_flags_none = 0,
@@ -2516,6 +2526,10 @@ extern ROCKSDB_LIBRARY_API int rocksdb_compactoptions_get_max_subcompactions(
     rocksdb_compactoptions_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_full_history_ts_low(
     rocksdb_compactoptions_t*, char* ts, size_t tslen);
+extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_blob_garbage_collection_age_cutoff(
+    rocksdb_compactoptions_t*, double);
+extern ROCKSDB_LIBRARY_API double rocksdb_compactoptions_get_blob_garbage_collection_age_cutoff(
+    rocksdb_compactoptions_t*);
 
 /* Flush options */
 
@@ -3641,6 +3655,37 @@ extern ROCKSDB_LIBRARY_API void rocksdb_wait_for_compact_options_set_timeout(
 extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_wait_for_compact_options_get_timeout(
     rocksdb_wait_for_compact_options_t* opt);
+
+/* SizeApproximationOptions */
+
+extern ROCKSDB_LIBRARY_API rocksdb_sizeapproximationoptions_t*
+rocksdb_sizeapproximationoptions_create(void);
+extern ROCKSDB_LIBRARY_API void rocksdb_sizeapproximationoptions_destroy(
+    rocksdb_sizeapproximationoptions_t* opts);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_sizeapproximationoptions_set_include_memtables(
+    rocksdb_sizeapproximationoptions_t* opts, bool v);
+extern ROCKSDB_LIBRARY_API bool
+rocksdb_sizeapproximationoptions_get_include_memtables(
+    const rocksdb_sizeapproximationoptions_t* opts);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_sizeapproximationoptions_set_include_files(
+    rocksdb_sizeapproximationoptions_t* opts, bool v);
+extern ROCKSDB_LIBRARY_API bool
+rocksdb_sizeapproximationoptions_get_include_files(
+    const rocksdb_sizeapproximationoptions_t* opts);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_sizeapproximationoptions_set_include_blob_files(
+    rocksdb_sizeapproximationoptions_t* opts, bool v);
+extern ROCKSDB_LIBRARY_API bool
+rocksdb_sizeapproximationoptions_get_include_blob_files(
+    const rocksdb_sizeapproximationoptions_t* opts);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_sizeapproximationoptions_set_files_size_error_margin(
+    rocksdb_sizeapproximationoptions_t* opts, double v);
+extern ROCKSDB_LIBRARY_API double
+rocksdb_sizeapproximationoptions_get_files_size_error_margin(
+    const rocksdb_sizeapproximationoptions_t* opts);
 
 /* High-performance zero-copy Get variants
    These functions avoid unnecessary memory allocations and copies.
