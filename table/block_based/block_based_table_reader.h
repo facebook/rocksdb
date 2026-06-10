@@ -145,6 +145,8 @@ class BlockBasedTable : public TableReader {
   //    are set.
   // @param force_direct_prefetch if true, always prefetching to RocksDB
   //    buffer, rather than calling RandomAccessFile::Prefetch().
+  // @param avoid_shared_metadata_cache if true, open-time index/filter/
+  //    dictionary reads must not insert into the shared block cache.
   static Status Open(
       const ReadOptions& ro, const ImmutableOptions& ioptions,
       const EnvOptions& env_options,
@@ -166,7 +168,8 @@ class BlockBasedTable : public TableReader {
       size_t max_file_size_for_l0_meta_pin = 0,
       const std::string& cur_db_session_id = "", uint64_t cur_file_num = 0,
       UniqueId64x2 expected_unique_id = {},
-      const bool user_defined_timestamps_persisted = true);
+      const bool user_defined_timestamps_persisted = true,
+      bool avoid_shared_metadata_cache = false);
 
   bool PrefixRangeMayMatch(const Slice& internal_key,
                            const ReadOptions& read_options,
@@ -569,12 +572,15 @@ class BlockBasedTable : public TableReader {
                            const InternalKeyComparator& internal_comparator,
                            BlockCacheLookupContext* lookup_context);
   // If index and filter blocks do not need to be pinned, `prefetch_all`
-  // determines whether they will be read and add to cache.
+  // determines whether they will be read and added to cache. When
+  // `avoid_shared_metadata_cache` is set, open-time metadata reads avoid the
+  // shared block cache regardless of pinning/prefetch policy.
   Status PrefetchIndexAndFilterBlocks(
       const ReadOptions& ro, FilePrefetchBuffer* prefetch_buffer,
       InternalIterator* meta_iter, BlockBasedTable* new_table,
       bool prefetch_all, const BlockBasedTableOptions& table_options,
       const int level, size_t file_size, size_t max_file_size_for_l0_meta_pin,
+      bool avoid_shared_metadata_cache,
       BlockCacheLookupContext* lookup_context);
 
   static BlockType GetBlockTypeForMetaBlockByName(const Slice& meta_block_name);

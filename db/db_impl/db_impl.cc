@@ -1842,6 +1842,8 @@ Status DBImpl::SetDBOptions(
       // TODO(xiez): clarify why apply optimize for read to write options
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableRead(
           file_options_for_compaction_, immutable_db_options_);
+      TEST_SYNC_POINT_CALLBACK("DBImpl::SetDBOptions:FileOptionsForCompaction",
+                               &file_options_for_compaction_);
       if (wal_other_option_changed || wal_size_option_changed) {
         WriteThread::Writer w;
         write_thread_.EnterUnbatched(&w, &mutex_);

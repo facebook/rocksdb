@@ -5166,6 +5166,8 @@ void InitializeOptionsFromFlags(
   options.allow_mmap_reads = FLAGS_mmap_read;
   options.allow_mmap_writes = FLAGS_mmap_write;
   options.use_direct_reads = FLAGS_use_direct_reads;
+  options.use_direct_io_for_compaction_reads =
+      FLAGS_use_direct_io_for_compaction_reads;
   options.use_direct_io_for_flush_and_compaction =
       FLAGS_use_direct_io_for_flush_and_compaction;
   options.recycle_log_file_num =

@@ -950,15 +950,14 @@ class PosixFileSystem : public FileSystem {
   FileOptions OptimizeForCompactionTableRead(
       const FileOptions& file_options,
       const ImmutableDBOptions& db_options) const override {
-    FileOptions fo = FileOptions(file_options);
+    FileOptions fo =
+        FileSystem::OptimizeForCompactionTableRead(file_options, db_options);
 #ifdef OS_LINUX
     // To fix https://github.com/facebook/rocksdb/issues/12038
-    if (!file_options.use_direct_reads &&
-        file_options.compaction_readahead_size > 0) {
+    if (!fo.use_direct_reads && fo.compaction_readahead_size > 0) {
       size_t system_limit =
           GetCompactionReadaheadSizeSystemLimit(db_options.db_paths);
-      if (system_limit > 0 &&
-          file_options.compaction_readahead_size > system_limit) {
+      if (system_limit > 0 && fo.compaction_readahead_size > system_limit) {
         fo.compaction_readahead_size = system_limit;
       }
     }

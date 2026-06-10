@@ -269,6 +269,15 @@ DEFINE_string(
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 
+DEFINE_int64(bgwriter_num, 0,
+             "If > 0, the background-writer thread used by readwhilewriting / "
+             "readwhilemerging / multireadwhilewriting writes random keys over "
+             "[0, bgwriter_num) instead of [0, num). Lets the reader thread "
+             "group operate on a small hot subset (--num) while the writer "
+             "spreads its puts across a much larger keyspace, which is what "
+             "drives continuous flushes and compaction. Designed for "
+             "benchmarking compaction-time effects on user reads.");
+
 DEFINE_int64(numdistinct, 1000,
              "Number of distinct keys to use. Used in RandomWithVerify to "
              "read/write on fewer keys so that gets are more likely to find the"
@@ -1717,6 +1726,11 @@ DEFINE_bool(mmap_write, ROCKSDB_NAMESPACE::Options().allow_mmap_writes,
 
 DEFINE_bool(use_direct_reads, ROCKSDB_NAMESPACE::Options().use_direct_reads,
             "Use O_DIRECT for reading data");
+
+DEFINE_bool(use_direct_io_for_compaction_reads,
+            ROCKSDB_NAMESPACE::Options().use_direct_io_for_compaction_reads,
+            "Use O_DIRECT for compaction-input SST reads only, while keeping "
+            "user reads buffered");
 
 DEFINE_bool(use_direct_io_for_flush_and_compaction,
             ROCKSDB_NAMESPACE::Options().use_direct_io_for_flush_and_compaction,
@@ -4750,6 +4764,8 @@ class Benchmark {
     options.allow_mmap_reads = FLAGS_mmap_read;
     options.allow_mmap_writes = FLAGS_mmap_write;
     options.use_direct_reads = FLAGS_use_direct_reads;
+    options.use_direct_io_for_compaction_reads =
+        FLAGS_use_direct_io_for_compaction_reads;
     options.use_direct_io_for_flush_and_compaction =
         FLAGS_use_direct_io_for_flush_and_compaction;
     options.manual_wal_flush = FLAGS_manual_wal_flush;
@@ -8140,7 +8156,11 @@ class Benchmark {
         }
       }
 
-      GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      const int64_t bg_keyspace =
+          FLAGS_bgwriter_num > 0 ? FLAGS_bgwriter_num : FLAGS_num;
+      const int64_t num_keys =
+          FLAGS_use_existing_keys ? FLAGS_num : bg_keyspace;
+      GenerateKeyFromInt(thread->rand.Next() % bg_keyspace, num_keys, &key);
       Status s;
 
       Slice val = gen.Generate();
@@ -9805,6 +9825,12 @@ int db_bench_tool(int argc, char** argv, ToolHooks& hooks) {
     fprintf(stderr,
             "`-use_existing_db` must be true for `-use_existing_keys` to be "
             "settable\n");
+    db_bench_exit(1);
+  }
+  if (FLAGS_use_existing_keys && FLAGS_bgwriter_num > FLAGS_num) {
+    fprintf(stderr,
+            "`-bgwriter_num` must be less than or equal to `-num` when "
+            "`-use_existing_keys` is set\n");
     db_bench_exit(1);
   }
 

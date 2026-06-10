@@ -1558,12 +1558,16 @@ class VersionSet {
   // The caller should delete the iterator when no longer needed.
   // @param read_options Must outlive the returned iterator.
   // @param start, end indicates compaction range
+  // @param open_ephemeral_table_reader When true, the per-file iterators
+  //              bypass the shared TableCache and open fresh TableReaders
+  //              using `file_options_compactions`.
   InternalIterator* MakeInputIterator(
       const ReadOptions& read_options, const Compaction* c,
       RangeDelAggregator* range_del_agg,
       const FileOptions& file_options_compactions,
       const std::optional<const Slice>& start,
-      const std::optional<const Slice>& end);
+      const std::optional<const Slice>& end,
+      bool open_ephemeral_table_reader = false);
 
   // Add all files listed in any live version to *live_table_files and
   // *live_blob_files. Note that these lists may contain duplicates.

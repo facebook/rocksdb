@@ -201,6 +201,7 @@ DECLARE_bool(verify_checksum);
 DECLARE_bool(mmap_read);
 DECLARE_bool(mmap_write);
 DECLARE_bool(use_direct_reads);
+DECLARE_bool(use_direct_io_for_compaction_reads);
 DECLARE_bool(use_direct_io_for_flush_and_compaction);
 DECLARE_bool(mock_direct_io);
 DECLARE_bool(statistics);

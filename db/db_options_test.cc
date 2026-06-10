@@ -13,6 +13,7 @@
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
+#include "env/mock_env.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
@@ -1761,6 +1762,171 @@ TEST_F(DBOptionsTest, SetOptionsMultipleColumnFamilies) {
   ASSERT_FALSE(dbfull()->GetOptions(handles_[0]).disable_auto_compactions);
   ASSERT_TRUE(dbfull()->GetOptions(handles_[1]).disable_auto_compactions);
   ASSERT_TRUE(dbfull()->GetOptions(handles_[2]).disable_auto_compactions);
+}
+
+// Confirms the default value and serialization/parse round-trip of the new
+// option. No DB open required; exercises only the options-metadata layer.
+TEST_F(DBOptionsTest, UseDirectIoForCompactionReadsRoundTrip) {
+  // Default value must remain false to preserve existing semantics.
+  ASSERT_FALSE(DBOptions().use_direct_io_for_compaction_reads);
+
+  DBOptions parsed;
+  ConfigOptions config_options;
+  ASSERT_OK(GetDBOptionsFromString(config_options, DBOptions(),
+                                   "use_direct_io_for_compaction_reads=true",
+                                   &parsed));
+  ASSERT_TRUE(parsed.use_direct_io_for_compaction_reads);
+  ASSERT_OK(GetDBOptionsFromString(config_options, DBOptions(),
+                                   "use_direct_io_for_compaction_reads=false",
+                                   &parsed));
+  ASSERT_FALSE(parsed.use_direct_io_for_compaction_reads);
+}
+
+// Validates that Open rejects the documented incompatible combination.
+TEST_F(DBOptionsTest, UseDirectIoForCompactionReadsValidation) {
+  // mmap_reads + use_direct_io_for_compaction_reads is rejected at Open
+  // time, the same way mmap_reads + use_direct_reads has always been
+  // rejected.
+  Options bad_options = CurrentOptions();
+  bad_options.create_if_missing = true;
+  bad_options.allow_mmap_reads = true;
+  bad_options.use_direct_io_for_compaction_reads = true;
+  Status bad_status = TryReopen(bad_options);
+  ASSERT_TRUE(bad_status.IsNotSupported()) << bad_status.ToString();
+}
+
+// Confirms the option is plumbed all the way to the live DB's options API:
+// after opening with the flag set, GetDBOptions() reports it back. Only runs
+// when the environment supports direct I/O.
+TEST_F(DBOptionsTest, UseDirectIoForCompactionReadsLiveReopen) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.use_direct_io_for_compaction_reads = true;
+  // Use a buffered user-read setup so the new flag is the one doing the work.
+  options.use_direct_reads = false;
+  options.use_direct_io_for_flush_and_compaction = false;
+  Status s = TryReopen(options);
+  if (s.IsNotSupported() || s.IsInvalidArgument()) {
+    ROCKSDB_GTEST_BYPASS(
+        "Direct I/O not supported in this test environment; live reopen "
+        "cannot be exercised.");
+    return;
+  }
+  ASSERT_OK(s);
+  ASSERT_TRUE(dbfull()->GetDBOptions().use_direct_io_for_compaction_reads);
+  Close();
+}
+
+TEST_F(DBOptionsTest, UseDirectIoForCompactionReadsUnsupportedFileSystem) {
+  auto fs = std::make_shared<MockFileSystem>(Env::Default()->GetSystemClock(),
+                                             /*supports_direct_io=*/false);
+  std::unique_ptr<Env> mock_env = NewCompositeEnv(fs);
+
+  Options options = CurrentOptions();
+  options.env = mock_env.get();
+  options.create_if_missing = true;
+  options.use_direct_reads = false;
+  options.use_direct_io_for_flush_and_compaction = false;
+  options.use_direct_io_for_compaction_reads = true;
+
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_NE(s.ToString().find("Direct I/O is not supported"), std::string::npos)
+      << s.ToString();
+}
+
+TEST_F(
+    DBOptionsTest,
+    UseDirectIoForCompactionReadsSetDBOptionsKeepsVerificationReadsBuffered) {
+  auto fs = std::make_shared<MockFileSystem>(Env::Default()->GetSystemClock(),
+                                             /*supports_direct_io=*/true);
+  std::unique_ptr<Env> mock_env = NewCompositeEnv(fs);
+
+  Options options = CurrentOptions();
+  options.env = mock_env.get();
+  options.create_if_missing = true;
+  options.use_direct_reads = false;
+  options.use_direct_io_for_flush_and_compaction = false;
+  options.use_direct_io_for_compaction_reads = true;
+
+  ASSERT_OK(TryReopen(options));
+
+  bool observed = false;
+  FileOptions observed_file_options;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SetDBOptions:FileOptionsForCompaction", [&](void* arg) {
+        observed = true;
+        observed_file_options = *static_cast<FileOptions*>(arg);
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(dbfull()->SetDBOptions({{"bytes_per_sync", "1024"}}));
+  ASSERT_TRUE(observed);
+  ASSERT_FALSE(observed_file_options.use_direct_reads);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
+}
+
+// Exercises the FileSystem::OptimizeForCompactionTableRead and
+// OptimizeForBlobFileRead helpers directly, asserting that the compaction-only
+// flag does not affect shared FileSystem hooks.
+TEST_F(DBOptionsTest, OptimizeForCompactionTableReadUsesGlobalDirectReadsOnly) {
+  FileOptions in_opts;
+  in_opts.use_direct_reads = false;
+
+  {
+    Options check_options;
+    check_options.use_direct_reads = false;
+    check_options.use_direct_io_for_compaction_reads = true;
+    check_options.use_direct_io_for_flush_and_compaction = false;
+    ImmutableDBOptions immutable(check_options);
+    FileOptions sst_read =
+        env_->GetFileSystem()->OptimizeForCompactionTableRead(in_opts,
+                                                              immutable);
+    FileOptions blob_read =
+        env_->GetFileSystem()->OptimizeForBlobFileRead(in_opts, immutable);
+    EXPECT_FALSE(sst_read.use_direct_reads);
+    EXPECT_FALSE(blob_read.use_direct_reads);
+    EXPECT_FALSE(sst_read.use_direct_writes);
+  }
+
+  {
+    Options off_options;
+    off_options.use_direct_reads = false;
+    off_options.use_direct_io_for_compaction_reads = false;
+    off_options.use_direct_io_for_flush_and_compaction = false;
+    ImmutableDBOptions immutable_off(off_options);
+    FileOptions sst_read_off =
+        env_->GetFileSystem()->OptimizeForCompactionTableRead(in_opts,
+                                                              immutable_off);
+    EXPECT_FALSE(sst_read_off.use_direct_reads);
+  }
+
+  {
+    Options global_on_options;
+    global_on_options.use_direct_reads = true;
+    global_on_options.use_direct_io_for_compaction_reads = false;
+    global_on_options.use_direct_io_for_flush_and_compaction = false;
+    ImmutableDBOptions immutable_global(global_on_options);
+    FileOptions sst_read_global =
+        env_->GetFileSystem()->OptimizeForCompactionTableRead(in_opts,
+                                                              immutable_global);
+    EXPECT_TRUE(sst_read_global.use_direct_reads);
+  }
+
+  {
+    Options both_on;
+    both_on.use_direct_reads = true;
+    both_on.use_direct_io_for_compaction_reads = true;
+    both_on.use_direct_io_for_flush_and_compaction = false;
+    ImmutableDBOptions immutable_both(both_on);
+    FileOptions sst_read_both =
+        env_->GetFileSystem()->OptimizeForCompactionTableRead(in_opts,
+                                                              immutable_both);
+    EXPECT_TRUE(sst_read_both.use_direct_reads);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
