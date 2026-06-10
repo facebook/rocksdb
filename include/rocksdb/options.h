@@ -2058,6 +2058,21 @@ class MultiScanArgs {
   size_t size() const { return original_ranges_.size(); }
   bool empty() const { return original_ranges_.empty(); }
 
+  bool HasBoundedScanRanges() const {
+    if (empty()) {
+      return false;
+    }
+
+    for (const ScanOptions& scan_range : original_ranges_) {
+      if (!scan_range.range.start.has_value() ||
+          !scan_range.range.limit.has_value()) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   void reserve(size_t size) { original_ranges_.reserve(size); }
 
   operator std::vector<ScanOptions>*() { return &original_ranges_; }

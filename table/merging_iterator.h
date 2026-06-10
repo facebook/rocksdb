@@ -79,6 +79,10 @@ class MergeIteratorBuilder {
   // iterator needs to be allocated.
   Arena* GetArena() { return arena; }
 
+  void SetMemtablePruned(bool memtable_pruned) {
+    memtable_pruned_ = memtable_pruned;
+  }
+
   // Return the result merging iterator.
   // If db_iter is not nullptr, then db_iter->SetMemtableRangetombstoneIter()
   // will be called with pointer to where the merging iterator
@@ -95,6 +99,9 @@ class MergeIteratorBuilder {
   // See AddRangeTombstoneIterator() implementation for more detail.
   std::vector<std::pair<size_t, std::unique_ptr<TruncatedRangeDelIterator>**>>
       range_del_iter_ptrs_;
+  // if supplying multiscan ranges allowed us to prune the memtable range delete
+  // iterator, we need to handle this in Finish()
+  bool memtable_pruned_ = false;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
