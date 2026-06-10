@@ -1,6 +1,13 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.4.2 (06/08/2026)
+### Public API Changes
+* Added experimental read-scoped block buffer provider API, configured through `ReadOptions::read_scoped_block_buffer_provider`, for supported block-based table iterator scans and MultiScan reads to use caller-provided read-scoped storage for final data-block contents. When configured, supported provider-backed scan data-block reads bypass the data-block cache. The provider is ignored when mmap reads are enabled. RocksDB may still use ordinary temporary scratch for serialized block bytes, such as when a block may be compressed. Get and MultiGet do not currently provide API guarantees for this provider.
+
+### Bug Fixes
+* Fixed a use after free bug in Multiscan when async IO is used
+
 ## 11.4.1 (06/05/2026)
 * No-op patch used to sync with internal fb version.
 
