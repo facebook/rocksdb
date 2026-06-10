@@ -136,7 +136,8 @@ public interface MutableColumnFamilyOptionsInterface<
    * Compress blocks using the specified compression algorithm.  This
    * parameter can be changed dynamically.
    * <p>
-   * Default: SNAPPY_COMPRESSION, which gives lightweight but fast compression.
+   * Default: LZ4_COMPRESSION if available, otherwise SNAPPY_COMPRESSION if
+   * available, otherwise NO_COMPRESSION.
    *
    * @param compressionType Compression Type.
    * @return the reference to the current option.
@@ -148,7 +149,8 @@ public interface MutableColumnFamilyOptionsInterface<
    * Compress blocks using the specified compression algorithm.  This
    * parameter can be changed dynamically.
    * <p>
-   * Default: SNAPPY_COMPRESSION, which gives lightweight but fast compression.
+   * Default: LZ4_COMPRESSION if available, otherwise SNAPPY_COMPRESSION if
+   * available, otherwise NO_COMPRESSION.
    *
    * @return Compression type.
    */

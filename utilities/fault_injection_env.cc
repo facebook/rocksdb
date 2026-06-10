@@ -361,6 +361,15 @@ Status FaultInjectionTestEnv::ReopenWritableFile(
   return s;
 }
 
+Status FaultInjectionTestEnv::SyncFile(const std::string& fname,
+                                       const EnvOptions& options,
+                                       bool use_fsync) {
+  // Call Env's default implementation instead of EnvWrapper forwarding so
+  // SyncFile exercises this wrapper's ReopenWritableFile hook and the wrapped
+  // file's Sync, Fsync, and Close hooks.
+  return Env::SyncFile(fname, options, use_fsync);
+}
+
 Status FaultInjectionTestEnv::NewRandomRWFile(
     const std::string& fname, std::unique_ptr<RandomRWFile>* result,
     const EnvOptions& soptions) {

@@ -833,6 +833,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
   }
   wal_manager_.PurgeObsoleteWALFiles();
   LogFlush(immutable_db_options_.info_log);
+  TEST_SYNC_POINT("DBImpl::PurgeObsoleteFiles:BeforePendingPurgeFinished");
   InstrumentedMutexLock l(&mutex_);
   --pending_purge_obsolete_files_;
   assert(pending_purge_obsolete_files_ >= 0);

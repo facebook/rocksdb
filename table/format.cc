@@ -12,9 +12,11 @@
 #include <cinttypes>
 #include <cstdint>
 #include <string>
+#include <utility>
 
 #include "block_fetcher.h"
 #include "file/random_access_file_reader.h"
+#include "file/read_write_util.h"
 #include "memory/memory_allocator_impl.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics_impl.h"
@@ -498,16 +500,11 @@ static Status ReadFooterFromFileInternal(
     FilePrefetchBuffer* prefetch_buffer, uint64_t expected_file_size,
     Footer* footer, uint64_t enforce_table_magic_number) {
   uint64_t file_size_from_file_system = 0;
-  Status s;
-  // Prefer the more efficient FSRandomAccessFile::GetFileSize when available
-  s = file->file()->GetFileSize(&file_size_from_file_system);
+  Status s = GetFileSizeFromOpenFileOrPath(file->file(), &fs, file->file_name(),
+                                           &file_size_from_file_system, nullptr,
+                                           FileSizeFallback::kAnyOpenFileError);
   if (!s.ok()) {
-    // Fall back on FileSystem::GetFileSize on failure
-    s = fs.GetFileSize(file->file_name(), IOOptions(),
-                       &file_size_from_file_system, nullptr);
-    if (!s.ok()) {
-      return s;
-    }
+    return s;
   }
 
   if (expected_file_size != file_size_from_file_system) {
@@ -529,7 +526,7 @@ static Status ReadFooterFromFileInternal(
   }
 
   std::array<char, Footer::kMaxEncodedLength + 1> footer_buf;
-  AlignedBuf internal_buf;
+  AlignedBuffer direct_io_buffer;
   Slice footer_input;
   uint64_t read_offset = (expected_file_size > Footer::kMaxEncodedLength)
                              ? expected_file_size - Footer::kMaxEncodedLength
@@ -545,11 +542,12 @@ static Status ReadFooterFromFileInternal(
                                          Footer::kMaxEncodedLength,
                                          &footer_input, nullptr)) {
     if (file->use_direct_io()) {
+      AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
       s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
-                     &footer_input, nullptr, &internal_buf);
+                     &footer_input, nullptr, &direct_io_context);
     } else {
       s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
-                     &footer_input, footer_buf.data(), nullptr);
+                     &footer_input, footer_buf.data());
     }
     if (!s.ok()) {
       return s;
@@ -683,10 +681,11 @@ uint32_t ComputeBuiltinChecksumWithLastByte(ChecksumType type, const char* data,
   }
 }
 
-Status DecompressBlockData(Decompressor::Args& args, Decompressor& decompressor,
-                           BlockContents* out_contents,
-                           const ImmutableOptions& ioptions,
-                           MemoryAllocator* allocator) {
+Status DecompressBlockData(
+    Decompressor::Args& args, Decompressor& decompressor,
+    BlockContents* out_contents, const ImmutableOptions& ioptions,
+    MemoryAllocator* allocator,
+    ReadScopedBlockBufferProviderRef block_buffer_provider) {
   assert(args.compression_type != kNoCompression && "Invalid compression type");
 
   StopWatchNano timer(ioptions.clock,
@@ -696,13 +695,35 @@ Status DecompressBlockData(Decompressor::Args& args, Decompressor& decompressor,
   if (UNLIKELY(!s.ok())) {
     return s;
   }
-  CacheAllocationPtr ubuf = AllocateBlock(args.uncompressed_size, allocator);
-  s = decompressor.DecompressBlock(args, ubuf.get());
-  if (UNLIKELY(!s.ok())) {
-    return s;
-  }
+  if (block_buffer_provider.has_value()) {
+    // Compressed provider path: allocate the final uncompressed block backing
+    // from the provider, then decompress directly into it.
+    ReadScopedBlockBufferProvider::Lease read_scoped_lease;
+    s = AllocateReadScopedBlockBuffer(block_buffer_provider->get(),
+                                      args.uncompressed_size, 1,
+                                      &read_scoped_lease);
+    if (UNLIKELY(!s.ok())) {
+      return s;
+    }
 
-  *out_contents = BlockContents(std::move(ubuf), args.uncompressed_size);
+    s = decompressor.DecompressBlock(args, read_scoped_lease.data);
+    if (UNLIKELY(!s.ok())) {
+      return s;
+    }
+
+    out_contents->data = Slice(read_scoped_lease.data, args.uncompressed_size);
+    out_contents->cleanup = std::move(read_scoped_lease.cleanup);
+    out_contents->backing_size = read_scoped_lease.size;
+  } else {
+    CacheAllocationPtr ubuf = AllocateBlock(args.uncompressed_size, allocator);
+
+    s = decompressor.DecompressBlock(args, ubuf.get());
+    if (UNLIKELY(!s.ok())) {
+      return s;
+    }
+
+    *out_contents = BlockContents(std::move(ubuf), args.uncompressed_size);
+  }
 
   if (ShouldReportDetailedTime(ioptions.env, ioptions.stats)) {
     RecordTimeToHistogram(ioptions.stats, DECOMPRESSION_TIMES_NANOS,
@@ -733,32 +754,42 @@ Status DecompressBlockData(const char* data, size_t size, CompressionType type,
   args.compression_type = type;
   args.working_area = working_area;
   return DecompressBlockData(args, decompressor, out_contents, ioptions,
-                             allocator);
+                             allocator, std::nullopt);
 }
 
-Status DecompressSerializedBlock(const char* data, size_t size,
-                                 CompressionType type,
-                                 Decompressor& decompressor,
-                                 BlockContents* out_contents,
-                                 const ImmutableOptions& ioptions,
-                                 MemoryAllocator* allocator) {
+Status DecompressSerializedBlock(
+    const char* data, size_t size, CompressionType type,
+    Decompressor& decompressor, BlockContents* out_contents,
+    const ImmutableOptions& ioptions, MemoryAllocator* allocator,
+    ReadScopedBlockBufferProviderRef block_buffer_provider) {
   assert(data[size] != kNoCompression);
   assert(data[size] == static_cast<char>(type));
-  return DecompressBlockData(data, size, type, decompressor, out_contents,
-                             ioptions, allocator);
+  Decompressor::Args args;
+  args.compressed_data = Slice(data, size);
+  args.compression_type = type;
+  return DecompressBlockData(args, decompressor, out_contents, ioptions,
+                             allocator, block_buffer_provider);
 }
 
-Status DecompressSerializedBlock(Decompressor::Args& args,
-                                 Decompressor& decompressor,
-                                 BlockContents* out_contents,
-                                 const ImmutableOptions& ioptions,
-                                 MemoryAllocator* allocator) {
+Status DecompressBlockData(Decompressor::Args& args, Decompressor& decompressor,
+                           BlockContents* out_contents,
+                           const ImmutableOptions& ioptions,
+                           MemoryAllocator* allocator) {
+  return DecompressBlockData(args, decompressor, out_contents, ioptions,
+                             allocator, std::nullopt);
+}
+
+Status DecompressSerializedBlock(
+    Decompressor::Args& args, Decompressor& decompressor,
+    BlockContents* out_contents, const ImmutableOptions& ioptions,
+    MemoryAllocator* allocator,
+    ReadScopedBlockBufferProviderRef block_buffer_provider) {
   assert(args.compressed_data.data()[args.compressed_data.size()] !=
          kNoCompression);
   assert(args.compressed_data.data()[args.compressed_data.size()] ==
          static_cast<char>(args.compression_type));
   return DecompressBlockData(args, decompressor, out_contents, ioptions,
-                             allocator);
+                             allocator, block_buffer_provider);
 }
 
 // Replace the contents of db_host_id with the actual hostname, if db_host_id

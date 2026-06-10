@@ -263,6 +263,7 @@ default_params = {
     "top_level_index_pinning": lambda: random.randint(0, 3),
     "unpartitioned_pinning": lambda: random.randint(0, 3),
     "use_direct_reads": lambda: random.randint(0, 1),
+    "use_direct_io_for_compaction_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "use_sqfc_for_range_queries": lambda: random.choice([0, 1, 1, 1]),
     "mock_direct_io": False,
@@ -494,7 +495,7 @@ default_params = {
     # local, 0xC07 = all types + local + remote, 0xFFFFFFFF = all.
     "verify_output_flags": lambda: random.choice([0] * 3 + [0x407, 0xC07, 0xFFFFFFFF]),
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
-    "memtable_veirfy_per_key_checksum_on_seek": lambda: random.choice([0] * 7 + [1]),
+    "memtable_verify_per_key_checksum_on_seek": lambda: random.choice([0] * 7 + [1]),
     "memtable_batch_lookup_optimization": lambda: random.randint(0, 1),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
     # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
@@ -933,6 +934,7 @@ def finalize_and_sanitize(src_params):
     if dest_params["mmap_read"] == 1:
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
+        dest_params["use_direct_io_for_compaction_reads"] = 0
         dest_params["multiscan_use_async_io"] = 0
     if dest_params.get("min_tombstones_for_range_conversion", 0) > 0:
         # SQFC range-query filtering installs ReadOptions::table_filter on
@@ -945,13 +947,16 @@ def finalize_and_sanitize(src_params):
     if (
         dest_params["use_direct_io_for_flush_and_compaction"] == 1
         or dest_params["use_direct_reads"] == 1
+        or dest_params["use_direct_io_for_compaction_reads"] == 1
     ) and not is_direct_io_supported(dest_params["db"]):
         if is_release_mode():
             print(
-                "{} does not support direct IO. Disabling use_direct_reads and "
+                "{} does not support direct IO. Disabling use_direct_reads, "
+                "use_direct_io_for_compaction_reads and "
                 "use_direct_io_for_flush_and_compaction.\n".format(dest_params["db"])
             )
             dest_params["use_direct_reads"] = 0
+            dest_params["use_direct_io_for_compaction_reads"] = 0
             dest_params["use_direct_io_for_flush_and_compaction"] = 0
         else:
             dest_params["mock_direct_io"] = True
@@ -1066,7 +1071,7 @@ def finalize_and_sanitize(src_params):
     # only skip list memtable representation supports paranoid memory checks
     if dest_params.get("memtablerep") != "skip_list":
         dest_params["paranoid_memory_checks"] = 0
-        dest_params["memtable_veirfy_per_key_checksum_on_seek"] = 0
+        dest_params["memtable_verify_per_key_checksum_on_seek"] = 0
 
     if dest_params["test_batches_snapshots"] == 1:
         dest_params["enable_compaction_filter"] = 0
@@ -1543,9 +1548,9 @@ def finalize_and_sanitize(src_params):
         dest_params["open_files_async"] = 0
 
     # inplace update and key checksum verification during seek would cause race condition
-    # Therefore, when inplace_update_support is enabled, disable memtable_veirfy_per_key_checksum_on_seek
+    # Therefore, when inplace_update_support is enabled, disable memtable_verify_per_key_checksum_on_seek
     if dest_params["inplace_update_support"] == 1:
-        dest_params["memtable_veirfy_per_key_checksum_on_seek"] = 0
+        dest_params["memtable_verify_per_key_checksum_on_seek"] = 0
 
     # allow_resumption requires remote compaction
     if dest_params.get("remote_compaction_worker_threads", 0) == 0:

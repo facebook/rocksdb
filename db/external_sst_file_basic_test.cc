@@ -1311,7 +1311,7 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
     });
     if (i == 0) {
       SyncPoint::GetInstance()->SetCallBack(
-          "ExternalSstFileIngestionJob::Prepare:Reopen", [&](void* s) {
+          "ExternalSstFileIngestionJob::CheckSyncReturnCode", [&](void* s) {
             Status* status = static_cast<Status*>(s);
             if (status->IsNotSupported()) {
               no_sync = true;
@@ -1367,13 +1367,13 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
   }
 }
 
-TEST_F(ExternalSSTFileBasicTest, ReopenNotSupported) {
+TEST_F(ExternalSSTFileBasicTest, SyncFileNotSupported) {
   Options options;
   options.create_if_missing = true;
   options.env = env_;
 
   SyncPoint::GetInstance()->SetCallBack(
-      "ExternalSstFileIngestionJob::Prepare:Reopen", [&](void* arg) {
+      "ExternalSstFileIngestionJob::CheckSyncReturnCode", [&](void* arg) {
         Status* s = static_cast<Status*>(arg);
         *s = Status::NotSupported();
       });
@@ -1386,7 +1386,7 @@ TEST_F(ExternalSSTFileBasicTest, ReopenNotSupported) {
   std::unique_ptr<SstFileWriter> sst_file_writer(
       new SstFileWriter(EnvOptions(), sst_file_writer_options));
   std::string file_name =
-      sst_files_dir_ + "reopen_not_supported_test_" + ".sst";
+      sst_files_dir_ + "sync_file_not_supported_test_" + ".sst";
   ASSERT_OK(sst_file_writer->Open(file_name));
   ASSERT_OK(sst_file_writer->Put("bar", "v2"));
   ASSERT_OK(sst_file_writer->Finish());

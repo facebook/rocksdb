@@ -163,6 +163,9 @@ class FaultInjectionTestEnv : public EnvWrapper {
                             std::unique_ptr<WritableFile>* result,
                             const EnvOptions& soptions) override;
 
+  Status SyncFile(const std::string& fname, const EnvOptions& options,
+                  bool use_fsync) override;
+
   Status NewRandomRWFile(const std::string& fname,
                          std::unique_ptr<RandomRWFile>* result,
                          const EnvOptions& soptions) override;
@@ -180,8 +183,13 @@ class FaultInjectionTestEnv : public EnvWrapper {
 // Undef to eliminate clash on Windows
 #undef GetFreeSpace
   Status GetFreeSpace(const std::string& path, uint64_t* disk_free) override {
-    if (!IsFilesystemActive() &&
-        error_.subcode() == IOStatus::SubCode::kNoSpace) {
+    bool inactive_no_space = false;
+    {
+      MutexLock l(&mutex_);
+      inactive_no_space = !filesystem_active_ &&
+                          error_.subcode() == IOStatus::SubCode::kNoSpace;
+    }
+    if (inactive_no_space) {
       *disk_free = 0;
       return Status::OK();
     } else {
@@ -239,7 +247,10 @@ class FaultInjectionTestEnv : public EnvWrapper {
     error.PermitUncheckedError();
   }
   void AssertNoOpenFile() { assert(open_managed_files_.empty()); }
-  Status GetError() { return error_; }
+  Status GetError() {
+    MutexLock l(&mutex_);
+    return error_;
+  }
 
  private:
   port::Mutex mutex_;

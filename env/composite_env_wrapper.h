@@ -142,6 +142,13 @@ class CompositeEnv : public Env {
     return file_system_->LinkFile(s, t, io_opts, &dbg);
   }
 
+  Status SyncFile(const std::string& fname, const EnvOptions& env_options,
+                  bool use_fsync) override {
+    IODebugContext dbg;
+    return file_system_->SyncFile(fname, FileOptions(env_options), IOOptions(),
+                                  use_fsync, &dbg);
+  }
+
   Status NumFileLinks(const std::string& fname, uint64_t* count) override {
     IOOptions io_opts;
     IODebugContext dbg;

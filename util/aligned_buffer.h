@@ -10,10 +10,13 @@
 
 #include <algorithm>
 #include <cassert>
+#include <functional>
+#include <utility>
 
 #include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/status.h"
 namespace ROCKSDB_NAMESPACE {
 
 // This file contains utilities to handle the alignment of pages and buffers.
@@ -56,6 +59,17 @@ inline size_t Rounddown(size_t x, size_t y) { return (x / y) * y; }
 //   buf.AllocateNewBuffer(2*user_requested_buf_size, /*copy_data*/ true,
 //                         copy_offset, copy_len);
 class AlignedBuffer {
+ public:
+  struct ExternalAllocation {
+    char* data = nullptr;
+    size_t size = 0;
+    FSAllocationPtr owner;
+  };
+
+  using Allocator = std::function<Status(size_t size, size_t alignment,
+                                         ExternalAllocation* out)>;
+
+ private:
   size_t alignment_;
   FSAllocationPtr buf_;
   size_t capacity_;
@@ -177,6 +191,55 @@ class AlignedBuffer {
     buf_ = std::unique_ptr<void, std::function<void(void*)>>(
         static_cast<void*>(new_buf),
         [](void* p) { delete[] static_cast<char*>(p); });
+  }
+
+  // Allocates a fresh buffer, using the external allocator when provided and
+  // RocksDB heap memory otherwise. This overload does not preserve old
+  // contents, and callers must check its returned Status. Heap-only callers
+  // should use the void overload above so CHECK_STATUS builds do not create an
+  // ignored Status.
+  Status AllocateNewBuffer(size_t requested_capacity,
+                           const Allocator* allocator) {
+    if (allocator == nullptr) {
+      AllocateNewBuffer(requested_capacity);
+      return Status::OK();
+    }
+
+    assert(alignment_ > 0);
+    assert((alignment_ & (alignment_ - 1)) == 0);
+
+    const size_t new_capacity = Roundup(requested_capacity, alignment_);
+    ExternalAllocation allocation;
+    Status s = (*allocator)(new_capacity, alignment_, &allocation);
+    if (!s.ok()) {
+      return s;
+    }
+    if (allocation.data == nullptr) {
+      return Status::InvalidArgument(
+          "AlignedBuffer allocator returned null data");
+    }
+    if (allocation.size < new_capacity) {
+      return Status::InvalidArgument(
+          "AlignedBuffer allocator returned short buffer");
+    }
+    if (!isAligned(allocation.data, alignment_)) {
+      return Status::InvalidArgument(
+          "AlignedBuffer allocator returned misaligned buffer");
+    }
+    if (!isAligned(allocation.size, alignment_)) {
+      return Status::InvalidArgument(
+          "AlignedBuffer allocator returned misaligned size");
+    }
+    if (allocation.owner.get() == nullptr) {
+      return Status::InvalidArgument(
+          "AlignedBuffer allocator returned null owner");
+    }
+
+    bufstart_ = allocation.data;
+    capacity_ = allocation.size;
+    cursize_ = 0;
+    buf_ = std::move(allocation.owner);
+    return Status::OK();
   }
 
   // Append to the buffer.

@@ -171,6 +171,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"allow_mmap_reads", "true"},
       {"allow_mmap_writes", "false"},
       {"use_direct_reads", "false"},
+      {"use_direct_io_for_compaction_reads", "false"},
       {"use_direct_io_for_flush_and_compaction", "false"},
       {"is_fd_close_on_exec", "true"},
       {"skip_log_error_on_recovery", "false"},
@@ -357,6 +358,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.allow_mmap_reads, true);
   ASSERT_EQ(new_db_opt.allow_mmap_writes, false);
   ASSERT_EQ(new_db_opt.use_direct_reads, false);
+  ASSERT_EQ(new_db_opt.use_direct_io_for_compaction_reads, false);
   ASSERT_EQ(new_db_opt.use_direct_io_for_flush_and_compaction, false);
   ASSERT_EQ(new_db_opt.is_fd_close_on_exec, true);
   ASSERT_EQ(new_db_opt.stats_dump_period_sec, 46U);
@@ -416,6 +418,10 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       config_options, base_cf_opt, "write_buffer_size=6;", &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 6U);
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "memtable_verify_per_key_checksum_on_seek=true", &new_cf_opt));
+  ASSERT_TRUE(new_cf_opt.memtable_verify_per_key_checksum_on_seek);
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       config_options, base_cf_opt, "  write_buffer_size =  7  ", &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 7U);
@@ -2668,6 +2674,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"default_temperature", "kHot"},
       {"persist_user_defined_timestamps", "true"},
       {"memtable_max_range_deletions", "0"},
+      {"memtable_veirfy_per_key_checksum_on_seek", "true"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -2701,6 +2708,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"allow_mmap_reads", "true"},
       {"allow_mmap_writes", "false"},
       {"use_direct_reads", "false"},
+      {"use_direct_io_for_compaction_reads", "false"},
       {"use_direct_io_for_flush_and_compaction", "false"},
       {"is_fd_close_on_exec", "true"},
       {"skip_log_error_on_recovery", "false"},
@@ -2823,6 +2831,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.default_write_temperature, Temperature::kCold);
   ASSERT_EQ(new_cf_opt.default_temperature, Temperature::kHot);
   ASSERT_EQ(new_cf_opt.persist_user_defined_timestamps, true);
+  ASSERT_TRUE(new_cf_opt.memtable_verify_per_key_checksum_on_seek);
   ASSERT_EQ(new_cf_opt.memtable_max_range_deletions, 0);
 
   cf_options_map["write_buffer_size"] = "hello";
@@ -2891,6 +2900,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.allow_mmap_reads, true);
   ASSERT_EQ(new_db_opt.allow_mmap_writes, false);
   ASSERT_EQ(new_db_opt.use_direct_reads, false);
+  ASSERT_EQ(new_db_opt.use_direct_io_for_compaction_reads, false);
   ASSERT_EQ(new_db_opt.use_direct_io_for_flush_and_compaction, false);
   ASSERT_EQ(new_db_opt.is_fd_close_on_exec, true);
   ASSERT_EQ(new_db_opt.stats_dump_period_sec, 46U);
@@ -3557,11 +3567,18 @@ TEST_F(OptionsOldApiTest, ColumnFamilyOptionsSerialization) {
   // Phase 1: randomly assign base_opt
   // custom type options
   test::RandomInitCFOptions(&base_opt, options, &rnd);
+  base_opt.memtable_verify_per_key_checksum_on_seek = true;
 
   // Phase 2: obtain a string from base_opt
   std::string base_options_file_content;
   ASSERT_OK(
       GetStringFromColumnFamilyOptions(&base_options_file_content, base_opt));
+  ASSERT_EQ(base_options_file_content.find(
+                "memtable_veirfy_per_key_checksum_on_seek="),
+            std::string::npos);
+  ASSERT_NE(base_options_file_content.find(
+                "memtable_verify_per_key_checksum_on_seek="),
+            std::string::npos);
 
   // Phase 3: Set new_opt from the derived string and expect
   //          new_opt == base_opt

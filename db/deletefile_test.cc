@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <atomic>
 #include <cstdlib>
 #include <map>
 #include <string>
@@ -256,6 +257,108 @@ TEST_F(DeleteFileTest, BackgroundPurgeIteratorTest) {
   sleeping_task_after.WaitUntilDone();
   // 1 sst after iterator deletion
   CheckFileTypeCounts(dbname_, 0, 1, 1);
+}
+
+// Regression test for a use-after-free where an obsolete-file purge started
+// DURING DB close -- after CloseHelper's early purge drain -- continued using
+// DBImpl after ~DBImpl destroyed mutex_. Seen as a vhost-user-blk SIGABRT when
+// many RocksDB instances closed concurrently under a Warm Storage fault, with
+// avoid_unnecessary_blocking_io=true on a shared, process-wide Env.
+//
+// Here we make the straggler deterministic: keep a dropped column family handle
+// alive, delete it only after CloseHelper has passed its early purge drain,
+// then park that cleanup after FindObsoleteFiles() has incremented
+// pending_purge_obsolete_files_ but before PurgeObsoleteFiles(..., true)
+// schedules BGWorkPurge. Without the fix, the final drain sees
+// bg_purge_scheduled_ == 0 and can destroy DBImpl while the pending cleanup is
+// still about to lock/use it. With the fix, CloseHelper waits through the
+// pending handoff and then through the scheduled purge.
+TEST_F(DeleteFileTest, CloseWaitsForPurgeScheduledDuringClose) {
+  Options options = CurrentOptions();
+  SetOptions(&options);
+  Destroy(options);
+  options.create_if_missing = true;
+  // Route obsolete-file deletion through the background purge queue, matching
+  // the production config that hit the bug.
+  options.avoid_unnecessary_blocking_io = true;
+  Reopen(options);
+
+  // A dropped CF whose handle we keep alive: deleting the handle schedules a
+  // *background* purge (the dropped-CF teardown path).
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(), "dropme", &cfh));
+  ASSERT_OK(db_->Put(WriteOptions(), cfh, "key", "value"));
+  ASSERT_OK(db_->Flush(FlushOptions(), cfh));
+  ASSERT_OK(db_->DropColumnFamily(cfh));
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());  // settle setup purges
+
+  std::atomic<bool> block_pending_handoff{false};
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::PurgeObsoleteFiles:BeforePendingPurgeFinished", [&](void*) {
+        if (!block_pending_handoff.exchange(false)) {
+          return;
+        }
+        TEST_SYNC_POINT(
+            "DeleteFileTest::CloseWaitsForPurge:PendingHandoffReady");
+        TEST_SYNC_POINT(
+            "DeleteFileTest::CloseWaitsForPurge:PendingHandoffBlocked");
+      });
+  SyncPoint::GetInstance()->LoadDependency({
+      // Delete the dropped CF handle only after CloseHelper has passed its
+      // early purge drain and entered a mutex-unlocked close window.
+      {"DBImpl::CloseHelper:CFHandleCleanupUnlocked",
+       "DeleteFileTest::CloseWaitsForPurge:DropDuringCloseUnlock"},
+      // Let the test thread observe that the deleter is parked in the pending
+      // handoff window.
+      {"DeleteFileTest::CloseWaitsForPurge:PendingHandoffReady",
+       "DeleteFileTest::CloseWaitsForPurge:WaitForPendingHandoff"},
+      // Keep CloseHelper in the mutex-unlocked close window until the
+      // dropped-CF cleanup reaches the pending-to-scheduled handoff.
+      {"DeleteFileTest::CloseWaitsForPurge:PendingHandoffReady",
+       "DBImpl::CloseHelper:CFHandleCleanupAllowed"},
+      // Observe that CloseHelper is actually waiting in the final purge drain
+      // while the dropped-CF cleanup is still parked in the pending handoff.
+      {"DBImpl::CloseHelper:FinalPurgeDrainWait",
+       "DeleteFileTest::CloseWaitsForPurge:WaitForFinalPurgeDrain"},
+      // Keep the dropped-CF cleanup parked in the pending handoff window until
+      // the test releases it.
+      {"DeleteFileTest::CloseWaitsForPurge:ReleasePendingHandoff",
+       "DeleteFileTest::CloseWaitsForPurge:PendingHandoffBlocked"},
+      // Park the scheduled BGWorkPurge before it locks mutex_ until we release
+      // it, so CloseHelper also has to wait for bg_purge_scheduled_.
+      {"DeleteFileTest::CloseWaitsForPurge:ReleaseBackgroundPurge",
+       "DBImpl::BackgroundCallPurge:beforeMutexLock"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread closer([&]() { db_.reset(); });
+
+  // Unblocks once CloseHelper is in a mutex-unlocked close window; then
+  // deleting the dropped CF handle starts purge work the early drain missed.
+  TEST_SYNC_POINT("DeleteFileTest::CloseWaitsForPurge:DropDuringCloseUnlock");
+  block_pending_handoff.store(true);
+  ColumnFamilyHandle* dropped_cfh = cfh;
+  cfh = nullptr;
+  port::Thread dropped_cf_deleter([dropped_cfh]() { delete dropped_cfh; });
+
+  TEST_SYNC_POINT("DeleteFileTest::CloseWaitsForPurge:WaitForPendingHandoff");
+
+  // Wait until CloseHelper is blocked in the final drain with no scheduled
+  // purge yet. Without the fix, it would proceed while the dropped-CF cleanup
+  // is still pending. With the fix, it waits for pending_purge_obsolete_files_.
+  TEST_SYNC_POINT("DeleteFileTest::CloseWaitsForPurge:WaitForFinalPurgeDrain");
+
+  // Release the pending cleanup, then the BGWorkPurge it schedules. With the
+  // fix, the closer waits for both transitions and completes cleanly.
+  TEST_SYNC_POINT("DeleteFileTest::CloseWaitsForPurge:ReleasePendingHandoff");
+  dropped_cf_deleter.join();
+  TEST_SYNC_POINT("DeleteFileTest::CloseWaitsForPurge:ReleaseBackgroundPurge");
+  closer.join();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(DeleteFileTest, PurgeDuringOpen) {

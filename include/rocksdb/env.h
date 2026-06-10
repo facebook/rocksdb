@@ -385,6 +385,14 @@ class Env : public Customizable {
     return Status::NotSupported("LinkFile is not supported for this Env");
   }
 
+  // Syncs file data and, when requested, file metadata for `fname`.
+  //
+  // See FileSystem::SyncFile() for the corresponding path-level sync contract.
+  // The default implementation reopens the file as writable, calls Sync() or
+  // Fsync(), then closes it.
+  virtual Status SyncFile(const std::string& fname, const EnvOptions& options,
+                          bool use_fsync);
+
   virtual Status NumFileLinks(const std::string& /*fname*/,
                               uint64_t* /*count*/) {
     return Status::NotSupported(
@@ -1692,6 +1700,11 @@ class EnvWrapper : public Env {
 
   Status LinkFile(const std::string& s, const std::string& t) override {
     return target_.env->LinkFile(s, t);
+  }
+
+  Status SyncFile(const std::string& fname, const EnvOptions& options,
+                  bool use_fsync) override {
+    return target_.env->SyncFile(fname, options, use_fsync);
   }
 
   Status NumFileLinks(const std::string& fname, uint64_t* count) override {

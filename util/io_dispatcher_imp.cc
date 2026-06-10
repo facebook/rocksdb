@@ -14,6 +14,7 @@
 
 #include "util/io_dispatcher_imp.h"
 
+#include <algorithm>
 #include <deque>
 #include <memory>
 #include <unordered_map>
@@ -25,6 +26,7 @@
 #include "port/port.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/io_dispatcher.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "table/block_based/block_based_table_reader.h"
@@ -32,6 +34,7 @@
 #include "table/block_based/reader_common.h"
 #include "table/format.h"
 #include "test_util/sync_point.h"
+#include "util/aligned_buffer.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -68,8 +71,13 @@ static bool BlockIndicesAreSortedByOffset(
 static Status CreateAndPinBlockFromBuffer(
     const std::shared_ptr<IOJob>& job, const BlockHandle& block,
     uint64_t buffer_start_offset, const Slice& buffer_data,
+    const SharedCleanablePtr& read_buffer_cleanup,
+    bool read_buffer_requires_cleanup,
     CachableEntry<Block>& pinned_block_entry) {
   auto* rep = job->table->get_rep();
+  const bool use_data_block_cache = ShouldUseDataBlockCacheForIterator(
+      rep->table_options, job->job_options.read_options,
+      rep->ioptions.allow_mmap_reads);
 
   // Get decompressor
   UnownedPtr<Decompressor> decompressor = rep->decompressor.get();
@@ -90,20 +98,112 @@ static Status CreateAndPinBlockFromBuffer(
   const auto block_size_with_trailer =
       BlockBasedTable::BlockSizeWithTrailer(block);
   const auto block_offset_in_buffer = block.offset() - buffer_start_offset;
+  const char* block_data = buffer_data.data() + block_offset_in_buffer;
 
-  CacheAllocationPtr data = AllocateBlock(
-      block_size_with_trailer, GetMemoryAllocator(rep->table_options));
-  memcpy(data.get(), buffer_data.data() + block_offset_in_buffer,
-         block_size_with_trailer);
-  BlockContents tmp_contents(std::move(data), block.size());
+  if (use_data_block_cache) {
+    CacheAllocationPtr data = AllocateBlock(
+        block_size_with_trailer, GetMemoryAllocator(rep->table_options));
+    memcpy(data.get(), block_data, block_size_with_trailer);
+    BlockContents tmp_contents(std::move(data), block.size());
 
 #ifndef NDEBUG
-  tmp_contents.has_trailer = rep->footer.GetBlockTrailerSize() > 0;
+    tmp_contents.has_trailer = rep->footer.GetBlockTrailerSize() > 0;
 #endif
 
-  return job->table->CreateAndPinBlockInCache<Block_kData>(
-      job->job_options.read_options, block, decompressor, &tmp_contents,
-      &pinned_block_entry.As<Block_kData>());
+    return job->table->CreateAndPinBlockInCache<Block_kData>(
+        job->job_options.read_options, block, decompressor, &tmp_contents,
+        &pinned_block_entry.As<Block_kData>());
+  }
+
+  BlockContents tmp_contents;
+  const CompressionType compression_type =
+      BlockBasedTable::GetBlockCompressionType(block_data, block.size());
+  ReadScopedBlockBufferProviderRef block_buffer_provider =
+      GetReadScopedBlockBufferProvider(job->job_options.read_options,
+                                       rep->ioptions.allow_mmap_reads);
+  Status s;
+  if (compression_type == kNoCompression) {
+    // Provider-backed uncompressed blocks should already be in the
+    // provider-owned read buffer allocated before I/O. Attach that cleanup to
+    // BlockContents so the block points at the read buffer without copying.
+#ifndef NDEBUG
+    SharedCleanablePtr test_read_buffer_cleanup = read_buffer_cleanup;
+    TEST_SYNC_POINT_CALLBACK("CreateAndPinBlockFromBuffer:ReadBufferCleanup",
+                             &test_read_buffer_cleanup);
+    const SharedCleanablePtr* effective_read_buffer_cleanup =
+        &test_read_buffer_cleanup;
+#else
+    const SharedCleanablePtr* effective_read_buffer_cleanup =
+        &read_buffer_cleanup;
+#endif
+    if (effective_read_buffer_cleanup->get() != nullptr) {
+      tmp_contents.data = Slice(block_data, block.size());
+      tmp_contents.cleanup = *effective_read_buffer_cleanup;
+      tmp_contents.backing_size = block_size_with_trailer;
+      tmp_contents.AssertSingleOwner();
+#ifndef NDEBUG
+      tmp_contents.has_trailer = rep->footer.GetBlockTrailerSize() > 0;
+#endif
+    } else if (read_buffer_requires_cleanup) {
+      s = Status::InvalidArgument(
+          "read-scoped block buffer provider requires read buffer cleanup");
+    } else if (block_buffer_provider.has_value()) {
+      s = CopyBufferToReadScopedBlockContents(
+          Slice(block_data, block_size_with_trailer), block.size(),
+          block_buffer_provider->get(), &tmp_contents);
+    } else {
+      s = CopyBufferToHeapBlockContents(
+          Slice(block_data, block_size_with_trailer), block.size(),
+          GetMemoryAllocator(rep->table_options), &tmp_contents);
+    }
+  } else {
+    // Compressed blocks cannot view the read buffer as final block contents.
+    // When a provider is configured, decompression allocates provider-backed
+    // output and writes the uncompressed block directly into it.
+    s = DecompressSerializedBlock(block_data, block.size(), compression_type,
+                                  *decompressor, &tmp_contents, rep->ioptions,
+                                  GetMemoryAllocator(rep->table_options),
+                                  block_buffer_provider);
+  }
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::unique_ptr<Block_kData> block_holder;
+  rep->create_context.Create(&block_holder, std::move(tmp_contents));
+  pinned_block_entry.As<Block_kData>().SetOwnedValue(std::move(block_holder));
+  return Status::OK();
+}
+
+struct ReadScopedIOConfig {
+  bool use_data_block_cache = true;
+  ReadScopedBlockBufferProviderRef block_buffer_provider;
+  // True only when provider-backed file-read scratch is required because the
+  // block is known to be uncompressed. If this is true, the read buffer cleanup
+  // must be attached directly to BlockContents; otherwise maybe-compressed
+  // reads may use ordinary scratch and copy/decompress into provider-backed
+  // final contents after the compression type is known.
+  bool read_buffer_requires_cleanup = false;
+  bool use_read_scoped_direct_io = false;
+  bool use_read_scoped_scratch = false;
+};
+
+static ReadScopedIOConfig GetReadScopedIOConfig(
+    const BlockBasedTableOptions& table_options, const JobOptions& job_options,
+    bool allow_mmap_reads, bool data_blocks_maybe_compressed, bool direct_io) {
+  ReadScopedIOConfig config;
+  config.use_data_block_cache = ShouldUseDataBlockCacheForIterator(
+      table_options, job_options.read_options, allow_mmap_reads);
+  config.block_buffer_provider = GetReadScopedBlockBufferProvider(
+      job_options.read_options, allow_mmap_reads);
+
+  const bool use_read_scoped_buffer =
+      !config.use_data_block_cache &&
+      config.block_buffer_provider.has_value() && !data_blocks_maybe_compressed;
+  config.read_buffer_requires_cleanup = use_read_scoped_buffer;
+  config.use_read_scoped_direct_io = direct_io && use_read_scoped_buffer;
+  config.use_read_scoped_scratch = !direct_io && use_read_scoped_buffer;
+  return config;
 }
 
 // State for async IO operations (implementation detail)
@@ -116,11 +216,16 @@ struct AsyncIOState {
   AsyncIOState(AsyncIOState&&) = default;
   AsyncIOState& operator=(AsyncIOState&&) = default;
 
+  ReadScopedBlockBufferProvider::Lease read_scoped_buf_lease;
   std::unique_ptr<char[]> buf;
   AlignedBuf aligned_buf;
+  AlignedBuffer direct_io_buffer;
   void* io_handle = nullptr;
   IOHandleDeleter del_fn;
   uint64_t offset;
+  // Captures ReadScopedIOConfig::read_buffer_requires_cleanup until async I/O
+  // completion processing can attach the read buffer cleanup to BlockContents.
+  bool read_buffer_requires_cleanup = false;
   std::vector<size_t> block_indices;
   std::vector<BlockHandle> blocks;
   FSReadRequest read_req;
@@ -130,15 +235,13 @@ struct AsyncIOState {
 // Must call AbortIO before deleting handles to avoid use-after-free when
 // io_uring completions arrive for deleted handles.
 ReadSet::~ReadSet() {
-  // Release memory for any blocks still pinned
-  // Note: block_sizes_[i] is only set for async IO reads where memory
-  // limiting applies. For sync reads, block_sizes_ remains 0, so this
-  // loop is effectively a no-op for sync reads.
-  if (auto dispatcher_data = dispatcher_data_.lock()) {
-    for (size_t i = 0; i < block_sizes_.size(); ++i) {
-      if (block_sizes_[i] > 0 && pinned_blocks_[i].GetValue()) {
-        dispatcher_data->ReleaseMemory(block_sizes_[i]);
-      }
+  // Release memory for any blocks still owned by this ReadSet. Pending queued
+  // blocks have a non-zero block_sizes_ entry, but no memory was acquired for
+  // them yet, so only pinned or async-dispatched blocks should release memory.
+  for (size_t i = 0; i < block_sizes_.size(); ++i) {
+    if (pinned_blocks_[i].GetValue() ||
+        async_io_map_.find(i) != async_io_map_.end()) {
+      ReleasePrefetchMemory(i);
     }
   }
 
@@ -168,11 +271,7 @@ ReadSet::~ReadSet() {
 
   // Now safe to delete the handles
   for (auto& pair : async_io_map_) {
-    auto& async_state = pair.second;
-    if (async_state->io_handle != nullptr && async_state->del_fn != nullptr) {
-      async_state->del_fn(async_state->io_handle);
-      async_state->io_handle = nullptr;
-    }
+    DeleteAsyncIOHandle(pair.second);
   }
 }
 
@@ -190,12 +289,7 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
     // Release memory accounting for prefetched blocks. After moving the value
     // out, ReleaseBlock() and the destructor check pinned_blocks_.GetValue()
     // which will be null, so they won't release memory again.
-    if (block_index < block_sizes_.size() && block_sizes_[block_index] > 0) {
-      if (auto dispatcher_data = dispatcher_data_.lock()) {
-        dispatcher_data->ReleaseMemory(block_sizes_[block_index]);
-      }
-      block_sizes_[block_index] = 0;
-    }
+    ReleasePrefetchMemory(block_index);
     // Note: Statistics for this block were already counted during SubmitJob
     // (either as cache hit or sync read)
     return Status::OK();
@@ -219,13 +313,7 @@ Status ReadSet::ReadIndex(size_t block_index, CachableEntry<Block>* out) {
       if (pinned_blocks_[block_index].GetValue()) {
         *out = std::move(pinned_blocks_[block_index]);
         // Release memory accounting (same as case 1 above)
-        if (block_index < block_sizes_.size() &&
-            block_sizes_[block_index] > 0) {
-          if (auto dispatcher_data = dispatcher_data_.lock()) {
-            dispatcher_data->ReleaseMemory(block_sizes_[block_index]);
-          }
-          block_sizes_[block_index] = 0;
-        }
+        ReleasePrefetchMemory(block_index);
         return Status::OK();
       }
 
@@ -291,22 +379,68 @@ void ReadSet::ReleaseBlock(size_t block_index) {
   // Remove from pending if applicable
   RemoveFromPending(block_index);
 
-  // Release memory BEFORE unpinning
-  // Note: block_sizes_[idx] is only set for async IO reads where memory
-  // limiting applies. For sync reads, block_sizes_ remains 0, so this
-  // check implicitly skips ReleaseMemory for sync reads.
-  if (pinned_blocks_[block_index].GetValue() &&
-      block_index < block_sizes_.size() && block_sizes_[block_index] > 0) {
-    if (auto dispatcher_data = dispatcher_data_.lock()) {
-      dispatcher_data->ReleaseMemory(block_sizes_[block_index]);
-    }
-    block_sizes_[block_index] = 0;  // Prevent double-release
+  // Release memory for a materialized prefetched block before unpinning. Queued
+  // blocks have not acquired memory yet, and pending async blocks release their
+  // memory budget in ReleaseAsyncIOForBlock().
+  if (pinned_blocks_[block_index].GetValue()) {
+    ReleasePrefetchMemory(block_index);
   }
 
   // Unpin the block from cache
   pinned_blocks_[block_index].Reset();
-  // Clean up any pending async IO for this block
-  async_io_map_.erase(block_index);
+  ReleaseAsyncIOForBlock(block_index);
+}
+
+void ReadSet::ReleasePrefetchMemory(size_t block_index) {
+  if (block_index >= block_sizes_.size() || block_sizes_[block_index] == 0) {
+    return;
+  }
+
+  if (auto dispatcher_data = dispatcher_data_.lock()) {
+    dispatcher_data->ReleaseMemory(block_sizes_[block_index]);
+  }
+  block_sizes_[block_index] = 0;
+}
+
+void ReadSet::ReleaseAsyncIOForBlock(size_t block_index) {
+  auto map_iter = async_io_map_.find(block_index);
+  if (map_iter == async_io_map_.end()) {
+    return;
+  }
+
+  std::shared_ptr<AsyncIOState> async_state = map_iter->second;
+  async_io_map_.erase(map_iter);
+  ReleasePrefetchMemory(block_index);
+
+  auto block_iter = std::find(async_state->block_indices.begin(),
+                              async_state->block_indices.end(), block_index);
+  if (block_iter != async_state->block_indices.end()) {
+    const size_t state_index =
+        static_cast<size_t>(block_iter - async_state->block_indices.begin());
+    async_state->block_indices.erase(block_iter);
+    async_state->blocks.erase(async_state->blocks.begin() + state_index);
+  }
+
+  if (!async_state->block_indices.empty()) {
+    return;
+  }
+
+  if (async_state->io_handle != nullptr && fs_ != nullptr) {
+    std::vector<void*> io_handles = {async_state->io_handle};
+    TEST_SYNC_POINT_CALLBACK("ReadSet::ReleaseAsyncIOForBlock:AbortIO",
+                             nullptr);
+    IOStatus s = fs_->AbortIO(io_handles);
+    s.PermitUncheckedError();
+  }
+  DeleteAsyncIOHandle(async_state);
+}
+
+void ReadSet::DeleteAsyncIOHandle(
+    const std::shared_ptr<AsyncIOState>& async_state) {
+  if (async_state->io_handle != nullptr && async_state->del_fn != nullptr) {
+    async_state->del_fn(async_state->io_handle);
+    async_state->io_handle = nullptr;
+  }
 }
 
 bool ReadSet::IsBlockAvailable(size_t block_index) const {
@@ -339,25 +473,27 @@ Status ReadSet::PollAndProcessAsyncIO(
   // Use the result slice from the callback which has been correctly set
   // with any necessary alignment adjustments for direct IO
   const Slice& buffer_data = async_state->read_req.result;
+  SharedCleanablePtr read_buffer_cleanup;
+  if (async_state->read_scoped_buf_lease.cleanup.get() != nullptr) {
+    read_buffer_cleanup = std::move(async_state->read_scoped_buf_lease.cleanup);
+  }
 
   // Process all blocks in this async request
   for (size_t i = 0; i < async_state->block_indices.size(); ++i) {
     const size_t idx = async_state->block_indices[i];
     const auto& block_handle = async_state->blocks[i];
 
-    Status s =
-        CreateAndPinBlockFromBuffer(job_, block_handle, async_state->offset,
-                                    buffer_data, pinned_blocks_[idx]);
+    Status s = CreateAndPinBlockFromBuffer(
+        job_, block_handle, async_state->offset, buffer_data,
+        read_buffer_cleanup, async_state->read_buffer_requires_cleanup,
+        pinned_blocks_[idx]);
     if (!s.ok()) {
       return s;
     }
   }
 
   // Clean up IO handle
-  if (async_state->io_handle != nullptr && async_state->del_fn != nullptr) {
-    async_state->del_fn(async_state->io_handle);
-    async_state->io_handle = nullptr;
-  }
+  DeleteAsyncIOHandle(async_state);
 
   // Remove from map - all blocks in this request have been processed
   // Store indices in a temporary vector to avoid iterator invalidation
@@ -375,6 +511,9 @@ Status ReadSet::PollAndProcessAsyncIO(
 Status ReadSet::SyncRead(size_t block_index) {
   const auto& block_handle = job_->block_handles[block_index];
   auto* rep = job_->table->get_rep();
+  const bool use_data_block_cache = ShouldUseDataBlockCacheForIterator(
+      rep->table_options, job_->job_options.read_options,
+      rep->ioptions.allow_mmap_reads);
 
   // Get dictionary-aware decompressor if available
   UnownedPtr<Decompressor> decompressor = rep->decompressor.get();
@@ -395,8 +534,8 @@ Status ReadSet::SyncRead(size_t block_index) {
       /*prefetch_buffer=*/nullptr, job_->job_options.read_options, block_handle,
       decompressor, &pinned_blocks_[block_index].As<Block_kData>(),
       /*get_context=*/nullptr, /*lookup_context=*/nullptr,
-      /*for_compaction=*/false, /*use_cache=*/true,
-      /*async_read=*/false, /*use_block_cache_for_lookup=*/true);
+      /*for_compaction=*/false, use_data_block_cache,
+      /*async_read=*/false, use_data_block_cache);
 }
 
 // A pre-coalesced group of blocks for prefetching
@@ -731,22 +870,29 @@ Status IODispatcherImpl::Impl::SubmitJob(const std::shared_ptr<IOJob>& job,
   // sorted.
   std::vector<size_t> block_indices_to_read;
   block_indices_to_read.reserve(job->block_handles.size());
+  const bool use_data_block_cache = ShouldUseDataBlockCacheForIterator(
+      job->table->get_rep()->table_options, job->job_options.read_options,
+      job->table->get_rep()->ioptions.allow_mmap_reads);
 
-  for (size_t i : rs->sorted_block_indices_) {
-    const auto& data_block_handle = job->block_handles[i];
+  if (!use_data_block_cache) {
+    block_indices_to_read = rs->sorted_block_indices_;
+  } else {
+    for (size_t i : rs->sorted_block_indices_) {
+      const auto& data_block_handle = job->block_handles[i];
 
-    // Lookup and pin block in cache
-    Status s = job->table->LookupAndPinBlocksInCache<Block_kData>(
-        job->job_options.read_options, data_block_handle,
-        &(rs->pinned_blocks_)[i].As<Block_kData>());
+      // Lookup and pin block in cache
+      Status s = job->table->LookupAndPinBlocksInCache<Block_kData>(
+          job->job_options.read_options, data_block_handle,
+          &(rs->pinned_blocks_)[i].As<Block_kData>());
 
-    if (!s.ok()) {
-      continue;
-    }
+      if (!s.ok()) {
+        continue;
+      }
 
-    if (!(rs->pinned_blocks_)[i].GetValue()) {
-      // Block not in cache - needs to be read from disk
-      block_indices_to_read.emplace_back(i);
+      if (!(rs->pinned_blocks_)[i].GetValue()) {
+        // Block not in cache - needs to be read from disk
+        block_indices_to_read.emplace_back(i);
+      }
     }
   }
 
@@ -966,12 +1112,17 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
   }
 
   const bool direct_io = rep->file->use_direct_io();
+  const ReadScopedIOConfig read_scoped_io = GetReadScopedIOConfig(
+      rep->table_options, job->job_options, rep->ioptions.allow_mmap_reads,
+      rep->decompressor != nullptr, direct_io);
 
   // Submit async read requests and store them in the ReadSet
   for (size_t i = 0; i < read_reqs.size(); ++i) {
     auto async_state = std::make_shared<AsyncIOState>();
 
     async_state->offset = read_reqs[i].offset;
+    async_state->read_buffer_requires_cleanup =
+        read_scoped_io.read_buffer_requires_cleanup;
     async_state->block_indices = coalesced_block_indices[i];
     async_state->read_req = std::move(read_reqs[i]);
 
@@ -979,8 +1130,38 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
       async_state->blocks.emplace_back(job->block_handles[idx]);
     }
 
+    AlignedBuffer::Allocator direct_io_allocator;
+    AlignedBufferAllocationContext direct_io_context{
+        &async_state->direct_io_buffer};
+    AlignedBufferAllocationContext* direct_io_context_arg = nullptr;
+    if (read_scoped_io.use_read_scoped_direct_io) {
+      assert(read_scoped_io.block_buffer_provider.has_value());
+      // This allocator borrows the AsyncIOState lease member and is invoked
+      // synchronously by RandomAccessFileReader::ReadAsync before it returns.
+      // The resulting AlignedBuffer owner keeps the read-scoped cleanup alive
+      // until the async read is processed or abandoned. Uncompressed blocks
+      // later attach this cleanup directly to BlockContents.
+      direct_io_allocator = MakeReadScopedAlignedBufferAllocator(
+          read_scoped_io.block_buffer_provider,
+          &async_state->read_scoped_buf_lease);
+      direct_io_context.allocator = &direct_io_allocator;
+      direct_io_context_arg = &direct_io_context;
+    }
+
     if (direct_io) {
       async_state->read_req.scratch = nullptr;
+    } else if (read_scoped_io.use_read_scoped_scratch) {
+      assert(read_scoped_io.block_buffer_provider.has_value());
+      // Non-direct I/O writes into provider-backed scratch. For uncompressed
+      // blocks this scratch becomes the final BlockContents backing.
+      s = AllocateReadScopedBlockBuffer(
+          read_scoped_io.block_buffer_provider->get(),
+          async_state->read_req.len, 1, &async_state->read_scoped_buf_lease);
+      if (!s.ok()) {
+        *out_status = s;
+        return fallback_block_indices;
+      }
+      async_state->read_req.scratch = async_state->read_scoped_buf_lease.data;
     } else {
       async_state->buf.reset(new char[async_state->read_req.len]);
       async_state->read_req.scratch = async_state->buf.get();
@@ -995,10 +1176,13 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
       state->read_req.status = req.status;
     };
 
-    s = rep->file->ReadAsync(async_state->read_req, io_opts, cb,
-                             async_state.get(), &async_state->io_handle,
-                             &async_state->del_fn,
-                             direct_io ? &async_state->aligned_buf : nullptr);
+    s = rep->file->ReadAsync(
+        async_state->read_req, io_opts, cb, async_state.get(),
+        &async_state->io_handle, &async_state->del_fn,
+        read_scoped_io.use_read_scoped_direct_io
+            ? nullptr
+            : (direct_io ? &async_state->aligned_buf : nullptr),
+        /*dbg=*/nullptr, direct_io_context_arg);
 
     if (s.IsNotSupported()) {
       // Async IO may be compiled in but unavailable at runtime. Fall back to
@@ -1036,23 +1220,75 @@ Status IODispatcherImpl::Impl::ExecuteSyncIO(
     const std::shared_ptr<IOJob>& job, const std::shared_ptr<ReadSet>& read_set,
     std::vector<FSReadRequest>& read_reqs,
     const std::vector<std::vector<size_t>>& coalesced_block_indices) {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+  // Some error exits intentionally ignore FSReadRequest::status values: setup
+  // failures happen before MultiRead populates them, top-level MultiRead
+  // errors make per-request statuses irrelevant, and production short-circuits
+  // on the first per-request error.
+  auto permit_unchecked_read_req_statuses = [&read_reqs]() {
+    for (const FSReadRequest& read_req : read_reqs) {
+      read_req.status.PermitUncheckedError();
+    }
+  };
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+
   // Get file and IO options
   auto* rep = job->table->get_rep();
   IOOptions io_opts;
   if (Status s =
           rep->file->PrepareIOOptions(job->job_options.read_options, io_opts);
       !s.ok()) {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+    permit_unchecked_read_req_statuses();
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
     return s;
   }
 
   const bool direct_io = rep->file->use_direct_io();
+  const ReadScopedIOConfig read_scoped_io = GetReadScopedIOConfig(
+      rep->table_options, job->job_options, rep->ioptions.allow_mmap_reads,
+      rep->decompressor != nullptr, direct_io);
 
   // Setup scratch buffers for MultiRead
   std::unique_ptr<char[]> buf;
+  std::vector<ReadScopedBlockBufferProvider::Lease> read_scoped_leases;
+  std::vector<SharedCleanablePtr> read_req_cleanups;
+
+  ReadScopedBlockBufferProvider::Lease read_scoped_direct_io_lease;
+  AlignedBuffer direct_io_buffer;
+  AlignedBuffer::Allocator direct_io_allocator;
+  AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
+  if (read_scoped_io.use_read_scoped_direct_io) {
+    assert(read_scoped_io.block_buffer_provider.has_value());
+    // This allocator borrows stack-local lease state from the synchronous
+    // ExecuteSyncIO call. RandomAccessFileReader::MultiRead asks it to allocate
+    // before returning, and uncompressed blocks later attach the lease cleanup
+    // directly to BlockContents.
+    direct_io_allocator = MakeReadScopedAlignedBufferAllocator(
+        read_scoped_io.block_buffer_provider, &read_scoped_direct_io_lease);
+    direct_io_context.allocator = &direct_io_allocator;
+  }
 
   if (direct_io) {
     for (auto& read_req : read_reqs) {
       read_req.scratch = nullptr;
+    }
+  } else if (read_scoped_io.use_read_scoped_scratch) {
+    assert(read_scoped_io.block_buffer_provider.has_value());
+    // Non-direct I/O writes into provider-backed scratch. For uncompressed
+    // blocks this scratch becomes the final BlockContents backing.
+    read_scoped_leases.resize(read_reqs.size());
+    for (size_t i = 0; i < read_reqs.size(); ++i) {
+      if (Status s = AllocateReadScopedBlockBuffer(
+              read_scoped_io.block_buffer_provider->get(), read_reqs[i].len, 1,
+              &read_scoped_leases[i]);
+          !s.ok()) {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+        permit_unchecked_read_req_statuses();
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+        return s;
+      }
+      read_reqs[i].scratch = read_scoped_leases[i].data;
     }
   } else {
     // Allocate a single contiguous buffer for all requests
@@ -1069,17 +1305,32 @@ Status IODispatcherImpl::Impl::ExecuteSyncIO(
   }
 
   // Execute MultiRead
-  AlignedBuf aligned_buf;
   if (Status s =
           rep->file->MultiRead(io_opts, read_reqs.data(), read_reqs.size(),
-                               direct_io ? &aligned_buf : nullptr);
+                               &direct_io_context, /*dbg=*/nullptr);
       !s.ok()) {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+    permit_unchecked_read_req_statuses();
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
     return s;
   }
 
   for (const auto& rq : read_reqs) {
     if (!rq.status.ok()) {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+      permit_unchecked_read_req_statuses();
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
       return rq.status;
+    }
+  }
+
+  if (read_scoped_io.use_read_scoped_direct_io) {
+    read_req_cleanups.assign(read_reqs.size(),
+                             read_scoped_direct_io_lease.cleanup);
+  } else if (read_scoped_io.use_read_scoped_scratch) {
+    read_req_cleanups.resize(read_reqs.size());
+    for (size_t i = 0; i < read_scoped_leases.size(); ++i) {
+      read_req_cleanups[i] = std::move(read_scoped_leases[i].cleanup);
     }
   }
 
@@ -1091,6 +1342,9 @@ Status IODispatcherImpl::Impl::ExecuteSyncIO(
 
       Status create_status = CreateAndPinBlockFromBuffer(
           job, block_handle, read_req.offset, read_req.result,
+          i < read_req_cleanups.size() ? read_req_cleanups[i]
+                                       : SharedCleanablePtr(),
+          read_scoped_io.read_buffer_requires_cleanup,
           read_set->pinned_blocks_[block_idx]);
       if (!create_status.ok()) {
         return create_status;

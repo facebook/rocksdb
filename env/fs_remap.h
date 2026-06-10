@@ -125,6 +125,10 @@ class RemapFileSystem : public FileSystemWrapper {
   IOStatus LinkFile(const std::string& src, const std::string& dest,
                     const IOOptions& options, IODebugContext* dbg) override;
 
+  IOStatus SyncFile(const std::string& fname, const FileOptions& file_opts,
+                    const IOOptions& io_opts, bool use_fsync,
+                    IODebugContext* dbg) override;
+
   IOStatus LockFile(const std::string& fname, const IOOptions& options,
                     FileLock** lock, IODebugContext* dbg) override;
 

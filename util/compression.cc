@@ -483,6 +483,9 @@ class BuiltinSnappyCompressorV2 final : public CompressorWithSimpleDictBase {
     return kSnappyCompression;
   }
 
+  // Snappy is more often SLOWER with parallel compression than faster.
+  uint32_t GetRecommendedParallelThreads() const override { return 1; }
+
   std::unique_ptr<Compressor> CloneForDict(
       std::string&& dict_data) const override {
     return std::make_unique<BuiltinSnappyCompressorV2>(opts_,
@@ -754,6 +757,10 @@ class BuiltinLZ4CompressorV2WithDict : public CompressorWithSimpleDictBase {
   CompressionType GetPreferredCompressionType() const override {
     return kLZ4Compression;
   }
+
+  // LZ4 (accelerated, not LZ4HC) is more often SLOWER with parallel
+  // compression than faster.
+  uint32_t GetRecommendedParallelThreads() const override { return 1; }
 
   std::unique_ptr<Compressor> CloneForDict(
       std::string&& dict_data) const override {
@@ -1079,6 +1086,14 @@ class BuiltinZSTDCompressorV2 final : public CompressorBase {
   const char* Name() const override { return "BuiltinZSTDCompressorV2"; }
 
   CompressionType GetPreferredCompressionType() const override { return kZSTD; }
+
+  uint32_t GetRecommendedParallelThreads() const override {
+    // Accelerated ZSTD levels could see a small throughput increase with
+    // parallel compression, but the overall CPU overhead is generally not worth
+    // it.
+    return opts_.level < 0 ? 1
+                           : CompressorBase::GetRecommendedParallelThreads();
+  }
 
   std::unique_ptr<Compressor> Clone() const override {
     CompressionDict dict_copy{dict_.GetRawDict().ToString(), kZSTD,

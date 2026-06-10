@@ -24,6 +24,7 @@
 #include "file/read_write_util.h"
 #include "file/writable_file_writer.h"
 #include "logging/logging.h"
+#include "rocksdb/file_system.h"
 #include "util/aligned_buffer.h"
 #include "util/compression.h"
 #include "util/mutexlock.h"
@@ -199,7 +200,9 @@ Status BlobFilePartitionManager::OpenNewBlobFile(Partition* partition,
   }
 
   std::unique_ptr<FSWritableFile> file;
-  Status s = NewWritableFile(fs_, blob_file_path, &file, file_options_);
+  FileOptions writer_file_options = file_options_;
+  writer_file_options.open_contract = FileOpenContract::kNoReopenForWrite;
+  Status s = NewWritableFile(fs_, blob_file_path, &file, writer_file_options);
   if (!s.ok()) {
     RemoveFilePartitionMapping(blob_file_number);
     return s;
@@ -208,7 +211,7 @@ Status BlobFilePartitionManager::OpenNewBlobFile(Partition* partition,
   const bool perform_data_verification =
       checksum_handoff_file_types_.Contains(FileType::kBlobFile);
   auto file_writer = std::make_unique<WritableFileWriter>(
-      std::move(file), blob_file_path, file_options_, clock_, io_tracer_,
+      std::move(file), blob_file_path, writer_file_options, clock_, io_tracer_,
       statistics_, Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS, listeners_,
       file_checksum_gen_factory_, perform_data_verification);
 

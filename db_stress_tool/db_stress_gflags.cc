@@ -732,6 +732,11 @@ DEFINE_bool(mmap_write, ROCKSDB_NAMESPACE::Options().allow_mmap_writes,
 DEFINE_bool(use_direct_reads, ROCKSDB_NAMESPACE::Options().use_direct_reads,
             "Use O_DIRECT for reading data");
 
+DEFINE_bool(use_direct_io_for_compaction_reads,
+            ROCKSDB_NAMESPACE::Options().use_direct_io_for_compaction_reads,
+            "Use O_DIRECT for compaction-input SST reads only, while keeping "
+            "user reads buffered");
+
 DEFINE_bool(use_direct_io_for_flush_and_compaction,
             ROCKSDB_NAMESPACE::Options().use_direct_io_for_flush_and_compaction,
             "Use O_DIRECT for writing data");
@@ -1630,9 +1635,9 @@ DEFINE_bool(paranoid_memory_checks,
             "Sets CF option paranoid_memory_checks.");
 
 DEFINE_bool(
-    memtable_veirfy_per_key_checksum_on_seek,
-    ROCKSDB_NAMESPACE::Options().memtable_veirfy_per_key_checksum_on_seek,
-    "Sets CF option memtable_veirfy_per_key_checksum_on_seek.");
+    memtable_verify_per_key_checksum_on_seek,
+    ROCKSDB_NAMESPACE::Options().memtable_verify_per_key_checksum_on_seek,
+    "Sets CF option memtable_verify_per_key_checksum_on_seek.");
 
 DEFINE_bool(memtable_batch_lookup_optimization,
             ROCKSDB_NAMESPACE::Options().memtable_batch_lookup_optimization,
@@ -1704,6 +1709,10 @@ DEFINE_bool(use_multiscan, false,
 
 DEFINE_bool(multiscan_use_async_io, false,
             "If set, enable async_io for MultiScan operations.");
+
+DEFINE_bool(read_scoped_block_buffer_provider, false,
+            "If set, configure ReadOptions::read_scoped_block_buffer_provider "
+            "with a stress-test provider for supported scan reads.");
 
 DEFINE_uint64(multiscan_max_prefetch_memory_bytes, 0,
               "If non-zero, sets the max_prefetch_memory_bytes on the "

@@ -219,6 +219,10 @@ DEFINE_string(
     "\txxhash        -- repeated xxHash of <block size> data\n"
     "\txxhash64      -- repeated xxHash64 of <block size> data\n"
     "\txxh3          -- repeated XXH3 of <block size> data\n"
+    "\tcompressreject -- repeated compression of <block size> data forced to "
+    "be rejected (output buffer ~10% of input smaller than the predicted "
+    "compressed size), to measure the cost of attempting then declining "
+    "compression\n"
     "\tacquireload   -- load N*1000 times\n"
     "\tfillseekseq   -- write N values in sequential key, then read "
     "them by seeking to each key\n"
@@ -264,6 +268,15 @@ DEFINE_string(
     "after fillrandom, where actual answer is batch_size");
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
+
+DEFINE_int64(bgwriter_num, 0,
+             "If > 0, the background-writer thread used by readwhilewriting / "
+             "readwhilemerging / multireadwhilewriting writes random keys over "
+             "[0, bgwriter_num) instead of [0, num). Lets the reader thread "
+             "group operate on a small hot subset (--num) while the writer "
+             "spreads its puts across a much larger keyspace, which is what "
+             "drives continuous flushes and compaction. Designed for "
+             "benchmarking compaction-time effects on user reads.");
 
 DEFINE_int64(numdistinct, 1000,
              "Number of distinct keys to use. Used in RandomWithVerify to "
@@ -1338,8 +1351,8 @@ DEFINE_bool(
 DEFINE_bool(paranoid_memory_checks, false,
             "Sets CF option paranoid_memory_checks");
 
-DEFINE_bool(memtable_veirfy_per_key_checksum_on_seek, false,
-            "Sets CF option memtable_veirfy_per_key_checksum_on_seek");
+DEFINE_bool(memtable_verify_per_key_checksum_on_seek, false,
+            "Sets CF option memtable_verify_per_key_checksum_on_seek");
 
 DEFINE_bool(
     auto_refresh_iterator_with_snapshot, false,
@@ -1460,7 +1473,9 @@ DEFINE_int32(min_level_to_compress, -1,
              "all levels.");
 
 DEFINE_int32(compression_parallel_threads, 1,
-             "Number of threads for parallel compression.");
+             "Number of threads for parallel compression. NOTE: known *fast* "
+             "compression configurations can quietly override this setting to "
+             "non-parallel, for efficiency");
 
 DEFINE_uint64(compression_max_dict_buffer_bytes,
               ROCKSDB_NAMESPACE::CompressionOptions().max_dict_buffer_bytes,
@@ -1713,6 +1728,11 @@ DEFINE_bool(mmap_write, ROCKSDB_NAMESPACE::Options().allow_mmap_writes,
 
 DEFINE_bool(use_direct_reads, ROCKSDB_NAMESPACE::Options().use_direct_reads,
             "Use O_DIRECT for reading data");
+
+DEFINE_bool(use_direct_io_for_compaction_reads,
+            ROCKSDB_NAMESPACE::Options().use_direct_io_for_compaction_reads,
+            "Use O_DIRECT for compaction-input SST reads only, while keeping "
+            "user reads buffered");
 
 DEFINE_bool(use_direct_io_for_flush_and_compaction,
             ROCKSDB_NAMESPACE::Options().use_direct_io_for_flush_and_compaction,
@@ -3995,6 +4015,8 @@ class Benchmark {
         method = &Benchmark::AcquireLoad;
       } else if (name == "compress") {
         method = &Benchmark::Compress;
+      } else if (name == "compressreject") {
+        method = &Benchmark::CompressReject;
       } else if (name == "uncompress") {
         method = &Benchmark::Uncompress;
       } else if (name == "randomtransaction") {
@@ -4507,8 +4529,8 @@ class Benchmark {
     auto working_area = compressor->ObtainWorkingArea();
 
     GrowableBuffer compressed;
-    // Compress 1G
-    while (bytes < int64_t(1) << 30) {
+    // Compress 3G
+    while (bytes < int64_t(3) << 30) {
       compressed.ResetForSize(input.size());
       CompressionType actual_type = kNoCompression;
       s = compressor->CompressBlock(input, compressed.data(),
@@ -4532,6 +4554,68 @@ class Benchmark {
       char buf[340];
       snprintf(buf, sizeof(buf), "(output: %.1f%%)",
                (produced * 100.0) / bytes);
+      thread->stats.AddMessage(buf);
+      thread->stats.AddBytes(bytes);
+    }
+  }
+
+  // Like Compress, but forces every block's compression to be rejected by
+  // giving the compressor an output buffer slightly smaller than the data is
+  // expected to compress to. This exercises (and measures the speed of) the
+  // path that attempts compression but falls back to storing data uncompressed,
+  // as happens for incompressible data.
+  void CompressReject(ThreadState* thread) {
+    RandomGenerator gen;
+    Slice input = gen.Generate(FLAGS_block_size);
+    int64_t bytes = 0;
+    Status s;
+
+    auto compressor = GetCompressor();
+    if (!compressor) {
+      thread->stats.AddMessage("(compression type not supported)");
+      return;
+    }
+    auto working_area = compressor->ObtainWorkingArea();
+
+    // RandomGenerator produces data that compresses to about
+    // FLAGS_compression_ratio of its original size (see CompressibleString),
+    // which should be an accurate/optimistic predictor of the compressed size.
+    // Make the output buffer 10% of the uncompressed size smaller than that
+    // predicted compressed size, so the real output won't fit and compression
+    // is rejected on every call. Clamp to at least 1 byte, which should always
+    // reject.
+    double reject_fraction = std::max(0.0, FLAGS_compression_ratio - 0.10);
+    size_t reject_size = std::max<size_t>(
+        1, static_cast<size_t>(reject_fraction * input.size()));
+
+    GrowableBuffer compressed;
+
+    // Compress 3G
+    while (bytes < int64_t(3) << 30) {
+      compressed.ResetForSize(reject_size);
+      CompressionType actual_type = kNoCompression;
+      s = compressor->CompressBlock(input, compressed.data(),
+                                    &compressed.MutableSize(), &actual_type,
+                                    &working_area);
+      if (UNLIKELY(!s.ok())) {
+        break;
+      }
+      if (UNLIKELY(actual_type != kNoCompression)) {
+        s = Status::Aborted(
+            "Compression unexpectedly not rejected; try a smaller "
+            "compression_ratio");
+        break;
+      }
+      bytes += input.size();
+      thread->stats.FinishedOps(nullptr, nullptr, 1, kCompress);
+    }
+
+    if (!s.ok()) {
+      thread->stats.AddMessage("(compression failure: " + s.ToString() + ")");
+    } else {
+      char buf[340];
+      snprintf(buf, sizeof(buf), "(rejected; output buffer %.1f%% of input)",
+               (reject_size * 100.0) / input.size());
       thread->stats.AddMessage(buf);
       thread->stats.AddBytes(bytes);
     }
@@ -4569,8 +4653,9 @@ class Benchmark {
             actual_type);
     auto decomp_working_area = decompressor->ObtainWorkingArea(actual_type);
 
-    int64_t bytes = 0;
-    while (bytes < 1024 * 1048576) {
+    uint64_t bytes = 0;
+    // Decompress 20GB
+    while (bytes < uint64_t{20} * 1024U * 1048576U) {
       Decompressor::Args args;
       args.compression_type = actual_type;
       args.compressed_data = compressed.AsSlice();
@@ -4682,6 +4767,8 @@ class Benchmark {
     options.allow_mmap_reads = FLAGS_mmap_read;
     options.allow_mmap_writes = FLAGS_mmap_write;
     options.use_direct_reads = FLAGS_use_direct_reads;
+    options.use_direct_io_for_compaction_reads =
+        FLAGS_use_direct_io_for_compaction_reads;
     options.use_direct_io_for_flush_and_compaction =
         FLAGS_use_direct_io_for_flush_and_compaction;
     options.manual_wal_flush = FLAGS_manual_wal_flush;
@@ -5238,8 +5325,8 @@ class Benchmark {
     options.block_protection_bytes_per_key =
         FLAGS_block_protection_bytes_per_key;
     options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
-    options.memtable_veirfy_per_key_checksum_on_seek =
-        FLAGS_memtable_veirfy_per_key_checksum_on_seek;
+    options.memtable_verify_per_key_checksum_on_seek =
+        FLAGS_memtable_verify_per_key_checksum_on_seek;
     options.memtable_op_scan_flush_trigger =
         FLAGS_memtable_op_scan_flush_trigger;
     options.min_tombstones_for_range_conversion =
@@ -8072,7 +8159,11 @@ class Benchmark {
         }
       }
 
-      GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      const int64_t bg_keyspace =
+          FLAGS_bgwriter_num > 0 ? FLAGS_bgwriter_num : FLAGS_num;
+      const int64_t num_keys =
+          FLAGS_use_existing_keys ? FLAGS_num : bg_keyspace;
+      GenerateKeyFromInt(thread->rand.Next() % bg_keyspace, num_keys, &key);
       Status s;
 
       Slice val = gen.Generate();
@@ -9737,6 +9828,12 @@ int db_bench_tool(int argc, char** argv, ToolHooks& hooks) {
     fprintf(stderr,
             "`-use_existing_db` must be true for `-use_existing_keys` to be "
             "settable\n");
+    db_bench_exit(1);
+  }
+  if (FLAGS_use_existing_keys && FLAGS_bgwriter_num > FLAGS_num) {
+    fprintf(stderr,
+            "`-bgwriter_num` must be less than or equal to `-num` when "
+            "`-use_existing_keys` is set\n");
     db_bench_exit(1);
   }
 

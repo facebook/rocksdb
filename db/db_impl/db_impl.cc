@@ -853,6 +853,8 @@ Status DBImpl::CloseHelper() {
   if (default_cf_handle_ != nullptr || persist_stats_cf_handle_ != nullptr) {
     // we need to delete handle outside of lock because it does its own locking
     mutex_.Unlock();
+    TEST_SYNC_POINT("DBImpl::CloseHelper:CFHandleCleanupUnlocked");
+    TEST_SYNC_POINT("DBImpl::CloseHelper:CFHandleCleanupAllowed");
     if (default_cf_handle_) {
       delete default_cf_handle_;
       default_cf_handle_ = nullptr;
@@ -920,25 +922,6 @@ Status DBImpl::CloseHelper() {
     logs_.clear();
   }
 
-  // Table cache may have table handles holding blocks from the block cache.
-  // We need to release them before the block cache is destroyed. The block
-  // cache may be destroyed inside versions_.reset(), when column family data
-  // list is destroyed, so leaving handles in table cache after
-  // versions_.reset() may cause issues. Here we clean all unreferenced handles
-  // in table cache, and (for certain builds/conditions) assert that no obsolete
-  // files are hanging around unreferenced (leak) in the table/blob file cache.
-  // Now we assume all user queries have finished, so only version set itself
-  // can possibly hold the blocks from block cache. After releasing unreferenced
-  // handles here, only handles held by version set left and inside
-  // versions_.reset(), we will release them. There, we need to make sure every
-  // time a handle is released, we erase it from the cache too. By doing that,
-  // we can guarantee that after versions_.reset(), table cache is empty
-  // so the cache can be safely destroyed.
-#ifndef NDEBUG
-  TEST_VerifyNoObsoleteFilesCached(/*db_mutex_already_held=*/true);
-#endif  // !NDEBUG
-  table_cache_->EraseUnRefEntries();
-
   for (auto& txn_entry : recovered_transactions_) {
     delete txn_entry.second;
   }
@@ -963,6 +946,42 @@ Status DBImpl::CloseHelper() {
       }
     }
   }
+
+  // Drain obsolete-file purge work started AFTER the early CloseHelper wait
+  // near the top of this method. A late SuperVersion cleanup -- a dropped
+  // column family handle, or an in-flight iterator/Get whose ReadOptions or
+  // immutable_db_options_.avoid_unnecessary_blocking_io selected background
+  // purge -- can run in one of the mutex-unlocked windows above and enter the
+  // FindObsoleteFiles() -> PurgeObsoleteFiles(..., true) handoff. During that
+  // handoff pending_purge_obsolete_files_ is already nonzero, but
+  // bg_purge_scheduled_ may still be zero until SchedulePurge() runs at the end
+  // of PurgeObsoleteFiles(). Wait for both states while mutex_/this are still
+  // alive; bg_cv_.Wait() releases mutex_ so pending and scheduled purges can
+  // finish and signal.
+  TEST_SYNC_POINT("DBImpl::CloseHelper:BeforeFinalPurgeDrain");
+  while (pending_purge_obsolete_files_ || bg_purge_scheduled_) {
+    TEST_SYNC_POINT("DBImpl::CloseHelper:FinalPurgeDrainWait");
+    bg_cv_.Wait();
+  }
+
+  // Table cache may have table handles holding blocks from the block cache.
+  // We need to release them before the block cache is destroyed. The block
+  // cache may be destroyed inside versions_.reset(), when column family data
+  // list is destroyed, so leaving handles in table cache after
+  // versions_.reset() may cause issues. Here we clean all unreferenced handles
+  // in table cache, and (for certain builds/conditions) assert that no obsolete
+  // files are hanging around unreferenced (leak) in the table/blob file cache.
+  // Now we assume all user queries have finished, and close-time purge work has
+  // settled, so only version set itself can possibly hold the blocks from block
+  // cache. After releasing unreferenced handles here, only handles held by
+  // version set left and inside versions_.reset(), we will release them. There,
+  // we need to make sure every time a handle is released, we erase it from the
+  // cache too. By doing that, we can guarantee that after versions_.reset(),
+  // table cache is empty so the cache can be safely destroyed.
+#ifndef NDEBUG
+  TEST_VerifyNoObsoleteFilesCached(/*db_mutex_already_held=*/true);
+#endif  // !NDEBUG
+  table_cache_->EraseUnRefEntries();
 
   versions_.reset();
   mutex_.Unlock();
@@ -1842,6 +1861,8 @@ Status DBImpl::SetDBOptions(
       // TODO(xiez): clarify why apply optimize for read to write options
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableRead(
           file_options_for_compaction_, immutable_db_options_);
+      TEST_SYNC_POINT_CALLBACK("DBImpl::SetDBOptions:FileOptionsForCompaction",
+                               &file_options_for_compaction_);
       if (wal_other_option_changed || wal_size_option_changed) {
         WriteThread::Writer w;
         write_thread_.EnterUnbatched(&w, &mutex_);
@@ -6676,6 +6697,13 @@ Status DBImpl::IngestExternalFile(
 Status DBImpl::IngestExternalFiles(
     const std::vector<IngestExternalFileArg>& args) {
   PERF_TIMER_GUARD(file_ingestion_nanos);
+  // Prepare/run ingestion latency, recorded only on success (below).
+  const bool record_ingest_micros =
+      stats_ != nullptr &&
+      stats_->get_stats_level() > StatsLevel::kExceptTimers;
+  const uint64_t ingest_start_micros =
+      record_ingest_micros ? immutable_db_options_.clock->NowMicros() : 0;
+  uint64_t prepare_micros = 0;
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const WriteOptions write_options;
 
@@ -6825,6 +6853,13 @@ Status DBImpl::IngestExternalFiles(
     InstrumentedMutexLock l(&mutex_);
     ReleaseFileNumberFromPendingOutputs(pending_output_elem);
     return status;
+  }
+
+  // End of prepare phase; run phase starts here.
+  uint64_t run_start_micros = 0;
+  if (record_ingest_micros) {
+    run_start_micros = immutable_db_options_.clock->NowMicros();
+    prepare_micros = run_start_micros - ingest_start_micros;
   }
 
   std::vector<SuperVersionContext> sv_ctxs;
@@ -7068,6 +7103,14 @@ Status DBImpl::IngestExternalFiles(
         NotifyOnExternalFileIngested(cfd, ingestion_jobs[i]);
       }
     }
+  }
+  // Record latency only for successful ingestions.
+  if (record_ingest_micros && status.ok()) {
+    RecordTimeToHistogram(stats_, INGEST_EXTERNAL_FILE_PREPARE_TIME,
+                          prepare_micros);
+    RecordTimeToHistogram(
+        stats_, INGEST_EXTERNAL_FILE_RUN_TIME,
+        immutable_db_options_.clock->NowMicros() - run_start_micros);
   }
   return status;
 }

@@ -52,6 +52,7 @@ class MergeOperator;
 class Snapshot;
 class MemTableRepFactory;
 class RateLimiter;
+class ReadScopedBlockBufferProvider;
 class Slice;
 class Statistics;
 class InternalKeyComparator;
@@ -191,18 +192,22 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
 
   // Compress blocks using the specified compression algorithm.
   //
-  // Default: kSnappyCompression, if it's supported. If snappy is not linked
-  // with the library, the default is kNoCompression.
+  // Default: kLZ4Compression if support is compiled in, else kSnappyCompression
+  // if support is compiled in, else kNoCompression
   //
-  // Typical speeds of kSnappyCompression on an Intel(R) Core(TM)2 2.4GHz:
-  //    ~200-500MB/s compression
-  //    ~400-800MB/s decompression
+  // Typical single-core speed of kLZ4Compression on an AMD EPYC-Genoa
+  //     ~800 -  1200 MB/s compression
+  //    ~8000 - 16000 MB/s decompression
+  // and with a 160 threads to saturate the cores:
+  //      ~60 -    90 GB/s compression
+  //     ~900 -  1000 GB/s decompression
+  // using db_bench compress/uncompress benchmarks.
   //
   // Note that these speeds are significantly faster than most
   // persistent storage speeds, and therefore it is typically never
   // worth switching to kNoCompression.  Even if the input data is
-  // incompressible, the kSnappyCompression implementation will
-  // efficiently detect that and will switch to uncompressed mode.
+  // incompressible, the compression implementation will
+  // efficiently detect that and fall back on no compression.
   //
   // See CompressionOptions for more options.
   //
@@ -613,7 +618,7 @@ struct DBOptions {
   // checking for corruption, including
   // * paranoid_file_checks
   // * paranoid_memory_checks
-  // * memtable_veirfy_per_key_checksum_on_seek
+  // * memtable_verify_per_key_checksum_on_seek
   // * DB::VerifyChecksum()
   //
   // Default: true
@@ -1142,7 +1147,46 @@ struct DBOptions {
   // Default: false
   bool use_direct_reads = false;
 
-  // Use O_DIRECT for writes in background flush and compactions.
+  // Use O_DIRECT for compaction-input SST reads only, leaving user reads
+  // buffered. Useful when sequential compaction reads would otherwise evict
+  // the hot user-read working set from the OS page cache. When this is true
+  // and use_direct_reads is false, compaction opens short-lived O_DIRECT
+  // readers for its input files instead of reusing the buffered readers cached
+  // for user reads. This is the read-side analogue of
+  // use_direct_io_for_flush_and_compaction, and the two are often paired on
+  // write-heavy workloads.
+  //
+  // Scope and limits:
+  //   * DBOption scope (applies to all column families); no per-CF setting.
+  //   * Covers compaction inputs only. Blob-file reads and compaction-output
+  //     verification (paranoid_file_checks) still use the buffered path.
+  //   * The ephemeral readers bypass the TableCache and are not counted against
+  //     max_open_files. Non-L0 levels keep one reader open at a time; L0 opens
+  //     all of a subcompaction's overlapping inputs at once, so with large L0
+  //     fan-in and many subcompactions, watch RLIMIT_NOFILE.
+  //   * Every input file is reopened per compaction, so NO_FILE_OPENS and
+  //     TABLE_OPEN_IO_MICROS rise while this is enabled.
+  //
+  // The same SST can be open through both a buffered handle (user reads) and an
+  // O_DIRECT handle (the compaction scan) at once; modern Linux handles this
+  // fine. The flag is neutral or slightly negative for in-memory DBs or
+  // uniform random reads, so measure before enabling.
+  //
+  // Has no effect when use_direct_reads is true (all reads are already
+  // O_DIRECT). Rejected at DB::Open when allow_mmap_reads is set.
+  //
+  // On a filesystem without O_DIRECT support (e.g. tmpfs), DB::Open fails: it
+  // probes by opening the MANIFEST with O_DIRECT. The probe only checks the
+  // filesystem holding the DB directory, so if SST files live elsewhere (via
+  // db_paths/cf_paths) without O_DIRECT, Open succeeds and the first compaction
+  // fails instead.
+  //
+  // Default: false
+  bool use_direct_io_for_compaction_reads = false;
+
+  // Use O_DIRECT for writes in background flush and compactions. See also
+  // use_direct_io_for_compaction_reads, the read-side analogue often paired
+  // with this on write-heavy workloads.
   // Default: false
   bool use_direct_io_for_flush_and_compaction = false;
 
@@ -2377,6 +2421,30 @@ struct ReadOptions {
   // the UDI is a secondary index and you want to explicitly select it for
   // reads.
   const UserDefinedIndexFactory* table_index_factory = nullptr;
+
+  // EXPERIMENTAL: Optional non-owning provider for data-block storage pinned by
+  // scans using this ReadOptions. Applications that set it are attempting
+  // advanced performance optimizations and are responsible for ensuring the
+  // provider outlives the iterator/read scope and any provider-backed data that
+  // can remain pinned by that scope.
+  //
+  // This is a raw pointer rather than a shared_ptr because ReadOptions is
+  // copied through stack frames and iterator internals; a shared_ptr would add
+  // refcount overhead to those copies. An internal shadow ReadOptions that
+  // strips ownership would add maintenance overhead for this advanced option.
+  //
+  // Current support is limited to block-based table iterators and MultiScan
+  // data-block reads, and is ignored when mmap reads are enabled. When set,
+  // supported scan reads bypass the data-block cache and use provider-backed
+  // final data-block memory. RocksDB may still use ordinary temporary scratch
+  // for serialized block bytes, such as when a block may be compressed. When
+  // unset, scans use the normal RocksDB data-block backing for the table: use
+  // the configured block cache when present, otherwise use RocksDB-owned block
+  // memory. Index/filter blocks keep their normal block-cache behavior.
+  //
+  // TODO: Extend support to point lookups (Get/MultiGet) once those paths can
+  // preserve provider-backed block ownership.
+  ReadScopedBlockBufferProvider* read_scoped_block_buffer_provider = nullptr;
 
   // *** END options only relevant to iterators or scans ***
 

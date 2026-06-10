@@ -114,6 +114,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.allow_mmap_reads = immutable_db_options.allow_mmap_reads;
   options.allow_mmap_writes = immutable_db_options.allow_mmap_writes;
   options.use_direct_reads = immutable_db_options.use_direct_reads;
+  options.use_direct_io_for_compaction_reads =
+      immutable_db_options.use_direct_io_for_compaction_reads;
   options.use_direct_io_for_flush_and_compaction =
       immutable_db_options.use_direct_io_for_flush_and_compaction;
   options.allow_fallocate = immutable_db_options.allow_fallocate;
@@ -244,8 +246,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->block_protection_bytes_per_key =
       moptions.block_protection_bytes_per_key;
   cf_opts->paranoid_memory_checks = moptions.paranoid_memory_checks;
-  cf_opts->memtable_veirfy_per_key_checksum_on_seek =
-      moptions.memtable_veirfy_per_key_checksum_on_seek;
+  cf_opts->memtable_verify_per_key_checksum_on_seek =
+      moptions.memtable_verify_per_key_checksum_on_seek;
   cf_opts->bottommost_file_compaction_delay =
       moptions.bottommost_file_compaction_delay;
 

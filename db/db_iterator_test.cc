@@ -2277,6 +2277,10 @@ TEST_P(DBIteratorTest, ReadAhead) {
   options.env = env_;
   options.disable_auto_compactions = true;
   options.write_buffer_size = 4 << 20;
+  // Pin compression so the readahead byte thresholds below don't depend on the
+  // default compression type. kNoCompression keeps the SST files large enough
+  // to exercise readahead and is always available.
+  options.compression = kNoCompression;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   BlockBasedTableOptions table_options;
   table_options.block_size = 1024;

@@ -173,6 +173,7 @@ CompactionJob::CompactionJob(
       fs_(db_options.fs, io_tracer),
       file_options_for_read_(
           fs_->OptimizeForCompactionTableRead(file_options, db_options_)),
+      file_options_for_compaction_input_read_(file_options_for_read_),
       versions_(versions),
       shutting_down_(shutting_down),
       manual_compaction_canceled_(manual_compaction_canceled),
@@ -202,6 +203,11 @@ CompactionJob::CompactionJob(
   assert(log_buffer_ != nullptr);
   assert(job_context);
   assert(job_context->snapshot_context_initialized);
+
+  if (db_options_.use_direct_io_for_compaction_reads &&
+      !db_options_.use_direct_reads) {
+    file_options_for_compaction_input_read_.use_direct_reads = true;
+  }
 
   const auto* cfd = compact_->compaction->column_family_data();
   ThreadStatusUtil::SetEnableTracking(db_options_.enable_thread_tracking);
@@ -1536,10 +1542,20 @@ InternalIterator* CompactionJob::CreateInputIterator(
 
   // Although the v2 aggregator is what the level iterator(s) know about,
   // the AddTombstones calls will be propagated down to the v1 aggregator.
+  const bool open_ephemeral_table_reader =
+      db_options_.use_direct_io_for_compaction_reads &&
+      !db_options_.use_direct_reads;
+  FileOptions& input_file_options =
+      open_ephemeral_table_reader ? file_options_for_compaction_input_read_
+                                  : file_options_for_read_;
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionJob::CreateInputIterator:InputFileOptions",
+      &input_file_options);
   iterators.raw_input =
       std::unique_ptr<InternalIterator>(versions_->MakeInputIterator(
           read_options, sub_compact->compaction, sub_compact->RangeDelAgg(),
-          file_options_for_read_, boundaries.start, boundaries.end));
+          input_file_options, boundaries.start, boundaries.end,
+          open_ephemeral_table_reader));
   InternalIterator* input = iterators.raw_input.get();
 
   if (boundaries.start.has_value() || boundaries.end.has_value()) {
@@ -2470,6 +2486,8 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   auto temperature =
       sub_compact->compaction->GetOutputTemperature(outputs.IsProximalLevel());
   fo_copy.temperature = temperature;
+  fo_copy.open_contract = FileOpenContract::kNoReopenForWrite |
+                          FileOpenContract::kNoReadersWhileOpenForWrite;
   fo_copy.write_hint = write_hint_;
 
   Status s;

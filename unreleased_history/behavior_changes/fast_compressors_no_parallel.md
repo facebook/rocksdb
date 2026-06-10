@@ -1,0 +1,1 @@
+* Disable parallel compression (ignore `CompressionOptions::parallel_threads`) for fast built-in compressors: Snappy, LZ4 (accelerated, not LZ4HC), and accelerated levels of ZSTD (level < 0). These do not generally benefit from parallel compression. This behavior can be overridden with a custom Compressor from a custom CompressionManager.

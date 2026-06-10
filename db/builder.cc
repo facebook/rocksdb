@@ -179,6 +179,8 @@ Status BuildTable(
       TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
 #endif  // !NDEBUG
       FileOptions fo_copy = file_options;
+      fo_copy.open_contract = FileOpenContract::kNoReopenForWrite |
+                              FileOpenContract::kNoReadersWhileOpenForWrite;
       fo_copy.write_hint = write_hint;
       IOStatus io_s = NewWritableFile(fs, fname, &file, fo_copy);
       assert(s.ok());

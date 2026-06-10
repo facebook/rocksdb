@@ -2482,7 +2482,7 @@ TEST_F(DBCompressionTest, PreDefinedDictionaryCompression) {
 
 TEST_F(DBCompressionTest, GetRecommendedParallelThreads) {
   // Verify that built-in compressors return parallel_threads from their
-  // CompressionOptions
+  // CompressionOptions, except fast compressors override to 1
   auto mgr = GetBuiltinV2CompressionManager();
   CompressionOptions opts;
 
@@ -2498,8 +2498,10 @@ TEST_F(DBCompressionTest, GetRecommendedParallelThreads) {
     ASSERT_EQ(compressor->GetRecommendedParallelThreads(), 1U);
   }
 
-  // Custom parallel_threads value is returned
+  // Custom parallel_threads value is returned, except fast compressors
+  // (Snappy, LZ4, ZSTD with level < 0) override to 1
   opts.parallel_threads = 8;
+  opts.level = 3;  // non-negative for ZSTD
   for (auto type : {kSnappyCompression, kZlibCompression, kLZ4Compression,
                     kLZ4HCCompression, kZSTD}) {
     if (!mgr->SupportsCompressionType(type)) {
@@ -2507,7 +2509,19 @@ TEST_F(DBCompressionTest, GetRecommendedParallelThreads) {
     }
     auto compressor = mgr->GetCompressor(opts, type);
     ASSERT_NE(compressor, nullptr);
-    ASSERT_EQ(compressor->GetRecommendedParallelThreads(), 8U);
+    uint32_t expected = 8U;
+    if (type == kSnappyCompression || type == kLZ4Compression) {
+      expected = 1U;
+    }
+    ASSERT_EQ(compressor->GetRecommendedParallelThreads(), expected);
+  }
+
+  // ZSTD with negative level should override to 1
+  opts.level = -1;
+  opts.parallel_threads = 8;
+  auto zstd_compressor = mgr->GetCompressor(opts, kZSTD);
+  if (zstd_compressor) {
+    ASSERT_EQ(zstd_compressor->GetRecommendedParallelThreads(), 1U);
   }
 }
 

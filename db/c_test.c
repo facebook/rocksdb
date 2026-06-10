@@ -1018,6 +1018,12 @@ int main(int argc, char** argv) {
     Free(&before_db_id);
     Free(&after_db_id);
 
+    rocksdb_backup_engine_stop_backup(be);
+    rocksdb_backup_engine_create_new_backup(be, db, &err);
+    CheckCondition(err != NULL);
+    free(err);
+    err = NULL;
+
     rocksdb_backup_engine_close(be);
   }
 
@@ -2760,6 +2766,10 @@ int main(int argc, char** argv) {
     CheckCondition(
         1 == rocksdb_options_get_use_direct_io_for_flush_and_compaction(o));
 
+    rocksdb_options_set_use_direct_io_for_compaction_reads(o, 1);
+    CheckCondition(1 ==
+                   rocksdb_options_get_use_direct_io_for_compaction_reads(o));
+
     rocksdb_options_set_is_fd_close_on_exec(o, 1);
     CheckCondition(1 == rocksdb_options_get_is_fd_close_on_exec(o));
 
@@ -2987,6 +2997,8 @@ int main(int argc, char** argv) {
     CheckCondition(1 == rocksdb_options_get_use_direct_reads(copy));
     CheckCondition(
         1 == rocksdb_options_get_use_direct_io_for_flush_and_compaction(copy));
+    CheckCondition(
+        1 == rocksdb_options_get_use_direct_io_for_compaction_reads(copy));
     CheckCondition(1 == rocksdb_options_get_is_fd_close_on_exec(copy));
     CheckCondition(18 == rocksdb_options_get_stats_dump_period_sec(copy));
     CheckCondition(5 == rocksdb_options_get_stats_persist_period_sec(copy));
@@ -3264,6 +3276,12 @@ int main(int argc, char** argv) {
         0 == rocksdb_options_get_use_direct_io_for_flush_and_compaction(copy));
     CheckCondition(
         1 == rocksdb_options_get_use_direct_io_for_flush_and_compaction(o));
+
+    rocksdb_options_set_use_direct_io_for_compaction_reads(copy, 0);
+    CheckCondition(
+        0 == rocksdb_options_get_use_direct_io_for_compaction_reads(copy));
+    CheckCondition(1 ==
+                   rocksdb_options_get_use_direct_io_for_compaction_reads(o));
 
     rocksdb_options_set_is_fd_close_on_exec(copy, 0);
     CheckCondition(0 == rocksdb_options_get_is_fd_close_on_exec(copy));
@@ -3697,6 +3715,52 @@ int main(int argc, char** argv) {
     CheckCondition(37 ==
                    rocksdb_backup_engine_options_get_restore_rate_limit(bdo));
 
+    {
+      rocksdb_ratelimiter_t* limiter = rocksdb_ratelimiter_create_with_mode(
+          1024 * 1024, 100 * 1000, 10, 2, 0);
+      rocksdb_backup_engine_options_set_backup_rate_limiter(bdo, limiter);
+      rocksdb_backup_engine_options_set_restore_rate_limiter(bdo, limiter);
+      rocksdb_ratelimiter_destroy(limiter);
+
+      rocksdb_backup_engine_options_t* rate_beo =
+          rocksdb_backup_engine_options_create(dbbackupname);
+      rocksdb_ratelimiter_t* backup_limiter =
+          rocksdb_ratelimiter_create_with_mode(1024 * 1024, 100 * 1000, 10, 2,
+                                               0);
+      rocksdb_ratelimiter_t* restore_limiter =
+          rocksdb_ratelimiter_create_with_mode(1024 * 1024, 100 * 1000, 10, 2,
+                                               0);
+      rocksdb_backup_engine_options_set_backup_rate_limiter(rate_beo,
+                                                            backup_limiter);
+      rocksdb_backup_engine_options_set_restore_rate_limiter(rate_beo,
+                                                             restore_limiter);
+      rocksdb_ratelimiter_destroy(backup_limiter);
+      rocksdb_ratelimiter_destroy(restore_limiter);
+      rocksdb_env_t* rate_benv = rocksdb_create_default_env();
+      rocksdb_backup_engine_t* rate_be =
+          rocksdb_backup_engine_open_opts(rate_beo, rate_benv, &err);
+      rocksdb_backup_engine_options_destroy(rate_beo);
+      rocksdb_env_destroy(rate_benv);
+      CheckNoError(err);
+      rocksdb_backup_engine_create_new_backup(rate_be, db, &err);
+      CheckNoError(err);
+      {
+        char rate_restore_path[220];
+        snprintf(rate_restore_path, sizeof(rate_restore_path),
+                 "%s.rate_restore", dbname);
+        rocksdb_restore_options_t* rate_restore_opts =
+            rocksdb_restore_options_create();
+        rocksdb_backup_engine_restore_db_from_latest_backup(
+            rate_be, rate_restore_path, rate_restore_path, rate_restore_opts,
+            &err);
+        CheckNoError(err);
+        rocksdb_restore_options_destroy(rate_restore_opts);
+        rocksdb_destroy_db(options, rate_restore_path, &err);
+        err = NULL;
+      }
+      rocksdb_backup_engine_close(rate_be);
+    }
+
     rocksdb_backup_engine_options_set_max_background_operations(bdo, 20);
     CheckCondition(
         20 == rocksdb_backup_engine_options_get_max_background_operations(bdo));
@@ -3806,6 +3870,43 @@ int main(int argc, char** argv) {
       rocksdb_iter_destroy(iter);
       rocksdb_readoptions_set_iterate_upper_bound(roptions, NULL, 0);
     }
+  }
+
+  StartPhase("transactiondb_set_write_policy_prepared");
+  {
+    char wp_dbname[200];
+    rocksdb_transactiondb_t* wp_txn_db;
+    rocksdb_transactiondb_options_t* wp_txn_opts;
+    snprintf(wp_dbname, sizeof(wp_dbname), "%s/rocksdb_c_test-txnwp-%d",
+             GetTempDir(), (int)geteuid());
+    rocksdb_destroy_db(options, wp_dbname, &err);
+    Free(&err);
+    wp_txn_opts = rocksdb_transactiondb_options_create();
+    rocksdb_transactiondb_options_set_write_policy(
+        wp_txn_opts, rocksdb_txndb_write_policy_write_prepared);
+    rocksdb_options_set_create_if_missing(options, 1);
+    // create new TransactionDB with write policy WRITE_PREPARED
+    wp_txn_db =
+        rocksdb_transactiondb_open(options, wp_txn_opts, wp_dbname, &err);
+    CheckNoError(err);
+    {
+      rocksdb_transaction_options_t* wp_txn_options =
+          rocksdb_transaction_options_create();
+      rocksdb_transaction_t* wp_txn =
+          rocksdb_transaction_begin(wp_txn_db, woptions, wp_txn_options, NULL);
+      // write one record within a transaction
+      rocksdb_transaction_put(wp_txn, "k", 1, "v", 1, &err);
+      CheckNoError(err);
+      rocksdb_transaction_commit(wp_txn, &err);
+      CheckNoError(err);
+      rocksdb_transaction_destroy(wp_txn);
+      rocksdb_transaction_options_destroy(wp_txn_options);
+    }
+    CheckTxnDBGet(wp_txn_db, roptions, "k", "v");
+    rocksdb_transactiondb_close(wp_txn_db);
+    rocksdb_transactiondb_options_destroy(wp_txn_opts);
+    rocksdb_destroy_db(options, wp_dbname, &err);
+    CheckNoError(err);
   }
 
   StartPhase("transactions");
