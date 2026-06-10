@@ -2498,30 +2498,52 @@ TEST_F(DBCompressionTest, GetRecommendedParallelThreads) {
     ASSERT_EQ(compressor->GetRecommendedParallelThreads(), 1U);
   }
 
-  // Custom parallel_threads value is returned, except fast compressors
-  // (Snappy, LZ4, ZSTD with level < 0) override to 1
+  // Custom parallel_threads value (8) is returned unless a compressor overrides
+  // it to 1 for being "fast". Snappy always overrides; Zlib never does. (Use a
+  // positive level so it does not route ZSTD to an accelerated variant below.)
   opts.parallel_threads = 8;
-  opts.level = 3;  // non-negative for ZSTD
-  for (auto type : {kSnappyCompression, kZlibCompression, kLZ4Compression,
-                    kLZ4HCCompression, kZSTD}) {
+  opts.level = 3;
+  for (auto type : {kSnappyCompression, kZlibCompression, kZSTD}) {
     if (!mgr->SupportsCompressionType(type)) {
       continue;
     }
     auto compressor = mgr->GetCompressor(opts, type);
     ASSERT_NE(compressor, nullptr);
-    uint32_t expected = 8U;
-    if (type == kSnappyCompression || type == kLZ4Compression) {
-      expected = 1U;
-    }
+    uint32_t expected = type == kSnappyCompression ? 1U : 8U;
     ASSERT_EQ(compressor->GetRecommendedParallelThreads(), expected);
   }
 
-  // ZSTD with negative level should override to 1
-  opts.level = -1;
-  opts.parallel_threads = 8;
-  auto zstd_compressor = mgr->GetCompressor(opts, kZSTD);
-  if (zstd_compressor) {
-    ASSERT_EQ(zstd_compressor->GetRecommendedParallelThreads(), 1U);
+  // LZ4 family: after unifying LZ4 and LZ4HC, the compression level (not the
+  // configured type) selects the variant, and that determines parallelism:
+  //   level <= 0 -> LZ4 fast -> overrides to 1
+  //   level >= 1 -> LZ4HC    -> no override (parallel allowed)
+  if (mgr->SupportsCompressionType(kLZ4Compression)) {
+    for (auto type : {kLZ4Compression, kLZ4HCCompression}) {
+      for (int level : {-10, -1, 0, 1, 4, 9, 12}) {
+        SCOPED_TRACE("type=" + std::to_string(static_cast<int>(type)) +
+                     " level=" + std::to_string(level));
+        opts.level = level;
+        auto compressor = mgr->GetCompressor(opts, type);
+        ASSERT_NE(compressor, nullptr);
+        uint32_t expected = level >= 1 ? 8U : 1U;
+        ASSERT_EQ(compressor->GetRecommendedParallelThreads(), expected);
+      }
+    }
+  }
+
+  // ZSTD: accelerated (negative) levels override to 1. Level 0 is intentionally
+  // left as a "backdoor" to allow parallel compression even though it otherwise
+  // behaves like the fast level -1.
+  if (mgr->SupportsCompressionType(kZSTD)) {
+    opts.level = -1;
+    auto compressor = mgr->GetCompressor(opts, kZSTD);
+    ASSERT_NE(compressor, nullptr);
+    ASSERT_EQ(compressor->GetRecommendedParallelThreads(), 1U);
+
+    opts.level = 0;
+    compressor = mgr->GetCompressor(opts, kZSTD);
+    ASSERT_NE(compressor, nullptr);
+    ASSERT_EQ(compressor->GetRecommendedParallelThreads(), 8U);
   }
 }
 
