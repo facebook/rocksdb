@@ -182,6 +182,168 @@ IOStatus ReadTrackingRandomAccessFile::ReadAsync(
   return target()->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, dbg);
 }
 
+class ControlledAsyncFS;
+
+// Test-only async handle used by ControlledAsyncFS. It stores the callback and
+// original read parameters so the test filesystem can decide exactly when the
+// async read completes.
+struct ControlledAsyncHandle {
+  FSRandomAccessFile* target = nullptr;
+  IOOptions opts;
+  uint64_t offset = 0;
+  size_t len = 0;
+  char* scratch = nullptr;
+  std::function<void(FSReadRequest&, void*)> cb;
+  void* cb_arg = nullptr;
+};
+
+// Wraps a real random-access file but defers ReadAsync() completion to
+// ControlledAsyncFS. This keeps the read data realistic while making completion
+// ordering deterministic.
+class ControlledAsyncRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
+ public:
+  ControlledAsyncRandomAccessFile(std::unique_ptr<FSRandomAccessFile>&& file,
+                                  ControlledAsyncFS* fs)
+      : FSRandomAccessFileOwnerWrapper(std::move(file)), fs_(fs) {}
+
+  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                     std::function<void(FSReadRequest&, void*)> cb,
+                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
+                     IODebugContext* dbg) override;
+
+ private:
+  ControlledAsyncFS* fs_;
+};
+
+// A scheduling wrapper around the real filesystem. ReadAsync() requests stay
+// pending until Poll() or AbortIO() is called, letting tests model io_uring
+// completing an unrelated request while waiting for a requested handle.
+class ControlledAsyncFS : public ReadTrackingFS {
+ public:
+  explicit ControlledAsyncFS(const std::shared_ptr<FileSystem>& target)
+      : ReadTrackingFS(target) {}
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    std::unique_ptr<FSRandomAccessFile> file;
+    IOStatus s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+    if (s.ok()) {
+      result->reset(new ControlledAsyncRandomAccessFile(std::move(file), this));
+    }
+    return s;
+  }
+
+  IOStatus Poll(std::vector<void*>& io_handles,
+                size_t /*min_completions*/) override {
+    assert(!io_handles.empty());
+    auto* requested_handle =
+        static_cast<ControlledAsyncHandle*>(io_handles.front());
+
+    // io_uring can reap completions for handles other than the one the caller
+    // is waiting on. Complete a different pending handle first to exercise that
+    // ordering deterministically.
+    if (complete_stray_first_) {
+      for (auto it = pending_handles_.begin(); it != pending_handles_.end();
+           ++it) {
+        if (*it != requested_handle) {
+          ControlledAsyncHandle* stray_handle = *it;
+          pending_handles_.erase(it);
+          stray_completion_count_++;
+          CompleteHandle(stray_handle);
+          break;
+        }
+      }
+    }
+
+    auto requested_it = std::find(pending_handles_.begin(),
+                                  pending_handles_.end(), requested_handle);
+    if (requested_it != pending_handles_.end()) {
+      pending_handles_.erase(requested_it);
+      CompleteHandle(requested_handle);
+    }
+
+    return IOStatus::OK();
+  }
+
+  IOStatus AbortIO(std::vector<void*>& io_handles) override {
+    for (void* io_handle : io_handles) {
+      auto* handle = static_cast<ControlledAsyncHandle*>(io_handle);
+      auto it =
+          std::find(pending_handles_.begin(), pending_handles_.end(), handle);
+      if (it == pending_handles_.end()) {
+        continue;
+      }
+      pending_handles_.erase(it);
+      abort_count_++;
+
+      // Match the filesystem contract: aborting an in-flight read completes its
+      // callback with an aborted status before the handle is deleted.
+      FSReadRequest req;
+      req.offset = handle->offset;
+      req.len = handle->len;
+      req.scratch = handle->scratch;
+      req.status = IOStatus::Aborted();
+      handle->cb(req, handle->cb_arg);
+    }
+    return IOStatus::OK();
+  }
+
+  void AddHandle(ControlledAsyncHandle* handle) {
+    pending_handles_.push_back(handle);
+  }
+
+  void SetCompleteStrayFirst(bool complete_stray_first) {
+    complete_stray_first_ = complete_stray_first;
+  }
+
+  size_t abort_count() const { return abort_count_; }
+  size_t stray_completion_count() const { return stray_completion_count_; }
+
+ private:
+  void CompleteHandle(ControlledAsyncHandle* handle) {
+    FSReadRequest req;
+    req.offset = handle->offset;
+    req.len = handle->len;
+    req.scratch = handle->scratch;
+    // Use the wrapped file for the actual bytes; only scheduling is mocked.
+    req.status =
+        handle->target->Read(handle->offset, handle->len, handle->opts,
+                             &req.result, handle->scratch, nullptr /*dbg*/);
+    handle->cb(req, handle->cb_arg);
+  }
+
+  std::vector<ControlledAsyncHandle*> pending_handles_;
+  bool complete_stray_first_ = true;
+  size_t abort_count_ = 0;
+  size_t stray_completion_count_ = 0;
+};
+
+IOStatus ControlledAsyncRandomAccessFile::ReadAsync(
+    FSReadRequest& req, const IOOptions& opts,
+    std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
+    void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
+  fs_->RecordReadAsync(req.offset, req.len);
+
+  // Do not submit to the real filesystem here. The handle is queued until the
+  // test explicitly completes it through ControlledAsyncFS::Poll() or
+  // AbortIO().
+  auto* handle = new ControlledAsyncHandle();
+  handle->target = target();
+  handle->opts = opts;
+  handle->offset = req.offset;
+  handle->len = req.len;
+  handle->scratch = req.scratch;
+  handle->cb = std::move(cb);
+  handle->cb_arg = cb_arg;
+
+  *io_handle = handle;
+  *del_fn = [](void* arg) { delete static_cast<ControlledAsyncHandle*>(arg); };
+  fs_->AddHandle(handle);
+  return IOStatus::OK();
+}
+
 class IODispatcherTest : public DBTestBase {
  public:
   IODispatcherTest()
@@ -449,12 +611,15 @@ class IODispatcherTest : public DBTestBase {
       const BlockBasedTableOptions* table_options_override = nullptr,
       bool use_direct_reads = false,
       CompressionType compression_type = kNoCompression,
-      bool allow_mmap_reads = false) {
+      bool allow_mmap_reads = false, Env* env_override = nullptr) {
     // Create options - store in member variables to avoid use-after-scope
     // The BlockBasedTable will keep references to these options
     Options options{};
     options.statistics = nullptr;
     options.allow_mmap_reads = allow_mmap_reads;
+    if (env_override != nullptr) {
+      options.env = env_override;
+    }
     BlockBasedTableOptions table_options;
     if (table_options_override != nullptr) {
       table_options = *table_options_override;
@@ -2951,6 +3116,123 @@ TEST_F(IODispatcherTest, ReleaseLastBlockFromCoalescedAsyncReadAbortsIO) {
 
   sync_point->DisableProcessing();
   sync_point->ClearAllCallBacks();
+}
+
+// Uses a controlled async filesystem to force the old failure mode: after block
+// 0 is released, a later Poll() for block 1 completes block 0's raw filesystem
+// callback first. With the old ReleaseBlock() behavior, that callback reaches
+// RandomAccessFileReader::ReadAsyncCallback after AsyncIOState is gone. The fix
+// aborts block 0's handle during ReleaseBlock(), so Poll() must never see it.
+TEST_F(IODispatcherTest, ReleasedDirectIOAsyncReadIsNotCompletedByLaterPoll) {
+  if (!kIOUringPresent) {
+    ROCKSDB_GTEST_SKIP("Async IO not supported on this platform");
+    return;
+  }
+
+  auto controlled_fs = std::make_shared<ControlledAsyncFS>(base_fs_);
+  tracking_fs_ = controlled_fs;
+  std::unique_ptr<Env> controlled_env = NewCompositeEnv(controlled_fs);
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(
+      20, &table, &block_handles, nullptr /* table_options_override */,
+      true /* use_direct_reads */, kNoCompression, false /* allow_mmap_reads */,
+      controlled_env.get());
+  ASSERT_OK(s);
+  ASSERT_GT(block_handles.size(), 2);
+
+  std::vector<BlockHandle> test_handles = {block_handles[0], block_handles[2]};
+
+  tracking_fs_->ClearReadOps();
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = test_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = true;
+  job->job_options.io_coalesce_threshold = 0;
+
+  std::shared_ptr<ReadSet> read_set;
+  s = dispatcher->SubmitJob(job, &read_set);
+  ASSERT_OK(s);
+  ASSERT_NE(read_set, nullptr);
+  ASSERT_EQ(tracking_fs_->GetReadAsyncCount(), test_handles.size());
+  ASSERT_EQ(tracking_fs_->GetMultiReadCount(), 0);
+
+  read_set->ReleaseBlock(0);
+  EXPECT_FALSE(read_set->IsBlockAvailable(0));
+
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set->ReadIndex(1, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  EXPECT_EQ(controlled_fs->abort_count(), 1);
+  EXPECT_EQ(controlled_fs->stray_completion_count(), 0);
+}
+
+// Simulates a MultiScan that reads one block from a first range, skips the
+// remaining pending block in that range, and then seeks into a later range. The
+// skipped block must be aborted before polling the later range so Poll() only
+// drains completions for blocks still owned by the ReadSet.
+TEST_F(IODispatcherTest, ReleasedRangeRemainderDoesNotBlockLaterAsyncRead) {
+  if (!kIOUringPresent) {
+    ROCKSDB_GTEST_SKIP("Async IO not supported on this platform");
+    return;
+  }
+
+  auto controlled_fs = std::make_shared<ControlledAsyncFS>(base_fs_);
+  tracking_fs_ = controlled_fs;
+  std::unique_ptr<Env> controlled_env = NewCompositeEnv(controlled_fs);
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(
+      30, &table, &block_handles, nullptr /* table_options_override */,
+      true /* use_direct_reads */, kNoCompression, false /* allow_mmap_reads */,
+      controlled_env.get());
+  ASSERT_OK(s);
+  ASSERT_GT(block_handles.size(), 6);
+
+  // Logical ranges: [0, 1] and [2, 3]. Each block uses a separate async IO.
+  std::vector<BlockHandle> test_handles = {block_handles[0], block_handles[2],
+                                           block_handles[4], block_handles[6]};
+
+  tracking_fs_->ClearReadOps();
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = test_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = true;
+  job->job_options.io_coalesce_threshold = 0;
+
+  std::shared_ptr<ReadSet> read_set;
+  s = dispatcher->SubmitJob(job, &read_set);
+  ASSERT_OK(s);
+  ASSERT_NE(read_set, nullptr);
+  ASSERT_EQ(tracking_fs_->GetReadAsyncCount(), test_handles.size());
+  ASSERT_EQ(tracking_fs_->GetMultiReadCount(), 0);
+
+  controlled_fs->SetCompleteStrayFirst(false);
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  EXPECT_FALSE(read_set->IsBlockAvailable(0));
+  EXPECT_EQ(controlled_fs->abort_count(), 0);
+  EXPECT_EQ(controlled_fs->stray_completion_count(), 0);
+
+  controlled_fs->SetCompleteStrayFirst(true);
+  read_set->ReleaseBlock(1);
+  EXPECT_FALSE(read_set->IsBlockAvailable(1));
+  EXPECT_EQ(controlled_fs->abort_count(), 1);
+
+  ASSERT_OK(read_set->ReadIndex(2, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  EXPECT_EQ(controlled_fs->abort_count(), 1);
+  EXPECT_EQ(controlled_fs->stray_completion_count(), 1);
+
+  ASSERT_OK(read_set->ReadIndex(3, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
 }
 
 // Regression test: when ReadAsync returns NotSupported (e.g., io_uring

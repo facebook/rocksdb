@@ -2088,6 +2088,16 @@ Status StressTest::TestMultiScan(ThreadState* thread,
     return true;
   };
 
+  // Sometimes stop before draining all prefetched blocks, matching applications
+  // that stop after a bounded number of results. In one mode the whole prepared
+  // MultiScan is abandoned. In the other mode only the current range is
+  // stopped, so the next range's Seek() exercises releasing skipped blocks on
+  // the same prepared iterator.
+  const bool early_exit = thread->rand.OneIn(2);
+  const bool abandon_scan_after_early_exit =
+      early_exit && thread->rand.OneIn(2);
+  bool abandon_prepared_scan = false;
+
   for (const ScanOptions& scan_opt : scan_opts.GetScanRanges()) {
     if (op_logs.size() > kOpLogsLimit) {
       // Shouldn't take too much memory for the history log. Clear it.
@@ -2148,13 +2158,25 @@ Status StressTest::TestMultiScan(ThreadState* thread,
     VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
                    key, rand_column_families, op_logs, verify_func, &diverged);
 
+    uint64_t range_iterations = 0;
     while (iter->Valid()) {
+      if (early_exit && range_iterations >= FLAGS_num_iterations) {
+        if (abandon_scan_after_early_exit) {
+          op_logs += "E";
+          abandon_prepared_scan = true;
+        } else {
+          op_logs += "R";
+        }
+        break;
+      }
+
       iter->Next();
       if (!diverged) {
         assert(cmp_iter->Valid());
         cmp_iter->Next();
       }
       op_logs += "N";
+      ++range_iterations;
 
       if (iter->Valid() && ro.allow_unprepared_value) {
         op_logs += "*";
@@ -2193,7 +2215,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
     thread->stats.AddIterations(1);
 
     op_logs += "; ";
-    if (diverged) {
+    if (diverged || abandon_prepared_scan) {
       break;
     }
   }
