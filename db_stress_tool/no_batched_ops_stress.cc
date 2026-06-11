@@ -2480,6 +2480,7 @@ class NonBatchedOpsStressTest : public StressTest {
         s = standalone_rangedel_sst_file_writer.Finish();
       }
     }
+    bool dropped_without_commit = false;
     if (s.ok()) {
       IngestExternalFileOptions ingest_options;
       ingest_options.move_files = thread->rand.OneInOpt(2);
@@ -2487,6 +2488,8 @@ class NonBatchedOpsStressTest : public StressTest {
       ingest_options.verify_checksums_readahead_size =
           thread->rand.OneInOpt(2) ? 1024 * 1024 : 0;
       ingest_options.fill_cache = thread->rand.OneInOpt(4);
+      const bool use_prepare_commit = thread->rand.OneInOpt(
+          FLAGS_ingest_external_file_prepare_commit_one_in);
       ingest_options_oss << "move_files: " << ingest_options.move_files
                          << ", verify_checksums_before_ingest: "
                          << ingest_options.verify_checksums_before_ingest
@@ -2494,11 +2497,37 @@ class NonBatchedOpsStressTest : public StressTest {
                          << ingest_options.verify_checksums_readahead_size
                          << ", fill_cache: " << ingest_options.fill_cache
                          << ", test_standalone_range_deletion: "
-                         << test_standalone_range_deletion;
-      s = db_->IngestExternalFile(column_families_[column_family],
-                                  external_files, ingest_options);
+                         << test_standalone_range_deletion
+                         << ", use_prepare_commit: " << use_prepare_commit;
+      if (use_prepare_commit) {
+        // Exercise the two-phase PrepareFileIngestion()/Commit() API, and
+        // occasionally drop the prepared handle without committing to cover the
+        // rollback path.
+        IngestExternalFileArg arg;
+        arg.column_family = column_families_[column_family];
+        arg.external_files = external_files;
+        arg.options = ingest_options;
+        std::unique_ptr<FileIngestionHandle> handle;
+        s = db_->PrepareFileIngestion({arg}, &handle);
+        if (s.ok()) {
+          if (thread->rand.OneInOpt(4)) {
+            // Cancel instead of committing, covering both rollback paths.
+            if (thread->rand.OneInOpt(2)) {
+              s = handle->Abort();
+            } else {
+              handle.reset();  // RAII rollback via the destructor
+            }
+            dropped_without_commit = true;
+          } else {
+            s = db_->CommitFileIngestionHandle(std::move(handle));
+          }
+        }
+      } else {
+        s = db_->IngestExternalFile(column_families_[column_family],
+                                    external_files, ingest_options);
+      }
     }
-    if (!s.ok()) {
+    if (!s.ok() || dropped_without_commit) {
       for (PendingExpectedValue& pending_expected_value :
            pending_expected_values) {
         pending_expected_value.Rollback();

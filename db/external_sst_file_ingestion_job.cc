@@ -76,23 +76,10 @@ Status ExternalSstFileIngestionJob::Prepare(
   auto num_files = files_to_ingest_.size();
   if (num_files == 0) {
     return Status::InvalidArgument("The list of files is empty");
-  } else if (num_files > 1) {
-    // Verify that passed files don't have overlapping ranges
-    autovector<const IngestedFileInfo*> sorted_files;
-    for (size_t i = 0; i < num_files; i++) {
-      sorted_files.push_back(&files_to_ingest_[i]);
-    }
-
-    std::sort(sorted_files.begin(), sorted_files.end(), file_range_checker_);
-
-    for (size_t i = 0; i + 1 < num_files; i++) {
-      if (file_range_checker_.Overlaps(*sorted_files[i], *sorted_files[i + 1],
-                                       /* known_sorted= */ true)) {
-        files_overlap_ = true;
-        break;
-      }
-    }
   }
+  // Detect whether the input files overlap one another; this drives how they
+  // are divided into batches below.
+  files_overlap_ = ComputeFilesOverlap(files_to_ingest_);
 
   if (atomic_replace_range.has_value()) {
     atomic_replace_range_.emplace();
@@ -431,6 +418,60 @@ void ExternalSstFileIngestionJob::DivideInputFilesIntoBatches() {
     }
     file_batches_to_ingest_.back().AddFile(&file, file_range_checker_);
   }
+}
+
+bool ExternalSstFileIngestionJob::ComputeFilesOverlap(
+    const autovector<IngestedFileInfo>& files) const {
+  const size_t num_files = files.size();
+  if (num_files <= 1) {
+    return false;
+  }
+  // Verify whether the files have overlapping ranges by sorting copies of the
+  // file ranges and checking adjacent pairs.
+  autovector<const IngestedFileInfo*> sorted_files;
+  for (size_t i = 0; i < num_files; i++) {
+    sorted_files.push_back(&files[i]);
+  }
+  std::sort(sorted_files.begin(), sorted_files.end(), file_range_checker_);
+  for (size_t i = 0; i + 1 < num_files; i++) {
+    if (file_range_checker_.Overlaps(*sorted_files[i], *sorted_files[i + 1],
+                                     /* known_sorted= */ true)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+Status ExternalSstFileIngestionJob::MergeForSameColumnFamily(
+    ExternalSstFileIngestionJob* other) {
+  assert(other != nullptr);
+  assert(other != this);
+  assert(cfd_ == other->cfd_);
+  if (atomic_replace_range_.has_value() ||
+      other->atomic_replace_range_.has_value()) {
+    return Status::NotSupported(
+        "cannot merge file ingestion handles for the same column family when "
+        "atomic_replace_range is used");
+  }
+  if (!(ingestion_options_ == other->ingestion_options_)) {
+    return Status::InvalidArgument(
+        "file ingestion handles for the same column family must be prepared "
+        "with the same IngestExternalFileOptions");
+  }
+  // Append the other job's prepared files after this job's so that, for any
+  // overlapping keys, the other job's data wins via a higher assigned sequence
+  // number -- the same semantics as passing all the files to a single ingestion
+  // call in this order. Recompute overlap and rebuild the batches over the
+  // union.
+  for (IngestedFileInfo& file : other->files_to_ingest_) {
+    files_to_ingest_.push_back(std::move(file));
+  }
+  other->files_to_ingest_.clear();
+  other->file_batches_to_ingest_.clear();
+  files_overlap_ = ComputeFilesOverlap(files_to_ingest_);
+  file_batches_to_ingest_.clear();
+  DivideInputFilesIntoBatches();
+  return Status::OK();
 }
 
 Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
