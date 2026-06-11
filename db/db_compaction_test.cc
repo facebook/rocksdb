@@ -7697,7 +7697,7 @@ TEST_F(DBCompactionTest, PartialManualCompaction) {
   opts.num_levels = 3;
   opts.level0_file_num_compaction_trigger = 10;
   opts.compression = kNoCompression;
-  opts.merge_operator.reset(new NoopMergeOperator());
+  opts.merge_operator = std::make_shared<NoopMergeOperator>();
   opts.target_file_size_base = 10240;
   DestroyAndReopen(opts);
 
@@ -7834,7 +7834,7 @@ TEST_F(DBCompactionTest, ManualCompactionBottomLevelOptimized) {
   opts.num_levels = 3;
   opts.level0_file_num_compaction_trigger = 5;
   opts.compression = kNoCompression;
-  opts.merge_operator.reset(new NoopMergeOperator());
+  opts.merge_operator = std::make_shared<NoopMergeOperator>();
   opts.target_file_size_base = 1024;
   opts.max_bytes_for_level_multiplier = 2;
   opts.disable_auto_compactions = true;
