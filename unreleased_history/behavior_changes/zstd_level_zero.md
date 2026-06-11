@@ -1,0 +1,1 @@
+Removed a discontinuity in `kZSTD` compression levels at `compression_opts.level == 0` by mapping that setting to `level = -1` rather than to `level = 3` as the ZSTD library does internally. This improves the compression auto-tuning landscape.

@@ -55,6 +55,26 @@ ZSTD_customMem GetJeZstdAllocationOverrides();
 #endif  // defined(ZSTD) && defined(ROCKSDB_JEMALLOC) && defined(OS_WIN) &&
         // defined(ZSTD_STATIC_LINKING_ONLY)
 
+#ifdef ZSTD
+// Translates a configured compression_opts.level into the effective ZSTD
+// compression level. Besides resolving the "use default" sentinel, this
+// removes a discontinuity at level 0: ZSTD itself treats a requested level of
+// 0 as "use the default level" (historically 3), which would make level 0
+// more aggressive than levels 1 and 2. Mapping 0 to -1 keeps the level spectrum
+// monotonic, which is friendlier to auto-tuning.
+inline int SanitizeZSTDCompressionLevel(int level) {
+  if (level == CompressionOptions::kDefaultCompressionLevel) {
+    // NB: ZSTD_CLEVEL_DEFAULT is historically == 3
+    return ZSTD_CLEVEL_DEFAULT;
+  } else if (level == 0) {
+    // Avoid library's discontinuity at level 0
+    return -1;
+  } else {
+    return level;
+  }
+}
+#endif  // ZSTD
+
 // Cached data represents a portion that can be re-used
 // If, in the future we have more than one native context to
 // cache we can arrange this as a tuple
@@ -227,10 +247,7 @@ struct CompressionDict {
 #ifdef ZSTD
     zstd_cdict_ = nullptr;
     if (!dict_.empty() && type == kZSTD) {
-      if (level == CompressionOptions::kDefaultCompressionLevel) {
-        // NB: ZSTD_CLEVEL_DEFAULT is historically == 3
-        level = ZSTD_CLEVEL_DEFAULT;
-      }
+      level = SanitizeZSTDCompressionLevel(level);
       // Should be safe (but slower) if below call fails as we'll use the
       // raw dictionary to compress.
       zstd_cdict_ = ZSTD_createCDict(dict_.data(), dict_.size(), level);
@@ -316,10 +333,7 @@ class CompressionContext : public Compressor::WorkingArea {
 #ifdef ZSTD
     if (type == kZSTD) {
       zstd_ctx_ = CreateZSTDContext();
-      if (level == CompressionOptions::kDefaultCompressionLevel) {
-        // NB: ZSTD_CLEVEL_DEFAULT is historically == 3
-        level = ZSTD_CLEVEL_DEFAULT;
-      }
+      level = SanitizeZSTDCompressionLevel(level);
       size_t err =
           ZSTD_CCtx_setParameter(zstd_ctx_, ZSTD_c_compressionLevel, level);
       if (ZSTD_isError(err)) {
@@ -542,6 +556,18 @@ inline bool ZSTD_FinalizeDictionarySupported() {
 #else
   return false;
 #endif
+}
+
+// Use to check whether compression types are related or unrelated
+inline CompressionType CanonicalCompressionType(CompressionType type) {
+  switch (type) {
+    // Configuring LZ4 or LZ4HC can result in using the other, depending on
+    // compression level.
+    case kLZ4HCCompression:
+      return kLZ4Compression;
+    default:
+      return type;
+  }
 }
 
 // The new compression APIs intentionally make it difficult to generate

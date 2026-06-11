@@ -209,15 +209,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // incompressible, the compression implementation will
   // efficiently detect that and fall back on no compression.
   //
-  // If you do not set `compression_opts.level`, or set it to
-  // `CompressionOptions::kDefaultCompressionLevel`, we will attempt to pick the
-  // default corresponding to `compression` as follows:
-  //
-  // - kZSTD: 3
-  // - kZlibCompression: Z_DEFAULT_COMPRESSION (currently -1)
-  // - kLZ4HCCompression: 0
-  // - kLZ4: -1 (i.e., `acceleration=1`; see `CompressionOptions::level` doc)
-  // - For all others, we do not specify a compression level
+  // See CompressionOptions for more options.
   //
   // Dynamically changeable through SetOptions() API
   CompressionType compression;

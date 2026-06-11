@@ -13,13 +13,13 @@
 #include "util/stop_watch.h"
 namespace ROCKSDB_NAMESPACE {
 const std::vector<std::vector<int>> CostAwareCompressor::kCompressionLevels{
-    {0},         // KSnappyCompression
-    {},          // kZlibCompression
-    {},          // kBZip2Compression
-    {1, 4, 9},   // kLZ4Compression
-    {1, 4, 9},   // klZ4HCCompression
-    {},          // kXpressCompression
-    {1, 15, 22}  // kZSTD
+    {0},           // KSnappyCompression
+    {},            // kZlibCompression
+    {},            // kBZip2Compression
+    {-1, -4, -9},  // kLZ4Compression (negative => LZ4 fast acceleration)
+    {1, 4, 9},     // kLZ4HCCompression
+    {},            // kXpressCompression
+    {1, 15, 22}    // kZSTD
 };
 
 int CompressionRejectionProbabilityPredictor::Predict() const {
