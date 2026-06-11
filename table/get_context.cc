@@ -150,7 +150,13 @@ Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
   if (!status.ok()) {
     return status;
   }
+  if (is_blob_index_ != nullptr) {
+    *is_blob_index_ = has_blob_columns;
+  }
   if (!has_blob_columns) {
+    return columns_->SetWideColumnValue(entity, value_pinner);
+  }
+  if (is_blob_index_ != nullptr) {
     return columns_->SetWideColumnValue(entity, value_pinner);
   }
   std::vector<WideColumn> entity_columns;

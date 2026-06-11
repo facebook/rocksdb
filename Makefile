@@ -2061,6 +2061,9 @@ range_del_aggregator_bench: $(OBJ_DIR)/db/range_del_aggregator_bench.o $(LIBRARY
 blob_db_test: $(OBJ_DIR)/utilities/blob_db/blob_db_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+column_db_test: $(OBJ_DIR)/utilities/column_db/column_db_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 repeatable_thread_test: $(OBJ_DIR)/util/repeatable_thread_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 

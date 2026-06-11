@@ -185,6 +185,12 @@ struct IngestedFileInfo : public KeyRangeInfo {
   SequenceNumber smallest_seqno = kMaxSequenceNumber;
 };
 
+struct IngestedBlobFileInfo {
+  ExternalBlobFileInfo external_file_info;
+  std::string internal_file_path;
+  bool copy_file = true;
+};
+
 // A batch of files.
 struct FileBatchInfo : public KeyRangeInfo {
   autovector<IngestedFileInfo*> files;
@@ -248,6 +254,7 @@ class ExternalSstFileIngestionJob {
   Status Prepare(const std::vector<std::string>& external_files_paths,
                  const std::vector<std::string>& files_checksums,
                  const std::vector<std::string>& files_checksum_func_names,
+                 const std::vector<ExternalBlobFileInfo>& external_blob_files,
                  const std::optional<RangeOpt>& atomic_replace_range,
                  const Temperature& file_temperature, uint64_t next_file_number,
                  SuperVersion* sv);
@@ -406,6 +413,7 @@ class ExternalSstFileIngestionJob {
   const EnvOptions& env_options_;
   SnapshotList* db_snapshots_;
   autovector<IngestedFileInfo> files_to_ingest_;
+  std::vector<IngestedBlobFileInfo> blob_files_to_ingest_;
   std::vector<FileBatchInfo> file_batches_to_ingest_;
   const IngestExternalFileOptions& ingestion_options_;
   std::optional<KeyRangeInfo> atomic_replace_range_;
@@ -420,6 +428,7 @@ class ExternalSstFileIngestionJob {
   // Set in ExternalSstFileIngestionJob::Prepare(), if true and DB
   // file_checksum_gen_factory is set, DB will generate checksum each file.
   bool need_generate_file_checksum_{true};
+  uint64_t oldest_blob_file_number_ = kInvalidBlobFileNumber;
   std::shared_ptr<IOTracer> io_tracer_;
 
   // Flag indicating whether the column family is flushed after `Prepare` and

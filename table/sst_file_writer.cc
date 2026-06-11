@@ -5,12 +5,18 @@
 
 #include "rocksdb/sst_file_writer.h"
 
+#include <limits>
+#include <numeric>
 #include <vector>
 
+#include "db/blob/blob_index.h"
+#include "db/blob/blob_log_format.h"
+#include "db/blob/blob_log_writer.h"
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
+#include "file/filename.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/table.h"
@@ -26,6 +32,17 @@ const std::string ExternalSstFilePropertyNames::kGlobalSeqno =
     "rocksdb.external_sst_file.global_seqno";
 
 const size_t kFadviseTrigger = 1024 * 1024;  // 1MB
+
+std::string GetParentDir(const std::string& file_path) {
+  const size_t slash = file_path.find_last_of('/');
+  if (slash == std::string::npos) {
+    return ".";
+  }
+  if (slash == 0) {
+    return "/";
+  }
+  return file_path.substr(0, slash);
+}
 
 struct SstFileWriter::Rep {
   Rep(const EnvOptions& _env_options, const Options& options,
@@ -70,6 +87,17 @@ struct SstFileWriter::Rep {
   uint64_t next_file_number = 1;
   size_t ts_sz;
   bool strip_timestamp;
+  bool write_blob_files = false;
+  bool opening_with_blob_files = false;
+  SstFileWriterBlobOptions blob_options;
+  std::string sst_file_dir;
+  uint64_t next_blob_file_number = 0;
+  uint64_t current_blob_file_number = 0;
+  uint64_t current_blob_count = 0;
+  uint64_t current_blob_bytes = 0;
+  std::string current_blob_file_path;
+  std::unique_ptr<BlobLogWriter> blob_writer;
+  std::vector<ExternalBlobFileInfo> blob_file_infos;
 
   Status AddImpl(const Slice& user_key, const Slice& value,
                  ValueType value_type) {
@@ -140,6 +168,36 @@ struct SstFileWriter::Rep {
     return AddImpl(user_key, value, value_type);
   }
 
+  Status CheckAddPreconditions(const Slice& user_key) const {
+    if (!builder) {
+      return Status::InvalidArgument("File is not opened");
+    }
+    if (!builder->status().ok()) {
+      return builder->status();
+    }
+    if (internal_comparator.user_comparator()->timestamp_size() != 0) {
+      return Status::InvalidArgument("Timestamp size mismatch");
+    }
+
+    assert(user_key.size() >= ts_sz);
+    if (strip_timestamp &&
+        internal_comparator.user_comparator()->CompareTimestamp(
+            Slice(user_key.data() + user_key.size() - ts_sz, ts_sz),
+            MinU64Ts()) != 0) {
+      return Status::InvalidArgument(
+          "persist_user_defined_timestamps flag is set to false, only "
+          "minimum timestamp is accepted.");
+    }
+    if (file_info.num_entries != 0 &&
+        internal_comparator.user_comparator()->Compare(
+            user_key, file_info.largest_key) <= 0) {
+      return Status::InvalidArgument(
+          "Keys must be added in strict ascending order.");
+    }
+
+    return Status::OK();
+  }
+
   Status Add(const Slice& user_key, const Slice& timestamp, const Slice& value,
              ValueType value_type) {
     const size_t timestamp_size = timestamp.size();
@@ -177,6 +235,275 @@ struct SstFileWriter::Rep {
       return Status::InvalidArgument("wide column entity is too large");
     }
     return Add(user_key, entity, kTypeWideColumnEntity);
+  }
+
+  Status AddEntityWithBlobIndexes(
+      const Slice& user_key, const WideColumns& columns,
+      const std::vector<SstFileWriterBlobColumn>& blob_columns) {
+    std::vector<size_t> order(columns.size());
+    std::iota(order.begin(), order.end(), size_t{0});
+    std::sort(order.begin(), order.end(), [&](size_t lhs, size_t rhs) {
+      return columns[lhs].name().compare(columns[rhs].name()) < 0;
+    });
+
+    WideColumns sorted_columns;
+    sorted_columns.reserve(columns.size());
+    std::vector<size_t> old_to_new(columns.size());
+    for (size_t new_index = 0; new_index < order.size(); ++new_index) {
+      const size_t old_index = order[new_index];
+      old_to_new[old_index] = new_index;
+      sorted_columns.push_back(columns[old_index]);
+    }
+
+    std::vector<std::pair<size_t, BlobIndex>> decoded_blob_columns;
+    decoded_blob_columns.reserve(blob_columns.size());
+    for (const SstFileWriterBlobColumn& blob_column : blob_columns) {
+      if (blob_column.column_index >= old_to_new.size()) {
+        return Status::InvalidArgument("Blob column index out of range");
+      }
+      BlobIndex blob_index;
+      Status s = blob_index.DecodeFrom(blob_column.blob_index);
+      if (!s.ok()) {
+        return s;
+      }
+      decoded_blob_columns.emplace_back(old_to_new[blob_column.column_index],
+                                        blob_index);
+    }
+
+    std::string entity;
+    const Status s = WideColumnSerialization::SerializeV2(
+        sorted_columns, decoded_blob_columns, entity);
+    if (!s.ok()) {
+      return s;
+    }
+    if (entity.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+      return Status::InvalidArgument("wide column entity is too large");
+    }
+    return Add(user_key, entity, kTypeWideColumnEntity);
+  }
+
+  Status AddEntityWithBlobValues(
+      const Slice& user_key, const WideColumns& columns,
+      const std::vector<SstFileWriterBlobValue>& blob_columns) {
+    if (!write_blob_files) {
+      return Status::InvalidArgument(
+          "SstFileWriter was not opened with blob file support");
+    }
+    Status s = CheckAddPreconditions(user_key);
+    if (!s.ok()) {
+      return s;
+    }
+
+    std::vector<size_t> order(columns.size());
+    std::iota(order.begin(), order.end(), size_t{0});
+    std::sort(order.begin(), order.end(), [&](size_t lhs, size_t rhs) {
+      return columns[lhs].name().compare(columns[rhs].name()) < 0;
+    });
+
+    WideColumns sorted_columns;
+    sorted_columns.reserve(columns.size());
+    std::vector<size_t> old_to_new(columns.size());
+    for (size_t new_index = 0; new_index < order.size(); ++new_index) {
+      const size_t old_index = order[new_index];
+      old_to_new[old_index] = new_index;
+      sorted_columns.push_back(columns[old_index]);
+    }
+    for (size_t i = 1; i < sorted_columns.size(); ++i) {
+      if (sorted_columns[i - 1].name().compare(sorted_columns[i].name()) >= 0) {
+        return Status::Corruption("Wide columns out of order");
+      }
+    }
+
+    std::vector<bool> has_blob_value(columns.size(), false);
+    for (const SstFileWriterBlobValue& blob_column : blob_columns) {
+      if (blob_column.column_index >= old_to_new.size()) {
+        return Status::InvalidArgument("Blob column index out of range");
+      }
+      if (has_blob_value[blob_column.column_index]) {
+        return Status::InvalidArgument("Duplicate blob column index");
+      }
+      has_blob_value[blob_column.column_index] = true;
+    }
+
+    std::vector<std::pair<size_t, BlobIndex>> decoded_blob_columns;
+    decoded_blob_columns.reserve(blob_columns.size());
+    for (const SstFileWriterBlobValue& blob_column : blob_columns) {
+      BlobIndex blob_index;
+      s = AddBlobValue(user_key, blob_column.value, &blob_index);
+      if (!s.ok()) {
+        return s;
+      }
+      decoded_blob_columns.emplace_back(old_to_new[blob_column.column_index],
+                                        blob_index);
+    }
+
+    std::string entity;
+    s = WideColumnSerialization::SerializeV2(sorted_columns,
+                                             decoded_blob_columns, entity);
+    if (!s.ok()) {
+      return s;
+    }
+    if (entity.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+      return Status::InvalidArgument("wide column entity is too large");
+    }
+    return Add(user_key, entity, kTypeWideColumnEntity);
+  }
+
+  Status AddBlobValue(const Slice& user_key, const Slice& blob_value,
+                      BlobIndex* blob_index) {
+    assert(blob_index);
+
+    Status s = OpenBlobFileIfNeeded();
+    if (!s.ok()) {
+      return s;
+    }
+    assert(blob_writer);
+
+    uint64_t key_offset = 0;
+    uint64_t blob_offset = 0;
+    s = blob_writer->AddRecord(write_options, user_key, blob_value,
+                               &key_offset, &blob_offset);
+    if (!s.ok()) {
+      return s;
+    }
+
+    ++current_blob_count;
+    current_blob_bytes +=
+        BlobLogRecord::kHeaderSize + user_key.size() + blob_value.size();
+
+    std::string encoded_blob_index;
+    BlobIndex::EncodeBlob(&encoded_blob_index, current_blob_file_number,
+                          blob_offset, blob_value.size(), kNoCompression);
+    Slice blob_index_slice(encoded_blob_index);
+    s = blob_index->DecodeFrom(blob_index_slice);
+    if (!s.ok()) {
+      return s;
+    }
+
+    return CloseBlobFileIfNeeded();
+  }
+
+  Status OpenBlobFileIfNeeded() {
+    if (blob_writer) {
+      return Status::OK();
+    }
+    if (cfh == nullptr) {
+      return Status::InvalidArgument(
+          "SstFileWriter blob files require a column family handle");
+    }
+    if (mutable_cf_options.blob_compression_type != kNoCompression) {
+      return Status::NotSupported(
+          "SstFileWriter blob value columns require uncompressed blobs");
+    }
+
+    current_blob_file_number = next_blob_file_number++;
+    const std::string blob_file_dir =
+        blob_options.blob_file_dir.empty() ? sst_file_dir
+                                           : blob_options.blob_file_dir;
+    current_blob_file_path =
+        BlobFileName(blob_file_dir, current_blob_file_number);
+
+    std::unique_ptr<FSWritableFile> blob_file;
+    FileOptions blob_file_options(env_options);
+    blob_file_options.temperature = blob_options.blob_file_temperature;
+    Status s = ioptions.env->GetFileSystem()->NewWritableFile(
+        current_blob_file_path, blob_file_options, &blob_file, nullptr);
+    if (!s.ok()) {
+      return s;
+    }
+
+    blob_file->SetIOPriority(io_priority);
+    blob_file->SetWriteLifeTimeHint(blob_file_options.write_hint);
+
+    FileTypeSet checksum_handoff_file_types =
+        ioptions.checksum_handoff_file_types;
+    std::unique_ptr<WritableFileWriter> blob_file_writer(new WritableFileWriter(
+        std::move(blob_file), current_blob_file_path, env_options,
+        ioptions.clock, nullptr /* io_tracer */, ioptions.stats,
+        Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS, ioptions.listeners,
+        ioptions.file_checksum_gen_factory.get(),
+        checksum_handoff_file_types.Contains(FileType::kBlobFile), false));
+
+    constexpr bool do_flush = false;
+    blob_writer.reset(new BlobLogWriter(
+        std::move(blob_file_writer), ioptions.clock, ioptions.stats,
+        current_blob_file_number, ioptions.use_fsync, do_flush));
+
+    constexpr bool has_ttl = false;
+    constexpr ExpirationRange expiration_range;
+    BlobLogHeader header(cfh->GetID(), kNoCompression, has_ttl,
+                         expiration_range);
+    s = blob_writer->WriteHeader(write_options, header);
+    if (!s.ok()) {
+      blob_writer.reset();
+      return s;
+    }
+
+    current_blob_count = 0;
+    current_blob_bytes = 0;
+    return Status::OK();
+  }
+
+  Status CloseBlobFileIfNeeded() {
+    assert(blob_writer);
+
+    const uint64_t target_file_size =
+        blob_options.blob_file_size != 0 ? blob_options.blob_file_size
+                                         : mutable_cf_options.blob_file_size;
+    if (target_file_size == 0 ||
+        blob_writer->file()->GetFileSize() < target_file_size) {
+      return Status::OK();
+    }
+
+    return CloseBlobFile();
+  }
+
+  Status CloseBlobFile() {
+    if (!blob_writer) {
+      return Status::OK();
+    }
+
+    BlobLogFooter footer;
+    footer.blob_count = current_blob_count;
+
+    std::string checksum_method;
+    std::string checksum_value;
+    Status s = blob_writer->AppendFooter(write_options, footer,
+                                         &checksum_method, &checksum_value);
+    if (!s.ok()) {
+      return s;
+    }
+
+    ExternalBlobFileInfo blob_file_info;
+    blob_file_info.external_file_path = current_blob_file_path;
+    blob_file_info.blob_file_number = current_blob_file_number;
+    blob_file_info.total_blob_count = current_blob_count;
+    blob_file_info.total_blob_bytes = current_blob_bytes;
+    blob_file_info.checksum_method = std::move(checksum_method);
+    blob_file_info.checksum_value = std::move(checksum_value);
+    blob_file_info.file_temperature = blob_options.blob_file_temperature;
+    blob_file_infos.emplace_back(std::move(blob_file_info));
+
+    blob_writer.reset();
+    current_blob_file_number = 0;
+    current_blob_count = 0;
+    current_blob_bytes = 0;
+    current_blob_file_path.clear();
+    return Status::OK();
+  }
+
+  void AbandonBlobFiles() {
+    blob_writer.reset();
+    Status s;
+    for (const ExternalBlobFileInfo& blob_file_info : blob_file_infos) {
+      s = ioptions.env->DeleteFile(blob_file_info.external_file_path);
+      s.PermitUncheckedError();
+    }
+    if (!current_blob_file_path.empty()) {
+      s = ioptions.env->DeleteFile(current_blob_file_path);
+      s.PermitUncheckedError();
+    }
+    blob_file_infos.clear();
   }
 
   Status DeleteRangeImpl(const Slice& begin_key, const Slice& end_key) {
@@ -342,10 +669,17 @@ SstFileWriter::~SstFileWriter() {
     // abandon the builder.
     rep_->builder->Abandon();
   }
+  rep_->AbandonBlobFiles();
 }
 
 Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
   Rep* r = rep_.get();
+  if (!r->opening_with_blob_files) {
+    r->write_blob_files = false;
+    r->blob_options = SstFileWriterBlobOptions();
+    r->next_blob_file_number = 0;
+    r->blob_file_infos.clear();
+  }
   Status s;
   std::unique_ptr<FSWritableFile> sst_file;
   FileOptions cur_file_opts(r->env_options);
@@ -359,6 +693,7 @@ Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
   }
 
   sst_file->SetIOPriority(r->io_priority);
+  r->sst_file_dir = GetParentDir(file_path);
 
   CompressionType compression_type;
   CompressionOptions compression_opts;
@@ -441,6 +776,28 @@ Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
   return s;
 }
 
+Status SstFileWriter::OpenWithBlobFiles(
+    const std::string& file_path, const SstFileWriterBlobOptions& blob_options,
+    Temperature temp) {
+  if (blob_options.starting_blob_file_number == 0) {
+    return Status::InvalidArgument("Blob file numbers must be non-zero");
+  }
+
+  Rep* r = rep_.get();
+  r->opening_with_blob_files = true;
+  r->write_blob_files = true;
+  r->blob_options = blob_options;
+  r->next_blob_file_number = blob_options.starting_blob_file_number;
+  Status s = Open(file_path, temp);
+  r->opening_with_blob_files = false;
+  if (!s.ok()) {
+    r->write_blob_files = false;
+    r->blob_options = SstFileWriterBlobOptions();
+    r->next_blob_file_number = 0;
+  }
+  return s;
+}
+
 Status SstFileWriter::Put(const Slice& user_key, const Slice& value) {
   return rep_->Add(user_key, value, ValueType::kTypeValue);
 }
@@ -453,6 +810,18 @@ Status SstFileWriter::Put(const Slice& user_key, const Slice& timestamp,
 Status SstFileWriter::PutEntity(const Slice& user_key,
                                 const WideColumns& columns) {
   return rep_->AddEntity(user_key, columns);
+}
+
+Status SstFileWriter::PutEntityWithBlobIndexes(
+    const Slice& user_key, const WideColumns& columns,
+    const std::vector<SstFileWriterBlobColumn>& blob_columns) {
+  return rep_->AddEntityWithBlobIndexes(user_key, columns, blob_columns);
+}
+
+Status SstFileWriter::PutEntityWithBlobValues(
+    const Slice& user_key, const WideColumns& columns,
+    const std::vector<SstFileWriterBlobValue>& blob_columns) {
+  return rep_->AddEntityWithBlobValues(user_key, columns, blob_columns);
 }
 
 Status SstFileWriter::Merge(const Slice& user_key, const Slice& value) {
@@ -479,6 +848,12 @@ Status SstFileWriter::DeleteRange(const Slice& begin_key, const Slice& end_key,
 }
 
 Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
+  return Finish(file_info, nullptr);
+}
+
+Status SstFileWriter::Finish(
+    ExternalSstFileInfo* file_info,
+    std::vector<ExternalBlobFileInfo>* blob_file_infos) {
   Rep* r = rep_.get();
   if (!r->builder) {
     return Status::InvalidArgument("File is not opened");
@@ -489,7 +864,10 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
     return Status::InvalidArgument("Cannot create sst file with no entries");
   }
 
-  Status s = r->builder->Finish();
+  Status s = r->CloseBlobFile();
+  if (s.ok()) {
+    s = r->builder->Finish();
+  }
   r->file_info.file_size = r->builder->FileSize();
 
   IOOptions opts;
@@ -513,6 +891,7 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
     // Silence ASSERT_STATUS_CHECKED warning, since DeleteFile may fail under
     // some error injection, and we can just ignore the failure
     status.PermitUncheckedError();
+    r->AbandonBlobFiles();
   }
 
   if (file_info != nullptr) {
@@ -543,7 +922,12 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
     }
   }
 
+  if (blob_file_infos != nullptr) {
+    *blob_file_infos = r->blob_file_infos;
+  }
+
   r->builder.reset();
+  r->blob_file_infos.clear();
   return s;
 }
 

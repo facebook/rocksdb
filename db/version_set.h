@@ -994,6 +994,12 @@ class Version {
                  FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read) const;
 
+  Status MultiGetBlobRanges(
+      const ReadOptions& read_options, const Slice& user_key,
+      const BlobIndex& blob_index,
+      const std::vector<std::pair<uint64_t, uint64_t>>& ranges,
+      std::vector<PinnableSlice>* values, uint64_t* bytes_read) const;
+
   struct BlobReadContext {
     BlobReadContext(const BlobIndex& blob_idx, KeyContext* key_ctx)
         : blob_index(blob_idx), key_context(key_ctx) {}
@@ -1491,7 +1497,8 @@ class VersionSet {
   }
 
   // Mark the specified file number as used.
-  // REQUIRED: this is only called during single-threaded recovery or repair.
+  // REQUIRED: this is only called during single-threaded recovery/repair, or
+  // while the DB mutex is held during file ingestion.
   void MarkFileNumberUsed(uint64_t number);
 
   // Mark the specified log number as deleted

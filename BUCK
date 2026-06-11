@@ -302,6 +302,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/cassandra/format.cc",
         "utilities/cassandra/merge_operator.cc",
         "utilities/checkpoint/checkpoint_impl.cc",
+        "utilities/column_db/column_db.cc",
         "utilities/compaction_filters.cc",
         "utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc",
         "utilities/convenience/info_log_finder.cc",
@@ -4660,6 +4661,12 @@ cpp_unittest_wrapper(name="clipping_iterator_test",
 
 cpp_unittest_wrapper(name="coding_test",
             srcs=["util/coding_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="column_db_test",
+            srcs=["utilities/column_db/column_db_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

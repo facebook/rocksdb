@@ -23,6 +23,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/blob/blob_contents.h"
 #include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_reader.h"
@@ -2824,6 +2825,143 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
       blob_index.compression(), prefetch_buffer, value, bytes_read);
 
   return s;
+}
+
+Status Version::MultiGetBlobRanges(
+    const ReadOptions& read_options, const Slice& user_key,
+    const BlobIndex& blob_index,
+    const std::vector<std::pair<uint64_t, uint64_t>>& ranges,
+    std::vector<PinnableSlice>* values, uint64_t* bytes_read) const {
+  assert(values);
+
+  if (bytes_read) {
+    *bytes_read = 0;
+  }
+
+  values->resize(ranges.size());
+  for (PinnableSlice& value : *values) {
+    value.Reset();
+  }
+
+  if (blob_index.HasTTL() || blob_index.IsInlined()) {
+    return Status::Corruption("Unexpected TTL/inlined blob index");
+  }
+  if (blob_index.compression() != kNoCompression) {
+    return Status::NotSupported(
+        "Partial blob reads require uncompressed blob values");
+  }
+  if (read_options.verify_checksums) {
+    return Status::NotSupported(
+        "Partial blob reads cannot verify per-record blob checksums");
+  }
+
+  const uint64_t blob_file_number = blob_index.file_number();
+  auto blob_file_meta = storage_info_.GetBlobFileMetaData(blob_file_number);
+  if (!blob_file_meta) {
+    return Status::Corruption("Invalid blob file number");
+  }
+
+  autovector<BlobReadRequest> blob_reqs_in_file;
+  std::vector<Status> statuses(ranges.size());
+
+  for (size_t i = 0; i < ranges.size(); ++i) {
+    const uint64_t range_offset = ranges[i].first;
+    const uint64_t range_size = ranges[i].second;
+
+    if (range_size > std::numeric_limits<uint64_t>::max() - range_offset ||
+        range_offset + range_size > blob_index.size()) {
+      return Status::InvalidArgument("Blob range is outside blob value");
+    }
+    if (range_size > std::numeric_limits<size_t>::max()) {
+      return Status::InvalidArgument("Blob range is too large");
+    }
+    if (range_offset > std::numeric_limits<uint64_t>::max() -
+                           blob_index.offset()) {
+      return Status::InvalidArgument("Blob range file offset overflows");
+    }
+
+    if (range_size == 0) {
+      (*values)[i].PinSelf(Slice());
+      continue;
+    }
+
+    blob_reqs_in_file.emplace_back(
+        user_key, blob_index.offset() + range_offset,
+        static_cast<size_t>(range_size), blob_index.compression(), &(*values)[i],
+        &statuses[i]);
+  }
+
+  if (blob_reqs_in_file.empty()) {
+    return Status::OK();
+  }
+
+  if (blob_reqs_in_file.size() > MultiGetContext::MAX_BATCH_SIZE) {
+    return Status::InvalidArgument("Too many blob ranges in one request");
+  }
+
+  if (read_options.read_tier == kBlockCacheTier) {
+    return Status::Incomplete(
+        "Cannot read partial blob range(s): no disk I/O allowed");
+  }
+
+  std::sort(blob_reqs_in_file.begin(), blob_reqs_in_file.end(),
+            [](const BlobReadRequest& lhs, const BlobReadRequest& rhs) {
+              return lhs.offset < rhs.offset;
+            });
+
+  autovector<std::pair<BlobReadRequest*, std::unique_ptr<BlobContents>>>
+      file_reqs;
+  for (BlobReadRequest& blob_req : blob_reqs_in_file) {
+    file_reqs.emplace_back(&blob_req, std::unique_ptr<BlobContents>());
+  }
+
+  CacheHandleGuard<BlobFileReader> blob_file_reader;
+  assert(blob_source_);
+  Status s = blob_source_->GetBlobFileReader(read_options, blob_file_number,
+                                             &blob_file_reader);
+  if (!s.ok()) {
+    return s;
+  }
+
+  assert(blob_file_reader.GetValue());
+
+  uint64_t local_bytes_read = 0;
+  blob_file_reader.GetValue()->MultiGetBlob(
+      read_options, /* allocator */ nullptr, file_reqs, &local_bytes_read);
+
+  if (bytes_read) {
+    *bytes_read = local_bytes_read;
+  }
+
+  for (auto& [req, blob_contents] : file_reqs) {
+    assert(req);
+    assert(req->result);
+    assert(req->status);
+
+    if (!req->status->ok()) {
+      continue;
+    }
+    if (!blob_contents) {
+      *req->status = Status::Corruption("Failed to read blob range");
+      continue;
+    }
+
+    BlobContents* const pinned_blob = blob_contents.release();
+    req->result->PinSlice(
+        pinned_blob->data(),
+        [](void* arg1, void*) {
+          delete static_cast<BlobContents*>(arg1);
+        },
+        pinned_blob, nullptr);
+  }
+
+  for (const Status& status : statuses) {
+    if (!status.ok()) {
+      return status;
+    }
+  }
+
+  return Status::OK();
 }
 
 void Version::MultiGetBlob(
@@ -7537,8 +7675,8 @@ Status VersionSet::DumpManifest(
 }
 
 void VersionSet::MarkFileNumberUsed(uint64_t number) {
-  // only called during recovery and repair which are single threaded, so this
-  // works because there can't be concurrent calls
+  // Called during single-threaded recovery/repair or under the DB mutex during
+  // file ingestion, so this works because there can't be concurrent calls.
   if (next_file_number_.load(std::memory_order_relaxed) <= number) {
     next_file_number_.store(number + 1, std::memory_order_relaxed);
   }
