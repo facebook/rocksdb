@@ -19,6 +19,7 @@
 #include "logging/logging.h"
 #include "monitoring/statistics_impl.h"
 #include "table/merging_iterator.h"
+#include "table/prepared_file_info.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
 #include "table/unique_id_impl.h"
@@ -31,18 +32,22 @@ Status ExternalSstFileIngestionJob::Prepare(
     const std::vector<std::string>& external_files_paths,
     const std::vector<std::string>& files_checksums,
     const std::vector<std::string>& files_checksum_func_names,
+    const std::vector<const PreparedFileInfo*>& file_infos,
     const std::optional<RangeOpt>& atomic_replace_range,
     const Temperature& file_temperature, uint64_t next_file_number,
     SuperVersion* sv) {
   Status status;
 
-  // Read the information of files we are ingesting
-  for (const std::string& file_path : external_files_paths) {
+  // Read the information of files we are ingesting.
+  for (size_t i = 0; i < external_files_paths.size(); i++) {
+    const std::string& file_path = external_files_paths[i];
     IngestedFileInfo file_to_ingest;
     // For temperature, first assume it matches provided hint
     file_to_ingest.file_temperature = file_temperature;
-    status =
-        GetIngestedFileInfo(file_path, next_file_number++, &file_to_ingest, sv);
+    const PreparedFileInfo* prepared_file_info =
+        file_infos.empty() ? nullptr : file_infos[i];
+    status = GetIngestedFileInfo(file_path, next_file_number++,
+                                 prepared_file_info, &file_to_ingest, sv);
     if (!status.ok()) {
       ROCKS_LOG_WARN(db_options_.info_log,
                      "Failed to get ingested file info: %s: %s",
@@ -997,18 +1002,14 @@ Status ExternalSstFileIngestionJob::ResetTableReader(
 }
 
 Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
-    const std::string& external_file, uint64_t new_file_number,
-    SuperVersion* sv, IngestedFileInfo* file_to_ingest,
-    std::unique_ptr<TableReader>* table_reader) {
-  // Get the external file properties
-  auto props = table_reader->get()->GetTableProperties();
-  assert(props.get());
-  const auto& uprops = props->user_collected_properties;
+    const std::string& external_file, const TableProperties& props,
+    IngestedFileInfo* file_to_ingest) {
+  const auto& uprops = props.user_collected_properties;
 
   // Get table version
   auto version_iter = uprops.find(ExternalSstFilePropertyNames::kVersion);
   if (version_iter == uprops.end()) {
-    assert(!SstFileWriter::CreatedBySstFileWriter(*props));
+    assert(!SstFileWriter::CreatedBySstFileWriter(props));
     if (!ingestion_options_.allow_db_generated_files) {
       return Status::Corruption("External file version not found");
     } else {
@@ -1017,7 +1018,7 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
       file_to_ingest->version = 0;
     }
   } else {
-    assert(SstFileWriter::CreatedBySstFileWriter(*props));
+    assert(SstFileWriter::CreatedBySstFileWriter(props));
     file_to_ingest->version = DecodeFixed32(version_iter->second.c_str());
   }
 
@@ -1031,12 +1032,17 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
 
     // Set the global sequence number
     file_to_ingest->original_seqno = DecodeFixed64(seqno_iter->second.c_str());
-    if (props->external_sst_file_global_seqno_offset == 0) {
-      file_to_ingest->global_seqno_offset = 0;
+    file_to_ingest->global_seqno_offset =
+        static_cast<size_t>(props.external_sst_file_global_seqno_offset);
+    // The on-disk offset is only needed if we will write the global seqno back
+    // into the file (write_global_seqno). The metadata fast-path does not open
+    // the file, and its in-memory table properties do not carry the offset
+    // (it is only computed while reading the file back); that is fine as long
+    // as write_global_seqno is not requested.
+    if (ingestion_options_.write_global_seqno &&
+        file_to_ingest->global_seqno_offset == 0) {
       return Status::Corruption("Was not able to find file global seqno field");
     }
-    file_to_ingest->global_seqno_offset =
-        static_cast<size_t>(props->external_sst_file_global_seqno_offset);
   } else if (file_to_ingest->version == 1) {
     // SST file V1 should not have global seqno field
     assert(seqno_iter == uprops.end());
@@ -1057,23 +1063,20 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
                                    " is not supported");
   }
 
-  file_to_ingest->cf_id = static_cast<uint32_t>(props->column_family_id);
-  // This assignment works fine even though `table_reader` may later be reset,
-  // since that will not affect how table properties are parsed, and this
-  // assignment is making a copy.
-  file_to_ingest->table_properties = *props;
+  file_to_ingest->cf_id = static_cast<uint32_t>(props.column_family_id);
+  file_to_ingest->table_properties = props;
 
   // Get number of entries in table
-  file_to_ingest->num_entries = props->num_entries;
-  file_to_ingest->num_range_deletions = props->num_range_deletions;
+  file_to_ingest->num_entries = props.num_entries;
+  file_to_ingest->num_range_deletions = props.num_range_deletions;
 
   // Validate table properties related to comparator name and user defined
   // timestamps persisted flag.
   file_to_ingest->user_defined_timestamps_persisted =
-      static_cast<bool>(props->user_defined_timestamps_persisted);
+      static_cast<bool>(props.user_defined_timestamps_persisted);
   bool mark_sst_file_has_no_udt = false;
   Status s = ValidateUserDefinedTimestampsOptions(
-      cfd_->user_comparator(), props->comparator_name,
+      cfd_->user_comparator(), props.comparator_name,
       cfd_->ioptions().persist_user_defined_timestamps,
       file_to_ingest->user_defined_timestamps_persisted,
       &mark_sst_file_has_no_udt);
@@ -1081,7 +1084,9 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
     // A column family that enables user-defined timestamps in Memtable only
     // feature can also ingest external files created by a setting that disables
     // user-defined timestamps. In that case, we need to re-mark the
-    // user_defined_timestamps_persisted flag for the file.
+    // user_defined_timestamps_persisted flag for the file. The open-and-scan
+    // caller is then responsible for reopening its `TableReader` with the
+    // updated flag.
     file_to_ingest->user_defined_timestamps_persisted = false;
   } else if (!s.ok()) {
     ROCKS_LOG_WARN(
@@ -1091,22 +1096,84 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
     return s;
   }
 
-  // `TableReader` is initialized with `user_defined_timestamps_persisted` flag
-  // to be true. If its value changed to false after this sanity check, we
-  // need to reset the `TableReader`.
-  if (ucmp_->timestamp_size() > 0 &&
-      !file_to_ingest->user_defined_timestamps_persisted) {
-    s = ResetTableReader(external_file, new_file_number,
-                         file_to_ingest->user_defined_timestamps_persisted, sv,
-                         file_to_ingest, table_reader);
-  }
   return s;
 }
 
-Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
+Status ExternalSstFileIngestionJob::GetIngestedFileInfoFromFileInfo(
+    const std::string& external_file,
+    const PreparedFileInfo& prepared_file_info,
+    IngestedFileInfo* file_to_ingest) {
+  // Boundaries, size, and table properties were obtained without opening the
+  // file (e.g. produced by SstFileWriter::Finish). We reuse them directly.
+  file_to_ingest->file_size = prepared_file_info.file_size;
+  Status status = SanityCheckTableProperties(
+      external_file, prepared_file_info.table_properties, file_to_ingest);
+  if (!status.ok()) {
+    ROCKS_LOG_WARN(
+        db_options_.info_log,
+        "Failed to sanity check table properties for external file %s: %s",
+        external_file.c_str(), status.ToString().c_str());
+    return status;
+  }
+
+  const size_t ts_sz = ucmp_->timestamp_size();
+  if (ts_sz > 0 && !file_to_ingest->user_defined_timestamps_persisted) {
+    auto pad_timestamp = [ts_sz](std::string* result, const Slice& key) {
+      assert(result->empty());
+      if (ExtractValueType(key) == kTypeRangeDeletion) {
+        PadInternalKeyWithMaxTimestamp(result, key, ts_sz);
+      } else {
+        PadInternalKeyWithMinTimestamp(result, key, ts_sz);
+      }
+    };
+    pad_timestamp(file_to_ingest->smallest_internal_key.rep(),
+                  prepared_file_info.smallest.Encode());
+    pad_timestamp(file_to_ingest->largest_internal_key.rep(),
+                  prepared_file_info.largest.Encode());
+  } else {
+    file_to_ingest->smallest_internal_key = prepared_file_info.smallest;
+    file_to_ingest->largest_internal_key = prepared_file_info.largest;
+  }
+
+  if (ingestion_options_.allow_db_generated_files) {
+    // Sequence numbers are preserved (not reassigned), so the bounds must be
+    // known before we skip the GetSeqnoBoundaryForFile scan.
+    if (!file_to_ingest->table_properties.HasKeyLargestSeqno()) {
+      return Status::Corruption("Unknown largest seqno for db generated file.");
+    }
+    file_to_ingest->largest_seqno =
+        file_to_ingest->table_properties.key_largest_seqno;
+    if (file_to_ingest->largest_seqno == 0) {
+      file_to_ingest->smallest_seqno = 0;
+    } else {
+      if (!file_to_ingest->table_properties.HasKeySmallestSeqno()) {
+        return Status::Corruption(
+            "Unknown smallest seqno for db generated file.");
+      }
+      file_to_ingest->smallest_seqno =
+          file_to_ingest->table_properties.key_smallest_seqno;
+    }
+  } else {
+    // Normal ingestion reassigns a global sequence number later, so the file's
+    // keys must currently be at seqno 0 (mirror of the open-and-scan check).
+    SequenceNumber largest_seqno =
+        file_to_ingest->table_properties.key_largest_seqno;
+    // UINT64_MAX means unknown and the file is generated before table property
+    // `key_largest_seqno` is introduced.
+    if (largest_seqno != UINT64_MAX && largest_seqno > 0) {
+      return Status::Corruption(
+          "External file has non zero largest sequence number " +
+          std::to_string(largest_seqno));
+    }
+  }
+  return Status::OK();
+}
+
+Status ExternalSstFileIngestionJob::GetIngestedFileInfoFromFile(
     const std::string& external_file, uint64_t new_file_number,
-    IngestedFileInfo* file_to_ingest, SuperVersion* sv) {
-  file_to_ingest->external_file_path = external_file;
+    IngestedFileInfo* file_to_ingest, SuperVersion* sv,
+    std::unique_ptr<TableReader>* out_table_reader) {
+  TEST_SYNC_POINT("ExternalSstFileIngestionJob::GetIngestedFileInfo:ReadPath");
 
   // Get external file size
   Status status = fs_->GetFileSize(external_file, IOOptions(),
@@ -1118,15 +1185,11 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     return status;
   }
 
-  // Assign FD with number
-  file_to_ingest->fd =
-      FileDescriptor(new_file_number, 0, file_to_ingest->file_size);
-
-  // Create TableReader for external file
+  // Create TableReader for external file.
   std::unique_ptr<TableReader> table_reader;
   // Initially create the `TableReader` with flag
-  // `user_defined_timestamps_persisted` to be true since that's the most common
-  // case
+  // `user_defined_timestamps_persisted` to be true since that's the most
+  // common case
   status = ResetTableReader(external_file, new_file_number,
                             /*user_defined_timestamps_persisted=*/true, sv,
                             file_to_ingest, &table_reader);
@@ -1137,14 +1200,31 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     return status;
   }
 
-  status = SanityCheckTableProperties(external_file, new_file_number, sv,
-                                      file_to_ingest, &table_reader);
+  status = SanityCheckTableProperties(
+      external_file, *table_reader->GetTableProperties(), file_to_ingest);
   if (!status.ok()) {
     ROCKS_LOG_WARN(
         db_options_.info_log,
         "Failed to sanity check table properties for external file %s: %s",
         external_file.c_str(), status.ToString().c_str());
     return status;
+  }
+
+  // The `TableReader` above was opened with `user_defined_timestamps_persisted`
+  // assumed true. If the sanity check determined the file has no persisted
+  // timestamps (UDT-in-Memtable-only feature), reopen it with the corrected
+  // flag so keys are parsed properly by the scan below.
+  if (ucmp_->timestamp_size() > 0 &&
+      !file_to_ingest->user_defined_timestamps_persisted) {
+    status = ResetTableReader(external_file, new_file_number,
+                              file_to_ingest->user_defined_timestamps_persisted,
+                              sv, file_to_ingest, &table_reader);
+    if (!status.ok()) {
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "Failed to reset table reader for external file %s: %s",
+                     external_file.c_str(), status.ToString().c_str());
+      return status;
+    }
   }
 
   const bool allow_data_in_errors = db_options_.allow_data_in_errors;
@@ -1168,30 +1248,12 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   } else {
     SequenceNumber largest_seqno =
         table_reader.get()->GetTableProperties()->key_largest_seqno;
-    // UINT64_MAX means unknown and the file is generated before table property
-    // `key_largest_seqno` is introduced.
+    // UINT64_MAX means unknown and the file is generated before table
+    // property `key_largest_seqno` is introduced.
     if (largest_seqno != UINT64_MAX && largest_seqno > 0) {
       return Status::Corruption(
           "External file has non zero largest sequence number " +
           std::to_string(largest_seqno));
-    }
-  }
-
-  if (ingestion_options_.verify_checksums_before_ingest) {
-    // If customized readahead size is needed, we can pass a user option
-    // all the way to here. Right now we just rely on the default readahead
-    // to keep things simple.
-    // TODO: plumb Env::IOActivity, Env::IOPriority
-    ReadOptions ro;
-    ro.readahead_size = ingestion_options_.verify_checksums_readahead_size;
-    ro.fill_cache = ingestion_options_.fill_cache;
-    status = table_reader->VerifyChecksum(
-        ro, TableReaderCaller::kExternalSSTIngestion);
-    if (!status.ok()) {
-      ROCKS_LOG_WARN(db_options_.info_log,
-                     "Failed to verify checksum for table reader: %s",
-                     status.ToString().c_str());
-      return status;
     }
   }
 
@@ -1274,12 +1336,97 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
             "External file has a range deletion with non zero sequence "
             "number.");
       }
+#ifndef NDEBUG
+      // To keep aligned with the fast path that expects range deletion keys to
+      // always use max ts.
+      const size_t ts_sz = ucmp_->timestamp_size();
+      if (ts_sz > 0) {
+        const std::string max_ts(ts_sz, '\xff');
+        assert(key.user_key.size() >= ts_sz);
+        assert(ucmp_->CompareTimestamp(
+                   ExtractTimestampFromUserKey(key.user_key, ts_sz), max_ts) ==
+               0);
+        assert(range_del_iter->value().size() >= ts_sz);
+        assert(ucmp_->CompareTimestamp(
+                   ExtractTimestampFromUserKey(range_del_iter->value(), ts_sz),
+                   max_ts) == 0);
+      }
+#endif
       RangeTombstone tombstone(key, range_del_iter->value());
       file_range_checker_.MaybeUpdateRange(tombstone.SerializeKey(),
                                            tombstone.SerializeEndKey(),
                                            file_to_ingest);
     }
   }
+
+  *out_table_reader = std::move(table_reader);
+  return Status::OK();
+}
+
+Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
+    const std::string& external_file, uint64_t new_file_number,
+    const PreparedFileInfo* prepared_file_info,
+    IngestedFileInfo* file_to_ingest, SuperVersion* sv) {
+  file_to_ingest->external_file_path = external_file;
+
+  std::unique_ptr<TableReader> table_reader;
+  Status status =
+      prepared_file_info != nullptr
+          ? GetIngestedFileInfoFromFileInfo(external_file, *prepared_file_info,
+                                            file_to_ingest)
+          : GetIngestedFileInfoFromFile(external_file, new_file_number,
+                                        file_to_ingest, sv, &table_reader);
+  if (!status.ok()) {
+    return status;
+  }
+
+  assert(file_to_ingest->file_size > 0);
+  assert(!file_to_ingest->unset());
+  assert(file_to_ingest->table_properties.num_entries > 0 ||
+         file_to_ingest->table_properties.num_range_deletions > 0);
+  if (ingestion_options_.allow_db_generated_files) {
+    // These files keep their original sequence numbers (derived, not
+    // reassigned), so the bounds must be valid here.
+    assert(file_to_ingest->smallest_seqno <= file_to_ingest->largest_seqno);
+    assert(file_to_ingest->largest_seqno < kMaxSequenceNumber);
+  }
+
+  // Verify the file checksum if requested. The open-and-scan path already has a
+  // `TableReader` open; the fast-path opens one here only when verification is
+  // requested -- otherwise it performs no file I/O.
+  if (ingestion_options_.verify_checksums_before_ingest) {
+    if (table_reader == nullptr) {
+      status =
+          ResetTableReader(external_file, new_file_number,
+                           file_to_ingest->user_defined_timestamps_persisted,
+                           sv, file_to_ingest, &table_reader);
+      if (!status.ok()) {
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "Failed to reset table reader for external file %s: %s",
+                       external_file.c_str(), status.ToString().c_str());
+        return status;
+      }
+    }
+    // If customized readahead size is needed, we can pass a user option all the
+    // way to here. Right now we just rely on the default readahead to keep
+    // things simple.
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    ReadOptions ro;
+    ro.readahead_size = ingestion_options_.verify_checksums_readahead_size;
+    ro.fill_cache = ingestion_options_.fill_cache;
+    status = table_reader->VerifyChecksum(
+        ro, TableReaderCaller::kExternalSSTIngestion);
+    if (!status.ok()) {
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "Failed to verify checksum for external file %s: %s",
+                     external_file.c_str(), status.ToString().c_str());
+      return status;
+    }
+  }
+
+  // Assign FD with number.
+  file_to_ingest->fd =
+      FileDescriptor(new_file_number, 0, file_to_ingest->file_size);
 
   const size_t ts_sz = ucmp_->timestamp_size();
   Slice smallest = file_to_ingest->smallest_internal_key.user_key();

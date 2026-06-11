@@ -62,6 +62,7 @@
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/sst_file_writer.h"
 #include "rocksdb/stats_history.h"
 #include "rocksdb/table.h"
 #include "rocksdb/tool_hooks.h"
@@ -239,6 +240,8 @@ DEFINE_string(
     "\tcompact1  -- compact L1 into L2\n"
     "\twaitforcompaction - pause until compaction is (probably) done\n"
     "\tflush - flush the memtable\n"
+    "\tingestexternalfile -- Create external SST files and ingest them into "
+    "the DB via IngestExternalFile\n"
     "\topenandcompact -- Open DB and compact all files to bottommost level, "
     "writing output to separate directory without modifying source DB. "
     "Designed for remote compaction service testing\n"
@@ -1321,6 +1324,26 @@ DEFINE_string(backup_dir, "",
 
 DEFINE_string(restore_dir, "",
               "If not empty string, use the given dir for restore.");
+
+DEFINE_int32(ingest_external_file_batch_size, 10,
+             "Number of SST files ingested per IngestExternalFile call (one "
+             "batch) in the ingestexternalfile benchmark.");
+
+DEFINE_int32(ingest_external_file_num_batches, 1,
+             "Number of IngestExternalFile calls (batches) in the "
+             "ingestexternalfile benchmark. Total files ingested is "
+             "batch_size * num_batches; each file holds --num keys.");
+
+DEFINE_bool(
+    ingest_external_file_use_file_info, false,
+    "If true, the ingestexternalfile benchmark passes each file's metadata "
+    "(from SstFileWriter::Finish) via IngestExternalFileArg::file_infos, so "
+    "ingestion reuses it instead of re-opening and scanning the files.");
+
+DEFINE_bool(ingest_external_file_fill_cache,
+            ROCKSDB_NAMESPACE::IngestExternalFileOptions().fill_cache,
+            "If true, the ingestexternalfile benchmark allows file ingestion "
+            "reads to populate block cache.");
 
 DEFINE_uint64(
     initial_auto_readahead_size,
@@ -3992,6 +4015,9 @@ class Benchmark {
         method = &Benchmark::WriteSeqSeekSeq;
       } else if (name == "compact") {
         method = &Benchmark::Compact;
+      } else if (name == "ingestexternalfile") {
+        num_threads = 1;
+        method = &Benchmark::IngestExternalFile;
       } else if (name == "compactall") {
         CompactAll();
       } else if (name == "compact0") {
@@ -9377,6 +9403,127 @@ class Benchmark {
         BottommostLevelCompaction::kForceOptimized;
     cro.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
     db->CompactRange(cro, nullptr, nullptr);
+  }
+
+  // Creates SST files with SstFileWriter and ingests them into the DB via
+  // IngestExternalFile, reporting throughput. Batching is used only to group
+  // multiple files into a single IngestExternalFile call:
+  // --ingest_external_file_batch_size files per call,
+  // --ingest_external_file_num_batches calls. Each file holds --num keys over
+  // the same key range, so the files overlap and are assigned new global
+  // sequence numbers. With --ingest_external_file_use_file_info the writer's
+  // metadata is passed via IngestExternalFileArg::file_infos so ingestion
+  // reuses it instead of re-opening and scanning the files. Single threaded.
+  //
+  // NOTE: db_bench's reported micros/op includes file generation; use the
+  // rocksdb.ingest.external.file.micros histogram (--statistics) for the
+  // isolated per-call ingest latency.
+  void IngestExternalFile(ThreadState* thread) {
+    DB* db = SelectDB(thread);
+
+    const int batch_size = std::max(1, FLAGS_ingest_external_file_batch_size);
+    const int num_batches = std::max(1, FLAGS_ingest_external_file_num_batches);
+    const bool use_file_info = FLAGS_ingest_external_file_use_file_info;
+    // --num is the number of keys in each file; all files cover this same key
+    // range, so they overlap (which is fine -- a global seqno is assigned).
+    const int64_t keys_per_file = num_;
+    const int64_t key_space = keys_per_file;
+
+    const std::string tmp_dir = FLAGS_db + "/ingest_tmp";
+    Status s = FLAGS_env->CreateDirIfMissing(tmp_dir);
+    if (!s.ok()) {
+      fprintf(stderr, "CreateDirIfMissing(%s) failed: %s\n", tmp_dir.c_str(),
+              s.ToString().c_str());
+      db_bench_exit(1);
+    }
+
+    RandomGenerator gen;
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
+    int64_t bytes = 0;
+
+    for (int b = 0; b < num_batches; ++b) {
+      // Write batch_size SstFileWriter files (all covering the same key range);
+      // they are batched into a single ingest call below.
+      std::vector<std::string> files;
+      std::vector<ExternalSstFileInfo> file_infos;
+      if (use_file_info) {
+        file_infos.reserve(batch_size);
+      }
+      for (int j = 0; j < batch_size; ++j) {
+        std::string file_path = tmp_dir + "/ingest_" + std::to_string(b) + "_" +
+                                std::to_string(j) + ".sst";
+        SstFileWriter sst_file_writer(EnvOptions(), open_options_);
+        s = sst_file_writer.Open(file_path);
+        if (!s.ok()) {
+          fprintf(stderr, "SstFileWriter::Open(%s) failed: %s\n",
+                  file_path.c_str(), s.ToString().c_str());
+          db_bench_exit(1);
+        }
+        for (int64_t i = 0; i < keys_per_file; ++i) {
+          GenerateKeyFromInt(i, key_space, &key);
+          Slice value = gen.Generate();
+          s = sst_file_writer.Put(key, value);
+          if (!s.ok()) {
+            sst_file_writer.Finish().PermitUncheckedError();
+            fprintf(stderr, "SstFileWriter::Put failed: %s\n",
+                    s.ToString().c_str());
+            db_bench_exit(1);
+          }
+          bytes += key.size() + value.size();
+        }
+        ExternalSstFileInfo file_info;
+        s = use_file_info ? sst_file_writer.Finish(&file_info)
+                          : sst_file_writer.Finish();
+        if (!s.ok()) {
+          fprintf(stderr, "SstFileWriter::Finish(%s) failed: %s\n",
+                  file_path.c_str(), s.ToString().c_str());
+          db_bench_exit(1);
+        }
+        files.emplace_back(file_path);
+        if (use_file_info) {
+          file_infos.emplace_back(std::move(file_info));
+        }
+      }
+
+      // Link the files into the DB instead of copying them, so the benchmark
+      // measures the ingest path itself (which the file_info fast-path speeds
+      // up by skipping the re-open and scan of each file) rather than file-copy
+      // throughput. allow_global_seqno (default) handles the overlap.
+      IngestExternalFileOptions ingest_options;
+      ingest_options.move_files = true;
+      ingest_options.fill_cache = FLAGS_ingest_external_file_fill_cache;
+      if (use_file_info) {
+        // Reuse the writer's metadata so ingestion skips re-opening/scanning.
+        IngestExternalFileArg arg;
+        arg.column_family = db->DefaultColumnFamily();
+        arg.external_files = files;
+        for (const auto& file_info : file_infos) {
+          arg.file_infos.push_back(file_info.prepared_file_info.get());
+        }
+        arg.options = ingest_options;
+        s = db->IngestExternalFiles({arg});
+      } else {
+        s = db->IngestExternalFile(files, ingest_options);
+      }
+      if (!s.ok()) {
+        fprintf(stderr, "IngestExternalFile failed: %s\n",
+                s.ToString().c_str());
+        db_bench_exit(1);
+      }
+      thread->stats.FinishedOps(&db_, db, 1, kWrite);
+
+      for (const auto& f : files) {
+        FLAGS_env->DeleteFile(f).PermitUncheckedError();
+      }
+    }
+
+    thread->stats.AddBytes(bytes);
+    char msg[100];
+    snprintf(msg, sizeof(msg),
+             "(%d batches x %d files, %" PRId64 " keys/file%s)", num_batches,
+             batch_size, keys_per_file, use_file_info ? ", file_info" : "");
+    thread->stats.AddMessage(msg);
   }
 
   void CompactAll() {
