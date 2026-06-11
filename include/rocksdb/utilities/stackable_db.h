@@ -533,6 +533,11 @@ class StackableDB : public DB {
     return db_->GetCurrentWalFile(current_wal_file);
   }
 
+  Status NewExternalLogFileManager(
+      std::unique_ptr<ExternalLogFileManager>* manager) override {
+    return db_->NewExternalLogFileManager(manager);
+  }
+
   Status GetCreationTimeOfOldestFile(uint64_t* creation_time) override {
     return db_->GetCreationTimeOfOldestFile(creation_time);
   }

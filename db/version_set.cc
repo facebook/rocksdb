@@ -5734,15 +5734,15 @@ struct VersionSet::ManifestWriter {
         manifest_write_callback(manifest_wcb) {}
   ~ManifestWriter() { status.PermitUncheckedError(); }
 
-  bool IsAllWalEdits() const {
-    bool all_wal_edits = true;
+  bool IsAllNonCfFileMetadataEdits() const {
+    bool all_non_cf_file_metadata_edits = true;
     for (const auto& e : edit_list) {
-      if (!e->IsWalManipulation()) {
-        all_wal_edits = false;
+      if (!e->IsWalOrExternalLogFileManipulation()) {
+        all_non_cf_file_metadata_edits = false;
         break;
       }
     }
-    return all_wal_edits;
+    return all_non_cf_file_metadata_edits;
   }
 };
 
@@ -6038,6 +6038,7 @@ void VersionSet::Reset() {
   obsolete_files_.clear();
   obsolete_manifests_.clear();
   wals_.Reset();
+  external_log_files_.Reset();
 }
 
 void VersionSet::UpdatedMutableDbOptions(
@@ -6194,8 +6195,9 @@ Status VersionSet::ProcessManifestWrites(
           }
         }
         if (version == nullptr) {
-          // WAL manipulations do not need to be applied to versions.
-          if (!last_writer->IsAllWalEdits()) {
+          // Non-CF file metadata manipulations do not need to be applied to
+          // versions.
+          if (!last_writer->IsAllNonCfFileMetadataEdits()) {
             version = new Version(
                 last_writer->cfd, this, file_options_,
                 last_writer->cfd ? last_writer->cfd->GetLatestMutableCFOptions()
@@ -6206,8 +6208,8 @@ Status VersionSet::ProcessManifestWrites(
                 new BaseReferencedVersionBuilder(last_writer->cfd));
             builder = builder_guards.back()->version_builder();
           }
-          assert(last_writer->IsAllWalEdits() || builder);
-          assert(last_writer->IsAllWalEdits() || version);
+          assert(last_writer->IsAllNonCfFileMetadataEdits() || builder);
+          assert(last_writer->IsAllNonCfFileMetadataEdits() || version);
           TEST_SYNC_POINT_CALLBACK(
               "VersionSet::ProcessManifestWrites:NewVersion", version);
         }
@@ -6349,7 +6351,7 @@ Status VersionSet::ProcessManifestWrites(
   // reads its content after releasing db mutex to avoid race with
   // SwitchMemtable().
   std::unordered_map<uint32_t, MutableCFState> curr_state;
-  VersionEdit wal_additions;
+  VersionEdit non_cf_file_additions;
   if (new_descriptor_log) {
     pending_manifest_file_number_ = NewFileNumber();
     batch_edits.back()->SetNextFile(next_file_number_.load());
@@ -6368,7 +6370,12 @@ Status VersionSet::ProcessManifestWrites(
     }
 
     for (const auto& wal : wals_.GetWals()) {
-      wal_additions.AddWal(wal.first, wal.second);
+      non_cf_file_additions.AddWal(wal.first, wal.second);
+    }
+
+    for (const auto& external_log_file : external_log_files_.GetFiles()) {
+      non_cf_file_additions.AddExternalLogFile(external_log_file.first,
+                                               external_log_file.second);
     }
   }
 
@@ -6430,7 +6437,8 @@ Status VersionSet::ProcessManifestWrites(
                                  opt_file_opts, manifest_preallocation_size);
         raw_desc_log_ptr = new_desc_log_ptr.get();
         s = WriteCurrentStateToManifest(write_options, curr_state,
-                                        wal_additions, raw_desc_log_ptr, io_s);
+                                        non_cf_file_additions, raw_desc_log_ptr,
+                                        io_s);
         assert(s == io_s);
       }
       if (!io_s.ok()) {
@@ -6545,12 +6553,18 @@ Status VersionSet::ProcessManifestWrites(
   }
 
   if (s.ok()) {
-    // Apply WAL edits, DB mutex must be held.
+    // Apply non-CF file metadata edits, DB mutex must be held.
     for (auto& e : batch_edits) {
       if (e->IsWalAddition()) {
         s = wals_.AddWals(e->GetWalAdditions());
       } else if (e->IsWalDeletion()) {
         s = wals_.DeleteWalsBefore(e->GetWalDeletion().GetLogNumber());
+      }
+      if (s.ok() && e->IsExternalLogFileAddition()) {
+        s = external_log_files_.AddFiles(e->GetExternalLogFileAdditions());
+      }
+      if (s.ok() && e->IsExternalLogFileDeletion()) {
+        s = external_log_files_.DeleteFiles(e->GetExternalLogFileDeletions());
       }
       if (!s.ok()) {
         break;
@@ -6894,10 +6908,10 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
     edit->SetLastSequence(*max_last_sequence);
   }
 
-  // The builder can be nullptr only if edit is WAL manipulation,
-  // because WAL edits do not need to be applied to versions,
+  // The builder can be nullptr only if edit is non-CF file metadata
+  // manipulation, because those edits do not need to be applied to versions,
   // we return Status::OK() in this case.
-  assert(builder || edit->IsWalManipulation());
+  assert(builder || edit->IsWalOrExternalLogFileManipulation());
   return builder ? builder->Apply(edit) : Status::OK();
 }
 
@@ -7554,7 +7568,8 @@ void VersionSet::MarkMinLogNumberToKeep(uint64_t number) {
 Status VersionSet::WriteCurrentStateToManifest(
     const WriteOptions& write_options,
     const std::unordered_map<uint32_t, MutableCFState>& curr_state,
-    const VersionEdit& wal_additions, log::Writer* log, IOStatus& io_s) {
+    const VersionEdit& non_cf_file_additions, log::Writer* log,
+    IOStatus& io_s) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
 
   // WARNING: This method doesn't hold a mutex!!
@@ -7579,14 +7594,15 @@ Status VersionSet::WriteCurrentStateToManifest(
     }
   }
 
-  // Save WALs.
-  if (!wal_additions.GetWalAdditions().empty()) {
+  // Save non-CF MANIFEST-tracked files.
+  if (!non_cf_file_additions.GetWalAdditions().empty() ||
+      !non_cf_file_additions.GetExternalLogFileAdditions().empty()) {
     TEST_SYNC_POINT_CALLBACK("VersionSet::WriteCurrentStateToManifest:SaveWal",
-                             const_cast<VersionEdit*>(&wal_additions));
+                             const_cast<VersionEdit*>(&non_cf_file_additions));
     std::string record;
-    if (!wal_additions.EncodeTo(&record)) {
+    if (!non_cf_file_additions.EncodeTo(&record)) {
       return Status::Corruption("Unable to Encode VersionEdit: " +
-                                wal_additions.DebugString(true));
+                                non_cf_file_additions.DebugString(true));
     }
     io_s = log->AddRecord(write_options, record);
     if (!io_s.ok()) {

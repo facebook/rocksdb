@@ -85,6 +85,7 @@ class Version;
 class VersionEdit;
 class VersionSet;
 class WriteCallback;
+class ExternalLogFileManagerImpl;
 struct JobContext;
 struct ExternalSstFileInfo;
 struct MemTableInfo;
@@ -557,6 +558,8 @@ class DBImpl : public DB {
   // synced.
   Status GetOpenWalSizes(std::map<uint64_t, uint64_t>& number_to_size);
   Status GetCurrentWalFile(std::unique_ptr<WalFile>* current_wal_file) override;
+  Status NewExternalLogFileManager(
+      std::unique_ptr<ExternalLogFileManager>* manager) override;
   Status GetCreationTimeOfOldestFile(uint64_t* creation_time) override;
 
   Status GetUpdatesSince(
@@ -1422,6 +1425,14 @@ class DBImpl : public DB {
   // cachelines.
   mutable CacheAlignedInstrumentedMutex mutex_;
 
+  // Active external log file handles. The ref counts keep obsolete-file cleanup
+  // from removing a deleted external log file while an application still has an
+  // open reader. The weak writer states allow manager-opened readers to follow
+  // a concurrently open writer.
+  std::unordered_map<uint64_t, uint64_t> active_external_log_file_refs_;
+  std::unordered_map<uint64_t, std::weak_ptr<void>>
+      active_external_log_writers_;
+
   ColumnFamilyHandleImpl* default_cf_handle_ = nullptr;
   InternalStats* default_cf_internal_stats_ = nullptr;
 
@@ -1907,6 +1918,7 @@ class DBImpl : public DB {
   friend class DBImplReadOnly;
   friend class DBImplSecondary;
   friend class ErrorHandler;
+  friend class ExternalLogFileManagerImpl;
   friend class InternalStats;
   friend class PessimisticTransaction;
   friend class TransactionBaseImpl;
