@@ -39,6 +39,18 @@ RangeLockManagerHandle* NewRangeLockManager(
 static const char SUFFIX_INFIMUM = 0x0;
 static const char SUFFIX_SUPREMUM = 0x1;
 
+struct RangeTreeCmpContext {
+  const Comparator* cmp;
+  bool is_reverse;
+};
+
+namespace {
+[[nodiscard]] bool IsReverseComparator(const Comparator* cmp) {
+  return cmp == ReverseBytewiseComparator() ||
+         cmp == ReverseBytewiseComparatorWithU64Ts();
+}
+}  // namespace
+
 // Convert Endpoint into an internal format used for storing it in locktree
 // (DBT structure is used for passing endpoints to locktree and getting back)
 void serialize_endpoint(const Endpoint& endp, std::string* buf) {
@@ -213,9 +225,9 @@ int RangeTreeLockManager::CompareDbtEndpoints(void* arg, const DBT* a_key,
 
   // Compare the values. The first byte encodes the endpoint type, its value
   // is either SUFFIX_INFIMUM or SUFFIX_SUPREMUM.
-  Comparator* cmp = (Comparator*)arg;
-  bool is_reverse = cmp == ReverseBytewiseComparator() ||
-                    cmp == ReverseBytewiseComparatorWithU64Ts();
+  const auto* ctx = static_cast<const RangeTreeCmpContext*>(arg);
+  const auto* cmp = ctx->cmp;
+  const bool is_reverse = ctx->is_reverse;
   int res = cmp->CompareWithoutTimestamp(
       Slice(a + 1, min_len - 1), /*a_has_ts=*/false, Slice(b + 1, min_len - 1),
       /*b_has_ts=*/false);
@@ -353,10 +365,11 @@ RangeLockManagerHandle::Counters RangeTreeLockManager::GetStatus() {
 }
 
 std::shared_ptr<toku::locktree> RangeTreeLockManager::MakeLockTreePtr(
-    toku::locktree* lt) {
+    toku::locktree* lt, std::unique_ptr<RangeTreeCmpContext> ctx) {
   toku::locktree_manager* ltm = &ltm_;
   return std::shared_ptr<toku::locktree>(
-      lt, [ltm](toku::locktree* p) { ltm->release_lt(p); });
+      lt,
+      [ltm, ctx = std::move(ctx)](toku::locktree* p) { ltm->release_lt(p); });
 }
 
 void RangeTreeLockManager::AddColumnFamily(const ColumnFamilyHandle* cfh) {
@@ -365,15 +378,18 @@ void RangeTreeLockManager::AddColumnFamily(const ColumnFamilyHandle* cfh) {
   InstrumentedMutexLock l(&ltree_map_mutex_);
   if (ltree_map_.find(column_family_id) == ltree_map_.end()) {
     DICTIONARY_ID dict_id = {.dictid = column_family_id};
+    auto ctx = std::make_unique<RangeTreeCmpContext>(RangeTreeCmpContext{
+        cfh->GetComparator(), IsReverseComparator(cfh->GetComparator())});
     toku::comparator cmp;
-    cmp.create(CompareDbtEndpoints, (void*)cfh->GetComparator());
+    cmp.create(CompareDbtEndpoints, ctx.get());
     toku::locktree* ltree =
         ltm_.get_lt(dict_id, cmp,
                     /* on_create_extra*/ static_cast<void*>(this));
     // This is ok to because get_lt has copied the comparator:
     cmp.destroy();
 
-    ltree_map_.insert({column_family_id, MakeLockTreePtr(ltree)});
+    ltree_map_.insert(
+        {column_family_id, MakeLockTreePtr(ltree, std::move(ctx))});
   }
 }
 
