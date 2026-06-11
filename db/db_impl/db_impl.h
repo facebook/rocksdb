@@ -857,12 +857,22 @@ class DBImpl : public DB {
   // memtable range tombstone iterator used by the underlying merging iterator.
   // This range tombstone iterator can be refreshed later by db_iter.
   // @param read_options Must outlive the returned iterator.
-  InternalIterator* NewInternalIterator(const ReadOptions& read_options,
-                                        ColumnFamilyData* cfd,
-                                        SuperVersion* super_version,
-                                        Arena* arena, SequenceNumber sequence,
-                                        bool allow_unprepared_value,
-                                        ArenaWrappedDBIter* db_iter = nullptr);
+  // @param sequence The snapshot sequence captured when the DB iterator was
+  // created. Child iterators must use this instead of dereferencing
+  // read_options.snapshot, which may be released before lazy initialization.
+  // @param scan_opts Optional bounded scan ranges used only to prune the
+  // iterator tree during lazy Prepare() initialization.
+  InternalIterator* NewInternalIterator(
+      const ReadOptions& read_options, ColumnFamilyData* cfd,
+      SuperVersion* super_version, Arena* arena, SequenceNumber sequence,
+      bool allow_unprepared_value, ArenaWrappedDBIter* db_iter = nullptr,
+      const MultiScanArgs* scan_opts = nullptr);
+
+  // Release a SuperVersion held by an iterator. This preserves the cleanup
+  // behavior used by materialized internal iterators even when the DB iterator
+  // never needed to lazily build its child iterator tree.
+  void CleanupIteratorSuperVersion(SuperVersion* super_version,
+                                   bool background_purge);
 
   LogsWithPrepTracker* logs_with_prep_tracker() {
     return &logs_with_prep_tracker_;

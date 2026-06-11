@@ -2494,30 +2494,8 @@ struct SuperVersionHandle {
 static void CleanupSuperVersionHandle(void* arg1, void* /*arg2*/) {
   SuperVersionHandle* sv_handle = static_cast<SuperVersionHandle*>(arg1);
 
-  if (sv_handle->super_version->Unref()) {
-    // Job id == 0 means that this is not our background process, but rather
-    // user thread
-    JobContext job_context(0);
-
-    sv_handle->mu->Lock();
-    sv_handle->super_version->Cleanup();
-    sv_handle->db->FindObsoleteFiles(&job_context, false, true);
-    if (sv_handle->background_purge) {
-      sv_handle->db->ScheduleBgLogWriterClose(&job_context);
-      sv_handle->db->AddSuperVersionsToFreeQueue(sv_handle->super_version);
-      sv_handle->db->SchedulePurge();
-    }
-    sv_handle->mu->Unlock();
-
-    if (!sv_handle->background_purge) {
-      delete sv_handle->super_version;
-    }
-    if (job_context.HaveSomethingToDelete()) {
-      sv_handle->db->PurgeObsoleteFiles(job_context,
-                                        sv_handle->background_purge);
-    }
-    job_context.Clean();
-  }
+  sv_handle->db->CleanupIteratorSuperVersion(sv_handle->super_version,
+                                             sv_handle->background_purge);
 
   delete sv_handle;
 }
@@ -2539,7 +2517,8 @@ static void CleanupGetMergeOperandsState(void* arg1, void* /*arg2*/) {
 InternalIterator* DBImpl::NewInternalIterator(
     const ReadOptions& read_options, ColumnFamilyData* cfd,
     SuperVersion* super_version, Arena* arena, SequenceNumber sequence,
-    bool allow_unprepared_value, ArenaWrappedDBIter* db_iter) {
+    bool allow_unprepared_value, ArenaWrappedDBIter* db_iter,
+    const MultiScanArgs* scan_opts) {
   InternalIterator* internal_iter;
   assert(arena != nullptr);
   auto prefix_extractor =
@@ -2551,47 +2530,62 @@ InternalIterator* DBImpl::NewInternalIterator(
       // here, and no unit test cares about the value provided here.
       !read_options.total_order_seek && prefix_extractor != nullptr,
       read_options.iterate_upper_bound);
-  // Collect iterator for mutable memtable
-  auto mem_iter = super_version->mem->NewIterator(
-      read_options, super_version->GetSeqnoToTimeMapping(), arena,
-      super_version->mutable_cf_options.prefix_extractor.get(),
-      /*for_flush=*/false);
   Status s;
-  if (!read_options.ignore_range_deletions) {
-    std::unique_ptr<TruncatedRangeDelIterator> mem_tombstone_iter;
-    auto range_del_iter = super_version->mem->NewRangeTombstoneIterator(
-        read_options, sequence, false /* immutable_memtable */);
-    if (range_del_iter == nullptr || range_del_iter->empty()) {
-      delete range_del_iter;
+  const Comparator* user_comparator = cfd->user_comparator();
+  const bool mem_intersects =
+      !super_version->mem->IsEmpty() &&
+      MultiScanIntersectsMemTable(super_version->mem, read_options,
+                                  super_version->GetSeqnoToTimeMapping(),
+                                  prefix_extractor, scan_opts, user_comparator);
+  if (scan_opts == nullptr || mem_intersects) {
+    // Collect iterator for mutable memtable
+    auto mem_iter = super_version->mem->NewIterator(
+        read_options, super_version->GetSeqnoToTimeMapping(), arena,
+        super_version->mutable_cf_options.prefix_extractor.get(),
+        /*for_flush=*/false);
+    if (!read_options.ignore_range_deletions) {
+      std::unique_ptr<TruncatedRangeDelIterator> mem_tombstone_iter;
+      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+          super_version->mem->NewRangeTombstoneIterator(
+              read_options, sequence, false /* immutable_memtable */));
+      if (range_del_iter != nullptr && !range_del_iter->empty()) {
+        mem_tombstone_iter = std::make_unique<TruncatedRangeDelIterator>(
+            std::move(range_del_iter), &cfd->ioptions().internal_comparator,
+            nullptr /* smallest */, nullptr /* largest */);
+      }
+      merge_iter_builder.AddPointAndTombstoneIterator(
+          mem_iter, std::move(mem_tombstone_iter));
     } else {
-      mem_tombstone_iter = std::make_unique<TruncatedRangeDelIterator>(
-          std::unique_ptr<FragmentedRangeTombstoneIterator>(range_del_iter),
-          &cfd->ioptions().internal_comparator, nullptr /* smallest */,
-          nullptr /* largest */);
+      merge_iter_builder.AddIterator(mem_iter);
     }
-    merge_iter_builder.AddPointAndTombstoneIterator(
-        mem_iter, std::move(mem_tombstone_iter));
-  } else {
-    merge_iter_builder.AddIterator(mem_iter);
+  } else if (scan_opts != nullptr) {
+    merge_iter_builder.SetMemtablePruned(true);
   }
 
-  // Collect all needed child iterators for immutable memtables
-  if (s.ok()) {
+  if (s.ok() &&
+      (scan_opts == nullptr || super_version->imm->GetTotalNumEntries() > 0)) {
+    // Collect all needed child iterators for immutable memtables. When scan
+    // ranges are provided, AddIterators prunes each immutable memtable
+    // individually.
     super_version->imm->AddIterators(
         read_options, super_version->GetSeqnoToTimeMapping(),
         super_version->mutable_cf_options.prefix_extractor.get(),
-        &merge_iter_builder, !read_options.ignore_range_deletions);
+        &merge_iter_builder, !read_options.ignore_range_deletions, sequence,
+        scan_opts, user_comparator);
   }
   TEST_SYNC_POINT_CALLBACK("DBImpl::NewInternalIterator:StatusCallback", &s);
   if (s.ok()) {
     // Collect iterators for files in L0 - Ln
     if (read_options.read_tier != kMemtableTier) {
-      super_version->current->AddIterators(read_options, file_options_,
-                                           &merge_iter_builder,
-                                           allow_unprepared_value);
+      super_version->current->AddIterators(
+          read_options, file_options_, &merge_iter_builder,
+          allow_unprepared_value, sequence, scan_opts);
     }
     internal_iter = merge_iter_builder.Finish(
         read_options.ignore_range_deletions ? nullptr : db_iter);
+    if (internal_iter == nullptr) {
+      internal_iter = NewEmptyInternalIterator<Slice>(arena);
+    }
     SuperVersionHandle* cleanup = new SuperVersionHandle(
         this, &mutex_, super_version,
         read_options.background_purge_on_iterator_cleanup ||
@@ -2603,6 +2597,35 @@ InternalIterator* DBImpl::NewInternalIterator(
     CleanupSuperVersion(super_version);
   }
   return NewErrorInternalIterator<Slice>(s, arena);
+}
+
+void DBImpl::CleanupIteratorSuperVersion(SuperVersion* super_version,
+                                         bool background_purge) {
+  background_purge =
+      background_purge || immutable_db_options_.avoid_unnecessary_blocking_io;
+  if (super_version->Unref()) {
+    // Job id == 0 means that this is not our background process, but rather
+    // user thread
+    JobContext job_context(0);
+
+    mutex_.Lock();
+    super_version->Cleanup();
+    FindObsoleteFiles(&job_context, false, true);
+    if (background_purge) {
+      ScheduleBgLogWriterClose(&job_context);
+      AddSuperVersionsToFreeQueue(super_version);
+      SchedulePurge();
+    }
+    mutex_.Unlock();
+
+    if (!background_purge) {
+      delete super_version;
+    }
+    if (job_context.HaveSomethingToDelete()) {
+      PurgeObsoleteFiles(job_context, background_purge);
+    }
+    job_context.Clean();
+  }
 }
 
 ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {

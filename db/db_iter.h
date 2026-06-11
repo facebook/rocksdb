@@ -32,6 +32,9 @@
 namespace ROCKSDB_NAMESPACE {
 class BlobFileCache;
 class Version;
+namespace port {
+class RWMutex;
+}
 
 // This file declares the factory functions of DBIter, in its original form
 // or a wrapped form with class ArenaWrappedDBIter, which is defined here.
@@ -83,14 +86,19 @@ class DBIter final : public Iterator {
                          ReadCallback* read_callback,
                          ReadOnlyMemTable* active_mem,
                          ColumnFamilyHandleImpl* cfh = nullptr,
-                         bool expose_blob_index = false,
-                         Arena* arena = nullptr) {
+                         bool expose_blob_index = false, Arena* arena = nullptr,
+                         DBImpl* db_impl = nullptr,
+                         ColumnFamilyData* cfd = nullptr) {
+    if (cfh != nullptr) {
+      db_impl = cfh->db();
+      cfd = cfh->cfd();
+    }
     void* mem = arena ? arena->AllocateAligned(sizeof(DBIter))
                       : operator new(sizeof(DBIter));
     DBIter* db_iter = new (mem)
         DBIter(env, read_options, ioptions, mutable_cf_options,
                user_key_comparator, internal_iter, version, sequence, arena,
-               read_callback, cfh, expose_blob_index, active_mem);
+               read_callback, db_impl, cfd, expose_blob_index, active_mem);
     return db_iter;
   }
 
@@ -207,7 +215,7 @@ class DBIter final : public Iterator {
   }
 
   Status status() const override {
-    if (status_.ok()) {
+    if (status_.ok() && iter_.iter() != nullptr) {
       return iter_.status();
     } else {
       assert(!valid_);
@@ -248,19 +256,22 @@ class DBIter final : public Iterator {
     iter_.SetRangeDelReadSeqno(s);
   }
   void set_valid(bool v) { valid_ = v; }
+  void set_status(Status s) { status_ = std::move(s); }
 
   bool PrepareValue() override;
 
   void Prepare(const MultiScanArgs& scan_opts) override;
   Status ValidateScanOptions(const MultiScanArgs& multiscan_opts) const;
+  Status SetScanOptionsForPrepare(const MultiScanArgs& scan_opts);
+  void PrepareInternalChildren();
 
  private:
   DBIter(Env* _env, const ReadOptions& read_options,
          const ImmutableOptions& ioptions,
          const MutableCFOptions& mutable_cf_options, const Comparator* cmp,
          InternalIterator* iter, const Version* version, SequenceNumber s,
-         bool arena_mode, ReadCallback* read_callback,
-         ColumnFamilyHandleImpl* cfh, bool expose_blob_index,
+         bool arena_mode, ReadCallback* read_callback, DBImpl* db_impl,
+         ColumnFamilyData* cfd, bool expose_blob_index,
          ReadOnlyMemTable* active_mem);
 
   class BlobReader {
@@ -318,13 +329,12 @@ class DBIter final : public Iterator {
   class ValueColumnsState {
    public:
     ValueColumnsState(const Version* version, const ReadOptions& read_options,
-                      ColumnFamilyHandleImpl* cfh)
+                      ColumnFamilyData* cfd)
         : entity_blob_resolver_(
               version, read_options.read_tier, read_options.verify_checksums,
               read_options.fill_cache, read_options.io_activity,
-              cfh ? cfh->cfd()->blob_file_cache() : nullptr,
-              cfh != nullptr &&
-                  cfh->cfd()->blob_partition_manager() != nullptr) {}
+              cfd ? cfd->blob_file_cache() : nullptr,
+              cfd != nullptr && cfd->blob_partition_manager() != nullptr) {}
 
     Slice& value() { return value_; }
     const Slice& value() const { return value_; }
@@ -706,7 +716,11 @@ class DBIter final : public Iterator {
   MergeContext merge_context_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
-  ColumnFamilyHandleImpl* cfh_;
+  DBImpl* trace_db_;
+  uint32_t trace_cf_id_;
+  bool has_trace_state_;
+  bool allow_blob_write_path_fallback_;
+  port::RWMutex* ingest_sst_lock_;
   const Slice* const timestamp_ub_;
   const Slice* const timestamp_lb_;
   const size_t timestamp_size_;
