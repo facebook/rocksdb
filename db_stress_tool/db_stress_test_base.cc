@@ -8,8 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 
-#include <unistd.h>
-
 #include <ios>
 #include <memory>
 #include <mutex>
@@ -754,7 +752,7 @@ void StressTest::FinishInitDb(SharedState* shared) {
     if (!s.ok()) {
       fprintf(stderr, "Error restoring historical expected values: %s\n",
               s.ToString().c_str());
-      _exit(1);
+      port::ImmediateExit(1);
     }
   }
   if (FLAGS_use_txn && !FLAGS_use_optimistic_txn) {
@@ -787,7 +785,7 @@ void StressTest::TrackExpectedState(SharedState* shared) {
     if (!s.ok()) {
       fprintf(stderr, "Error enabling history tracing: %s\n",
               s.ToString().c_str());
-      _exit(1);
+      port::ImmediateExit(1);
     }
   }
 }
@@ -4545,7 +4543,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
 
   if (!s.ok()) {
     fprintf(stderr, "open error: %s\n", s.ToString().c_str());
-    _exit(1);
+    port::ImmediateExit(1);
   }
 
   if (db_->GetLatestSequenceNumber() < shared->GetPersistedSeqno()) {
@@ -4554,7 +4552,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
             "did not recover to the persisted "
             "sequence number %" PRIu64 " from last DB session\n",
             db_->GetLatestSequenceNumber(), shared->GetPersistedSeqno());
-    _exit(1);
+    port::ImmediateExit(1);
   }
 }
 
