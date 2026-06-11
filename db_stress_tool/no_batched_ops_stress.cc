@@ -2326,6 +2326,12 @@ class NonBatchedOpsStressTest : public StressTest {
     // deletion file's compaction input optimization.
     bool test_standalone_range_deletion = thread->rand.OneInOpt(
         FLAGS_test_ingest_standalone_range_deletion_one_in);
+    // When true, reuse the writer's metadata via IngestExternalFileArg's
+    // file_infos so ingestion skips re-opening and scanning the file. Not
+    // combined with the standalone range deletion mode (a range-del-only file).
+    bool use_file_info =
+        !test_standalone_range_deletion &&
+        thread->rand.OneInOpt(FLAGS_ingest_external_file_use_file_info_one_in);
     std::vector<std::string> external_files;
     const std::string sst_filename =
         GetDbPath() + "/." + std::to_string(thread->tid) + ".sst";
@@ -2369,6 +2375,7 @@ class NonBatchedOpsStressTest : public StressTest {
     SstFileWriter sst_file_writer(EnvOptions(options_), options_);
     SstFileWriter standalone_rangedel_sst_file_writer(EnvOptions(options_),
                                                       options_);
+    ExternalSstFileInfo file_info;
     if (s.ok()) {
       s = sst_file_writer.Open(sst_filename);
     }
@@ -2462,7 +2469,7 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
     if (s.ok() && !keys.empty()) {
-      s = sst_file_writer.Finish();
+      s = sst_file_writer.Finish(&file_info);
     }
 
     if (s.ok() && total_keys != 0 && test_standalone_range_deletion) {
@@ -2480,6 +2487,7 @@ class NonBatchedOpsStressTest : public StressTest {
         s = standalone_rangedel_sst_file_writer.Finish();
       }
     }
+    bool dropped_without_commit = false;
     if (s.ok()) {
       IngestExternalFileOptions ingest_options;
       ingest_options.move_files = thread->rand.OneInOpt(2);
@@ -2487,6 +2495,8 @@ class NonBatchedOpsStressTest : public StressTest {
       ingest_options.verify_checksums_readahead_size =
           thread->rand.OneInOpt(2) ? 1024 * 1024 : 0;
       ingest_options.fill_cache = thread->rand.OneInOpt(4);
+      const bool use_prepare_commit = thread->rand.OneInOpt(
+          FLAGS_ingest_external_file_prepare_commit_one_in);
       ingest_options_oss << "move_files: " << ingest_options.move_files
                          << ", verify_checksums_before_ingest: "
                          << ingest_options.verify_checksums_before_ingest
@@ -2494,11 +2504,40 @@ class NonBatchedOpsStressTest : public StressTest {
                          << ingest_options.verify_checksums_readahead_size
                          << ", fill_cache: " << ingest_options.fill_cache
                          << ", test_standalone_range_deletion: "
-                         << test_standalone_range_deletion;
-      s = db_->IngestExternalFile(column_families_[column_family],
-                                  external_files, ingest_options);
+                         << test_standalone_range_deletion
+                         << ", use_prepare_commit: " << use_prepare_commit
+                         << ", use_file_info: " << use_file_info;
+      IngestExternalFileArg arg;
+      arg.column_family = column_families_[column_family];
+      arg.external_files = external_files;
+      arg.options = ingest_options;
+      if (use_file_info && file_info.prepared_file_info) {
+        arg.file_infos = {file_info.prepared_file_info.get()};
+      }
+      if (use_prepare_commit) {
+        // Exercise the two-phase PrepareFileIngestion()/Commit() API, and
+        // occasionally drop the prepared handle without committing to cover the
+        // rollback path.
+        std::unique_ptr<FileIngestionHandle> handle;
+        s = db_->PrepareFileIngestion({arg}, &handle);
+        if (s.ok()) {
+          if (thread->rand.OneInOpt(4)) {
+            // Cancel instead of committing, covering both rollback paths.
+            if (thread->rand.OneInOpt(2)) {
+              s = handle->Abort();
+            } else {
+              handle.reset();  // RAII rollback via the destructor
+            }
+            dropped_without_commit = true;
+          } else {
+            s = db_->CommitFileIngestionHandle(std::move(handle));
+          }
+        }
+      } else {
+        s = db_->IngestExternalFiles({arg});
+      }
     }
-    if (!s.ok()) {
+    if (!s.ok() || dropped_without_commit) {
       for (PendingExpectedValue& pending_expected_value :
            pending_expected_values) {
         pending_expected_value.Rollback();

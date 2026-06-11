@@ -85,6 +85,24 @@ class DBBenchTest : public testing::Test {
     ASSERT_EQ(0, db_bench_tool(argc(), argv()));
   }
 
+  // Every flag is passed explicitly because gflags state persists across
+  // db_bench_tool() calls within the same test process.
+  void RunIngestBench(int batch_size, int num_batches, bool use_file_info,
+                      bool fill_cache) {
+    ResetArgs();
+    AppendArgs(
+        {"./db_bench", "--benchmarks=ingestexternalfile", "--use_existing_db=0",
+         "--num=2000", "--compression_type=none", "--db=" + db_path_,
+         "--wal_dir=" + wal_path_,
+         "--ingest_external_file_batch_size=" + std::to_string(batch_size),
+         "--ingest_external_file_num_batches=" + std::to_string(num_batches),
+         "--ingest_external_file_use_file_info=" +
+             std::string(use_file_info ? "true" : "false"),
+         "--ingest_external_file_fill_cache=" +
+             std::string(fill_cache ? "true" : "false")});
+    ASSERT_EQ(0, db_bench_tool(argc(), argv()));
+  }
+
   void VerifyOptions(const Options& opt) {
     DBOptions loaded_db_opts;
     ConfigOptions config_opts;
@@ -142,6 +160,21 @@ TEST_F(DBBenchTest, OptionsFile) {
   opt.delayed_write_rate = 16 * 1024 * 1024;  // Set by SanitizeOptions
 
   VerifyOptions(opt);
+}
+
+TEST_F(DBBenchTest, IngestExternalFile) {
+  RunIngestBench(/*batch_size=*/3, /*num_batches=*/2,
+                 /*use_file_info=*/false, /*fill_cache=*/true);
+}
+
+TEST_F(DBBenchTest, IngestExternalFileWithFileInfo) {
+  RunIngestBench(/*batch_size=*/3, /*num_batches=*/2,
+                 /*use_file_info=*/true, /*fill_cache=*/true);
+}
+
+TEST_F(DBBenchTest, IngestExternalFileWithoutFillCache) {
+  RunIngestBench(/*batch_size=*/3, /*num_batches=*/2,
+                 /*use_file_info=*/false, /*fill_cache=*/false);
 }
 
 TEST_F(DBBenchTest, OptionsFileUniversal) {

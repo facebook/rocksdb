@@ -2959,7 +2959,16 @@ struct IngestExternalFileOptions {
   // When ingesting to multiple families, this option should be the same across
   // ingestion options.
   bool fill_cache = true;
+
+  bool operator==(const IngestExternalFileOptions& rhs) const = default;
 };
+
+// PreparedFileInfo is an opaque description of an SST file produced in
+// ExternalSstFileInfo::prepared_file_info by SstFileWriter::Finish(). A
+// borrowed pointer to one can be placed in IngestExternalFileArg::file_infos to
+// skip re-opening and scanning the file when computing its metadata, reducing
+// ingestion I/O.
+struct PreparedFileInfo;
 
 // It is valid that files_checksums and files_checksum_func_names are both
 // empty (no checksum information is provided for ingestion). Otherwise,
@@ -2997,6 +3006,18 @@ struct IngestExternalFileArg {
   // exclusive, so it is best not to depend on one or the other until it is
   // sorted out.
   std::optional<RangeOpt> atomic_replace_range;
+
+  // Optional per-file opaque metadata, parallel to `external_files` (same size
+  // and order). Each entry is a borrowed pointer to a PreparedFileInfo owned by
+  // ExternalSstFileInfo::prepared_file_info; the owning handle must stay alive
+  // until ingestion completes. When provided, ingestion reuses this metadata
+  // instead of re-opening and scanning each file to recompute it, avoiding that
+  // extra I/O.
+  // Not compatible with options.write_global_seqno (the file is not opened, so
+  // a global seqno cannot be written back into it). Because the file is not
+  // opened, ingestion does not read its storage temperature and trusts the
+  // caller-supplied `file_temperature` hint as-is.
+  std::vector<const PreparedFileInfo*> file_infos;
 };
 
 enum TraceFilterType : uint64_t {

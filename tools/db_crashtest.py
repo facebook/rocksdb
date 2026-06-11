@@ -60,10 +60,7 @@ def quote_arg_for_display(arg):
 
 def stress_cmd_env():
     env = os.environ.copy()
-    if (
-        _TSAN_OPTIONS_ENV_VAR not in env
-        and os.path.exists(_TSAN_SUPPRESSIONS_FILE)
-    ):
+    if _TSAN_OPTIONS_ENV_VAR not in env and os.path.exists(_TSAN_SUPPRESSIONS_FILE):
         env[_TSAN_OPTIONS_ENV_VAR] = "suppressions=" + _TSAN_SUPPRESSIONS_FILE
     return env
 
@@ -215,6 +212,8 @@ default_params = {
     "index_block_search_type": lambda: random.choice([0, 1, 2]),
     "uniform_cv_threshold": lambda: random.choice([-1, 0.2, 1000]),
     "ingest_external_file_one_in": lambda: random.choice([1000, 1000000]),
+    "ingest_external_file_prepare_commit_one_in": lambda: random.choice([0, 1, 2]),
+    "ingest_external_file_use_file_info_one_in": lambda: random.choice([0, 1, 2]),
     "test_ingest_standalone_range_deletion_one_in": lambda: random.choice([0, 5, 10]),
     "iterpercent": 10,
     "lock_wal_one_in": lambda: random.choice([10000, 1000000]),
@@ -2127,9 +2126,7 @@ def blackbox_crash_main(args, unknown_args):
 
     while time.time() < exit_time:
         apply_random_seed_per_iteration()
-        cmd, finalized_params = gen_cmd(
-            dict(list(cmd_params.items())), unknown_args
-        )
+        cmd, finalized_params = gen_cmd(dict(list(cmd_params.items())), unknown_args)
 
         hit_timeout, retcode, outs, errs, pid = execute_cmd(cmd, cmd_params["interval"])
 
@@ -2157,9 +2154,7 @@ def blackbox_crash_main(args, unknown_args):
     cmd_params.update({"verification_only": 1})
     cmd_params.update({"skip_verifydb": 0})
 
-    cmd, finalized_params = gen_cmd(
-        dict(list(cmd_params.items())), unknown_args
-    )
+    cmd, finalized_params = gen_cmd(dict(list(cmd_params.items())), unknown_args)
     hit_timeout, retcode, outs, errs, pid = execute_cmd(
         cmd, cmd_params["verify_timeout"], True
     )
@@ -2295,10 +2290,7 @@ def whitebox_crash_main(args, unknown_args):
         prev_compaction_style = cur_compaction_style
 
         cmd, finalized_params = gen_cmd(
-            dict(
-                list(cmd_params.items())
-                + list(additional_opts.items())
-            ),
+            dict(list(cmd_params.items()) + list(additional_opts.items())),
             unknown_args,
         )
 
