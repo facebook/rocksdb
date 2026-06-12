@@ -8427,6 +8427,85 @@ ReactiveVersionSet::ReactiveVersionSet(
 
 ReactiveVersionSet::~ReactiveVersionSet() = default;
 
+namespace {
+class FastSecondaryVersionEditHandler : public VersionEditHandler {
+ public:
+  FastSecondaryVersionEditHandler(
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer,
+      const ReadOptions& read_options)
+      : VersionEditHandler(
+            /*read_only=*/true, column_families, version_set,
+            /*track_found_and_missing_files=*/false,
+            /*no_error_if_files_missing=*/false, io_tracer, read_options,
+            /*allow_incomplete_valid_version=*/false,
+            EpochNumberRequirement::kMightMissing) {}
+
+  Status VerifyLiveSstFiles() const {
+    ColumnFamilySet* cfd_set = version_set_->GetColumnFamilySet();
+    assert(cfd_set);
+    const auto* db_options = version_set_->db_options();
+    assert(db_options);
+    assert(db_options->fs);
+
+    for (auto* cfd : *cfd_set) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
+      assert(cfd->initialized());
+      Version* current = cfd->current();
+      assert(current);
+      const VersionStorageInfo* storage_info = current->storage_info();
+      assert(storage_info);
+      const auto& ioptions = cfd->ioptions();
+      for (int level = 0; level < storage_info->num_levels(); ++level) {
+        for (const FileMetaData* file_meta : storage_info->LevelFiles(level)) {
+          assert(file_meta);
+          const std::string fname =
+              TableFileName(ioptions.cf_paths, file_meta->fd.GetNumber(),
+                            file_meta->fd.GetPathId());
+          uint64_t file_size = 0;
+          Status s = db_options->fs->GetFileSize(fname, IOOptions(),
+                                                 &file_size, nullptr);
+          if (s.IsPathNotFound() || s.IsNotFound() || s.IsCorruption()) {
+            return Status::TryAgain(
+                "Secondary DB could not open the current MANIFEST state. A "
+                "referenced SST file may be temporarily unavailable; retry "
+                "opening the secondary DB. Original status: " +
+                s.ToString());
+          } else if (!s.ok()) {
+            return s;
+          } else if (file_size != file_meta->fd.GetFileSize()) {
+            return Status::TryAgain(
+                "Secondary DB could not open the current MANIFEST state. A "
+                "referenced SST file size does not match the MANIFEST; retry "
+                "opening the secondary DB. File: " +
+                fname + ", expected size: " +
+                std::to_string(file_meta->fd.GetFileSize()) +
+                ", actual size: " + std::to_string(file_size));
+          }
+        }
+      }
+    }
+    return Status::OK();
+  }
+
+ protected:
+  bool MustOpenAllColumnFamilies() const override { return false; }
+
+  Status MaybeHandleLoadTablesStatus(Status s) const override {
+    if (s.IsPathNotFound() || s.IsCorruption()) {
+      return Status::TryAgain(
+          "Secondary DB could not open the current MANIFEST state. A "
+          "referenced SST file may be temporarily unavailable; retry opening "
+          "the secondary DB. Original status: " +
+          s.ToString());
+    }
+    return VersionEditHandler::MaybeHandleLoadTablesStatus(s);
+  }
+};
+}  // anonymous namespace
+
 Status ReactiveVersionSet::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
@@ -8447,16 +8526,38 @@ Status ReactiveVersionSet::Recover(
   log::Reader* reader = manifest_reader->get();
   assert(reader);
 
+  if (db_options_->best_efforts_recovery) {
+    manifest_tailer_.reset(new ManifestTailer(
+        column_families, const_cast<ReactiveVersionSet*>(this), io_tracer_,
+        read_options_, EpochNumberRequirement::kMightMissing));
+
+    manifest_tailer_->Iterate(*reader, manifest_reader_status->get());
+
+    s = manifest_tailer_->status();
+    if (s.ok()) {
+      RecoverEpochNumbers();
+    }
+    return s;
+  }
+
+  FastSecondaryVersionEditHandler handler(
+      column_families, const_cast<ReactiveVersionSet*>(this), io_tracer_,
+      read_options_);
+  handler.Iterate(*reader, manifest_reader_status->get());
+  s = handler.status();
+  if (!s.ok()) {
+    return s;
+  }
+  s = handler.VerifyLiveSstFiles();
+  if (!s.ok()) {
+    return s;
+  }
+  RecoverEpochNumbers();
+
   manifest_tailer_.reset(new ManifestTailer(
       column_families, const_cast<ReactiveVersionSet*>(this), io_tracer_,
       read_options_, EpochNumberRequirement::kMightMissing));
-
-  manifest_tailer_->Iterate(*reader, manifest_reader_status->get());
-
-  s = manifest_tailer_->status();
-  if (s.ok()) {
-    RecoverEpochNumbers();
-  }
+  s = manifest_tailer_->PrepareForCatchUpAfterRecover(handler);
   return s;
 }
 

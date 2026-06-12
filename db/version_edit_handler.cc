@@ -569,6 +569,10 @@ Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
       version_set_->db_options_->max_file_opening_threads,
       prefetch_index_and_filter_in_cache, is_initial_load, moptions,
       MaxFileSizeForL0MetaPin(moptions), read_options_);
+  return MaybeHandleLoadTablesStatus(s);
+}
+
+Status VersionEditHandler::MaybeHandleLoadTablesStatus(Status s) const {
   if ((s.IsPathNotFound() || s.IsCorruption()) && no_error_if_files_missing_) {
     s = Status::OK();
   }
@@ -1052,6 +1056,51 @@ Status ManifestTailer::Initialize() {
     initialized_ = true;
   }
   return s;
+}
+
+Status ManifestTailer::PrepareForCatchUpAfterRecover(
+    const VersionEditHandler& recovered_handler) {
+  assert(Mode::kRecovery == mode_);
+  assert(!initialized_);
+  // Preserve any AtomicGroup that reached EOF before becoming replayable.
+  GetReadBuffer() = recovered_handler.GetReadBuffer();
+  CopyDoNotOpenColumnFamiliesFrom(recovered_handler);
+
+  ColumnFamilySet* cfd_set = version_set_->GetColumnFamilySet();
+  assert(cfd_set);
+  bool has_log_number = false;
+  uint64_t log_number = 0;
+  for (auto* cfd : *cfd_set) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    assert(cfd->initialized());
+    if (!has_log_number || cfd->GetLogNumber() > log_number) {
+      log_number = cfd->GetLogNumber();
+      has_log_number = true;
+    }
+    assert(builders_.find(cfd->GetID()) == builders_.end());
+    builders_.emplace(cfd->GetID(), VersionBuilderUPtr(
+                                        new BaseReferencedVersionBuilder(
+                                            cfd, this,
+                                            track_found_and_missing_files_,
+                                            allow_incomplete_valid_version_)));
+  }
+  assert(has_log_number);
+
+  version_edit_params_.SetLogNumber(log_number);
+  version_edit_params_.SetPrevLogNumber(version_set_->prev_log_number());
+  auto next_file_number = version_set_->current_next_file_number();
+  assert(next_file_number > 0);
+  version_edit_params_.SetNextFile(next_file_number - 1);
+  version_edit_params_.SetMaxColumnFamily(cfd_set->GetMaxColumnFamily());
+  version_edit_params_.SetMinLogNumberToKeep(
+      version_set_->min_log_number_to_keep());
+  version_edit_params_.SetLastSequence(version_set_->LastSequence());
+
+  initialized_ = true;
+  mode_ = Mode::kCatchUp;
+  return Status::OK();
 }
 
 Status ManifestTailer::ApplyVersionEdit(VersionEdit& edit,
