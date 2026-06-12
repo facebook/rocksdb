@@ -307,6 +307,8 @@ inline void* pthread_getspecific(pthread_key_t key) {
 int truncate(const char* path, int64_t length);
 int Truncate(std::string path, int64_t length);
 void Crash(const std::string& srcfile, int srcline);
+// See ImmediateExit in port/port_posix.h for documentation.
+[[noreturn]] void ImmediateExit(int code);
 int GetMaxOpenFiles();
 std::string utf16_to_utf8(const std::wstring& utf16);
 std::wstring utf8_to_utf16(const std::string& utf8);

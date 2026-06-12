@@ -232,6 +232,8 @@ void Crash(const std::string& srcfile, int srcline) {
   kill(getpid(), SIGTERM);
 }
 
+void ImmediateExit(int code) { _exit(code); }
+
 int GetMaxOpenFiles() {
 #if defined(RLIMIT_NOFILE)
   struct rlimit no_files_limit;

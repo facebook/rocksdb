@@ -279,6 +279,29 @@ phantom bug.
     `dynamic_cast` in debug builds, plain `static_cast` in release).
 * Unit tests (`*_test.cc`) are built in debug mode with RTTI enabled.
 
+### Cross-platform / portability
+Local `make` only exercises Linux with GCC/Clang, but CI
+(`.github/workflows/pr-jobs.yml` and `nightly.yml`) gates on a much wider
+matrix, so portability breaks are invisible locally until CI fails. Code must
+build (and where noted, run tests) across:
+
+| Axis | Must support |
+|------|--------------|
+| OS | Linux (x86_64 + ARM), macOS, Windows |
+| Compiler | GCC, Clang (libstdc++ **and** libc++), AppleClang, **MSVC (VS2022)**, MinGW (Linux cross-compile, build-only, no gflags) |
+| Build system | Make, CMake, and BUCK (internal) -- keep all in sync (see "Build system" above) |
+| Config | release (`-fno-rtti`), `ASSERT_STATUS_CHECKED`, ASAN/UBSAN/TSAN, folly, unity build, JNI/Java |
+
+Treat these as constraints to satisfy and infer the specifics from them before
+adding any system header, libc call, or compiler-specific construct. The most
+common trap: anything that compiles under GCC/Clang on Linux but not under
+**MSVC/MinGW** -- e.g. unguarded POSIX-only headers/functions (`<unistd.h>`,
+`<sys/*.h>`, `getpid`, `_exit`, ...) or GCC/Clang extensions
+(`__attribute__`, `__builtin_*`, VLAs, `alloca`). Prefer the `port::`/`Env`
+abstractions; otherwise guard with `#ifdef OS_WIN` (POSIX `<unistd.h>` ->
+Windows `<process.h>`). Because libc++ is also tested, include what you use
+rather than relying on libstdc++ transitive includes.
+
 ### Unit Test
 * After all of the unit tests are added, review them and try to extract common
     reusable utility functions to reduce code duplication due to copy past between
