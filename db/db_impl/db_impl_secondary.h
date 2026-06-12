@@ -239,6 +239,19 @@ class DBImplSecondary : public DBImpl {
     return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
+  using DB::PrepareFileIngestion;
+  Status PrepareFileIngestion(
+      const std::vector<IngestExternalFileArg>& /*args*/,
+      std::unique_ptr<FileIngestionHandle>* /*handle*/) override {
+    return Status::NotSupported("Not supported operation in secondary mode.");
+  }
+
+  using DB::CommitFileIngestionHandles;
+  Status CommitFileIngestionHandles(
+      std::vector<std::unique_ptr<FileIngestionHandle>> /*handles*/) override {
+    return Status::NotSupported("Not supported operation in secondary mode.");
+  }
+
   // Try to catch up with the primary by reading as much as possible from the
   // log files until there is nothing more to read or encounters an error. If
   // the amount of information in the log files to process is huge, this

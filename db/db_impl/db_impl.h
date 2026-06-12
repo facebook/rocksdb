@@ -76,6 +76,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class ArenaWrappedDBIter;
+class FileIngestionHandleImpl;
 class InMemoryStatsHistoryIterator;
 class MemTable;
 class PersistentStatsHistoryIterator;
@@ -603,6 +604,14 @@ class DBImpl : public DB {
   using DB::IngestExternalFiles;
   Status IngestExternalFiles(
       const std::vector<IngestExternalFileArg>& args) override;
+
+  using DB::PrepareFileIngestion;
+  Status PrepareFileIngestion(
+      const std::vector<IngestExternalFileArg>& args,
+      std::unique_ptr<FileIngestionHandle>* handle) override;
+
+  Status CommitFileIngestionHandles(
+      std::vector<std::unique_ptr<FileIngestionHandle>> handles) override;
 
   using DB::CreateColumnFamilyWithImport;
   Status CreateColumnFamilyWithImport(
@@ -1916,6 +1925,7 @@ class DBImpl : public DB {
   friend class WriteBatchWithIndex;
   friend class WriteUnpreparedTxnDB;
   friend class WriteUnpreparedTxn;
+  friend class FileIngestionHandleImpl;
 
   friend class ForwardIterator;
   friend struct SuperVersion;
@@ -2252,6 +2262,10 @@ class DBImpl : public DB {
   // and blocked by any other pending_outputs_ calls)
   void ReleaseFileNumberFromPendingOutputs(
       std::unique_ptr<std::list<uint64_t>::iterator>& v);
+
+  // Rolls back one prepared file ingestion (delete its staged files, release
+  // the reserved file numbers)
+  void RollbackPreparedFileIngestion(FileIngestionHandleImpl* const h);
 
   // Similar to pending_outputs, preserve OPTIONS file. Used for remote
   // compaction.
@@ -3471,6 +3485,10 @@ class DBImpl : public DB {
   // calls.
   // REQUIRES: mutex held
   int num_running_ingest_file_ = 0;
+
+  // Number of FileIngestionHandle objects produced by PrepareFileIngestion()
+  // that have not been committed or destroyed yet.
+  std::atomic<uint32_t> num_outstanding_prepared_ingestions_{0};
 
   WalManager wal_manager_;
 

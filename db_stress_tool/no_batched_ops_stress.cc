@@ -2480,6 +2480,7 @@ class NonBatchedOpsStressTest : public StressTest {
         s = standalone_rangedel_sst_file_writer.Finish();
       }
     }
+    bool dropped_without_commit = false;
     if (s.ok()) {
       IngestExternalFileOptions ingest_options;
       ingest_options.move_files = thread->rand.OneInOpt(2);
@@ -2487,6 +2488,11 @@ class NonBatchedOpsStressTest : public StressTest {
       ingest_options.verify_checksums_readahead_size =
           thread->rand.OneInOpt(2) ? 1024 * 1024 : 0;
       ingest_options.fill_cache = thread->rand.OneInOpt(4);
+      const bool use_prepare_commit = thread->rand.OneInOpt(
+          FLAGS_ingest_external_file_prepare_commit_one_in);
+      const bool use_separate_prepare_calls = use_prepare_commit &&
+                                              external_files.size() > 1 &&
+                                              thread->rand.OneInOpt(2);
       ingest_options_oss << "move_files: " << ingest_options.move_files
                          << ", verify_checksums_before_ingest: "
                          << ingest_options.verify_checksums_before_ingest
@@ -2494,17 +2500,68 @@ class NonBatchedOpsStressTest : public StressTest {
                          << ingest_options.verify_checksums_readahead_size
                          << ", fill_cache: " << ingest_options.fill_cache
                          << ", test_standalone_range_deletion: "
-                         << test_standalone_range_deletion;
-      s = db_->IngestExternalFile(column_families_[column_family],
-                                  external_files, ingest_options);
+                         << test_standalone_range_deletion
+                         << ", use_prepare_commit: " << use_prepare_commit
+                         << ", use_separate_prepare_calls: "
+                         << use_separate_prepare_calls;
+      if (use_prepare_commit) {
+        std::vector<std::unique_ptr<FileIngestionHandle>> handles;
+        handles.reserve(use_separate_prepare_calls ? external_files.size() : 1);
+        if (use_separate_prepare_calls) {
+          for (const auto& external_file : external_files) {
+            IngestExternalFileArg arg;
+            arg.column_family = column_families_[column_family];
+            arg.external_files = {external_file};
+            arg.options = ingest_options;
+            std::unique_ptr<FileIngestionHandle> handle;
+            s = db_->PrepareFileIngestion({arg}, &handle);
+            if (!s.ok()) {
+              break;
+            }
+            handles.push_back(std::move(handle));
+          }
+        } else {
+          IngestExternalFileArg arg;
+          arg.column_family = column_families_[column_family];
+          arg.external_files = external_files;
+          arg.options = ingest_options;
+          std::unique_ptr<FileIngestionHandle> handle;
+          s = db_->PrepareFileIngestion({arg}, &handle);
+          if (s.ok()) {
+            handles.push_back(std::move(handle));
+          }
+        }
+        if (s.ok()) {
+          // Occasionally cancel instead of committing, covering both rollback
+          // paths.
+          if (thread->rand.OneInOpt(4)) {
+            if (thread->rand.OneInOpt(2)) {
+              for (auto& handle : handles) {
+                Status abort_status = handle->Abort();
+                if (!abort_status.ok() && s.ok()) {
+                  s = abort_status;
+                }
+              }
+            } else {
+              handles.clear();  // RAII rollback via destructors
+            }
+            dropped_without_commit = true;
+          } else {
+            s = db_->CommitFileIngestionHandles(std::move(handles));
+          }
+        }
+      } else {
+        s = db_->IngestExternalFile(column_families_[column_family],
+                                    external_files, ingest_options);
+      }
     }
-    if (!s.ok()) {
+    if (!s.ok() || dropped_without_commit) {
       for (PendingExpectedValue& pending_expected_value :
            pending_expected_values) {
         pending_expected_value.Rollback();
       }
 
-      if (!IsErrorInjectedAndRetryable(s)) {
+      if (!s.ok() && !IsErrorInjectedAndRetryable(s)) {
         fprintf(stderr,
                 "file ingestion error: %s under specified "
                 "IngestExternalFileOptions: %s (Empty string or "
