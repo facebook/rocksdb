@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <cstdio>
 #include <iomanip>
@@ -43,6 +44,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
@@ -7169,8 +7171,10 @@ class ExternalTableTest : public DBTestBase {
 
   class DummyExternalTableFactory : public ExternalTableFactory {
    public:
-    explicit DummyExternalTableFactory(bool support_property_block)
-        : support_property_block_(support_property_block) {}
+    explicit DummyExternalTableFactory(bool support_property_block,
+                                       bool read_via_options_fs = false)
+        : support_property_block_(support_property_block),
+          read_via_options_fs_(read_via_options_fs) {}
     const char* Name() const override { return "DummyExternalTableFactory"; }
 
     Status NewTableReader(
@@ -7180,6 +7184,27 @@ class ExternalTableTest : public DBTestBase {
       // Sanity check some options
       EXPECT_EQ(topts.file_options.handoff_checksum_type,
                 ChecksumType::kCRC32c);
+      if (read_via_options_fs_) {
+        if (topts.fs == nullptr) {
+          return Status::InvalidArgument("Missing FileSystem");
+        }
+        std::unique_ptr<FSRandomAccessFile> file;
+        IOStatus io_s = topts.fs->NewRandomAccessFile(
+            file_path, topts.file_options, &file, nullptr);
+        if (!io_s.ok()) {
+          return io_s;
+        }
+        char scratch = '\0';
+        Slice result;
+        io_s = file->Read(0, 1, topts.file_options.io_options, &result,
+                          &scratch, nullptr);
+        if (!io_s.ok()) {
+          return io_s;
+        }
+        if (result.size() != 1) {
+          return Status::Corruption("Expected one byte from external table");
+        }
+      }
       table_reader->reset(
           new DummyExternalTableReader(file_path, support_property_block_));
       return Status::OK();
@@ -7194,6 +7219,27 @@ class ExternalTableTest : public DBTestBase {
 
    private:
     bool support_property_block_;
+    bool read_via_options_fs_;
+  };
+
+  class CountingFileReadListener : public EventListener {
+   public:
+    bool ShouldBeNotifiedOnFileIO() override { return true; }
+
+    void OnFileReadFinish(const FileOperationInfo& info) override {
+      if (!info.status.ok()) {
+        return;
+      }
+      read_count_.fetch_add(1);
+      read_bytes_.fetch_add(info.length);
+    }
+
+    uint64_t read_count() const { return read_count_.load(); }
+    uint64_t read_bytes() const { return read_bytes_.load(); }
+
+   private:
+    std::atomic<uint64_t> read_count_{0};
+    std::atomic<uint64_t> read_bytes_{0};
   };
 
   class PinnedDummyExternalTableFactory : public ExternalTableFactory {
@@ -7346,6 +7392,55 @@ TEST_F(ExternalTableTest, SstReaderTest) {
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(ExternalTableTest, ReaderFileReadsUpdateStatistics) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
+  Options options = GetDefaultOptions();
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  std::shared_ptr<CountingFileReadListener> listener =
+      std::make_shared<CountingFileReadListener>();
+  options.listeners.emplace_back(listener);
+  std::string dbname = test::PerThreadDBPath("external_table_test");
+  std::string ingest_file = dbname + "test.immutabledb";
+
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>(
+          /*support_property_block=*/true, /*read_via_options_fs=*/true);
+  options.table_factory = NewExternalTableFactory(factory);
+
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+  ASSERT_OK(writer->Put("a", "val_a"));
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  const auto read_count_before =
+      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+  const auto read_bytes_before =
+      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES);
+  HistogramData sst_read_micros_before;
+  options.statistics->histogramData(SST_READ_MICROS, &sst_read_micros_before);
+  const auto listener_read_count_before = listener->read_count();
+  const auto listener_read_bytes_before = listener->read_bytes();
+
+  std::unique_ptr<SstFileReader> reader(new SstFileReader(options));
+  ASSERT_OK(reader->Open(ingest_file));
+
+  EXPECT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
+            read_count_before);
+  EXPECT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
+            read_bytes_before);
+  HistogramData sst_read_micros_after;
+  options.statistics->histogramData(SST_READ_MICROS, &sst_read_micros_after);
+  EXPECT_GT(sst_read_micros_after.count, sst_read_micros_before.count);
+  EXPECT_GT(listener->read_count(), listener_read_count_before);
+  EXPECT_GT(listener->read_bytes(), listener_read_bytes_before);
 }
 
 TEST_F(ExternalTableTest, PinnedGetTest) {
