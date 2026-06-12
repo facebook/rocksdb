@@ -231,8 +231,6 @@ Status CheckpointImpl::CreateCustomCheckpoint(
         create_file_cb,
     uint64_t* sequence_number, uint64_t log_size_for_flush,
     bool get_live_table_checksum, bool atomic_flush) {
-  *sequence_number = db_->GetLatestSequenceNumber();
-
   LiveFilesStorageInfoOptions opts;
   opts.include_checksum_info = get_live_table_checksum;
   opts.wal_size_for_flush = log_size_for_flush;
@@ -240,7 +238,11 @@ Status CheckpointImpl::CreateCustomCheckpoint(
 
   std::vector<LiveFileStorageInfo> infos;
   {
-    Status s = db_->GetLiveFilesStorageInfo(opts, &infos);
+    // Route sequence_number through GetLiveFilesStorageInfo so it is captured
+    // under the DB mutex after the flush (if any) has completed. Reading
+    // db_->GetLatestSequenceNumber() here (before the flush) would return
+    // only a lower bound on the checkpoint's terminal sequence number.
+    Status s = db_->GetLiveFilesStorageInfo(opts, &infos, sequence_number);
     if (!s.ok()) {
       return s;
     }

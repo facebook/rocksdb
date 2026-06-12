@@ -40,8 +40,10 @@ class Checkpoint {
   // if WAL writing is not always enabled.
   // Flush will always trigger if it is 2PC.
   // sequence_number_ptr: if it is not nullptr, the value it points to will be
-  // set to a sequence number guaranteed to be part of the DB, not necessarily
-  // the latest. The default value of this parameter is nullptr.
+  // set to the checkpoint's terminal sequence number: the largest sequence
+  // number included in the checkpoint, captured atomically with the file set
+  // so that no write with a greater sequence number is reflected in the
+  // checkpoint. The default value of this parameter is nullptr.
   // NOTE: db_paths and cf_paths are not supported for creating checkpoints
   // and NotSupported will be returned when the DB (without WALs) uses more
   // than one directory.
