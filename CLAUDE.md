@@ -317,6 +317,9 @@ rather than relying on libstdc++ transitive includes.
     COERCE_CONTEXT_SWITCH=1 make {test_binary}
     ./{test_binary} --gtest_filter="*YourTestName*" --gtest_repeat=5
     ```
+* For CI-style flaky tests that do not reproduce with `gtest_parallel.py`,
+    `--gtest_repeat`, or normal coerce-mode runs, inspect
+    `tools/gtest_parallel_repro.py --help`.
 
 ### Unit test dedup guidelines
 * Extract helper functions for repeated patterns such as object
