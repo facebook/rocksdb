@@ -43,6 +43,9 @@ Status ReplayerImpl::Prepare() {
   if (!s.ok()) {
     return s;
   }
+  if (trace_file_version_ >= kTraceFileCRCFramingVersion) {
+    trace_reader_->EnableCRCFraming();
+  }
   header_ts_ = header.ts;
   prepared_ = true;
   trace_end_ = false;

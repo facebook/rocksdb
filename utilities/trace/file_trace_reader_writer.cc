@@ -10,6 +10,7 @@
 #include "file/writable_file_writer.h"
 #include "trace_replay/trace_replay.h"
 #include "util/coding.h"
+#include "util/crc32c.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -36,43 +37,36 @@ Status FileTraceReader::Reset() {
     return Status::IOError("TraceReader is closed.");
   }
   offset_ = 0;
+  crc_framing_ = false;
+  first_read_done_ = false;
   return Status::OK();
 }
 
 Status FileTraceReader::Read(std::string* data) {
   assert(file_reader_ != nullptr);
-  Status s = file_reader_->Read(IOOptions(), offset_, kTraceMetadataSize,
-                                &result_, buffer_, nullptr);
-  if (!s.ok()) {
+  if (!first_read_done_) {
+    first_read_done_ = true;
+    Status s = ReadLegacy(data);
+    if (s.ok()) {
+      DetectCRCFromHeader(*data);
+    }
     return s;
   }
-  if (result_.size() == 0) {
-    // No more data to read
-    // Todo: Come up with a better way to indicate end of data. May be this
-    // could be avoided once footer is introduced.
-    return Status::Incomplete();
-  }
-  if (result_.size() < kTraceMetadataSize) {
-    return Status::Corruption("Corrupted trace file.");
-  }
-  *data = result_.ToString();
-  offset_ += kTraceMetadataSize;
+  return crc_framing_ ? ReadCRC(data) : ReadLegacy(data);
+}
 
-  uint32_t payload_len =
-      DecodeFixed32(&buffer_[kTraceTimestampSize + kTraceTypeSize]);
-
-  // Read Payload
-  unsigned int bytes_to_read = payload_len;
+Status FileTraceReader::ReadData(unsigned int bytes_to_read,
+                                 std::string* data) {
   unsigned int to_read =
       bytes_to_read > kBufferSize ? kBufferSize : bytes_to_read;
   while (to_read > 0) {
-    s = file_reader_->Read(IOOptions(), offset_, to_read, &result_, buffer_,
-                           nullptr);
-    if (!s.ok()) {
-      return s;
+    IOStatus io_s = file_reader_->Read(IOOptions(), offset_, to_read, &result_,
+                                       buffer_, nullptr);
+    if (!io_s.ok()) {
+      return io_s;
     }
     if (result_.size() < to_read) {
-      return Status::Corruption("Corrupted trace file.");
+      return Status::Incomplete("Trace record data truncated");
     }
     data->append(result_.data(), result_.size());
 
@@ -80,8 +74,85 @@ Status FileTraceReader::Read(std::string* data) {
     bytes_to_read -= to_read;
     to_read = bytes_to_read > kBufferSize ? kBufferSize : bytes_to_read;
   }
+  return Status::OK();
+}
 
-  return s;
+Status FileTraceReader::ReadLegacy(std::string* data) {
+  IOStatus io_s = file_reader_->Read(IOOptions(), offset_, kTraceMetadataSize,
+                                     &result_, buffer_, nullptr);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+  if (result_.size() == 0) {
+    return Status::Incomplete();
+  }
+  if (result_.size() < kTraceMetadataSize) {
+    return Status::Incomplete("Trace metadata truncated");
+  }
+  *data = result_.ToString();
+  offset_ += kTraceMetadataSize;
+
+  uint32_t payload_len =
+      DecodeFixed32(&buffer_[kTraceTimestampSize + kTraceTypeSize]);
+  return ReadData(payload_len, data);
+}
+
+Status FileTraceReader::ReadCRC(std::string* data) {
+  IOStatus io_s = file_reader_->Read(
+      IOOptions(), offset_, kTraceFrameHeaderSize, &result_, buffer_, nullptr);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+  if (result_.size() == 0) {
+    return Status::Incomplete();
+  }
+  if (result_.size() < kTraceFrameHeaderSize) {
+    return Status::Incomplete("Trace frame header truncated");
+  }
+
+  uint32_t expected_crc = DecodeFixed32(result_.data());
+  uint32_t data_len = DecodeFixed32(result_.data() + kTraceCRCSize);
+  offset_ += kTraceFrameHeaderSize;
+
+  data->clear();
+  data->reserve(data_len);
+  Status s = ReadData(data_len, data);
+  if (!s.ok()) {
+    return s;
+  }
+
+  uint32_t actual_crc = crc32c::Value(data->data(), data->size());
+  if (actual_crc != expected_crc) {
+    return Status::Incomplete("Trace record CRC mismatch");
+  }
+  return Status::OK();
+}
+
+void FileTraceReader::DetectCRCFromHeader(const std::string& header_data) {
+  if (header_data.size() <= kTraceMetadataSize) {
+    return;
+  }
+  auto pos = header_data.find("Trace Version: ");
+  if (pos == std::string::npos) {
+    return;
+  }
+  std::string ver = header_data.substr(pos + 15);
+  auto tab = ver.find('\t');
+  if (tab != std::string::npos) {
+    ver.resize(tab);
+  }
+  int version = 0;
+  for (char c : ver) {
+    if (c == '.') {
+      continue;
+    }
+    if (isdigit(c)) {
+      version = version * 10 + (c - '0');
+    }
+  }
+  if (version >= kTraceFileCRCFramingVersion) {
+    crc_framing_ = true;
+  }
 }
 
 FileTraceWriter::FileTraceWriter(
@@ -96,7 +167,20 @@ Status FileTraceWriter::Close() {
 }
 
 Status FileTraceWriter::Write(const Slice& data) {
-  return file_writer_->Append(IOOptions(), data);
+  if (!crc_framing_) {
+    return file_writer_->Append(IOOptions(), data);
+  }
+  char frame_header[kTraceFrameHeaderSize];
+  uint32_t crc = crc32c::Value(data.data(), data.size());
+  EncodeFixed32(frame_header, crc);
+  EncodeFixed32(frame_header + kTraceCRCSize,
+                static_cast<uint32_t>(data.size()));
+  Status s = file_writer_->Append(IOOptions(),
+                                  Slice(frame_header, sizeof(frame_header)));
+  if (s.ok()) {
+    s = file_writer_->Append(IOOptions(), data);
+  }
+  return s;
 }
 
 uint64_t FileTraceWriter::GetFileSize() { return file_writer_->GetFileSize(); }
