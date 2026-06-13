@@ -2947,6 +2947,12 @@ int main(int argc, char** argv) {
     rocksdb_options_set_prepopulate_blob_cache(o, 1 /* flush only */);
     CheckCondition(1 == rocksdb_options_get_prepopulate_blob_cache(o));
 
+    rocksdb_options_set_target_file_size_is_upper_bound(o, 1);
+    CheckCondition(1 == rocksdb_options_get_target_file_size_is_upper_bound(o));
+
+    rocksdb_options_set_max_manifest_space_amp_pct(o, 31);
+    CheckCondition(31 == rocksdb_options_get_max_manifest_space_amp_pct(o));
+
     // Create a copy that should be equal to the original.
     rocksdb_options_t* copy;
     copy = rocksdb_options_create_copy(o);
@@ -3048,6 +3054,9 @@ int main(int argc, char** argv) {
     CheckCondition(1 == rocksdb_options_get_atomic_flush(copy));
     CheckCondition(29.0 ==
                    rocksdb_options_get_experimental_mempurge_threshold(copy));
+    CheckCondition(31 == rocksdb_options_get_max_manifest_space_amp_pct(copy));
+    CheckCondition(1 ==
+                   rocksdb_options_get_target_file_size_is_upper_bound(copy));
 
     // Copies should be independent.
     rocksdb_options_set_allow_ingest_behind(copy, 0);
@@ -3422,6 +3431,15 @@ int main(int argc, char** argv) {
                    rocksdb_options_get_experimental_mempurge_threshold(copy));
     CheckCondition(29.0 ==
                    rocksdb_options_get_experimental_mempurge_threshold(o));
+
+    rocksdb_options_set_max_manifest_space_amp_pct(copy, 330);
+    CheckCondition(330 == rocksdb_options_get_max_manifest_space_amp_pct(copy));
+    CheckCondition(31 == rocksdb_options_get_max_manifest_space_amp_pct(o));
+
+    rocksdb_options_set_target_file_size_is_upper_bound(copy, 0);
+    CheckCondition(0 ==
+                   rocksdb_options_get_target_file_size_is_upper_bound(copy));
+    CheckCondition(1 == rocksdb_options_get_target_file_size_is_upper_bound(o));
 
     rocksdb_options_destroy(copy);
     rocksdb_options_destroy(o);
