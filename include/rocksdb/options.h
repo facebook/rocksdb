@@ -2955,6 +2955,16 @@ struct IngestExternalFileOptions {
   bool operator==(const IngestExternalFileOptions& rhs) const = default;
 };
 
+struct ExternalBlobFileInfo {
+  std::string external_file_path;
+  uint64_t blob_file_number = 0;
+  uint64_t total_blob_count = 0;
+  uint64_t total_blob_bytes = 0;
+  std::string checksum_method;
+  std::string checksum_value;
+  Temperature file_temperature = Temperature::kUnknown;
+};
+
 // It is valid that files_checksums and files_checksum_func_names are both
 // empty (no checksum information is provided for ingestion). Otherwise,
 // their sizes should be the same as external_files. The file order should
@@ -2967,6 +2977,7 @@ struct IngestExternalFileArg {
   IngestExternalFileOptions options;
   std::vector<std::string> files_checksums;
   std::vector<std::string> files_checksum_func_names;
+  std::vector<ExternalBlobFileInfo> external_blob_files;
   // A hint as to the temperature for *reading* the files to be ingested.
   Temperature file_temperature = Temperature::kUnknown;
   // EXPERIMENTAL: When specified, existing keys in the given range will be

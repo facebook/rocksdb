@@ -27,11 +27,13 @@
 #ifdef __FreeBSD__
 #include <sys/sysctl.h>
 #endif
+#include <algorithm>
 #include <atomic>
 #include <cinttypes>
 #include <condition_variable>
 #include <cstddef>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -62,10 +64,12 @@
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/sst_file_writer.h"
 #include "rocksdb/stats_history.h"
 #include "rocksdb/table.h"
 #include "rocksdb/tool_hooks.h"
 #include "rocksdb/utilities/backup_engine.h"
+#include "rocksdb/utilities/column_db.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_type.h"
@@ -188,6 +192,12 @@ DEFINE_string(
     "\treadtocache   -- 1 thread reading database sequentially\n"
     "\treadreverse   -- read N times in reverse order\n"
     "\treadrandom    -- read N times in random order\n"
+    "\tfullblobreadrandom -- alias for readrandom, intended for BlobDB "
+    "full-value baselines\n"
+    "\tcolumnblobfillseq -- use SstFileWriter to ingest wide-column "
+    "schema plus external blob values for ColumnDB projection benchmarks\n"
+    "\tcolumnblobreadrandom -- read projected columns through ColumnDB using "
+    "partial blob reads\n"
     "\treadmissing   -- read N missing keys in random order\n"
     "\treadwhilewriting      -- 1 writer, N threads doing random "
     "reads\n"
@@ -331,6 +341,28 @@ DEFINE_string(value_size_distribution_type, "fixed",
 
 DEFINE_int32(value_size, 100, "Size of each value in fixed distribution");
 static unsigned int value_size = 100;
+
+DEFINE_int32(column_db_num_features, 1000,
+             "[ColumnDB] Number of fixed-width feature columns encoded into "
+             "each large blob value.");
+
+DEFINE_int32(column_db_projected_features, 8,
+             "[ColumnDB] Number of feature columns requested by each "
+             "projected Get.");
+
+DEFINE_int32(column_db_projection_stride, 97,
+             "[ColumnDB] Stride used to pick projected feature ids. Use 1 for "
+             "contiguous projected ranges, or a larger relatively-prime value "
+             "for sparse projected ranges.");
+
+DEFINE_string(column_db_external_dir, "",
+              "[ColumnDB] Directory for SstFileWriter-generated SST/blob "
+              "files. If empty, db_bench uses <db>_column_db_external.");
+
+DEFINE_uint64(column_db_blob_file_number_start, 1ull << 56,
+              "[ColumnDB] First generated external blob file number. The "
+              "numbers are preserved during ingestion because SST blob indexes "
+              "refer to them directly.");
 
 DEFINE_int32(value_size_min, 100, "Min size of random value");
 
@@ -2997,6 +3029,8 @@ class Benchmark {
   bool use_blob_db_;    // Stacked BlobDB
   bool read_operands_;  // read via GetMergeOperands()
   std::vector<std::string> keys_;
+  std::mutex column_db_mutex_;
+  ColumnDB* column_db_ = nullptr;
 
   class ErrorHandlerListener : public EventListener {
    public:
@@ -3864,6 +3898,10 @@ class Benchmark {
         num_ /= 1000;
         value_size = 100 * 1000;
         method = &Benchmark::WriteRandom;
+      } else if (name == "columnblobfillseq") {
+        fresh_db = true;
+        num_threads = 1;
+        method = &Benchmark::ColumnBlobFillSeq;
       } else if (name == "readseq") {
         method = &Benchmark::ReadSequential;
       } else if (name == "readtorowcache") {
@@ -3880,12 +3918,14 @@ class Benchmark {
         reads_ = num_;
       } else if (name == "readreverse") {
         method = &Benchmark::ReadReverse;
-      } else if (name == "readrandom") {
+      } else if (name == "readrandom" || name == "fullblobreadrandom") {
         if (FLAGS_multiread_stride) {
           fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
                   entries_per_batch_);
         }
         method = &Benchmark::ReadRandom;
+      } else if (name == "columnblobreadrandom") {
+        method = &Benchmark::ColumnBlobReadRandom;
       } else if (name == "readrandomfast") {
         method = &Benchmark::ReadRandomFast;
       } else if (name == "multireadrandom") {
@@ -4098,6 +4138,7 @@ class Benchmark {
           method = nullptr;
         } else {
           if (db_.db != nullptr) {
+            column_db_ = nullptr;
             db_.DeleteDBs();
             DestroyDB(FLAGS_db, open_options_);
           }
@@ -6807,6 +6848,330 @@ class Benchmark {
     }
     delete iter;
     thread->stats.AddBytes(bytes);
+  }
+
+  static void ColumnDBAppendFixed32(uint32_t value, std::string* output) {
+    char buf[4];
+    buf[0] = static_cast<char>(value);
+    buf[1] = static_cast<char>(value >> 8);
+    buf[2] = static_cast<char>(value >> 16);
+    buf[3] = static_cast<char>(value >> 24);
+    output->append(buf, sizeof(buf));
+  }
+
+  static uint32_t ColumnDBDecodeFixed32(const char* input) {
+    return (static_cast<uint32_t>(static_cast<unsigned char>(input[0])) |
+            (static_cast<uint32_t>(static_cast<unsigned char>(input[1])) << 8) |
+            (static_cast<uint32_t>(static_cast<unsigned char>(input[2]))
+             << 16) |
+            (static_cast<uint32_t>(static_cast<unsigned char>(input[3]))
+             << 24));
+  }
+
+  static Status ColumnDBParseFeatureId(const Slice& column,
+                                       uint32_t* feature_id) {
+    if (column.size() < 2 || column[0] != 'f') {
+      return Status::InvalidArgument("ColumnDB column must be named f<id>");
+    }
+    uint64_t parsed = 0;
+    for (size_t i = 1; i < column.size(); ++i) {
+      const char c = column[i];
+      if (c < '0' || c > '9') {
+        return Status::InvalidArgument("ColumnDB column must be named f<id>");
+      }
+      parsed = parsed * 10 + static_cast<uint64_t>(c - '0');
+      if (parsed > std::numeric_limits<uint32_t>::max()) {
+        return Status::InvalidArgument("ColumnDB column id is too large");
+      }
+    }
+    *feature_id = static_cast<uint32_t>(parsed);
+    return Status::OK();
+  }
+
+  static Status ColumnDBTranslateFixedSchema(
+      const Slice& schema, const std::vector<Slice>& columns,
+      std::vector<ColumnDBBlobRange>* ranges) {
+    if (schema.size() % 8 != 0) {
+      return Status::Corruption("ColumnDB schema size is not a fixed directory");
+    }
+    const size_t num_features = schema.size() / 8;
+    ranges->clear();
+    ranges->reserve(columns.size());
+    for (size_t i = 0; i < columns.size(); ++i) {
+      uint32_t feature_id = 0;
+      Status s = ColumnDBParseFeatureId(columns[i], &feature_id);
+      if (!s.ok()) {
+        return s;
+      }
+      if (feature_id >= num_features) {
+        return Status::InvalidArgument("ColumnDB column id is out of schema");
+      }
+      const char* entry = schema.data() + feature_id * 8;
+      ranges->push_back({i, ColumnDBDecodeFixed32(entry),
+                         ColumnDBDecodeFixed32(entry + 4)});
+    }
+    return Status::OK();
+  }
+
+  void ValidateColumnDBConfig(bool for_read) {
+    if (FLAGS_num_multi_db != 0 || FLAGS_num_column_families != 1) {
+      fprintf(stderr,
+              "ColumnDB db_bench supports a single DB and the default column "
+              "family only\n");
+      ErrorExit();
+    }
+    if (!open_options_.enable_blob_files) {
+      fprintf(stderr,
+              "ColumnDB db_bench requires --enable_blob_files=true so blob "
+              "files are tracked in the DB version\n");
+      ErrorExit();
+    }
+    if (FLAGS_column_db_num_features <= 0 ||
+        FLAGS_column_db_projected_features <= 0) {
+      fprintf(stderr,
+              "ColumnDB feature and projection counts must both be positive\n");
+      ErrorExit();
+    }
+    if (FLAGS_column_db_projected_features > FLAGS_column_db_num_features) {
+      fprintf(stderr,
+              "ColumnDB projected feature count cannot exceed total feature "
+              "count\n");
+      ErrorExit();
+    }
+    if (FLAGS_value_size < FLAGS_column_db_num_features) {
+      fprintf(stderr,
+              "ColumnDB requires --value_size >= --column_db_num_features so "
+              "each feature has at least one byte\n");
+      ErrorExit();
+    }
+    if (for_read && read_options_.verify_checksums) {
+      fprintf(stderr,
+              "ColumnDB partial blob reads currently require "
+              "--verify_checksum=false\n");
+      ErrorExit();
+    }
+  }
+
+  std::string ColumnDBBuildSchemaValue() {
+    std::string schema;
+    schema.reserve(static_cast<size_t>(FLAGS_column_db_num_features) * 8);
+    const uint64_t base_size =
+        static_cast<uint64_t>(FLAGS_value_size) / FLAGS_column_db_num_features;
+    const uint64_t remainder =
+        static_cast<uint64_t>(FLAGS_value_size) % FLAGS_column_db_num_features;
+    uint64_t offset = 0;
+    for (int i = 0; i < FLAGS_column_db_num_features; ++i) {
+      const uint64_t feature_size =
+          base_size + (static_cast<uint64_t>(i) < remainder ? 1 : 0);
+      ColumnDBAppendFixed32(static_cast<uint32_t>(offset), &schema);
+      ColumnDBAppendFixed32(static_cast<uint32_t>(feature_size), &schema);
+      offset += feature_size;
+    }
+    return schema;
+  }
+
+  std::string ColumnDBBuildBlobValue() {
+    std::string value;
+    value.resize(static_cast<size_t>(FLAGS_value_size));
+    uint32_t state = 0x9e3779b9u;
+    for (char& c : value) {
+      state = state * 1103515245u + 12345u;
+      c = static_cast<char>(state >> 16);
+    }
+    return value;
+  }
+
+  static std::string ColumnDBJoinPath(const std::string& dir,
+                                      const std::string& file) {
+    if (dir.empty() || dir.back() == '/' || dir.back() == '\\') {
+      return dir + file;
+    }
+    return dir + "/" + file;
+  }
+
+  std::string ColumnDBExternalDir() {
+    if (!FLAGS_column_db_external_dir.empty()) {
+      return FLAGS_column_db_external_dir;
+    }
+    return FLAGS_db + "_column_db_external";
+  }
+
+  std::vector<std::string> ColumnDBProjectedColumnNames() {
+    std::vector<std::string> columns;
+    columns.reserve(static_cast<size_t>(FLAGS_column_db_projected_features));
+    const uint64_t stride =
+        std::max<int32_t>(1, FLAGS_column_db_projection_stride);
+    for (int i = 0; i < FLAGS_column_db_projected_features; ++i) {
+      const uint64_t feature_id =
+          (static_cast<uint64_t>(i) * stride) %
+          static_cast<uint64_t>(FLAGS_column_db_num_features);
+      columns.emplace_back("f" + std::to_string(feature_id));
+    }
+    return columns;
+  }
+
+  ColumnDB* GetColumnDB() {
+    std::lock_guard<std::mutex> lock(column_db_mutex_);
+    if (column_db_ != nullptr && db_.db == column_db_) {
+      return column_db_;
+    }
+    ColumnDBOptions column_options;
+    column_options.schema_column_name = "schema";
+    column_options.blob_column_name = "blob";
+    column_options.translate = &Benchmark::ColumnDBTranslateFixedSchema;
+    ColumnDB* column_db = nullptr;
+    Status s = ColumnDB::Open(column_options, std::move(db_.db_owner),
+                              &column_db);
+    if (!s.ok()) {
+      fprintf(stderr, "ColumnDB open error: %s\n", s.ToString().c_str());
+      ErrorExit();
+    }
+    db_.db_owner.reset(column_db);
+    db_.db = column_db;
+    column_db_ = column_db;
+    return column_db_;
+  }
+
+  void ColumnBlobFillSeq(ThreadState* thread) {
+    if (thread->tid != 0) {
+      return;
+    }
+    ValidateColumnDBConfig(false);
+    const std::string external_base_dir = ColumnDBExternalDir();
+    Status s = FLAGS_env->CreateDirIfMissing(external_base_dir);
+    if (!s.ok()) {
+      fprintf(stderr, "Failed to create %s: %s\n", external_base_dir.c_str(),
+              s.ToString().c_str());
+      ErrorExit();
+    }
+    const uint64_t run_id = FLAGS_env->GetSystemClock()->NowMicros();
+    const std::string external_dir =
+        ColumnDBJoinPath(external_base_dir, "run_" + std::to_string(run_id));
+    s = FLAGS_env->CreateDirIfMissing(external_dir);
+    if (!s.ok()) {
+      fprintf(stderr, "Failed to create %s: %s\n", external_dir.c_str(),
+              s.ToString().c_str());
+      ErrorExit();
+    }
+
+    EnvOptions env_options(open_options_);
+    SstFileWriter writer(env_options, open_options_,
+                         db_.db->DefaultColumnFamily());
+    SstFileWriterBlobOptions blob_options;
+    blob_options.blob_file_dir = external_dir;
+    blob_options.starting_blob_file_number =
+        FLAGS_column_db_blob_file_number_start;
+    const std::string file_path =
+        ColumnDBJoinPath(external_dir, "column_db_generated.sst");
+    s = writer.OpenWithBlobFiles(file_path, blob_options);
+    if (!s.ok()) {
+      fprintf(stderr, "SstFileWriter open error: %s\n", s.ToString().c_str());
+      ErrorExit();
+    }
+
+    const std::string schema = ColumnDBBuildSchemaValue();
+    const std::string blob_value = ColumnDBBuildBlobValue();
+    WideColumns entity{{"schema", Slice(schema)}, {"blob", Slice()}};
+    std::vector<SstFileWriterBlobValue> blob_columns{{1, Slice(blob_value)}};
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
+    int64_t stats_since_last_report = 0;
+    for (int64_t i = 0; i < num_; ++i) {
+      GenerateKeyFromInt(i, num_, &key);
+      s = writer.PutEntityWithBlobValues(key, entity, blob_columns);
+      if (!s.ok()) {
+        fprintf(stderr, "PutEntityWithBlobValues error: %s\n",
+                s.ToString().c_str());
+        ErrorExit();
+      }
+      ++stats_since_last_report;
+      if (stats_since_last_report == 1000) {
+        thread->stats.FinishedOps(nullptr, db_.db, stats_since_last_report,
+                                  kWrite);
+        stats_since_last_report = 0;
+      }
+    }
+    if (stats_since_last_report > 0) {
+      thread->stats.FinishedOps(nullptr, db_.db, stats_since_last_report,
+                                kWrite);
+    }
+
+    ExternalSstFileInfo sst_file_info;
+    std::vector<ExternalBlobFileInfo> blob_file_infos;
+    s = writer.Finish(&sst_file_info, &blob_file_infos);
+    if (!s.ok()) {
+      fprintf(stderr, "SstFileWriter finish error: %s\n", s.ToString().c_str());
+      ErrorExit();
+    }
+
+    IngestExternalFileArg arg;
+    arg.column_family = db_.db->DefaultColumnFamily();
+    arg.external_files = {file_path};
+    arg.external_blob_files = blob_file_infos;
+    arg.options.move_files = true;
+    arg.options.snapshot_consistency = false;
+    arg.options.allow_global_seqno = false;
+    arg.options.allow_blocking_flush = false;
+    s = db_.db->IngestExternalFiles({arg});
+    if (!s.ok()) {
+      fprintf(stderr, "IngestExternalFiles error: %s\n", s.ToString().c_str());
+      ErrorExit();
+    }
+    thread->stats.AddBytes(static_cast<uint64_t>(num_) *
+                           (key_size_ + schema.size() + blob_value.size()));
+  }
+
+  void ColumnBlobReadRandom(ThreadState* thread) {
+    ValidateColumnDBConfig(true);
+    ColumnDB* column_db = GetColumnDB();
+    const std::vector<std::string> column_names = ColumnDBProjectedColumnNames();
+    std::vector<Slice> columns;
+    columns.reserve(column_names.size());
+    for (const std::string& column_name : column_names) {
+      columns.emplace_back(column_name);
+    }
+
+    int64_t read = 0;
+    int64_t found = 0;
+    int64_t bytes = 0;
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
+    std::vector<PinnableSlice> values;
+
+    Duration duration(FLAGS_duration, reads_);
+    while (!duration.Done(1)) {
+      const int64_t key_rand = GetRandomKey(&thread->rand);
+      GenerateKeyFromInt(key_rand, FLAGS_num, &key);
+      ++read;
+      Status s = column_db->Get(read_options_, key, columns, &values);
+      if (s.ok()) {
+        ++found;
+        bytes += key.size();
+        for (PinnableSlice& value : values) {
+          bytes += value.size();
+          value.Reset();
+        }
+      } else if (!s.IsNotFound()) {
+        fprintf(stderr, "ColumnDB Get returned an error: %s\n",
+                s.ToString().c_str());
+        abort();
+      }
+
+      if (thread->shared->read_rate_limiter.get() != nullptr &&
+          read % 256 == 255) {
+        thread->shared->read_rate_limiter->Request(
+            256, Env::IO_HIGH, nullptr /* stats */, RateLimiter::OpType::kRead);
+      }
+
+      thread->stats.FinishedOps(nullptr, column_db, 1, kRead);
+    }
+
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n", found,
+             read);
+
+    thread->stats.AddBytes(bytes);
+    thread->stats.AddMessage(msg);
   }
 
   void ReadRandomFast(ThreadState* thread) {

@@ -86,6 +86,7 @@ class Version;
 class VersionEdit;
 class VersionSet;
 class WriteCallback;
+class BlobIndex;
 struct JobContext;
 struct ExternalSstFileInfo;
 struct MemTableInfo;
@@ -721,6 +722,12 @@ class DBImpl : public DB {
   Status GetImpl(const ReadOptions& read_options,
                  ColumnFamilyHandle* column_family, const Slice& key,
                  PinnableSlice* value, std::string* timestamp);
+
+  Status MultiGetBlobRanges(
+      const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+      const Slice& user_key, const BlobIndex& blob_index,
+      const std::vector<std::pair<uint64_t, uint64_t>>& ranges,
+      std::vector<PinnableSlice>* values, uint64_t* bytes_read);
 
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here

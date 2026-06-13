@@ -12,8 +12,10 @@
 #include <vector>
 
 #include "db/builder.h"
+#include "db/blob/blob_file_addition.h"
 #include "db/db_impl/db_impl.h"
 #include "db/version_edit.h"
+#include "file/filename.h"
 #include "file/file_util.h"
 #include "file/random_access_file_reader.h"
 #include "logging/logging.h"
@@ -31,6 +33,7 @@ Status ExternalSstFileIngestionJob::Prepare(
     const std::vector<std::string>& external_files_paths,
     const std::vector<std::string>& files_checksums,
     const std::vector<std::string>& files_checksum_func_names,
+    const std::vector<ExternalBlobFileInfo>& external_blob_files,
     const std::optional<RangeOpt>& atomic_replace_range,
     const Temperature& file_temperature, uint64_t next_file_number,
     SuperVersion* sv) {
@@ -71,6 +74,35 @@ Status ExternalSstFileIngestionJob::Prepare(
     }
 
     files_to_ingest_.emplace_back(std::move(file_to_ingest));
+  }
+
+  for (const ExternalBlobFileInfo& external_blob_file : external_blob_files) {
+    if (external_blob_file.external_file_path.empty()) {
+      return Status::InvalidArgument("External blob file path is empty");
+    }
+    if (external_blob_file.blob_file_number == kInvalidBlobFileNumber) {
+      return Status::InvalidArgument("External blob file number is invalid");
+    }
+    if (external_blob_file.total_blob_count == 0) {
+      return Status::InvalidArgument("External blob file contains no blobs");
+    }
+    if (external_blob_file.total_blob_bytes == 0) {
+      return Status::InvalidArgument("External blob file contains no bytes");
+    }
+    if (external_blob_file.checksum_method.empty() !=
+        external_blob_file.checksum_value.empty()) {
+      return Status::InvalidArgument(
+          "External blob file checksum method/value mismatch");
+    }
+
+    IngestedBlobFileInfo blob_file_to_ingest;
+    blob_file_to_ingest.external_file_info = external_blob_file;
+    blob_files_to_ingest_.emplace_back(std::move(blob_file_to_ingest));
+
+    if (oldest_blob_file_number_ == kInvalidBlobFileNumber ||
+        external_blob_file.blob_file_number < oldest_blob_file_number_) {
+      oldest_blob_file_number_ = external_blob_file.blob_file_number;
+    }
   }
 
   auto num_files = files_to_ingest_.size();
@@ -223,6 +255,82 @@ Status ExternalSstFileIngestionJob::Prepare(
     f.file_checksum = kUnknownFileChecksum;
     f.file_checksum_func_name = kUnknownFileChecksumFuncName;
     ingestion_path_ids.insert(f.fd.GetPathId());
+  }
+
+  for (IngestedBlobFileInfo& f : blob_files_to_ingest_) {
+    if (!status.ok()) {
+      break;
+    }
+    f.copy_file = false;
+    const ExternalBlobFileInfo& external_info = f.external_file_info;
+    const std::string path_outside_db = external_info.external_file_path;
+    const std::string path_inside_db =
+        BlobFileName(cfd_->ioptions().cf_paths.front().path,
+                     external_info.blob_file_number);
+    if (ingestion_options_.move_files || ingestion_options_.link_files) {
+      status =
+          fs_->LinkFile(path_outside_db, path_inside_db, IOOptions(), nullptr);
+      if (status.ok()) {
+        std::unique_ptr<FSWritableFile> file_to_sync;
+        Status s = fs_->ReopenWritableFile(path_inside_db, env_options_,
+                                           &file_to_sync, nullptr);
+        TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:Reopen",
+                                 &s);
+        if (!s.IsNotSupported()) {
+          status = s;
+          if (status.ok()) {
+            TEST_SYNC_POINT(
+                "ExternalSstFileIngestionJob::BeforeSyncIngestedFile");
+            status = SyncIngestedFile(file_to_sync.get());
+            TEST_SYNC_POINT(
+                "ExternalSstFileIngestionJob::AfterSyncIngestedFile");
+            if (!status.ok()) {
+              ROCKS_LOG_WARN(db_options_.info_log,
+                             "Failed to sync ingested blob file %s: %s",
+                             path_inside_db.c_str(), status.ToString().c_str());
+            }
+          }
+        }
+      } else if (status.IsNotSupported() &&
+                 ingestion_options_.failed_move_fall_back_to_copy) {
+        f.copy_file = true;
+        ROCKS_LOG_INFO(db_options_.info_log,
+                       "Tried to link blob file %s but it's not supported : %s",
+                       path_outside_db.c_str(), status.ToString().c_str());
+      } else {
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "Failed to link blob file %s to %s: %s",
+                       path_outside_db.c_str(), path_inside_db.c_str(),
+                       status.ToString().c_str());
+      }
+    } else {
+      f.copy_file = true;
+    }
+
+    if (f.copy_file) {
+      TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:CopyFile",
+                               nullptr);
+      Temperature dst_temp =
+          external_info.file_temperature == Temperature::kUnknown
+              ? sv->mutable_cf_options.default_write_temperature
+              : external_info.file_temperature;
+      status = CopyFile(fs_.get(), path_outside_db,
+                        external_info.file_temperature, path_inside_db,
+                        dst_temp, 0, db_options_.use_fsync, io_tracer_);
+      f.external_file_info.file_temperature = dst_temp;
+
+      if (!status.ok()) {
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "Failed to copy blob file %s to %s: %s",
+                       path_outside_db.c_str(), path_inside_db.c_str(),
+                       status.ToString().c_str());
+      }
+    }
+    if (!status.ok()) {
+      break;
+    }
+    f.internal_file_path = path_inside_db;
+    ingestion_path_ids.insert(0);
   }
 
   TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncDir");
@@ -623,6 +731,13 @@ Status ExternalSstFileIngestionJob::Run() {
     prev_batch_uppermost_level = batch_uppermost_level;
   }
 
+  for (const IngestedBlobFileInfo& blob_file : blob_files_to_ingest_) {
+    const ExternalBlobFileInfo& info = blob_file.external_file_info;
+    edit_.AddBlobFile(BlobFileAddition(
+        info.blob_file_number, info.total_blob_count, info.total_blob_bytes,
+        info.checksum_method, info.checksum_value));
+  }
+
   CreateEquivalentFileIngestingCompactions();
   return status;
 }
@@ -734,7 +849,7 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
     FileMetaData f_metadata(
         file->fd.GetNumber(), file->fd.GetPathId(), file->fd.GetFileSize(),
         file->smallest_internal_key, file->largest_internal_key, smallest_seqno,
-        largest_seqno, false, file->file_temperature, kInvalidBlobFileNumber,
+        largest_seqno, false, file->file_temperature, oldest_blob_file_number_,
         oldest_ancester_time, current_time,
         ingestion_options_.ingest_behind
             ? kReservedEpochNumberForFileIngestedBehind
@@ -929,6 +1044,18 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
             f.external_file_path.c_str(), s.ToString().c_str());
       }
     }
+    for (IngestedBlobFileInfo& f : blob_files_to_ingest_) {
+      const std::string& external_file_path =
+          f.external_file_info.external_file_path;
+      Status s = fs_->DeleteFile(external_file_path, io_opts, nullptr);
+      if (!s.ok()) {
+        ROCKS_LOG_WARN(
+            db_options_.info_log,
+            "%s was added to DB successfully but failed to remove original "
+            "blob file link : %s",
+            external_file_path.c_str(), s.ToString().c_str());
+      }
+    }
   }
 }
 
@@ -942,6 +1069,17 @@ void ExternalSstFileIngestionJob::DeleteInternalFiles() {
     if (!s.ok()) {
       ROCKS_LOG_WARN(db_options_.info_log,
                      "AddFile() clean up for file %s failed : %s",
+                     f.internal_file_path.c_str(), s.ToString().c_str());
+    }
+  }
+  for (IngestedBlobFileInfo& f : blob_files_to_ingest_) {
+    if (f.internal_file_path.empty()) {
+      continue;
+    }
+    Status s = fs_->DeleteFile(f.internal_file_path, io_opts, nullptr);
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "AddFile() clean up for blob file %s failed : %s",
                      f.internal_file_path.c_str(), s.ToString().c_str());
     }
   }

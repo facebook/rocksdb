@@ -2681,6 +2681,31 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   return s;
 }
 
+Status DBImpl::MultiGetBlobRanges(
+    const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    const Slice& user_key, const BlobIndex& blob_index,
+    const std::vector<std::pair<uint64_t, uint64_t>>& ranges,
+    std::vector<PinnableSlice>* values, uint64_t* bytes_read) {
+  if (column_family == nullptr) {
+    return Status::InvalidArgument(
+        "Cannot read blob ranges without a column family handle");
+  }
+  if (values == nullptr) {
+    return Status::InvalidArgument(
+        "Cannot read blob ranges without an output vector");
+  }
+
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  ColumnFamilyData* const cfd = cfh->cfd();
+  SuperVersion* const sv = GetAndRefSuperVersion(cfd);
+
+  const Status s = sv->current->MultiGetBlobRanges(
+      read_options, user_key, blob_index, ranges, values, bytes_read);
+
+  ReturnAndCleanupSuperVersion(cfd, sv);
+  return s;
+}
+
 Status DBImpl::GetEntity(const ReadOptions& _read_options,
                          ColumnFamilyHandle* column_family, const Slice& key,
                          PinnableWideColumns* columns) {
@@ -6890,6 +6915,40 @@ Status DBImpl::PrepareFileIngestion(
     return status;
   }
 
+  uint64_t reserved_file_number_limit = next_file_number + total;
+  if (reserved_file_number_limit < next_file_number) {
+    InstrumentedMutexLock l(&mutex_);
+    ReleaseFileNumberFromPendingOutputs(pending_output_elem);
+    return Status::InvalidArgument("Too many external files to ingest");
+  }
+
+  std::unordered_set<uint64_t> external_blob_file_numbers;
+  uint64_t max_external_blob_file_number = 0;
+  for (const auto& arg : args) {
+    for (const ExternalBlobFileInfo& blob_file : arg.external_blob_files) {
+      if (blob_file.blob_file_number == 0) {
+        InstrumentedMutexLock l(&mutex_);
+        ReleaseFileNumberFromPendingOutputs(pending_output_elem);
+        return Status::InvalidArgument("External blob file number is invalid");
+      }
+      if (blob_file.blob_file_number < reserved_file_number_limit) {
+        InstrumentedMutexLock l(&mutex_);
+        ReleaseFileNumberFromPendingOutputs(pending_output_elem);
+        return Status::InvalidArgument(
+            "External blob file number overlaps DB file numbers");
+      }
+      if (!external_blob_file_numbers.insert(blob_file.blob_file_number)
+               .second) {
+        InstrumentedMutexLock l(&mutex_);
+        ReleaseFileNumberFromPendingOutputs(pending_output_elem);
+        return Status::InvalidArgument(
+            "Duplicate external blob file number in ingestion args");
+      }
+      max_external_blob_file_number =
+          std::max(max_external_blob_file_number, blob_file.blob_file_number);
+    }
+  }
+
   std::vector<ExternalSstFileIngestionJob> ingestion_jobs;
   ingestion_jobs.reserve(num_cfs);
   for (const auto& arg : args) {
@@ -6909,8 +6968,9 @@ Status DBImpl::PrepareFileIngestion(
             this);
     Status es = ingestion_jobs[i].Prepare(
         args[i].external_files, args[i].files_checksums,
-        args[i].files_checksum_func_names, args[i].atomic_replace_range,
-        args[i].file_temperature, start_file_number, super_version);
+        args[i].files_checksum_func_names, args[i].external_blob_files,
+        args[i].atomic_replace_range, args[i].file_temperature,
+        start_file_number, super_version);
     // capture first error only
     if (!es.ok() && status.ok()) {
       status = es;
@@ -6925,8 +6985,9 @@ Status DBImpl::PrepareFileIngestion(
             this);
     Status es = ingestion_jobs[0].Prepare(
         args[0].external_files, args[0].files_checksums,
-        args[0].files_checksum_func_names, args[0].atomic_replace_range,
-        args[0].file_temperature, next_file_number, super_version);
+        args[0].files_checksum_func_names, args[0].external_blob_files,
+        args[0].atomic_replace_range, args[0].file_temperature,
+        next_file_number, super_version);
     if (!es.ok()) {
       status = es;
     }
@@ -7142,6 +7203,10 @@ Status DBImpl::CommitFileIngestionHandles(
       }
     }
     if (status.ok()) {
+      if (max_external_blob_file_number != 0) {
+        versions_->MarkFileNumberUsed(max_external_blob_file_number);
+      }
+
       ReadOptions read_options;
       read_options.fill_cache = fill_cache;
       autovector<ColumnFamilyData*> cfds_to_commit;

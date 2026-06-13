@@ -289,6 +289,7 @@ LIB_SOURCES =                                                   \
   utilities/compaction_filters.cc                               \
   utilities/sorted_run_builder/sorted_run_builder.cc            \
   utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
+  utilities/column_db/column_db.cc                              \
   utilities/convenience/info_log_finder.cc                      \
   utilities/counted_fs.cc                                       \
   utilities/debug.cc                                            \
@@ -650,6 +651,7 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/agg_merge/agg_merge_test.cc                                 \
   utilities/backup/backup_engine_test.cc                                \
   utilities/blob_db/blob_db_test.cc                                     \
+  utilities/column_db/column_db_test.cc                                 \
   utilities/cassandra/cassandra_format_test.cc                          \
   utilities/cassandra/cassandra_functional_test.cc                      \
   utilities/cassandra/cassandra_row_merge_test.cc                       \
