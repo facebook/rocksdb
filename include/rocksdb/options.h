@@ -2951,6 +2951,8 @@ struct IngestExternalFileOptions {
   // When ingesting to multiple families, this option should be the same across
   // ingestion options.
   bool fill_cache = true;
+
+  bool operator==(const IngestExternalFileOptions& rhs) const = default;
 };
 
 // It is valid that files_checksums and files_checksum_func_names are both

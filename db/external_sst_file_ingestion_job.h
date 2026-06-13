@@ -301,6 +301,14 @@ class ExternalSstFileIngestionJob {
     return max_assigned_seqno_;
   }
 
+  // Merge another already-Prepare()d job for the SAME column family into this
+  // one so both sets of files are committed by a single Run(). The other job's
+  // files are appended after this job's, so for any overlapping keys the other
+  // job's data wins via a higher assigned sequence number -- the same semantics
+  // as passing all the files to a single ingestion call in this order. The
+  // other job is left empty.
+  Status MergeForSameColumnFamily(ExternalSstFileIngestionJob* other);
+
  private:
   Status ResetTableReader(const std::string& external_file,
                           uint64_t new_file_number,
@@ -333,6 +341,10 @@ class ExternalSstFileIngestionJob {
   // If the input files' key range don't overlap themselves, they always just
   // make one batch.
   void DivideInputFilesIntoBatches();
+
+  // Returns whether any two files in `files` have overlapping key ranges, by
+  // sorting the file ranges and checking adjacent pairs.
+  bool ComputeFilesOverlap(const autovector<IngestedFileInfo>& files) const;
 
   // Assign level for the files in one batch. The files within one batch are not
   // overlapping, and we assign level to each file one after another.
@@ -407,7 +419,7 @@ class ExternalSstFileIngestionJob {
   SnapshotList* db_snapshots_;
   autovector<IngestedFileInfo> files_to_ingest_;
   std::vector<FileBatchInfo> file_batches_to_ingest_;
-  const IngestExternalFileOptions& ingestion_options_;
+  const IngestExternalFileOptions ingestion_options_;
   std::optional<KeyRangeInfo> atomic_replace_range_;
   Directories* directories_;
   EventLogger* event_logger_;

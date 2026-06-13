@@ -91,6 +91,32 @@ class ColumnFamilyHandle {
   virtual const Comparator* GetComparator() const = 0;
 };
 
+// Opaque handle to a prepared-but-not-committed external file ingestion,
+// produced by DB::PrepareFileIngestion(). Pass it to
+// DB::CommitFileIngestionHandle(s)() to make the prepared files visible, or
+// call Abort() (or simply destroy the handle) to roll the ingestion back: that
+// deletes the staged files and releases the reserved internal file numbers.
+//
+// A handle MUST NOT outlive the DB that produced it.
+class FileIngestionHandle {
+ public:
+  virtual ~FileIngestionHandle() = default;
+
+  // Cancel this prepared ingestion: delete the staged files and release the
+  // reserved file numbers, leaving the DB unchanged. The handle is spent
+  // afterwards. Equivalent to simply destroying the handle, but explicit and
+  // returns a Status.
+  virtual Status Abort() = 0;
+
+  FileIngestionHandle(const FileIngestionHandle&) = delete;
+  FileIngestionHandle& operator=(const FileIngestionHandle&) = delete;
+  FileIngestionHandle(FileIngestionHandle&&) = delete;
+  FileIngestionHandle& operator=(FileIngestionHandle&&) = delete;
+
+ protected:
+  FileIngestionHandle() = default;
+};
+
 static const int kMajorVersion = ROCKSDB_MAJOR;
 static const int kMinorVersion = ROCKSDB_MINOR;
 
@@ -2056,6 +2082,58 @@ class DB {
   // 0 <= i < j < len(args), args[i].column_family != args[j].column_family.
   virtual Status IngestExternalFiles(
       const std::vector<IngestExternalFileArg>& args) = 0;
+
+  // Two-phase external file ingestion. PrepareFileIngestion() performs all of
+  // the work that does not require the DB mutex (validating the args, reserving
+  // internal file numbers, reading each file's metadata, and
+  // linking/copying/fsyncing the files into the DB), returning an opaque
+  // FileIngestionHandle. DB::CommitFileIngestionHandle(s)() then commits the
+  // external file into the DB.
+  //
+  // The main advantage here is that the application has more flexibility to
+  // "Prepare" the file in advance, which makes the actual Commit phase much
+  // shorter than a typical DB::IngestExternalFiles call.
+  //
+  // `args` has the same requirements as IngestExternalFiles(). On success
+  // *handle holds the prepared ingestion; on failure *handle is reset and no DB
+  // state is changed. PrepareFileIngestion() is safe to call concurrently with
+  // other DB operations and from a background thread.
+  virtual Status PrepareFileIngestion(
+      const std::vector<IngestExternalFileArg>& args,
+      std::unique_ptr<FileIngestionHandle>* handle) = 0;
+
+  // Single-column-family convenience overload of PrepareFileIngestion().
+  virtual Status PrepareFileIngestion(
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& external_files,
+      const IngestExternalFileOptions& options,
+      std::unique_ptr<FileIngestionHandle>* handle) {
+    IngestExternalFileArg arg;
+    arg.column_family = column_family;
+    arg.external_files = external_files;
+    arg.options = options;
+    return PrepareFileIngestion({arg}, handle);
+  }
+
+  // Commits one or more prepared ingestions (from PrepareFileIngestion())
+  // atomically: all of their files become visible together under a single DB
+  // mutex acquisition and a single atomic MANIFEST write, or none do. Consumes
+  // the handles. Multiple handles MAY target the same column family; that
+  // column family's files are committed together as if all of them had been
+  // passed to a single IngestExternalFiles() call, in the order the handles
+  // appear in `handles` (so for overlapping keys a later handle's data wins).
+  // Handles that target the same column family must have been prepared with the
+  // same IngestExternalFileOptions. On failure all handles are rolled back.
+  virtual Status CommitFileIngestionHandles(
+      std::vector<std::unique_ptr<FileIngestionHandle>> handles) = 0;
+
+  // Single-handle convenience for CommitFileIngestionHandles().
+  virtual Status CommitFileIngestionHandle(
+      std::unique_ptr<FileIngestionHandle> handle) {
+    std::vector<std::unique_ptr<FileIngestionHandle>> handles;
+    handles.push_back(std::move(handle));
+    return CommitFileIngestionHandles(std::move(handles));
+  }
 
   // CreateColumnFamilyWithImport() will create a new column family with
   // column_family_name and import external SST files specified in `metadata`

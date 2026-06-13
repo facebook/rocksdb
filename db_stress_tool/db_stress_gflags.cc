@@ -867,6 +867,13 @@ DEFINE_int32(ingest_external_file_one_in, 0,
 DEFINE_int32(ingest_external_file_width, 100,
              "The width of the ingested external files.");
 
+DEFINE_int32(ingest_external_file_prepare_commit_one_in, 0,
+             "If non-zero, an ingestion that would call IngestExternalFile() "
+             "instead uses the two-phase PrepareFileIngestion()/"
+             "CommitFileIngestion() API once for every N such ingestions on "
+             "average, occasionally dropping the prepared handle without "
+             "committing to exercise the rollback path. 0 disables it.");
+
 DEFINE_int32(compact_files_one_in, 0,
              "If non-zero, then CompactFiles() will be called once for every N "
              "operations on average.  0 indicates CompactFiles() is disabled.");
