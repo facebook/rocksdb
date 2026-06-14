@@ -22,6 +22,7 @@
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
+#include "table/embedded_blob_sst.h"
 #include "table/unique_id_impl.h"
 #include "trace_replay/block_cache_tracer.h"
 #include "util/cast_util.h"
@@ -127,7 +128,8 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
       const std::string& _db_session_id = "",
       const uint64_t _target_file_size = 0, const uint64_t _cur_file_num = 0,
       const SequenceNumber _last_level_inclusive_max_seqno_threshold =
-          kMaxSequenceNumber)
+          kMaxSequenceNumber,
+      const EmbeddedBlobSstBuilderOptions* _embedded_blob_options = nullptr)
       : TablePropertiesCollectorFactory::Context(
             _column_family_id, _level, _ioptions.num_levels,
             _last_level_inclusive_max_seqno_threshold),
@@ -148,7 +150,8 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
         db_session_id(_db_session_id),
         is_bottommost(_is_bottommost),
         reason(_reason),
-        cur_file_num(_cur_file_num) {}
+        cur_file_num(_cur_file_num),
+        embedded_blob_options(_embedded_blob_options) {}
 
   const ImmutableOptions& ioptions;
   const MutableCFOptions& moptions;
@@ -171,6 +174,7 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
   // END for FilterBuildingContext
 
   const uint64_t cur_file_num;
+  const EmbeddedBlobSstBuilderOptions* embedded_blob_options;
 };
 
 // TableBuilder provides the interface used to build a Table

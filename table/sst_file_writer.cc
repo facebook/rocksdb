@@ -15,6 +15,8 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_builder.h"
+#include "table/embedded_blob_sst.h"
+#include "table/format.h"
 #include "table/sst_file_writer_collectors.h"
 #include "test_util/sync_point.h"
 
@@ -70,6 +72,7 @@ struct SstFileWriter::Rep {
   uint64_t next_file_number = 1;
   size_t ts_sz;
   bool strip_timestamp;
+  std::unique_ptr<EmbeddedBlobSstBuilderOptions> embedded_blob_options;
 
   Status AddImpl(const Slice& user_key, const Slice& value,
                  ValueType value_type) {
@@ -417,7 +420,8 @@ Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
       unknown_level, kUnknownNewestKeyTime, false /* is_bottommost */,
       TableFileCreationReason::kMisc, 0 /* oldest_key_time */,
       0 /* file_creation_time */, "SST Writer" /* db_id */, r->db_session_id,
-      0 /* target_file_size */, r->next_file_number);
+      0 /* target_file_size */, r->next_file_number, kMaxSequenceNumber,
+      r->embedded_blob_options.get());
   // External SST files used to each get a unique session id. Now for
   // slightly better uniqueness probability in constructing cache keys, we
   // assign fake file numbers to each file (into table properties) and keep
@@ -438,6 +442,37 @@ Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
   r->file_info = ExternalSstFileInfo();
   r->file_info.file_path = file_path;
   r->file_info.version = 2;
+  return s;
+}
+
+Status SstFileWriter::OpenWithEmbeddedBlobs(
+    const std::string& file_path,
+    const SstFileWriterEmbeddedBlobOptions& embedded_blob_options,
+    Temperature temp) {
+  Rep* r = rep_.get();
+  if (r->builder) {
+    return Status::InvalidArgument("File is already opened");
+  }
+
+  const BlockBasedTableOptions* const table_options =
+      r->mutable_cf_options.table_factory == nullptr
+          ? nullptr
+          : r->mutable_cf_options.table_factory
+                ->GetOptions<BlockBasedTableOptions>();
+  if (table_options == nullptr) {
+    return Status::InvalidArgument(
+        "Embedded blob SSTs require block-based table format");
+  }
+  if (!FormatVersionUsesCompressionManagerName(table_options->format_version)) {
+    return Status::InvalidArgument(
+        "Embedded blob SSTs require block-based table format_version >= 7");
+  }
+
+  r->embedded_blob_options.reset(
+      new EmbeddedBlobSstBuilderOptions(embedded_blob_options));
+
+  Status s = Open(file_path, temp);
+  r->embedded_blob_options.reset();
   return s;
 }
 

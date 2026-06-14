@@ -41,6 +41,18 @@ void CorruptPinnedBlobIndexOnCleanup(void* arg1, void* /*arg2*/) {
 
 }  // namespace
 
+TEST(BlobIndexTest, SameFileBlobIndex) {
+  std::string encoded;
+  BlobIndex::EncodeBlob(&encoded, kCurrentFileBlobIndexFileNumber,
+                        /*offset=*/123, /*size=*/456, kNoCompression);
+
+  BlobIndex blob_index;
+  ASSERT_OK(blob_index.DecodeFrom(encoded));
+  EXPECT_TRUE(blob_index.IsSameFile());
+  EXPECT_EQ(blob_index.file_number(), kCurrentFileBlobIndexFileNumber);
+  EXPECT_NE(blob_index.DebugString(false).find("file:same"), std::string::npos);
+}
+
 // kTypeBlobIndex is a value type used by BlobDB only. The base rocksdb
 // should accept the value type on write, and report not supported value
 // for reads, unless caller request for it explicitly. The base rocksdb

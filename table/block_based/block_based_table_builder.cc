@@ -12,6 +12,8 @@
 #include <atomic>
 #include <cassert>
 #include <cstdio>
+#include <cstring>
+#include <deque>
 #include <list>
 #include <map>
 #include <memory>
@@ -25,9 +27,13 @@
 #include "cache/cache_helpers.h"
 #include "cache/cache_key.h"
 #include "cache/cache_reservation_manager.h"
+#include "db/blob/blob_constants.h"
+#include "db/blob/blob_index.h"
 #include "db/dbformat.h"
+#include "db/wide/wide_column_serialization.h"
 #include "index_builder.h"
 #include "logging/logging.h"
+#include "memory/arena.h"
 #include "memory/memory_allocator_impl.h"
 #include "options/options_helper.h"
 #include "rocksdb/cache.h"
@@ -36,8 +42,10 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/sst_file_writer.h"
 #include "rocksdb/table.h"
 #include "rocksdb/types.h"
+#include "rocksdb/wide_columns.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
@@ -50,6 +58,7 @@
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
+#include "test_util/sync_point.h"
 #include "util/bit_fields.h"
 #include "util/coding.h"
 #include "util/compression.h"
@@ -962,6 +971,10 @@ struct BlockBasedTableBuilder::Rep {
   // This is used for logging compaction stats.
   uint64_t pre_compression_size = 0;
 
+  EmbeddedBlobRecordRange embedded_blob_record_range;
+  EmbeddedBlobStats embedded_blob_stats;
+  bool has_embedded_blob_record_range = false;
+
   // See class Footer
   uint32_t base_context_checksum;
 
@@ -1133,25 +1146,26 @@ struct BlockBasedTableBuilder::Rep {
         std::to_string(static_cast<int>(tbo.compression_type)));
     props.compression_options.append("; ");
 
-    auto* mgr = tbo.moptions.compression_manager.get();
-    if (mgr == nullptr) {
+    auto* compression_manager = tbo.moptions.compression_manager.get();
+    if (compression_manager == nullptr) {
       uses_explicit_compression_manager = false;
-      mgr = GetBuiltinV2CompressionManager().get();
+      compression_manager = GetBuiltinV2CompressionManager().get();
     } else {
       uses_explicit_compression_manager = true;
 
       // Stuff some extra debugging info as extra pseudo-options. Using
       // underscore prefix to indicate they are special.
       props.compression_options.append("_compression_manager=");
-      props.compression_options.append(mgr->GetId());
+      props.compression_options.append(compression_manager->GetId());
       props.compression_options.append("; ");
     }
+    assert(compression_manager);
 
     // Sanitize to only allowing compression when it saves space.
     max_compressed_bytes_per_kb =
         std::min(int{1023}, tbo.compression_opts.max_compressed_bytes_per_kb);
 
-    basic_compressor = mgr->GetCompressorForSST(
+    basic_compressor = compression_manager->GetCompressorForSST(
         filter_context, tbo.compression_opts, tbo.compression_type);
     if (basic_compressor) {
       if (table_options.enable_index_compression) {
@@ -1201,7 +1215,7 @@ struct BlockBasedTableBuilder::Rep {
       basic_decompressor = basic_compressor->GetOptimizedDecompressor();
       if (basic_decompressor == nullptr) {
         // Optimized version not available
-        basic_decompressor = mgr->GetDecompressor();
+        basic_decompressor = compression_manager->GetDecompressor();
       }
       create_context.decompressor = basic_decompressor.get();
 
@@ -1390,7 +1404,7 @@ struct BlockBasedTableBuilder::Rep {
     props.key_largest_seqno = 0;
     // Default is UINT64_MAX for unknown.
     props.key_smallest_seqno = UINT64_MAX;
-    PrePopulateCompressionProperties(mgr);
+    PrePopulateCompressionProperties(compression_manager);
 
     if (FormatVersionUsesContextChecksum(table_options.format_version)) {
       // Must be non-zero and semi- or quasi-random
@@ -1431,14 +1445,15 @@ struct BlockBasedTableBuilder::Rep {
   Rep(const Rep&) = delete;
   Rep& operator=(const Rep&) = delete;
 
-  void PrePopulateCompressionProperties(UnownedPtr<CompressionManager> mgr) {
+  void PrePopulateCompressionProperties(
+      UnownedPtr<CompressionManager> compression_manager) {
     if (FormatVersionUsesCompressionManagerName(table_options.format_version)) {
-      assert(mgr);
+      assert(compression_manager);
       // Use newer compression_name property
       props.compression_name.reserve(32);
       // If compression is disabled, use empty manager name
       if (basic_compressor) {
-        props.compression_name.append(mgr->CompatibilityName());
+        props.compression_name.append(compression_manager->CompatibilityName());
       }
       props.compression_name.push_back(';');
       // Rest of property to be filled out at the end of building the file
@@ -1447,7 +1462,7 @@ struct BlockBasedTableBuilder::Rep {
       // building the file. Not compatible with compression managers using
       // custom algorithms / compression types.
       assert(
-          Slice(mgr->CompatibilityName())
+          Slice(compression_manager->CompatibilityName())
               .compare(GetBuiltinV2CompressionManager()->CompatibilityName()) ==
           0);
     }
@@ -2335,6 +2350,45 @@ IOStatus BlockBasedTableBuilder::io_status() const {
 
 bool BlockBasedTableBuilder::ok() const { return rep_->StatusOk(); }
 
+BlockBasedTableBuilder::BorrowedFileWriter
+BlockBasedTableBuilder::BorrowFileWriterForPrefix() const {
+  assert(rep_->state != Rep::State::kClosed);
+  assert(IsEmpty());
+  return {rep_->file, rep_->base_context_checksum};
+}
+
+Status BlockBasedTableBuilder::UnborrowFileWriterForPrefix(
+    const EmbeddedBlobRecordRange& embedded_blob_record_range,
+    const EmbeddedBlobStats& embedded_blob_stats) {
+  assert(rep_->state != Rep::State::kClosed);
+  if (!IsEmpty()) {
+    return Status::InvalidArgument(
+        "Cannot unborrow prefix file writer after adding table entries");
+  }
+
+  const uint64_t file_size = rep_->file->GetFileSize();
+  if (embedded_blob_record_range.HasRecords()) {
+    if (embedded_blob_record_range.offset > file_size ||
+        embedded_blob_record_range.size >
+            file_size - embedded_blob_record_range.offset) {
+      return Status::InvalidArgument(
+          "Embedded blob record range extends past file size");
+    }
+    if (!embedded_blob_stats.HasRecords()) {
+      return Status::InvalidArgument(
+          "Embedded blob records missing stats metadata");
+    }
+    rep_->embedded_blob_record_range = embedded_blob_record_range;
+    rep_->embedded_blob_stats = embedded_blob_stats;
+    rep_->has_embedded_blob_record_range = true;
+  } else if (file_size != 0) {
+    return Status::InvalidArgument(
+        "Prefix file writer has bytes without embedded blob metadata");
+  }
+  rep_->set_offset(file_size);
+  return Status::OK();
+}
+
 Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
     const Slice& block_contents, const BlockHandle* handle,
     BlockType block_type) {
@@ -2582,6 +2636,13 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     rep_->props.user_defined_timestamps_persisted =
         rep_->persist_user_defined_timestamps;
 
+    if (rep_->embedded_blob_stats.HasRecords()) {
+      std::string encoded_stats;
+      EncodeEmbeddedBlobStats(rep_->embedded_blob_stats, &encoded_stats);
+      rep_->props.user_collected_properties[kEmbeddedBlobSstStatsPropertyName] =
+          std::move(encoded_stats);
+    }
+
     rep_->props.num_data_blocks_compression_rejected =
         rep_->num_data_blocks_compression_rejected.LoadRelaxed();
     rep_->props.num_data_blocks_compression_bypassed =
@@ -2656,6 +2717,15 @@ void BlockBasedTableBuilder::WriteRangeDelBlock(
                               &range_del_block_handle,
                               BlockType::kRangeDeletion);
     meta_index_builder->Add(kRangeDelBlockName, range_del_block_handle);
+  }
+}
+
+void BlockBasedTableBuilder::WriteEmbeddedBlobRecordRange(
+    MetaIndexBuilder* meta_index_builder) {
+  if (rep_->has_embedded_blob_record_range) {
+    meta_index_builder->Add(kEmbeddedBlobSstRecordRangeName,
+                            BlockHandle(rep_->embedded_blob_record_range.offset,
+                                        rep_->embedded_blob_record_range.size));
   }
 }
 
@@ -2912,6 +2982,7 @@ Status BlockBasedTableBuilder::Finish() {
   WriteIndexBlock(&meta_index_builder, &index_block_handle);
   WriteCompressionDictBlock(&meta_index_builder);
   WriteRangeDelBlock(&meta_index_builder);
+  WriteEmbeddedBlobRecordRange(&meta_index_builder);
   WritePropertiesBlock(&meta_index_builder);
   if (LIKELY(ok())) {
     // flush the meta index block
@@ -3063,6 +3134,407 @@ void BlockBasedTableBuilder::SetSeqnoTimeTableProperties(
   assert(rep_->props.seqno_to_time_mapping.empty());
   relevant_mapping.EncodeTo(rep_->props.seqno_to_time_mapping);
   rep_->props.creation_time = oldest_ancestor_time;
+}
+
+namespace {
+
+class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
+ public:
+  EmbeddedBlobBlockBasedTableBuilder(
+      const BlockBasedTableOptions& table_options,
+      const TableBuilderOptions& table_builder_options,
+      WritableFileWriter* file,
+      const EmbeddedBlobSstBuilderOptions& embedded_blob_options)
+      : table_builder_(new BlockBasedTableBuilder(table_options,
+                                                  table_builder_options, file)),
+        embedded_blob_options_(embedded_blob_options),
+        write_options_(table_builder_options.write_options),
+        checksum_type_(table_options.checksum) {
+    const auto borrowed = table_builder_->BorrowFileWriterForPrefix();
+    file_writer_ = borrowed.file_writer;
+    base_context_checksum_ = borrowed.base_context_checksum;
+  }
+
+  ~EmbeddedBlobBlockBasedTableBuilder() override {
+    if (!closed_) {
+      status_.PermitUncheckedError();
+      io_status_.PermitUncheckedError();
+    }
+  }
+
+  void Add(const Slice& key, const Slice& value) override {
+    if (!status_.ok()) {
+      return;
+    }
+
+    PendingTableEntry entry;
+    Status s = BuildTableEntry(key, value, &entry);
+    if (!s.ok()) {
+      SetStatus(std::move(s));
+      return;
+    }
+    pending_entries_.emplace_back(std::move(entry));
+  }
+
+  Status status() const override {
+    if (!status_.ok()) {
+      return status_;
+    }
+    return table_builder_->status();
+  }
+
+  IOStatus io_status() const override {
+    if (!io_status_.ok()) {
+      return io_status_;
+    }
+    return table_builder_->io_status();
+  }
+
+  Status Finish() override {
+    if (closed_) {
+      return Status::InvalidArgument("Table builder is already closed");
+    }
+
+    Status s = status();
+    if (!s.ok()) {
+      table_builder_->Abandon();
+      closed_ = true;
+      return s;
+    }
+
+    if (embedded_blob_record_range_.HasRecords()) {
+      s = TEST_AppendIgnorablePrefixBytes(
+          "EmbeddedBlobBlockBasedTableBuilder::AfterBlobRecords");
+    }
+    if (s.ok()) {
+      s = table_builder_->UnborrowFileWriterForPrefix(
+          embedded_blob_record_range_, embedded_blob_stats_);
+    }
+    if (s.ok()) {
+      returned_file_writer_ = true;
+      s = ReplayPendingEntries();
+    }
+
+    if (s.ok()) {
+      s = table_builder_->Finish();
+    } else {
+      table_builder_->Abandon();
+    }
+    closed_ = true;
+    return s;
+  }
+
+  void Abandon() override {
+    if (!closed_) {
+      table_builder_->Abandon();
+      closed_ = true;
+      status_.PermitUncheckedError();
+      io_status_.PermitUncheckedError();
+    }
+    pending_entries_.clear();
+  }
+
+  uint64_t NumEntries() const override {
+    return table_builder_->NumEntries() + pending_entries_.size();
+  }
+
+  bool IsEmpty() const override {
+    return table_builder_->IsEmpty() && pending_entries_.empty();
+  }
+
+  uint64_t PreCompressionSize() const override {
+    return table_builder_->PreCompressionSize();
+  }
+
+  uint64_t FileSize() const override {
+    if (!returned_file_writer_ && file_writer_ != nullptr) {
+      return file_writer_->GetFileSize();
+    }
+    return table_builder_->FileSize();
+  }
+
+  uint64_t EstimatedFileSize() const override { return FileSize(); }
+
+  uint64_t EstimatedTailSize() const override {
+    return table_builder_->EstimatedTailSize();
+  }
+
+  uint64_t GetTailSize() const override {
+    return table_builder_->GetTailSize();
+  }
+
+  bool NeedCompact() const override { return table_builder_->NeedCompact(); }
+
+  TableProperties GetTableProperties() const override {
+    return table_builder_->GetTableProperties();
+  }
+
+  std::string GetFileChecksum() const override {
+    return table_builder_->GetFileChecksum();
+  }
+
+  const char* GetFileChecksumFuncName() const override {
+    return table_builder_->GetFileChecksumFuncName();
+  }
+
+  void SetSeqnoTimeTableProperties(const SeqnoToTimeMapping& relevant_mapping,
+                                   uint64_t oldest_ancestor_time) override {
+    table_builder_->SetSeqnoTimeTableProperties(relevant_mapping,
+                                                oldest_ancestor_time);
+  }
+
+  uint64_t GetWorkerCPUMicros() const override {
+    return table_builder_->GetWorkerCPUMicros();
+  }
+
+ private:
+  struct PendingTableEntry {
+    Slice key;
+    Slice value;
+  };
+
+  void SetStatus(Status&& s) {
+    if (!s.ok() && status_.ok()) {
+      status_ = std::move(s);
+    }
+  }
+
+  void SetIOStatus(IOStatus&& io_s) {
+    if (!io_s.ok() && io_status_.ok()) {
+      io_status_ = std::move(io_s);
+      SetStatus(Status(io_status_));
+    }
+  }
+
+  Status TEST_AppendIgnorablePrefixBytes(const std::string& sync_point) {
+    assert(file_writer_ != nullptr);
+    (void)sync_point;
+
+    std::string bytes;
+    TEST_SYNC_POINT_CALLBACK(sync_point, &bytes);
+    if (bytes.empty()) {
+      return Status::OK();
+    }
+
+    IOOptions opts;
+    Status s = WritableFileWriter::PrepareIOOptions(write_options_, opts);
+    if (!s.ok()) {
+      return s;
+    }
+    IOStatus io_s = file_writer_->Append(opts, bytes);
+    if (!io_s.ok()) {
+      SetIOStatus(std::move(io_s));
+      return io_status_;
+    }
+    return Status::OK();
+  }
+
+  Slice CopySliceToArena(const Slice& value) {
+    if (value.empty()) {
+      return Slice();
+    }
+
+    char* const buffer = pending_entry_arena_.Allocate(value.size());
+    std::memcpy(buffer, value.data(), value.size());
+    return Slice(buffer, value.size());
+  }
+
+  static void UpdateInternalKeyInPlace(Slice* key, uint64_t seq, ValueType t) {
+    assert(key != nullptr);
+    assert(key->size() >= kNumInternalBytes);
+
+    char* const key_data = const_cast<char*>(key->data());
+    EncodeFixed64(key_data + key->size() - kNumInternalBytes, (seq << 8) | t);
+  }
+
+  Status BuildEmbeddedBlobRecord(const Slice& value,
+                                 std::string* encoded_blob_index) {
+    assert(encoded_blob_index != nullptr);
+    assert(file_writer_ != nullptr);
+
+    if (!embedded_blob_record_range_.HasRecords()) {
+      Status s = TEST_AppendIgnorablePrefixBytes(
+          "EmbeddedBlobBlockBasedTableBuilder::BeforeBlobRecords");
+      if (!s.ok()) {
+        return s;
+      }
+    }
+
+    const uint64_t offset = file_writer_->GetFileSize();
+    if (!embedded_blob_record_range_.HasRecords()) {
+      embedded_blob_record_range_.offset = offset;
+    } else if (offset != embedded_blob_record_range_.offset +
+                             embedded_blob_record_range_.size) {
+      return Status::Corruption(
+          "Embedded blob records are not contiguous with file writes");
+    }
+
+    Slice payload = value;
+
+    if (payload.size() > std::numeric_limits<uint64_t>::max() -
+                             kEmbeddedBlobSstRecordTrailerSize) {
+      return Status::InvalidArgument("Embedded blob value is too large");
+    }
+
+    std::array<char, kEmbeddedBlobSstRecordTrailerSize> trailer;
+    const CompressionType actual_compression = kNoCompression;
+    // Placeholder for future embedded blob compression support.
+    trailer[0] = static_cast<char>(actual_compression);
+    uint32_t checksum = ComputeBuiltinChecksumWithLastByte(
+        checksum_type_, payload.data(), payload.size(),
+        /*last_byte*/ trailer[0]);
+    checksum += ChecksumModifierForContext(base_context_checksum_, offset);
+    EncodeFixed32(trailer.data() + 1, checksum);
+
+    IOOptions opts;
+    Status s = WritableFileWriter::PrepareIOOptions(write_options_, opts);
+    if (!s.ok()) {
+      return s;
+    }
+
+    if (!payload.empty()) {
+      IOStatus io_s = file_writer_->Append(opts, payload);
+      if (!io_s.ok()) {
+        SetIOStatus(std::move(io_s));
+        return io_status_;
+      }
+    }
+    IOStatus io_s =
+        file_writer_->Append(opts, Slice(trailer.data(), trailer.size()));
+    if (!io_s.ok()) {
+      SetIOStatus(std::move(io_s));
+      return io_status_;
+    }
+
+    const uint64_t record_size = payload.size() + trailer.size();
+    embedded_blob_record_range_.size += record_size;
+    embedded_blob_stats_.blob_count++;
+    embedded_blob_stats_.payload_bytes += payload.size();
+
+    BlobIndex::EncodeBlob(encoded_blob_index, kCurrentFileBlobIndexFileNumber,
+                          offset, payload.size(), actual_compression);
+    return Status::OK();
+  }
+
+  Status BuildWideColumnEntity(const Slice& value, Slice* entity) {
+    assert(entity != nullptr);
+
+    WideColumns columns;
+    Slice input = value;
+    Status s = WideColumnSerialization::Deserialize(input, columns);
+    if (!s.ok()) {
+      return s;
+    }
+
+    std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+    blob_columns.reserve(columns.size());
+
+    for (size_t column_idx = 0; column_idx < columns.size(); ++column_idx) {
+      const Slice& column_value = columns[column_idx].value();
+      if (column_value.size() < embedded_blob_options_.min_blob_size) {
+        continue;
+      }
+
+      std::string encoded_blob_index;
+      s = BuildEmbeddedBlobRecord(column_value, &encoded_blob_index);
+      if (!s.ok()) {
+        return s;
+      }
+
+      BlobIndex blob_index;
+      s = blob_index.DecodeFrom(encoded_blob_index);
+      if (!s.ok()) {
+        return s;
+      }
+      blob_columns.emplace_back(column_idx, blob_index);
+    }
+
+    if (blob_columns.empty()) {
+      *entity = CopySliceToArena(value);
+      return Status::OK();
+    }
+
+    std::string serialized_entity;
+    s = WideColumnSerialization::SerializeV2(columns, blob_columns,
+                                             serialized_entity);
+    if (!s.ok()) {
+      return s;
+    }
+    *entity = CopySliceToArena(serialized_entity);
+    return Status::OK();
+  }
+
+  Status BuildTableEntry(const Slice& key, const Slice& value,
+                         PendingTableEntry* entry) {
+    assert(entry != nullptr);
+
+    if (key.size() < kNumInternalBytes) {
+      return Status::Corruption(
+          "Embedded blob table builder received malformed internal key");
+    }
+    entry->key = CopySliceToArena(key);
+
+    ValueType value_type;
+    SequenceNumber sequence_number;
+    UnPackSequenceAndType(ExtractInternalKeyFooter(key), &sequence_number,
+                          &value_type);
+
+    if (value_type == kTypeValue &&
+        value.size() >= embedded_blob_options_.min_blob_size) {
+      std::string encoded_blob_index;
+      Status s = BuildEmbeddedBlobRecord(value, &encoded_blob_index);
+      if (s.ok()) {
+        entry->value = CopySliceToArena(encoded_blob_index);
+        UpdateInternalKeyInPlace(&entry->key, sequence_number, kTypeBlobIndex);
+      }
+      return s;
+    }
+
+    if (value_type == kTypeWideColumnEntity) {
+      return BuildWideColumnEntity(value, &entry->value);
+    }
+
+    entry->value = CopySliceToArena(value);
+    return Status::OK();
+  }
+
+  Status ReplayPendingEntries() {
+    for (const PendingTableEntry& entry : pending_entries_) {
+      table_builder_->Add(entry.key, entry.value);
+      Status s = table_builder_->status();
+      if (!s.ok()) {
+        return s;
+      }
+    }
+
+    pending_entries_.clear();
+    return Status::OK();
+  }
+
+  std::unique_ptr<BlockBasedTableBuilder> table_builder_;
+  EmbeddedBlobSstBuilderOptions embedded_blob_options_;
+  WriteOptions write_options_;
+  ChecksumType checksum_type_;
+  WritableFileWriter* file_writer_ = nullptr;
+  uint32_t base_context_checksum_ = 0;
+  EmbeddedBlobRecordRange embedded_blob_record_range_;
+  EmbeddedBlobStats embedded_blob_stats_;
+  Arena pending_entry_arena_;
+  std::deque<PendingTableEntry> pending_entries_;
+  Status status_;
+  IOStatus io_status_;
+  bool returned_file_writer_ = false;
+  bool closed_ = false;
+};
+
+}  // namespace
+
+TableBuilder* NewEmbeddedBlobBlockBasedTableBuilder(
+    const BlockBasedTableOptions& table_options,
+    const TableBuilderOptions& table_builder_options, WritableFileWriter* file,
+    const EmbeddedBlobSstBuilderOptions& embedded_blob_options) {
+  return new EmbeddedBlobBlockBasedTableBuilder(
+      table_options, table_builder_options, file, embedded_blob_options);
 }
 
 const std::string BlockBasedTable::kObsoleteFilterBlockPrefix = "filter.";

@@ -8,7 +8,132 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/block_based_table_iterator.h"
 
+#include "db/blob/blob_index.h"
+#include "db/dbformat.h"
+
 namespace ROCKSDB_NAMESPACE {
+
+void BlockBasedTableIterator::ResetEmbeddedValueState() {
+  assert(resolve_embedded_values_);
+  embedded_value_status_.PermitUncheckedError();
+  embedded_value_status_ = Status::OK();
+  embedded_source_key_.clear();
+  embedded_resolved_internal_key_.clear();
+  embedded_resolved_value_.clear();
+  embedded_key_prepared_ = false;
+  embedded_value_prepared_ = false;
+  embedded_key_resolved_ = false;
+  embedded_value_resolved_ = false;
+}
+
+void BlockBasedTableIterator::MaybeResetEmbeddedValueState() {
+  assert(resolve_embedded_values_);
+  if (embedded_key_prepared_ || embedded_value_prepared_ ||
+      embedded_key_resolved_ || embedded_value_resolved_ ||
+      !embedded_value_status_.ok()) {
+    ResetEmbeddedValueState();
+  }
+}
+
+bool BlockBasedTableIterator::ShouldResolveEmbeddedValues() const {
+  return resolve_embedded_values_ && !is_at_first_key_from_index_ &&
+         block_iter_points_to_real_block_ && block_iter_.Valid();
+}
+
+bool BlockBasedTableIterator::EmbeddedStateMatchesCurrentEntry() const {
+  return !embedded_source_key_.empty() &&
+         Slice(embedded_source_key_) == block_iter_.key();
+}
+
+bool BlockBasedTableIterator::PrepareEmbeddedKey() {
+  if (!ShouldResolveEmbeddedValues()) {
+    return true;
+  }
+
+  const Slice current_key = block_iter_.key();
+  if (ExtractValueType(current_key) != kTypeBlobIndex) {
+    return true;
+  }
+
+  if (embedded_key_prepared_ && EmbeddedStateMatchesCurrentEntry()) {
+    return embedded_value_status_.ok();
+  }
+
+  MaybeResetEmbeddedValueState();
+  embedded_source_key_ = current_key.ToString();
+  embedded_key_prepared_ = true;
+
+  ParsedInternalKey parsed_key;
+  embedded_value_status_ =
+      ParseInternalKey(current_key, &parsed_key, false /* log_err_key */);
+  if (!embedded_value_status_.ok()) {
+    return false;
+  }
+  if (parsed_key.type != kTypeBlobIndex) {
+    return true;
+  }
+
+  BlobIndex blob_index;
+  embedded_value_status_ = blob_index.DecodeFrom(block_iter_.value());
+  if (!embedded_value_status_.ok()) {
+    return false;
+  }
+  if (!blob_index.IsSameFile()) {
+    return true;
+  }
+
+  InternalKey resolved_key(parsed_key.user_key, parsed_key.sequence,
+                           kTypeValue);
+  const Slice encoded_resolved_key = resolved_key.Encode();
+  embedded_resolved_internal_key_.assign(encoded_resolved_key.data(),
+                                         encoded_resolved_key.size());
+  embedded_key_resolved_ = true;
+  return true;
+}
+
+bool BlockBasedTableIterator::PrepareEmbeddedValue() {
+  if (!ShouldResolveEmbeddedValues()) {
+    return true;
+  }
+
+  const Slice current_key = block_iter_.key();
+  const ValueType value_type = ExtractValueType(current_key);
+  if (value_type != kTypeBlobIndex && value_type != kTypeWideColumnEntity) {
+    return true;
+  }
+
+  if (value_type == kTypeBlobIndex && !PrepareEmbeddedKey()) {
+    return false;
+  }
+  if (embedded_value_prepared_ && EmbeddedStateMatchesCurrentEntry()) {
+    return embedded_value_status_.ok();
+  }
+
+  std::string resolved_key;
+  std::string resolved_value;
+  bool resolved = false;
+  embedded_value_status_ = table_->MaybeResolveEmbeddedValue(
+      read_options_, current_key, block_iter_.value(), &resolved_key,
+      &resolved_value, &resolved);
+  embedded_value_prepared_ = true;
+  if (!embedded_value_status_.ok()) {
+    return false;
+  }
+  if (!resolved) {
+    return true;
+  }
+
+  if (embedded_source_key_.empty()) {
+    embedded_source_key_ = current_key.ToString();
+  }
+  if (!resolved_key.empty()) {
+    embedded_resolved_internal_key_ = std::move(resolved_key);
+    embedded_key_resolved_ = true;
+  }
+  embedded_resolved_value_ = std::move(resolved_value);
+  embedded_value_resolved_ = true;
+  return true;
+}
 
 void BlockBasedTableIterator::SeekToFirst() { SeekImpl(nullptr, false); }
 
@@ -17,6 +142,9 @@ void BlockBasedTableIterator::Seek(const Slice& target) {
 }
 
 void BlockBasedTableIterator::SeekSecondPass(const Slice* target) {
+  if (resolve_embedded_values_) {
+    MaybeResetEmbeddedValueState();
+  }
   AsyncInitDataBlock(/*is_first_pass=*/false);
 
   if (target) {
@@ -35,6 +163,9 @@ void BlockBasedTableIterator::SeekSecondPass(const Slice* target) {
 
 void BlockBasedTableIterator::SeekImpl(const Slice* target,
                                        bool async_prefetch) {
+  if (resolve_embedded_values_) {
+    MaybeResetEmbeddedValueState();
+  }
   // TODO(hx235): set `seek_key_prefix_for_readahead_trimming_`
   // even when `target == nullptr` that is when `SeekToFirst()` is called
   if (!multi_scan_status_.ok()) {
@@ -205,6 +336,9 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
 }
 
 void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
+  if (resolve_embedded_values_) {
+    MaybeResetEmbeddedValueState();
+  }
   ResetMultiScan();
   direction_ = IterDirection::kBackward;
   ResetBlockCacheLookupVar();
@@ -280,6 +414,9 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
 }
 
 void BlockBasedTableIterator::SeekToLast() {
+  if (resolve_embedded_values_) {
+    MaybeResetEmbeddedValueState();
+  }
   ResetMultiScan();
   direction_ = IterDirection::kBackward;
   ResetBlockCacheLookupVar();
@@ -310,6 +447,9 @@ void BlockBasedTableIterator::Next() {
     return;
   }
   assert(block_iter_points_to_real_block_);
+  if (resolve_embedded_values_) {
+    MaybeResetEmbeddedValueState();
+  }
   block_iter_.Next();
   FindKeyForward();
   CheckOutOfBound();
@@ -327,6 +467,9 @@ bool BlockBasedTableIterator::NextAndGetResult(IterateResult* result) {
 }
 
 void BlockBasedTableIterator::Prev() {
+  if (resolve_embedded_values_) {
+    MaybeResetEmbeddedValueState();
+  }
   if ((readahead_cache_lookup_ && !IsIndexAtCurr()) || multi_scan_read_set_) {
     ResetMultiScan();
     // In case of readahead_cache_lookup_, index_iter_ has moved forward. So we

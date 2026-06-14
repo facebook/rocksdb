@@ -671,17 +671,33 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
 
         // Call the *saver function on each entry/block until it returns false
         for (; biter->status().ok() && biter->Valid(); biter->Next()) {
+          Slice key_to_save = biter->key();
+          Slice value_to_save = biter->value();
+          std::string resolved_key;
+          std::string resolved_value;
+          bool resolved = false;
+          s = MaybeResolveEmbeddedValue(read_options, biter->key(),
+                                        biter->value(), &resolved_key,
+                                        &resolved_value, &resolved);
+          if (!s.ok()) {
+            break;
+          }
+          if (resolved) {
+            key_to_save = Slice(resolved_key);
+            value_to_save = Slice(resolved_value);
+          }
+
           ParsedInternalKey parsed_key;
           Status pik_status = ParseInternalKey(
-              biter->key(), &parsed_key, false /* log_err_key */);  // TODO
+              key_to_save, &parsed_key, false /* log_err_key */);  // TODO
           if (!pik_status.ok()) {
             s = pik_status;
             break;
           }
           Status read_status;
           bool ret = get_context->SaveValue(
-              parsed_key, biter->value(), &matched, &read_status,
-              value_pinner ? value_pinner : nullptr);
+              parsed_key, value_to_save, &matched, &read_status,
+              resolved ? nullptr : (value_pinner ? value_pinner : nullptr));
           if (!read_status.ok()) {
             s = read_status;
             break;

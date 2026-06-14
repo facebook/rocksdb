@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
@@ -27,6 +28,7 @@
 #include "table/block_based/cachable_entry.h"
 #include "table/block_based/filter_block.h"
 #include "table/block_based/uncompression_dict_reader.h"
+#include "table/embedded_blob_sst.h"
 #include "table/format.h"
 #include "table/persistent_cache_options.h"
 #include "table/table_properties_internal.h"
@@ -51,6 +53,7 @@ class FSRandomAccessFile;
 class TableCache;
 class TableReader;
 class WritableFile;
+class BlobIndex;
 struct BlockBasedTableOptions;
 struct EnvOptions;
 struct ReadOptions;
@@ -202,6 +205,19 @@ class BlockBasedTable : public TableReader {
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
+
+  bool HasEmbeddedBlobRecords() const;
+
+  Status ResolveEmbeddedBlob(const ReadOptions& read_options,
+                             const BlobIndex& blob_index,
+                             std::string* value) const;
+
+  Status MaybeResolveEmbeddedValue(const ReadOptions& read_options,
+                                   const Slice& internal_key,
+                                   const Slice& value,
+                                   std::string* resolved_internal_key,
+                                   std::string* resolved_value,
+                                   bool* resolved) const;
 
   Status MultiGetFilter(const ReadOptions& read_options,
                         const SliceTransform* prefix_extractor,
@@ -566,6 +582,7 @@ class BlockBasedTable : public TableReader {
                              FilePrefetchBuffer* prefetch_buffer,
                              InternalIterator* meta_iter,
                              const SequenceNumber largest_seqno);
+  Status ReadEmbeddedBlobRecordRange(InternalIterator* meta_iter);
   Status ReadRangeDelBlock(const ReadOptions& ro,
                            FilePrefetchBuffer* prefetch_buffer,
                            InternalIterator* meta_iter,
@@ -756,6 +773,8 @@ struct BlockBasedTable::Rep {
 
   // If true, then data blocks have keys and values separated.
   bool separate_key_value_in_data_block = false;
+  EmbeddedBlobRecordRange embedded_blob_record_range;
+  bool has_embedded_blob_record_range = false;
 
   // Whether block checksums in metadata blocks were verified on open.
   // This is only to mostly maintain current dubious behavior of VerifyChecksum

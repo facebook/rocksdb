@@ -22,9 +22,11 @@
 #include "block_cache.h"
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
+#include "db/blob/blob_index.h"
 #include "db/compaction/compaction_picker.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
+#include "db/wide/wide_column_serialization.h"
 #include "file/file_prefetch_buffer.h"
 #include "file/file_util.h"
 #include "file/random_access_file_reader.h"
@@ -61,6 +63,7 @@
 #include "table/block_based/partitioned_index_reader.h"
 #include "table/block_based/user_defined_index_wrapper.h"
 #include "table/block_fetcher.h"
+#include "table/embedded_blob_sst.h"
 #include "table/format.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
@@ -975,6 +978,10 @@ Status BlockBasedTable::Open(
   if (!s.ok()) {
     return s;
   }
+  s = new_table->ReadEmbeddedBlobRecordRange(metaindex_iter.get());
+  if (!s.ok()) {
+    return s;
+  }
 
   // Read compression metadata and configure decompressor
   s = GetDecompressor(
@@ -1277,7 +1284,6 @@ Status BlockBasedTable::ReadPropertiesBlock(
   if (max_ts_pos != props.end()) {
     rep_->max_timestamp = Slice(max_ts_pos->second);
   }
-
   rep_->index_has_first_key =
       rep_->index_type == BlockBasedTableOptions::kBinarySearchWithFirstKey;
 
@@ -1287,6 +1293,221 @@ Status BlockBasedTable::ReadPropertiesBlock(
     ROCKS_LOG_ERROR(rep_->ioptions.logger, "%s", s.ToString().c_str());
   }
   return s;
+}
+
+Status BlockBasedTable::ReadEmbeddedBlobRecordRange(
+    InternalIterator* meta_iter) {
+  BlockHandle handle;
+  Status s = FindOptionalMetaBlock(meta_iter, kEmbeddedBlobSstRecordRangeName,
+                                   &handle);
+  if (!s.ok() || handle.IsNull()) {
+    return s;
+  }
+
+  if (handle.size() == 0) {
+    return Status::Corruption("Embedded blob record range is empty");
+  }
+  if (handle.offset() > rep_->file_size ||
+      handle.size() > rep_->file_size - handle.offset()) {
+    return Status::Corruption(
+        "Embedded blob record range extends past table file size");
+  }
+
+  rep_->embedded_blob_record_range = {handle.offset(), handle.size()};
+  rep_->has_embedded_blob_record_range = true;
+  return Status::OK();
+}
+
+bool BlockBasedTable::HasEmbeddedBlobRecords() const {
+  return rep_->has_embedded_blob_record_range;
+}
+
+Status BlockBasedTable::ResolveEmbeddedBlob(const ReadOptions& read_options,
+                                            const BlobIndex& blob_index,
+                                            std::string* value) const {
+  assert(value != nullptr);
+  if (!blob_index.IsSameFile()) {
+    return Status::InvalidArgument("Blob index does not reference this file");
+  }
+  if (blob_index.HasTTL()) {
+    return Status::Corruption(
+        "Embedded blob index must not contain TTL metadata");
+  }
+  if (!rep_->has_embedded_blob_record_range) {
+    return Status::Corruption(
+        "Same-file blob index found without embedded blob record range");
+  }
+  if (read_options.read_tier == kBlockCacheTier) {
+    return Status::Incomplete(
+        "Cannot read embedded blob in block-cache-only mode");
+  }
+
+  const uint64_t payload_size_u64 = blob_index.size();
+  if (payload_size_u64 >
+      static_cast<uint64_t>(std::numeric_limits<size_t>::max()) -
+          kEmbeddedBlobSstRecordTrailerSize) {
+    return Status::Corruption("Embedded blob record is too large");
+  }
+  if (!rep_->embedded_blob_record_range.ContainsRecord(blob_index.offset(),
+                                                       payload_size_u64)) {
+    return Status::Corruption(
+        "Embedded blob index is outside blob record range");
+  }
+
+  const size_t payload_size = static_cast<size_t>(payload_size_u64);
+  const size_t record_size = payload_size + kEmbeddedBlobSstRecordTrailerSize;
+  std::string scratch(record_size, '\0');
+  Slice result;
+
+  IOOptions opts;
+  IODebugContext dbg;
+  Status s = rep_->file->PrepareIOOptions(read_options, opts, &dbg);
+  if (s.ok()) {
+    s = rep_->file->Read(opts, blob_index.offset(), record_size, &result,
+                         scratch.data(), nullptr, &dbg);
+  }
+  if (!s.ok()) {
+    return s;
+  }
+  if (result.size() != record_size) {
+    return Status::Corruption("Could not read complete embedded blob record");
+  }
+
+  const char* record = result.data();
+  const CompressionType compression =
+      static_cast<CompressionType>(record[payload_size]);
+  if (compression != blob_index.compression()) {
+    return Status::Corruption(
+        "Embedded blob record compression does not match blob index");
+  }
+
+  if (read_options.verify_checksums) {
+    uint32_t stored = DecodeFixed32(record + payload_size + 1);
+    stored -= ChecksumModifierForContext(rep_->footer.base_context_checksum(),
+                                         blob_index.offset());
+    const uint32_t computed =
+        ComputeBuiltinChecksumWithLastByte(rep_->footer.checksum_type(), record,
+                                           payload_size, record[payload_size]);
+    if (stored != computed) {
+      return Status::Corruption("Embedded blob record checksum mismatch in " +
+                                rep_->file->file_name() + " offset " +
+                                std::to_string(blob_index.offset()) + " size " +
+                                std::to_string(payload_size));
+    }
+  }
+
+  if (compression != kNoCompression) {
+    return Status::Corruption(
+        "Embedded blob record compression is not supported");
+  }
+  value->assign(record, payload_size);
+  return Status::OK();
+}
+
+Status BlockBasedTable::MaybeResolveEmbeddedValue(
+    const ReadOptions& read_options, const Slice& internal_key,
+    const Slice& value, std::string* resolved_internal_key,
+    std::string* resolved_value, bool* resolved) const {
+  assert(resolved_internal_key != nullptr);
+  assert(resolved_value != nullptr);
+  assert(resolved != nullptr);
+
+  *resolved = false;
+  if (!rep_->has_embedded_blob_record_range) {
+    return Status::OK();
+  }
+
+  ParsedInternalKey parsed_key;
+  Status s =
+      ParseInternalKey(internal_key, &parsed_key, false /* log_err_key */);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (parsed_key.type == kTypeBlobIndex) {
+    BlobIndex blob_index;
+    s = blob_index.DecodeFrom(value);
+    if (!s.ok() || !blob_index.IsSameFile()) {
+      return s;
+    }
+
+    s = ResolveEmbeddedBlob(read_options, blob_index, resolved_value);
+    if (!s.ok()) {
+      return s;
+    }
+
+    InternalKey resolved_key(parsed_key.user_key, parsed_key.sequence,
+                             kTypeValue);
+    const Slice encoded_resolved_key = resolved_key.Encode();
+    resolved_internal_key->assign(encoded_resolved_key.data(),
+                                  encoded_resolved_key.size());
+    *resolved = true;
+    return Status::OK();
+  }
+
+  if (parsed_key.type != kTypeWideColumnEntity) {
+    return Status::OK();
+  }
+
+  bool has_blob_columns = false;
+  s = WideColumnSerialization::HasBlobColumns(value, has_blob_columns);
+  if (!s.ok() || !has_blob_columns) {
+    return s;
+  }
+
+  Slice entity(value);
+  std::vector<WideColumn> columns;
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+  s = WideColumnSerialization::DeserializeV2(entity, columns, blob_columns);
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::vector<std::pair<std::string, std::string>> rewritten_columns;
+  rewritten_columns.reserve(columns.size());
+  for (const WideColumn& column : columns) {
+    rewritten_columns.emplace_back(column.name().ToString(),
+                                   column.value().ToString());
+  }
+
+  std::vector<std::pair<size_t, BlobIndex>> remaining_blob_columns;
+  remaining_blob_columns.reserve(blob_columns.size());
+  for (const auto& blob_column : blob_columns) {
+    const size_t column_index = blob_column.first;
+    const BlobIndex& blob_index = blob_column.second;
+    if (!blob_index.IsSameFile()) {
+      remaining_blob_columns.emplace_back(blob_column);
+      continue;
+    }
+    if (column_index >= rewritten_columns.size()) {
+      return Status::Corruption("Wide-column blob index out of range");
+    }
+
+    s = ResolveEmbeddedBlob(read_options, blob_index,
+                            &rewritten_columns[column_index].second);
+    if (!s.ok()) {
+      return s;
+    }
+    *resolved = true;
+  }
+
+  if (!*resolved) {
+    return Status::OK();
+  }
+
+  resolved_internal_key->assign(internal_key.data(), internal_key.size());
+  resolved_value->clear();
+  if (!remaining_blob_columns.empty()) {
+    return WideColumnSerialization::SerializeV2(
+        rewritten_columns, remaining_blob_columns, *resolved_value);
+  }
+
+  WideColumns resolved_columns;
+  resolved_columns.reserve(rewritten_columns.size());
+  for (const auto& column : rewritten_columns) {
+    resolved_columns.emplace_back(column.first, column.second);
+  }
+  return WideColumnSerialization::Serialize(resolved_columns, *resolved_value);
 }
 
 Status BlockBasedTable::ReadRangeDelBlock(
@@ -2739,9 +2960,25 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       } else {
         // Call the *saver function on each entry/block until it returns false
         for (; biter.Valid(); biter.Next()) {
+          Slice key_to_save = biter.key();
+          Slice value_to_save = biter.value();
+          std::string resolved_key;
+          std::string resolved_value;
+          bool resolved = false;
+          s = MaybeResolveEmbeddedValue(read_options, biter.key(),
+                                        biter.value(), &resolved_key,
+                                        &resolved_value, &resolved);
+          if (!s.ok()) {
+            break;
+          }
+          if (resolved) {
+            key_to_save = Slice(resolved_key);
+            value_to_save = Slice(resolved_value);
+          }
+
           ParsedInternalKey parsed_key;
           Status pik_status = ParseInternalKey(
-              biter.key(), &parsed_key, false /* log_err_key */);  // TODO
+              key_to_save, &parsed_key, false /* log_err_key */);  // TODO
           if (!pik_status.ok()) {
             s = pik_status;
             break;
@@ -2749,8 +2986,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
 
           Status read_status;
           bool ret = get_context->SaveValue(
-              parsed_key, biter.value(), &matched, &read_status,
-              biter.IsValuePinned() ? &biter : nullptr);
+              parsed_key, value_to_save, &matched, &read_status,
+              resolved ? nullptr : (biter.IsValuePinned() ? &biter : nullptr));
           if (!read_status.ok()) {
             s = read_status;
             break;
@@ -3053,6 +3290,9 @@ Status BlockBasedTable::VerifyChecksumInMetaBlocks(
                                     nullptr /* prefetch_buffer */, rep_->footer,
                                     rep_->ioptions, &table_properties,
                                     nullptr /* memory_allocator */);
+    } else if (meta_block_name == kEmbeddedBlobSstRecordRangeName) {
+      // This metaindex entry is a locator for raw embedded blob records, not a
+      // block with a block trailer.
     } else if (rep_->verify_checksum_set_on_open &&
                meta_block_name == kIndexBlockName) {
       // WART: For now, to maintain similar I/O behavior as before

@@ -151,6 +151,24 @@ TEST(BlobGarbageMeterTest, PlainValue) {
   ASSERT_TRUE(blob_garbage_meter.flows().empty());
 }
 
+TEST(BlobGarbageMeterTest, SameFileBlobIndex) {
+  constexpr char user_key[] = "user_key";
+  constexpr SequenceNumber seq = 123;
+
+  const InternalKey key(user_key, seq, kTypeBlobIndex);
+  const Slice key_slice = key.Encode();
+
+  std::string value;
+  BlobIndex::EncodeBlob(&value, kCurrentFileBlobIndexFileNumber,
+                        /*offset=*/123, /*size=*/456, kNoCompression);
+
+  BlobGarbageMeter blob_garbage_meter;
+
+  ASSERT_OK(blob_garbage_meter.ProcessInFlow(key_slice, value));
+  ASSERT_OK(blob_garbage_meter.ProcessOutFlow(key_slice, value));
+  ASSERT_TRUE(blob_garbage_meter.flows().empty());
+}
+
 TEST(BlobGarbageMeterTest, CorruptInternalKey) {
   constexpr char corrupt_key[] = "i_am_corrupt";
   const Slice key_slice(corrupt_key);

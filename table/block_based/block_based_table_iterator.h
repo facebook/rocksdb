@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 #include <deque>
+#include <string>
 
 #include "db/seqno_to_time_mapping.h"
 #include "rocksdb/io_dispatcher.h"
@@ -39,6 +40,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         pinned_iters_mgr_(nullptr),
         prefix_extractor_(prefix_extractor),
         lookup_context_(caller),
+        resolve_embedded_values_(caller != TableReaderCaller::kSSTDumpTool &&
+                                 table_->HasEmbeddedBlobRecords()),
         block_prefetcher_(
             compaction_readahead_size,
             table_->get_rep()->table_options.initial_auto_readahead_size),
@@ -51,7 +54,10 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     multi_scan_status_.PermitUncheckedError();
   }
 
-  ~BlockBasedTableIterator() override { ClearBlockHandles(); }
+  ~BlockBasedTableIterator() override {
+    embedded_value_status_.PermitUncheckedError();
+    ClearBlockHandles();
+  }
 
   void Seek(const Slice& target) override;
   void SeekForPrev(const Slice& target) override;
@@ -62,6 +68,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   void Prev() override;
   bool Valid() const override {
     return !is_out_of_bound_ && multi_scan_status_.ok() &&
+           (!resolve_embedded_values_ || embedded_value_status_.ok()) &&
            (is_at_first_key_from_index_ ||
             (block_iter_points_to_real_block_ && block_iter_.Valid()));
   }
@@ -76,6 +83,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       assert(!multi_scan_read_set_);
       return index_iter_->value().first_internal_key;
     } else {
+      if (resolve_embedded_values_ &&
+          const_cast<BlockBasedTableIterator*>(this)->PrepareEmbeddedKey() &&
+          embedded_key_resolved_) {
+        return Slice(embedded_resolved_internal_key_);
+      }
       return block_iter_.key();
     }
   }
@@ -84,7 +96,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     if (is_at_first_key_from_index_) {
       return ExtractUserKey(index_iter_->value().first_internal_key);
     } else {
-      return block_iter_.user_key();
+      return ExtractUserKey(key());
     }
   }
 
@@ -92,11 +104,17 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     assert(Valid());
 
     if (!is_at_first_key_from_index_) {
-      return true;
+      return !resolve_embedded_values_ ||
+             const_cast<BlockBasedTableIterator*>(this)->PrepareEmbeddedValue();
     }
 
-    return const_cast<BlockBasedTableIterator*>(this)
-        ->MaterializeCurrentBlock();
+    if (!const_cast<BlockBasedTableIterator*>(this)
+             ->MaterializeCurrentBlock()) {
+      return false;
+    }
+
+    return !resolve_embedded_values_ ||
+           const_cast<BlockBasedTableIterator*>(this)->PrepareEmbeddedValue();
   }
 
   uint64_t write_unix_time() const override {
@@ -137,11 +155,18 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       seek_stat_state_ = kDataBlockReadSinceLastSeek;
     }
 
+    if (resolve_embedded_values_ &&
+        const_cast<BlockBasedTableIterator*>(this)->PrepareEmbeddedValue() &&
+        embedded_value_resolved_) {
+      return Slice(embedded_resolved_value_);
+    }
     return block_iter_.value();
   }
   Status status() const override {
     if (!multi_scan_status_.ok()) {
       return multi_scan_status_;
+    } else if (resolve_embedded_values_ && !embedded_value_status_.ok()) {
+      return embedded_value_status_;
     }
     // In case of block cache readahead lookup, it won't add the block to
     // block_handles if it's index is invalid. So index_iter_->status check can
@@ -179,6 +204,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   bool IsKeyPinned() const override {
     // Our key comes either from block_iter_'s current key
     // or index_iter_'s current *value*.
+    if (resolve_embedded_values_ && embedded_key_resolved_) {
+      return false;
+    }
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
            ((is_at_first_key_from_index_ && index_iter_->IsValuePinned()) ||
             (block_iter_points_to_real_block_ && block_iter_.IsKeyPinned()));
@@ -188,11 +216,17 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     assert(Valid());
 
     // BlockIter::IsValuePinned() is always true. No need to check
+    if (resolve_embedded_values_ && embedded_value_resolved_) {
+      return false;
+    }
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
            block_iter_points_to_real_block_;
   }
 
   void ResetDataIter() {
+    if (resolve_embedded_values_) {
+      MaybeResetEmbeddedValueState();
+    }
     if (block_iter_points_to_real_block_) {
       if (pinned_iters_mgr_ != nullptr && pinned_iters_mgr_->PinningEnabled()) {
         block_iter_.DelegateCleanupsTo(pinned_iters_mgr_);
@@ -324,6 +358,15 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   const SliceTransform* prefix_extractor_;
   uint64_t prev_block_offset_ = std::numeric_limits<uint64_t>::max();
   BlockCacheLookupContext lookup_context_;
+  const bool resolve_embedded_values_;
+  mutable Status embedded_value_status_;
+  std::string embedded_source_key_;
+  std::string embedded_resolved_internal_key_;
+  std::string embedded_resolved_value_;
+  bool embedded_key_prepared_ = false;
+  bool embedded_value_prepared_ = false;
+  bool embedded_key_resolved_ = false;
+  bool embedded_value_resolved_ = false;
 
   BlockPrefetcher block_prefetcher_;
 
@@ -420,6 +463,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   void InitDataBlock();
   void AsyncInitDataBlock(bool is_first_pass);
   bool MaterializeCurrentBlock();
+  void ResetEmbeddedValueState();
+  void MaybeResetEmbeddedValueState();
+  bool ShouldResolveEmbeddedValues() const;
+  bool EmbeddedStateMatchesCurrentEntry() const;
+  bool PrepareEmbeddedKey();
+  bool PrepareEmbeddedValue();
   void FindKeyForward();
   void FindBlockForward();
   void FindKeyBackward();

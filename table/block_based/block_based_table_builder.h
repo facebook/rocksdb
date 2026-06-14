@@ -12,6 +12,7 @@
 
 #include <array>
 #include <limits>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -38,6 +39,11 @@ extern const uint64_t kBlockBasedTableMagicNumber;
 
 class BlockBasedTableBuilder : public TableBuilder {
  public:
+  struct BorrowedFileWriter {
+    WritableFileWriter* file_writer = nullptr;
+    uint32_t base_context_checksum = 0;
+  };
+
   // Create a builder that will store the contents of the table it is
   // building in *file.  Does not close the file.  It is up to the
   // caller to close the file after calling Finish().
@@ -117,6 +123,11 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   uint64_t GetWorkerCPUMicros() const override;
 
+  BorrowedFileWriter BorrowFileWriterForPrefix() const;
+  Status UnborrowFileWriterForPrefix(
+      const EmbeddedBlobRecordRange& embedded_blob_record_range,
+      const EmbeddedBlobStats& embedded_blob_stats);
+
 #ifndef NDEBUG
   // Test-only: inject an IOError into the builder's status.
   void TEST_InjectIOError();
@@ -176,6 +187,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   void WritePropertiesBlock(MetaIndexBuilder* meta_index_builder);
   void WriteCompressionDictBlock(MetaIndexBuilder* meta_index_builder);
   void WriteRangeDelBlock(MetaIndexBuilder* meta_index_builder);
+  void WriteEmbeddedBlobRecordRange(MetaIndexBuilder* meta_index_builder);
   void WriteFooter(BlockHandle& metaindex_block_handle,
                    BlockHandle& index_block_handle);
 
@@ -215,5 +227,10 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Stop worker threads for parallel compression
   void StopParallelCompression(bool abort);
 };
+
+TableBuilder* NewEmbeddedBlobBlockBasedTableBuilder(
+    const BlockBasedTableOptions& table_options,
+    const TableBuilderOptions& table_builder_options, WritableFileWriter* file,
+    const EmbeddedBlobSstBuilderOptions& embedded_blob_options);
 
 }  // namespace ROCKSDB_NAMESPACE
