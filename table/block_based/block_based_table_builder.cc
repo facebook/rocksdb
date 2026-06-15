@@ -3157,13 +3157,12 @@ class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
 
   ~EmbeddedBlobBlockBasedTableBuilder() override {
     if (!closed_) {
-      status_.PermitUncheckedError();
       io_status_.PermitUncheckedError();
     }
   }
 
   void Add(const Slice& key, const Slice& value) override {
-    if (!status_.ok()) {
+    if (!io_status_.ok()) {
       return;
     }
 
@@ -3177,8 +3176,8 @@ class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
   }
 
   Status status() const override {
-    if (!status_.ok()) {
-      return status_;
+    if (!io_status_.ok()) {
+      return io_status_;
     }
     return table_builder_->status();
   }
@@ -3228,7 +3227,6 @@ class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
     if (!closed_) {
       table_builder_->Abandon();
       closed_ = true;
-      status_.PermitUncheckedError();
       io_status_.PermitUncheckedError();
     }
     pending_entries_.clear();
@@ -3294,15 +3292,14 @@ class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
   };
 
   void SetStatus(Status&& s) {
-    if (!s.ok() && status_.ok()) {
-      status_ = std::move(s);
+    if (!s.ok() && io_status_.ok()) {
+      io_status_ = status_to_io_status(std::move(s));
     }
   }
 
   void SetIOStatus(IOStatus&& io_s) {
     if (!io_s.ok() && io_status_.ok()) {
       io_status_ = std::move(io_s);
-      SetStatus(Status(io_status_));
     }
   }
 
@@ -3521,7 +3518,6 @@ class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
   EmbeddedBlobStats embedded_blob_stats_;
   Arena pending_entry_arena_;
   std::deque<PendingTableEntry> pending_entries_;
-  Status status_;
   IOStatus io_status_;
   bool returned_file_writer_ = false;
   bool closed_ = false;
