@@ -6982,6 +6982,8 @@ Status DBImpl::CommitFileIngestionHandles(
   std::vector<ExternalSstFileIngestionJob*> ingestion_jobs;
   const bool fill_cache =
       static_cast<FileIngestionHandleImpl*>(handles[0].get())->fill_cache_;
+  int max_file_opening_threads = 1;
+
   {
     UnorderedMap<ColumnFamilyData*, ExternalSstFileIngestionJob*>
         primary_job_for_cfd;
@@ -7003,6 +7005,8 @@ Status DBImpl::CommitFileIngestionHandles(
 
       hs.push_back(h);
       for (auto& job : h->jobs_) {
+        max_file_opening_threads =
+            std::max(max_file_opening_threads, job.file_opening_threads());
         auto [it, inserted] =
             primary_job_for_cfd.try_emplace(job.GetColumnFamilyData(), &job);
         if (inserted) {
@@ -7180,9 +7184,11 @@ Status DBImpl::CommitFileIngestionHandles(
         }
         assert(0 == num_entries);
       }
-      status =
-          versions_->LogAndApply(cfds_to_commit, read_options, write_options,
-                                 edit_lists, &mutex_, directories_.GetDbDir());
+      status = versions_->LogAndApply(
+          cfds_to_commit, read_options, write_options, edit_lists, &mutex_,
+          directories_.GetDbDir(), false /* new_descriptor_log */,
+          nullptr /* new_cf_options */, {} /* manifest_wcbs */, {} /* pre_cb */,
+          max_file_opening_threads);
       // It is safe to update VersionSet last seqno here after LogAndApply since
       // LogAndApply persists last sequence number from VersionEdits,
       // which are from file's largest seqno and not from VersionSet.

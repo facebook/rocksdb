@@ -2952,6 +2952,11 @@ struct IngestExternalFileOptions {
   // ingestion options.
   bool fill_cache = true;
 
+  // Maximum number of threads used to open table readers for the files being
+  // ingested during commit, can speed up ingestion performance, when ingesting
+  // multiple files at once.
+  int file_opening_threads = 1;
+
   bool operator==(const IngestExternalFileOptions& rhs) const = default;
 };
 
