@@ -461,6 +461,13 @@ class StackableDB : public DB {
     return db_->GetLiveFilesStorageInfo(opts, files);
   }
 
+  Status GetPreparedFileInfoForExternalSstIngestion(
+      const std::string& file_path,
+      std::shared_ptr<const PreparedFileInfo>* file_info) override {
+    return db_->GetPreparedFileInfoForExternalSstIngestion(file_path,
+                                                           file_info);
+  }
+
   void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                ColumnFamilyMetaData* cf_meta) override {
     db_->GetColumnFamilyMetaData(column_family, cf_meta);

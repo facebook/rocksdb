@@ -3785,6 +3785,12 @@ class ModelDB : public DB {
     return Status::OK();
   }
 
+  Status GetPreparedFileInfoForExternalSstIngestion(
+      const std::string& /*file_path*/,
+      std::shared_ptr<const PreparedFileInfo>* /*file_info*/) override {
+    return Status::NotSupported();
+  }
+
   Status GetSortedWalFiles(VectorLogPtr& /*files*/) override {
     return Status::OK();
   }

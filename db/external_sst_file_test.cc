@@ -5,6 +5,7 @@
 
 #include <table/block_based/block_based_table_factory.h>
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <sstream>
@@ -741,6 +742,70 @@ TEST_F(ExternalSSTFileTest, IngestWithFileInfoRejectsWriteGlobalSeqno) {
   arg.file_infos = {file_info.prepared_file_info.get()};
   arg.options.write_global_seqno = true;
   ASSERT_TRUE(db_->IngestExternalFiles({arg}).IsInvalidArgument());
+}
+
+TEST_F(ExternalSSTFileTest, GetPreparedFileInfoForExternalSstIngestion) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+
+  const std::string source_dbname = dbname_ + "_source";
+  ASSERT_OK(DestroyDB(source_dbname, options));
+  std::unique_ptr<DB> source_db;
+  ASSERT_OK(DB::Open(options, source_dbname, &source_db));
+
+  ASSERT_OK(source_db->Put(WriteOptions(), Key(10), "v10"));
+  ASSERT_OK(source_db->Flush(FlushOptions()));
+
+  std::vector<LiveFileMetaData> live_meta;
+  source_db->GetLiveFilesMetaData(&live_meta);
+  ASSERT_EQ(live_meta.size(), 1);
+  ASSERT_GT(live_meta[0].largest_seqno, 0);
+  const std::string file_path =
+      live_meta[0].directory + "/" + live_meta[0].relative_filename;
+
+  std::shared_ptr<const PreparedFileInfo> prepared_file_info;
+  ASSERT_TRUE(source_db
+                  ->GetPreparedFileInfoForExternalSstIngestion(
+                      live_meta[0].relative_filename, &prepared_file_info)
+                  .IsInvalidArgument());
+  ASSERT_EQ(prepared_file_info, nullptr);
+  prepared_file_info = std::make_shared<PreparedFileInfo>();
+  ASSERT_TRUE(source_db
+                  ->GetPreparedFileInfoForExternalSstIngestion(
+                      dbname_ + "_wrong/" + live_meta[0].relative_filename,
+                      &prepared_file_info)
+                  .IsInvalidArgument());
+  ASSERT_EQ(prepared_file_info, nullptr);
+
+  ASSERT_OK(source_db->GetPreparedFileInfoForExternalSstIngestion(
+      file_path, &prepared_file_info));
+  ASSERT_TRUE(prepared_file_info != nullptr);
+  ASSERT_EQ(prepared_file_info->file_size, live_meta[0].size);
+  ASSERT_EQ(prepared_file_info->table_properties.key_largest_seqno,
+            live_meta[0].largest_seqno);
+
+  IngestExternalFileArg arg;
+  arg.column_family = db_->DefaultColumnFamily();
+  arg.external_files = {file_path};
+  arg.file_infos = {prepared_file_info.get()};
+  arg.options.allow_db_generated_files = true;
+  arg.options.snapshot_consistency = false;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "ExternalSstFileIngestionJob::GetIngestedFileInfo:ReadPath",
+      [](void*) { FAIL() << "Prepared file info should skip the read path"; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db_->IngestExternalFiles({arg}));
+
+  ASSERT_EQ(Get(Key(10)), "v10");
+
+  ASSERT_OK(source_db->Close());
+  source_db.reset();
+  ASSERT_OK(DestroyDB(source_dbname, options));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(ExternalSSTFileTest,
