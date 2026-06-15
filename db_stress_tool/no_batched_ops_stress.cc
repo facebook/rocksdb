@@ -2326,6 +2326,12 @@ class NonBatchedOpsStressTest : public StressTest {
     // deletion file's compaction input optimization.
     bool test_standalone_range_deletion = thread->rand.OneInOpt(
         FLAGS_test_ingest_standalone_range_deletion_one_in);
+    // When true, reuse the writer's metadata via IngestExternalFileArg's
+    // file_infos so ingestion skips re-opening and scanning the file. Not
+    // combined with the standalone range deletion mode (a range-del-only file).
+    bool use_file_info =
+        !test_standalone_range_deletion &&
+        thread->rand.OneInOpt(FLAGS_ingest_external_file_use_file_info_one_in);
     std::vector<std::string> external_files;
     const std::string sst_filename =
         GetDbPath() + "/." + std::to_string(thread->tid) + ".sst";
@@ -2369,6 +2375,7 @@ class NonBatchedOpsStressTest : public StressTest {
     SstFileWriter sst_file_writer(EnvOptions(options_), options_);
     SstFileWriter standalone_rangedel_sst_file_writer(EnvOptions(options_),
                                                       options_);
+    ExternalSstFileInfo file_info;
     if (s.ok()) {
       s = sst_file_writer.Open(sst_filename);
     }
@@ -2462,7 +2469,7 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
     if (s.ok() && !keys.empty()) {
-      s = sst_file_writer.Finish();
+      s = sst_file_writer.Finish(&file_info);
     }
 
     if (s.ok() && total_keys != 0 && test_standalone_range_deletion) {
@@ -2503,28 +2510,32 @@ class NonBatchedOpsStressTest : public StressTest {
                          << test_standalone_range_deletion
                          << ", use_prepare_commit: " << use_prepare_commit
                          << ", use_separate_prepare_calls: "
-                         << use_separate_prepare_calls;
+                         << use_separate_prepare_calls
+                         << ", use_file_info: " << use_file_info;
+      IngestExternalFileArg arg;
+      arg.column_family = column_families_[column_family];
+      arg.external_files = external_files;
+      arg.options = ingest_options;
+      if (use_file_info && file_info.prepared_file_info) {
+        arg.file_infos = {file_info.prepared_file_info.get()};
+      }
       if (use_prepare_commit) {
         std::vector<std::unique_ptr<FileIngestionHandle>> handles;
         handles.reserve(use_separate_prepare_calls ? external_files.size() : 1);
         if (use_separate_prepare_calls) {
           for (const auto& external_file : external_files) {
-            IngestExternalFileArg arg;
-            arg.column_family = column_families_[column_family];
-            arg.external_files = {external_file};
-            arg.options = ingest_options;
+            IngestExternalFileArg file_arg;
+            file_arg.column_family = column_families_[column_family];
+            file_arg.external_files = {external_file};
+            file_arg.options = ingest_options;
             std::unique_ptr<FileIngestionHandle> handle;
-            s = db_->PrepareFileIngestion({arg}, &handle);
+            s = db_->PrepareFileIngestion({file_arg}, &handle);
             if (!s.ok()) {
               break;
             }
             handles.push_back(std::move(handle));
           }
         } else {
-          IngestExternalFileArg arg;
-          arg.column_family = column_families_[column_family];
-          arg.external_files = external_files;
-          arg.options = ingest_options;
           std::unique_ptr<FileIngestionHandle> handle;
           s = db_->PrepareFileIngestion({arg}, &handle);
           if (s.ok()) {
@@ -2551,8 +2562,7 @@ class NonBatchedOpsStressTest : public StressTest {
           }
         }
       } else {
-        s = db_->IngestExternalFile(column_families_[column_family],
-                                    external_files, ingest_options);
+        s = db_->IngestExternalFiles({arg});
       }
     }
     if (!s.ok() || dropped_without_commit) {
