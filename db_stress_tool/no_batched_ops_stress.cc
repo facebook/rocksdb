@@ -14,6 +14,7 @@
 #include "rocksdb/status.h"
 #ifdef GFLAGS
 #include <cinttypes>
+#include <deque>
 #include <unordered_map>
 
 #include "db/wide/wide_columns_helper.h"
@@ -2332,60 +2333,9 @@ class NonBatchedOpsStressTest : public StressTest {
     bool use_file_info =
         !test_standalone_range_deletion &&
         thread->rand.OneInOpt(FLAGS_ingest_external_file_use_file_info_one_in);
-    std::vector<std::string> external_files;
-    const std::string sst_filename =
-        GetDbPath() + "/." + std::to_string(thread->tid) + ".sst";
-    external_files.push_back(sst_filename);
-    std::string standalone_rangedel_filename;
-    if (test_standalone_range_deletion) {
-      standalone_rangedel_filename = GetDbPath() + "/." +
-                                     std::to_string(thread->tid) +
-                                     "_standalone_rangedel.sst";
-      external_files.push_back(standalone_rangedel_filename);
-    }
+
     Status s;
     std::ostringstream ingest_options_oss;
-
-    // Temporarily disable error injection for preparation
-    if (db_fault_injection_fs_) {
-      db_fault_injection_fs_->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataRead);
-      db_fault_injection_fs_->DisableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataWrite);
-    }
-
-    for (const auto& filename : external_files) {
-      if (raw_env->FileExists(filename).ok()) {
-        // Maybe we terminated abnormally before, so cleanup to give this file
-        // ingestion a clean slate
-        s = raw_env->DeleteFile(filename);
-      }
-      if (!s.ok()) {
-        return;
-      }
-    }
-
-    if (db_fault_injection_fs_) {
-      db_fault_injection_fs_->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataRead);
-      db_fault_injection_fs_->EnableThreadLocalErrorInjection(
-          FaultInjectionIOType::kMetadataWrite);
-    }
-
-    SstFileWriter sst_file_writer(EnvOptions(options_), options_);
-    SstFileWriter standalone_rangedel_sst_file_writer(EnvOptions(options_),
-                                                      options_);
-    ExternalSstFileInfo file_info;
-    if (s.ok()) {
-      s = sst_file_writer.Open(sst_filename);
-    }
-    if (s.ok() && test_standalone_range_deletion) {
-      s = standalone_rangedel_sst_file_writer.Open(
-          standalone_rangedel_filename);
-    }
-    if (!s.ok()) {
-      return;
-    }
 
     int64_t key_base = rand_keys[0];
     int column_family = rand_column_families[0];
@@ -2435,13 +2385,76 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
 
-    if (s.ok() && keys.empty()) {
+    if (keys.empty()) {
+      return;
+    }
+    size_t total_keys = keys.size();
+
+    const size_t data_file_count =
+        std::min<size_t>(1 + thread->rand.Uniform(3), total_keys);
+    std::vector<std::string> external_files;
+    std::vector<std::string> data_filenames;
+    data_filenames.reserve(data_file_count);
+    for (size_t file_idx = 0; file_idx < data_file_count; ++file_idx) {
+      data_filenames.push_back(GetDbPath() + "/." +
+                               std::to_string(thread->tid) + "_" +
+                               std::to_string(file_idx) + ".sst");
+      external_files.push_back(data_filenames.back());
+    }
+    std::string standalone_rangedel_filename;
+    if (test_standalone_range_deletion) {
+      standalone_rangedel_filename = GetDbPath() + "/." +
+                                     std::to_string(thread->tid) +
+                                     "_standalone_rangedel.sst";
+      external_files.push_back(standalone_rangedel_filename);
+    }
+
+    // Temporarily disable error injection for preparation
+    if (db_fault_injection_fs_) {
+      db_fault_injection_fs_->DisableThreadLocalErrorInjection(
+          FaultInjectionIOType::kMetadataRead);
+      db_fault_injection_fs_->DisableThreadLocalErrorInjection(
+          FaultInjectionIOType::kMetadataWrite);
+    }
+
+    for (const auto& filename : external_files) {
+      if (raw_env->FileExists(filename).ok()) {
+        // Maybe we terminated abnormally before, so cleanup to give this file
+        // ingestion a clean slate
+        s = raw_env->DeleteFile(filename);
+      }
+      if (!s.ok()) {
+        return;
+      }
+    }
+
+    if (db_fault_injection_fs_) {
+      db_fault_injection_fs_->EnableThreadLocalErrorInjection(
+          FaultInjectionIOType::kMetadataRead);
+      db_fault_injection_fs_->EnableThreadLocalErrorInjection(
+          FaultInjectionIOType::kMetadataWrite);
+    }
+
+    std::vector<ExternalSstFileInfo> file_infos(data_file_count);
+    std::deque<SstFileWriter> sst_file_writers;
+    for (size_t file_idx = 0; s.ok() && file_idx < data_file_count;
+         ++file_idx) {
+      sst_file_writers.emplace_back(EnvOptions(options_), options_);
+      s = sst_file_writers.back().Open(data_filenames[file_idx]);
+    }
+    SstFileWriter standalone_rangedel_sst_file_writer(EnvOptions(options_),
+                                                      options_);
+    if (s.ok() && test_standalone_range_deletion) {
+      s = standalone_rangedel_sst_file_writer.Open(
+          standalone_rangedel_filename);
+    }
+    if (!s.ok()) {
       return;
     }
 
     // set pending state on expected values, create and ingest files.
-    size_t total_keys = keys.size();
     for (size_t i = 0; s.ok() && i < total_keys; i++) {
+      auto& sst_file_writer = sst_file_writers[i % sst_file_writers.size()];
       int64_t key = keys.at(i);
       char value[100];
       auto key_str = Key(key);
@@ -2469,7 +2482,9 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
     if (s.ok() && !keys.empty()) {
-      s = sst_file_writer.Finish(&file_info);
+      for (size_t i = 0; s.ok() && i < sst_file_writers.size(); i++) {
+        s = sst_file_writers[i].Finish(&file_infos[i]);
+      }
     }
 
     if (s.ok() && total_keys != 0 && test_standalone_range_deletion) {
@@ -2495,6 +2510,7 @@ class NonBatchedOpsStressTest : public StressTest {
       ingest_options.verify_checksums_readahead_size =
           thread->rand.OneInOpt(2) ? 1024 * 1024 : 0;
       ingest_options.fill_cache = thread->rand.OneInOpt(4);
+      ingest_options.file_opening_threads = 1 + thread->rand.Uniform(4);
       const bool use_prepare_commit = thread->rand.OneInOpt(
           FLAGS_ingest_external_file_prepare_commit_one_in);
       const bool use_separate_prepare_calls = use_prepare_commit &&
@@ -2506,6 +2522,11 @@ class NonBatchedOpsStressTest : public StressTest {
                          << ", verify_checksums_readahead_size: "
                          << ingest_options.verify_checksums_readahead_size
                          << ", fill_cache: " << ingest_options.fill_cache
+                         << ", file_opening_threads: "
+                         << ingest_options.file_opening_threads
+                         << ", ingest_external_file_data_file_count: "
+                         << data_file_count
+                         << ", num_external_files: " << external_files.size()
                          << ", test_standalone_range_deletion: "
                          << test_standalone_range_deletion
                          << ", use_prepare_commit: " << use_prepare_commit
@@ -2516,8 +2537,10 @@ class NonBatchedOpsStressTest : public StressTest {
       arg.column_family = column_families_[column_family];
       arg.external_files = external_files;
       arg.options = ingest_options;
-      if (use_file_info && file_info.prepared_file_info) {
-        arg.file_infos = {file_info.prepared_file_info.get()};
+      if (use_file_info) {
+        for (const auto& file_info : file_infos) {
+          arg.file_infos.push_back(file_info.prepared_file_info.get());
+        }
       }
       if (use_prepare_commit) {
         std::vector<std::unique_ptr<FileIngestionHandle>> handles;

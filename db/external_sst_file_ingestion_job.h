@@ -302,6 +302,12 @@ class ExternalSstFileIngestionJob {
     return max_assigned_seqno_;
   }
 
+  // Max threads requested for opening this job's files during commit, from the
+  // per-CF IngestExternalFileOptions.
+  int file_opening_threads() const {
+    return ingestion_options_.file_opening_threads;
+  }
+
   // Merge another already-Prepare()d job for the SAME column family into this
   // one so both sets of files are committed by a single Run(). The other job's
   // files are appended after this job's, so for any overlapping keys the other

@@ -1334,6 +1334,11 @@ DEFINE_int32(ingest_external_file_num_batches, 1,
              "ingestexternalfile benchmark. Total files ingested is "
              "batch_size * num_batches; each file holds --num keys.");
 
+DEFINE_int32(ingest_external_file_file_opening_threads, 1,
+             "IngestExternalFileOptions::file_opening_threads used by the "
+             "ingestexternalfile benchmark (threads for opening table readers "
+             "during commit).");
+
 DEFINE_bool(
     ingest_external_file_use_file_info, false,
     "If true, the ingestexternalfile benchmark passes each file's metadata "
@@ -9414,7 +9419,9 @@ class Benchmark {
   // the same key range, so the files overlap and are assigned new global
   // sequence numbers. With --ingest_external_file_use_file_info the writer's
   // metadata is passed via IngestExternalFileArg::file_infos so ingestion
-  // reuses it instead of re-opening and scanning the files. Single threaded.
+  // reuses it instead of re-opening and scanning the files.
+  // file_opening_threads controls how many threads open table readers during
+  // commit.
   //
   // NOTE: db_bench's reported micros/op includes file generation; use the
   // rocksdb.ingest.external.file.micros histogram (--statistics) for the
@@ -9424,6 +9431,8 @@ class Benchmark {
 
     const int batch_size = std::max(1, FLAGS_ingest_external_file_batch_size);
     const int num_batches = std::max(1, FLAGS_ingest_external_file_num_batches);
+    const int file_opening_threads =
+        FLAGS_ingest_external_file_file_opening_threads;
     const bool use_file_info = FLAGS_ingest_external_file_use_file_info;
     // --num is the number of keys in each file; all files cover this same key
     // range, so they overlap (which is fine -- a global seqno is assigned).
@@ -9493,6 +9502,7 @@ class Benchmark {
       // throughput. allow_global_seqno (default) handles the overlap.
       IngestExternalFileOptions ingest_options;
       ingest_options.move_files = true;
+      ingest_options.file_opening_threads = file_opening_threads;
       ingest_options.fill_cache = FLAGS_ingest_external_file_fill_cache;
       if (use_file_info) {
         // Reuse the writer's metadata so ingestion skips re-opening/scanning.
@@ -9522,11 +9532,11 @@ class Benchmark {
     thread->stats.AddBytes(bytes);
     char msg[100];
     snprintf(msg, sizeof(msg),
-             "(%d batches x %d files, %" PRId64 " keys/file%s)", num_batches,
-             batch_size, keys_per_file, use_file_info ? ", file_info" : "");
+             "(%d batches x %d files, %" PRId64 " keys/file, %d threads%s)",
+             num_batches, batch_size, keys_per_file, file_opening_threads,
+             use_file_info ? ", file_info" : "");
     thread->stats.AddMessage(msg);
   }
-
   void CompactAll() {
     CompactRangeOptions cro;
     cro.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);

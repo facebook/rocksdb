@@ -5722,16 +5722,19 @@ struct VersionSet::ManifestWriter {
   ColumnFamilyData* cfd;
   const autovector<VersionEdit*>& edit_list;
   const std::function<void(const Status&)> manifest_write_callback;
+  int max_file_opening_threads;
 
   explicit ManifestWriter(
       InstrumentedMutex* mu, ColumnFamilyData* _cfd,
       const autovector<VersionEdit*>& e,
-      const std::function<void(const Status&)>& manifest_wcb)
+      const std::function<void(const Status&)>& manifest_wcb,
+      int _max_file_opening_threads = 1)
       : done(false),
         cv(mu),
         cfd(_cfd),
         edit_list(e),
-        manifest_write_callback(manifest_wcb) {}
+        manifest_write_callback(manifest_wcb),
+        max_file_opening_threads(_max_file_opening_threads) {}
   ~ManifestWriter() { status.PermitUncheckedError(); }
 
   bool IsAllWalEdits() const {
@@ -6106,6 +6109,10 @@ Status VersionSet::ProcessManifestWrites(
   ManifestWriter& first_writer = writers.front();
   ManifestWriter* last_writer = &first_writer;
 
+  // Supports opening table readers with multiple threads, mostly useful for
+  // batched external sst file ingestion.
+  int batch_max_file_opening_threads = 1;
+
   assert(!manifest_writers_.empty());
   assert(manifest_writers_.front() == &first_writer);
 
@@ -6142,6 +6149,9 @@ Status VersionSet::ProcessManifestWrites(
     for (;;) {
       assert(!(*it)->edit_list.front()->IsColumnFamilyManipulation());
       last_writer = *it;
+      batch_max_file_opening_threads =
+          std::max(batch_max_file_opening_threads,
+                   last_writer->max_file_opening_threads);
       assert(last_writer != nullptr);
       assert(last_writer->cfd != nullptr);
       if (last_writer->cfd->IsDropped()) {
@@ -6400,7 +6410,7 @@ Status VersionSet::ProcessManifestWrites(
                builder_guards.size() == versions.size());
         ColumnFamilyData* cfd = versions[i]->cfd_;
         s = builder_guards[i]->version_builder()->LoadTableHandlers(
-            cfd->internal_stats(), 1 /* max_threads */,
+            cfd->internal_stats(), batch_max_file_opening_threads,
             true /* prefetch_index_and_filter_in_cache */,
             false /* is_initial_load */, versions[i]->GetMutableCFOptions(),
             MaxFileSizeForL0MetaPin(versions[i]->GetMutableCFOptions()),
@@ -6763,7 +6773,7 @@ Status VersionSet::LogAndApply(
     InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
     bool new_descriptor_log, const ColumnFamilyOptions* new_cf_options,
     const std::vector<std::function<void(const Status&)>>& manifest_wcbs,
-    const std::function<Status()>& pre_cb) {
+    const std::function<Status()>& pre_cb, int max_file_opening_threads) {
   mu->AssertHeld();
   int num_edits = 0;
   for (const auto& elist : edit_lists) {
@@ -6795,7 +6805,8 @@ Status VersionSet::LogAndApply(
   for (int i = 0; i < num_cfds; ++i) {
     const auto wcb =
         manifest_wcbs.empty() ? [](const Status&) {} : manifest_wcbs[i];
-    writers.emplace_back(mu, column_family_datas[i], edit_lists[i], wcb);
+    writers.emplace_back(mu, column_family_datas[i], edit_lists[i], wcb,
+                         max_file_opening_threads);
     manifest_writers_.push_back(&writers[i]);
   }
   assert(!writers.empty());

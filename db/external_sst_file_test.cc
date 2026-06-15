@@ -430,6 +430,40 @@ TEST_F(ExternalSSTFileTest, PrepareThenCommit) {
   ASSERT_EQ("v3", Get("k3"));
 }
 
+TEST_F(ExternalSSTFileTest, ParallelFileOpenWithFileOpeningThreads) {
+  // Ingest many non-overlapping files with file_opening_threads > 1 so commit
+  // opens table readers with multiple threads. max_open_files == -1 makes
+  // commit open every new file.
+  Options options = CurrentOptions();
+  options.max_open_files = -1;
+  DestroyAndReopen(options);
+
+  constexpr int kNumFiles = 8;
+  constexpr int kKeysPerFile = 50;
+  std::vector<std::string> files;
+  std::map<std::string, std::string> true_data;
+  for (int f = 0; f < kNumFiles; f++) {
+    std::vector<std::pair<std::string, std::string>> data;
+    for (int k = 0; k < kKeysPerFile; k++) {
+      const int key = f * kKeysPerFile + k;
+      const std::string value = "val" + std::to_string(key);
+      data.emplace_back(Key(key), value);
+      true_data[Key(key)] = value;
+    }
+    std::string file_path;
+    ASSERT_OK(GenerateExternalFileOnly(options, data, &file_path));
+    files.push_back(file_path);
+  }
+
+  IngestExternalFileOptions ifo;
+  ifo.file_opening_threads = 4;
+  ASSERT_OK(db_->IngestExternalFile(files, ifo));
+
+  for (const auto& [key, value] : true_data) {
+    ASSERT_EQ(value, Get(key));
+  }
+}
+
 TEST_F(ExternalSSTFileTest, AbortPreparedIngestion) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
