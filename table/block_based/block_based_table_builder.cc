@@ -3155,6 +3155,16 @@ class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
     base_context_checksum_ = borrowed.base_context_checksum;
   }
 
+  // No copy/move
+  EmbeddedBlobBlockBasedTableBuilder(
+      const EmbeddedBlobBlockBasedTableBuilder&) = delete;
+  EmbeddedBlobBlockBasedTableBuilder& operator=(
+      const EmbeddedBlobBlockBasedTableBuilder&) = delete;
+  EmbeddedBlobBlockBasedTableBuilder(EmbeddedBlobBlockBasedTableBuilder&&) =
+      delete;
+  EmbeddedBlobBlockBasedTableBuilder& operator=(
+      EmbeddedBlobBlockBasedTableBuilder&&) = delete;
+
   ~EmbeddedBlobBlockBasedTableBuilder() override {
     if (!closed_) {
       io_status_.PermitUncheckedError();
