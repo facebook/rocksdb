@@ -28,6 +28,7 @@
 #include <sys/sysctl.h>
 #endif
 #include <atomic>
+#include <chrono>
 #include <cinttypes>
 #include <condition_variable>
 #include <cstddef>
@@ -79,6 +80,7 @@
 #include "test_util/testutil.h"
 #include "test_util/transaction_test_util.h"
 #include "tools/simulated_hybrid_file_system.h"
+#include "util/atomic.h"
 #include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -1405,6 +1407,35 @@ DEFINE_bool(verify_compression, false,
             "See BlockBasedTableOptions::verify_compression");
 
 ROCKSDB_NAMESPACE::ToolHooks* hooks_ = nullptr;
+// db_bench_exit() ultimately calls exit() (directly or via ToolHooks::Exit),
+// which runs atexit handlers and C++ static/global destructors. That is only
+// safe when no other thread is still running RocksDB code or invoking a
+// user-provided callback (Env/FileSystem, listeners, etc.): otherwise a
+// background/worker thread can race the destruction of an object it is using
+// (or of a process-singleton that object depends on), causing a cross-thread
+// use-after-free.
+//
+// Rules for choosing how to abort on a fatal error (see also Benchmark::
+// ErrorExit and SharedState::SetFatal):
+//   * Before any DB is opened (flag/option parsing, cache setup, etc.):
+//     db_bench_exit()/exit() is fine -- no RocksDB threads or callbacks exist.
+//   * On a worker thread running a benchmark op (it holds a DbUseGuard, and
+//     peer workers/background threads may be mid-callback): do NOT exit here.
+//     Call thread->shared->SetFatal(...) and return out of the op; RunBenchmark
+//     then performs an ordered shutdown (DeleteDBs -> background threads
+//     joined, user FileSystem/Env teardown runs) on the guard-free main thread
+//     and exits nonzero.
+//   * On the main thread after a DB is open but while NOT holding any lifecycle
+//     guard: call ErrorExit(), which DeleteDBs() first (graceful) then exits.
+//   * When already holding a DbUseGuard or as the secondary update thread:
+//     ErrorExit() falls back to std::_Exit(1) (no destructors) because it
+//     cannot run the cleanup path from that context.
+//
+// Known remaining gap (out of scope here): some main-thread sites inside Open()
+// can be reached either under a DbStateMutationGuard (reopen path) or without
+// one, so they cannot unconditionally call ErrorExit() (the mutation guard is
+// not reentrant). Multi-DB open failures there are the same class of race fixed
+// for db_stress in PR #14850 and need guard-context-aware handling.
 [[noreturn]] void db_bench_exit(int status) {
   if (hooks_ == nullptr) {
     exit(status);
@@ -1539,6 +1570,13 @@ DEFINE_int32(simulate_hybrid_hdd_multipliers, 1,
              "In simulate_hybrid_fs_file or simulate_hdd mode, how many HDDs "
              "are simulated.");
 DEFINE_bool(simulate_hdd, false, "Simulate read/write latency on HDD.");
+
+DEFINE_int64(
+    fault_injection_read_after_reads, 0,
+    "Test only: if > 0, wrap the FileSystem so that random-access reads start "
+    "returning a non-retryable IOError after this many reads. Used to exercise "
+    "graceful fatal-shutdown of RocksDB and user callbacks (Env/FileSystem) "
+    "under adverse conditions. 0 disables.");
 
 DEFINE_int64(
     preclude_last_level_data_seconds, 0,
@@ -2878,6 +2916,59 @@ class TimestampEmulator {
   }
 };
 
+DEFINE_uint64(
+    fatal_shutdown_watchdog_seconds, 180,
+    "Maximum seconds to wait for graceful shutdown after a fatal benchmark "
+    "error before forcing an immediate _exit(). Guards against a hang while "
+    "joining background threads or tearing down a misbehaving Env/FileSystem. "
+    "0 disables the watchdog.");
+
+// ======== Error handling background ========
+// db_bench is primarily a benchmarking tool, but secondarily an integration
+// validation tool. In that second role, its value would be diminished if it
+// always exited abruptly (ImmediateExit() a.k.a. _exit(), or abort()) at the
+// first sign of an error: that skips the chance to validate that integrations
+// (e.g. a custom FileSystem) shut down cleanly after an error, and that a
+// production process hitting an error can live long enough to log it (when
+// possible).
+//
+// At the same time, RocksDB must avoid calling into user callbacks (e.g.
+// FileSystem) during static destruction: globals/singletons those callbacks
+// depend on may already be destroyed, causing a use-after-free. So a clean
+// error shutdown must finish (DBs closed, background threads joined) *before*
+// the process begins static destruction.
+//
+// The machinery below provides this: a worker that hits a fatal error records
+// it via SharedState::SetFatal() and unwinds (returning out of its operation
+// rather than exiting in place); once all workers have joined, the main thread
+// performs an ordered shutdown and only then exits. ArmFatalShutdownWatchdog()
+// is a backstop that forces an abrupt _exit() if that careful shutdown itself
+// hangs.
+
+// Arms a one-shot background watchdog that forces an unclean _exit() if the
+// graceful fatal-shutdown path hangs (e.g. a background thread or user
+// Env/FileSystem teardown that never returns). Idempotent: only the first call
+// arms it. The watchdog thread is detached; if shutdown completes normally the
+// process exits first and takes the sleeping thread with it.
+inline void ArmFatalShutdownWatchdog() {
+  static std::once_flag armed;
+  std::call_once(armed, [] {
+    uint64_t secs = FLAGS_fatal_shutdown_watchdog_seconds;
+    if (secs == 0) {
+      return;
+    }
+    std::thread([secs] {
+      std::this_thread::sleep_for(std::chrono::seconds(secs));
+      fprintf(stderr,
+              "Fatal-shutdown watchdog: graceful shutdown did not complete "
+              "within %" PRIu64 " seconds; forcing immediate exit.\n",
+              secs);
+      fflush(stderr);
+      port::ImmediateExit(1);
+    }).detach();
+  });
+}
+
 // State shared by all concurrent executions of the same benchmark.
 struct SharedState {
   port::Mutex mu;
@@ -2897,8 +2988,116 @@ struct SharedState {
   long num_done;
   bool start;
 
+  // Cooperative fatal-error handling for worker threads. When a worker hits a
+  // fatal error mid-operation it records the error here and unwinds (returns
+  // out of its operation method, releasing its DbUseGuard) instead of calling
+  // exit() while holding a lifecycle guard. After RunBenchmark joins all
+  // workers, the (guard-free) main thread performs an ordered shutdown
+  // (DeleteDBs -> background threads joined, user FileSystem/Env teardown runs)
+  // and then exits nonzero. This avoids running static destructors while
+  // worker/background threads and user callbacks are still live (a
+  // use-after-free; see also port::ImmediateExit and the db_bench_exit /
+  // ErrorExit invariant comment).
+  //
+  // `fatal` is atomic so peers can poll it lock-free at existing throttled
+  // control points (Duration::Done) without adding per-key hot-path cost. The
+  // first error's status/message is recorded under `mu`.
+  Atomic<bool> fatal{false};
+  Status fatal_status;
+  std::string fatal_msg;
+
+  // Records the first fatal error and requests cooperative shutdown. Safe to
+  // call from any worker thread. Only the first call's status/message is kept.
+  void SetFatal(const Status& s, const std::string& msg) {
+    MutexLock l(&mu);
+    if (!fatal.LoadRelaxed()) {
+      fatal_status = s;
+      fatal_msg = msg;
+      fatal.Store(true);
+      // Guard against a hang in the ensuing graceful shutdown.
+      ArmFatalShutdownWatchdog();
+    }
+  }
+
+  // Loop-termination helper for benchmark op loops, bound at construction to
+  // this run's cooperative `fatal` flag. It can ONLY be constructed via
+  // SharedState::MakeDuration(), so a Duration is always tied to the
+  // SharedState whose fatal flag it polls -- no global state, no chance of a
+  // stale/forgotten binding. Movable, non-copyable (copying a loop-control
+  // object is meaningless).
+  class Duration {
+   public:
+    Duration(Duration&&) = default;
+    Duration& operator=(Duration&&) = default;
+    Duration(const Duration&) = delete;
+    Duration& operator=(const Duration&) = delete;
+
+    int64_t GetStage() { return std::min(ops_, max_ops_ - 1) / ops_per_stage_; }
+
+    bool Done(int64_t increment) {
+      if (increment <= 0) {
+        increment = 1;  // avoid Done(0) and infinite loops
+      }
+      int64_t prev_ops = ops_;
+      ops_ += increment;
+
+      if (max_seconds_ > 0 || abort_flag_ != nullptr) {
+        // Throttle slightly expensive shutdown/abort checks, to every ~1000 ops
+        // NOTE: division can also be expensive, but it's already part of the
+        // established performance baseline in these cases
+        auto granularity = FLAGS_ops_between_duration_checks;
+        bool crossed_boundary =
+            (ops_ / granularity) != (prev_ops / granularity);
+        if (crossed_boundary) {
+          if (abort_flag_ != nullptr && abort_flag_->Load()) {
+            return true;
+          }
+
+          if (max_seconds_ > 0 && ((FLAGS_env->NowMicros() - start_at_) /
+                                   1000000) >= max_seconds_) {
+            return true;
+          }
+        }
+      }
+      // NOTE: max_seconds_ takes precedence over max_ops_
+      return max_seconds_ > 0 ? false : ops_ > max_ops_;
+    }
+
+   private:
+    friend struct SharedState;
+    // Constructed only by SharedState::MakeDuration. `abort_flag` is the owning
+    // SharedState's fatal flag; Done() polls it (at the throttled boundary) so
+    // op loops stop promptly on a cooperative fatal shutdown request.
+    Duration(uint64_t max_seconds, int64_t max_ops, int64_t ops_per_stage,
+             const Atomic<bool>* abort_flag)
+        : max_seconds_(max_seconds),
+          max_ops_(max_ops),
+          ops_per_stage_(ops_per_stage > 0 ? ops_per_stage : max_ops),
+          ops_(0),
+          start_at_(FLAGS_env->NowMicros()),
+          abort_flag_(abort_flag) {}
+
+    uint64_t max_seconds_;
+    int64_t max_ops_;
+    int64_t ops_per_stage_;
+    int64_t ops_;
+    uint64_t start_at_;
+    const Atomic<bool>* abort_flag_;
+  };
+
+  // The only way to construct a Duration. Binds it to this SharedState's
+  // cooperative `fatal` flag so the op loop stops when any worker calls
+  // SetFatal().
+  Duration MakeDuration(uint64_t max_seconds, int64_t max_ops,
+                        int64_t ops_per_stage = 0) {
+    return Duration(max_seconds, max_ops, ops_per_stage, &fatal);
+  }
+
   SharedState() : cv(&mu), perf_level(FLAGS_perf_level) {}
 };
+
+// Convenience alias so call sites can keep referring to `Duration`.
+using Duration = SharedState::Duration;
 
 // Per-thread state for concurrent executions of the same benchmark.
 struct ThreadState {
@@ -2909,46 +3108,6 @@ struct ThreadState {
 
   explicit ThreadState(int index, int my_seed)
       : tid(index), rand(*seed_base + my_seed) {}
-};
-
-class Duration {
- public:
-  Duration(uint64_t max_seconds, int64_t max_ops, int64_t ops_per_stage = 0) {
-    max_seconds_ = max_seconds;
-    max_ops_ = max_ops;
-    ops_per_stage_ = (ops_per_stage > 0) ? ops_per_stage : max_ops;
-    ops_ = 0;
-    start_at_ = FLAGS_env->NowMicros();
-  }
-
-  int64_t GetStage() { return std::min(ops_, max_ops_ - 1) / ops_per_stage_; }
-
-  bool Done(int64_t increment) {
-    if (increment <= 0) {
-      increment = 1;  // avoid Done(0) and infinite loops
-    }
-    ops_ += increment;
-
-    if (max_seconds_) {
-      // Recheck every appx 1000 ops (exact iff increment is factor of 1000)
-      auto granularity = FLAGS_ops_between_duration_checks;
-      if ((ops_ / granularity) != ((ops_ - increment) / granularity)) {
-        uint64_t now = FLAGS_env->NowMicros();
-        return ((now - start_at_) / 1000000) >= max_seconds_;
-      } else {
-        return false;
-      }
-    } else {
-      return ops_ > max_ops_;
-    }
-  }
-
- private:
-  uint64_t max_seconds_;
-  int64_t max_ops_;
-  int64_t ops_per_stage_;
-  int64_t ops_;
-  uint64_t start_at_;
 };
 
 // Global run counter for cancel/resume-OpenAndCompact() testing
@@ -3747,6 +3906,8 @@ class Benchmark {
       // Terminate immediately and let the OS reclaim resources.
       std::_Exit(1);
     }
+    // Guard against a hang in the cleanup path below.
+    ArmFatalShutdownWatchdog();
     {
       DbStateMutationGuard mutation(this);
       DeleteDBs();
@@ -4485,6 +4646,26 @@ class Benchmark {
       delete arg[i].thread;
     }
     delete[] arg;
+
+    if (shared.fatal.Load()) {
+      // A worker hit a fatal error and unwound (releasing its DbUseGuard) so
+      // that teardown could run here, on the main thread, which holds no
+      // lifecycle guard. Perform an ordered shutdown -- DeleteDBs() Closes all
+      // DBs, joining background threads and running user FileSystem/Env
+      // teardown (and any adverse-condition logging) -- before exiting. This
+      // exercises the shutdown integration rather than bypassing it, and
+      // guarantees no static destructors run while RocksDB threads or user
+      // callbacks are still live.
+      fprintf(stderr, "Fatal error during \"%s\": %s\n",
+              name.ToString().c_str(),
+              shared.fatal_msg.empty() ? shared.fatal_status.ToString().c_str()
+                                       : shared.fatal_msg.c_str());
+      {
+        DbStateMutationGuard mutation(this);
+        DeleteDBs();
+      }
+      db_bench_exit(1);
+    }
 
     return merge_stats;
   }
@@ -5981,7 +6162,8 @@ class Benchmark {
                       1;
     }
 
-    Duration duration(test_duration, max_ops, ops_per_stage);
+    auto duration =
+        thread->shared->MakeDuration(test_duration, max_ops, ops_per_stage);
     const uint64_t num_per_key_gen = num_ + max_num_range_tombstones_;
     for (size_t i = 0; i < num_key_gens; i++) {
       key_gens[i].reset(new KeyGenerator(&(thread->rand), write_mode,
@@ -6474,7 +6656,9 @@ class Benchmark {
         if (sorted_runs[i].size() < num_levels - 1) {
           fprintf(stderr, "n is too small to fill %" ROCKSDB_PRIszt " levels\n",
                   num_levels);
-          db_bench_exit(1);
+          Status s = Status::InvalidArgument("n too small to fill levels");
+          thread->shared->SetFatal(s, "DoDeterministicCompact: n too small");
+          return s;
         }
       }
       for (size_t i = 0; i < num_db; i++) {
@@ -6529,7 +6713,9 @@ class Benchmark {
         if (sorted_runs[i].size() < num_levels) {
           fprintf(stderr, "n is too small to fill %" ROCKSDB_PRIszt " levels\n",
                   num_levels);
-          db_bench_exit(1);
+          Status s = Status::InvalidArgument("n too small to fill levels");
+          thread->shared->SetFatal(s, "DoDeterministicCompact: n too small");
+          return s;
         }
       }
       for (size_t i = 0; i < num_db; i++) {
@@ -6860,7 +7046,7 @@ class Benchmark {
       pot <<= 1;
     }
 
-    Duration duration(FLAGS_duration, reads_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, reads_);
     do {
       for (int i = 0; i < 100; ++i) {
         int64_t key_rand = thread->rand.Next() & (pot - 1);
@@ -6947,7 +7133,7 @@ class Benchmark {
       ts_guard.reset(new char[user_timestamp_size_]);
     }
 
-    Duration duration(FLAGS_duration, reads_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
       // We use same key_rand as seed for key and column family so that we can
@@ -7064,7 +7250,7 @@ class Benchmark {
       ts_guard.reset(new char[user_timestamp_size_]);
     }
 
-    Duration duration(FLAGS_duration, reads_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, reads_);
     while (!duration.Done(entries_per_batch_)) {
       DB* db = SelectDB(thread);
       if (FLAGS_multiread_stride) {
@@ -7166,7 +7352,7 @@ class Benchmark {
 
     auto io_dispatcher = MaybeCreateIODispatcher();
 
-    Duration duration(FLAGS_duration, reads_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, reads_);
     int64_t num_keys = 1;
     while (!duration.Done(num_keys)) {
       DB* db = SelectDB(thread);
@@ -7244,7 +7430,7 @@ class Benchmark {
     }
 
     int64_t multiscans_done = 0;
-    Duration duration(FLAGS_duration, reads_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, reads_);
     int64_t num_keys = 1;
     while (!duration.Done(num_keys)) {
       DB* db = SelectDB(thread);
@@ -7384,7 +7570,7 @@ class Benchmark {
     Slice skey = AllocateKey(&skey_guard);
     std::unique_ptr<const char[]> ekey_guard;
     Slice ekey = AllocateKey(&ekey_guard);
-    Duration duration(FLAGS_duration, reads_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, reads_);
     if (FLAGS_num < static_cast<int64_t>(batch_size)) {
       std::terminate();
     }
@@ -7427,7 +7613,7 @@ class Benchmark {
       ranges.emplace_back(lkeys.back(), rkeys.back());
       sizes.push_back(0);
     }
-    Duration duration(FLAGS_duration, reads_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
       for (size_t i = 0; i < batch_size; ++i) {
@@ -7723,7 +7909,7 @@ class Benchmark {
       use_random_modeling = true;
     }
 
-    Duration duration(FLAGS_duration, reads_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
       int64_t ini_rand, rand_v, key_rand, key_seed;
@@ -7870,7 +8056,7 @@ class Benchmark {
   }
 
   void IteratorCreation(ThreadState* thread) {
-    Duration duration(FLAGS_duration, reads_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, reads_);
     ReadOptions options = read_options_;
     std::unique_ptr<char[]> ts_guard;
     if (user_timestamp_size_ > 0) {
@@ -7930,7 +8116,7 @@ class Benchmark {
     std::unique_ptr<const char[]> lower_bound_key_guard;
     Slice lower_bound = AllocateKey(&lower_bound_key_guard);
 
-    Duration duration(FLAGS_duration, reads_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, reads_);
     char value_buffer[256];
     std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
     if (FLAGS_explicit_snapshot) {
@@ -8064,7 +8250,8 @@ class Benchmark {
     WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
                      FLAGS_write_batch_protection_bytes_per_key,
                      user_timestamp_size_);
-    Duration duration(seq ? 0 : FLAGS_duration, deletes_);
+    auto duration =
+        thread->shared->MakeDuration(seq ? 0 : FLAGS_duration, deletes_);
     int64_t i = 0;
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
@@ -8096,7 +8283,8 @@ class Benchmark {
       thread->stats.FinishedOps(nullptr, db, entries_per_batch_, kDelete);
       if (!s.ok()) {
         fprintf(stderr, "del error: %s\n", s.ToString().c_str());
-        db_bench_exit(1);
+        thread->shared->SetFatal(s, "DoDelete write error");
+        return;
       }
       i += entries_per_batch_;
     }
@@ -8216,7 +8404,12 @@ class Benchmark {
 
       if (!s.ok()) {
         fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
-        db_bench_exit(1);
+        // Don't exit() here: this worker holds a DbUseGuard and peer reader
+        // threads may be mid-call into the user FileSystem/Env. Record the
+        // error and unwind so RunBenchmark can shut down gracefully on the
+        // main thread. See SharedState::SetFatal.
+        thread->shared->SetFatal(s, "BGWriter put or merge error");
+        return;
       }
       bytes += key.size() + val.size() + user_timestamp_size_;
       thread->stats.FinishedOps(&db_, db_.db, 1, kWrite);
@@ -8241,20 +8434,23 @@ class Benchmark {
           for (int64_t offset = 0; offset < range_tombstone_width_; ++offset) {
             GenerateKeyFromInt(begin_num + offset, FLAGS_num,
                                &expanded_keys[offset]);
-            if (!db->Delete(write_options_, expanded_keys[offset]).ok()) {
+            s = db->Delete(write_options_, expanded_keys[offset]);
+            if (!s.ok()) {
               fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
-              db_bench_exit(1);
+              thread->shared->SetFatal(s, "BGWriter delete error");
+              return;
             }
           }
         } else {
           GenerateKeyFromInt(begin_num, FLAGS_num, &begin_key);
           GenerateKeyFromInt(begin_num + range_tombstone_width_, FLAGS_num,
                              &end_key);
-          if (!db->DeleteRange(write_options_, db->DefaultColumnFamily(),
-                               begin_key, end_key)
-                   .ok()) {
+          s = db->DeleteRange(write_options_, db->DefaultColumnFamily(),
+                              begin_key, end_key);
+          if (!s.ok()) {
             fprintf(stderr, "deleterange error: %s\n", s.ToString().c_str());
-            db_bench_exit(1);
+            thread->shared->SetFatal(s, "BGWriter deleterange error");
+            return;
           }
         }
         thread->stats.FinishedOps(&db_, db_.db, 1, kWrite);
@@ -8301,7 +8497,7 @@ class Benchmark {
     Iterator* iter = db_.db->NewIterator(read_options);
 
     fprintf(stderr, "num reads to do %" PRIu64 "\n", reads_);
-    Duration duration(FLAGS_duration, reads_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, reads_);
     uint64_t num_seek_to_first = 0;
     uint64_t num_next = 0;
     while (!duration.Done(1)) {
@@ -8488,7 +8684,8 @@ class Benchmark {
         Status s = PutMany(db, write_options_, key, gen.Generate());
         if (!s.ok()) {
           fprintf(stderr, "putmany error: %s\n", s.ToString().c_str());
-          db_bench_exit(1);
+          thread->shared->SetFatal(s, "RandomWithVerify putmany error");
+          return;
         }
         put_weight--;
         puts_done++;
@@ -8497,7 +8694,8 @@ class Benchmark {
         Status s = DeleteMany(db, write_options_, key);
         if (!s.ok()) {
           fprintf(stderr, "deletemany error: %s\n", s.ToString().c_str());
-          db_bench_exit(1);
+          thread->shared->SetFatal(s, "RandomWithVerify deletemany error");
+          return;
         }
         delete_weight--;
         deletes_done++;
@@ -8523,7 +8721,7 @@ class Benchmark {
     int put_weight = 0;
     int64_t reads_done = 0;
     int64_t writes_done = 0;
-    Duration duration(FLAGS_duration, readwrites_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, readwrites_);
 
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
@@ -8596,7 +8794,7 @@ class Benchmark {
     std::string value;
     int64_t found = 0;
     int64_t bytes = 0;
-    Duration duration(FLAGS_duration, readwrites_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, readwrites_);
 
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
@@ -8641,7 +8839,8 @@ class Benchmark {
       }
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-        db_bench_exit(1);
+        thread->shared->SetFatal(s, "UpdateRandom put error");
+        return;
       }
       bytes += key.size() + val.size() + user_timestamp_size_;
       thread->stats.FinishedOps(nullptr, db, 1, kUpdate);
@@ -8662,7 +8861,7 @@ class Benchmark {
     RandomGenerator gen;
     std::string existing_value;
     int64_t found = 0;
-    Duration duration(FLAGS_duration, readwrites_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, readwrites_);
 
     BytesXOROperator xor_operator;
 
@@ -8688,7 +8887,8 @@ class Benchmark {
       } else if (!status.IsNotFound()) {
         fprintf(stderr, "Get returned an error: %s\n",
                 status.ToString().c_str());
-        db_bench_exit(1);
+        thread->shared->SetFatal(status, "XORUpdateRandom get error");
+        return;
       }
 
       Slice value =
@@ -8738,7 +8938,7 @@ class Benchmark {
       ts_guard.reset(new char[user_timestamp_size_]);
     }
     // The number of iterations is the larger of read_ or write_
-    Duration duration(FLAGS_duration, readwrites_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, readwrites_);
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
       GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
@@ -8808,7 +9008,7 @@ class Benchmark {
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
     // The number of iterations is the larger of read_ or write_
-    Duration duration(FLAGS_duration, readwrites_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, readwrites_);
     while (!duration.Done(1)) {
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
       int64_t key_rand = thread->rand.Next() % merge_keys_;
@@ -8826,7 +9026,8 @@ class Benchmark {
 
       if (!s.ok()) {
         fprintf(stderr, "merge error: %s\n", s.ToString().c_str());
-        db_bench_exit(1);
+        thread->shared->SetFatal(s, "MergeRandom merge error");
+        return;
       }
       bytes += key.size() + val.size();
       thread->stats.FinishedOps(nullptr, db_with_cfh->db, 1, kMerge);
@@ -8857,7 +9058,7 @@ class Benchmark {
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
     // the number of iterations is the larger of read_ or write_
-    Duration duration(FLAGS_duration, readwrites_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, readwrites_);
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
       GenerateKeyFromInt(thread->rand.Next() % merge_keys_, merge_keys_, &key);
@@ -8868,7 +9069,8 @@ class Benchmark {
         Status s = db->Merge(write_options_, key, gen.Generate());
         if (!s.ok()) {
           fprintf(stderr, "merge error: %s\n", s.ToString().c_str());
-          db_bench_exit(1);
+          thread->shared->SetFatal(s, "ReadRandomMergeRandom merge error");
+          return;
         }
         num_merges++;
         thread->stats.FinishedOps(nullptr, db, 1, kMerge);
@@ -9060,7 +9262,8 @@ class Benchmark {
     Status s = db->VerifyChecksum(ro);
     if (!s.ok()) {
       fprintf(stderr, "VerifyChecksum() failed: %s\n", s.ToString().c_str());
-      db_bench_exit(1);
+      thread->shared->SetFatal(s, "VerifyChecksum failed");
+      return;
     }
   }
 
@@ -9077,7 +9280,8 @@ class Benchmark {
     if (!s.ok()) {
       fprintf(stderr, "VerifyFileChecksums() failed: %s\n",
               s.ToString().c_str());
-      db_bench_exit(1);
+      thread->shared->SetFatal(s, "VerifyFileChecksums failed");
+      return;
     }
   }
 
@@ -9094,7 +9298,7 @@ class Benchmark {
   // RandomTransactionVerify() will then validate the correctness of the results
   // by checking if the sum of all keys in each set is the same.
   void RandomTransaction(ThreadState* thread) {
-    Duration duration(FLAGS_duration, readwrites_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, readwrites_);
     uint16_t num_prefix_ranges = static_cast<uint16_t>(FLAGS_transaction_sets);
     uint64_t transactions_done = 0;
 
@@ -9201,7 +9405,8 @@ class Benchmark {
       }
       if (!s.ok()) {
         fprintf(stderr, "Operation failed: %s\n", s.ToString().c_str());
-        db_bench_exit(1);
+        thread->shared->SetFatal(s, "RandomReplaceKeys put failed");
+        return;
       }
     }
 
@@ -9210,7 +9415,7 @@ class Benchmark {
     std::default_random_engine generator;
     std::normal_distribution<double> distribution(FLAGS_numdistinct / 2.0,
                                                   FLAGS_stddev);
-    Duration duration(FLAGS_duration, FLAGS_num);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, FLAGS_num);
     while (!duration.Done(1)) {
       int64_t rnd_id = static_cast<int64_t>(distribution(generator));
       int64_t key_id = std::max(std::min(FLAGS_numdistinct - 1, rnd_id),
@@ -9239,7 +9444,8 @@ class Benchmark {
 
       if (!s.ok()) {
         fprintf(stderr, "Operation failed: %s\n", s.ToString().c_str());
-        db_bench_exit(1);
+        thread->shared->SetFatal(s, "RandomReplaceKeys delete/replace failed");
+        return;
       }
 
       thread->stats.FinishedOps(nullptr, db, 1, kOthers);
@@ -9346,7 +9552,7 @@ class Benchmark {
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
 
-    Duration duration(FLAGS_duration, writes_);
+    auto duration = thread->shared->MakeDuration(FLAGS_duration, writes_);
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
 
@@ -9672,7 +9878,10 @@ class Benchmark {
 
       if (!s.ok()) {
         fprintf(stderr, "Flush failed: %s\n", s.ToString().c_str());
-        db_bench_exit(1);
+        // Main-thread op (no DbUseGuard): ErrorExit() Closes DBs (joining
+        // background threads and running user FileSystem/Env teardown) before
+        // exiting, instead of racing static destruction.
+        ErrorExit();
       }
     } else {
       for (const auto& db_with_cfh : multi_dbs_) {
@@ -9686,7 +9895,7 @@ class Benchmark {
 
         if (!s.ok()) {
           fprintf(stderr, "Flush failed: %s\n", s.ToString().c_str());
-          db_bench_exit(1);
+          ErrorExit();
         }
       }
     }
@@ -9791,7 +10000,7 @@ class Benchmark {
     }
   }
 
-  void Replay(ThreadState* /*thread*/, DBWithColumnFamilies* db_with_cfh) {
+  void Replay(ThreadState* thread, DBWithColumnFamilies* db_with_cfh) {
     Status s;
     std::unique_ptr<TraceReader> trace_reader;
     s = NewFileTraceReader(FLAGS_env, EnvOptions(), FLAGS_trace_file,
@@ -9802,7 +10011,8 @@ class Benchmark {
           "Encountered an error creating a TraceReader from the trace file. "
           "Error: %s\n",
           s.ToString().c_str());
-      db_bench_exit(1);
+      thread->shared->SetFatal(s, "Replay: create TraceReader failed");
+      return;
     }
     std::unique_ptr<Replayer> replayer;
     s = db_with_cfh->db->NewDefaultReplayer(db_with_cfh->cfh,
@@ -9812,7 +10022,8 @@ class Benchmark {
               "Encountered an error creating a default Replayer. "
               "Error: %s\n",
               s.ToString().c_str());
-      db_bench_exit(1);
+      thread->shared->SetFatal(s, "Replay: create Replayer failed");
+      return;
     }
     s = replayer->Prepare();
     if (!s.ok()) {
@@ -9877,6 +10088,61 @@ class Benchmark {
 thread_local bool Benchmark::holds_db_use_guard_ = false;
 thread_local bool Benchmark::holds_db_state_mutation_guard_ = false;
 thread_local bool Benchmark::is_secondary_update_thread_ = false;
+
+namespace {
+// Test-only FileSystem wrapper that injects a non-retryable read IOError after
+// a configurable number of random-access reads (--fault_injection_read_after_
+// reads). It is used to exercise graceful fatal-shutdown of RocksDB and user
+// callbacks under adverse conditions, rather than to bypass that path.
+class ReadFaultInjectionFS : public FileSystemWrapper {
+ public:
+  ReadFaultInjectionFS(const std::shared_ptr<FileSystem>& base,
+                       int64_t fail_after_reads)
+      : FileSystemWrapper(base), reads_remaining_(fail_after_reads) {}
+
+  static const char* kClassName() { return "ReadFaultInjectionFS"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& file_opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    std::unique_ptr<FSRandomAccessFile> file;
+    IOStatus s = target()->NewRandomAccessFile(fname, file_opts, &file, dbg);
+    if (!s.ok()) {
+      return s;
+    }
+    result->reset(new ReadFaultFile(std::move(file), &reads_remaining_));
+    return s;
+  }
+
+ private:
+  class ReadFaultFile : public FSRandomAccessFileOwnerWrapper {
+   public:
+    ReadFaultFile(std::unique_ptr<FSRandomAccessFile>&& target,
+                  RelaxedAtomic<int64_t>* reads_remaining)
+        : FSRandomAccessFileOwnerWrapper(std::move(target)),
+          reads_remaining_(reads_remaining) {}
+
+    IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
+                  Slice* result, char* scratch,
+                  IODebugContext* dbg) const override {
+      if (reads_remaining_->FetchSubRelaxed(1) <= 0) {
+        // Default IOError is non-retryable, so RocksDB surfaces it as a hard
+        // read failure (the adverse condition we want to test).
+        return IOStatus::IOError(
+            "Injected read fault (--fault_injection_read_after_reads)");
+      }
+      return target()->Read(offset, n, options, result, scratch, dbg);
+    }
+
+   private:
+    RelaxedAtomic<int64_t>* reads_remaining_;
+  };
+
+  RelaxedAtomic<int64_t> reads_remaining_;
+};
+}  // namespace
 
 int db_bench_tool(int argc, char** argv, ToolHooks& hooks) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
@@ -9960,6 +10226,17 @@ int db_bench_tool(int argc, char** argv, ToolHooks& hooks) {
             int{FLAGS_simulate_hybrid_hdd_multipliers},
             /*is_full_fs_warm=*/FLAGS_simulate_hdd));
     FLAGS_env = composite_env.get();
+  }
+
+  if (FLAGS_fault_injection_read_after_reads > 0) {
+    // Wrap the (possibly already-wrapped) FileSystem so reads start failing
+    // after a while, to exercise graceful fatal-shutdown. Held in a static so
+    // the FileSystem/Env outlives all DB usage.
+    static std::shared_ptr<ROCKSDB_NAMESPACE::Env> fault_env =
+        NewCompositeEnv(std::make_shared<ReadFaultInjectionFS>(
+            FLAGS_env->GetFileSystem(),
+            FLAGS_fault_injection_read_after_reads));
+    FLAGS_env = fault_env.get();
   }
 
   // Let -readonly imply -use_existing_db
