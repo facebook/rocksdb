@@ -481,7 +481,7 @@ void MultiOpsTxnsStressTest::TestIngestExternalFile(
   (void)rand_column_families;
 }
 
-void MultiOpsTxnsStressTest::TestCompactRange(
+Status MultiOpsTxnsStressTest::TestCompactRange(
     ThreadState* thread, int64_t /*rand_key*/, const Slice& /*start_key*/,
     ColumnFamilyHandle* column_family) {
   // TODO (yanqin).
@@ -489,6 +489,7 @@ void MultiOpsTxnsStressTest::TestCompactRange(
   // completes.
   (void)thread;
   (void)column_family;
+  return Status::OK();
 }
 
 Status MultiOpsTxnsStressTest::TestBackupRestore(

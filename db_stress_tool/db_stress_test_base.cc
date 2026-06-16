@@ -8,9 +8,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 
+#include <iomanip>
 #include <ios>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <unordered_set>
 
@@ -915,6 +917,148 @@ void StressTest::VerificationAbort(SharedState* shared, int cf, int64_t key,
   shared->SetVerificationFailure();
 }
 
+namespace {
+
+Slice ExpectedValueSlice(const ExpectedValue& expected_value, char* scratch) {
+  const size_t size =
+      GenerateValue(expected_value.GetValueBase(), scratch, kValueMaxLen);
+  return Slice(scratch, size);
+}
+
+struct DataCorruption {
+  // "lost" | "resurrected" | "wrong-value" | "detected-corruption"
+  const char* kind;
+  Slice value_from_db;
+  Slice value_from_expected;
+  std::string op_status;
+};
+
+std::optional<DataCorruption> ClassifyReadBack(
+    const Status& read_status, const std::string& db_value,
+    const ExpectedValue& expected_value, char* scratch) {
+  if (read_status.IsCorruption()) {
+    return DataCorruption{"detected-corruption", db_value, Slice(),
+                          "Get: " + read_status.ToString()};
+  }
+  // Fault injection is off (enforced at startup), so the read-back can only be
+  // OK or NotFound here. Anything else is outside this tool's contract -- stop
+  // now rather than guess a classification. ImmediateExit (not exit/abort): the
+  // DB is open with live background threads, so a normal exit would race their
+  // static teardown (see port::ImmediateExit).
+  if (!read_status.ok() && !read_status.IsNotFound()) {
+    fprintf(stderr, "verify_cpu_corruption: unexpected read-back status: %s\n",
+            read_status.ToString().c_str());
+    port::ImmediateExit(1);
+  }
+  const bool present_in_db = read_status.ok();
+  // Exists() asserts the key is not mid-write -- which holds under --threads=1:
+  // the just-run op committed before this read-back.
+  const bool expected_to_exist = expected_value.Exists();
+
+  if (!expected_to_exist && !present_in_db) {
+    return std::nullopt;  // Agree: key absent.
+  }
+  if (expected_to_exist && !present_in_db) {
+    return DataCorruption{"lost", Slice(),
+                          ExpectedValueSlice(expected_value, scratch),
+                          "Get: NotFound"};
+  }
+  if (!expected_to_exist && present_in_db) {
+    return DataCorruption{"resurrected", db_value, Slice(), "Get: OK"};
+  }
+  // Present in both: compare the values.
+  const Slice expected = ExpectedValueSlice(expected_value, scratch);
+  if (Slice(db_value) == expected) {
+    return std::nullopt;  // Agree: same value.
+  }
+  return DataCorruption{"wrong-value", db_value, expected, "Get: OK"};
+}
+
+void WriteDataCorruption(uint32_t thread_id, int cf, int64_t key,
+                         const DataCorruption& corruption) {
+  std::ostringstream oss;
+  oss << "{\"kind\":\"" << corruption.kind << "\",\"cf\":" << cf
+      << ",\"key\":" << key << ",\"value_from_db\":\""
+      << corruption.value_from_db.ToString(/* hex */ true)
+      << "\",\"value_from_expected\":\""
+      << corruption.value_from_expected.ToString(/* hex */ true)
+      << "\",\"op_status\":" << std::quoted(corruption.op_status) << "}\n";
+  const std::string path = FLAGS_verify_cpu_corruption_dir +
+                           "/data_corruption." + std::to_string(thread_id) +
+                           ".json";
+  FILE* f = fopen(path.c_str(), "w");
+  if (f == nullptr) {
+    fprintf(stderr, "Failed to open CPU corruption result file: %s\n",
+            path.c_str());
+    return;
+  }
+  fputs(oss.str().c_str(), f);
+  fclose(f);
+}
+
+}  // namespace
+
+void StressTest::MaybeVerifyCpuCorruption(ThreadState* thread,
+                                          const char* op_label,
+                                          const Status& op_status) {
+  if (FLAGS_verify_cpu_corruption_dir.empty()) {
+    return;
+  }
+  auto shared = thread->shared;
+
+  // The op itself returned Corruption: an integrity check caught the
+  // corruption.
+  if (op_status.IsCorruption()) {
+    WriteDataCorruption(thread->tid, /* cf */ -1, /* key */ -1,
+                        {"detected-corruption", Slice(), Slice(),
+                         std::string(op_label) + ": " + op_status.ToString()});
+    VerificationAbort(shared,
+                      std::string(op_label) +
+                          " detected data corruption: " + op_status.ToString());
+    return;
+  }
+
+  // Single writer (the run is pinned to --threads=1): read every key back and
+  // compare it against the committed expected state, ending the run on the
+  // first data corruption found.
+  // TODO: this full-keyspace read-back duplicates the canonical verifier
+  // VerifyDb (no_batched_ops_stress.cc). Refactor that key/value compare into a
+  // shared per-key helper both can call, so this stays in sync with the model.
+  ReadOptions read_opts;
+  read_opts.verify_checksums = true;
+  // A user-timestamp DB needs a read timestamp; supply one like the canonical
+  // verifier (no_batched_ops_stress.cc).
+  std::string read_ts_str;
+  Slice read_ts;
+  if (FLAGS_user_timestamp_size > 0) {
+    read_ts_str = GetNowNanos();
+    read_ts = read_ts_str;
+    read_opts.timestamp = &read_ts;
+  }
+  const int64_t max_key = shared->GetMaxKey();
+  std::string db_value;
+  char expected_scratch[kValueMaxLen];
+  for (int cf = 0; cf < static_cast<int>(column_families_.size()); ++cf) {
+    for (int64_t key = 0; key < max_key; ++key) {
+      const ExpectedValue expected = shared->Get(cf, key);
+      db_value.clear();
+      const Status s =
+          db_->Get(read_opts, column_families_[cf], Key(key), &db_value);
+      const std::optional<DataCorruption> corruption =
+          ClassifyReadBack(s, db_value, expected, expected_scratch);
+      if (corruption.has_value()) {
+        WriteDataCorruption(thread->tid, cf, key, *corruption);
+        VerificationAbort(
+            shared,
+            std::string(corruption->kind) + " (" + corruption->op_status + ")",
+            cf, key, corruption->value_from_db,
+            corruption->value_from_expected);
+        return;
+      }
+    }
+  }
+}
+
 std::string StressTest::DebugString(const Slice& value,
                                     const WideColumns& columns) {
   std::ostringstream oss;
@@ -1544,7 +1688,8 @@ void StressTest::OperateDb(ThreadState* thread) {
       ColumnFamilyHandle* column_family = column_families_[rand_column_family];
 
       if (thread->rand.OneInOpt(FLAGS_compact_files_one_in)) {
-        TestCompactFiles(thread, column_family);
+        Status s = TestCompactFiles(thread, column_family);
+        MaybeVerifyCpuCorruption(thread, "compactfiles", s);
       }
 
       int64_t rand_key = GenerateOneKey(thread, i);
@@ -1552,7 +1697,8 @@ void StressTest::OperateDb(ThreadState* thread) {
       Slice key = keystr;
 
       if (thread->rand.OneInOpt(FLAGS_compact_range_one_in)) {
-        TestCompactRange(thread, rand_key, key, column_family);
+        Status s = TestCompactRange(thread, rand_key, key, column_family);
+        MaybeVerifyCpuCorruption(thread, "compactrange", s);
         if (thread->shared->HasVerificationFailedYet()) {
           break;
         }
@@ -1567,6 +1713,7 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       if (thread->rand.OneInOpt(FLAGS_flush_one_in)) {
         Status status = TestFlush(rand_column_families);
+        MaybeVerifyCpuCorruption(thread, "flush", status);
         ProcessStatus(shared, "Flush", status);
       }
 
@@ -1792,8 +1939,11 @@ void StressTest::OperateDb(ThreadState* thread) {
         if (disable_fault_injection_during_user_write) {
           db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
         }
-        TestPut(thread, write_opts, read_opts, rand_column_families, rand_keys,
-                value);
+        Status write_status = TestPut(thread, write_opts, read_opts,
+                                      rand_column_families, rand_keys, value);
+        // Verify before re-enabling injection: the read-back must run in the
+        // no-injection window so injected I/O errors cannot taint it.
+        MaybeVerifyCpuCorruption(thread, "put", write_status);
         if (disable_fault_injection_during_user_write) {
           db_fault_injection_fs_->EnableAllThreadLocalErrorInjection();
         }
@@ -1803,7 +1953,10 @@ void StressTest::OperateDb(ThreadState* thread) {
         if (disable_fault_injection_during_user_write) {
           db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
         }
-        TestDelete(thread, write_opts, rand_column_families, rand_keys);
+        Status del_status =
+            TestDelete(thread, write_opts, rand_column_families, rand_keys);
+        // Verify before re-enabling injection (see the put case).
+        MaybeVerifyCpuCorruption(thread, "delete", del_status);
         if (disable_fault_injection_during_user_write) {
           db_fault_injection_fs_->EnableAllThreadLocalErrorInjection();
         }
@@ -1813,7 +1966,10 @@ void StressTest::OperateDb(ThreadState* thread) {
         if (disable_fault_injection_during_user_write) {
           db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
         }
-        TestDeleteRange(thread, write_opts, rand_column_families, rand_keys);
+        Status delrange_status = TestDeleteRange(
+            thread, write_opts, rand_column_families, rand_keys);
+        // Verify before re-enabling injection (see the put case).
+        MaybeVerifyCpuCorruption(thread, "deleterange", delrange_status);
         if (disable_fault_injection_during_user_write) {
           db_fault_injection_fs_->EnableAllThreadLocalErrorInjection();
         }
@@ -3504,13 +3660,13 @@ Status StressTest::TestGetPropertiesOfAllTables() const {
   return db_->GetPropertiesOfAllTables(&props);
 }
 
-void StressTest::TestCompactFiles(ThreadState* thread,
-                                  ColumnFamilyHandle* column_family) {
+Status StressTest::TestCompactFiles(ThreadState* thread,
+                                    ColumnFamilyHandle* column_family) {
   ROCKSDB_NAMESPACE::ColumnFamilyMetaData cf_meta_data;
   db_->GetColumnFamilyMetaData(column_family, &cf_meta_data);
 
   if (cf_meta_data.levels.empty()) {
-    return;
+    return Status::OK();
   }
 
   // Randomly compact up to three consecutive files from a level
@@ -3569,9 +3725,10 @@ void StressTest::TestCompactFiles(ThreadState* thread,
       } else {
         thread->stats.AddNumCompactFilesSucceed(1);
       }
-      break;
+      return s;
     }
   }
+  return Status::OK();
 }
 
 void StressTest::TestPromoteL0(ThreadState* thread,
@@ -3761,9 +3918,9 @@ Status StressTest::MaybeReleaseSnapshots(ThreadState* thread, uint64_t i) {
   return Status::OK();
 }
 
-void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
-                                  const Slice& start_key,
-                                  ColumnFamilyHandle* column_family) {
+Status StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
+                                    const Slice& start_key,
+                                    ColumnFamilyHandle* column_family) {
   int64_t end_key_num;
   if (std::numeric_limits<int64_t>::max() - rand_key <
       FLAGS_compact_range_width) {
@@ -3878,6 +4035,7 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
       db_fault_injection_fs_->EnableAllThreadLocalErrorInjection();
     }
   }
+  return status;
 }
 
 uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
