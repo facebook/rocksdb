@@ -230,6 +230,7 @@ DECLARE_int32(checkpoint_one_in);
 DECLARE_int32(ingest_external_file_one_in);
 DECLARE_int32(ingest_external_file_width);
 DECLARE_int32(ingest_external_file_prepare_commit_one_in);
+DECLARE_int32(ingest_external_file_use_file_info_one_in);
 DECLARE_int32(compact_files_one_in);
 DECLARE_int32(compact_range_one_in);
 DECLARE_int32(promote_l0_one_in);

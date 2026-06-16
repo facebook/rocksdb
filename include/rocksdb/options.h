@@ -2952,8 +2952,28 @@ struct IngestExternalFileOptions {
   // ingestion options.
   bool fill_cache = true;
 
+  // Controls whether external file ingestion should prefetch index and filter
+  // blocks while opening table readers during commit. Setting this to false can
+  // reduce commit latency for bulk loads into Lmax when
+  // (BlockBasedTableOptions::cache_index_and_filter_blocks=true or partitioned
+  // filters/indexes are enabled).
+  bool prefetch_lmax_index_and_filter_blocks = true;
+
+  // Maximum number of threads used to open table readers for the files being
+  // ingested during commit, can speed up ingestion performance, when ingesting
+  // multiple files at once.
+  int file_opening_threads = 1;
+
   bool operator==(const IngestExternalFileOptions& rhs) const = default;
 };
+
+// Opaque per-file metadata accepted through IngestExternalFileArg::file_infos.
+// Supplying it lets DB::IngestExternalFiles() and DB::PrepareFileIngestion()
+// prepare ingestion without re-opening and scanning the SST to recompute file
+// metadata. It is produced by SstFileWriter::Finish() for writer-created files
+// or by DB::GetPreparedFileInfoForExternalSstIngestion() for live DB-generated
+// files.
+struct PreparedFileInfo;
 
 // It is valid that files_checksums and files_checksum_func_names are both
 // empty (no checksum information is provided for ingestion). Otherwise,
@@ -2991,6 +3011,14 @@ struct IngestExternalFileArg {
   // exclusive, so it is best not to depend on one or the other until it is
   // sorted out.
   std::optional<RangeOpt> atomic_replace_range;
+
+  // Optimizes for prepare performance, see `PreparedFileInfo` for details.
+  // The owning handle must stay alive until ingestion completes.
+  // Not compatible with options.write_global_seqno (the file is not opened, so
+  // a global seqno cannot be written back into it). Because the file is not
+  // opened, ingestion does not read its storage temperature and trusts the
+  // caller-supplied `file_temperature` hint as-is.
+  std::vector<const PreparedFileInfo*> file_infos;
 };
 
 enum TraceFilterType : uint64_t {

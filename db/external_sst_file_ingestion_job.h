@@ -181,6 +181,9 @@ struct IngestedFileInfo : public KeyRangeInfo {
   // setting.
   bool user_defined_timestamps_persisted = true;
 
+  // Whether Lmax commit-time table opening should prefetch index/filter blocks.
+  bool prefetch_lmax_index_and_filter_blocks = true;
+
   SequenceNumber largest_seqno = kMaxSequenceNumber;
   SequenceNumber smallest_seqno = kMaxSequenceNumber;
 };
@@ -248,6 +251,7 @@ class ExternalSstFileIngestionJob {
   Status Prepare(const std::vector<std::string>& external_files_paths,
                  const std::vector<std::string>& files_checksums,
                  const std::vector<std::string>& files_checksum_func_names,
+                 const std::vector<const PreparedFileInfo*>& file_infos,
                  const std::optional<RangeOpt>& atomic_replace_range,
                  const Temperature& file_temperature, uint64_t next_file_number,
                  SuperVersion* sv);
@@ -301,6 +305,12 @@ class ExternalSstFileIngestionJob {
     return max_assigned_seqno_;
   }
 
+  // Max threads requested for opening this job's files during commit, from the
+  // per-CF IngestExternalFileOptions.
+  int file_opening_threads() const {
+    return ingestion_options_.file_opening_threads;
+  }
+
   // Merge another already-Prepare()d job for the SAME column family into this
   // one so both sets of files are committed by a single Run(). The other job's
   // files are appended after this job's, so for any overlapping keys the other
@@ -323,16 +333,36 @@ class ExternalSstFileIngestionJob {
   // different options. For example: when external file does not contain
   // timestamps while column family enables UDT in Memtables only feature.
   Status SanityCheckTableProperties(const std::string& external_file,
-                                    uint64_t new_file_number, SuperVersion* sv,
-                                    IngestedFileInfo* file_to_ingest,
-                                    std::unique_ptr<TableReader>* table_reader);
+                                    const TableProperties& props,
+                                    IngestedFileInfo* file_to_ingest);
 
   // Open the external file and populate `file_to_ingest` with all the
-  // external information we need to ingest this file.
+  // external information we need to ingest this file. When
+  // `prepared_file_info` is non-null, its caller-supplied metadata is reused
+  // instead of opening and scanning the file.
   Status GetIngestedFileInfo(const std::string& external_file,
                              uint64_t new_file_number,
+                             const PreparedFileInfo* prepared_file_info,
                              IngestedFileInfo* file_to_ingest,
                              SuperVersion* sv);
+
+  // Acquire the per-file metadata from the caller-supplied opaque
+  // `PreparedFileInfo` (produced by SstFileWriter::Finish) instead of opening
+  // the file.
+  Status GetIngestedFileInfoFromFileInfo(
+      const std::string& external_file,
+      const PreparedFileInfo& prepared_file_info,
+      IngestedFileInfo* file_to_ingest);
+
+  // Acquire the per-file metadata by opening the external file and scanning it
+  // (table properties, sequence number bounds, and boundary keys including any
+  // range-tombstone extensions). Used when no file_info is available. The
+  // opened `TableReader` is returned via `*table_reader` so the caller can
+  // reuse it (e.g. to verify the file checksum) without re-opening the file.
+  Status GetIngestedFileInfoFromFile(
+      const std::string& external_file, uint64_t new_file_number,
+      IngestedFileInfo* file_to_ingest, SuperVersion* sv,
+      std::unique_ptr<TableReader>* out_table_reader);
 
   // If the input files' key range overlaps themselves, this function divides
   // them in the user specified order into multiple batches. Where the files

@@ -1330,7 +1330,8 @@ class VersionSet {
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* new_cf_options = nullptr,
       const std::vector<std::function<void(const Status&)>>& manifest_wcbs = {},
-      const std::function<Status()>& pre_cb = {});
+      const std::function<Status()>& pre_cb = {},
+      int max_file_opening_threads = 1);
 
   void WakeUpWaitingManifestWriters();
 
@@ -1965,7 +1966,8 @@ class ReactiveVersionSet : public VersionSet {
       InstrumentedMutex* /*mu*/, FSDirectory* /*dir_contains_current_file*/,
       bool /*new_descriptor_log*/, const ColumnFamilyOptions* /*new_cf_option*/,
       const std::vector<std::function<void(const Status&)>>& /*manifest_wcbs*/,
-      const std::function<Status()>& /*pre_cb*/) override {
+      const std::function<Status()>& /*pre_cb*/,
+      int /*max_file_opening_threads*/) override {
     return Status::NotSupported("not supported in reactive mode");
   }
 

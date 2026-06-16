@@ -1952,6 +1952,14 @@ class DB {
       const LiveFilesStorageInfoOptions& opts,
       std::vector<LiveFileStorageInfo>* files) = 0;
 
+  // Prepares a live DB-generated table file for use with IngestExternalFiles().
+  // See `PreparedFileInfo` for details. The path must exactly match a live
+  // table file owned by this DB. This may open the table file and populate this
+  // DB's table cache if the table reader is not already cached.
+  virtual Status GetPreparedFileInfoForExternalSstIngestion(
+      const std::string& /*file_path*/,
+      std::shared_ptr<const PreparedFileInfo>* /*file_info*/) = 0;
+
   // Obtains the LSM-tree meta data of the specified column family of the DB,
   // including metadata for each live table (SST) file in that column family.
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* /*column_family*/,

@@ -61,7 +61,8 @@ struct ExternalSstFileInfo {
         file_size(0),
         num_entries(0),
         num_range_del_entries(0),
-        version(0) {}
+        version(0),
+        prepared_file_info(nullptr) {}
 
   ExternalSstFileInfo(const std::string& _file_path,
                       const std::string& _smallest_key,
@@ -79,7 +80,8 @@ struct ExternalSstFileInfo {
         file_size(_file_size),
         num_entries(_num_entries),
         num_range_del_entries(0),
-        version(_version) {}
+        version(_version),
+        prepared_file_info(nullptr) {}
 
   std::string file_path;     // external sst file path
   std::string smallest_key;  // smallest user key in file
@@ -94,6 +96,9 @@ struct ExternalSstFileInfo {
   uint64_t num_entries;                 // number of entries in file
   uint64_t num_range_del_entries;  // number of range deletion entries in file
   int32_t version;                 // file version
+  // Opaque metadata that can be passed to IngestExternalFileArg::file_infos to
+  // skip re-opening and scanning the file during ingestion.
+  std::shared_ptr<const PreparedFileInfo> prepared_file_info;
 };
 
 // SstFileWriter is used to create sst files that can be added to database later
