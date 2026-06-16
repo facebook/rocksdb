@@ -62,11 +62,14 @@ Status LoadTableHandlersHelper(
 
       TableCache::TypedHandle* handle = nullptr;
       TableReader* table_reader = nullptr;
+      const bool prefetch_index_and_filter_for_file =
+          prefetch_index_and_filter_in_cache &&
+          !file_meta->skip_index_and_filter_blocks_prefetch;
       auto status = table_cache->FindTable(
           read_options, file_options, internal_comparator, *file_meta, &handle,
           mutable_cf_options, &table_reader, false /* no_io */,
           internal_stats->GetFileReadHist(level), false /* skip_filters */,
-          level, prefetch_index_and_filter_in_cache,
+          level, prefetch_index_and_filter_for_file,
           max_file_size_for_l0_meta_pin, file_meta->temperature,
           true /* pin_table_handle */);
 

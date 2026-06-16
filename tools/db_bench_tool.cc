@@ -1352,6 +1352,12 @@ DEFINE_bool(ingest_external_file_fill_cache,
             "If true, the ingestexternalfile benchmark allows file ingestion "
             "reads to populate block cache.");
 
+DEFINE_bool(ingest_external_file_prefetch_lmax_index_and_filter_blocks,
+            ROCKSDB_NAMESPACE::IngestExternalFileOptions()
+                .prefetch_lmax_index_and_filter_blocks,
+            "If true, the ingestexternalfile benchmark prefetches index and "
+            "filter blocks while opening table readers during commit.");
+
 DEFINE_uint64(
     initial_auto_readahead_size,
     ROCKSDB_NAMESPACE::BlockBasedTableOptions().initial_auto_readahead_size,
@@ -9710,6 +9716,8 @@ class Benchmark {
       ingest_options.move_files = true;
       ingest_options.file_opening_threads = file_opening_threads;
       ingest_options.fill_cache = FLAGS_ingest_external_file_fill_cache;
+      ingest_options.prefetch_lmax_index_and_filter_blocks =
+          FLAGS_ingest_external_file_prefetch_lmax_index_and_filter_blocks;
       if (use_file_info) {
         // Reuse the writer's metadata so ingestion skips re-opening/scanning.
         IngestExternalFileArg arg;

@@ -181,6 +181,9 @@ struct IngestedFileInfo : public KeyRangeInfo {
   // setting.
   bool user_defined_timestamps_persisted = true;
 
+  // Whether Lmax commit-time table opening should prefetch index/filter blocks.
+  bool prefetch_lmax_index_and_filter_blocks = true;
+
   SequenceNumber largest_seqno = kMaxSequenceNumber;
   SequenceNumber smallest_seqno = kMaxSequenceNumber;
 };
