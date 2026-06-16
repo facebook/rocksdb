@@ -12,9 +12,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// Produced by SstFileWriter::Finish and consumed by ExternalSstFileIngestionJob
-// so ingestion can skip re-opening and scanning the file to recompute its
-// metadata.
 struct PreparedFileInfo {
   uint64_t file_size = 0;
   // Final ingestion bounds, after considering both point keys and range
