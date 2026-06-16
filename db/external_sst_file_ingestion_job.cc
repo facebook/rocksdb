@@ -44,6 +44,8 @@ Status ExternalSstFileIngestionJob::Prepare(
     IngestedFileInfo file_to_ingest;
     // For temperature, first assume it matches provided hint
     file_to_ingest.file_temperature = file_temperature;
+    file_to_ingest.prefetch_lmax_index_and_filter_blocks =
+        ingestion_options_.prefetch_lmax_index_and_filter_blocks;
     const PreparedFileInfo* prepared_file_info =
         file_infos.empty() ? nullptr : file_infos[i];
     status = GetIngestedFileInfo(file_path, next_file_number++,
@@ -748,6 +750,9 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
         tail_size, file->user_defined_timestamps_persisted, "", "");
     f_metadata.temperature = file->file_temperature;
     f_metadata.marked_for_compaction = marked_for_compaction;
+    f_metadata.skip_index_and_filter_blocks_prefetch =
+        !file->prefetch_lmax_index_and_filter_blocks &&
+        file->picked_level == cfd_->NumberLevels() - 1;
     // Extract min/max timestamps from table properties for UDT support.
     // This ensures ingested files have proper timestamp ranges in FileMetaData,
     // similar to files created by flush and compaction.

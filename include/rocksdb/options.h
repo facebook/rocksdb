@@ -2952,6 +2952,13 @@ struct IngestExternalFileOptions {
   // ingestion options.
   bool fill_cache = true;
 
+  // Controls whether external file ingestion should prefetch index and filter
+  // blocks while opening table readers during commit. Setting this to false can
+  // reduce commit latency for bulk loads into Lmax when
+  // (BlockBasedTableOptions::cache_index_and_filter_blocks=true or partitioned
+  // filters/indexes are enabled).
+  bool prefetch_lmax_index_and_filter_blocks = true;
+
   // Maximum number of threads used to open table readers for the files being
   // ingested during commit, can speed up ingestion performance, when ingesting
   // multiple files at once.

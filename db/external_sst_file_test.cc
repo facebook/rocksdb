@@ -465,6 +465,85 @@ TEST_F(ExternalSSTFileTest, ParallelFileOpenWithFileOpeningThreads) {
   }
 }
 
+TEST_F(ExternalSSTFileTest, LmaxPrefetchSkipDoesNotDisableL0Prefetch) {
+  LRUCacheOptions co;
+  co.capacity = 32 << 20;
+  std::shared_ptr<Cache> cache = NewLRUCache(co);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.max_open_files = -1;
+  options.num_levels = 2;
+  options.optimize_filters_for_hits = false;
+  options.statistics = CreateDBStatistics();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  const auto write_file = [&](const std::string& file_path,
+                              const std::string& value,
+                              ExternalSstFileInfo* file_info) {
+    SstFileWriter writer(EnvOptions(), options);
+    ASSERT_OK(writer.Open(file_path));
+    ASSERT_OK(writer.Put(Key(10), value));
+    ASSERT_OK(writer.Finish(file_info));
+  };
+
+  const auto ingest_file = [&](const std::string& file_path,
+                               const ExternalSstFileInfo& file_info,
+                               bool fail_if_not_bottommost_level) {
+    IngestExternalFileArg arg;
+    arg.column_family = db_->DefaultColumnFamily();
+    arg.external_files = {file_path};
+    arg.file_infos = {file_info.prepared_file_info.get()};
+    arg.options.fail_if_not_bottommost_level = fail_if_not_bottommost_level;
+    arg.options.verify_checksums_before_ingest = false;
+    arg.options.prefetch_lmax_index_and_filter_blocks = false;
+    ASSERT_OK(db_->IngestExternalFiles({arg}));
+  };
+
+  const std::string lmax_file_path = sst_files_dir_ + "lazy_lmax.sst";
+  ExternalSstFileInfo lmax_file_info;
+  write_file(lmax_file_path, "v10", &lmax_file_info);
+
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   Tickers::BLOCK_CACHE_INDEX_ADD));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   Tickers::BLOCK_CACHE_FILTER_ADD));
+
+  ingest_file(lmax_file_path, lmax_file_info,
+              true /* fail_if_not_bottommost_level */);
+  ASSERT_EQ("0,1", FilesPerLevel());
+
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   Tickers::BLOCK_CACHE_INDEX_ADD));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   Tickers::BLOCK_CACHE_FILTER_ADD));
+
+  const std::string l0_file_path = sst_files_dir_ + "l0.sst";
+  ExternalSstFileInfo l0_file_info;
+  write_file(l0_file_path, "v11", &l0_file_info);
+
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   Tickers::BLOCK_CACHE_INDEX_ADD));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   Tickers::BLOCK_CACHE_FILTER_ADD));
+
+  ingest_file(l0_file_path, l0_file_info,
+              false /* fail_if_not_bottommost_level */);
+  ASSERT_EQ("1,1", FilesPerLevel());
+
+  EXPECT_GT(options.statistics->getAndResetTickerCount(
+                Tickers::BLOCK_CACHE_INDEX_ADD),
+            0);
+  EXPECT_GT(options.statistics->getAndResetTickerCount(
+                Tickers::BLOCK_CACHE_FILTER_ADD),
+            0);
+}
+
 TEST_F(ExternalSSTFileTest, AbortPreparedIngestion) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);

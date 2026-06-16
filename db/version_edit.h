@@ -337,6 +337,11 @@ struct FileMetaData {
   // via FileOptions::file_metadata on subsequent opens. Empty if not available.
   std::string file_open_metadata;
 
+  // Skips prefetching index and filter blocks into block cache on file open,
+  // not persisted in MANIFEST. NOTE: false does not guarantee prefetching
+  // either (e.g. when index and filter blocks are not cached in block cache).
+  bool skip_index_and_filter_blocks_prefetch = false;
+
   FileMetaData() = default;
 
   FileMetaData(uint64_t file, uint32_t file_path_id, uint64_t file_size,

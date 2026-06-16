@@ -2511,6 +2511,8 @@ class NonBatchedOpsStressTest : public StressTest {
           thread->rand.OneInOpt(2) ? 1024 * 1024 : 0;
       ingest_options.fill_cache = thread->rand.OneInOpt(4);
       ingest_options.file_opening_threads = 1 + thread->rand.Uniform(4);
+      ingest_options.prefetch_lmax_index_and_filter_blocks =
+          !thread->rand.OneInOpt(4);
       const bool use_prepare_commit = thread->rand.OneInOpt(
           FLAGS_ingest_external_file_prepare_commit_one_in);
       const bool use_separate_prepare_calls = use_prepare_commit &&
@@ -2524,6 +2526,8 @@ class NonBatchedOpsStressTest : public StressTest {
                          << ", fill_cache: " << ingest_options.fill_cache
                          << ", file_opening_threads: "
                          << ingest_options.file_opening_threads
+                         << ", prefetch_lmax_index_and_filter_blocks: "
+                         << ingest_options.prefetch_lmax_index_and_filter_blocks
                          << ", ingest_external_file_data_file_count: "
                          << data_file_count
                          << ", num_external_files: " << external_files.size()
