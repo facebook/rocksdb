@@ -252,10 +252,10 @@ class StressTest {
       const std::vector<int64_t>& rand_keys) = 0;
 
   // Issue compact range, starting with start_key, whose integer value
-  // is rand_key.
-  virtual void TestCompactRange(ThreadState* thread, int64_t rand_key,
-                                const Slice& start_key,
-                                ColumnFamilyHandle* column_family);
+  // is rand_key. Returns the CompactRange() status.
+  virtual Status TestCompactRange(ThreadState* thread, int64_t rand_key,
+                                  const Slice& start_key,
+                                  ColumnFamilyHandle* column_family);
 
   virtual void TestPromoteL0(ThreadState* thread,
                              ColumnFamilyHandle* column_family);
@@ -378,7 +378,9 @@ class StressTest {
                                 const std::vector<int>& rand_column_families,
                                 const std::vector<int64_t>& rand_keys);
 
-  void TestCompactFiles(ThreadState* thread, ColumnFamilyHandle* column_family);
+  // Returns the CompactFiles() status (OK if no compaction was performed).
+  Status TestCompactFiles(ThreadState* thread,
+                          ColumnFamilyHandle* column_family);
 
   Status TestFlush(const std::vector<int>& rand_column_families);
 
@@ -432,6 +434,13 @@ class StressTest {
 
   void VerificationAbort(SharedState* shared, int cf, int64_t key,
                          const Slice& value, const WideColumns& columns) const;
+
+  // Under --verify_cpu_corruption_dir (see that flag's comment for behavior and
+  // the result-file contract), verifies the just-run op (named by `op_label`,
+  // e.g. "put"/"flush"/"compactrange") for a returned/read-back corruption or a
+  // silent data corruption. A no-op when the flag is empty.
+  void MaybeVerifyCpuCorruption(ThreadState* thread, const char* op_label,
+                                const Status& op_status);
 
   static std::string DebugString(const Slice& value,
                                  const WideColumns& columns);

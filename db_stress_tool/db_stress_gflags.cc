@@ -130,6 +130,34 @@ DEFINE_bool(enable_pipelined_write, false, "Pipeline WAL/memtable writes");
 
 DEFINE_bool(verify_before_write, false, "Verify before write");
 
+DEFINE_string(
+    verify_cpu_corruption_dir, "",
+    "If non-empty, right after each write op (put/delete/deleterange), "
+    "flush, and compaction (compactrange/compactfiles), db_stress verifies "
+    "that op for corruption and, on the first hit, writes a result file "
+    "into this directory and marks the run as a verification failure. It "
+    "catches: (a) a corruption returned by the op itself or by the "
+    "read-back (Status::Corruption); or (b) a silent data corruption (SDC) "
+    "-- a read-back that SUCCEEDS but returns the wrong result vs the "
+    "committed expected state: a lost key (NotFound), a resurrected key "
+    "(deleted but present), or a wrong value (bytes differ) -- surfaced by "
+    "an immediate read right after the op, instead of waiting for a later "
+    "read operation or the end-of-run db verification. Running this check "
+    "right after the op gives the most immediate and accurate verification "
+    "when an external CPU-fault injector (e.g. gdb) flips a register inside "
+    "that op. REQUIRES (enforced at startup) --threads=1 and all fault "
+    "injection off (every *_fault_one_in = 0 and sync_fault_injection = "
+    "false): the full-keyspace read-back is only well-defined with a single "
+    "writer, and injected I/O faults would otherwise taint it. OUTPUT "
+    "CONTRACT (one file per worker thread): "
+    "<dir>/data_corruption.<thread_id>.json -- a JSON object with fields: "
+    "kind (one of lost|resurrected|wrong-value|detected-corruption), cf "
+    "(int), key (int), value_from_db (hex), value_from_expected (hex), "
+    "op_status (string). PERFORMANCE: the read-back scans the entire keyspace "
+    "after every op (O(max_key) Get calls per op), so this is meant for "
+    "single-op CPU-fault-injection debugging, not general stress runs. Empty "
+    "(default) = off.");
+
 DEFINE_bool(histogram, false, "Print histogram of operation timings");
 
 DEFINE_bool(destroy_db_initially, true,

@@ -253,9 +253,9 @@ class MultiOpsTxnsStressTest : public StressTest {
                               const std::vector<int>& rand_column_families,
                               const std::vector<int64_t>& rand_keys) override;
 
-  void TestCompactRange(ThreadState* thread, int64_t rand_key,
-                        const Slice& start_key,
-                        ColumnFamilyHandle* column_family) override;
+  Status TestCompactRange(ThreadState* thread, int64_t rand_key,
+                          const Slice& start_key,
+                          ColumnFamilyHandle* column_family) override;
 
   Status TestBackupRestore(ThreadState* thread,
                            const std::vector<int>& rand_column_families,
