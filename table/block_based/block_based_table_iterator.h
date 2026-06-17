@@ -358,7 +358,14 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   const SliceTransform* prefix_extractor_;
   uint64_t prev_block_offset_ = std::numeric_limits<uint64_t>::max();
   BlockCacheLookupContext lookup_context_;
+
+  // Embedded blob resolution is enabled only for normal table reads. The SST
+  // dump path must keep seeing raw BlobIndex values so it can inspect the file.
   const bool resolve_embedded_values_;
+
+  // Cached resolution state for the current data-block entry. `key()` can
+  // convert a same-file BlobIndex internal key back to kTypeValue, while
+  // `value()` owns the materialized payload bytes.
   mutable Status embedded_value_status_;
   std::string embedded_source_key_;
   std::string embedded_resolved_internal_key_;
@@ -463,8 +470,14 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   void InitDataBlock();
   void AsyncInitDataBlock(bool is_first_pass);
   bool MaterializeCurrentBlock();
+
+  // Clears cached embedded-blob resolution unconditionally or when the cached
+  // source entry no longer matches the current block iterator position.
   void ResetEmbeddedValueState();
   void MaybeResetEmbeddedValueState();
+
+  // Helpers for lazy same-file BlobIndex resolution. Key preparation only
+  // rewrites the internal key type; value preparation reads the blob payload.
   bool ShouldResolveEmbeddedValues() const;
   bool EmbeddedStateMatchesCurrentEntry() const;
   bool PrepareEmbeddedKey();

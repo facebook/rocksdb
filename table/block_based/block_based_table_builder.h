@@ -39,6 +39,10 @@ extern const uint64_t kBlockBasedTableMagicNumber;
 
 class BlockBasedTableBuilder : public TableBuilder {
  public:
+  // File writer temporarily exposed for callers that must write a strict file
+  // prefix before any table blocks. `base_context_checksum` is the checksum
+  // context at the borrowed offset and must be used for prefix records that
+  // participate in whole-file checksum context.
   struct BorrowedFileWriter {
     WritableFileWriter* file_writer = nullptr;
     uint32_t base_context_checksum = 0;
@@ -123,7 +127,22 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   uint64_t GetWorkerCPUMicros() const override;
 
+  // Temporarily gives the caller direct access to the file writer while the
+  // table builder is still empty. Requires: no entries have been Add()ed yet.
+  // See also UnborrowFileWriterForPrefix().
+  //
+  // Block-based table SST files are indexed from the tail, so arbitrary data
+  // can be inserted before the first data block without affecting the SST
+  // integrity or fundamental format. This function facilitates that outside
+  // of BlockBasedTableBuilder (so that BlockBasedTableBuilder is not so
+  // polluted with concerns of EmbeddedBlobBlockBasedTableBuilder).
   BorrowedFileWriter BorrowFileWriterForPrefix() const;
+
+  // Ends a prefix-writing borrow. The builder's table offset is advanced to the
+  // current file size, and the optional embedded blob metadata is recorded for
+  // the table metaindex/properties before normal table writes begin. The set
+  // of metadata provided back to BlockBasedTableBuilder could expand in the
+  // future.
   Status UnborrowFileWriterForPrefix(
       const EmbeddedBlobRecordRange& embedded_blob_record_range,
       const EmbeddedBlobStats& embedded_blob_stats);
@@ -187,6 +206,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   void WritePropertiesBlock(MetaIndexBuilder* meta_index_builder);
   void WriteCompressionDictBlock(MetaIndexBuilder* meta_index_builder);
   void WriteRangeDelBlock(MetaIndexBuilder* meta_index_builder);
+  // Writes the metaindex entry locating the raw embedded blob record range.
   void WriteEmbeddedBlobRecordRange(MetaIndexBuilder* meta_index_builder);
   void WriteFooter(BlockHandle& metaindex_block_handle,
                    BlockHandle& index_block_handle);
@@ -228,6 +248,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   void StopParallelCompression(bool abort);
 };
 
+// Creates a TableBuilder wrapper wrapping a BlockBasedTableBuilder that writes
+// eligible values into a same-file embedded blob prefix before replaying table
+// entries into the block-based table builder.
 TableBuilder* NewEmbeddedBlobBlockBasedTableBuilder(
     const BlockBasedTableOptions& table_options,
     const TableBuilderOptions& table_builder_options, WritableFileWriter* file,

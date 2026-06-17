@@ -206,12 +206,17 @@ class BlockBasedTable : public TableReader {
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
 
+  // Whether this SST advertises an embedded blob record range in its metaindex.
   bool HasEmbeddedBlobRecords() const;
 
+  // Reads a single same-file blob record referenced by `blob_index`.
   Status ResolveEmbeddedBlob(const ReadOptions& read_options,
                              const BlobIndex& blob_index,
                              std::string* value) const;
 
+  // If `value` is a same-file BlobIndex, materializes the referenced payload
+  // and updates `resolved_internal_key` to the corresponding value type. Leaves
+  // `resolved` false when no embedded resolution is needed.
   Status MaybeResolveEmbeddedValue(const ReadOptions& read_options,
                                    const Slice& internal_key,
                                    const Slice& value,
@@ -582,6 +587,7 @@ class BlockBasedTable : public TableReader {
                              FilePrefetchBuffer* prefetch_buffer,
                              InternalIterator* meta_iter,
                              const SequenceNumber largest_seqno);
+  // Reads the embedded blob record locator from the metaindex, if present.
   Status ReadEmbeddedBlobRecordRange(InternalIterator* meta_iter);
   Status ReadRangeDelBlock(const ReadOptions& ro,
                            FilePrefetchBuffer* prefetch_buffer,
@@ -773,6 +779,8 @@ struct BlockBasedTable::Rep {
 
   // If true, then data blocks have keys and values separated.
   bool separate_key_value_in_data_block = false;
+  // Locator for the raw embedded blob record range. Valid only when
+  // has_embedded_blob_record_range is true.
   EmbeddedBlobRecordRange embedded_blob_record_range;
   bool has_embedded_blob_record_range = false;
 

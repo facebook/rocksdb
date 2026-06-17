@@ -3138,6 +3138,13 @@ void BlockBasedTableBuilder::SetSeqnoTimeTableProperties(
 
 namespace {
 
+// TableBuilder wrapper for embedded-blob SST creation. It borrows the
+// block-based table file writer to append blob records as a strict file prefix,
+// buffers table entries, then unborrows the writer and replays the buffered
+// entries, with blob references, into the inner block-based table builder
+// during Finish(). The buffering is necessary to avoid staggering blob data
+// and SST data blocks, which at a minimum would interfere with compact index
+// encoding which assumes subsequent data blocks are byte-adjacent.
 class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
  public:
   EmbeddedBlobBlockBasedTableBuilder(
@@ -3212,7 +3219,7 @@ class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
     }
 
     if (embedded_blob_record_range_.HasRecords()) {
-      s = TEST_AppendIgnorablePrefixBytes(
+      s = TEST_MaybeAppendIgnorablePrefixBytes(
           "EmbeddedBlobBlockBasedTableBuilder::AfterBlobRecords");
     }
     if (s.ok()) {
@@ -3296,11 +3303,16 @@ class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
   }
 
  private:
+  // Arena-owned key/value slices to replay into the inner block-based table
+  // builder after the embedded blob prefix is sealed.
   struct PendingTableEntry {
     Slice key;
     Slice value;
   };
 
+  // Keep one local IOStatus, matching BlockBasedTableBuilder's status model.
+  // Non-I/O failures are converted so status() and io_status() share one source
+  // of truth for prefix-writing failures.
   void SetStatus(Status&& s) {
     if (!s.ok() && io_status_.ok()) {
       io_status_ = status_to_io_status(std::move(s));
@@ -3313,10 +3325,13 @@ class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
     }
   }
 
-  Status TEST_AppendIgnorablePrefixBytes(const std::string& sync_point) {
+  // Test hook for injecting bytes around the embedded blob record range. This
+  // verifies readers use the explicit metaindex locator rather than assuming
+  // the whole file prefix consists only of blob records.
+  Status TEST_MaybeAppendIgnorablePrefixBytes(const std::string& sync_point) {
     assert(file_writer_ != nullptr);
     (void)sync_point;
-
+#ifndef NDEBUG
     std::string bytes;
     TEST_SYNC_POINT_CALLBACK(sync_point, &bytes);
     if (bytes.empty()) {
@@ -3333,9 +3348,12 @@ class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
       SetIOStatus(std::move(io_s));
       return io_status_;
     }
+#endif  // NDEBUG
     return Status::OK();
   }
 
+  // Store pending entry data in one arena for cheap bulk free and stable
+  // slices.
   Slice CopySliceToArena(const Slice& value) {
     if (value.empty()) {
       return Slice();
@@ -3346,6 +3364,8 @@ class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
     return Slice(buffer, value.size());
   }
 
+  // Rewrites the sequence/type trailer after changing a buffered entry's value
+  // to a BlobIndex.
   static void UpdateInternalKeyInPlace(Slice* key, uint64_t seq, ValueType t) {
     assert(key != nullptr);
     assert(key->size() >= kNumInternalBytes);
@@ -3354,13 +3374,15 @@ class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
     EncodeFixed64(key_data + key->size() - kNumInternalBytes, (seq << 8) | t);
   }
 
+  // Appends one uncompressed embedded blob record to the borrowed file prefix
+  // and returns a same-file BlobIndex pointing at it.
   Status BuildEmbeddedBlobRecord(const Slice& value,
                                  std::string* encoded_blob_index) {
     assert(encoded_blob_index != nullptr);
     assert(file_writer_ != nullptr);
 
     if (!embedded_blob_record_range_.HasRecords()) {
-      Status s = TEST_AppendIgnorablePrefixBytes(
+      Status s = TEST_MaybeAppendIgnorablePrefixBytes(
           "EmbeddedBlobBlockBasedTableBuilder::BeforeBlobRecords");
       if (!s.ok()) {
         return s;
@@ -3423,6 +3445,13 @@ class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
     return Status::OK();
   }
 
+  // Rewrites eligible wide-column values as embedded blob references while
+  // leaving smaller columns inline in the wide-column entity.
+  // FIXME: a limitation of the TableBuilder interface and implementing this
+  // functionality as a TableBuilder wrapper means the wide columns are
+  // serialized in the caller, deserialized here, then modified and
+  // re-serialized. Obviously it would be good to elimiate that first
+  // serialize->deserialize.
   Status BuildWideColumnEntity(const Slice& value, Slice* entity) {
     assert(entity != nullptr);
 
@@ -3471,6 +3500,9 @@ class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
     return Status::OK();
   }
 
+  // Converts one incoming table entry to the buffered form that will be
+  // replayed into the block-based table builder after all embedded blob records
+  // have been written.
   Status BuildTableEntry(const Slice& key, const Slice& value,
                          PendingTableEntry* entry) {
     assert(entry != nullptr);
@@ -3505,6 +3537,8 @@ class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
     return Status::OK();
   }
 
+  // Replays buffered entries in original order. Requires: the inner BBT builder
+  // owns the file writer again.
   Status ReplayPendingEntries() {
     for (const PendingTableEntry& entry : pending_entries_) {
       table_builder_->Add(entry.key, entry.value);
