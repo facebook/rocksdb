@@ -1,1 +1,0 @@
-Reduced commit latency for large external file ingestions into the last level by adding `IngestExternalFileOptions::prefetch_lmax_index_and_filter_blocks`, which can skip commit-time index and filter block prefetching for cache-backed table metadata.
