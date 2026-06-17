@@ -224,6 +224,25 @@ class BlockBasedTable : public TableReader {
                                    std::string* resolved_value,
                                    bool* resolved) const;
 
+  // Result of resolving a possible embedded value at a Get() entry.
+  // `resolved_key`/`resolved_value` own the materialized buffers, while
+  // `key_to_save`/`value_to_save` point at either the original entry or those
+  // buffers (and so must not outlive this object).
+  struct EmbeddedValueForGet {
+    std::string resolved_key;
+    std::string resolved_value;
+    bool resolved = false;
+    Slice key_to_save;
+    Slice value_to_save;
+  };
+
+  // Convenience wrapper around MaybeResolveEmbeddedValue() for the Get() code
+  // paths: resolves an embedded value (if any) at (key, value) and populates
+  // `out` with the key/value Slices to save into GetContext.
+  Status ResolveEmbeddedValueForGet(const ReadOptions& read_options,
+                                    const Slice& key, const Slice& value,
+                                    EmbeddedValueForGet* out) const;
+
   Status MultiGetFilter(const ReadOptions& read_options,
                         const SliceTransform* prefix_extractor,
                         MultiGetRange* mget_range) override;

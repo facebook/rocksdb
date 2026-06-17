@@ -15,7 +15,8 @@ namespace ROCKSDB_NAMESPACE {
 
 void BlockBasedTableIterator::ResetEmbeddedValueState() {
   assert(resolve_embedded_values_);
-  embedded_value_status_.PermitUncheckedError();
+  // Overwriting clears any prior (already-surfaced) error; assignment never
+  // triggers the status-checked assert, so no PermitUncheckedError needed.
   embedded_value_status_ = Status::OK();
   embedded_source_key_.clear();
   embedded_resolved_internal_key_.clear();
@@ -45,7 +46,13 @@ bool BlockBasedTableIterator::EmbeddedStateMatchesCurrentEntry() const {
          Slice(embedded_source_key_) == block_iter_.key();
 }
 
-bool BlockBasedTableIterator::PrepareEmbeddedKey() {
+// Cheap, key-only resolution: for a whole-value same-file BlobIndex entry,
+// computes the logical internal key with its value type rewritten from
+// kTypeBlobIndex to kTypeValue. Only touches data already in the data block
+// (the key and the inline serialized BlobIndex) -- it does NOT read the blob
+// region, so callers that only need keys do not fault in payloads. Returns
+// true (no-op) for entries that are not a same-file BlobIndex.
+bool BlockBasedTableIterator::ResolveEmbeddedKeyType() {
   if (!ShouldResolveEmbeddedValues()) {
     return true;
   }
@@ -64,6 +71,7 @@ bool BlockBasedTableIterator::PrepareEmbeddedKey() {
   embedded_key_prepared_ = true;
 
   ParsedInternalKey parsed_key;
+  // Only data-corruption errors are possible here (no I/O).
   embedded_value_status_ =
       ParseInternalKey(current_key, &parsed_key, false /* log_err_key */);
   if (!embedded_value_status_.ok()) {
@@ -74,11 +82,14 @@ bool BlockBasedTableIterator::PrepareEmbeddedKey() {
   }
 
   BlobIndex blob_index;
+  // Decodes the inline BlobIndex from the data block; still no blob-region I/O.
   embedded_value_status_ = blob_index.DecodeFrom(block_iter_.value());
   if (!embedded_value_status_.ok()) {
     return false;
   }
   if (!blob_index.IsSameFile()) {
+    // Traditional (separate-file) BlobDB index; leave the key type as
+    // kTypeBlobIndex for the higher layers to resolve.
     return true;
   }
 
@@ -91,7 +102,14 @@ bool BlockBasedTableIterator::PrepareEmbeddedKey() {
   return true;
 }
 
-bool BlockBasedTableIterator::PrepareEmbeddedValue() {
+// Heavyweight value resolution: materializes the logical value for the current
+// entry. For a same-file BlobIndex entry this reads the blob payload from the
+// blob region (may do I/O); for a wide-column entity it rewrites any same-file
+// blob columns inline. For a BlobIndex entry it first calls
+// ResolveEmbeddedKeyType() so key() and value() agree on the resolved key.
+// Returns true (no-op) for plain entries. On failure returns false and sets
+// embedded_value_status_ (corruption or I/O error).
+bool BlockBasedTableIterator::MaterializeEmbeddedValue() {
   if (!ShouldResolveEmbeddedValues()) {
     return true;
   }
@@ -102,7 +120,7 @@ bool BlockBasedTableIterator::PrepareEmbeddedValue() {
     return true;
   }
 
-  if (value_type == kTypeBlobIndex && !PrepareEmbeddedKey()) {
+  if (value_type == kTypeBlobIndex && !ResolveEmbeddedKeyType()) {
     return false;
   }
   if (embedded_value_prepared_ && EmbeddedStateMatchesCurrentEntry()) {

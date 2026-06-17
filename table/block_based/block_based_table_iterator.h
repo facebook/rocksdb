@@ -51,13 +51,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         async_read_in_progress_(false),
         is_last_level_(table->IsLastLevel()),
         block_iter_points_to_real_block_(false) {
-    multi_scan_status_.PermitUncheckedError();
+    // These features are not always used.
+    multi_scan_status_.PermitUncheckedOk();
+    embedded_value_status_.PermitUncheckedOk();
   }
 
-  ~BlockBasedTableIterator() override {
-    embedded_value_status_.PermitUncheckedError();
-    ClearBlockHandles();
-  }
+  ~BlockBasedTableIterator() override { ClearBlockHandles(); }
 
   void Seek(const Slice& target) override;
   void SeekForPrev(const Slice& target) override;
@@ -83,10 +82,17 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       assert(!multi_scan_read_set_);
       return index_iter_->value().first_internal_key;
     } else {
-      if (resolve_embedded_values_ &&
-          const_cast<BlockBasedTableIterator*>(this)->PrepareEmbeddedKey() &&
-          embedded_key_resolved_) {
-        return Slice(embedded_resolved_internal_key_);
+      if (resolve_embedded_values_) {
+        if (const_cast<BlockBasedTableIterator*>(this)
+                ->ResolveEmbeddedKeyType() &&
+            embedded_key_resolved_) {
+          return Slice(embedded_resolved_internal_key_);
+        }
+        // ResolveEmbeddedKeyType() might have set an error status (data
+        // corruption only; it does not do I/O). This const accessor
+        // intentionally falls back to the raw key; the error is still surfaced
+        // through status()/Valid(), so permit it from being unchecked here.
+        embedded_value_status_.PermitUncheckedError();
       }
       return block_iter_.key();
     }
@@ -104,17 +110,14 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     assert(Valid());
 
     if (!is_at_first_key_from_index_) {
-      return !resolve_embedded_values_ ||
-             const_cast<BlockBasedTableIterator*>(this)->PrepareEmbeddedValue();
+      return !resolve_embedded_values_ || MaterializeEmbeddedValue();
     }
 
-    if (!const_cast<BlockBasedTableIterator*>(this)
-             ->MaterializeCurrentBlock()) {
+    if (!MaterializeCurrentBlock()) {
       return false;
     }
 
-    return !resolve_embedded_values_ ||
-           const_cast<BlockBasedTableIterator*>(this)->PrepareEmbeddedValue();
+    return !resolve_embedded_values_ || MaterializeEmbeddedValue();
   }
 
   uint64_t write_unix_time() const override {
@@ -155,15 +158,28 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       seek_stat_state_ = kDataBlockReadSinceLastSeek;
     }
 
-    if (resolve_embedded_values_ &&
-        const_cast<BlockBasedTableIterator*>(this)->PrepareEmbeddedValue() &&
-        embedded_value_resolved_) {
-      return Slice(embedded_resolved_value_);
+    if (resolve_embedded_values_) {
+      if (const_cast<BlockBasedTableIterator*>(this)
+              ->MaterializeEmbeddedValue() &&
+          embedded_value_resolved_) {
+        return Slice(embedded_resolved_value_);
+      }
+      // MaterializeEmbeddedValue() might have set an error status (data
+      // corruption or an I/O error reading the blob region). This const
+      // accessor intentionally falls back to the raw value; the error is still
+      // surfaced through status()/Valid(), so permit it from being unchecked
+      // here.
+      embedded_value_status_.PermitUncheckedError();
     }
     return block_iter_.value();
   }
   Status status() const override {
     if (!multi_scan_status_.ok()) {
+      // multi_scan_status_ takes precedence; any embedded value error is
+      // intentionally dropped here.
+      if (resolve_embedded_values_) {
+        embedded_value_status_.PermitUncheckedError();
+      }
       return multi_scan_status_;
     } else if (resolve_embedded_values_ && !embedded_value_status_.ok()) {
       return embedded_value_status_;
@@ -366,6 +382,16 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // Cached resolution state for the current data-block entry. `key()` can
   // convert a same-file BlobIndex internal key back to kTypeValue, while
   // `value()` owns the materialized payload bytes.
+  //
+  // Holds errors from embedded-value resolution, kept separate from the data
+  // block iterator's own status (block_iter_.status()) because resolution is a
+  // distinct layer above it: block_iter_ only models reading/decoding the data
+  // block and is reset per block, whereas resolution interprets the inline
+  // BlobIndex and (for value materialization) reads the separate blob region.
+  // status() aggregates this into the overall iterator status. The captured
+  // error depends on which path set it: ResolveEmbeddedKeyType() only sets data
+  // corruption (it does no I/O), while MaterializeEmbeddedValue() may also set
+  // an I/O error from reading the blob payload.
   mutable Status embedded_value_status_;
   std::string embedded_source_key_;
   std::string embedded_resolved_internal_key_;
@@ -476,12 +502,31 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   void ResetEmbeddedValueState();
   void MaybeResetEmbeddedValueState();
 
-  // Helpers for lazy same-file BlobIndex resolution. Key preparation only
-  // rewrites the internal key type; value preparation reads the blob payload.
+  // Helpers for lazy resolution of embedded (same-file) values. Together they
+  // make an embedded-blob iterator entry look like a normal key/value entry to
+  // iterator callers (key()/value()/PrepareValue()/status()). The two do very
+  // different work; see each declaration below.
   bool ShouldResolveEmbeddedValues() const;
   bool EmbeddedStateMatchesCurrentEntry() const;
-  bool PrepareEmbeddedKey();
-  bool PrepareEmbeddedValue();
+
+  // Lightweight, key-only resolution for a whole-value same-file BlobIndex
+  // entry. Reads only data already resident in the data block (the internal
+  // key and the inline serialized BlobIndex) to compute the logical key with
+  // its value type rewritten from kTypeBlobIndex back to kTypeValue. Does NOT
+  // read the blob region / materialize the payload, so key-only iteration over
+  // embedded values stays cheap. No-op (returns true) for non-BlobIndex entries
+  // (including wide-column entities). Returns false and sets
+  // embedded_value_status_ (corruption only) on a malformed key/BlobIndex.
+  bool ResolveEmbeddedKeyType();
+
+  // Heavyweight value resolution: materializes the logical value for a same-
+  // file BlobIndex entry (reads the blob payload from the blob region, may do
+  // I/O) or for a wide-column entity (rewrites same-file blob columns inline).
+  // For a BlobIndex entry it first calls ResolveEmbeddedKeyType() so key() and
+  // value() agree on the resolved key. No-op (returns true) for plain entries.
+  // Returns false and sets embedded_value_status_ (corruption or I/O error) on
+  // failure.
+  bool MaterializeEmbeddedValue();
   void FindKeyForward();
   void FindBlockForward();
   void FindKeyBackward();

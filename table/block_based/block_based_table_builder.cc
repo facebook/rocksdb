@@ -3400,15 +3400,17 @@ class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
 
     Slice payload = value;
 
-    if (payload.size() > std::numeric_limits<uint64_t>::max() -
-                             kEmbeddedBlobSstRecordTrailerSize) {
+    // Embedded blob payloads are bounded by the 32-bit value-size limit shared
+    // with the rest of the table format. Enforcing it here keeps record sizes
+    // in range and gives an early, cheap corruption check.
+    if (payload.size() > std::numeric_limits<uint32_t>::max()) {
       return Status::InvalidArgument("Embedded blob value is too large");
     }
 
     std::array<char, kEmbeddedBlobSstRecordTrailerSize> trailer;
     const CompressionType actual_compression = kNoCompression;
     // Placeholder for future embedded blob compression support.
-    trailer[0] = static_cast<char>(actual_compression);
+    trailer[0] = lossless_cast<char>(actual_compression);
     uint32_t checksum = ComputeBuiltinChecksumWithLastByte(
         checksum_type_, payload.data(), payload.size(),
         /*last_byte*/ trailer[0]);

@@ -1510,6 +1510,22 @@ Status BlockBasedTable::MaybeResolveEmbeddedValue(
   return WideColumnSerialization::Serialize(resolved_columns, *resolved_value);
 }
 
+Status BlockBasedTable::ResolveEmbeddedValueForGet(
+    const ReadOptions& read_options, const Slice& key, const Slice& value,
+    EmbeddedValueForGet* out) const {
+  assert(out != nullptr);
+  out->key_to_save = key;
+  out->value_to_save = value;
+  Status s =
+      MaybeResolveEmbeddedValue(read_options, key, value, &out->resolved_key,
+                                &out->resolved_value, &out->resolved);
+  if (s.ok() && out->resolved) {
+    out->key_to_save = Slice(out->resolved_key);
+    out->value_to_save = Slice(out->resolved_value);
+  }
+  return s;
+}
+
 Status BlockBasedTable::ReadRangeDelBlock(
     const ReadOptions& read_options, FilePrefetchBuffer* prefetch_buffer,
     InternalIterator* meta_iter,
@@ -2960,25 +2976,16 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       } else {
         // Call the *saver function on each entry/block until it returns false
         for (; biter.Valid(); biter.Next()) {
-          Slice key_to_save = biter.key();
-          Slice value_to_save = biter.value();
-          std::string resolved_key;
-          std::string resolved_value;
-          bool resolved = false;
-          s = MaybeResolveEmbeddedValue(read_options, biter.key(),
-                                        biter.value(), &resolved_key,
-                                        &resolved_value, &resolved);
+          EmbeddedValueForGet ev;
+          s = ResolveEmbeddedValueForGet(read_options, biter.key(),
+                                         biter.value(), &ev);
           if (!s.ok()) {
             break;
-          }
-          if (resolved) {
-            key_to_save = Slice(resolved_key);
-            value_to_save = Slice(resolved_value);
           }
 
           ParsedInternalKey parsed_key;
           Status pik_status = ParseInternalKey(
-              key_to_save, &parsed_key, false /* log_err_key */);  // TODO
+              ev.key_to_save, &parsed_key, false /* log_err_key */);  // TODO
           if (!pik_status.ok()) {
             s = pik_status;
             break;
@@ -2986,8 +2993,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
 
           Status read_status;
           bool ret = get_context->SaveValue(
-              parsed_key, value_to_save, &matched, &read_status,
-              resolved ? nullptr : (biter.IsValuePinned() ? &biter : nullptr));
+              parsed_key, ev.value_to_save, &matched, &read_status,
+              ev.resolved ? nullptr
+                          : (biter.IsValuePinned() ? &biter : nullptr));
           if (!read_status.ok()) {
             s = read_status;
             break;
